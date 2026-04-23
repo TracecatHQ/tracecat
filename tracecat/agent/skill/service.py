@@ -179,6 +179,20 @@ class SkillService(BaseWorkspaceService):
         normalized_sha256 = self._normalize_sha256(sha256)
         return f"skills/{self.workspace_id}/uploads/{upload_id}/{normalized_sha256}"
 
+    def _staged_upload_prefix(self) -> str:
+        """Return the storage-prefix used for staged upload objects."""
+
+        return f"skills/{self.workspace_id}/uploads/"
+
+    def _is_staged_upload_object(self, upload: SkillUploadModel) -> bool:
+        """Return whether an upload still points at a temporary staged object."""
+
+        return (
+            upload.completed_at is None
+            and upload.blob_id is None
+            and upload.key.startswith(self._staged_upload_prefix())
+        )
+
     @staticmethod
     def _normalize_path(path: str) -> str:
         """Normalize and validate a relative POSIX draft path.
@@ -478,6 +492,11 @@ class SkillService(BaseWorkspaceService):
             return blob_row
 
         if upload.expires_at < datetime.now(UTC):
+            if self._is_staged_upload_object(upload):
+                await self._delete_staged_upload_object_best_effort(
+                    upload,
+                    reason="upload_expired",
+                )
             raise TracecatValidationError(
                 "Skill upload session has expired",
                 detail={"code": "upload_expired", "upload_id": str(upload.id)},
@@ -550,6 +569,51 @@ class SkillService(BaseWorkspaceService):
         self.session.add(upload)
         await self.session.flush()
         return blob_row
+
+    async def _delete_staged_upload_object_best_effort(
+        self,
+        upload: SkillUploadModel,
+        *,
+        reason: str,
+    ) -> None:
+        """Delete a temporary staged upload object without failing the caller."""
+
+        try:
+            await blob.delete_file(key=upload.key, bucket=upload.bucket)
+        except Exception as exc:
+            self.logger.warning(
+                "Failed to delete staged skill upload object",
+                upload_id=str(upload.id),
+                key=upload.key,
+                bucket=upload.bucket,
+                reason=reason,
+                error=str(exc),
+            )
+
+    async def _reap_expired_incomplete_uploads(self) -> list[SkillUploadModel]:
+        """Delete expired incomplete upload rows and return staged objects to clean up."""
+
+        expired_stmt = (
+            select(SkillUploadModel)
+            .where(
+                SkillUploadModel.workspace_id == self.workspace_id,
+                SkillUploadModel.completed_at.is_(None),
+                SkillUploadModel.expires_at < datetime.now(UTC),
+            )
+            .with_for_update(skip_locked=True)
+        )
+        expired_uploads = (await self.session.execute(expired_stmt)).scalars().all()
+        if not expired_uploads:
+            return []
+
+        for upload in expired_uploads:
+            await self.session.delete(upload)
+        await self.session.flush()
+        return [
+            upload
+            for upload in expired_uploads
+            if self._is_staged_upload_object(upload)
+        ]
 
     async def _list_draft_rows(
         self, skill_id: uuid.UUID
@@ -1402,6 +1466,7 @@ class SkillService(BaseWorkspaceService):
         skill = await self.get_skill(skill_id)
         if skill is None:
             raise TracecatNotFoundError(f"Skill '{skill_id}' not found")
+        expired_uploads = await self._reap_expired_incomplete_uploads()
 
         upload_id = uuid.uuid4()
         expires_at = datetime.now(UTC) + timedelta(seconds=DEFAULT_UPLOAD_TTL_SECONDS)
@@ -1424,6 +1489,11 @@ class SkillService(BaseWorkspaceService):
         upload_row.id = upload_id
         self.session.add(upload_row)
         await self.session.commit()
+        for expired_upload in expired_uploads:
+            await self._delete_staged_upload_object_best_effort(
+                expired_upload,
+                reason="reap_expired_upload",
+            )
         return SkillUploadSessionRead(
             upload_id=upload_id,
             upload_url=await blob.generate_presigned_upload_url(

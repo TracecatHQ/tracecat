@@ -6,6 +6,7 @@ import hashlib
 import os
 import uuid
 from contextlib import asynccontextmanager
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from dotenv import dotenv_values
@@ -790,6 +791,66 @@ class TestSkillService:
         ).scalars()
         assert upload_rows.all() == []
 
+    async def test_create_draft_upload_reaps_expired_incomplete_uploads(
+        self,
+        skill_service: SkillService,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Creating a new upload session should clean up older expired sessions."""
+
+        created = await skill_service.create_skill(SkillCreate(name="reap-uploads"))
+        stale_upload = await skill_service.create_draft_upload(
+            skill_id=created.id,
+            params=SkillUploadSessionCreate(
+                sha256=hashlib.sha256(b"stale upload").hexdigest(),
+                size_bytes=len(b"stale upload"),
+                content_type="text/plain; charset=utf-8",
+            ),
+        )
+        stale_upload_row = await skill_service.session.scalar(
+            select(SkillUploadModel).where(
+                SkillUploadModel.id == stale_upload.upload_id
+            )
+        )
+        assert stale_upload_row is not None
+        stale_upload_row.expires_at = datetime.now(UTC) - timedelta(minutes=1)
+        skill_service.session.add(stale_upload_row)
+        await skill_service.session.commit()
+
+        deleted: dict[str, str] = {}
+
+        async def fake_delete_file(*, key: str, bucket: str) -> None:
+            deleted["key"] = key
+            deleted["bucket"] = bucket
+
+        monkeypatch.setattr(
+            "tracecat.agent.skill.service.blob.delete_file",
+            fake_delete_file,
+        )
+
+        fresh_upload = await skill_service.create_draft_upload(
+            skill_id=created.id,
+            params=SkillUploadSessionCreate(
+                sha256=hashlib.sha256(b"fresh upload").hexdigest(),
+                size_bytes=len(b"fresh upload"),
+                content_type="text/plain; charset=utf-8",
+            ),
+        )
+
+        assert fresh_upload.upload_id != stale_upload.upload_id
+        assert deleted == {
+            "key": stale_upload.key,
+            "bucket": config.TRACECAT__BLOB_STORAGE_BUCKET_SKILLS,
+        }
+        assert (
+            await skill_service.session.scalar(
+                select(SkillUploadModel).where(
+                    SkillUploadModel.id == stale_upload.upload_id
+                )
+            )
+            is None
+        )
+
     async def test_attach_uploaded_blob_rejects_size_mismatch(
         self,
         skill_service: SkillService,
@@ -854,6 +915,67 @@ class TestSkillService:
                 ),
             )
         assert iterated is False
+
+    async def test_attach_uploaded_blob_deletes_expired_staged_key(
+        self,
+        skill_service: SkillService,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Expired staged uploads should be deleted before the validation error returns."""
+
+        created = await skill_service.create_skill(SkillCreate(name="expired-upload"))
+        draft = await skill_service.get_draft(created.id)
+        assert draft is not None
+
+        upload = await skill_service.create_draft_upload(
+            skill_id=created.id,
+            params=SkillUploadSessionCreate(
+                sha256=hashlib.sha256(b"expired upload").hexdigest(),
+                size_bytes=len(b"expired upload"),
+                content_type="text/plain; charset=utf-8",
+            ),
+        )
+        upload_row = await skill_service.session.scalar(
+            select(SkillUploadModel).where(SkillUploadModel.id == upload.upload_id)
+        )
+        assert upload_row is not None
+        upload_row.expires_at = datetime.now(UTC) - timedelta(minutes=1)
+        skill_service.session.add(upload_row)
+        await skill_service.session.commit()
+
+        deleted: dict[str, str] = {}
+
+        async def fake_delete_file(*, key: str, bucket: str) -> None:
+            deleted["key"] = key
+            deleted["bucket"] = bucket
+
+        monkeypatch.setattr(
+            "tracecat.agent.skill.service.blob.delete_file",
+            fake_delete_file,
+        )
+
+        with pytest.raises(TracecatValidationError) as exc_info:
+            await skill_service.patch_draft(
+                skill_id=created.id,
+                params=SkillDraftPatch(
+                    base_revision=draft.draft_revision,
+                    operations=[
+                        SkillDraftAttachUploadedBlobOp(
+                            path="references/uploaded.txt",
+                            upload_id=upload.upload_id,
+                        )
+                    ],
+                ),
+            )
+
+        assert exc_info.value.detail == {
+            "code": "upload_expired",
+            "upload_id": str(upload.upload_id),
+        }
+        assert deleted == {
+            "key": upload.key,
+            "bucket": config.TRACECAT__BLOB_STORAGE_BUCKET_SKILLS,
+        }
 
     async def test_attach_uploaded_blob_stops_streaming_after_size_exceeded(
         self,
