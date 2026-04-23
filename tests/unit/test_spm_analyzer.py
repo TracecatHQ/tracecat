@@ -332,6 +332,7 @@ async def test_sync_endpoint_uses_threat_intel_for_mcp_findings(
     assert reputation.status == SpmFindingStatus.OPEN.value
     assert vulnerability.status == SpmFindingStatus.OPEN.value
     assert reputation.enrichment["virustotal"]["status"] == "bad"
+    assert "urlscan" not in reputation.enrichment
     assert vulnerability.enrichment["osv"]["matches"][0]["id"] == "OSV-2026-1"
     assert (
         vulnerability.enrichment["github_advisories"]["advisories"][0]["ghsa_id"]
@@ -363,7 +364,6 @@ async def test_sync_endpoint_uses_threat_intel_for_instruction_indicator_finding
                     "status": "bad",
                     "matches": [{"indicator": "https://bad.example", "status": "bad"}],
                 },
-                "urlscan": {"status": "good", "matches": []},
             }
         }
     )
@@ -416,6 +416,7 @@ async def test_sync_endpoint_uses_threat_intel_for_instruction_indicator_finding
     )
     assert reputation.status == SpmFindingStatus.OPEN.value
     assert reputation.enrichment["virustotal"]["status"] == "bad"
+    assert "urlscan" not in reputation.enrichment
     assert (
         reputation.evidence["bad_indicators"][0]["indicator"] == "https://bad.example"
     )

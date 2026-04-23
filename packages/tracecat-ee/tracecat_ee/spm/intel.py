@@ -139,19 +139,11 @@ class BestEffortSpmThreatIntelProvider:
             ),
             ips=_normalized_strings([]),
         )
-        urlscan = await self._lookup_urlscan_bundle(
-            urls=_http_strings([resolved_identity, evidence.get("resolved_identity")]),
-            domains=_domain_strings(
-                [metadata.get("origin"), metadata.get("resolved_origin")]
-            ),
-        )
 
         vulnerability_status = _aggregate_status(
             [osv.get("status"), github.get("status")]
         )
-        reputation_status = _aggregate_status(
-            [virustotal.get("status"), urlscan.get("status")]
-        )
+        reputation_status = virustotal.get("status")
 
         return {
             "resolved_identity": resolved_identity,
@@ -164,7 +156,6 @@ class BestEffortSpmThreatIntelProvider:
             "osv": osv,
             "github_advisories": github,
             "virustotal": virustotal,
-            "urlscan": urlscan,
         }
 
     async def enrich_instruction_file(
@@ -182,16 +173,12 @@ class BestEffortSpmThreatIntelProvider:
             domains=domains,
             ips=ips,
         )
-        urlscan = await self._lookup_urlscan_bundle(urls=urls, domains=domains)
-        indicator_reputation_status = _aggregate_status(
-            [virustotal.get("status"), urlscan.get("status")]
-        )
-        bad_indicators = _merge_bad_indicators(virustotal, urlscan)
+        indicator_reputation_status = virustotal.get("status")
+        bad_indicators = _merge_bad_indicators(virustotal)
         return {
             "indicator_reputation_status": indicator_reputation_status,
             "bad_indicators": bad_indicators,
             "virustotal": virustotal,
-            "urlscan": urlscan,
         }
 
     def _role(self) -> Role:
@@ -370,42 +357,6 @@ class BestEffortSpmThreatIntelProvider:
             "matches": matches,
         }
 
-    async def _lookup_urlscan_bundle(
-        self,
-        *,
-        urls: list[str],
-        domains: list[str],
-    ) -> dict[str, Any]:
-        secret_values = await self._get_secret_values("urlscan")
-        api_key = (
-            None if secret_values is None else secret_values.get("URLSCAN_API_KEY")
-        )
-        if not api_key:
-            return {"status": None, "matches": []}
-
-        matches: list[dict[str, Any]] = []
-        for url in urls[:3]:
-            if match := await self._urlscan_search(
-                api_key=api_key,
-                indicator=url,
-                query=f'task.url:"{url}"',
-                indicator_type="url",
-            ):
-                matches.append(match)
-        for domain in domains[:3]:
-            if match := await self._urlscan_search(
-                api_key=api_key,
-                indicator=domain,
-                query=f"page.domain:{domain}",
-                indicator_type="domain",
-            ):
-                matches.append(match)
-
-        return {
-            "status": _aggregate_status([item.get("status") for item in matches]),
-            "matches": matches,
-        }
-
     async def _lookup_virustotal_url(
         self,
         *,
@@ -459,55 +410,6 @@ class BestEffortSpmThreatIntelProvider:
             indicator_type="ip",
             payload=data,
         )
-
-    async def _urlscan_search(
-        self,
-        *,
-        api_key: str,
-        indicator: str,
-        query: str,
-        indicator_type: str,
-    ) -> dict[str, Any] | None:
-        data = await self._request_json(
-            method="GET",
-            url="https://urlscan.io/api/v1/search/",
-            headers={"API-key": api_key},
-            params={"q": query, "size": 5},
-        )
-        results = data.get("results", []) if isinstance(data, dict) else []
-        matches = []
-        for item in results:
-            if not isinstance(item, dict):
-                continue
-            overall = (item.get("verdicts") or {}).get("overall") or {}
-            score = overall.get("score")
-            malicious = overall.get("malicious")
-            if malicious or (isinstance(score, int | float) and score > 0):
-                matches.append(
-                    {
-                        "url": item.get("page", {}).get("url")
-                        if isinstance(item.get("page"), dict)
-                        else None,
-                        "domain": item.get("page", {}).get("domain")
-                        if isinstance(item.get("page"), dict)
-                        else None,
-                        "score": score,
-                        "malicious": malicious,
-                    }
-                )
-        if not results:
-            return {
-                "indicator": indicator,
-                "type": indicator_type,
-                "status": "good",
-                "matches": [],
-            }
-        return {
-            "indicator": indicator,
-            "type": indicator_type,
-            "status": "bad" if matches else "good",
-            "matches": matches,
-        }
 
     async def _request_json(
         self,
