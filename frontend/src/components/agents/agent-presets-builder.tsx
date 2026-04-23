@@ -2152,6 +2152,15 @@ function AgentPresetSkillBindingRow({
     selectedVersion?.description?.trim() ||
     selectedSkill?.description?.trim() ||
     null
+  let versionPlaceholder = "Version"
+  if (versionsLoading) {
+    versionPlaceholder = "..."
+  } else if (versionOptions.length === 0) {
+    versionPlaceholder = "No versions"
+  }
+  const selectedVersionLabel = selectedVersion
+    ? `v${selectedVersion.version}`
+    : versionPlaceholder
 
   function handleOpenSkill() {
     if (!skillHref) {
@@ -2230,19 +2239,11 @@ function AgentPresetSkillBindingRow({
             >
               <FormControl>
                 <SelectTrigger className="h-7 w-auto gap-1.5 border-none bg-muted/50 px-2 text-xs shadow-none">
+                  <span aria-hidden>{selectedVersionLabel}</span>
                   <SelectValue
-                    placeholder={
-                      versionsLoading
-                        ? "..."
-                        : versionOptions.length === 0
-                          ? "No versions"
-                          : "Version"
-                    }
-                  >
-                    {selectedVersion
-                      ? `v${selectedVersion.version}`
-                      : undefined}
-                  </SelectValue>
+                    className="sr-only"
+                    placeholder={versionPlaceholder}
+                  />
                 </SelectTrigger>
               </FormControl>
               <SelectContent>
