@@ -49,7 +49,6 @@ from tracecat import config
 from tracecat.agent.common.stream_types import StreamEventType, UnifiedStreamEvent
 from tracecat.agent.preset.schemas import (
     AgentPresetCreate,
-    AgentPresetRead,
     AgentPresetUpdate,
 )
 from tracecat.agent.preset.service import AgentPresetService
@@ -57,6 +56,12 @@ from tracecat.agent.service import AgentManagementService
 from tracecat.agent.session.schemas import AgentSessionCreate
 from tracecat.agent.session.service import AgentSessionService
 from tracecat.agent.session.types import AgentSessionEntity
+from tracecat.agent.skill.schemas import (
+    SkillRead,
+    SkillUpload,
+    SkillUploadFile,
+)
+from tracecat.agent.skill.service import SkillService
 from tracecat.agent.stream.connector import AgentStream
 from tracecat.agent.stream.events import StreamDelta, StreamEnd, StreamError
 from tracecat.agent.tools import create_tool_from_registry
@@ -799,6 +804,52 @@ def _normalize_workflow_file_relative_path(relative_path: str) -> str:
     if path.suffix.lower() not in _WORKFLOW_FILE_ALLOWED_EXTENSIONS:
         raise ToolError("Workflow file path must end with .yaml or .yml")
     return path.as_posix()
+
+
+def _read_uploaded_skill_markdown_for_metadata_merge(
+    files: Sequence[SkillUploadFile],
+) -> str:
+    """Return the uploaded root SKILL.md text for a metadata merge."""
+
+    skill_md_file = next((file for file in files if file.path == "SKILL.md"), None)
+    if skill_md_file is None:
+        raise ToolError("Uploaded skill must include a root SKILL.md")
+
+    try:
+        content = base64.b64decode(skill_md_file.content_base64, validate=True)
+    except ValueError as exc:
+        raise ToolError(
+            "Uploaded skill SKILL.md must contain valid base64 content"
+        ) from exc
+    try:
+        return content.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise ToolError("Uploaded skill SKILL.md must be UTF-8 text") from exc
+
+
+def _merge_uploaded_skill_markdown_metadata(
+    files: Sequence[SkillUploadFile],
+    *,
+    name: str,
+    description: str | None,
+) -> list[SkillUploadFile]:
+    """Return upload files with root SKILL.md metadata merged before validation."""
+
+    skill_md = _read_uploaded_skill_markdown_for_metadata_merge(files)
+    merged_skill_md = SkillService._merge_skill_markdown_metadata(
+        skill_md,
+        name=name,
+        description=description,
+    )
+    merged_content_base64 = base64.b64encode(merged_skill_md.encode("utf-8")).decode(
+        "ascii"
+    )
+    return [
+        file.model_copy(update={"content_base64": merged_content_base64})
+        if file.path == "SKILL.md"
+        else file
+        for file in files
+    ]
 
 
 def _infer_folder_path_from_relative_path(relative_path: str) -> str | None:
@@ -2891,6 +2942,7 @@ _TOOL_NAMESPACE_BY_NAME: dict[str, str] = {
     "get_agent_preset_authoring_context": "agents",
     "create_agent_preset": "agents",
     "update_agent_preset": "agents",
+    "upload_skill": "agents",
     "list_agent_presets": "agents",
     "get_agent_preset": "agents",
     "run_agent_preset": "agents",
@@ -7236,7 +7288,8 @@ async def create_agent_preset(
         params = AgentPresetCreate.model_validate(create_data)
         async with AgentPresetService.with_session(role=role) as svc:
             preset = await svc.create_preset(params)
-        return _json(AgentPresetRead.model_validate(preset).model_dump(mode="json"))
+            preset_read = await svc.build_preset_read(preset)
+        return _json(preset_read.model_dump(mode="json"))
     except ToolError:
         raise
     except ValidationError as e:
@@ -7312,9 +7365,8 @@ async def update_agent_preset(
             if not preset:
                 raise ToolError(f"Agent preset '{preset_slug}' not found")
             updated_preset = await svc.update_preset(preset, params)
-        return _json(
-            AgentPresetRead.model_validate(updated_preset).model_dump(mode="json")
-        )
+            updated_preset_read = await svc.build_preset_read(updated_preset)
+        return _json(updated_preset_read.model_dump(mode="json"))
     except ToolError:
         raise
     except ValidationError as e:
@@ -7326,6 +7378,49 @@ async def update_agent_preset(
             "Failed to update agent preset", error=str(e), preset_slug=preset_slug
         )
         raise ToolError(f"Failed to update agent preset: {e}") from None
+
+
+@mcp.tool()
+async def upload_skill(
+    workspace_id: str,
+    name: str,
+    files: list[SkillUploadFile],
+    description: str | None = None,
+) -> str:
+    """Upload a local skill directory into Tracecat as a workspace skill.
+
+    Agents should read the local directory themselves, preserve relative paths,
+    include the root ``SKILL.md`` file, and pass every file in ``files`` using
+    ``content_base64``.
+    """
+
+    try:
+        _, role = await _resolve_workspace_role(workspace_id)
+        files_for_upload = _merge_uploaded_skill_markdown_metadata(
+            files,
+            name=name,
+            description=description,
+        )
+        params = SkillUpload.model_validate(
+            {
+                "name": name,
+                "files": SkillUploadFile.list_adapter().dump_python(
+                    files_for_upload, mode="json"
+                ),
+            }
+        )
+        async with SkillService.with_session(role=role) as svc:
+            created = await svc.upload_skill(params)
+        return _json(SkillRead.model_validate(created).model_dump(mode="json"))
+    except ToolError:
+        raise
+    except ValidationError as e:
+        raise ToolError(str(e)) from e
+    except TracecatValidationError as e:
+        raise ToolError(str(e)) from e
+    except Exception as e:
+        logger.error("Failed to upload skill", error=str(e), name=name)
+        raise ToolError(f"Failed to upload skill: {e}") from None
 
 
 def _parse_iso8601_duration(duration_str: str) -> timedelta:
@@ -7445,9 +7540,10 @@ async def get_agent_preset(workspace_id: str, preset_slug: str) -> str:
         _, role = await _resolve_workspace_role(workspace_id)
         async with AgentPresetService.with_session(role=role) as svc:
             preset = await svc.get_preset_by_slug(preset_slug)
-        if not preset:
-            raise ToolError(f"Agent preset '{preset_slug}' not found")
-        return _json(AgentPresetRead.model_validate(preset).model_dump(mode="json"))
+            if not preset:
+                raise ToolError(f"Agent preset '{preset_slug}' not found")
+            preset_read = await svc.build_preset_read(preset)
+        return _json(preset_read.model_dump(mode="json"))
     except ToolError:
         raise
     except Exception as e:

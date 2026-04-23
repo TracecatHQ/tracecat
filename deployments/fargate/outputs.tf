@@ -113,6 +113,16 @@ output "s3_registry_bucket_arn" {
   value       = module.ecs.s3_registry_bucket_arn
 }
 
+output "s3_skills_bucket_name" {
+  description = "The name of the S3 bucket used for skills storage"
+  value       = module.ecs.s3_skills_bucket_name
+}
+
+output "s3_skills_bucket_arn" {
+  description = "The ARN of the S3 bucket used for skills storage"
+  value       = module.ecs.s3_skills_bucket_arn
+}
+
 output "s3_workflow_bucket_name" {
   description = "The name of the S3 bucket used for workflow artifact storage"
   value       = module.ecs.s3_workflow_bucket_name

@@ -4,22 +4,31 @@ from __future__ import annotations
 
 import json
 import uuid
+from collections import Counter
 from collections.abc import Sequence
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
 import sqlalchemy as sa
 from slugify import slugify
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from tracecat.agent.common.types import MCPHttpServerConfig
 from tracecat.agent.preset.schemas import (
     AgentPresetCreate,
+    AgentPresetRead,
+    AgentPresetSkillBindingBase,
+    AgentPresetSkillBindingChange,
+    AgentPresetSkillBindingRead,
     AgentPresetUpdate,
     AgentPresetVersionDiff,
+    AgentPresetVersionRead,
+    AgentPresetVersionReadMinimal,
     ScalarFieldChange,
     StringListFieldChange,
     ToolApprovalFieldChange,
 )
+from tracecat.agent.preset.types import SkillBindingSpec
+from tracecat.agent.skill.service import SkillService
 from tracecat.agent.types import (
     AgentConfig,
     MCPServerConfig,
@@ -30,8 +39,11 @@ from tracecat.auth.secrets import get_db_encryption_key
 from tracecat.authz.controls import require_scope
 from tracecat.db.models import (
     AgentPreset,
+    AgentPresetSkill,
     AgentPresetVersion,
+    AgentPresetVersionSkill,
     OAuthIntegration,
+    SkillVersion,
 )
 from tracecat.dsl.common import create_default_execution_context
 from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
@@ -55,6 +67,11 @@ from tracecat.secrets.encryption import decrypt_value
 from tracecat.service import BaseWorkspaceService, requires_entitlement
 from tracecat.tiers.enums import Entitlement
 
+if TYPE_CHECKING:
+    from sqlalchemy.ext.asyncio import AsyncSession
+
+    from tracecat.auth.types import Role
+
 
 class AgentPresetService(BaseWorkspaceService):
     """CRUD operations and helpers for agent presets."""
@@ -75,6 +92,10 @@ class AgentPresetService(BaseWorkspaceService):
         "enable_internet_access",
     }
 
+    def __init__(self, session: AsyncSession, role: Role | None = None):
+        super().__init__(session, role=role)
+        self.skills = SkillService(session, role=self.role)
+
     @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def list_presets(self) -> Sequence[AgentPreset]:
         """Return all agent presets for the current workspace ordered by recency."""
@@ -86,6 +107,117 @@ class AgentPresetService(BaseWorkspaceService):
         )
         result = await self.session.execute(stmt)
         return result.scalars().all()
+
+    async def _list_skill_bindings(
+        self,
+        *,
+        binding_model: type[AgentPresetSkill] | type[AgentPresetVersionSkill],
+        owner_column: Any,
+        owner_id: uuid.UUID,
+    ) -> list[AgentPresetSkillBindingRead]:
+        """Return resolved skill bindings for a preset head or immutable version."""
+
+        stmt = (
+            select(
+                binding_model.skill_id,
+                SkillVersion.name,
+                binding_model.skill_version_id,
+                SkillVersion.version,
+            )
+            .join(SkillVersion, binding_model.skill_version_id == SkillVersion.id)
+            .where(
+                binding_model.workspace_id == self.workspace_id,
+                owner_column == owner_id,
+            )
+            .order_by(SkillVersion.name.asc(), binding_model.skill_id.asc())
+        )
+        rows = (await self.session.execute(stmt)).tuples().all()
+        return [
+            AgentPresetSkillBindingRead(
+                skill_id=skill_id,
+                skill_name=skill_name,
+                skill_version_id=skill_version_id,
+                skill_version=skill_version,
+            )
+            for skill_id, skill_name, skill_version_id, skill_version in rows
+            if skill_name is not None
+        ]
+
+    async def _list_head_skill_bindings(
+        self, preset_id: uuid.UUID
+    ) -> list[AgentPresetSkillBindingRead]:
+        """Return mutable skill bindings for a preset head."""
+
+        return await self._list_skill_bindings(
+            binding_model=AgentPresetSkill,
+            owner_column=AgentPresetSkill.preset_id,
+            owner_id=preset_id,
+        )
+
+    async def _list_version_skill_bindings(
+        self, version_id: uuid.UUID
+    ) -> list[AgentPresetSkillBindingRead]:
+        """Return exact skill version refs for an immutable preset version."""
+
+        return await self._list_skill_bindings(
+            binding_model=AgentPresetVersionSkill,
+            owner_column=AgentPresetVersionSkill.preset_version_id,
+            owner_id=version_id,
+        )
+
+    async def build_preset_read(self, preset: AgentPreset) -> AgentPresetRead:
+        """Build the response model for a preset."""
+
+        return AgentPresetRead(
+            id=preset.id,
+            workspace_id=preset.workspace_id,
+            name=preset.name,
+            slug=preset.slug,
+            description=preset.description,
+            current_version_id=preset.current_version_id,
+            instructions=preset.instructions,
+            model_name=preset.model_name,
+            model_provider=preset.model_provider,
+            base_url=preset.base_url,
+            output_type=cast(OutputType | None, preset.output_type),
+            actions=preset.actions,
+            namespaces=preset.namespaces,
+            tool_approvals=preset.tool_approvals,
+            mcp_integrations=preset.mcp_integrations,
+            retries=preset.retries,
+            enable_thinking=preset.enable_thinking,
+            enable_internet_access=preset.enable_internet_access,
+            created_at=preset.created_at,
+            updated_at=preset.updated_at,
+            skills=await self._list_head_skill_bindings(preset.id),
+        )
+
+    async def build_version_read(
+        self, version: AgentPresetVersion
+    ) -> AgentPresetVersionRead:
+        """Build the response model for an immutable preset version."""
+
+        return AgentPresetVersionRead(
+            id=version.id,
+            preset_id=version.preset_id,
+            workspace_id=version.workspace_id,
+            version=version.version,
+            instructions=version.instructions,
+            model_name=version.model_name,
+            model_provider=version.model_provider,
+            base_url=version.base_url,
+            output_type=cast(OutputType | None, version.output_type),
+            actions=version.actions,
+            namespaces=version.namespaces,
+            tool_approvals=version.tool_approvals,
+            mcp_integrations=version.mcp_integrations,
+            retries=version.retries,
+            enable_thinking=version.enable_thinking,
+            enable_internet_access=version.enable_internet_access,
+            created_at=version.created_at,
+            updated_at=version.updated_at,
+            skills=await self._list_version_skill_bindings(version.id),
+        )
 
     @require_scope("agent:create")
     @audit_log(resource_type="agent_preset", action="create")
@@ -100,7 +232,12 @@ class AgentPresetService(BaseWorkspaceService):
         if params.actions:
             await self._validate_actions(params.actions)
         if params.mcp_integrations:
-            await self._validate_mcp_integrations(params.mcp_integrations)
+            await self.validate_mcp_integrations(params.mcp_integrations)
+        if params.skills:
+            await self.skills.validate_binding_inputs(
+                params.skills,
+                for_update=True,
+            )
         preset = AgentPreset(
             workspace_id=self.workspace_id,
             slug=slug,
@@ -121,25 +258,9 @@ class AgentPresetService(BaseWorkspaceService):
         )
         self.session.add(preset)
         await self.session.flush()
-        version = AgentPresetVersion(
-            workspace_id=self.workspace_id,
-            preset_id=preset.id,
-            version=1,
-            instructions=preset.instructions,
-            model_name=preset.model_name,
-            model_provider=preset.model_provider,
-            base_url=preset.base_url,
-            output_type=preset.output_type,
-            actions=preset.actions,
-            namespaces=preset.namespaces,
-            tool_approvals=preset.tool_approvals,
-            mcp_integrations=preset.mcp_integrations,
-            retries=preset.retries,
-            enable_thinking=preset.enable_thinking,
-            enable_internet_access=preset.enable_internet_access,
-        )
-        self.session.add(version)
-        await self.session.flush()
+        if params.skills is not None:
+            await self._replace_head_skill_bindings(preset.id, params.skills)
+        version = await self._create_version_from_preset(preset)
         preset.current_version_id = version.id
         self.session.add(preset)
         await self.session.commit()
@@ -168,8 +289,12 @@ class AgentPresetService(BaseWorkspaceService):
         self, preset: AgentPreset, params: AgentPresetUpdate
     ) -> AgentPreset:
         """Update an existing preset."""
-        set_fields = params.model_dump(exclude_unset=True)
+        set_fields = params.model_dump(exclude_unset=True, exclude={"skills"})
         execution_changed = False
+        requested_skills = None
+        preset_locked = False
+        if "skills" in params.model_fields_set:
+            requested_skills = params.skills or []
 
         # Handle name first as it may be needed for slug fallback
         if "name" in set_fields:
@@ -195,9 +320,22 @@ class AgentPresetService(BaseWorkspaceService):
 
         if "mcp_integrations" in set_fields:
             if mcp_integrations := set_fields.pop("mcp_integrations"):
-                await self._validate_mcp_integrations(mcp_integrations)
+                await self.validate_mcp_integrations(mcp_integrations)
             if preset.mcp_integrations != mcp_integrations:
                 preset.mcp_integrations = mcp_integrations
+                execution_changed = True
+
+        if requested_skills is not None:
+            await self._lock_preset_for_versioning(preset.id)
+            preset_locked = True
+            await self.skills.validate_binding_inputs(
+                requested_skills,
+                for_update=True,
+            )
+            current_specs = await self._get_head_skill_binding_specs(preset.id)
+            requested_specs = self._binding_specs_from_inputs(requested_skills)
+            if current_specs != requested_specs:
+                await self._replace_head_skill_bindings(preset.id, requested_skills)
                 execution_changed = True
 
         # Update remaining fields
@@ -209,7 +347,10 @@ class AgentPresetService(BaseWorkspaceService):
 
         self.session.add(preset)
         if execution_changed:
-            version = await self._create_version_from_preset(preset)
+            version = await self._create_version_from_preset(
+                preset,
+                preset_locked=preset_locked,
+            )
             preset.current_version_id = version.id
             self.session.add(preset)
         await self.session.commit()
@@ -228,31 +369,6 @@ class AgentPresetService(BaseWorkspaceService):
         await self.session.flush()
         await self.session.delete(preset)
         await self.session.commit()
-
-    @requires_entitlement(Entitlement.AGENT_ADDONS)
-    async def get_agent_config_by_slug(
-        self, slug: str, *, preset_version: int | None = None
-    ) -> AgentConfig:
-        """Get the agent configuration for a preset by slug."""
-        version = await self.resolve_agent_preset_version(
-            slug=slug,
-            preset_version=preset_version,
-        )
-        return await self._version_to_agent_config(version)
-
-    @requires_entitlement(Entitlement.AGENT_ADDONS)
-    async def get_agent_config(
-        self,
-        preset_id: uuid.UUID,
-        *,
-        preset_version_id: uuid.UUID | None = None,
-    ) -> AgentConfig:
-        """Get the agent configuration for a preset by ID."""
-        version = await self.resolve_agent_preset_version(
-            preset_id=preset_id,
-            preset_version_id=preset_version_id,
-        )
-        return await self._version_to_agent_config(version)
 
     @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def resolve_agent_preset_config(
@@ -327,7 +443,7 @@ class AgentPresetService(BaseWorkspaceService):
 
         return await self.get_current_version_for_preset(preset)
 
-    async def _validate_mcp_integrations(self, mcp_integrations: list[str]) -> None:
+    async def validate_mcp_integrations(self, mcp_integrations: list[str]) -> None:
         """Validate MCP integration IDs for the workspace."""
         if not mcp_integrations:
             return
@@ -407,7 +523,7 @@ class AgentPresetService(BaseWorkspaceService):
 
         return custom_headers
 
-    async def _resolve_mcp_integrations(
+    async def resolve_mcp_integrations(
         self, mcp_integrations: list[str] | None
     ) -> list[MCPServerConfig] | None:
         """Resolve MCP integrations into MCP server configs."""
@@ -786,10 +902,17 @@ class AgentPresetService(BaseWorkspaceService):
         self,
         preset_id: uuid.UUID,
         params: CursorPaginationParams,
-    ) -> CursorPaginatedResponse[AgentPresetVersion]:
-        """List immutable versions for a preset ordered newest first."""
+    ) -> CursorPaginatedResponse[AgentPresetVersionReadMinimal]:
+        """List immutable preset version metadata ordered newest first."""
         paginator = BaseCursorPaginator(self.session)
-        stmt = select(AgentPresetVersion).where(
+        stmt = select(
+            AgentPresetVersion.id,
+            AgentPresetVersion.preset_id,
+            AgentPresetVersion.workspace_id,
+            AgentPresetVersion.version,
+            AgentPresetVersion.created_at,
+            AgentPresetVersion.updated_at,
+        ).where(
             AgentPresetVersion.workspace_id == self.workspace_id,
             AgentPresetVersion.preset_id == preset_id,
         )
@@ -835,7 +958,24 @@ class AgentPresetService(BaseWorkspaceService):
             )
         stmt = stmt.limit(params.limit + 1)
         result = await self.session.execute(stmt)
-        versions = result.scalars().all()
+        versions = [
+            AgentPresetVersionReadMinimal(
+                id=version_id,
+                preset_id=row_preset_id,
+                workspace_id=workspace_id,
+                version=version_number,
+                created_at=created_at,
+                updated_at=updated_at,
+            )
+            for (
+                version_id,
+                row_preset_id,
+                workspace_id,
+                version_number,
+                created_at,
+                updated_at,
+            ) in result.tuples().all()
+        ]
         has_more = len(versions) > params.limit
         items = versions[: params.limit]
 
@@ -887,6 +1027,173 @@ class AgentPresetService(BaseWorkspaceService):
         )
         result = await self.session.execute(stmt)
         return result.scalars().first()
+
+    @staticmethod
+    def _binding_specs_from_inputs(
+        bindings: Sequence[AgentPresetSkillBindingBase],
+    ) -> list[SkillBindingSpec]:
+        """Normalize mutable head skill bindings for equality checks."""
+
+        return sorted(
+            SkillBindingSpec(binding.skill_id, binding.skill_version_id)
+            for binding in bindings
+        )
+
+    async def _get_head_skill_binding_specs(
+        self, preset_id: uuid.UUID
+    ) -> list[SkillBindingSpec]:
+        """Return the current head bindings for a preset."""
+
+        stmt = select(
+            AgentPresetSkill.skill_id,
+            AgentPresetSkill.skill_version_id,
+        ).where(
+            AgentPresetSkill.workspace_id == self.workspace_id,
+            AgentPresetSkill.preset_id == preset_id,
+        )
+        rows = (await self.session.execute(stmt)).tuples().all()
+        return sorted(
+            SkillBindingSpec(skill_id, skill_version_id)
+            for skill_id, skill_version_id in rows
+        )
+
+    async def _replace_head_skill_bindings(
+        self,
+        preset_id: uuid.UUID,
+        bindings: Sequence[AgentPresetSkillBindingBase],
+    ) -> None:
+        """Replace the mutable head skill bindings for a preset."""
+
+        await self.session.execute(
+            sa.delete(AgentPresetSkill).where(
+                AgentPresetSkill.workspace_id == self.workspace_id,
+                AgentPresetSkill.preset_id == preset_id,
+            )
+        )
+        for binding in bindings:
+            self.session.add(
+                AgentPresetSkill(
+                    workspace_id=self.workspace_id,
+                    preset_id=preset_id,
+                    skill_id=binding.skill_id,
+                    skill_version_id=binding.skill_version_id,
+                )
+            )
+        await self.session.flush()
+
+    async def _snapshot_version_skill_bindings(
+        self, preset_id: uuid.UUID, preset_version_id: uuid.UUID
+    ) -> None:
+        """Copy exact head skill versions into an immutable preset snapshot."""
+
+        stmt = select(
+            AgentPresetSkill.skill_id,
+            AgentPresetSkill.skill_version_id,
+        ).where(
+            AgentPresetSkill.workspace_id == self.workspace_id,
+            AgentPresetSkill.preset_id == preset_id,
+        )
+        rows = (await self.session.execute(stmt)).tuples().all()
+        for skill_id, skill_version_id in rows:
+            self.session.add(
+                AgentPresetVersionSkill(
+                    workspace_id=self.workspace_id,
+                    preset_version_id=preset_version_id,
+                    skill_id=skill_id,
+                    skill_version_id=skill_version_id,
+                )
+            )
+        await self.session.flush()
+
+    async def _restore_head_skill_bindings_from_version(
+        self, *, preset_id: uuid.UUID, version_id: uuid.UUID
+    ) -> None:
+        """Copy exact historical skill versions back to the mutable preset head."""
+
+        stmt = select(
+            AgentPresetVersionSkill.skill_id,
+            AgentPresetVersionSkill.skill_version_id,
+        ).where(
+            AgentPresetVersionSkill.workspace_id == self.workspace_id,
+            AgentPresetVersionSkill.preset_version_id == version_id,
+        )
+        rows = (await self.session.execute(stmt)).tuples().all()
+        await self.skills.validate_binding_inputs(
+            [
+                AgentPresetSkillBindingBase(
+                    skill_id=skill_id,
+                    skill_version_id=skill_version_id,
+                )
+                for skill_id, skill_version_id in rows
+            ],
+            for_update=True,
+        )
+        await self.session.execute(
+            sa.delete(AgentPresetSkill).where(
+                AgentPresetSkill.workspace_id == self.workspace_id,
+                AgentPresetSkill.preset_id == preset_id,
+            )
+        )
+        for skill_id, skill_version_id in rows:
+            self.session.add(
+                AgentPresetSkill(
+                    workspace_id=self.workspace_id,
+                    preset_id=preset_id,
+                    skill_id=skill_id,
+                    skill_version_id=skill_version_id,
+                )
+            )
+        await self.session.flush()
+
+    async def _compare_version_skill_bindings(
+        self, base_version_id: uuid.UUID, compare_version_id: uuid.UUID
+    ) -> list[AgentPresetSkillBindingChange]:
+        """Return a diff of exact skill version refs between preset versions."""
+
+        base_bindings = {
+            binding.skill_id: binding
+            for binding in await self._list_version_skill_bindings(base_version_id)
+        }
+        compare_bindings = {
+            binding.skill_id: binding
+            for binding in await self._list_version_skill_bindings(compare_version_id)
+        }
+        skill_changes: list[AgentPresetSkillBindingChange] = []
+        for skill_id in sorted(set(base_bindings) | set(compare_bindings)):
+            base_binding = base_bindings.get(skill_id)
+            compare_binding = compare_bindings.get(skill_id)
+            if (
+                base_binding is not None
+                and compare_binding is not None
+                and base_binding.skill_version_id == compare_binding.skill_version_id
+            ):
+                continue
+            skill_name = (
+                base_binding.skill_name
+                if base_binding is not None
+                else compare_binding.skill_name
+                if compare_binding is not None
+                else str(skill_id)
+            )
+            skill_changes.append(
+                AgentPresetSkillBindingChange(
+                    skill_id=skill_id,
+                    skill_name=skill_name,
+                    old_skill_version_id=(
+                        base_binding.skill_version_id if base_binding else None
+                    ),
+                    old_skill_version=base_binding.skill_version
+                    if base_binding
+                    else None,
+                    new_skill_version_id=(
+                        compare_binding.skill_version_id if compare_binding else None
+                    ),
+                    new_skill_version=(
+                        compare_binding.skill_version if compare_binding else None
+                    ),
+                )
+            )
+        return skill_changes
 
     async def _lock_preset_for_versioning(self, preset_id: uuid.UUID) -> None:
         """Serialize version creation for one preset using a row-level lock."""
@@ -943,7 +1250,12 @@ class AgentPresetService(BaseWorkspaceService):
                 "Preset version does not belong to the selected preset"
             )
 
+        await self._lock_preset_for_versioning(preset.id)
         self._sync_preset_head_from_version(preset, version)
+        await self._restore_head_skill_bindings_from_version(
+            preset_id=preset.id,
+            version_id=version.id,
+        )
         preset.current_version_id = version.id
         self.session.add(preset)
         await self.session.commit()
@@ -1011,12 +1323,17 @@ class AgentPresetService(BaseWorkspaceService):
                     )
                 )
 
+        skill_changes = await self._compare_version_skill_bindings(
+            base_version.id,
+            compare_version.id,
+        )
         instructions_changed = base_version.instructions != compare_version.instructions
         total_changes = (
             int(instructions_changed)
             + len(scalar_changes)
             + len(list_changes)
             + len(tool_approval_changes)
+            + len(skill_changes)
         )
 
         return AgentPresetVersionDiff(
@@ -1030,14 +1347,35 @@ class AgentPresetService(BaseWorkspaceService):
             scalar_changes=scalar_changes,
             list_changes=list_changes,
             tool_approval_changes=tool_approval_changes,
+            skill_changes=skill_changes,
             total_changes=total_changes,
         )
 
     async def _version_to_agent_config(
         self, version: AgentPresetVersion
     ) -> AgentConfig:
-        mcp_servers = await self._resolve_mcp_integrations(version.mcp_integrations)
+        mcp_servers = await self.resolve_mcp_integrations(version.mcp_integrations)
         model_settings: dict[str, Any] = {}
+        resolved_skills = await self.skills.get_resolved_skill_refs_for_preset_version(
+            version.id
+        )
+        duplicate_skill_names = sorted(
+            name
+            for name, count in Counter(
+                resolved_skill.skill_name for resolved_skill in resolved_skills
+            ).items()
+            if count > 1
+        )
+        if duplicate_skill_names:
+            raise TracecatValidationError(
+                "Resolved preset version contains duplicate skill names",
+                detail={
+                    "code": "duplicate_skill_names",
+                    "skill_names": duplicate_skill_names,
+                    "preset_version_id": str(version.id),
+                },
+            )
+        # Only disable parallel tool calls if tools will be present
         if version.actions or mcp_servers:
             model_settings["parallel_tool_calls"] = False
         return AgentConfig(
@@ -1054,13 +1392,44 @@ class AgentPresetService(BaseWorkspaceService):
             model_settings=model_settings,
             enable_thinking=version.enable_thinking,
             enable_internet_access=version.enable_internet_access,
+            resolved_skills=resolved_skills,
         )
 
     async def _create_version_from_preset(
-        self, preset: AgentPreset
+        self, preset: AgentPreset, *, preset_locked: bool = False
     ) -> AgentPresetVersion:
         """Create and flush a new immutable version from the preset head."""
-        await self._lock_preset_for_versioning(preset.id)
+        if not preset_locked:
+            await self._lock_preset_for_versioning(preset.id)
+        duplicate_name_stmt = (
+            select(
+                SkillVersion.name,
+                func.count(AgentPresetSkill.id).label("binding_count"),
+            )
+            .join(SkillVersion, AgentPresetSkill.skill_version_id == SkillVersion.id)
+            .where(
+                AgentPresetSkill.workspace_id == self.workspace_id,
+                AgentPresetSkill.preset_id == preset.id,
+            )
+            .group_by(SkillVersion.name)
+            .having(func.count(AgentPresetSkill.id) > 1)
+        )
+        duplicate_names = sorted(
+            name
+            for name, _count in (await self.session.execute(duplicate_name_stmt))
+            .tuples()
+            .all()
+            if name is not None
+        )
+        if duplicate_names:
+            raise TracecatValidationError(
+                "Agent preset version cannot include duplicate skill names",
+                detail={
+                    "code": "duplicate_skill_names",
+                    "skill_names": duplicate_names,
+                    "preset_id": str(preset.id),
+                },
+            )
         stmt = (
             select(AgentPresetVersion.version)
             .where(
@@ -1093,6 +1462,7 @@ class AgentPresetService(BaseWorkspaceService):
         )
         self.session.add(version)
         await self.session.flush()
+        await self._snapshot_version_skill_bindings(preset.id, version.id)
         return version
 
     def _sync_preset_head_from_version(

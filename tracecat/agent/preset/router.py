@@ -62,7 +62,7 @@ async def create_agent_preset(
     service = AgentPresetService(session, role=role)
     try:
         preset = await service.create_preset(params)
-        return AgentPresetRead.model_validate(preset)
+        return await service.build_preset_read(preset)
     except TracecatValidationError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -85,7 +85,7 @@ async def get_agent_preset(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Agent preset with ID '{preset_id}' not found",
         )
-    return AgentPresetRead.model_validate(preset)
+    return await service.build_preset_read(preset)
 
 
 @router.get("/by-slug/{slug}", response_model=AgentPresetRead)
@@ -103,7 +103,7 @@ async def get_agent_preset_by_slug(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Agent preset with slug '{slug}' not found",
         )
-    return AgentPresetRead.model_validate(preset)
+    return await service.build_preset_read(preset)
 
 
 @router.patch("/{preset_id}", response_model=AgentPresetRead)
@@ -123,7 +123,7 @@ async def update_agent_preset(
             detail=f"Agent preset {preset_id} not found",
         )
     preset = await service.update_preset(preset, params)
-    return AgentPresetRead.model_validate(preset)
+    return await service.build_preset_read(preset)
 
 
 @router.delete("/{preset_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -173,17 +173,7 @@ async def list_agent_preset_versions(
         preset_id,
         CursorPaginationParams(limit=limit, cursor=cursor, reverse=reverse),
     )
-    return CursorPaginatedResponse(
-        items=[
-            AgentPresetVersionReadMinimal.model_validate(version)
-            for version in versions.items
-        ],
-        next_cursor=versions.next_cursor,
-        prev_cursor=versions.prev_cursor,
-        has_more=versions.has_more,
-        has_previous=versions.has_previous,
-        total_estimate=versions.total_estimate,
-    )
+    return versions
 
 
 @router.get("/{preset_id}/versions/{version_id}", response_model=AgentPresetVersionRead)
@@ -203,7 +193,7 @@ async def get_agent_preset_version(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Agent preset version '{version_id}' not found",
         )
-    return AgentPresetVersionRead.model_validate(version)
+    return await service.build_version_read(version)
 
 
 @router.get(
@@ -262,5 +252,11 @@ async def restore_agent_preset_version(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Agent preset version '{version_id}' not found",
         )
-    restored = await service.restore_version(preset, version)
-    return AgentPresetRead.model_validate(restored)
+    try:
+        restored = await service.restore_version(preset, version)
+    except TracecatValidationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+    return await service.build_preset_read(restored)

@@ -54,6 +54,7 @@ class SandboxedCLITransport(Transport):
         path_mapping: ClaudeSandboxPathMapping,
         enable_internet_access: bool,
         use_jailed_paths: bool,
+        skills_dir: Path | None = None,
     ) -> None:
         self._options = options
         self._session_id = session_id
@@ -63,6 +64,7 @@ class SandboxedCLITransport(Transport):
         self._path_mapping = path_mapping
         self._enable_internet_access = enable_internet_access
         self._use_jailed_paths = use_jailed_paths
+        self._skills_dir = skills_dir
         self._process: asyncio.subprocess.Process | None = None
         self._spawned_runtime: SpawnedRuntime | None = None
         self._ready = False
@@ -120,6 +122,7 @@ class SandboxedCLITransport(Transport):
             session_home_dir=self._path_mapping.host_home_dir,
             session_project_dir=self._path_mapping.host_project_dir,
             enable_internet_access=self._enable_internet_access,
+            skills_dir=self._skills_dir,
         )
         self._process = self._spawned_runtime.process
         if self._process.stdin is None or self._process.stdout is None:

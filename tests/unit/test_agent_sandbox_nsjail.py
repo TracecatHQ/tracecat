@@ -32,6 +32,7 @@ async def test_spawn_direct_runtime_sets_explicit_claude_session_paths(
             pipe_stdin=False,
             session_home_dir=session_home_dir,
             session_project_dir=session_project_dir,
+            skills_dir=None,
         )
 
     assert create_subprocess_exec.await_args is not None

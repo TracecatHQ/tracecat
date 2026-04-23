@@ -74,6 +74,14 @@ POST_RLS_WORKSPACE_SCOPED_TABLES = (
     "case_table_row",
     "agent_channel_token",
     "agent_preset_version",
+    "skill",
+    "skill_blob",
+    "skill_upload",
+    "skill_draft_file",
+    "skill_version",
+    "skill_version_file",
+    "agent_preset_skill",
+    "agent_preset_version_skill",
 )
 
 POST_RLS_ORG_SCOPED_TABLES = (

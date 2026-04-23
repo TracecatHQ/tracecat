@@ -70,7 +70,7 @@ resource "aws_iam_policy" "redis_iam_access" {
 # S3 access policy for Tracecat blob storage buckets
 resource "aws_iam_policy" "s3_blob_access" {
   name        = "TracecatS3BlobStoragePolicy"
-  description = "Policy for S3 blob storage access (attachments, registry, workflow)"
+  description = "Policy for S3 blob storage access (attachments, registry, skills, workflow)"
 
   policy = jsonencode({
     Version = "2012-10-17"
@@ -89,6 +89,7 @@ resource "aws_iam_policy" "s3_blob_access" {
         Resource = [
           "${aws_s3_bucket.attachments.arn}/*",
           "${aws_s3_bucket.registry.arn}/*",
+          "${aws_s3_bucket.skills.arn}/*",
           "${aws_s3_bucket.workflow.arn}/*",
         ]
       },
@@ -103,6 +104,7 @@ resource "aws_iam_policy" "s3_blob_access" {
         Resource = [
           aws_s3_bucket.attachments.arn,
           aws_s3_bucket.registry.arn,
+          aws_s3_bucket.skills.arn,
           aws_s3_bucket.workflow.arn,
         ]
       },
