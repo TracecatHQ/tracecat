@@ -206,10 +206,14 @@ class SkillService(BaseWorkspaceService):
         }
 
     @staticmethod
-    def _normalize_skill_markdown_newlines(skill_markdown: str) -> str:
-        """Normalize markdown line endings before delimiter-based parsing."""
+    def _normalize_skill_markdown_for_parsing(skill_markdown: str) -> str:
+        """Normalize markdown before delimiter-based parsing."""
 
-        return skill_markdown.replace("\r\n", "\n").replace("\r", "\n")
+        return (
+            skill_markdown.removeprefix("\ufeff")
+            .replace("\r\n", "\n")
+            .replace("\r", "\n")
+        )
 
     @staticmethod
     def _split_skill_markdown_frontmatter(
@@ -260,7 +264,9 @@ class SkillService(BaseWorkspaceService):
     ) -> str:
         """Merge name/description frontmatter into an existing SKILL.md body."""
 
-        skill_markdown = SkillService._normalize_skill_markdown_newlines(skill_markdown)
+        skill_markdown = SkillService._normalize_skill_markdown_for_parsing(
+            skill_markdown
+        )
         metadata: dict[str, object] = {}
         body = skill_markdown
 
@@ -319,7 +325,9 @@ class SkillService(BaseWorkspaceService):
             TracecatValidationError: If the frontmatter contains invalid YAML.
         """
 
-        skill_markdown = SkillService._normalize_skill_markdown_newlines(skill_markdown)
+        skill_markdown = SkillService._normalize_skill_markdown_for_parsing(
+            skill_markdown
+        )
         frontmatter_parts = SkillService._split_skill_markdown_frontmatter(
             skill_markdown
         )

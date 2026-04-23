@@ -241,6 +241,44 @@ class TestSkillService:
         assert updated_draft.name == "crlf-skill"
         assert updated_draft.description == "Created on Windows"
 
+    async def test_skill_md_frontmatter_accepts_leading_utf8_bom(
+        self,
+        skill_service: SkillService,
+    ) -> None:
+        """UTF-8 BOM-prefixed frontmatter should validate like plain frontmatter."""
+
+        created = await skill_service.create_skill(SkillCreate(name="bom-skill"))
+        draft = await skill_service.get_draft(created.id)
+        assert draft is not None
+
+        await skill_service.patch_draft(
+            skill_id=created.id,
+            params=SkillDraftPatch(
+                base_revision=draft.draft_revision,
+                operations=[
+                    SkillDraftUpsertTextFileOp(
+                        path="SKILL.md",
+                        content=(
+                            "\ufeff---\n"
+                            "name: bom-skill\n"
+                            "description: Saved with BOM\n"
+                            "---\n"
+                            "# BOM skill\n"
+                        ),
+                        content_type="text/markdown; charset=utf-8",
+                    )
+                ],
+            ),
+        )
+
+        updated_draft = await skill_service.get_draft(created.id)
+
+        assert updated_draft is not None
+        assert updated_draft.is_publishable is True
+        assert updated_draft.validation_errors == []
+        assert updated_draft.name == "bom-skill"
+        assert updated_draft.description == "Saved with BOM"
+
     async def test_skill_md_frontmatter_accepts_closing_delimiter_at_eof(
         self,
         skill_service: SkillService,
