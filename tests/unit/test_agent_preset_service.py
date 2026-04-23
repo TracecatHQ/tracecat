@@ -3,6 +3,7 @@
 import asyncio
 import os
 import uuid
+from datetime import UTC, datetime
 from typing import cast
 
 import pytest
@@ -36,6 +37,7 @@ from tracecat.db.models import (
     RegistryIndex,
     RegistryRepository,
     RegistryVersion,
+    Skill,
     Workspace,
 )
 from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
@@ -1513,7 +1515,11 @@ class TestAgentPresetService:
             created_preset,
             AgentPresetUpdate(skills=None),
         )
-        await skill_service.archive_skill(created_skill.id)
+        skill_row = (
+            await session.execute(select(Skill).where(Skill.id == created_skill.id))
+        ).scalar_one()
+        skill_row.archived_at = datetime.now(UTC)
+        await session.commit()
 
         with pytest.raises(TracecatValidationError, match="not found"):
             await agent_preset_service.restore_version(created_preset, version_1)

@@ -19,6 +19,7 @@ from tracecat import config
 from tracecat.agent.preset.schemas import (
     AgentPresetCreate,
     AgentPresetSkillBindingBase,
+    AgentPresetUpdate,
 )
 from tracecat.agent.preset.service import AgentPresetService
 from tracecat.agent.skill.schemas import (
@@ -44,7 +45,7 @@ from tracecat.db.models import (
 from tracecat.db.models import (
     SkillUpload as SkillUploadModel,
 )
-from tracecat.exceptions import TracecatValidationError
+from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
 from tracecat.pagination import CursorPaginationParams
 from tracecat.storage.blob import ensure_bucket_exists
 
@@ -500,6 +501,28 @@ class TestSkillService:
         assert isinstance(listing.items[0], SkillReadMinimal)
         assert listing.items[0].id == created.id
         assert listing.items[0].name == created.name
+
+    async def test_list_skills_excludes_archived_skills(
+        self,
+        skill_service: SkillService,
+    ) -> None:
+        """Archived skills are hidden from the normal skills list."""
+
+        archived = await skill_service.create_skill(SkillCreate(name="archived-skill"))
+        active = await skill_service.create_skill(SkillCreate(name="active-skill"))
+
+        await skill_service.archive_skill(archived.id)
+        listing = await skill_service.list_skills(CursorPaginationParams(limit=10))
+
+        assert [skill.id for skill in listing.items] == [active.id]
+        assert await skill_service.get_skill(archived.id) is None
+        assert (
+            await skill_service.get_skill(archived.id, include_archived=True)
+            is not None
+        )
+        assert isinstance(listing.items[0], SkillReadMinimal)
+        assert listing.items[0].id == active.id
+        assert listing.items[0].name == active.name
 
     async def test_patch_draft_enforces_revision(
         self,
@@ -1551,6 +1574,95 @@ class TestSkillService:
             "references/guide.md",
         ]
 
+    async def test_archived_skill_hides_published_version_reads(
+        self,
+        skill_service: SkillService,
+    ) -> None:
+        """Archived skills should not expose published version contents."""
+
+        created = await skill_service.create_skill(SkillCreate(name="archived-version"))
+        draft = await skill_service.get_draft(created.id)
+        assert draft is not None
+
+        await skill_service.patch_draft(
+            skill_id=created.id,
+            params=SkillDraftPatch(
+                base_revision=draft.draft_revision,
+                operations=[
+                    SkillDraftUpsertTextFileOp(
+                        path="references/guide.md",
+                        content="Version one",
+                    )
+                ],
+            ),
+        )
+        published = await skill_service.publish_skill(created.id)
+
+        version_file = await skill_service.get_version_file(
+            skill_id=created.id,
+            version_id=published.id,
+            path="references/guide.md",
+        )
+        assert version_file is not None
+
+        detailed_version = await skill_service.get_version_read(
+            skill_id=created.id,
+            version_id=published.id,
+        )
+        assert detailed_version.id == published.id
+
+        await skill_service.archive_skill(created.id)
+
+        assert (
+            await skill_service.get_version_file(
+                skill_id=created.id,
+                version_id=published.id,
+                path="references/guide.md",
+            )
+            is None
+        )
+        with pytest.raises(TracecatNotFoundError, match="Skill version"):
+            await skill_service.get_version_read(
+                skill_id=created.id,
+                version_id=published.id,
+            )
+
+    async def test_archived_skill_blocks_mutation_paths(
+        self,
+        skill_service: SkillService,
+    ) -> None:
+        """Archived skills should reject draft and version mutations."""
+
+        created = await skill_service.create_skill(SkillCreate(name="archived-mutate"))
+        published = await skill_service.publish_skill(created.id)
+        draft = await skill_service.get_draft(created.id)
+        assert draft is not None
+
+        await skill_service.archive_skill(created.id)
+
+        with pytest.raises(TracecatNotFoundError, match=f"Skill '{created.id}'"):
+            await skill_service.patch_draft(
+                skill_id=created.id,
+                params=SkillDraftPatch(
+                    base_revision=draft.draft_revision,
+                    operations=[
+                        SkillDraftUpsertTextFileOp(
+                            path="references/guide.md",
+                            content="Updated",
+                        )
+                    ],
+                ),
+            )
+
+        with pytest.raises(TracecatNotFoundError, match=f"Skill '{created.id}'"):
+            await skill_service.publish_skill(created.id)
+
+        with pytest.raises(TracecatNotFoundError, match=f"Skill '{created.id}'"):
+            await skill_service.restore_version(
+                skill_id=created.id,
+                version_id=published.id,
+            )
+
     async def test_restore_version_locks_skill_row(
         self,
         skill_service: SkillService,
@@ -1610,7 +1722,43 @@ class TestSkillService:
         )
 
         assert preset.current_version_id is not None
-        with pytest.raises(TracecatValidationError, match="still attached to a preset"):
+        with pytest.raises(
+            TracecatValidationError, match="still referenced by a preset"
+        ):
+            await skill_service.archive_skill(created.id)
+
+    async def test_archive_blocks_when_preset_history_references_skill(
+        self,
+        session: AsyncSession,
+        svc_role: Role,
+        skill_service: SkillService,
+    ) -> None:
+        """Archiving is blocked while preset history still references the skill."""
+
+        created = await skill_service.create_skill(SkillCreate(name="history-skill"))
+        skill_version = await skill_service.publish_skill(created.id)
+
+        preset_service = AgentPresetService(session=session, role=svc_role)
+        preset = await preset_service.create_preset(
+            AgentPresetCreate(
+                name="Historical preset",
+                description="Preset with historical skill use",
+                instructions="Use the skill",
+                model_name="gpt-4o-mini",
+                model_provider="openai",
+                skills=[
+                    AgentPresetSkillBindingBase(
+                        skill_id=created.id,
+                        skill_version_id=skill_version.id,
+                    )
+                ],
+            )
+        )
+        await preset_service.update_preset(preset, AgentPresetUpdate(skills=None))
+
+        with pytest.raises(
+            TracecatValidationError, match="still referenced by a preset"
+        ):
             await skill_service.archive_skill(created.id)
 
     async def test_archive_skill_locks_skill_row(
@@ -1639,7 +1787,7 @@ class TestSkillService:
         )
 
         await skill_service.archive_skill(created.id)
-        archived = await skill_service.get_skill(created.id)
+        archived = await skill_service.get_skill(created.id, include_archived=True)
 
         assert lock_calls == 1
         assert archived is not None

@@ -972,30 +972,59 @@ class SkillService(BaseWorkspaceService):
         return (await self.session.execute(stmt)).scalar_one_or_none()
 
     @requires_entitlement(Entitlement.AGENT_ADDONS)
-    async def get_skill(self, skill_id: uuid.UUID) -> Skill | None:
+    async def get_skill(
+        self, skill_id: uuid.UUID, *, include_archived: bool = False
+    ) -> Skill | None:
         """Return a skill by ID."""
 
+        predicates = [
+            Skill.workspace_id == self.workspace_id,
+            Skill.id == skill_id,
+        ]
+        if not include_archived:
+            predicates.append(Skill.archived_at.is_(None))
         stmt = (
             select(Skill)
             .options(selectinload(Skill.current_version))
+            .where(*predicates)
+        )
+        return (await self.session.execute(stmt)).scalar_one_or_none()
+
+    async def _get_active_version(
+        self, *, skill_id: uuid.UUID, version_id: uuid.UUID
+    ) -> SkillVersion | None:
+        """Return a published version only when its parent skill is active."""
+
+        stmt = (
+            select(SkillVersion)
+            .join(
+                Skill,
+                sa.and_(
+                    Skill.id == SkillVersion.skill_id,
+                    Skill.workspace_id == SkillVersion.workspace_id,
+                ),
+            )
             .where(
-                Skill.workspace_id == self.workspace_id,
-                Skill.id == skill_id,
+                SkillVersion.workspace_id == self.workspace_id,
+                SkillVersion.id == version_id,
+                SkillVersion.skill_id == skill_id,
+                Skill.archived_at.is_(None),
             )
         )
         return (await self.session.execute(stmt)).scalar_one_or_none()
 
-    async def _get_skill_for_update(self, skill_id: uuid.UUID) -> Skill | None:
+    async def _get_skill_for_update(
+        self, skill_id: uuid.UUID, *, include_archived: bool = False
+    ) -> Skill | None:
         """Return and lock a skill row for mutation."""
 
-        stmt = (
-            select(Skill)
-            .where(
-                Skill.workspace_id == self.workspace_id,
-                Skill.id == skill_id,
-            )
-            .with_for_update()
-        )
+        predicates = [
+            Skill.workspace_id == self.workspace_id,
+            Skill.id == skill_id,
+        ]
+        if not include_archived:
+            predicates.append(Skill.archived_at.is_(None))
+        stmt = select(Skill).where(*predicates).with_for_update()
         return (await self.session.execute(stmt)).scalar_one_or_none()
 
     async def _get_bindable_skills(
@@ -1161,7 +1190,10 @@ class SkillService(BaseWorkspaceService):
         """List workspace skills with cursor pagination."""
 
         paginator = BaseCursorPaginator(self.session)
-        stmt = select(Skill).where(Skill.workspace_id == self.workspace_id)
+        stmt = select(Skill).where(
+            Skill.workspace_id == self.workspace_id,
+            Skill.archived_at.is_(None),
+        )
         if params.cursor:
             try:
                 cursor_data = paginator.decode_cursor(params.cursor)
@@ -1284,6 +1316,65 @@ class SkillService(BaseWorkspaceService):
                 key=blob_row.key,
                 bucket=blob_row.bucket,
                 override_content_type=draft_file.content_type,
+            ),
+        )
+
+    @requires_entitlement(Entitlement.AGENT_ADDONS)
+    async def get_version_file(
+        self, *, skill_id: uuid.UUID, version_id: uuid.UUID, path: str
+    ) -> SkillDraftFileRead | None:
+        """Return one published version file inline or as a presigned download."""
+
+        normalized_path = self._normalize_path(path)
+        stmt = (
+            select(SkillVersionFile, SkillBlob)
+            .join(SkillBlob, SkillVersionFile.blob_id == SkillBlob.id)
+            .where(
+                SkillVersionFile.workspace_id == self.workspace_id,
+                SkillVersionFile.skill_version_id == version_id,
+                SkillVersionFile.path == normalized_path,
+            )
+        )
+        row = (await self.session.execute(stmt)).tuples().first()
+        if row is None:
+            return None
+        version_file, blob_row = row
+
+        version = await self._get_active_version(
+            skill_id=skill_id, version_id=version_id
+        )
+        if version is None:
+            return None
+
+        if self._is_inline_text(
+            version_file.content_type, size_bytes=blob_row.size_bytes
+        ):
+            try:
+                content = await blob.download_file(
+                    key=blob_row.key,
+                    bucket=blob_row.bucket,
+                )
+                return SkillDraftFileRead(
+                    kind="inline",
+                    path=normalized_path,
+                    content_type=version_file.content_type,
+                    size_bytes=blob_row.size_bytes,
+                    sha256=blob_row.sha256,
+                    text_content=content.decode("utf-8"),
+                )
+            except UnicodeDecodeError:
+                pass
+
+        return SkillDraftFileRead(
+            kind="download",
+            path=normalized_path,
+            content_type=version_file.content_type,
+            size_bytes=blob_row.size_bytes,
+            sha256=blob_row.sha256,
+            download_url=await blob.generate_presigned_download_url(
+                key=blob_row.key,
+                bucket=blob_row.bucket,
+                override_content_type=version_file.content_type,
             ),
         )
 
@@ -1689,8 +1780,10 @@ class SkillService(BaseWorkspaceService):
     ) -> SkillVersionRead:
         """Return a fully rendered published skill version."""
 
-        version = await self.get_version(version_id)
-        if version is None or version.skill_id != skill_id:
+        version = await self._get_active_version(
+            skill_id=skill_id, version_id=version_id
+        )
+        if version is None:
             raise TracecatNotFoundError(f"Skill version '{version_id}' not found")
         rows = await self._list_version_rows(version.id)
         return SkillVersionRead(
@@ -1743,12 +1836,12 @@ class SkillService(BaseWorkspaceService):
     @require_scope("agent:delete")
     @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def archive_skill(self, skill_id: uuid.UUID) -> None:
-        """Archive a skill unless it is still bound on a preset head."""
+        """Archive a skill unless any preset still references it."""
 
         skill = await self._get_skill_for_update(skill_id)
         if skill is None:
             raise TracecatNotFoundError(f"Skill '{skill_id}' not found")
-        binding_stmt = (
+        head_binding_stmt = (
             select(func.count())
             .select_from(AgentPresetSkill)
             .where(
@@ -1756,9 +1849,23 @@ class SkillService(BaseWorkspaceService):
                 AgentPresetSkill.skill_id == skill.id,
             )
         )
-        if int((await self.session.execute(binding_stmt)).scalar_one() or 0) > 0:
+        history_binding_stmt = (
+            select(func.count())
+            .select_from(AgentPresetVersionSkill)
+            .where(
+                AgentPresetVersionSkill.workspace_id == self.workspace_id,
+                AgentPresetVersionSkill.skill_id == skill.id,
+            )
+        )
+        head_binding_count = int(
+            (await self.session.execute(head_binding_stmt)).scalar_one() or 0
+        )
+        history_binding_count = int(
+            (await self.session.execute(history_binding_stmt)).scalar_one() or 0
+        )
+        if head_binding_count > 0 or history_binding_count > 0:
             raise TracecatValidationError(
-                "Cannot archive a skill that is still attached to a preset",
+                "Cannot delete a skill that is still referenced by a preset",
                 detail={"code": "skill_in_use"},
             )
         skill.archived_at = datetime.now(UTC)

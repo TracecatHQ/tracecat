@@ -303,6 +303,36 @@ async def get_skill_version(
         ) from exc
 
 
+@router.get("/{skill_id}/versions/{version_id}/file", response_model=SkillDraftFileRead)
+@require_scope("agent:read")
+async def get_skill_version_file(
+    *,
+    skill_id: uuid.UUID,
+    version_id: uuid.UUID,
+    path: str = Query(...),
+    role: WorkspaceEditorRole,
+    session: AsyncDBSession,
+) -> SkillDraftFileRead:
+    """Return one published version file inline or as a presigned download."""
+
+    service = SkillService(session, role=role)
+    version_file: SkillDraftFileRead | None
+    try:
+        version_file = await service.get_version_file(
+            skill_id=skill_id,
+            version_id=version_id,
+            path=path,
+        )
+    except TracecatValidationError as exc:
+        _raise_skill_validation_error(exc)
+    if version_file is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Version file '{path}' not found",
+        )
+    return version_file
+
+
 @router.post(
     "/{skill_id}/versions/{version_id}/restore", response_model=SkillReadMinimal
 )
