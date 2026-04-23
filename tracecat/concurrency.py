@@ -74,8 +74,9 @@ async def cooperative[T](
         it: The iterable to yield items from.
         duration: The duration to sleep between yielding items.
     """
-    async for item in cooperative_every(it, every=1, delay=delay):
+    for item in it:
         yield item
+        await asyncio.sleep(delay)
 
 
 async def cooperative_every[T](
