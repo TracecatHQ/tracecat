@@ -450,34 +450,42 @@ class SkillService(BaseWorkspaceService):
 
         actual_size_bytes = 0
         hasher = hashlib.sha256()
+        integrity_error_detail = {
+            "code": "upload_integrity_error",
+            "upload_id": str(upload.id),
+        }
         async with blob.open_download_stream(
             key=upload.key,
             bucket=upload.bucket,
-        ) as (stream, _content_length):
+        ) as (stream, content_length):
+            if content_length is not None and content_length > upload.size_bytes:
+                raise TracecatValidationError(
+                    "Uploaded blob size mismatch",
+                    detail=integrity_error_detail,
+                )
             async for chunk in stream.iter_chunks(
                 chunk_size=blob.DEFAULT_DOWNLOAD_CHUNK_SIZE_BYTES
             ):
                 if not chunk:
                     continue
                 actual_size_bytes += len(chunk)
+                if actual_size_bytes > upload.size_bytes:
+                    raise TracecatValidationError(
+                        "Uploaded blob size mismatch",
+                        detail=integrity_error_detail,
+                    )
                 hasher.update(chunk)
         actual_sha256 = hasher.hexdigest()
         normalized_upload_sha256 = self._normalize_sha256(upload.sha256)
         if actual_sha256 != normalized_upload_sha256:
             raise TracecatValidationError(
                 "Uploaded blob SHA-256 mismatch",
-                detail={
-                    "code": "upload_integrity_error",
-                    "upload_id": str(upload.id),
-                },
+                detail=integrity_error_detail,
             )
         if actual_size_bytes != upload.size_bytes:
             raise TracecatValidationError(
                 "Uploaded blob size mismatch",
-                detail={
-                    "code": "upload_integrity_error",
-                    "upload_id": str(upload.id),
-                },
+                detail=integrity_error_detail,
             )
 
         blob_row = await self._get_blob_by_identity(sha256=normalized_upload_sha256)

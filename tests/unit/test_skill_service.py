@@ -768,6 +768,7 @@ class TestSkillService:
                 content_type="text/plain; charset=utf-8",
             ),
         )
+        iterated = False
 
         async def fake_file_exists(*, key: str, bucket: str) -> bool:
             del key, bucket
@@ -778,7 +779,9 @@ class TestSkillService:
                 return content
 
             async def iter_chunks(self, *, chunk_size: int):
+                nonlocal iterated
                 del chunk_size
+                iterated = True
                 yield content
 
         @asynccontextmanager
@@ -807,6 +810,70 @@ class TestSkillService:
                     ],
                 ),
             )
+        assert iterated is False
+
+    async def test_attach_uploaded_blob_stops_streaming_after_size_exceeded(
+        self,
+        skill_service: SkillService,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Uploaded blob finalization stops streaming once size exceeds declared size."""
+
+        created = await skill_service.create_skill(SkillCreate(name="oversized-stream"))
+        draft = await skill_service.get_draft(created.id)
+        assert draft is not None
+
+        chunks = [b"abc", b"def", b"ghi"]
+        content = b"".join(chunks)
+        upload = await skill_service.create_draft_upload(
+            skill_id=created.id,
+            params=SkillUploadSessionCreate(
+                sha256=hashlib.sha256(content).hexdigest(),
+                size_bytes=5,
+                content_type="text/plain; charset=utf-8",
+            ),
+        )
+        chunks_yielded = 0
+
+        async def fake_file_exists(*, key: str, bucket: str) -> bool:
+            del key, bucket
+            return True
+
+        class FakeStream:
+            async def iter_chunks(self, *, chunk_size: int):
+                nonlocal chunks_yielded
+                del chunk_size
+                for chunk in chunks:
+                    chunks_yielded += 1
+                    yield chunk
+
+        @asynccontextmanager
+        async def fake_open_download_stream(*, key: str, bucket: str):
+            del key, bucket
+            yield FakeStream(), None
+
+        monkeypatch.setattr(
+            "tracecat.agent.skill.service.blob.file_exists", fake_file_exists
+        )
+        monkeypatch.setattr(
+            "tracecat.agent.skill.service.blob.open_download_stream",
+            fake_open_download_stream,
+        )
+
+        with pytest.raises(TracecatValidationError, match="size mismatch"):
+            await skill_service.patch_draft(
+                skill_id=created.id,
+                params=SkillDraftPatch(
+                    base_revision=draft.draft_revision,
+                    operations=[
+                        SkillDraftAttachUploadedBlobOp(
+                            path="references/uploaded.txt",
+                            upload_id=upload.upload_id,
+                        )
+                    ],
+                ),
+            )
+        assert chunks_yielded == 2
 
     async def test_attach_uploaded_blob_deletes_staged_key_after_commit(
         self,
