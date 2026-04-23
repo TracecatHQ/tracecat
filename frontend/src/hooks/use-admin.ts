@@ -1,22 +1,26 @@
 "use client"
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { useMemo } from "react"
+import { useEffect, useMemo, useState } from "react"
 import {
   type AdminCreateOrganizationDomainResponse,
+  type AdminCreateOrganizationInvitationResponse,
   type AdminCreateOrganizationResponse,
   type AdminCreateTierResponse,
   type AdminCreateUserResponse,
   type AdminListOrganizationDomainsResponse,
+  type AdminListOrganizationInvitationsResponse,
   type AdminListOrganizationsResponse,
   type AdminListTiersResponse,
   type AdminListUsersResponse,
+  type AdminOrgInvitationCreate,
   type AdminRegistryGetRegistryStatusResponse,
   type AdminRegistryListRegistryVersionsResponse,
   type AdminUserCreate,
   type AdminUserRead,
   adminCreateOrganization,
   adminCreateOrganizationDomain,
+  adminCreateOrganizationInvitation,
   adminCreateTier,
   adminCreateUser,
   adminDeleteOrganization,
@@ -24,10 +28,12 @@ import {
   adminDeleteTier,
   adminDemoteFromSuperuser,
   adminGetOrganization,
+  adminGetOrganizationInvitationToken,
   adminGetOrgTier,
   adminGetRegistrySettings,
   adminGetTier,
   adminListOrganizationDomains,
+  adminListOrganizationInvitations,
   adminListOrganizations,
   adminListOrgRepositories,
   adminListOrgRepositoryVersions,
@@ -41,6 +47,7 @@ import {
   adminRegistryPromoteRegistryVersion,
   adminRegistrySyncAllRepositories,
   adminRegistrySyncRepository,
+  adminRevokeOrganizationInvitation,
   adminSyncOrgRepository,
   adminUpdateOrganization,
   adminUpdateOrganizationDomain,
@@ -62,6 +69,21 @@ import {
 } from "@/client"
 
 /* ── ORGANIZATIONS ─────────────────────────────────────────────────────────── */
+
+const ADMIN_ORG_INVITATIONS_PAGE_SIZE = 20
+
+interface AdminOrgInvitationsPaginationState {
+  cursor: string | null
+  reverse: boolean
+  page: number
+}
+
+const DEFAULT_ADMIN_ORG_INVITATIONS_PAGINATION: AdminOrgInvitationsPaginationState =
+  {
+    cursor: null,
+    reverse: false,
+    page: 0,
+  }
 
 export function useAdminOrganizations({
   enabled = true,
@@ -218,6 +240,102 @@ export function useAdminOrgDomains(orgId: string) {
     updatePending,
     deleteDomain,
     deletePending,
+  }
+}
+
+/** Fetch and mutate platform-created organization invitations. */
+export function useAdminOrgInvitations(orgId: string) {
+  const queryClient = useQueryClient()
+  const [pagination, setPagination] =
+    useState<AdminOrgInvitationsPaginationState>(
+      DEFAULT_ADMIN_ORG_INVITATIONS_PAGINATION
+    )
+  const queryKey = ["admin", "organizations", orgId, "invitations"]
+
+  useEffect(() => {
+    setPagination(DEFAULT_ADMIN_ORG_INVITATIONS_PAGINATION)
+  }, [orgId])
+
+  const {
+    data: invitationsPage,
+    isLoading,
+    error,
+  } = useQuery<AdminListOrganizationInvitationsResponse>({
+    queryKey: [...queryKey, pagination.cursor, pagination.reverse],
+    queryFn: () =>
+      adminListOrganizationInvitations({
+        orgId,
+        limit: ADMIN_ORG_INVITATIONS_PAGE_SIZE,
+        cursor: pagination.cursor,
+        reverse: pagination.reverse,
+      }),
+    enabled: !!orgId,
+  })
+
+  const { mutateAsync: createInvitation, isPending: createPending } =
+    useMutation<
+      AdminCreateOrganizationInvitationResponse,
+      Error,
+      AdminOrgInvitationCreate
+    >({
+      mutationFn: (data) =>
+        adminCreateOrganizationInvitation({ orgId, requestBody: data }),
+      onSuccess: () => {
+        setPagination(DEFAULT_ADMIN_ORG_INVITATIONS_PAGINATION)
+        queryClient.invalidateQueries({ queryKey })
+      },
+    })
+
+  const { mutateAsync: getInvitationToken } = useMutation<
+    { token: string },
+    Error,
+    string
+  >({
+    mutationFn: (invitationId) =>
+      adminGetOrganizationInvitationToken({ orgId, invitationId }),
+  })
+
+  const { mutateAsync: revokeInvitation, isPending: revokePending } =
+    useMutation<void, Error, string>({
+      mutationFn: (invitationId) =>
+        adminRevokeOrganizationInvitation({ orgId, invitationId }),
+      onSuccess: () => {
+        queryClient.invalidateQueries({ queryKey })
+      },
+    })
+
+  function goToNextPage() {
+    if (!invitationsPage?.next_cursor) return
+    setPagination((previous) => ({
+      cursor: invitationsPage.next_cursor ?? null,
+      reverse: false,
+      page: previous.page + 1,
+    }))
+  }
+
+  function goToPreviousPage() {
+    if (!invitationsPage?.prev_cursor) return
+    setPagination((previous) => ({
+      cursor: invitationsPage.prev_cursor ?? null,
+      reverse: true,
+      page: Math.max(previous.page - 1, 0),
+    }))
+  }
+
+  return {
+    invitations: invitationsPage?.items ?? [],
+    isLoading,
+    error,
+    createInvitation,
+    createPending,
+    getInvitationToken,
+    revokeInvitation,
+    revokePending,
+    goToNextPage,
+    goToPreviousPage,
+    hasNextPage: invitationsPage?.has_more ?? false,
+    hasPreviousPage: invitationsPage?.has_previous ?? false,
+    currentPage: pagination.page,
   }
 }
 

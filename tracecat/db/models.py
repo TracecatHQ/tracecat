@@ -274,6 +274,8 @@ class OrganizationDomain(Base, TimestampMixin):
         default="platform_admin",
         server_default=text("'platform_admin'"),
     )
+    verification_token: Mapped[str | None] = mapped_column(String(255))
+    verification_record_name: Mapped[str | None] = mapped_column(String(255))
 
     organization: Mapped[Organization] = relationship(
         "Organization",
@@ -970,6 +972,116 @@ class WebhookApiKey(WorkspaceModel):
     revoked_by: Mapped[uuid.UUID | None] = mapped_column(UUID, nullable=True)
 
     webhook: Mapped[Webhook | None] = relationship(back_populates="api_key")
+
+
+class ServiceAccount(OrganizationModel):
+    """A machine identity scoped to an organization or workspace."""
+
+    __tablename__ = "service_account"
+    __table_args__ = (
+        CheckConstraint(
+            "workspace_id IS NULL OR organization_id IS NOT NULL",
+            name="service_account_workspace_requires_org",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        default=uuid.uuid4,
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+    organization_id: Mapped[OrganizationID] = mapped_column(
+        UUID,
+        ForeignKey("organization.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    workspace_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID,
+        ForeignKey("workspace.id", ondelete="CASCADE"),
+        nullable=True,
+        index=True,
+    )
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    description: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    owner_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID,
+        ForeignKey("user.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    disabled_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=True
+    )
+
+    scopes: Mapped[list[Scope]] = relationship(
+        "Scope",
+        secondary="service_account_scope",
+        lazy="select",
+    )
+    api_keys: Mapped[list[ServiceAccountApiKey]] = relationship(
+        "ServiceAccountApiKey",
+        back_populates="service_account",
+        cascade="all, delete-orphan",
+        lazy="selectin",
+    )
+
+
+class ServiceAccountApiKey(RecordModel):
+    """Credential material for a service account."""
+
+    __tablename__ = "service_account_api_key"
+    __table_args__ = (
+        Index(
+            "ix_service_account_api_key_active_unique",
+            "service_account_id",
+            unique=True,
+            postgresql_where=text("revoked_at IS NULL"),
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        default=uuid.uuid4,
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+    service_account_id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        ForeignKey("service_account.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    key_id: Mapped[str] = mapped_column(
+        String(32), nullable=False, unique=True, index=True
+    )
+    hashed: Mapped[str] = mapped_column(String(128), nullable=False)
+    salt: Mapped[str] = mapped_column(String(64), nullable=False)
+    preview: Mapped[str] = mapped_column(String(32), nullable=False)
+    last_used_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=True
+    )
+    revoked_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=True
+    )
+    revoked_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID,
+        ForeignKey("user.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    created_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID,
+        ForeignKey("user.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+
+    service_account: Mapped[ServiceAccount] = relationship(
+        "ServiceAccount",
+        back_populates="api_keys",
+    )
 
 
 class Webhook(WorkspaceModel):
@@ -4331,6 +4443,13 @@ class OrganizationInvitation(InvitationMixin, TimestampMixin, Base):
     organization_id: Mapped[uuid.UUID] = mapped_column(
         UUID, ForeignKey("organization.id", ondelete="CASCADE"), index=True
     )
+    created_by_platform_admin: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default=text("false"),
+        doc="Whether the invitation was created by a platform admin",
+    )
 
     # Relationships
     organization: Mapped[Organization] = relationship("Organization")
@@ -4528,6 +4647,23 @@ class RoleScope(Base):
     )
     scope_id: Mapped[uuid.UUID] = mapped_column(
         UUID, ForeignKey("scope.id", ondelete="CASCADE"), primary_key=True
+    )
+
+
+class ServiceAccountScope(Base):
+    """Junction table linking service accounts to scopes."""
+
+    __tablename__ = "service_account_scope"
+
+    service_account_id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        ForeignKey("service_account.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    scope_id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        ForeignKey("scope.id", ondelete="CASCADE"),
+        primary_key=True,
     )
 
 

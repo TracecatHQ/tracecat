@@ -1,7 +1,7 @@
 from fastapi import APIRouter, HTTPException, status
 from sqlalchemy import select
 
-from tracecat.auth.dependencies import WorkspaceUserRole
+from tracecat.auth.dependencies import WorkspaceActorRole
 from tracecat.authz.controls import require_scope
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.db.models import Schedule
@@ -24,7 +24,7 @@ router = APIRouter(prefix="/schedules", tags=["schedules"])
 @router.get("", response_model=list[ScheduleRead])
 @require_scope("schedule:read")
 async def list_schedules(
-    role: WorkspaceUserRole,
+    role: WorkspaceActorRole,
     session: AsyncDBSession,
     workflow_id: OptionalAnyWorkflowIDQuery,
 ) -> list[ScheduleRead]:
@@ -36,7 +36,7 @@ async def list_schedules(
 @router.post("", response_model=ScheduleRead)
 @require_scope("schedule:create")
 async def create_schedule(
-    role: WorkspaceUserRole,
+    role: WorkspaceActorRole,
     session: AsyncDBSession,
     params: ScheduleCreate,
 ) -> ScheduleRead:
@@ -68,7 +68,7 @@ async def create_schedule(
 @router.get("/{schedule_id}", response_model=ScheduleRead)
 @require_scope("schedule:read")
 async def get_schedule(
-    role: WorkspaceUserRole,
+    role: WorkspaceActorRole,
     session: AsyncDBSession,
     schedule_id: AnyScheduleIDPath,
 ) -> ScheduleRead:
@@ -88,7 +88,7 @@ async def get_schedule(
 @router.post("/{schedule_id}", response_model=ScheduleRead)
 @require_scope("schedule:update")
 async def update_schedule(
-    role: WorkspaceUserRole,
+    role: WorkspaceActorRole,
     session: AsyncDBSession,
     schedule_id: AnyScheduleIDPath,
     params: ScheduleUpdate,
@@ -114,7 +114,7 @@ async def update_schedule(
 @router.delete("/{schedule_id}", status_code=status.HTTP_204_NO_CONTENT)
 @require_scope("schedule:delete")
 async def delete_schedule(
-    role: WorkspaceUserRole, session: AsyncDBSession, schedule_id: AnyScheduleIDPath
+    role: WorkspaceActorRole, session: AsyncDBSession, schedule_id: AnyScheduleIDPath
 ) -> None:
     """Delete a schedule from a workflow."""
     service = WorkflowSchedulesService(session, role=role)
@@ -131,7 +131,7 @@ async def delete_schedule(
 @router.get("/search", response_model=list[ScheduleRead])
 @require_scope("schedule:read")
 async def search_schedules(
-    role: WorkspaceUserRole, session: AsyncDBSession, params: ScheduleSearch
+    role: WorkspaceActorRole, session: AsyncDBSession, params: ScheduleSearch
 ) -> list[ScheduleRead]:
     """**[WORK IN PROGRESS]** Search for schedules."""
     statement = select(Schedule).where(Schedule.workspace_id == role.workspace_id)

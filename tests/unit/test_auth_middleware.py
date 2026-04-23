@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat import config
 from tracecat.auth.credentials import RoleACL, _role_dependency
+from tracecat.auth.org_context import resolve_auth_organization_id
 from tracecat.auth.schemas import UserRole
 from tracecat.auth.types import Role
 from tracecat.authz.enums import WorkspaceRole
@@ -153,6 +154,121 @@ async def test_role_dependency_preserves_auth_exception_when_cleanup_fails():
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("require_workspace", "workspace_id"),
+    [
+        ("no", None),
+        ("optional", None),
+        ("yes", uuid.uuid4()),
+    ],
+)
+async def test_role_dependency_denies_multi_tenant_superuser_tenant_context(
+    require_workspace: str,
+    workspace_id: uuid.UUID | None,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Multi-tenant platform superusers cannot resolve tenant RoleACL context."""
+    monkeypatch.setattr(config, "TRACECAT__EE_MULTI_TENANT", True)
+
+    request = MagicMock(spec=Request)
+    request.state = MagicMock()
+    request.state.auth_cache = None
+    request.cookies = {"tracecat-org-id": str(uuid.uuid4())}
+    session = AsyncMock()
+    user = MagicMock(spec=User)
+    user.id = uuid.uuid4()
+    user.is_superuser = True
+
+    with (
+        patch("tracecat.auth.credentials.set_rls_context", new=AsyncMock()),
+        patch(
+            "tracecat.auth.credentials.set_rls_context_from_role",
+            new=AsyncMock(),
+        ),
+    ):
+        with pytest.raises(HTTPException) as excinfo:
+            await _role_dependency(
+                request=request,
+                session=session,
+                workspace_id=workspace_id,
+                user=user,
+                api_key=None,
+                allow_user=True,
+                allow_service=False,
+                allow_executor=False,
+                require_workspace=require_workspace,  # pyright: ignore[reportArgumentType]
+            )
+
+    assert excinfo.value.status_code == status.HTTP_403_FORBIDDEN
+    assert excinfo.value.detail == "Platform superusers cannot access tenant context"
+
+
+@pytest.mark.anyio
+async def test_role_dependency_allows_single_tenant_superuser_default_org(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Single-tenant superuser RoleACL behavior still resolves the default org."""
+    monkeypatch.setattr(config, "TRACECAT__EE_MULTI_TENANT", False)
+
+    request = MagicMock(spec=Request)
+    request.state = MagicMock()
+    request.state.auth_cache = None
+    request.cookies = {}
+    session = AsyncMock()
+    user = MagicMock(spec=User)
+    user.id = uuid.uuid4()
+    user.is_superuser = True
+    org_id = uuid.uuid4()
+
+    with (
+        patch(
+            "tracecat.auth.credentials.get_default_organization_id",
+            new=AsyncMock(return_value=org_id),
+        ),
+        patch("tracecat.auth.credentials.set_rls_context", new=AsyncMock()),
+        patch(
+            "tracecat.auth.credentials.set_rls_context_from_role",
+            new=AsyncMock(),
+        ),
+    ):
+        role = await _role_dependency(
+            request=request,
+            session=session,
+            workspace_id=None,
+            user=user,
+            api_key=None,
+            allow_user=True,
+            allow_service=False,
+            allow_executor=False,
+            require_workspace="no",
+        )
+
+    assert role.organization_id == org_id
+    assert role.user_id == user.id
+    assert role.is_platform_superuser is True
+
+
+@pytest.mark.anyio
+async def test_resolve_auth_organization_id_ignores_org_cookie_in_multi_tenant(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Pre-auth multi-tenant org resolution requires explicit org links."""
+    monkeypatch.setattr(config, "TRACECAT__EE_MULTI_TENANT", True)
+
+    request = MagicMock(spec=Request)
+    request.query_params = {}
+    request.cookies = {"tracecat-org-id": str(uuid.uuid4())}
+    session = AsyncMock(spec=AsyncSession)
+
+    with pytest.raises(HTTPException) as excinfo:
+        await resolve_auth_organization_id(request, session=session)
+
+    assert excinfo.value.status_code == status.HTTP_428_PRECONDITION_REQUIRED
+    assert excinfo.value.detail == "Organization selection required"
+    session.execute.assert_not_called()
+
+
+@pytest.mark.anyio
 async def test_auth_cache_middleware_initializes_cache():
     """Test that the middleware properly initializes the auth cache."""
     request = MagicMock(spec=Request)
@@ -187,6 +303,7 @@ async def test_auth_cache_reduces_database_queries(mocker):
     mock_user = MagicMock(spec=User)
     mock_user.id = uuid.uuid4()
     mock_user.role = UserRole.BASIC
+    mock_user.is_superuser = False
 
     workspace_id_1 = uuid.uuid4()
     workspace_id_2 = uuid.uuid4()
@@ -304,10 +421,12 @@ async def test_performance_improvement(mocker):
     admin_user = MagicMock(spec=User)
     admin_user.id = uuid.uuid4()
     admin_user.role = UserRole.ADMIN
+    admin_user.is_superuser = False
 
     basic_user = MagicMock(spec=User)
     basic_user.id = uuid.uuid4()
     basic_user.role = UserRole.BASIC
+    basic_user.is_superuser = False
 
     workspace_id = uuid.uuid4()
 
@@ -435,10 +554,12 @@ async def test_cache_user_id_validation():
     user1 = MagicMock(spec=User)
     user1.id = uuid.uuid4()
     user1.role = UserRole.BASIC
+    user1.is_superuser = False
 
     user2 = MagicMock(spec=User)
     user2.id = uuid.uuid4()
     user2.role = UserRole.BASIC
+    user2.is_superuser = False
 
     workspace_id = uuid.uuid4()
 
@@ -529,6 +650,7 @@ async def test_cache_size_limit():
     user = MagicMock(spec=User)
     user.id = uuid.uuid4()
     user.role = UserRole.BASIC
+    user.is_superuser = False
 
     # Create 1500 memberships (exceeds MAX_CACHED_MEMBERSHIPS = 1000)
     memberships = [
@@ -608,7 +730,7 @@ async def test_cache_size_limit():
 async def test_organization_id_populated_when_require_workspace_no(mocker):
     """Test that organization_id is inferred from OrganizationMembership when require_workspace="no"."""
 
-    # Create mock user (non-superuser to avoid 428 org selection requirement)
+    # Create mock user (non-superuser to exercise org membership resolution)
     mock_user = MagicMock(spec=User)
     mock_user.id = uuid.uuid4()
     mock_user.role = UserRole.ADMIN

@@ -11,10 +11,11 @@ from sqlalchemy.exc import IntegrityError
 
 from tracecat.auth.types import Role
 from tracecat.authz.enums import WorkspaceRole
-from tracecat.authz.scopes import ORG_MEMBER_SCOPES, WORKSPACE_OPERATIONAL_SCOPES
+from tracecat.authz.scopes import ORG_MEMBER_SCOPES
 from tracecat.authz.service import MembershipWithOrg
 from tracecat.contexts import ctx_role
 from tracecat.db.models import Workspace
+from tracecat.exceptions import TracecatAuthorizationError
 from tracecat.logger import logger
 from tracecat.workspaces import router as workspaces_router
 
@@ -42,7 +43,7 @@ async def test_list_workspaces_admin_success(
     """Test GET /workspaces returns all workspaces for admin."""
     with patch.object(workspaces_router, "WorkspaceService") as MockService:
         mock_svc = AsyncMock()
-        mock_svc.admin_list_workspaces.return_value = [mock_workspace_data]
+        mock_svc.list_accessible_workspaces.return_value = [mock_workspace_data]
         MockService.return_value = mock_svc
 
         # Make request
@@ -62,15 +63,12 @@ async def test_list_workspaces_user_success(
     test_workspace: Workspace,
 ) -> None:
     """Test GET /workspaces returns user's workspaces."""
-    # Give the non-admin role org:read so it can list workspaces
-    user_role = test_role.model_copy(
-        update={"scopes": WORKSPACE_OPERATIONAL_SCOPES | ORG_MEMBER_SCOPES}
-    )
+    user_role = test_role.model_copy(update={"scopes": ORG_MEMBER_SCOPES})
     token = ctx_role.set(user_role)
     try:
         with patch.object(workspaces_router, "WorkspaceService") as MockService:
             mock_svc = AsyncMock()
-            mock_svc.list_workspaces.return_value = [test_workspace]
+            mock_svc.list_accessible_workspaces.return_value = [test_workspace]
             MockService.return_value = mock_svc
 
             # Make request - test_role fixture is used for non-admin user
@@ -84,6 +82,41 @@ async def test_list_workspaces_user_success(
     assert len(data) == 1
     assert data[0]["id"] == str(test_workspace.id)
     assert data[0]["name"] == test_workspace.name
+
+
+@pytest.mark.anyio
+async def test_list_workspaces_allows_workspace_service_account(
+    client: TestClient,
+    test_admin_role: Role,
+    mock_workspace_data: Workspace,
+) -> None:
+    """Test GET /workspaces allows workspace-scoped service accounts."""
+    workspace_id = test_admin_role.workspace_id
+    assert workspace_id is not None
+    role = test_admin_role.model_copy(
+        update={
+            "type": "service_account",
+            "user_id": None,
+            "workspace_id": workspace_id,
+            "bound_workspace_id": workspace_id,
+            "service_account_id": uuid.uuid4(),
+            "scopes": frozenset({"workspace:read"}),
+        }
+    )
+
+    token = ctx_role.set(role)
+    try:
+        with patch.object(workspaces_router, "WorkspaceService") as MockService:
+            mock_svc = AsyncMock()
+            mock_svc.list_accessible_workspaces.return_value = [mock_workspace_data]
+            MockService.return_value = mock_svc
+
+            response = client.get("/workspaces")
+    finally:
+        ctx_role.reset(token)
+
+    assert response.status_code == status.HTTP_200_OK
+    assert response.json()[0]["name"] == "Test Workspace"
 
 
 @pytest.mark.anyio
@@ -112,6 +145,38 @@ async def test_create_workspace_success(
         assert response.status_code == status.HTTP_201_CREATED
         data = response.json()
         assert data["name"] == "Test Workspace"
+
+
+@pytest.mark.anyio
+async def test_create_workspace_rejects_workspace_service_account(
+    client: TestClient,
+    test_admin_role: Role,
+) -> None:
+    workspace_id = test_admin_role.workspace_id
+    assert workspace_id is not None
+    role = test_admin_role.model_copy(
+        update={
+            "type": "service_account",
+            "user_id": None,
+            "workspace_id": workspace_id,
+            "bound_workspace_id": workspace_id,
+            "service_account_id": uuid.uuid4(),
+            "scopes": frozenset({"workspace:create"}),
+        }
+    )
+
+    token = ctx_role.set(role)
+    try:
+        with patch.object(workspaces_router, "WorkspaceService") as MockService:
+            response = client.post(
+                "/workspaces",
+                json={"name": "New Workspace"},
+            )
+    finally:
+        ctx_role.reset(token)
+
+    assert response.status_code == status.HTTP_403_FORBIDDEN
+    MockService.assert_not_called()
 
 
 @pytest.mark.anyio
@@ -185,6 +250,62 @@ async def test_search_workspaces_success(
         data = response.json()
         assert len(data) == 1
         assert data[0]["name"] == "Test Workspace"
+
+
+@pytest.mark.anyio
+async def test_search_workspaces_authorization_error_returns_403(
+    client: TestClient,
+    test_admin_role: Role,
+) -> None:
+    with patch.object(workspaces_router, "WorkspaceService") as MockService:
+        mock_svc = AsyncMock()
+        mock_svc.search_workspaces.side_effect = TracecatAuthorizationError("Denied")
+        MockService.return_value = mock_svc
+
+        response = client.get(
+            "/workspaces/search",
+            params={"name": "Test"},
+        )
+
+    assert response.status_code == status.HTTP_403_FORBIDDEN
+    assert response.json() == {"detail": "Forbidden"}
+
+
+@pytest.mark.anyio
+async def test_search_workspaces_allows_workspace_service_account(
+    client: TestClient,
+    test_admin_role: Role,
+    mock_workspace_data: Workspace,
+) -> None:
+    workspace_id = test_admin_role.workspace_id
+    assert workspace_id is not None
+    role = test_admin_role.model_copy(
+        update={
+            "type": "service_account",
+            "user_id": None,
+            "workspace_id": workspace_id,
+            "bound_workspace_id": workspace_id,
+            "service_account_id": uuid.uuid4(),
+            "scopes": frozenset({"workspace:read"}),
+        }
+    )
+
+    token = ctx_role.set(role)
+    try:
+        with patch.object(workspaces_router, "WorkspaceService") as MockService:
+            mock_svc = AsyncMock()
+            mock_svc.search_workspaces.return_value = [mock_workspace_data]
+            MockService.return_value = mock_svc
+
+            response = client.get(
+                "/workspaces/search",
+                params={"name": "Test"},
+            )
+    finally:
+        ctx_role.reset(token)
+
+    assert response.status_code == status.HTTP_200_OK
+    assert response.json()[0]["name"] == "Test Workspace"
 
 
 @pytest.mark.anyio

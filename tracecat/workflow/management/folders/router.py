@@ -3,7 +3,7 @@ from uuid import UUID
 from fastapi import APIRouter, HTTPException, Query, status
 from sqlalchemy.exc import IntegrityError, NoResultFound
 
-from tracecat.auth.dependencies import WorkspaceUserRole
+from tracecat.auth.dependencies import WorkspaceActorRole
 from tracecat.authz.controls import require_scope
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
@@ -23,7 +23,7 @@ router = APIRouter(prefix="/folders", tags=["folders"])
 @router.get("/directory")
 @require_scope("workflow:read")
 async def get_directory(
-    role: WorkspaceUserRole,
+    role: WorkspaceActorRole,
     session: AsyncDBSession,
     path: str = Query(default="/", description="Folder path"),
 ) -> list[DirectoryItem]:
@@ -39,7 +39,7 @@ async def get_directory(
 @router.get("")
 @require_scope("workflow:read")
 async def list_folders(
-    role: WorkspaceUserRole,
+    role: WorkspaceActorRole,
     session: AsyncDBSession,
     parent_path: str = Query(default="/", description="Parent folder path"),
 ) -> list[WorkflowFolderRead]:
@@ -62,7 +62,7 @@ async def list_folders(
 @router.post("", status_code=status.HTTP_201_CREATED)
 @require_scope("workflow:create")
 async def create_folder(
-    role: WorkspaceUserRole,
+    role: WorkspaceActorRole,
     session: AsyncDBSession,
     params: WorkflowFolderCreate,
 ) -> WorkflowFolderRead:
@@ -83,7 +83,7 @@ async def create_folder(
 @router.get("/{folder_id}")
 @require_scope("workflow:read")
 async def get_folder(
-    role: WorkspaceUserRole,
+    role: WorkspaceActorRole,
     session: AsyncDBSession,
     folder_id: UUID,
 ) -> WorkflowFolderRead:
@@ -100,7 +100,7 @@ async def get_folder(
 @router.patch("/{folder_id}")
 @require_scope("workflow:update")
 async def update_folder(
-    role: WorkspaceUserRole,
+    role: WorkspaceActorRole,
     session: AsyncDBSession,
     folder_id: UUID,
     params: WorkflowFolderUpdate,
@@ -131,7 +131,7 @@ async def update_folder(
 @router.delete("/{folder_id}", status_code=status.HTTP_204_NO_CONTENT)
 @require_scope("workflow:delete")
 async def delete_folder(
-    role: WorkspaceUserRole,
+    role: WorkspaceActorRole,
     session: AsyncDBSession,
     folder_id: UUID,
     params: WorkflowFolderDelete,
@@ -157,7 +157,7 @@ async def delete_folder(
 @router.post("/{folder_id}/move")
 @require_scope("workflow:update")
 async def move_folder(
-    role: WorkspaceUserRole,
+    role: WorkspaceActorRole,
     session: AsyncDBSession,
     folder_id: UUID,
     params: WorkflowFolderMove,

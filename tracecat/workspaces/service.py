@@ -13,7 +13,7 @@ from sqlalchemy.orm import load_only, noload, selectinload
 
 from tracecat.audit.logger import audit_log
 from tracecat.auth.types import Role
-from tracecat.authz.controls import require_scope
+from tracecat.authz.controls import has_scope, require_scope
 from tracecat.authz.enums import OwnerType
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.cases.service import CaseFieldsService
@@ -30,6 +30,7 @@ from tracecat.db.models import (
     Role as DBRole,
 )
 from tracecat.exceptions import (
+    TracecatAuthorizationError,
     TracecatException,
     TracecatManagementError,
     TracecatNotFoundError,
@@ -96,6 +97,30 @@ class WorkspaceService(BaseOrgService):
             statement = statement.limit(limit)
         result = await self.session.execute(statement)
         return result.scalars().all()
+
+    async def list_accessible_workspaces(
+        self, limit: int | None = None
+    ) -> Sequence[Workspace]:
+        """List workspaces visible to the current actor."""
+        if self.role.scopes and has_scope(self.role.scopes, "org:workspace:read"):
+            return await self.admin_list_workspaces(limit=limit)
+
+        if self.role.type == "service_account":
+            if (
+                bound_workspace_id := self.role.bound_workspace_id
+                or self.role.workspace_id
+            ) is None:
+                if self.role.scopes and has_scope(self.role.scopes, "org:read"):
+                    return []
+                raise TracecatAuthorizationError(
+                    "Service account does not have access to list workspaces"
+                )
+            workspace = await self.get_workspace(bound_workspace_id)
+            return [workspace] if workspace is not None else []
+
+        if self.role.user_id is None:
+            raise TracecatAuthorizationError("User ID is required to list workspaces")
+        return await self.list_workspaces(self.role.user_id, limit=limit)
 
     @require_scope("workspace:create")
     @audit_log(resource_type="workspace", action="create")
@@ -230,17 +255,32 @@ class WorkspaceService(BaseOrgService):
         await self.session.commit()
 
     async def search_workspaces(self, params: WorkspaceSearch) -> Sequence[Workspace]:
-        """Retrieve a workspace by ID."""
+        """Search workspaces visible to the current actor."""
         statement = select(Workspace).where(
             Workspace.organization_id == self.organization_id
         )
-        # Platform admins and org owners/admins can see all workspaces
+
         if self.role is not None and not self.role.is_privileged:
-            # Only list workspaces where user is a member
-            statement = statement.where(
-                Workspace.id == Membership.workspace_id,
-                Membership.user_id == self.role.user_id,
-            )
+            if self.role.type == "service_account":
+                if (
+                    bound_workspace_id := self.role.bound_workspace_id
+                    or self.role.workspace_id
+                ) is None:
+                    if self.role.scopes and has_scope(self.role.scopes, "org:read"):
+                        return []
+                    raise TracecatAuthorizationError(
+                        "Service account does not have access to search workspaces"
+                    )
+                statement = statement.where(Workspace.id == bound_workspace_id)
+            else:
+                if self.role.user_id is None:
+                    raise TracecatAuthorizationError(
+                        "User ID is required to search workspaces"
+                    )
+                statement = statement.where(
+                    Workspace.id == Membership.workspace_id,
+                    Membership.user_id == self.role.user_id,
+                )
         if params.name:
             statement = statement.where(Workspace.name == params.name)
         result = await self.session.execute(statement)

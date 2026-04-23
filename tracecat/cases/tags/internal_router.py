@@ -32,7 +32,7 @@ async def list_tags(
 @router.post(
     "/{case_id}/tags", status_code=status.HTTP_201_CREATED, response_model=CaseTagRead
 )
-@require_scope("case:create")
+@require_scope("case:update")
 async def add_tag(
     role: ExecutorWorkspaceRole,
     session: AsyncDBSession,
@@ -62,7 +62,7 @@ async def add_tag(
 @router.delete(
     "/{case_id}/tags/{tag_identifier}", status_code=status.HTTP_204_NO_CONTENT
 )
-@require_scope("case:delete")
+@require_scope("case:update")
 async def remove_tag(
     role: ExecutorWorkspaceRole,
     session: AsyncDBSession,

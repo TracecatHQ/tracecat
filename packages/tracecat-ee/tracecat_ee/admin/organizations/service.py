@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
+import secrets
 import uuid
 from collections.abc import Sequence
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
+from typing import cast
 
-from sqlalchemy import select
-from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import selectinload
+import sqlalchemy as sa
+from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError, NoResultFound
+from sqlalchemy.orm import Mapped, selectinload
 
 from tracecat.audit.enums import AuditEventStatus
 from tracecat.audit.service import AuditService
@@ -18,17 +21,32 @@ from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.db.models import (
     Organization,
     OrganizationDomain,
+    OrganizationInvitation,
+    OrganizationMembership,
     RegistryRepository,
     RegistryVersion,
+    User,
 )
+from tracecat.db.models import Role as DBRole
+from tracecat.exceptions import TracecatValidationError
+from tracecat.invitations.enums import InvitationStatus
 from tracecat.organization.domains import normalize_domain
 from tracecat.organization.management import (
     create_organization_with_defaults,
     delete_organization_with_cleanup,
     validate_organization_delete_confirmation,
 )
+from tracecat.pagination import (
+    BaseCursorPaginator,
+    CursorPaginatedResponse,
+    CursorPaginationParams,
+)
 from tracecat.service import BasePlatformService
 from tracecat_ee.admin.organizations.schemas import (
+    AdminOrgInvitationCreate,
+    AdminOrgInvitationCreateResponse,
+    AdminOrgInvitationRead,
+    AdminOrgInvitationTokenRead,
     OrgCreate,
     OrgDomainCreate,
     OrgDomainRead,
@@ -39,6 +57,17 @@ from tracecat_ee.admin.organizations.schemas import (
     OrgRegistryVersionPromoteResponse,
     OrgRegistryVersionRead,
     OrgUpdate,
+    PlatformOrgInvitationRoleSlug,
+)
+
+PLATFORM_ORG_INVITATION_ROLE_SLUGS: frozenset[PlatformOrgInvitationRoleSlug] = (
+    frozenset(
+        {
+            "organization-owner",
+            "organization-admin",
+            "organization-member",
+        }
+    )
 )
 
 
@@ -118,6 +147,279 @@ class AdminOrgService(BasePlatformService):
             operator_user_id=self.role.user_id,
         )
         await self.session.commit()
+
+    # Org Invitation Methods
+
+    async def create_organization_invitation(
+        self,
+        org_id: uuid.UUID,
+        params: AdminOrgInvitationCreate,
+    ) -> AdminOrgInvitationCreateResponse:
+        """Create a platform-scoped invitation for an organization."""
+        await self._require_organization(org_id)
+        role_obj = await self._get_org_invitation_role(org_id, params.role_slug)
+
+        existing_superuser = await self.session.scalar(
+            select(User).where(
+                func.lower(User.email) == params.email.lower(),
+                cast(Mapped[bool], User.is_superuser).is_(True),
+            )
+        )
+        if existing_superuser is not None:
+            raise TracecatValidationError("Invitation cannot be created for this email")
+
+        existing_member_stmt = (
+            select(OrganizationMembership)
+            .join(User, OrganizationMembership.user_id == User.id)
+            .where(
+                OrganizationMembership.organization_id == org_id,
+                func.lower(User.email) == params.email.lower(),
+            )
+        )
+        existing_member = await self.session.scalar(existing_member_stmt)
+        if existing_member is not None:
+            raise TracecatValidationError(
+                f"{params.email} is already a member of this organization"
+            )
+
+        existing_stmt = select(OrganizationInvitation).where(
+            OrganizationInvitation.organization_id == org_id,
+            func.lower(OrganizationInvitation.email) == params.email.lower(),
+        )
+        existing = await self.session.scalar(existing_stmt)
+        if existing is not None:
+            if (
+                existing.status == InvitationStatus.PENDING
+                and existing.expires_at >= datetime.now(UTC)
+            ):
+                raise TracecatValidationError(
+                    f"An invitation already exists for {params.email} in this organization"
+                )
+            await self.session.delete(existing)
+            await self.session.flush()
+
+        invitation = OrganizationInvitation(
+            organization_id=org_id,
+            email=params.email,
+            role_id=role_obj.id,
+            invited_by=self.role.user_id,
+            token=secrets.token_urlsafe(32),
+            expires_at=datetime.now(UTC) + timedelta(days=7),
+            status=InvitationStatus.PENDING,
+            created_by_platform_admin=True,
+        )
+        self.session.add(invitation)
+
+        try:
+            await self.session.commit()
+        except IntegrityError as exc:
+            await self.session.rollback()
+            raise TracecatValidationError(
+                f"An invitation already exists for {params.email} in this organization"
+            ) from exc
+
+        result = await self.session.execute(
+            select(OrganizationInvitation)
+            .where(OrganizationInvitation.id == invitation.id)
+            .options(selectinload(OrganizationInvitation.role_obj))
+        )
+        invitation = result.scalar_one()
+        return self._serialize_invitation_create(invitation)
+
+    async def list_organization_invitations(
+        self,
+        org_id: uuid.UUID,
+        *,
+        status: InvitationStatus | None = None,
+        pagination: CursorPaginationParams,
+    ) -> CursorPaginatedResponse[AdminOrgInvitationRead]:
+        """List platform-created invitations for an organization with pagination."""
+        await self._require_organization(org_id)
+        paginator = BaseCursorPaginator(self.session)
+        stmt = (
+            select(OrganizationInvitation)
+            .where(
+                OrganizationInvitation.organization_id == org_id,
+                OrganizationInvitation.created_by_platform_admin.is_(True),
+            )
+            .options(selectinload(OrganizationInvitation.role_obj))
+        )
+        if status is not None:
+            stmt = stmt.where(OrganizationInvitation.status == status)
+        if pagination.cursor:
+            try:
+                cursor_data = paginator.decode_cursor(pagination.cursor)
+                cursor_id = uuid.UUID(cursor_data.id)
+            except ValueError as e:
+                raise TracecatValidationError(
+                    "Invalid cursor for organization invitations"
+                ) from e
+
+            cursor_created_at = cursor_data.sort_value
+            if not isinstance(cursor_created_at, datetime):
+                raise TracecatValidationError(
+                    "Invalid cursor for organization invitations"
+                )
+
+            cursor_predicate = sa.or_(
+                OrganizationInvitation.created_at > cursor_created_at,
+                sa.and_(
+                    OrganizationInvitation.created_at == cursor_created_at,
+                    OrganizationInvitation.id > cursor_id,
+                ),
+            )
+            if not pagination.reverse:
+                cursor_predicate = sa.or_(
+                    OrganizationInvitation.created_at < cursor_created_at,
+                    sa.and_(
+                        OrganizationInvitation.created_at == cursor_created_at,
+                        OrganizationInvitation.id < cursor_id,
+                    ),
+                )
+            stmt = stmt.where(cursor_predicate)
+
+        if pagination.reverse:
+            stmt = stmt.order_by(
+                OrganizationInvitation.created_at.asc(),
+                OrganizationInvitation.id.asc(),
+            )
+        else:
+            stmt = stmt.order_by(
+                OrganizationInvitation.created_at.desc(),
+                OrganizationInvitation.id.desc(),
+            )
+        stmt = stmt.limit(pagination.limit + 1)
+
+        result = await self.session.execute(stmt)
+        invitations = result.scalars().all()
+        has_more = len(invitations) > pagination.limit
+        items = invitations[: pagination.limit]
+        has_previous = pagination.cursor is not None
+
+        next_cursor = None
+        if has_more and items:
+            last_invitation = items[-1]
+            next_cursor = paginator.encode_cursor(
+                last_invitation.id,
+                sort_column="created_at",
+                sort_value=last_invitation.created_at,
+            )
+
+        prev_cursor = None
+        if pagination.cursor and items:
+            first_invitation = items[0]
+            prev_cursor = paginator.encode_cursor(
+                first_invitation.id,
+                sort_column="created_at",
+                sort_value=first_invitation.created_at,
+            )
+
+        if pagination.reverse:
+            items = list(reversed(items))
+            next_cursor, prev_cursor = prev_cursor, next_cursor
+            has_more, has_previous = has_previous, has_more
+
+        return CursorPaginatedResponse(
+            items=[self._serialize_invitation(invitation) for invitation in items],
+            next_cursor=next_cursor,
+            prev_cursor=prev_cursor,
+            has_more=has_more,
+            has_previous=has_previous,
+        )
+
+    async def get_organization_invitation_token(
+        self,
+        org_id: uuid.UUID,
+        invitation_id: uuid.UUID,
+    ) -> AdminOrgInvitationTokenRead:
+        """Get the raw token for a platform-created organization invitation."""
+        invitation = await self._get_platform_invitation(org_id, invitation_id)
+        return AdminOrgInvitationTokenRead(token=invitation.token)
+
+    async def revoke_organization_invitation(
+        self,
+        org_id: uuid.UUID,
+        invitation_id: uuid.UUID,
+    ) -> None:
+        """Revoke a pending platform-created organization invitation."""
+        invitation = await self._get_platform_invitation(org_id, invitation_id)
+        if invitation.status != InvitationStatus.PENDING:
+            raise TracecatValidationError(
+                f"Cannot revoke invitation with status '{invitation.status}'"
+            )
+        invitation.status = InvitationStatus.REVOKED
+        await self.session.commit()
+
+    async def _get_org_invitation_role(
+        self,
+        org_id: uuid.UUID,
+        role_slug: PlatformOrgInvitationRoleSlug,
+    ) -> DBRole:
+        """Get an allowed preset organization role for platform invitations."""
+        if role_slug not in PLATFORM_ORG_INVITATION_ROLE_SLUGS:
+            raise TracecatValidationError("Invalid organization invitation role")
+
+        stmt = select(DBRole).where(
+            DBRole.organization_id == org_id,
+            DBRole.slug == role_slug,
+        )
+        role_obj = await self.session.scalar(stmt)
+        if role_obj is None:
+            raise TracecatValidationError(
+                f"Role {role_slug!r} not found for organization"
+            )
+        return role_obj
+
+    async def _get_platform_invitation(
+        self,
+        org_id: uuid.UUID,
+        invitation_id: uuid.UUID,
+    ) -> OrganizationInvitation:
+        """Get a platform-created invitation by ID and organization."""
+        await self._require_organization(org_id)
+        stmt = (
+            select(OrganizationInvitation)
+            .where(
+                OrganizationInvitation.id == invitation_id,
+                OrganizationInvitation.organization_id == org_id,
+                OrganizationInvitation.created_by_platform_admin.is_(True),
+            )
+            .options(selectinload(OrganizationInvitation.role_obj))
+        )
+        invitation = await self.session.scalar(stmt)
+        if invitation is None:
+            raise NoResultFound
+        return invitation
+
+    def _serialize_invitation(
+        self,
+        invitation: OrganizationInvitation,
+    ) -> AdminOrgInvitationRead:
+        """Serialize an organization invitation for platform admin APIs."""
+        return AdminOrgInvitationRead(
+            id=invitation.id,
+            organization_id=invitation.organization_id,
+            email=invitation.email,
+            role_id=invitation.role_id,
+            role_name=invitation.role_obj.name,
+            role_slug=invitation.role_obj.slug,
+            status=invitation.status,
+            invited_by=invitation.invited_by,
+            expires_at=invitation.expires_at,
+            created_at=invitation.created_at,
+            accepted_at=invitation.accepted_at,
+            created_by_platform_admin=invitation.created_by_platform_admin,
+        )
+
+    def _serialize_invitation_create(
+        self,
+        invitation: OrganizationInvitation,
+    ) -> AdminOrgInvitationCreateResponse:
+        """Serialize a newly created platform admin invitation with its token."""
+        return AdminOrgInvitationCreateResponse(
+            **self._serialize_invitation(invitation).model_dump(),
+            token=invitation.token,
+        )
 
     # Org Domain Methods
 

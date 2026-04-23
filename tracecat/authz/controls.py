@@ -314,6 +314,8 @@ def require_scope(*scopes: str, require_all: bool = True) -> Callable[[T], T]:
                 method_role = (
                     args[0].role if args and isinstance(args[0], HasRole) else None
                 )
+                if method_role is None and isinstance(role := kwargs.get("role"), Role):
+                    method_role = role
                 check_scopes(method_role=method_role)
                 return await fn(*args, **kwargs)
 
@@ -327,6 +329,8 @@ def require_scope(*scopes: str, require_all: bool = True) -> Callable[[T], T]:
                 method_role = (
                     args[0].role if args and isinstance(args[0], HasRole) else None
                 )
+                if method_role is None and isinstance(role := kwargs.get("role"), Role):
+                    method_role = role
                 check_scopes(method_role=method_role)
                 return fn(*args, **kwargs)
 

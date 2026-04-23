@@ -1325,19 +1325,18 @@ async def test_workspace(test_organization, mock_org_id):
     )
 
     async with WorkspaceService.with_session(role=org_role) as svc:
-        # Create new test workspace
         workspace = await svc.create_workspace(name=workspace_name, override_id=ws_id)
 
-        logger.debug("Created test workspace", workspace=workspace)
+    logger.debug("Created test workspace", workspace=workspace)
+    try:
+        yield workspace
+    finally:
+        logger.debug("Teardown test workspace")
         try:
-            yield workspace
-        finally:
-            # Clean up the workspace
-            logger.debug("Teardown test workspace")
-            try:
+            async with WorkspaceService.with_session(role=org_role) as svc:
                 await svc.delete_workspace(ws_id)
-            except Exception as e:
-                logger.warning(f"Error during workspace cleanup: {e}")
+        except Exception as e:
+            logger.warning(f"Error during workspace cleanup: {e}")
 
 
 @pytest.fixture(scope="session")

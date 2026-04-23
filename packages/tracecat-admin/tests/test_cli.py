@@ -38,6 +38,7 @@ class TestAdminCommands:
         assert "promote-user" in result.stdout
         assert "demote-user" in result.stdout
         assert "create-superuser" in result.stdout
+        assert "create-dev-user" in result.stdout
 
     def test_list_users_requires_service_key(self) -> None:
         """Test list-users requires service key."""

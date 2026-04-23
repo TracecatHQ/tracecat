@@ -92,6 +92,11 @@ POST_RLS_ORG_SCOPED_TABLES = (
 POST_RLS_ORG_OPTIONAL_WORKSPACE_SCOPED_TABLES = (
     "watchtower_agent_session",
     "watchtower_agent_tool_call",
+    "service_account",
+)
+
+SPECIAL_TENANT_POLICY_TABLES = frozenset(
+    {"service_account_api_key", "service_account_scope"}
 )
 
 # Workspace and oauth_state carry custom policy SQL, and scope allows shared
@@ -123,6 +128,7 @@ ALL_TENANT_RLS_TABLES = (
     | ORG_OPTIONAL_WORKSPACE_POLICY_TABLES
     | SPECIAL_WORKSPACE_POLICY_TABLES
     | SPECIAL_ORG_POLICY_TABLES
+    | SPECIAL_TENANT_POLICY_TABLES
 )
 
 
@@ -263,6 +269,50 @@ def disable_scope_table_rls() -> str:
     return f"""
         DROP POLICY IF EXISTS {policy_name("scope")} ON "scope";
         ALTER TABLE "scope" DISABLE ROW LEVEL SECURITY;
+    """
+
+
+def enable_service_account_child_table_rls(table: str) -> str:
+    return f"""
+        ALTER TABLE "{table}" ENABLE ROW LEVEL SECURITY;
+
+        CREATE POLICY {policy_name(table)} ON "{table}"
+            FOR ALL
+            USING (
+                current_setting('{RLS_BYPASS_VAR}', true) = '{RLS_BYPASS_ON}'
+                OR EXISTS (
+                    SELECT 1
+                    FROM service_account
+                    WHERE service_account.id = "{table}".service_account_id
+                      AND service_account.organization_id = NULLIF(current_setting('app.current_org_id', true), '')::uuid
+                      AND (
+                          service_account.workspace_id IS NULL
+                          OR service_account.workspace_id = NULLIF(current_setting('app.current_workspace_id', true), '')::uuid
+                          OR NULLIF(current_setting('app.current_workspace_id', true), '')::uuid IS NULL
+                      )
+                )
+            )
+            WITH CHECK (
+                current_setting('{RLS_BYPASS_VAR}', true) = '{RLS_BYPASS_ON}'
+                OR EXISTS (
+                    SELECT 1
+                    FROM service_account
+                    WHERE service_account.id = "{table}".service_account_id
+                      AND service_account.organization_id = NULLIF(current_setting('app.current_org_id', true), '')::uuid
+                      AND (
+                          service_account.workspace_id IS NULL
+                          OR service_account.workspace_id = NULLIF(current_setting('app.current_workspace_id', true), '')::uuid
+                          OR NULLIF(current_setting('app.current_workspace_id', true), '')::uuid IS NULL
+                      )
+                )
+            );
+    """
+
+
+def disable_service_account_child_table_rls(table: str) -> str:
+    return f"""
+        DROP POLICY IF EXISTS {policy_name(table)} ON "{table}";
+        ALTER TABLE "{table}" DISABLE ROW LEVEL SECURITY;
     """
 
 

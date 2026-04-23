@@ -1,5 +1,6 @@
 import {
   decodeAndSanitizeReturnUrl,
+  normalizeMcpAuthReturnUrl,
   sanitizeReturnUrl,
 } from "@/lib/auth-return-url"
 
@@ -32,11 +33,20 @@ describe("sanitizeReturnUrl", () => {
     expect(sanitizeReturnUrl("/authentic/path")).toBe("/authentic/path")
   })
 
-  it.each([
-    "/oauth/mcp/continue?txn=abc123",
-    "/oauth/mcp/select-org?txn=abc123",
-  ])("allows MCP OAuth resume paths for %s", (value) => {
-    expect(sanitizeReturnUrl(value)).toBe(value)
+  it("allows MCP OAuth resume paths", () => {
+    expect(sanitizeReturnUrl("/oauth/mcp/continue?txn=abc123")).toBe(
+      "/oauth/mcp/continue?txn=abc123"
+    )
+  })
+
+  it("rewrites legacy MCP OAuth return paths", () => {
+    expect(sanitizeReturnUrl("/oauth/mcp/select-org?txn=abc123#resume")).toBe(
+      "/oauth/mcp/continue?txn=abc123#resume"
+    )
+  })
+
+  it("rejects legacy MCP OAuth return paths without transactions", () => {
+    expect(sanitizeReturnUrl("/oauth/mcp/select-org")).toBeNull()
   })
 })
 
@@ -51,5 +61,29 @@ describe("decodeAndSanitizeReturnUrl", () => {
     expect(
       decodeAndSanitizeReturnUrl("%2Fworkspaces%2Fabc%3Ftab%3Dmembers")
     ).toBe("/workspaces/abc?tab=members")
+  })
+
+  it("rewrites encoded legacy MCP OAuth return paths", () => {
+    expect(
+      decodeAndSanitizeReturnUrl("%2Foauth%2Fmcp%2Fselect-org%3Ftxn%3Dabc123")
+    ).toBe("/oauth/mcp/continue?txn=abc123")
+  })
+})
+
+describe("normalizeMcpAuthReturnUrl", () => {
+  it("keeps current MCP OAuth continuation paths", () => {
+    expect(normalizeMcpAuthReturnUrl("/oauth/mcp/continue?txn=abc123")).toBe(
+      "/oauth/mcp/continue?txn=abc123"
+    )
+  })
+
+  it("rewrites legacy MCP OAuth org-selection paths", () => {
+    expect(normalizeMcpAuthReturnUrl("/oauth/mcp/select-org?txn=abc123")).toBe(
+      "/oauth/mcp/continue?txn=abc123"
+    )
+  })
+
+  it("ignores unrelated paths", () => {
+    expect(normalizeMcpAuthReturnUrl("/workspaces/default")).toBeNull()
   })
 })

@@ -2166,7 +2166,7 @@ class CaseCommentsService(BaseWorkspaceService):
         )
 
         try:
-            if comment.user_id != self.role.user_id:
+            if self.role.user_id is None or comment.user_id != self.role.user_id:
                 raise TracecatAuthorizationError("You cannot update this comment")
             if comment.deleted_at is not None:
                 raise TracecatValidationError("Deleted comments cannot be updated")
@@ -2229,7 +2229,7 @@ class CaseCommentsService(BaseWorkspaceService):
             TracecatAuthorizationError: If the user doesn't own the comment
         """
 
-        if comment.user_id != self.role.user_id:
+        if self.role.user_id is None or comment.user_id != self.role.user_id:
             raise TracecatAuthorizationError("You can only delete your own comments")
 
         has_replies = comment.parent_id is None and await self._comment_has_replies(

@@ -41,6 +41,7 @@ export function OrganizationSidebar({
 
   // Scope checks for org sidebar items
   const canViewSettings = useScopeCheck("org:settings:read")
+  const canViewServiceAccounts = useScopeCheck("org:service_account:read")
   const canViewMembers = useScopeCheck("org:member:read")
 
   const navSettings = [
@@ -119,7 +120,7 @@ export function OrganizationSidebar({
     },
   ]
 
-  const navUsers = [
+  const navManage = [
     {
       title: "Members",
       url: "/organization/members",
@@ -133,6 +134,13 @@ export function OrganizationSidebar({
       icon: LogInIcon,
       isActive: pathname?.includes("/organization/sessions"),
       visible: canViewMembers === true,
+    },
+    {
+      title: "Service accounts",
+      url: "/organization/settings/service-accounts",
+      icon: KeyRoundIcon,
+      isActive: pathname?.includes("/organization/settings/service-accounts"),
+      visible: canViewServiceAccounts === true,
     },
   ]
 
@@ -201,12 +209,12 @@ export function OrganizationSidebar({
           </SidebarGroup>
         )}
 
-        {navUsers.some((item) => item.visible === true) && (
+        {navManage.some((item) => item.visible === true) && (
           <SidebarGroup>
-            <SidebarGroupLabel>Users</SidebarGroupLabel>
+            <SidebarGroupLabel>Manage</SidebarGroupLabel>
             <SidebarGroupContent>
               <SidebarMenu>
-                {navUsers
+                {navManage
                   .filter((item) => item.visible === true)
                   .map((item) => (
                     <SidebarMenuItem key={item.title}>
