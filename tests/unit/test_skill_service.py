@@ -1006,6 +1006,68 @@ class TestSkillService:
             "bucket": config.TRACECAT__BLOB_STORAGE_BUCKET_SKILLS,
         }
 
+    async def test_attach_uploaded_blob_waits_for_later_op_validation(
+        self,
+        skill_service: SkillService,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Later invalid ops should fail before upload materialization begins."""
+
+        created = await skill_service.create_skill(SkillCreate(name="defer-attach"))
+        draft = await skill_service.get_draft(created.id)
+        assert draft is not None
+
+        content = b"deferred payload"
+        sha256 = hashlib.sha256(content).hexdigest()
+        upload = await skill_service.create_draft_upload(
+            skill_id=created.id,
+            params=SkillUploadSessionCreate(
+                sha256=sha256,
+                size_bytes=len(content),
+                content_type="text/plain; charset=utf-8",
+            ),
+        )
+
+        async def unexpected_file_exists(*, key: str, bucket: str) -> bool:
+            del key, bucket
+            raise AssertionError("Upload materialization should not start yet")
+
+        monkeypatch.setattr(
+            "tracecat.agent.skill.service.blob.file_exists",
+            unexpected_file_exists,
+        )
+
+        with pytest.raises(TracecatValidationError, match="escape the skill root"):
+            await skill_service.patch_draft(
+                skill_id=created.id,
+                params=SkillDraftPatch(
+                    base_revision=draft.draft_revision,
+                    operations=[
+                        SkillDraftAttachUploadedBlobOp(
+                            path="references/uploaded.txt",
+                            upload_id=upload.upload_id,
+                        ),
+                        SkillDraftDeleteFileOp(path="../escape.txt"),
+                    ],
+                ),
+            )
+
+        upload_row = await skill_service.session.scalar(
+            select(SkillUploadModel).where(SkillUploadModel.id == upload.upload_id)
+        )
+        assert upload_row is not None
+        assert upload_row.completed_at is None
+        assert upload_row.blob_id is None
+        assert (
+            await skill_service.session.scalar(
+                select(SkillBlob).where(
+                    SkillBlob.workspace_id == skill_service.workspace_id,
+                    SkillBlob.sha256 == sha256,
+                )
+            )
+            is None
+        )
+
     async def test_publish_requires_root_skill_md(
         self,
         skill_service: SkillService,

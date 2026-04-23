@@ -97,6 +97,37 @@ class PreparedSkillUploadFile:
     content_type: str
 
 
+@dataclass(frozen=True, slots=True)
+class PreparedDraftTextFileOp:
+    """Validated draft text-file upsert ready for blob materialization."""
+
+    path: str
+    content: bytes
+    content_type: str
+
+
+@dataclass(frozen=True, slots=True)
+class PreparedDraftAttachUploadedBlobOp:
+    """Validated draft upload attachment ready for blob materialization."""
+
+    path: str
+    upload: SkillUploadModel
+
+
+@dataclass(frozen=True, slots=True)
+class PreparedDraftDeleteFileOp:
+    """Validated draft file deletion."""
+
+    path: str
+
+
+type PreparedDraftPatchOperation = (
+    PreparedDraftTextFileOp
+    | PreparedDraftAttachUploadedBlobOp
+    | PreparedDraftDeleteFileOp
+)
+
+
 class SkillService(BaseWorkspaceService):
     """CRUD operations and execution helpers for workspace skills."""
 
@@ -1221,6 +1252,60 @@ class SkillService(BaseWorkspaceService):
         except UnicodeDecodeError:
             return None
 
+    async def _prepare_draft_patch_operations(
+        self,
+        *,
+        skill: Skill,
+        operations: Sequence[
+            SkillDraftUpsertTextFileOp
+            | SkillDraftAttachUploadedBlobOp
+            | SkillDraftDeleteFileOp
+        ],
+    ) -> list[PreparedDraftPatchOperation]:
+        """Validate draft operations before any blob writes begin."""
+
+        prepared_operations: list[PreparedDraftPatchOperation] = []
+        for operation in operations:
+            match operation:
+                case SkillDraftUpsertTextFileOp():
+                    prepared_operations.append(
+                        PreparedDraftTextFileOp(
+                            path=self._normalize_path(operation.path),
+                            content=operation.content.encode("utf-8"),
+                            content_type=self._normalize_content_type(
+                                operation.content_type
+                            ),
+                        )
+                    )
+                case SkillDraftAttachUploadedBlobOp():
+                    normalized_path = self._normalize_path(operation.path)
+                    upload_stmt = select(SkillUploadModel).where(
+                        SkillUploadModel.workspace_id == self.workspace_id,
+                        SkillUploadModel.skill_id == skill.id,
+                        SkillUploadModel.id == operation.upload_id,
+                    )
+                    upload = (
+                        await self.session.execute(upload_stmt)
+                    ).scalar_one_or_none()
+                    if upload is None:
+                        raise TracecatValidationError(
+                            f"Skill upload '{operation.upload_id}' not found",
+                            detail={"code": "upload_not_found"},
+                        )
+                    prepared_operations.append(
+                        PreparedDraftAttachUploadedBlobOp(
+                            path=normalized_path,
+                            upload=upload,
+                        )
+                    )
+                case SkillDraftDeleteFileOp():
+                    prepared_operations.append(
+                        PreparedDraftDeleteFileOp(
+                            path=self._normalize_path(operation.path),
+                        )
+                    )
+        return prepared_operations
+
     @require_scope("agent:update")
     @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def patch_draft(
@@ -1240,6 +1325,10 @@ class SkillService(BaseWorkspaceService):
                 },
             )
 
+        prepared_operations = await self._prepare_draft_patch_operations(
+            skill=skill,
+            operations=params.operations,
+        )
         current_rows = await self._list_draft_rows(skill.id)
         path_to_blob = {
             draft_file.path: SkillFileBlobRef(
@@ -1249,45 +1338,34 @@ class SkillService(BaseWorkspaceService):
             for draft_file, blob_row in current_rows
         }
         staged_upload_objects_to_delete: set[tuple[str, str]] = set()
-        for operation in params.operations:
+        for operation in prepared_operations:
             match operation:
-                case SkillDraftUpsertTextFileOp():
-                    normalized_path = self._normalize_path(operation.path)
-                    content_type = self._normalize_content_type(operation.content_type)
+                case PreparedDraftTextFileOp():
                     blob_row = await self._get_or_create_blob(
-                        content=operation.content.encode("utf-8"),
+                        content=operation.content,
                     )
-                    path_to_blob[normalized_path] = SkillFileBlobRef(
+                    path_to_blob[operation.path] = SkillFileBlobRef(
                         blob=blob_row,
-                        content_type=content_type,
+                        content_type=operation.content_type,
                     )
-                case SkillDraftAttachUploadedBlobOp():
-                    normalized_path = self._normalize_path(operation.path)
-                    upload_stmt = select(SkillUploadModel).where(
-                        SkillUploadModel.workspace_id == self.workspace_id,
-                        SkillUploadModel.skill_id == skill.id,
-                        SkillUploadModel.id == operation.upload_id,
-                    )
-                    upload = (
-                        await self.session.execute(upload_stmt)
-                    ).scalar_one_or_none()
-                    if upload is None:
-                        raise TracecatValidationError(
-                            f"Skill upload '{operation.upload_id}' not found",
-                            detail={"code": "upload_not_found"},
+                case PreparedDraftAttachUploadedBlobOp():
+                    should_delete_staged_object = (
+                        operation.upload.completed_at is None
+                        and (
+                            operation.upload.key
+                            != self._storage_key_for(operation.upload.sha256)
                         )
-                    should_delete_staged_object = upload.completed_at is None and (
-                        upload.key != self._storage_key_for(upload.sha256)
                     )
-                    path_to_blob[normalized_path] = SkillFileBlobRef(
-                        blob=await self._materialize_uploaded_blob(upload),
-                        content_type=upload.content_type,
+                    path_to_blob[operation.path] = SkillFileBlobRef(
+                        blob=await self._materialize_uploaded_blob(operation.upload),
+                        content_type=operation.upload.content_type,
                     )
                     if should_delete_staged_object:
-                        staged_upload_objects_to_delete.add((upload.key, upload.bucket))
-                case SkillDraftDeleteFileOp():
-                    normalized_path = self._normalize_path(operation.path)
-                    path_to_blob.pop(normalized_path, None)
+                        staged_upload_objects_to_delete.add(
+                            (operation.upload.key, operation.upload.bucket)
+                        )
+                case PreparedDraftDeleteFileOp():
+                    path_to_blob.pop(operation.path, None)
 
         await self._replace_draft_with_blob_map(skill=skill, path_to_blob=path_to_blob)
         validation = await self._validate_manifest_rows(
