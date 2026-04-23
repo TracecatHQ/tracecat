@@ -4,10 +4,12 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import {
   type SpmCreateSpmEndpointData,
   type SpmCreateSpmFindingDecisionData,
+  type SpmDeleteSpmEndpointData,
   type SpmListSpmAssetsData,
   type SpmListSpmFindingsData,
   spmCreateSpmEndpoint,
   spmCreateSpmFindingDecision,
+  spmDeleteSpmEndpoint,
   spmGetSpmEndpoint,
   spmListSpmAssets,
   spmListSpmControls,
@@ -160,6 +162,12 @@ export function useSpmActions() {
     onSuccess: invalidate,
   })
 
+  const deleteEndpoint = useMutation({
+    mutationFn: (params: SpmDeleteSpmEndpointData) =>
+      spmDeleteSpmEndpoint(params),
+    onSuccess: invalidate,
+  })
+
   const decideFinding = useMutation({
     mutationFn: (params: SpmCreateSpmFindingDecisionData) =>
       spmCreateSpmFindingDecision(params),
@@ -168,6 +176,7 @@ export function useSpmActions() {
 
   return {
     createEndpoint,
+    deleteEndpoint,
     decideFinding,
   }
 }

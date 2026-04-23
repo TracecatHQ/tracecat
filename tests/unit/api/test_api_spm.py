@@ -32,7 +32,11 @@ from tracecat_ee.spm.types import (
 )
 
 from tracecat.auth.types import Role
-from tracecat.exceptions import EntitlementRequired, TracecatNotFoundError
+from tracecat.exceptions import (
+    EntitlementRequired,
+    TracecatNotFoundError,
+    TracecatValidationError,
+)
 from tracecat.pagination import CursorPaginatedResponse
 
 spm_router_module = importlib.import_module("tracecat_ee.spm.router")
@@ -348,6 +352,58 @@ async def test_create_spm_endpoint_success(
 
     assert response.status_code == status.HTTP_201_CREATED
     assert response.json()["enrollment_token"] == "tcspm_enroll_example"
+
+
+@pytest.mark.anyio
+async def test_delete_spm_endpoint_success(
+    client: TestClient,
+    test_admin_role: Role,
+) -> None:
+    with (
+        patch.object(
+            spm_router_module,
+            "check_entitlement",
+            new_callable=AsyncMock,
+        ),
+        patch.object(spm_router_module, "SpmService") as mock_service_cls,
+    ):
+        mock_service = AsyncMock()
+        mock_service_cls.return_value = mock_service
+
+        response = client.delete("/spm/endpoints/aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa")
+
+    assert response.status_code == status.HTTP_204_NO_CONTENT
+    mock_service.delete_pending_endpoint.assert_awaited_once_with(
+        uuid.UUID("aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa")
+    )
+
+
+@pytest.mark.anyio
+async def test_delete_spm_endpoint_rejects_non_pending_endpoint(
+    client: TestClient,
+    test_admin_role: Role,
+) -> None:
+    with (
+        patch.object(
+            spm_router_module,
+            "check_entitlement",
+            new_callable=AsyncMock,
+        ),
+        patch.object(spm_router_module, "SpmService") as mock_service_cls,
+    ):
+        mock_service = AsyncMock()
+        mock_service.delete_pending_endpoint.side_effect = TracecatValidationError(
+            "Only pending enrollments that have never enrolled or synced can be removed"
+        )
+        mock_service_cls.return_value = mock_service
+
+        response = client.delete("/spm/endpoints/aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa")
+
+    assert response.status_code == status.HTTP_409_CONFLICT
+    assert (
+        response.json()["detail"]
+        == "Only pending enrollments that have never enrolled or synced can be removed"
+    )
 
 
 @pytest.mark.anyio

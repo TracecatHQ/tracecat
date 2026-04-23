@@ -10,7 +10,11 @@ from tracecat import config
 from tracecat.auth.dependencies import OrgUserRole
 from tracecat.authz.controls import require_scope
 from tracecat.db.dependencies import AsyncDBSession
-from tracecat.exceptions import EntitlementRequired, TracecatNotFoundError
+from tracecat.exceptions import (
+    EntitlementRequired,
+    TracecatNotFoundError,
+    TracecatValidationError,
+)
 from tracecat.pagination import CursorPaginationParams
 from tracecat.tiers.entitlements import check_entitlement
 from tracecat.tiers.enums import Entitlement
@@ -182,6 +186,31 @@ async def create_spm_endpoint(
 ) -> SpmEndpointCreateResponse:
     service = SpmService(session, role=role)
     return await service.create_endpoint(params)
+
+
+@router.delete(
+    "/endpoints/{endpoint_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(_require_spm_entitlement)],
+)
+@require_scope("org:update")
+async def delete_spm_endpoint(
+    *,
+    role: OrgUserRole,
+    session: AsyncDBSession,
+    endpoint_id: uuid.UUID,
+) -> None:
+    service = SpmService(session, role=role)
+    try:
+        await service.delete_pending_endpoint(endpoint_id)
+    except TracecatNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)
+        ) from exc
+    except TracecatValidationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail=str(exc)
+        ) from exc
 
 
 @router.get(

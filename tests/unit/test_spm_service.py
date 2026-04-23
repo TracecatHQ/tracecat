@@ -8,7 +8,9 @@ from typing import Any
 from unittest.mock import AsyncMock, patch
 
 import pytest
+from fastapi import HTTPException
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat_ee.spm.analyzer import SpmInventoryAnalyzer
 from tracecat_ee.spm.schemas import (
@@ -35,11 +37,13 @@ from tracecat_ee.spm.types import (
 from tracecat.auth.types import Role
 from tracecat.db.models import (
     SpmAsset,
+    SpmAssetSighting,
     SpmEndpoint,
     SpmEnforcementTask,
     SpmFinding,
     User,
 )
+from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
 from tracecat.pagination import CursorPaginationParams
 
 
@@ -84,6 +88,25 @@ def _mcp_asset(
         },
         evidence={"config": {"url": resolved_identity}},
         observed_state={"disabled": disabled},
+    )
+
+
+def _permission_asset() -> SpmSyncAssetUpsert:
+    return SpmSyncAssetUpsert(
+        harness=SpmHarness.CLAUDE_CODE,
+        asset_class=SpmAssetClass.PERMISSIONS,
+        asset_type=SpmAssetType.PERMISSION_CONFIG,
+        identity_key="/Users/chris/.claude/settings.json#permission_config",
+        display_name="permissions in settings.json",
+        metadata={
+            "file_path": "/Users/chris/.claude/settings.json",
+            "parse_status": "ok",
+            "project_root": "",
+            "source_surface": "user_settings_json",
+            "writable": True,
+        },
+        evidence={"permissions": {"defaultMode": "acceptEdits"}},
+        observed_state={"default_mode": "acceptEdits"},
     )
 
 
@@ -447,6 +470,73 @@ async def test_spm_list_methods_paginate_without_duplicates(
 
 
 @pytest.mark.anyio
+async def test_delete_pending_endpoint_removes_unused_enrollment(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    service = SpmService(session, role=svc_role)
+    sync_service = SpmSyncService(session, analyzer=SpmInventoryAnalyzer(session))
+    created = await service.create_endpoint(
+        SpmEndpointCreate(
+            name="Chris MacBook",
+            harness=SpmHarness.CLAUDE_CODE,
+            platform=SpmEndpointPlatform.MACOS,
+        )
+    )
+
+    await service.delete_pending_endpoint(created.endpoint.id)
+
+    endpoints = await service.list_endpoints(CursorPaginationParams(limit=50))
+    assert endpoints.items == []
+
+    with pytest.raises(TracecatNotFoundError):
+        await service.get_endpoint(created.endpoint.id)
+
+    with pytest.raises(HTTPException, match="SPM endpoint not found"):
+        await sync_service.sync_endpoint(
+            endpoint_id=created.endpoint.id,
+            bearer_token=created.enrollment_token,
+            params=SpmEndpointSyncRequest(name="Chris MacBook"),
+        )
+
+
+@pytest.mark.anyio
+async def test_delete_pending_endpoint_rejects_active_endpoint(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    service = SpmService(session, role=svc_role)
+    sync_service = SpmSyncService(
+        session,
+        analyzer=SpmInventoryAnalyzer(session),
+    )
+    created = await service.create_endpoint(
+        SpmEndpointCreate(
+            name="Chris MacBook",
+            harness=SpmHarness.CLAUDE_CODE,
+            platform=SpmEndpointPlatform.MACOS,
+        )
+    )
+
+    with patch(
+        "tracecat_ee.spm.service.is_org_entitled",
+        new=AsyncMock(return_value=True),
+    ):
+        await _sync_assets(
+            sync_service,
+            endpoint_id=created.endpoint.id,
+            bearer_token=created.enrollment_token,
+            assets=[],
+        )
+
+    with pytest.raises(
+        TracecatValidationError,
+        match="Only pending enrollments that have never enrolled or synced can be removed",
+    ):
+        await service.delete_pending_endpoint(created.endpoint.id)
+
+
+@pytest.mark.anyio
 @pytest.mark.parametrize(
     ("task_status", "asset_disabled", "expected_finding_status"),
     [
@@ -594,3 +684,88 @@ async def test_sync_endpoint_task_results_reconcile_task_and_finding_state(
         assert finding.closed_at is None
     else:
         assert finding.closed_at is not None
+
+
+@pytest.mark.anyio
+async def test_upsert_asset_recovers_from_duplicate_insert_race() -> None:
+    class _ScalarResult:
+        def __init__(self, value: Any) -> None:
+            self.value = value
+
+        def one_or_none(self) -> Any:
+            return self.value
+
+        def one(self) -> Any:
+            if self.value is None:
+                raise AssertionError("Expected row to exist")
+            return self.value
+
+    class _NestedTransaction:
+        async def __aenter__(self) -> None:
+            return None
+
+        async def __aexit__(self, exc_type, exc, tb) -> bool:
+            return False
+
+    class _SessionStub:
+        def __init__(self, asset_row: SpmAsset) -> None:
+            self.asset_row = asset_row
+            self.scalars_calls = 0
+            self.flush_calls = 0
+            self.added: list[Any] = []
+
+        async def scalars(self, _stmt: Any) -> _ScalarResult:
+            self.scalars_calls += 1
+            if self.scalars_calls == 1:
+                return _ScalarResult(None)
+            if self.scalars_calls == 2:
+                return _ScalarResult(self.asset_row)
+            return _ScalarResult(None)
+
+        def add(self, row: Any) -> None:
+            self.added.append(row)
+
+        async def flush(self) -> None:
+            self.flush_calls += 1
+            if self.flush_calls == 1:
+                raise IntegrityError(
+                    "INSERT INTO spm_asset ...",
+                    params={},
+                    orig=Exception("duplicate key value violates unique constraint"),
+                )
+
+        def begin_nested(self) -> _NestedTransaction:
+            return _NestedTransaction()
+
+    existing_asset = SpmAsset(
+        id=uuid.uuid4(),
+        organization_id=uuid.uuid4(),
+        harness=SpmHarness.CLAUDE_CODE.value,
+        asset_class=SpmAssetClass.PERMISSIONS.value,
+        asset_type=SpmAssetType.PERMISSION_CONFIG.value,
+        identity_key="/Users/chris/.claude/settings.json#permission_config",
+        display_name="stale name",
+        content_hash=None,
+        asset_metadata={},
+        first_seen_at=datetime.now(UTC),
+        last_seen_at=datetime.now(UTC),
+    )
+    session = _SessionStub(existing_asset)
+    service = SpmSyncService(session=session)  # type: ignore[arg-type]
+
+    endpoint = SpmEndpoint(
+        id=uuid.uuid4(),
+        organization_id=existing_asset.organization_id,
+        name="Pending MacBook",
+        harness=SpmHarness.CLAUDE_CODE.value,
+        platform=SpmEndpointPlatform.MACOS.value,
+        status="pending",
+    )
+
+    await service._upsert_asset(endpoint=endpoint, asset=_permission_asset())
+
+    assert session.flush_calls == 1
+    assert existing_asset.display_name == "permissions in settings.json"
+    assert existing_asset.asset_metadata["source_surface"] == "user_settings_json"
+    sighting = next(row for row in session.added if isinstance(row, SpmAssetSighting))
+    assert sighting.asset_id == existing_asset.id

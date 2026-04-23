@@ -10462,6 +10462,12 @@ export type SpmCreateSpmEndpointData = {
 
 export type SpmCreateSpmEndpointResponse = SpmEndpointCreateResponse
 
+export type SpmDeleteSpmEndpointData = {
+  endpointId: string
+}
+
+export type SpmDeleteSpmEndpointResponse = void
+
 export type SpmGetSpmEndpointData = {
   endpointId: string
 }
@@ -15032,6 +15038,19 @@ export type $OpenApiTs = {
     }
   }
   "/spm/endpoints/{endpoint_id}": {
+    delete: {
+      req: SpmDeleteSpmEndpointData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
     get: {
       req: SpmGetSpmEndpointData
       res: {

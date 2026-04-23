@@ -603,6 +603,8 @@ import type {
   SpmCreateSpmEndpointResponse,
   SpmCreateSpmFindingDecisionData,
   SpmCreateSpmFindingDecisionResponse,
+  SpmDeleteSpmEndpointData,
+  SpmDeleteSpmEndpointResponse,
   SpmGetSpmAssetData,
   SpmGetSpmAssetResponse,
   SpmGetSpmControlData,
@@ -5899,6 +5901,28 @@ export const spmCreateSpmEndpoint = (
     url: "/spm/endpoints",
     body: data.requestBody,
     mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Delete Spm Endpoint
+ * @param data The data for the request.
+ * @param data.endpointId
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const spmDeleteSpmEndpoint = (
+  data: SpmDeleteSpmEndpointData
+): CancelablePromise<SpmDeleteSpmEndpointResponse> => {
+  return __request(OpenAPI, {
+    method: "DELETE",
+    url: "/spm/endpoints/{endpoint_id}",
+    path: {
+      endpoint_id: data.endpointId,
+    },
     errors: {
       422: "Validation Error",
     },

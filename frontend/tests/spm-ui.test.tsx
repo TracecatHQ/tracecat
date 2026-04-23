@@ -15,12 +15,14 @@ import {
   SpmAssetsView,
   SpmControlsView,
   SpmEndpointDetailView,
+  SpmEndpointsView,
   SpmFindingsView,
   SpmInstallDrawer,
 } from "@/components/spm/spm-ui"
 
 const mockToast = jest.fn()
 const mockCreateEndpoint = jest.fn()
+const mockDeleteEndpoint = jest.fn()
 const mockDecideFinding = jest.fn()
 const mockUseEntitlements = jest.fn()
 const mockUseSpmActions = jest.fn()
@@ -48,6 +50,48 @@ jest.mock("@/components/ui/sheet", () => ({
   ),
   SheetHeader: ({ children }: { children: ReactNode }) => <div>{children}</div>,
   SheetTitle: ({ children }: { children: ReactNode }) => <h2>{children}</h2>,
+}))
+
+jest.mock("@/components/ui/alert-dialog", () => ({
+  AlertDialog: ({
+    open,
+    children,
+  }: {
+    open: boolean
+    onOpenChange?: (open: boolean) => void
+    children: ReactNode
+  }) => (open ? <div>{children}</div> : null),
+  AlertDialogAction: ({
+    children,
+    disabled,
+    onClick,
+  }: {
+    children: ReactNode
+    disabled?: boolean
+    onClick?: () => void
+  }) => (
+    <button type="button" onClick={onClick} disabled={disabled}>
+      {children}
+    </button>
+  ),
+  AlertDialogCancel: ({ children }: { children: ReactNode }) => (
+    <button type="button">{children}</button>
+  ),
+  AlertDialogContent: ({ children }: { children: ReactNode }) => (
+    <div>{children}</div>
+  ),
+  AlertDialogDescription: ({ children }: { children: ReactNode }) => (
+    <p>{children}</p>
+  ),
+  AlertDialogFooter: ({ children }: { children: ReactNode }) => (
+    <div>{children}</div>
+  ),
+  AlertDialogHeader: ({ children }: { children: ReactNode }) => (
+    <div>{children}</div>
+  ),
+  AlertDialogTitle: ({ children }: { children: ReactNode }) => (
+    <h2>{children}</h2>
+  ),
 }))
 
 jest.mock("@/components/ui/use-toast", () => ({
@@ -107,6 +151,16 @@ function endpoint(id: string, name: string): SpmEndpointRead {
     platform: "macos",
     status: "active",
     updated_at: "2026-04-22T00:00:00Z",
+  }
+}
+
+function pendingEndpoint(id: string, name: string): SpmEndpointRead {
+  return {
+    ...endpoint(id, name),
+    enrolled_at: null,
+    last_seen_at: null,
+    last_sync_at: null,
+    status: "pending",
   }
 }
 
@@ -215,6 +269,10 @@ describe("SPM operator UI", () => {
     endpoint("endpoint-1", "Chris MacBook"),
     endpoint("endpoint-2", "CI Mac Mini"),
   ]
+  const pendingEndpoints = [
+    pendingEndpoint("endpoint-pending", "Pending MacBook"),
+    endpoint("endpoint-active", "Active MacBook"),
+  ]
   const assets = [
     asset("asset-1", "endpoint-1", "github", "mcp_server"),
     asset("asset-2", "endpoint-2", "CLAUDE.md", "claude_md"),
@@ -227,11 +285,16 @@ describe("SPM operator UI", () => {
         isPending: false,
         mutateAsync: mockCreateEndpoint,
       },
+      deleteEndpoint: {
+        isPending: false,
+        mutateAsync: mockDeleteEndpoint,
+      },
       decideFinding: {
         isPending: false,
         mutateAsync: mockDecideFinding,
       },
     })
+    mockDeleteEndpoint.mockResolvedValue(undefined)
     mockUseSpmEndpoints.mockReturnValue(paginated(endpoints))
     mockUseSpmAssets.mockImplementation((params?: { endpointId?: string }) => {
       if (params?.endpointId) {
@@ -405,5 +468,43 @@ describe("SPM operator UI", () => {
         })
       )
     })
+  })
+
+  it("shows cancel enrollment only for pure pending endpoints", () => {
+    mockUseSpmEndpoints.mockReturnValue(paginated(pendingEndpoints))
+
+    render(<SpmEndpointsView />)
+
+    expect(
+      screen.getAllByRole("button", { name: "Cancel enrollment" })
+    ).toHaveLength(1)
+    expect(screen.getByText("Pending MacBook")).toBeInTheDocument()
+    expect(screen.getByText("Active MacBook")).toBeInTheDocument()
+    expect(screen.getAllByRole("row")).toHaveLength(3)
+  })
+
+  it("cancels a pending enrollment after confirmation", async () => {
+    mockUseSpmEndpoints.mockReturnValue(paginated(pendingEndpoints))
+
+    render(<SpmEndpointsView />)
+
+    fireEvent.click(screen.getByRole("button", { name: "Cancel enrollment" }))
+
+    await waitFor(() => {
+      expect(screen.getByText("Cancel pending enrollment")).toBeInTheDocument()
+    })
+
+    fireEvent.click(
+      screen.getAllByRole("button", { name: "Cancel enrollment" })[1]
+    )
+
+    await waitFor(() => {
+      expect(mockDeleteEndpoint).toHaveBeenCalledWith({
+        endpointId: "endpoint-pending",
+      })
+    })
+    expect(mockToast).toHaveBeenCalledWith(
+      expect.objectContaining({ title: "Enrollment canceled" })
+    )
   })
 })

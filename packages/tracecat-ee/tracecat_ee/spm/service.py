@@ -11,6 +11,7 @@ from typing import Any
 import sqlalchemy as sa
 from fastapi import HTTPException, status
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.db.models import (
@@ -21,7 +22,11 @@ from tracecat.db.models import (
     SpmFinding,
     SpmFindingDecision,
 )
-from tracecat.exceptions import EntitlementRequired, TracecatNotFoundError
+from tracecat.exceptions import (
+    EntitlementRequired,
+    TracecatNotFoundError,
+    TracecatValidationError,
+)
 from tracecat.pagination import (
     BaseCursorPaginator,
     CursorPaginatedResponse,
@@ -191,6 +196,15 @@ class SpmService(BaseOrgService):
     async def get_endpoint(self, endpoint_id: uuid.UUID) -> SpmEndpointRead:
         row = await self._get_endpoint_row(endpoint_id)
         return SpmEndpointRead.model_validate(row)
+
+    async def delete_pending_endpoint(self, endpoint_id: uuid.UUID) -> None:
+        row = await self._get_endpoint_row(endpoint_id)
+        if not self._can_delete_pending_endpoint(row):
+            raise TracecatValidationError(
+                "Only pending enrollments that have never enrolled or synced can be removed"
+            )
+        await self.session.delete(row)
+        await self.session.commit()
 
     async def list_assets(
         self,
@@ -428,6 +442,15 @@ class SpmService(BaseOrgService):
             raise TracecatNotFoundError(f"SPM finding not found: {finding_id}")
         return row
 
+    @staticmethod
+    def _can_delete_pending_endpoint(endpoint: SpmEndpoint) -> bool:
+        return (
+            endpoint.status == "pending"
+            and endpoint.enrolled_at is None
+            and endpoint.last_seen_at is None
+            and endpoint.last_sync_at is None
+        )
+
 
 class SpmSyncService:
     """Endpoint-authenticated SPM sync service."""
@@ -552,13 +575,20 @@ class SpmSyncService:
                 first_seen_at=now,
                 last_seen_at=now,
             )
-            self.session.add(asset_row)
-            await self.session.flush()
-        else:
-            asset_row.display_name = asset.display_name
-            asset_row.content_hash = asset.content_hash
-            asset_row.asset_metadata = asset.metadata
-            asset_row.last_seen_at = now
+            # Multiple endpoints can discover the same org-scoped asset on their
+            # first sync. Use a savepoint so a duplicate insert can fall back to
+            # the row that another transaction just committed.
+            try:
+                async with self.session.begin_nested():
+                    self.session.add(asset_row)
+                    await self.session.flush()
+            except IntegrityError:
+                asset_row = (await self.session.scalars(stmt)).one()
+
+        asset_row.display_name = asset.display_name
+        asset_row.content_hash = asset.content_hash
+        asset_row.asset_metadata = asset.metadata
+        asset_row.last_seen_at = now
 
         sighting_stmt = select(SpmAssetSighting).where(
             SpmAssetSighting.organization_id == endpoint.organization_id,

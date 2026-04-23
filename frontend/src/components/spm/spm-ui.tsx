@@ -15,6 +15,16 @@ import type {
 } from "@/client"
 import { EntitlementRequiredEmptyState } from "@/components/entitlement-required-empty-state"
 import { CenteredSpinner } from "@/components/loading/spinner"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -335,6 +345,15 @@ function getComplianceRollup(endpointId: string, findings: SpmFindingRead[]) {
   }
 }
 
+function canCancelPendingEnrollment(endpoint: SpmEndpointRead) {
+  return (
+    endpoint.status === "pending" &&
+    endpoint.enrolled_at == null &&
+    endpoint.last_seen_at == null &&
+    endpoint.last_sync_at == null
+  )
+}
+
 function getEndpointName(endpointId: string, endpoints: SpmEndpointRead[]) {
   return (
     endpoints.find((endpoint) => endpoint.id === endpointId)?.name ?? endpointId
@@ -629,11 +648,36 @@ export function SpmInstallDrawer() {
  * Endpoints table plus install drawer.
  */
 export function SpmEndpointsView() {
+  const { toast } = useToast()
   const { hasEntitlement, isLoading: entitlementLoading } = useEntitlements()
+  const { deleteEndpoint } = useSpmActions()
   const endpointsQuery = useSpmEndpoints()
   const findingsQuery = useSpmFindings()
+  const [deleteCandidate, setDeleteCandidate] =
+    useState<SpmEndpointRead | null>(null)
   const endpoints = endpointsQuery.data?.items ?? []
   const findings = findingsQuery.data?.items ?? []
+
+  async function handleDeleteEndpoint() {
+    if (!deleteCandidate) {
+      return
+    }
+    try {
+      await deleteEndpoint.mutateAsync({ endpointId: deleteCandidate.id })
+      toast({
+        title: "Enrollment canceled",
+        description: "The pending endpoint enrollment has been removed.",
+      })
+      setDeleteCandidate(null)
+    } catch (error) {
+      toast({
+        title: "Cancel enrollment failed",
+        description:
+          getApiErrorDetail(error) ?? "Failed to remove pending enrollment",
+        variant: "destructive",
+      })
+    }
+  }
 
   return renderMaybeLoading(
     entitlementLoading || endpointsQuery.isLoading || findingsQuery.isLoading,
@@ -661,6 +705,7 @@ export function SpmEndpointsView() {
                 <TableHead>Last seen</TableHead>
                 <TableHead>Last sync</TableHead>
                 <TableHead>Sync state</TableHead>
+                <TableHead className="text-right">Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -715,6 +760,17 @@ export function SpmEndpointsView() {
                         </div>
                       </div>
                     </TableCell>
+                    <TableCell className="text-right">
+                      {canCancelPendingEnrollment(endpoint) ? (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setDeleteCandidate(endpoint)}
+                        >
+                          Cancel enrollment
+                        </Button>
+                      ) : null}
+                    </TableCell>
                   </TableRow>
                 )
               })}
@@ -722,6 +778,37 @@ export function SpmEndpointsView() {
           </Table>
         </div>
       )}
+      <AlertDialog
+        open={deleteCandidate != null}
+        onOpenChange={(open) => {
+          if (!open) {
+            setDeleteCandidate(null)
+          }
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Cancel pending enrollment</AlertDialogTitle>
+            <AlertDialogDescription>
+              {deleteCandidate
+                ? `Cancel the pending enrollment for ${deleteCandidate.name}? The unused enrollment token will become invalid and this row will be removed from the endpoints list.`
+                : "Canceling this pending enrollment invalidates the unused token and removes the row from the endpoints list."}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Keep enrollment</AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              onClick={() => void handleDeleteEndpoint()}
+              disabled={deleteEndpoint.isPending}
+            >
+              {deleteEndpoint.isPending
+                ? "Canceling enrollment..."
+                : "Cancel enrollment"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </SpmPageShell>
   )
 }
