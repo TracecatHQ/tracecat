@@ -1,4 +1,6 @@
 import {
+  applyEdgeChanges,
+  applyNodeChanges,
   Background,
   type Connection,
   ConnectionLineType,
@@ -14,13 +16,12 @@ import {
   Panel,
   ReactFlow,
   type ReactFlowInstance,
-  useEdgesState,
-  useNodesState,
   useReactFlow,
   type Viewport,
   type XYPosition,
 } from "@xyflow/react"
 import React, {
+  type SetStateAction,
   useCallback,
   useEffect,
   useImperativeHandle,
@@ -60,7 +61,11 @@ import { useGraph, useGraphOperations } from "@/lib/hooks"
 import { pruneGraphObject } from "@/lib/workflow"
 import { useWorkflowBuilder } from "@/providers/builder"
 import { useWorkflow } from "@/providers/workflow"
-import { getLayoutedElements, mergeHydratedNodes } from "./graph-layout"
+import {
+  getLayoutedElements,
+  mergeHydratedEdges,
+  mergeHydratedNodes,
+} from "./graph-layout"
 
 const defaultNodeWidth = 172
 const defaultNodeHeight = 36
@@ -96,6 +101,37 @@ const defaultEdgeOptions = {
   },
 }
 
+type CanvasGraphState = {
+  nodes: Node[]
+  edges: Edge[]
+}
+
+function resolveStateAction<T>(value: SetStateAction<T>, current: T): T {
+  return typeof value === "function"
+    ? (value as (current: T) => T)(current)
+    : value
+}
+
+function removeEphemeralGraphElements({
+  nodes,
+  edges,
+}: CanvasGraphState): CanvasGraphState {
+  const ephemeralNodeIds = new Set(
+    nodes.filter((node) => isEphemeral(node)).map((node) => node.id)
+  )
+  if (ephemeralNodeIds.size === 0) {
+    return { nodes, edges }
+  }
+
+  return {
+    nodes: nodes.filter((node) => !isEphemeral(node)),
+    edges: edges.filter(
+      (edge) =>
+        !ephemeralNodeIds.has(edge.source) && !ephemeralNodeIds.has(edge.target)
+    ),
+  }
+}
+
 export function isInvincible(node: Node | Node<NodeData>): boolean {
   return invincibleNodeTypes.includes(node?.type as string)
 }
@@ -114,8 +150,10 @@ export const WorkflowCanvas = React.forwardRef<
   const containerRef = useRef<HTMLDivElement>(null)
   const connectingNodeId = useRef<string | null>(null)
   const connectingHandleId = useRef<string | null>(null)
-  const [nodes, setNodes, onNodesChange] = useNodesState<Node>([])
-  const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([])
+  const [{ nodes, edges }, setCanvasGraph] = useState<CanvasGraphState>({
+    nodes: [],
+    edges: [],
+  })
   const [reactFlowInstance, setReactFlowInstance] =
     useState<ReactFlowInstance | null>(null)
   const { setViewport, getNode, screenToFlowPosition } = useReactFlow()
@@ -139,6 +177,34 @@ export const WorkflowCanvas = React.forwardRef<
   >([])
   const [showDeleteDialog, setShowDeleteDialog] = useState(false)
   const openContextMenuId = useRef<string | null>(null)
+
+  const setNodes = useCallback((value: SetStateAction<Node[]>) => {
+    setCanvasGraph((current) => ({
+      ...current,
+      nodes: resolveStateAction(value, current.nodes),
+    }))
+  }, [])
+
+  const setEdges = useCallback((value: SetStateAction<Edge[]>) => {
+    setCanvasGraph((current) => ({
+      ...current,
+      edges: resolveStateAction(value, current.edges),
+    }))
+  }, [])
+
+  const onNodesChange = useCallback(
+    (changes: NodeChange[]) => {
+      setNodes((currentNodes) => applyNodeChanges(changes, currentNodes))
+    },
+    [setNodes]
+  )
+
+  const onEdgesChange = useCallback(
+    (changes: EdgeChange[]) => {
+      setEdges((currentEdges) => applyEdgeChanges(changes, currentEdges))
+    },
+    [setEdges]
+  )
 
   /**
    * Convert graph response to React Flow nodes and edges.
@@ -184,6 +250,29 @@ export const WorkflowCanvas = React.forwardRef<
     []
   )
 
+  const hydrateCanvasFromGraph = useCallback(
+    (graphNodes: Node[], graphEdges: Edge[]) => {
+      setCanvasGraph((current) => {
+        const nextNodes = mergeHydratedNodes(current.nodes, graphNodes, {
+          preserveEphemeral: true,
+          isEphemeralNode: isEphemeral,
+        })
+        const nextEdges = mergeHydratedEdges(
+          current.edges,
+          graphEdges,
+          nextNodes,
+          {
+            preserveEphemeral: true,
+            isEphemeralNode: isEphemeral,
+          }
+        )
+
+        return { nodes: nextNodes, edges: nextEdges }
+      })
+    },
+    []
+  )
+
   /**
    * Update canvas state from graph response (used after graph operations).
    */
@@ -192,15 +281,16 @@ export const WorkflowCanvas = React.forwardRef<
       setGraphVersion(graph.version)
       const { nodes: rfNodes, edges: rfEdges } =
         buildNodesAndEdgesFromGraph(graph)
-      setNodes((nodes) => mergeHydratedNodes(nodes, rfNodes))
-      setEdges(rfEdges)
+      hydrateCanvasFromGraph(rfNodes, rfEdges)
       setHydratedWorkflowId(workflowId ?? null)
     },
-    [buildNodesAndEdgesFromGraph, setNodes, setEdges, workflowId]
+    [buildNodesAndEdgesFromGraph, hydrateCanvasFromGraph, workflowId]
   )
 
   useEffect(() => {
     setHydratedWorkflowId(null)
+    setCanvasGraph(removeEphemeralGraphElements)
+    openContextMenuId.current = null
   }, [workflowId])
 
   /**
@@ -215,8 +305,7 @@ export const WorkflowCanvas = React.forwardRef<
       // Build nodes and edges from graph API response
       const { nodes: graphNodes, edges: graphEdges } =
         buildNodesAndEdgesFromGraph(graphData)
-      setNodes((nodes) => mergeHydratedNodes(nodes, graphNodes))
-      setEdges(graphEdges)
+      hydrateCanvasFromGraph(graphNodes, graphEdges)
       setGraphVersion(graphData.version)
 
       // Set viewport from graph if available
@@ -237,8 +326,7 @@ export const WorkflowCanvas = React.forwardRef<
     reactFlowInstance,
     workflowId,
     buildNodesAndEdgesFromGraph,
-    setNodes,
-    setEdges,
+    hydrateCanvasFromGraph,
     setViewport,
   ])
 
@@ -629,7 +717,7 @@ export const WorkflowCanvas = React.forwardRef<
       // apply the changes we kept
       onNodesChange(nextChanges)
     },
-    [nodes, setNodes, pendingDeleteNodes]
+    [getNode, onNodesChange]
   )
 
   /**
