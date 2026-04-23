@@ -1,0 +1,48 @@
+services:
+  preview-baseline:
+    build:
+      context: ..
+      dockerfile: e2e/Dockerfile
+    env_file:
+      - ../dist/preview-devices/baseline/device.env
+    environment:
+      TRACECAT_SERVER_URL: ${TRACECAT_CONTAINER_SERVER_URL:?}
+    extra_hosts:
+      - host.docker.internal:host-gateway
+    hostname: preview-baseline
+    restart: unless-stopped
+    volumes:
+      - ../dist/preview-devices/baseline/home:/home/tracecat
+      - ../dist/preview-devices/baseline/state:/state
+
+  preview-rogue-mcp:
+    build:
+      context: ..
+      dockerfile: e2e/Dockerfile
+    env_file:
+      - ../dist/preview-devices/rogue_mcp/device.env
+    environment:
+      TRACECAT_SERVER_URL: ${TRACECAT_CONTAINER_SERVER_URL:?}
+    extra_hosts:
+      - host.docker.internal:host-gateway
+    hostname: preview-rogue-mcp
+    restart: unless-stopped
+    volumes:
+      - ../dist/preview-devices/rogue_mcp/home:/home/tracecat
+      - ../dist/preview-devices/rogue_mcp/state:/state
+
+  preview-rogue-instruction-file:
+    build:
+      context: ..
+      dockerfile: e2e/Dockerfile
+    env_file:
+      - ../dist/preview-devices/rogue_instruction_file/device.env
+    environment:
+      TRACECAT_SERVER_URL: ${TRACECAT_CONTAINER_SERVER_URL:?}
+    extra_hosts:
+      - host.docker.internal:host-gateway
+    hostname: preview-rogue-instruction-file
+    restart: unless-stopped
+    volumes:
+      - ../dist/preview-devices/rogue_instruction_file/home:/home/tracecat
+      - ../dist/preview-devices/rogue_instruction_file/state:/state

@@ -1,0 +1,5 @@
+{
+  "disabledMcpjsonServers": ["managed-server"],
+  "claudeMdExcludes": ["__HOME__/workspace-shadowed/CLAUDE.md"],
+  "theme": "managed"
+}

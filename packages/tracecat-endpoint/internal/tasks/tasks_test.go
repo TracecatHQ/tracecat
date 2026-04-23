@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/TracecatHQ/tracecat/packages/tracecat-endpoint/internal/spmapi"
@@ -97,17 +98,16 @@ func TestClaudeExecutorDisablesUserMCPByResolvedIdentity(t *testing.T) {
 func TestClaudeExecutorDisablesProjectMCPViaDisabledMcpjsonServers(t *testing.T) {
 	t.Parallel()
 
-	homeDir := filepath.Join(t.TempDir(), "home")
+	homeDir := copyInventoryFixture(t, "claude")
 	projectRoot := filepath.Join(homeDir, "workspace-alpha")
 	projectMCPPath := filepath.Join(projectRoot, ".mcp.json")
-	writeFile(t, projectMCPPath, "{\n  \"mcpServers\": {\n    \"github\": {}\n  }\n}\n")
 
 	executor := NewClaudeExecutor(homeDir)
 	task := spmapi.EnforcementTask{
 		ID:     "task-project-mcp",
 		Action: "disable_mcp_server",
 		Payload: map[string]any{
-			"server_name":  "github",
+			"server_name":  "slack",
 			"project_root": projectRoot,
 			"source_path":  projectMCPPath,
 		},
@@ -121,7 +121,7 @@ func TestClaudeExecutorDisablesProjectMCPViaDisabledMcpjsonServers(t *testing.T)
 	localSettingsPath := filepath.Join(projectRoot, ".claude", "settings.local.json")
 	doc := readJSONDocument(t, localSettingsPath)
 	disabled := stringSlice(doc["disabledMcpjsonServers"])
-	if len(disabled) != 1 || disabled[0] != "github" {
+	if len(disabled) != 1 || disabled[0] != "slack" {
 		t.Fatalf("unexpected disabledMcpjsonServers %v", disabled)
 	}
 
@@ -139,11 +139,10 @@ func TestClaudeExecutorDisablesProjectMCPViaDisabledMcpjsonServers(t *testing.T)
 func TestClaudeExecutorExcludesInstructionFileByPathWithoutRewritingSource(t *testing.T) {
 	t.Parallel()
 
-	homeDir := filepath.Join(t.TempDir(), "home")
+	homeDir := copyInventoryFixture(t, "claude")
 	projectRoot := filepath.Join(homeDir, "workspace-alpha")
 	instructionPath := filepath.Join(projectRoot, "CLAUDE.md")
-	originalContent := "# Claude instructions\n"
-	writeFile(t, instructionPath, originalContent)
+	originalContent := readFile(t, instructionPath)
 
 	executor := NewClaudeExecutor(homeDir)
 	task := spmapi.EnforcementTask{
@@ -173,6 +172,63 @@ func TestClaudeExecutorExcludesInstructionFileByPathWithoutRewritingSource(t *te
 	retryResults := executeTasks(t, executor, []spmapi.EnforcementTask{task})
 	if retryResults[0].Status != spmapi.TaskResultStatusSkipped {
 		t.Fatalf("expected idempotent skip, got %q", retryResults[0].Status)
+	}
+}
+
+func TestClaudeExecutorManagedShadowedWritesStayInProjectLocalSettings(t *testing.T) {
+	t.Parallel()
+
+	homeDir := copyInventoryFixture(t, "claude-managed-shadowed")
+	projectRoot := filepath.Join(homeDir, "workspace-shadowed")
+	projectSettingsPath := filepath.Join(projectRoot, ".claude", "settings.json")
+	projectLocalPath := filepath.Join(projectRoot, ".claude", "settings.local.json")
+	projectMCPPath := filepath.Join(projectRoot, ".mcp.json")
+	instructionPath := filepath.Join(projectRoot, "CLAUDE.md")
+
+	managedBefore := readFile(t, projectSettingsPath)
+
+	executor := NewClaudeExecutor(homeDir)
+	results := executeTasks(t, executor, []spmapi.EnforcementTask{
+		{
+			ID:     "task-shadowed-mcp",
+			Action: "disable_mcp_server",
+			Payload: map[string]any{
+				"server_name":  "shadowed-server",
+				"project_root": projectRoot,
+				"source_path":  projectMCPPath,
+			},
+		},
+		{
+			ID:     "task-shadowed-instruction",
+			Action: "exclude_instruction_file",
+			Payload: map[string]any{
+				"file_path":    instructionPath,
+				"project_root": projectRoot,
+			},
+		},
+	})
+
+	if results[0].Status != spmapi.TaskResultStatusApplied {
+		t.Fatalf("unexpected managed-shadowed mcp status %q", results[0].Status)
+	}
+	if results[1].Status != spmapi.TaskResultStatusApplied {
+		t.Fatalf("unexpected managed-shadowed instruction status %q", results[1].Status)
+	}
+
+	localDoc := readJSONDocument(t, projectLocalPath)
+	if localDoc["theme"] != "local" {
+		t.Fatalf("expected local settings to preserve unrelated fields, got %v", localDoc["theme"])
+	}
+	disabled := stringSlice(localDoc["disabledMcpjsonServers"])
+	if len(disabled) != 1 || disabled[0] != "shadowed-server" {
+		t.Fatalf("unexpected local disabledMcpjsonServers %v", disabled)
+	}
+	excludes := stringSlice(localDoc["claudeMdExcludes"])
+	if len(excludes) != 1 || excludes[0] != instructionPath {
+		t.Fatalf("unexpected local claudeMdExcludes %v", excludes)
+	}
+	if got := readFile(t, projectSettingsPath); got != managedBefore {
+		t.Fatal("expected managed project settings to remain unchanged")
 	}
 }
 
@@ -523,6 +579,49 @@ func executeTasks(
 		t.Fatalf("Execute() error = %v", err)
 	}
 	return results
+}
+
+func copyInventoryFixture(t *testing.T, fixtureName string) string {
+	t.Helper()
+
+	root := filepath.Join("..", "inventory", "testdata", fixtureName, "home")
+	targetHome := filepath.Join(t.TempDir(), "home")
+	if err := copyFixtureDirectory(root, targetHome, targetHome); err != nil {
+		t.Fatalf("copy fixture %s: %v", fixtureName, err)
+	}
+	return targetHome
+}
+
+func copyFixtureDirectory(source string, target string, homeDir string) error {
+	entries, err := os.ReadDir(source)
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(target, 0o755); err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		sourcePath := filepath.Join(source, entry.Name())
+		targetPath := filepath.Join(target, entry.Name())
+		if entry.IsDir() {
+			if err := copyFixtureDirectory(sourcePath, targetPath, homeDir); err != nil {
+				return err
+			}
+			continue
+		}
+		data, err := os.ReadFile(sourcePath)
+		if err != nil {
+			return err
+		}
+		replaced := strings.ReplaceAll(string(data), "__HOME__", homeDir)
+		if err := os.MkdirAll(filepath.Dir(targetPath), 0o755); err != nil {
+			return err
+		}
+		if err := os.WriteFile(targetPath, []byte(replaced), 0o600); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func writeFile(t *testing.T, path string, content string) {

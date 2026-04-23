@@ -112,3 +112,6 @@ temporal-stop-all: _check-temporal-cli
 # Manage multiple Tracecat clusters (run `just cluster` for usage)
 cluster *args:
 	./scripts/cluster {{args}}
+
+preview-devices *args:
+	./packages/tracecat-endpoint/e2e/preview-devices.sh {{args}}

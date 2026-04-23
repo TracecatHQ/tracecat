@@ -27,7 +27,9 @@ func TestClaudeProviderCollectsClaudeSurfaces(t *testing.T) {
 
 	trustedPath := filepath.Join(homeDir, "workspace-alpha")
 	additionalPath := filepath.Join(homeDir, "workspace-beta")
+	projectSettingsPath := filepath.Join(homeDir, "workspace-alpha", ".claude", "settings.json")
 	claudePath := filepath.Join(homeDir, "workspace-alpha", "CLAUDE.md")
+	claudeLocalPath := filepath.Join(homeDir, "workspace-alpha", "CLAUDE.local.md")
 	agentsPath := filepath.Join(homeDir, "workspace-alpha", "AGENTS.md")
 
 	trusted := findAsset(t, assets, assetClassWorkspaceAccess, assetTypeTrustedDirectory, trustedPath)
@@ -44,10 +46,25 @@ func TestClaudeProviderCollectsClaudeSurfaces(t *testing.T) {
 	if permissionAsset.Metadata["parse_status"] != parseStatusOK {
 		t.Fatalf("unexpected permission parse status %v", permissionAsset.Metadata["parse_status"])
 	}
+	projectPermissionAsset := findAsset(t, assets, assetClassPermissions, assetTypePermissionConfig, projectSettingsPath+"#permission_config")
+	if projectPermissionAsset.Metadata["source_surface"] != "project_settings_json" {
+		t.Fatalf("unexpected project permission source %v", projectPermissionAsset.Metadata["source_surface"])
+	}
+	projectSandboxAsset := findAsset(t, assets, assetClassSandbox, assetTypeSandboxConfig, projectSettingsPath+"#sandbox_config")
+	if projectSandboxAsset.Metadata["writable"] != false {
+		t.Fatalf("expected project settings sandbox surface to be non-writable, got %v", projectSandboxAsset.Metadata["writable"])
+	}
 
 	httpMCP := findAssetByDisplayName(t, assets, assetClassMCPServer, assetTypeMCPServer, "github-http")
 	if httpMCP.Metadata["resolved_identity"] != "https://api.github.com/mcp" {
 		t.Fatalf("unexpected http mcp identity %v", httpMCP.Metadata["resolved_identity"])
+	}
+	approvalIdentity, ok := httpMCP.Metadata["approval_identity"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected approval_identity metadata, got %T", httpMCP.Metadata["approval_identity"])
+	}
+	if approvalIdentity["server_name"] != "github-http" || approvalIdentity["resolved_identity"] != "https://api.github.com/mcp" {
+		t.Fatalf("unexpected approval identity %v", approvalIdentity)
 	}
 
 	stdioMCP := findAssetByDisplayName(t, assets, assetClassMCPServer, assetTypeMCPServer, "local-stdio")
@@ -66,8 +83,27 @@ func TestClaudeProviderCollectsClaudeSurfaces(t *testing.T) {
 	}
 
 	claudeFile := findAsset(t, assets, assetClassInstructionFile, assetTypeClaudeMD, claudePath)
-	if claudeFile.Evidence["urls"] == nil {
-		t.Fatal("expected claude file evidence urls")
+	urls, ok := claudeFile.Evidence["urls"].([]string)
+	if !ok || len(urls) != 1 || urls[0] != "https://example.com" {
+		t.Fatalf("unexpected claude file urls %v", claudeFile.Evidence["urls"])
+	}
+	ips, ok := claudeFile.Evidence["ips"].([]string)
+	if !ok || len(ips) != 1 || ips[0] != "10.0.0.8" {
+		t.Fatalf("unexpected claude file ips %v", claudeFile.Evidence["ips"])
+	}
+
+	claudeLocalFile := findAsset(t, assets, assetClassInstructionFile, assetTypeClaudeMD, claudeLocalPath)
+	languageSignal, ok := claudeLocalFile.Evidence["language_signal"].(map[string]any)
+	if !ok || languageSignal["likely_english"] != false {
+		t.Fatalf("unexpected claude.local language signal %v", claudeLocalFile.Evidence["language_signal"])
+	}
+	obfuscation, ok := claudeLocalFile.Evidence["obfuscation"].(map[string]any)
+	if !ok || obfuscation["obfuscation_detected"] != true {
+		t.Fatalf("unexpected claude.local obfuscation signal %v", claudeLocalFile.Evidence["obfuscation"])
+	}
+	domains, ok := claudeLocalFile.Evidence["domains"].([]string)
+	if !ok || len(domains) != 1 || domains[0] != "control.example.net" {
+		t.Fatalf("unexpected claude.local domains %v", claudeLocalFile.Evidence["domains"])
 	}
 
 	agentsFile := findAsset(t, assets, assetClassInstructionFile, assetTypeAgentsMD, agentsPath)
@@ -97,6 +133,52 @@ func TestClaudeProviderEmitsParseErrorAssetsWithoutFailingSync(t *testing.T) {
 	parseErrorAsset := findAssetBySuffix(t, assets, assetClassMCPServer, assetTypeMCPServer, ".claude.json#parse_error#mcp_server")
 	if parseErrorAsset.Metadata["parse_status"] != parseStatusInvalid {
 		t.Fatalf("unexpected parse status %v", parseErrorAsset.Metadata["parse_status"])
+	}
+}
+
+func TestClaudeProviderEmitsParseErrorAssetsFromFixtureSurfaces(t *testing.T) {
+	t.Parallel()
+
+	homeDir := copyFixture(t, "claude-invalid-surfaces")
+	provider := NewClaudeProvider(homeDir)
+
+	assets, err := provider.Collect(context.Background())
+	if err != nil {
+		t.Fatalf("Collect() error = %v", err)
+	}
+
+	testCases := []struct {
+		assetClass string
+		assetType  string
+		identity   string
+	}{
+		{
+			assetClass: assetClassMCPServer,
+			assetType:  assetTypeMCPServer,
+			identity:   filepath.Join(homeDir, ".claude", "settings.json") + "#parse_error#mcp_server",
+		},
+		{
+			assetClass: assetClassPermissions,
+			assetType:  assetTypePermissionConfig,
+			identity:   filepath.Join(homeDir, "workspace-alpha", ".claude", "settings.json") + "#parse_error#permission_config",
+		},
+		{
+			assetClass: assetClassSandbox,
+			assetType:  assetTypeSandboxConfig,
+			identity:   filepath.Join(homeDir, "workspace-alpha", ".claude", "settings.local.json") + "#parse_error#sandbox_config",
+		},
+		{
+			assetClass: assetClassMCPServer,
+			assetType:  assetTypeMCPServer,
+			identity:   filepath.Join(homeDir, "workspace-alpha", ".mcp.json") + "#parse_error#mcp_server",
+		},
+	}
+
+	for _, tc := range testCases {
+		asset := findAsset(t, assets, tc.assetClass, tc.assetType, tc.identity)
+		if asset.Metadata["parse_status"] != parseStatusInvalid {
+			t.Fatalf("unexpected parse status for %s: %v", tc.identity, asset.Metadata["parse_status"])
+		}
 	}
 }
 

@@ -3,27 +3,43 @@
 from __future__ import annotations
 
 import uuid
+from datetime import UTC, datetime, timedelta
+from typing import Any
 from unittest.mock import AsyncMock, patch
 
 import pytest
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat_ee.spm.analyzer import SpmInventoryAnalyzer
 from tracecat_ee.spm.schemas import (
     SpmAssetQueryParams,
     SpmEndpointCreate,
     SpmEndpointSyncRequest,
+    SpmFindingDecisionCreate,
     SpmFindingQueryParams,
     SpmSyncAssetUpsert,
+    SpmSyncTaskResult,
 )
 from tracecat_ee.spm.service import SpmService, SpmSyncService
 from tracecat_ee.spm.types import (
     SpmAssetClass,
     SpmAssetType,
     SpmEndpointPlatform,
+    SpmEnforcementTaskStatus,
+    SpmFindingDecisionType,
+    SpmFindingStatus,
     SpmHarness,
+    SpmSyncTaskResultStatus,
 )
 
 from tracecat.auth.types import Role
+from tracecat.db.models import (
+    SpmAsset,
+    SpmEndpoint,
+    SpmEnforcementTask,
+    SpmFinding,
+    User,
+)
 from tracecat.pagination import CursorPaginationParams
 
 
@@ -42,6 +58,63 @@ async def _sync_assets(
             assets=assets,
         ),
     )
+
+
+def _mcp_asset(
+    *,
+    server_name: str,
+    resolved_identity: str,
+    disabled: bool = False,
+) -> SpmSyncAssetUpsert:
+    return SpmSyncAssetUpsert(
+        harness=SpmHarness.CLAUDE_CODE,
+        asset_class=SpmAssetClass.MCP_SERVER,
+        asset_type=SpmAssetType.MCP_SERVER,
+        identity_key=(
+            f"file:/Users/chris/.claude.json#mcp:{server_name}|{resolved_identity}"
+        ),
+        display_name=server_name,
+        metadata={
+            "file_path": "/Users/chris/.claude.json",
+            "source_surface": "user_state_json",
+            "parse_status": "ok",
+            "server_name": server_name,
+            "resolved_identity": resolved_identity,
+            "mcp_identity_key": f"{server_name}|{resolved_identity}",
+        },
+        evidence={"config": {"url": resolved_identity}},
+        observed_state={"disabled": disabled},
+    )
+
+
+async def _ensure_spm_user(session: AsyncSession, svc_role: Role) -> None:
+    session.add(
+        User(
+            id=svc_role.user_id or uuid.uuid4(),
+            email=f"spm-{uuid.uuid4()}@example.com",
+            hashed_password="test_password",
+            is_active=True,
+            is_verified=True,
+            is_superuser=False,
+            last_login_at=None,
+        )
+    )
+    await session.commit()
+
+
+async def _set_model_updated_at(
+    session: AsyncSession,
+    model: type[Any],
+    ids: list[uuid.UUID],
+    *,
+    base_time: datetime,
+) -> None:
+    rows = list((await session.scalars(select(model).where(model.id.in_(ids)))).all())
+    order = {row_id: idx for idx, row_id in enumerate(ids)}
+    rows.sort(key=lambda row: order[row.id])
+    for index, row in enumerate(rows):
+        row.updated_at = base_time + timedelta(minutes=index)
+    await session.commit()
 
 
 @pytest.mark.anyio
@@ -222,3 +295,302 @@ async def test_list_findings_supports_endpoint_and_control_filters(
     assert {finding.control_id for finding in control_findings.items} == {
         "claude.mcp_server.approved"
     }
+
+
+@pytest.mark.anyio
+async def test_spm_list_methods_paginate_without_duplicates(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    service = SpmService(session, role=svc_role)
+    sync_service = SpmSyncService(
+        session,
+        analyzer=SpmInventoryAnalyzer(session),
+    )
+
+    created_endpoints = []
+    for name in ("alpha", "beta", "gamma"):
+        created_endpoints.append(
+            await service.create_endpoint(
+                SpmEndpointCreate(
+                    name=name,
+                    harness=SpmHarness.CLAUDE_CODE,
+                    platform=SpmEndpointPlatform.MACOS,
+                )
+            )
+        )
+
+    base_time = datetime(2026, 4, 22, tzinfo=UTC)
+    await _set_model_updated_at(
+        session,
+        SpmEndpoint,
+        [created.endpoint.id for created in created_endpoints],
+        base_time=base_time,
+    )
+
+    endpoints_page_one = await service.list_endpoints(CursorPaginationParams(limit=2))
+    endpoints_page_two = await service.list_endpoints(
+        CursorPaginationParams(limit=2, cursor=endpoints_page_one.next_cursor)
+    )
+
+    assert [endpoint.name for endpoint in endpoints_page_one.items] == ["gamma", "beta"]
+    assert [endpoint.name for endpoint in endpoints_page_two.items] == ["alpha"]
+    assert endpoints_page_one.has_more is True
+    assert endpoints_page_two.has_more is False
+
+    primary_endpoint = created_endpoints[0]
+    with patch(
+        "tracecat_ee.spm.service.is_org_entitled",
+        new=AsyncMock(return_value=True),
+    ):
+        response = await sync_service.sync_endpoint(
+            endpoint_id=primary_endpoint.endpoint.id,
+            bearer_token=primary_endpoint.enrollment_token,
+            params=SpmEndpointSyncRequest(
+                name="alpha",
+                client_metadata={
+                    "spm_policy": {
+                        "approved_mcp_servers": [
+                            {
+                                "server_name": "approved",
+                                "resolved_identity": "https://allowed.example/mcp",
+                            }
+                        ]
+                    }
+                },
+                assets=[
+                    _mcp_asset(
+                        server_name="gamma",
+                        resolved_identity="https://gamma.example/mcp",
+                    ),
+                    _mcp_asset(
+                        server_name="beta",
+                        resolved_identity="https://beta.example/mcp",
+                    ),
+                    _mcp_asset(
+                        server_name="alpha",
+                        resolved_identity="https://alpha.example/mcp",
+                    ),
+                ],
+            ),
+        )
+
+    asset_rows = list((await session.scalars(select(SpmAsset))).all())
+    asset_ids_by_name = {asset.display_name: asset.id for asset in asset_rows}
+    finding_rows = list((await session.scalars(select(SpmFinding))).all())
+    finding_ids_by_asset_name = {
+        next(
+            asset.display_name for asset in asset_rows if asset.id == finding.asset_id
+        ): finding.id
+        for finding in finding_rows
+        if finding.control_id == "claude.mcp_server.approved"
+    }
+    await _set_model_updated_at(
+        session,
+        SpmAsset,
+        [
+            asset_ids_by_name["alpha"],
+            asset_ids_by_name["beta"],
+            asset_ids_by_name["gamma"],
+        ],
+        base_time=base_time,
+    )
+    await _set_model_updated_at(
+        session,
+        SpmFinding,
+        [
+            finding_ids_by_asset_name["alpha"],
+            finding_ids_by_asset_name["beta"],
+            finding_ids_by_asset_name["gamma"],
+        ],
+        base_time=base_time + timedelta(hours=1),
+    )
+
+    assets_page_one = await service.list_assets(
+        SpmAssetQueryParams(
+            limit=2,
+            endpoint_id=primary_endpoint.endpoint.id,
+            harness=SpmHarness.CLAUDE_CODE,
+            asset_class=SpmAssetClass.MCP_SERVER,
+            asset_type=SpmAssetType.MCP_SERVER,
+        )
+    )
+    assets_page_two = await service.list_assets(
+        SpmAssetQueryParams(
+            limit=2,
+            cursor=assets_page_one.next_cursor,
+            endpoint_id=primary_endpoint.endpoint.id,
+            harness=SpmHarness.CLAUDE_CODE,
+            asset_class=SpmAssetClass.MCP_SERVER,
+            asset_type=SpmAssetType.MCP_SERVER,
+        )
+    )
+    findings_page_one = await service.list_findings(SpmFindingQueryParams(limit=2))
+    findings_page_two = await service.list_findings(
+        SpmFindingQueryParams(limit=2, cursor=findings_page_one.next_cursor)
+    )
+
+    assert [asset.display_name for asset in assets_page_one.items] == ["gamma", "beta"]
+    assert [asset.display_name for asset in assets_page_two.items] == ["alpha"]
+    assert assets_page_one.has_more is True
+    assert assets_page_two.has_more is False
+    assert [finding.summary for finding in findings_page_one.items] == [
+        "gamma is not approved",
+        "beta is not approved",
+    ]
+    assert [finding.summary for finding in findings_page_two.items] == [
+        "alpha is not approved"
+    ]
+    assert findings_page_one.has_more is True
+    assert findings_page_two.has_more is False
+    assert response.endpoint_secret is not None
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("task_status", "asset_disabled", "expected_finding_status"),
+    [
+        (
+            SpmSyncTaskResultStatus.APPLIED,
+            True,
+            SpmFindingStatus.RESOLVED,
+        ),
+        (
+            SpmSyncTaskResultStatus.FAILED,
+            False,
+            SpmFindingStatus.OPEN,
+        ),
+    ],
+)
+async def test_sync_endpoint_task_results_reconcile_task_and_finding_state(
+    session: AsyncSession,
+    svc_role: Role,
+    task_status: SpmSyncTaskResultStatus,
+    asset_disabled: bool,
+    expected_finding_status: SpmFindingStatus,
+) -> None:
+    service = SpmService(session, role=svc_role)
+    sync_service = SpmSyncService(
+        session,
+        analyzer=SpmInventoryAnalyzer(session),
+    )
+    created = await service.create_endpoint(
+        SpmEndpointCreate(
+            name="Chris MacBook",
+            harness=SpmHarness.CLAUDE_CODE,
+            platform=SpmEndpointPlatform.MACOS,
+        )
+    )
+
+    with patch(
+        "tracecat_ee.spm.service.is_org_entitled",
+        new=AsyncMock(return_value=True),
+    ):
+        first_response = await sync_service.sync_endpoint(
+            endpoint_id=created.endpoint.id,
+            bearer_token=created.enrollment_token,
+            params=SpmEndpointSyncRequest(
+                name="Chris MacBook",
+                client_metadata={
+                    "spm_policy": {
+                        "approved_mcp_servers": [
+                            {
+                                "server_name": "approved",
+                                "resolved_identity": "https://allowed.example/mcp",
+                            }
+                        ]
+                    }
+                },
+                assets=[
+                    _mcp_asset(
+                        server_name="github",
+                        resolved_identity="https://api.github.com/mcp",
+                    )
+                ],
+            ),
+        )
+
+    finding = (
+        await session.scalars(
+            select(SpmFinding).where(
+                SpmFinding.endpoint_id == created.endpoint.id,
+                SpmFinding.control_id == "claude.mcp_server.approved",
+            )
+        )
+    ).one()
+
+    await _ensure_spm_user(session, svc_role)
+    await service.create_finding_decision(
+        finding.id,
+        SpmFindingDecisionCreate(decision=SpmFindingDecisionType.ENFORCE),
+    )
+
+    task = (
+        await session.scalars(
+            select(SpmEnforcementTask).where(
+                SpmEnforcementTask.finding_id == finding.id,
+                SpmEnforcementTask.status == SpmEnforcementTaskStatus.PENDING.value,
+            )
+        )
+    ).one()
+
+    approved_identity = (
+        "https://api.github.com/mcp"
+        if task_status == SpmSyncTaskResultStatus.APPLIED
+        else "https://allowed.example/mcp"
+    )
+
+    with patch(
+        "tracecat_ee.spm.service.is_org_entitled",
+        new=AsyncMock(return_value=True),
+    ):
+        await sync_service.sync_endpoint(
+            endpoint_id=created.endpoint.id,
+            bearer_token=first_response.endpoint_secret or created.enrollment_token,
+            params=SpmEndpointSyncRequest(
+                name="Chris MacBook",
+                client_metadata={
+                    "spm_policy": {
+                        "approved_mcp_servers": [
+                            {
+                                "server_name": "github",
+                                "resolved_identity": approved_identity,
+                            }
+                        ]
+                    }
+                },
+                assets=[
+                    _mcp_asset(
+                        server_name="github",
+                        resolved_identity="https://api.github.com/mcp",
+                        disabled=asset_disabled,
+                    )
+                ],
+                task_results=[
+                    SpmSyncTaskResult(
+                        task_id=task.id,
+                        status=task_status,
+                        result={"target_path": "/Users/chris/.claude.json"},
+                        error="local apply failed"
+                        if task_status == SpmSyncTaskResultStatus.FAILED
+                        else None,
+                    )
+                ],
+            ),
+        )
+
+    await session.refresh(task)
+    await session.refresh(finding)
+
+    assert task.status == task_status.value
+    assert task.completed_at is not None
+    assert task.result["target_path"] == "/Users/chris/.claude.json"
+    if task_status == SpmSyncTaskResultStatus.FAILED:
+        assert task.error == "local apply failed"
+    else:
+        assert task.error is None
+    assert finding.status == expected_finding_status.value
+    if expected_finding_status == SpmFindingStatus.OPEN:
+        assert finding.closed_at is None
+    else:
+        assert finding.closed_at is not None

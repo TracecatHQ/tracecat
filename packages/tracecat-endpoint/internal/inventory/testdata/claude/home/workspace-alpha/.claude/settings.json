@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": ["Read"]
+  },
+  "sandbox": {
+    "mode": "read-only"
+  },
+  "mcpServers": {
+    "project-settings": {
+      "command": "uvx",
+      "args": ["project-settings-mcp", "--stdio"]
+    }
+  }
+}

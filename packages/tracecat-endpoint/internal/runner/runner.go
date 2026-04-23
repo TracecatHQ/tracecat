@@ -230,18 +230,29 @@ func endpointMetadata(homeDir string, interval time.Duration) (*Metadata, error)
 	if err != nil {
 		return nil, fmt.Errorf("resolve current user: %w", err)
 	}
+	name := strings.TrimSpace(os.Getenv("TRACECAT_DEVICE_NAME"))
+	if name == "" {
+		name = hostname
+	}
+	clientMetadata := map[string]any{
+		"binary_name":           "tracecatd",
+		"goos":                  runtime.GOOS,
+		"goarch":                runtime.GOARCH,
+		"poll_interval_seconds": int(interval.Seconds()),
+	}
+	if previewStack := strings.TrimSpace(os.Getenv("TRACECAT_PREVIEW_STACK")); previewStack != "" {
+		clientMetadata["preview_stack"] = previewStack
+	}
+	if previewScenario := strings.TrimSpace(os.Getenv("TRACECAT_PREVIEW_SCENARIO")); previewScenario != "" {
+		clientMetadata["preview_scenario"] = previewScenario
+	}
 	return &Metadata{
-		Name:            hostname,
+		Name:            name,
 		EndpointVersion: version.Version,
 		Hostname:        hostname,
 		OSUser:          currentUser.Username,
 		HomePath:        homeDir,
-		ClientMetadata: map[string]any{
-			"binary_name":           "tracecatd",
-			"goos":                  runtime.GOOS,
-			"goarch":                runtime.GOARCH,
-			"poll_interval_seconds": int(interval.Seconds()),
-		},
+		ClientMetadata:  clientMetadata,
 	}, nil
 }
 

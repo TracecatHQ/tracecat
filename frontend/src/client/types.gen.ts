@@ -2587,30 +2587,6 @@ export type CursorPaginatedResponse_InboxItemRead_ = {
   total_estimate?: number | null
 }
 
-export type CursorPaginatedResponse_SpmAssetRead_ = {
-  items: Array<SpmAssetRead>
-  /**
-   * Cursor for next page
-   */
-  next_cursor?: string | null
-  /**
-   * Cursor for previous page
-   */
-  prev_cursor?: string | null
-  /**
-   * Whether more items exist
-   */
-  has_more?: boolean
-  /**
-   * Whether previous items exist
-   */
-  has_previous?: boolean
-  /**
-   * Estimated total count from table statistics
-   */
-  total_estimate?: number | null
-}
-
 export type CursorPaginatedResponse_ServiceAccountApiKeyRead_ = {
   items: Array<ServiceAccountApiKeyRead>
   /**
@@ -2635,8 +2611,8 @@ export type CursorPaginatedResponse_ServiceAccountApiKeyRead_ = {
   total_estimate?: number | null
 }
 
-export type CursorPaginatedResponse_SpmEndpointAssetRead_ = {
-  items: Array<SpmEndpointAssetRead>
+export type CursorPaginatedResponse_ServiceAccountRead_ = {
+  items: Array<ServiceAccountRead>
   /**
    * Cursor for next page
    */
@@ -2659,8 +2635,32 @@ export type CursorPaginatedResponse_SpmEndpointAssetRead_ = {
   total_estimate?: number | null
 }
 
-export type CursorPaginatedResponse_ServiceAccountRead_ = {
-  items: Array<ServiceAccountRead>
+export type CursorPaginatedResponse_SpmAssetRead_ = {
+  items: Array<SpmAssetRead>
+  /**
+   * Cursor for next page
+   */
+  next_cursor?: string | null
+  /**
+   * Cursor for previous page
+   */
+  prev_cursor?: string | null
+  /**
+   * Whether more items exist
+   */
+  has_more?: boolean
+  /**
+   * Whether previous items exist
+   */
+  has_previous?: boolean
+  /**
+   * Estimated total count from table statistics
+   */
+  total_estimate?: number | null
+}
+
+export type CursorPaginatedResponse_SpmEndpointAssetRead_ = {
+  items: Array<SpmEndpointAssetRead>
   /**
    * Cursor for next page
    */

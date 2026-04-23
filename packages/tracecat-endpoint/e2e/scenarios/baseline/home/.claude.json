@@ -1,0 +1,8 @@
+{
+  "trustedDirectories": ["__HOME__/workspace-alpha"],
+  "projects": {
+    "__HOME__/workspace-alpha": {
+      "trustLevel": "trusted"
+    }
+  }
+}

@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": ["Read", "Write"]
+  },
+  "sandbox": {
+    "mode": "workspace-write"
+  }
+}

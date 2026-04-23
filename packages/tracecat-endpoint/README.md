@@ -21,6 +21,7 @@ go test ./...
 - `internal/tasks`: Claude Code local reconciliation executor
 - `internal/launchagent`: per-user LaunchAgent install and uninstall
 - `internal/version`: Build metadata for the binary
+- `e2e/`: preview-device end-to-end wrapper, compose stack, and runtime image
 - `testdata/`: fixture payloads, sample inputs, and local tests
 
 ## Commands
@@ -52,4 +53,21 @@ Bootstrap flags for `run` and `install`:
 - immediately performs one follow-up sync to flush queued task results
 - installs a per-user LaunchAgent at `~/Library/LaunchAgents/com.tracecat.tracecatd.plist`
 
-Live device or container QA remains deferred outside this package path.
+## Preview Devices QA
+
+Use the preview-device harness to run long-lived synthetic Claude endpoints
+against a normal local Tracecat stack started by `just cluster up -d`.
+
+```bash
+just preview-devices up -d
+just preview-devices ps
+just preview-devices logs
+just preview-devices down
+```
+
+The harness keeps immutable tracked scenarios under `e2e/scenarios/`, copies them
+into `dist/preview-devices/` before each run, and preserves per-device
+`state.json` so endpoint identity and queued task results survive restarts. See
+[`e2e/README.md`](./e2e/README.md) for the topology, runtime layout, and manual QA
+flow. The preview wrapper cross-builds `dist/tracecatd` for Linux before
+starting the containerized synthetic endpoints.
