@@ -2104,7 +2104,7 @@ layout:                # Optional UI positioning
     - ref: first_action
       x: 0
       y: 150
-    - ref: notify
+    - ref: post_alert
       x: 0
       y: 300
 
