@@ -413,6 +413,49 @@ class TestSkillService:
         assert len(blob_rows) == 1
         assert blob_rows[0].key == skill_service._storage_key_for(sha256)
 
+    async def test_upload_skill_rejects_invalid_manifest_before_blob_upload(
+        self,
+        skill_service: SkillService,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Invalid one-shot uploads should fail before writing blob objects."""
+
+        upload_called = False
+
+        async def fake_upload_file(
+            *,
+            content: bytes,
+            key: str,
+            bucket: str,
+            content_type: str,
+        ) -> None:
+            del content, key, bucket, content_type
+            nonlocal upload_called
+            upload_called = True
+
+        monkeypatch.setattr(
+            "tracecat.agent.skill.service.blob.upload_file",
+            fake_upload_file,
+        )
+
+        with pytest.raises(TracecatValidationError, match="failed validation"):
+            await skill_service.upload_skill(
+                SkillUpload(
+                    name="invalid-upload",
+                    files=[
+                        SkillUploadFile(
+                            path="notes.txt",
+                            content_base64=base64.b64encode(
+                                b"not a valid skill manifest"
+                            ).decode(),
+                            content_type="text/plain; charset=utf-8",
+                        )
+                    ],
+                )
+            )
+
+        assert upload_called is False
+
     async def test_invalid_skill_md_frontmatter_stays_in_validation_channel(
         self,
         skill_service: SkillService,

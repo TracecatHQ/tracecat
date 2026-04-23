@@ -88,6 +88,15 @@ class SkillFileBlobRef:
     content_type: str
 
 
+@dataclass(frozen=True, slots=True)
+class PreparedSkillUploadFile:
+    """Normalized one-shot upload file ready for validation and persistence."""
+
+    path: str
+    content: bytes
+    content_type: str
+
+
 class SkillService(BaseWorkspaceService):
     """CRUD operations and execution helpers for workspace skills."""
 
@@ -656,6 +665,102 @@ class SkillService(BaseWorkspaceService):
             )
         return result
 
+    def _validate_prepared_upload_files(
+        self, files: Sequence[PreparedSkillUploadFile]
+    ) -> ManifestValidationResult:
+        """Validate normalized one-shot upload files before blob writes."""
+
+        result = ManifestValidationResult()
+        seen_paths: set[str] = set()
+        skill_md_content: bytes | None = None
+
+        for file in files:
+            if file.path in seen_paths:
+                result.errors.append(
+                    SkillValidationErrorDetail(
+                        code="duplicate_path",
+                        message=f"Duplicate skill path {file.path!r}",
+                        path=file.path,
+                    )
+                )
+            seen_paths.add(file.path)
+            if file.path == "SKILL.md":
+                skill_md_content = file.content
+
+        for normalized in sorted(seen_paths):
+            parts = normalized.split("/")
+            for index in range(1, len(parts)):
+                ancestor = "/".join(parts[:index])
+                if ancestor in seen_paths:
+                    result.errors.append(
+                        SkillValidationErrorDetail(
+                            code="path_prefix_collision",
+                            message=(
+                                f"Skill path {normalized!r} conflicts with file path "
+                                f"{ancestor!r}"
+                            ),
+                            path=normalized,
+                        )
+                    )
+                    break
+
+        if skill_md_content is None:
+            result.errors.append(
+                SkillValidationErrorDetail(
+                    code="missing_root_skill_md",
+                    message="Root SKILL.md is required",
+                    path="SKILL.md",
+                )
+            )
+            return result
+
+        try:
+            markdown = skill_md_content.decode("utf-8")
+        except UnicodeDecodeError:
+            result.errors.append(
+                SkillValidationErrorDetail(
+                    code="invalid_skill_md_encoding",
+                    message="Root SKILL.md must be UTF-8 text",
+                    path="SKILL.md",
+                )
+            )
+            return result
+
+        try:
+            result.name, result.description = self._extract_frontmatter(markdown)
+        except TracecatValidationError as exc:
+            result.errors.append(
+                SkillValidationErrorDetail(
+                    code="invalid_skill_md_frontmatter",
+                    message=str(exc),
+                    path="SKILL.md",
+                )
+            )
+            return result
+        if result.name is None:
+            result.errors.append(
+                SkillValidationErrorDetail(
+                    code="missing_skill_name",
+                    message="Root SKILL.md frontmatter must define a skill name",
+                    path="SKILL.md",
+                )
+            )
+            return result
+        try:
+            result.name = SKILL_NAME_ADAPTER.validate_python(result.name)
+        except ValidationError:
+            result.errors.append(
+                SkillValidationErrorDetail(
+                    code="invalid_skill_name",
+                    message=(
+                        "Root SKILL.md frontmatter name must be 1-64 characters "
+                        "of lowercase letters, numbers, and single hyphens"
+                    ),
+                    path="SKILL.md",
+                )
+            )
+        return result
+
     async def _build_draft_read(self, skill: Skill) -> SkillDraftRead:
         """Build the current draft response for a skill."""
 
@@ -892,15 +997,9 @@ class SkillService(BaseWorkspaceService):
             The created skill summary.
         """
 
-        path_to_blob: dict[str, SkillFileBlobRef] = {}
-        validation_rows: list[tuple[str, SkillBlob]] = []
+        prepared_files: list[PreparedSkillUploadFile] = []
         for file_payload in params.files:
             path = self._normalize_path(file_payload.path)
-            if path in path_to_blob:
-                raise TracecatValidationError(
-                    f"Duplicate skill path {path!r}",
-                    detail={"code": "duplicate_path", "path": path},
-                )
             try:
                 content = base64.b64decode(file_payload.content_base64, validate=True)
             except ValueError as exc:
@@ -911,13 +1010,15 @@ class SkillService(BaseWorkspaceService):
             content_type = self._normalize_content_type(
                 file_payload.content_type or self._guess_content_type(path)
             )
-            path_to_blob[path] = SkillFileBlobRef(
-                blob=await self._get_or_create_blob(content=content),
-                content_type=content_type,
+            prepared_files.append(
+                PreparedSkillUploadFile(
+                    path=path,
+                    content=content,
+                    content_type=content_type,
+                )
             )
-            validation_rows.append((path, path_to_blob[path].blob))
 
-        validation = await self._validate_manifest_rows(validation_rows)
+        validation = self._validate_prepared_upload_files(prepared_files)
         if validation.errors:
             raise TracecatValidationError(
                 "Uploaded skill draft failed validation",
@@ -938,6 +1039,13 @@ class SkillService(BaseWorkspaceService):
                 },
             )
 
+        path_to_blob = {
+            file.path: SkillFileBlobRef(
+                blob=await self._get_or_create_blob(content=file.content),
+                content_type=file.content_type,
+            )
+            for file in prepared_files
+        }
         skill = Skill(
             workspace_id=self.workspace_id,
             name=params.name,
