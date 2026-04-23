@@ -795,7 +795,10 @@ class CaseDurationService(BaseWorkspaceService):
 
     def _filters_are_sql_compatible(self, filters: dict[str, Any]) -> bool:
         for path, expected in filters.items():
-            if not path.startswith("data."):
+            parts = path.split(".")
+            # Deeper paths may traverse arrays in _resolve_field; keep them on
+            # the Python path until the SQL builder can mirror that behavior.
+            if len(parts) != 2 or parts[0] != "data" or not parts[1]:
                 return False
             normalized = self._normalize_filter_value(expected)
             if isinstance(normalized, list):
@@ -816,7 +819,7 @@ class CaseDurationService(BaseWorkspaceService):
         conditions: list[ColumnElement[bool]] = []
         for path, expected in filters.items():
             parts = path.split(".")
-            if not parts or parts[0] != "data" or len(parts) < 2:
+            if len(parts) != 2 or parts[0] != "data" or not parts[1]:
                 return None
 
             value_expr: Any = CaseEvent.data
