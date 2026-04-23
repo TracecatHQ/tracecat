@@ -1013,17 +1013,18 @@ class SkillService(BaseWorkspaceService):
         )
         return (await self.session.execute(stmt)).scalar_one_or_none()
 
-    async def _get_skill_for_update(self, skill_id: uuid.UUID) -> Skill | None:
+    async def _get_skill_for_update(
+        self, skill_id: uuid.UUID, *, include_archived: bool = False
+    ) -> Skill | None:
         """Return and lock a skill row for mutation."""
 
-        stmt = (
-            select(Skill)
-            .where(
-                Skill.workspace_id == self.workspace_id,
-                Skill.id == skill_id,
-            )
-            .with_for_update()
-        )
+        predicates = [
+            Skill.workspace_id == self.workspace_id,
+            Skill.id == skill_id,
+        ]
+        if not include_archived:
+            predicates.append(Skill.archived_at.is_(None))
+        stmt = select(Skill).where(*predicates).with_for_update()
         return (await self.session.execute(stmt)).scalar_one_or_none()
 
     async def _get_bindable_skills(

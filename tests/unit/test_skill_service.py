@@ -1627,6 +1627,42 @@ class TestSkillService:
                 version_id=published.id,
             )
 
+    async def test_archived_skill_blocks_mutation_paths(
+        self,
+        skill_service: SkillService,
+    ) -> None:
+        """Archived skills should reject draft and version mutations."""
+
+        created = await skill_service.create_skill(SkillCreate(name="archived-mutate"))
+        published = await skill_service.publish_skill(created.id)
+        draft = await skill_service.get_draft(created.id)
+        assert draft is not None
+
+        await skill_service.archive_skill(created.id)
+
+        with pytest.raises(TracecatNotFoundError, match=f"Skill '{created.id}'"):
+            await skill_service.patch_draft(
+                skill_id=created.id,
+                params=SkillDraftPatch(
+                    base_revision=draft.draft_revision,
+                    operations=[
+                        SkillDraftUpsertTextFileOp(
+                            path="references/guide.md",
+                            content="Updated",
+                        )
+                    ],
+                ),
+            )
+
+        with pytest.raises(TracecatNotFoundError, match=f"Skill '{created.id}'"):
+            await skill_service.publish_skill(created.id)
+
+        with pytest.raises(TracecatNotFoundError, match=f"Skill '{created.id}'"):
+            await skill_service.restore_version(
+                skill_id=created.id,
+                version_id=published.id,
+            )
+
     async def test_restore_version_locks_skill_row(
         self,
         skill_service: SkillService,
