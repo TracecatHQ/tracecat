@@ -43,6 +43,7 @@ from tracecat.cases.durations.schemas import (
     CaseDurationAnchorSelection,
     CaseDurationDefinitionCreate,
     CaseDurationEventAnchor,
+    CaseDurationEventFilters,
 )
 from tracecat.cases.durations.service import (
     CaseDurationDefinitionService,
@@ -169,13 +170,13 @@ async def _seed_cases_definitions_and_history(
                     ),
                     end_anchor=CaseDurationEventAnchor(
                         event_type=CaseEventType.STATUS_CHANGED,
-                        field_filters={
-                            "data.new": [
-                                CaseStatus.IN_PROGRESS,
-                                CaseStatus.RESOLVED,
-                                CaseStatus.CLOSED,
+                        filters=CaseDurationEventFilters(
+                            new_values=[
+                                CaseStatus.IN_PROGRESS.value,
+                                CaseStatus.RESOLVED.value,
+                                CaseStatus.CLOSED.value,
                             ]
-                        },
+                        ),
                         selection=CaseDurationAnchorSelection.LAST,
                     ),
                 )

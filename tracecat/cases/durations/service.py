@@ -25,6 +25,7 @@ from tracecat.cases.durations.schemas import (
     CaseDurationDefinitionRead,
     CaseDurationDefinitionUpdate,
     CaseDurationEventAnchor,
+    CaseDurationEventFilters,
     CaseDurationMetric,
     CaseDurationRead,
     CaseDurationUpdate,
@@ -38,7 +39,6 @@ from tracecat.exceptions import (
     TracecatValidationError,
 )
 from tracecat.service import BaseWorkspaceService, requires_entitlement
-from tracecat.tables.common import coerce_to_utc_datetime
 from tracecat.tiers.enums import Entitlement
 
 
@@ -182,23 +182,42 @@ class CaseDurationDefinitionService(BaseWorkspaceService):
     def _anchor_from_entity(
         self, entity: CaseDurationDefinitionDB, prefix: Literal["start", "end"]
     ) -> CaseDurationEventAnchor:
-        return CaseDurationEventAnchor(
-            event_type=getattr(entity, f"{prefix}_event_type"),
-            timestamp_path=getattr(entity, f"{prefix}_timestamp_path"),
-            field_filters=dict(getattr(entity, f"{prefix}_field_filters") or {}),
-            selection=getattr(entity, f"{prefix}_selection"),
+        raw_filters = dict(getattr(entity, f"{prefix}_field_filters") or {})
+        event_type = getattr(entity, f"{prefix}_event_type")
+        selection = getattr(entity, f"{prefix}_selection")
+        filters, has_unsupported_filters = self._filters_from_storage(
+            event_type, raw_filters
         )
+        if has_unsupported_filters:
+            anchor = CaseDurationEventAnchor.model_construct(
+                event_type=event_type,
+                filters=filters,
+                selection=selection,
+            )
+        else:
+            try:
+                anchor = CaseDurationEventAnchor(
+                    event_type=event_type,
+                    filters=filters,
+                    selection=selection,
+                )
+            except ValueError:
+                has_unsupported_filters = True
+                anchor = CaseDurationEventAnchor.model_construct(
+                    event_type=event_type,
+                    filters=filters,
+                    selection=selection,
+                )
+        anchor._has_unsupported_filters = has_unsupported_filters
+        return anchor
 
     def _anchor_attributes(
         self, anchor: CaseDurationEventAnchor, prefix: Literal["start", "end"]
     ) -> dict[str, Any]:
-        filters = {
-            key: self._json_compatible(value)
-            for key, value in anchor.field_filters.items()
-        }
+        filters = self._filters_to_storage(anchor.filters)
         return {
             f"{prefix}_event_type": anchor.event_type,
-            f"{prefix}_timestamp_path": anchor.timestamp_path,
+            f"{prefix}_timestamp_path": "created_at",
             f"{prefix}_field_filters": filters,
             f"{prefix}_selection": anchor.selection,
         }
@@ -220,6 +239,106 @@ class CaseDurationDefinitionService(BaseWorkspaceService):
         if isinstance(value, list | tuple | set):
             return [self._json_compatible(item) for item in value]
         return value
+
+    def _filters_to_storage(self, filters: CaseDurationEventFilters) -> dict[str, Any]:
+        payload: dict[str, Any] = {}
+        if filters.new_values:
+            payload["new_values"] = self._json_compatible(filters.new_values)
+        if filters.tag_refs:
+            payload["tag_refs"] = self._json_compatible(filters.tag_refs)
+        if filters.field_ids:
+            payload["field_ids"] = self._json_compatible(filters.field_ids)
+        if filters.dropdown_definition_id is not None:
+            payload["dropdown_definition_id"] = self._json_compatible(
+                filters.dropdown_definition_id
+            )
+        if filters.dropdown_option_ids:
+            payload["dropdown_option_ids"] = self._json_compatible(
+                filters.dropdown_option_ids
+            )
+        return payload
+
+    def _filters_from_storage(
+        self, event_type: CaseEventType, raw_filters: dict[str, Any]
+    ) -> tuple[CaseDurationEventFilters, bool]:
+        if not raw_filters:
+            return CaseDurationEventFilters(), False
+
+        if self._storage_filters_are_typed(raw_filters):
+            return CaseDurationEventFilters.model_validate(raw_filters), False
+
+        filters = self._known_legacy_filters_to_typed(event_type, raw_filters)
+        if filters is not None:
+            return filters, False
+        return CaseDurationEventFilters(), True
+
+    def _storage_filters_are_typed(self, raw_filters: dict[str, Any]) -> bool:
+        typed_keys = {
+            "new_values",
+            "tag_refs",
+            "field_ids",
+            "dropdown_definition_id",
+            "dropdown_option_ids",
+        }
+        return all(key in typed_keys for key in raw_filters)
+
+    def _known_legacy_filters_to_typed(
+        self, event_type: CaseEventType, raw_filters: dict[str, Any]
+    ) -> CaseDurationEventFilters | None:
+        if event_type in {
+            CaseEventType.PRIORITY_CHANGED,
+            CaseEventType.SEVERITY_CHANGED,
+            CaseEventType.STATUS_CHANGED,
+        }:
+            if set(raw_filters) == {"data.new"}:
+                values = self._normalize_string_filter_values(raw_filters["data.new"])
+                return CaseDurationEventFilters(new_values=values) if values else None
+            return None
+
+        if event_type in {CaseEventType.TAG_ADDED, CaseEventType.TAG_REMOVED}:
+            if set(raw_filters) == {"data.tag_ref"}:
+                values = self._normalize_string_filter_values(
+                    raw_filters["data.tag_ref"]
+                )
+                return CaseDurationEventFilters(tag_refs=values) if values else None
+            return None
+
+        if event_type is CaseEventType.FIELDS_CHANGED:
+            if set(raw_filters) == {"data.changes.field"}:
+                values = self._normalize_string_filter_values(
+                    raw_filters["data.changes.field"]
+                )
+                return CaseDurationEventFilters(field_ids=values) if values else None
+            return None
+
+        if event_type is CaseEventType.DROPDOWN_VALUE_CHANGED:
+            if set(raw_filters) == {"data.definition_id", "data.new_option_id"}:
+                definition_id = raw_filters["data.definition_id"]
+                if not isinstance(definition_id, str):
+                    return None
+                option_ids = self._normalize_string_filter_values(
+                    raw_filters["data.new_option_id"]
+                )
+                if not option_ids:
+                    return None
+                return CaseDurationEventFilters(
+                    dropdown_definition_id=definition_id,
+                    dropdown_option_ids=option_ids,
+                )
+        return None
+
+    def _normalize_string_filter_values(self, value: Any) -> list[str]:
+        if isinstance(value, Enum):
+            return [str(value.value)]
+        if isinstance(value, str):
+            return [value]
+        if isinstance(value, list | tuple | set):
+            return [
+                str(item.value) if isinstance(item, Enum) else item
+                for item in value
+                if isinstance(item, str | Enum)
+            ]
+        return []
 
 
 class CaseDurationService(BaseWorkspaceService):
@@ -341,13 +460,7 @@ class CaseDurationService(BaseWorkspaceService):
         if not definitions:
             return []
 
-        if computations := await self._compute_durations_from_db(case_obj, definitions):
-            return computations
-
-        events = await self._list_case_events(case_obj)
-        return await asyncio.to_thread(
-            self._compute_durations_from_events, events, definitions
-        )
+        return await self._compute_durations_from_db(case_obj, definitions)
 
     @requires_entitlement(Entitlement.CASE_ADDONS)
     async def compute_durations(
@@ -534,7 +647,7 @@ class CaseDurationService(BaseWorkspaceService):
         self,
         case: Case,
         definitions: Sequence[CaseDurationDefinitionRead],
-    ) -> list[CaseDurationComputation] | None:
+    ) -> list[CaseDurationComputation]:
         start_match_cache: dict[tuple[Any, ...], tuple[CaseEvent, datetime] | None] = {}
         end_match_cache: dict[
             tuple[tuple[Any, ...], datetime | None], tuple[CaseEvent, datetime] | None
@@ -545,8 +658,6 @@ class CaseDurationService(BaseWorkspaceService):
         # cache-hit-heavy definition sets from monopolizing the event loop.
         async for definition in cooperative_every(definitions, every=64):
             start_anchor_key = self._sql_anchor_cache_key(definition.start_anchor)
-            if start_anchor_key is None:
-                return None
             if start_anchor_key not in start_match_cache:
                 start_match_cache[
                     start_anchor_key
@@ -558,8 +669,6 @@ class CaseDurationService(BaseWorkspaceService):
 
             earliest_after = start_match[1] if start_match else None
             end_anchor_base_key = self._sql_anchor_cache_key(definition.end_anchor)
-            if end_anchor_base_key is None:
-                return None
             end_anchor_key = (end_anchor_base_key, earliest_after)
             if end_anchor_key not in end_match_cache:
                 end_match_cache[end_anchor_key] = await self._find_matching_event_db(
@@ -688,18 +797,6 @@ class CaseDurationService(BaseWorkspaceService):
             raise TracecatNotFoundError(f"Case {case} not found in this workspace")
         return resolved
 
-    async def _list_case_events(self, case: Case) -> list[CaseEvent]:
-        stmt = (
-            select(CaseEvent)
-            .where(
-                CaseEvent.case_id == case.id,
-                CaseEvent.workspace_id == self.workspace_id,
-            )
-            .order_by(CaseEvent.created_at.asc())
-        )
-        result = await self.session.execute(stmt)
-        return list(result.scalars().all())
-
     def _find_matching_event(
         self,
         events: Sequence[CaseEvent],
@@ -722,7 +819,7 @@ class CaseDurationService(BaseWorkspaceService):
                     continue
             elif event.type != anchor.event_type:
                 continue
-            if not self._matches_filters(event, anchor.field_filters):
+            if not self._matches_anchor_filters(event, anchor):
                 continue
             timestamp = self._extract_timestamp(event, anchor)
             if timestamp is None:
@@ -768,10 +865,7 @@ class CaseDurationService(BaseWorkspaceService):
         if earliest_after is not None:
             conditions.append(CaseEvent.created_at >= earliest_after)
 
-        filter_conditions = self._build_sql_filter_conditions(anchor.field_filters)
-        if filter_conditions is None:
-            return None
-        conditions.extend(filter_conditions)
+        conditions.extend(self._build_sql_filter_conditions(anchor))
 
         order_by = (
             (CaseEvent.created_at.desc(), CaseEvent.surrogate_id.desc())
@@ -784,64 +878,40 @@ class CaseDurationService(BaseWorkspaceService):
             return None
         return event, event.created_at
 
-    def _sql_anchor_cache_key(
-        self, anchor: CaseDurationEventAnchor
-    ) -> tuple[Any, ...] | None:
-        if anchor.timestamp_path != "created_at":
-            return None
-        if not self._filters_are_sql_compatible(anchor.field_filters):
-            return None
+    def _sql_anchor_cache_key(self, anchor: CaseDurationEventAnchor) -> tuple[Any, ...]:
         return self._anchor_cache_key(anchor)
 
-    def _filters_are_sql_compatible(self, filters: dict[str, Any]) -> bool:
-        for path, expected in filters.items():
-            parts = path.split(".")
-            # Deeper paths may traverse arrays in _resolve_field; keep them on
-            # the Python path until the SQL builder can mirror that behavior.
-            if len(parts) != 2 or parts[0] != "data" or not parts[1]:
-                return False
-            normalized = self._normalize_filter_value(expected)
-            if isinstance(normalized, list):
-                if any(
-                    isinstance(item, list | tuple | set | dict) for item in normalized
-                ):
-                    return False
-                if any(self._has_bool_number_overlap(item) for item in normalized):
-                    return False
-            elif isinstance(normalized, dict):
-                return False
-            elif self._has_bool_number_overlap(normalized):
-                return False
-        return True
-
-    def _has_bool_number_overlap(self, value: Any) -> bool:
-        return isinstance(value, bool | int | float)
-
     def _build_sql_filter_conditions(
-        self, filters: dict[str, Any]
-    ) -> list[ColumnElement[bool]] | None:
-        if not self._filters_are_sql_compatible(filters):
-            return None
-
+        self, anchor: CaseDurationEventAnchor
+    ) -> list[ColumnElement[bool]]:
+        filters = anchor.filters
         conditions: list[ColumnElement[bool]] = []
-        for path, expected in filters.items():
-            parts = path.split(".")
-            if len(parts) != 2 or parts[0] != "data" or not parts[1]:
-                return None
-
-            value_expr: Any = CaseEvent.data
-            for part in parts[1:]:
-                value_expr = value_expr[part]
-
-            normalized = self._normalize_filter_value(expected)
-            if isinstance(normalized, list):
-                conditions.append(self._build_jsonb_list_filter(value_expr, normalized))
-            elif normalized is None:
-                conditions.append(
-                    or_(value_expr.is_(None), value_expr == self._jsonb_bindparam(None))
+        if anchor._has_unsupported_filters:
+            conditions.append(false())
+            return conditions
+        if filters.new_values:
+            conditions.append(
+                self._build_jsonb_list_filter(CaseEvent.data["new"], filters.new_values)
+            )
+        if filters.tag_refs:
+            conditions.append(
+                self._build_jsonb_list_filter(
+                    CaseEvent.data["tag_ref"], filters.tag_refs
                 )
-            else:
-                conditions.append(value_expr == self._jsonb_bindparam(normalized))
+            )
+        if filters.field_ids:
+            conditions.append(self._build_jsonb_change_field_filter(filters.field_ids))
+        if filters.dropdown_definition_id is not None:
+            conditions.append(
+                CaseEvent.data["definition_id"]
+                == self._jsonb_bindparam(filters.dropdown_definition_id)
+            )
+        if filters.dropdown_option_ids:
+            conditions.append(
+                self._build_jsonb_list_filter(
+                    CaseEvent.data["new_option_id"], filters.dropdown_option_ids
+                )
+            )
         return conditions
 
     def _build_jsonb_list_filter(
@@ -873,97 +943,106 @@ class CaseDurationService(BaseWorkspaceService):
         )
         return or_(scalar_matches, array_matches)
 
+    def _build_jsonb_change_field_filter(
+        self, field_ids: list[str]
+    ) -> ColumnElement[bool]:
+        if not field_ids:
+            return false()
+
+        changes_value = sql_case(
+            (
+                func.jsonb_typeof(CaseEvent.data["changes"]) == "array",
+                CaseEvent.data["changes"],
+            ),
+            else_=literal([], type_=JSONB),
+        )
+        elem = (
+            func.jsonb_array_elements(changes_value)
+            .table_valued(column("value", JSONB))
+            .alias("change_elem")
+        )
+        return (
+            select(literal(True))
+            .select_from(elem)
+            .where(
+                elem.c.value["field"].in_(
+                    [self._jsonb_bindparam(field_id) for field_id in field_ids]
+                )
+            )
+            .correlate(CaseEvent)
+            .exists()
+        )
+
     def _jsonb_bindparam(self, value: Any) -> ColumnElement[Any]:
         return bindparam(None, value, type_=JSONB)
 
     def _anchor_cache_key(self, anchor: CaseDurationEventAnchor) -> tuple[Any, ...]:
-        filter_items = tuple(
-            sorted(
-                (
-                    path,
-                    self._freeze_filter_value(expected),
-                )
-                for path, expected in anchor.field_filters.items()
-            )
+        filter_items = self._freeze_filter_value(
+            anchor.filters.model_dump(exclude_defaults=True)
         )
         return (
             anchor.event_type,
-            anchor.timestamp_path,
             anchor.selection,
             filter_items,
+            anchor._has_unsupported_filters,
         )
 
     def _freeze_filter_value(self, value: Any) -> Any:
-        normalized = self._normalize_filter_value(value)
-        if isinstance(normalized, list):
-            return tuple(self._freeze_filter_value(item) for item in normalized)
-        if isinstance(normalized, dict):
-            return tuple(
-                sorted(
-                    (key, self._freeze_filter_value(item))
-                    for key, item in normalized.items()
-                )
-            )
-        return normalized
-
-    def _matches_filters(self, event: CaseEvent, filters: dict[str, Any]) -> bool:
-        for path, expected in filters.items():
-            actual = self._resolve_field(event, path)
-            actual_normalized = self._normalize_filter_value(actual)
-            expected_normalized = self._normalize_filter_value(expected)
-            if isinstance(expected_normalized, list):
-                if actual_normalized is None:
-                    return False
-                if isinstance(actual_normalized, list):
-                    if not any(
-                        item in expected_normalized for item in actual_normalized
-                    ):
-                        return False
-                elif actual_normalized not in expected_normalized:
-                    return False
-            elif actual_normalized != expected_normalized:
-                return False
-        return True
-
-    def _normalize_filter_value(self, value: Any) -> Any:
         if isinstance(value, Enum):
             return value.value
         if isinstance(value, list | tuple | set):
-            return [self._normalize_filter_value(item) for item in value]
+            return tuple(self._freeze_filter_value(item) for item in value)
+        if isinstance(value, dict):
+            return tuple(
+                sorted(
+                    (key, self._freeze_filter_value(item))
+                    for key, item in value.items()
+                )
+            )
         return value
+
+    def _matches_anchor_filters(
+        self, event: CaseEvent, anchor: CaseDurationEventAnchor
+    ) -> bool:
+        if anchor._has_unsupported_filters:
+            return False
+
+        filters = anchor.filters
+        data = event.data or {}
+        if filters.new_values and data.get("new") not in filters.new_values:
+            return False
+        if filters.tag_refs and data.get("tag_ref") not in filters.tag_refs:
+            return False
+        if filters.field_ids and not self._event_changed_any_field(
+            event, filters.field_ids
+        ):
+            return False
+        if (
+            filters.dropdown_definition_id is not None
+            and data.get("definition_id") != filters.dropdown_definition_id
+        ):
+            return False
+        if (
+            filters.dropdown_option_ids
+            and data.get("new_option_id") not in filters.dropdown_option_ids
+        ):
+            return False
+        return True
+
+    def _event_changed_any_field(self, event: CaseEvent, field_ids: list[str]) -> bool:
+        changes = (event.data or {}).get("changes")
+        if not isinstance(changes, list):
+            return False
+        return any(
+            isinstance(change, dict) and change.get("field") in field_ids
+            for change in changes
+        )
 
     def _extract_timestamp(
         self, event: CaseEvent, anchor: CaseDurationEventAnchor
     ) -> datetime | None:
-        value = self._resolve_field(event, anchor.timestamp_path)
-        try:
-            return coerce_to_utc_datetime(value)
-        except (TypeError, ValueError, OverflowError):
-            return None
-
-    def _resolve_field(self, event: CaseEvent, path: str) -> Any:
-        value: Any = event
-        for part in path.split("."):
-            if isinstance(value, list):
-                # Traverse into each list item and collect the resolved values
-                collected = []
-                for item in value:
-                    if isinstance(item, dict):
-                        resolved = item.get(part)
-                    else:
-                        resolved = getattr(item, part, None)
-                    if resolved is not None:
-                        collected.append(resolved)
-                if not collected:
-                    return None
-                value = collected
-            elif isinstance(value, dict):
-                value = value.get(part)
-            else:
-                value = getattr(value, part, None)
-            if value is None:
-                return None
-        return value
+        del anchor
+        return event.created_at
 
     def _to_read_model(self, entity: CaseDuration) -> CaseDurationRead:
         return CaseDurationRead(

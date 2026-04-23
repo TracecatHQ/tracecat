@@ -1508,19 +1508,39 @@ export type CaseDurationEventAnchor = {
    */
   event_type: CaseEventType
   /**
-   * Dot-delimited path to the timestamp field on the event. Defaults to the event creation timestamp.
+   * Optional product-level filters for matching event payload values.
    */
-  timestamp_path?: string
-  /**
-   * Optional dot-delimited equality filters that must match on the event payload, e.g. {'data.new': 'resolved'}.
-   */
-  field_filters?: {
-    [key: string]: unknown
-  }
+  filters?: CaseDurationEventFilters
   /**
    * Whether to use the first or last matching event for this anchor. Defaults to the first match.
    */
   selection?: CaseDurationAnchorSelection
+}
+
+/**
+ * Product-level filters for narrowing case duration event anchors.
+ */
+export type CaseDurationEventFilters = {
+  /**
+   * New priority, severity, or status values to match.
+   */
+  new_values?: Array<string>
+  /**
+   * Case tag refs to match for tag add/remove events.
+   */
+  tag_refs?: Array<string>
+  /**
+   * Case custom field IDs to match for field change events.
+   */
+  field_ids?: Array<string>
+  /**
+   * Dropdown definition ID to match for dropdown value change events.
+   */
+  dropdown_definition_id?: string | null
+  /**
+   * Dropdown option IDs to match for dropdown value change events.
+   */
+  dropdown_option_ids?: Array<string>
 }
 
 /**
