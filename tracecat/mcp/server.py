@@ -203,7 +203,6 @@ from tracecat.workflow.management.schemas import WorkflowCreate, WorkflowUpdate
 from tracecat.workflow.schedules.schemas import (
     ScheduleCreate,
     ScheduleRead,
-    ScheduleUpdate,
 )
 from tracecat.workflow.schedules.service import WorkflowSchedulesService
 from tracecat.workflow.tags.service import WorkflowTagsService
@@ -1157,7 +1156,6 @@ async def _persist_workflow_edit_document(
     workflow_id = WorkflowUUID.new(workflow.id)
     layout_payload = updated_document.layout.model_dump(mode="json", exclude_none=False)
     _, _, action_positions = _extract_layout_positions(layout_payload)
-    offline_schedule_ids: list[uuid.UUID] = []
 
     if "definition" in changed_sections:
         if updated_document.definition.actions:
@@ -1228,7 +1226,7 @@ async def _persist_workflow_edit_document(
             )
             for schedule in updated_document.schedules
         ]
-        offline_schedule_ids = await _replace_workflow_schedules(
+        await _replace_workflow_schedules(
             service=schedule_service,
             workflow_id=workflow_id,
             schedules=schedules,
@@ -1257,13 +1255,6 @@ async def _persist_workflow_edit_document(
         await service.session.refresh(workflow, ["actions"])
     if "schedules" in changed_sections:
         await service.session.refresh(workflow, ["schedules"])
-    if offline_schedule_ids:
-        schedule_service = WorkflowSchedulesService(service.session, role=role)
-        for schedule_id in offline_schedule_ids:
-            await schedule_service.update_schedule(
-                schedule_id,
-                ScheduleUpdate(status="offline"),
-            )
     if "case_trigger" in changed_sections:
         await service.session.refresh(workflow, ["case_trigger"])
 
@@ -2036,15 +2027,14 @@ async def _replace_workflow_schedules(
     service: WorkflowSchedulesService,
     workflow_id: WorkflowUUID,
     schedules: list[MCPWorkflowSchedule],
-) -> list[uuid.UUID]:
+) -> None:
     """Replace all schedules for a workflow from YAML payload."""
     existing = await service.list_schedules(workflow_id=workflow_id)
     for schedule in existing:
         await service.delete_schedule(schedule.id, commit=False)
 
-    offline_schedule_ids: list[uuid.UUID] = []
     for schedule in schedules:
-        created = await service.create_schedule(
+        await service.create_schedule(
             ScheduleCreate(
                 workflow_id=workflow_id,
                 inputs=schedule.inputs,
@@ -2058,9 +2048,6 @@ async def _replace_workflow_schedules(
             ),
             commit=False,
         )
-        if schedule.status == "offline":
-            offline_schedule_ids.append(created.id)
-    return offline_schedule_ids
 
 
 async def _apply_case_trigger_payload(
@@ -2203,10 +2190,9 @@ async def _apply_workflow_yaml_update(
         for action in workflow.actions:
             service.session.add(action)
 
-    offline_schedule_ids: list[uuid.UUID] = []
     if yaml_payload is not None and yaml_payload.schedules is not None:
         schedule_service = WorkflowSchedulesService(service.session, role=role)
-        offline_schedule_ids = await _replace_workflow_schedules(
+        await _replace_workflow_schedules(
             service=schedule_service,
             workflow_id=workflow_id,
             schedules=yaml_payload.schedules,
@@ -2228,14 +2214,6 @@ async def _apply_workflow_yaml_update(
     service.session.add(workflow)
     await service.session.commit()
     await service.session.refresh(workflow)
-
-    if offline_schedule_ids:
-        schedule_service = WorkflowSchedulesService(service.session, role=role)
-        for schedule_id in offline_schedule_ids:
-            await schedule_service.update_schedule(
-                schedule_id,
-                ScheduleUpdate(status="offline"),
-            )
 
 
 async def _validate_template_action_text(

@@ -38,10 +38,12 @@ async def test_create_schedule_acquires_workflow_lock(
             workflow_id=WorkflowUUID.new(workflow.id),
             every=timedelta(hours=1),
             inputs={},
+            status="offline",
             timeout=0,
         ),
         commit=False,
     )
 
     assert schedule.workflow_id == workflow.id
+    assert schedule.status == "offline"
     assert locked_workflow_ids == [WorkflowUUID.new(workflow.id)]

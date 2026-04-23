@@ -99,7 +99,7 @@ class WorkflowSchedulesService(BaseWorkspaceService):
             end_at=params.end_at,
             timeout=params.timeout,
             cron=params.cron,
-            status="online",
+            status=params.status,
         )
         self.session.add(schedule)
         await self.session.flush()
@@ -126,6 +126,7 @@ class WorkflowSchedulesService(BaseWorkspaceService):
                     start_at=params.start_at,
                     end_at=params.end_at,
                     timeout=params.timeout,
+                    status=params.status,
                     role=role_copy,
                 )
                 logger.info(

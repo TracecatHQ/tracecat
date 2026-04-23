@@ -1629,7 +1629,7 @@ async def test_persist_workflow_edit_document_applies_metadata_with_definition_c
 
 
 @pytest.mark.anyio
-async def test_persist_workflow_edit_document_preserves_offline_schedule_status(
+async def test_persist_workflow_edit_document_preserves_offline_schedule_status_inline(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     workflow = _workflow_stub()
@@ -1657,12 +1657,13 @@ async def test_persist_workflow_edit_document_preserves_offline_schedule_status(
         async def commit(self) -> None:
             return None
 
-    offline_schedule_id = uuid.uuid4()
     updated_schedules: list[tuple[uuid.UUID, Any]] = []
+    replace_schedules_called = False
 
-    async def _replace_schedules(**kwargs: Any) -> list[uuid.UUID]:
+    async def _replace_schedules(**kwargs: Any) -> None:
+        nonlocal replace_schedules_called
         _ = kwargs
-        return [offline_schedule_id]
+        replace_schedules_called = True
 
     class _FakeWorkflowSchedulesService:
         def __init__(self, session: Any, role: Any) -> None:
@@ -1687,9 +1688,56 @@ async def test_persist_workflow_edit_document_preserves_offline_schedule_status(
         updated_document=updated_document,
     )
 
-    assert len(updated_schedules) == 1
-    assert updated_schedules[0][0] == offline_schedule_id
-    assert updated_schedules[0][1].status == "offline"
+    assert replace_schedules_called is True
+    assert updated_schedules == []
+
+
+@pytest.mark.anyio
+async def test_replace_workflow_schedules_creates_schedules_with_payload_status() -> (
+    None
+):
+    workflow_id = uuid.uuid4()
+    existing_schedule_id = uuid.uuid4()
+    created_params: list[Any] = []
+    deleted_ids: list[uuid.UUID] = []
+
+    class _FakeWorkflowSchedulesService:
+        async def list_schedules(self, workflow_id: uuid.UUID) -> list[Any]:
+            _ = workflow_id
+            return [SimpleNamespace(id=existing_schedule_id)]
+
+        async def delete_schedule(
+            self, schedule_id: uuid.UUID, commit: bool = True
+        ) -> None:
+            _ = commit
+            deleted_ids.append(schedule_id)
+
+        async def create_schedule(self, params: Any, commit: bool = True) -> Any:
+            _ = commit
+            created_params.append(params)
+            return SimpleNamespace(id=uuid.uuid4())
+
+    await mcp_server._replace_workflow_schedules(
+        service=cast(Any, _FakeWorkflowSchedulesService()),
+        workflow_id=cast(Any, workflow_id),
+        schedules=[
+            mcp_server.MCPWorkflowSchedule(
+                cron="0 * * * *",
+                status="offline",
+                inputs={},
+                timeout=0,
+            ),
+            mcp_server.MCPWorkflowSchedule(
+                cron="30 * * * *",
+                status="online",
+                inputs={},
+                timeout=0,
+            ),
+        ],
+    )
+
+    assert deleted_ids == [existing_schedule_id]
+    assert [params.status for params in created_params] == ["offline", "online"]
 
 
 @pytest.mark.anyio
