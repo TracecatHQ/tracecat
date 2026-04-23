@@ -56,12 +56,34 @@ function isLockedAction(action: RegistryActionReadMinimal): boolean {
   return action.availability?.locked ?? false
 }
 
-function filterActions(actions: RegistryActionReadMinimal[], search: string) {
+type ActionFilterResult = {
+  action: RegistryActionReadMinimal
+  actionResult: Fuzzysort.Result | null
+  titleResult: Fuzzysort.Result | null
+}
+
+function filterActions(
+  actions: RegistryActionReadMinimal[],
+  search: string
+): ActionFilterResult[] {
+  const normalizedSearch = search.trim()
+  if (!normalizedSearch) {
+    return actions.map((action) => ({
+      action,
+      actionResult: null,
+      titleResult: null,
+    }))
+  }
+
   const results = fuzzysort.go<RegistryActionReadMinimal>(search, actions, {
     all: true,
     keys: SEARCH_KEYS as unknown as (keyof RegistryActionReadMinimal)[],
   })
-  return results
+  return results.map((result) => ({
+    action: result.obj,
+    actionResult: result[SEARCH_KEY_INDEX.action] ?? null,
+    titleResult: result[SEARCH_KEY_INDEX.default_title] ?? null,
+  }))
 }
 
 /**
@@ -219,6 +241,16 @@ function ActionCommandSelector({
 }) {
   const { registryActions, registryActionsIsLoading, registryActionsError } =
     useBuilderRegistryActions({ includeLocked: true })
+  const sortedActions = useMemo(() => {
+    if (!registryActions) {
+      return []
+    }
+    return [...registryActions].sort((a, b) => a.action.localeCompare(b.action))
+  }, [registryActions])
+  const filterResults = useMemo(
+    () => filterActions(sortedActions, inputValue),
+    [sortedActions, inputValue]
+  )
 
   if (!registryActions || registryActionsIsLoading) {
     return (
@@ -250,12 +282,11 @@ function ActionCommandSelector({
 
   return (
     <ScrollArea className="h-full overflow-y-auto">
-      {filterActions(registryActions, inputValue).length > 0 && (
+      {filterResults.length > 0 && (
         <ActionCommandGroup
           group="Suggestions"
           nodeId={nodeId}
-          registryActions={registryActions}
-          inputValue={inputValue}
+          filterResults={filterResults}
         />
       )}
     </ScrollArea>
@@ -265,13 +296,11 @@ function ActionCommandSelector({
 function ActionCommandGroup({
   group,
   nodeId,
-  registryActions,
-  inputValue,
+  filterResults,
 }: {
   group: string
   nodeId: string
-  registryActions: RegistryActionReadMinimal[]
-  inputValue: string
+  filterResults: ActionFilterResult[]
 }) {
   const {
     workspaceId,
@@ -306,14 +335,6 @@ function ActionCommandGroup({
     [actionPanelRef, setSelectedNodeId]
   )
 
-  // Move sortedActions and filterResults logic here
-  const sortedActions = useMemo(() => {
-    return [...registryActions].sort((a, b) => a.action.localeCompare(b.action))
-  }, [registryActions])
-
-  const filterResults = useMemo(() => {
-    return filterActions(sortedActions, inputValue)
-  }, [sortedActions, inputValue])
   const [lockedFeatureOpen, setLockedFeatureOpen] = React.useState(false)
 
   const handleSelect = useCallback(
@@ -482,14 +503,10 @@ function ActionCommandGroup({
       />
       <CommandGroup heading={group} className="text-xs">
         {filterResults.map((result) => {
-          const action = result.obj
+          const { action, actionResult, titleResult } = result
           const isLocked = isLockedAction(action)
 
           if (highlight) {
-            // Get fuzzysort results by key name (resilient to SEARCH_KEYS reordering)
-            const actionResult = result[SEARCH_KEY_INDEX.action]
-            const titleResult = result[SEARCH_KEY_INDEX.default_title]
-
             return (
               <CommandItem
                 key={action.action}
