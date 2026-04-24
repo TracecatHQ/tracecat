@@ -16,6 +16,7 @@ from pydantic_ai.models import ModelRequestParameters
 from pydantic_ai.settings import ModelSettings
 from pydantic_ai.tools import DeferredToolResults
 
+from tracecat.agent.subagents import AgentsConfig
 from tracecat.agent.types import AgentConfig
 from tracecat.auth.types import Role
 from tracecat.chat.schemas import ChatMessage
@@ -256,6 +257,7 @@ class AgentConfigSchema(BaseModel):
     tool_approvals: dict[str, bool] | None = None
     model_settings: dict[str, Any] | None = None
     mcp_servers: list[MCPServerConfigSchema] | None = None
+    agents: AgentsConfig = Field(default_factory=AgentsConfig)
     retries: int = Field(default=20)
     enable_thinking: bool = Field(default=True)
 

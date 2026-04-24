@@ -24,7 +24,11 @@ from tracecat.agent.common.config import (
 from tracecat.agent.common.exceptions import AgentSandboxExecutionError
 from tracecat.agent.common.protocol import RuntimeInitPayload
 from tracecat.agent.common.stream_types import ToolCallContent
-from tracecat.agent.common.types import MCPToolDefinition, SandboxAgentConfig
+from tracecat.agent.common.types import (
+    MCPToolDefinition,
+    SandboxAgentConfig,
+    SandboxSubagentConfig,
+)
 from tracecat.agent.executor.loopback import (
     LoopbackHandler,
     LoopbackInput,
@@ -69,6 +73,8 @@ class AgentExecutorInput(BaseModel):
     )
     # Resolved tool definitions
     allowed_actions: dict[str, MCPToolDefinition] | None = None
+    # Fully resolved subagent definitions, each with scoped tools/tokens/routes.
+    subagents: list[SandboxSubagentConfig] = Field(default_factory=list)
     # Session resume data (from previous run, includes tool_result for approval flow)
     sdk_session_id: str | None = None
     sdk_session_data: str | None = None
@@ -200,6 +206,7 @@ class SandboxedAgentExecutor:
             user_prompt=self.input.user_prompt,
             llm_gateway_auth_token=self.input.llm_gateway_auth_token,
             allowed_actions=self.input.allowed_actions,
+            subagents=self.input.subagents,
             sdk_session_id=self.input.sdk_session_id,
             sdk_session_data=self.input.sdk_session_data,
             is_approval_continuation=self.input.is_approval_continuation,

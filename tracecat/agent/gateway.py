@@ -259,6 +259,10 @@ async def user_api_key_auth(request: Request, api_key: str | None) -> UserAPIKey
             "provider": claims.provider,
             "base_url": claims.base_url,
             "model_settings": claims.model_settings,
+            "routes": {
+                key: route.model_dump(mode="json")
+                for key, route in claims.routes.items()
+            },
         },
     )
 
@@ -278,11 +282,27 @@ class TracecatCallbackHandler(CustomLogger):
         organization_id = OrganizationID(
             user_api_key_dict.metadata.get("organization_id", "")
         )
-        use_workspace_creds = bool(
-            user_api_key_dict.metadata.get("use_workspace_credentials", False)
+        incoming_model = data.get("model")
+        routes = user_api_key_dict.metadata.get("routes") or {}
+        selected_route = (
+            routes.get(incoming_model) if isinstance(incoming_model, str) else None
         )
-        model = user_api_key_dict.metadata.get("model")
-        provider = user_api_key_dict.metadata.get("provider")
+        if isinstance(selected_route, dict):
+            use_workspace_creds = bool(
+                selected_route.get("use_workspace_credentials", False)
+            )
+            model = selected_route.get("model")
+            provider = selected_route.get("provider")
+            base_url = selected_route.get("base_url")
+            model_settings_source = selected_route.get("model_settings", {})
+        else:
+            use_workspace_creds = bool(
+                user_api_key_dict.metadata.get("use_workspace_credentials", False)
+            )
+            model = user_api_key_dict.metadata.get("model")
+            provider = user_api_key_dict.metadata.get("provider")
+            base_url = user_api_key_dict.metadata.get("base_url")
+            model_settings_source = user_api_key_dict.metadata.get("model_settings", {})
         if not model or not provider:
             raise ProxyException(
                 message="Model not specified. Please select a model in the chat settings.",
@@ -308,16 +328,14 @@ class TracecatCallbackHandler(CustomLogger):
 
         _inject_provider_credentials(data, provider, creds)
 
-        if (
-            model_base_url := user_api_key_dict.metadata.get("base_url")
-        ) and provider in {"openai", "anthropic", "custom-model-provider"}:
-            data["api_base"] = model_base_url
+        if base_url and provider in {"openai", "anthropic", "custom-model-provider"}:
+            data["api_base"] = base_url
 
         if provider != "anthropic":
             _strip_non_anthropic_beta_payload_fields(data)
 
         model_settings = _filter_allowed_model_settings(
-            user_api_key_dict.metadata.get("model_settings", {}),
+            model_settings_source,
             provider=provider,
         )
         data.update(model_settings)

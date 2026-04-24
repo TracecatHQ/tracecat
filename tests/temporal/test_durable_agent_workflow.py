@@ -26,7 +26,8 @@ from temporalio.exceptions import ApplicationError
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 from tracecat_ee.agent.activities import (
     ApplyApprovalResultsActivityInputs,
-    BuildToolDefsArgs,
+    BuildAgentToolDefsArgs,
+    BuildAgentToolDefsResult,
     BuildToolDefsResult,
     PersistApprovalsActivityInputs,
 )
@@ -122,10 +123,10 @@ def create_mock_load_session_activity() -> Callable[..., Any]:
     return mock_load_session_activity
 
 
-def create_mock_build_tool_definitions_activity(
+def create_mock_build_agent_tool_definitions_activity(
     tool_definitions: dict[str, MCPToolDefinition] | None = None,
 ) -> Callable[..., Any]:
-    """Create a mock build_tool_definitions activity."""
+    """Create a mock build_agent_tool_definitions activity."""
     if tool_definitions is None:
         tool_definitions = {
             "core.http_request": MCPToolDefinition(
@@ -148,16 +149,21 @@ def create_mock_build_tool_definitions_activity(
         actions=dict.fromkeys(tool_definitions.keys(), "tracecat_registry"),
     )
 
-    @activity.defn(name="build_tool_definitions")
-    async def mock_build_tool_definitions(
-        args: BuildToolDefsArgs,
-    ) -> BuildToolDefsResult:
-        return BuildToolDefsResult(
-            tool_definitions=tool_definitions,
-            registry_lock=registry_lock,
+    @activity.defn(name="build_agent_tool_definitions")
+    async def mock_build_agent_tool_definitions(
+        args: BuildAgentToolDefsArgs,
+    ) -> BuildAgentToolDefsResult:
+        return BuildAgentToolDefsResult(
+            scopes={
+                scope.scope: BuildToolDefsResult(
+                    tool_definitions=tool_definitions,
+                    registry_lock=registry_lock,
+                )
+                for scope in args.scopes
+            }
         )
 
-    return mock_build_tool_definitions
+    return mock_build_agent_tool_definitions
 
 
 def create_mock_run_agent_activity(
@@ -237,7 +243,7 @@ def create_activities_with_mock_executor(
     Args:
         response_callback: Function for mock run_agent_activity.
         tool_exec_callback: Optional function for mock execute_action_activity.
-        tool_definitions: Optional tool definitions for build_tool_definitions.
+        tool_definitions: Optional tool definitions for build_agent_tool_definitions.
 
     Returns:
         List of activities including mocked activities and approval manager activities.
@@ -245,7 +251,7 @@ def create_activities_with_mock_executor(
     activities: list[Callable[..., Any]] = [
         create_mock_create_session_activity(),
         create_mock_load_session_activity(),
-        create_mock_build_tool_definitions_activity(tool_definitions),
+        create_mock_build_agent_tool_definitions_activity(tool_definitions),
         create_mock_run_agent_activity(response_callback),
         create_mock_execute_action_activity(tool_exec_callback),
         create_mock_reconcile_tool_results_activity(),
@@ -548,12 +554,11 @@ async def test_agent_workflow_routes_approved_tools_to_executor_and_reconciles_h
         fake_agent_stream_new,
     )
 
-    @activity.defn(name="build_tool_definitions")
+    @activity.defn(name="build_agent_tool_definitions")
     async def mock_build_tool_definitions(
-        args: BuildToolDefsArgs,
-    ) -> BuildToolDefsResult:
-        del args
-        return BuildToolDefsResult(
+        args: BuildAgentToolDefsArgs,
+    ) -> BuildAgentToolDefsResult:
+        tool_result = BuildToolDefsResult(
             tool_definitions={
                 "core.http_request": MCPToolDefinition(
                     name="core__http_request",
@@ -573,6 +578,9 @@ async def test_agent_workflow_routes_approved_tools_to_executor_and_reconciles_h
                 origins={"tracecat_registry": "test-version"},
                 actions={"core.http_request": "tracecat_registry"},
             ),
+        )
+        return BuildAgentToolDefsResult(
+            scopes={scope.scope: tool_result for scope in args.scopes}
         )
 
     run_agent_call_count = 0
@@ -892,12 +900,13 @@ async def test_agent_workflow_plumbs_forked_session_through_approval_continuatio
             is_fork=False,
         )
 
-    @activity.defn(name="build_tool_definitions")
+    @activity.defn(name="build_agent_tool_definitions")
     async def mock_build_tool_definitions(
-        args: BuildToolDefsArgs,
-    ) -> BuildToolDefsResult:
-        assert args.tool_approvals == {"core.http_request": True}
-        return BuildToolDefsResult(
+        args: BuildAgentToolDefsArgs,
+    ) -> BuildAgentToolDefsResult:
+        root_scope = next(scope for scope in args.scopes if scope.scope == "root")
+        assert root_scope.tool_approvals == {"core.http_request": True}
+        tool_result = BuildToolDefsResult(
             tool_definitions={
                 "core.http_request": MCPToolDefinition(
                     name="core__http_request",
@@ -917,6 +926,9 @@ async def test_agent_workflow_plumbs_forked_session_through_approval_continuatio
                 origins={"tracecat_registry": "test-version"},
                 actions={"core.http_request": "tracecat_registry"},
             ),
+        )
+        return BuildAgentToolDefsResult(
+            scopes={scope.scope: tool_result for scope in args.scopes}
         )
 
     run_agent_call_count = 0
@@ -1161,12 +1173,11 @@ async def test_agent_workflow_does_not_retry_approved_tool_failures(
         fake_agent_stream_new,
     )
 
-    @activity.defn(name="build_tool_definitions")
+    @activity.defn(name="build_agent_tool_definitions")
     async def mock_build_tool_definitions(
-        args: BuildToolDefsArgs,
-    ) -> BuildToolDefsResult:
-        del args
-        return BuildToolDefsResult(
+        args: BuildAgentToolDefsArgs,
+    ) -> BuildAgentToolDefsResult:
+        tool_result = BuildToolDefsResult(
             tool_definitions={
                 "core.http_request": MCPToolDefinition(
                     name="core__http_request",
@@ -1186,6 +1197,9 @@ async def test_agent_workflow_does_not_retry_approved_tool_failures(
                 origins={"tracecat_registry": "test-version"},
                 actions={"core.http_request": "tracecat_registry"},
             ),
+        )
+        return BuildAgentToolDefsResult(
+            scopes={scope.scope: tool_result for scope in args.scopes}
         )
 
     @activity.defn(name="run_agent_activity")

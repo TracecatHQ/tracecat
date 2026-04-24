@@ -190,6 +190,7 @@ def _make_tool_handler(
 async def create_proxy_mcp_server(
     allowed_actions: dict[str, MCPToolDefinition],
     auth_token: str,
+    server_name: str = "tracecat-registry",
 ) -> McpSdkServerConfig:
     """Create proxy MCP server from pre-provided tool definitions.
 
@@ -206,6 +207,7 @@ async def create_proxy_mcp_server(
             User MCP tools use the format mcp__{server_name}__{tool_name}.
             Internal tools use the format internal.{category}.{tool_name}.
         auth_token: JWT token for authenticating with trusted server.
+        server_name: Claude MCP server name for this scoped proxy.
 
     Returns:
         McpSdkServerConfig ready for use with Claude agent.
@@ -270,10 +272,11 @@ async def create_proxy_mcp_server(
     logger.info(
         "Created proxy MCP server",
         tool_count=len(tools),
+        server_name=server_name,
     )
 
     return create_sdk_mcp_server(
-        name="tracecat-registry",
+        name=server_name,
         version="1.0.0",
         tools=tools,
     )

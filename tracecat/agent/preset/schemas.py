@@ -8,6 +8,7 @@ from typing import Annotated, Any
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
+from tracecat.agent.subagents import AgentsConfig
 from tracecat.agent.types import AgentConfig, OutputType
 from tracecat.core.schemas import Schema
 from tracecat.identifiers import WorkspaceID
@@ -42,6 +43,7 @@ class AgentPresetExecutionConfig(Schema):
     namespaces: list[str] | None = Field(default=None)
     tool_approvals: dict[str, bool] | None = Field(default=None)
     mcp_integrations: list[str] | None = Field(default=None)
+    agents: AgentsConfig = Field(default_factory=AgentsConfig)
     retries: int = Field(default=3, ge=0)
     enable_thinking: bool = Field(default=True)
     enable_internet_access: bool = Field(default=False)
@@ -59,6 +61,7 @@ class AgentPresetExecutionConfigWrite(Schema):
     namespaces: list[str] | None = Field(default=None)
     tool_approvals: dict[str, bool] | None = Field(default=None)
     mcp_integrations: list[str] | None = Field(default=None)
+    agents: AgentsConfig = Field(default_factory=AgentsConfig)
     retries: int = Field(default=3, ge=0)
     enable_thinking: bool = Field(default=True)
     enable_internet_access: bool = Field(default=False)
@@ -92,6 +95,7 @@ class AgentPresetUpdate(BaseModel):
     namespaces: list[str] | None = Field(default=None)
     tool_approvals: dict[str, bool] | None = Field(default=None)
     mcp_integrations: list[str] | None = Field(default=None)
+    agents: AgentsConfig | None = Field(default=None)
     retries: int | None = Field(default=None, ge=0)
     enable_thinking: bool | None = Field(default=None)
     enable_internet_access: bool | None = Field(default=None)
@@ -136,6 +140,7 @@ class AgentPresetRead(AgentPresetExecutionConfig):
             actions=self.actions,
             namespaces=self.namespaces,
             tool_approvals=self.tool_approvals,
+            agents=self.agents,
             retries=self.retries,
             enable_thinking=self.enable_thinking,
             enable_internet_access=self.enable_internet_access,

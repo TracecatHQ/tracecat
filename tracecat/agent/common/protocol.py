@@ -3,17 +3,21 @@
 These models define the contract between the trusted orchestrator (outside NSJail)
 and the sandboxed runtime (inside NSJail).
 
-Uses pure dataclasses with orjson for minimal import footprint.
+Uses explicit DTO serialization with orjson for the socket boundary.
 """
 
 from __future__ import annotations
 
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Literal
 
 from tracecat.agent.common.stream_types import UnifiedStreamEvent
-from tracecat.agent.common.types import MCPToolDefinition, SandboxAgentConfig
+from tracecat.agent.common.types import (
+    MCPToolDefinition,
+    SandboxAgentConfig,
+    SandboxSubagentConfig,
+)
 
 
 @dataclass(kw_only=True, slots=True)
@@ -41,6 +45,7 @@ class RuntimeInitPayload:
 
     # Resolved tool definitions (orchestrator resolves action names → full definitions)
     allowed_actions: dict[str, MCPToolDefinition] | None = None
+    subagents: list[SandboxSubagentConfig] = field(default_factory=list)
     sdk_session_id: str | None = None
     sdk_session_data: str | None = None  # JSONL content for resume
     is_approval_continuation: bool = False  # True when resuming after approval decision
@@ -50,7 +55,7 @@ class RuntimeInitPayload:
     def from_dict(cls, data: dict[str, Any]) -> RuntimeInitPayload:
         """Construct from dict (orjson parsed)."""
         # Parse config
-        config = SandboxAgentConfig.from_dict(data["config"])
+        config = SandboxAgentConfig.model_validate(data["config"])
 
         # Parse allowed_actions
         allowed_actions = None
@@ -73,6 +78,10 @@ class RuntimeInitPayload:
             user_prompt=data["user_prompt"],
             llm_gateway_auth_token=data["llm_gateway_auth_token"],
             allowed_actions=allowed_actions,
+            subagents=[
+                SandboxSubagentConfig.model_validate(item)
+                for item in data.get("subagents", [])
+            ],
             sdk_session_id=data.get("sdk_session_id"),
             sdk_session_data=data.get("sdk_session_data"),
             is_approval_continuation=data.get("is_approval_continuation", False),
@@ -85,7 +94,7 @@ class RuntimeInitPayload:
             "runtime_type": self.runtime_type,
             "session_id": str(self.session_id),
             "mcp_auth_token": self.mcp_auth_token,
-            "config": self.config.to_dict(),
+            "config": self.config.model_dump(mode="json", exclude_none=True),
             "user_prompt": self.user_prompt,
             "llm_gateway_auth_token": self.llm_gateway_auth_token,
             "is_approval_continuation": self.is_approval_continuation,
@@ -95,6 +104,11 @@ class RuntimeInitPayload:
             result["allowed_actions"] = {
                 k: v.to_dict() for k, v in self.allowed_actions.items()
             }
+        if self.subagents:
+            result["subagents"] = [
+                subagent.model_dump(mode="json", exclude_none=True)
+                for subagent in self.subagents
+            ]
         if self.sdk_session_id is not None:
             result["sdk_session_id"] = self.sdk_session_id
         if self.sdk_session_data is not None:

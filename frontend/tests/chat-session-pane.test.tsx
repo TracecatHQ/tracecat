@@ -100,6 +100,7 @@ const createChatFixture = (
   channel_context: null,
   tools: [],
   agent_preset_id: null,
+  agents_binding: null,
   harness_type: null,
   created_at: new Date("2024-01-01T00:00:00.000Z").toISOString(),
   updated_at: new Date("2024-01-01T00:00:00.000Z").toISOString(),

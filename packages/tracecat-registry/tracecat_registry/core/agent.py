@@ -11,7 +11,7 @@ from tracecat_registry import (
 )
 from tracecat_registry._internal.exceptions import ActionIsInterfaceError
 from tracecat_registry.fields import ActionType, AgentPreset, TextArea
-from tracecat_registry.sdk.agents import OutputType
+from tracecat_registry.sdk.agents import AgentsConfig, OutputType
 
 anthropic_secret = RegistrySecret(
     name="anthropic",
@@ -255,6 +255,12 @@ async def agent(
         dict[str, bool] | None,
         Doc(
             "Per-tool approval overrides keyed by action name (e.g. 'core.cases.create_case'). Use true to require approval, false to allow auto-execution."
+        ),
+    ] = None,
+    agents: Annotated[
+        AgentsConfig | None,
+        Doc(
+            "Subagent configuration. Set `enabled: true` to expose dynamic Agent calls. Add `subagents` to expose preset-backed subagents."
         ),
     ] = None,
 ) -> dict[str, Any]:

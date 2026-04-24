@@ -276,6 +276,7 @@ async def test_user_api_key_auth_strips_anthropic_beta_metadata_for_non_anthropi
             provider="bedrock",
             base_url=None,
             model_settings={},
+            routes={},
         ),
     )
     request = _make_request(
@@ -305,6 +306,7 @@ async def test_user_api_key_auth_preserves_anthropic_beta_metadata_for_anthropic
             provider="anthropic",
             base_url=None,
             model_settings={},
+            routes={},
         ),
     )
     request = _make_request(
@@ -360,6 +362,55 @@ async def test_pre_call_hook_filters_model_settings(
     assert result["seed"] == 7
     assert "metadata" not in result
     assert result["api_key"] == "test-openai-key"
+
+
+@pytest.mark.anyio
+async def test_pre_call_hook_uses_request_model_route_claim(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    credential_requests: list[dict[str, Any]] = []
+
+    async def mock_get_provider_credentials(**kwargs: Any) -> dict[str, str]:
+        credential_requests.append(kwargs)
+        return {"OPENAI_API_KEY": "test-openai-key"}
+
+    monkeypatch.setattr(
+        "tracecat.agent.gateway.get_provider_credentials",
+        mock_get_provider_credentials,
+    )
+
+    user_api_key_dict = UserAPIKeyAuth(
+        api_key="llm-token",
+        metadata={
+            "workspace_id": "00000000-0000-0000-0000-000000000001",
+            "organization_id": "00000000-0000-0000-0000-000000000002",
+            "model": "gpt-5",
+            "provider": "openai",
+            "model_settings": {"temperature": 0.8},
+            "use_workspace_credentials": True,
+            "routes": {
+                "tracecat-agent-analyst": {
+                    "model": "gpt-5-mini",
+                    "provider": "openai",
+                    "model_settings": {"temperature": 0.2},
+                    "use_workspace_credentials": False,
+                }
+            },
+        },
+    )
+
+    handler = TracecatCallbackHandler()
+    result = await handler.async_pre_call_hook(
+        user_api_key_dict=user_api_key_dict,
+        cache=cast(DualCache, object()),
+        data={"model": "tracecat-agent-analyst"},
+        call_type="completion",
+    )
+
+    assert result["model"] == "openai/gpt-5-mini"
+    assert result["temperature"] == 0.2
+    assert result["api_key"] == "test-openai-key"
+    assert credential_requests[0]["use_workspace_creds"] is False
 
 
 @pytest.mark.anyio

@@ -102,6 +102,18 @@ async def test_registry_actions_include_locked_shows_agent_preset_crud(
     assert actions["ai.agent.delete_preset"].missing_entitlements == ("agent_addons",)
 
 
+def test_ai_agent_registry_schema_exposes_agents_config() -> None:
+    """The schema-driven workflow UI needs ai.agent to advertise subagents."""
+    repo = Repository()
+    repo.init(include_base=True, include_templates=False)
+
+    interface = repo.get("ai.agent").get_interface()
+    properties = interface["expects"]["properties"]
+
+    assert "agents" in properties
+    assert "dynamic Agent calls" in properties["agents"]["description"]
+
+
 @pytest.fixture
 def mock_package(tmp_path):
     """Pytest fixture that creates a mock package with files and cleans up after the test."""

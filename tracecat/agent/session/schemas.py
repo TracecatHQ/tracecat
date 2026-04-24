@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field
 from tracecat.agent.adapter.vercel import UIMessage
 from tracecat.agent.common.stream_types import HarnessType
 from tracecat.agent.session.types import AgentSessionEntity
+from tracecat.agent.subagents import ResolvedAgentsConfig
 
 
 class AgentSessionCreate(BaseModel):
@@ -52,6 +53,10 @@ class AgentSessionCreate(BaseModel):
         default=None,
         description="Pinned preset version used for this session (if any)",
     )
+    agents_binding: ResolvedAgentsConfig | None = Field(
+        default=None,
+        description="Normalized subagent bindings for this session",
+    )
     # Harness fields
     harness_type: HarnessType = Field(
         default=HarnessType.CLAUDE_CODE, description="Agent harness type"
@@ -73,6 +78,10 @@ class AgentSessionUpdate(BaseModel):
     agent_preset_version_id: uuid.UUID | None = Field(
         default=None,
         description="Pinned preset version to use for this session",
+    )
+    agents_binding: ResolvedAgentsConfig | None = Field(
+        default=None,
+        description="Normalized subagent bindings for this session",
     )
     harness_type: HarnessType | None = Field(
         default=None, description="Agent harness type"
@@ -109,6 +118,7 @@ class AgentSessionRead(BaseModel):
     tools: list[str] | None
     agent_preset_id: uuid.UUID | None
     agent_preset_version_id: uuid.UUID | None
+    agents_binding: ResolvedAgentsConfig | None
     # Harness
     harness_type: str | None
     # Stream tracking

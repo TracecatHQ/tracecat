@@ -20,6 +20,9 @@ from tracecat.agent.session.schemas import AgentSessionCreate
 from tracecat.agent.session.service import AgentSessionService
 from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.agent.stream.connector import AgentStream
+from tracecat.agent.subagents import (
+    ResolvedAgentsConfig,
+)
 from tracecat.auth.types import Role
 from tracecat.contexts import ctx_role
 from tracecat.logger import logger
@@ -41,6 +44,7 @@ class CreateSessionInput(BaseModel):
     tools: list[str] | None = None
     agent_preset_id: uuid.UUID | None = None
     agent_preset_version_id: uuid.UUID | None = None
+    agents_binding: ResolvedAgentsConfig | None = None
     harness_type: HarnessType = HarnessType.CLAUDE_CODE
     # Workflow run tracking (for approval lookups)
     curr_run_id: uuid.UUID | None = None
@@ -98,6 +102,12 @@ class LoadSessionResult(BaseModel):
     error: str | None = None
 
 
+def _canonical_agents_binding(
+    binding: ResolvedAgentsConfig | dict[str, Any],
+) -> dict[str, Any]:
+    return ResolvedAgentsConfig.model_validate(binding).model_dump(mode="json")
+
+
 @activity.defn
 async def create_session_activity(input: CreateSessionInput) -> CreateSessionResult:
     """Create or get an existing agent session in the database.
@@ -132,9 +142,25 @@ async def create_session_activity(input: CreateSessionInput) -> CreateSessionRes
                         tools=input.tools,
                         agent_preset_id=input.agent_preset_id,
                         agent_preset_version_id=input.agent_preset_version_id,
+                        agents_binding=input.agents_binding,
                         harness_type=input.harness_type,
                     )
                 )
+
+            if not created and input.agents_binding is not None:
+                requested_binding = _canonical_agents_binding(input.agents_binding)
+                if agent_session.agents_binding is None:
+                    agent_session.agents_binding = requested_binding
+                    service.session.add(agent_session)
+                    await service.session.commit()
+                elif (
+                    _canonical_agents_binding(agent_session.agents_binding)
+                    != requested_binding
+                ):
+                    raise ApplicationError(
+                        "Agent session was created with a different agents binding",
+                        non_retryable=True,
+                    )
 
             # Set curr_run_id if provided (for workflow-initiated sessions)
             if input.curr_run_id is not None:

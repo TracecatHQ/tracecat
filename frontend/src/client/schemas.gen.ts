@@ -1481,6 +1481,9 @@ export const $AgentPresetCreate = {
       ],
       title: "Mcp Integrations",
     },
+    agents: {
+      $ref: "#/components/schemas/AgentsConfig-Input",
+    },
     retries: {
       type: "integer",
       minimum: 0,
@@ -1635,6 +1638,9 @@ export const $AgentPresetRead = {
         },
       ],
       title: "Mcp Integrations",
+    },
+    agents: {
+      $ref: "#/components/schemas/AgentsConfig-Output",
     },
     retries: {
       type: "integer",
@@ -1943,6 +1949,16 @@ export const $AgentPresetUpdate = {
       ],
       title: "Mcp Integrations",
     },
+    agents: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/AgentsConfig-Input",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
     retries: {
       anyOf: [
         {
@@ -2169,6 +2185,9 @@ export const $AgentPresetVersionRead = {
       ],
       title: "Mcp Integrations",
     },
+    agents: {
+      $ref: "#/components/schemas/AgentsConfig-Output",
+    },
     retries: {
       type: "integer",
       minimum: 0,
@@ -2331,6 +2350,9 @@ export const $AgentPresetVersionReadMinimal = {
       ],
       title: "Mcp Integrations",
     },
+    agents: {
+      $ref: "#/components/schemas/AgentsConfig-Output",
+    },
     retries: {
       type: "integer",
       minimum: 0,
@@ -2480,6 +2502,17 @@ export const $AgentSessionCreate = {
       title: "Agent Preset Version Id",
       description: "Pinned preset version used for this session (if any)",
     },
+    agents_binding: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/ResolvedAgentsConfig",
+        },
+        {
+          type: "null",
+        },
+      ],
+      description: "Normalized subagent bindings for this session",
+    },
     harness_type: {
       $ref: "#/components/schemas/HarnessType",
       description: "Agent harness type",
@@ -2623,6 +2656,16 @@ export const $AgentSessionRead = {
       ],
       title: "Agent Preset Version Id",
     },
+    agents_binding: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/ResolvedAgentsConfig",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
     harness_type: {
       anyOf: [
         {
@@ -2680,6 +2723,7 @@ export const $AgentSessionRead = {
     "tools",
     "agent_preset_id",
     "agent_preset_version_id",
+    "agents_binding",
     "harness_type",
     "created_at",
     "updated_at",
@@ -2775,6 +2819,16 @@ export const $AgentSessionReadVercel = {
       ],
       title: "Agent Preset Version Id",
     },
+    agents_binding: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/ResolvedAgentsConfig",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
     harness_type: {
       anyOf: [
         {
@@ -2840,6 +2894,7 @@ export const $AgentSessionReadVercel = {
     "tools",
     "agent_preset_id",
     "agent_preset_version_id",
+    "agents_binding",
     "harness_type",
     "created_at",
     "updated_at",
@@ -2935,6 +2990,16 @@ export const $AgentSessionReadWithMessages = {
       ],
       title: "Agent Preset Version Id",
     },
+    agents_binding: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/ResolvedAgentsConfig",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
     harness_type: {
       anyOf: [
         {
@@ -2998,6 +3063,7 @@ export const $AgentSessionReadWithMessages = {
     "tools",
     "agent_preset_id",
     "agent_preset_version_id",
+    "agents_binding",
     "harness_type",
     "created_at",
     "updated_at",
@@ -3063,6 +3129,17 @@ export const $AgentSessionUpdate = {
       ],
       title: "Agent Preset Version Id",
       description: "Pinned preset version to use for this session",
+    },
+    agents_binding: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/ResolvedAgentsConfig",
+        },
+        {
+          type: "null",
+        },
+      ],
+      description: "Normalized subagent bindings for this session",
     },
     harness_type: {
       anyOf: [
@@ -3170,6 +3247,61 @@ export const $AgentSettingsUpdate = {
   },
   type: "object",
   title: "AgentSettingsUpdate",
+} as const
+
+export const $AgentsConfig_Input = {
+  properties: {
+    enabled: {
+      type: "boolean",
+      title: "Enabled",
+      default: false,
+    },
+    subagents: {
+      items: {
+        $ref: "#/components/schemas/AnyAttachedSubagentRef",
+      },
+      type: "array",
+      title: "Subagents",
+    },
+  },
+  additionalProperties: false,
+  type: "object",
+  title: "AgentsConfig",
+  description:
+    "User-facing agents toggle and optional preset-backed subagents.",
+} as const
+
+export const $AgentsConfig_Output = {
+  properties: {
+    enabled: {
+      type: "boolean",
+      title: "Enabled",
+      default: false,
+    },
+    subagents: {
+      items: {
+        $ref: "#/components/schemas/AnyAttachedSubagentRef",
+      },
+      type: "array",
+      title: "Subagents",
+    },
+  },
+  additionalProperties: false,
+  type: "object",
+  title: "AgentsConfig",
+  description:
+    "User-facing agents toggle and optional preset-backed subagents.",
+} as const
+
+export const $AnyAttachedSubagentRef = {
+  anyOf: [
+    {
+      $ref: "#/components/schemas/ResolvedAttachedSubagentRef",
+    },
+    {
+      $ref: "#/components/schemas/AttachedSubagentRef",
+    },
+  ],
 } as const
 
 export const $AppSettingsRead = {
@@ -3698,6 +3830,72 @@ export const $AssistantMessage = {
   type: "object",
   required: ["content", "model"],
   title: "AssistantMessage",
+} as const
+
+export const $AttachedSubagentRef = {
+  properties: {
+    preset: {
+      type: "string",
+      maxLength: 160,
+      minLength: 1,
+      title: "Preset",
+    },
+    preset_version: {
+      anyOf: [
+        {
+          type: "integer",
+          minimum: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Preset Version",
+    },
+    name: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 80,
+          minLength: 1,
+          pattern: "^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Name",
+    },
+    description: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 1000,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Description",
+    },
+    max_turns: {
+      anyOf: [
+        {
+          type: "integer",
+          minimum: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Max Turns",
+    },
+  },
+  additionalProperties: false,
+  type: "object",
+  required: ["preset"],
+  title: "AttachedSubagentRef",
+  description: "User-facing reference to a preset-backed subagent.",
 } as const
 
 export const $AttachmentCreatedEventRead = {
@@ -16451,6 +16649,104 @@ export const $RepositorySyncResult = {
   required: ["repository_id", "repository_name", "success"],
   title: "RepositorySyncResult",
   description: "Result of syncing a single repository.",
+} as const
+
+export const $ResolvedAgentsConfig = {
+  properties: {
+    enabled: {
+      type: "boolean",
+      title: "Enabled",
+      default: false,
+    },
+    subagents: {
+      items: {
+        $ref: "#/components/schemas/ResolvedAttachedSubagentRef",
+      },
+      type: "array",
+      title: "Subagents",
+    },
+  },
+  additionalProperties: false,
+  type: "object",
+  title: "ResolvedAgentsConfig",
+  description: "Persisted agents toggle with immutable resolved child refs.",
+} as const
+
+export const $ResolvedAttachedSubagentRef = {
+  properties: {
+    preset: {
+      type: "string",
+      maxLength: 160,
+      minLength: 1,
+      title: "Preset",
+    },
+    preset_version: {
+      anyOf: [
+        {
+          type: "integer",
+          minimum: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Preset Version",
+    },
+    name: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 80,
+          minLength: 1,
+          pattern: "^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Name",
+    },
+    description: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 1000,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Description",
+    },
+    max_turns: {
+      anyOf: [
+        {
+          type: "integer",
+          minimum: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Max Turns",
+    },
+    preset_id: {
+      type: "string",
+      format: "uuid",
+      title: "Preset Id",
+    },
+    preset_version_id: {
+      type: "string",
+      format: "uuid",
+      title: "Preset Version Id",
+    },
+  },
+  additionalProperties: false,
+  type: "object",
+  required: ["preset", "preset_id", "preset_version_id"],
+  title: "ResolvedAttachedSubagentRef",
+  description:
+    "Persisted subagent ref with immutable preset/version identifiers.",
 } as const
 
 export const $ResponseInteraction = {

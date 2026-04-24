@@ -29,6 +29,7 @@ from claude_agent_sdk import (
     Transport,
 )
 from claude_agent_sdk.types import (
+    AgentDefinition,
     HookContext,
     HookInput,
     PreToolUseHookSpecificOutput,
@@ -49,7 +50,12 @@ from tracecat.agent.common.stream_types import (
     ToolCallContent,
     UnifiedStreamEvent,
 )
-from tracecat.agent.common.types import MCPStdioServerConfig, MCPToolDefinition
+from tracecat.agent.common.types import (
+    MCPServerConfig,
+    MCPStdioServerConfig,
+    MCPToolDefinition,
+)
+from tracecat.agent.llm_routing import get_scoped_litellm_route_model
 from tracecat.agent.mcp.proxy_server import (
     PROXY_TOOL_CALL_ID_KEY,
     PROXY_TOOL_METADATA_KEY,
@@ -57,6 +63,7 @@ from tracecat.agent.mcp.proxy_server import (
 )
 from tracecat.agent.mcp.utils import normalize_mcp_tool_name
 from tracecat.agent.runtime.claude_code.adapter import ClaudeSDKAdapter
+from tracecat.agent.subagents import AgentsConfig
 from tracecat.logger import logger
 
 
@@ -90,48 +97,6 @@ class RuntimeEventWriter(Protocol):
         """Send a structured runtime log event."""
 
 
-_LITELLM_ROUTE_PREFIXES: dict[str, str] = {
-    "openai": "openai",
-    "anthropic": "anthropic",
-    "gemini": "gemini",
-    "vertex_ai": "vertex_ai",
-    "bedrock": "bedrock",
-    "azure_openai": "azure",
-    "azure_ai": "azure_ai",
-}
-
-
-def get_litellm_route_model(
-    *,
-    model_provider: str,
-    model_name: str,
-    passthrough: bool = False,
-) -> str:
-    """Prefix model names so LiteLLM enters the intended provider route.
-
-    Claude Code speaks to LiteLLM through the Anthropic-compatible
-    ``/v1/messages`` surface. LiteLLM chooses the provider route from the
-    incoming ``model`` string before Tracecat's credential hook rewrites the
-    final provider-specific model ID, so unqualified model names can fall
-    through to the OpenAI catch-all route.
-    """
-    if passthrough:
-        # Direct upstream passthrough should preserve the configured model ID.
-        return model_name
-
-    # Tracecat specific LiteLLM logic
-    if any(
-        model_name.startswith(f"{prefix}/")
-        for prefix in set(_LITELLM_ROUTE_PREFIXES.values())
-    ):
-        return model_name
-
-    if prefix := _LITELLM_ROUTE_PREFIXES.get(model_provider):
-        return f"{prefix}/{model_name}"
-
-    return model_name
-
-
 def _configure_claude_sdk_process_env() -> None:
     """Prime process-level SDK env before ClaudeSDKClient.connect().
 
@@ -154,11 +119,15 @@ DISALLOWED_TOOLS = [
     "AskUserQuestion",
     "TodoRead",
     "TodoWrite",
+    "Agent",
     "Task",
     "TaskOutput",
     "Skill",
     "SlashCommand",
 ]
+
+AGENT_TOOL_NAMES = frozenset({"Agent", "Task"})
+CHILD_AGENT_DISALLOWED_TOOLS = ["Agent", "Task", "TaskOutput"]
 
 # Tools that require internet access (these bypass sandbox network isolation
 # because they're executed server-side by Anthropic, not in the sandbox)
@@ -175,6 +144,7 @@ REGISTRY_MCP_TOOL_PREFIX = f"mcp__{REGISTRY_MCP_SERVER_NAME}__"
 REGISTRY_MCP_DOT_PREFIX = f"mcp.{REGISTRY_MCP_SERVER_NAME}."
 LEGACY_REGISTRY_MCP_TOOL_PREFIX = "mcp__tracecat_registry__"
 LEGACY_REGISTRY_MCP_DOT_PREFIX = "mcp.tracecat_registry."
+SUBAGENT_REGISTRY_MCP_SERVER_PREFIX = "tracecat-registry-"
 
 # Increase the SDK's stdout/stderr capture buffer above its default 1 MiB so
 # larger tool responses do not truncate during agent execution.
@@ -215,6 +185,11 @@ class ClaudeAgentRuntime:
         # Public for testing - these represent runtime configuration
         self.registry_tools: dict[str, MCPToolDefinition] | None = None
         self.tool_approvals: dict[str, bool] | None = None
+        self._scope_tool_approvals: dict[str, dict[str, bool] | None] = {}
+        self._scope_internet_access: dict[str, bool] = {}
+        self._explicit_subagent_aliases: set[str] = set()
+        self._registry_mcp_server_names: set[str] = {REGISTRY_MCP_SERVER_NAME}
+        self._root_agents_enabled: bool = False
         self._pending_approval_tool_ids: set[str] = set()
         self.client: ClaudeSDKClient | None = None
         self._was_interrupted: bool = False
@@ -257,14 +232,81 @@ class ClaudeAgentRuntime:
 
     def _should_inject_tool_metadata(self, tool_name: str, action_name: str) -> bool:
         """Return True when a tool executes through the registry proxy path."""
+        for server_name in self._registry_mcp_server_names:
+            if tool_name.startswith((f"mcp__{server_name}__", f"mcp.{server_name}.")):
+                return not action_name.startswith(("mcp.", "internal."))
         return tool_name.startswith(
-            (
-                REGISTRY_MCP_TOOL_PREFIX,
-                REGISTRY_MCP_DOT_PREFIX,
-                LEGACY_REGISTRY_MCP_TOOL_PREFIX,
-                LEGACY_REGISTRY_MCP_DOT_PREFIX,
-            )
+            (LEGACY_REGISTRY_MCP_TOOL_PREFIX, LEGACY_REGISTRY_MCP_DOT_PREFIX)
         ) and not action_name.startswith(("mcp.", "internal."))
+
+    @staticmethod
+    def _subagent_registry_server_name(alias: str) -> str:
+        return f"{SUBAGENT_REGISTRY_MCP_SERVER_PREFIX}{alias}"
+
+    @staticmethod
+    def _is_subagent_scope(input_data: HookInput) -> bool:
+        return bool(input_data.get("agent_id"))
+
+    def _hook_scope(self, input_data: HookInput) -> str:
+        if self._is_subagent_scope(input_data):
+            agent_type = input_data.get("agent_type")
+            if isinstance(agent_type, str) and agent_type:
+                return agent_type
+        return "root"
+
+    def _policy_scope(self, input_data: HookInput) -> str:
+        scope = self._hook_scope(input_data)
+        if scope in self._explicit_subagent_aliases:
+            return scope
+        # Dynamic/general-purpose subagents inherit root tools and approvals.
+        return "root"
+
+    def _approval_metadata(self, input_data: HookInput) -> dict[str, Any]:
+        scope = self._hook_scope(input_data)
+        return {
+            "agent_scope": scope,
+            "agent_alias": scope if scope in self._explicit_subagent_aliases else None,
+            "agent_id": input_data.get("agent_id"),
+        }
+
+    @staticmethod
+    def _agent_tool_target(tool_input: dict[str, Any]) -> str | None:
+        for key in ("subagent_type", "agent_type", "type", "name"):
+            value = tool_input.get(key)
+            if isinstance(value, str) and value:
+                return value
+        return None
+
+    def _validate_agent_tool_call(
+        self,
+        input_data: HookInput,
+        tool_name: str,
+        tool_input: dict[str, Any],
+    ) -> str | None:
+        """Return denial reason for invalid Agent/Task tool use, else None."""
+        if tool_name not in AGENT_TOOL_NAMES:
+            return None
+        if not self._agents_enabled:
+            return "Subagents are disabled for this agent configuration."
+        if self._is_subagent_scope(input_data):
+            return "Subagents cannot invoke other subagents."
+
+        target = self._agent_tool_target(tool_input)
+        if (
+            target
+            and target != "general-purpose"
+            and target not in self._explicit_subagent_aliases
+        ):
+            allowed = ["general-purpose", *sorted(self._explicit_subagent_aliases)]
+            return (
+                f"Subagent '{target}' is not available. "
+                f"Allowed subagents: {', '.join(allowed)}."
+            )
+        return None
+
+    @property
+    def _agents_enabled(self) -> bool:
+        return bool(getattr(self, "_root_agents_enabled", False))
 
     def _with_tool_call_metadata(
         self,
@@ -338,7 +380,7 @@ class ClaudeAgentRuntime:
         mcp_servers: dict[str, Any] = {}
 
         session_file_task: asyncio.Task[Path] | None = None
-        proxy_config_task: asyncio.Task[Any] | None = None
+        proxy_config_tasks: dict[str, asyncio.Task[Any]] = {}
 
         if payload.sdk_session_id and payload.sdk_session_data:
             resume_session_id = payload.sdk_session_id
@@ -359,18 +401,30 @@ class ClaudeAgentRuntime:
                     )
                 )
             if self.registry_tools:
-                proxy_config_task = tg.create_task(
+                proxy_config_tasks[REGISTRY_MCP_SERVER_NAME] = tg.create_task(
                     create_proxy_mcp_server(
                         allowed_actions=self.registry_tools,
                         auth_token=payload.mcp_auth_token,
+                        server_name=REGISTRY_MCP_SERVER_NAME,
+                    )
+                )
+            for subagent in payload.subagents:
+                if not subagent.allowed_actions:
+                    continue
+                server_name = self._subagent_registry_server_name(subagent.alias)
+                proxy_config_tasks[server_name] = tg.create_task(
+                    create_proxy_mcp_server(
+                        allowed_actions=subagent.allowed_actions,
+                        auth_token=subagent.mcp_auth_token,
+                        server_name=server_name,
                     )
                 )
 
         if session_file_task is not None:
             _ = session_file_task.result()
 
-        if proxy_config_task is not None:
-            mcp_servers[REGISTRY_MCP_SERVER_NAME] = proxy_config_task.result()
+        for server_name, task in proxy_config_tasks.items():
+            mcp_servers[server_name] = task.result()
 
         return resume_session_id, fork_session, mcp_servers
 
@@ -555,6 +609,8 @@ class ClaudeAgentRuntime:
         tool_name: str,
         tool_input: dict[str, Any],
         tool_use_id: str,
+        *,
+        metadata: dict[str, Any] | None = None,
     ) -> None:
         """Handle an approval request by streaming and interrupting.
 
@@ -569,6 +625,7 @@ class ClaudeAgentRuntime:
                     id=tool_use_id,
                     name=tool_name,
                     input=tool_input,
+                    metadata=metadata,
                 )
             ]
         )
@@ -600,9 +657,40 @@ class ClaudeAgentRuntime:
         tool_input: dict[str, Any] = input_data.get("tool_input", {})
 
         action_name = normalize_mcp_tool_name(tool_name)
+        if denial_reason := self._validate_agent_tool_call(
+            input_data,
+            tool_name,
+            tool_input,
+        ):
+            return {
+                "hookSpecificOutput": {
+                    "hookEventName": "PreToolUse",
+                    "permissionDecision": "deny",
+                    "permissionDecisionReason": denial_reason,
+                }
+            }
+
+        policy_scope = self._policy_scope(input_data)
+        if tool_name in INTERNET_TOOLS and not self._scope_internet_access.get(
+            policy_scope, False
+        ):
+            return {
+                "hookSpecificOutput": {
+                    "hookEventName": "PreToolUse",
+                    "permissionDecision": "deny",
+                    "permissionDecisionReason": (
+                        f"Tool '{tool_name}' is disabled for agent scope "
+                        f"'{policy_scope}'."
+                    ),
+                }
+            }
+
+        scope_approvals = self._scope_tool_approvals.get(
+            policy_scope,
+            self.tool_approvals,
+        )
         requires_approval = (
-            self.tool_approvals is not None
-            and self.tool_approvals.get(action_name) is True
+            scope_approvals is not None and scope_approvals.get(action_name) is True
         )
 
         if requires_approval:
@@ -614,6 +702,7 @@ class ClaudeAgentRuntime:
                 action_name,
                 tool_input,
                 tool_use_id,
+                metadata=self._approval_metadata(input_data),
             )
             return {
                 "hookSpecificOutput": {
@@ -696,6 +785,96 @@ class ClaudeAgentRuntime:
 
         return f"{base}\n\n{instructions}" if instructions else base
 
+    @staticmethod
+    def _agents_config_enabled(config: AgentsConfig) -> bool:
+        return config.enabled
+
+    @staticmethod
+    def _copy_stdio_server_config(config: MCPStdioServerConfig) -> dict[str, Any]:
+        server_config: dict[str, Any] = {
+            "command": config["command"],
+        }
+        if args := config.get("args"):
+            server_config["args"] = args
+        if env := config.get("env"):
+            server_config["env"] = env
+        if timeout := config.get("timeout"):
+            server_config["timeout"] = timeout
+        return server_config
+
+    def _register_stdio_mcp_servers(
+        self,
+        *,
+        source_configs: list[MCPServerConfig] | None,
+        mcp_servers: dict[str, Any],
+        name_prefix: str | None = None,
+    ) -> list[str]:
+        registered: list[str] = []
+        if not source_configs:
+            return registered
+
+        for config in source_configs:
+            if config.get("type", "http") != "stdio":
+                continue
+            stdio_config = cast(MCPStdioServerConfig, config)
+            base_name = stdio_config["name"]
+            if name_prefix:
+                base_name = f"{name_prefix}-{base_name}"
+            server_name = base_name
+            suffix = 2
+            while server_name in mcp_servers:
+                server_name = f"{base_name}-{suffix}"
+                suffix += 1
+
+            mcp_servers[server_name] = self._copy_stdio_server_config(stdio_config)
+            registered.append(server_name)
+
+        return registered
+
+    def _build_agent_definitions(
+        self,
+        *,
+        payload: RuntimeInitPayload,
+        mcp_servers: dict[str, Any],
+    ) -> dict[str, AgentDefinition] | None:
+        if not payload.subagents:
+            return None
+
+        definitions: dict[str, AgentDefinition] = {}
+        for subagent in payload.subagents:
+            mcp_server_names: list[str] = []
+            registry_server_name = self._subagent_registry_server_name(subagent.alias)
+            if subagent.allowed_actions:
+                mcp_server_names.append(registry_server_name)
+
+            mcp_server_names.extend(
+                self._register_stdio_mcp_servers(
+                    source_configs=subagent.config.mcp_servers,
+                    mcp_servers=mcp_servers,
+                    name_prefix=f"subagent-{subagent.alias}",
+                )
+            )
+
+            disallowed_tools = list(CHILD_AGENT_DISALLOWED_TOOLS)
+            if not subagent.config.enable_internet_access:
+                disallowed_tools.extend(INTERNET_TOOLS)
+
+            definitions[subagent.alias] = AgentDefinition(
+                description=subagent.description,
+                prompt=subagent.prompt,
+                model=get_scoped_litellm_route_model(
+                    model_provider=subagent.config.model_provider,
+                    model_name=subagent.config.model_name,
+                    passthrough=subagent.config.passthrough,
+                    scope=subagent.alias,
+                ),
+                mcpServers=cast(list[str | dict[str, Any]], mcp_server_names) or None,
+                disallowedTools=disallowed_tools,
+                maxTurns=subagent.max_turns,
+            )
+
+        return definitions
+
     async def run(self, payload: RuntimeInitPayload) -> None:
         """Run an agent with the given initialization payload.
 
@@ -728,6 +907,32 @@ class ClaudeAgentRuntime:
         # Use resolved tool definitions from orchestrator
         self.registry_tools = payload.allowed_actions
         self.tool_approvals = payload.config.tool_approvals
+        self._root_agents_enabled = self._agents_config_enabled(payload.config.agents)
+        self._explicit_subagent_aliases = {
+            subagent.alias for subagent in payload.subagents
+        }
+        self._registry_mcp_server_names = {
+            REGISTRY_MCP_SERVER_NAME,
+            *(
+                self._subagent_registry_server_name(subagent.alias)
+                for subagent in payload.subagents
+                if subagent.allowed_actions
+            ),
+        }
+        self._scope_tool_approvals = {
+            "root": payload.config.tool_approvals,
+            **{
+                subagent.alias: subagent.config.tool_approvals
+                for subagent in payload.subagents
+            },
+        }
+        self._scope_internet_access = {
+            "root": payload.config.enable_internet_access,
+            **{
+                subagent.alias: subagent.config.enable_internet_access
+                for subagent in payload.subagents
+            },
+        }
 
         # Stable per-session working directory for the Claude Code CLI.
         # IMPORTANT: Must be deterministic per session_id. The CLI indexes
@@ -758,30 +963,14 @@ class ClaudeAgentRuntime:
             )
 
             stderr_queue: asyncio.Queue[str] = asyncio.Queue()
-            if payload.config.mcp_servers:
-                for config in payload.config.mcp_servers:
-                    if config.get("type", "http") != "stdio":
-                        continue
-                    stdio_config = cast(MCPStdioServerConfig, config)
-
-                    base_name = stdio_config["name"]
-                    server_name = base_name
-                    suffix = 2
-                    while server_name in mcp_servers:
-                        server_name = f"{base_name}-{suffix}"
-                        suffix += 1
-
-                    server_config: dict[str, Any] = {
-                        "command": stdio_config["command"],
-                    }
-                    if args := stdio_config.get("args"):
-                        server_config["args"] = args
-                    if env := stdio_config.get("env"):
-                        server_config["env"] = env
-                    if timeout := stdio_config.get("timeout"):
-                        server_config["timeout"] = timeout
-
-                    mcp_servers[server_name] = server_config
+            self._register_stdio_mcp_servers(
+                source_configs=payload.config.mcp_servers,
+                mcp_servers=mcp_servers,
+            )
+            agent_definitions = self._build_agent_definitions(
+                payload=payload,
+                mcp_servers=mcp_servers,
+            )
 
             def handle_claude_stderr(line: str) -> None:
                 """Forward Claude CLI stderr to loopback via queue."""
@@ -803,9 +992,14 @@ class ClaudeAgentRuntime:
             # - nsjail mode: sandbox provides OS-level isolation
             # - direct mode: SandboxSettings + stable cwd scopes file access
 
-            disallowed_tools: list[str] = list(DISALLOWED_TOOLS)
+            disallowed_tools: list[str] = [
+                tool
+                for tool in DISALLOWED_TOOLS
+                if not (self._agents_enabled and tool in AGENT_TOOL_NAMES)
+            ]
             if not payload.config.enable_internet_access:
                 disallowed_tools.extend(INTERNET_TOOLS)
+            allowed_tools = sorted(AGENT_TOOL_NAMES) if self._agents_enabled else []
 
             sandbox_settings = SandboxSettings(enabled=TRACECAT__DISABLE_NSJAIL)
             if TRACECAT__DISABLE_NSJAIL:
@@ -817,11 +1011,7 @@ class ClaudeAgentRuntime:
                 include_partial_messages=True,
                 resume=resume_session_id,
                 fork_session=fork_session,  # If True, creates new session from parent's history
-                thinking=(
-                    {"type": "enabled", "budget_tokens": 1024}
-                    if payload.config.enable_thinking
-                    else {"type": "disabled"}
-                ),
+                effort="high" if payload.config.enable_thinking else None,
                 env={
                     "ANTHROPIC_AUTH_TOKEN": payload.llm_gateway_auth_token,
                     **(
@@ -837,16 +1027,19 @@ class ClaudeAgentRuntime:
                         else {}
                     ),
                 },
-                model=get_litellm_route_model(
+                model=get_scoped_litellm_route_model(
                     model_provider=payload.config.model_provider,
                     model_name=payload.config.model_name,
                     passthrough=payload.config.passthrough,
+                    scope="root",
                 ),
                 system_prompt=self._build_system_prompt(
                     payload.config.instructions, payload.config.output_type
                 ),
                 mcp_servers=mcp_servers,
+                allowed_tools=allowed_tools,
                 disallowed_tools=disallowed_tools,
+                agents=agent_definitions,
                 stderr=handle_claude_stderr,
                 sandbox=sandbox_settings,
                 hooks={

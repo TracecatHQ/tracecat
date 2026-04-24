@@ -1,12 +1,16 @@
-"""Lightweight types for agent sandbox communication.
-
-Pure dataclasses with no Pydantic dependencies for minimal import footprint.
-"""
+"""Lightweight types for agent sandbox communication."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Literal, NotRequired, TypedDict
+from typing import TYPE_CHECKING, Any, Literal, NotRequired, TypedDict
+
+from pydantic import BaseModel, ConfigDict, Field
+
+from tracecat.agent.subagents import AgentsConfig
+
+if TYPE_CHECKING:
+    from tracecat.agent.types import AgentConfig
 
 
 class MCPHttpServerConfig(TypedDict):
@@ -93,13 +97,14 @@ class MCPToolDefinition:
         }
 
 
-@dataclass(kw_only=True, slots=True)
-class SandboxAgentConfig:
+class SandboxAgentConfig(BaseModel):
     """Minimal agent configuration for sandbox execution.
 
     This is a lightweight version of AgentConfig that contains only
     the fields needed by the sandboxed runtime.
     """
+
+    model_config = ConfigDict(extra="forbid")
 
     # Model
     model_name: str
@@ -118,6 +123,10 @@ class SandboxAgentConfig:
     mcp_servers: list[MCPServerConfig] | None = None
     """User-defined MCP servers to connect to."""
 
+    # Subagents
+    agents: AgentsConfig = Field(default_factory=AgentsConfig)
+    """Canonical agents config for sandbox transport."""
+
     # Output
     output_type: str | dict[str, Any] | None = None
     """Expected output type for structured outputs (e.g., "int", "str", or a JSON schema dict)."""
@@ -129,23 +138,7 @@ class SandboxAgentConfig:
     """Whether to enable internet access tools (WebSearch, WebFetch)."""
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> SandboxAgentConfig:
-        """Construct from dict (orjson parsed)."""
-        return cls(
-            model_name=data["model_name"],
-            model_provider=data["model_provider"],
-            base_url=data.get("base_url"),
-            passthrough=data.get("passthrough", False),
-            instructions=data.get("instructions"),
-            tool_approvals=data.get("tool_approvals"),
-            mcp_servers=data.get("mcp_servers"),
-            output_type=data.get("output_type"),
-            enable_thinking=data.get("enable_thinking", True),
-            enable_internet_access=data.get("enable_internet_access", False),
-        )
-
-    @classmethod
-    def from_agent_config(cls, config: Any) -> SandboxAgentConfig:
+    def from_agent_config(cls, config: AgentConfig) -> SandboxAgentConfig:
         """Create from a full AgentConfig (Pydantic model).
 
         This extracts only the fields needed for sandbox execution.
@@ -157,32 +150,30 @@ class SandboxAgentConfig:
             model_name=config.model_name,
             model_provider=config.model_provider,
             base_url=config.base_url,
-            passthrough=getattr(config, "passthrough", False),
+            passthrough=config.passthrough,
             instructions=config.instructions,
             tool_approvals=config.tool_approvals,
             mcp_servers=config.mcp_servers,
+            agents=config.agents,
             output_type=config.output_type,
-            enable_thinking=getattr(config, "enable_thinking", True),
-            enable_internet_access=getattr(config, "enable_internet_access", False),
+            enable_thinking=config.enable_thinking,
+            enable_internet_access=config.enable_internet_access,
         )
 
-    def to_dict(self) -> dict[str, Any]:
-        """Convert to dict for orjson serialization."""
-        result: dict[str, Any] = {
-            "model_name": self.model_name,
-            "model_provider": self.model_provider,
-        }
-        if self.base_url is not None:
-            result["base_url"] = self.base_url
-        result["passthrough"] = self.passthrough
-        if self.instructions is not None:
-            result["instructions"] = self.instructions
-        if self.tool_approvals is not None:
-            result["tool_approvals"] = self.tool_approvals
-        if self.mcp_servers is not None:
-            result["mcp_servers"] = self.mcp_servers
-        if self.output_type is not None:
-            result["output_type"] = self.output_type
-        result["enable_thinking"] = self.enable_thinking
-        result["enable_internet_access"] = self.enable_internet_access
-        return result
+
+class SandboxSubagentConfig(BaseModel):
+    """Fully resolved subagent configuration for sandbox execution.
+
+    The trusted workflow resolves preset references, discovers tools, and mints
+    scope-specific tokens before this reaches the sandbox runtime.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    alias: str
+    description: str
+    prompt: str
+    config: SandboxAgentConfig
+    mcp_auth_token: str
+    max_turns: int | None = None
+    allowed_actions: dict[str, MCPToolDefinition] | None = None

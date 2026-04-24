@@ -1,9 +1,10 @@
 import uuid
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from tracecat import config
+from tracecat.agent.subagents import AgentsConfig
 from tracecat.agent.types import OutputType
 
 
@@ -32,10 +33,16 @@ class AgentActionArgs(BaseModel):
     enable_thinking: bool = True
     base_url: str | None = None
     tool_approvals: dict[str, bool] | None = None
+    agents: AgentsConfig = Field(default_factory=AgentsConfig)
     use_workspace_credentials: bool = Field(
         default=True,
         description="If True, use workspace-scoped credentials; otherwise org-level",
     )
+
+    @field_validator("agents", mode="before")
+    @classmethod
+    def default_null_agents(cls, value: object) -> object:
+        return {} if value is None else value
 
 
 class PresetAgentActionArgs(BaseModel):

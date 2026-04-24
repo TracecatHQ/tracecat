@@ -17,6 +17,7 @@ from pydantic import Discriminator, TypeAdapter
 
 from tracecat.agent.common.stream_types import ToolCallContent
 from tracecat.agent.common.types import MCPServerConfig
+from tracecat.agent.subagents import AgentsConfig
 from tracecat.config import TRACECAT__AGENT_MAX_RETRIES
 
 if TYPE_CHECKING:
@@ -127,6 +128,8 @@ class AgentConfig:
     # MCP
     model_settings: dict[str, Any] | None = None
     mcp_servers: list[MCPServerConfig] | None = None
+    # Subagents
+    agents: AgentsConfig = field(default_factory=AgentsConfig)
     retries: int = TRACECAT__AGENT_MAX_RETRIES
     deps_type: type[Any] | None = None
     custom_tools: CustomToolList | None = None

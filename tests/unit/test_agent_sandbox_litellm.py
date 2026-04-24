@@ -13,7 +13,7 @@ import uuid
 from collections.abc import Awaitable, Callable, Iterator
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, cast
 
 import orjson
 import pytest
@@ -31,6 +31,11 @@ from tracecat.agent.common.stream_types import (
     StreamEventType,
     ToolCallContent,
     UnifiedStreamEvent,
+)
+from tracecat.agent.common.types import (
+    MCPToolDefinition,
+    SandboxAgentConfig,
+    SandboxSubagentConfig,
 )
 from tracecat.agent.executor.activity import (
     AgentExecutorInput,
@@ -933,6 +938,95 @@ async def test_run_agent_activity_with_fake_runtime_plumbs_resume_flags_to_loopb
     else:
         assert runtimes[0].cwd == Path("/work/claude-project")
         assert runtimes[0].cwd_setup_path.is_relative_to(tmp_path / "sessions")
+
+
+@pytest.mark.parametrize(
+    "disable_nsjail",
+    [
+        pytest.param(True, id="direct"),
+        pytest.param(False, id="nsjail"),
+    ],
+)
+@pytest.mark.anyio
+async def test_run_agent_activity_plumbs_subagents_to_runtime_in_each_sandbox_mode(
+    disable_nsjail: bool,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _set_disable_nsjail_mode(monkeypatch, disable_nsjail)
+    child_actions = {
+        "core.lookup_ip": MCPToolDefinition(
+            name="core.lookup_ip",
+            description="Lookup IP",
+            parameters_json_schema={"type": "object"},
+        )
+    }
+    child_config = AgentConfig(
+        model_name="gpt-5-mini",
+        model_provider="openai",
+        enable_internet_access=False,
+        tool_approvals={"core.lookup_ip": True},
+    )
+    executor_input = _make_executor_input(enable_internet_access=False).model_copy(
+        update={
+            "config": AgentConfig(
+                model_name="gpt-5",
+                model_provider="openai",
+                agents=cast(
+                    Any,
+                    {"enabled": True, "subagents": [{"preset": "analyst"}]},
+                ),
+            ),
+            "subagents": [
+                SandboxSubagentConfig(
+                    alias="analyst",
+                    description="Use for enrichment analysis.",
+                    prompt="Analyze enrichment data.",
+                    config=SandboxAgentConfig.from_agent_config(child_config),
+                    mcp_auth_token="child-mcp-token",
+                    allowed_actions=child_actions,
+                )
+            ],
+        }
+    )
+
+    async def subagent_script(
+        handler: LoopbackHandler,
+        payload: RuntimeInitPayload,
+    ) -> None:
+        assert payload.config.agents.enabled is True
+        assert payload.config.agents.subagents[0].preset == "analyst"
+        [subagent] = payload.subagents
+        assert subagent.alias == "analyst"
+        assert subagent.mcp_auth_token == "child-mcp-token"
+        assert subagent.config.model_name == "gpt-5-mini"
+        assert subagent.config.model_provider == "openai"
+        assert subagent.allowed_actions == child_actions
+        await handler.send_result(output="subagents-ready")
+        await handler.send_done()
+
+    (
+        result,
+        _stream_sink,
+        _persisted_session_lines,
+        _fake_proxy,
+        payloads,
+        runtimes,
+    ) = await _run_activity_with_fake_loopback_runtime(
+        executor_input=executor_input,
+        monkeypatch=monkeypatch,
+        tmp_path=tmp_path,
+        script=subagent_script,
+    )
+
+    assert result.success is True
+    assert result.output == "subagents-ready"
+    assert len(payloads) == 1
+    assert len(runtimes) == 1
+    if disable_nsjail:
+        assert runtimes[0].cwd == runtimes[0].cwd_setup_path
+    else:
+        assert runtimes[0].cwd == Path("/work/claude-project")
 
 
 @pytest.mark.anyio

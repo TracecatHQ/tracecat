@@ -300,6 +300,60 @@ class TestBuildAgentArgsActivity:
 
         assert result.model_settings == {"reasoning_effort": "medium"}
 
+    @pytest.mark.anyio
+    async def test_preserves_agents_config(self, role: Role):
+        args = {
+            "user_prompt": "Hello",
+            "model_name": "claude-sonnet-4-5-20250929",
+            "model_provider": "anthropic",
+            "agents": {
+                "enabled": True,
+                "subagents": [
+                    {
+                        "preset": "qa-child-agent",
+                        "preset_version": None,
+                        "name": "child-analyst",
+                        "description": "Use for enrichment analysis.",
+                        "max_turns": 2,
+                    }
+                ],
+            },
+        }
+        input = BuildAgentArgsActivityInput(
+            args=args,
+            operand=_make_context(),
+            role=role,
+            task_environment=None,
+            default_environment="default",
+        )
+
+        result = await DSLActivities.build_agent_args_activity(input)
+
+        assert result.agents.model_dump(mode="json") == args["agents"]
+
+    @pytest.mark.anyio
+    async def test_null_agents_config_normalizes_to_disabled(self, role: Role):
+        args = {
+            "user_prompt": "Hello",
+            "model_name": "claude-sonnet-4-5-20250929",
+            "model_provider": "anthropic",
+            "agents": None,
+        }
+        input = BuildAgentArgsActivityInput(
+            args=args,
+            operand=_make_context(),
+            role=role,
+            task_environment=None,
+            default_environment="default",
+        )
+
+        result = await DSLActivities.build_agent_args_activity(input)
+
+        assert result.agents.model_dump(mode="json") == {
+            "enabled": False,
+            "subagents": [],
+        }
+
 
 class TestBuildPresetAgentArgsActivity:
     """Tests for DSLActivities.build_preset_agent_args_activity."""

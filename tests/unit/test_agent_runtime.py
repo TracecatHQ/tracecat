@@ -30,9 +30,11 @@ from tracecat.agent.common.stream_types import StreamEventType, UnifiedStreamEve
 from tracecat.agent.common.types import (
     MCPToolDefinition,
     SandboxAgentConfig,
+    SandboxSubagentConfig,
 )
-from tracecat.agent.common.types import (
-    MCPToolDefinition as SharedMCPToolDefinition,
+from tracecat.agent.llm_routing import (
+    get_litellm_route_model,
+    get_scoped_litellm_route_model,
 )
 from tracecat.agent.mcp.proxy_server import (
     PROXY_TOOL_CALL_ID_KEY,
@@ -41,8 +43,8 @@ from tracecat.agent.mcp.proxy_server import (
 from tracecat.agent.runtime.claude_code.runtime import (
     CLAUDE_SDK_MAX_BUFFER_SIZE_BYTES,
     ClaudeAgentRuntime,
-    get_litellm_route_model,
 )
+from tracecat.agent.subagents import AgentsConfig
 from tracecat.agent.types import AgentConfig
 
 
@@ -87,10 +89,10 @@ def sample_sandbox_config(sample_agent_config: AgentConfig) -> SandboxAgentConfi
 @pytest.fixture
 def sample_shared_tool_definitions(
     sample_tool_definitions: dict[str, MCPToolDefinition],
-) -> dict[str, SharedMCPToolDefinition]:
-    """Convert Pydantic tool definitions to shared dataclass format."""
+) -> dict[str, MCPToolDefinition]:
+    """Create fresh shared tool definitions for init payload tests."""
     return {
-        name: SharedMCPToolDefinition(
+        name: MCPToolDefinition(
             name=tool.name,
             description=tool.description,
             parameters_json_schema=tool.parameters_json_schema,
@@ -102,7 +104,7 @@ def sample_shared_tool_definitions(
 @pytest.fixture
 def sample_init_payload(
     sample_sandbox_config: SandboxAgentConfig,
-    sample_shared_tool_definitions: dict[str, SharedMCPToolDefinition],
+    sample_shared_tool_definitions: dict[str, MCPToolDefinition],
 ) -> RuntimeInitPayload:
     """Create a sample init payload for testing."""
     return RuntimeInitPayload(
@@ -150,9 +152,12 @@ def make_hook_input(
     tool_name: str,
     tool_input: dict[str, Any],
     tool_use_id: str,
+    *,
+    agent_id: str | None = None,
+    agent_type: str | None = None,
 ) -> PreToolUseHookInput:
     """Create a PreToolUse hook input for testing."""
-    return {
+    hook_input: dict[str, Any] = {
         "session_id": "test-session-id",
         "transcript_path": "/tmp/test-transcript.jsonl",
         "cwd": "/tmp",
@@ -161,6 +166,11 @@ def make_hook_input(
         "tool_input": tool_input,
         "tool_use_id": tool_use_id,
     }
+    if agent_id is not None:
+        hook_input["agent_id"] = agent_id
+    if agent_type is not None:
+        hook_input["agent_type"] = agent_type
+    return cast(PreToolUseHookInput, hook_input)
 
 
 def make_hook_context() -> HookContext:
@@ -206,6 +216,46 @@ def test_get_litellm_route_model_prefixes_provider_route(
             model_provider=provider,
             model_name=model_name,
             passthrough=passthrough,
+        )
+        == expected
+    )
+
+
+@pytest.mark.parametrize(
+    ("provider", "model_name", "passthrough", "scope", "expected"),
+    [
+        ("openai", "gpt-5-mini", False, "root", "openai/tracecat-agent-root"),
+        (
+            "openai",
+            "gpt-5-mini",
+            False,
+            "analyst",
+            "openai/tracecat-agent-analyst",
+        ),
+        (
+            "anthropic",
+            "claude-haiku-4-5",
+            False,
+            "root",
+            "anthropic/tracecat-agent-root",
+        ),
+        ("custom-model-provider", "customer-alias", True, "root", "customer-alias"),
+        ("custom-model-provider", "custom", False, "analyst", "custom"),
+    ],
+)
+def test_get_scoped_litellm_route_model_uses_managed_aliases(
+    provider: str,
+    model_name: str,
+    passthrough: bool,
+    scope: str,
+    expected: str,
+) -> None:
+    assert (
+        get_scoped_litellm_route_model(
+            model_provider=provider,
+            model_name=model_name,
+            passthrough=passthrough,
+            scope=scope,
         )
         == expected
     )
@@ -481,6 +531,77 @@ class TestClaudeAgentRuntimeRun:
         assert captured_options[0].max_buffer_size == CLAUDE_SDK_MAX_BUFFER_SIZE_BYTES
 
     @pytest.mark.anyio
+    async def test_enable_thinking_uses_high_effort_not_adaptive_thinking(
+        self,
+        mock_socket_writer: MagicMock,
+        mock_claude_sdk_client: MagicMock,
+        sample_init_payload: RuntimeInitPayload,
+    ) -> None:
+        captured_options: list[Any] = []
+
+        def _mock_client_ctor(*_args: Any, **kwargs: Any) -> MagicMock:
+            captured_options.append(kwargs["options"])
+            return mock_claude_sdk_client
+
+        with (
+            patch(
+                "tracecat.agent.runtime.claude_code.runtime.ClaudeSDKClient",
+                side_effect=_mock_client_ctor,
+            ),
+            patch(
+                "tracecat.agent.runtime.claude_code.runtime.create_proxy_mcp_server",
+                AsyncMock(return_value={}),
+            ),
+        ):
+            runtime = ClaudeAgentRuntime(
+                mock_socket_writer, transport_factory=lambda _: MagicMock()
+            )
+            await runtime.run(sample_init_payload)
+
+        assert captured_options
+        assert captured_options[0].effort == "high"
+        assert captured_options[0].thinking is None
+
+    @pytest.mark.anyio
+    async def test_disable_thinking_omits_effort_and_adaptive_thinking(
+        self,
+        mock_socket_writer: MagicMock,
+        mock_claude_sdk_client: MagicMock,
+        sample_init_payload: RuntimeInitPayload,
+    ) -> None:
+        captured_options: list[Any] = []
+
+        def _mock_client_ctor(*_args: Any, **kwargs: Any) -> MagicMock:
+            captured_options.append(kwargs["options"])
+            return mock_claude_sdk_client
+
+        payload = replace(
+            sample_init_payload,
+            config=sample_init_payload.config.model_copy(
+                update={"enable_thinking": False}
+            ),
+        )
+
+        with (
+            patch(
+                "tracecat.agent.runtime.claude_code.runtime.ClaudeSDKClient",
+                side_effect=_mock_client_ctor,
+            ),
+            patch(
+                "tracecat.agent.runtime.claude_code.runtime.create_proxy_mcp_server",
+                AsyncMock(return_value={}),
+            ),
+        ):
+            runtime = ClaudeAgentRuntime(
+                mock_socket_writer, transport_factory=lambda _: MagicMock()
+            )
+            await runtime.run(payload)
+
+        assert captured_options
+        assert captured_options[0].effort is None
+        assert captured_options[0].thinking is None
+
+    @pytest.mark.anyio
     async def test_sets_auto_compact_window_for_custom_model_provider(
         self,
         mock_socket_writer: MagicMock,
@@ -496,9 +617,8 @@ class TestClaudeAgentRuntimeRun:
 
         custom_payload = replace(
             sample_init_payload,
-            config=replace(
-                sample_init_payload.config,
-                model_provider="custom-model-provider",
+            config=sample_init_payload.config.model_copy(
+                update={"model_provider": "custom-model-provider"}
             ),
         )
 
@@ -519,6 +639,132 @@ class TestClaudeAgentRuntimeRun:
 
         assert captured_options
         assert captured_options[0].env["CLAUDE_CODE_AUTO_COMPACT_WINDOW"] == "128000"
+
+    @pytest.mark.anyio
+    async def test_agents_toggle_adds_agent_tool_without_custom_subagents(
+        self,
+        mock_socket_writer: MagicMock,
+        mock_claude_sdk_client: MagicMock,
+        sample_init_payload: RuntimeInitPayload,
+    ) -> None:
+        captured_options: list[Any] = []
+
+        def _mock_client_ctor(*_args: Any, **kwargs: Any) -> MagicMock:
+            captured_options.append(kwargs["options"])
+            return mock_claude_sdk_client
+
+        payload = replace(
+            sample_init_payload,
+            config=sample_init_payload.config.model_copy(
+                update={"agents": AgentsConfig(enabled=True)}
+            ),
+        )
+
+        with (
+            patch(
+                "tracecat.agent.runtime.claude_code.runtime.ClaudeSDKClient",
+                side_effect=_mock_client_ctor,
+            ),
+            patch(
+                "tracecat.agent.runtime.claude_code.runtime.create_proxy_mcp_server",
+                AsyncMock(return_value={}),
+            ),
+        ):
+            runtime = ClaudeAgentRuntime(
+                mock_socket_writer, transport_factory=lambda _: MagicMock()
+            )
+            await runtime.run(payload)
+
+        assert captured_options
+        options = captured_options[0]
+        assert set(options.allowed_tools) == {"Agent", "Task"}
+        assert "Agent" not in options.disallowed_tools
+        assert "Task" not in options.disallowed_tools
+        assert options.agents is None
+
+    @pytest.mark.anyio
+    async def test_explicit_subagents_get_scoped_agent_definitions(
+        self,
+        mock_socket_writer: MagicMock,
+        mock_claude_sdk_client: MagicMock,
+        sample_init_payload: RuntimeInitPayload,
+    ) -> None:
+        captured_options: list[Any] = []
+        child_actions = {
+            "core.lookup_ip": MCPToolDefinition(
+                name="core.lookup_ip",
+                description="Lookup IP",
+                parameters_json_schema={"type": "object"},
+            )
+        }
+        child = SandboxSubagentConfig(
+            alias="analyst",
+            description="Use for enrichment analysis.",
+            prompt="Analyze enrichment data.",
+            config=sample_init_payload.config.model_copy(
+                update={
+                    "model_name": "gpt-5-mini",
+                    "model_provider": "openai",
+                    "tool_approvals": {"core.lookup_ip": True},
+                    "enable_internet_access": False,
+                }
+            ),
+            mcp_auth_token="child-mcp-token",
+            allowed_actions=child_actions,
+        )
+
+        def _mock_client_ctor(*_args: Any, **kwargs: Any) -> MagicMock:
+            captured_options.append(kwargs["options"])
+            return mock_claude_sdk_client
+
+        create_proxy = AsyncMock(return_value={})
+        payload = replace(
+            sample_init_payload,
+            config=sample_init_payload.config.model_copy(
+                update={
+                    "agents": AgentsConfig.model_validate(
+                        {
+                            "enabled": True,
+                            "subagents": [{"preset": "analyst"}],
+                        }
+                    )
+                }
+            ),
+            subagents=[child],
+        )
+
+        with (
+            patch(
+                "tracecat.agent.runtime.claude_code.runtime.ClaudeSDKClient",
+                side_effect=_mock_client_ctor,
+            ),
+            patch(
+                "tracecat.agent.runtime.claude_code.runtime.create_proxy_mcp_server",
+                create_proxy,
+            ),
+        ):
+            runtime = ClaudeAgentRuntime(
+                mock_socket_writer, transport_factory=lambda _: MagicMock()
+            )
+            await runtime.run(payload)
+
+        assert captured_options
+        options = captured_options[0]
+        assert options.agents is not None
+        agent_def = options.agents["analyst"]
+        assert agent_def.model == "openai/tracecat-agent-analyst"
+        assert agent_def.mcpServers == ["tracecat-registry-analyst"]
+        assert set(agent_def.disallowedTools or []) >= {
+            "Agent",
+            "Task",
+            "TaskOutput",
+            "WebFetch",
+            "WebSearch",
+        }
+        server_names = {
+            call.kwargs["server_name"] for call in create_proxy.await_args_list
+        }
+        assert server_names == {"tracecat-registry", "tracecat-registry-analyst"}
 
     @pytest.mark.parametrize(
         "disable_nsjail",
@@ -583,9 +829,8 @@ class TestClaudeAgentRuntimeRun:
 
         approval_payload = replace(
             sample_init_payload,
-            config=replace(
-                sample_init_payload.config,
-                tool_approvals={"core.http_request": True},
+            config=sample_init_payload.config.model_copy(
+                update={"tool_approvals": {"core.http_request": True}}
             ),
         )
 
@@ -1039,7 +1284,7 @@ class TestClaudeAgentRuntimePreToolUseHook:
             mock_socket_writer, transport_factory=lambda _: MagicMock()
         )
         runtime.registry_tools = {
-            "core.http_request": SharedMCPToolDefinition(
+            "core.http_request": MCPToolDefinition(
                 name="core.http_request",
                 description="Make HTTP request",
                 parameters_json_schema={},
@@ -1068,6 +1313,96 @@ class TestClaudeAgentRuntimePreToolUseHook:
         # Should have sent approval request and interrupted
         mock_socket_writer.send_stream_event.assert_awaited()
         runtime.client.interrupt.assert_awaited()
+
+    @pytest.mark.anyio
+    async def test_agent_tool_denies_child_delegation(
+        self,
+        mock_socket_writer: MagicMock,
+    ) -> None:
+        runtime = ClaudeAgentRuntime(
+            mock_socket_writer, transport_factory=lambda _: MagicMock()
+        )
+        runtime._root_agents_enabled = True
+        runtime._explicit_subagent_aliases = {"analyst"}
+
+        result = await runtime._pre_tool_use_hook(
+            input_data=make_hook_input(
+                tool_name="Agent",
+                tool_input={"subagent_type": "analyst", "prompt": "nested"},
+                tool_use_id="call-agent",
+                agent_id="child-agent-id",
+                agent_type="analyst",
+            ),
+            tool_use_id="call-agent",
+            context=make_hook_context(),
+        )
+
+        hook_output = get_hook_output(result)
+        assert hook_output.get("permissionDecision") == "deny"
+        assert "cannot invoke other subagents" in (
+            hook_output.get("permissionDecisionReason") or ""
+        )
+
+    @pytest.mark.anyio
+    async def test_agent_tool_denies_undeclared_subagent(
+        self,
+        mock_socket_writer: MagicMock,
+    ) -> None:
+        runtime = ClaudeAgentRuntime(
+            mock_socket_writer, transport_factory=lambda _: MagicMock()
+        )
+        runtime._root_agents_enabled = True
+        runtime._explicit_subagent_aliases = {"analyst"}
+
+        result = await runtime._pre_tool_use_hook(
+            input_data=make_hook_input(
+                tool_name="Agent",
+                tool_input={"subagent_type": "unlisted", "prompt": "work"},
+                tool_use_id="call-agent",
+            ),
+            tool_use_id="call-agent",
+            context=make_hook_context(),
+        )
+
+        hook_output = get_hook_output(result)
+        assert hook_output.get("permissionDecision") == "deny"
+        assert "not available" in (hook_output.get("permissionDecisionReason") or "")
+
+    @pytest.mark.anyio
+    async def test_child_approval_request_includes_agent_scope_metadata(
+        self,
+        mock_socket_writer: MagicMock,
+    ) -> None:
+        runtime = ClaudeAgentRuntime(
+            mock_socket_writer, transport_factory=lambda _: MagicMock()
+        )
+        runtime._root_agents_enabled = True
+        runtime._explicit_subagent_aliases = {"analyst"}
+        runtime._scope_tool_approvals = {"analyst": {"core.http_request": True}}
+        runtime.client = MagicMock()
+        runtime.client.interrupt = AsyncMock()
+
+        result = await runtime._pre_tool_use_hook(
+            input_data=make_hook_input(
+                tool_name="mcp__tracecat-registry-analyst__core__http_request",
+                tool_input={"url": "https://example.com"},
+                tool_use_id="call-child-approval",
+                agent_id="agent-123",
+                agent_type="analyst",
+            ),
+            tool_use_id="call-child-approval",
+            context=make_hook_context(),
+        )
+
+        hook_output = get_hook_output(result)
+        assert hook_output.get("permissionDecision") == "deny"
+        approval_event = mock_socket_writer.send_stream_event.await_args.args[0]
+        [approval_item] = approval_event.approval_items or []
+        assert approval_item.metadata == {
+            "agent_scope": "analyst",
+            "agent_alias": "analyst",
+            "agent_id": "agent-123",
+        }
 
 
 class TestClaudeAgentRuntimeStopHook:
