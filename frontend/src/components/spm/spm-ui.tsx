@@ -717,7 +717,7 @@ export function SpmEndpointsView() {
                     <TableCell>
                       <div className="space-y-1">
                         <Link
-                          href={`/spm/endpoints/${endpoint.id}`}
+                          href={`/watchtower/endpoints/${endpoint.id}`}
                           className="font-medium underline-offset-4 hover:underline"
                         >
                           {endpoint.name}
@@ -1345,7 +1345,7 @@ export function SpmEndpointDetailView(props: { endpointId: string }) {
       <div className="container flex h-full max-w-[1000px] flex-col space-y-12 py-10">
         <div className="space-y-4">
           <Link
-            href="/spm/endpoints"
+            href="/watchtower/endpoints"
             className="inline-flex items-center gap-2 text-sm text-muted-foreground underline-offset-4 hover:underline"
           >
             <TerminalSquareIcon className="h-4 w-4" />

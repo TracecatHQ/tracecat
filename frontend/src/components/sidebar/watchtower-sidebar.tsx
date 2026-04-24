@@ -1,6 +1,13 @@
 "use client"
 
-import { ChevronLeftIcon, RadarIcon } from "lucide-react"
+import {
+  ChevronLeftIcon,
+  ComputerIcon,
+  FileSearchIcon,
+  PackageIcon,
+  RadarIcon,
+  ShieldIcon,
+} from "lucide-react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import type * as React from "react"
@@ -23,10 +30,34 @@ export function WatchtowerSidebar({
 
   const navMain = [
     {
-      title: "Monitor",
-      url: "/watchtower/monitor",
+      title: "MCP Connections",
+      url: "/watchtower/mcp-connections",
       icon: RadarIcon,
-      isActive: pathname?.includes("/watchtower/monitor"),
+      isActive: pathname?.startsWith("/watchtower/mcp-connections"),
+    },
+    {
+      title: "Endpoints",
+      url: "/watchtower/endpoints",
+      icon: ComputerIcon,
+      isActive: pathname?.startsWith("/watchtower/endpoints"),
+    },
+    {
+      title: "Controls",
+      url: "/watchtower/controls",
+      icon: FileSearchIcon,
+      isActive: pathname?.startsWith("/watchtower/controls"),
+    },
+    {
+      title: "Findings",
+      url: "/watchtower/findings",
+      icon: ShieldIcon,
+      isActive: pathname?.startsWith("/watchtower/findings"),
+    },
+    {
+      title: "Assets",
+      url: "/watchtower/assets",
+      icon: PackageIcon,
+      isActive: pathname?.startsWith("/watchtower/assets"),
     },
   ]
 
