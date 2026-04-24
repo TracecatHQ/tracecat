@@ -86,7 +86,7 @@ async def execute_action(
     """Execute a registry UDF through the shared executor queue.
 
     Args:
-        action_name: The action to execute (e.g., "tools.slack.post_message")
+        action_name: The action to execute (e.g., "core.http_request")
         args: Arguments to pass to the action
         claims: Token claims containing role and allowed_actions
         registry_lock: Registry lock with origin→version mappings for action resolution

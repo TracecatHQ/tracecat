@@ -77,7 +77,7 @@ async def execute_action_tool(
     """Execute any Tracecat registry action.
 
     Args:
-        action_name: The action to execute (e.g., "tools.slack.post_message")
+        action_name: The action to execute (e.g., "core.http_request")
         args: Arguments to pass to the action
         auth_token: JWT token for authentication and authorization
 
@@ -236,7 +236,7 @@ async def execute_internal_tool(
     used for specialized functionality like the builder assistant.
 
     Args:
-        tool_name: The internal tool to execute (e.g., "internal.builder.get_preset_summary")
+        tool_name: The internal tool to execute.
         args: Arguments to pass to the tool
         auth_token: JWT token for authentication and authorization
 

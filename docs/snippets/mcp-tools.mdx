@@ -57,17 +57,17 @@
 
   Supports three usage modes:
   -> **Search**: provide `query` to search by name/description across all namespaces. Example: list_actions(workspace_id, query="send message")
-  -> **Browse namespace**: provide `namespace` without `query` to list all actions in a namespace. Example: list_actions(workspace_id, namespace="tools.slack")
+  -> **Browse namespace**: provide `namespace` without `query` to list all actions in a namespace. Example: list_actions(workspace_id, namespace="core")
   -> **Browse all**: omit both to list all available actions.
 
-  Common namespaces: `core`, `tools.slack`, `tools.crowdstrike`, `tools.okta`, `ai`.
+  Common namespaces: `core`, `tools`, `ai`.
     </ResponseField>
     <ResponseField name="workflows_get_action_context" type="tool">
   Get full schema and configuration context for a single action.
 
   Use this after discovering an action via `list_actions` to get the complete parameter schema needed to write the `args:` block in a workflow definition.
 
-  Example action names: "core.http_request", "tools.slack.post_message", "core.script.run_python", "core.transform.reshape".
+  Example action names: "core.http_request", "core.script.run_python", "core.transform.reshape".
     </ResponseField>
     <ResponseField name="workflows_get_workflow_authoring_context" type="tool">
   Get compact workflow authoring context for selected actions.
@@ -75,7 +75,7 @@
   Returns everything needed to write a workflow definition: action schemas, available secrets, and workspace variables. Use this before calling `create_workflow` or `update_workflow`.
 
   Two input modes (provide one or neither):
-  -> **By name**: pass `action_names_json` as a JSON array of action names, e.g. '["core.http_request", "tools.slack.post_message"]'
+  -> **By name**: pass `actions` with an `action_names` list.
   -> **By search**: pass `query` to search for actions by name/description
     </ResponseField>
     <ResponseField name="workflows_validate_workflow" type="tool">

@@ -179,7 +179,7 @@ def _action_stub(**overrides: Any) -> SimpleNamespace:
 @pytest.mark.anyio
 async def test_resolve_workspace_role_rejects_invalid_workspace_id():
     with pytest.raises(ToolError, match="Invalid workspace ID"):
-        await mcp_server._resolve_workspace_role("not-a-uuid")
+        await mcp_server._resolve_workspace_role(cast(Any, "not-a-uuid"))
 
 
 @pytest.mark.anyio
@@ -194,7 +194,7 @@ async def test_resolve_workspace_role_surfaces_auth_errors(monkeypatch):
     )
 
     with pytest.raises(ToolError, match="Workspace access denied"):
-        await mcp_server._resolve_workspace_role(str(uuid.uuid4()))
+        await mcp_server._resolve_workspace_role(cast(Any, str(uuid.uuid4())))
 
 
 @pytest.mark.anyio
@@ -362,7 +362,7 @@ async def test_validate_template_action_remote_uses_artifact(monkeypatch):
         )
     )
     assert payload["valid"] is True
-    stored = await mcp_server._load_template_file_artifact(str(artifact.artifact_id))
+    stored = await mcp_server._load_template_file_artifact(artifact.artifact_id)
     assert stored is not None
     assert stored.used is True
 
@@ -451,7 +451,7 @@ async def test_validate_template_action_remote_rejects_client_mismatch(monkeypat
 
 
 def test_auto_generate_layout_handles_cycles():
-    actions = [
+    actions: list[mcp_server.WorkflowActionLayoutInput] = [
         {"ref": "start", "depends_on": []},
         {"ref": "middle", "depends_on": ["start", "end"]},
         {"ref": "end", "depends_on": ["middle"]},
@@ -510,7 +510,7 @@ def test_extract_layout_positions_nested_position_shape():
 
 def test_auto_generate_layout_round_trips_through_extract():
     """Auto-generated layout can be extracted into position tuples."""
-    actions = [
+    actions: list[mcp_server.WorkflowActionLayoutInput] = [
         {"ref": "step1", "depends_on": []},
         {"ref": "step2", "depends_on": ["step1"]},
     ]
@@ -655,6 +655,74 @@ async def test_update_workflow_definition_yaml_uses_shared_yaml_update(monkeypat
         "definition_yaml": "definition:\n  title: Example\n"
     }
     assert captured["update_mode"] == "replace"
+
+
+@pytest.mark.anyio
+async def test_apply_workflow_yaml_update_validates_definition(monkeypatch):
+    validation_error = ValidationResult.new(
+        type=ValidationResultType.DSL,
+        status="error",
+        msg="invalid workflow definition",
+        detail=[
+            ValidationDetail(
+                type="action.input",
+                msg="bad action args",
+                loc=("actions", "start", "args"),
+            )
+        ],
+    )
+    replaced = False
+
+    async def _validate_dsl(*_args, **_kwargs):
+        return {validation_error}
+
+    async def _replace_workflow_definition_from_dsl(**_kwargs):
+        nonlocal replaced
+        replaced = True
+
+    monkeypatch.setattr(mcp_server, "validate_dsl", _validate_dsl)
+    monkeypatch.setattr(
+        mcp_server,
+        "_replace_workflow_definition_from_dsl",
+        _replace_workflow_definition_from_dsl,
+    )
+
+    payload = mcp_server.MCPWorkflowYamlPayload(
+        definition=mcp_server.DSLInput.model_validate(
+            {
+                "title": "Example",
+                "description": "Example workflow",
+                "entrypoint": {"ref": "start"},
+                "actions": [
+                    {
+                        "ref": "start",
+                        "action": "core.transform.reshape",
+                        "args": {"value": "hello"},
+                    }
+                ],
+                "config": {"scheduler": "static"},
+            }
+        )
+    )
+
+    with pytest.raises(ToolError, match="validation error"):
+        await mcp_server._apply_workflow_yaml_update(
+            role=cast(Any, SimpleNamespace()),
+            service=cast(
+                Any,
+                SimpleNamespace(
+                    session=SimpleNamespace(add=lambda _obj: None),
+                ),
+            ),
+            workflow=cast(Any, SimpleNamespace()),
+            workflow_id=mcp_server.WorkflowUUID.new(uuid.uuid4()),
+            update_params=mcp_server.WorkflowUpdate(),
+            yaml_payload=payload,
+            definition_yaml=None,
+            update_mode="patch",
+        )
+
+    assert replaced is False
 
 
 @pytest.mark.anyio
@@ -2704,7 +2772,7 @@ async def test_create_workflow_from_uploaded_file_imports_and_assigns_folder(
     payload = _payload(result)
     assert payload["id"] == str(created_workflow.id)
     assert assigned["folder_path"] == "/detections/"
-    stored = await mcp_server._load_workflow_file_artifact(str(artifact.artifact_id))
+    stored = await mcp_server._load_workflow_file_artifact(artifact.artifact_id)
     assert stored is not None
     assert stored.used is True
     assert stored.sha256 is not None
@@ -2731,7 +2799,7 @@ async def test_update_workflow_from_uploaded_file_updates_and_rejects_replay(
         relative_path="detections/critical/workflow.yaml",
         folder_path="/detections/critical/",
         blob_key="blob-key",
-        workflow_id=workflow_id,
+        workflow_id=mcp_server.WorkflowUUID.new(workflow_id),
         update_mode="replace",
         expires_at=datetime.now(UTC) + timedelta(minutes=5),
     )
@@ -2846,7 +2914,7 @@ async def test_update_workflow_from_uploaded_file_rejects_update_mode_mismatch(
         relative_path="workflow.yaml",
         folder_path=None,
         blob_key="blob-key",
-        workflow_id=workflow_id,
+        workflow_id=mcp_server.WorkflowUUID.new(workflow_id),
         update_mode="replace",
         expires_at=datetime.now(UTC) + timedelta(minutes=5),
     )
@@ -2891,7 +2959,7 @@ async def test_update_workflow_from_uploaded_file_rejects_cross_workspace_target
         relative_path="workflow.yaml",
         folder_path=None,
         blob_key="blob-key",
-        workflow_id=workflow_id,
+        workflow_id=mcp_server.WorkflowUUID.new(workflow_id),
         expires_at=datetime.now(UTC) + timedelta(minutes=5),
     )
 
@@ -2913,10 +2981,11 @@ async def test_update_workflow_from_uploaded_file_rejects_cross_workspace_target
 
 
 def test_evaluate_configuration_reports_missing_workspace_secret_keys():
-    requirements = [
+    requirements: list[mcp_server.ActionSecretRequirementPayload] = [
         {
             "name": "slack",
             "required_keys": ["SLACK_BOT_TOKEN"],
+            "optional_keys": [],
             "optional": False,
         }
     ]
@@ -2931,7 +3000,7 @@ def test_evaluate_configuration_reports_missing_workspace_secret_keys():
 
 
 @pytest.mark.anyio
-async def test_create_table_parses_columns_json(monkeypatch):
+async def test_create_table_accepts_columns(monkeypatch):
     async def _resolve(_workspace_id):
         return uuid.uuid4(), SimpleNamespace()
 
@@ -2952,7 +3021,11 @@ async def test_create_table_parses_columns_json(monkeypatch):
     result = await _tool(mcp_server.create_table)(
         workspace_id=str(uuid.uuid4()),
         name="ioc_table",
-        columns_json='[{"name":"ioc","type":"TEXT","nullable":false}]',
+        columns=[
+            mcp_server.TableColumnCreate(
+                name="ioc", type=mcp_server.SqlType.TEXT, nullable=False
+            )
+        ],
     )
     payload = _payload(result)
     assert payload["name"] == "ioc_table"
@@ -3345,7 +3418,10 @@ async def test_update_case_trigger(monkeypatch):
         workspace_id=str(uuid.uuid4()),
         workflow_id=str(workflow_id),
         status="online",
-        event_types='["case_created", "case_updated"]',
+        event_types=[
+            mcp_server.CaseEventType.CASE_CREATED,
+            mcp_server.CaseEventType.CASE_UPDATED,
+        ],
     )
     payload = _payload(result)
     assert "updated successfully" in payload["message"]
@@ -3736,7 +3812,7 @@ async def test_create_case_field_parses_type_and_options(monkeypatch):
         workspace_id=str(uuid.uuid4()),
         name="severity_band",
         type="SELECT",
-        options='["low","medium","high"]',
+        options=["low", "medium", "high"],
     )
     payload = _payload(result)
     assert captured["name"] == "severity_band"
@@ -3829,7 +3905,7 @@ async def test_update_case_field_parses_type_and_options(monkeypatch):
         field_id="severity_band",
         name="priority_band",
         type="MULTI_SELECT",
-        options='["p1","p2"]',
+        options=["p1", "p2"],
     )
     payload = _payload(result)
     assert captured["field_id"] == "severity_band"
@@ -4130,7 +4206,7 @@ async def test_create_case(monkeypatch):
         status="new",
         priority="high",
         severity="medium",
-        fields='{"my_field": "val"}',
+        fields={"my_field": "val"},
     )
     payload = _payload(result)
     assert payload["id"] == str(case_id)
@@ -4171,7 +4247,7 @@ async def test_create_case_with_tags(monkeypatch):
         status="new",
         priority="high",
         severity="medium",
-        tags="malware,phishing",
+        tags=["malware", "phishing"],
         create_missing_tags=True,
     )
     payload = _payload(result)
@@ -4264,7 +4340,7 @@ async def test_update_case_with_tags(monkeypatch):
     result = await _tool(mcp_server.update_case)(
         workspace_id=str(uuid.uuid4()),
         case_id=str(case_id),
-        tags="new-tag-1,new-tag-2",
+        tags=["new-tag-1", "new-tag-2"],
         create_missing_tags=True,
     )
     payload = _payload(result)
@@ -5055,9 +5131,11 @@ async def test_run_case_task(monkeypatch):
         async def execute(self, stmt):
             return SimpleNamespace(scalars=lambda: SimpleNamespace(first=lambda: defn))
 
+    expected_execution_id = f"{mcp_server.WorkflowUUID.new(wf_id).short()}:exec-123"
+
     exec_response = {
         "wf_id": wf_id,
-        "wf_exec_id": "exec-123",
+        "wf_exec_id": expected_execution_id,
         "message": "Workflow started",
     }
 
@@ -5085,10 +5163,10 @@ async def test_run_case_task(monkeypatch):
         workspace_id=str(uuid.uuid4()),
         case_id=str(case_id),
         task_id=str(task_id),
-        inputs='{"override_key": "override_val"}',
+        inputs={"override_key": "override_val"},
     )
     payload = _payload(result)
-    assert payload["execution_id"] == "exec-123"
+    assert payload["execution_id"] == expected_execution_id
     assert payload["task_id"] == str(task_id)
     assert payload["workflow_id"] == str(wf_id)
 
@@ -5668,7 +5746,7 @@ async def test_action_catalog_resource(monkeypatch):
         lambda role: _AsyncContext(_RegistryService()),
     )
 
-    result = await mcp_server._build_action_catalog(str(uuid.uuid4()))
+    result = await mcp_server._build_action_catalog(uuid.uuid4())
     payload = _payload(result)
     assert payload["total_actions"] == 4
     assert "core" in payload["namespaces"]
