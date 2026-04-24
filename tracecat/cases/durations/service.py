@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import uuid
 from collections.abc import Sequence
 from datetime import datetime
@@ -10,9 +9,21 @@ from enum import Enum
 from typing import Any, Literal
 
 from slugify import slugify
-from sqlalchemy import bindparam, column, false, func, literal, or_, select
+from sqlalchemy import (
+    DateTime,
+    bindparam,
+    cast,
+    column,
+    false,
+    func,
+    literal,
+    or_,
+    select,
+)
 from sqlalchemy import case as sql_case
+from sqlalchemy import values as sql_values
 from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql.elements import ColumnElement
 
@@ -40,6 +51,8 @@ from tracecat.exceptions import (
 )
 from tracecat.service import BaseWorkspaceService, requires_entitlement
 from tracecat.tiers.enums import Entitlement
+
+type _DurationEventMatch = tuple[uuid.UUID, datetime]
 
 
 class CaseDurationDefinitionService(BaseWorkspaceService):
@@ -468,8 +481,8 @@ class CaseDurationService(BaseWorkspaceService):
     ) -> dict[uuid.UUID, list[CaseDurationComputation]]:
         """Compute durations for multiple cases efficiently.
 
-        Fetches definitions once and all events in a single query,
-        then computes durations for each case.
+        Fetches definitions once, then batches each unique anchor lookup across all
+        cases so PostgreSQL handles event filtering and first/last selection.
 
         Args:
             cases: Sequence of Case objects (must belong to workspace).
@@ -484,29 +497,9 @@ class CaseDurationService(BaseWorkspaceService):
         if not definitions:
             return {case.id: [] for case in cases}
 
-        # Fetch all events for all cases in one query
-        case_ids = [case.id for case in cases]
-        stmt = (
-            select(CaseEvent)
-            .where(
-                CaseEvent.workspace_id == self.workspace_id,
-                CaseEvent.case_id.in_(case_ids),
-            )
-            .order_by(CaseEvent.case_id.asc(), CaseEvent.created_at.asc())
-        )
-        result = await self.session.execute(stmt)
-        all_events = list(result.scalars().all())
-
-        # Group events by case_id
-        events_by_case: dict[uuid.UUID, list[CaseEvent]] = {
-            case_id: [] for case_id in case_ids
-        }
-        for event in all_events:
-            events_by_case[event.case_id].append(event)
-
-        return await asyncio.to_thread(
-            self._compute_durations_by_case,
-            events_by_case,
+        case_ids = list(dict.fromkeys(case.id for case in cases))
+        return await self._compute_durations_from_db_for_cases(
+            case_ids,
             definitions,
         )
 
@@ -579,80 +572,35 @@ class CaseDurationService(BaseWorkspaceService):
                 )
         return metrics
 
-    def _compute_durations_from_events(
-        self,
-        events: Sequence[CaseEvent],
-        definitions: Sequence[CaseDurationDefinitionRead],
-    ) -> list[CaseDurationComputation]:
-        """Pure computation of durations from events and definitions."""
-        results: list[CaseDurationComputation] = []
-        start_match_cache: dict[tuple[Any, ...], tuple[CaseEvent, datetime] | None] = {}
-        end_match_cache: dict[
-            tuple[tuple[Any, ...], datetime | None], tuple[CaseEvent, datetime] | None
-        ] = {}
-        for definition in definitions:
-            start_anchor_key = self._anchor_cache_key(definition.start_anchor)
-            if start_anchor_key not in start_match_cache:
-                start_match_cache[start_anchor_key] = self._find_matching_event(
-                    events, definition.start_anchor
-                )
-            start_match = start_match_cache[start_anchor_key]
-
-            earliest_after = start_match[1] if start_match else None
-            end_anchor_key = (
-                self._anchor_cache_key(definition.end_anchor),
-                earliest_after,
-            )
-            if end_anchor_key not in end_match_cache:
-                end_match_cache[end_anchor_key] = self._find_matching_event(
-                    events,
-                    definition.end_anchor,
-                    earliest_after=earliest_after,
-                )
-            end_match = end_match_cache[end_anchor_key]
-
-            started_at = start_match[1] if start_match else None
-            ended_at = end_match[1] if end_match else None
-            if started_at and ended_at and ended_at < started_at:
-                end_match = None
-                ended_at = None
-            duration = ended_at - started_at if started_at and ended_at else None
-
-            results.append(
-                CaseDurationComputation(
-                    duration_id=definition.id,
-                    name=definition.name,
-                    description=definition.description,
-                    start_event_id=start_match[0].id if start_match else None,
-                    end_event_id=end_match[0].id if end_match else None,
-                    started_at=started_at,
-                    ended_at=ended_at,
-                    duration=duration,
-                )
-            )
-
-        return results
-
-    def _compute_durations_by_case(
-        self,
-        events_by_case: dict[uuid.UUID, list[CaseEvent]],
-        definitions: Sequence[CaseDurationDefinitionRead],
-    ) -> dict[uuid.UUID, list[CaseDurationComputation]]:
-        return {
-            case_id: self._compute_durations_from_events(events, definitions)
-            for case_id, events in events_by_case.items()
-        }
-
     async def _compute_durations_from_db(
         self,
         case: Case,
         definitions: Sequence[CaseDurationDefinitionRead],
     ) -> list[CaseDurationComputation]:
-        start_match_cache: dict[tuple[Any, ...], tuple[CaseEvent, datetime] | None] = {}
-        end_match_cache: dict[
-            tuple[tuple[Any, ...], datetime | None], tuple[CaseEvent, datetime] | None
+        durations_by_case = await self._compute_durations_from_db_for_cases(
+            [case.id],
+            definitions,
+        )
+        return durations_by_case.get(case.id, [])
+
+    async def _compute_durations_from_db_for_cases(
+        self,
+        case_ids: Sequence[uuid.UUID],
+        definitions: Sequence[CaseDurationDefinitionRead],
+    ) -> dict[uuid.UUID, list[CaseDurationComputation]]:
+        results_by_case: dict[uuid.UUID, list[CaseDurationComputation]] = {
+            case_id: [] for case_id in case_ids
+        }
+        if not case_ids:
+            return results_by_case
+
+        start_match_cache: dict[
+            tuple[Any, ...], dict[uuid.UUID, _DurationEventMatch]
         ] = {}
-        results: list[CaseDurationComputation] = []
+        end_match_cache: dict[
+            tuple[tuple[Any, ...], tuple[Any, ...]],
+            dict[uuid.UUID, _DurationEventMatch],
+        ] = {}
 
         # Most iterations await on DB I/O, but periodic checkpoints keep
         # cache-hit-heavy definition sets from monopolizing the event loop.
@@ -661,44 +609,144 @@ class CaseDurationService(BaseWorkspaceService):
             if start_anchor_key not in start_match_cache:
                 start_match_cache[
                     start_anchor_key
-                ] = await self._find_matching_event_db(
-                    case.id,
+                ] = await self._find_matching_events_db(
+                    case_ids,
                     definition.start_anchor,
                 )
-            start_match = start_match_cache[start_anchor_key]
+            start_matches = start_match_cache[start_anchor_key]
 
-            earliest_after = start_match[1] if start_match else None
-            end_anchor_base_key = self._sql_anchor_cache_key(definition.end_anchor)
-            end_anchor_key = (end_anchor_base_key, earliest_after)
-            if end_anchor_key not in end_match_cache:
-                end_match_cache[end_anchor_key] = await self._find_matching_event_db(
-                    case.id,
-                    definition.end_anchor,
-                    earliest_after=earliest_after,
+            earliest_after_by_case: dict[uuid.UUID, datetime | None] = {}
+            for case_id in case_ids:
+                start_match = start_matches.get(case_id)
+                earliest_after_by_case[case_id] = (
+                    start_match[1] if start_match else None
                 )
-            end_match = end_match_cache[end_anchor_key]
 
-            started_at = start_match[1] if start_match else None
-            ended_at = end_match[1] if end_match else None
-            if started_at and ended_at and ended_at < started_at:
-                end_match = None
-                ended_at = None
-            duration = ended_at - started_at if started_at and ended_at else None
+            end_anchor_key = (
+                self._sql_anchor_cache_key(definition.end_anchor),
+                start_anchor_key,
+            )
+            if end_anchor_key not in end_match_cache:
+                end_match_cache[end_anchor_key] = await self._find_matching_events_db(
+                    case_ids,
+                    definition.end_anchor,
+                    earliest_after_by_case=earliest_after_by_case,
+                )
+            end_matches = end_match_cache[end_anchor_key]
 
-            results.append(
-                CaseDurationComputation(
-                    duration_id=definition.id,
-                    name=definition.name,
-                    description=definition.description,
-                    start_event_id=start_match[0].id if start_match else None,
-                    end_event_id=end_match[0].id if end_match else None,
-                    started_at=started_at,
-                    ended_at=ended_at,
-                    duration=duration,
+            for case_id in case_ids:
+                start_match = start_matches.get(case_id)
+                end_match = end_matches.get(case_id)
+
+                started_at = start_match[1] if start_match else None
+                ended_at = end_match[1] if end_match else None
+                if started_at and ended_at and ended_at < started_at:
+                    end_match = None
+                    ended_at = None
+                duration = ended_at - started_at if started_at and ended_at else None
+
+                results_by_case[case_id].append(
+                    CaseDurationComputation(
+                        duration_id=definition.id,
+                        name=definition.name,
+                        description=definition.description,
+                        start_event_id=start_match[0] if start_match else None,
+                        end_event_id=end_match[0] if end_match else None,
+                        started_at=started_at,
+                        ended_at=ended_at,
+                        duration=duration,
+                    )
+                )
+
+        return results_by_case
+
+    async def _find_matching_events_db(
+        self,
+        case_ids: Sequence[uuid.UUID],
+        anchor: CaseDurationEventAnchor,
+        *,
+        earliest_after_by_case: dict[uuid.UUID, datetime | None] | None = None,
+    ) -> dict[uuid.UUID, _DurationEventMatch]:
+        if not case_ids:
+            return {}
+
+        conditions: list[ColumnElement[bool]] = [
+            CaseEvent.workspace_id == self.workspace_id,
+        ]
+
+        anchor_bounds = None
+        if earliest_after_by_case is None:
+            conditions.append(CaseEvent.case_id.in_(case_ids))
+        else:
+            anchor_bounds = self._anchor_bounds_table(
+                case_ids,
+                earliest_after_by_case,
+            )
+            conditions.append(
+                or_(
+                    anchor_bounds.c.earliest_after.is_(None),
+                    CaseEvent.created_at
+                    >= cast(anchor_bounds.c.earliest_after, DateTime(timezone=True)),
                 )
             )
 
-        return results
+        if anchor.event_type is CaseEventType.STATUS_CHANGED:
+            conditions.append(
+                CaseEvent.type.in_(
+                    (
+                        CaseEventType.STATUS_CHANGED,
+                        CaseEventType.CASE_CLOSED,
+                        CaseEventType.CASE_REOPENED,
+                    )
+                )
+            )
+        else:
+            conditions.append(CaseEvent.type == anchor.event_type)
+
+        conditions.extend(self._build_sql_filter_conditions(anchor))
+
+        stmt = select(CaseEvent)
+        if anchor_bounds is not None:
+            stmt = stmt.join(
+                anchor_bounds, CaseEvent.case_id == anchor_bounds.c.case_id
+            )
+
+        stmt = (
+            stmt.where(*conditions)
+            .distinct(CaseEvent.case_id)
+            .order_by(CaseEvent.case_id.asc(), *self._sql_anchor_order_by(anchor))
+        )
+        result = await self.session.execute(stmt)
+        return {
+            event.case_id: (event.id, event.created_at)
+            for event in result.scalars().all()
+        }
+
+    def _anchor_bounds_table(
+        self,
+        case_ids: Sequence[uuid.UUID],
+        earliest_after_by_case: dict[uuid.UUID, datetime | None],
+    ) -> Any:
+        return (
+            sql_values(
+                column("case_id", PG_UUID(as_uuid=True)),
+                column("earliest_after", DateTime(timezone=True)),
+                name="duration_anchor_bounds",
+            )
+            .data(
+                [(case_id, earliest_after_by_case.get(case_id)) for case_id in case_ids]
+            )
+            .alias("duration_anchor_bounds")
+        )
+
+    def _sql_anchor_order_by(
+        self, anchor: CaseDurationEventAnchor
+    ) -> tuple[ColumnElement[Any], ColumnElement[Any]]:
+        return (
+            (CaseEvent.created_at.desc(), CaseEvent.surrogate_id.desc())
+            if anchor.selection is CaseDurationAnchorSelection.LAST
+            else (CaseEvent.created_at.asc(), CaseEvent.surrogate_id.asc())
+        )
 
     async def sync_case_durations(
         self, case: Case | uuid.UUID
@@ -796,87 +844,6 @@ class CaseDurationService(BaseWorkspaceService):
         if resolved is None:
             raise TracecatNotFoundError(f"Case {case} not found in this workspace")
         return resolved
-
-    def _find_matching_event(
-        self,
-        events: Sequence[CaseEvent],
-        anchor: CaseDurationEventAnchor,
-        *,
-        earliest_after: datetime | None = None,
-    ) -> tuple[CaseEvent, datetime] | None:
-        best_match: tuple[CaseEvent, datetime] | None = None
-        for event in events:
-            # A transition to `closed` is emitted as `case_closed` (and reopening
-            # as `case_reopened`), so exact matching on `status_changed` would
-            # otherwise miss those transitions. Expand the match here so duration
-            # definitions filtered on `status_changed` still see close/reopen.
-            if anchor.event_type is CaseEventType.STATUS_CHANGED:
-                if event.type not in (
-                    CaseEventType.STATUS_CHANGED,
-                    CaseEventType.CASE_CLOSED,
-                    CaseEventType.CASE_REOPENED,
-                ):
-                    continue
-            elif event.type != anchor.event_type:
-                continue
-            if not self._matches_anchor_filters(event, anchor):
-                continue
-            timestamp = self._extract_timestamp(event, anchor)
-            if timestamp is None:
-                continue
-            if earliest_after and timestamp < earliest_after:
-                continue
-            if best_match is None:
-                best_match = (event, timestamp)
-                continue
-            if anchor.selection is CaseDurationAnchorSelection.LAST:
-                if timestamp >= best_match[1]:
-                    best_match = (event, timestamp)
-            elif timestamp < best_match[1]:
-                best_match = (event, timestamp)
-
-        return best_match
-
-    async def _find_matching_event_db(
-        self,
-        case_id: uuid.UUID,
-        anchor: CaseDurationEventAnchor,
-        *,
-        earliest_after: datetime | None = None,
-    ) -> tuple[CaseEvent, datetime] | None:
-        conditions: list[ColumnElement[bool]] = [
-            CaseEvent.workspace_id == self.workspace_id,
-            CaseEvent.case_id == case_id,
-        ]
-
-        if anchor.event_type is CaseEventType.STATUS_CHANGED:
-            conditions.append(
-                CaseEvent.type.in_(
-                    (
-                        CaseEventType.STATUS_CHANGED,
-                        CaseEventType.CASE_CLOSED,
-                        CaseEventType.CASE_REOPENED,
-                    )
-                )
-            )
-        else:
-            conditions.append(CaseEvent.type == anchor.event_type)
-
-        if earliest_after is not None:
-            conditions.append(CaseEvent.created_at >= earliest_after)
-
-        conditions.extend(self._build_sql_filter_conditions(anchor))
-
-        order_by = (
-            (CaseEvent.created_at.desc(), CaseEvent.surrogate_id.desc())
-            if anchor.selection is CaseDurationAnchorSelection.LAST
-            else (CaseEvent.created_at.asc(), CaseEvent.surrogate_id.asc())
-        )
-        stmt = select(CaseEvent).where(*conditions).order_by(*order_by).limit(1)
-        result = await self.session.execute(stmt)
-        if (event := result.scalars().first()) is None:
-            return None
-        return event, event.created_at
 
     def _sql_anchor_cache_key(self, anchor: CaseDurationEventAnchor) -> tuple[Any, ...]:
         return self._anchor_cache_key(anchor)
@@ -1000,49 +967,6 @@ class CaseDurationService(BaseWorkspaceService):
                 )
             )
         return value
-
-    def _matches_anchor_filters(
-        self, event: CaseEvent, anchor: CaseDurationEventAnchor
-    ) -> bool:
-        if anchor._has_unsupported_filters:
-            return False
-
-        filters = anchor.filters
-        data = event.data or {}
-        if filters.new_values and data.get("new") not in filters.new_values:
-            return False
-        if filters.tag_refs and data.get("tag_ref") not in filters.tag_refs:
-            return False
-        if filters.field_ids and not self._event_changed_any_field(
-            event, filters.field_ids
-        ):
-            return False
-        if (
-            filters.dropdown_definition_id is not None
-            and data.get("definition_id") != filters.dropdown_definition_id
-        ):
-            return False
-        if (
-            filters.dropdown_option_ids
-            and data.get("new_option_id") not in filters.dropdown_option_ids
-        ):
-            return False
-        return True
-
-    def _event_changed_any_field(self, event: CaseEvent, field_ids: list[str]) -> bool:
-        changes = (event.data or {}).get("changes")
-        if not isinstance(changes, list):
-            return False
-        return any(
-            isinstance(change, dict) and change.get("field") in field_ids
-            for change in changes
-        )
-
-    def _extract_timestamp(
-        self, event: CaseEvent, anchor: CaseDurationEventAnchor
-    ) -> datetime | None:
-        del anchor
-        return event.created_at
 
     def _to_read_model(self, entity: CaseDuration) -> CaseDurationRead:
         return CaseDurationRead(
