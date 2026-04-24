@@ -418,6 +418,26 @@ describe("SPM operator UI", () => {
     expect(screen.getByText("Inventory only")).toBeInTheDocument()
   })
 
+  it("filters findings by status and resets the feed filters", async () => {
+    render(<SpmFindingsView />)
+
+    fireEvent.change(screen.getByLabelText("Filter by status"), {
+      target: { value: "resolved" },
+    })
+
+    await waitFor(() => {
+      expect(screen.getByText("No matching records.")).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByRole("button", { name: /Reset/i }))
+
+    await waitFor(() => {
+      expect(
+        screen.getByText("Github MCP server is not approved")
+      ).toBeInTheDocument()
+    })
+  })
+
   it("renders endpoint-scoped asset state and findings", () => {
     render(<SpmEndpointDetailView endpointId="endpoint-1" />)
 
@@ -480,7 +500,7 @@ describe("SPM operator UI", () => {
     ).toHaveLength(1)
     expect(screen.getByText("Pending MacBook")).toBeInTheDocument()
     expect(screen.getByText("Active MacBook")).toBeInTheDocument()
-    expect(screen.getAllByRole("row")).toHaveLength(3)
+    expect(screen.getAllByRole("link")).toHaveLength(2)
   })
 
   it("cancels a pending enrollment after confirmation", async () => {
