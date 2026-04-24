@@ -939,24 +939,17 @@ function AgentPresetSelect({
 
 type AgentModelOption = {
   optionValue: string
+  catalogId: string
   modelName: string
   modelProvider: string
-  baseUrl: string | null
   sourceName: string
   iconId: string
 }
 
-function getRelatedModelFieldName(
-  fieldName: string,
-  targetFieldName: "base_url" | "model_provider"
-): string | null {
-  if (fieldName === "inputs.model_name") {
-    return `inputs.${targetFieldName}`
-  }
-  if (fieldName.endsWith(".model_name")) {
-    return fieldName.replace(/\.model_name$/, `.${targetFieldName}`)
-  }
-  return null
+type ModelSelectionValue = {
+  model_name?: string | null
+  model_provider?: string | null
+  catalog_id?: string | null
 }
 
 function getModelSelectionKey(selection: {
@@ -965,16 +958,6 @@ function getModelSelectionKey(selection: {
   model_name?: string | null
 }): string {
   return `${selection.source_id ?? "platform"}::${selection.model_provider ?? ""}::${selection.model_name ?? ""}`
-}
-
-function normalizeOptionalText(
-  value: string | null | undefined
-): string | null {
-  if (value == null) {
-    return null
-  }
-  const trimmed = value.trim()
-  return trimmed.length > 0 ? trimmed : null
 }
 
 function getModelProviderIconId(modelProvider: string): string {
@@ -1001,21 +984,14 @@ function AgentModelSelect({
 }: {
   field: ControllerRenderProps<FieldValues>
 }) {
-  const methods = useFormContext()
   const workspaceId = useWorkspaceId()
   const { models, providers, modelsLoading, modelsError } =
     useWorkspaceAgentModels(workspaceId)
-  const modelProviderFieldName = getRelatedModelFieldName(
-    field.name,
-    "model_provider"
-  )
-  const baseUrlFieldName = getRelatedModelFieldName(field.name, "base_url")
-  const modelProviderValue = modelProviderFieldName
-    ? methods.watch(modelProviderFieldName)
-    : undefined
-  const baseUrlValue = baseUrlFieldName
-    ? methods.watch(baseUrlFieldName)
-    : undefined
+  const selection = (field.value ?? {}) as ModelSelectionValue
+  const modelNameValue =
+    typeof selection.model_name === "string" ? selection.model_name : ""
+  const modelProviderValue =
+    typeof selection.model_provider === "string" ? selection.model_provider : ""
   const options = useMemo<AgentModelOption[]>(() => {
     const providersById = new Map(
       (providers ?? []).map((provider) => [provider.id, provider])
@@ -1038,9 +1014,9 @@ function AgentModelSelect({
             model_provider: model.model_provider,
             model_name: model.model_name,
           }),
+          catalogId: model.id,
           modelName: model.model_name,
           modelProvider: model.model_provider,
-          baseUrl: provider?.base_url ?? null,
           sourceName,
           iconId: getModelProviderIconId(model.model_provider),
         }
@@ -1054,40 +1030,21 @@ function AgentModelSelect({
       })
   }, [models, providers])
   const selectedModel = useMemo(() => {
-    if (
-      typeof field.value !== "string" ||
-      field.value.length === 0 ||
-      typeof modelProviderValue !== "string" ||
-      modelProviderValue.length === 0
-    ) {
+    if (modelNameValue.length === 0 || modelProviderValue.length === 0) {
       return null
     }
-
-    const normalizedBaseUrl =
-      typeof baseUrlValue === "string"
-        ? normalizeOptionalText(baseUrlValue)
-        : null
     return (
       options.find(
         (option) =>
-          option.modelName === field.value &&
-          option.modelProvider === modelProviderValue &&
-          normalizeOptionalText(option.baseUrl) === normalizedBaseUrl
-      ) ??
-      options.find(
-        (option) =>
-          option.modelName === field.value &&
+          option.modelName === modelNameValue &&
           option.modelProvider === modelProviderValue
-      ) ??
-      null
+      ) ?? null
     )
-  }, [baseUrlValue, field.value, modelProviderValue, options])
+  }, [modelNameValue, modelProviderValue, options])
   const unavailableSelection = useMemo(() => {
     if (
       selectedModel ||
-      typeof field.value !== "string" ||
-      field.value.length === 0 ||
-      typeof modelProviderValue !== "string" ||
+      modelNameValue.length === 0 ||
       modelProviderValue.length === 0
     ) {
       return null
@@ -1096,13 +1053,13 @@ function AgentModelSelect({
     return {
       optionValue: getModelSelectionKey({
         model_provider: modelProviderValue,
-        model_name: field.value,
+        model_name: modelNameValue,
       }),
-      modelName: field.value,
+      modelName: modelNameValue,
       modelProvider: modelProviderValue,
       iconId: getModelProviderIconId(modelProviderValue),
     }
-  }, [field.value, modelProviderValue, selectedModel])
+  }, [modelNameValue, modelProviderValue, selectedModel])
 
   const handleChange = (value: string) => {
     const selectedOption = options.find(
@@ -1112,19 +1069,11 @@ function AgentModelSelect({
       return
     }
 
-    field.onChange(selectedOption.modelName)
-    if (modelProviderFieldName) {
-      methods.setValue(modelProviderFieldName, selectedOption.modelProvider, {
-        shouldDirty: true,
-        shouldTouch: true,
-      })
-    }
-    if (baseUrlFieldName) {
-      methods.setValue(baseUrlFieldName, selectedOption.baseUrl ?? "", {
-        shouldDirty: true,
-        shouldTouch: true,
-      })
-    }
+    field.onChange({
+      model_name: selectedOption.modelName,
+      model_provider: selectedOption.modelProvider,
+      catalog_id: selectedOption.catalogId,
+    })
   }
 
   const placeholder = !workspaceId

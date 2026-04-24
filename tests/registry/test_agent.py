@@ -4,6 +4,7 @@ from typing import Any
 import pytest
 from tracecat_registry import ActionIsInterfaceError
 from tracecat_registry.core.agent import action, agent, bedrock_secret
+from tracecat_registry.fields import ModelSelection
 
 from tracecat.auth.types import Role
 
@@ -66,8 +67,7 @@ async def test_agent_primitives(output_type: Any, test_role: Role) -> None:
     with pytest.raises(ActionIsInterfaceError):
         await agent(
             user_prompt=user_prompt,
-            model_name="gpt-4o-mini",
-            model_provider="openai",
+            model=ModelSelection(model_name="gpt-4o-mini", model_provider="openai"),
             actions=[],
             instructions="Be concise and factual.",
             output_type=output_type,
@@ -102,8 +102,7 @@ async def test_agent_json_schema(output_type: Any, test_role: Role) -> None:
     with pytest.raises(ActionIsInterfaceError):
         await agent(
             user_prompt=user_prompt,
-            model_name="gpt-4o-mini",
-            model_provider="openai",
+            model=ModelSelection(model_name="gpt-4o-mini", model_provider="openai"),
             actions=[],
             instructions="Be concise and factual.",
             output_type=output_type,
@@ -123,8 +122,7 @@ async def test_action_primitives(output_type: Any) -> None:
     with pytest.raises(ActionIsInterfaceError):
         await action(
             user_prompt=user_prompt,
-            model_name="gpt-4o-mini",
-            model_provider="openai",
+            model=ModelSelection(model_name="gpt-4o-mini", model_provider="openai"),
             instructions="Be empathetic and concise.",
             output_type=output_type,
             max_requests=3,
@@ -142,8 +140,7 @@ async def test_action_json_schema(output_type: Any) -> None:
     with pytest.raises(ActionIsInterfaceError):
         await action(
             user_prompt=user_prompt,
-            model_name="gpt-4o-mini",
-            model_provider="openai",
+            model=ModelSelection(model_name="gpt-4o-mini", model_provider="openai"),
             instructions="Be empathetic and concise.",
             output_type=output_type,
             max_requests=3,

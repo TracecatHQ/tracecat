@@ -21,7 +21,6 @@ from tracecat.agent.config import MODEL_CONFIGS, PROVIDER_CREDENTIAL_CONFIGS
 from tracecat.agent.preset.service import AgentPresetService
 from tracecat.agent.schemas import (
     DefaultModelSelection,
-    DefaultModelSelectionUpdate,
     ModelConfig,
     ModelCredentialCreate,
     ModelCredentialUpdate,
@@ -31,13 +30,18 @@ from tracecat.agent.types import AgentConfig
 from tracecat.auth.secrets import get_db_encryption_key
 from tracecat.auth.types import Role
 from tracecat.authz.controls import require_scope
-from tracecat.db.models import AgentCatalog, OrganizationSecret, Secret
+from tracecat.db.models import (
+    AgentCatalog,
+    AgentCustomProvider,
+    OrganizationSecret,
+    Secret,
+)
 from tracecat.exceptions import TracecatAuthorizationError, TracecatNotFoundError
 from tracecat.integrations.aws_assume_role import build_workspace_external_id
 from tracecat.logger import logger
 from tracecat.secrets import secrets_manager
 from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
-from tracecat.secrets.encryption import decrypt_keyvalues
+from tracecat.secrets.encryption import decrypt_keyvalues, decrypt_value
 from tracecat.secrets.enums import SecretType
 from tracecat.secrets.schemas import SecretCreate, SecretKeyValue, SecretUpdate
 from tracecat.secrets.service import SecretsService
@@ -51,6 +55,55 @@ _GOOGLE_CLOUD_SCOPE = "https://www.googleapis.com/auth/cloud-platform"
 _AZURE_COGNITIVE_SCOPE = "https://cognitiveservices.azure.com/.default"
 _DEFAULT_MODEL_SETTING_KEY = "agent_default_model"
 _DEFAULT_MODEL_CATALOG_ID_SETTING_KEY = "agent_default_model_catalog_id"
+
+
+def _decrypt_custom_provider_config(
+    provider_row: AgentCustomProvider,
+) -> dict[str, str]:
+    """Decrypt an ``AgentCustomProvider.encrypted_config`` blob.
+
+    Handles the two on-disk formats the column may carry:
+
+    - **CRUD-path.** ``encrypt_value(orjson.dumps({"api_key": ..., "custom_headers": ...}))``
+      — written by ``AgentCustomProviderService.create_provider`` /
+      ``update_provider``.
+    - **Migration-path.** Raw ``encrypt_keyvalues(list[SecretKeyValue])`` blob
+      copied byte-for-byte from the legacy
+      ``agent-custom-model-provider-credentials`` org secret by the v2
+      backfill.
+
+    Returns ``{}`` on decrypt failure rather than raising so callers can
+    still surface plaintext columns. Errors are logged so operators can
+    spot rotation drift.
+    """
+    if provider_row.encrypted_config is None:
+        return {}
+
+    key = get_db_encryption_key()
+    credentials: dict[str, str] = {}
+
+    try:
+        plain = decrypt_value(provider_row.encrypted_config, key=key)
+        payload = orjson.loads(plain)
+        if isinstance(payload, dict):
+            api_key = payload.get("api_key")
+            if isinstance(api_key, str) and api_key:
+                credentials["CUSTOM_MODEL_PROVIDER_API_KEY"] = api_key
+            return credentials
+    except Exception:  # noqa: BLE001 — fall through to keyvalues format
+        pass
+
+    try:
+        decrypted = decrypt_keyvalues(provider_row.encrypted_config, key=key)
+        for kv in decrypted:
+            credentials[kv.key] = kv.value.get_secret_value()
+    except Exception:  # noqa: BLE001
+        logger.exception(
+            "Failed to decrypt custom provider encrypted_config",
+            custom_provider_id=str(provider_row.id),
+        )
+        return {}
+    return credentials
 
 
 def _refresh_vertex_token(credentials_blob: str) -> str:
@@ -373,25 +426,50 @@ class AgentManagementService(BaseOrgService):
     ) -> dict[str, str] | None:
         """Load credentials for a catalog row, augmented for runtime consumers.
 
-        Cloud and custom catalog rows carry the Fernet-encrypted credential
-        blob in ``agent_catalog.encrypted_config`` (copied from the org's
-        legacy ``agent-{provider}-credentials`` secret by the v2 backfill
-        migration). For those rows, decrypt the blob into the same
-        ``{key: value}`` dict the gateway branches already consume.
+        Dispatches on the row shape:
 
-        Platform rows (``organization_id IS NULL``) and any row without a
-        stored ``encrypted_config`` fall back to the name-based
-        ``get_runtime_provider_credentials(provider)`` path so direct
-        providers (OpenAI / Anthropic / Gemini) keep working.
+        - **Custom-model-provider rows** (``custom_provider_id`` set): read
+          from the linked ``AgentCustomProvider`` row. Plaintext columns
+          (``base_url``, ``passthrough``) are the source of truth; the
+          row's ``encrypted_config`` carries the API key. The v2 backfill
+          migration also writes a legacy-format copy of the blob onto the
+          catalog row itself, but we intentionally ignore that here so
+          post-CRUD rotations aren't shadowed by stale migration state.
+
+        - **Cloud rows** (``encrypted_config`` set, no custom_provider_id):
+          decrypt the catalog row's blob directly. This is where the v2
+          migration parks Bedrock / Azure / Vertex credential ciphertext.
+
+        - **Platform rows** or any row without ``encrypted_config`` fall
+          back to ``get_runtime_provider_credentials(provider)`` so direct
+          providers (OpenAI / Anthropic / Gemini) keep working.
         """
         stmt = select(AgentCatalog).where(AgentCatalog.id == catalog_id)
         row = (await self.session.execute(stmt)).scalar_one_or_none()
         if row is None:
             return None
 
+        if row.custom_provider_id is not None:
+            provider_row = (
+                await self.session.execute(
+                    select(AgentCustomProvider).where(
+                        AgentCustomProvider.id == row.custom_provider_id,
+                        AgentCustomProvider.organization_id == self.organization_id,
+                    )
+                )
+            ).scalar_one_or_none()
+            if provider_row is None:
+                return None
+
+            credentials = _decrypt_custom_provider_config(provider_row)
+            if provider_row.base_url:
+                credentials["CUSTOM_MODEL_PROVIDER_BASE_URL"] = provider_row.base_url
+            if provider_row.passthrough:
+                credentials["CUSTOM_MODEL_PROVIDER_PASSTHROUGH"] = "true"
+            return credentials or None
+
         if row.encrypted_config is None:
-            # Platform row (or custom row that hasn't been re-encrypted yet).
-            # Fall back to the org-secret path keyed off the provider slug.
+            # Direct-provider platform row — delegate to legacy secret lookup.
             return await self.get_runtime_provider_credentials(row.model_provider)
 
         try:
@@ -459,12 +537,11 @@ class AgentManagementService(BaseOrgService):
         """Grant org-wide ``AgentModelAccess`` for every catalog row that
         matches ``provider``.
 
-        Orgs without the ``agent_addons`` entitlement cannot toggle per-model
-        enablement in the UI, so configuring credentials for a provider must
-        implicitly enable every catalog row that provider exposes. Safe for
-        entitled orgs too — the access rows also serve as the source of
-        truth for the v2 workspace model list, so "configured = enabled"
-        matches the pre-v2 behaviour users already expect.
+        Configuring credentials for a provider implicitly enables every
+        catalog row that provider exposes. This runs unconditionally —
+        entitled orgs can then toggle individual models off, while
+        un-entitled orgs get a working default without the per-model
+        picker.
 
         Idempotent via the unique index with ``NULLS NOT DISTINCT`` on
         ``(organization_id, workspace_id, catalog_id)``.
@@ -560,9 +637,25 @@ class AgentManagementService(BaseOrgService):
     async def check_provider_credentials(self, provider: str) -> bool:
         """Check if credentials exist for a provider at organization level.
 
+        For the ``custom-model-provider`` slug, v2 moves the configuration
+        out of the legacy ``agent-custom-model-provider-credentials`` secret
+        into the ``AgentCustomProvider`` table. Check both so orgs that
+        only have the v2 row still show as "configured".
+
         Uses a direct DB query to avoid requiring org:secret:read scope,
         since this is an internal check gated by agent:read at the router level.
         """
+        if provider == "custom-model-provider":
+            from tracecat.db.models import AgentCustomProvider
+
+            v2_result = await self.session.execute(
+                select(AgentCustomProvider.id)
+                .where(AgentCustomProvider.organization_id == self.organization_id)
+                .limit(1)
+            )
+            if v2_result.first() is not None:
+                return True
+
         secret_name = self._get_credential_secret_name(provider)
         result = await self.session.execute(
             select(OrganizationSecret.id).where(
@@ -609,46 +702,24 @@ class AgentManagementService(BaseOrgService):
         return status
 
     @require_scope("agent:update")
-    async def set_default_model(self, model_name: str) -> None:
-        """Set the organization's default AI model."""
-        # Validate model exists
-        if model_name not in MODEL_CONFIGS:
-            raise TracecatNotFoundError(f"Model {model_name} not found")
+    async def set_default_model(self, catalog_id: uuid.UUID) -> DefaultModelSelection:
+        """Set the organization's default AI model by catalog id.
 
-        # Update or create the setting
-        setting = await self.settings_service.get_org_setting("agent_default_model")
-        if setting:
-            await self.settings_service.update_org_setting(
-                setting, SettingUpdate(value=model_name)
-            )
-        else:
-            # This shouldn't happen if settings are initialized properly,
-            # but handle it gracefully
-            logger.warning("Default model setting not found, creating it")
-            await self.settings_service.create_org_setting(
-                SettingCreate(
-                    key="agent_default_model",
-                    value=model_name,
-                    value_type=ValueType.JSON,
-                    is_sensitive=False,
-                )
-            )
-
-    @require_scope("agent:update")
-    async def set_default_model_selection(
-        self,
-        params: DefaultModelSelectionUpdate,
-    ) -> DefaultModelSelection:
-        """Set the canonical default model selection for the organization."""
+        Model names aren't unique across providers (e.g. ``gpt-4o`` on
+        both ``openai`` and ``azure_openai``), so the default is keyed by
+        catalog row id. The legacy ``agent_default_model`` name setting
+        is written alongside the canonical catalog-id setting for
+        backwards compatibility with readers that haven't migrated.
+        """
         access_svc = AgentModelAccessService(session=self.session, role=self.role)
         enabled_models = await access_svc.get_org_models()
         catalog_entry = next(
-            (entry for entry in enabled_models if entry.id == params.catalog_id),
+            (entry for entry in enabled_models if entry.id == catalog_id),
             None,
         )
         if catalog_entry is None:
             raise TracecatNotFoundError(
-                f"Catalog entry {params.catalog_id} is not enabled for this organization"
+                f"Catalog row {catalog_id!s} is not enabled for this organization"
             )
 
         await self._stage_org_setting_value(
@@ -844,9 +915,21 @@ class AgentManagementService(BaseOrgService):
 
         if preset_config.catalog_id is not None:
             credentials = await self.get_catalog_credentials(preset_config.catalog_id)
+            logger.info(
+                "with_preset_config: catalog path",
+                catalog_id=str(preset_config.catalog_id),
+                model_provider=preset_config.model_provider,
+                resolved=bool(credentials),
+                cred_keys=sorted(credentials.keys()) if credentials else None,
+            )
         else:
             credentials = await self.get_runtime_provider_credentials(
                 preset_config.model_provider,
+            )
+            logger.info(
+                "with_preset_config: legacy path (no catalog_id on preset)",
+                model_provider=preset_config.model_provider,
+                resolved=bool(credentials),
             )
 
         if not credentials:

@@ -4621,10 +4621,15 @@ export const agentGetDefaultModel =
 
 /**
  * Set Default Model
- * Set the organization's default AI model.
+ * Set the organization's default AI model by catalog id.
+ *
+ * Names aren't unique once an org enables the same ``model_name`` under
+ * multiple providers (e.g. ``openai/gpt-4o`` + ``azure_openai/gpt-4o``),
+ * so the selection is keyed by catalog row. Rejects catalog ids that
+ * aren't enabled for this org with a 404.
  * @param data The data for the request.
- * @param data.modelName
- * @returns string Successful Response
+ * @param data.requestBody
+ * @returns DefaultModelSelection Successful Response
  * @throws ApiError
  */
 export const agentSetDefaultModel = (
@@ -4633,9 +4638,8 @@ export const agentSetDefaultModel = (
   return __request(OpenAPI, {
     method: "PUT",
     url: "/agent/default-model",
-    query: {
-      model_name: data.modelName,
-    },
+    body: data.requestBody,
+    mediaType: "application/json",
     errors: {
       422: "Validation Error",
     },

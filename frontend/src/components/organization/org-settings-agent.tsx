@@ -107,6 +107,7 @@ const customProviderSchema = z
     apiKeyHeader: z.string().trim().optional(),
     apiKey: z.string().optional(),
     customHeadersJson: z.string().optional(),
+    passthrough: z.boolean(),
   })
   .superRefine((value, ctx) => {
     const raw = value.customHeadersJson?.trim()
@@ -151,6 +152,7 @@ const DEFAULT_CUSTOM_PROVIDER_VALUES: CustomProviderFormValues = {
   apiKeyHeader: "",
   apiKey: "",
   customHeadersJson: "",
+  passthrough: false,
 }
 
 const CLOUD_CATALOG_PROVIDERS = [
@@ -680,6 +682,7 @@ function getProviderDialogDefaults(
     apiKeyHeader: provider.api_key_header ?? "",
     apiKey: "",
     customHeadersJson: "",
+    passthrough: provider.passthrough,
   }
 }
 
@@ -692,6 +695,7 @@ function buildProviderCreatePayload(
     api_key_header: normalizeOptional(values.apiKeyHeader),
     api_key: normalizeOptional(values.apiKey),
     custom_headers: parseCustomHeaders(values.customHeadersJson),
+    passthrough: values.passthrough,
   }
 }
 
@@ -702,6 +706,7 @@ function buildProviderUpdatePayload(
     display_name: values.displayName.trim(),
     base_url: normalizeOptional(values.baseUrl),
     api_key_header: normalizeOptional(values.apiKeyHeader),
+    passthrough: values.passthrough,
   }
 
   const apiKey = normalizeOptional(values.apiKey)
@@ -963,6 +968,28 @@ function CustomProviderDialog({
                     while editing replaces the saved value.
                   </FormDescription>
                   <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name="passthrough"
+              render={({ field }) => (
+                <FormItem className="flex items-center justify-between gap-4 rounded-md border p-3">
+                  <div className="space-y-1">
+                    <FormLabel className="text-sm">Passthrough mode</FormLabel>
+                    <FormDescription>
+                      Skip gateway transforms and forward requests directly to
+                      the upstream endpoint.
+                    </FormDescription>
+                  </div>
+                  <FormControl>
+                    <Switch
+                      checked={field.value}
+                      onCheckedChange={field.onChange}
+                    />
+                  </FormControl>
                 </FormItem>
               )}
             />
@@ -1234,9 +1261,11 @@ function ProviderConnectionItem({
     <RbacListItem
       actions={
         <div className="flex flex-wrap items-center justify-end gap-2">
-          <ProviderMetaPill active={enabledSelectableProviderCount > 0}>
-            {enabledSelectableProviderCount} enabled
-          </ProviderMetaPill>
+          {provider.credentials_configured ? (
+            <ProviderMetaPill active={enabledSelectableProviderCount > 0}>
+              {enabledSelectableProviderCount} enabled
+            </ProviderMetaPill>
+          ) : null}
           {provider.credentials_configured && !canManageModels ? (
             <Button
               onClick={() => {
@@ -1248,7 +1277,7 @@ function ProviderConnectionItem({
               Disconnect
             </Button>
           ) : null}
-          {onAddCatalogModel ? (
+          {onAddCatalogModel && provider.credentials_configured ? (
             <Button
               disabled={disabled}
               onClick={() => onAddCatalogModel(provider.provider)}
@@ -1766,7 +1795,7 @@ export function OrgSettingsAgentForm() {
     error: providersStatusError,
   } = useModelProvidersStatus()
   const {
-    defaultModel,
+    defaultModelSelection,
     defaultModelLoading,
     defaultModelError,
     updateDefaultModel,
@@ -1852,6 +1881,7 @@ export function OrgSettingsAgentForm() {
             providerConfigsByProvider.get(entry.model_provider)?.label ??
             entry.model_provider
           return {
+            catalog_id: entry.id,
             model_name: entry.model_name,
             model_provider: entry.model_provider,
             source_label: sourceLabel,
@@ -1860,8 +1890,9 @@ export function OrgSettingsAgentForm() {
     [orgEnabledCatalogEntries, customProvidersById, providerConfigsByProvider]
   )
   const currentDefaultModelOption =
-    defaultModelOptions.find((model) => model.model_name === defaultModel) ??
-    null
+    defaultModelOptions.find(
+      (model) => model.catalog_id === defaultModelSelection?.catalog_id
+    ) ?? null
   const builtInCatalogEntries = useMemo(
     () =>
       (catalogEntries ?? []).filter(
@@ -2155,9 +2186,9 @@ export function OrgSettingsAgentForm() {
     }
   }
 
-  async function handleDefaultModelChange(nextModel: string) {
+  async function handleDefaultModelChange(catalogId: string) {
     try {
-      await updateDefaultModel(nextModel)
+      await updateDefaultModel(catalogId)
       toast({
         title: "Default model updated",
       })
@@ -2447,13 +2478,13 @@ export function OrgSettingsAgentForm() {
           ) : (
             <Select
               disabled={isSelectionUpdating}
-              onValueChange={(modelName) => {
-                if (modelName === defaultModel) {
+              onValueChange={(catalogId) => {
+                if (catalogId === defaultModelSelection?.catalog_id) {
                   return
                 }
-                void handleDefaultModelChange(modelName)
+                void handleDefaultModelChange(catalogId)
               }}
-              value={currentDefaultModelOption?.model_name ?? ""}
+              value={currentDefaultModelOption?.catalog_id ?? ""}
             >
               <SelectTrigger className="h-12 px-4 [&>svg]:shrink-0">
                 {currentDefaultModelOption ? (
@@ -2479,10 +2510,11 @@ export function OrgSettingsAgentForm() {
               </SelectTrigger>
               <SelectContent>
                 {defaultModelOptions.map((model) => {
-                  const isSelected = model.model_name === defaultModel
+                  const isSelected =
+                    model.catalog_id === defaultModelSelection?.catalog_id
 
                   return (
-                    <SelectItem key={model.model_name} value={model.model_name}>
+                    <SelectItem key={model.catalog_id} value={model.catalog_id}>
                       <div className="flex min-w-0 items-start gap-3 py-1">
                         <ProviderIcon
                           className="mt-0.5 size-5 rounded-sm p-0.5"

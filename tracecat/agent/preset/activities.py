@@ -82,12 +82,38 @@ class CustomModelProviderConfigResult(BaseModel):
 @activity.defn
 async def resolve_custom_model_provider_config_activity(
     role: Role,
+    catalog_id: uuid.UUID | None = None,
 ) -> CustomModelProviderConfigResult:
-    activity.logger.info("Resolving custom model provider config")
+    """Resolve custom-model-provider runtime config.
+
+    Two paths:
+
+    1. **v2 (preferred).** When ``catalog_id`` is provided, look up the
+       catalog row's ``custom_provider_id`` and return the matching
+       ``AgentCustomProvider`` row's plaintext ``base_url`` / ``passthrough``
+       columns, plus an optional ``model_name`` override from its
+       ``encrypted_config`` blob.
+    2. **Legacy.** When ``catalog_id`` is ``None`` (pre-v2 workflow history
+       replay or DSL AI actions that don't carry a catalog_id yet), fall
+       back to resolving from
+       ``agent-custom-model-provider-credentials`` via
+       ``get_runtime_provider_credentials``. This path still works on orgs
+       whose legacy secret wasn't migrated; on migrated orgs it returns
+       ``None`` and we error out with a clear message so the caller knows
+       to configure a v2 catalog row.
+
+    ``catalog_id`` has a default of ``None`` to keep Temporal replay of
+    old workflow history intact: activity calls recorded with just
+    ``(role,)`` still deserialize cleanly into the new signature.
+    """
+    activity.logger.info(
+        "Resolving custom model provider config",
+        extra={"catalog_id": str(catalog_id) if catalog_id else None},
+    )
+
     async with AgentManagementService.with_session(role) as svc:
-        creds = await svc.get_runtime_provider_credentials(
-            "custom-model-provider",
-        )
+        creds = await _load_custom_model_provider_creds(svc, catalog_id=catalog_id)
+
     if creds is None:
         activity.logger.error("Custom model provider credentials not found")
         raise ApplicationError("Invalid custom model provider credentials")
@@ -124,3 +150,63 @@ async def resolve_custom_model_provider_config_activity(
         model_name=creds.get("CUSTOM_MODEL_PROVIDER_MODEL_NAME"),
         passthrough=passthrough,
     )
+
+
+async def _load_custom_model_provider_creds(
+    svc: AgentManagementService,
+    *,
+    catalog_id: uuid.UUID | None,
+) -> dict[str, str] | None:
+    """Return the dict shape ``_inject_provider_credentials`` expects.
+
+    v2 path: catalog row → custom_provider_id → AgentCustomProvider row.
+    Merges plaintext columns (``base_url``, ``passthrough``) with any
+    overrides present in the decrypted ``encrypted_config`` blob.
+
+    Legacy path: delegate to ``get_runtime_provider_credentials`` which
+    reads the legacy ``agent-custom-model-provider-credentials`` secret.
+    """
+    if catalog_id is None:
+        return await svc.get_runtime_provider_credentials("custom-model-provider")
+
+    from sqlalchemy import select
+
+    from tracecat.db.models import AgentCatalog, AgentCustomProvider
+
+    catalog_row = (
+        await svc.session.execute(
+            select(AgentCatalog).where(AgentCatalog.id == catalog_id)
+        )
+    ).scalar_one_or_none()
+    if catalog_row is None or catalog_row.custom_provider_id is None:
+        # The caller passed a catalog_id that isn't a custom-provider row.
+        # Don't silently fall back to the legacy secret — that'd bind the
+        # wrong provider's config to this workflow. Let the activity raise
+        # its standard "credentials not found" error instead.
+        return None
+
+    provider_row = (
+        await svc.session.execute(
+            select(AgentCustomProvider).where(
+                AgentCustomProvider.id == catalog_row.custom_provider_id,
+                AgentCustomProvider.organization_id == svc.organization_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if provider_row is None:
+        return None
+
+    # Start from any overrides inside the decrypted blob (model_name, api_key),
+    # then overlay the plaintext columns so the final dict matches what the
+    # gateway/proxy expect.
+    creds: dict[str, str] = {}
+    if provider_row.encrypted_config is not None:
+        blob_creds = await svc.get_catalog_credentials(catalog_id)
+        if blob_creds:
+            creds.update(blob_creds)
+
+    if provider_row.base_url:
+        creds["CUSTOM_MODEL_PROVIDER_BASE_URL"] = provider_row.base_url
+    if provider_row.passthrough:
+        creds["CUSTOM_MODEL_PROVIDER_PASSTHROUGH"] = "true"
+    return creds or None

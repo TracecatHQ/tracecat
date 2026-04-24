@@ -516,6 +516,7 @@ export type AgentPresetRead = {
   instructions?: string | null
   model_name: string
   model_provider: string
+  catalog_id?: string | null
   base_url?: string | null
   output_type?: OutputType | null
   actions?: Array<string> | null
@@ -632,6 +633,7 @@ export type AgentPresetVersionRead = {
   instructions?: string | null
   model_name: string
   model_provider: string
+  catalog_id?: string | null
   base_url?: string | null
   output_type?: OutputType | null
   actions?: Array<string> | null
@@ -9793,12 +9795,10 @@ export type AgentDeleteProviderCredentialsResponse = {
 export type AgentGetDefaultModelResponse = string | null
 
 export type AgentSetDefaultModelData = {
-  modelName: string
+  requestBody: DefaultModelSelectionUpdate
 }
 
-export type AgentSetDefaultModelResponse = {
-  [key: string]: string
-}
+export type AgentSetDefaultModelResponse = DefaultModelSelection
 
 export type AgentGetDefaultModelSelectionResponse = DefaultModelSelection | null
 
@@ -14119,9 +14119,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        200: {
-          [key: string]: string
-        }
+        200: DefaultModelSelection
         /**
          * Validation Error
          */

@@ -30,6 +30,7 @@ import {
   agentCreateProviderCredentials,
   agentDeleteProviderCredentials,
   agentGetDefaultModel,
+  agentGetDefaultModelSelection,
   agentGetProviderCredentialConfig,
   agentGetProvidersStatus,
   agentListProviderCredentialConfigs,
@@ -104,6 +105,7 @@ import {
   caseTagsDeleteCaseTag,
   caseTagsListCaseTags,
   caseTagsUpdateCaseTag,
+  type DefaultModelSelection,
   type FolderDirectoryItem,
   foldersCreateFolder,
   foldersDeleteFolder,
@@ -5254,7 +5256,6 @@ export function useModelProvidersStatus() {
 export function useAgentDefaultModel() {
   const queryClient = useQueryClient()
 
-  // Get default model
   const {
     data: defaultModel,
     isLoading: defaultModelLoading,
@@ -5264,24 +5265,35 @@ export function useAgentDefaultModel() {
     queryFn: async () => await agentGetDefaultModel(),
   })
 
-  // Update default model
+  const {
+    data: defaultModelSelection,
+    isLoading: defaultModelSelectionLoading,
+  } = useQuery<DefaultModelSelection | null>({
+    queryKey: ["agent-default-model-selection"],
+    queryFn: async () => await agentGetDefaultModelSelection(),
+  })
+
   const {
     mutateAsync: updateDefaultModel,
     isPending: isUpdating,
     error: updateError,
   } = useMutation({
-    mutationFn: async (modelName: string) =>
+    mutationFn: async (catalogId: string) =>
       await agentSetDefaultModel({
-        modelName,
+        requestBody: { catalog_id: catalogId },
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["agent-default-model"] })
+      queryClient.invalidateQueries({
+        queryKey: ["agent-default-model-selection"],
+      })
     },
   })
 
   return {
     defaultModel,
-    defaultModelLoading,
+    defaultModelSelection,
+    defaultModelLoading: defaultModelLoading || defaultModelSelectionLoading,
     defaultModelError,
     updateDefaultModel,
     isUpdating,

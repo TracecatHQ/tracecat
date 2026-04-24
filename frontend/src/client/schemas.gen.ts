@@ -2036,6 +2036,18 @@ export const $AgentPresetRead = {
       maxLength: 120,
       title: "Model Provider",
     },
+    catalog_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Catalog Id",
+    },
     base_url: {
       anyOf: [
         {
@@ -2718,6 +2730,18 @@ export const $AgentPresetVersionRead = {
       type: "string",
       maxLength: 120,
       title: "Model Provider",
+    },
+    catalog_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Catalog Id",
     },
     base_url: {
       anyOf: [

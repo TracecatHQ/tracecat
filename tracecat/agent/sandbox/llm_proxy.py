@@ -10,7 +10,9 @@ from __future__ import annotations
 
 import asyncio
 import os
+import re
 import time
+import uuid
 from collections.abc import AsyncIterable, Callable
 from pathlib import Path
 from typing import Any, TypedDict
@@ -25,6 +27,9 @@ from tracecat.agent.observability import get_load_tracker
 from tracecat.agent.service import AgentManagementService
 from tracecat.auth.types import Role
 from tracecat.logger import logger
+
+# Strip a trailing "/vN" version segment from a passthrough upstream URL.
+_VERSION_SUFFIX_RE = re.compile(r"/v\d+$")
 
 # Socket filename (created in job's socket directory)
 LLM_SOCKET_NAME = "llm.sock"
@@ -158,6 +163,7 @@ class LLMSocketProxy:
         passthrough: bool = False,
         role: Role | None = None,
         model_provider: str | None = None,
+        catalog_id: uuid.UUID | None = None,
     ):
         """Initialize the LLM socket proxy.
 
@@ -170,13 +176,24 @@ class LLMSocketProxy:
             role: Role used to fetch the custom provider API key in passthrough mode.
             model_provider: Selected model provider. Used to decide whether to strip
                 Anthropic-only request fields from outbound payloads.
+            catalog_id: Optional v2 catalog row backing this workflow. When
+                set, passthrough credential resolution reads the matching
+                ``AgentCustomProvider`` row's ``encrypted_config`` instead of
+                the legacy ``agent-custom-model-provider-credentials`` secret.
         """
         self.socket_path = socket_path
-        self.upstream_url = (
-            upstream_url.rstrip("/")
-            if upstream_url is not None
-            else app_config.TRACECAT__LITELLM_BASE_URL.rstrip("/")
-        )
+        if upstream_url is not None:
+            trimmed_upstream = upstream_url.rstrip("/")
+            if passthrough:
+                # Passthrough clients (Claude Code SDK, pydantic-ai) already
+                # emit fully-qualified paths like "/v1/messages" or
+                # "/v1/chat/completions", so strip a trailing version suffix
+                # from the custom provider's stored base URL to avoid
+                # "/v1/v1/messages".
+                trimmed_upstream = _VERSION_SUFFIX_RE.sub("", trimmed_upstream)
+            self.upstream_url = trimmed_upstream
+        else:
+            self.upstream_url = app_config.TRACECAT__LITELLM_BASE_URL.rstrip("/")
         self._server: asyncio.Server | None = None
         self._client: httpx.AsyncClient | None = None
         self._on_error = on_error
@@ -185,20 +202,29 @@ class LLMSocketProxy:
         self._role = role
         self._upstream_api_key: str | None = None
         self._model_provider = model_provider
+        self._catalog_id = catalog_id
 
     async def _resolve_passthrough_api_key(self) -> None:
         """Fetch the custom provider API key for passthrough mode.
 
-        The key is cached on the instance and never logged. If credentials or
-        the key are missing, the proxy forwards without an Authorization header
-        and the upstream will respond with its normal auth error.
+        Prefers the v2 catalog-backed path when ``catalog_id`` is set (reads
+        the row's ``AgentCustomProvider.encrypted_config``); otherwise falls
+        back to the legacy ``agent-custom-model-provider-credentials``
+        secret so in-flight workflows without a catalog_id keep working.
+
+        The key is cached on the instance and never logged. If credentials
+        or the key are missing, the proxy forwards without an Authorization
+        header and the upstream will respond with its normal auth error.
         """
         if not self._is_passthrough or self._role is None:
             return
         async with AgentManagementService.with_session(self._role) as svc:
-            creds = await svc.get_runtime_provider_credentials(
-                "custom-model-provider",
-            )
+            if self._catalog_id is not None:
+                creds = await svc.get_catalog_credentials(self._catalog_id)
+            else:
+                creds = await svc.get_runtime_provider_credentials(
+                    "custom-model-provider",
+                )
         if creds is None:
             logger.warning("Passthrough credentials not found")
             return
@@ -206,6 +232,7 @@ class LLMSocketProxy:
         logger.info(
             "Resolved passthrough upstream credentials",
             has_upstream_api_key=bool(self._upstream_api_key),
+            catalog_id=str(self._catalog_id) if self._catalog_id else None,
         )
 
     async def start(self) -> None:

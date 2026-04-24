@@ -59,6 +59,7 @@ class AgentConfig:
     # Model
     model_name: str
     model_provider: str
+    catalog_id: uuid.UUID | None = None
     base_url: str | None = None
     # Agent
     instructions: str | None = None
@@ -87,6 +88,7 @@ async def run_agent(
     user_prompt: str,
     model_name: str,
     model_provider: str,
+    catalog_id: uuid.UUID | None = None,
     actions: list[str] | None = None,
     namespaces: list[str] | None = None,
     tool_approvals: dict[str, bool] | None = None,
@@ -149,6 +151,7 @@ async def run_agent(
         config=AgentConfig(
             model_name=model_name,
             model_provider=model_provider,
+            catalog_id=catalog_id,
             actions=actions,
             namespaces=namespaces,
             tool_approvals=tool_approvals,

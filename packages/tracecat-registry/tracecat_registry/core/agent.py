@@ -10,7 +10,13 @@ from tracecat_registry import (
     registry,
 )
 from tracecat_registry._internal.exceptions import ActionIsInterfaceError
-from tracecat_registry.fields import ActionType, AgentModel, AgentPreset, TextArea
+from tracecat_registry.fields import (
+    ActionType,
+    AgentModel,
+    AgentPreset,
+    ModelSelection,
+    TextArea,
+)
 from tracecat_registry.sdk.agents import OutputType
 
 anthropic_secret = RegistrySecret(
@@ -218,12 +224,11 @@ async def agent(
         Doc("User prompt to the agent."),
         TextArea(),
     ],
-    model_name: Annotated[
-        str,
-        Doc("Name of the model to use."),
+    model: Annotated[
+        ModelSelection,
+        Doc("Model to use. Pick from the list of models enabled for this workspace."),
         AgentModel(),
     ],
-    model_provider: Annotated[str, Doc("Provider of the model to use.")],
     actions: Annotated[
         list[str] | None,
         Doc("Actions (e.g. 'tools.slack.post_message') to include in the agent."),
@@ -250,7 +255,6 @@ async def agent(
         bool,
         Doc("Whether to enable high thinking for agent runs."),
     ] = True,
-    base_url: Annotated[str | None, Doc("Base URL of the model to use.")] = None,
     # Paid feature
     tool_approvals: Annotated[
         dict[str, bool] | None,
@@ -321,12 +325,11 @@ async def action(
         Doc("User prompt to the agent."),
         TextArea(),
     ],
-    model_name: Annotated[
-        str,
-        Doc("Name of the model to use."),
+    model: Annotated[
+        ModelSelection,
+        Doc("Model to use. Pick from the list of models enabled for this workspace."),
         AgentModel(),
     ],
-    model_provider: Annotated[str, Doc("Provider of the model to use.")],
     instructions: Annotated[
         str | None, Doc("Instructions for the agent."), TextArea()
     ] = None,
@@ -345,7 +348,6 @@ async def action(
         bool,
         Doc("Whether to enable high thinking for agent runs."),
     ] = True,
-    base_url: Annotated[str | None, Doc("Base URL of the model to use.")] = None,
 ) -> dict[str, Any]:
     """Call an LLM with a given prompt and model (no tools)."""
     raise ActionIsInterfaceError()

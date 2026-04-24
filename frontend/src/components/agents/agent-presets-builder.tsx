@@ -224,6 +224,7 @@ const agentPresetSchema = z
     description: z.string().max(1000).optional(),
     instructions: z.string().optional(),
     source_id: z.string().optional(),
+    catalog_id: z.string().optional(),
     model_provider: z.string().trim().min(1, "Model provider is required"),
     model_name: z.string().trim().min(1, "Model name is required"),
     base_url: z.union([z.string().url(), z.literal(""), z.undefined()]),
@@ -306,6 +307,7 @@ const DEFAULT_FORM_VALUES: AgentPresetFormValues = {
   description: "",
   instructions: "",
   source_id: "",
+  catalog_id: "",
   model_provider: "",
   model_name: "",
   base_url: "",
@@ -982,6 +984,7 @@ type McpIntegrationOption = {
 }
 
 type EnabledModelOption = {
+  catalogId: string
   sourceId: string | null
   modelName: string
   modelProvider: string
@@ -1031,6 +1034,7 @@ function buildEnabledModelOptions(
           : "platform"
 
       return {
+        catalogId: model.id,
         sourceId: model.custom_provider_id,
         modelName: model.model_name,
         modelProvider: model.model_provider,
@@ -1109,6 +1113,7 @@ function syncFormModelSelection(
   shouldDirty: boolean
 ) {
   form.setValue("source_id", option.sourceId ?? "", { shouldDirty })
+  form.setValue("catalog_id", option.catalogId, { shouldDirty })
   form.setValue("model_provider", option.modelProvider, { shouldDirty })
   form.setValue("model_name", option.modelName, { shouldDirty })
   form.setValue("base_url", option.baseUrl ?? "", { shouldDirty })
@@ -2903,6 +2908,7 @@ function presetToFormValues(preset: AgentPresetRead): AgentPresetFormValues {
     description: preset.description ?? "",
     instructions: preset.instructions ?? "",
     source_id: "",
+    catalog_id: preset.catalog_id ?? "",
     model_provider: preset.model_provider,
     model_name: preset.model_name,
     base_url: preset.base_url ?? "",
@@ -2962,6 +2968,7 @@ function formValuesToPayload(
         : null,
     model_name: values.model_name.trim(),
     model_provider: values.model_provider.trim(),
+    catalog_id: values.catalog_id ? values.catalog_id : null,
     base_url: normalizeOptional(values.base_url),
     output_type: outputType ?? null,
     actions: values.actions.length > 0 ? values.actions : null,

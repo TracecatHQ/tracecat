@@ -1,7 +1,7 @@
 import uuid
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from tracecat import config
 from tracecat.agent.types import OutputType
@@ -19,6 +19,25 @@ class AgentActionArgs(BaseModel):
     user_prompt: str
     model_name: str
     model_provider: str
+    catalog_id: uuid.UUID | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _unpack_model_selection(cls, values: Any) -> Any:
+        """Accept a nested ``model: ModelSelection`` shape from registry kwargs.
+
+        Registry templates now take one ``model`` kwarg bundling
+        ``model_name`` / ``model_provider`` / ``catalog_id``. The DSL action
+        args still store the three flat fields, so flatten the nested object
+        here if it's present.
+        """
+        if isinstance(values, dict) and isinstance(values.get("model"), dict):
+            nested = values.pop("model")
+            for key in ("model_name", "model_provider", "catalog_id"):
+                if key in nested and key not in values:
+                    values[key] = nested[key]
+        return values
+
     actions: list[str] | None = None
     instructions: str | None = None
     output_type: OutputType | None = None
@@ -38,7 +57,6 @@ class AgentActionArgs(BaseModel):
     )
     retries: int = 3
     enable_thinking: bool = True
-    base_url: str | None = None
     tool_approvals: dict[str, bool] | None = None
 
 

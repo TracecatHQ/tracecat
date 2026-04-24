@@ -283,7 +283,7 @@ class DurableAgentWorkflow:
         if cfg.model_provider == "custom-model-provider":
             result = await workflow.execute_activity(
                 resolve_custom_model_provider_config_activity,
-                args=(self.role,),
+                args=(self.role, cfg.catalog_id),
                 start_to_close_timeout=timedelta(seconds=30),
                 retry_policy=RETRY_POLICIES["activity:fail_fast"],
             )

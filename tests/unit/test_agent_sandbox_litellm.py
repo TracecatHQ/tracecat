@@ -291,14 +291,14 @@ class _FakeLLMSocketProxy:
         on_error: Callable[[str], None] | None = None,
         passthrough: bool = False,
         role: object | None = None,
-        use_workspace_credentials: bool = False,
         model_provider: str | None = None,
+        catalog_id: object | None = None,
     ) -> None:
         del on_error, role
         self.socket_path = socket_path
         self.upstream_url = upstream_url
         self.passthrough = passthrough
-        self.use_workspace_credentials = use_workspace_credentials
+        self.catalog_id = catalog_id
         self.model_provider = model_provider
         self.started = False
         self.stopped = False

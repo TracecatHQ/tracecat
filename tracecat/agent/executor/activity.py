@@ -196,6 +196,7 @@ class SandboxedAgentExecutor:
             passthrough=self.input.config.passthrough,
             role=self.input.role,
             model_provider=self.input.config.model_provider,
+            catalog_id=self.input.config.catalog_id,
         )
 
     def _build_runtime_init_payload(self) -> RuntimeInitPayload:
