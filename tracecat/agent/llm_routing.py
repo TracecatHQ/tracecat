@@ -41,38 +41,3 @@ def get_litellm_route_model(
         return f"{prefix}/{model_name}"
 
     return model_name
-
-
-def get_scoped_litellm_route_model(
-    *,
-    model_provider: str,
-    model_name: str,
-    passthrough: bool,
-    scope: str,
-) -> str:
-    """Return the Claude SDK model alias for a root or subagent route scope.
-
-    Non-passthrough managed routes use stable Tracecat aliases such as
-    ``openai/tracecat-agent-root`` and ``openai/tracecat-agent-analyst``. The
-    signed LLM token maps those aliases back to immutable model/provider claims.
-    """
-    if passthrough:
-        return get_litellm_route_model(
-            model_provider=model_provider,
-            model_name=model_name,
-            passthrough=True,
-        )
-
-    route_model = get_litellm_route_model(
-        model_provider=model_provider,
-        model_name=f"tracecat-agent-{scope}",
-        passthrough=False,
-    )
-    # Providers without LiteLLM route prefixes must keep the configured ID.
-    if "/" not in route_model:
-        route_model = get_litellm_route_model(
-            model_provider=model_provider,
-            model_name=model_name,
-            passthrough=False,
-        )
-    return route_model

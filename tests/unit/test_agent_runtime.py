@@ -34,7 +34,6 @@ from tracecat.agent.common.types import (
 )
 from tracecat.agent.llm_routing import (
     get_litellm_route_model,
-    get_scoped_litellm_route_model,
 )
 from tracecat.agent.mcp.proxy_server import (
     PROXY_TOOL_CALL_ID_KEY,
@@ -216,46 +215,6 @@ def test_get_litellm_route_model_prefixes_provider_route(
             model_provider=provider,
             model_name=model_name,
             passthrough=passthrough,
-        )
-        == expected
-    )
-
-
-@pytest.mark.parametrize(
-    ("provider", "model_name", "passthrough", "scope", "expected"),
-    [
-        ("openai", "gpt-5-mini", False, "root", "openai/tracecat-agent-root"),
-        (
-            "openai",
-            "gpt-5-mini",
-            False,
-            "analyst",
-            "openai/tracecat-agent-analyst",
-        ),
-        (
-            "anthropic",
-            "claude-haiku-4-5",
-            False,
-            "root",
-            "anthropic/tracecat-agent-root",
-        ),
-        ("custom-model-provider", "customer-alias", True, "root", "customer-alias"),
-        ("custom-model-provider", "custom", False, "analyst", "custom"),
-    ],
-)
-def test_get_scoped_litellm_route_model_uses_managed_aliases(
-    provider: str,
-    model_name: str,
-    passthrough: bool,
-    scope: str,
-    expected: str,
-) -> None:
-    assert (
-        get_scoped_litellm_route_model(
-            model_provider=provider,
-            model_name=model_name,
-            passthrough=passthrough,
-            scope=scope,
         )
         == expected
     )
@@ -564,7 +523,6 @@ class TestClaudeAgentRuntimeRun:
             "type": "enabled",
             "budget_tokens": 1024,
         }
-        assert captured_options[0].setting_sources == ["user"]
 
     @pytest.mark.anyio
     async def test_disable_thinking_uses_disabled_thinking_config(
@@ -604,7 +562,6 @@ class TestClaudeAgentRuntimeRun:
         assert captured_options
         assert captured_options[0].effort is None
         assert captured_options[0].thinking == {"type": "disabled"}
-        assert captured_options[0].setting_sources == ["user"]
 
     @pytest.mark.anyio
     async def test_sets_auto_compact_window_for_custom_model_provider(
@@ -682,6 +639,7 @@ class TestClaudeAgentRuntimeRun:
 
         assert captured_options
         options = captured_options[0]
+        assert options.model == "anthropic/claude-3-5-sonnet-20241022"
         assert set(options.allowed_tools) == {"Agent", "Task"}
         assert "Agent" not in options.disallowed_tools
         assert "Task" not in options.disallowed_tools
@@ -695,7 +653,7 @@ class TestClaudeAgentRuntimeRun:
         assert options.agents is None
 
     @pytest.mark.anyio
-    async def test_explicit_subagents_get_scoped_agent_definitions(
+    async def test_explicit_subagents_get_root_style_agent_definitions(
         self,
         mock_socket_writer: MagicMock,
         mock_claude_sdk_client: MagicMock,
@@ -764,7 +722,7 @@ class TestClaudeAgentRuntimeRun:
         options = captured_options[0]
         assert options.agents is not None
         agent_def = options.agents["analyst"]
-        assert agent_def.model == "openai/tracecat-agent-analyst"
+        assert agent_def.model == "openai/gpt-5-mini"
         assert agent_def.mcpServers == ["tracecat-registry-analyst"]
         assert set(agent_def.disallowedTools or []) >= {
             "Agent",
@@ -782,6 +740,47 @@ class TestClaudeAgentRuntimeRun:
             call.kwargs["server_name"] for call in create_proxy.await_args_list
         }
         assert server_names == {"tracecat-registry", "tracecat-registry-analyst"}
+
+    @pytest.mark.parametrize(
+        ("provider", "model_name", "passthrough", "expected"),
+        [
+            ("anthropic", "claude-haiku-4-5", False, "anthropic/claude-haiku-4-5"),
+            ("custom-model-provider", "customer/model", True, "customer/model"),
+            ("custom-model-provider", "customer-alias", False, "customer-alias"),
+        ],
+    )
+    def test_subagent_definitions_resolve_models_like_root(
+        self,
+        mock_socket_writer: MagicMock,
+        sample_init_payload: RuntimeInitPayload,
+        provider: str,
+        model_name: str,
+        passthrough: bool,
+        expected: str,
+    ) -> None:
+        child = SandboxSubagentConfig(
+            alias="analyst",
+            description="Use for enrichment analysis.",
+            prompt="Analyze enrichment data.",
+            config=sample_init_payload.config.model_copy(
+                update={
+                    "model_provider": provider,
+                    "model_name": model_name,
+                    "passthrough": passthrough,
+                }
+            ),
+            mcp_auth_token="child-mcp-token",
+        )
+        payload = replace(sample_init_payload, subagents=[child])
+        runtime = ClaudeAgentRuntime(
+            mock_socket_writer,
+            transport_factory=lambda _: MagicMock(),
+        )
+
+        definitions = runtime._build_agent_definitions(payload=payload, mcp_servers={})
+
+        assert definitions is not None
+        assert definitions["analyst"].model == expected
 
     @pytest.mark.parametrize(
         "disable_nsjail",

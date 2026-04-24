@@ -389,9 +389,10 @@ async def test_pre_call_hook_uses_request_model_route_claim(
             "model_settings": {"temperature": 0.8},
             "use_workspace_credentials": True,
             "routes": {
-                "tracecat-agent-analyst": {
+                "openai/gpt-5-mini": {
                     "model": "gpt-5-mini",
                     "provider": "openai",
+                    "base_url": None,
                     "model_settings": {"temperature": 0.2},
                     "use_workspace_credentials": False,
                 }
@@ -403,7 +404,7 @@ async def test_pre_call_hook_uses_request_model_route_claim(
     result = await handler.async_pre_call_hook(
         user_api_key_dict=user_api_key_dict,
         cache=cast(DualCache, object()),
-        data={"model": "tracecat-agent-analyst"},
+        data={"model": "openai/gpt-5-mini"},
         call_type="completion",
     )
 

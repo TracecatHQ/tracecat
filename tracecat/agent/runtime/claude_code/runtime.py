@@ -55,7 +55,7 @@ from tracecat.agent.common.types import (
     MCPStdioServerConfig,
     MCPToolDefinition,
 )
-from tracecat.agent.llm_routing import get_scoped_litellm_route_model
+from tracecat.agent.llm_routing import get_litellm_route_model
 from tracecat.agent.mcp.proxy_server import (
     PROXY_TOOL_CALL_ID_KEY,
     PROXY_TOOL_METADATA_KEY,
@@ -877,11 +877,10 @@ class ClaudeAgentRuntime:
             definitions[subagent.alias] = AgentDefinition(
                 description=subagent.description,
                 prompt=subagent.prompt,
-                model=get_scoped_litellm_route_model(
+                model=get_litellm_route_model(
                     model_provider=subagent.config.model_provider,
                     model_name=subagent.config.model_name,
                     passthrough=subagent.config.passthrough,
-                    scope=subagent.alias,
                 ),
                 mcpServers=cast(list[str | dict[str, Any]], mcp_server_names) or None,
                 disallowedTools=disallowed_tools,
@@ -1046,11 +1045,10 @@ class ClaudeAgentRuntime:
                         else {}
                     ),
                 },
-                model=get_scoped_litellm_route_model(
+                model=get_litellm_route_model(
                     model_provider=payload.config.model_provider,
                     model_name=payload.config.model_name,
                     passthrough=payload.config.passthrough,
-                    scope="root",
                 ),
                 system_prompt=self._build_system_prompt(
                     payload.config.instructions, payload.config.output_type

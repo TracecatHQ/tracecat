@@ -22,7 +22,7 @@ with workflow.unsafe.imports_passed_through():
         DeniedToolCall,
         run_agent_activity,
     )
-    from tracecat.agent.llm_routing import get_scoped_litellm_route_model
+    from tracecat.agent.llm_routing import get_litellm_route_model
     from tracecat.agent.mcp.executor import (
         AGENT_TOOL_PRIORITY,
         build_run_input,
@@ -130,14 +130,12 @@ def _merge_registry_locks(*locks: RegistryLock) -> RegistryLock:
 def _llm_route_for_config(
     cfg: AgentConfig,
     *,
-    scope: str,
     use_workspace_credentials: bool,
 ) -> tuple[str, LLMRouteClaim]:
-    route_model = get_scoped_litellm_route_model(
+    route_model = get_litellm_route_model(
         model_provider=cfg.model_provider,
         model_name=cfg.model_name,
         passthrough=cfg.passthrough,
-        scope=scope,
     )
     return route_model, LLMRouteClaim(
         model=cfg.model_name,
@@ -462,7 +460,6 @@ class DurableAgentWorkflow:
                 )
             route_model, route_claim = _llm_route_for_config(
                 child_cfg,
-                scope=subagent.alias,
                 use_workspace_credentials=use_workspace_credentials,
             )
             llm_routes[route_model] = route_claim
@@ -668,14 +665,14 @@ class DurableAgentWorkflow:
             allowed_internal_tools=allowed_internal_tools,
             internal_tool_context=internal_tool_context,
         )
-        root_route_model, root_route_claim = _llm_route_for_config(
+        root_route_model, _ = _llm_route_for_config(
             cfg,
-            scope="root",
             use_workspace_credentials=args.agent_args.use_workspace_credentials,
         )
         llm_routes = {
-            root_route_model: root_route_claim,
-            **subagent_llm_routes,
+            route_model: route_claim
+            for route_model, route_claim in subagent_llm_routes.items()
+            if route_model != root_route_model
         }
 
         llm_gateway_auth_token = mint_llm_token(
