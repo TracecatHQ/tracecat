@@ -4712,7 +4712,7 @@ async def update_workflow_from_uploaded_file(
         update_params = WorkflowUpdate(**update_kwargs)
 
         async with WorkflowsManagementService.with_session(role=role) as svc:
-            workflow = await svc.get_workflow(workflow_id)
+            workflow = await svc.get_workflow(workflow_id, for_update=True)
             if workflow is None:
                 raise ToolError(f"Workflow {workflow_id} not found")
             await _apply_workflow_yaml_update(
@@ -4797,7 +4797,7 @@ async def update_workflow(
         update_params = WorkflowUpdate(**update_kwargs)
 
         async with WorkflowsManagementService.with_session(role=role) as svc:
-            workflow = await svc.get_workflow(workflow_id)
+            workflow = await svc.get_workflow(workflow_id, for_update=True)
             if workflow is None:
                 raise ToolError(f"Workflow {workflow_id} not found")
             if definition_yaml is not None:

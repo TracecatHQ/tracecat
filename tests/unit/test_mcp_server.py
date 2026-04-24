@@ -559,8 +559,10 @@ async def test_update_workflow_metadata_only_omits_unset_fields(monkeypatch):
     class _WorkflowService:
         def __init__(self) -> None:
             self.session = _FakeSession()
+            self.for_update_calls: list[bool] = []
 
-        async def get_workflow(self, _wf_id):
+        async def get_workflow(self, _wf_id, *, for_update: bool = False):
+            self.for_update_calls.append(for_update)
             return fake_workflow
 
     class _FakeSession:
@@ -573,11 +575,13 @@ async def test_update_workflow_metadata_only_omits_unset_fields(monkeypatch):
         async def refresh(self, obj, attrs=None):
             pass
 
+    workflow_service = _WorkflowService()
+
     monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
     monkeypatch.setattr(
         mcp_server.WorkflowsManagementService,
         "with_session",
-        lambda role: _AsyncContext(_WorkflowService()),
+        lambda role: _AsyncContext(workflow_service),
     )
 
     result = await _tool(mcp_server.update_workflow)(
@@ -592,6 +596,7 @@ async def test_update_workflow_metadata_only_omits_unset_fields(monkeypatch):
     assert "title" not in setattr_calls
     assert "description" not in setattr_calls
     assert "status" not in setattr_calls
+    assert workflow_service.for_update_calls == [True]
 
 
 @pytest.mark.anyio
@@ -655,6 +660,7 @@ async def test_update_workflow_definition_yaml_uses_shared_yaml_update(monkeypat
         "definition_yaml": "definition:\n  title: Example\n"
     }
     assert captured["update_mode"] == "replace"
+    assert workflow_service.for_update_calls == [True]
 
 
 @pytest.mark.anyio
@@ -2976,10 +2982,14 @@ async def test_update_workflow_from_uploaded_file_updates_and_rejects_replay(
     class _WorkflowService:
         def __init__(self) -> None:
             self.session = object()
+            self.for_update_calls: list[bool] = []
 
-        async def get_workflow(self, wf_id):
+        async def get_workflow(self, wf_id, *, for_update: bool = False):
             assert wf_id == mcp_server.WorkflowUUID.new(workflow_id)
+            self.for_update_calls.append(for_update)
             return workflow
+
+    workflow_service = _WorkflowService()
 
     async def _download_file(_key: str, _bucket: str) -> bytes:
         return (
@@ -3017,7 +3027,7 @@ async def test_update_workflow_from_uploaded_file_updates_and_rejects_replay(
     monkeypatch.setattr(
         mcp_server.WorkflowsManagementService,
         "with_session",
-        lambda role: _AsyncContext(_WorkflowService()),
+        lambda role: _AsyncContext(workflow_service),
     )
     await mcp_server._store_workflow_file_artifact(artifact)
 
@@ -3033,6 +3043,7 @@ async def test_update_workflow_from_uploaded_file_updates_and_rejects_replay(
     assert captured["folder_path"] == "/detections/critical/"
     assert captured["workflow_id"] == mcp_server.WorkflowUUID.new(workflow_id)
     assert captured["update"]["update_mode"] == "replace"
+    assert workflow_service.for_update_calls == [True]
 
     with pytest.raises(ToolError, match="already been consumed"):
         await _tool(mcp_server.update_workflow_from_uploaded_file)(
