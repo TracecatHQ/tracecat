@@ -9,9 +9,13 @@ import pytest
 
 from tracecat.agent.preset.activities import (
     ResolveAgentPresetVersionRefActivityInput,
+    ResolveAgentsConfigActivityResult,
+    ResolvedSubagentConfig,
     resolve_agent_preset_version_ref_activity,
     resolve_custom_model_provider_config_activity,
 )
+from tracecat.agent.subagents import ResolvedAttachedSubagentRef
+from tracecat.agent.workflow_schemas import AgentConfigPayload
 from tracecat.auth.types import Role
 
 
@@ -70,6 +74,39 @@ async def test_resolve_agent_preset_version_ref_activity_returns_ids(
     )
     assert result.preset_id == version.preset_id
     assert result.preset_version_id == version.id
+
+
+def test_resolve_agents_config_result_derives_session_binding() -> None:
+    binding = ResolvedAttachedSubagentRef(
+        preset="analyst",
+        preset_version=3,
+        name=None,
+        description=None,
+        max_turns=5,
+        preset_id=uuid.uuid4(),
+        preset_version_id=uuid.uuid4(),
+    )
+    result = ResolveAgentsConfigActivityResult(
+        enabled=True,
+        subagents=[
+            ResolvedSubagentConfig(
+                binding=binding,
+                description="Runtime fallback description",
+                prompt="Subagent prompt",
+                config=AgentConfigPayload(
+                    model_name="gpt-4o-mini",
+                    model_provider="openai",
+                    retries=3,
+                ),
+            )
+        ],
+    )
+
+    assert result.subagents[0].alias == "analyst"
+    assert result.subagents[0].max_turns == 5
+    agents_binding = result.to_agents_binding()
+    assert agents_binding.enabled is True
+    assert agents_binding.subagents == [binding]
 
 
 @pytest.mark.anyio

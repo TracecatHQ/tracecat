@@ -52,15 +52,18 @@ class AgentPresetVersionRef(BaseModel):
 
 
 class ResolvedSubagentConfig(BaseModel):
-    alias: str
+    binding: ResolvedAttachedSubagentRef
     description: str
     prompt: str
-    max_turns: int | None = None
-    preset: str
-    preset_id: uuid.UUID
-    preset_version: int
-    preset_version_id: uuid.UUID
     config: AgentConfigPayload
+
+    @property
+    def alias(self) -> str:
+        return self.binding.alias
+
+    @property
+    def max_turns(self) -> int | None:
+        return self.binding.max_turns
 
 
 class ResolveAgentsConfigActivityInput(BaseModel):
@@ -70,8 +73,14 @@ class ResolveAgentsConfigActivityInput(BaseModel):
 
 
 class ResolveAgentsConfigActivityResult(BaseModel):
-    agents_binding: ResolvedAgentsConfig = Field(default_factory=ResolvedAgentsConfig)
+    enabled: bool = False
     subagents: list[ResolvedSubagentConfig] = Field(default_factory=list)
+
+    def to_agents_binding(self) -> ResolvedAgentsConfig:
+        return ResolvedAgentsConfig(
+            enabled=self.enabled,
+            subagents=[subagent.binding for subagent in self.subagents],
+        )
 
 
 @activity.defn
@@ -112,7 +121,6 @@ async def resolve_agents_config_activity(
         return ResolveAgentsConfigActivityResult()
 
     aliases: set[str] = set()
-    resolved_refs: list[ResolvedAttachedSubagentRef] = []
     subagents: list[ResolvedSubagentConfig] = []
 
     async with AgentPresetService.with_session(role=args.role) as service:
@@ -149,7 +157,7 @@ async def resolve_agents_config_activity(
             child_config = await service.resolve_agent_preset_config(
                 preset_version_id=version.id
             )
-            resolved_ref = ResolvedAttachedSubagentRef(
+            binding = ResolvedAttachedSubagentRef(
                 preset=ref.preset,
                 preset_version=version.version,
                 name=ref.name,
@@ -158,7 +166,6 @@ async def resolve_agents_config_activity(
                 preset_id=version.preset_id,
                 preset_version_id=version.id,
             )
-            resolved_refs.append(resolved_ref)
 
             description = (
                 ref.description
@@ -168,23 +175,15 @@ async def resolve_agents_config_activity(
             prompt = _build_subagent_prompt(child_config.instructions)
             subagents.append(
                 ResolvedSubagentConfig(
-                    alias=alias,
+                    binding=binding,
                     description=description,
                     prompt=prompt,
-                    max_turns=ref.max_turns,
-                    preset=ref.preset,
-                    preset_id=version.preset_id,
-                    preset_version=version.version,
-                    preset_version_id=version.id,
                     config=agent_config_to_payload(child_config),
                 )
             )
 
     return ResolveAgentsConfigActivityResult(
-        agents_binding=ResolvedAgentsConfig(
-            enabled=True,
-            subagents=resolved_refs,
-        ),
+        enabled=True,
         subagents=subagents,
     )
 

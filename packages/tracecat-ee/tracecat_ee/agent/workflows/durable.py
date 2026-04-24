@@ -51,7 +51,6 @@ with workflow.unsafe.imports_passed_through():
         reconcile_tool_results_activity,
     )
     from tracecat.agent.session.types import AgentSessionEntity
-    from tracecat.agent.subagents import ResolvedAgentsConfig
     from tracecat.agent.tokens import (
         InternalToolContext,
         LLMRouteClaim,
@@ -369,9 +368,7 @@ class DurableAgentWorkflow:
         if not cfg.agents.enabled:
             return ResolveAgentsConfigActivityResult()
         if not cfg.agents.subagents:
-            return ResolveAgentsConfigActivityResult(
-                agents_binding=ResolvedAgentsConfig(enabled=True)
-            )
+            return ResolveAgentsConfigActivityResult(enabled=True)
         return await workflow.execute_activity(
             resolve_agents_config_activity,
             ResolveAgentsConfigActivityInput(
@@ -591,7 +588,7 @@ class DurableAgentWorkflow:
                 tools=args.tools,
                 agent_preset_id=args.agent_preset_id,
                 agent_preset_version_id=args.agent_preset_version_id,
-                agents_binding=agents_result.agents_binding,
+                agents_binding=agents_result.to_agents_binding(),
                 harness_type=HarnessType(self.harness_type),
                 curr_run_id=curr_run_id,
                 initial_user_prompt=args.agent_args.user_prompt,
