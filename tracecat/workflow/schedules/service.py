@@ -190,6 +190,25 @@ class WorkflowSchedulesService(BaseWorkspaceService):
         except NoResultFound as e:
             raise TracecatNotFoundError(f"Schedule {schedule_uuid} not found") from e
 
+    async def _get_schedule_with_workflow_lock(
+        self, schedule_id: AnyScheduleID
+    ) -> Schedule:
+        schedule_uuid = ScheduleUUID.new(schedule_id)
+        result = await self.session.execute(
+            select(Schedule)
+            .join(Workflow, Workflow.id == Schedule.workflow_id)
+            .where(
+                Schedule.workspace_id == self.workspace_id,
+                Schedule.id == schedule_uuid,
+                Workflow.workspace_id == self.workspace_id,
+            )
+            .with_for_update(of=Workflow)
+        )
+        try:
+            return result.scalar_one()
+        except NoResultFound as e:
+            raise TracecatNotFoundError(f"Schedule {schedule_uuid} not found") from e
+
     @require_scope("schedule:update")
     async def update_schedule(
         self, schedule_id: AnyScheduleID, params: ScheduleUpdate
@@ -214,9 +233,7 @@ class WorkflowSchedulesService(BaseWorkspaceService):
         TracecatNotFoundError
             If there is an error updating the schedule.
         """
-        schedule = await self.get_schedule(schedule_id)
-        await self._lock_workflow(schedule.workflow_id)
-        schedule = await self.get_schedule(schedule_id)
+        schedule = await self._get_schedule_with_workflow_lock(schedule_id)
 
         # Update the schedule in DB first
         for key, value in params.model_dump(exclude_unset=True).items():
@@ -264,19 +281,9 @@ class WorkflowSchedulesService(BaseWorkspaceService):
             If an error occurs while deleting the schedule from Temporal.
 
         """
-        schedule = await self.get_schedule(schedule_id)
-        await self._lock_workflow(schedule.workflow_id)
-
-        # Stage DB delete (if exists)
-        try:
-            schedule = await self.get_schedule(schedule_id)
-            await self.session.delete(schedule)
-            logger.info("Deleted schedule", schedule_id=schedule_id)
-        except NoResultFound:
-            logger.warning(
-                "Schedule not found in DB; will still attempt Temporal delete after commit",
-                schedule_id=schedule_id,
-            )
+        schedule = await self._get_schedule_with_workflow_lock(schedule_id)
+        await self.session.delete(schedule)
+        logger.info("Deleted schedule", schedule_id=schedule_id)
 
         # After-commit callback to delete Temporal schedule
         async def _delete_schedule():
