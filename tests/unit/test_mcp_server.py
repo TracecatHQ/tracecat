@@ -1109,6 +1109,51 @@ async def test_edit_workflow_validate_only_does_not_persist(monkeypatch):
 
 
 @pytest.mark.anyio
+async def test_edit_workflow_validate_only_rejects_invalid_schedule(monkeypatch):
+    async def _resolve(_workspace_id):
+        return uuid.uuid4(), SimpleNamespace()
+
+    workflow_id = uuid.uuid4()
+    workflow = _workflow_stub(id=workflow_id)
+
+    class _WorkflowService:
+        def __init__(self) -> None:
+            self.session = object()
+
+        async def get_workflow(self, _wf_id, *, for_update: bool = False):
+            _ = for_update
+            return workflow
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server.WorkflowsManagementService,
+        "with_session",
+        lambda role: _AsyncContext(_WorkflowService()),
+    )
+
+    base_revision = mcp_server._compute_workflow_edit_revision(
+        mcp_server._build_workflow_edit_document(
+            cast(mcp_server._WorkflowEditDocumentSource, workflow)
+        )
+    )
+
+    with pytest.raises(ToolError, match="Invalid workflow schedule"):
+        await _tool(mcp_server.edit_workflow)(
+            workspace_id=str(uuid.uuid4()),
+            workflow_id=str(workflow_id),
+            base_revision=base_revision,
+            patch_ops=[
+                {
+                    "op": "replace",
+                    "path": "/schedules",
+                    "value": [{"cron": "not a cron", "status": "online"}],
+                }
+            ],
+            validate_only=True,
+        )
+
+
+@pytest.mark.anyio
 async def test_edit_workflow_updates_metadata_with_disconnected_layout_actions(
     monkeypatch,
 ):

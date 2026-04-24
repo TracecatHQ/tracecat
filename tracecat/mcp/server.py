@@ -1718,6 +1718,7 @@ def _workflow_edit_document_to_dsl(document: WorkflowEditDocument) -> DSLInput:
 def _validate_workflow_edit_document(
     document: WorkflowEditDocument,
     *,
+    workflow_id: WorkflowUUID,
     existing_layout_action_refs: set[str] | None = None,
 ) -> None:
     """Validate editable workflow document semantics before persistence."""
@@ -1733,6 +1734,21 @@ def _validate_workflow_edit_document(
             _workflow_edit_document_to_dsl(document)
         except (TracecatValidationError, ValidationError, ValueError) as exc:
             raise ToolError(f"Invalid workflow definition: {exc}") from exc
+    for schedule in document.schedules:
+        try:
+            ScheduleCreate(
+                workflow_id=workflow_id,
+                inputs=schedule.inputs,
+                cron=schedule.cron,
+                every=schedule.every,
+                offset=schedule.offset,
+                start_at=schedule.start_at,
+                end_at=schedule.end_at,
+                status=schedule.status,
+                timeout=schedule.timeout,
+            )
+        except ValidationError as exc:
+            raise ToolError(f"Invalid workflow schedule: {exc}") from exc
 
 
 def _parse_workflow_edit_request(
@@ -4375,6 +4391,7 @@ async def edit_workflow(
             updated_document = WorkflowEditDocument.model_validate(patched_payload)
             _validate_workflow_edit_document(
                 updated_document,
+                workflow_id=wf_id,
                 existing_layout_action_refs={
                     action_layout.ref for action_layout in draft_document.layout.actions
                 },
