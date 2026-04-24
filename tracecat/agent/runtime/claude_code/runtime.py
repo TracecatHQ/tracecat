@@ -109,7 +109,17 @@ def _configure_claude_sdk_process_env() -> None:
 
 # Tools that are always disallowed regardless of sandbox mode
 # These are interactive/planning tools that don't make sense for automation
+CLAUDE_CODE_STATEFUL_TOOLS = [
+    # Scheduled prompts and worktree lifecycle are host/session stateful.
+    "CronCreate",
+    "CronDelete",
+    "CronList",
+    "EnterWorktree",
+    "ExitWorktree",
+]
+
 DISALLOWED_TOOLS = [
+    *CLAUDE_CODE_STATEFUL_TOOLS,
     # Notebook tools
     "NotebookRead",
     "NotebookEdit",
@@ -127,7 +137,12 @@ DISALLOWED_TOOLS = [
 ]
 
 AGENT_TOOL_NAMES = frozenset({"Agent", "Task"})
-CHILD_AGENT_DISALLOWED_TOOLS = ["Agent", "Task", "TaskOutput"]
+CHILD_AGENT_DISALLOWED_TOOLS = [
+    "Agent",
+    "Task",
+    "TaskOutput",
+    *CLAUDE_CODE_STATEFUL_TOOLS,
+]
 
 # Tools that require internet access (these bypass sandbox network isolation
 # because they're executed server-side by Anthropic, not in the sandbox)

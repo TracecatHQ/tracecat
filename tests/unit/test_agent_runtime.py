@@ -680,6 +680,13 @@ class TestClaudeAgentRuntimeRun:
         assert set(options.allowed_tools) == {"Agent", "Task"}
         assert "Agent" not in options.disallowed_tools
         assert "Task" not in options.disallowed_tools
+        assert set(options.disallowed_tools) >= {
+            "CronCreate",
+            "CronDelete",
+            "CronList",
+            "EnterWorktree",
+            "ExitWorktree",
+        }
         assert options.agents is None
 
     @pytest.mark.anyio
@@ -758,6 +765,11 @@ class TestClaudeAgentRuntimeRun:
             "Agent",
             "Task",
             "TaskOutput",
+            "CronCreate",
+            "CronDelete",
+            "CronList",
+            "EnterWorktree",
+            "ExitWorktree",
             "WebFetch",
             "WebSearch",
         }
