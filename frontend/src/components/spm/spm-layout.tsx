@@ -56,7 +56,7 @@ export function SpmListShell(props: {
 }) {
   const Icon = props.icon
   return (
-    <div className="flex size-full flex-col">
+    <div className="flex size-full flex-col pt-2">
       <header className="flex h-10 shrink-0 items-center border-b pl-3 pr-4">
         <div className="flex min-w-0 items-center gap-3">
           <div className="flex h-7 w-7 shrink-0 items-center justify-center">
