@@ -14,7 +14,7 @@ import json
 import re
 import uuid
 from collections import defaultdict, deque
-from collections.abc import Callable, Iterator, Mapping, Sequence
+from collections.abc import Callable, Collection, Iterator, Mapping, Sequence
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from io import StringIO
@@ -287,6 +287,26 @@ def _validation_result_payload(vr: ValidationResult) -> MCPValidationErrorPayloa
             for detail in raw_detail
         ]
     return cast(MCPValidationErrorPayload, payload)
+
+
+def _raise_dsl_validation_tool_error(
+    validation_results: Collection[ValidationResult],
+) -> None:
+    if validation_results:
+        raise ToolError(
+            json.dumps(
+                {
+                    "type": "validation_error",
+                    "message": f"{len(validation_results)} validation error(s)",
+                    "status": "error",
+                    "errors": [
+                        _validation_result_payload(result)
+                        for result in validation_results
+                    ],
+                },
+                default=str,
+            )
+        )
 
 
 def _validate_trigger_inputs_payload(
@@ -1622,6 +1642,21 @@ def _normalize_workflow_edit_document_for_persisted_revision(
     return WorkflowEditDocument.model_validate(payload)
 
 
+def _workflow_edit_document_changed_sections(
+    original_document: WorkflowEditDocument,
+    updated_document: WorkflowEditDocument,
+) -> set[str]:
+    original_payload = _workflow_edit_document_payload(
+        _canonicalize_workflow_edit_document(original_document)
+    )
+    updated_payload = _workflow_edit_document_payload(
+        _canonicalize_workflow_edit_document(updated_document)
+    )
+    return {
+        key for key in updated_payload if updated_payload[key] != original_payload[key]
+    }
+
+
 def _compute_workflow_edit_revision(document: WorkflowEditDocument) -> str:
     """Compute a stable draft revision for the editable workflow document."""
     payload = _workflow_edit_document_payload(
@@ -1741,11 +1776,14 @@ def _workflow_edit_document_to_dsl(document: WorkflowEditDocument) -> DSLInput:
     )
 
 
-def _validate_workflow_edit_document(
+async def _validate_workflow_edit_document(
     document: WorkflowEditDocument,
     *,
     workflow_id: WorkflowUUID,
     existing_layout_action_refs: set[str] | None = None,
+    validate_definition: bool = False,
+    session: AsyncSession | None = None,
+    role: Role | None = None,
 ) -> None:
     """Validate editable workflow document semantics before persistence."""
     action_refs = {action.ref for action in document.definition.actions}
@@ -1757,9 +1795,18 @@ def _validate_workflow_edit_document(
             )
     if document.definition.actions:
         try:
-            _workflow_edit_document_to_dsl(document)
+            dsl = _workflow_edit_document_to_dsl(document)
         except (TracecatValidationError, ValidationError, ValueError) as exc:
             raise ToolError(f"Invalid workflow definition: {exc}") from exc
+        if validate_definition:
+            if session is None or role is None:
+                raise RuntimeError("session and role are required for DSL validation")
+            validation_results = await validate_dsl(
+                session=session,
+                dsl=dsl,
+                role=role,
+            )
+            _raise_dsl_validation_tool_error(validation_results)
     for schedule in document.schedules:
         try:
             _schedule_create_from_payload(
@@ -1797,15 +1844,10 @@ async def _persist_workflow_edit_document(
     updated_document: WorkflowEditDocument,
 ) -> None:
     """Persist changes from the editable workflow document back to the draft."""
-    original_payload = _workflow_edit_document_payload(
-        _canonicalize_workflow_edit_document(original_document)
+    changed_sections = _workflow_edit_document_changed_sections(
+        original_document,
+        updated_document,
     )
-    updated_payload = _workflow_edit_document_payload(
-        _canonicalize_workflow_edit_document(updated_document)
-    )
-    changed_sections = {
-        key for key in updated_payload if updated_payload[key] != original_payload[key]
-    }
     if not changed_sections:
         return
 
@@ -2818,21 +2860,7 @@ async def _apply_workflow_yaml_update(
             dsl=yaml_payload.definition,
             role=role,
         )
-        if validation_results:
-            raise ToolError(
-                json.dumps(
-                    {
-                        "type": "validation_error",
-                        "message": f"{len(validation_results)} validation error(s)",
-                        "status": "error",
-                        "errors": [
-                            _validation_result_payload(result)
-                            for result in validation_results
-                        ],
-                    },
-                    default=str,
-                )
-            )
+        _raise_dsl_validation_tool_error(validation_results)
         await _replace_workflow_definition_from_dsl(
             service=service,
             workflow=workflow,
@@ -4395,12 +4423,19 @@ async def edit_workflow(
             _validate_workflow_patch_payload(patched_payload)
 
             updated_document = WorkflowEditDocument.model_validate(patched_payload)
-            _validate_workflow_edit_document(
+            changed_sections = _workflow_edit_document_changed_sections(
+                draft_document,
+                updated_document,
+            )
+            await _validate_workflow_edit_document(
                 updated_document,
                 workflow_id=wf_id,
                 existing_layout_action_refs={
                     action_layout.ref for action_layout in draft_document.layout.actions
                 },
+                validate_definition="definition" in changed_sections,
+                session=svc.session,
+                role=role,
             )
 
             if request.validate_only:

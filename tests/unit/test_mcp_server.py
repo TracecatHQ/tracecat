@@ -1189,6 +1189,81 @@ async def test_edit_workflow_validate_only_rejects_invalid_schedule(monkeypatch)
 
 
 @pytest.mark.anyio
+async def test_edit_workflow_validate_only_runs_full_definition_validation(monkeypatch):
+    async def _resolve(_workspace_id):
+        return uuid.uuid4(), SimpleNamespace()
+
+    validation_error = ValidationResult.new(
+        type=ValidationResultType.DSL,
+        status="error",
+        msg="invalid workflow definition",
+        detail=[
+            ValidationDetail(
+                type="action.input",
+                msg="bad action args",
+                loc=("actions", "step_a", "args"),
+            )
+        ],
+    )
+    validation_calls: list[Any] = []
+
+    async def _validate_dsl(*_args, **kwargs):
+        validation_calls.append(kwargs)
+        return {validation_error}
+
+    workflow_id = uuid.uuid4()
+    workflow = _workflow_stub(id=workflow_id)
+
+    class _WorkflowService:
+        def __init__(self) -> None:
+            self.session = object()
+
+        async def get_workflow(self, _wf_id, *, for_update: bool = False):
+            _ = for_update
+            return workflow
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(mcp_server, "validate_dsl", _validate_dsl)
+    monkeypatch.setattr(
+        mcp_server.WorkflowsManagementService,
+        "with_session",
+        lambda role: _AsyncContext(_WorkflowService()),
+    )
+
+    draft_document = mcp_server._build_workflow_edit_document(
+        cast(mcp_server._WorkflowEditDocumentSource, workflow)
+    )
+    base_revision = mcp_server._compute_workflow_edit_revision(draft_document)
+
+    with pytest.raises(ToolError) as exc_info:
+        await _tool(mcp_server.edit_workflow)(
+            workspace_id=str(uuid.uuid4()),
+            workflow_id=str(workflow_id),
+            base_revision=base_revision,
+            patch_ops=[
+                {
+                    "op": "replace",
+                    "path": "/definition/actions",
+                    "value": [
+                        {
+                            "ref": "step_a",
+                            "action": "core.transform.reshape",
+                            "args": {},
+                            "depends_on": [],
+                        }
+                    ],
+                }
+            ],
+            validate_only=True,
+        )
+
+    payload = json.loads(cast(str, exc_info.value.args[0]))
+    assert payload["type"] == "validation_error"
+    assert payload["errors"][0]["message"] == "invalid workflow definition"
+    assert validation_calls
+
+
+@pytest.mark.anyio
 async def test_edit_workflow_updates_metadata_with_disconnected_layout_actions(
     monkeypatch,
 ):
