@@ -818,6 +818,33 @@ def test_build_workflow_edit_document_sorts_schedules_by_canonical_content() -> 
     ] == [schedule.model_dump(mode="json") for schedule in document_two.schedules]
 
 
+def test_compute_workflow_edit_revision_normalizes_layout_position_aliases() -> None:
+    workflow = _workflow_stub(
+        trigger_position_x=10.0,
+        trigger_position_y=20.0,
+        actions=[_action_stub(position_x=30.0, position_y=40.0)],
+    )
+    document = mcp_server._build_workflow_edit_document(
+        cast(mcp_server._WorkflowEditDocumentSource, workflow)
+    )
+    alias_payload = json.loads(
+        json.dumps(mcp_server._workflow_edit_document_payload(document))
+    )
+    alias_payload["layout"]["trigger"] = {"position": {"x": 10.0, "y": 20.0}}
+    alias_payload["layout"]["actions"][0] = {
+        "ref": "step_a",
+        "position": {"x": 30.0, "y": 40.0},
+    }
+    alias_document = mcp_server.WorkflowEditDocument.model_validate(alias_payload)
+
+    assert alias_document.layout.trigger is not None
+    assert alias_document.layout.trigger.position is None
+    assert alias_document.layout.actions[0].position is None
+    assert mcp_server._compute_workflow_edit_revision(
+        alias_document
+    ) == mcp_server._compute_workflow_edit_revision(document)
+
+
 @pytest.mark.anyio
 async def test_replace_workflow_definition_from_dsl_uses_existing_workflow() -> None:
     workflow_id = uuid.uuid4()

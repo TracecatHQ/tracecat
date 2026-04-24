@@ -37,6 +37,7 @@ class LayoutPosition(BaseModel):
                 self.x = self.position.get("x")
             if self.y is None:
                 self.y = self.position.get("y")
+            self.position = None
         return self
 
 
@@ -59,6 +60,7 @@ class LayoutActionPosition(BaseModel):
                 self.x = self.position.get("x")
             if self.y is None:
                 self.y = self.position.get("y")
+            self.position = None
         return self
 
 
