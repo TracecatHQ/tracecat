@@ -7,7 +7,7 @@ from datetime import datetime, timedelta
 from enum import StrEnum
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, model_validator
 
 from tracecat.cases.dropdowns.schemas import CaseDropdownValueRead
 from tracecat.cases.enums import CaseEventType
@@ -21,25 +21,51 @@ class CaseDurationAnchorSelection(StrEnum):
     LAST = "last"
 
 
+class CaseDurationEventFilters(BaseModel):
+    """Product-level filters for narrowing case duration event anchors."""
+
+    new_values: list[str] = Field(
+        default_factory=list,
+        description="New priority, severity, or status values to match.",
+    )
+    tag_refs: list[str] = Field(
+        default_factory=list,
+        description="Case tag refs to match for tag add/remove events.",
+    )
+    field_ids: list[str] = Field(
+        default_factory=list,
+        description="Case custom field IDs to match for field change events.",
+    )
+    dropdown_definition_id: str | None = Field(
+        default=None,
+        description="Dropdown definition ID to match for dropdown value change events.",
+    )
+    dropdown_option_ids: list[str] = Field(
+        default_factory=list,
+        description="Dropdown option IDs to match for dropdown value change events.",
+    )
+
+    model_config = ConfigDict(extra="forbid")
+
+    def is_empty(self) -> bool:
+        return (
+            not self.new_values
+            and not self.tag_refs
+            and not self.field_ids
+            and self.dropdown_definition_id is None
+            and not self.dropdown_option_ids
+        )
+
+
 class CaseDurationEventAnchor(BaseModel):
     """Selection criteria describing an event boundary for a duration."""
 
     event_type: CaseEventType = Field(
         ..., description="Case event type that should be matched for this anchor."
     )
-    timestamp_path: str = Field(
-        default="created_at",
-        description=(
-            "Dot-delimited path to the timestamp field on the event. "
-            "Defaults to the event creation timestamp."
-        ),
-    )
-    field_filters: dict[str, Any] = Field(
-        default_factory=dict,
-        description=(
-            "Optional dot-delimited equality filters that must match on the event "
-            "payload, e.g. {'data.new': 'resolved'}."
-        ),
+    filters: CaseDurationEventFilters = Field(
+        default_factory=CaseDurationEventFilters,
+        description="Optional product-level filters for matching event payload values.",
     )
     selection: CaseDurationAnchorSelection = Field(
         default=CaseDurationAnchorSelection.FIRST,
@@ -48,6 +74,86 @@ class CaseDurationEventAnchor(BaseModel):
             "Defaults to the first match."
         ),
     )
+
+    model_config = ConfigDict(extra="forbid")
+
+    _has_unsupported_filters: bool = PrivateAttr(default=False)
+
+    @model_validator(mode="after")
+    def validate_filters_for_event_type(self) -> CaseDurationEventAnchor:
+        filters = self.filters
+        if filters.is_empty():
+            if self.event_type in _FILTER_REQUIRED_EVENT_TYPES:
+                raise ValueError(f"{self.event_type.value} requires filters")
+            return self
+
+        allowed_fields = _allowed_filter_fields_for_event_type(self.event_type)
+        active_fields = _active_filter_fields(filters)
+        unsupported = active_fields - allowed_fields
+        if unsupported:
+            fields = ", ".join(sorted(unsupported))
+            raise ValueError(
+                f"Unsupported filters for {self.event_type.value}: {fields}"
+            )
+
+        if self.event_type in _CATEGORY_FILTER_EVENT_TYPES and not filters.new_values:
+            raise ValueError(f"{self.event_type.value} requires new_values filters")
+        if self.event_type in _TAG_FILTER_EVENT_TYPES and not filters.tag_refs:
+            raise ValueError(f"{self.event_type.value} requires tag_refs filters")
+        if self.event_type is CaseEventType.FIELDS_CHANGED and not filters.field_ids:
+            raise ValueError("fields_changed requires field_ids filters")
+        if self.event_type is CaseEventType.DROPDOWN_VALUE_CHANGED and (
+            not filters.dropdown_definition_id or not filters.dropdown_option_ids
+        ):
+            raise ValueError(
+                "dropdown_value_changed requires dropdown_definition_id and "
+                "dropdown_option_ids filters"
+            )
+        return self
+
+
+_CATEGORY_FILTER_EVENT_TYPES = frozenset(
+    {
+        CaseEventType.PRIORITY_CHANGED,
+        CaseEventType.SEVERITY_CHANGED,
+        CaseEventType.STATUS_CHANGED,
+    }
+)
+_TAG_FILTER_EVENT_TYPES = frozenset(
+    {CaseEventType.TAG_ADDED, CaseEventType.TAG_REMOVED}
+)
+_FILTER_REQUIRED_EVENT_TYPES = (
+    _CATEGORY_FILTER_EVENT_TYPES
+    | _TAG_FILTER_EVENT_TYPES
+    | {CaseEventType.FIELDS_CHANGED, CaseEventType.DROPDOWN_VALUE_CHANGED}
+)
+
+
+def _active_filter_fields(filters: CaseDurationEventFilters) -> set[str]:
+    fields: set[str] = set()
+    if filters.new_values:
+        fields.add("new_values")
+    if filters.tag_refs:
+        fields.add("tag_refs")
+    if filters.field_ids:
+        fields.add("field_ids")
+    if filters.dropdown_definition_id is not None:
+        fields.add("dropdown_definition_id")
+    if filters.dropdown_option_ids:
+        fields.add("dropdown_option_ids")
+    return fields
+
+
+def _allowed_filter_fields_for_event_type(event_type: CaseEventType) -> set[str]:
+    if event_type in _CATEGORY_FILTER_EVENT_TYPES:
+        return {"new_values"}
+    if event_type in _TAG_FILTER_EVENT_TYPES:
+        return {"tag_refs"}
+    if event_type is CaseEventType.FIELDS_CHANGED:
+        return {"field_ids"}
+    if event_type is CaseEventType.DROPDOWN_VALUE_CHANGED:
+        return {"dropdown_definition_id", "dropdown_option_ids"}
+    return set()
 
 
 class CaseDurationDefinitionBase(BaseModel):

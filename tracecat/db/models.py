@@ -2340,6 +2340,16 @@ class CaseEvent(WorkspaceModel):
     """
 
     __tablename__ = "case_event"
+    __table_args__ = (
+        Index(
+            "ix_case_event_anchor_lookup",
+            "workspace_id",
+            "case_id",
+            "type",
+            "created_at",
+            "surrogate_id",
+        ),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID,
