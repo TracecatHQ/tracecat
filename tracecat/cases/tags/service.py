@@ -5,6 +5,7 @@ from slugify import slugify
 from sqlalchemy import select
 from sqlalchemy.exc import NoResultFound
 
+from tracecat.authz.controls import require_scope
 from tracecat.cases.enums import CaseEventType
 from tracecat.contexts import ctx_run
 from tracecat.db.models import Case, CaseTag, CaseTagLink, CaseTrigger
@@ -65,6 +66,7 @@ class CaseTagsService(BaseWorkspaceService):
         events_service = CaseEventsService(session=self.session, role=self.role)
         await events_service.create_event(case=case, event=payload)
 
+    @require_scope("case:read")
     async def list_workspace_tags(self) -> Sequence[CaseTag]:
         """List all tags available in the current workspace."""
         workspace_id = self.role.workspace_id
@@ -136,6 +138,7 @@ class CaseTagsService(BaseWorkspaceService):
                 f"Case tag ID '{tag_identifier}' not found in this workspace."
             ) from exc
 
+    @require_scope("case:create")
     async def create_tag(self, params: TagCreate) -> CaseTag:
         """Create a new case tag in the current workspace."""
         workspace_id = self.role.workspace_id
@@ -163,6 +166,7 @@ class CaseTagsService(BaseWorkspaceService):
         await self.session.refresh(tag)
         return tag
 
+    @require_scope("case:update")
     async def update_tag(self, tag: CaseTag, params: TagUpdate) -> CaseTag:
         """Update an existing case tag."""
         original_ref = tag.ref
@@ -225,11 +229,13 @@ class CaseTagsService(BaseWorkspaceService):
             trigger.tag_filters = deduped
             self.session.add(trigger)
 
+    @require_scope("case:delete")
     async def delete_tag(self, tag: CaseTag) -> None:
         """Delete a case tag definition."""
         await self.session.delete(tag)
         await self.session.commit()
 
+    @require_scope("case:read")
     async def list_tags_for_case(self, case_id: uuid.UUID) -> Sequence[CaseTag]:
         """List all tags attached to a specific case."""
         stmt = (
@@ -263,6 +269,7 @@ class CaseTagsService(BaseWorkspaceService):
         result = await self.session.execute(stmt)
         return result.scalar_one_or_none()
 
+    @require_scope("case:create", "case:update", require_all=False)
     async def add_case_tag(
         self,
         case_id: uuid.UUID,
@@ -314,6 +321,7 @@ class CaseTagsService(BaseWorkspaceService):
         await self.session.refresh(tag)
         return tag
 
+    @require_scope("case:update")
     async def remove_case_tag(self, case_id: uuid.UUID, tag_identifier: str) -> None:
         """Remove a tag from a case by ID or ref."""
         case = await self._get_case(case_id)

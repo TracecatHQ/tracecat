@@ -21,6 +21,7 @@ from tracecat.audit.logger import audit_log
 from tracecat.audit.service import AuditService
 from tracecat.auth.schemas import UserRead
 from tracecat.auth.types import Role
+from tracecat.auth.users import search_users
 from tracecat.authz.controls import get_missing_scopes, require_scope
 from tracecat.cases.attachments import CaseAttachmentService
 from tracecat.cases.dropdowns.schemas import (
@@ -39,6 +40,7 @@ from tracecat.cases.enums import (
 )
 from tracecat.cases.schemas import (
     AssigneeChangedEvent,
+    AssigneeChangedEventRead,
     CaseCommentCreate,
     CaseCommentRead,
     CaseCommentThreadRead,
@@ -46,6 +48,8 @@ from tracecat.cases.schemas import (
     CaseCommentWorkflowRead,
     CaseCommentWorkflowStatus,
     CaseCreate,
+    CaseEventRead,
+    CaseEventsWithUsers,
     CaseEventVariant,
     CaseFieldCreate,
     CaseFieldUpdate,
@@ -72,6 +76,7 @@ from tracecat.cases.schemas import (
     SeverityChangedEvent,
     StatusChangedEvent,
     TaskAssigneeChangedEvent,
+    TaskAssigneeChangedEventRead,
     TaskCreatedEvent,
     TaskDeletedEvent,
     TaskPriorityChangedEvent,
@@ -364,6 +369,7 @@ class CasesService(BaseWorkspaceService):
 
         return filters
 
+    @require_scope("case:read")
     async def search_cases(
         self,
         params: CursorPaginationParams,
@@ -675,6 +681,7 @@ class CasesService(BaseWorkspaceService):
             total_estimate=total_estimate,
         )
 
+    @require_scope("case:read")
     async def get_search_case_aggregates(
         self,
         *,
@@ -762,6 +769,7 @@ class CasesService(BaseWorkspaceService):
             ),
         )
 
+    @require_scope("case:read")
     async def list_cases(
         self,
         limit: int,
@@ -831,6 +839,16 @@ class CasesService(BaseWorkspaceService):
                 )
 
         return case
+
+    @require_scope("case:read")
+    async def get_case_for_read(
+        self,
+        case_id: uuid.UUID,
+        *,
+        track_view: bool = False,
+    ) -> Case | None:
+        """Get a case for read-only surfaces."""
+        return await self.get_case(case_id, track_view=track_view)
 
     @require_scope("case:create")
     @audit_log(resource_type="case", action="create")
@@ -1161,6 +1179,11 @@ class CaseFieldsService(CustomFieldsService):
         DYNAMIC_WORKSPACE_TENANT_COLUMN,
     }
 
+    @require_scope("case:read")
+    async def list_fields(self) -> Sequence[sa.engine.interfaces.ReflectedColumn]:
+        """List all case field definitions for the workspace."""
+        return await super().list_fields()
+
     @require_scope("case:create")
     async def create_field(self, params: CaseFieldCreate) -> None:  # type: ignore[override]
         """Create a new case field column and update the schema.
@@ -1413,6 +1436,7 @@ class CaseFieldsService(CustomFieldsService):
 
         return inserted_id
 
+    @require_scope("case:read")
     async def get_fields(self, case: Case) -> dict[str, Any] | None:
         """Retrieve custom field values for a case."""
         await self._ensure_schema_ready()
@@ -1422,6 +1446,7 @@ class CaseFieldsService(CustomFieldsService):
         )
         return await self.editor.get_row(row_id) if row_id else None
 
+    @require_scope("case:read")
     async def batch_get_fields(
         self, case_ids: list[uuid.UUID], field_ids: Sequence[str]
     ) -> dict[uuid.UUID, dict[str, Any]]:
@@ -1852,11 +1877,13 @@ class CaseCommentsService(BaseWorkspaceService):
         rows = result.tuples().all()
         return typing_cast(list[tuple[CaseComment, User | None]], rows)
 
+    @require_scope("case:read")
     async def list_comments(self, case: Case) -> list[CaseCommentRead]:
         """List all comments for a case as a flat compatibility view."""
         rows = await self._list_comment_rows(case_id=case.id)
         return [self.serialize_comment(comment, user=user) for comment, user in rows]
 
+    @require_scope("case:read")
     async def list_comment_threads(self, case: Case) -> list[CaseCommentThreadRead]:
         """List comments grouped by top-level thread."""
         await self._require_replies_entitlement()
@@ -1904,6 +1931,7 @@ class CaseCommentsService(BaseWorkspaceService):
 
         return ordered_threads
 
+    @require_scope("case:read")
     async def get_comment_thread(
         self, comment_id: uuid.UUID
     ) -> CaseCommentThreadRead | None:
@@ -2305,6 +2333,7 @@ class CaseEventsService(BaseWorkspaceService):
     def __init__(self, session: AsyncSession, role: Role | None = None):
         super().__init__(session, role)
 
+    @require_scope("case:read")
     async def list_events(self, case: Case) -> Sequence[CaseEvent]:
         """List all events for a case."""
         statement = (
@@ -2319,6 +2348,47 @@ class CaseEventsService(BaseWorkspaceService):
         )
         result = await self.session.execute(statement)
         return result.scalars().all()
+
+    @require_scope("case:read")
+    async def list_events_with_users(self, case: Case) -> CaseEventsWithUsers:
+        """List case events with referenced users."""
+        db_events = await self.list_events(case)
+        user_ids: set[uuid.UUID] = set()
+        events: list[CaseEventRead] = []
+
+        for db_evt in db_events:
+            evt = CaseEventRead.model_validate(
+                {
+                    "type": db_evt.type,
+                    "user_id": db_evt.user_id,
+                    "created_at": db_evt.created_at,
+                    **db_evt.data,
+                }
+            )
+            root_evt = evt.root
+            if isinstance(root_evt, AssigneeChangedEventRead):
+                if root_evt.old is not None:
+                    user_ids.add(root_evt.old)
+                if root_evt.new is not None:
+                    user_ids.add(root_evt.new)
+            if isinstance(root_evt, TaskAssigneeChangedEventRead):
+                if root_evt.old is not None:
+                    user_ids.add(root_evt.old)
+                if root_evt.new is not None:
+                    user_ids.add(root_evt.new)
+            if root_evt.user_id is not None:
+                user_ids.add(root_evt.user_id)
+            events.append(evt)
+
+        users = (
+            [
+                UserRead.model_validate(u, from_attributes=True)
+                for u in await search_users(session=self.session, user_ids=user_ids)
+            ]
+            if user_ids
+            else []
+        )
+        return CaseEventsWithUsers(events=events, users=users)
 
     async def create_event(
         self,
@@ -2417,6 +2487,7 @@ class CaseTasksService(BaseWorkspaceService):
     service_name = "case_tasks"
 
     @requires_entitlement(Entitlement.CASE_ADDONS)
+    @require_scope("case:read")
     async def list_tasks(self, case_id: uuid.UUID) -> Sequence[CaseTask]:
         """List all tasks for a case.
 
@@ -2462,6 +2533,12 @@ class CaseTasksService(BaseWorkspaceService):
         if not task:
             raise TracecatNotFoundError(f"Task {task_id} not found")
         return task
+
+    @requires_entitlement(Entitlement.CASE_ADDONS)
+    @require_scope("case:read")
+    async def get_task_for_read(self, task_id: uuid.UUID) -> CaseTask:
+        """Get a task for read-only surfaces."""
+        return await self.get_task(task_id)
 
     async def _validate_default_trigger_values(
         self,

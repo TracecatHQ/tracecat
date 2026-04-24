@@ -21,20 +21,17 @@ from tracecat import config
 from tracecat.auth.credentials import RoleACL
 from tracecat.auth.schemas import UserRead
 from tracecat.auth.types import Role
-from tracecat.auth.users import search_users
 from tracecat.authz.controls import require_scope
 from tracecat.cases.dropdowns.service import CaseDropdownValuesService
 from tracecat.cases.enums import CasePriority, CaseSeverity, CaseStatus
 from tracecat.cases.filters import parse_assignee_filter
 from tracecat.cases.rows.service import CaseTableRowsService
 from tracecat.cases.schemas import (
-    AssigneeChangedEventRead,
     CaseCommentCreate,
     CaseCommentRead,
     CaseCommentThreadRead,
     CaseCommentUpdate,
     CaseCreate,
-    CaseEventRead,
     CaseEventsWithUsers,
     CaseFieldCreate,
     CaseFieldRead,
@@ -47,7 +44,6 @@ from tracecat.cases.schemas import (
     CaseTaskRead,
     CaseTaskUpdate,
     CaseUpdate,
-    TaskAssigneeChangedEventRead,
 )
 from tracecat.cases.service import (
     CaseCommentsService,
@@ -523,7 +519,7 @@ async def get_case(
 ) -> CaseRead:
     """Get a specific case."""
     service = CasesService(session, role)
-    case = await service.get_case(case_id, track_view=True)
+    case = await service.get_case_for_read(case_id, track_view=True)
     if case is None:
         raise HTTPException(
             status_code=HTTP_404_NOT_FOUND,
@@ -670,7 +666,7 @@ async def list_comments(
     """List all comments for a case."""
     # Get the case first
     service = CasesService(session, role)
-    case = await service.get_case(case_id)
+    case = await service.get_case_for_read(case_id)
     if case is None:
         raise HTTPException(
             status_code=HTTP_404_NOT_FOUND,
@@ -691,7 +687,7 @@ async def list_comment_threads(
 ) -> list[CaseCommentThreadRead]:
     """List case comment threads."""
     service = CasesService(session, role)
-    case = await service.get_case(case_id)
+    case = await service.get_case_for_read(case_id)
     if case is None:
         raise HTTPException(
             status_code=HTTP_404_NOT_FOUND,
@@ -896,52 +892,13 @@ async def list_events_with_users(
 ) -> CaseEventsWithUsers:
     """List all users for a case."""
     service = CasesService(session, role)
-    case = await service.get_case(case_id)
+    case = await service.get_case_for_read(case_id)
     if case is None:
         raise HTTPException(
             status_code=HTTP_404_NOT_FOUND,
             detail=f"Case with ID {case_id} not found",
         )
-    db_events = await service.events.list_events(case)
-    # Get user ids
-    user_ids: set[uuid.UUID] = set()
-    events: list[CaseEventRead] = []
-
-    for db_evt in db_events:
-        evt = CaseEventRead.model_validate(
-            {
-                "type": db_evt.type,
-                "user_id": db_evt.user_id,
-                "created_at": db_evt.created_at,
-                **db_evt.data,
-            }
-        )
-        root_evt = evt.root
-        if isinstance(root_evt, AssigneeChangedEventRead):
-            if root_evt.old is not None:
-                user_ids.add(root_evt.old)
-            if root_evt.new is not None:
-                user_ids.add(root_evt.new)
-        if isinstance(root_evt, TaskAssigneeChangedEventRead):
-            if root_evt.old is not None:
-                user_ids.add(root_evt.old)
-            if root_evt.new is not None:
-                user_ids.add(root_evt.new)
-        if root_evt.user_id is not None:
-            user_ids.add(root_evt.user_id)
-        events.append(evt)
-
-    # Get users
-    users = (
-        [
-            UserRead.model_validate(u, from_attributes=True)
-            for u in await search_users(session=session, user_ids=user_ids)
-        ]
-        if user_ids
-        else []
-    )
-
-    return CaseEventsWithUsers(events=events, users=users)
+    return await service.events.list_events_with_users(case)
 
 
 # Case Tasks

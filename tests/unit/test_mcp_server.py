@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import inspect
 import json
 import sys
 import uuid
@@ -4709,6 +4710,299 @@ async def test_list_workspaces_returns_multi_org_workspaces(monkeypatch):
 def test_tool_namespace_mapping_includes_get_agent_preset() -> None:
     assert mcp_server._TOOL_NAMESPACE_BY_NAME["get_agent_preset"] == "agents"
     assert mcp_server._TOOL_NAMESPACE_BY_NAME["update_agent_preset"] == "agents"
+
+
+def test_tool_namespace_mapping_includes_sync_custom_registry() -> None:
+    assert mcp_server._TOOL_NAMESPACE_BY_NAME["sync_custom_registry"] == "workflows"
+
+
+_UNSET = object()
+
+
+def _registry_role(
+    *,
+    organization_id: Any = _UNSET,
+    workspace_id: Any = _UNSET,
+    scopes: frozenset[str] | None = frozenset({"org:registry:update"}),
+) -> SimpleNamespace:
+    return SimpleNamespace(
+        organization_id=(
+            uuid.uuid4() if organization_id is _UNSET else organization_id
+        ),
+        workspace_id=uuid.uuid4() if workspace_id is _UNSET else workspace_id,
+        scopes=scopes,
+    )
+
+
+class _FakeRegistrySession:
+    def expire(self, _obj: object) -> None:
+        return None
+
+    async def flush(self) -> None:
+        return None
+
+
+class _FakeRegistryReposService:
+    def __init__(
+        self,
+        repositories: list[SimpleNamespace],
+        actions_service: _FakeRegistryActionsService,
+    ) -> None:
+        self.repositories = repositories
+        self.actions_service = actions_service
+        self.calls: list[str] = []
+
+    async def list_repositories(self):
+        self.calls.append("list_repositories")
+        return self.repositories
+
+    async def list_repositories_for_sync(self):
+        self.calls.append("list_repositories_for_sync")
+        return self.repositories
+
+    async def get_repository_by_id(self, repository_id):
+        self.calls.append("get_repository_by_id")
+        for repo in self.repositories:
+            if repo.id == repository_id:
+                return repo
+        raise mcp_server.NoResultFound()
+
+    async def get_repository(self, origin):
+        self.calls.append("get_repository")
+        return next((repo for repo in self.repositories if repo.origin == origin), None)
+
+    async def update_repository(self, repository, params):
+        self.calls.append("update_repository")
+        repository.last_synced_at = params.last_synced_at
+        repository.commit_sha = params.commit_sha
+        return repository
+
+    async def sync_repository(self, repository_id, sync_params=None):
+        self.calls.append("sync_repository")
+        repo = await self.get_repository_by_id(repository_id)
+        commit_sha, version = await self.actions_service.sync_actions_from_repository(
+            repo,
+            target_commit_sha=sync_params.target_commit_sha if sync_params else None,
+        )
+        actions = await self.actions_service.list_actions_from_index_by_repository(
+            repo.id
+        )
+        return SimpleNamespace(
+            success=True,
+            repository_id=repo.id,
+            origin=repo.origin,
+            version=version,
+            commit_sha=commit_sha,
+            actions_count=len(actions),
+            forced=sync_params.force if sync_params else False,
+        )
+
+
+class _FakeRegistryActionsService:
+    def __init__(self, *, fail_origins: set[str] | None = None) -> None:
+        self.fail_origins = fail_origins or set()
+        self.synced_origins: list[str] = []
+
+    async def sync_actions_from_repository(
+        self,
+        repo,
+        *,
+        target_commit_sha=None,
+        git_repo_package_name=None,
+        ssh_env=None,
+    ):
+        _ = git_repo_package_name, ssh_env
+        self.synced_origins.append(repo.origin)
+        if repo.origin in self.fail_origins:
+            raise mcp_server.RegistryError("sync failed")
+        return target_commit_sha or "a" * 40, "2026.04.24"
+
+    async def list_actions_from_index_by_repository(self, _repository_id):
+        return [SimpleNamespace(), SimpleNamespace()]
+
+
+def _registry_repo(origin: str, *, current_version_id=None) -> SimpleNamespace:
+    return SimpleNamespace(
+        id=uuid.uuid4(),
+        origin=origin,
+        current_version_id=current_version_id,
+        last_synced_at=None,
+        commit_sha=None,
+    )
+
+
+def _patch_registry_sync_services(
+    monkeypatch,
+    *,
+    repositories: list[SimpleNamespace],
+    actions_service: _FakeRegistryActionsService | None = None,
+):
+    actions_service = actions_service or _FakeRegistryActionsService()
+    repos_service = _FakeRegistryReposService(repositories, actions_service)
+
+    monkeypatch.setattr(
+        mcp_server,
+        "get_async_session_context_manager",
+        lambda: _AsyncContext(_FakeRegistrySession()),
+    )
+    monkeypatch.setattr(
+        mcp_server,
+        "RegistryReposService",
+        lambda _session, _role: repos_service,
+    )
+    monkeypatch.setattr(
+        mcp_server,
+        "RegistryActionsService",
+        lambda _session, _role: actions_service,
+    )
+    return repos_service, actions_service
+
+
+@pytest.mark.anyio
+async def test_sync_custom_registry_requires_registry_update_scope(monkeypatch):
+    async def _resolve(_workspace_id):
+        return uuid.uuid4(), _registry_role(scopes=frozenset({"workflow:read"}))
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+
+    with pytest.raises(ToolError, match="org:registry:update"):
+        await _tool(mcp_server.sync_custom_registry)(workspace_id=str(uuid.uuid4()))
+
+
+@pytest.mark.anyio
+async def test_sync_custom_registry_requires_organization_context(monkeypatch):
+    async def _resolve(_workspace_id):
+        return uuid.uuid4(), _registry_role(organization_id=None)
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+
+    with pytest.raises(ToolError, match="organization context"):
+        await _tool(mcp_server.sync_custom_registry)(workspace_id=str(uuid.uuid4()))
+
+
+@pytest.mark.anyio
+async def test_sync_custom_registry_requires_workspace_context(monkeypatch):
+    async def _resolve(_workspace_id):
+        return uuid.uuid4(), _registry_role(workspace_id=None)
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+
+    with pytest.raises(ToolError, match="workspace context"):
+        await _tool(mcp_server.sync_custom_registry)(workspace_id=str(uuid.uuid4()))
+
+
+@pytest.mark.anyio
+def test_sync_custom_registry_public_signature_drops_repo_selectors() -> None:
+    signature = inspect.signature(_tool(mcp_server.sync_custom_registry))
+    assert "repository_id" not in signature.parameters
+    assert "origin" not in signature.parameters
+
+
+@pytest.mark.anyio
+async def test_sync_custom_registry_uses_org_scoped_repos_service(monkeypatch):
+    repo = _registry_repo("custom_actions")
+    role = _registry_role()
+
+    async def _resolve(_workspace_id):
+        return uuid.uuid4(), role
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    repos_service, actions_service = _patch_registry_sync_services(
+        monkeypatch, repositories=[repo]
+    )
+
+    result = await _tool(mcp_server.sync_custom_registry)(
+        workspace_id=str(uuid.uuid4()),
+    )
+    payload = _payload(result)
+
+    assert payload["success"] is True
+    assert repos_service.calls[0] == "list_repositories_for_sync"
+    assert "sync_repository" in repos_service.calls
+    assert actions_service.synced_origins == [repo.origin]
+
+
+@pytest.mark.anyio
+async def test_sync_custom_registry_all_excludes_platform_registry(monkeypatch):
+    platform_repo = _registry_repo(mcp_server.DEFAULT_REGISTRY_ORIGIN)
+    custom_repo = _registry_repo("custom_actions")
+
+    async def _resolve(_workspace_id):
+        return uuid.uuid4(), _registry_role()
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    repos_service, actions_service = _patch_registry_sync_services(
+        monkeypatch, repositories=[platform_repo, custom_repo]
+    )
+
+    result = await _tool(mcp_server.sync_custom_registry)(
+        workspace_id=str(uuid.uuid4()),
+    )
+    payload = _payload(result)
+
+    assert payload["success"] is True
+    assert repos_service.calls[0] == "list_repositories_for_sync"
+    assert actions_service.synced_origins == [custom_repo.origin]
+    assert [item["origin"] for item in payload["results"]] == [custom_repo.origin]
+
+
+@pytest.mark.anyio
+async def test_sync_custom_registry_rejects_no_custom_registry(monkeypatch):
+    platform_repo = _registry_repo(mcp_server.DEFAULT_REGISTRY_ORIGIN)
+
+    async def _resolve(_workspace_id):
+        return uuid.uuid4(), _registry_role()
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    _patch_registry_sync_services(monkeypatch, repositories=[platform_repo])
+
+    with pytest.raises(ToolError, match="No custom registry repository found"):
+        await _tool(mcp_server.sync_custom_registry)(
+            workspace_id=str(uuid.uuid4()),
+        )
+
+
+@pytest.mark.anyio
+async def test_sync_custom_registry_rejects_multiple_custom_registries(monkeypatch):
+    first_repo = _registry_repo("custom_one")
+    second_repo = _registry_repo("custom_two")
+
+    async def _resolve(_workspace_id):
+        return uuid.uuid4(), _registry_role()
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    _patch_registry_sync_services(monkeypatch, repositories=[first_repo, second_repo])
+
+    with pytest.raises(ToolError, match="Expected exactly one custom registry"):
+        await _tool(mcp_server.sync_custom_registry)(
+            workspace_id=str(uuid.uuid4()),
+        )
+
+
+@pytest.mark.anyio
+async def test_sync_custom_registry_reports_per_repo_failure(monkeypatch):
+    bad_repo = _registry_repo("custom_bad")
+
+    async def _resolve(_workspace_id):
+        return uuid.uuid4(), _registry_role()
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    _patch_registry_sync_services(
+        monkeypatch,
+        repositories=[bad_repo],
+        actions_service=_FakeRegistryActionsService(fail_origins={bad_repo.origin}),
+    )
+
+    result = await _tool(mcp_server.sync_custom_registry)(
+        workspace_id=str(uuid.uuid4()),
+    )
+    payload = _payload(result)
+
+    assert payload["success"] is False
+    assert len(payload["results"]) == 1
+    assert payload["results"][0]["origin"] == bad_repo.origin
+    assert payload["results"][0]["success"] is False
+    assert payload["results"][0]["error"] == "sync failed"
 
 
 @pytest.mark.anyio

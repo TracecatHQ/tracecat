@@ -59,6 +59,11 @@
 
   Common namespaces: `core`, `tools`, `ai`.
     </ResponseField>
+    <ResponseField name="workflows_sync_custom_registry" type="tool">
+  Sync the registered custom registry repository for the caller's organization.
+
+  This tool only syncs repositories already registered in the caller's organization. It never accepts arbitrary repository URLs and never syncs the platform/default registry.
+    </ResponseField>
     <ResponseField name="workflows_get_action_context" type="tool">
   Get full schema and configuration context for a single action.
 
