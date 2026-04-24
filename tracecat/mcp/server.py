@@ -182,6 +182,8 @@ from tracecat.mcp.schemas import (
     WorkflowEditMetadata,
     WorkflowEditRequest,
     WorkflowEditResponse,
+    WorkflowSchedule,
+    normalize_layout_position_alias,
 )
 from tracecat.pagination import CursorPaginatedResponse, CursorPaginationParams
 from tracecat.registry.actions.schemas import TemplateAction
@@ -637,15 +639,10 @@ class MCPLayoutPosition(BaseModel):
     y: float | None = None
     position: dict[str, float] | None = None
 
-    @model_validator(mode="after")
-    def apply_nested_position(self) -> MCPLayoutPosition:
-        if self.position is not None:
-            if self.x is None:
-                self.x = self.position.get("x")
-            if self.y is None:
-                self.y = self.position.get("y")
-            self.position = None
-        return self
+    @model_validator(mode="before")
+    @classmethod
+    def apply_nested_position(cls, value: Any) -> Any:
+        return normalize_layout_position_alias(value)
 
 
 class MCPLayoutViewport(BaseModel):
@@ -660,15 +657,10 @@ class MCPLayoutActionPosition(BaseModel):
     y: float | None = None
     position: dict[str, float] | None = None
 
-    @model_validator(mode="after")
-    def apply_nested_position(self) -> MCPLayoutActionPosition:
-        if self.position is not None:
-            if self.x is None:
-                self.x = self.position.get("x")
-            if self.y is None:
-                self.y = self.position.get("y")
-            self.position = None
-        return self
+    @model_validator(mode="before")
+    @classmethod
+    def apply_nested_position(cls, value: Any) -> Any:
+        return normalize_layout_position_alias(value)
 
 
 class MCPWorkflowLayout(BaseModel):
@@ -710,6 +702,24 @@ class MCPWorkflowYamlPayload(BaseModel):
     layout: MCPWorkflowLayout | None = None
     schedules: list[MCPWorkflowSchedule] | None = None
     case_trigger: dict[str, Any] | None = None
+
+
+def _schedule_create_from_payload(
+    *,
+    workflow_id: WorkflowUUID,
+    schedule: WorkflowSchedule | MCPWorkflowSchedule,
+) -> ScheduleCreate:
+    return ScheduleCreate(
+        workflow_id=workflow_id,
+        inputs=schedule.inputs,
+        cron=schedule.cron,
+        every=schedule.every,
+        offset=schedule.offset,
+        start_at=schedule.start_at,
+        end_at=schedule.end_at,
+        status=schedule.status,
+        timeout=schedule.timeout,
+    )
 
 
 class MCPMessageResponse(BaseModel):
@@ -1738,16 +1748,9 @@ def _validate_workflow_edit_document(
             raise ToolError(f"Invalid workflow definition: {exc}") from exc
     for schedule in document.schedules:
         try:
-            ScheduleCreate(
+            _schedule_create_from_payload(
                 workflow_id=workflow_id,
-                inputs=schedule.inputs,
-                cron=schedule.cron,
-                every=schedule.every,
-                offset=schedule.offset,
-                start_at=schedule.start_at,
-                end_at=schedule.end_at,
-                status=schedule.status,
-                timeout=schedule.timeout,
+                schedule=schedule,
             )
         except ValidationError as exc:
             raise ToolError(f"Invalid workflow schedule: {exc}") from exc
@@ -1859,16 +1862,10 @@ async def _persist_workflow_edit_document(
 
     if "schedules" in changed_sections:
         schedule_service = WorkflowSchedulesService(service.session, role=role)
-        schedules = [
-            MCPWorkflowSchedule.model_validate(
-                schedule.model_dump(mode="json", exclude_none=False)
-            )
-            for schedule in updated_document.schedules
-        ]
         await _replace_workflow_schedules(
             service=schedule_service,
             workflow_id=workflow_id,
-            schedules=schedules,
+            schedules=updated_document.schedules,
         )
 
     if "case_trigger" in changed_sections:
@@ -2657,7 +2654,7 @@ async def _replace_workflow_schedules(
     *,
     service: WorkflowSchedulesService,
     workflow_id: WorkflowUUID,
-    schedules: list[MCPWorkflowSchedule],
+    schedules: Sequence[WorkflowSchedule | MCPWorkflowSchedule],
 ) -> None:
     """Replace all schedules for a workflow from YAML payload."""
     existing = await service.list_schedules(workflow_id=workflow_id)
@@ -2666,16 +2663,9 @@ async def _replace_workflow_schedules(
 
     for schedule in schedules:
         await service.create_schedule(
-            ScheduleCreate(
+            _schedule_create_from_payload(
                 workflow_id=workflow_id,
-                inputs=schedule.inputs,
-                cron=schedule.cron,
-                every=schedule.every,
-                offset=schedule.offset,
-                start_at=schedule.start_at,
-                end_at=schedule.end_at,
-                status=schedule.status,
-                timeout=schedule.timeout,
+                schedule=schedule,
             ),
             commit=False,
         )

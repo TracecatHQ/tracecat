@@ -25,20 +25,31 @@ type JsonPrimitive = None | bool | int | float | str
 type JsonValue = JsonPrimitive | list[JsonValue] | dict[str, JsonValue]
 
 
+def normalize_layout_position_alias(value: Any) -> Any:
+    if not isinstance(value, dict):
+        return value
+    position = value.get("position")
+    if not isinstance(position, dict):
+        return value
+
+    normalized = dict(value)
+    if normalized.get("x") is None:
+        normalized["x"] = position.get("x")
+    if normalized.get("y") is None:
+        normalized["y"] = position.get("y")
+    normalized["position"] = None
+    return normalized
+
+
 class LayoutPosition(BaseModel):
     x: float | None = None
     y: float | None = None
     position: dict[str, float] | None = None
 
-    @model_validator(mode="after")
-    def apply_nested_position(self) -> LayoutPosition:
-        if self.position is not None:
-            if self.x is None:
-                self.x = self.position.get("x")
-            if self.y is None:
-                self.y = self.position.get("y")
-            self.position = None
-        return self
+    @model_validator(mode="before")
+    @classmethod
+    def apply_nested_position(cls, value: Any) -> Any:
+        return normalize_layout_position_alias(value)
 
 
 class LayoutViewport(BaseModel):
@@ -53,15 +64,10 @@ class LayoutActionPosition(BaseModel):
     y: float | None = None
     position: dict[str, float] | None = None
 
-    @model_validator(mode="after")
-    def apply_nested_position(self) -> LayoutActionPosition:
-        if self.position is not None:
-            if self.x is None:
-                self.x = self.position.get("x")
-            if self.y is None:
-                self.y = self.position.get("y")
-            self.position = None
-        return self
+    @model_validator(mode="before")
+    @classmethod
+    def apply_nested_position(cls, value: Any) -> Any:
+        return normalize_layout_position_alias(value)
 
 
 class WorkflowLayout(BaseModel):

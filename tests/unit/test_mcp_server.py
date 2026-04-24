@@ -838,6 +838,8 @@ def test_compute_workflow_edit_revision_normalizes_layout_position_aliases() -> 
     alias_document = mcp_server.WorkflowEditDocument.model_validate(alias_payload)
 
     assert alias_document.layout.trigger is not None
+    assert alias_document.layout.trigger.x == 10.0
+    assert alias_document.layout.trigger.y == 20.0
     assert alias_document.layout.trigger.position is None
     assert alias_document.layout.actions[0].position is None
     assert mcp_server._compute_workflow_edit_revision(
