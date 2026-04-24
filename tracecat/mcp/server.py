@@ -22,6 +22,7 @@ from pathlib import PurePosixPath
 from typing import Annotated, Any, Literal, NotRequired, TypedDict, cast, get_args
 
 import orjson
+import sqlalchemy as sa
 import yaml
 from fastmcp import Context, FastMCP
 from fastmcp.exceptions import ToolError
@@ -82,6 +83,7 @@ from tracecat.cases.enums import (
     CaseTaskStatus,
 )
 from tracecat.cases.schemas import (
+    AssigneeChangedEventRead,
     CaseCommentCreate,
     CaseCommentRead,
     CaseCommentThreadRead,
@@ -96,6 +98,7 @@ from tracecat.cases.schemas import (
     CaseTaskCreate,
     CaseTaskUpdate,
     CaseUpdate,
+    TaskAssigneeChangedEventRead,
 )
 from tracecat.cases.service import (
     CaseCommentsService,
@@ -3429,6 +3432,18 @@ def _case_comment_thread_payload(
     return thread
 
 
+def _case_field_payload(
+    column: sa.engine.interfaces.ReflectedColumn,
+    *,
+    field_schema: dict[str, Any],
+) -> CaseFieldReadMinimal:
+    """Serialize a case field definition."""
+    return CaseFieldReadMinimal.from_sa(
+        column,
+        field_schema=field_schema,
+    )
+
+
 def _format_temporal_status(status: Any) -> str | None:
     """Return a stable workflow status string for MCP responses."""
     if status is None:
@@ -5969,7 +5984,7 @@ async def list_cases(
     try:
         _, role = await _resolve_workspace_role(workspace_id)
         async with CasesService.with_session(role=role) as svc:
-            return await svc.list_cases(
+            result = await svc.list_cases(
                 limit=_normalize_limit(
                     limit,
                     default=config.TRACECAT__LIMIT_DEFAULT,
@@ -5979,8 +5994,7 @@ async def list_cases(
                 order_by=cast(Any, order_by),
                 sort=cast(Any, sort),
             )
-    except ToolError:
-        raise
+            return result
     except ValueError as e:
         raise ToolError(str(e)) from e
     except Exception as e:
@@ -6038,8 +6052,8 @@ async def search_cases(
             parsed_severity = [CaseSeverity(s.strip()) for s in severity.split(",")]
 
         async with CasesService.with_session(role=role) as svc:
-            return await svc.search_cases(
-                CursorPaginationParams(
+            result = await svc.search_cases(
+                params=CursorPaginationParams(
                     limit=_normalize_limit(
                         limit,
                         default=config.TRACECAT__LIMIT_DEFAULT,
@@ -6055,8 +6069,7 @@ async def search_cases(
                 order_by=cast(Any, order_by),
                 sort=cast(Any, sort),
             )
-    except ToolError:
-        raise
+            return result
     except ValueError as e:
         raise ToolError(str(e)) from e
     except Exception as e:
@@ -6082,38 +6095,42 @@ async def get_case(
     try:
         _, role = await _resolve_workspace_role(workspace_id)
         async with CasesService.with_session(role=role) as svc:
-            get_case_for_read = getattr(svc, "get_case_for_read", svc.get_case)
-            case = await get_case_for_read(case_id, track_view=True)
+            case = await svc.get_case(case_id)
             if case is None:
-                raise ToolError(f"Case with ID {case_id} not found")
-            fields = await svc.fields.get_fields(case) or {}
+                raise ToolError(f"Case {case_id!r} not found")
+
+            # Get custom field values and definitions
+            fields_data = await svc.fields.get_fields(case) or {}
             field_definitions = await svc.fields.list_fields()
             field_schema = await svc.fields.get_field_schema()
-            final_fields = [
-                CaseFieldRead(
-                    **field.model_dump(),
-                    value=fields.get(field.id),
+            final_fields: list[CaseFieldRead] = []
+            for defn in field_definitions:
+                f = CaseFieldReadMinimal.from_sa(defn, field_schema=field_schema)
+                final_fields.append(
+                    CaseFieldRead(
+                        **f.model_dump(),
+                        value=fields_data.get(f.id),
+                    )
                 )
-                for field in (
-                    CaseFieldReadMinimal.from_sa(defn, field_schema=field_schema)
-                    for defn in field_definitions
-                )
+
+            # Tags
+            tag_reads = [
+                CaseTagRead.model_validate(tag, from_attributes=True)
+                for tag in case.tags
             ]
-            dropdowns_svc = getattr(
-                svc,
-                "dropdowns",
-                CaseDropdownValuesService(svc.session, role),
-            )
-            dropdown_values = (
-                await dropdowns_svc.list_values_for_case(case.id)
-                if await dropdowns_svc.has_entitlement(Entitlement.CASE_ADDONS)
-                else []
-            )
+
+            # Dropdown values (if entitlement active)
+            dropdown_reads: list[CaseDropdownValueRead] = []
+            dropdown_service = CaseDropdownValuesService(session=svc.session, role=role)
+            if await dropdown_service.has_entitlement(Entitlement.CASE_ADDONS):
+                dropdown_values = await dropdown_service.list_values_for_case(case_id)
+                dropdown_reads = dropdown_values
+
             return _case_full_payload(
                 case,
                 fields=final_fields,
-                tags=[_case_tag_payload(tag) for tag in case.tags],
-                dropdown_values=dropdown_values,
+                tags=tag_reads,
+                dropdown_values=dropdown_reads,
             )
     except ToolError:
         raise
@@ -6268,8 +6285,9 @@ async def update_case(
         async with CasesService.with_session(role=role) as svc:
             case = await svc.get_case(case_id, for_update=True)
             if case is None:
-                raise ToolError(f"Case with ID {case_id} not found")
+                raise ToolError(f"Case {case_id!r} not found")
             await svc.update_case(case, params)
+
             if tags is not None:
                 existing_tags = await svc.tags.list_tags_for_case(case_id)
                 for existing_tag in existing_tags:
@@ -6310,7 +6328,7 @@ async def delete_case(
         async with CasesService.with_session(role=role) as svc:
             case = await svc.get_case(case_id)
             if case is None:
-                raise ToolError(f"Case with ID {case_id} not found")
+                raise ToolError(f"Case {case_id!r} not found")
             await svc.delete_case(case)
             return MCPMessageResponse(message=f"Case {case_id} deleted successfully")
     except ToolError:
@@ -6347,11 +6365,11 @@ async def list_case_comments(
         case_id = _coerce_uuid_arg(case_id, "case_id")
         _, role = await _resolve_workspace_role(workspace_id)
         async with CasesService.with_session(role=role) as svc:
-            get_case_for_read = getattr(svc, "get_case_for_read", svc.get_case)
-            case = await get_case_for_read(case_id)
+            case = await svc.get_case(case_id)
             if case is None:
-                raise ToolError(f"Case with ID {case_id} not found")
-            comments = await CaseCommentsService(svc.session, role).list_comments(case)
+                raise ToolError(f"Case {case_id!r} not found")
+            comments_svc = CaseCommentsService(session=svc.session, role=role)
+            comments = await comments_svc.list_comments(case)
             return [_case_comment_payload(c) for c in comments]
     except ToolError:
         raise
@@ -6382,13 +6400,11 @@ async def list_case_comment_threads(
         case_id = _coerce_uuid_arg(case_id, "case_id")
         _, role = await _resolve_workspace_role(workspace_id)
         async with CasesService.with_session(role=role) as svc:
-            get_case_for_read = getattr(svc, "get_case_for_read", svc.get_case)
-            case = await get_case_for_read(case_id)
+            case = await svc.get_case(case_id)
             if case is None:
-                raise ToolError(f"Case with ID {case_id} not found")
-            threads = await CaseCommentsService(svc.session, role).list_comment_threads(
-                case
-            )
+                raise ToolError(f"Case {case_id!r} not found")
+            comments_svc = CaseCommentsService(session=svc.session, role=role)
+            threads = await comments_svc.list_comment_threads(case)
             return [_case_comment_thread_payload(t) for t in threads]
     except ToolError:
         raise
@@ -6426,10 +6442,10 @@ async def create_case_comment(
         async with CasesService.with_session(role=role) as svc:
             case = await svc.get_case(case_id)
             if case is None:
-                raise ToolError(f"Case with ID {case_id} not found")
-            await CaseCommentsService(svc.session, role).create_comment(
-                case,
-                CaseCommentCreate(content=content, parent_id=parent_id),
+                raise ToolError(f"Case {case_id!r} not found")
+            comments_svc = CaseCommentsService(session=svc.session, role=role)
+            await comments_svc.create_comment(
+                case, CaseCommentCreate(content=content, parent_id=parent_id)
             )
             return MCPMessageResponse(message="Comment created successfully")
     except ToolError:
@@ -6468,11 +6484,11 @@ async def update_case_comment(
         async with CasesService.with_session(role=role) as svc:
             case = await svc.get_case(case_id)
             if case is None:
-                raise ToolError(f"Case with ID {case_id} not found")
-            comments_svc = CaseCommentsService(svc.session, role)
+                raise ToolError(f"Case {case_id!r} not found")
+            comments_svc = CaseCommentsService(session=svc.session, role=role)
             comment = await comments_svc.get_comment_in_case(case.id, comment_id)
             if comment is None:
-                raise ToolError(f"Comment with ID {comment_id} not found")
+                raise ToolError(f"Comment {comment_id!r} not found")
             await comments_svc.update_comment(
                 comment, CaseCommentUpdate(content=content)
             )
@@ -6513,11 +6529,11 @@ async def delete_case_comment(
         async with CasesService.with_session(role=role) as svc:
             case = await svc.get_case(case_id)
             if case is None:
-                raise ToolError(f"Case with ID {case_id} not found")
-            comments_svc = CaseCommentsService(svc.session, role)
+                raise ToolError(f"Case {case_id!r} not found")
+            comments_svc = CaseCommentsService(session=svc.session, role=role)
             comment = await comments_svc.get_comment_in_case(case.id, comment_id)
             if comment is None:
-                raise ToolError(f"Comment with ID {comment_id} not found")
+                raise ToolError(f"Comment {comment_id!r} not found")
             await comments_svc.delete_comment(comment)
             return MCPMessageResponse(
                 message=f"Comment {comment_id} deleted successfully"
@@ -6560,8 +6576,6 @@ async def list_case_tasks(
         async with CaseTasksService.with_session(role=role) as svc:
             tasks = await svc.list_tasks(case_id)
             return [_case_task_payload(t) for t in tasks]
-    except ToolError:
-        raise
     except ValueError as e:
         raise ToolError(str(e)) from e
     except Exception as e:
@@ -6587,8 +6601,7 @@ async def get_case_task(
         task_id = _coerce_uuid_arg(task_id, "task_id")
         _, role = await _resolve_workspace_role(workspace_id)
         async with CaseTasksService.with_session(role=role) as svc:
-            get_task_for_read = getattr(svc, "get_task_for_read", svc.get_task)
-            task = await get_task_for_read(task_id)
+            task = await svc.get_task(task_id)
             return _case_task_payload(task)
     except TracecatNotFoundError as e:
         raise ToolError(str(e)) from e
@@ -6915,45 +6928,45 @@ async def list_case_events(
         case_id = _coerce_uuid_arg(case_id, "case_id")
         _, role = await _resolve_workspace_role(workspace_id)
         async with CasesService.with_session(role=role) as svc:
-            get_case_for_read = getattr(svc, "get_case_for_read", svc.get_case)
-            case = await get_case_for_read(case_id)
+            case = await svc.get_case(case_id)
             if case is None:
-                raise ToolError(f"Case with ID {case_id} not found")
-            if hasattr(svc.events, "list_events_with_users"):
-                events = await svc.events.list_events_with_users(case)
-                return CaseEventsResponse.model_validate(events.model_dump())
-
+                raise ToolError(f"Case {case_id!r} not found")
             db_events = await svc.events.list_events(case)
-            user_ids = {
-                db_event.user_id
-                for db_event in db_events
-                if db_event.user_id is not None
-            }
-            users = (
-                [
-                    UserRead.model_validate(user, from_attributes=True)
-                    for user in await search_users(
-                        session=svc.session,
-                        user_ids=user_ids,
-                    )
+            user_ids: set[uuid.UUID] = set()
+            events: list[CaseEventRead] = []
+            for db_evt in db_events:
+                evt = CaseEventRead.model_validate(
+                    {
+                        "type": db_evt.type,
+                        "user_id": db_evt.user_id,
+                        "created_at": db_evt.created_at,
+                        **db_evt.data,
+                    }
+                )
+                root_evt = evt.root
+                if isinstance(root_evt, AssigneeChangedEventRead):
+                    if root_evt.old is not None:
+                        user_ids.add(root_evt.old)
+                    if root_evt.new is not None:
+                        user_ids.add(root_evt.new)
+                if isinstance(root_evt, TaskAssigneeChangedEventRead):
+                    if root_evt.old is not None:
+                        user_ids.add(root_evt.old)
+                    if root_evt.new is not None:
+                        user_ids.add(root_evt.new)
+                if root_evt.user_id is not None:
+                    user_ids.add(root_evt.user_id)
+                events.append(evt)
+
+            users: list[UserRead] = []
+            if user_ids:
+                user_models = await search_users(session=svc.session, user_ids=user_ids)
+                users = [
+                    UserRead.model_validate(u, from_attributes=True)
+                    for u in user_models
                 ]
-                if user_ids
-                else []
-            )
-            return CaseEventsResponse(
-                events=[
-                    CaseEventRead.model_validate(
-                        {
-                            "type": db_event.type,
-                            "user_id": db_event.user_id,
-                            "created_at": db_event.created_at,
-                            **db_event.data,
-                        }
-                    )
-                    for db_event in db_events
-                ],
-                users=users,
-            )
+
+            return CaseEventsResponse(events=events, users=users)
     except ToolError:
         raise
     except ValueError as e:
@@ -7211,12 +7224,11 @@ async def list_case_fields(
         async with CaseFieldsService.with_session(role=role) as svc:
             columns = await svc.list_fields()
             field_schema = await svc.get_field_schema()
-            fields = [
-                CaseFieldReadMinimal.from_sa(column, field_schema=field_schema)
-                for column in columns
-            ]
             page = _paginate_items(
-                fields,
+                [
+                    _case_field_payload(column, field_schema=field_schema)
+                    for column in columns
+                ],
                 tool_name="list_case_fields",
                 limit=_normalize_limit(
                     limit,
@@ -7226,8 +7238,6 @@ async def list_case_fields(
                 cursor=cursor,
             )
             return page
-    except ToolError:
-        raise
     except ValueError as e:
         raise ToolError(str(e)) from e
     except Exception as e:
@@ -7269,8 +7279,11 @@ async def create_case_field(
         async with CaseFieldsService.with_session(role=role) as svc:
             await svc.create_field(
                 CaseFieldCreate(
-                    name=name, type=parsed_type, kind=parsed_kind, options=options
-                ),
+                    name=name,
+                    type=parsed_type,
+                    kind=parsed_kind,
+                    options=options,
+                )
             )
             return MCPMessageResponse(message=f"Case field {name} created successfully")
     except ToolError:
@@ -7349,8 +7362,6 @@ async def delete_case_field(
             return MCPMessageResponse(
                 message=f"Case field {field_id} deleted successfully"
             )
-    except ToolError:
-        raise
     except ValueError as e:
         raise ToolError(str(e)) from e
     except Exception as e:
