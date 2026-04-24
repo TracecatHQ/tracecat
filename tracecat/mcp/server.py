@@ -1608,6 +1608,20 @@ def _canonicalize_workflow_edit_document(
     return WorkflowEditDocument.model_validate(payload)
 
 
+def _normalize_workflow_edit_document_for_persisted_revision(
+    document: WorkflowEditDocument,
+) -> WorkflowEditDocument:
+    """Normalize transient edit state that persistence drops on refresh."""
+    payload = _workflow_edit_document_payload(document)
+    action_refs = {action.ref for action in document.definition.actions}
+    payload["layout"]["actions"] = [
+        action_layout
+        for action_layout in payload["layout"]["actions"]
+        if action_layout["ref"] in action_refs
+    ]
+    return WorkflowEditDocument.model_validate(payload)
+
+
 def _compute_workflow_edit_revision(document: WorkflowEditDocument) -> str:
     """Compute a stable draft revision for the editable workflow document."""
     payload = _workflow_edit_document_payload(
@@ -4395,7 +4409,11 @@ async def edit_workflow(
                     workflow_id=str(workflow.id),
                     valid=True,
                     validate_only=True,
-                    draft_revision=_compute_workflow_edit_revision(updated_document),
+                    draft_revision=_compute_workflow_edit_revision(
+                        _normalize_workflow_edit_document_for_persisted_revision(
+                            updated_document
+                        )
+                    ),
                 )
 
             await _persist_workflow_edit_document(

@@ -1493,6 +1493,98 @@ async def test_edit_workflow_validate_only_canonicalizes_draft_revision(monkeypa
 
 
 @pytest.mark.anyio
+async def test_edit_workflow_validate_only_revision_drops_removed_action_layout(
+    monkeypatch,
+):
+    async def _resolve(_workspace_id):
+        return uuid.uuid4(), SimpleNamespace()
+
+    async def _validate_dsl(*_args, **_kwargs):
+        return set()
+
+    workflow_id = uuid.uuid4()
+    trigger_id = f"trigger-{workflow_id}"
+    action_a = _action_stub(
+        ref="step_a",
+        upstream_edges=[{"source_id": trigger_id, "source_type": "trigger"}],
+        position_x=10.0,
+        position_y=20.0,
+    )
+    action_b = _action_stub(
+        ref="step_b",
+        upstream_edges=[
+            {
+                "source_id": str(action_a.id),
+                "source_type": "udf",
+                "source_handle": "success",
+            }
+        ],
+        position_x=30.0,
+        position_y=40.0,
+    )
+    workflow = _workflow_stub(id=workflow_id, actions=[action_a, action_b])
+
+    class _WorkflowService:
+        def __init__(self) -> None:
+            self.session = object()
+
+        async def get_workflow(self, _wf_id, *, for_update: bool = False):
+            _ = for_update
+            return workflow
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(mcp_server, "validate_dsl", _validate_dsl)
+    monkeypatch.setattr(
+        mcp_server.WorkflowsManagementService,
+        "with_session",
+        lambda role: _AsyncContext(_WorkflowService()),
+    )
+
+    draft_document = mcp_server._build_workflow_edit_document(
+        cast(mcp_server._WorkflowEditDocumentSource, workflow)
+    )
+    base_revision = mcp_server._compute_workflow_edit_revision(draft_document)
+    updated_payload = mcp_server._workflow_edit_document_payload(draft_document)
+    updated_payload["definition"]["actions"] = [
+        action
+        for action in updated_payload["definition"]["actions"]
+        if action["ref"] == "step_a"
+    ]
+    expected_payload = json.loads(json.dumps(updated_payload))
+    expected_payload["layout"]["actions"] = [
+        action_layout
+        for action_layout in expected_payload["layout"]["actions"]
+        if action_layout["ref"] == "step_a"
+    ]
+    expected_revision = mcp_server._compute_workflow_edit_revision(
+        mcp_server.WorkflowEditDocument.model_validate(expected_payload)
+    )
+
+    payload = _payload(
+        await _tool(mcp_server.edit_workflow)(
+            workspace_id=str(uuid.uuid4()),
+            workflow_id=str(workflow_id),
+            base_revision=base_revision,
+            patch_ops=[
+                {
+                    "op": "replace",
+                    "path": "/definition/actions",
+                    "value": updated_payload["definition"]["actions"],
+                }
+            ],
+            validate_only=True,
+        )
+    )
+
+    assert payload["valid"] is True
+    assert payload["validate_only"] is True
+    assert payload["draft_revision"] == expected_revision
+    assert payload["draft_revision"] != mcp_server._compute_workflow_edit_revision(
+        mcp_server.WorkflowEditDocument.model_validate(updated_payload)
+    )
+
+
+@pytest.mark.anyio
 async def test_edit_workflow_rejects_stale_revision(monkeypatch):
     async def _resolve(_workspace_id):
         return uuid.uuid4(), SimpleNamespace()
