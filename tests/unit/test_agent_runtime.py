@@ -531,7 +531,7 @@ class TestClaudeAgentRuntimeRun:
         assert captured_options[0].max_buffer_size == CLAUDE_SDK_MAX_BUFFER_SIZE_BYTES
 
     @pytest.mark.anyio
-    async def test_enable_thinking_uses_high_effort_not_adaptive_thinking(
+    async def test_enable_thinking_uses_fixed_budget_thinking(
         self,
         mock_socket_writer: MagicMock,
         mock_claude_sdk_client: MagicMock,
@@ -559,11 +559,15 @@ class TestClaudeAgentRuntimeRun:
             await runtime.run(sample_init_payload)
 
         assert captured_options
-        assert captured_options[0].effort == "high"
-        assert captured_options[0].thinking is None
+        assert captured_options[0].effort is None
+        assert captured_options[0].thinking == {
+            "type": "enabled",
+            "budget_tokens": 1024,
+        }
+        assert captured_options[0].setting_sources == ["user"]
 
     @pytest.mark.anyio
-    async def test_disable_thinking_omits_effort_and_adaptive_thinking(
+    async def test_disable_thinking_uses_disabled_thinking_config(
         self,
         mock_socket_writer: MagicMock,
         mock_claude_sdk_client: MagicMock,
@@ -599,7 +603,8 @@ class TestClaudeAgentRuntimeRun:
 
         assert captured_options
         assert captured_options[0].effort is None
-        assert captured_options[0].thinking is None
+        assert captured_options[0].thinking == {"type": "disabled"}
+        assert captured_options[0].setting_sources == ["user"]
 
     @pytest.mark.anyio
     async def test_sets_auto_compact_window_for_custom_model_provider(

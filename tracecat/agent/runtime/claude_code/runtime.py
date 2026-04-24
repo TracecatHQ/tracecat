@@ -1026,7 +1026,11 @@ class ClaudeAgentRuntime:
                 include_partial_messages=True,
                 resume=resume_session_id,
                 fork_session=fork_session,  # If True, creates new session from parent's history
-                effort="high" if payload.config.enable_thinking else None,
+                thinking=(
+                    {"type": "enabled", "budget_tokens": 1024}
+                    if payload.config.enable_thinking
+                    else {"type": "disabled"}
+                ),
                 env={
                     "ANTHROPIC_AUTH_TOKEN": payload.llm_gateway_auth_token,
                     **(
