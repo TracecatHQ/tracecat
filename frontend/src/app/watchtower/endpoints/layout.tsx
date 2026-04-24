@@ -1,10 +1,10 @@
 import type { Metadata } from "next"
 
 export const metadata: Metadata = {
-  title: "MCP Sessions | Tracecat",
+  title: "Endpoints | Tracecat",
 }
 
-export default function MonitorLayout({
+export default function EndpointsLayout({
   children,
 }: {
   children: React.ReactNode

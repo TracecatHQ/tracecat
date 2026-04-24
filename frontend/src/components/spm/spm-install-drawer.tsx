@@ -1,5 +1,6 @@
 "use client"
 
+import { Plus } from "lucide-react"
 import { useEffect, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -67,9 +68,10 @@ export function SpmInstallDrawer() {
     <Sheet open={open} onOpenChange={setOpen}>
       <button
         type="button"
-        className="inline-flex h-7 items-center gap-1.5 rounded-md border border-input bg-transparent px-2 text-xs font-medium transition-colors hover:bg-muted/50"
+        className="inline-flex h-7 items-center gap-1.5 rounded-md border border-input bg-transparent px-3 text-xs font-medium transition-colors hover:bg-muted/50"
         onClick={() => setOpen(true)}
       >
+        <Plus className="size-3.5" />
         Install endpoint
       </button>
       <SheetContent side="right" className="w-full sm:max-w-xl">

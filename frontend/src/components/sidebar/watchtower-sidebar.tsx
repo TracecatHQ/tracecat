@@ -30,7 +30,7 @@ export function WatchtowerSidebar({
 
   const navMain = [
     {
-      title: "MCP Connections",
+      title: "MCP Sessions",
       url: "/watchtower/mcp-connections",
       icon: RadarIcon,
       isActive: pathname?.startsWith("/watchtower/mcp-connections"),

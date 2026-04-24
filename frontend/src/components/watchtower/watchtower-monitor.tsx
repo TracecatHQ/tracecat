@@ -375,7 +375,7 @@ export function WatchtowerMonitor() {
               <div className="flex h-7 w-7 shrink-0 items-center justify-center">
                 <RadarIcon className="size-4 text-muted-foreground" />
               </div>
-              <span className="text-sm font-medium">Monitor</span>
+              <span className="text-sm font-medium">MCP Sessions</span>
             </div>
             <div className="ml-auto">
               <span className="text-xs text-muted-foreground">
