@@ -1,0 +1,209 @@
+tracecat/agent/common/types.py
+  96f9b799e4c6767f 126,129,163,165-170,173-179
+  7503a8ada19a5b77 1,8-10,100,107-108,127-128,164,171-172
+  e1b061b3c738bf4b 6,11
+  h_a05ba93e776158 12-13,141,153,157,159
+  cd6c4dd883f760dc 160
+tests/unit/test_agent_runtime.py
+  7503a8ada19a5b77 47,580-582,620-621,658-660,704-710,723-731,832-833
+  96f9b799e4c6767f 33,35-37,92-93,95,107,155-157,160,169-173,224-263,533-579,583-603,643-657,661-703,711-722,732-767,1287,1317-1405
+frontend/tests/chat-session-pane.test.tsx
+  cd6c4dd883f760dc 103
+tracecat/agent/session/service.py
+  e1b061b3c738bf4b 70-71,266-268
+  96f9b799e4c6767f 40-42,166,170,255-265,448-449,453,514-518
+  h_a05ba93e776158 167-169,450-452
+frontend/tests/memo-render-count.test.tsx
+  cd6c4dd883f760dc 130
+packages/tracecat-ee/tracecat_ee/agent/activities.py
+  cd6c4dd883f760dc 46-59,71-79,84,118-128,130,215-220,249-294
+packages/tracecat-registry/tracecat_registry/core/agent.py
+  cd6c4dd883f760dc 14,258-263
+tests/unit/test_agent_session_preset_versioning.py
+  cd6c4dd883f760dc 52,54,69-70,128,130,145-146,169,171,189-190
+tracecat/agent/session/schemas.py
+  96f9b799e4c6767f 14,56-59,82-85,121
+frontend/tests/use-chat.test.tsx
+  cd6c4dd883f760dc 48
+tracecat/agent/subagents.py
+  96f9b799e4c6767f 1-5,7-51,56,58-68,71-83,85,88,90,92-102
+  e1b061b3c738bf4b 6,52-55,57,69-70,84,86-87,89,91
+alembic/versions/9f0b5f6a2d1c_add_agent_subagent_config.py
+  96f9b799e4c6767f 1-58
+tracecat/agent/common/stream_types.py
+  cd6c4dd883f760dc 69-70,80,85,91-93
+tracecat/agent/tokens.py
+  cd6c4dd883f760dc 233-242,278-280,292,337-340
+tests/unit/test_agent_gateway.py
+  cd6c4dd883f760dc 279,309,367-413
+tests/unit/test_agent_session_router.py
+  96f9b799e4c6767f 14-16,31-114
+tracecat/agent/mcp/internal_tools.py
+  cd6c4dd883f760dc 29,464-468,481
+packages/tracecat-registry/tracecat_registry/sdk/agents.py
+  cd6c4dd883f760dc 50-78,102-103,134,158-159,195
+packages/tracecat-ee/tracecat_ee/agent/approvals/service.py
+  cd6c4dd883f760dc 471-476,490,740-742
+tracecat/agent/llm_routing.py
+  cd6c4dd883f760dc 1-78
+tracecat/agent/types.py
+  e1b061b3c738bf4b 20
+  96f9b799e4c6767f 131-132
+tests/unit/test_agent_sandbox_litellm.py
+  7503a8ada19a5b77 997-998
+  96f9b799e4c6767f 1002-1003
+tracecat/agent/session/router.py
+  cd6c4dd883f760dc 26,140-144,209-213
+tests/unit/test_agent_session_schemas.py
+  cd6c4dd883f760dc 7,26-61
+tracecat/db/models.py
+  96f9b799e4c6767f 2597-2601,3180-3186,3292-3297
+frontend/src/lib/agent-presets.ts
+  cd6c4dd883f760dc 48
+tracecat/agent/worker.py
+  96f9b799e4c6767f 34,84
+packages/tracecat-ee/tracecat_ee/agent/workflows/durable.py
+  e1b061b3c738bf4b 54,369-374,379
+  96f9b799e4c6767f 18,25,36-38,40,57,79-81,116-151,229,282-310,358-368,375-378,380-404,406-439,442-451,453-502,577,594,616-628,674-683,693,706,748-752,754-757,805
+tests/temporal/test_durable_agent_workflow.py
+  cd6c4dd883f760dc 29-30,126,129,152-163,166,246,254,557,559-561,582-584,903,905-909,930-932,1176,1178-1180,1201-1202
+tests/unit/test_build_agent_args.py
+  e1b061b3c738bf4b 332,352-355
+  96f9b799e4c6767f 303-331,333-351
+tracecat/agent/common/protocol.py
+  cd6c4dd883f760dc 6,12,16-20,48,58,81-84,97,107-111
+tracecat/agent/workflow_schemas.py
+  96f9b799e4c6767f 13-14,102
+tracecat/agent/gateway.py
+  cd6c4dd883f760dc 262-265,285-288,290-305,331-332,338
+tracecat/agent/mcp/proxy_server.py
+  cd6c4dd883f760dc 193,210,275,279
+tests/unit/test_agent_activities.py
+  96f9b799e4c6767f 17-22,45,50,152-223,285-290,294-318,322-335,339-358
+  cd6c4dd883f760dc 43,291-293,319-321,336-338
+tracecat/agent/preset/activities.py
+  96f9b799e4c6767f 5,11,13-16,20,54-67,69-72,74-76,106-109,111,113-119,121-141,143-183,188-197
+  e1b061b3c738bf4b 12,68,73,110,112,120,142,184-187
+tracecat/agent/preset/schemas.py
+  96f9b799e4c6767f 11,46,64,98,143
+tests/unit/test_registry.py
+  cd6c4dd883f760dc 105-116
+frontend/src/components/agents/agents-table.tsx
+  cd6c4dd883f760dc 218
+tracecat/agent/session/activities.py
+  96f9b799e4c6767f 23,25,109-110,150-163
+  e1b061b3c738bf4b 24,47,105-108,145
+tracecat/dsl/workflow.py
+  cd6c4dd883f760dc 954
+tests/integration/test_dsl_agent_wiring.py
+  cd6c4dd883f760dc 12-16,117,119-121,130-131
+frontend/src/client/schemas.gen.ts
+  96f9b799e4c6767f 1484-1486,1642-1644,1952-1961,2188-2190,2353-2355,2505-2515,2659-2668,2726,2822-2831,2897,2993-3002,3066,3133-3143,3252-3306,3835-3900,16654-16749
+tracecat/agent/preset/service.py
+  96f9b799e4c6767f 23-28,79,132-136,150,217-226,382-389,391,393-396,398-415,417-433,1052,1172,1196
+  e1b061b3c738bf4b 125,390,392,397,416,434-436,1134
+frontend/src/client/types.gen.ts
+  96f9b799e4c6767f 393,417,463,501,528,576-579,633,657,685,717-720,753-772,943-953,5170-5188
+tracecat/agent/workflow_config.py
+  96f9b799e4c6767f 100,125
+packages/tracecat-ee/tracecat_ee/agent/schemas.py
+  e1b061b3c738bf4b 4,7,42-45
+  96f9b799e4c6767f 36
+frontend/src/components/agents/agent-presets-builder.tsx
+  96f9b799e4c6767f 6,42,44,81,148-155,220-231,285-346,366-367,557,957,988-989,1004,1027,1075-1082,1186-1195,1236,1249-1251,1443,1456-1458,1465,1478-1480,1513-1519,1577-1588,1995-2272,2636-2653,2684-2685,2718,2726-2768,2777-2782
+tracecat/agent/runtime/claude_code/runtime.py
+  7503a8ada19a5b77 53-57,66,789-790
+  96f9b799e4c6767f 32,58,122,129-131,147,188-192,235-237,239,242-310,383,404,408-419,426-427,612-613,628,660-691,693,705,788,791-877,910-935,966-973,995-999,1002,1014,1030,1034,1040,1042
+tracecat/agent/schemas.py
+  96f9b799e4c6767f 19,260
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "1485d924a4071734598fee72d6c5d51985d72813",
+  "prompts": {
+    "3022c2d3f208baeb": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "4e72cddb-2d21-42c8-b685-f7fc1cd901ce",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 25,
+      "total_deletions": 29,
+      "accepted_lines": 0,
+      "overriden_lines": 0
+    },
+    "7503a8ada19a5b77": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019dc0c2-f26e-7573-af3c-2c6c8ce7fdf7",
+        "model": "gpt-5.5"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 62,
+      "total_deletions": 129,
+      "accepted_lines": 51,
+      "overriden_lines": 0
+    },
+    "96f9b799e4c6767f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019dbafe-d759-7430-ade5-011d5148fc3b",
+        "model": "gpt-5.5"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 3366,
+      "total_deletions": 657,
+      "accepted_lines": 2680,
+      "overriden_lines": 2
+    },
+    "cd6c4dd883f760dc": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019dc0fa-8157-7d20-b490-e87471e0b85d",
+        "model": "gpt-5.5"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 494,
+      "total_deletions": 75,
+      "accepted_lines": 494,
+      "overriden_lines": 0
+    },
+    "e1b061b3c738bf4b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019dc0e3-919d-7931-8f84-4b9c02f7892f",
+        "model": "gpt-5.5"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 136,
+      "total_deletions": 181,
+      "accepted_lines": 68,
+      "overriden_lines": 0
+    },
+    "ec4090cb7f76e981": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "75b1011c-cae8-47e3-bfba-6b6be1da2467",
+        "model": "default"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 15,
+      "total_deletions": 4,
+      "accepted_lines": 0,
+      "overriden_lines": 3
+    }
+  },
+  "humans": {
+    "h_a05ba93e776158": {
+      "author": "Daryl Lim"
+    }
+  }
+}
