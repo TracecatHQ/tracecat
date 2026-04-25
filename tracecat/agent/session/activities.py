@@ -139,6 +139,10 @@ async def create_session_activity(input: CreateSessionInput) -> CreateSessionRes
                     )
                 )
 
+            # Reconcile agents_binding for pre-existing sessions: backfill if
+            # missing (sessions created before binding was persisted), or fail
+            # fast if the caller is trying to swap bindings mid-session, which
+            # would invalidate the SDK history we resume from.
             if not created and input.agents_binding is not None:
                 if agent_session.agents_binding is None:
                     agent_session.agents_binding = input.agents_binding.model_dump(
@@ -150,6 +154,8 @@ async def create_session_activity(input: CreateSessionInput) -> CreateSessionRes
                     ResolvedAgentsConfig(**agent_session.agents_binding)
                     != input.agents_binding
                 ):
+                    # Non-retryable: retrying with the same mismatched input
+                    # will deterministically fail; surface to the caller.
                     raise ApplicationError(
                         "Agent session was created with a different agents binding",
                         non_retryable=True,
