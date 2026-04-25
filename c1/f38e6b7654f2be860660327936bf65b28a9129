@@ -1,0 +1,23 @@
+tracecat/agent/gateway.py
+  8b9d12d132cf8758 6,39-62,275-294,297,312-316,318,322-329,355-359
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "c1f38e6b7654f2be860660327936bf65b28a9129",
+  "prompts": {
+    "8b9d12d132cf8758": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019dc1d0-120b-7dc3-9e84-2634daf57673",
+        "model": "gpt-5.5"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 301,
+      "overriden_lines": 0
+    }
+  }
+}
