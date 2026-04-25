@@ -1,7 +1,7 @@
 """add agent catalog tables
 
-Revision ID: b742858f7d69
-Revises: 0c9a39e54e2f
+Revision ID: 7d23a45113ee
+Revises: aa5951a3373f
 Create Date: 2026-04-08 13:17:30.844855
 
 """
@@ -23,7 +23,7 @@ from tracecat.db.tenant_rls import (
 
 # revision identifiers, used by Alembic.
 revision: str = "7d23a45113ee"
-down_revision: str | None = "0c9a39e54e2f"
+down_revision: str | None = "aa5951a3373f"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
@@ -105,7 +105,7 @@ def upgrade() -> None:
         ),
         sa.CheckConstraint(
             "custom_provider_id IS NULL OR organization_id IS NOT NULL",
-            name=op.f("custom_provider_requires_org"),
+            name="custom_provider_requires_org",
         ),
         sa.ForeignKeyConstraint(
             ["organization_id", "custom_provider_id"],
