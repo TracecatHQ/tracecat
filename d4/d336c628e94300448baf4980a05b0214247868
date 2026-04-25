@@ -1,0 +1,23 @@
+tracecat/agent/session/activities.py
+  8b9d12d132cf8758 142-145,157-158
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "d4d336c628e94300448baf4980a05b0214247868",
+  "prompts": {
+    "8b9d12d132cf8758": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019dc1d0-120b-7dc3-9e84-2634daf57673",
+        "model": "gpt-5.5"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 307,
+      "total_deletions": 37,
+      "accepted_lines": 307,
+      "overriden_lines": 0
+    }
+  }
+}
