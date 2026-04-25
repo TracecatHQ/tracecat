@@ -18,7 +18,16 @@ from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from io import StringIO
 from pathlib import PurePosixPath
-from typing import Annotated, Any, Literal, Protocol, TypedDict, cast, get_args
+from types import SimpleNamespace
+from typing import (
+    Annotated,
+    Any,
+    Literal,
+    Protocol,
+    TypedDict,
+    cast,
+    get_args,
+)
 
 import orjson
 import sqlalchemy as sa
@@ -625,9 +634,10 @@ async def _resolve_agent_preset_model(
     *,
     model_name: str | None,
     model_provider: str | None,
-) -> tuple[str, str]:
+) -> tuple[str, str, uuid.UUID | None]:
     """Resolve explicit or default model inputs for preset creation."""
     async with AgentManagementService.with_session(role=role) as svc:
+        catalog_id: uuid.UUID | None = None
         if model_name is not None or model_provider is not None:
             if not model_name or not model_provider:
                 raise ToolError(
@@ -639,7 +649,7 @@ async def _resolve_agent_preset_model(
                         "Workspace credentials for provider "
                         f"'{model_provider}' are not configured"
                     )
-                return model_name, model_provider
+                return model_name, model_provider, None
             try:
                 model_config = await svc.get_model_config(model_name)
             except TracecatNotFoundError as exc:
@@ -649,21 +659,30 @@ async def _resolve_agent_preset_model(
                     f"Model '{model_name}' belongs to provider '{model_config.provider}', not '{model_provider}'"
                 )
         else:
-            if not (default_model := await svc.get_default_model()):
-                raise ToolError(
-                    "No default model configured for this organization. Set one before creating a preset without explicit model fields."
+            if default_selection := await svc.get_default_model_selection():
+                catalog_id = default_selection.catalog_id
+                model_config = SimpleNamespace(
+                    name=default_selection.model_name,
+                    provider=default_selection.model_provider,
                 )
-            try:
-                model_config = await svc.get_model_config(default_model)
-            except TracecatNotFoundError as exc:
-                raise ToolError(
-                    f"Default model '{default_model}' is configured but no longer exists"
-                ) from exc
-        if not await svc.check_workspace_provider_credentials(model_config.provider):
+            else:
+                if not (default_model := await svc.get_default_model()):
+                    raise ToolError(
+                        "No default model configured for this organization. Set one before creating a preset without explicit model fields."
+                    )
+                try:
+                    model_config = await svc.get_model_config(default_model)
+                except TracecatNotFoundError as exc:
+                    raise ToolError(
+                        f"Default model '{default_model}' is configured but no longer exists"
+                    ) from exc
+        if catalog_id is None and not await svc.check_workspace_provider_credentials(
+            model_config.provider
+        ):
             raise ToolError(
                 f"Workspace credentials for provider '{model_config.provider}' are not configured"
             )
-        return model_config.name, model_config.provider
+        return model_config.name, model_config.provider, catalog_id
 
 
 _WORKFLOW_YAML_TOP_LEVEL_KEYS = frozenset(
@@ -8593,6 +8612,7 @@ async def create_agent_preset(
         (
             resolved_model_name,
             resolved_model_provider,
+            resolved_catalog_id,
         ) = await _resolve_agent_preset_model(
             role,
             model_name=model_name,
@@ -8602,6 +8622,7 @@ async def create_agent_preset(
             "name": name,
             "model_name": resolved_model_name,
             "model_provider": resolved_model_provider,
+            "catalog_id": resolved_catalog_id,
         }
         optional_fields = {
             "slug": slug,
@@ -8691,6 +8712,7 @@ async def update_agent_preset(
             (
                 resolved_model_name,
                 resolved_model_provider,
+                resolved_catalog_id,
             ) = await _resolve_agent_preset_model(
                 role,
                 model_name=model_name,
@@ -8698,6 +8720,7 @@ async def update_agent_preset(
             )
             update_data["model_name"] = resolved_model_name
             update_data["model_provider"] = resolved_model_provider
+            update_data["catalog_id"] = resolved_catalog_id
         params = AgentPresetUpdate.model_validate(update_data)
         async with AgentPresetService.with_session(role=role) as svc:
             preset = await svc.get_preset_by_slug(preset_slug)

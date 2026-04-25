@@ -28,11 +28,17 @@ def get_platform_catalog_models() -> list[PlatformCatalogEntry]:
     except (FileNotFoundError, IsADirectoryError, orjson.JSONDecodeError, OSError):
         return []
 
+    if not isinstance(catalog_data, dict):
+        return []
+
     models = catalog_data.get("models", [])
+    if not isinstance(models, list):
+        return []
+
     return [
         cast(PlatformCatalogEntry, m)
         for m in models
-        if m.get("model_provider") and m.get("model_name")
+        if isinstance(m, dict) and m.get("model_provider") and m.get("model_name")
     ]
 
 

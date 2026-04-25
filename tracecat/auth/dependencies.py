@@ -50,22 +50,6 @@ WorkspaceServiceAccountRole = Annotated[
 ]
 """Dependency for a service-account role for a workspace."""
 
-
-WorkspaceUserPathRole = Annotated[
-    Role,
-    RoleACL(
-        allow_user=True,
-        allow_service=False,
-        require_workspace="yes",
-        workspace_id_in_path=True,
-    ),
-]
-"""Dependency for a user role for a path-scoped workspace.
-
-Sets the `ctx_role` context variable.
-"""
-
-
 WorkspaceUserPathRole = Annotated[
     Role,
     RoleACL(

@@ -794,12 +794,12 @@ export function useAdminPlatformCatalog({
   query?: string
 } = {}) {
   const {
-    data: catalog,
+    data: catalogItems,
     isLoading,
     error,
     refetch,
-  } = useQuery<AdminPlatformCatalogRead, TracecatApiError>({
-    queryKey: ["admin", "agent-platform-catalog", query],
+  } = useQuery<AgentCatalogRead[], TracecatApiError>({
+    queryKey: ["admin", "agent-platform-catalog"],
     queryFn: async () => {
       const items: AgentCatalogRead[] = []
       let cursor: string | undefined
@@ -813,49 +813,56 @@ export function useAdminPlatformCatalog({
         cursor = response.next_cursor ?? undefined
       } while (cursor)
 
-      const normalizedQuery = query.trim().toLowerCase()
-      const models = items
-        .filter((item) => item.organization_id === null)
-        .filter((item) => {
-          if (!normalizedQuery) {
-            return true
-          }
-          return (
-            item.model_name.toLowerCase().includes(normalizedQuery) ||
-            item.model_provider.toLowerCase().includes(normalizedQuery)
-          )
-        })
-        .sort((left, right) => {
-          const providerComparison = left.model_provider.localeCompare(
-            right.model_provider
-          )
-          if (providerComparison !== 0) {
-            return providerComparison
-          }
-          return left.model_name.localeCompare(right.model_name)
-        })
-        .map((item) => ({
-          id: item.id,
-          model_provider: item.model_provider,
-          model_name: item.model_name,
-          model_id: item.model_name,
-          display_name:
-            (item.model_metadata?.display_name as string | undefined) ??
-            item.model_name,
-          metadata:
-            (item.model_metadata as Record<string, unknown> | null) ?? null,
-        }))
-
-      return {
-        discovery_status: models.length ? "loaded" : "unknown",
-        last_refreshed_at: null,
-        last_error: null,
-        next_cursor: null,
-        models,
-      }
+      return items
     },
     retry: retryHandler,
   })
+  const catalog = useMemo<AdminPlatformCatalogRead | undefined>(() => {
+    if (!catalogItems) {
+      return undefined
+    }
+
+    const normalizedQuery = query.trim().toLowerCase()
+    const models = catalogItems
+      .filter((item) => item.organization_id === null)
+      .filter((item) => {
+        if (!normalizedQuery) {
+          return true
+        }
+        return (
+          item.model_name.toLowerCase().includes(normalizedQuery) ||
+          item.model_provider.toLowerCase().includes(normalizedQuery)
+        )
+      })
+      .sort((left, right) => {
+        const providerComparison = left.model_provider.localeCompare(
+          right.model_provider
+        )
+        if (providerComparison !== 0) {
+          return providerComparison
+        }
+        return left.model_name.localeCompare(right.model_name)
+      })
+      .map((item) => ({
+        id: item.id,
+        model_provider: item.model_provider,
+        model_name: item.model_name,
+        model_id: item.model_name,
+        display_name:
+          (item.model_metadata?.display_name as string | undefined) ??
+          item.model_name,
+        metadata:
+          (item.model_metadata as Record<string, unknown> | null) ?? null,
+      }))
+
+    return {
+      discovery_status: models.length ? "loaded" : "unknown",
+      last_refreshed_at: null,
+      last_error: null,
+      next_cursor: null,
+      models,
+    }
+  }, [catalogItems, query])
 
   return {
     catalog,

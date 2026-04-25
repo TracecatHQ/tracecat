@@ -204,7 +204,7 @@ async def set_default_model_selection(
     """Set the organization's canonical default model selection."""
     service = AgentManagementService(session, role=role)
     try:
-        return await service.set_default_model_selection(params)
+        return await service.set_default_model(params.catalog_id)
     except TracecatNotFoundError as e:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

@@ -12,6 +12,7 @@ import sqlalchemy as sa
 from slugify import slugify
 from sqlalchemy import func, select
 
+from tracecat.agent.access.service import AgentModelAccessService
 from tracecat.agent.common.types import MCPHttpServerConfig
 from tracecat.agent.preset.schemas import (
     AgentPresetCreate,
@@ -239,6 +240,8 @@ class AgentPresetService(BaseWorkspaceService):
                 params.skills,
                 for_update=True,
             )
+        if params.catalog_id is not None:
+            await self._validate_catalog_enabled(params.catalog_id)
         preset = AgentPreset(
             workspace_id=self.workspace_id,
             slug=slug,
@@ -282,6 +285,17 @@ class AgentPresetService(BaseWorkspaceService):
         if missing_actions := actions_set - available_identifiers:
             raise TracecatValidationError(
                 f"{len(missing_actions)} actions were not found in the registry: {sorted(missing_actions)}"
+            )
+
+    async def _validate_catalog_enabled(self, catalog_id: uuid.UUID) -> None:
+        """Validate that a catalog row is enabled for this workspace."""
+        access_service = AgentModelAccessService(session=self.session, role=self.role)
+        if not await access_service.is_catalog_enabled(
+            catalog_id,
+            workspace_id=self.workspace_id,
+        ):
+            raise TracecatValidationError(
+                f"Catalog entry {catalog_id} is not enabled for this workspace"
             )
 
     @require_scope("agent:update")
@@ -339,6 +353,8 @@ class AgentPresetService(BaseWorkspaceService):
             if current_specs != requested_specs:
                 await self._replace_head_skill_bindings(preset.id, requested_skills)
                 execution_changed = True
+        if (catalog_id := set_fields.get("catalog_id")) is not None:
+            await self._validate_catalog_enabled(catalog_id)
 
         # Update remaining fields
         for field, value in set_fields.items():

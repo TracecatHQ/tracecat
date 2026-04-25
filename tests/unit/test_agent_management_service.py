@@ -6,16 +6,32 @@ from typing import cast
 from unittest.mock import AsyncMock
 
 import pytest
+from cryptography.fernet import Fernet
+from pydantic import SecretStr
+from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat_registry._internal import secrets as registry_secrets
 
 import tracecat.agent.service as agent_service
+from tracecat import config as tracecat_config
 from tracecat.agent.config import PROVIDER_CREDENTIAL_CONFIGS
+from tracecat.agent.preset.activities import _load_custom_model_provider_creds
 from tracecat.agent.preset.service import AgentPresetService
 from tracecat.agent.service import AgentManagementService
 from tracecat.agent.types import AgentConfig
 from tracecat.auth.types import Role
+from tracecat.db.models import (
+    AgentCatalog,
+    AgentCustomProvider,
+    AgentModelAccess,
+    Organization,
+    OrganizationSecret,
+    Workspace,
+)
 from tracecat.integrations.aws_assume_role import build_workspace_external_id
 from tracecat.secrets import secrets_manager
+from tracecat.secrets.encryption import encrypt_keyvalues
+from tracecat.secrets.enums import SecretType
+from tracecat.secrets.schemas import SecretKeyValue
 
 
 @pytest.fixture
@@ -28,6 +44,400 @@ def role() -> Role:
         user_id=uuid.uuid4(),
         scopes=frozenset({"agent:read", "org:secret:read"}),
     )
+
+
+def _db_role(org: Organization, workspace: Workspace | None = None) -> Role:
+    return Role(
+        type="user",
+        user_id=uuid.uuid4(),
+        workspace_id=workspace.id if workspace is not None else None,
+        organization_id=org.id,
+        service_id="tracecat-api",
+        scopes=frozenset({"*"}),
+    )
+
+
+async def _seed_org_secret(
+    session: AsyncSession,
+    *,
+    org_id: uuid.UUID,
+    name: str,
+    values: dict[str, str],
+    encryption_key: str,
+) -> None:
+    encrypted_keys = encrypt_keyvalues(
+        [
+            SecretKeyValue(key=key, value=SecretStr(value))
+            for key, value in values.items()
+        ],
+        key=encryption_key,
+    )
+    session.add(
+        OrganizationSecret(
+            organization_id=org_id,
+            name=name,
+            type=SecretType.CUSTOM.value,
+            encrypted_keys=encrypted_keys,
+        )
+    )
+    await session.flush()
+
+
+async def _seed_catalog(
+    session: AsyncSession,
+    *,
+    org_id: uuid.UUID | None,
+    provider: str,
+    model_name: str,
+    metadata: dict[str, object] | None = None,
+    encrypted_config: bytes | None = None,
+    custom_provider_id: uuid.UUID | None = None,
+) -> AgentCatalog:
+    row = AgentCatalog(
+        organization_id=org_id,
+        custom_provider_id=custom_provider_id,
+        model_provider=provider,
+        model_name=model_name,
+        model_metadata=metadata or {},
+        encrypted_config=encrypted_config,
+    )
+    session.add(row)
+    await session.flush()
+    return row
+
+
+async def _grant_access(
+    session: AsyncSession,
+    *,
+    org_id: uuid.UUID,
+    catalog_id: uuid.UUID,
+    workspace_id: uuid.UUID | None = None,
+) -> None:
+    session.add(
+        AgentModelAccess(
+            organization_id=org_id,
+            workspace_id=workspace_id,
+            catalog_id=catalog_id,
+        )
+    )
+    await session.flush()
+
+
+@pytest.mark.anyio
+@pytest.mark.usefixtures("db")
+async def test_get_catalog_credentials_respects_workspace_override_access(
+    session: AsyncSession,
+    svc_organization: Organization,
+    svc_workspace: Workspace,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    encryption_key = Fernet.generate_key().decode()
+    monkeypatch.setattr(
+        tracecat_config,
+        "TRACECAT__DB_ENCRYPTION_KEY",
+        encryption_key,
+    )
+    inherited_catalog = await _seed_catalog(
+        session,
+        org_id=None,
+        provider="openai",
+        model_name="gpt-4.1",
+    )
+    workspace_catalog = await _seed_catalog(
+        session,
+        org_id=None,
+        provider="anthropic",
+        model_name="claude-sonnet-4-5",
+    )
+    await _grant_access(
+        session,
+        org_id=svc_organization.id,
+        catalog_id=inherited_catalog.id,
+    )
+    await _grant_access(
+        session,
+        org_id=svc_organization.id,
+        workspace_id=svc_workspace.id,
+        catalog_id=workspace_catalog.id,
+    )
+    await _seed_org_secret(
+        session,
+        org_id=svc_organization.id,
+        name="agent-openai-credentials",
+        values={"OPENAI_API_KEY": "live-openai"},
+        encryption_key=encryption_key,
+    )
+    await _seed_org_secret(
+        session,
+        org_id=svc_organization.id,
+        name="agent-anthropic-credentials",
+        values={"ANTHROPIC_API_KEY": "live-anthropic"},
+        encryption_key=encryption_key,
+    )
+    await session.commit()
+
+    service = AgentManagementService(
+        session=session,
+        role=_db_role(svc_organization, svc_workspace),
+    )
+
+    assert await service.get_catalog_credentials(inherited_catalog.id) is None
+    credentials = await service.get_catalog_credentials(workspace_catalog.id)
+    assert credentials == {"ANTHROPIC_API_KEY": "live-anthropic"}
+
+
+@pytest.mark.anyio
+@pytest.mark.usefixtures("db")
+async def test_get_catalog_credentials_uses_live_cloud_secret_with_catalog_metadata(
+    session: AsyncSession,
+    svc_organization: Organization,
+    svc_workspace: Workspace,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    encryption_key = Fernet.generate_key().decode()
+    monkeypatch.setattr(
+        tracecat_config,
+        "TRACECAT__DB_ENCRYPTION_KEY",
+        encryption_key,
+    )
+    migrated_blob = encrypt_keyvalues(
+        [
+            SecretKeyValue(key="AWS_ACCESS_KEY_ID", value=SecretStr("old-key")),
+            SecretKeyValue(
+                key="AWS_INFERENCE_PROFILE_ID",
+                value=SecretStr("old-target"),
+            ),
+        ],
+        key=encryption_key,
+    )
+    catalog = await _seed_catalog(
+        session,
+        org_id=svc_organization.id,
+        provider="bedrock",
+        model_name="Claude Sonnet",
+        metadata={"inference_profile_id": "metadata-target"},
+        encrypted_config=migrated_blob,
+    )
+    await _grant_access(
+        session,
+        org_id=svc_organization.id,
+        catalog_id=catalog.id,
+    )
+    await _seed_org_secret(
+        session,
+        org_id=svc_organization.id,
+        name="agent-bedrock-credentials",
+        values={
+            "AWS_ACCESS_KEY_ID": "live-key",
+            "AWS_SECRET_ACCESS_KEY": "live-secret",
+            "AWS_REGION": "us-east-1",
+        },
+        encryption_key=encryption_key,
+    )
+    await session.commit()
+
+    service = AgentManagementService(
+        session=session,
+        role=_db_role(svc_organization, svc_workspace),
+    )
+
+    credentials = await service.get_catalog_credentials(catalog.id)
+
+    assert credentials is not None
+    assert credentials["AWS_ACCESS_KEY_ID"] == "live-key"
+    assert credentials["AWS_SECRET_ACCESS_KEY"] == "live-secret"
+    assert credentials["AWS_INFERENCE_PROFILE_ID"] == "metadata-target"
+
+
+@pytest.mark.anyio
+@pytest.mark.usefixtures("db")
+async def test_get_catalog_credentials_uses_migrated_cloud_target_as_fallback(
+    session: AsyncSession,
+    svc_organization: Organization,
+    svc_workspace: Workspace,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    encryption_key = Fernet.generate_key().decode()
+    monkeypatch.setattr(
+        tracecat_config,
+        "TRACECAT__DB_ENCRYPTION_KEY",
+        encryption_key,
+    )
+    migrated_blob = encrypt_keyvalues(
+        [
+            SecretKeyValue(key="AWS_ACCESS_KEY_ID", value=SecretStr("old-key")),
+            SecretKeyValue(
+                key="AWS_MODEL_ID",
+                value=SecretStr("anthropic.claude-3-haiku-20240307-v1:0"),
+            ),
+        ],
+        key=encryption_key,
+    )
+    catalog = await _seed_catalog(
+        session,
+        org_id=svc_organization.id,
+        provider="bedrock",
+        model_name="Claude Haiku",
+        encrypted_config=migrated_blob,
+    )
+    await _grant_access(
+        session,
+        org_id=svc_organization.id,
+        catalog_id=catalog.id,
+    )
+    await _seed_org_secret(
+        session,
+        org_id=svc_organization.id,
+        name="agent-bedrock-credentials",
+        values={
+            "AWS_ACCESS_KEY_ID": "live-key",
+            "AWS_SECRET_ACCESS_KEY": "live-secret",
+            "AWS_REGION": "us-east-1",
+        },
+        encryption_key=encryption_key,
+    )
+    await session.commit()
+
+    service = AgentManagementService(
+        session=session,
+        role=_db_role(svc_organization, svc_workspace),
+    )
+
+    credentials = await service.get_catalog_credentials(catalog.id)
+
+    assert credentials is not None
+    assert credentials["AWS_ACCESS_KEY_ID"] == "live-key"
+    assert credentials["AWS_MODEL_ID"] == "anthropic.claude-3-haiku-20240307-v1:0"
+
+
+@pytest.mark.anyio
+@pytest.mark.usefixtures("db")
+async def test_get_catalog_credentials_decodes_migrated_custom_provider_blob(
+    session: AsyncSession,
+    svc_organization: Organization,
+    svc_workspace: Workspace,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    encryption_key = Fernet.generate_key().decode()
+    monkeypatch.setattr(
+        tracecat_config,
+        "TRACECAT__DB_ENCRYPTION_KEY",
+        encryption_key,
+    )
+    migrated_blob = encrypt_keyvalues(
+        [
+            SecretKeyValue(
+                key="CUSTOM_MODEL_PROVIDER_BASE_URL",
+                value=SecretStr("https://llm.example.com/v1"),
+            ),
+            SecretKeyValue(
+                key="CUSTOM_MODEL_PROVIDER_API_KEY",
+                value=SecretStr("sk-custom"),
+            ),
+            SecretKeyValue(
+                key="CUSTOM_MODEL_PROVIDER_MODEL_NAME",
+                value=SecretStr("provider/custom-model"),
+            ),
+            SecretKeyValue(
+                key="CUSTOM_MODEL_PROVIDER_PASSTHROUGH",
+                value=SecretStr("true"),
+            ),
+        ],
+        key=encryption_key,
+    )
+    provider = AgentCustomProvider(
+        organization_id=svc_organization.id,
+        display_name="Migrated provider",
+        base_url=None,
+        passthrough=False,
+        encrypted_config=migrated_blob,
+    )
+    session.add(provider)
+    await session.flush()
+    catalog = await _seed_catalog(
+        session,
+        org_id=svc_organization.id,
+        provider="custom-model-provider",
+        model_name="custom-model-provider",
+        custom_provider_id=provider.id,
+        encrypted_config=migrated_blob,
+    )
+    await _grant_access(
+        session,
+        org_id=svc_organization.id,
+        catalog_id=catalog.id,
+    )
+    await session.commit()
+
+    service = AgentManagementService(
+        session=session,
+        role=_db_role(svc_organization, svc_workspace),
+    )
+
+    credentials = await service.get_catalog_credentials(catalog.id)
+
+    assert credentials == {
+        "CUSTOM_MODEL_PROVIDER_BASE_URL": "https://llm.example.com/v1",
+        "CUSTOM_MODEL_PROVIDER_API_KEY": "sk-custom",
+        "CUSTOM_MODEL_PROVIDER_MODEL_NAME": "provider/custom-model",
+        "CUSTOM_MODEL_PROVIDER_PASSTHROUGH": "true",
+    }
+
+
+@pytest.mark.anyio
+@pytest.mark.usefixtures("db")
+async def test_load_custom_model_provider_creds_requires_catalog_access(
+    session: AsyncSession,
+    svc_organization: Organization,
+    svc_workspace: Workspace,
+) -> None:
+    provider = AgentCustomProvider(
+        organization_id=svc_organization.id,
+        display_name="Disabled provider",
+        base_url="https://llm.example.com/v1",
+        passthrough=True,
+        encrypted_config=None,
+    )
+    session.add(provider)
+    await session.flush()
+    catalog = await _seed_catalog(
+        session,
+        org_id=svc_organization.id,
+        provider="custom-model-provider",
+        model_name="custom-model-provider",
+        custom_provider_id=provider.id,
+    )
+    await session.commit()
+
+    service = AgentManagementService(
+        session=session,
+        role=_db_role(svc_organization, svc_workspace),
+    )
+
+    assert (
+        await _load_custom_model_provider_creds(
+            service,
+            catalog_id=catalog.id,
+        )
+        is None
+    )
+
+    await _grant_access(
+        session,
+        org_id=svc_organization.id,
+        catalog_id=catalog.id,
+    )
+    await session.commit()
+
+    credentials = await _load_custom_model_provider_creds(
+        service,
+        catalog_id=catalog.id,
+    )
+
+    assert credentials == {
+        "CUSTOM_MODEL_PROVIDER_BASE_URL": "https://llm.example.com/v1",
+        "CUSTOM_MODEL_PROVIDER_PASSTHROUGH": "true",
+    }
 
 
 @pytest.mark.anyio
@@ -261,6 +671,7 @@ async def test_get_runtime_provider_credentials_rejects_incomplete_azure_client_
         await service.get_runtime_provider_credentials("azure_ai")
 
 
+@pytest.mark.anyio
 async def test_get_providers_status_includes_builtin_configs_without_enabled_models(
     role: Role,
 ) -> None:

@@ -234,3 +234,47 @@ class AgentModelAccessService(BaseOrgService):
 
         rows = (await self.session.execute(stmt)).scalars().all()
         return [AgentCatalogRead.model_validate(row) for row in rows]
+
+    async def is_catalog_enabled(
+        self,
+        catalog_id: UUID,
+        workspace_id: UUID | None = None,
+    ) -> bool:
+        """Return whether a catalog row is enabled under effective access rules."""
+        effective_workspace_id = None
+        if workspace_id is not None:
+            workspace_override_exists = await self.session.scalar(
+                select(
+                    exists().where(
+                        sa.and_(
+                            AgentModelAccess.organization_id == self.organization_id,
+                            AgentModelAccess.workspace_id == workspace_id,
+                        )
+                    )
+                )
+            )
+            if workspace_override_exists:
+                effective_workspace_id = workspace_id
+        workspace_condition = (
+            AgentModelAccess.workspace_id == effective_workspace_id
+            if effective_workspace_id is not None
+            else AgentModelAccess.workspace_id.is_(None)
+        )
+
+        enabled = await self.session.scalar(
+            select(
+                exists().where(
+                    sa.and_(
+                        AgentModelAccess.organization_id == self.organization_id,
+                        workspace_condition,
+                        AgentModelAccess.catalog_id == catalog_id,
+                        AgentCatalog.id == AgentModelAccess.catalog_id,
+                        sa.or_(
+                            AgentCatalog.organization_id.is_(None),
+                            AgentCatalog.organization_id == self.organization_id,
+                        ),
+                    )
+                )
+            )
+        )
+        return bool(enabled)

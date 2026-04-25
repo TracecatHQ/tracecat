@@ -61,6 +61,7 @@ function getCredentialLayoutSections(
         description:
           "Use either AWS access keys or a Bedrock bearer token for this provider.",
         rows: [
+          ["AWS_ROLE_ARN", "AWS_ROLE_SESSION_NAME"],
           ["AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY"],
           ["AWS_BEARER_TOKEN_BEDROCK"],
         ],
@@ -75,6 +76,36 @@ function getCredentialLayoutSections(
   }
 
   return []
+}
+
+function getCredentialFieldRows(
+  providerFields: { key: string }[],
+  layoutSections: CredentialLayoutSection[]
+): CredentialLayoutSection[] {
+  if (layoutSections.length === 0) {
+    return [
+      {
+        rows: providerFields.map((field) => [field.key]),
+      },
+    ]
+  }
+
+  const placedFieldKeys = new Set(
+    layoutSections.flatMap((section) => section.rows.flat())
+  )
+  const unplacedRows = providerFields
+    .filter((field) => !placedFieldKeys.has(field.key))
+    .map((field) => [field.key])
+
+  if (unplacedRows.length === 0) {
+    return layoutSections
+  }
+  return [
+    ...layoutSections,
+    {
+      rows: unplacedRows,
+    },
+  ]
 }
 
 export function AgentCredentialsDialog({
@@ -171,14 +202,9 @@ export function AgentCredentialsDialog({
     (providerConfig?.fields ?? []).map((field) => [field.key, field])
   )
   const layoutSections = provider ? getCredentialLayoutSections(provider) : []
-  const fieldRows =
-    providerConfig && layoutSections.length === 0
-      ? [
-          {
-            rows: providerConfig.fields.map((field) => [field.key]),
-          },
-        ]
-      : layoutSections
+  const fieldRows = providerConfig
+    ? getCredentialFieldRows(providerConfig.fields, layoutSections)
+    : []
   const dialogLabel = providerConfig?.label ?? provider
 
   return (

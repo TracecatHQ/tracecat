@@ -4,7 +4,7 @@ import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from temporalio import workflow
 from temporalio.common import TypedSearchAttributes
 from temporalio.exceptions import ActivityError, ApplicationError
@@ -105,6 +105,11 @@ def _build_approved_tool_run_input(
 
 class AgentWorkflowArgs(BaseModel):
     """Arguments for starting an agent workflow."""
+
+    # Temporal stores the original workflow input in history. Keep stale keys
+    # replayable after workflow args evolve, including the removed legacy
+    # ``use_workspace_credentials`` flag.
+    model_config = ConfigDict(extra="ignore")
 
     role: Role
     agent_args: RunAgentArgs

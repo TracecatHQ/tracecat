@@ -2,7 +2,7 @@
 
 import { zodResolver } from "@hookform/resolvers/zod"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { Loader2 } from "lucide-react"
+import { Loader2, MoreVertical } from "lucide-react"
 import { type ReactNode, useEffect, useMemo, useState } from "react"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
@@ -67,6 +67,12 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import {
   Form,
   FormControl,
@@ -491,6 +497,25 @@ function formatStatus(value?: string | null): string {
     .join(" ")
 }
 
+function getProviderDisplayLabel(provider: string): string {
+  if (isCloudCatalogProvider(provider)) {
+    return getCloudProviderLabel(provider)
+  }
+
+  switch (provider) {
+    case "anthropic":
+      return "Anthropic"
+    case "gemini":
+      return "Google Gemini"
+    case "openai":
+      return "OpenAI"
+    case "custom-model-provider":
+      return "Custom"
+    default:
+      return formatStatus(provider)
+  }
+}
+
 function getProviderIconId(provider?: string | null): string {
   switch (provider) {
     case "anthropic":
@@ -602,9 +627,12 @@ function getCustomSourceModelTitle(
 }
 
 function getModelSourceLabel(
-  model: Pick<ModelCatalogEntry, "source_id" | "source_name">
+  model: Pick<ModelCatalogEntry, "source_id" | "source_name" | "model_provider">
 ): string {
-  return model.source_name ?? (model.source_id ? "Custom" : "Platform")
+  return (
+    model.source_name ??
+    (model.source_id ? "Custom" : getProviderDisplayLabel(model.model_provider))
+  )
 }
 
 function getCustomSourceIconId(
@@ -1084,12 +1112,14 @@ function CustomSourceModelRow({
 function ProviderAllowlistModelRow({
   disabled,
   model,
+  showCapabilityColumns,
   onToggle,
   onEdit,
   onDelete,
 }: {
   disabled: boolean
   model: BuiltInCatalogEntry
+  showCapabilityColumns: boolean
   onToggle: (model: ModelCatalogEntry) => Promise<void>
   onEdit?: (model: BuiltInCatalogEntry) => void
   onDelete?: (model: BuiltInCatalogEntry) => void
@@ -1097,18 +1127,26 @@ function ProviderAllowlistModelRow({
   const canEnable = canEnableBuiltInCatalogModel(model)
   const statusMessage = model.readiness_message
   const isOrgScoped = model.organization_id != null
-  const showRowActions = isOrgScoped && (onEdit || onDelete)
+  const isCloudCatalogModel = isCloudCatalogProvider(model.model_provider)
+  const showOverflowMenu = isOrgScoped && (onEdit || onDelete)
   const displayName = model.metadata_display_name?.trim()
 
   return (
     <div className="border-b border-border/40 py-3 last:border-b-0">
-      <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_88px_88px_72px_auto] sm:items-center sm:gap-4">
+      <div
+        className={cn(
+          "grid gap-3 sm:items-center sm:gap-4",
+          showCapabilityColumns
+            ? "sm:grid-cols-[minmax(0,1fr)_88px_88px_7rem_2rem]"
+            : "sm:grid-cols-[minmax(0,1fr)_7rem_2rem]"
+        )}
+      >
         <div className="min-w-0 space-y-1">
           <div className="flex min-w-0 items-center gap-2">
             <p className="truncate text-sm font-medium">
               {displayName || getModelLabel(model)}
             </p>
-            {isOrgScoped ? (
+            {isOrgScoped && !isCloudCatalogModel ? (
               <Badge className="shrink-0" variant="outline">
                 Custom
               </Badge>
@@ -1119,49 +1157,29 @@ function ProviderAllowlistModelRow({
               {model.model_name}
             </p>
           ) : null}
-          <p className="text-xs text-muted-foreground sm:hidden">
-            {getModelContextLabel(model)} ctx {"·"} {getModelOutputLabel(model)}{" "}
-            out {"·"} {getModelModeLabel(model)}
-          </p>
+          {showCapabilityColumns ? (
+            <p className="text-xs text-muted-foreground sm:hidden">
+              {getModelContextLabel(model)} ctx {"·"}{" "}
+              {getModelOutputLabel(model)} out
+            </p>
+          ) : null}
           {statusMessage ? (
             <p className="text-xs text-muted-foreground">{statusMessage}</p>
           ) : null}
         </div>
-        <p className="hidden text-right text-xs text-muted-foreground sm:block">
-          {getModelContextLabel(model)}
-        </p>
-        <p className="hidden text-right text-xs text-muted-foreground sm:block">
-          {getModelOutputLabel(model)}
-        </p>
-        <p className="hidden text-right text-xs capitalize text-muted-foreground sm:block">
-          {getModelModeLabel(model)}
-        </p>
-        <div className="flex items-center justify-end gap-2">
-          {showRowActions ? (
-            <>
-              {onEdit ? (
-                <Button
-                  disabled={disabled}
-                  onClick={() => onEdit(model)}
-                  size="sm"
-                  variant="ghost"
-                >
-                  Edit
-                </Button>
-              ) : null}
-              {onDelete ? (
-                <Button
-                  disabled={disabled}
-                  onClick={() => onDelete(model)}
-                  size="sm"
-                  variant="ghost"
-                >
-                  Delete
-                </Button>
-              ) : null}
-            </>
-          ) : null}
+        {showCapabilityColumns ? (
+          <>
+            <p className="hidden text-right text-xs text-muted-foreground sm:block">
+              {getModelContextLabel(model)}
+            </p>
+            <p className="hidden text-right text-xs text-muted-foreground sm:block">
+              {getModelOutputLabel(model)}
+            </p>
+          </>
+        ) : null}
+        <div className="flex items-center justify-center">
           <Button
+            className="w-24"
             disabled={disabled || !canEnable}
             onClick={() => {
               void onToggle(model)
@@ -1171,6 +1189,35 @@ function ProviderAllowlistModelRow({
           >
             {model.enabled ? "Disallow" : "Allow"}
           </Button>
+        </div>
+        <div className="flex items-center justify-end">
+          {showOverflowMenu ? (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  aria-label="Model actions"
+                  disabled={disabled}
+                  size="icon"
+                  type="button"
+                  variant="ghost"
+                >
+                  <MoreVertical className="size-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                {onEdit ? (
+                  <DropdownMenuItem onSelect={() => onEdit(model)}>
+                    Edit
+                  </DropdownMenuItem>
+                ) : null}
+                {onDelete ? (
+                  <DropdownMenuItem onSelect={() => onDelete(model)}>
+                    Delete
+                  </DropdownMenuItem>
+                ) : null}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          ) : null}
         </div>
       </div>
     </div>
@@ -1251,6 +1298,7 @@ function ProviderConnectionItem({
     !isWhitelistMode && (allowAllOverride ?? allSelectableAllowed)
   const showWhitelistControls = isWhitelistMode || !allowAllChecked
   const showModelList = showWhitelistControls
+  const showCapabilityColumns = !isCloudCatalogProvider(provider.provider)
   const subtitle = provider.credentials_configured
     ? provider.base_url || provider.runtime_target
       ? [provider.base_url, provider.runtime_target].filter(Boolean).join(" · ")
@@ -1442,12 +1490,23 @@ function ProviderConnectionItem({
                 {providerModels.length ? (
                   <ScrollArea className="h-96 rounded-lg border">
                     <div className="px-4">
-                      <div className="hidden grid-cols-[minmax(0,1fr)_88px_88px_72px_auto] gap-4 border-b border-border/40 py-3 text-[11px] font-medium uppercase tracking-wide text-muted-foreground sm:grid">
+                      <div
+                        className={cn(
+                          "hidden gap-4 border-b border-border/40 py-3 text-[11px] font-medium uppercase tracking-wide text-muted-foreground sm:grid",
+                          showCapabilityColumns
+                            ? "grid-cols-[minmax(0,1fr)_88px_88px_7rem_2rem]"
+                            : "grid-cols-[minmax(0,1fr)_7rem_2rem]"
+                        )}
+                      >
                         <span>Model</span>
-                        <span className="text-right">Context</span>
-                        <span className="text-right">Output</span>
-                        <span className="text-right">Mode</span>
-                        <span className="text-right">Access</span>
+                        {showCapabilityColumns ? (
+                          <>
+                            <span className="text-right">Context</span>
+                            <span className="text-right">Output</span>
+                          </>
+                        ) : null}
+                        <span className="text-center">Access</span>
+                        <span aria-hidden="true" />
                       </div>
                       {providerModels.map((model) => (
                         <ProviderAllowlistModelRow
@@ -1456,6 +1515,7 @@ function ProviderConnectionItem({
                           model={model}
                           onDelete={onDeleteCatalogModel}
                           onEdit={onEditCatalogModel}
+                          showCapabilityColumns={showCapabilityColumns}
                           onToggle={async (nextModel) => {
                             const nextCountDelta = nextModel.enabled ? -1 : 1
                             setAllowAllOverride(null)
@@ -1934,7 +1994,8 @@ export function OrgSettingsAgentForm() {
               id: entry.id,
               source_id: null,
               source_name:
-                entry.organization_id === null ? "Platform" : "Organization",
+                providerConfig.label ??
+                getProviderDisplayLabel(entry.model_provider),
               source_type:
                 entry.organization_id === null ? "platform" : "organization",
               model_provider: entry.model_provider,

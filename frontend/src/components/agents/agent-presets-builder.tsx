@@ -144,12 +144,11 @@ import {
   type AgentPresetFormMode,
   buildDuplicateAgentPresetPayload,
 } from "@/lib/agent-presets"
-import { type ModelInfo, supportsCredentiallessModelAccess } from "@/lib/chat"
+import type { ModelInfo } from "@/lib/chat"
 import { getApiErrorDetail } from "@/lib/errors"
 import {
   useChatReadiness,
   useListMcpIntegrations,
-  useModelProvidersStatus,
   useRegistryActions,
   useWorkspaceAgentModels,
 } from "@/lib/hooks"
@@ -565,9 +564,6 @@ function AgentPresetChatPane({
 }) {
   const [selectedChatId, setSelectedChatId] = useState<string | null>(null)
 
-  const { providersStatus, isLoading: providersStatusLoading } =
-    useModelProvidersStatus()
-
   const { chats, chatsLoading, chatsError, refetchChats } = useListChats(
     {
       workspaceId,
@@ -636,25 +632,10 @@ function AgentPresetChatPane({
     }
   }, [effectiveModelConfig, selectedModel])
 
-  const providerReady = useMemo(() => {
-    if (!effectiveModelConfig) {
-      return false
-    }
-
-    const provider =
-      selectedModel?.modelProvider ?? effectiveModelConfig.model_provider
-    const baseUrl =
-      selectedModel?.baseUrl ?? effectiveModelConfig.base_url ?? null
-
-    if (supportsCredentiallessModelAccess({ provider, baseUrl })) {
-      return true
-    }
-
-    return providersStatus?.[provider] ?? false
-  }, [effectiveModelConfig, providersStatus, selectedModel])
-
   const canStartChat = Boolean(
-    preset && providerReady && (!enabledModelsLoaded || selectedModel !== null)
+    preset &&
+      effectiveModelConfig &&
+      (!enabledModelsLoaded || selectedModel !== null)
   )
   const shouldAutoCreateChat =
     canStartChat && !activeChatId && !chatsLoading && !createChatPending
@@ -724,14 +705,6 @@ function AgentPresetChatPane({
       )
     }
 
-    if (providersStatusLoading) {
-      return (
-        <div className="flex h-full items-center justify-center">
-          <CenteredSpinner />
-        </div>
-      )
-    }
-
     if (selectedVersionConfigIsLoading) {
       return (
         <div className="flex h-full items-center justify-center">
@@ -748,32 +721,6 @@ function AgentPresetChatPane({
             <p className="text-pretty">
               This preset no longer points at an enabled model. Select a new
               model in the preset configuration before starting chat.
-            </p>
-          </div>
-        </div>
-      )
-    }
-
-    if (!providerReady) {
-      return (
-        <div className="flex h-full flex-col items-center justify-center px-4">
-          <div className="flex max-w-xs flex-col items-center gap-2 text-center text-xs text-muted-foreground">
-            <AlertCircle className="size-5 text-amber-500" />
-            <p className="text-pretty">
-              This agent needs organization-level credentials for{" "}
-              <span className="font-medium">
-                {selectedModel?.modelProvider ?? preset.model_provider}
-              </span>
-              . Configure them in{" "}
-              <Link
-                href="/organization/settings/agent"
-                className="font-medium text-primary hover:underline"
-                target="_blank"
-                rel="noopener noreferrer"
-              >
-                organization agent settings
-              </Link>{" "}
-              to enable chat.
             </p>
           </div>
         </div>
@@ -997,10 +944,6 @@ type EnabledModelOption = {
   baseUrl?: string | null
 }
 
-type AgentPresetPayload = AgentPresetCreate
-
-type AgentPresetUpdatePayload = AgentPresetUpdate
-
 function getModelSelectionKey(selection: {
   source_id?: string | null
   model_provider?: string | null
@@ -1022,12 +965,11 @@ function buildEnabledModelOptions(
       const provider = model.custom_provider_id
         ? (providersById.get(model.custom_provider_id) ?? null)
         : null
-      const sourceName = provider
-        ? provider.display_name
-        : model.organization_id
-          ? "Organization"
-          : "Platform"
-      const sourceType = provider
+      const isCustomSource = model.custom_provider_id != null
+      const sourceName = isCustomSource
+        ? (provider?.display_name ?? "Custom")
+        : getProviderDisplayLabel(model.model_provider)
+      const sourceType = isCustomSource
         ? "custom"
         : model.organization_id
           ? "organization"
@@ -1072,6 +1014,33 @@ function getProviderIconId(provider: string): string {
       return "openai"
     default:
       return "custom"
+  }
+}
+
+function getProviderDisplayLabel(provider: string): string {
+  switch (provider) {
+    case "anthropic":
+      return "Anthropic"
+    case "azure_ai":
+      return "Azure AI"
+    case "azure_openai":
+      return "Azure OpenAI"
+    case "bedrock":
+      return "AWS Bedrock"
+    case "gemini":
+      return "Google Gemini"
+    case "openai":
+      return "OpenAI"
+    case "vertex_ai":
+      return "Google Vertex AI"
+    case "custom-model-provider":
+      return "Custom"
+    default:
+      return provider
+        .split(/[_\s-]+/)
+        .filter(Boolean)
+        .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+        .join(" ")
   }
 }
 
@@ -1124,10 +1093,10 @@ type AgentPresetFormProps = {
   mode: AgentPresetFormMode
   workspaceId: string
   builderPrompt?: string
-  onCreate: (payload: AgentPresetPayload) => Promise<AgentPresetRead>
+  onCreate: (payload: AgentPresetCreate) => Promise<AgentPresetRead>
   onUpdate: (
     presetId: string,
-    payload: AgentPresetUpdatePayload
+    payload: AgentPresetUpdate
   ) => Promise<AgentPresetRead>
   onDuplicate?: () => Promise<void>
   onDelete?: () => Promise<void>
@@ -2946,9 +2915,7 @@ function presetToFormValues(preset: AgentPresetRead): AgentPresetFormValues {
   }
 }
 
-function formValuesToPayload(
-  values: AgentPresetFormValues
-): AgentPresetPayload {
+function formValuesToPayload(values: AgentPresetFormValues): AgentPresetCreate {
   const outputType =
     values.outputTypeKind === "none"
       ? null

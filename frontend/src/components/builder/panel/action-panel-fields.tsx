@@ -953,10 +953,14 @@ type ModelSelectionValue = {
 }
 
 function getModelSelectionKey(selection: {
+  catalog_id?: string | null
   source_id?: string | null
   model_provider?: string | null
   model_name?: string | null
 }): string {
+  if (selection.catalog_id) {
+    return selection.catalog_id
+  }
   return `${selection.source_id ?? "platform"}::${selection.model_provider ?? ""}::${selection.model_name ?? ""}`
 }
 
@@ -988,6 +992,8 @@ function AgentModelSelect({
   const { models, providers, modelsLoading, modelsError } =
     useWorkspaceAgentModels(workspaceId)
   const selection = (field.value ?? {}) as ModelSelectionValue
+  const catalogIdValue =
+    typeof selection.catalog_id === "string" ? selection.catalog_id : ""
   const modelNameValue =
     typeof selection.model_name === "string" ? selection.model_name : ""
   const modelProviderValue =
@@ -1010,6 +1016,7 @@ function AgentModelSelect({
 
         return {
           optionValue: getModelSelectionKey({
+            catalog_id: model.id,
             source_id: model.custom_provider_id,
             model_provider: model.model_provider,
             model_name: model.model_name,
@@ -1030,6 +1037,11 @@ function AgentModelSelect({
       })
   }, [models, providers])
   const selectedModel = useMemo(() => {
+    if (catalogIdValue.length > 0) {
+      return (
+        options.find((option) => option.catalogId === catalogIdValue) ?? null
+      )
+    }
     if (modelNameValue.length === 0 || modelProviderValue.length === 0) {
       return null
     }
@@ -1040,7 +1052,7 @@ function AgentModelSelect({
           option.modelProvider === modelProviderValue
       ) ?? null
     )
-  }, [modelNameValue, modelProviderValue, options])
+  }, [catalogIdValue, modelNameValue, modelProviderValue, options])
   const unavailableSelection = useMemo(() => {
     if (
       selectedModel ||
@@ -1052,6 +1064,7 @@ function AgentModelSelect({
 
     return {
       optionValue: getModelSelectionKey({
+        catalog_id: catalogIdValue,
         model_provider: modelProviderValue,
         model_name: modelNameValue,
       }),
@@ -1059,7 +1072,7 @@ function AgentModelSelect({
       modelProvider: modelProviderValue,
       iconId: getModelProviderIconId(modelProviderValue),
     }
-  }, [modelNameValue, modelProviderValue, selectedModel])
+  }, [catalogIdValue, modelNameValue, modelProviderValue, selectedModel])
 
   const handleChange = (value: string) => {
     const selectedOption = options.find(

@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-import re
 from datetime import UTC, datetime
+from typing import Any
 from uuid import UUID
 
 import httpx
@@ -31,33 +31,10 @@ from tracecat.pagination import (
     CursorPaginatedResponse,
     CursorPaginationParams,
 )
-from tracecat.secrets.encryption import decrypt_value, encrypt_value
+from tracecat.secrets.encryption import decrypt_keyvalues, decrypt_value, encrypt_value
 from tracecat.service import BaseOrgService
 
 CUSTOM_MODEL_PROVIDER_SLUG = "custom-model-provider"
-
-_VERSION_SUFFIX_RE = re.compile(r"/v\d+$")
-
-
-def normalize_openai_compat_base_url(base_url: str | None) -> str | None:
-    """Normalize an OpenAI-compatible base URL so discovery hits ``<base>/models``.
-
-    Accepts user input with any combination of trailing slash, a pasted
-    ``/models`` suffix, or a missing ``/v1`` version segment, and returns the
-    canonical ``scheme://host[:port]/v1`` form (or ``scheme://host/vN`` if the
-    user provided a different version).
-    """
-    if base_url is None:
-        return None
-    trimmed = base_url.strip()
-    if not trimmed:
-        return None
-    without_trailing_slash = trimmed.rstrip("/")
-    if without_trailing_slash.endswith("/models"):
-        without_trailing_slash = without_trailing_slash[: -len("/models")].rstrip("/")
-    if _VERSION_SUFFIX_RE.search(without_trailing_slash):
-        return without_trailing_slash
-    return f"{without_trailing_slash}/v1"
 
 
 class AgentCustomProviderService(BaseOrgService):
@@ -88,7 +65,7 @@ class AgentCustomProviderService(BaseOrgService):
         model = AgentCustomProvider(
             organization_id=self.organization_id,
             display_name=provider.display_name,
-            base_url=normalize_openai_compat_base_url(provider.base_url),
+            base_url=provider.base_url,
             passthrough=provider.passthrough,
             api_key_header=provider.api_key_header,
             encrypted_config=encrypted_config,
@@ -173,15 +150,8 @@ class AgentCustomProviderService(BaseOrgService):
         provider: AgentCustomProvider,
     ) -> ResolvedCustomProviderCredentials | None:
         """Decrypt the provider's stored execution credentials, if any."""
-        if provider.encrypted_config is None:
-            return None
-
-        decrypted = decrypt_value(
-            provider.encrypted_config,
-            key=get_db_encryption_key(),
-        )
-        raw_config = orjson.loads(decrypted)
-        if not isinstance(raw_config, dict):
+        raw_config = self._decrypt_custom_provider_config(provider)
+        if not raw_config:
             return None
 
         api_key = raw_config.get("api_key")
@@ -198,6 +168,45 @@ class AgentCustomProviderService(BaseOrgService):
             api_key=api_key if isinstance(api_key, str) else None,
             custom_headers=resolved_headers,
         )
+
+    def _decrypt_custom_provider_config(
+        self,
+        provider: AgentCustomProvider,
+    ) -> dict[str, Any]:
+        """Decode CRUD and migrated custom-provider encrypted config blobs."""
+        if provider.encrypted_config is None:
+            return {}
+
+        try:
+            decrypted = decrypt_value(
+                provider.encrypted_config,
+                key=get_db_encryption_key(),
+            )
+            raw_config = orjson.loads(decrypted)
+            if isinstance(raw_config, dict):
+                return raw_config
+        except Exception:
+            pass
+
+        try:
+            keyvalues = decrypt_keyvalues(
+                provider.encrypted_config,
+                key=get_db_encryption_key(),
+            )
+        except Exception:
+            return {}
+
+        legacy = {kv.key: kv.value.get_secret_value() for kv in keyvalues}
+        config: dict[str, Any] = {}
+        if api_key := legacy.get("CUSTOM_MODEL_PROVIDER_API_KEY"):
+            config["api_key"] = api_key
+        if base_url := legacy.get("CUSTOM_MODEL_PROVIDER_BASE_URL"):
+            config["base_url"] = base_url
+        if model_name := legacy.get("CUSTOM_MODEL_PROVIDER_MODEL_NAME"):
+            config["model_name"] = model_name
+        if passthrough := legacy.get("CUSTOM_MODEL_PROVIDER_PASSTHROUGH"):
+            config["passthrough"] = passthrough
+        return config
 
     async def resolve_catalog_config(
         self,
@@ -281,14 +290,38 @@ class AgentCustomProviderService(BaseOrgService):
                 f"Catalog entry {catalog_id} is not enabled for {scope}"
             )
 
+        provider_config = (
+            self._decrypt_custom_provider_config(provider)
+            if provider is not None
+            else {}
+        )
+        fallback_base_url = provider_config.get("base_url")
+        fallback_passthrough = provider_config.get("passthrough")
+        passthrough = provider.passthrough if provider is not None else False
+        if not passthrough and isinstance(fallback_passthrough, str):
+            passthrough = fallback_passthrough.lower() in {
+                "1",
+                "true",
+                "yes",
+                "on",
+            }
+        elif not passthrough and isinstance(fallback_passthrough, bool):
+            passthrough = fallback_passthrough
+
         return ResolvedCatalogConfig(
             catalog_id=catalog.id,
             organization_id=catalog.organization_id,
             model_provider=catalog.model_provider,
             model_name=catalog.model_name,
             custom_provider_id=catalog.custom_provider_id,
-            base_url=provider.base_url if provider is not None else None,
-            passthrough=provider.passthrough if provider is not None else False,
+            base_url=(
+                provider.base_url
+                if provider is not None and provider.base_url is not None
+                else fallback_base_url
+                if isinstance(fallback_base_url, str)
+                else None
+            ),
+            passthrough=passthrough,
             api_key_header=provider.api_key_header if provider is not None else None,
             custom_provider_credentials=(
                 self._decrypt_custom_provider_credentials(provider)
@@ -322,10 +355,6 @@ class AgentCustomProviderService(BaseOrgService):
             )
 
         update_data = updates.model_dump(exclude_unset=True)
-        if "base_url" in update_data:
-            update_data["base_url"] = normalize_openai_compat_base_url(
-                update_data["base_url"]
-            )
         incoming_secrets: dict[str, object] = {}
         if "api_key" in update_data:
             incoming_secrets["api_key"] = update_data.pop("api_key")
@@ -333,15 +362,9 @@ class AgentCustomProviderService(BaseOrgService):
             incoming_secrets["custom_headers"] = update_data.pop("custom_headers")
 
         if incoming_secrets:
-            existing_secrets: dict[str, object] = {}
-            if model.encrypted_config is not None:
-                decrypted = decrypt_value(
-                    model.encrypted_config,
-                    key=get_db_encryption_key(),
-                )
-                raw = orjson.loads(decrypted)
-                if isinstance(raw, dict):
-                    existing_secrets = raw
+            existing_secrets: dict[str, object] = self._decrypt_custom_provider_config(
+                model
+            )
 
             merged_secrets = {**existing_secrets}
             for key, value in incoming_secrets.items():
@@ -406,22 +429,19 @@ class AgentCustomProviderService(BaseOrgService):
                 f"Custom provider {provider_id} not found in organization"
             )
 
-        if not provider.base_url:
+        provider_config = self._decrypt_custom_provider_config(provider)
+        fallback_base_url = provider_config.get("base_url")
+        base_url = provider.base_url or (
+            fallback_base_url if isinstance(fallback_base_url, str) else None
+        )
+        if not base_url:
             raise ValueError("Provider base_url not configured")
 
-        secrets_dict: dict[str, object] = {}
-        if provider.encrypted_config:
-            decrypted = decrypt_value(
-                provider.encrypted_config,
-                key=get_db_encryption_key(),
-            )
-            secrets_dict = orjson.loads(decrypted)
-
-        api_key = secrets_dict.get("api_key")
-        custom_headers = secrets_dict.get("custom_headers", {})
+        api_key = provider_config.get("api_key")
+        custom_headers = provider_config.get("custom_headers", {})
 
         models = await self._discover_models(
-            provider.base_url,
+            base_url,
             api_key=api_key if isinstance(api_key, str) else None,
             custom_headers=(
                 custom_headers if isinstance(custom_headers, dict) else None
@@ -518,12 +538,11 @@ class AgentCustomProviderService(BaseOrgService):
         custom_headers: dict[str, str] | None = None,
     ) -> bool:
         """Test provider connectivity."""
-        normalized = normalize_openai_compat_base_url(base_url)
-        if not normalized:
+        if not base_url or not base_url.strip():
             return False
         try:
             response = await self._fetch_models(
-                base_url=normalized,
+                base_url=base_url,
                 api_key=api_key,
                 api_key_header=api_key_header,
                 custom_headers=custom_headers,

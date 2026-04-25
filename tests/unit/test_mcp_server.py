@@ -7582,6 +7582,9 @@ async def test_create_agent_preset_uses_default_model_and_passes_optional_fields
         return workspace_id, role
 
     class _AgentManagementService:
+        async def get_default_model_selection(self) -> None:
+            return None
+
         async def get_default_model(self) -> str | None:
             return "gpt-4o-mini"
 
@@ -7657,6 +7660,85 @@ async def test_create_agent_preset_uses_default_model_and_passes_optional_fields
     assert payload["model_name"] == "gpt-4o-mini"
     assert payload["output_type"]["type"] == "object"
     assert payload["enable_thinking"] is False
+
+
+@pytest.mark.anyio
+async def test_create_agent_preset_uses_default_model_selection_catalog_id(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace_id = uuid.uuid4()
+    catalog_id = uuid.uuid4()
+    role = SimpleNamespace(workspace_id=workspace_id)
+    created: dict[str, Any] = {}
+
+    async def _resolve(_workspace_id: str) -> tuple[uuid.UUID, SimpleNamespace]:
+        return workspace_id, role
+
+    class _AgentManagementService:
+        async def get_default_model_selection(self) -> SimpleNamespace:
+            return SimpleNamespace(
+                catalog_id=catalog_id,
+                model_name="customer-deployment",
+                model_provider="azure_openai",
+            )
+
+        async def get_default_model(self) -> str | None:
+            raise AssertionError("legacy default model should not be read")
+
+        async def check_workspace_provider_credentials(self, provider: str) -> bool:
+            raise AssertionError(f"unexpected workspace credential check: {provider}")
+
+    class _PresetService:
+        async def create_preset(self, params: Any) -> SimpleNamespace:
+            created["params"] = params
+            now = datetime.now(UTC)
+            return SimpleNamespace(
+                id=uuid.uuid4(),
+                workspace_id=workspace_id,
+                name=params.name,
+                slug=params.slug or "security-triage",
+                description=params.description,
+                instructions=params.instructions,
+                model_name=params.model_name,
+                model_provider=params.model_provider,
+                catalog_id=params.catalog_id,
+                base_url=params.base_url,
+                output_type=params.output_type,
+                actions=params.actions,
+                namespaces=params.namespaces,
+                tool_approvals=params.tool_approvals,
+                mcp_integrations=params.mcp_integrations,
+                retries=params.retries,
+                enable_thinking=params.enable_thinking,
+                enable_internet_access=params.enable_internet_access,
+                current_version_id=None,
+                created_at=now,
+                updated_at=now,
+            )
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server.AgentManagementService,
+        "with_session",
+        lambda role: _AsyncContext(_AgentManagementService()),
+    )
+    monkeypatch.setattr(
+        mcp_server.AgentPresetService,
+        "with_session",
+        lambda role: _AsyncContext(_PresetService()),
+    )
+
+    result = await _tool(mcp_server.create_agent_preset)(
+        workspace_id=str(workspace_id),
+        name="Security triage",
+    )
+
+    params = created["params"]
+    payload = _payload(result)
+    assert params.model_name == "customer-deployment"
+    assert params.model_provider == "azure_openai"
+    assert params.catalog_id == catalog_id
+    assert payload["catalog_id"] == str(catalog_id)
 
 
 @pytest.mark.anyio
@@ -7789,11 +7871,11 @@ async def test_update_agent_preset_resolves_explicit_model(
         *,
         model_name: str | None,
         model_provider: str | None,
-    ) -> tuple[str, str]:
+    ) -> tuple[str, str, uuid.UUID | None]:
         assert resolved_role is role
         assert model_name == "gpt-5-mini"
         assert model_provider == "openai"
-        return "gpt-5-mini", "openai"
+        return "gpt-5-mini", "openai", None
 
     class _PresetService(_PresetReadBuilder):
         async def get_preset_by_slug(self, preset_slug: str) -> SimpleNamespace:
@@ -7877,6 +7959,9 @@ async def test_create_agent_preset_requires_default_model_when_model_not_provide
         return workspace_id, role
 
     class _AgentManagementService:
+        async def get_default_model_selection(self) -> None:
+            return None
+
         async def get_default_model(self) -> str | None:
             return None
 
@@ -7909,6 +7994,9 @@ async def test_create_agent_preset_omitted_retry_fields_use_schema_defaults(
         return workspace_id, role
 
     class _AgentManagementService:
+        async def get_default_model_selection(self) -> None:
+            return None
+
         async def get_default_model(self) -> str | None:
             return "gpt-4o-mini"
 
@@ -8025,11 +8113,11 @@ async def test_create_agent_preset_allows_custom_model_provider(
         *,
         model_name: str | None,
         model_provider: str | None,
-    ) -> tuple[str, str]:
+    ) -> tuple[str, str, uuid.UUID | None]:
         assert role is not None
         assert model_name == "customer-alias"
         assert model_provider == "custom-model-provider"
-        return "customer-alias", "custom-model-provider"
+        return "customer-alias", "custom-model-provider", None
 
     class _PresetService(_PresetReadBuilder):
         async def create_preset(self, params: Any) -> SimpleNamespace:
@@ -8092,6 +8180,9 @@ async def test_create_agent_preset_requires_workspace_credentials_for_default_mo
         return workspace_id, role
 
     class _AgentManagementService:
+        async def get_default_model_selection(self) -> None:
+            return None
+
         async def get_default_model(self) -> str | None:
             return "gpt-4o-mini"
 

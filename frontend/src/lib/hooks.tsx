@@ -361,7 +361,7 @@ import {
   listCaseDurations,
 } from "@/lib/case-durations"
 import { invalidateCaseActivityQueries } from "@/lib/cases/invalidation"
-import { type ModelInfo, supportsCredentiallessModelAccess } from "@/lib/chat"
+import type { ModelInfo } from "@/lib/chat"
 import { retryHandler, type TracecatApiError } from "@/lib/errors"
 import type { WorkflowExecutionReadCompact } from "@/lib/event-history"
 import { useWorkspaceId } from "@/providers/workspace-id"
@@ -5435,8 +5435,12 @@ export function useDeleteProviderCredentials() {
  * Are we ready to chat?
  * Returns { ready, reason, modelInfo }
  *  ready   – boolean
- *  reason  – "no_model" | "no_credentials" | null
+ *  reason  – "no_model" | null
  *  modelInfo – model info (if any)
+ *
+ * Catalog entries are server-validated, so the frontend does not gate on
+ * provider credentials. Runtime invocation errors surface through the normal
+ * send-error path.
  */
 
 interface ChatReadinessOptions {
@@ -5448,13 +5452,12 @@ interface ChatReadinessOptions {
 }
 
 export function useChatReadiness(options?: ChatReadinessOptions) {
-  const { defaultModel, defaultModelLoading } = useAgentDefaultModel()
+  const { defaultModel, defaultModelSelection, defaultModelLoading } =
+    useAgentDefaultModel()
   const { models, providers, modelsLoading } = useOrgAgentModels()
-  const { providersStatus, isLoading: statusLoading } =
-    useModelProvidersStatus()
   const modelOverride = options?.modelOverride
 
-  const loading = defaultModelLoading || modelsLoading || statusLoading
+  const loading = defaultModelLoading || modelsLoading
 
   if (loading) {
     return {
@@ -5469,18 +5472,6 @@ export function useChatReadiness(options?: ChatReadinessOptions) {
       provider: modelOverride.provider,
       baseUrl: modelOverride.baseUrl ?? null,
     }
-    const hasOverrideCreds =
-      supportsCredentiallessModelAccess(modelInfo) ||
-      (providersStatus?.[modelOverride.provider] ?? false)
-    if (!hasOverrideCreds) {
-      return {
-        ready: false,
-        loading: false,
-        reason: "no_credentials",
-        modelInfo,
-      }
-    }
-
     return {
       ready: true,
       loading: false,
@@ -5489,7 +5480,7 @@ export function useChatReadiness(options?: ChatReadinessOptions) {
   }
 
   /* no default model set */
-  if (!defaultModel) {
+  if (!defaultModelSelection && !defaultModel) {
     return {
       ready: false,
       loading: false,
@@ -5497,9 +5488,11 @@ export function useChatReadiness(options?: ChatReadinessOptions) {
     }
   }
 
-  /* unknown model name → treat as no model */
-  const modelCfg =
-    models?.find((model) => model.model_name === defaultModel) ?? null
+  /* unknown model selection -> treat as no model */
+  const modelCfg = defaultModelSelection
+    ? (models?.find((model) => model.id === defaultModelSelection.catalog_id) ??
+      null)
+    : (models?.find((model) => model.model_name === defaultModel) ?? null)
   if (!modelCfg) {
     return {
       ready: false,
@@ -5508,8 +5501,6 @@ export function useChatReadiness(options?: ChatReadinessOptions) {
     }
   }
 
-  /* check provider creds */
-  const hasCreds = providersStatus?.[modelCfg.model_provider] ?? false
   const baseUrl =
     providers?.find((provider) => provider.id === modelCfg.custom_provider_id)
       ?.base_url ?? null
@@ -5518,22 +5509,6 @@ export function useChatReadiness(options?: ChatReadinessOptions) {
     provider: modelCfg.model_provider,
     baseUrl,
   }
-  if (supportsCredentiallessModelAccess(modelInfo)) {
-    return {
-      ready: true,
-      loading: false,
-      modelInfo,
-    }
-  }
-  if (!hasCreds) {
-    return {
-      ready: false,
-      loading: false,
-      reason: "no_credentials",
-      modelInfo,
-    }
-  }
-
   return {
     ready: true,
     loading: false,

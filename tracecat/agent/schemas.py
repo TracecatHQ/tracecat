@@ -276,6 +276,7 @@ class AgentConfigSchema(BaseModel):
 
     model_name: str
     model_provider: str
+    catalog_id: uuid.UUID | None = None
     base_url: str | None = None
     instructions: str | None = None
     output_type: Any | None = None
@@ -322,6 +323,7 @@ class InternalRankItemsRequest(BaseModel):
     criteria_prompt: str
     model_name: str
     model_provider: str
+    catalog_id: uuid.UUID | None = None
     model_settings: dict[str, Any] | None = None
     max_requests: int = 5
     retries: int = 3
@@ -337,6 +339,7 @@ class InternalRankItemsPairwiseRequest(BaseModel):
     criteria_prompt: str
     model_name: str
     model_provider: str
+    catalog_id: uuid.UUID | None = None
     id_field: str = "id"
     batch_size: int = 10
     num_passes: int = 10

@@ -243,6 +243,12 @@ async def agent(
             "Output type for agent responses. Select from a list of supported types or provide a JSONSchema."
         ),
     ] = None,
+    session_id: Annotated[
+        str | None,
+        Doc(
+            "Optional existing agent session ID to continue from. If provided, the session must already exist."
+        ),
+    ] = None,
     model_settings: Annotated[
         dict[str, Any] | None, Doc("Model settings for the agent.")
     ] = None,
@@ -302,6 +308,12 @@ async def preset_agent(
             "Additional instructions to append to the preset instructions for this run."
         ),
         TextArea(),
+    ] = None,
+    session_id: Annotated[
+        str | None,
+        Doc(
+            "Optional existing agent session ID to continue from. If provided, the session must already exist."
+        ),
     ] = None,
     max_tool_calls: Annotated[
         int, Doc("Maximum number of tool calls for the agent.")

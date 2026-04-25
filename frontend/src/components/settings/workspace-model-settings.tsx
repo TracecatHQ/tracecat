@@ -3,7 +3,7 @@
 import { zodResolver } from "@hookform/resolvers/zod"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Loader2 } from "lucide-react"
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
 import type {
@@ -79,6 +79,33 @@ function getProviderIconId(provider?: string | null): string {
   }
 }
 
+function getProviderDisplayLabel(provider: string): string {
+  switch (provider) {
+    case "anthropic":
+      return "Anthropic"
+    case "azure_ai":
+      return "Azure AI"
+    case "azure_openai":
+      return "Azure OpenAI"
+    case "bedrock":
+      return "AWS Bedrock"
+    case "gemini":
+      return "Google Gemini"
+    case "openai":
+      return "OpenAI"
+    case "vertex_ai":
+      return "Google Vertex AI"
+    case "custom-model-provider":
+      return "Custom"
+    default:
+      return provider
+        .split(/[_\s-]+/)
+        .filter(Boolean)
+        .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+        .join(" ")
+  }
+}
+
 async function fetchAllCatalogEntries(): Promise<AgentCatalogRead[]> {
   const items: AgentCatalogRead[] = []
   let cursor: string | undefined
@@ -134,7 +161,7 @@ function getModelSourceLabel(
   if (entry.custom_provider_id) {
     return providersById.get(entry.custom_provider_id)?.display_name ?? "Custom"
   }
-  return "Platform"
+  return getProviderDisplayLabel(entry.model_provider)
 }
 
 /**
@@ -148,6 +175,7 @@ export function WorkspaceModelSettings({
 }) {
   const queryClient = useQueryClient()
   const [modelQuery, setModelQuery] = useState("")
+  const lastSyncedFormValuesRef = useRef<string | null>(null)
   const form = useForm<WorkspaceModelSettingsForm>({
     resolver: zodResolver(workspaceModelSettingsSchema),
     mode: "onChange",
@@ -156,6 +184,7 @@ export function WorkspaceModelSettings({
       catalog_ids: [],
     },
   })
+  const isFormDirty = form.formState.isDirty
 
   const {
     data: catalogEntries,
@@ -239,7 +268,6 @@ export function WorkspaceModelSettings({
     if (!catalogEntries || !enabledAccessRows) {
       return
     }
-
     const selectedCatalogIds = organizationEnabledEntries
       .filter((entry) => workspaceAccessByCatalogId.has(entry.id))
       .map((entry) => entry.id)
@@ -251,15 +279,26 @@ export function WorkspaceModelSettings({
       workspaceAccessRows.every((row) =>
         orgEnabledCatalogIds.has(row.catalog_id)
       )
-
-    form.reset({
+    const nextValues = {
       inherit_all: !hasWorkspaceOverride || matchesAllOrganizationModels,
       catalog_ids: selectedCatalogIds,
-    })
+    }
+    const nextValuesSignature = JSON.stringify(nextValues)
+
+    if (lastSyncedFormValuesRef.current === nextValuesSignature) {
+      return
+    }
+    if (isFormDirty) {
+      return
+    }
+
+    form.reset(nextValues)
+    lastSyncedFormValuesRef.current = nextValuesSignature
   }, [
     catalogEntries,
     enabledAccessRows,
     form,
+    isFormDirty,
     organizationEnabledEntries,
     orgEnabledCatalogIds,
     workspaceAccessByCatalogId,
@@ -319,7 +358,8 @@ export function WorkspaceModelSettings({
         })
       }
     },
-    onSuccess: () => {
+    onSuccess: (_data, values) => {
+      form.reset(values)
       void queryClient.invalidateQueries({
         queryKey: ["organization", "agent-model-access"],
       })

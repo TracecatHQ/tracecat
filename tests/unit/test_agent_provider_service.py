@@ -8,6 +8,7 @@ from unittest.mock import patch
 import orjson
 import pytest
 from cryptography.fernet import Fernet
+from pydantic import SecretStr
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -28,7 +29,8 @@ from tracecat.db.models import (
 )
 from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
 from tracecat.pagination import CursorPaginationParams
-from tracecat.secrets.encryption import decrypt_value
+from tracecat.secrets.encryption import decrypt_value, encrypt_keyvalues
+from tracecat.secrets.schemas import SecretKeyValue
 
 pytestmark = pytest.mark.usefixtures("db")
 
@@ -129,8 +131,7 @@ async def test_update_provider(
     )
 
     assert updated.display_name == "Updated"
-    # The service normalizes OpenAI-compatible base URLs by appending `/v1`.
-    assert updated.base_url == "https://api.example.com/v1"
+    assert updated.base_url == "https://api.example.com"
     assert updated.passthrough is True
 
 
@@ -186,6 +187,50 @@ async def test_refresh_provider_catalog_upserts_models(
 
 
 @pytest.mark.anyio
+async def test_refresh_provider_catalog_uses_migrated_encrypted_base_url_fallback(
+    session: AsyncSession,
+    svc_organization: Organization,
+) -> None:
+    service = AgentCustomProviderService(session=session, role=_role(svc_organization))
+    encrypted_config = encrypt_keyvalues(
+        [
+            SecretKeyValue(
+                key="CUSTOM_MODEL_PROVIDER_BASE_URL",
+                value=SecretStr("https://migrated.example.com/v1"),
+            ),
+            SecretKeyValue(
+                key="CUSTOM_MODEL_PROVIDER_API_KEY",
+                value=SecretStr("sk-migrated"),
+            ),
+        ],
+        key=tracecat_config.TRACECAT__DB_ENCRYPTION_KEY or "",
+    )
+    provider = AgentCustomProvider(
+        organization_id=svc_organization.id,
+        display_name="Migrated",
+        base_url=None,
+        encrypted_config=encrypted_config,
+        api_key_header="Authorization",
+    )
+    session.add(provider)
+    await session.commit()
+
+    with patch.object(
+        service,
+        "_discover_models",
+        return_value=[{"id": "migrated-model"}],
+    ) as discover:
+        await service.refresh_provider_catalog(provider.id)
+
+    discover.assert_awaited_once_with(
+        "https://migrated.example.com/v1",
+        api_key="sk-migrated",
+        custom_headers=None,
+        api_key_header="Authorization",
+    )
+
+
+@pytest.mark.anyio
 async def test_validate_provider_success(
     session: AsyncSession,
     svc_organization: Organization,
@@ -203,8 +248,7 @@ async def test_validate_provider_success(
             return False
 
         async def get(self, url: str, headers: dict[str, str]):
-            # Service normalizes missing /v1 and applies to the /models probe.
-            assert url == "https://api.example.com/v1/models"
+            assert url == "https://api.example.com/models"
             assert headers == {"Authorization": "secret"}
             return _Response()
 
@@ -260,7 +304,7 @@ async def test_resolve_catalog_config_custom_provider(
     assert target.custom_provider_id == provider.id
     assert target.model_provider == "custom-model-provider"
     assert target.model_name == "customer-model"
-    assert target.base_url == "https://gateway.example.com/v1"
+    assert target.base_url == "https://gateway.example.com"
     assert target.passthrough is True
     assert target.api_key_header == "X-API-Key"
     assert target.custom_provider_credentials is not None

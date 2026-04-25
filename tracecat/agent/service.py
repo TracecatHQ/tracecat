@@ -5,13 +5,16 @@ import contextlib
 import uuid
 from collections.abc import AsyncIterator, Iterator
 from dataclasses import replace
+from datetime import UTC, datetime
 
 import orjson
+import sqlalchemy as sa
 from azure.identity.aio import ClientSecretCredential
 from google.auth.transport.requests import Request as GoogleAuthRequest
 from google.oauth2 import service_account
 from pydantic import SecretStr
 from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat_registry._internal import secrets as registry_secrets
 
@@ -33,6 +36,7 @@ from tracecat.authz.controls import require_scope
 from tracecat.db.models import (
     AgentCatalog,
     AgentCustomProvider,
+    AgentModelAccess,
     OrganizationSecret,
     Secret,
 )
@@ -55,6 +59,15 @@ _GOOGLE_CLOUD_SCOPE = "https://www.googleapis.com/auth/cloud-platform"
 _AZURE_COGNITIVE_SCOPE = "https://cognitiveservices.azure.com/.default"
 _DEFAULT_MODEL_SETTING_KEY = "agent_default_model"
 _DEFAULT_MODEL_CATALOG_ID_SETTING_KEY = "agent_default_model_catalog_id"
+_CLOUD_PROVIDER_TARGET_KEYS: dict[str, tuple[tuple[str, str], ...]] = {
+    "bedrock": (
+        ("inference_profile_id", "AWS_INFERENCE_PROFILE_ID"),
+        ("model_id", "AWS_MODEL_ID"),
+    ),
+    "azure_openai": (("deployment_name", "AZURE_DEPLOYMENT_NAME"),),
+    "azure_ai": (("azure_ai_model_name", "AZURE_AI_MODEL_NAME"),),
+    "vertex_ai": (("vertex_model", "VERTEX_AI_MODEL"),),
+}
 
 
 def _decrypt_custom_provider_config(
@@ -89,15 +102,28 @@ def _decrypt_custom_provider_config(
             api_key = payload.get("api_key")
             if isinstance(api_key, str) and api_key:
                 credentials["CUSTOM_MODEL_PROVIDER_API_KEY"] = api_key
+            base_url = payload.get("base_url")
+            if isinstance(base_url, str) and base_url:
+                credentials["CUSTOM_MODEL_PROVIDER_BASE_URL"] = base_url
+            model_name = payload.get("model_name")
+            if isinstance(model_name, str) and model_name:
+                credentials["CUSTOM_MODEL_PROVIDER_MODEL_NAME"] = model_name
+            passthrough = payload.get("passthrough")
+            if isinstance(passthrough, bool):
+                credentials["CUSTOM_MODEL_PROVIDER_PASSTHROUGH"] = (
+                    "true" if passthrough else "false"
+                )
+            elif isinstance(passthrough, str) and passthrough:
+                credentials["CUSTOM_MODEL_PROVIDER_PASSTHROUGH"] = passthrough
             return credentials
-    except Exception:  # noqa: BLE001 — fall through to keyvalues format
+    except Exception:
         pass
 
     try:
         decrypted = decrypt_keyvalues(provider_row.encrypted_config, key=key)
         for kv in decrypted:
             credentials[kv.key] = kv.value.get_secret_value()
-    except Exception:  # noqa: BLE001
+    except Exception:
         logger.exception(
             "Failed to decrypt custom provider encrypted_config",
             custom_provider_id=str(provider_row.id),
@@ -421,6 +447,64 @@ class AgentManagementService(BaseOrgService):
             return None
         return await self._augment_runtime_provider_credentials(provider, credentials)
 
+    def _catalog_target_credentials(self, row: AgentCatalog) -> dict[str, str]:
+        """Project cloud catalog target metadata into runtime credential keys."""
+        target_keys = _CLOUD_PROVIDER_TARGET_KEYS.get(row.model_provider)
+        if not target_keys:
+            return {}
+        metadata = row.model_metadata if isinstance(row.model_metadata, dict) else {}
+        credentials: dict[str, str] = {}
+        for metadata_key, credential_key in target_keys:
+            value = metadata.get(metadata_key)
+            if isinstance(value, str) and value:
+                credentials[credential_key] = value
+        return credentials
+
+    def _catalog_encrypted_target_credentials(
+        self,
+        row: AgentCatalog,
+    ) -> dict[str, str]:
+        """Decrypt migrated catalog config for cloud target keys only."""
+        target_keys = _CLOUD_PROVIDER_TARGET_KEYS.get(row.model_provider)
+        if not target_keys or row.encrypted_config is None:
+            return {}
+        allowed_keys = {credential_key for _, credential_key in target_keys}
+        try:
+            decrypted = decrypt_keyvalues(
+                row.encrypted_config,
+                key=get_db_encryption_key(),
+            )
+        except Exception:
+            logger.exception(
+                "Failed to decrypt catalog target fallback",
+                catalog_id=str(row.id),
+                model_provider=row.model_provider,
+            )
+            return {}
+        return {
+            kv.key: kv.value.get_secret_value()
+            for kv in decrypted
+            if kv.key in allowed_keys and kv.value.get_secret_value()
+        }
+
+    async def _get_cloud_catalog_credentials(
+        self,
+        row: AgentCatalog,
+    ) -> dict[str, str] | None:
+        """Merge live provider secrets with catalog target metadata."""
+        credentials = await self.get_provider_credentials(row.model_provider)
+        if credentials is None:
+            return None
+
+        target_credentials = self._catalog_target_credentials(row)
+        if not target_credentials:
+            target_credentials = self._catalog_encrypted_target_credentials(row)
+        runtime_credentials = credentials | target_credentials
+        return await self._augment_runtime_provider_credentials(
+            row.model_provider,
+            runtime_credentials,
+        )
+
     async def get_catalog_credentials(
         self, catalog_id: uuid.UUID
     ) -> dict[str, str] | None:
@@ -436,15 +520,29 @@ class AgentManagementService(BaseOrgService):
           catalog row itself, but we intentionally ignore that here so
           post-CRUD rotations aren't shadowed by stale migration state.
 
-        - **Cloud rows** (``encrypted_config`` set, no custom_provider_id):
-          decrypt the catalog row's blob directly. This is where the v2
-          migration parks Bedrock / Azure / Vertex credential ciphertext.
+        - **Cloud rows** (Bedrock / Azure / Vertex): use the live
+          ``agent-{provider}-credentials`` secret as the credential source of
+          truth. Catalog metadata supplies invocation target keys; migrated
+          ``encrypted_config`` is only a fallback for those target keys.
 
         - **Platform rows** or any row without ``encrypted_config`` fall
           back to ``get_runtime_provider_credentials(provider)`` so direct
           providers (OpenAI / Anthropic / Gemini) keep working.
         """
-        stmt = select(AgentCatalog).where(AgentCatalog.id == catalog_id)
+        access_svc = AgentModelAccessService(session=self.session, role=self.role)
+        if not await access_svc.is_catalog_enabled(
+            catalog_id,
+            workspace_id=self.role.workspace_id,
+        ):
+            return None
+
+        stmt = select(AgentCatalog).where(
+            AgentCatalog.id == catalog_id,
+            sa.or_(
+                AgentCatalog.organization_id.is_(None),
+                AgentCatalog.organization_id == self.organization_id,
+            ),
+        )
         row = (await self.session.execute(stmt)).scalar_one_or_none()
         if row is None:
             return None
@@ -468,6 +566,9 @@ class AgentManagementService(BaseOrgService):
                 credentials["CUSTOM_MODEL_PROVIDER_PASSTHROUGH"] = "true"
             return credentials or None
 
+        if row.model_provider in _CLOUD_PROVIDER_TARGET_KEYS:
+            return await self._get_cloud_catalog_credentials(row)
+
         if row.encrypted_config is None:
             # Direct-provider platform row — delegate to legacy secret lookup.
             return await self.get_runtime_provider_credentials(row.model_provider)
@@ -477,7 +578,7 @@ class AgentManagementService(BaseOrgService):
                 row.encrypted_config,
                 key=get_db_encryption_key(),
             )
-        except Exception:  # noqa: BLE001 — Fernet raises various subclasses
+        except Exception:
             logger.exception(
                 "Failed to decrypt catalog encrypted_config",
                 catalog_id=str(row.id),
@@ -546,13 +647,6 @@ class AgentManagementService(BaseOrgService):
         Idempotent via the unique index with ``NULLS NOT DISTINCT`` on
         ``(organization_id, workspace_id, catalog_id)``.
         """
-        from datetime import UTC, datetime
-
-        import sqlalchemy as sa
-        from sqlalchemy.dialects.postgresql import insert as pg_insert
-
-        from tracecat.db.models import AgentCatalog, AgentModelAccess
-
         org_id = self.role.organization_id
         if org_id is None:
             return
@@ -576,11 +670,9 @@ class AgentManagementService(BaseOrgService):
             return
 
         now = datetime.now(UTC)
-        import uuid as _uuid
-
         values = [
             {
-                "id": _uuid.uuid4(),
+                "id": uuid.uuid4(),
                 "organization_id": org_id,
                 "workspace_id": None,
                 "catalog_id": catalog_id,
@@ -610,10 +702,6 @@ class AgentManagementService(BaseOrgService):
         subset overrides that the admin may want to keep for when creds are
         reattached.
         """
-        import sqlalchemy as sa
-
-        from tracecat.db.models import AgentCatalog, AgentModelAccess
-
         org_id = self.role.organization_id
         if org_id is None:
             return
@@ -646,8 +734,6 @@ class AgentManagementService(BaseOrgService):
         since this is an internal check gated by agent:read at the router level.
         """
         if provider == "custom-model-provider":
-            from tracecat.db.models import AgentCustomProvider
-
             v2_result = await self.session.execute(
                 select(AgentCustomProvider.id)
                 .where(AgentCustomProvider.organization_id == self.organization_id)

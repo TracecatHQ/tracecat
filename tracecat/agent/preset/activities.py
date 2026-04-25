@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import uuid
 
+import sqlalchemy as sa
 from pydantic import BaseModel, model_validator
+from sqlalchemy import select
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
@@ -11,6 +13,7 @@ from tracecat.agent.service import AgentManagementService
 from tracecat.agent.workflow_config import agent_config_to_payload
 from tracecat.agent.workflow_schemas import AgentConfigPayload
 from tracecat.auth.types import Role
+from tracecat.db.models import AgentCatalog
 
 
 class ResolveAgentPresetConfigActivityInput(BaseModel):
@@ -88,11 +91,10 @@ async def resolve_custom_model_provider_config_activity(
 
     Two paths:
 
-    1. **v2 (preferred).** When ``catalog_id`` is provided, look up the
-       catalog row's ``custom_provider_id`` and return the matching
-       ``AgentCustomProvider`` row's plaintext ``base_url`` / ``passthrough``
-       columns, plus an optional ``model_name`` override from its
-       ``encrypted_config`` blob.
+    1. **v2 (preferred).** When ``catalog_id`` is provided, verify the catalog
+       row is backed by a custom provider and resolve credentials through the
+       catalog credential loader. That keeps org/workspace model-access checks
+       and provider config decryption centralized.
     2. **Legacy.** When ``catalog_id`` is ``None`` (pre-v2 workflow history
        replay or DSL AI actions that don't carry a catalog_id yet), fall
        back to resolving from
@@ -106,10 +108,7 @@ async def resolve_custom_model_provider_config_activity(
     old workflow history intact: activity calls recorded with just
     ``(role,)`` still deserialize cleanly into the new signature.
     """
-    activity.logger.info(
-        "Resolving custom model provider config",
-        extra={"catalog_id": str(catalog_id) if catalog_id else None},
-    )
+    activity.logger.info("Resolving custom model provider config")
 
     async with AgentManagementService.with_session(role) as svc:
         creds = await _load_custom_model_provider_creds(svc, catalog_id=catalog_id)
@@ -159,9 +158,9 @@ async def _load_custom_model_provider_creds(
 ) -> dict[str, str] | None:
     """Return the dict shape ``_inject_provider_credentials`` expects.
 
-    v2 path: catalog row → custom_provider_id → AgentCustomProvider row.
-    Merges plaintext columns (``base_url``, ``passthrough``) with any
-    overrides present in the decrypted ``encrypted_config`` blob.
+    v2 path: verify ``catalog_id`` points to a custom-provider catalog row,
+    then delegate to ``get_catalog_credentials`` so model-access checks and
+    credential projection stay centralized.
 
     Legacy path: delegate to ``get_runtime_provider_credentials`` which
     reads the legacy ``agent-custom-model-provider-credentials`` secret.
@@ -169,13 +168,15 @@ async def _load_custom_model_provider_creds(
     if catalog_id is None:
         return await svc.get_runtime_provider_credentials("custom-model-provider")
 
-    from sqlalchemy import select
-
-    from tracecat.db.models import AgentCatalog, AgentCustomProvider
-
     catalog_row = (
         await svc.session.execute(
-            select(AgentCatalog).where(AgentCatalog.id == catalog_id)
+            select(AgentCatalog).where(
+                AgentCatalog.id == catalog_id,
+                sa.or_(
+                    AgentCatalog.organization_id.is_(None),
+                    AgentCatalog.organization_id == svc.organization_id,
+                ),
+            )
         )
     ).scalar_one_or_none()
     if catalog_row is None or catalog_row.custom_provider_id is None:
@@ -185,28 +186,4 @@ async def _load_custom_model_provider_creds(
         # its standard "credentials not found" error instead.
         return None
 
-    provider_row = (
-        await svc.session.execute(
-            select(AgentCustomProvider).where(
-                AgentCustomProvider.id == catalog_row.custom_provider_id,
-                AgentCustomProvider.organization_id == svc.organization_id,
-            )
-        )
-    ).scalar_one_or_none()
-    if provider_row is None:
-        return None
-
-    # Start from any overrides inside the decrypted blob (model_name, api_key),
-    # then overlay the plaintext columns so the final dict matches what the
-    # gateway/proxy expect.
-    creds: dict[str, str] = {}
-    if provider_row.encrypted_config is not None:
-        blob_creds = await svc.get_catalog_credentials(catalog_id)
-        if blob_creds:
-            creds.update(blob_creds)
-
-    if provider_row.base_url:
-        creds["CUSTOM_MODEL_PROVIDER_BASE_URL"] = provider_row.base_url
-    if provider_row.passthrough:
-        creds["CUSTOM_MODEL_PROVIDER_PASSTHROUGH"] = "true"
-    return creds or None
+    return await svc.get_catalog_credentials(catalog_id)
