@@ -1403,3 +1403,30 @@ async def test_resolve_org_role_token_scoped_to_unowned_org_errors(
 
     with pytest.raises(ValueError, match="matching the token's org scope"):
         await mcp_auth.resolve_org_role_for_request()
+
+
+@pytest.mark.anyio
+async def test_resolve_org_role_single_tenant_superuser_uses_default_org(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Single-tenant superusers without memberships fall back to default org."""
+    default_org = uuid.uuid4()
+    _patch_resolve_org_role_deps(
+        monkeypatch,
+        identity_org_ids=frozenset(),
+        membership_org_ids=[],  # superuser with no memberships
+        is_superuser=True,
+    )
+
+    async def _get_default_organization_id(_session) -> uuid.UUID:
+        return default_org
+
+    monkeypatch.setattr(
+        "tracecat.organization.management.get_default_organization_id",
+        _get_default_organization_id,
+    )
+
+    role = await mcp_auth.resolve_org_role_for_request()
+
+    assert role.organization_id == default_org
+    assert role.is_platform_superuser is True

@@ -1318,8 +1318,12 @@ async def resolve_org_role_for_request() -> Role:
     an ``organization_id`` claim or ``org:<uuid>`` scope, that scoping is
     intersected with the user's memberships before the ambiguity check, so a
     single-org-scoped token resolves cleanly even when the user belongs to
-    multiple orgs overall.
+    multiple orgs overall. Single-tenant platform superusers fall back to
+    the default organization (matching ``_resolve_org_for_superuser``) so
+    they can use org-scoped tools without an explicit OrganizationMembership.
     """
+    from tracecat.organization.management import get_default_organization_id
+
     identity = get_token_identity()
     if identity.email is None:
         raise ValueError("Token does not contain an email claim")
@@ -1328,12 +1332,15 @@ async def resolve_org_role_for_request() -> Role:
     _raise_if_multi_tenant_superuser(user)
 
     async with get_async_session_bypass_rls_context_manager() as session:
-        result = await session.execute(
-            select(OrganizationMembership.organization_id).where(
-                OrganizationMembership.user_id == user.id
+        if user.is_superuser and not config.TRACECAT__EE_MULTI_TENANT:
+            org_ids = {await get_default_organization_id(session)}
+        else:
+            result = await session.execute(
+                select(OrganizationMembership.organization_id).where(
+                    OrganizationMembership.user_id == user.id
+                )
             )
-        )
-        org_ids = {row[0] for row in result.all()}
+            org_ids = {row[0] for row in result.all()}
 
     if identity.organization_ids:
         org_ids &= identity.organization_ids
