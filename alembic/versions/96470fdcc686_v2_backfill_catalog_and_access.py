@@ -27,14 +27,17 @@ After this migration:
    ciphertext and whose ``model_name`` is the provider slug. The gateway
    resolves the real invocation target by decrypting ``encrypted_config``
    at call time.
-3. Each org that has any direct-provider credential secret (openai /
+3. Platform catalog rows are seeded from
+   ``tracecat/agent/platform_catalog.json`` exactly as the file provides
+   them.
+4. Each org that has any direct-provider credential secret (openai /
    anthropic / gemini) gets ``agent_model_access`` grants to every
-   platform catalog row for that provider. No catalog rows are created
-   for direct providers; platform rows already exist.
-4. Every ``agent_preset`` and ``agent_preset_version`` with
+   platform catalog row for that provider. No additional catalog rows are
+   created for direct providers.
+5. Every ``agent_preset`` and ``agent_preset_version`` with
    ``catalog_id IS NULL`` is matched against catalog rows by
    ``(model_provider, model_name)`` and linked when unambiguous.
-5. The ``agent_default_model`` org setting (string name) is resolved to
+6. The ``agent_default_model`` org setting (string name) is resolved to
    the corresponding catalog row, and ``agent_default_model_catalog_id``
    is populated.
 
@@ -44,10 +47,10 @@ follows this one will flip the gateway to read ``encrypted_config`` from
 catalog rows, after which a later contract migration can drop the
 ``agent-*-credentials`` secrets.
 
-Every step is idempotent (``ON CONFLICT DO NOTHING`` or ``WHERE
-catalog_id IS NULL`` guards). The migration intentionally fails fast: if any
-org cannot be backfilled, the surrounding Alembic transaction rolls back and
-operators can correct the issue before rerunning.
+Every step is idempotent (``ON CONFLICT`` clauses or ``WHERE catalog_id IS
+NULL`` guards). The migration intentionally fails fast: if any org cannot be
+backfilled, the surrounding Alembic transaction rolls back and operators can
+correct the issue before rerunning.
 
 Downgrade is a no-op by design — new rows are additive and the old world
 still works, so rollback is ``DELETE`` on the new tables (handled by
@@ -58,8 +61,10 @@ from __future__ import annotations
 
 import logging
 import uuid
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
+from pathlib import Path
+from typing import Any
 
 import orjson
 import sqlalchemy as sa
@@ -77,6 +82,10 @@ depends_on: str | Sequence[str] | None = None
 
 logger = logging.getLogger("alembic.runtime.migration.v2_backfill")
 
+PLATFORM_CATALOG_PATH = (
+    Path(__file__).resolve().parents[2] / "tracecat" / "agent" / "platform_catalog.json"
+)
+
 
 # Cloud-provider slugs whose credential blob carries an invocation target
 # (model id, deployment name, inference profile, ...). One catalog row per
@@ -89,6 +98,7 @@ CLOUD_PROVIDERS: frozenset[str] = frozenset(
 DIRECT_PROVIDERS: frozenset[str] = frozenset({"openai", "anthropic", "gemini"})
 
 CUSTOM_PROVIDER_SLUG = "custom-model-provider"
+CUSTOM_PROVIDER_MODEL_NAME = "custom"
 CUSTOM_PROVIDER_DISPLAY_NAME = "Custom LLM Provider"
 
 DEFAULT_MODEL_SETTING_KEY = "agent_default_model"
@@ -180,8 +190,128 @@ workspace_tbl = sa.table(
 )
 
 
-def _now() -> datetime:
-    return datetime.now(UTC)
+def upgrade() -> None:
+    conn = op.get_bind()
+
+    _seed_platform_catalog_rows(conn)
+
+    # Org-scoped rows and access grants depend on the platform catalog rows above.
+    for org_id in _orgs_with_any_provider_secret(conn):
+        _backfill_org_provider_data(conn, org_id=org_id)
+
+    # Preset + version catalog_id backfill. Not per-org because the join
+    # through workspace already scopes each preset correctly.
+    _backfill_preset_catalog_ids(conn, table=agent_preset_tbl, label="agent_preset")
+    _backfill_preset_catalog_ids(
+        conn, table=agent_preset_version_tbl, label="agent_preset_version"
+    )
+
+
+def downgrade() -> None:
+    """Intentional no-op.
+
+    This migration is expansion-only and cannot be automatically reversed
+    because it creates rows rather than altering schema. Rollback path
+    per ``alembic/CLAUDE.md``: restore the database from backup or simply
+    delete the new rows manually; old application code continues to work
+    because no data was mutated destructively.
+    """
+
+
+def _load_platform_catalog_entries() -> list[dict[str, Any]]:
+    """Load and validate the frozen source catalog for platform rows."""
+    try:
+        raw = PLATFORM_CATALOG_PATH.read_bytes()
+    except OSError as exc:
+        raise RuntimeError(
+            f"Platform catalog file is missing or unreadable: {PLATFORM_CATALOG_PATH}"
+        ) from exc
+
+    try:
+        parsed = orjson.loads(raw)
+    except orjson.JSONDecodeError as exc:
+        raise RuntimeError(
+            f"Platform catalog file contains invalid JSON: {PLATFORM_CATALOG_PATH}"
+        ) from exc
+
+    if not isinstance(parsed, Mapping):
+        raise RuntimeError("Platform catalog root must be a JSON object")
+
+    models = parsed.get("models")
+    if not isinstance(models, list) or not models:
+        raise RuntimeError("Platform catalog must contain a non-empty models list")
+
+    entries: list[dict[str, Any]] = []
+    for idx, entry in enumerate(models):
+        if not isinstance(entry, Mapping):
+            raise RuntimeError(
+                f"Platform catalog model at index {idx} must be an object"
+            )
+
+        model_provider = entry.get("model_provider")
+        model_name = entry.get("model_name")
+        metadata = entry.get("metadata", {})
+        if not isinstance(model_provider, str) or not model_provider:
+            raise RuntimeError(
+                f"Platform catalog model at index {idx} has invalid model_provider"
+            )
+        if not isinstance(model_name, str) or not model_name:
+            raise RuntimeError(
+                f"Platform catalog model at index {idx} has invalid model_name"
+            )
+        if not isinstance(metadata, Mapping):
+            raise RuntimeError(
+                f"Platform catalog model at index {idx} has invalid metadata"
+            )
+
+        entries.append(
+            {
+                "model_provider": model_provider,
+                "model_name": model_name,
+                "metadata": dict(metadata),
+            }
+        )
+
+    return entries
+
+
+def _seed_platform_catalog_rows(conn: sa.engine.Connection) -> None:
+    """Upsert platform catalog rows before org grants and preset linking."""
+    entries = _load_platform_catalog_entries()
+    now = datetime.now(UTC)
+    # Use the source JSON exactly as authored; provider-name corrections belong
+    # in the catalog source branch, not in this migration.
+    values = [
+        {
+            "id": uuid.uuid4(),
+            "organization_id": None,
+            "custom_provider_id": None,
+            "model_provider": entry["model_provider"],
+            "model_name": entry["model_name"],
+            "model_metadata": entry["metadata"],
+            "encrypted_config": None,
+            "last_refreshed_at": now,
+            "created_at": now,
+            "updated_at": now,
+        }
+        for entry in entries
+    ]
+
+    stmt = pg_insert(agent_catalog_tbl).values(values)
+    stmt = stmt.on_conflict_do_update(
+        index_elements=[
+            "organization_id",
+            "custom_provider_id",
+            "model_provider",
+            "model_name",
+        ],
+        set_={
+            "model_metadata": stmt.excluded.model_metadata,
+            "last_refreshed_at": stmt.excluded.last_refreshed_at,
+            "updated_at": stmt.excluded.updated_at,
+        },
+    )
+    conn.execute(stmt)
 
 
 def _orgs_with_any_provider_secret(conn: sa.engine.Connection) -> list[uuid.UUID]:
@@ -215,7 +345,7 @@ def _grant_org_access(
     catalog_id: uuid.UUID,
 ) -> None:
     """Create an org-wide (workspace_id=NULL) access grant, idempotent."""
-    now = _now()
+    now = datetime.now(UTC)
     conn.execute(
         pg_insert(agent_model_access_tbl)
         .values(
@@ -266,7 +396,7 @@ def _migrate_cloud_provider(
     if blob is None:
         return
 
-    now = _now()
+    now = datetime.now(UTC)
     catalog_id = uuid.uuid4()
     result = conn.execute(
         pg_insert(agent_catalog_tbl)
@@ -294,7 +424,7 @@ def _migrate_cloud_provider(
     )
     inserted = result.scalar_one_or_none()
     if inserted is None:
-        # Row already existed — find its id so we can still ensure the grant.
+        # Row already existed; fetch its id so the access grant remains idempotent.
         existing = conn.execute(
             sa.select(agent_catalog_tbl.c.id).where(
                 agent_catalog_tbl.c.organization_id == org_id,
@@ -326,7 +456,7 @@ def _migrate_custom_provider(conn: sa.engine.Connection, *, org_id: uuid.UUID) -
     if blob is None:
         return
 
-    now = _now()
+    now = datetime.now(UTC)
     # Stable-ish id so idempotency works: look up any existing row for the
     # org first, otherwise insert a fresh one.
     existing = conn.execute(
@@ -353,8 +483,8 @@ def _migrate_custom_provider(conn: sa.engine.Connection, *, org_id: uuid.UUID) -
             )
         )
 
-    # Linked catalog row — placeholder model_name; gateway resolves the real
-    # value from encrypted_config at call time.
+    # Linked catalog row. Legacy custom-provider presets use
+    # (custom-model-provider, custom), so keep that stable name for matching.
     catalog_id = uuid.uuid4()
     result = conn.execute(
         pg_insert(agent_catalog_tbl)
@@ -363,7 +493,7 @@ def _migrate_custom_provider(conn: sa.engine.Connection, *, org_id: uuid.UUID) -
             organization_id=org_id,
             custom_provider_id=provider_id,
             model_provider=CUSTOM_PROVIDER_SLUG,
-            model_name=CUSTOM_PROVIDER_SLUG,
+            model_name=CUSTOM_PROVIDER_MODEL_NAME,
             model_metadata={},
             encrypted_config=blob,
             last_refreshed_at=now,
@@ -382,12 +512,14 @@ def _migrate_custom_provider(conn: sa.engine.Connection, *, org_id: uuid.UUID) -
     )
     inserted = result.scalar_one_or_none()
     if inserted is None:
+        # Existing custom-provider catalogs need the same grant/link behavior as
+        # newly inserted rows when the migration is rerun.
         existing_catalog = conn.execute(
             sa.select(agent_catalog_tbl.c.id).where(
                 agent_catalog_tbl.c.organization_id == org_id,
                 agent_catalog_tbl.c.custom_provider_id == provider_id,
                 agent_catalog_tbl.c.model_provider == CUSTOM_PROVIDER_SLUG,
-                agent_catalog_tbl.c.model_name == CUSTOM_PROVIDER_SLUG,
+                agent_catalog_tbl.c.model_name == CUSTOM_PROVIDER_MODEL_NAME,
             )
         ).one()
         catalog_id = existing_catalog.id
@@ -538,6 +670,8 @@ def _backfill_default_model_setting(
 def _backfill_org_provider_data(
     conn: sa.engine.Connection, *, org_id: uuid.UUID
 ) -> None:
+    # Custom/cloud providers materialize org-scoped catalog rows; direct
+    # providers only grant access to platform catalog rows seeded earlier.
     _migrate_custom_provider(conn, org_id=org_id)
 
     for provider in CLOUD_PROVIDERS:
@@ -555,32 +689,3 @@ def _backfill_org_provider_data(
         _grant_platform_direct_provider_access(conn, org_id=org_id, provider=provider)
 
     _backfill_default_model_setting(conn, org_id=org_id)
-
-
-def _backfill_org_provider_data_for_all_orgs(conn: sa.engine.Connection) -> None:
-    for org_id in _orgs_with_any_provider_secret(conn):
-        _backfill_org_provider_data(conn, org_id=org_id)
-
-
-def upgrade() -> None:
-    conn = op.get_bind()
-
-    _backfill_org_provider_data_for_all_orgs(conn)
-
-    # Preset + version catalog_id backfill. Not per-org because the join
-    # through workspace already scopes each preset correctly.
-    _backfill_preset_catalog_ids(conn, table=agent_preset_tbl, label="agent_preset")
-    _backfill_preset_catalog_ids(
-        conn, table=agent_preset_version_tbl, label="agent_preset_version"
-    )
-
-
-def downgrade() -> None:
-    """Intentional no-op.
-
-    This migration is expansion-only and cannot be automatically reversed
-    because it creates rows rather than altering schema. Rollback path
-    per ``alembic/CLAUDE.md``: restore the database from backup or simply
-    delete the new rows manually; old application code continues to work
-    because no data was mutated destructively.
-    """

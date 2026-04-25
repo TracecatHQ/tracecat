@@ -29,6 +29,7 @@ from pydantic import SecretStr
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.db.models import (
+    AgentCatalog,
     AgentCustomProvider,
     AgentPreset,
     AgentPresetVersion,
@@ -145,8 +146,6 @@ async def _seed_platform_catalog(
     """Insert platform catalog rows (org_id IS NULL) and return their ids."""
     from datetime import UTC, datetime
 
-    from tracecat.db.models import AgentCatalog
-
     ids: list[uuid.UUID] = []
     for provider, name in entries:
         row = AgentCatalog(
@@ -176,7 +175,9 @@ async def _run_upgrade(session: AsyncSession, migration: Any) -> None:
     conn = await session.connection()
 
     def _invoke(sync_conn: sa.engine.Connection) -> None:
-        migration._backfill_org_provider_data_for_all_orgs(sync_conn)
+        migration._seed_platform_catalog_rows(sync_conn)
+        for org_id in migration._orgs_with_any_provider_secret(sync_conn):
+            migration._backfill_org_provider_data(sync_conn, org_id=org_id)
         migration._backfill_preset_catalog_ids(
             sync_conn, table=migration.agent_preset_tbl, label="agent_preset"
         )
@@ -187,6 +188,120 @@ async def _run_upgrade(session: AsyncSession, migration: Any) -> None:
         )
 
     await conn.run_sync(_invoke)
+
+
+# ---------------------------------------------------------------------------
+# Platform catalog seeding
+# ---------------------------------------------------------------------------
+
+
+def test_platform_catalog_loader_fails_fast_for_missing_invalid_or_empty(
+    migration: Any,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    missing = tmp_path / "missing.json"
+    monkeypatch.setattr(migration, "PLATFORM_CATALOG_PATH", missing)
+    with pytest.raises(RuntimeError, match="missing or unreadable"):
+        migration._load_platform_catalog_entries()
+
+    invalid = tmp_path / "invalid.json"
+    invalid.write_text("{", encoding="utf-8")
+    monkeypatch.setattr(migration, "PLATFORM_CATALOG_PATH", invalid)
+    with pytest.raises(RuntimeError, match="invalid JSON"):
+        migration._load_platform_catalog_entries()
+
+    empty = tmp_path / "empty.json"
+    empty.write_text('{"models":[]}', encoding="utf-8")
+    monkeypatch.setattr(migration, "PLATFORM_CATALOG_PATH", empty)
+    with pytest.raises(RuntimeError, match="non-empty models list"):
+        migration._load_platform_catalog_entries()
+
+    invalid_entry = tmp_path / "invalid-entry.json"
+    invalid_entry.write_text(
+        '{"models":[{"model_provider":"openai"}]}',
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(migration, "PLATFORM_CATALOG_PATH", invalid_entry)
+    with pytest.raises(RuntimeError, match="invalid model_name"):
+        migration._load_platform_catalog_entries()
+
+
+@pytest.mark.anyio
+async def test_upgrade_seeds_platform_catalog_before_grants_and_preset_linking(
+    session: AsyncSession,
+    fresh_org: Organization,
+    fresh_workspace: Workspace,
+    fernet_key: str,
+    migration: Any,
+) -> None:
+    source_entry = next(
+        entry
+        for entry in migration._load_platform_catalog_entries()
+        if entry["model_provider"] == "openai"
+    )
+    model_provider = source_entry["model_provider"]
+    model_name = source_entry["model_name"]
+
+    await _seed_secret(
+        session,
+        org_id=fresh_org.id,
+        name="agent-openai-credentials",
+        keyvalues={"OPENAI_API_KEY": "sk-..."},
+        encryption_key=fernet_key,
+    )
+
+    preset = AgentPreset(
+        workspace_id=fresh_workspace.id,
+        slug="p1",
+        name="Preset 1",
+        model_provider=model_provider,
+        model_name=model_name,
+        retries=3,
+    )
+    version = AgentPresetVersion(
+        workspace_id=fresh_workspace.id,
+        preset_id=uuid.uuid4(),
+        version=1,
+        model_provider=model_provider,
+        model_name=model_name,
+        retries=3,
+    )
+    session.add(preset)
+    await session.flush()
+    version.preset_id = preset.id
+    session.add(version)
+    await session.commit()
+
+    await _run_upgrade(session, migration)
+
+    catalog_row = (
+        await session.execute(
+            sa.select(AgentCatalog).where(
+                AgentCatalog.organization_id.is_(None),
+                AgentCatalog.custom_provider_id.is_(None),
+                AgentCatalog.model_provider == model_provider,
+                AgentCatalog.model_name == model_name,
+            )
+        )
+    ).scalar_one()
+    assert catalog_row.model_metadata == source_entry["metadata"]
+
+    access_count = await session.scalar(
+        sa.select(sa.func.count())
+        .select_from(migration.agent_model_access_tbl)
+        .where(
+            migration.agent_model_access_tbl.c.organization_id == fresh_org.id,
+            migration.agent_model_access_tbl.c.catalog_id == catalog_row.id,
+            migration.agent_model_access_tbl.c.workspace_id.is_(None),
+        )
+    )
+    assert access_count == 1
+
+    await session.refresh(preset)
+    await session.refresh(version)
+    assert preset.catalog_id == catalog_row.id
+    assert version.catalog_id == catalog_row.id
 
 
 # ---------------------------------------------------------------------------
@@ -378,7 +493,7 @@ async def test_custom_provider_materializes_row_and_catalog(
         )
     ).one()
     assert catalog_row.model_provider == migration.CUSTOM_PROVIDER_SLUG
-    assert catalog_row.model_name == migration.CUSTOM_PROVIDER_SLUG
+    assert catalog_row.model_name == migration.CUSTOM_PROVIDER_MODEL_NAME
     assert bytes(catalog_row.encrypted_config) == bytes(blob)
 
     access_count = await session.scalar(
@@ -455,6 +570,63 @@ async def test_no_custom_secret_no_custom_provider_row(
     assert count == 0
 
 
+@pytest.mark.anyio
+async def test_custom_provider_preset_links_to_custom_catalog_row(
+    session: AsyncSession,
+    fresh_org: Organization,
+    fresh_workspace: Workspace,
+    fernet_key: str,
+    migration: Any,
+) -> None:
+    await _seed_secret(
+        session,
+        org_id=fresh_org.id,
+        name="agent-custom-model-provider-credentials",
+        keyvalues={"CUSTOM_MODEL_PROVIDER_API_KEY": "sk-..."},
+        encryption_key=fernet_key,
+    )
+    preset = AgentPreset(
+        workspace_id=fresh_workspace.id,
+        slug="custom-preset",
+        name="Custom Preset",
+        model_provider=migration.CUSTOM_PROVIDER_SLUG,
+        model_name=migration.CUSTOM_PROVIDER_MODEL_NAME,
+        retries=3,
+    )
+    version = AgentPresetVersion(
+        workspace_id=fresh_workspace.id,
+        preset_id=uuid.uuid4(),
+        version=1,
+        model_provider=migration.CUSTOM_PROVIDER_SLUG,
+        model_name=migration.CUSTOM_PROVIDER_MODEL_NAME,
+        retries=3,
+    )
+    session.add(preset)
+    await session.flush()
+    version.preset_id = preset.id
+    session.add(version)
+    await session.commit()
+
+    await _run_upgrade(session, migration)
+
+    catalog_row = (
+        await session.execute(
+            sa.select(migration.agent_catalog_tbl).where(
+                migration.agent_catalog_tbl.c.organization_id == fresh_org.id,
+                migration.agent_catalog_tbl.c.model_provider
+                == migration.CUSTOM_PROVIDER_SLUG,
+                migration.agent_catalog_tbl.c.model_name
+                == migration.CUSTOM_PROVIDER_MODEL_NAME,
+            )
+        )
+    ).one()
+
+    await session.refresh(preset)
+    await session.refresh(version)
+    assert preset.catalog_id == catalog_row.id
+    assert version.catalog_id == catalog_row.id
+
+
 # ---------------------------------------------------------------------------
 # Direct-provider access grants
 # ---------------------------------------------------------------------------
@@ -467,14 +639,6 @@ async def test_direct_provider_secret_grants_access_to_all_platform_rows(
     fernet_key: str,
     migration: Any,
 ) -> None:
-    platform_ids = await _seed_platform_catalog(
-        session,
-        entries=[
-            ("openai", "gpt-5-2025-08-07"),
-            ("openai", "gpt-5-mini-2025-08-07"),
-            ("anthropic", "claude-sonnet-4-5"),
-        ],
-    )
     await _seed_secret(
         session,
         org_id=fresh_org.id,
@@ -484,6 +648,19 @@ async def test_direct_provider_secret_grants_access_to_all_platform_rows(
     )
 
     await _run_upgrade(session, migration)
+
+    openai_catalog_ids = set(
+        (
+            await session.execute(
+                sa.select(migration.agent_catalog_tbl.c.id).where(
+                    migration.agent_catalog_tbl.c.organization_id.is_(None),
+                    migration.agent_catalog_tbl.c.custom_provider_id.is_(None),
+                    migration.agent_catalog_tbl.c.model_provider == "openai",
+                )
+            )
+        ).scalars()
+    )
+    assert openai_catalog_ids
 
     granted_catalog_ids = set(
         (
@@ -495,20 +672,128 @@ async def test_direct_provider_secret_grants_access_to_all_platform_rows(
             )
         ).scalars()
     )
-    expected = {
-        pid
-        for pid, (prov, _) in zip(
-            platform_ids,
-            [
-                ("openai", "gpt-5-2025-08-07"),
-                ("openai", "gpt-5-mini-2025-08-07"),
-                ("anthropic", "claude-sonnet-4-5"),
-            ],
-            strict=True,
+    assert granted_catalog_ids == openai_catalog_ids
+
+
+@pytest.mark.anyio
+async def test_direct_provider_secret_without_matching_catalog_rows_gets_no_grants(
+    session: AsyncSession,
+    fresh_org: Organization,
+    fernet_key: str,
+    migration: Any,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        migration,
+        "_load_platform_catalog_entries",
+        lambda: [
+            {
+                "model_provider": "google",
+                "model_name": "gemini-source-row",
+                "metadata": {"provider": "google"},
+            }
+        ],
+    )
+    await _seed_secret(
+        session,
+        org_id=fresh_org.id,
+        name="agent-gemini-credentials",
+        keyvalues={"GEMINI_API_KEY": "sk-foo"},
+        encryption_key=fernet_key,
+    )
+
+    await _run_upgrade(session, migration)
+
+    grant_count = await session.scalar(
+        sa.select(sa.func.count())
+        .select_from(migration.agent_model_access_tbl)
+        .where(migration.agent_model_access_tbl.c.organization_id == fresh_org.id)
+    )
+    assert grant_count == 0
+
+    google_count = await session.scalar(
+        sa.select(sa.func.count())
+        .select_from(migration.agent_catalog_tbl)
+        .where(
+            migration.agent_catalog_tbl.c.organization_id.is_(None),
+            migration.agent_catalog_tbl.c.model_provider == "google",
         )
-        if prov == "openai"
-    }
-    assert granted_catalog_ids == expected
+    )
+    assert google_count == 1
+
+    gemini_count = await session.scalar(
+        sa.select(sa.func.count())
+        .select_from(migration.agent_catalog_tbl)
+        .where(
+            migration.agent_catalog_tbl.c.organization_id.is_(None),
+            migration.agent_catalog_tbl.c.model_provider == "gemini",
+        )
+    )
+    assert gemini_count == 0
+
+
+@pytest.mark.anyio
+async def test_gemini_secret_grants_access_to_gemini_source_catalog_rows(
+    session: AsyncSession,
+    fresh_org: Organization,
+    fernet_key: str,
+    migration: Any,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        migration,
+        "_load_platform_catalog_entries",
+        lambda: [
+            {
+                "model_provider": "google",
+                "model_name": "gemini-google-row",
+                "metadata": {"provider": "google"},
+            },
+            {
+                "model_provider": "gemini",
+                "model_name": "gemini-source-row",
+                "metadata": {"provider": "gemini"},
+            },
+        ],
+    )
+    await _seed_secret(
+        session,
+        org_id=fresh_org.id,
+        name="agent-gemini-credentials",
+        keyvalues={"GEMINI_API_KEY": "sk-foo"},
+        encryption_key=fernet_key,
+    )
+
+    await _run_upgrade(session, migration)
+
+    platform_rows = (
+        (
+            await session.execute(
+                sa.select(
+                    migration.agent_catalog_tbl.c.id,
+                    migration.agent_catalog_tbl.c.model_provider,
+                    migration.agent_catalog_tbl.c.model_name,
+                ).where(migration.agent_catalog_tbl.c.organization_id.is_(None))
+            )
+        )
+        .mappings()
+        .all()
+    )
+    rows_by_provider = {row["model_provider"]: row for row in platform_rows}
+    assert rows_by_provider["google"]["model_name"] == "gemini-google-row"
+    assert rows_by_provider["gemini"]["model_name"] == "gemini-source-row"
+
+    granted_catalog_ids = set(
+        (
+            await session.execute(
+                sa.select(migration.agent_model_access_tbl.c.catalog_id).where(
+                    migration.agent_model_access_tbl.c.organization_id == fresh_org.id,
+                    migration.agent_model_access_tbl.c.workspace_id.is_(None),
+                )
+            )
+        ).scalars()
+    )
+    assert granted_catalog_ids == {rows_by_provider["gemini"]["id"]}
 
 
 # ---------------------------------------------------------------------------
@@ -538,9 +823,11 @@ def test_org_backfill_failure_is_not_swallowed(
         "_backfill_org_provider_data",
         _fail_org_backfill,
     )
+    monkeypatch.setattr(migration, "_seed_platform_catalog_rows", lambda _conn: None)
+    monkeypatch.setattr(migration.op, "get_bind", lambda: object())
 
     with pytest.raises(RuntimeError, match="boom"):
-        migration._backfill_org_provider_data_for_all_orgs(object())
+        migration.upgrade()
 
     assert visited == [first_org]
 
@@ -597,8 +884,6 @@ async def test_preset_prefers_platform_row_on_ambiguous_match(
     migration: Any,
 ) -> None:
     from datetime import UTC, datetime
-
-    from tracecat.db.models import AgentCatalog
 
     platform_row = AgentCatalog(
         id=uuid.uuid4(),
