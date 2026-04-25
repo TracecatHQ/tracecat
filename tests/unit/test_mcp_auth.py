@@ -1279,3 +1279,127 @@ async def test_mcp_pre_role_lookups_use_bypass_session_manager(
                 await fn(*args)
 
         assert call_count == 1
+
+
+def _patch_resolve_org_role_deps(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    identity_org_ids: frozenset[uuid.UUID] = frozenset(),
+    membership_org_ids: list[uuid.UUID],
+    user_id: uuid.UUID | None = None,
+    is_superuser: bool = False,
+) -> None:
+    """Wire token identity, user lookup, and the membership query."""
+
+    user_id = user_id or uuid.uuid4()
+
+    class _Result:
+        def __init__(self, values: list[uuid.UUID]) -> None:
+            self._values = values
+
+        def all(self) -> list[tuple[uuid.UUID]]:
+            return [(v,) for v in self._values]
+
+    class _Session:
+        async def execute(self, _stmt):
+            return _Result(membership_org_ids)
+
+    class _AsyncContext:
+        def __init__(self, session: _Session) -> None:
+            self._session = session
+
+        async def __aenter__(self) -> _Session:
+            return self._session
+
+        async def __aexit__(self, exc_type, exc, tb) -> None:
+            return None
+
+    identity = SimpleNamespace(
+        client_id="tracecat-client",
+        email="user@example.com",
+        organization_ids=identity_org_ids,
+        workspace_ids=frozenset(),
+    )
+
+    async def _resolve_user_by_email(_email: str) -> SimpleNamespace:
+        return SimpleNamespace(id=user_id, is_superuser=is_superuser)
+
+    async def _compute_effective_scopes(_role) -> frozenset[str]:
+        return frozenset({"org:registry:update"})
+
+    monkeypatch.setattr(mcp_auth, "get_token_identity", lambda: identity)
+    monkeypatch.setattr(mcp_auth, "resolve_user_by_email", _resolve_user_by_email)
+    monkeypatch.setattr(mcp_auth, "compute_effective_scopes", _compute_effective_scopes)
+    monkeypatch.setattr(
+        mcp_auth,
+        "get_async_session_bypass_rls_context_manager",
+        lambda: _AsyncContext(_Session()),
+    )
+    monkeypatch.setattr(mcp_auth.config, "TRACECAT__EE_MULTI_TENANT", False)
+
+
+@pytest.mark.anyio
+async def test_resolve_org_role_intersects_token_scoping_with_memberships(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Scoped token + multi-org user should resolve cleanly to the scoped org."""
+    scoped_org = uuid.uuid4()
+    other_org = uuid.uuid4()
+    _patch_resolve_org_role_deps(
+        monkeypatch,
+        identity_org_ids=frozenset({scoped_org}),
+        membership_org_ids=[scoped_org, other_org],
+    )
+
+    role = await mcp_auth.resolve_org_role_for_request()
+
+    assert role.organization_id == scoped_org
+    assert role.workspace_id is None
+
+
+@pytest.mark.anyio
+async def test_resolve_org_role_unscoped_token_with_single_membership(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Unscoped token + single-org user resolves without scoping."""
+    org = uuid.uuid4()
+    _patch_resolve_org_role_deps(
+        monkeypatch,
+        identity_org_ids=frozenset(),
+        membership_org_ids=[org],
+    )
+
+    role = await mcp_auth.resolve_org_role_for_request()
+
+    assert role.organization_id == org
+
+
+@pytest.mark.anyio
+async def test_resolve_org_role_unscoped_token_with_multi_org_user_errors(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Unscoped token + multi-org user must surface a clear error."""
+    _patch_resolve_org_role_deps(
+        monkeypatch,
+        identity_org_ids=frozenset(),
+        membership_org_ids=[uuid.uuid4(), uuid.uuid4()],
+    )
+
+    with pytest.raises(ValueError, match="single-org token"):
+        await mcp_auth.resolve_org_role_for_request()
+
+
+@pytest.mark.anyio
+async def test_resolve_org_role_token_scoped_to_unowned_org_errors(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Token scoped to an org the user has no membership in must error."""
+    foreign_org = uuid.uuid4()
+    _patch_resolve_org_role_deps(
+        monkeypatch,
+        identity_org_ids=frozenset({foreign_org}),
+        membership_org_ids=[uuid.uuid4()],
+    )
+
+    with pytest.raises(ValueError, match="matching the token's org scope"):
+        await mcp_auth.resolve_org_role_for_request()

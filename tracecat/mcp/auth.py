@@ -1312,13 +1312,19 @@ async def resolve_role_for_request(workspace_id: WorkspaceID) -> Role:
 async def resolve_org_role_for_request() -> Role:
     """Resolve a role with organization context from the current MCP token.
 
-    Mirrors the HTTP API's ``_resolve_org_for_regular_user`` pattern: looks up
-    the caller's organization memberships directly and rejects ambiguous
-    multi-org cases. Used by org-scoped tools (e.g. registry sync) that should
-    not require a workspace selector.
+    Mirrors the HTTP API's ``_resolve_org_for_regular_user`` and the MCP
+    ``list_user_workspaces`` patterns: looks up the caller's organization
+    memberships and rejects ambiguous multi-org cases. When the token carries
+    an ``organization_id`` claim or ``org:<uuid>`` scope, that scoping is
+    intersected with the user's memberships before the ambiguity check, so a
+    single-org-scoped token resolves cleanly even when the user belongs to
+    multiple orgs overall.
     """
-    email = get_email_from_token()
-    user = await resolve_user_by_email(email)
+    identity = get_token_identity()
+    if identity.email is None:
+        raise ValueError("Token does not contain an email claim")
+
+    user = await resolve_user_by_email(identity.email)
     _raise_if_multi_tenant_superuser(user)
 
     async with get_async_session_bypass_rls_context_manager() as session:
@@ -1329,12 +1335,21 @@ async def resolve_org_role_for_request() -> Role:
         )
         org_ids = {row[0] for row in result.all()}
 
+    if identity.organization_ids:
+        org_ids &= identity.organization_ids
+
     if not org_ids:
-        raise ValueError(f"User {email} has no organization memberships")
+        if identity.organization_ids:
+            raise ValueError(
+                f"User {identity.email} has no organization memberships "
+                "matching the token's org scope"
+            )
+        raise ValueError(f"User {identity.email} has no organization memberships")
     if len(org_ids) > 1:
         raise ValueError(
-            "Multiple organizations found for caller. "
-            "Org-scoped tools require a single-org token."
+            "Multiple organizations resolved for caller; org-scoped tools "
+            "require a single-org token (set organization_id claim or "
+            "org:<uuid> scope)."
         )
 
     organization_id = next(iter(org_ids))
