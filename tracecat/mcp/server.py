@@ -11,7 +11,6 @@ import base64
 import csv
 import hashlib
 import json
-import re
 import uuid
 from collections import defaultdict, deque
 from collections.abc import Callable, Collection, Iterator, Mapping, Sequence
@@ -45,8 +44,6 @@ from pydantic import (
     Field,
     ValidationError,
     WithJsonSchema,
-    field_validator,
-    model_validator,
 )
 from redis.asyncio import Redis as AsyncRedis
 from slugify import slugify
@@ -182,8 +179,9 @@ from tracecat.mcp.schemas import (
     WorkflowEditMetadata,
     WorkflowEditRequest,
     WorkflowEditResponse,
+    WorkflowLayout,
     WorkflowSchedule,
-    normalize_layout_position_alias,
+    WorkflowYamlPayload,
 )
 from tracecat.pagination import CursorPaginatedResponse, CursorPaginationParams
 from tracecat.registry.actions.schemas import TemplateAction
@@ -654,80 +652,10 @@ _WORKFLOW_YAML_TOP_LEVEL_KEYS = frozenset(
 )
 
 
-class MCPLayoutPosition(BaseModel):
-    x: float | None = None
-    y: float | None = None
-    position: dict[str, float] | None = None
-
-    @model_validator(mode="before")
-    @classmethod
-    def apply_nested_position(cls, value: Any) -> Any:
-        return normalize_layout_position_alias(value)
-
-
-class MCPLayoutViewport(BaseModel):
-    x: float | None = None
-    y: float | None = None
-    zoom: float | None = None
-
-
-class MCPLayoutActionPosition(BaseModel):
-    ref: str
-    x: float | None = None
-    y: float | None = None
-    position: dict[str, float] | None = None
-
-    @model_validator(mode="before")
-    @classmethod
-    def apply_nested_position(cls, value: Any) -> Any:
-        return normalize_layout_position_alias(value)
-
-
-class MCPWorkflowLayout(BaseModel):
-    trigger: MCPLayoutPosition | None = None
-    viewport: MCPLayoutViewport | None = None
-    actions: list[MCPLayoutActionPosition] = Field(default_factory=list)
-
-
-class MCPWorkflowSchedule(BaseModel):
-    model_config = ConfigDict(extra="ignore")
-
-    status: Literal["online", "offline"] = "online"
-    inputs: dict[str, Any] | None = None
-    cron: str | None = None
-    every: timedelta | None = None
-    offset: timedelta | None = None
-    start_at: datetime | None = None
-    end_at: datetime | None = None
-    timeout: float = 0
-
-    @field_validator("every", "offset", mode="before")
-    @classmethod
-    def parse_duration(cls, value: Any) -> Any:
-        if isinstance(value, str):
-            return _parse_iso8601_duration(value)
-        return value
-
-    @model_validator(mode="after")
-    def validate_schedule_spec(self) -> MCPWorkflowSchedule:
-        if self.cron is None and self.every is None:
-            raise ValueError("Either cron or every must be provided for a schedule")
-        return self
-
-
-class MCPWorkflowYamlPayload(BaseModel):
-    model_config = ConfigDict(extra="ignore")
-
-    definition: DSLInput | None = None
-    layout: MCPWorkflowLayout | None = None
-    schedules: list[MCPWorkflowSchedule] | None = None
-    case_trigger: dict[str, Any] | None = None
-
-
 def _schedule_create_from_payload(
     *,
     workflow_id: WorkflowUUID,
-    schedule: WorkflowSchedule | MCPWorkflowSchedule,
+    schedule: WorkflowSchedule,
 ) -> ScheduleCreate:
     return ScheduleCreate(
         workflow_id=workflow_id,
@@ -1908,7 +1836,7 @@ async def _persist_workflow_edit_document(
         }
         _apply_layout_to_workflow(
             workflow=workflow,
-            layout=MCPWorkflowLayout.model_validate(layout_payload),
+            layout=WorkflowLayout.model_validate(layout_payload),
             clear_missing=True,
             allowed_missing_action_refs=allowed_missing_layout_action_refs,
         )
@@ -2141,14 +2069,14 @@ def _normalize_workflow_yaml_payload(raw_payload: Any) -> dict[str, Any]:
     return {"definition": raw_payload}
 
 
-def _parse_workflow_yaml_payload(definition_yaml: str) -> MCPWorkflowYamlPayload:
+def _parse_workflow_yaml_payload(definition_yaml: str) -> WorkflowYamlPayload:
     """Parse and validate workflow definition YAML payload."""
     try:
         raw = yaml.safe_load(definition_yaml)
     except yaml.YAMLError as exc:
         raise ToolError(f"Invalid YAML: {exc}") from exc
     normalized = _normalize_workflow_yaml_payload(raw)
-    return MCPWorkflowYamlPayload.model_validate(normalized)
+    return WorkflowYamlPayload.model_validate(normalized)
 
 
 async def _get_workflow_folder_path(
@@ -2594,7 +2522,7 @@ async def _replace_workflow_definition_from_dsl(
 
 
 def _extract_layout_positions(
-    layout_data: MCPWorkflowLayout | Mapping[str, object] | None,
+    layout_data: WorkflowLayout | Mapping[str, object] | None,
 ) -> tuple[
     tuple[float, float] | None,
     tuple[float, float, float] | None,
@@ -2608,8 +2536,8 @@ def _extract_layout_positions(
         return None, None, None
     layout = (
         layout_data
-        if isinstance(layout_data, MCPWorkflowLayout)
-        else MCPWorkflowLayout.model_validate(layout_data)
+        if isinstance(layout_data, WorkflowLayout)
+        else WorkflowLayout.model_validate(layout_data)
     )
     trigger_position: tuple[float, float] | None = None
     if layout.trigger is not None:
@@ -2639,7 +2567,7 @@ def _extract_layout_positions(
 def _apply_layout_to_workflow(
     *,
     workflow: Workflow,
-    layout: MCPWorkflowLayout,
+    layout: WorkflowLayout,
     clear_missing: bool = False,
     allowed_missing_action_refs: set[str] | None = None,
 ) -> None:
@@ -2710,7 +2638,7 @@ async def _replace_workflow_schedules(
     *,
     service: WorkflowSchedulesService,
     workflow_id: WorkflowUUID,
-    schedules: Sequence[WorkflowSchedule | MCPWorkflowSchedule],
+    schedules: Sequence[WorkflowSchedule],
 ) -> None:
     """Replace all schedules for a workflow from YAML payload."""
     existing = await service.list_schedules(workflow_id=workflow_id)
@@ -2831,7 +2759,7 @@ async def _apply_workflow_yaml_update(
     workflow: Workflow,
     workflow_id: WorkflowUUID,
     update_params: WorkflowUpdate,
-    yaml_payload: MCPWorkflowYamlPayload | None,
+    yaml_payload: WorkflowYamlPayload | None,
     definition_yaml: str | None,
     update_mode: Literal["replace", "patch"],
 ) -> None:
@@ -2848,7 +2776,7 @@ async def _apply_workflow_yaml_update(
             auto_layout = _auto_generate_layout(
                 cast(Sequence[WorkflowActionLayoutInput], actions_raw)
             )
-            yaml_payload.layout = MCPWorkflowLayout.model_validate(auto_layout)
+            yaml_payload.layout = WorkflowLayout.model_validate(auto_layout)
 
     update_action_positions: dict[str, tuple[float, float]] | None = None
     if yaml_payload is not None and yaml_payload.layout is not None:
@@ -8706,23 +8634,6 @@ async def upload_skill(
     except Exception as e:
         logger.error("Failed to upload skill", error=str(e), name=name)
         raise ToolError(f"Failed to upload skill: {e}") from None
-
-
-def _parse_iso8601_duration(duration_str: str) -> timedelta:
-    """Parse a simple ISO 8601 duration string into a timedelta.
-
-    Supports formats like PT1H, PT30M, P1D, PT1H30M, P1DT12H, etc.
-    """
-    pattern = r"P(?:(\d+)D)?(?:T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?)?"
-    match = re.fullmatch(pattern, duration_str)
-    if not match:
-        raise ValueError(f"Invalid ISO 8601 duration: {duration_str}")
-
-    days = int(match.group(1) or 0)
-    hours = int(match.group(2) or 0)
-    minutes = int(match.group(3) or 0)
-    seconds = int(match.group(4) or 0)
-    return timedelta(days=days, hours=hours, minutes=minutes, seconds=seconds)
 
 
 # ── Agent Presets ────────────────────────────────────────────────────────────

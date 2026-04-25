@@ -693,7 +693,7 @@ async def test_apply_workflow_yaml_update_validates_definition(monkeypatch):
         _replace_workflow_definition_from_dsl,
     )
 
-    payload = mcp_server.MCPWorkflowYamlPayload(
+    payload = mcp_server.WorkflowYamlPayload(
         definition=mcp_server.DSLInput.model_validate(
             {
                 "title": "Example",
@@ -2036,13 +2036,13 @@ async def test_replace_workflow_schedules_creates_schedules_with_payload_status(
         service=cast(Any, _FakeWorkflowSchedulesService()),
         workflow_id=cast(Any, workflow_id),
         schedules=[
-            mcp_server.MCPWorkflowSchedule(
+            mcp_server.WorkflowSchedule(
                 cron="0 * * * *",
                 status="offline",
                 inputs={},
                 timeout=0,
             ),
-            mcp_server.MCPWorkflowSchedule(
+            mcp_server.WorkflowSchedule(
                 cron="30 * * * *",
                 status="online",
                 inputs={},
