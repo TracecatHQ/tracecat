@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import uuid
-from datetime import UTC, datetime
 
 from fastapi import APIRouter, HTTPException, Query, status
 from sqlalchemy import select
@@ -15,6 +14,7 @@ from tracecat.db.dependencies import AsyncDBSession
 from tracecat.db.engine import get_async_session_context_manager
 from tracecat.db.models import RegistryRepository
 from tracecat.exceptions import (
+    EntitlementRequired,
     RegistryActionValidationError,
     RegistryError,
     TracecatCredentialsNotFoundError,
@@ -96,118 +96,8 @@ async def sync_registry_repository(
             detail="Registry repository not found",
         ) from e
 
-    # Check entitlement for custom registry (non-default repositories)
-    if repo.origin != DEFAULT_REGISTRY_ORIGIN:
-        await check_entitlement(session, role, Entitlement.CUSTOM_REGISTRY)
-
-    actions_service = RegistryActionsService(session, role)
-    last_synced_at = datetime.now(UTC)
-    target_commit_sha = sync_params.target_commit_sha if sync_params else None
-    force = sync_params.force if sync_params else False
-
-    # For git+ssh repos, we need SSH context for tarball building
-    is_git_ssh = repo.origin.startswith("git+ssh://")
-    git_repo_package_name: str | None = None
-    if is_git_ssh:
-        git_repo_package_name = await get_setting("git_repo_package_name", role=role)
-
-    # If force=True, delete the current version before syncing
-    if force and repo.current_version_id is not None:
-        versions_service = RegistryVersionsService(session, role)
-        current_version = await versions_service.get_version(repo.current_version_id)
-        if current_version:
-            logger.info(
-                "Force sync: deleting current version",
-                repository_id=str(repository_id),
-                version_id=str(current_version.id),
-                version=current_version.version,
-            )
-            await versions_service.delete_version(current_version, commit=False)
-            await session.flush()
-
-    version: str | None = None
-    commit_sha: str | None = None
-    actions_count: int | None = None
-
     try:
-        if is_git_ssh:
-            # Get SSH context for git operations
-            allowed_domains_setting = await get_setting(
-                "git_allowed_domains", role=role
-            )
-            allowed_domains = allowed_domains_setting or {"github.com"}
-            git_url = parse_git_url(repo.origin, allowed_domains=allowed_domains)
-
-            async with ssh_context(
-                role=role, git_url=git_url, session=session
-            ) as ssh_env:
-                # Sync with SSH env for tarball building
-                (
-                    commit_sha,
-                    version,
-                ) = await actions_service.sync_actions_from_repository(
-                    repo,
-                    target_commit_sha=target_commit_sha,
-                    git_repo_package_name=git_repo_package_name,
-                    ssh_env=ssh_env,
-                )
-        else:
-            # Sync without SSH (built-in registry)
-            (
-                commit_sha,
-                version,
-            ) = await actions_service.sync_actions_from_repository(
-                repo,
-                target_commit_sha=target_commit_sha,
-                git_repo_package_name=git_repo_package_name,
-            )
-        logger.info(
-            "Synced repository",
-            origin=repo.origin,
-            commit_sha=commit_sha,
-            version=version,
-            target_commit_sha=target_commit_sha,
-            last_synced_at=last_synced_at,
-            force=force,
-        )
-
-        session.expire(repo)
-        # Update the registry repository table
-        await repos_service.update_repository(
-            repo,
-            RegistryRepositoryUpdate(
-                last_synced_at=last_synced_at, commit_sha=commit_sha
-            ),
-        )
-        logger.info("Updated repository", origin=repo.origin)
-
-        # Get action count from registry index (v2 sync populates index, not RegistryAction)
-        index_actions = await actions_service.list_actions_from_index_by_repository(
-            repo.id
-        )
-        actions_count = len(index_actions)
-
-        return RegistrySyncResponse(
-            success=True,
-            repository_id=repo.id,
-            origin=repo.origin,
-            version=version,
-            commit_sha=commit_sha,
-            actions_count=actions_count,
-            forced=force,
-        )
-
-    except RegistryError as e:
-        logger.warning("Cannot sync repository", exc=e)
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)
-        ) from e
-    except TracecatCredentialsNotFoundError as e:
-        logger.warning("Credentials not found", exc=e)
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e),
-        ) from e
+        return await repos_service.sync_repository(repo, sync_params)
     except RegistryActionValidationError as e:
         logger.warning("Validation errors while syncing repository", exc=e)
         raise HTTPException(
@@ -219,11 +109,24 @@ async def sync_registry_repository(
                 errors=e.detail,
             ).model_dump(),
         ) from e
+    except RegistryError as e:
+        logger.warning("Cannot sync repository", exc=e)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)
+        ) from e
+    except TracecatCredentialsNotFoundError as e:
+        logger.warning("Credentials not found", exc=e)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        ) from e
+    except (EntitlementRequired, HTTPException):
+        raise
     except Exception as e:
         logger.error("Unexpected error while syncing repository", exc=e)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Unexpected error while syncing repository {repo.origin!r}: {e}",
+            detail=f"Unexpected error while syncing repository: {e}",
         ) from e
 
 

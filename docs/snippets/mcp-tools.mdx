@@ -59,6 +59,11 @@
 
   Common namespaces: `core`, `tools`, `ai`.
     </ResponseField>
+    <ResponseField name="workflows_sync_custom_registry" type="tool">
+  Sync the organization's custom action registry from its remote git repository.
+
+  Pulls the latest code from the custom registry repo registered in the caller's organization, builds a versioned tarball, and makes the synced actions available to agents and workflows. Use this after pushing changes to the custom integrations repo, or to roll forward/back to a specific commit. Existing published workflows must be republished to pick up newly synced action versions.
+    </ResponseField>
     <ResponseField name="workflows_get_action_context" type="tool">
   Get full schema and configuration context for a single action.
 
