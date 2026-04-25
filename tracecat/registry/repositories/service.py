@@ -19,6 +19,9 @@ from tracecat.registry.repositories.schemas import (
 )
 from tracecat.registry.versions.service import RegistryVersionsService
 from tracecat.service import BaseOrgService
+from tracecat.settings.service import get_setting
+from tracecat.ssh import ssh_context
+from tracecat.tiers.entitlements import Entitlement, check_entitlement
 
 
 class RegistryReposService(BaseOrgService):
@@ -101,11 +104,12 @@ class RegistryReposService(BaseOrgService):
             RegistryError, RegistryActionValidationError,
             TracecatCredentialsNotFoundError: surfaced from the underlying sync.
         """
+        # parse_git_url and RegistryActionsService are imported lazily
+        # because tracecat.git.utils and tracecat.registry.repository both
+        # import RegistryReposService back, which would cycle if pulled to
+        # module scope.
         from tracecat.git.utils import parse_git_url
         from tracecat.registry.actions.service import RegistryActionsService
-        from tracecat.settings.service import get_setting
-        from tracecat.ssh import ssh_context
-        from tracecat.tiers.entitlements import Entitlement, check_entitlement
 
         if repository.origin != DEFAULT_REGISTRY_ORIGIN:
             await check_entitlement(

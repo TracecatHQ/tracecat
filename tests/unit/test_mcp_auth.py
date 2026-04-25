@@ -1422,8 +1422,7 @@ async def test_resolve_org_role_single_tenant_superuser_uses_default_org(
         return default_org
 
     monkeypatch.setattr(
-        "tracecat.organization.management.get_default_organization_id",
-        _get_default_organization_id,
+        mcp_auth, "get_default_organization_id", _get_default_organization_id
     )
 
     role = await mcp_auth.resolve_org_role_for_request()

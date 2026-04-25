@@ -69,6 +69,7 @@ from tracecat.mcp.oidc.features import (
     OFFLINE_ACCESS_SCOPE,
     get_supported_scopes,
 )
+from tracecat.organization.management import get_default_organization_id
 
 
 class MCPTokenIdentity(BaseModel):
@@ -1322,8 +1323,6 @@ async def resolve_org_role_for_request() -> Role:
     the default organization (matching ``_resolve_org_for_superuser``) so
     they can use org-scoped tools without an explicit OrganizationMembership.
     """
-    from tracecat.organization.management import get_default_organization_id
-
     identity = get_token_identity()
     if identity.email is None:
         raise ValueError("Token does not contain an email claim")
