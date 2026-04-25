@@ -307,7 +307,10 @@ def enable_service_account_child_table_rls(table: str) -> str:
                           OR NULLIF(current_setting('app.current_workspace_id', true), '')::uuid IS NULL
                       )
                 )
+            );
     """
+
+
 def _agent_catalog_platform_read_policy() -> str:
     return f"{policy_name('agent_catalog')}_platform_read"
 
@@ -377,6 +380,7 @@ def disable_service_account_child_table_rls(table: str) -> str:
         DROP POLICY IF EXISTS {policy_name(table)} ON "{table}";
         ALTER TABLE "{table}" DISABLE ROW LEVEL SECURITY;
     """
+
 
 def disable_agent_catalog_table_rls() -> str:
     return f"""
