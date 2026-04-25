@@ -612,7 +612,7 @@
       }
     },
     {
-      "model_provider": "google",
+      "model_provider": "gemini",
       "model_name": "gemini-2.0-flash",
       "metadata": {
         "cache_read_input_token_cost": 2.5e-08,
@@ -656,7 +656,7 @@
       }
     },
     {
-      "model_provider": "google",
+      "model_provider": "gemini",
       "model_name": "gemini-2.0-flash-001",
       "metadata": {
         "cache_read_input_token_cost": 2.5e-08,
@@ -698,7 +698,7 @@
       }
     },
     {
-      "model_provider": "google",
+      "model_provider": "gemini",
       "model_name": "gemini-2.0-flash-lite",
       "metadata": {
         "cache_read_input_token_cost": 1.875e-08,
@@ -738,7 +738,7 @@
       }
     },
     {
-      "model_provider": "google",
+      "model_provider": "gemini",
       "model_name": "gemini-2.0-flash-lite-001",
       "metadata": {
         "cache_read_input_token_cost": 1.875e-08,
@@ -778,7 +778,7 @@
       }
     },
     {
-      "model_provider": "google",
+      "model_provider": "gemini",
       "model_name": "gemini-2.5-computer-use-preview-10-2025",
       "metadata": {
         "input_cost_per_token": 1.25e-06,
@@ -812,7 +812,7 @@
       }
     },
     {
-      "model_provider": "google",
+      "model_provider": "gemini",
       "model_name": "gemini-2.5-flash",
       "metadata": {
         "cache_read_input_token_cost": 3e-08,
@@ -863,7 +863,7 @@
       }
     },
     {
-      "model_provider": "google",
+      "model_provider": "gemini",
       "model_name": "gemini-2.5-flash-lite",
       "metadata": {
         "cache_read_input_token_cost": 1e-08,
@@ -914,7 +914,7 @@
       }
     },
     {
-      "model_provider": "google",
+      "model_provider": "gemini",
       "model_name": "gemini-2.5-flash-lite-preview-06-17",
       "metadata": {
         "deprecation_date": "2025-11-18",
@@ -965,7 +965,7 @@
       }
     },
     {
-      "model_provider": "google",
+      "model_provider": "gemini",
       "model_name": "gemini-2.5-flash-lite-preview-09-2025",
       "metadata": {
         "cache_read_input_token_cost": 1e-08,
@@ -1015,7 +1015,7 @@
       }
     },
     {
-      "model_provider": "google",
+      "model_provider": "gemini",
       "model_name": "gemini-2.5-flash-preview-09-2025",
       "metadata": {
         "cache_read_input_token_cost": 7.5e-08,
@@ -1065,7 +1065,7 @@
       }
     },
     {
-      "model_provider": "google",
+      "model_provider": "gemini",
       "model_name": "gemini-2.5-pro",
       "metadata": {
         "cache_read_input_token_cost": 1.25e-07,
@@ -1119,7 +1119,7 @@
       }
     },
     {
-      "model_provider": "google",
+      "model_provider": "gemini",
       "model_name": "gemini-3-flash-preview",
       "metadata": {
         "cache_read_input_token_cost": 5e-08,
@@ -1175,7 +1175,7 @@
       }
     },
     {
-      "model_provider": "google",
+      "model_provider": "gemini",
       "model_name": "gemini-3-pro-preview",
       "metadata": {
         "deprecation_date": "2026-03-09",
@@ -1235,7 +1235,7 @@
       }
     },
     {
-      "model_provider": "google",
+      "model_provider": "gemini",
       "model_name": "gemini-3.1-flash-lite-preview",
       "metadata": {
         "cache_read_input_token_cost": 2.5e-08,
@@ -1292,7 +1292,7 @@
       }
     },
     {
-      "model_provider": "google",
+      "model_provider": "gemini",
       "model_name": "gemini-3.1-flash-live-preview",
       "metadata": {
         "input_cost_per_audio_token": 3e-06,
@@ -1327,7 +1327,7 @@
       }
     },
     {
-      "model_provider": "google",
+      "model_provider": "gemini",
       "model_name": "gemini-3.1-pro-preview",
       "metadata": {
         "cache_read_input_token_cost": 2e-07,
@@ -1388,7 +1388,7 @@
       }
     },
     {
-      "model_provider": "google",
+      "model_provider": "gemini",
       "model_name": "gemini-3.1-pro-preview-customtools",
       "metadata": {
         "cache_read_input_token_cost": 2e-07,
@@ -1449,7 +1449,7 @@
       }
     },
     {
-      "model_provider": "google",
+      "model_provider": "gemini",
       "model_name": "gemini-exp-1206",
       "metadata": {
         "cache_read_input_token_cost": 3e-08,
@@ -1499,7 +1499,7 @@
       }
     },
     {
-      "model_provider": "google",
+      "model_provider": "gemini",
       "model_name": "gemini-flash-latest",
       "metadata": {
         "cache_read_input_token_cost": 7.5e-08,
@@ -1549,7 +1549,7 @@
       }
     },
     {
-      "model_provider": "google",
+      "model_provider": "gemini",
       "model_name": "gemini-flash-lite-latest",
       "metadata": {
         "cache_read_input_token_cost": 2.5e-08,
@@ -1599,7 +1599,7 @@
       }
     },
     {
-      "model_provider": "google",
+      "model_provider": "gemini",
       "model_name": "gemini-pro-latest",
       "metadata": {
         "cache_read_input_token_cost": 1.25e-07,
