@@ -18,7 +18,7 @@ import uuid
 from collections.abc import Callable
 from pathlib import Path
 from time import perf_counter
-from typing import Any, Literal, Protocol
+from typing import Any, Literal, Protocol, cast
 
 import orjson
 from claude_agent_sdk import (
@@ -34,6 +34,7 @@ from claude_agent_sdk.types import (
     HookInput,
     McpHttpServerConfig,
     McpServerConfig,
+    McpStdioServerConfig,
     PreToolUseHookSpecificOutput,
     ResultMessage,
     StreamEvent,
@@ -55,7 +56,11 @@ from tracecat.agent.common.stream_types import (
     ToolCallContent,
     UnifiedStreamEvent,
 )
-from tracecat.agent.common.types import MCPToolDefinition
+from tracecat.agent.common.types import (
+    MCPServerConfig,
+    MCPStdioServerConfig,
+    MCPToolDefinition,
+)
 from tracecat.agent.llm_routing import get_litellm_route_model
 from tracecat.agent.mcp.metadata import (
     PROXY_TOOL_CALL_ID_KEY,
@@ -278,6 +283,10 @@ class ClaudeAgentRuntime:
             concrete_name = action_name_to_mcp_tool_name(action_name)
         return f"mcp__{server_name}__{concrete_name}"
 
+    @staticmethod
+    def _mcp_tool_wildcard_for_server(server_name: str) -> str:
+        return f"mcp__{server_name}__*"
+
     @classmethod
     def _mcp_tool_names_for_actions(
         cls,
@@ -290,6 +299,70 @@ class ClaudeAgentRuntime:
             cls._mcp_tool_name_for_action(server_name, action_name)
             for action_name in actions
         )
+
+    @classmethod
+    def _allowed_tools_for_mcp_scope(
+        cls,
+        *,
+        registry_server_name: str,
+        actions: dict[str, MCPToolDefinition] | None,
+        stdio_server_names: list[str],
+    ) -> list[str]:
+        return sorted(
+            {
+                *cls._mcp_tool_names_for_actions(registry_server_name, actions),
+                *(
+                    cls._mcp_tool_wildcard_for_server(server_name)
+                    for server_name in stdio_server_names
+                ),
+            }
+        )
+
+    @staticmethod
+    def _stdio_mcp_server_config(
+        config: MCPStdioServerConfig,
+    ) -> McpStdioServerConfig:
+        server_config: McpStdioServerConfig = {
+            "type": "stdio",
+            "command": config["command"],
+        }
+        if args := config.get("args"):
+            server_config["args"] = args
+        if env := config.get("env"):
+            server_config["env"] = env
+        return server_config
+
+    @classmethod
+    def _stdio_mcp_servers(
+        cls,
+        *,
+        source_configs: list[MCPServerConfig] | None,
+        name_prefix: str | None = None,
+        existing_names: set[str] | None = None,
+    ) -> dict[str, McpStdioServerConfig]:
+        servers: dict[str, McpStdioServerConfig] = {}
+        used_names = set(existing_names or ())
+        if not source_configs:
+            return servers
+
+        for config in source_configs:
+            if config.get("type", "http") != "stdio":
+                continue
+            stdio_config = cast(MCPStdioServerConfig, config)
+            base_name = stdio_config["name"]
+            if name_prefix:
+                base_name = f"{name_prefix}-{base_name}"
+
+            server_name = base_name
+            suffix = 2
+            while server_name in used_names:
+                server_name = f"{base_name}-{suffix}"
+                suffix += 1
+
+            used_names.add(server_name)
+            servers[server_name] = cls._stdio_mcp_server_config(stdio_config)
+
+        return servers
 
     @staticmethod
     def _is_subagent_scope(input_data: HookInput) -> bool:
@@ -823,22 +896,31 @@ class ClaudeAgentRuntime:
         self,
         *,
         payload: RuntimeInitPayload,
-        mcp_servers: dict[str, McpServerConfig],
     ) -> dict[str, AgentDefinition] | None:
-        del mcp_servers
         if not payload.subagents:
             return None
 
         definitions: dict[str, AgentDefinition] = {}
         for subagent in payload.subagents:
             registry_server_name = self._subagent_registry_server_name(subagent.alias)
-            mcp_server_config = None
+            mcp_server_configs: list[str | dict[str, Any]] = []
             if subagent.allowed_actions:
-                mcp_server_config = {
-                    registry_server_name: self._trusted_mcp_server_config(
-                        subagent.mcp_auth_token
-                    )
-                }
+                mcp_server_configs.append(
+                    {
+                        registry_server_name: self._trusted_mcp_server_config(
+                            subagent.mcp_auth_token
+                        )
+                    }
+                )
+            stdio_mcp_servers = self._stdio_mcp_servers(
+                source_configs=subagent.config.mcp_servers,
+                name_prefix=f"subagent-{subagent.alias}",
+                existing_names={registry_server_name},
+            )
+            mcp_server_configs.extend(
+                {server_name: server_config}
+                for server_name, server_config in stdio_mcp_servers.items()
+            )
 
             disallowed_tools = list(CHILD_AGENT_DISALLOWED_TOOLS)
             if not subagent.config.enable_internet_access:
@@ -852,12 +934,13 @@ class ClaudeAgentRuntime:
                     model_name=subagent.config.model_name,
                     passthrough=subagent.config.passthrough,
                 ),
-                tools=self._mcp_tool_names_for_actions(
-                    registry_server_name,
-                    subagent.allowed_actions,
+                tools=self._allowed_tools_for_mcp_scope(
+                    registry_server_name=registry_server_name,
+                    actions=subagent.allowed_actions,
+                    stdio_server_names=list(stdio_mcp_servers),
                 )
                 or None,
-                mcpServers=[mcp_server_config] if mcp_server_config else None,
+                mcpServers=mcp_server_configs or None,
                 disallowedTools=disallowed_tools,
                 maxTurns=subagent.max_turns,
             )
@@ -952,10 +1035,12 @@ class ClaudeAgentRuntime:
             )
 
             stderr_queue: asyncio.Queue[str] = asyncio.Queue()
-            agent_definitions = self._build_agent_definitions(
-                payload=payload,
-                mcp_servers=mcp_servers,
+            stdio_mcp_servers = self._stdio_mcp_servers(
+                source_configs=payload.config.mcp_servers,
+                existing_names=set(mcp_servers),
             )
+            mcp_servers.update(stdio_mcp_servers)
+            agent_definitions = self._build_agent_definitions(payload=payload)
 
             def handle_claude_stderr(line: str) -> None:
                 """Forward Claude CLI stderr to loopback via queue."""
@@ -984,9 +1069,10 @@ class ClaudeAgentRuntime:
             ]
             if not payload.config.enable_internet_access:
                 disallowed_tools.extend(INTERNET_TOOLS)
-            allowed_tools = self._mcp_tool_names_for_actions(
-                REGISTRY_MCP_SERVER_NAME,
-                payload.allowed_actions,
+            allowed_tools = self._allowed_tools_for_mcp_scope(
+                registry_server_name=REGISTRY_MCP_SERVER_NAME,
+                actions=payload.allowed_actions,
+                stdio_server_names=list(stdio_mcp_servers),
             )
             if self._agents_enabled:
                 allowed_tools.extend(sorted(AGENT_TOOL_NAMES))

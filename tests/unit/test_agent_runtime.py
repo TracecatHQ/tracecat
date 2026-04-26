@@ -440,6 +440,67 @@ class TestClaudeAgentRuntimeRun:
         assert "tracecat_registry" not in mcp_servers
 
     @pytest.mark.anyio
+    async def test_root_agent_preserves_attached_stdio_mcp_servers(
+        self,
+        mock_socket_writer: MagicMock,
+        mock_claude_sdk_client: MagicMock,
+        sample_init_payload: RuntimeInitPayload,
+    ) -> None:
+        captured_options: list[Any] = []
+
+        def _mock_client_ctor(*_args: Any, **kwargs: Any) -> MagicMock:
+            captured_options.append(kwargs["options"])
+            return mock_claude_sdk_client
+
+        payload = replace(
+            sample_init_payload,
+            config=sample_init_payload.config.model_copy(
+                update={
+                    "mcp_servers": [
+                        {
+                            "type": "stdio",
+                            "name": "local-tools",
+                            "command": "npx",
+                            "args": ["-y", "@modelcontextprotocol/server-filesystem"],
+                            "env": {"ROOT": "/tmp"},
+                        }
+                    ]
+                }
+            ),
+        )
+
+        with (
+            patch(
+                "tracecat.agent.runtime.claude_code.runtime.ClaudeSDKClient",
+                side_effect=_mock_client_ctor,
+            ),
+        ):
+            runtime = ClaudeAgentRuntime(
+                mock_socket_writer, transport_factory=lambda _: MagicMock()
+            )
+            await runtime.run(payload)
+
+        assert captured_options
+        options = captured_options[0]
+        assert options.mcp_servers == {
+            "tracecat-registry": {
+                "type": "http",
+                "url": TRUSTED_MCP_BRIDGE_URL,
+                "headers": {"Authorization": "Bearer test-jwt-token"},
+            },
+            "local-tools": {
+                "type": "stdio",
+                "command": "npx",
+                "args": ["-y", "@modelcontextprotocol/server-filesystem"],
+                "env": {"ROOT": "/tmp"},
+            },
+        }
+        assert set(options.allowed_tools) == {
+            "mcp__tracecat-registry__core__http_request",
+            "mcp__local-tools__*",
+        }
+
+    @pytest.mark.anyio
     async def test_sets_max_buffer_size_on_sdk_options(
         self,
         mock_socket_writer: MagicMock,
@@ -641,6 +702,14 @@ class TestClaudeAgentRuntimeRun:
                 update={
                     "model_name": "gpt-5-mini",
                     "model_provider": "openai",
+                    "mcp_servers": [
+                        {
+                            "type": "stdio",
+                            "name": "local-tools",
+                            "command": "uvx",
+                            "args": ["example-mcp"],
+                        }
+                    ],
                     "tool_approvals": {"core.lookup_ip": True},
                     "enable_internet_access": False,
                 }
@@ -698,9 +767,19 @@ class TestClaudeAgentRuntimeRun:
                     "url": TRUSTED_MCP_BRIDGE_URL,
                     "headers": {"Authorization": "Bearer child-mcp-token"},
                 }
-            }
+            },
+            {
+                "subagent-analyst-local-tools": {
+                    "type": "stdio",
+                    "command": "uvx",
+                    "args": ["example-mcp"],
+                }
+            },
         ]
-        assert agent_def.tools == ["mcp__tracecat-registry-analyst__core__lookup_ip"]
+        assert agent_def.tools == [
+            "mcp__subagent-analyst-local-tools__*",
+            "mcp__tracecat-registry-analyst__core__lookup_ip",
+        ]
         assert set(agent_def.disallowedTools or []) >= {
             "Agent",
             "Task",
@@ -750,7 +829,7 @@ class TestClaudeAgentRuntimeRun:
             transport_factory=lambda _: MagicMock(),
         )
 
-        definitions = runtime._build_agent_definitions(payload=payload, mcp_servers={})
+        definitions = runtime._build_agent_definitions(payload=payload)
 
         assert definitions is not None
         assert definitions["analyst"].model == expected

@@ -1,11 +1,8 @@
 """Trusted MCP server for Tracecat agent.
 
-A FastMCP-based server with tools for executing both:
-1. Registry actions (via execute_action_tool)
-2. User MCP server tools (via execute_user_mcp_tool)
-
-The proxy MCP server (inside nsjail) handles tool schema/explicitness for Claude.
-This trusted server runs outside the sandbox with full network access.
+This FastMCP server exposes a token-scoped catalog of concrete registry,
+internal, and user MCP tools. It runs outside the sandbox with full network
+access.
 
 Run with uvicorn on a Unix socket:
     uvicorn tracecat.agent.mcp.trusted_server:app --uds /var/run/tracecat/mcp.sock
@@ -50,7 +47,7 @@ from tracecat.agent.mcp.utils import (
     mcp_tool_name_to_action_name,
     normalize_mcp_tool_name,
 )
-from tracecat.agent.tokens import MCPTokenClaims, verify_mcp_token
+from tracecat.agent.tokens import MCPTokenClaims, UserMCPServerClaim, verify_mcp_token
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.contexts import ctx_role
@@ -169,22 +166,17 @@ def _user_mcp_tool_names(claims: MCPTokenClaims) -> set[str]:
     }
 
 
-def _user_mcp_configs_from_claims(
-    claims: MCPTokenClaims,
-) -> list[MCPHttpServerConfig]:
-    configs: list[MCPHttpServerConfig] = []
-    for server in claims.user_mcp_servers:
-        config: MCPHttpServerConfig = {
-            "type": "http",
-            "name": server.name,
-            "url": server.url,
-            "transport": server.transport,
-            "headers": server.headers,
-        }
-        if server.timeout is not None:
-            config["timeout"] = server.timeout
-        configs.append(config)
-    return configs
+def _user_mcp_config(server: UserMCPServerClaim) -> MCPHttpServerConfig:
+    config: MCPHttpServerConfig = {
+        "type": "http",
+        "name": server.name,
+        "url": server.url,
+        "transport": server.transport,
+        "headers": server.headers,
+    }
+    if server.timeout is not None:
+        config["timeout"] = server.timeout
+    return config
 
 
 def _build_scoped_tool(
@@ -215,7 +207,9 @@ async def _discover_allowed_user_mcp_tools(
     if not allowed_user_tools or not claims.user_mcp_servers:
         return {}
 
-    client = UserMCPClient(_user_mcp_configs_from_claims(claims))
+    client = UserMCPClient(
+        [_user_mcp_config(server) for server in claims.user_mcp_servers]
+    )
     discovered = await client.discover_tools()
     return {
         name: definition
@@ -370,17 +364,7 @@ async def _execute_user_mcp(
         raise ToolError(f"User MCP server '{server_name}' not authorized") from None
 
     try:
-        config_dict: MCPHttpServerConfig = {
-            "type": "http",
-            "name": server_config.name,
-            "url": server_config.url,
-            "transport": server_config.transport,
-            "headers": server_config.headers,
-        }
-        if server_config.timeout is not None:
-            config_dict["timeout"] = server_config.timeout
-
-        client = UserMCPClient([config_dict])
+        client = UserMCPClient([_user_mcp_config(server_config)])
         result = await client.call_tool(server_name, tool_name, args)
 
         logger.info(
@@ -476,79 +460,6 @@ async def call_token_scoped_tool(
         claims,
         tool_call_id=tool_call_id,
     )
-
-
-async def execute_action_tool(
-    action_name: str,
-    args: dict[str, Any],
-    auth_token: str,
-    tool_call_id: str | None = None,
-) -> str:
-    """Execute any Tracecat registry action.
-
-    Args:
-        action_name: The action to execute (e.g., "tools.slack.post_message")
-        args: Arguments to pass to the action
-        auth_token: JWT token for authentication and authorization
-
-    Returns:
-        JSON-encoded result from the action
-    """
-    claims = _claims_from_token(auth_token)
-    return await _execute_registry_action(
-        action_name,
-        args,
-        claims,
-        tool_call_id=tool_call_id,
-    )
-
-
-async def execute_user_mcp_tool(
-    server_name: str,
-    tool_name: str,
-    args: dict[str, Any],
-    auth_token: str,
-) -> str:
-    """Execute a tool on a user-defined MCP server.
-
-    User MCP servers are configured in the agent config and their credentials
-    are stored in the JWT claims. This tool proxies calls from the sandboxed
-    runtime to the user's MCP server.
-
-    Args:
-        server_name: Name of the user MCP server (from config).
-        tool_name: Original tool name (without mcp__ prefix).
-        args: Arguments to pass to the tool.
-        auth_token: JWT token containing user MCP server configs.
-
-    Returns:
-        JSON-encoded result from the tool.
-    """
-    claims = _claims_from_token(auth_token)
-    return await _execute_user_mcp(server_name, tool_name, args, claims)
-
-
-async def execute_internal_tool(
-    tool_name: str,
-    args: dict[str, Any],
-    auth_token: str,
-) -> str:
-    """Execute an internal tool (not in registry).
-
-    Internal tools are system-level tools that have direct database access
-    but are not part of the registry (not usable in workflows). They are
-    used for specialized functionality like the builder assistant.
-
-    Args:
-        tool_name: The internal tool to execute (e.g., "internal.builder.get_preset_summary")
-        args: Arguments to pass to the tool
-        auth_token: JWT token for authentication and authorization
-
-    Returns:
-        JSON-encoded result from the tool
-    """
-    claims = _claims_from_token(auth_token)
-    return await _execute_internal(tool_name, args, claims)
 
 
 app = mcp.http_app(path="/mcp")

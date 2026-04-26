@@ -1,6 +1,5 @@
 import uuid
-from collections.abc import Awaitable, Callable
-from typing import Any, cast
+from typing import Any
 from unittest.mock import AsyncMock
 
 import pytest
@@ -12,12 +11,6 @@ from tracecat.agent.mcp.metadata import PROXY_TOOL_CALL_ID_KEY, PROXY_TOOL_METAD
 from tracecat.agent.mcp.user_client import UserMCPClient
 from tracecat.agent.tokens import MCPTokenClaims, UserMCPServerClaim
 from tracecat.exceptions import BuiltinRegistryHasNoSelectionError
-
-type ExecuteUserMCPTool = Callable[[str, str, dict[str, object], str], Awaitable[str]]
-type ExecuteActionTool = Callable[
-    [str, dict[str, object], str, str | None],
-    Awaitable[str],
-]
 
 
 def _build_claims(
@@ -39,24 +32,15 @@ def _build_claims(
 
 
 @pytest.mark.anyio
-async def test_execute_user_mcp_tool_returns_descriptive_error_when_not_authorized(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(
-        trusted_server,
-        "verify_mcp_token",
-        lambda _: _build_claims(allowed_actions=["mcp__Jira__getIssue"]),
-    )
-    execute_user_mcp_tool = cast(
-        ExecuteUserMCPTool, trusted_server.execute_user_mcp_tool
-    )
-
+async def test_execute_user_mcp_tool_returns_descriptive_error_when_not_authorized() -> (
+    None
+):
     with pytest.raises(ToolError, match="User MCP server 'Jira' not authorized"):
-        await execute_user_mcp_tool(
+        await trusted_server._execute_user_mcp(
             "Jira",
             "getIssue",
             {},
-            "token",
+            _build_claims(allowed_actions=["mcp__Jira__getIssue"]),
         )
 
 
@@ -64,37 +48,30 @@ async def test_execute_user_mcp_tool_returns_descriptive_error_when_not_authoriz
 async def test_execute_user_mcp_tool_returns_descriptive_error_on_execution_error(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(
-        trusted_server,
-        "verify_mcp_token",
-        lambda _: _build_claims(
-            allowed_actions=["core.http_request", "mcp__Jira__getIssue"],
-            user_mcp_servers=[
-                UserMCPServerClaim(
-                    name="Jira",
-                    url="https://mcp.atlassian.com/v1/mcp",
-                )
-            ],
-        ),
-    )
     mock_client = AsyncMock()
     mock_client.call_tool.side_effect = RuntimeError(
         "failed converting from {'Authorization': 'Bearer secret'}"
     )
     monkeypatch.setattr(trusted_server, "UserMCPClient", lambda _: mock_client)
-    execute_user_mcp_tool = cast(
-        ExecuteUserMCPTool, trusted_server.execute_user_mcp_tool
+    claims = _build_claims(
+        allowed_actions=["core.http_request", "mcp__Jira__getIssue"],
+        user_mcp_servers=[
+            UserMCPServerClaim(
+                name="Jira",
+                url="https://mcp.atlassian.com/v1/mcp",
+            )
+        ],
     )
 
     with pytest.raises(
         ToolError,
         match="^User MCP tool 'getIssue' on server 'Jira' failed$",
     ):
-        await execute_user_mcp_tool(
+        await trusted_server._execute_user_mcp(
             "Jira",
             "getIssue",
             {},
-            "token",
+            claims,
         )
 
 
@@ -102,11 +79,6 @@ async def test_execute_user_mcp_tool_returns_descriptive_error_on_execution_erro
 async def test_execute_action_tool_forwards_tool_call_id(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(
-        trusted_server,
-        "verify_mcp_token",
-        lambda _: _build_claims(),
-    )
     execute_action = AsyncMock(return_value={"ok": True})
     monkeypatch.setattr(trusted_server, "execute_action", execute_action)
 
@@ -126,12 +98,11 @@ async def test_execute_action_tool_forwards_tool_call_id(
         lambda: _AsyncContext(),
     )
 
-    execute_action_tool = cast(ExecuteActionTool, trusted_server.execute_action_tool)
-    result = await execute_action_tool(
+    result = await trusted_server._execute_registry_action(
         "core.http_request",
         {"url": "https://example.com"},
-        "token",
-        "toolu_123",
+        _build_claims(),
+        tool_call_id="toolu_123",
     )
 
     execute_action.assert_awaited_once()
@@ -147,11 +118,6 @@ async def test_execute_action_tool_forwards_tool_call_id(
 async def test_execute_action_tool_surfaces_builtin_registry_sync_pending(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(
-        trusted_server,
-        "verify_mcp_token",
-        lambda _: _build_claims(),
-    )
     monkeypatch.setattr(
         trusted_server,
         "execute_action",
@@ -177,13 +143,11 @@ async def test_execute_action_tool_surfaces_builtin_registry_sync_pending(
         lambda: _AsyncContext(),
     )
 
-    execute_action_tool = cast(ExecuteActionTool, trusted_server.execute_action_tool)
     with pytest.raises(ToolError, match="retry shortly"):
-        await execute_action_tool(
+        await trusted_server._execute_registry_action(
             "core.http_request",
             {"url": "https://example.com"},
-            "token",
-            None,
+            _build_claims(),
         )
 
 
