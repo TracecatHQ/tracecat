@@ -1,0 +1,23 @@
+frontend/src/components/ui/checkbox.tsx
+  3fb598358d647628 16
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "aa47b197cff536dc1162f51fb0ff23e7ba8eb50b",
+  "prompts": {
+    "3fb598358d647628": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019dcaed-21de-7553-9d6c-24d55447d683",
+        "model": "gpt-5.5"
+      },
+      "human_author": null,
+      "messages": [],
+      "total_additions": 67,
+      "total_deletions": 30,
+      "accepted_lines": 1,
+      "overriden_lines": 0
+    }
+  }
+}
