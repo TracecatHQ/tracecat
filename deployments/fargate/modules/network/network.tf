@@ -9,6 +9,13 @@ resource "aws_vpc" "tracecat" {
   enable_dns_hostnames = true
   enable_dns_support   = true
 
+  lifecycle {
+    precondition {
+      condition     = length(var.public_subnet_cidrs) > 0 && length(var.private_subnet_cidrs) > 0 && length(var.public_subnet_cidrs) == length(var.private_subnet_cidrs)
+      error_message = "public_subnet_cidrs and private_subnet_cidrs must be non-empty and have the same number of entries."
+    }
+  }
+
   tags = {
     Name = "${var.name_prefix}-vpc"
   }

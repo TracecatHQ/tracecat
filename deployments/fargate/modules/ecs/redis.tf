@@ -11,7 +11,7 @@ resource "random_password" "redis_app_user_password" {
 
 # Default user (required by AWS ElastiCache)
 resource "aws_elasticache_user" "default" {
-  user_id       = "${var.name_prefix}-default"
+  user_id       = var.redis_default_user_id
   user_name     = "default" # Must be named "default"
   engine        = "redis"
   access_string = "off ~* -@all" # Disabled user with no access

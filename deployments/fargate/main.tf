@@ -25,9 +25,13 @@ module "ecs" {
   source = "./modules/ecs"
 
   # AWS provider
-  aws_region      = var.aws_region
-  name_prefix     = var.name_prefix
-  iam_name_prefix = var.iam_name_prefix
+  aws_region                       = var.aws_region
+  name_prefix                      = var.name_prefix
+  iam_name_prefix                  = var.iam_name_prefix
+  core_db_identifier               = var.core_db_identifier
+  temporal_db_identifier           = var.temporal_db_identifier
+  temporal_db_parameter_group_name = var.temporal_db_parameter_group_name
+  redis_default_user_id            = var.redis_default_user_id
 
   # Network configuration from network module
   vpc_id                  = module.network.vpc_id

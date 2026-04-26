@@ -9,12 +9,41 @@ variable "name_prefix" {
   type        = string
   description = "Prefix for same-account/regional AWS resource names."
   default     = "tracecat"
+
+  validation {
+    condition     = length(var.name_prefix) <= 23 && can(regex("^[a-z0-9]([a-z0-9-]*[a-z0-9])?$", var.name_prefix))
+    error_message = "name_prefix must be 23 characters or fewer, contain only lowercase letters, numbers, and hyphens, and start and end with a letter or number."
+  }
 }
 
 variable "iam_name_prefix" {
   type        = string
   description = "Prefix for IAM role and policy names."
   default     = "Tracecat"
+}
+
+variable "core_db_identifier" {
+  type        = string
+  description = "RDS DB instance identifier for the core Tracecat database."
+  default     = "core-database"
+}
+
+variable "temporal_db_identifier" {
+  type        = string
+  description = "RDS DB instance identifier for the Temporal database."
+  default     = "temporal-database"
+}
+
+variable "temporal_db_parameter_group_name" {
+  type        = string
+  description = "RDS parameter group name for Temporal database compatibility settings."
+  default     = "temporal-db-compatibility"
+}
+
+variable "redis_default_user_id" {
+  type        = string
+  description = "ElastiCache Redis default ACL user ID."
+  default     = "default-user-tracecat"
 }
 
 ### Networking

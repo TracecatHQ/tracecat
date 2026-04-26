@@ -9,6 +9,11 @@ variable "name_prefix" {
   type        = string
   description = "Prefix for network resource names"
   default     = "tracecat"
+
+  validation {
+    condition     = length(var.name_prefix) <= 23 && can(regex("^[a-z0-9]([a-z0-9-]*[a-z0-9])?$", var.name_prefix))
+    error_message = "name_prefix must be 23 characters or fewer, contain only lowercase letters, numbers, and hyphens, and start and end with a letter or number."
+  }
 }
 
 variable "vpc_cidr" {

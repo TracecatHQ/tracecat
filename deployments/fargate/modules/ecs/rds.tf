@@ -14,7 +14,7 @@ resource "random_string" "temporal_snapshot_suffix" {
 # Check if snapshots exist for core database
 data "aws_db_snapshot" "core_snapshots" {
   count                  = var.restore_from_snapshot && var.core_db_snapshot_name == null ? 1 : 0
-  db_instance_identifier = "${var.name_prefix}-core-database"
+  db_instance_identifier = var.core_db_identifier
   most_recent            = true
   include_shared         = false
   include_public         = false
@@ -30,7 +30,7 @@ data "aws_db_snapshot" "core_snapshots" {
 # Check if snapshots exist for temporal database
 data "aws_db_snapshot" "temporal_snapshots" {
   count                  = var.disable_temporal_autosetup ? 0 : (var.restore_from_snapshot && var.temporal_db_snapshot_name == null ? 1 : 0)
-  db_instance_identifier = "${var.name_prefix}-temporal-database"
+  db_instance_identifier = var.temporal_db_identifier
   most_recent            = true
   include_shared         = false
   include_public         = false
@@ -63,7 +63,7 @@ resource "time_sleep" "wait_for_rds_dependencies" {
 resource "aws_db_parameter_group" "temporal_database_compatibility" {
   count = var.disable_temporal_autosetup || var.temporal_db_force_ssl ? 0 : 1
 
-  name        = "${var.name_prefix}-temporal-db-compatibility"
+  name        = var.temporal_db_parameter_group_name
   family      = "postgres${split(".", var.db_engine_version)[0]}"
   description = "Temporal PostgreSQL parameter group for Fargate auto-setup compatibility"
 
@@ -75,7 +75,7 @@ resource "aws_db_parameter_group" "temporal_database_compatibility" {
 }
 
 resource "aws_db_instance" "core_database" {
-  identifier                  = "${var.name_prefix}-core-database"
+  identifier                  = var.core_db_identifier
   engine                      = "postgres"
   engine_version              = var.db_engine_version
   instance_class              = var.tracecat_db_instance_class
@@ -113,7 +113,7 @@ resource "aws_db_instance" "core_database" {
 
 resource "aws_db_instance" "temporal_database" {
   count                       = var.disable_temporal_autosetup ? 0 : 1
-  identifier                  = "${var.name_prefix}-temporal-database"
+  identifier                  = var.temporal_db_identifier
   engine                      = "postgres"
   engine_version              = var.db_engine_version
   instance_class              = var.temporal_db_instance_class
