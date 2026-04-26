@@ -17,19 +17,39 @@ Docker container with nsjail installed (e.g., the executor image).
 from __future__ import annotations
 
 import json
+from collections.abc import Sequence
 from typing import Any
 
 from fastmcp import FastMCP
 from fastmcp.exceptions import ToolError
+from fastmcp.server.dependencies import get_http_headers
+from fastmcp.tools.base import Tool, ToolResult
+from fastmcp.utilities.versions import VersionSpec
+from pydantic import Field
+from pydantic.json_schema import SkipJsonSchema
 
-from tracecat.agent.common.types import MCPHttpServerConfig
-from tracecat.agent.mcp.executor import ActionExecutionError, execute_action
+from tracecat.agent.common.types import MCPHttpServerConfig, MCPToolDefinition
+from tracecat.agent.mcp.executor import (
+    ActionExecutionError,
+    ActionNotAllowedError,
+    execute_action,
+)
 from tracecat.agent.mcp.internal_tools import (
     INTERNAL_TOOL_HANDLERS,
     InternalToolError,
+    get_builder_internal_tool_definitions,
+)
+from tracecat.agent.mcp.metadata import (
+    build_registry_tool_schema,
+    extract_proxy_tool_call_id,
 )
 from tracecat.agent.mcp.user_client import UserMCPClient
-from tracecat.agent.mcp.utils import normalize_mcp_tool_name
+from tracecat.agent.mcp.utils import (
+    action_name_to_mcp_tool_name,
+    fetch_tool_definitions,
+    mcp_tool_name_to_action_name,
+    normalize_mcp_tool_name,
+)
 from tracecat.agent.tokens import MCPTokenClaims, verify_mcp_token
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
@@ -42,7 +62,37 @@ from tracecat.exceptions import (
 from tracecat.logger import logger
 from tracecat.registry.lock.service import RegistryLockService
 
-mcp = FastMCP("tracecat-actions")
+
+class TracecatScopedTool(Tool):
+    """A concrete token-scoped tool exposed by the trusted MCP server."""
+
+    claims: SkipJsonSchema[MCPTokenClaims] = Field(exclude=True)
+
+    async def run(self, arguments: dict[str, Any]) -> ToolResult:
+        """Execute the concrete tool using the claims captured at lookup time."""
+        result = await call_token_scoped_tool(self.name, arguments, self.claims)
+        return ToolResult(content=result)
+
+
+class TokenScopedFastMCP(FastMCP[None]):
+    """FastMCP server whose visible tools are derived from the caller token."""
+
+    async def list_tools(self, *, run_middleware: bool = True) -> Sequence[Tool]:
+        del run_middleware
+        return await build_token_scoped_tools(_claims_from_request())
+
+    async def get_tool(
+        self,
+        name: str,
+        version: VersionSpec | None = None,
+    ) -> Tool | None:
+        del version
+        claims = _claims_from_request()
+        tools = await build_token_scoped_tools(claims)
+        return next((tool for tool in tools if tool.name == name), None)
+
+
+mcp = TokenScopedFastMCP("tracecat-actions")
 
 
 def _set_role_context(claims: MCPTokenClaims) -> Role:
@@ -67,39 +117,187 @@ def _safe_error_type(exc: Exception) -> str:
     return type(exc).__name__
 
 
-@mcp.tool
-async def execute_action_tool(
-    action_name: str,
-    args: dict[str, Any],
-    auth_token: str,
-    tool_call_id: str | None = None,
-) -> str:
-    """Execute any Tracecat registry action.
-
-    Args:
-        action_name: The action to execute (e.g., "tools.slack.post_message")
-        args: Arguments to pass to the action
-        auth_token: JWT token for authentication and authorization
-
-    Returns:
-        JSON-encoded result from the action
-    """
+def _claims_from_token(token: str) -> MCPTokenClaims:
+    """Verify an MCP token and return claims."""
     try:
-        claims = verify_mcp_token(auth_token)
+        return verify_mcp_token(token)
     except ValueError as e:
         logger.warning("MCP token verification failed", error_type=_safe_error_type(e))
         raise ToolError("Authentication failed") from None
 
-    normalized_action_name = normalize_mcp_tool_name(action_name)
 
-    # Set role context before any service calls that require organization context
+def _claims_from_authorization_header(authorization: str | None) -> MCPTokenClaims:
+    """Verify a bearer authorization header and return MCP claims."""
+    if not authorization:
+        raise ToolError("Authentication failed")
+
+    scheme, _, token = authorization.partition(" ")
+    if scheme.lower() != "bearer" or not token:
+        raise ToolError("Authentication failed")
+
+    return _claims_from_token(token)
+
+
+def _claims_from_request() -> MCPTokenClaims:
+    """Extract and verify MCP token claims from the active HTTP request."""
+    headers = get_http_headers(include={"authorization"})
+    return _claims_from_authorization_header(headers.get("authorization"))
+
+
+def _registry_action_names(claims: MCPTokenClaims) -> list[str]:
+    return [
+        name
+        for name in claims.allowed_actions
+        if not name.startswith("internal.")
+        and UserMCPClient.parse_user_mcp_tool_name(name) is None
+    ]
+
+
+def _internal_tool_names(claims: MCPTokenClaims) -> list[str]:
+    names: list[str] = []
+    for name in [*claims.allowed_internal_tools, *claims.allowed_actions]:
+        if name.startswith("internal.") and name not in names:
+            names.append(name)
+    return names
+
+
+def _user_mcp_tool_names(claims: MCPTokenClaims) -> set[str]:
+    return {
+        name
+        for name in claims.allowed_actions
+        if UserMCPClient.parse_user_mcp_tool_name(name) is not None
+    }
+
+
+def _user_mcp_configs_from_claims(
+    claims: MCPTokenClaims,
+) -> list[MCPHttpServerConfig]:
+    configs: list[MCPHttpServerConfig] = []
+    for server in claims.user_mcp_servers:
+        config: MCPHttpServerConfig = {
+            "type": "http",
+            "name": server.name,
+            "url": server.url,
+            "transport": server.transport,
+            "headers": server.headers,
+        }
+        if server.timeout is not None:
+            config["timeout"] = server.timeout
+        configs.append(config)
+    return configs
+
+
+def _build_scoped_tool(
+    *,
+    tool_name: str,
+    description: str,
+    parameters_json_schema: dict[str, Any],
+    registry_tool: bool = False,
+    claims: MCPTokenClaims,
+) -> TracecatScopedTool:
+    schema = (
+        build_registry_tool_schema(parameters_json_schema)
+        if registry_tool
+        else parameters_json_schema
+    )
+    return TracecatScopedTool(
+        name=tool_name,
+        description=description,
+        parameters=schema,
+        claims=claims,
+    )
+
+
+async def _discover_allowed_user_mcp_tools(
+    claims: MCPTokenClaims,
+) -> dict[str, MCPToolDefinition]:
+    allowed_user_tools = _user_mcp_tool_names(claims)
+    if not allowed_user_tools or not claims.user_mcp_servers:
+        return {}
+
+    client = UserMCPClient(_user_mcp_configs_from_claims(claims))
+    discovered = await client.discover_tools()
+    return {
+        name: definition
+        for name, definition in discovered.items()
+        if name in allowed_user_tools
+    }
+
+
+async def build_token_scoped_tools(claims: MCPTokenClaims) -> list[Tool]:
+    """Build the MCP tool catalog visible to one verified token."""
+    _set_role_context(claims)
+    tools: list[Tool] = []
+
+    registry_action_names = _registry_action_names(claims)
+    registry_definitions = await fetch_tool_definitions(registry_action_names)
+    for action_name in registry_action_names:
+        if definition := registry_definitions.get(action_name):
+            tools.append(
+                _build_scoped_tool(
+                    tool_name=action_name_to_mcp_tool_name(action_name),
+                    description=definition.description,
+                    parameters_json_schema=definition.parameters_json_schema,
+                    registry_tool=True,
+                    claims=claims,
+                )
+            )
+
+    internal_definitions = get_builder_internal_tool_definitions()
+    for tool_name in _internal_tool_names(claims):
+        if definition := internal_definitions.get(tool_name):
+            tools.append(
+                _build_scoped_tool(
+                    tool_name=action_name_to_mcp_tool_name(tool_name),
+                    description=definition.description,
+                    parameters_json_schema=definition.parameters_json_schema,
+                    claims=claims,
+                )
+            )
+
+    try:
+        user_mcp_definitions = await _discover_allowed_user_mcp_tools(claims)
+    except Exception as e:
+        logger.warning(
+            "Failed to discover token-scoped user MCP tools",
+            error_type=_safe_error_type(e),
+            workspace_id=str(claims.workspace_id),
+        )
+        user_mcp_definitions = {}
+    for tool_name in claims.allowed_actions:
+        if definition := user_mcp_definitions.get(tool_name):
+            tools.append(
+                _build_scoped_tool(
+                    tool_name=tool_name,
+                    description=definition.description,
+                    parameters_json_schema=definition.parameters_json_schema,
+                    claims=claims,
+                )
+            )
+
+    return tools
+
+
+async def _execute_registry_action(
+    action_name: str,
+    args: dict[str, Any],
+    claims: MCPTokenClaims,
+    *,
+    tool_call_id: str | None = None,
+) -> str:
+    """Execute one authorized registry action and return JSON text."""
+    normalized_action_name = normalize_mcp_tool_name(action_name)
+    if normalized_action_name not in claims.allowed_actions:
+        logger.warning(
+            "Registry action not authorized",
+            action_name=normalized_action_name,
+            workspace_id=str(claims.workspace_id),
+        )
+        raise ToolError(f"Tool '{normalized_action_name}' not authorized")
+
     _set_role_context(claims)
 
     try:
-        # Resolve registry lock for this action
-        # This is called from the proxy MCP server inside nsjail, so we need
-        # to resolve the lock here (unlike execute_approved_tools_activity which
-        # receives the lock from the workflow)
         async with RegistryLockService.with_session() as lock_service:
             registry_lock = await lock_service.resolve_lock_with_bindings(
                 {normalized_action_name}
@@ -113,11 +311,9 @@ async def execute_action_tool(
             tool_call_id=tool_call_id,
         )
         return json.dumps(result, default=str)
-    except ActionExecutionError as e:
+    except (ActionExecutionError, ActionNotAllowedError) as e:
         raise ToolError(str(e)) from e
     except ExecutionError as e:
-        # ExecutionError contains user-facing error info (validation errors, etc.)
-        # Propagate the actual error message so users can understand what went wrong
         error_msg = e.info.message if e.info else str(e)
         logger.warning(
             "Action execution error",
@@ -132,7 +328,6 @@ async def execute_action_tool(
     except BuiltinRegistryHasNoSelectionError as e:
         raise ToolError(str(e)) from e
     except Exception as e:
-        # Unexpected platform errors - log full details but return generic message
         logger.error(
             "Action execution failed",
             action_name=normalized_action_name,
@@ -142,36 +337,24 @@ async def execute_action_tool(
         raise ToolError("Action execution failed") from None
 
 
-@mcp.tool
-async def execute_user_mcp_tool(
+async def _execute_user_mcp(
     server_name: str,
     tool_name: str,
     args: dict[str, Any],
-    auth_token: str,
+    claims: MCPTokenClaims,
 ) -> str:
-    """Execute a tool on a user-defined MCP server.
-
-    User MCP servers are configured in the agent config and their credentials
-    are stored in the JWT claims. This tool proxies calls from the sandboxed
-    runtime to the user's MCP server.
-
-    Args:
-        server_name: Name of the user MCP server (from config).
-        tool_name: Original tool name (without mcp__ prefix).
-        args: Arguments to pass to the tool.
-        auth_token: JWT token containing user MCP server configs.
-
-    Returns:
-        JSON-encoded result from the tool.
-    """
-    try:
-        claims = verify_mcp_token(auth_token)
-    except ValueError as e:
-        logger.warning("MCP token verification failed", error_type=_safe_error_type(e))
-        raise ToolError("Authentication failed") from None
-
+    """Execute one authorized user MCP tool and return JSON text."""
     _set_role_context(claims)
-    # Find the server config in claims
+    scoped_tool_name = f"mcp__{server_name}__{tool_name}"
+    if scoped_tool_name not in claims.allowed_actions:
+        logger.warning(
+            "User MCP tool not authorized",
+            server_name=server_name,
+            tool_name=tool_name,
+            workspace_id=str(claims.workspace_id),
+        )
+        raise ToolError(f"Tool '{scoped_tool_name}' not authorized")
+
     server_config = None
     for cfg in claims.user_mcp_servers:
         if cfg.name == server_name:
@@ -223,34 +406,13 @@ async def execute_user_mcp_tool(
         ) from None
 
 
-@mcp.tool
-async def execute_internal_tool(
+async def _execute_internal(
     tool_name: str,
     args: dict[str, Any],
-    auth_token: str,
+    claims: MCPTokenClaims,
 ) -> str:
-    """Execute an internal tool (not in registry).
-
-    Internal tools are system-level tools that have direct database access
-    but are not part of the registry (not usable in workflows). They are
-    used for specialized functionality like the builder assistant.
-
-    Args:
-        tool_name: The internal tool to execute (e.g., "internal.builder.get_preset_summary")
-        args: Arguments to pass to the tool
-        auth_token: JWT token for authentication and authorization
-
-    Returns:
-        JSON-encoded result from the tool
-    """
-    try:
-        claims = verify_mcp_token(auth_token)
-    except ValueError as e:
-        logger.warning("MCP token verification failed", error_type=_safe_error_type(e))
-        raise ToolError("Authentication failed") from None
-
+    """Execute one authorized internal tool and return JSON text."""
     _set_role_context(claims)
-    # Validate tool is in allowed_internal_tools
     if tool_name not in claims.allowed_internal_tools:
         logger.warning(
             "Internal tool not authorized",
@@ -259,7 +421,6 @@ async def execute_internal_tool(
         )
         raise ToolError(f"Tool '{tool_name}' not authorized")
 
-    # Look up handler
     handler = INTERNAL_TOOL_HANDLERS.get(tool_name)
     if not handler:
         logger.warning("Unknown internal tool", tool_name=tool_name)
@@ -286,6 +447,108 @@ async def execute_internal_tool(
             error_type=_safe_error_type(e),
         )
         raise ToolError("Internal tool execution failed") from None
+
+
+async def call_token_scoped_tool(
+    tool_name: str,
+    args: dict[str, Any],
+    claims: MCPTokenClaims,
+) -> str:
+    """Route one token-scoped concrete MCP tool call."""
+    forwarded_args = dict(args)
+    if parsed := UserMCPClient.parse_user_mcp_tool_name(tool_name):
+        server_name, original_tool_name = parsed
+        return await _execute_user_mcp(
+            server_name,
+            original_tool_name,
+            forwarded_args,
+            claims,
+        )
+
+    action_name = mcp_tool_name_to_action_name(tool_name)
+    if action_name.startswith("internal."):
+        return await _execute_internal(action_name, forwarded_args, claims)
+
+    tool_call_id = extract_proxy_tool_call_id(forwarded_args)
+    return await _execute_registry_action(
+        action_name,
+        forwarded_args,
+        claims,
+        tool_call_id=tool_call_id,
+    )
+
+
+async def execute_action_tool(
+    action_name: str,
+    args: dict[str, Any],
+    auth_token: str,
+    tool_call_id: str | None = None,
+) -> str:
+    """Execute any Tracecat registry action.
+
+    Args:
+        action_name: The action to execute (e.g., "tools.slack.post_message")
+        args: Arguments to pass to the action
+        auth_token: JWT token for authentication and authorization
+
+    Returns:
+        JSON-encoded result from the action
+    """
+    claims = _claims_from_token(auth_token)
+    return await _execute_registry_action(
+        action_name,
+        args,
+        claims,
+        tool_call_id=tool_call_id,
+    )
+
+
+async def execute_user_mcp_tool(
+    server_name: str,
+    tool_name: str,
+    args: dict[str, Any],
+    auth_token: str,
+) -> str:
+    """Execute a tool on a user-defined MCP server.
+
+    User MCP servers are configured in the agent config and their credentials
+    are stored in the JWT claims. This tool proxies calls from the sandboxed
+    runtime to the user's MCP server.
+
+    Args:
+        server_name: Name of the user MCP server (from config).
+        tool_name: Original tool name (without mcp__ prefix).
+        args: Arguments to pass to the tool.
+        auth_token: JWT token containing user MCP server configs.
+
+    Returns:
+        JSON-encoded result from the tool.
+    """
+    claims = _claims_from_token(auth_token)
+    return await _execute_user_mcp(server_name, tool_name, args, claims)
+
+
+async def execute_internal_tool(
+    tool_name: str,
+    args: dict[str, Any],
+    auth_token: str,
+) -> str:
+    """Execute an internal tool (not in registry).
+
+    Internal tools are system-level tools that have direct database access
+    but are not part of the registry (not usable in workflows). They are
+    used for specialized functionality like the builder assistant.
+
+    Args:
+        tool_name: The internal tool to execute (e.g., "internal.builder.get_preset_summary")
+        args: Arguments to pass to the tool
+        auth_token: JWT token for authentication and authorization
+
+    Returns:
+        JSON-encoded result from the tool
+    """
+    claims = _claims_from_token(auth_token)
+    return await _execute_internal(tool_name, args, claims)
 
 
 app = mcp.http_app(path="/mcp")

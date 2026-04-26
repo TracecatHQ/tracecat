@@ -18,7 +18,7 @@ import uuid
 from collections.abc import Callable
 from pathlib import Path
 from time import perf_counter
-from typing import Any, Literal, Protocol, cast
+from typing import Any, Literal, Protocol
 
 import orjson
 from claude_agent_sdk import (
@@ -32,6 +32,8 @@ from claude_agent_sdk.types import (
     AgentDefinition,
     HookContext,
     HookInput,
+    McpHttpServerConfig,
+    McpServerConfig,
     PreToolUseHookSpecificOutput,
     ResultMessage,
     StreamEvent,
@@ -41,7 +43,10 @@ from claude_agent_sdk.types import (
     UserMessage,
 )
 
-from tracecat.agent.common.config import TRACECAT__DISABLE_NSJAIL
+from tracecat.agent.common.config import (
+    TRACECAT__AGENT_MCP_BRIDGE_PORT,
+    TRACECAT__DISABLE_NSJAIL,
+)
 from tracecat.agent.common.exceptions import AgentSandboxValidationError
 from tracecat.agent.common.output_format import build_sdk_output_format
 from tracecat.agent.common.protocol import RuntimeInitPayload
@@ -50,18 +55,16 @@ from tracecat.agent.common.stream_types import (
     ToolCallContent,
     UnifiedStreamEvent,
 )
-from tracecat.agent.common.types import (
-    MCPServerConfig,
-    MCPStdioServerConfig,
-    MCPToolDefinition,
-)
+from tracecat.agent.common.types import MCPToolDefinition
 from tracecat.agent.llm_routing import get_litellm_route_model
-from tracecat.agent.mcp.proxy_server import (
+from tracecat.agent.mcp.metadata import (
     PROXY_TOOL_CALL_ID_KEY,
     PROXY_TOOL_METADATA_KEY,
-    create_proxy_mcp_server,
 )
-from tracecat.agent.mcp.utils import normalize_mcp_tool_name
+from tracecat.agent.mcp.utils import (
+    action_name_to_mcp_tool_name,
+    normalize_mcp_tool_name,
+)
 from tracecat.agent.runtime.claude_code.adapter import ClaudeSDKAdapter
 from tracecat.agent.subagents import AgentsConfig
 from tracecat.logger import logger
@@ -160,6 +163,7 @@ REGISTRY_MCP_DOT_PREFIX = f"mcp.{REGISTRY_MCP_SERVER_NAME}."
 LEGACY_REGISTRY_MCP_TOOL_PREFIX = "mcp__tracecat_registry__"
 LEGACY_REGISTRY_MCP_DOT_PREFIX = "mcp.tracecat_registry."
 SUBAGENT_REGISTRY_MCP_SERVER_PREFIX = "tracecat-registry-"
+TRUSTED_MCP_BRIDGE_URL = f"http://127.0.0.1:{TRACECAT__AGENT_MCP_BRIDGE_PORT}/mcp"
 
 # Increase the SDK's stdout/stderr capture buffer above its default 1 MiB so
 # larger tool responses do not truncate during agent execution.
@@ -257,6 +261,35 @@ class ClaudeAgentRuntime:
     @staticmethod
     def _subagent_registry_server_name(alias: str) -> str:
         return f"{SUBAGENT_REGISTRY_MCP_SERVER_PREFIX}{alias}"
+
+    @staticmethod
+    def _trusted_mcp_server_config(auth_token: str) -> McpHttpServerConfig:
+        return {
+            "type": "http",
+            "url": TRUSTED_MCP_BRIDGE_URL,
+            "headers": {"Authorization": f"Bearer {auth_token}"},
+        }
+
+    @staticmethod
+    def _mcp_tool_name_for_action(server_name: str, action_name: str) -> str:
+        if action_name.startswith("mcp__"):
+            concrete_name = action_name
+        else:
+            concrete_name = action_name_to_mcp_tool_name(action_name)
+        return f"mcp__{server_name}__{concrete_name}"
+
+    @classmethod
+    def _mcp_tool_names_for_actions(
+        cls,
+        server_name: str,
+        actions: dict[str, MCPToolDefinition] | None,
+    ) -> list[str]:
+        if not actions:
+            return []
+        return sorted(
+            cls._mcp_tool_name_for_action(server_name, action_name)
+            for action_name in actions
+        )
 
     @staticmethod
     def _is_subagent_scope(input_data: HookInput) -> bool:
@@ -388,14 +421,13 @@ class ClaudeAgentRuntime:
         payload: RuntimeInitPayload,
         *,
         write_session_file: bool = True,
-    ) -> tuple[str | None, bool, dict[str, Any]]:
+    ) -> tuple[str | None, bool, dict[str, McpServerConfig]]:
         """Prepare resume state and MCP server config in parallel."""
         resume_session_id: str | None = None
         fork_session = False
-        mcp_servers: dict[str, Any] = {}
+        mcp_servers: dict[str, McpServerConfig] = {}
 
         session_file_task: asyncio.Task[Path] | None = None
-        proxy_config_tasks: dict[str, asyncio.Task[Any]] = {}
 
         if payload.sdk_session_id and payload.sdk_session_data:
             resume_session_id = payload.sdk_session_id
@@ -415,31 +447,14 @@ class ClaudeAgentRuntime:
                         payload.sdk_session_id, payload.sdk_session_data
                     )
                 )
-            if self.registry_tools:
-                proxy_config_tasks[REGISTRY_MCP_SERVER_NAME] = tg.create_task(
-                    create_proxy_mcp_server(
-                        allowed_actions=self.registry_tools,
-                        auth_token=payload.mcp_auth_token,
-                        server_name=REGISTRY_MCP_SERVER_NAME,
-                    )
-                )
-            for subagent in payload.subagents:
-                if not subagent.allowed_actions:
-                    continue
-                server_name = self._subagent_registry_server_name(subagent.alias)
-                proxy_config_tasks[server_name] = tg.create_task(
-                    create_proxy_mcp_server(
-                        allowed_actions=subagent.allowed_actions,
-                        auth_token=subagent.mcp_auth_token,
-                        server_name=server_name,
-                    )
-                )
 
         if session_file_task is not None:
             _ = session_file_task.result()
 
-        for server_name, task in proxy_config_tasks.items():
-            mcp_servers[server_name] = task.result()
+        if self.registry_tools:
+            mcp_servers[REGISTRY_MCP_SERVER_NAME] = self._trusted_mcp_server_config(
+                payload.mcp_auth_token
+            )
 
         return resume_session_id, fork_session, mcp_servers
 
@@ -804,71 +819,26 @@ class ClaudeAgentRuntime:
     def _agents_config_enabled(config: AgentsConfig) -> bool:
         return config.enabled
 
-    @staticmethod
-    def _copy_stdio_server_config(config: MCPStdioServerConfig) -> dict[str, Any]:
-        server_config: dict[str, Any] = {
-            "command": config["command"],
-        }
-        if args := config.get("args"):
-            server_config["args"] = args
-        if env := config.get("env"):
-            server_config["env"] = env
-        if timeout := config.get("timeout"):
-            server_config["timeout"] = timeout
-        return server_config
-
-    def _register_stdio_mcp_servers(
-        self,
-        *,
-        source_configs: list[MCPServerConfig] | None,
-        mcp_servers: dict[str, Any],
-        name_prefix: str | None = None,
-    ) -> list[str]:
-        registered: list[str] = []
-        if not source_configs:
-            return registered
-
-        for config in source_configs:
-            if config.get("type", "http") != "stdio":
-                continue
-            stdio_config = cast(MCPStdioServerConfig, config)
-            base_name = stdio_config["name"]
-            if name_prefix:
-                base_name = f"{name_prefix}-{base_name}"
-            server_name = base_name
-            suffix = 2
-            while server_name in mcp_servers:
-                server_name = f"{base_name}-{suffix}"
-                suffix += 1
-
-            mcp_servers[server_name] = self._copy_stdio_server_config(stdio_config)
-            registered.append(server_name)
-
-        return registered
-
     def _build_agent_definitions(
         self,
         *,
         payload: RuntimeInitPayload,
-        mcp_servers: dict[str, Any],
+        mcp_servers: dict[str, McpServerConfig],
     ) -> dict[str, AgentDefinition] | None:
+        del mcp_servers
         if not payload.subagents:
             return None
 
         definitions: dict[str, AgentDefinition] = {}
         for subagent in payload.subagents:
-            mcp_server_names: list[str] = []
             registry_server_name = self._subagent_registry_server_name(subagent.alias)
+            mcp_server_config = None
             if subagent.allowed_actions:
-                mcp_server_names.append(registry_server_name)
-
-            mcp_server_names.extend(
-                self._register_stdio_mcp_servers(
-                    source_configs=subagent.config.mcp_servers,
-                    mcp_servers=mcp_servers,
-                    name_prefix=f"subagent-{subagent.alias}",
-                )
-            )
+                mcp_server_config = {
+                    registry_server_name: self._trusted_mcp_server_config(
+                        subagent.mcp_auth_token
+                    )
+                }
 
             disallowed_tools = list(CHILD_AGENT_DISALLOWED_TOOLS)
             if not subagent.config.enable_internet_access:
@@ -882,7 +852,12 @@ class ClaudeAgentRuntime:
                     model_name=subagent.config.model_name,
                     passthrough=subagent.config.passthrough,
                 ),
-                mcpServers=cast(list[str | dict[str, Any]], mcp_server_names) or None,
+                tools=self._mcp_tool_names_for_actions(
+                    registry_server_name,
+                    subagent.allowed_actions,
+                )
+                or None,
+                mcpServers=[mcp_server_config] if mcp_server_config else None,
                 disallowedTools=disallowed_tools,
                 maxTurns=subagent.max_turns,
             )
@@ -977,10 +952,6 @@ class ClaudeAgentRuntime:
             )
 
             stderr_queue: asyncio.Queue[str] = asyncio.Queue()
-            self._register_stdio_mcp_servers(
-                source_configs=payload.config.mcp_servers,
-                mcp_servers=mcp_servers,
-            )
             agent_definitions = self._build_agent_definitions(
                 payload=payload,
                 mcp_servers=mcp_servers,
@@ -1013,7 +984,12 @@ class ClaudeAgentRuntime:
             ]
             if not payload.config.enable_internet_access:
                 disallowed_tools.extend(INTERNET_TOOLS)
-            allowed_tools = sorted(AGENT_TOOL_NAMES) if self._agents_enabled else []
+            allowed_tools = self._mcp_tool_names_for_actions(
+                REGISTRY_MCP_SERVER_NAME,
+                payload.allowed_actions,
+            )
+            if self._agents_enabled:
+                allowed_tools.extend(sorted(AGENT_TOOL_NAMES))
 
             sandbox_settings = SandboxSettings(enabled=TRACECAT__DISABLE_NSJAIL)
             if TRACECAT__DISABLE_NSJAIL:

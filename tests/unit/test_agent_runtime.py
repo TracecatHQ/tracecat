@@ -35,12 +35,13 @@ from tracecat.agent.common.types import (
 from tracecat.agent.llm_routing import (
     get_litellm_route_model,
 )
-from tracecat.agent.mcp.proxy_server import (
+from tracecat.agent.mcp.metadata import (
     PROXY_TOOL_CALL_ID_KEY,
     PROXY_TOOL_METADATA_KEY,
 )
 from tracecat.agent.runtime.claude_code.runtime import (
     CLAUDE_SDK_MAX_BUFFER_SIZE_BYTES,
+    TRUSTED_MCP_BRIDGE_URL,
     ClaudeAgentRuntime,
 )
 from tracecat.agent.subagents import AgentsConfig
@@ -236,10 +237,6 @@ class TestClaudeAgentRuntimeRun:
                 "tracecat.agent.runtime.claude_code.runtime.ClaudeSDKClient",
                 return_value=mock_claude_sdk_client,
             ),
-            patch(
-                "tracecat.agent.runtime.claude_code.runtime.create_proxy_mcp_server",
-                AsyncMock(return_value={}),
-            ),
         ):
             runtime = ClaudeAgentRuntime(
                 mock_socket_writer, transport_factory=lambda _: MagicMock()
@@ -282,10 +279,6 @@ class TestClaudeAgentRuntimeRun:
             patch(
                 "tracecat.agent.runtime.claude_code.runtime.ClaudeSDKClient",
                 return_value=mock_claude_sdk_client,
-            ),
-            patch(
-                "tracecat.agent.runtime.claude_code.runtime.create_proxy_mcp_server",
-                AsyncMock(return_value={}),
             ),
             patch(
                 "tracecat.agent.runtime.claude_code.runtime.ClaudeSDKAdapter",
@@ -332,10 +325,6 @@ class TestClaudeAgentRuntimeRun:
                 "tracecat.agent.runtime.claude_code.runtime.ClaudeSDKClient",
                 return_value=mock_client,
             ),
-            patch(
-                "tracecat.agent.runtime.claude_code.runtime.create_proxy_mcp_server",
-                AsyncMock(return_value={}),
-            ),
         ):
             runtime = ClaudeAgentRuntime(
                 mock_socket_writer, transport_factory=lambda _: MagicMock()
@@ -375,10 +364,6 @@ class TestClaudeAgentRuntimeRun:
                 "tracecat.agent.runtime.claude_code.runtime.ClaudeSDKClient",
                 return_value=mock_client,
             ),
-            patch(
-                "tracecat.agent.runtime.claude_code.runtime.create_proxy_mcp_server",
-                AsyncMock(return_value={}),
-            ),
         ):
             runtime = ClaudeAgentRuntime(
                 mock_socket_writer, transport_factory=lambda _: MagicMock()
@@ -401,10 +386,6 @@ class TestClaudeAgentRuntimeRun:
             patch(
                 "tracecat.agent.runtime.claude_code.runtime.ClaudeSDKClient",
                 return_value=mock_claude_sdk_client,
-            ),
-            patch(
-                "tracecat.agent.runtime.claude_code.runtime.create_proxy_mcp_server",
-                AsyncMock(return_value={}),
             ),
             pytest.raises(ValueError, match="Test error"),
         ):
@@ -441,10 +422,6 @@ class TestClaudeAgentRuntimeRun:
                 "tracecat.agent.runtime.claude_code.runtime.ClaudeSDKClient",
                 side_effect=_mock_client_ctor,
             ),
-            patch(
-                "tracecat.agent.runtime.claude_code.runtime.create_proxy_mcp_server",
-                AsyncMock(return_value={}),
-            ),
         ):
             runtime = ClaudeAgentRuntime(
                 mock_socket_writer, transport_factory=lambda _: MagicMock()
@@ -454,7 +431,12 @@ class TestClaudeAgentRuntimeRun:
         assert captured_options
         mcp_servers = captured_options[0].mcp_servers
         assert isinstance(mcp_servers, dict)
-        assert "tracecat-registry" in mcp_servers
+        assert set(mcp_servers) == {"tracecat-registry"}
+        assert mcp_servers["tracecat-registry"] == {
+            "type": "http",
+            "url": TRUSTED_MCP_BRIDGE_URL,
+            "headers": {"Authorization": "Bearer test-jwt-token"},
+        }
         assert "tracecat_registry" not in mcp_servers
 
     @pytest.mark.anyio
@@ -475,10 +457,6 @@ class TestClaudeAgentRuntimeRun:
             patch(
                 "tracecat.agent.runtime.claude_code.runtime.ClaudeSDKClient",
                 side_effect=_mock_client_ctor,
-            ),
-            patch(
-                "tracecat.agent.runtime.claude_code.runtime.create_proxy_mcp_server",
-                AsyncMock(return_value={}),
             ),
         ):
             runtime = ClaudeAgentRuntime(
@@ -506,10 +484,6 @@ class TestClaudeAgentRuntimeRun:
             patch(
                 "tracecat.agent.runtime.claude_code.runtime.ClaudeSDKClient",
                 side_effect=_mock_client_ctor,
-            ),
-            patch(
-                "tracecat.agent.runtime.claude_code.runtime.create_proxy_mcp_server",
-                AsyncMock(return_value={}),
             ),
         ):
             runtime = ClaudeAgentRuntime(
@@ -549,10 +523,6 @@ class TestClaudeAgentRuntimeRun:
                 "tracecat.agent.runtime.claude_code.runtime.ClaudeSDKClient",
                 side_effect=_mock_client_ctor,
             ),
-            patch(
-                "tracecat.agent.runtime.claude_code.runtime.create_proxy_mcp_server",
-                AsyncMock(return_value={}),
-            ),
         ):
             runtime = ClaudeAgentRuntime(
                 mock_socket_writer, transport_factory=lambda _: MagicMock()
@@ -589,10 +559,6 @@ class TestClaudeAgentRuntimeRun:
                 "tracecat.agent.runtime.claude_code.runtime.ClaudeSDKClient",
                 side_effect=_mock_client_ctor,
             ),
-            patch(
-                "tracecat.agent.runtime.claude_code.runtime.create_proxy_mcp_server",
-                AsyncMock(return_value={}),
-            ),
         ):
             runtime = ClaudeAgentRuntime(
                 mock_socket_writer, transport_factory=lambda _: MagicMock()
@@ -627,10 +593,6 @@ class TestClaudeAgentRuntimeRun:
                 "tracecat.agent.runtime.claude_code.runtime.ClaudeSDKClient",
                 side_effect=_mock_client_ctor,
             ),
-            patch(
-                "tracecat.agent.runtime.claude_code.runtime.create_proxy_mcp_server",
-                AsyncMock(return_value={}),
-            ),
         ):
             runtime = ClaudeAgentRuntime(
                 mock_socket_writer, transport_factory=lambda _: MagicMock()
@@ -640,7 +602,11 @@ class TestClaudeAgentRuntimeRun:
         assert captured_options
         options = captured_options[0]
         assert options.model == "anthropic/claude-3-5-sonnet-20241022"
-        assert set(options.allowed_tools) == {"Agent", "Task"}
+        assert set(options.allowed_tools) == {
+            "mcp__tracecat-registry__core__http_request",
+            "Agent",
+            "Task",
+        }
         assert "Agent" not in options.disallowed_tools
         assert "Task" not in options.disallowed_tools
         assert set(options.disallowed_tools) >= {
@@ -687,7 +653,6 @@ class TestClaudeAgentRuntimeRun:
             captured_options.append(kwargs["options"])
             return mock_claude_sdk_client
 
-        create_proxy = AsyncMock(return_value={})
         payload = replace(
             sample_init_payload,
             config=sample_init_payload.config.model_copy(
@@ -708,10 +673,6 @@ class TestClaudeAgentRuntimeRun:
                 "tracecat.agent.runtime.claude_code.runtime.ClaudeSDKClient",
                 side_effect=_mock_client_ctor,
             ),
-            patch(
-                "tracecat.agent.runtime.claude_code.runtime.create_proxy_mcp_server",
-                create_proxy,
-            ),
         ):
             runtime = ClaudeAgentRuntime(
                 mock_socket_writer, transport_factory=lambda _: MagicMock()
@@ -721,9 +682,25 @@ class TestClaudeAgentRuntimeRun:
         assert captured_options
         options = captured_options[0]
         assert options.agents is not None
+        assert options.mcp_servers == {
+            "tracecat-registry": {
+                "type": "http",
+                "url": TRUSTED_MCP_BRIDGE_URL,
+                "headers": {"Authorization": "Bearer test-jwt-token"},
+            }
+        }
         agent_def = options.agents["analyst"]
         assert agent_def.model == "openai/gpt-5-mini"
-        assert agent_def.mcpServers == ["tracecat-registry-analyst"]
+        assert agent_def.mcpServers == [
+            {
+                "tracecat-registry-analyst": {
+                    "type": "http",
+                    "url": TRUSTED_MCP_BRIDGE_URL,
+                    "headers": {"Authorization": "Bearer child-mcp-token"},
+                }
+            }
+        ]
+        assert agent_def.tools == ["mcp__tracecat-registry-analyst__core__lookup_ip"]
         assert set(agent_def.disallowedTools or []) >= {
             "Agent",
             "Task",
@@ -736,10 +713,6 @@ class TestClaudeAgentRuntimeRun:
             "WebFetch",
             "WebSearch",
         }
-        server_names = {
-            call.kwargs["server_name"] for call in create_proxy.await_args_list
-        }
-        assert server_names == {"tracecat-registry", "tracecat-registry-analyst"}
 
     @pytest.mark.parametrize(
         ("provider", "model_name", "passthrough", "expected"),
@@ -855,10 +828,6 @@ class TestClaudeAgentRuntimeRun:
                 "tracecat.agent.runtime.claude_code.runtime.ClaudeSDKClient",
                 side_effect=_mock_client_ctor,
             ),
-            patch(
-                "tracecat.agent.runtime.claude_code.runtime.create_proxy_mcp_server",
-                AsyncMock(return_value={}),
-            ),
         ):
             runtime = ClaudeAgentRuntime(
                 mock_socket_writer, transport_factory=lambda _: MagicMock()
@@ -921,10 +890,6 @@ class TestClaudeAgentRuntimeRun:
             patch(
                 "tracecat.agent.runtime.claude_code.runtime.ClaudeSDKClient",
                 side_effect=_mock_client_ctor,
-            ),
-            patch(
-                "tracecat.agent.runtime.claude_code.runtime.create_proxy_mcp_server",
-                AsyncMock(return_value={}),
             ),
         ):
             runtime = ClaudeAgentRuntime(
@@ -1031,10 +996,6 @@ class TestClaudeAgentRuntimeRun:
                 side_effect=_mock_client_ctor,
             ),
             patch(
-                "tracecat.agent.runtime.claude_code.runtime.create_proxy_mcp_server",
-                AsyncMock(return_value={}),
-            ),
-            patch(
                 "tracecat.agent.runtime.claude_code.runtime.ClaudeSDKAdapter",
                 return_value=mock_adapter,
             ),
@@ -1072,10 +1033,6 @@ class TestClaudeAgentRuntimeRun:
             patch(
                 "tracecat.agent.runtime.claude_code.runtime.ClaudeSDKClient",
                 return_value=mock_claude_sdk_client,
-            ),
-            patch(
-                "tracecat.agent.runtime.claude_code.runtime.create_proxy_mcp_server",
-                AsyncMock(return_value={}),
             ),
         ):
             runtime = ClaudeAgentRuntime(
@@ -1117,10 +1074,6 @@ class TestClaudeAgentRuntimeRun:
             patch(
                 "tracecat.agent.runtime.claude_code.runtime.ClaudeSDKClient",
                 side_effect=_mock_client_ctor,
-            ),
-            patch(
-                "tracecat.agent.runtime.claude_code.runtime.create_proxy_mcp_server",
-                AsyncMock(return_value={}),
             ),
         ):
             runtime = ClaudeAgentRuntime(

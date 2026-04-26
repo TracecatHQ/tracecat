@@ -9,12 +9,15 @@ import pytest
 
 from tracecat.agent.sandbox.shim_entrypoint import (
     DEFAULT_LLM_SOCKET_PATH,
+    DEFAULT_MCP_SOCKET_PATH,
     INIT_PAYLOAD_ENV_VAR,
+    MCP_SOCKET_ENV_VAR,
     LLMBridge,
     _pump_stdin_to_process,
     _read_stdin_chunk,
     _resolve_init_payload_path,
     _resolve_llm_socket_path,
+    _resolve_mcp_socket_path,
     _wait_for_process_with_stdin,
 )
 from tracecat.agent.sandbox.shim_entrypoint import (
@@ -68,6 +71,14 @@ def test_resolve_llm_socket_path_falls_back_on_empty_env(
     assert _resolve_llm_socket_path() == Path(DEFAULT_LLM_SOCKET_PATH)
 
 
+def test_resolve_mcp_socket_path_falls_back_on_empty_env(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv(MCP_SOCKET_ENV_VAR, "")
+
+    assert _resolve_mcp_socket_path() == Path(DEFAULT_MCP_SOCKET_PATH)
+
+
 @pytest.mark.anyio
 async def test_llm_bridge_ignores_expected_server_closed_error(
     caplog: pytest.LogCaptureFixture,
@@ -96,6 +107,7 @@ async def test_read_shim_init_payload_validates_shape(tmp_path: Path) -> None:
                 "command": ["claude", "--print"],
                 "env": {"HOME": "/work/claude-home"},
                 "cwd": "/work/claude-project",
+                "mcp_bridge_port": 4101,
             }
         )
     )
@@ -106,6 +118,7 @@ async def test_read_shim_init_payload_validates_shape(tmp_path: Path) -> None:
         "command": ["claude", "--print"],
         "env": {"HOME": "/work/claude-home"},
         "cwd": "/work/claude-project",
+        "mcp_bridge_port": 4101,
     }
 
 

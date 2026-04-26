@@ -32,6 +32,7 @@ from tracecat.agent.common.config import (
     JAILED_LLM_SOCKET_PATH,
     TRACECAT__AGENT_SANDBOX_MEMORY_MB,
     TRACECAT__AGENT_SANDBOX_TIMEOUT,
+    TRUSTED_MCP_SOCKET_PATH,
 )
 from tracecat.agent.common.exceptions import AgentSandboxValidationError
 
@@ -222,6 +223,7 @@ def build_agent_nsjail_config(
     config: AgentSandboxConfig,
     site_packages_dir: Path,
     llm_socket_path: Path | None,
+    mcp_socket_path: Path | None = None,
     *,
     mount_control_socket: bool = True,
     control_socket_path: Path | None = None,
@@ -240,6 +242,7 @@ def build_agent_nsjail_config(
         site_packages_dir: Path to site-packages with Claude SDK deps.
         llm_socket_path: Optional path to the LLM socket for proxied LLM gateway
             access.
+        mcp_socket_path: Optional path to the trusted MCP socket for tool calls.
         mount_control_socket: Whether to mount the per-job control socket into the
             jail. The current shim path does not require this.
         control_socket_path: Optional explicit control socket path. When omitted
@@ -267,6 +270,8 @@ def build_agent_nsjail_config(
     _validate_path(site_packages_dir, "site_packages_dir")
     if llm_socket_path is not None:
         _validate_path(llm_socket_path, "llm_socket_path")
+    if mcp_socket_path is not None:
+        _validate_path(mcp_socket_path, "mcp_socket_path")
 
     # Derive control socket path from socket_dir using well-known name when enabled.
     resolved_control_socket_path: Path | None
@@ -392,6 +397,15 @@ def build_agent_nsjail_config(
                 "",
                 "# Per-job LLM socket (proxied to LLM gateway on host)",
                 f'mount {{ src: "{llm_socket_path}" dst: "{JAILED_LLM_SOCKET_PATH}" is_bind: true rw: false }}',
+            ]
+        )
+
+    if mcp_socket_path is not None:
+        lines.extend(
+            [
+                "",
+                "# Trusted MCP socket (proxied to the agent runtime over localhost)",
+                f'mount {{ src: "{mcp_socket_path}" dst: "{TRUSTED_MCP_SOCKET_PATH}" is_bind: true rw: false }}',
             ]
         )
 

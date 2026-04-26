@@ -15,6 +15,7 @@ from mcp import types as mt
 
 from tracecat.agent.common.types import MCPToolDefinition
 from tracecat.agent.mcp import proxy_server
+from tracecat.agent.mcp.metadata import PROXY_TOOL_CALL_ID_KEY, PROXY_TOOL_METADATA_KEY
 from tracecat.agent.runtime.claude_code.runtime import ClaudeAgentRuntime
 
 
@@ -85,15 +86,15 @@ async def test_create_proxy_mcp_server_only_augments_registry_tool_schema(
     }
     registry_schema = schemas_by_name["core__http_request"]
     assert isinstance(registry_schema, dict)
-    assert proxy_server.PROXY_TOOL_METADATA_KEY in registry_schema["properties"]
+    assert PROXY_TOOL_METADATA_KEY in registry_schema["properties"]
 
     user_schema = schemas_by_name["mcp__Jira__getIssue"]
     assert isinstance(user_schema, dict)
-    assert proxy_server.PROXY_TOOL_METADATA_KEY not in user_schema["properties"]
+    assert PROXY_TOOL_METADATA_KEY not in user_schema["properties"]
 
     internal_schema = schemas_by_name["internal__builder__list_sessions"]
     assert isinstance(internal_schema, dict)
-    assert proxy_server.PROXY_TOOL_METADATA_KEY not in internal_schema["properties"]
+    assert PROXY_TOOL_METADATA_KEY not in internal_schema["properties"]
 
 
 @pytest.mark.anyio
@@ -130,8 +131,8 @@ async def test_registry_proxy_handler_strips_metadata_and_forwards_tool_call_id(
     result = await handler(
         {
             "url": "https://example.com",
-            proxy_server.PROXY_TOOL_METADATA_KEY: {
-                proxy_server.PROXY_TOOL_CALL_ID_KEY: "toolu_123",
+            PROXY_TOOL_METADATA_KEY: {
+                PROXY_TOOL_CALL_ID_KEY: "toolu_123",
             },
         }
     )
@@ -213,8 +214,8 @@ async def test_registry_proxy_server_accepts_hook_injected_metadata_during_tool_
 
     updated_input = cast(dict[str, Any] | None, hook_output.get("updatedInput"))
     assert isinstance(updated_input, dict)
-    assert updated_input[proxy_server.PROXY_TOOL_METADATA_KEY] == {
-        proxy_server.PROXY_TOOL_CALL_ID_KEY: "toolu_123"
+    assert updated_input[PROXY_TOOL_METADATA_KEY] == {
+        PROXY_TOOL_CALL_ID_KEY: "toolu_123"
     }
 
     server_config = await proxy_server.create_proxy_mcp_server(

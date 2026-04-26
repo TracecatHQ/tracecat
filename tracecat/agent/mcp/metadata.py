@@ -60,6 +60,49 @@ def extract_proxy_tool_call_id(args: dict[str, Any]) -> str | None:
     return raw_tool_call_id
 
 
+def _build_proxy_tool_metadata_schema() -> dict[str, Any]:
+    """Build the optional internal metadata schema for registry tools."""
+    return {
+        "type": "object",
+        "properties": {
+            PROXY_TOOL_CALL_ID_KEY: {
+                "type": "string",
+                "description": "Internal Tracecat correlation identifier.",
+            }
+        },
+        "required": [PROXY_TOOL_CALL_ID_KEY],
+        "additionalProperties": False,
+    }
+
+
+def build_registry_tool_schema(
+    parameters_json_schema: dict[str, Any],
+) -> dict[str, Any]:
+    """Augment a registry tool schema with optional Tracecat metadata."""
+    schema: dict[str, Any] = copy.deepcopy(parameters_json_schema)
+    if not schema:
+        schema = {"type": "object"}
+
+    schema_type = schema.get("type")
+    if schema_type not in (None, "object"):
+        raise ValueError(
+            f"Registry tools require object-shaped schemas, got type={schema_type!r}"
+        )
+
+    raw_properties = schema.get("properties")
+    if raw_properties is None:
+        properties: dict[str, Any] = {}
+        schema["properties"] = properties
+    elif isinstance(raw_properties, dict):
+        properties = raw_properties
+    else:
+        raise ValueError("Registry tool schema properties must be an object")
+
+    schema.setdefault("type", "object")
+    properties[PROXY_TOOL_METADATA_KEY] = _build_proxy_tool_metadata_schema()
+    return schema
+
+
 def sanitize_message_tool_inputs(message: dict[str, Any]) -> dict[str, Any]:
     """Remove proxy-only metadata from tool inputs in a persisted message payload.
 

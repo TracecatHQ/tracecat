@@ -445,6 +445,7 @@ async def _run_full_claude_harness_runtime_case(
         del self
         socket_dir = job_dir / "sockets"
         socket_dir.mkdir(parents=True)
+        (socket_dir / "mcp.sock").touch()
         return job_dir
 
     async def fake_initialize_stream_sink(self: LoopbackHandler) -> _InMemoryStreamSink:
@@ -462,6 +463,11 @@ async def _run_full_claude_harness_runtime_case(
         persisted_session_lines.append((sdk_session_id, session_line, internal))
 
     monkeypatch.setattr(executor_activity, "LLMSocketProxy", _FakeLLMSocketProxy)
+    monkeypatch.setattr(
+        nsjail_module,
+        "TRACECAT__AGENT_MCP_SOCKET_PATH",
+        job_dir / "sockets" / "mcp.sock",
+    )
     monkeypatch.setattr(
         SandboxedAgentExecutor,
         "_create_job_directory",
@@ -1236,7 +1242,7 @@ class _DummyBridge:
 
     async def start(self) -> int:
         self.started = True
-        return 4312
+        return self.port if self.port else 4312
 
     async def stop(self) -> None:
         self.stopped = True
@@ -1270,6 +1276,7 @@ async def test_sandbox_shim_starts_bridge_and_sets_child_base_url(
                 "command": ["claude", "--print"],
                 "env": {"ANTHROPIC_AUTH_TOKEN": "llm-token"},
                 "cwd": str(tmp_path),
+                "mcp_bridge_port": 4313,
             }
         )
     )
@@ -1277,6 +1284,10 @@ async def test_sandbox_shim_starts_bridge_and_sets_child_base_url(
     monkeypatch.setenv(
         shim_entrypoint.LLM_SOCKET_ENV_VAR,
         str(tmp_path / "llm.sock"),
+    )
+    monkeypatch.setenv(
+        shim_entrypoint.MCP_SOCKET_ENV_VAR,
+        str(tmp_path / "mcp.sock"),
     )
 
     async def fake_create_subprocess_exec(*args: str, **kwargs: object) -> _FakeProcess:
@@ -1306,9 +1317,16 @@ async def test_sandbox_shim_starts_bridge_and_sets_child_base_url(
 
     await shim_entrypoint.run_sandboxed_claude_shim()
 
-    assert len(_DummyBridge.instances) == 1
-    assert _DummyBridge.instances[0].started is True
-    assert _DummyBridge.instances[0].stopped is True
+    assert len(_DummyBridge.instances) == 2
+    llm_bridge, mcp_bridge = _DummyBridge.instances
+    assert llm_bridge.socket_path == tmp_path / "llm.sock"
+    assert llm_bridge.port == 0
+    assert llm_bridge.started is True
+    assert llm_bridge.stopped is True
+    assert mcp_bridge.socket_path == tmp_path / "mcp.sock"
+    assert mcp_bridge.port == 4313
+    assert mcp_bridge.started is True
+    assert mcp_bridge.stopped is True
     assert captured["args"] == ("claude", "--print")
     kwargs = captured["kwargs"]
     assert isinstance(kwargs, dict)
@@ -1316,6 +1334,7 @@ async def test_sandbox_shim_starts_bridge_and_sets_child_base_url(
     assert isinstance(child_env, dict)
     assert child_env["ANTHROPIC_AUTH_TOKEN"] == "llm-token"
     assert child_env["TRACECAT__LLM_BRIDGE_PORT"] == "4312"
+    assert child_env["TRACECAT__MCP_BRIDGE_PORT"] == "4313"
     assert child_env["ANTHROPIC_BASE_URL"] == "http://127.0.0.1:4312"
 
 

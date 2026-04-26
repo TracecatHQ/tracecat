@@ -20,6 +20,7 @@ from claude_agent_sdk._errors import CLIJSONDecodeError as SDKJSONDecodeError
 from claude_agent_sdk._internal.transport.subprocess_cli import SubprocessCLITransport
 from claude_agent_sdk._version import __version__
 
+from tracecat.agent.common.config import TRACECAT__AGENT_MCP_BRIDGE_PORT
 from tracecat.agent.runtime.claude_code.session_paths import ClaudeSandboxPathMapping
 from tracecat.agent.sandbox.nsjail import (
     SpawnedRuntime,
@@ -35,6 +36,7 @@ class ClaudeShimInitPayload(TypedDict):
     command: list[str]
     env: dict[str, str]
     cwd: str
+    mcp_bridge_port: int
 
 
 class SandboxedCLITransport(Transport):
@@ -100,6 +102,7 @@ class SandboxedCLITransport(Transport):
             "command": command,
             "env": self._build_claude_env_overlay(),
             "cwd": str(self._path_mapping.runtime_cwd),
+            "mcp_bridge_port": TRACECAT__AGENT_MCP_BRIDGE_PORT,
         }
         init_payload_path = self._job_dir / "claude-shim-init.json"
         await asyncio.to_thread(
