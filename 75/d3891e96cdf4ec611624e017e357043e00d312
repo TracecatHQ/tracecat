@@ -1,0 +1,57 @@
+tracecat/agent/sandbox/config.py
+  3e0ce1b597b521f9 35,399-404
+tests/unit/test_agent_mcp_utils.py
+  3e0ce1b597b521f9 3-33
+tracecat/agent/mcp/proxy_server.py
+  3e0ce1b597b521f9 16,36-45,201-202,205-207,216,219-222,226,257-264,273-308
+tests/unit/test_agent_mcp_proxy_server.py
+  3e0ce1b597b521f9 76,79,81
+tests/temporal/test_durable_agent_workflow.py
+  3e0ce1b597b521f9 75,676-686
+  cd920619eaeff6f7 55-59,74,77,521-675,687-695
+tracecat/agent/sandbox/mcp_stdio_proxy.py
+  3e0ce1b597b521f9 1-398
+tests/unit/test_agent_runtime.py
+  3e0ce1b597b521f9 9,17,44,646-652,672,678-688,710-733,749-767,778-783,790-823,836-839,843-880,890-891,919,1536,1563-1593
+tests/unit/test_agent_sandbox_config.py
+  3e0ce1b597b521f9 5-7,44-65
+tracecat/agent/mcp/utils.py
+  3e0ce1b597b521f9 25-37
+tests/unit/test_agent_mcp_stdio_proxy.py
+  3e0ce1b597b521f9 1-141
+tracecat/agent/runtime/claude_code/runtime.py
+  3e0ce1b597b521f9 16,29,46-49,62,68,71-75,237,273-368,506,945-1054,1064-1067,1069-1085,1087-1099,1114-1115,1122-1141,1234,1263-1269,1331-1336,1340,1513
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "75d3891e96cdf4ec611624e017e357043e00d312",
+  "prompts": {
+    "3e0ce1b597b521f9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019dc2a9-a6ba-7613-a40f-445c0d3ab7e7",
+        "model": "gpt-5.5"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 1525,
+      "total_deletions": 421,
+      "accepted_lines": 1195,
+      "overriden_lines": 0
+    },
+    "cd920619eaeff6f7": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019dc235-9289-7d73-b6b0-5ebf74c42571",
+        "model": "gpt-5.5"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 174,
+      "total_deletions": 0,
+      "accepted_lines": 173,
+      "overriden_lines": 0
+    }
+  }
+}
