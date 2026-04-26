@@ -959,17 +959,31 @@ class VercelStreamContext:
 
             case StreamEventType.TOOL_RESULT:
                 tool_call_id = event.tool_call_id or "unknown"
+                has_known_tool_input = self.tool_input_emitted.get(tool_call_id, False)
+                has_cached_tool_metadata = tool_call_id in self.approval_tool_name
 
                 # Close any open part for this tool
                 if tool_call_id in self.tool_index:
                     index = self.tool_index[tool_call_id]
                     for message in self.collect_current_part_end_events(index=index):
                         yield message
+                    has_known_tool_input = True
+
+                if (
+                    not has_known_tool_input
+                    and not has_cached_tool_metadata
+                    and event.tool_name is None
+                ):
+                    logger.debug(
+                        "Skipping uncorrelated tool result without tool metadata",
+                        tool_call_id=tool_call_id,
+                    )
+                    return
 
                 # Ensure input-available before output
                 if not self.tool_input_emitted.get(tool_call_id, False):
                     tool_name = self.approval_tool_name.get(
-                        tool_call_id, event.tool_name or "tool"
+                        tool_call_id, event.tool_name
                     )
                     yield ToolInputAvailableEventPayload(
                         toolCallId=tool_call_id,

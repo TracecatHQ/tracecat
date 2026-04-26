@@ -456,6 +456,25 @@ async def test_tool_result_without_tracked_tool_call_id():
 
 
 @pytest.mark.anyio
+async def test_tool_result_without_tool_metadata_is_skipped():
+    """Uncorrelated Claude tool results should not render as generic `tool`."""
+    ctx = VercelStreamContext(message_id="msg_test")
+
+    events = [
+        UnifiedStreamEvent(
+            type=StreamEventType.TOOL_RESULT,
+            tool_call_id="nested_subagent_call",
+            tool_output="Nested tool output",
+            is_error=False,
+        ),
+    ]
+
+    frames = await collect_frames(ctx, events)
+
+    assert frames == []
+
+
+@pytest.mark.anyio
 async def test_tool_retry_scenario_multiple_failures_then_success():
     """Test tool retry scenario: multiple failures followed by success.
 
