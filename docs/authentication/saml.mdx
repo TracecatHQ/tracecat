@@ -208,7 +208,7 @@ Tracecat requires both assertions and responses to be signed.
 If you know what you're doing, you can configure the SAML configuration via environment variables in the Tracecat `api` service:
 
 ### Protocol configuration
-- `SAML_ALLOW_UNSOLICITED`: Whether to allow unsolicited SAML responses (default: `true`)
+- `SAML_ALLOW_UNSOLICITED`: Whether to allow unsolicited SAML responses (default: `false`)
 - `SAML_ACCEPTED_TIME_DIFF`: Time difference in seconds for SAML authentication (default: `3`)
 - `SAML_AUTHN_REQUESTS_SIGNED`: Whether to require signed SAML authentication requests (default: `false`)
 - `SAML_SIGNED_ASSERTIONS`: Whether to require signed SAML assertions (default: `true`)

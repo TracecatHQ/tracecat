@@ -10,10 +10,11 @@ import subprocess
 import sys
 import tempfile
 import uuid
-from collections.abc import Awaitable, Callable, Iterator
+from collections.abc import AsyncIterator, Awaitable, Callable, Iterator
+from dataclasses import dataclass, replace
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any, cast
+from typing import Any, TypedDict, cast
 
 import orjson
 import pytest
@@ -43,13 +44,19 @@ from tracecat.agent.executor.activity import (
     SandboxedAgentExecutor,
     run_agent_activity,
 )
-from tracecat.agent.executor.loopback import LoopbackHandler, LoopbackResult
+from tracecat.agent.executor.loopback import (
+    LoopbackHandler,
+    LoopbackInput,
+    LoopbackResult,
+)
 from tracecat.agent.runtime.claude_code.broker import (
     ClaudeRuntimeBroker,
     ClaudeTurnRequest,
 )
 from tracecat.agent.runtime.claude_code.transport import SandboxedCLITransport
 from tracecat.agent.sandbox.llm_proxy import LLM_SOCKET_NAME
+from tracecat.agent.skill.service import SkillService
+from tracecat.agent.skill.types import ResolvedSkillRef
 from tracecat.agent.types import AgentConfig
 from tracecat.auth.types import Role
 
@@ -67,6 +74,22 @@ def workflow_bucket() -> Iterator[None]:
 @pytest.fixture(autouse=True)
 def clean_redis_db() -> Iterator[None]:
     yield
+
+
+class _LiteLLMRequestPayload(TypedDict, total=False):
+    model: str
+
+
+class _SkillVisibilityMessage(TypedDict):
+    skill_path: str
+    skill_text: str
+
+
+@dataclass(slots=True)
+class _FakeClaudeOptions:
+    env: dict[str, str]
+    enable_file_checkpointing: bool = False
+    stderr: Callable[[str], None] | None = None
 
 
 def _make_executor_input(*, enable_internet_access: bool) -> AgentExecutorInput:
@@ -133,6 +156,42 @@ def _docker_nsjail_fallback_enabled() -> bool:
     )
 
 
+def _make_fake_claude_options() -> _FakeClaudeOptions:
+    return _FakeClaudeOptions(env={"ANTHROPIC_AUTH_TOKEN": "fake-llm-token"})
+
+
+def _decode_litellm_request_payload(body_bytes: bytes) -> _LiteLLMRequestPayload:
+    if not body_bytes:
+        return {}
+    try:
+        decoded = json.loads(body_bytes.decode("utf-8"))
+    except json.JSONDecodeError:
+        return {}
+    if not isinstance(decoded, dict):
+        return {}
+
+    model = decoded.get("model")
+    if isinstance(model, str):
+        return {"model": model}
+    return {}
+
+
+def _parse_skill_visibility_message(message: object) -> _SkillVisibilityMessage:
+    if not isinstance(message, dict):
+        raise AssertionError(f"expected dict skill probe, got {type(message)!r}")
+
+    skill_path = message.get("skill_path")
+    skill_text = message.get("skill_text")
+    if not isinstance(skill_path, str):
+        raise AssertionError(f"expected string skill_path, got {skill_path!r}")
+    if not isinstance(skill_text, str):
+        raise AssertionError(f"expected string skill_text, got {skill_text!r}")
+    return {
+        "skill_path": skill_path,
+        "skill_text": skill_text,
+    }
+
+
 @pytest.fixture(
     params=[
         pytest.param(True, id="direct"),
@@ -179,7 +238,7 @@ def full_harness_disable_nsjail_mode(
 
 
 class _FakeLoopbackHandler:
-    def __init__(self, input: object) -> None:
+    def __init__(self, input: LoopbackInput) -> None:
         self.input = input
         self.prepared = False
 
@@ -249,7 +308,7 @@ class _FakeLLMSocketProxy:
         self.started = False
         self.stopped = False
         self.request_count = 0
-        self.requests: list[dict[str, Any]] = []
+        self.requests: list[_LiteLLMRequestPayload] = []
         self._server: asyncio.Server | None = None
         type(self).instances.append(self)
 
@@ -296,10 +355,7 @@ class _FakeLLMSocketProxy:
             body_bytes = await reader.readexactly(content_length)
 
         self.request_count += 1
-        try:
-            request_body = json.loads(body_bytes.decode("utf-8")) if body_bytes else {}
-        except json.JSONDecodeError:
-            request_body = {}
+        request_body = _decode_litellm_request_payload(body_bytes)
         self.requests.append(request_body)
 
         body = json.dumps(
@@ -357,7 +413,7 @@ class _FakeRuntimeConnectingTransport:
         self,
         _handler: object,
         *,
-        transport_factory: Callable[[Any], SandboxedCLITransport],
+        transport_factory: Callable[[_FakeClaudeOptions], SandboxedCLITransport],
         session_home_dir: Path,
         cwd: Path,
         cwd_setup_path: Path,
@@ -370,15 +426,45 @@ class _FakeRuntimeConnectingTransport:
         type(self).instances.append(self)
 
     async def run(self, payload: object) -> None:
-        options = SimpleNamespace(
-            env={"ANTHROPIC_AUTH_TOKEN": "fake-llm-token"},
-            enable_file_checkpointing=False,
-            stderr=None,
-        )
+        del payload
+        options = _make_fake_claude_options()
         transport = self.transport_factory(options)
         self.transport = transport
         await transport.connect()
         await transport.close()
+
+
+class _FakeRuntimeReadingTransport:
+    instances: list[_FakeRuntimeReadingTransport] = []
+    messages: list[_SkillVisibilityMessage] = []
+
+    def __init__(
+        self,
+        _handler: object,
+        *,
+        transport_factory: Callable[[_FakeClaudeOptions], SandboxedCLITransport],
+        session_home_dir: Path,
+        cwd: Path,
+        cwd_setup_path: Path,
+    ) -> None:
+        self.transport_factory = transport_factory
+        self.session_home_dir = session_home_dir
+        self.cwd = cwd
+        self.cwd_setup_path = cwd_setup_path
+        self.transport: SandboxedCLITransport | None = None
+        type(self).instances.append(self)
+
+    async def run(self, payload: object) -> None:
+        del payload
+        options = _make_fake_claude_options()
+        transport = self.transport_factory(options)
+        self.transport = transport
+        await transport.connect()
+        try:
+            async for message in transport.read_messages():
+                type(self).messages.append(_parse_skill_visibility_message(message))
+        finally:
+            await transport.close()
 
 
 class _FakeLoopbackRuntime:
@@ -525,7 +611,11 @@ async def _run_full_claude_harness_runtime_case(
     assert stream_sink.done_count == 1
 
 
-def _run_nsjail_harness_in_docker_or_skip() -> None:
+def _run_nsjail_harness_in_docker_or_skip(
+    *,
+    cli_flag: str = "--run-nsjail-harness-smoke",
+    failure_label: str = "Dockerized nsjail harness fallback failed.",
+) -> None:
     if os.environ.get("TRACECAT__AGENT_NSJAIL_DOCKER_FALLBACK_CHILD") == "1":
         pytest.skip("nsjail unavailable inside Docker fallback child")
     if shutil.which("docker") is None:
@@ -587,7 +677,7 @@ def _run_nsjail_harness_in_docker_or_skip() -> None:
                 "sh",
                 "api",
                 "-lc",
-                "uv run python -m tests.unit.test_agent_sandbox_litellm --run-nsjail-harness-smoke",
+                f"uv run python -m tests.unit.test_agent_sandbox_litellm {cli_flag}",
             ],
             cwd=repo_root,
             capture_output=True,
@@ -600,8 +690,7 @@ def _run_nsjail_harness_in_docker_or_skip() -> None:
 
     if result.returncode != 0:
         pytest.fail(
-            "Dockerized nsjail harness fallback failed.\n\n"
-            f"stdout:\n{result.stdout}\n\nstderr:\n{result.stderr}"
+            f"{failure_label}\n\nstdout:\n{result.stdout}\n\nstderr:\n{result.stderr}"
         )
 
 
@@ -612,6 +701,24 @@ def _run_nsjail_harness_smoke_from_cli() -> None:
         try:
             _set_disable_nsjail_mode(monkeypatch, False)
             await _run_full_claude_harness_runtime_case(
+                disable_nsjail_mode=False,
+                monkeypatch=monkeypatch,
+                tmp_path=tmp_path,
+            )
+        finally:
+            monkeypatch.undo()
+            shutil.rmtree(tmp_path, ignore_errors=True)
+
+    asyncio.run(run())
+
+
+def _run_nsjail_skills_smoke_from_cli() -> None:
+    async def run() -> None:
+        monkeypatch = pytest.MonkeyPatch()
+        tmp_path = Path(tempfile.mkdtemp(prefix="tracecat-agent-nsjail-skills-"))
+        try:
+            _set_disable_nsjail_mode(monkeypatch, False)
+            await _run_attached_skills_visible_case(
                 disable_nsjail_mode=False,
                 monkeypatch=monkeypatch,
                 tmp_path=tmp_path,
@@ -1131,6 +1238,175 @@ async def test_run_agent_activity_with_fake_litellm_provider_spawns_runtime_in_e
         assert runtime.cwd == Path("/work/claude-project")
 
 
+async def _run_attached_skills_visible_case(
+    *,
+    disable_nsjail_mode: bool,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _FakeLLMSocketProxy.instances.clear()
+    _FakeRuntimeReadingTransport.instances.clear()
+    _FakeRuntimeReadingTransport.messages.clear()
+    broker = ClaudeRuntimeBroker()
+    await broker.start()
+
+    cached_dir = tmp_path / "cached-skill"
+    cached_dir.mkdir(parents=True)
+    skill_content = "---\nname: skill-a\n---\n\n# Skill A\n"
+    (cached_dir / "SKILL.md").write_text(skill_content)
+
+    async def fake_ensure_cached_skill_dir(
+        self: SandboxedAgentExecutor,
+        *,
+        service: SkillService,
+        manifest_sha256: str,
+        skill_version_id: uuid.UUID,
+    ) -> Path:
+        del self, service, manifest_sha256, skill_version_id
+        return cached_dir
+
+    @contextlib.asynccontextmanager
+    async def fake_skill_service_context(*, role: Role) -> AsyncIterator[object]:
+        del role
+        yield cast(SkillService, object())
+
+    async def fake_build_claude_command(self: SandboxedCLITransport) -> list[str]:
+        del self
+        python_bin = sys.executable if disable_nsjail_mode else "/usr/local/bin/python3"
+        code = "\n".join(
+            [
+                "import json",
+                "from pathlib import Path",
+                "skill = Path.home() / '.claude' / 'skills' / 'skill-a' / 'SKILL.md'",
+                "payload = {",
+                "    'skill_path': str(skill),",
+                "    'skill_text': skill.read_text(),",
+                "}",
+                "print(json.dumps(payload), flush=True)",
+            ]
+        )
+        return [python_bin, "-c", code]
+
+    original_create_job_directory = SandboxedAgentExecutor._create_job_directory
+
+    async def fake_create_job_directory(self: SandboxedAgentExecutor) -> Path:
+        job_dir = await original_create_job_directory(self)
+        mcp_socket_path = job_dir / "sockets" / "mcp.sock"
+        mcp_socket_path.touch()
+        monkeypatch.setattr(
+            nsjail_module,
+            "TRACECAT__AGENT_MCP_SOCKET_PATH",
+            mcp_socket_path,
+        )
+        return job_dir
+
+    base_input = _make_passthrough_executor_input(enable_internet_access=False)
+    executor_input = base_input.model_copy(
+        update={
+            "config": replace(
+                base_input.config,
+                resolved_skills=[
+                    ResolvedSkillRef(
+                        skill_id=uuid.uuid4(),
+                        skill_name="skill-a",
+                        skill_version_id=uuid.uuid4(),
+                        manifest_sha256="manifest-sha",
+                    )
+                ],
+            )
+        }
+    )
+
+    monkeypatch.setattr(executor_activity, "LoopbackHandler", _FakeLoopbackHandler)
+    monkeypatch.setattr(executor_activity, "LLMSocketProxy", _FakeLLMSocketProxy)
+    monkeypatch.setattr(
+        SandboxedAgentExecutor,
+        "_create_job_directory",
+        fake_create_job_directory,
+    )
+    monkeypatch.setattr(
+        executor_activity.SkillService,
+        "with_session",
+        lambda role: fake_skill_service_context(role=role),
+    )
+    monkeypatch.setattr(
+        SandboxedAgentExecutor,
+        "_ensure_cached_skill_dir",
+        fake_ensure_cached_skill_dir,
+    )
+    monkeypatch.setattr(executor_activity, "get_claude_runtime_broker", lambda: broker)
+    monkeypatch.setattr(
+        broker_module,
+        "ClaudeAgentRuntime",
+        _FakeRuntimeReadingTransport,
+    )
+    monkeypatch.setattr(
+        transport_module.SandboxedCLITransport,
+        "_build_claude_command",
+        fake_build_claude_command,
+    )
+    monkeypatch.setattr(
+        session_paths_module.tempfile,
+        "gettempdir",
+        lambda: str(tmp_path / "sessions"),
+    )
+    monkeypatch.setattr(
+        executor_activity,
+        "activity",
+        SimpleNamespace(heartbeat=lambda _message: None),
+    )
+
+    try:
+        result = await run_agent_activity(executor_input)
+    finally:
+        await broker.stop()
+
+    assert result.success is True
+    assert result.error is None
+
+    assert len(_FakeLLMSocketProxy.instances) == 1
+    proxy = _FakeLLMSocketProxy.instances[0]
+    assert proxy.started is True
+    assert proxy.stopped is True
+    assert proxy.request_count == 0
+
+    assert len(_FakeRuntimeReadingTransport.instances) == 1
+    runtime = _FakeRuntimeReadingTransport.instances[0]
+    assert runtime.transport is not None
+
+    assert len(_FakeRuntimeReadingTransport.messages) == 1
+    message = _FakeRuntimeReadingTransport.messages[0]
+    assert message["skill_text"] == skill_content
+    if disable_nsjail_mode:
+        skill_path = message["skill_path"]
+        assert skill_path.startswith(str(tmp_path / "sessions"))
+        assert skill_path.endswith("/.claude/skills/skill-a/SKILL.md")
+    else:
+        assert (
+            message["skill_path"] == "/work/claude-home/.claude/skills/skill-a/SKILL.md"
+        )
+
+
+@pytest.mark.anyio
+async def test_run_agent_activity_makes_attached_skills_visible_in_each_sandbox_mode(
+    full_harness_disable_nsjail_mode: bool,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    if not full_harness_disable_nsjail_mode and not _agent_nsjail_available():
+        _run_nsjail_harness_in_docker_or_skip(
+            cli_flag="--run-nsjail-skills-smoke",
+            failure_label="Dockerized nsjail skills smoke fallback failed.",
+        )
+        return
+
+    await _run_attached_skills_visible_case(
+        disable_nsjail_mode=full_harness_disable_nsjail_mode,
+        monkeypatch=monkeypatch,
+        tmp_path=tmp_path,
+    )
+
+
 @pytest.mark.anyio
 async def test_run_agent_activity_spawns_full_claude_harness_runtime_in_each_sandbox_mode(
     full_harness_disable_nsjail_mode: bool,
@@ -1341,8 +1617,10 @@ async def test_sandbox_shim_starts_bridge_and_sets_child_base_url(
 if __name__ == "__main__":
     if sys.argv[1:] == ["--run-nsjail-harness-smoke"]:
         _run_nsjail_harness_smoke_from_cli()
+    elif sys.argv[1:] == ["--run-nsjail-skills-smoke"]:
+        _run_nsjail_skills_smoke_from_cli()
     else:
         raise SystemExit(
             "Usage: python -m tests.unit.test_agent_sandbox_litellm "
-            "--run-nsjail-harness-smoke"
+            "[--run-nsjail-harness-smoke|--run-nsjail-skills-smoke]"
         )

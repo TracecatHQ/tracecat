@@ -58,6 +58,7 @@ locals {
   tracecat_blob_storage_env = {
     TRACECAT__BLOB_STORAGE_BUCKET_ATTACHMENTS = aws_s3_bucket.attachments.bucket
     TRACECAT__BLOB_STORAGE_BUCKET_REGISTRY    = aws_s3_bucket.registry.bucket
+    TRACECAT__BLOB_STORAGE_BUCKET_SKILLS      = aws_s3_bucket.skills.bucket
     TRACECAT__BLOB_STORAGE_BUCKET_WORKFLOW    = aws_s3_bucket.workflow.bucket
   }
 

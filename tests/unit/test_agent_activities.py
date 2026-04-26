@@ -7,7 +7,10 @@ These tests cover:
 
 from __future__ import annotations
 
+import asyncio
+import shutil
 import uuid
+from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -40,6 +43,7 @@ from tracecat.agent.session.activities import (
     load_session_activity,
 )
 from tracecat.agent.session.types import AgentSessionEntity
+from tracecat.agent.skill.types import ResolvedSkillRef
 from tracecat.agent.subagents import ResolvedAgentsConfig
 from tracecat.agent.tools import BuildToolsResult
 from tracecat.agent.types import AgentConfig, Tool
@@ -775,3 +779,364 @@ class TestSandboxedAgentExecutorHelpers:
         assert payload.mcp_auth_token == executor_input.mcp_auth_token
         assert payload.llm_gateway_auth_token == executor_input.llm_gateway_auth_token
         assert payload.config.model_name == executor_input.config.model_name
+
+
+class TestSandboxedAgentExecutorSkillCaching:
+    """Tests for cached skill staging in the sandbox executor."""
+
+    @pytest.mark.anyio
+    async def test_ensure_cached_skill_dir_downloads_files_concurrently(
+        self,
+        mock_role: Role,
+        mock_session_id: uuid.UUID,
+        mock_agent_config: AgentConfig,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        """Cache population uses bounded concurrent blob downloads."""
+
+        mock_executor_input = AgentExecutorInput(
+            session_id=mock_session_id,
+            workspace_id=mock_role.workspace_id or uuid.uuid4(),
+            user_prompt="Test prompt",
+            config=mock_agent_config,
+            role=mock_role,
+            mcp_auth_token="mock-jwt-token",
+            llm_gateway_auth_token="mock-llm-token",
+        )
+        mock_executor = SandboxedAgentExecutor(input=mock_executor_input)
+        manifest_sha256 = "manifest-sha"
+        skill_version_id = uuid.uuid4()
+        version_files = [
+            (
+                "skill-a/SKILL.md",
+                MagicMock(
+                    key="k1",
+                    bucket="skills",
+                    sha256="s1",
+                    size_bytes=10,
+                ),
+            ),
+            (
+                "skill-a/helper.py",
+                MagicMock(
+                    key="k2",
+                    bucket="skills",
+                    sha256="s2",
+                    size_bytes=10,
+                ),
+            ),
+            (
+                "skill-a/README.md",
+                MagicMock(
+                    key="k3",
+                    bucket="skills",
+                    sha256="s3",
+                    size_bytes=10,
+                ),
+            ),
+        ]
+        mock_service = AsyncMock()
+        mock_service.get_version_file_materialization.return_value = version_files
+
+        started_two_downloads = asyncio.Event()
+        release_downloads = asyncio.Event()
+        max_in_flight = 0
+        in_flight = 0
+
+        async def fake_download_file_to_path(
+            *,
+            key: str,
+            bucket: str,
+            output_path: Path,
+            expected_sha256: str | None = None,
+            max_bytes: int | None = None,
+        ) -> int:
+            del key, bucket, expected_sha256, max_bytes
+            nonlocal in_flight, max_in_flight
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            in_flight += 1
+            max_in_flight = max(max_in_flight, in_flight)
+            if in_flight >= 2:
+                started_two_downloads.set()
+            await release_downloads.wait()
+            output_path.write_text("ok")
+            in_flight -= 1
+            return 2
+
+        monkeypatch.setattr(
+            "tracecat.agent.executor.activity.TRACECAT__AGENT_SKILL_CACHE_DIR",
+            str(tmp_path),
+        )
+        monkeypatch.setattr(
+            "tracecat.agent.executor.activity.TRACECAT__AGENT_SKILL_CACHE_MAX_CONCURRENT_DOWNLOADS",
+            2,
+        )
+        monkeypatch.setattr(
+            "tracecat.agent.executor.activity.blob.download_file_to_path",
+            fake_download_file_to_path,
+        )
+
+        task = asyncio.create_task(
+            mock_executor._ensure_cached_skill_dir(
+                service=mock_service,
+                manifest_sha256=manifest_sha256,
+                skill_version_id=skill_version_id,
+            )
+        )
+        await asyncio.wait_for(started_two_downloads.wait(), timeout=1)
+        assert max_in_flight == 2
+        release_downloads.set()
+        cache_dir = await task
+
+        assert cache_dir == tmp_path / manifest_sha256
+        assert (cache_dir / "skill-a" / "SKILL.md").read_text() == "ok"
+        assert (cache_dir / "skill-a" / "helper.py").read_text() == "ok"
+        assert (cache_dir / "skill-a" / "README.md").read_text() == "ok"
+
+    @pytest.mark.anyio
+    async def test_ensure_cached_skill_dir_clamps_non_positive_download_limit(
+        self,
+        mock_role: Role,
+        mock_session_id: uuid.UUID,
+        mock_agent_config: AgentConfig,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        """Skill caching should still complete when concurrency config is invalid."""
+
+        mock_executor_input = AgentExecutorInput(
+            session_id=mock_session_id,
+            workspace_id=mock_role.workspace_id or uuid.uuid4(),
+            user_prompt="Test prompt",
+            config=mock_agent_config,
+            role=mock_role,
+            mcp_auth_token="mock-jwt-token",
+            llm_gateway_auth_token="mock-llm-token",
+        )
+        mock_executor = SandboxedAgentExecutor(input=mock_executor_input)
+        manifest_sha256 = "manifest-sha"
+        skill_version_id = uuid.uuid4()
+        mock_service = AsyncMock()
+        mock_service.get_version_file_materialization.return_value = [
+            (
+                "skill-a/SKILL.md",
+                MagicMock(
+                    key="k1",
+                    bucket="skills",
+                    sha256="s1",
+                    size_bytes=10,
+                ),
+            )
+        ]
+
+        async def fake_download_file_to_path(
+            *,
+            key: str,
+            bucket: str,
+            output_path: Path,
+            expected_sha256: str | None = None,
+            max_bytes: int | None = None,
+        ) -> int:
+            del key, bucket, expected_sha256, max_bytes
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            output_path.write_text("ok")
+            return 2
+
+        monkeypatch.setattr(
+            "tracecat.agent.executor.activity.TRACECAT__AGENT_SKILL_CACHE_DIR",
+            str(tmp_path),
+        )
+        monkeypatch.setattr(
+            "tracecat.agent.executor.activity.TRACECAT__AGENT_SKILL_CACHE_MAX_CONCURRENT_DOWNLOADS",
+            0,
+        )
+        monkeypatch.setattr(
+            "tracecat.agent.executor.activity.blob.download_file_to_path",
+            fake_download_file_to_path,
+        )
+
+        cache_dir = await asyncio.wait_for(
+            mock_executor._ensure_cached_skill_dir(
+                service=mock_service,
+                manifest_sha256=manifest_sha256,
+                skill_version_id=skill_version_id,
+            ),
+            timeout=1,
+        )
+
+        assert cache_dir == tmp_path / manifest_sha256
+        assert (cache_dir / "skill-a" / "SKILL.md").read_text() == "ok"
+
+    @pytest.mark.anyio
+    async def test_stage_resolved_skills_offloads_copytree(
+        self,
+        mock_role: Role,
+        mock_session_id: uuid.UUID,
+        mock_agent_config: AgentConfig,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        """Resolved skill staging copies cached skill directories in a worker thread."""
+
+        mock_agent_config.resolved_skills = [
+            ResolvedSkillRef(
+                skill_id=uuid.uuid4(),
+                skill_name="skill-a",
+                skill_version_id=uuid.uuid4(),
+                manifest_sha256="manifest-sha",
+            )
+        ]
+        mock_executor_input = AgentExecutorInput(
+            session_id=mock_session_id,
+            workspace_id=mock_role.workspace_id or uuid.uuid4(),
+            user_prompt="Test prompt",
+            config=mock_agent_config,
+            role=mock_role,
+            mcp_auth_token="mock-jwt-token",
+            llm_gateway_auth_token="mock-llm-token",
+        )
+        mock_executor = SandboxedAgentExecutor(input=mock_executor_input)
+        cached_dir = tmp_path / "cache"
+        cached_dir.mkdir()
+        (cached_dir / "SKILL.md").write_text("# Cached skill")
+        skills_dir = tmp_path / "skills"
+        skills_dir.mkdir()
+        to_thread_calls: list[tuple[object, tuple[object, ...], dict[str, object]]] = []
+
+        async def fake_ensure_cached_skill_dir(**kwargs) -> Path:
+            del kwargs
+            return cached_dir
+
+        async def fake_to_thread(func, /, *args, **kwargs):
+            to_thread_calls.append((func, args, kwargs))
+            return func(*args, **kwargs)
+
+        mock_service = AsyncMock()
+        mock_ctx = AsyncMock()
+        mock_ctx.__aenter__.return_value = mock_service
+        monkeypatch.setattr(
+            mock_executor,
+            "_ensure_cached_skill_dir",
+            fake_ensure_cached_skill_dir,
+        )
+        monkeypatch.setattr(
+            "tracecat.agent.executor.activity.SkillService.with_session",
+            lambda role: mock_ctx,
+        )
+        monkeypatch.setattr(
+            "tracecat.agent.executor.activity.asyncio.to_thread",
+            fake_to_thread,
+        )
+
+        await mock_executor._stage_resolved_skills(skills_dir)
+
+        assert len(to_thread_calls) == 1
+        func, args, kwargs = to_thread_calls[0]
+        assert func is shutil.copytree
+        assert args[0] == cached_dir
+        assert args[1] == skills_dir / "skill-a"
+        assert kwargs == {"dirs_exist_ok": True}
+        assert (skills_dir / "skill-a" / "SKILL.md").read_text() == "# Cached skill"
+
+    @pytest.mark.anyio
+    async def test_cleanup_offloads_job_dir_removal(
+        self,
+        mock_role: Role,
+        mock_session_id: uuid.UUID,
+        mock_agent_config: AgentConfig,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        """Job directory cleanup runs in a worker thread."""
+
+        mock_executor_input = AgentExecutorInput(
+            session_id=mock_session_id,
+            workspace_id=mock_role.workspace_id or uuid.uuid4(),
+            user_prompt="Test prompt",
+            config=mock_agent_config,
+            role=mock_role,
+            mcp_auth_token="mock-jwt-token",
+            llm_gateway_auth_token="mock-llm-token",
+        )
+        mock_executor = SandboxedAgentExecutor(input=mock_executor_input)
+        job_dir = tmp_path / "job"
+        job_dir.mkdir()
+        (job_dir / "session.log").write_text("log")
+        mock_executor._job_dir = job_dir
+
+        to_thread_calls: list[tuple[object, tuple[object, ...], dict[str, object]]] = []
+
+        async def fake_to_thread(func, /, *args, **kwargs):
+            to_thread_calls.append((func, args, kwargs))
+            return func(*args, **kwargs)
+
+        monkeypatch.setattr(
+            "tracecat.agent.executor.activity.asyncio.to_thread",
+            fake_to_thread,
+        )
+
+        await mock_executor._cleanup()
+
+        assert len(to_thread_calls) == 1
+        func, args, kwargs = to_thread_calls[0]
+        assert func is shutil.rmtree
+        assert args == (job_dir,)
+        assert kwargs == {}
+        assert not job_dir.exists()
+
+    @pytest.mark.anyio
+    async def test_create_job_directory_cleans_up_when_skill_staging_fails(
+        self,
+        mock_role: Role,
+        mock_session_id: uuid.UUID,
+        mock_agent_config: AgentConfig,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        """Failed skill staging removes the temp job directory before re-raising."""
+
+        mock_executor_input = AgentExecutorInput(
+            session_id=mock_session_id,
+            workspace_id=mock_role.workspace_id or uuid.uuid4(),
+            user_prompt="Test prompt",
+            config=mock_agent_config,
+            role=mock_role,
+            mcp_auth_token="mock-jwt-token",
+            llm_gateway_auth_token="mock-llm-token",
+        )
+        mock_executor = SandboxedAgentExecutor(input=mock_executor_input)
+        job_dir = tmp_path / "agent-job-test"
+        to_thread_calls: list[tuple[object, tuple[object, ...], dict[str, object]]] = []
+
+        async def fake_stage_resolved_skills(_skills_dir: Path) -> None:
+            raise RuntimeError("staging failed")
+
+        async def fake_to_thread(func, /, *args, **kwargs):
+            to_thread_calls.append((func, args, kwargs))
+            return func(*args, **kwargs)
+
+        def fake_mkdtemp(*, prefix: str, dir: Path) -> str:
+            del prefix, dir
+            job_dir.mkdir()
+            return str(job_dir)
+
+        monkeypatch.setattr(
+            mock_executor, "_stage_resolved_skills", fake_stage_resolved_skills
+        )
+        monkeypatch.setattr(
+            "tracecat.agent.executor.activity.asyncio.to_thread", fake_to_thread
+        )
+        monkeypatch.setattr(
+            "tracecat.agent.executor.activity.tempfile.mkdtemp", fake_mkdtemp
+        )
+
+        with pytest.raises(RuntimeError, match="staging failed"):
+            await mock_executor._create_job_directory()
+
+        assert len(to_thread_calls) == 1
+        func, args, kwargs = to_thread_calls[0]
+        assert func is shutil.rmtree
+        assert args == (job_dir, True)
+        assert kwargs == {}
+        assert not job_dir.exists()

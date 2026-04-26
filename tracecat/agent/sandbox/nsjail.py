@@ -133,6 +133,7 @@ async def spawn_jailed_runtime(
     session_home_dir: Path | None = None,
     session_project_dir: Path | None = None,
     enable_internet_access: bool = False,
+    skills_dir: Path | None = None,
 ) -> SpawnedRuntime:
     """Spawn the Claude shim inside an NSJail sandbox or direct subprocess.
 
@@ -203,6 +204,7 @@ async def spawn_jailed_runtime(
             pipe_stdin=pipe_stdin,
             session_home_dir=session_home_dir,
             session_project_dir=session_project_dir,
+            skills_dir=skills_dir,
         )
 
     # NSJail mode for production - isolated runs require the per-job LLM socket.
@@ -226,6 +228,29 @@ async def spawn_jailed_runtime(
         session_home_dir=session_home_dir,
         session_project_dir=session_project_dir,
         enable_internet_access=enable_internet_access,
+        skills_dir=skills_dir,
+    )
+
+
+async def _sync_direct_skills_dir(
+    *,
+    skills_dir: Path | None,
+    session_home_dir: Path | None,
+) -> None:
+    """Mirror per-run skills into the direct-mode Claude home."""
+    if skills_dir is None or session_home_dir is None:
+        return
+
+    skills_dir.mkdir(parents=True, exist_ok=True)
+    target = session_home_dir / ".claude" / "skills"
+    if target.exists():
+        await asyncio.to_thread(shutil.rmtree, target)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    await asyncio.to_thread(
+        shutil.copytree,
+        skills_dir,
+        target,
+        dirs_exist_ok=True,
     )
 
 
@@ -239,6 +264,7 @@ async def _spawn_direct_runtime(
     pipe_stdin: bool,
     session_home_dir: Path | None,
     session_project_dir: Path | None,
+    skills_dir: Path | None,
 ) -> SpawnedRuntime:
     """Spawn the Claude shim as a direct subprocess (for development/testing).
 
@@ -298,6 +324,10 @@ async def _spawn_direct_runtime(
     if session_project_dir is not None:
         session_project_dir.mkdir(parents=True, exist_ok=True)
         env[SESSION_PROJECT_ENV_VAR] = str(session_project_dir)
+    await _sync_direct_skills_dir(
+        skills_dir=skills_dir,
+        session_home_dir=session_home_dir,
+    )
 
     process = await asyncio.create_subprocess_exec(
         *cmd,
@@ -325,6 +355,7 @@ async def _spawn_nsjail_runtime(
     session_home_dir: Path | None,
     session_project_dir: Path | None,
     enable_internet_access: bool = False,
+    skills_dir: Path | None = None,
 ) -> SpawnedRuntime:
     """Spawn the Claude shim inside an NSJail sandbox (production mode).
 
@@ -360,6 +391,13 @@ async def _spawn_nsjail_runtime(
     jailed_init_payload_path = job_dir / "init.json"
 
     try:
+        if skills_dir is not None:
+            skills_dir.mkdir(parents=True, exist_ok=True)
+            if session_home_dir is not None:
+                (session_home_dir / ".claude" / "skills").mkdir(
+                    parents=True,
+                    exist_ok=True,
+                )
         # Build nsjail config (socket paths are derived from socket_dir internally)
         await asyncio.to_thread(
             shutil.copy2, init_payload_path, jailed_init_payload_path
@@ -385,6 +423,7 @@ async def _spawn_nsjail_runtime(
             session_home_dir=session_home_dir,
             session_project_dir=session_project_dir,
             enable_internet_access=enable_internet_access,
+            skills_dir=skills_dir,
         )
 
         # Write config to job directory

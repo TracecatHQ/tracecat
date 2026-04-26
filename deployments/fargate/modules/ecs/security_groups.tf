@@ -270,6 +270,8 @@ resource "aws_vpc_endpoint" "s3" {
           "${aws_s3_bucket.attachments.arn}/*",
           aws_s3_bucket.registry.arn,
           "${aws_s3_bucket.registry.arn}/*",
+          aws_s3_bucket.skills.arn,
+          "${aws_s3_bucket.skills.arn}/*",
           aws_s3_bucket.workflow.arn,
           "${aws_s3_bucket.workflow.arn}/*",
         ]

@@ -5,6 +5,7 @@ import { FlagTriangleRight, Tag, Timer } from "lucide-react"
 import { type ReactNode, useEffect, useMemo } from "react"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
+import type { CaseDurationEventFilters } from "@/client"
 import {
   PRIORITIES,
   SEVERITIES,
@@ -317,43 +318,37 @@ export const normalizeFilterValues = (value: unknown): string[] => {
   return []
 }
 
-export const getFilterFieldKey = (
-  eventType: CaseDurationFormValues["start"]["eventType"]
-): string | null => {
-  if (isCaseEventFilterType(eventType)) {
-    return "data.new"
-  }
-  if (isCaseTagEventType(eventType)) {
-    return "data.tag_ref"
-  }
-  if (isCaseFieldEventType(eventType)) {
-    return "data.changes.field"
-  }
-  return null
-}
-
-export const buildFieldFilters = (
+export const buildDurationFilters = (
   eventType: CaseDurationFormValues["start"]["eventType"],
   filterValues: CaseDurationFormValues["start"]["filterValues"],
   anchor?: CaseDurationFormValues["start"]
-): Record<string, unknown> | null => {
+): CaseDurationEventFilters | null => {
   if (isCaseDropdownEventType(eventType) && anchor) {
     const { dropdownDefinitionId, dropdownOptionIds } = anchor
     if (!dropdownDefinitionId || !dropdownOptionIds?.length) {
       return null
     }
     return {
-      "data.definition_id": dropdownDefinitionId,
-      "data.new_option_id": dropdownOptionIds,
+      dropdown_definition_id: dropdownDefinitionId,
+      dropdown_option_ids: dropdownOptionIds,
     }
   }
 
-  const fieldKey = getFilterFieldKey(eventType)
-  if (!fieldKey || !filterValues || filterValues.length === 0) {
+  if (!filterValues || filterValues.length === 0) {
     return null
   }
 
-  return { [fieldKey]: filterValues }
+  if (isCaseEventFilterType(eventType)) {
+    return { new_values: filterValues }
+  }
+  if (isCaseTagEventType(eventType)) {
+    return { tag_refs: filterValues }
+  }
+  if (isCaseFieldEventType(eventType)) {
+    return { field_ids: filterValues }
+  }
+
+  return null
 }
 
 export function CaseDurationDialog({

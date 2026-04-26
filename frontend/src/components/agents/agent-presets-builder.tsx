@@ -18,6 +18,7 @@ import {
   MoreVertical,
   Percent,
   Plus,
+  Pyramid,
   Save,
   SlidersHorizontal,
   Sparkles,
@@ -42,6 +43,8 @@ import type {
   AgentPresetReadMinimal,
   AgentPresetUpdate,
   AttachedSubagentRef,
+  SkillReadMinimal,
+  SkillVersionRead,
 } from "@/client"
 import { AgentPresetDeleteDialog } from "@/components/agents/agent-preset-delete-dialog"
 import { AgentPresetVersionSelect } from "@/components/agents/agent-preset-version-select"
@@ -57,6 +60,14 @@ import { MultiTagCommandInput, type Suggestion } from "@/components/tags-input"
 import { SimpleEditor } from "@/components/tiptap-templates/simple/simple-editor"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
+import {
+  CommandDialog,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -102,11 +113,12 @@ import { toast } from "@/components/ui/use-toast"
 import {
   useAgentPreset,
   useAgentPresets,
+  useAgentPresetVersion,
   useAgentPresetVersions,
   useCreateAgentPreset,
   useDeleteAgentPreset,
   useUpdateAgentPreset,
-} from "@/hooks"
+} from "@/hooks/use-agent-presets"
 import {
   useCreateChat,
   useGetChatVercel,
@@ -115,12 +127,14 @@ import {
 } from "@/hooks/use-chat"
 import { useEntitlements } from "@/hooks/use-entitlements"
 import { useFeatureFlag } from "@/hooks/use-feature-flags"
+import { useSkills, useSkillVersions } from "@/hooks/use-skills"
 import {
   type AgentPresetFormMode,
   buildDuplicateAgentPresetPayload,
   canSubmitAgentPresetForm,
 } from "@/lib/agent-presets"
 import type { ModelInfo } from "@/lib/chat"
+import { getApiErrorDetail } from "@/lib/errors"
 import {
   useAgentModels,
   useChatReadiness,
@@ -226,6 +240,14 @@ const agentPresetSchema = z
           description: z.string().max(1000).default(""),
           presetVersion: z.string().default(""),
           maxTurns: z.string().default(""),
+        })
+      )
+      .default([]),
+    skills: z
+      .array(
+        z.object({
+          skillId: z.string().trim().min(1, "Select a skill"),
+          skillVersionId: z.string().trim().min(1, "Select a version"),
         })
       )
       .default([]),
@@ -347,6 +369,7 @@ const agentPresetSchema = z
   })
 
 type AgentPresetFormValues = z.infer<typeof agentPresetSchema>
+type SkillBindingFormValue = AgentPresetFormValues["skills"][number]
 type ToolApprovalFormValue = AgentPresetFormValues["toolApprovals"][number]
 
 const DEFAULT_FORM_VALUES: AgentPresetFormValues = {
@@ -365,6 +388,7 @@ const DEFAULT_FORM_VALUES: AgentPresetFormValues = {
   mcpIntegrations: [],
   agentsEnabled: false,
   subagents: [],
+  skills: [],
   toolApprovals: [],
   retries: DEFAULT_RETRIES,
   enableThinking: true,
@@ -662,42 +686,54 @@ function AgentPresetChatPane({
     preset?.id,
     { enabled: Boolean(preset && workspaceId) }
   )
-  const currentVersion =
-    versions?.find((version) => version.id === preset?.current_version_id) ??
-    versions?.[0] ??
-    null
   const selectedVersion =
     versions?.find((version) => version.id === chat?.agent_preset_version_id) ??
     null
-  const activeVersion = selectedVersion ?? currentVersion
-  const newChatVersion = selectedVersion ?? currentVersion
+  const {
+    presetVersion: selectedVersionConfig,
+    presetVersionIsLoading: selectedVersionConfigIsLoading,
+  } = useAgentPresetVersion(workspaceId, preset?.id, selectedVersion?.id, {
+    enabled: Boolean(workspaceId && preset?.id && selectedVersion?.id),
+  })
+  const selectedVersionId = selectedVersion?.id ?? null
 
   const modelInfo: ModelInfo | null = useMemo(() => {
     if (!preset) {
       return null
     }
-    return {
-      name: activeVersion?.model_name ?? preset.model_name,
-      provider: activeVersion?.model_provider ?? preset.model_provider,
-      baseUrl: activeVersion?.base_url ?? preset.base_url ?? null,
+    if (selectedVersionId && !selectedVersionConfig) {
+      return null
     }
-  }, [activeVersion, preset])
+    return {
+      name: selectedVersionConfig?.model_name ?? preset.model_name,
+      provider: selectedVersionConfig?.model_provider ?? preset.model_provider,
+      baseUrl: selectedVersionConfig?.base_url ?? preset.base_url ?? null,
+    }
+  }, [preset, selectedVersionConfig, selectedVersionId])
 
   const providerReady = useMemo(() => {
     if (!preset) {
       return false
     }
-    const provider = activeVersion?.model_provider ?? preset.model_provider
+    if (selectedVersionId && !selectedVersionConfig) {
+      return false
+    }
+    const provider =
+      selectedVersionConfig?.model_provider ?? preset.model_provider
     return providersStatus?.[provider] ?? false
-  }, [activeVersion, providersStatus, preset])
+  }, [preset, providersStatus, selectedVersionConfig, selectedVersionId])
 
   const newChatProviderReady = useMemo(() => {
     if (!preset) {
       return false
     }
-    const provider = newChatVersion?.model_provider ?? preset.model_provider
+    if (selectedVersionId && !selectedVersionConfig) {
+      return false
+    }
+    const provider =
+      selectedVersionConfig?.model_provider ?? preset.model_provider
     return providersStatus?.[provider] ?? false
-  }, [newChatVersion, providersStatus, preset])
+  }, [preset, providersStatus, selectedVersionConfig, selectedVersionId])
 
   const canStartChat = Boolean(preset && newChatProviderReady)
   const shouldAutoCreateChat =
@@ -713,9 +749,9 @@ function AgentPresetChatPane({
         title: `${preset.name} chat`,
         entity_type: "agent_preset",
         entity_id: preset.id,
-        tools: newChatVersion?.actions ?? preset.actions ?? undefined,
+        tools: selectedVersionConfig?.actions ?? preset.actions ?? undefined,
         agent_preset_id: preset.id,
-        agent_preset_version_id: newChatVersion?.id ?? null,
+        agent_preset_version_id: selectedVersionId,
       })
       setSelectedChatId(newChat.id)
       await refetchChats()
@@ -776,17 +812,25 @@ function AgentPresetChatPane({
       )
     }
 
+    if (selectedVersionConfigIsLoading) {
+      return (
+        <div className="flex h-full items-center justify-center">
+          <CenteredSpinner />
+        </div>
+      )
+    }
+
     if (!providerReady) {
-      const activeProvider =
-        activeVersion?.model_provider ?? preset.model_provider ?? ""
       return (
         <div className="flex h-full flex-col items-center justify-center px-4">
           <div className="flex max-w-xs flex-col items-center gap-2 text-center text-xs text-muted-foreground">
             <AlertCircle className="size-5 text-amber-500" />
             <p className="text-pretty">
               This agent uses workspace credentials for{" "}
-              <span className="font-medium">{activeProvider}</span>. Configure
-              them on the{" "}
+              <span className="font-medium">
+                {selectedVersionConfig?.model_provider ?? preset.model_provider}
+              </span>
+              . Configure them on the{" "}
               <Link
                 href={`/workspaces/${workspaceId}/credentials`}
                 className="font-medium text-primary hover:underline"
@@ -955,6 +999,7 @@ type AgentPresetSideTab =
   | "assistant"
   | "configuration"
   | "subagents"
+  | "skills"
   | "channels"
   | "structured-output"
   | "versions"
@@ -977,6 +1022,14 @@ function getAgentPresetErrorTab(
     return "structured-output"
   }
 
+  if (errors.skills) {
+    return "skills"
+  }
+
+  if (errors.agentsEnabled || errors.subagents) {
+    return "subagents"
+  }
+
   if (
     errors.model_provider ||
     errors.model_name ||
@@ -985,8 +1038,6 @@ function getAgentPresetErrorTab(
     errors.actions ||
     errors.namespaces ||
     errors.mcpIntegrations ||
-    errors.agentsEnabled ||
-    errors.subagents ||
     errors.toolApprovals ||
     errors.enableThinking ||
     errors.enableInternetAccess
@@ -1065,6 +1116,15 @@ function AgentPresetForm({
   }
 
   const {
+    fields: skillFields,
+    append: appendSkillBinding,
+    remove: removeSkillBinding,
+  } = useFieldArray({
+    control: form.control,
+    name: "skills",
+  })
+
+  const {
     fields: toolApprovalFields,
     append: appendToolApproval,
     remove: removeToolApproval,
@@ -1111,11 +1171,8 @@ function AgentPresetForm({
     }
   }, [form, modelOptions, providerValue])
 
-  useEffect(() => {
-    if (!channelsEnabled && activeTab === "channels") {
-      setActiveTab("live-chat")
-    }
-  }, [activeTab, channelsEnabled])
+  const effectiveTab =
+    !channelsEnabled && activeTab === "channels" ? "live-chat" : activeTab
 
   const handleSubmit = form.handleSubmit(
     async (values) => {
@@ -1193,6 +1250,13 @@ function AgentPresetForm({
     })
   }, [appendSubagent])
 
+  const handleAddSkillBinding = useCallback(
+    (binding: SkillBindingFormValue) => {
+      appendSkillBinding(binding)
+    },
+    [appendSkillBinding]
+  )
+
   return (
     <Form {...form}>
       <form
@@ -1228,7 +1292,7 @@ function AgentPresetForm({
 
           <ResizablePanel defaultSize={38} minSize={26}>
             <AgentPresetRightPanel
-              activeTab={activeTab}
+              activeTab={effectiveTab}
               onTabChange={setActiveTab}
               channelsEnabled={channelsEnabled}
               preset={preset}
@@ -1243,6 +1307,9 @@ function AgentPresetForm({
               modelOptionsByProvider={modelOptionsByProvider}
               mcpIntegrations={mcpIntegrations}
               mcpIntegrationsIsLoading={mcpIntegrationsIsLoading}
+              skillFields={skillFields}
+              onAddSkillBinding={handleAddSkillBinding}
+              onRemoveSkillBinding={removeSkillBinding}
               toolApprovalFields={toolApprovalFields}
               onAddToolApproval={handleAddToolApproval}
               onRemoveToolApproval={removeToolApproval}
@@ -1450,6 +1517,9 @@ function AgentPresetRightPanel({
   modelOptionsByProvider,
   mcpIntegrations,
   mcpIntegrationsIsLoading,
+  skillFields,
+  onAddSkillBinding,
+  onRemoveSkillBinding,
   toolApprovalFields,
   onAddToolApproval,
   onRemoveToolApproval,
@@ -1472,6 +1542,9 @@ function AgentPresetRightPanel({
   modelOptionsByProvider: Record<string, { label: string; value: string }[]>
   mcpIntegrations: McpIntegrationOption[]
   mcpIntegrationsIsLoading: boolean
+  skillFields: Array<{ id: string }>
+  onAddSkillBinding: (binding: SkillBindingFormValue) => void
+  onRemoveSkillBinding: (index: number) => void
   toolApprovalFields: Array<{ id: string }>
   onAddToolApproval: () => void
   onRemoveToolApproval: (index: number) => void
@@ -1487,7 +1560,7 @@ function AgentPresetRightPanel({
         className="flex h-full w-full flex-col"
       >
         <div className="w-full shrink-0">
-          <div className="overflow-x-auto">
+          <div className="no-scrollbar overflow-x-auto">
             <TabsList className="min-w-max h-9 justify-start rounded-none bg-transparent p-0">
               <TabsTrigger
                 className="flex h-full min-w-20 items-center justify-center rounded-none px-3 text-xs data-[state=active]:bg-transparent data-[state=active]:shadow-none"
@@ -1516,6 +1589,13 @@ function AgentPresetRightPanel({
               >
                 <Bot className="mr-2 size-4" />
                 <span>Subagents</span>
+              </TabsTrigger>
+              <TabsTrigger
+                className="flex h-full min-w-20 items-center justify-center rounded-none px-3 text-xs data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+                value="skills"
+              >
+                <Pyramid className="mr-2 size-4" />
+                <span>Skills</span>
               </TabsTrigger>
               <TabsTrigger
                 className="flex h-full min-w-20 items-center justify-center rounded-none px-3 text-xs data-[state=active]:bg-transparent data-[state=active]:shadow-none"
@@ -1583,6 +1663,17 @@ function AgentPresetRightPanel({
               subagentFields={subagentFields}
               onAddSubagent={onAddSubagent}
               onRemoveSubagent={onRemoveSubagent}
+            />
+          </TabsContent>
+
+          <TabsContent value="skills" className="mt-0 h-full overflow-hidden">
+            <AgentPresetSkillsPanel
+              form={form}
+              workspaceId={workspaceId}
+              isSaving={isSaving}
+              skillFields={skillFields}
+              onAddSkillBinding={onAddSkillBinding}
+              onRemoveSkillBinding={onRemoveSkillBinding}
             />
           </TabsContent>
 
@@ -2270,6 +2361,340 @@ function AgentPresetSubagentsPanel({
   )
 }
 
+function AgentPresetSkillsPanel({
+  form,
+  workspaceId,
+  isSaving,
+  skillFields,
+  onAddSkillBinding,
+  onRemoveSkillBinding,
+}: {
+  form: UseFormReturn<AgentPresetFormValues>
+  workspaceId: string
+  isSaving: boolean
+  skillFields: Array<{ id: string }>
+  onAddSkillBinding: (binding: SkillBindingFormValue) => void
+  onRemoveSkillBinding: (index: number) => void
+}) {
+  const [isPickerOpen, setIsPickerOpen] = useState(false)
+  const selectedSkills = form.watch("skills")
+  const { skills, skillsLoading, skillsError } = useSkills(workspaceId)
+  const attachedSkillIds = useMemo(
+    () => new Set((selectedSkills ?? []).map((binding) => binding.skillId)),
+    [selectedSkills]
+  )
+  const availableSkillsToAdd = useMemo(
+    () =>
+      (skills ?? []).filter((skill) => {
+        return !!skill.current_version_id && !attachedSkillIds.has(skill.id)
+      }),
+    [attachedSkillIds, skills]
+  )
+  const hasUnattachedSkills = useMemo(
+    () => (skills ?? []).some((skill) => !attachedSkillIds.has(skill.id)),
+    [attachedSkillIds, skills]
+  )
+
+  function handleAddSkill(skillId: string) {
+    onAddSkillBinding({
+      skillId,
+      skillVersionId: "",
+    })
+    setIsPickerOpen(false)
+  }
+
+  return (
+    <div className="h-full overflow-auto">
+      <div className="flex min-w-0 w-full flex-col gap-8 px-6 py-6 pb-20 text-sm">
+        <section className="min-w-0 w-full space-y-4">
+          <div className="flex items-center justify-between gap-3">
+            <div className="space-y-1">
+              <p className="text-sm font-medium">Attached skills</p>
+              <p className="text-xs text-muted-foreground">
+                Pin published skill versions to this preset.
+              </p>
+            </div>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={() => setIsPickerOpen(true)}
+              disabled={
+                isSaving || skillsLoading || availableSkillsToAdd.length === 0
+              }
+            >
+              <Plus className="mr-2 size-4" />
+              Add skill
+            </Button>
+          </div>
+          {skillsError ? (
+            <Alert variant="destructive">
+              <AlertCircle className="size-4" />
+              <AlertTitle>Unable to load skills</AlertTitle>
+              <AlertDescription>
+                {getApiErrorDetail(skillsError) ?? "Please try again."}
+              </AlertDescription>
+            </Alert>
+          ) : skillsLoading ? (
+            <div className="flex items-center gap-2 rounded-md border px-3 py-4 text-xs text-muted-foreground">
+              <Loader2 className="size-4 animate-spin" />
+              Loading skills...
+            </div>
+          ) : skillFields.length === 0 ? (
+            <p className="rounded-md border border-dashed px-3 py-4 text-xs text-muted-foreground">
+              No skills attached yet.
+            </p>
+          ) : (
+            <div className="min-w-0 w-full space-y-3">
+              {skillFields.map((item, index) => (
+                <AgentPresetSkillBindingRow
+                  key={item.id}
+                  form={form}
+                  workspaceId={workspaceId}
+                  index={index}
+                  isSaving={isSaving}
+                  availableSkills={skills ?? []}
+                  onRemove={onRemoveSkillBinding}
+                />
+              ))}
+            </div>
+          )}
+          {!skillsLoading &&
+          !skillsError &&
+          skillFields.length > 0 &&
+          availableSkillsToAdd.length === 0 ? (
+            <p className="text-xs text-muted-foreground">
+              {hasUnattachedSkills
+                ? "Only skills with published versions can be attached."
+                : "All workspace skills are already attached to this preset."}
+            </p>
+          ) : null}
+        </section>
+      </div>
+      <CommandDialog open={isPickerOpen} onOpenChange={setIsPickerOpen}>
+        <CommandInput placeholder="Search skills..." />
+        <CommandList>
+          <CommandEmpty>No skills found.</CommandEmpty>
+          <CommandGroup heading="Workspace skills">
+            {availableSkillsToAdd.map((skill) => (
+              <CommandItem
+                key={skill.id}
+                value={`${skill.name} ${skill.description ?? ""}`}
+                onSelect={() => handleAddSkill(skill.id)}
+              >
+                <div className="flex min-w-0 flex-col gap-0.5">
+                  <span>{skill.name}</span>
+                  <span className="truncate text-xs text-muted-foreground">
+                    {skill.description?.trim() || skill.name}
+                  </span>
+                </div>
+              </CommandItem>
+            ))}
+          </CommandGroup>
+        </CommandList>
+      </CommandDialog>
+    </div>
+  )
+}
+
+function AgentPresetSkillBindingRow({
+  form,
+  workspaceId,
+  index,
+  isSaving,
+  availableSkills,
+  onRemove,
+}: {
+  form: UseFormReturn<AgentPresetFormValues>
+  workspaceId: string
+  index: number
+  isSaving: boolean
+  availableSkills: SkillReadMinimal[]
+  onRemove: (index: number) => void
+}) {
+  const skillFieldName = `skills.${index}.skillId` as const
+  const versionFieldName = `skills.${index}.skillVersionId` as const
+  const selectedSkillId = form.watch(skillFieldName)
+  const selectedVersionId = form.watch(versionFieldName)
+  const selectedSkill = availableSkills.find(
+    (skill) => skill.id === selectedSkillId
+  )
+  const { versions, versionsLoading, versionsError } = useSkillVersions(
+    workspaceId,
+    selectedSkillId || null
+  )
+  const versionOptions = useMemo(
+    () => [...(versions ?? [])].sort((a, b) => b.version - a.version),
+    [versions]
+  )
+
+  useEffect(() => {
+    if (!selectedSkillId) {
+      if (selectedVersionId) {
+        form.setValue(versionFieldName, "", { shouldDirty: true })
+      }
+      return
+    }
+
+    if (versionsLoading || versionOptions.length === 0) {
+      return
+    }
+
+    const hasSelectedVersion = versionOptions.some(
+      (version) => version.id === selectedVersionId
+    )
+    if (hasSelectedVersion) {
+      return
+    }
+
+    const preferredVersionId =
+      selectedSkill?.current_version_id ?? versionOptions[0]?.id ?? ""
+    if (!preferredVersionId) {
+      return
+    }
+
+    form.setValue(versionFieldName, preferredVersionId, { shouldDirty: true })
+  }, [
+    form,
+    selectedSkill?.current_version_id,
+    selectedSkillId,
+    selectedVersionId,
+    versionFieldName,
+    versionOptions,
+    versionsLoading,
+  ])
+
+  const selectedVersion = versionOptions.find((v) => v.id === selectedVersionId)
+  const [isDescriptionExpanded, setIsDescriptionExpanded] = useState(false)
+  const skillHref = selectedSkillId
+    ? `/workspaces/${workspaceId}/skills/${selectedSkillId}`
+    : null
+  const displaySkillName = selectedVersion?.name?.trim() || selectedSkill?.name
+  const displaySkillDescription =
+    selectedVersion?.description?.trim() ||
+    selectedSkill?.description?.trim() ||
+    null
+  let versionPlaceholder = "Version"
+  if (versionsLoading) {
+    versionPlaceholder = "..."
+  } else if (versionOptions.length === 0) {
+    versionPlaceholder = "No versions"
+  }
+  const selectedVersionLabel = selectedVersion
+    ? `v${selectedVersion.version}`
+    : versionPlaceholder
+
+  function handleOpenSkill() {
+    if (!skillHref) {
+      return
+    }
+    window.open(skillHref, "_blank", "noopener,noreferrer")
+  }
+
+  return (
+    <div className="flex min-w-0 items-start gap-3 rounded-md border px-3 py-2.5">
+      <Pyramid className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+      <div className="min-w-0 flex-1 space-y-0.5">
+        <div className="flex min-w-0 items-center gap-2">
+          {skillHref ? (
+            <button
+              type="button"
+              className="min-w-0 truncate rounded-sm text-left text-sm font-medium underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              onClick={handleOpenSkill}
+            >
+              {displaySkillName ?? "Unknown skill"}
+            </button>
+          ) : (
+            <span className="truncate text-sm font-medium">
+              {displaySkillName ?? "Unknown skill"}
+            </span>
+          )}
+        </div>
+        {displaySkillDescription ? (
+          <div className="space-y-1">
+            <p
+              className={
+                isDescriptionExpanded
+                  ? "text-xs text-muted-foreground"
+                  : "line-clamp-2 text-xs text-muted-foreground"
+              }
+            >
+              {displaySkillDescription}
+            </p>
+            <button
+              type="button"
+              className="text-xs text-muted-foreground underline-offset-2 hover:underline"
+              onClick={(event) => {
+                event.stopPropagation()
+                setIsDescriptionExpanded((value) => !value)
+              }}
+            >
+              {isDescriptionExpanded ? "Show less" : "Show more"}
+            </button>
+          </div>
+        ) : null}
+        {selectedSkillId && versionsError ? (
+          <p className="text-xs text-destructive">
+            {getApiErrorDetail(versionsError) ?? "Failed to load versions."}
+          </p>
+        ) : null}
+        {selectedSkillId && !versionsLoading && versionOptions.length === 0 ? (
+          <p className="text-xs text-muted-foreground">
+            No published versions yet.
+          </p>
+        ) : null}
+      </div>
+      <FormField
+        control={form.control}
+        name={versionFieldName}
+        render={({ field }) => (
+          <FormItem className="shrink-0">
+            <Select
+              value={field.value || ""}
+              onValueChange={field.onChange}
+              disabled={
+                isSaving ||
+                !selectedSkillId ||
+                versionsLoading ||
+                versionOptions.length === 0
+              }
+            >
+              <FormControl>
+                <SelectTrigger className="h-7 w-auto gap-1.5 border-none bg-muted/50 px-2 text-xs shadow-none">
+                  <span aria-hidden>{selectedVersionLabel}</span>
+                  <SelectValue
+                    className="sr-only"
+                    placeholder={versionPlaceholder}
+                  />
+                </SelectTrigger>
+              </FormControl>
+              <SelectContent>
+                {versionOptions.map((version) => (
+                  <SelectItem key={version.id} value={version.id}>
+                    {formatSkillVersionLabel(version)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <FormMessage />
+          </FormItem>
+        )}
+      />
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon"
+        className="size-7 shrink-0 text-muted-foreground"
+        onClick={() => onRemove(index)}
+        disabled={isSaving}
+        aria-label="Remove attached skill"
+      >
+        <Trash2 className="size-3.5" />
+      </Button>
+    </div>
+  )
+}
+
 function AgentPresetStructuredOutputPanel({
   form,
   isSaving,
@@ -2683,6 +3108,13 @@ function presetToFormValues(preset: AgentPresetRead): AgentPresetFormValues {
     mcpIntegrations: preset.mcp_integrations ?? [],
     agentsEnabled,
     subagents,
+    skills:
+      preset.skills?.map(
+        (binding): SkillBindingFormValue => ({
+          skillId: binding.skill_id,
+          skillVersionId: binding.skill_version_id,
+        })
+      ) ?? [],
     retries: preset.retries ?? DEFAULT_RETRIES,
     enableThinking: preset.enable_thinking ?? true,
     enableInternetAccess: preset.enable_internet_access ?? false,
@@ -2716,6 +3148,10 @@ function formValuesToPayload(values: AgentPresetFormValues): AgentPresetCreate {
     mcp_integrations:
       values.mcpIntegrations.length > 0 ? values.mcpIntegrations : null,
     agents: formValuesToAgentsPayload(values),
+    skills: values.skills.map((binding) => ({
+      skill_id: binding.skillId,
+      skill_version_id: binding.skillVersionId,
+    })),
     tool_approvals: toToolApprovalMap(values.toolApprovals),
     retries: values.retries,
     enable_thinking: values.enableThinking,
@@ -2764,6 +3200,11 @@ function formValuesToAgentsPayload(
     enabled: true,
     subagents,
   }
+}
+
+function formatSkillVersionLabel(version: SkillVersionRead): string {
+  const name = version.name.trim()
+  return name ? `v${version.version} · ${name}` : `v${version.version}`
 }
 
 function normalizeOptional(value: string | null | undefined) {

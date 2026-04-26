@@ -13,6 +13,7 @@ import { ChatHistoryDropdown } from "@/components/chat/chat-history-dropdown"
 import { ChatSessionPane } from "@/components/chat/chat-session-pane"
 import { NoMessages } from "@/components/chat/messages"
 import { CenteredSpinner } from "@/components/loading/spinner"
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -41,6 +42,7 @@ import {
 } from "@/hooks/use-chat"
 import { useChatPresetManager } from "@/hooks/use-chat-preset-manager"
 import { useEntitlements } from "@/hooks/use-entitlements"
+import { getApiErrorDetail } from "@/lib/errors"
 import { useChatReadiness } from "@/lib/hooks"
 import { cn } from "@/lib/utils"
 import { useWorkspaceId } from "@/providers/workspace-id"
@@ -114,6 +116,8 @@ export function ChatInterface({
     presetsError,
     selectedPreset,
     selectedPresetConfig,
+    selectedPresetConfigError,
+    selectedPresetVersionIsLoading,
     selectedPresetId: effectivePresetId,
     selectedPresetVersionId,
     handlePresetChange,
@@ -129,7 +133,9 @@ export function ChatInterface({
     selectedChatId,
     enabled: presetsEnabled,
   })
-  const activePreset = selectedPresetConfig ?? selectedPreset
+  const activePreset = selectedPresetVersionId
+    ? (selectedPresetConfig ?? undefined)
+    : selectedPreset
 
   useEffect(() => {
     setAutoCreateAttempted(false)
@@ -264,6 +270,14 @@ export function ChatInterface({
     )
   }
 
+  if (selectedPresetVersionIsLoading) {
+    return (
+      <div className="flex h-full items-center justify-center">
+        <CenteredSpinner />
+      </div>
+    )
+  }
+
   return (
     <div className="flex h-full min-h-0 flex-col">
       {/* Chat Header */}
@@ -338,6 +352,7 @@ export function ChatInterface({
           chatLoading={chatLoading}
           chatError={chatError}
           selectedPreset={activePreset}
+          selectedPresetConfigError={selectedPresetConfigError}
           toolsEnabled={!activePreset}
           draftMode={
             entityType === "case" && (isCaseDraftChat || chats?.length === 0)
@@ -387,6 +402,7 @@ interface ChatBodyProps {
   chatLoading: boolean
   chatError: unknown
   selectedPreset?: PresetConfigLike
+  selectedPresetConfigError?: unknown
   toolsEnabled: boolean
   draftMode: boolean
   presetSelector?: {
@@ -418,6 +434,7 @@ function ChatBody({
   chatLoading,
   chatError,
   selectedPreset,
+  selectedPresetConfigError,
   toolsEnabled,
   draftMode,
   presetSelector,
@@ -456,6 +473,22 @@ function ChatBody({
       <div className="flex h-full items-center justify-center">
         <CenteredSpinner />
       </div>
+    )
+  }
+
+  if (selectedPresetConfigError) {
+    const presetErrorMessage =
+      getApiErrorDetail(selectedPresetConfigError) ??
+      "Failed to load the pinned preset version for this chat."
+
+    return (
+      <>
+        <NoMessages />
+        <Alert variant="destructive">
+          <AlertTitle>Pinned preset unavailable</AlertTitle>
+          <AlertDescription>{presetErrorMessage}</AlertDescription>
+        </Alert>
+      </>
     )
   }
 

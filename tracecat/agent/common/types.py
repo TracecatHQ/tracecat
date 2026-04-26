@@ -71,7 +71,7 @@ class MCPToolDefinition:
     """
 
     name: str
-    """Action name, e.g., 'tools.slack.post_message'."""
+    """Action name, e.g., 'core.http_request'."""
 
     description: str
     """Human-readable description of what the tool does."""

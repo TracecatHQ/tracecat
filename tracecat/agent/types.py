@@ -17,6 +17,7 @@ from pydantic import Discriminator, TypeAdapter
 
 from tracecat.agent.common.stream_types import ToolCallContent
 from tracecat.agent.common.types import MCPServerConfig
+from tracecat.agent.skill.types import ResolvedSkillRef
 from tracecat.agent.subagents import AgentsConfig
 from tracecat.config import TRACECAT__AGENT_MAX_RETRIES
 
@@ -136,6 +137,7 @@ class AgentConfig:
     # Sandbox
     enable_thinking: bool = True
     enable_internet_access: bool = False
+    resolved_skills: list[ResolvedSkillRef] | None = None
 
 
 # --- Tool Types (Harness-Agnostic) ---

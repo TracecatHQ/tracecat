@@ -114,6 +114,17 @@ async def test_get_session_vercel_includes_agents_binding() -> None:
     }
 
 
+class _AsyncContext:
+    def __init__(self, value: Any) -> None:
+        self._value = value
+
+    async def __aenter__(self) -> Any:
+        return self._value
+
+    async def __aexit__(self, exc_type: Any, exc: Any, tb: Any) -> None:
+        return None
+
+
 @pytest.mark.anyio
 async def test_send_message_continue_uses_path_session_id_for_stream_key() -> None:
     session_id = uuid.uuid4()
@@ -147,8 +158,9 @@ async def test_send_message_continue_uses_path_session_id_for_stream_key() -> No
 
     with (
         patch(
-            "tracecat.agent.session.router.AgentSessionService", return_value=fake_svc
-        ),
+            "tracecat.agent.session.router.AgentSessionService.with_session",
+            return_value=_AsyncContext(fake_svc),
+        ) as with_session_mock,
         patch(
             "tracecat.agent.session.router.AgentStream.new",
             AsyncMock(return_value=fake_stream),
@@ -159,7 +171,6 @@ async def test_send_message_continue_uses_path_session_id_for_stream_key() -> No
             session_id=session_id,
             request=request,
             role=role,
-            session=AsyncMock(),
             http_request=cast(
                 Any,
                 SimpleNamespace(is_disconnected=AsyncMock(return_value=False)),
@@ -167,6 +178,7 @@ async def test_send_message_continue_uses_path_session_id_for_stream_key() -> No
         )
 
     assert isinstance(response, StreamingResponse)
+    with_session_mock.assert_called_once_with(role=role)
     stream_new_mock.assert_awaited_once_with(session_id, workspace_id)
     fake_svc.validate_turn_request.assert_awaited_once_with(
         session_id=session_id,
@@ -214,8 +226,9 @@ async def test_send_message_new_turn_resets_stream_before_streaming() -> None:
 
     with (
         patch(
-            "tracecat.agent.session.router.AgentSessionService", return_value=fake_svc
-        ),
+            "tracecat.agent.session.router.AgentSessionService.with_session",
+            return_value=_AsyncContext(fake_svc),
+        ) as with_session_mock,
         patch(
             "tracecat.agent.session.router.AgentStream.new",
             AsyncMock(return_value=fake_stream),
@@ -226,7 +239,6 @@ async def test_send_message_new_turn_resets_stream_before_streaming() -> None:
             session_id=session_id,
             request=request,
             role=role,
-            session=AsyncMock(),
             http_request=cast(
                 Any,
                 SimpleNamespace(is_disconnected=AsyncMock(return_value=False)),
@@ -234,6 +246,7 @@ async def test_send_message_new_turn_resets_stream_before_streaming() -> None:
         )
 
     assert isinstance(response, StreamingResponse)
+    with_session_mock.assert_called_once_with(role=role)
     fake_stream.reset_for_new_turn.assert_awaited_once()
     fake_stream.sse.assert_called_once()
     assert fake_stream.sse.call_args.kwargs["last_id"] == "0-0"
@@ -267,14 +280,19 @@ async def test_send_message_does_not_reset_stream_when_validation_fails() -> Non
         ),
         run_turn=AsyncMock(return_value=None),
     )
+    fake_stream = SimpleNamespace(
+        reset_for_new_turn=AsyncMock(return_value=None),
+        sse=Mock(return_value=_empty_event_stream()),
+    )
 
     with (
         patch(
-            "tracecat.agent.session.router.AgentSessionService", return_value=fake_svc
-        ),
+            "tracecat.agent.session.router.AgentSessionService.with_session",
+            return_value=_AsyncContext(fake_svc),
+        ) as with_session_mock,
         patch(
             "tracecat.agent.session.router.AgentStream.new",
-            AsyncMock(),
+            AsyncMock(return_value=fake_stream),
         ) as stream_new_mock,
     ):
         raw_send_message = cast(Any, send_message).__wrapped__
@@ -283,7 +301,6 @@ async def test_send_message_does_not_reset_stream_when_validation_fails() -> Non
                 session_id=session_id,
                 request=request,
                 role=role,
-                session=AsyncMock(),
                 http_request=cast(
                     Any,
                     SimpleNamespace(is_disconnected=AsyncMock(return_value=False)),
@@ -291,5 +308,8 @@ async def test_send_message_does_not_reset_stream_when_validation_fails() -> Non
             )
 
     assert exc_info.value.status_code == 404
-    stream_new_mock.assert_not_awaited()
+    with_session_mock.assert_called_once_with(role=role)
+    stream_new_mock.assert_awaited_once_with(session_id, workspace_id)
+    fake_stream.reset_for_new_turn.assert_not_awaited()
+    fake_stream.sse.assert_not_called()
     fake_svc.run_turn.assert_not_awaited()

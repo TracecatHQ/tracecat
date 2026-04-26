@@ -306,7 +306,6 @@ async def send_message(
     session_id: uuid.UUID,
     request: ChatRequest,
     role: WorkspaceUser,
-    session: AsyncDBSession,
     http_request: Request,
 ) -> StreamingResponse:
     """Send a message to the agent session with streaming response.
@@ -318,7 +317,6 @@ async def send_message(
     3. Streams the response back in Vercel's data protocol format
     """
     try:
-        svc = AgentSessionService(session, role)
         workspace_id = role.workspace_id
         if workspace_id is None:
             raise HTTPException(
@@ -326,34 +324,35 @@ async def send_message(
                 detail="Workspace access required",
             )
 
-        # Check if this is a legacy chat (read-only)
-        if await svc.is_legacy_session(session_id):
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Legacy chat sessions are read-only and cannot receive new messages",
-            )
-
-        await svc.validate_turn_request(session_id=session_id, request=request)
-
         stream = await AgentStream.new(session_id, workspace_id)
-        if isinstance(request, ContinueRunRequest):
-            # Continuations should follow only newly appended events. Resuming
-            # from the persisted DB cursor can replay the approval request that
-            # the active client already rendered before clicking approve/deny.
-            start_id = "$"
-        else:
-            # Each fresh execution turn gets a new Redis stream buffer so
-            # stale events from the prior turn are never replayed.
-            await stream.reset_for_new_turn()
-            # Read from the beginning of the freshly cleared stream so we still
-            # pick up events emitted before the SSE response starts consuming.
-            start_id = "0-0"
+        async with AgentSessionService.with_session(role=role) as svc:
+            # Check if this is a legacy chat (read-only)
+            if await svc.is_legacy_session(session_id):
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Legacy chat sessions are read-only and cannot receive new messages",
+                )
 
-        # Run session turn (spawns DurableAgentWorkflow)
-        await svc.run_turn(
-            session_id=session_id,
-            request=request,
-        )
+            await svc.validate_turn_request(session_id=session_id, request=request)
+
+            if isinstance(request, ContinueRunRequest):
+                # Continuations should follow only newly appended events. Resuming
+                # from the persisted DB cursor can replay the approval request that
+                # the active client already rendered before clicking approve/deny.
+                start_id = "$"
+            else:
+                # Each fresh execution turn gets a new Redis stream buffer so
+                # stale events from the prior turn are never replayed.
+                await stream.reset_for_new_turn()
+                # Read from the beginning of the freshly cleared stream so we still
+                # pick up events emitted before the SSE response starts consuming.
+                start_id = "0-0"
+
+            # Run session turn (spawns DurableAgentWorkflow)
+            await svc.run_turn(
+                session_id=session_id,
+                request=request,
+            )
 
         logger.info(
             "Starting Vercel streaming session",

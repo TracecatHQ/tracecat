@@ -21,7 +21,7 @@ from tracecat_registry import RegistryOAuthSecret, RegistrySecret
 
 from tracecat import config
 from tracecat.agent.common.types import MCPToolDefinition
-from tracecat.agent.preset.schemas import AgentPresetRead, AgentPresetUpdate
+from tracecat.agent.preset.schemas import AgentPresetUpdate
 from tracecat.agent.session.schemas import (
     AgentSessionRead,
     AgentSessionReadWithMessages,
@@ -269,8 +269,9 @@ async def get_preset_summary(
         preset = await service.get_preset(preset_id)
         if not preset:
             raise InternalToolError(f"Agent preset with ID '{preset_id}' not found")
+        preset_read = await service.build_preset_read(preset)
 
-    return AgentPresetRead.model_validate(preset).model_dump(mode="json")
+    return preset_read.model_dump(mode="json")
 
 
 async def list_available_tools(
@@ -393,8 +394,9 @@ async def update_preset(args: dict[str, Any], claims: MCPTokenClaims) -> dict[st
         except TracecatValidationError as error:
             # Surface builder validation issues as errors that the agent can retry
             raise InternalToolError(str(error)) from error
+        updated_read = await service.build_preset_read(updated)
 
-    return AgentPresetRead.model_validate(updated).model_dump(mode="json")
+    return updated_read.model_dump(mode="json")
 
 
 async def list_sessions(args: dict[str, Any], claims: MCPTokenClaims) -> dict[str, Any]:

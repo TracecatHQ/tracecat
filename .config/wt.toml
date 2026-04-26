@@ -4,4 +4,4 @@
 
 # Post-Create: Install dependencies after worktree creation
 [pre-start]
-deps = "uv sync --group admin & pnpm -C frontend i & wait"
+deps = "UV_LINK_MODE=symlink uv sync --group admin & pnpm -C frontend i & wait"

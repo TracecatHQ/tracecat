@@ -54,17 +54,22 @@
 
   Supports three usage modes:
   -> **Search**: provide `query` to search by name/description across all namespaces. Example: list_actions(workspace_id, query="send message")
-  -> **Browse namespace**: provide `namespace` without `query` to list all actions in a namespace. Example: list_actions(workspace_id, namespace="tools.slack")
+  -> **Browse namespace**: provide `namespace` without `query` to list all actions in a namespace. Example: list_actions(workspace_id, namespace="core")
   -> **Browse all**: omit both to list all available actions.
 
-  Common namespaces: `core`, `tools.slack`, `tools.crowdstrike`, `tools.okta`, `ai`.
+  Common namespaces: `core`, `tools`, `ai`.
+    </ResponseField>
+    <ResponseField name="workflows_sync_custom_registry" type="tool">
+  Sync the organization's custom action registry from its remote git repository.
+
+  Pulls the latest code from the custom registry repo registered in the caller's organization, builds a versioned tarball, and makes the synced actions available to agents and workflows. Use this after pushing changes to the custom integrations repo, or to roll forward/back to a specific commit. Existing published workflows must be republished to pick up newly synced action versions.
     </ResponseField>
     <ResponseField name="workflows_get_action_context" type="tool">
   Get full schema and configuration context for a single action.
 
   Use this after discovering an action via `list_actions` to get the complete parameter schema needed to write the `args:` block in a workflow definition.
 
-  Example action names: "core.http_request", "tools.slack.post_message", "core.script.run_python", "core.transform.reshape".
+  Example action names: "core.http_request", "core.script.run_python", "core.transform.reshape".
     </ResponseField>
     <ResponseField name="workflows_get_workflow_authoring_context" type="tool">
   Get compact workflow authoring context for selected actions.
@@ -72,7 +77,7 @@
   Returns everything needed to write a workflow definition: action schemas, available secrets, and workspace variables. Use this before calling `create_workflow` or `update_workflow`.
 
   Two input modes (provide one or neither):
-  -> **By name**: pass `action_names_json` as a JSON array of action names, e.g. '["core.http_request", "tools.slack.post_message"]'
+  -> **By name**: pass `actions` with an `action_names` list.
   -> **By search**: pass `query` to search for actions by name/description
     </ResponseField>
     <ResponseField name="workflows_validate_workflow" type="tool">
@@ -155,6 +160,62 @@
 
 <ResponseField name="Cases" type="Namespace">
   <Expandable title="Tools">
+    <ResponseField name="cases_list_cases" type="tool">
+  List cases in a workspace with default sorting.
+    </ResponseField>
+    <ResponseField name="cases_search_cases" type="tool">
+  Search cases with filtering and sorting.
+    </ResponseField>
+    <ResponseField name="cases_get_case" type="tool">
+  Get a specific case with full details including fields, tags, and description.
+    </ResponseField>
+    <ResponseField name="cases_create_case" type="tool">
+  Create a new case.
+    </ResponseField>
+    <ResponseField name="cases_update_case" type="tool">
+  Update a case. Only provided fields are changed.
+    </ResponseField>
+    <ResponseField name="cases_delete_case" type="tool">
+  Delete a case.
+    </ResponseField>
+    <ResponseField name="cases_list_case_comments" type="tool">
+  List all comments for a case.
+    </ResponseField>
+    <ResponseField name="cases_list_case_comment_threads" type="tool">
+  List comment threads for a case. Each thread contains the root comment and its replies.
+    </ResponseField>
+    <ResponseField name="cases_create_case_comment" type="tool">
+  Create a new comment on a case. Provide ``parent_id`` to reply to an existing comment.
+    </ResponseField>
+    <ResponseField name="cases_update_case_comment" type="tool">
+  Update an existing comment on a case.
+    </ResponseField>
+    <ResponseField name="cases_delete_case_comment" type="tool">
+  Delete a comment from a case.
+    </ResponseField>
+    <ResponseField name="cases_list_case_tasks" type="tool">
+  List all tasks for a case.
+    </ResponseField>
+    <ResponseField name="cases_get_case_task" type="tool">
+  Get a specific case task by ID.
+    </ResponseField>
+    <ResponseField name="cases_create_case_task" type="tool">
+  Create a new task on a case.
+    </ResponseField>
+    <ResponseField name="cases_update_case_task" type="tool">
+  Update a case task. Only provided fields are changed.
+    </ResponseField>
+    <ResponseField name="cases_delete_case_task" type="tool">
+  Delete a case task.
+    </ResponseField>
+    <ResponseField name="cases_run_case_task" type="tool">
+  Run the workflow associated with a case task.
+
+  Fetches the task's ``workflow_id`` and ``default_trigger_values``, merges them with ``case_id`` and ``task_id`` context (plus any caller-supplied overrides), then executes the latest published version of the workflow.
+    </ResponseField>
+    <ResponseField name="cases_list_case_events" type="tool">
+  List activity events for a case. Events are system-generated audit entries that track every change to a case — status changes, priority changes, assignee changes, comments, tasks, tags, field changes, etc.
+    </ResponseField>
     <ResponseField name="cases_list_case_tags" type="tool">
   List case tag definitions in a workspace.
 
@@ -268,6 +329,11 @@
     </ResponseField>
     <ResponseField name="agents_update_agent_preset" type="tool">
   Update an existing agent preset in the selected workspace.
+    </ResponseField>
+    <ResponseField name="agents_upload_skill" type="tool">
+  Upload a local skill directory into Tracecat as a workspace skill.
+
+  Agents should read the local directory themselves, preserve relative paths, include the root ``SKILL.md`` file, and pass every file in ``files`` using ``content_base64``.
     </ResponseField>
     <ResponseField name="agents_list_agent_presets" type="tool">
   List saved agent preset slugs and names.

@@ -5,11 +5,13 @@ import {
   type AgentPresetReadMinimal,
   type AgentPresetUpdate,
   type AgentPresetVersionDiff,
+  type AgentPresetVersionRead,
   type AgentPresetVersionReadMinimal,
   agentPresetsCompareAgentPresetVersions,
   agentPresetsCreateAgentPreset,
   agentPresetsDeleteAgentPreset,
   agentPresetsGetAgentPreset,
+  agentPresetsGetAgentPresetVersion,
   agentPresetsListAgentPresets,
   agentPresetsListAgentPresetVersions,
   agentPresetsRestoreAgentPresetVersion,
@@ -118,6 +120,45 @@ export function useAgentPreset(
     presetIsLoading,
     presetError,
     refetchPreset,
+  }
+}
+
+export function useAgentPresetVersion(
+  workspaceId: string,
+  presetId?: string | null,
+  versionId?: string | null,
+  { enabled = true }: { enabled?: boolean } = {}
+) {
+  const {
+    data: presetVersion,
+    isLoading: presetVersionIsLoading,
+    error: presetVersionError,
+    refetch: refetchPresetVersion,
+  } = useQuery<AgentPresetVersionRead, TracecatApiError>({
+    queryKey: ["agent-preset-version", workspaceId, presetId, versionId],
+    queryFn: async () => {
+      if (!workspaceId || !presetId || !versionId) {
+        throw new Error("workspaceId, presetId, and versionId are required")
+      }
+      return await agentPresetsGetAgentPresetVersion({
+        workspaceId,
+        presetId,
+        versionId,
+      })
+    },
+    enabled:
+      enabled &&
+      Boolean(workspaceId) &&
+      Boolean(presetId) &&
+      Boolean(versionId),
+    retry: retryHandler,
+  })
+
+  return {
+    presetVersion,
+    presetVersionIsLoading,
+    presetVersionError,
+    refetchPresetVersion,
   }
 }
 

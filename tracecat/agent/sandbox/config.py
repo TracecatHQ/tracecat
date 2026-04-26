@@ -230,6 +230,7 @@ def build_agent_nsjail_config(
     session_home_dir: Path | None = None,
     session_project_dir: Path | None = None,
     enable_internet_access: bool = False,
+    skills_dir: Path | None = None,
 ) -> str:
     """Build nsjail protobuf config for agent runtime execution.
 
@@ -252,6 +253,7 @@ def build_agent_nsjail_config(
         enable_internet_access: If True, disables network isolation to allow
             direct internet access. Required for MCP stdio servers that need
             to call external APIs. Default is False (network isolated).
+        skills_dir: Optional host path containing staged workspace skills.
 
     Returns:
         nsjail protobuf configuration as a string.
@@ -272,6 +274,8 @@ def build_agent_nsjail_config(
         _validate_path(llm_socket_path, "llm_socket_path")
     if mcp_socket_path is not None:
         _validate_path(mcp_socket_path, "mcp_socket_path")
+    if skills_dir is not None:
+        _validate_path(skills_dir, "skills_dir")
 
     # Derive control socket path from socket_dir using well-known name when enabled.
     resolved_control_socket_path: Path | None
@@ -370,7 +374,6 @@ def build_agent_nsjail_config(
             f'mount {{ src: "{job_dir}" dst: "/work" is_bind: true rw: true }}',
         ]
     )
-
     lines.extend(
         [
             "",
@@ -418,6 +421,25 @@ def build_agent_nsjail_config(
                 f'mount {{ src: "{session_project_dir}" dst: "/work/claude-project" is_bind: true rw: true }}',
             ]
         )
+
+    if skills_dir is not None:
+        if session_home_dir is not None:
+            lines.extend(
+                [
+                    "",
+                    "# Workspace skills for the Claude Code Skill tool",
+                    f'mount {{ src: "{skills_dir}" dst: "/work/claude-home/.claude/skills" is_bind: true rw: false }}',
+                ]
+            )
+        else:
+            lines.extend(
+                [
+                    "",
+                    "# Workspace skills for the Claude Code Skill tool",
+                    'mount { dst: "/home/agent/.claude" fstype: "tmpfs" rw: true options: "size=64M" }',
+                    f'mount {{ src: "{skills_dir}" dst: "/home/agent/.claude/skills" is_bind: true rw: false }}',
+                ]
+            )
 
     # Resource limits
     lines.extend(
