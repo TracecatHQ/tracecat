@@ -284,10 +284,15 @@ async def test_executor_respects_action_statement_secret_masking(
     test_role,
     db_session_with_repo,
     mock_run_context,
+    monkeypatch,
     disable_secrets_masking,
     expected_result,
 ):
     """Test that ActionStatement masking opt-out changes the final action result."""
+    from tracecat import config
+
+    monkeypatch.setattr(config, "TRACECAT__UNSAFE_DISABLE_SM_MASKING", False)
+
     session, db_repo_id = db_session_with_repo
 
     repo = Repository()
