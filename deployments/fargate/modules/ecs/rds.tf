@@ -14,7 +14,7 @@ resource "random_string" "temporal_snapshot_suffix" {
 # Check if snapshots exist for core database
 data "aws_db_snapshot" "core_snapshots" {
   count                  = var.restore_from_snapshot && var.core_db_snapshot_name == null ? 1 : 0
-  db_instance_identifier = "core-database"
+  db_instance_identifier = "${var.name_prefix}-core-database"
   most_recent            = true
   include_shared         = false
   include_public         = false
@@ -30,7 +30,7 @@ data "aws_db_snapshot" "core_snapshots" {
 # Check if snapshots exist for temporal database
 data "aws_db_snapshot" "temporal_snapshots" {
   count                  = var.disable_temporal_autosetup ? 0 : (var.restore_from_snapshot && var.temporal_db_snapshot_name == null ? 1 : 0)
-  db_instance_identifier = "temporal-database"
+  db_instance_identifier = "${var.name_prefix}-temporal-database"
   most_recent            = true
   include_shared         = false
   include_public         = false
@@ -44,7 +44,7 @@ data "aws_db_snapshot" "temporal_snapshots" {
 }
 
 resource "aws_db_subnet_group" "tracecat_db_subnet" {
-  name       = "tracecat-db-subnet"
+  name       = "${var.name_prefix}-db-subnet"
   subnet_ids = var.private_subnet_ids
 }
 
@@ -63,7 +63,7 @@ resource "time_sleep" "wait_for_rds_dependencies" {
 resource "aws_db_parameter_group" "temporal_database_compatibility" {
   count = var.disable_temporal_autosetup || var.temporal_db_force_ssl ? 0 : 1
 
-  name        = "temporal-db-compatibility"
+  name        = "${var.name_prefix}-temporal-db-compatibility"
   family      = "postgres${split(".", var.db_engine_version)[0]}"
   description = "Temporal PostgreSQL parameter group for Fargate auto-setup compatibility"
 
@@ -75,7 +75,7 @@ resource "aws_db_parameter_group" "temporal_database_compatibility" {
 }
 
 resource "aws_db_instance" "core_database" {
-  identifier                  = "core-database"
+  identifier                  = "${var.name_prefix}-core-database"
   engine                      = "postgres"
   engine_version              = var.db_engine_version
   instance_class              = var.tracecat_db_instance_class
@@ -88,7 +88,7 @@ resource "aws_db_instance" "core_database" {
   db_subnet_group_name        = aws_db_subnet_group.tracecat_db_subnet.name
   vpc_security_group_ids      = [aws_security_group.core_db.id]
   skip_final_snapshot         = var.rds_skip_final_snapshot
-  final_snapshot_identifier   = "final-core-db-${local.snapshot_timestamp}-${random_string.core_snapshot_suffix.result}"
+  final_snapshot_identifier   = "final-${var.name_prefix}-core-db-${local.snapshot_timestamp}-${random_string.core_snapshot_suffix.result}"
   snapshot_identifier = var.restore_from_snapshot ? (
     var.core_db_snapshot_name != null ?
     var.core_db_snapshot_name :
@@ -113,7 +113,7 @@ resource "aws_db_instance" "core_database" {
 
 resource "aws_db_instance" "temporal_database" {
   count                       = var.disable_temporal_autosetup ? 0 : 1
-  identifier                  = "temporal-database"
+  identifier                  = "${var.name_prefix}-temporal-database"
   engine                      = "postgres"
   engine_version              = var.db_engine_version
   instance_class              = var.temporal_db_instance_class
@@ -129,7 +129,7 @@ resource "aws_db_instance" "temporal_database" {
     "default.postgres${split(".", var.db_engine_version)[0]}"
   ) : aws_db_parameter_group.temporal_database_compatibility[0].name
   skip_final_snapshot       = var.rds_skip_final_snapshot
-  final_snapshot_identifier = "final-temporal-db-${local.snapshot_timestamp}-${random_string.temporal_snapshot_suffix[0].result}"
+  final_snapshot_identifier = "final-${var.name_prefix}-temporal-db-${local.snapshot_timestamp}-${random_string.temporal_snapshot_suffix[0].result}"
   snapshot_identifier = var.restore_from_snapshot ? (
     var.temporal_db_snapshot_name != null ?
     var.temporal_db_snapshot_name :

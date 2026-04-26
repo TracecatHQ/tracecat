@@ -1,16 +1,16 @@
 # network.tf
 
 locals {
-  az_count = 2
+  az_count = length(var.public_subnet_cidrs)
 }
 
 resource "aws_vpc" "tracecat" {
-  cidr_block           = "10.0.0.0/16"
+  cidr_block           = var.vpc_cidr
   enable_dns_hostnames = true
   enable_dns_support   = true
 
   tags = {
-    Name = "tracecat-vpc"
+    Name = "${var.name_prefix}-vpc"
   }
 }
 
@@ -19,12 +19,12 @@ data "aws_availability_zones" "available" {}
 resource "aws_subnet" "public" {
   count                   = local.az_count
   vpc_id                  = aws_vpc.tracecat.id
-  cidr_block              = "10.0.${count.index + 1}.0/24"
+  cidr_block              = var.public_subnet_cidrs[count.index]
   availability_zone       = data.aws_availability_zones.available.names[count.index]
   map_public_ip_on_launch = true
 
   tags = {
-    Name = "tracecat-public-subnet-${count.index + 1}"
+    Name = "${var.name_prefix}-public-subnet-${count.index + 1}"
   }
 }
 
@@ -53,11 +53,11 @@ resource "aws_nat_gateway" "gw" {
 resource "aws_subnet" "private" {
   count             = local.az_count
   vpc_id            = aws_vpc.tracecat.id
-  cidr_block        = "10.0.${count.index + 10}.0/24"
+  cidr_block        = var.private_subnet_cidrs[count.index]
   availability_zone = data.aws_availability_zones.available.names[count.index]
 
   tags = {
-    Name = "tracecat-private-subnet-${count.index + 1}"
+    Name = "${var.name_prefix}-private-subnet-${count.index + 1}"
   }
 }
 
@@ -86,7 +86,7 @@ resource "aws_route_table" "public_rt" {
   }
 
   tags = {
-    Name = "tracecat-public-rt"
+    Name = "${var.name_prefix}-public-rt"
   }
 }
 

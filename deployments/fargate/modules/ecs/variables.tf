@@ -5,6 +5,18 @@ variable "aws_region" {
   description = "AWS region (secrets and hosted zone must be in the same region)"
 }
 
+variable "name_prefix" {
+  type        = string
+  description = "Prefix for same-account/regional AWS resource names."
+  default     = "tracecat"
+}
+
+variable "iam_name_prefix" {
+  type        = string
+  description = "Prefix for IAM role and policy names."
+  default     = "Tracecat"
+}
+
 ### Networking
 
 variable "is_internal" {
@@ -239,7 +251,7 @@ variable "db_max_overflow" {
 variable "db_pool_size" {
   type        = string
   description = "The size of the database connection pool"
-  default     = "30"
+  default     = "10"
 }
 
 variable "db_pool_timeout" {
@@ -251,13 +263,13 @@ variable "db_pool_timeout" {
 variable "db_pool_recycle" {
   type        = string
   description = "The time in seconds after which pool connections are recycled"
-  default     = "1800"
+  default     = "300"
 }
 
 variable "db_max_overflow_executor" {
   type        = string
   description = "The maximum number of connections to allow in the DB pool"
-  default     = "30"
+  default     = "60"
 }
 
 variable "db_pool_size_executor" {

@@ -16,7 +16,7 @@ resource "random_id" "workflow_bucket_suffix" {
 
 # S3 bucket for Tracecat case attachments
 resource "aws_s3_bucket" "attachments" {
-  bucket = "tracecat-attachments-${var.tracecat_app_env}-${random_id.attachments_bucket_suffix.hex}"
+  bucket = "${var.name_prefix}-attachments-${var.tracecat_app_env}-${random_id.attachments_bucket_suffix.hex}"
 
   tags = {
     Name        = "Tracecat attachments storage"
@@ -148,7 +148,7 @@ resource "aws_s3_bucket_cors_configuration" "attachments" {
 
 # S3 bucket for Tracecat registry tarballs
 resource "aws_s3_bucket" "registry" {
-  bucket = "tracecat-registry-${var.tracecat_app_env}-${random_id.registry_bucket_suffix.hex}"
+  bucket = "${var.name_prefix}-registry-${var.tracecat_app_env}-${random_id.registry_bucket_suffix.hex}"
 
   tags = {
     Name        = "Tracecat registry storage"
@@ -278,7 +278,7 @@ resource "aws_s3_bucket_cors_configuration" "skills" {
 
 # S3 bucket for Tracecat workspace skills
 resource "aws_s3_bucket" "skills" {
-  bucket = "tracecat-skills-${var.tracecat_app_env}-${random_id.skills_bucket_suffix.hex}"
+  bucket = "${var.name_prefix}-skills-${var.tracecat_app_env}-${random_id.skills_bucket_suffix.hex}"
 
   tags = {
     Name        = "Tracecat skills storage"
@@ -362,7 +362,7 @@ resource "aws_s3_bucket_policy" "skills" {
 
 # S3 bucket for externalized workflow artifacts
 resource "aws_s3_bucket" "workflow" {
-  bucket = "tracecat-workflow-${var.tracecat_app_env}-${random_id.workflow_bucket_suffix.hex}"
+  bucket = "${var.name_prefix}-workflow-${var.tracecat_app_env}-${random_id.workflow_bucket_suffix.hex}"
 
   tags = {
     Name        = "Tracecat workflow storage"
