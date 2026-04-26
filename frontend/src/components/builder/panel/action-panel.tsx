@@ -673,11 +673,8 @@ function ActionPanelContent({
   )
 
   const saveIfDirty = useCallback(async () => {
-    if (!methods.formState.isDirty) {
-      return true
-    }
-
     commitAllEditors()
+
     let saveSucceeded = false
 
     await methods.handleSubmit(
