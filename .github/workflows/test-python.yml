@@ -118,6 +118,10 @@ jobs:
           TRACECAT__EXECUTOR_BACKEND: "direct"
           TRACECAT__WORKFLOW_RETURN_STRATEGY: "context"
           TRACECAT__UNSAFE_DISABLE_SM_MASKING: "true"
+          # xdist workers share the same CI Postgres container; keep each
+          # worker's service-session pool small enough to avoid exhausting it.
+          TRACECAT__DB_POOL_SIZE: "1"
+          TRACECAT__DB_MAX_OVERFLOW: "2"
         run: |
           if [ "${{ matrix.test_group }}" = "ee" ]; then
             uv run pytest packages/tracecat-ee/tests/ -m "not live_secret" -ra
