@@ -69,6 +69,7 @@ from tracecat.mcp.oidc.features import (
     OFFLINE_ACCESS_SCOPE,
     get_supported_scopes,
 )
+from tracecat.organization.management import get_default_organization_id
 
 
 class MCPTokenIdentity(BaseModel):
@@ -1307,6 +1308,69 @@ async def resolve_role_for_request(workspace_id: WorkspaceID) -> Role:
     """Resolve caller role for a workspace."""
     email = get_email_from_token()
     return await resolve_role(email, workspace_id)
+
+
+async def resolve_org_role_for_request() -> Role:
+    """Resolve a role with organization context from the current MCP token.
+
+    Mirrors the HTTP API's ``_resolve_org_for_regular_user`` and the MCP
+    ``list_user_workspaces`` patterns: looks up the caller's organization
+    memberships and rejects ambiguous multi-org cases. When the token carries
+    an ``organization_id`` claim or ``org:<uuid>`` scope, that scoping is
+    intersected with the user's memberships before the ambiguity check, so a
+    single-org-scoped token resolves cleanly even when the user belongs to
+    multiple orgs overall. Single-tenant platform superusers fall back to
+    the default organization (matching ``_resolve_org_for_superuser``) so
+    they can use org-scoped tools without an explicit OrganizationMembership.
+    """
+    identity = get_token_identity()
+    if identity.email is None:
+        raise ValueError("Token does not contain an email claim")
+
+    user = await resolve_user_by_email(identity.email)
+    _raise_if_multi_tenant_superuser(user)
+
+    async with get_async_session_bypass_rls_context_manager() as session:
+        if user.is_superuser and not config.TRACECAT__EE_MULTI_TENANT:
+            org_ids = {await get_default_organization_id(session)}
+        else:
+            result = await session.execute(
+                select(OrganizationMembership.organization_id).where(
+                    OrganizationMembership.user_id == user.id
+                )
+            )
+            org_ids = {row[0] for row in result.all()}
+
+    if identity.organization_ids:
+        org_ids &= identity.organization_ids
+
+    if not org_ids:
+        if identity.organization_ids:
+            raise ValueError(
+                f"User {identity.email} has no organization memberships "
+                "matching the token's org scope"
+            )
+        raise ValueError(f"User {identity.email} has no organization memberships")
+    if len(org_ids) > 1:
+        raise ValueError(
+            "Multiple organizations resolved for caller; org-scoped tools "
+            "require a single-org token (set organization_id claim or "
+            "org:<uuid> scope)."
+        )
+
+    organization_id = next(iter(org_ids))
+    role = Role(
+        type="user",
+        user_id=user.id,
+        workspace_id=None,
+        organization_id=organization_id,
+        service_id="tracecat-mcp",
+        is_platform_superuser=user.is_superuser,
+    )
+    scopes = await compute_effective_scopes(role)
+    role = role.model_copy(update={"scopes": scopes})
+    ctx_role.set(role)
+    return role
 
 
 async def list_workspaces_for_request() -> list[dict[str, str]]:
