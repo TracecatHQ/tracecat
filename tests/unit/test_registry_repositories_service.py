@@ -9,7 +9,7 @@ import pytest
 
 from tracecat.auth.types import Role
 from tracecat.db.models import RegistryRepository
-from tracecat.exceptions import ScopeDeniedError
+from tracecat.exceptions import RegistryNotFound, ScopeDeniedError
 from tracecat.registry.repositories.schemas import RegistryRepositorySync
 from tracecat.registry.repositories.service import RegistryReposService
 
@@ -115,3 +115,26 @@ async def test_list_repositories_requires_registry_read_scope(
     service = RegistryReposService(AsyncMock(), role=role_without_registry_scopes)
     with pytest.raises(ScopeDeniedError):
         await service.list_repositories()
+
+
+@pytest.mark.anyio
+async def test_sync_repository_rejects_cross_org_repository() -> None:
+    """Cross-org repository must surface RegistryNotFound (probing-resistant)."""
+    role_with_update = Role(
+        type="service",
+        service_id="tracecat-api",
+        workspace_id=uuid.uuid4(),
+        organization_id=uuid.uuid4(),
+        user_id=uuid.uuid4(),
+        scopes=frozenset({"org:registry:update"}),
+    )
+    service = RegistryReposService(AsyncMock(), role=role_with_update)
+    foreign_repository = RegistryRepository(
+        organization_id=uuid.uuid4(),  # different org
+        origin="custom_actions",
+    )
+
+    with pytest.raises(RegistryNotFound):
+        await service.sync_repository(
+            foreign_repository, RegistryRepositorySync(force=False)
+        )

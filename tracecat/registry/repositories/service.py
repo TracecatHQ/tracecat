@@ -9,7 +9,7 @@ from sqlalchemy.orm import selectinload
 
 from tracecat.authz.controls import require_scope
 from tracecat.db.models import RegistryRepository, RegistryVersion
-from tracecat.exceptions import RegistryError
+from tracecat.exceptions import RegistryError, RegistryNotFound
 from tracecat.registry.constants import DEFAULT_REGISTRY_ORIGIN
 from tracecat.registry.repositories.schemas import (
     RegistryRepositoryCreate,
@@ -100,9 +100,13 @@ class RegistryReposService(BaseOrgService):
         the org-scoped lookup has happened.
 
         Raises:
+            RegistryNotFound: if the repository does not belong to the
+                caller's organization. Surfaced as the same 404 the route
+                returns for missing IDs so this defense-in-depth check
+                cannot be used to probe for cross-org repository IDs.
             EntitlementRequired: for non-default origins without the entitlement.
-            RegistryError, RegistryActionValidationError,
-            TracecatCredentialsNotFoundError: surfaced from the underlying sync.
+            RegistryActionValidationError, TracecatCredentialsNotFoundError:
+                surfaced from the underlying sync.
         """
         # parse_git_url and RegistryActionsService are imported lazily
         # because tracecat.git.utils and tracecat.registry.repository both
@@ -110,6 +114,13 @@ class RegistryReposService(BaseOrgService):
         # module scope.
         from tracecat.git.utils import parse_git_url
         from tracecat.registry.actions.service import RegistryActionsService
+
+        # Defense-in-depth: real callers already org-scope via
+        # get_repository_by_id / list_repositories, but this method accepts a
+        # RegistryRepository instance directly. Treat a wrong-org repository
+        # the same as "not found" so this check cannot enable probing.
+        if repository.organization_id != self.organization_id:
+            raise RegistryNotFound("Registry repository not found")
 
         if repository.origin != DEFAULT_REGISTRY_ORIGIN:
             await check_entitlement(

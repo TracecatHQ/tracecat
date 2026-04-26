@@ -17,6 +17,7 @@ from tracecat.exceptions import (
     EntitlementRequired,
     RegistryActionValidationError,
     RegistryError,
+    RegistryNotFound,
     TracecatCredentialsNotFoundError,
     TracecatValidationError,
 )
@@ -98,6 +99,13 @@ async def sync_registry_repository(
 
     try:
         return await repos_service.sync_repository(repo, sync_params)
+    except RegistryNotFound as e:
+        # Service-level defense-in-depth (cross-org repository) collapses
+        # into the same 404 response as a missing repository.
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Registry repository not found",
+        ) from e
     except RegistryActionValidationError as e:
         logger.warning("Validation errors while syncing repository", exc=e)
         raise HTTPException(
