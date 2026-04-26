@@ -485,30 +485,33 @@ function WorkflowManualTrigger({
     ValidationResult[] | null
   >(null)
   const [isTriggering, setIsTriggering] = React.useState(false)
+  const runInFlightRef = React.useRef(false)
 
   React.useEffect(() => {
     setManualTriggerErrors(null)
   }, [triggerPayload])
 
   const runWorkflow = async () => {
-    if (disabled || createDraftExecutionIsPending) return
-
-    const payloadError = validateTriggerPayload(triggerPayload)
-    if (payloadError) {
-      setManualTriggerErrors([toDslApiErrorResult(payloadError)])
+    if (disabled || createDraftExecutionIsPending || runInFlightRef.current)
       return
-    }
 
-    const didSaveSelectedAction =
-      (await actionPanelRef.current?.saveIfDirty?.()) ?? true
-    if (!didSaveSelectedAction) {
-      return
-    }
-
+    runInFlightRef.current = true
     setIsTriggering(true)
-    setTimeout(() => setIsTriggering(false), 1000)
-    setManualTriggerErrors(null)
+
     try {
+      const payloadError = validateTriggerPayload(triggerPayload)
+      if (payloadError) {
+        setManualTriggerErrors([toDslApiErrorResult(payloadError)])
+        return
+      }
+
+      const didSaveSelectedAction =
+        (await actionPanelRef.current?.saveIfDirty?.()) ?? true
+      if (!didSaveSelectedAction) {
+        return
+      }
+
+      setManualTriggerErrors(null)
       const result = await createDraftExecution({
         workflow_id: workflowId,
         inputs: parseTriggerPayload(triggerPayload),
@@ -540,6 +543,9 @@ function WorkflowManualTrigger({
           ])
         }
       }
+    } finally {
+      runInFlightRef.current = false
+      setIsTriggering(false)
     }
   }
 
