@@ -248,6 +248,7 @@ export function ChatSessionPane({
   presetSelector,
 }: ChatSessionPaneProps) {
   const queryClient = useQueryClient()
+  const promptInputContainerRef = useRef<HTMLDivElement>(null)
   const processedMessageRef = useRef<
     | {
         messageId: string
@@ -336,6 +337,24 @@ export function ChatSessionPane({
     }
     return false
   }, [status, messages])
+
+  const isInputDisabled = isReadonly || inputDisabled || !canSubmit
+  const wasInputDisabledRef = useRef(isInputDisabled)
+
+  useEffect(() => {
+    const wasInputDisabled = wasInputDisabledRef.current
+    wasInputDisabledRef.current = isInputDisabled
+
+    if (!wasInputDisabled || isInputDisabled) {
+      return
+    }
+
+    const textarea =
+      promptInputContainerRef.current?.querySelector<HTMLTextAreaElement>(
+        'textarea[name="message"]'
+      )
+    textarea?.focus()
+  }, [isInputDisabled])
 
   const handleSubmitApprovals = useCallback(
     async (decisionPayload: ApprovalDecision[]) => {
@@ -859,7 +878,7 @@ export function ChatSessionPane({
           <ConversationScrollButton />
         </Conversation>
       </div>
-      <div className="relative px-3 pb-3">
+      <div className="relative px-3 pb-3" ref={promptInputContainerRef}>
         {mentionEnabled && toolMention && (
           <div className="absolute inset-x-3 bottom-full z-30 mb-2">
             <div className="overflow-hidden rounded-md border bg-popover shadow-md">
@@ -963,7 +982,7 @@ export function ChatSessionPane({
               }
               value={input}
               autoFocus={autoFocusInput && !isReadonly && !inputDisabled}
-              disabled={isReadonly || inputDisabled || !canSubmit}
+              disabled={isInputDisabled}
             />
           </PromptInputBody>
           <PromptInputFooter>
@@ -976,9 +995,7 @@ export function ChatSessionPane({
               )}
             </PromptInputTools>
             <PromptInputSubmit
-              disabled={
-                isReadonly || inputDisabled || !canSubmit || !input.trim()
-              }
+              disabled={isInputDisabled || !input.trim()}
               status={status}
               className="text-muted-foreground/80"
             />
