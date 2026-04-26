@@ -533,7 +533,7 @@ function ActionPanelContent({
     async (values: ActionFormSchema) => {
       if (!registryAction || !action) {
         console.error("Action not found")
-        return
+        return false
       }
 
       setSaveState(SaveState.SAVING)
@@ -586,6 +586,7 @@ function ActionPanelContent({
         clearActionDraft(actionId)
         methods.reset(values)
         setTimeout(() => setSaveState(SaveState.SAVED), 300)
+        return true
       } catch (error) {
         if (error instanceof ApiError) {
           const apiError = error as TracecatApiError
@@ -621,6 +622,7 @@ function ActionPanelContent({
           console.error("Validation failed, unknown error", error)
         }
         setSaveState(SaveState.ERROR)
+        return false
       }
     },
     [
@@ -647,7 +649,7 @@ function ActionPanelContent({
   const onSubmit = useCallback(
     async (values: ActionFormSchema) => {
       try {
-        await handleSave(values)
+        return await handleSave(values)
       } catch (error) {
         console.error("Failed to save action", error)
         setSaveState(SaveState.ERROR)
@@ -664,6 +666,7 @@ function ActionPanelContent({
             ref: slugifyActionRef(action?.title ?? ""),
           },
         ])
+        return false
       }
     },
     [handleSave, action]
@@ -679,8 +682,7 @@ function ActionPanelContent({
 
     await methods.handleSubmit(
       async (values) => {
-        await onSubmit(values)
-        saveSucceeded = true
+        saveSucceeded = await onSubmit(values)
       },
       async () => {
         saveSucceeded = false
