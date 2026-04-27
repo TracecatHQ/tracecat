@@ -4,10 +4,10 @@ This module generates protobuf-format nsjail configurations specifically
 for running the agent runtime in an isolated sandbox.
 
 Security model:
-- Network enabled (clone_newnet: false) - direct internet access for API calls
+- Network namespace always isolated for private loopback; pasta enables outbound access
 - LLM access via internal bridge (localhost:4100) proxied through Unix socket to host LLM gateway
 - Namespace isolation (PID, user, mount, IPC, UTS namespaces)
-- /proc read-only, PID namespace isolated (process only sees itself)
+- Fresh read-only /proc inside the jail PID namespace
 - All tool execution via MCP socket to trusted server outside sandbox
 - Uses same base rootfs as action sandbox (Python 3.12)
 - Site-packages or a minimal Claude SDK subtree mounted read-only
@@ -37,21 +37,6 @@ from tracecat.agent.common.exceptions import AgentSandboxValidationError
 
 # Valid environment variable name pattern (POSIX compliant)
 _ENV_VAR_KEY_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
-_PASTA_GATEWAY_IP = "10.255.255.1"
-
-
-def build_sandbox_resolv_conf() -> str:
-    """Build sandbox resolv.conf with pasta DNS plus host search/options lines."""
-    lines = [f"nameserver {_PASTA_GATEWAY_IP}"]
-    try:
-        host_resolv = Path("/etc/resolv.conf").read_text()
-        for line in host_resolv.splitlines():
-            stripped = line.strip()
-            if stripped.startswith("search ") or stripped.startswith("options "):
-                lines.append(stripped)
-    except OSError:
-        pass
-    return "\n".join(lines) + "\n"
 
 
 def _contains_dangerous_chars(value: str) -> tuple[bool, str | None]:
@@ -247,9 +232,9 @@ def build_agent_nsjail_config(
             and mount_control_socket is True, defaults to socket_dir/control.sock.
         session_home_dir: Optional host directory mounted as the jailed Claude home.
         session_project_dir: Optional host directory mounted as the jailed project.
-        enable_internet_access: If True, disables network isolation to allow
-            direct internet access. Required for MCP stdio servers that need
-            to call external APIs. Default is False (network isolated).
+        enable_internet_access: If True, enables pasta userspace networking for
+            outbound internet access. Default is False (network isolated with
+            private loopback only).
         skills_dir: Optional host path containing staged workspace skills.
 
     Returns:
@@ -260,6 +245,11 @@ def build_agent_nsjail_config(
     """
     # Import lazily so sandboxed runtime imports of this module do not require
     # the full tracecat.sandbox package to be mounted inside the jail.
+    from tracecat.sandbox.networking import (
+        pasta_dns_mount_config_lines,
+        pasta_user_net_config_lines,
+        write_pasta_network_files,
+    )
     from tracecat.sandbox.seccomp import build_untrusted_seccomp_policy
 
     # Validate inputs to prevent injection into protobuf config
@@ -291,9 +281,9 @@ def build_agent_nsjail_config(
     # JAILED_LLM_SOCKET_PATH is a constant, no validation needed.
 
     # Network behavior:
-    # - internet enabled: share pod netns (no pasta) for host DNS/routing reliability
-    # - internet disabled: isolate netns
-    clone_newnet = not enable_internet_access
+    # - always isolate network namespace for private loopback
+    # - internet enabled: add pasta userspace networking for outbound access
+    # - internet disabled: no route out of the isolated namespace
     lines = [
         'name: "agent_sandbox"',
         "mode: ONCE",
@@ -301,7 +291,7 @@ def build_agent_nsjail_config(
         "keep_env: false",
         "",
         "# Namespace isolation",
-        f"clone_newnet: {'true' if clone_newnet else 'false'}",
+        "clone_newnet: true",
         "clone_newuser: true",
         "clone_newns: true",
         "clone_newpid: true",
@@ -322,6 +312,9 @@ def build_agent_nsjail_config(
         f'mount {{ src: "{rootfs}/etc" dst: "/etc" is_bind: true rw: false }}',
     ]
 
+    if enable_internet_access:
+        lines.extend(pasta_user_net_config_lines())
+
     # Optional mounts - only include if the directories exist in rootfs
     lib64_path = rootfs / "lib64"
     if lib64_path.exists():
@@ -336,25 +329,17 @@ def build_agent_nsjail_config(
         )
 
     if enable_internet_access:
-        lines.extend(
-            [
-                "",
-                "# DNS config - use pod resolver files directly",
-                'mount { src: "/etc/resolv.conf" dst: "/etc/resolv.conf" is_bind: true rw: false }',
-                'mount { src: "/etc/hosts" dst: "/etc/hosts" is_bind: true rw: false }',
-                'mount { src: "/etc/nsswitch.conf" dst: "/etc/nsswitch.conf" is_bind: true rw: false }',
-            ]
-        )
+        network_files = write_pasta_network_files(socket_dir)
+        lines.extend(pasta_dns_mount_config_lines(network_files))
 
-    # Bind mount /proc from host (read-only) instead of creating new procfs.
-    # New procfs mount fails in Docker due to masked paths in /proc
-    # (e.g., /dev/null on /proc/kcore). Combined with clone_newpid: true,
-    # PID namespace isolation limits visibility of sandbox processes.
+    # Fresh procfs avoids leaking executor-container process metadata. Docker
+    # runtimes must run these containers with systempaths=unconfined; otherwise
+    # masked proc entries like /proc/kcore prevent nested procfs mounts.
     lines.extend(
         [
             "",
-            "# /proc - read-only bind mount (fresh procfs fails in Docker due to overmounts)",
-            'mount { src: "/proc" dst: "/proc" is_bind: true rw: false }',
+            "# /proc - fresh read-only procfs scoped to the jail PID namespace",
+            'mount { dst: "/proc" fstype: "proc" rw: false }',
             "",
             "# /dev essentials",
             'mount { src: "/dev/null" dst: "/dev/null" is_bind: true rw: true }',
