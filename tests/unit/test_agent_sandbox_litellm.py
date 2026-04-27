@@ -661,6 +661,7 @@ def _run_nsjail_harness_in_docker_or_skip(
                 "      - SYS_ADMIN",
                 "    security_opt:",
                 "      - seccomp:unconfined",
+                "      - systempaths=unconfined",
                 *device_lines,
                 "    volumes:",
                 f"      - {json.dumps(tests_mount)}",

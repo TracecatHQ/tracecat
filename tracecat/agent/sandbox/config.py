@@ -7,7 +7,7 @@ Security model:
 - Network namespace always isolated for private loopback; pasta enables outbound access
 - LLM access via internal bridge (localhost:4100) proxied through Unix socket to host LLM gateway
 - Namespace isolation (PID, user, mount, IPC, UTS namespaces)
-- /proc read-only, PID namespace isolated (process only sees itself)
+- Fresh read-only /proc inside the jail PID namespace
 - All tool execution via MCP socket to trusted server outside sandbox
 - Uses same base rootfs as action sandbox (Python 3.12)
 - Site-packages or a minimal Claude SDK subtree mounted read-only
@@ -332,15 +332,14 @@ def build_agent_nsjail_config(
         network_files = write_pasta_network_files(socket_dir)
         lines.extend(pasta_dns_mount_config_lines(network_files))
 
-    # Bind mount /proc from host (read-only) instead of creating new procfs.
-    # New procfs mount fails in Docker due to masked paths in /proc
-    # (e.g., /dev/null on /proc/kcore). Combined with clone_newpid: true,
-    # PID namespace isolation limits visibility of sandbox processes.
+    # Fresh procfs avoids leaking executor-container process metadata. Docker
+    # runtimes must run these containers with systempaths=unconfined; otherwise
+    # masked proc entries like /proc/kcore prevent nested procfs mounts.
     lines.extend(
         [
             "",
-            "# /proc - read-only bind mount (fresh procfs fails in Docker due to overmounts)",
-            'mount { src: "/proc" dst: "/proc" is_bind: true rw: false }',
+            "# /proc - fresh read-only procfs scoped to the jail PID namespace",
+            'mount { dst: "/proc" fstype: "proc" rw: false }',
             "",
             "# /dev essentials",
             'mount { src: "/dev/null" dst: "/dev/null" is_bind: true rw: true }',

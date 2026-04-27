@@ -273,7 +273,8 @@ class NsjailExecutor:
                 "",
                 "# Temporary filesystems",
                 'mount { dst: "/tmp" fstype: "tmpfs" rw: true options: "size=256M" }',
-                'mount { src: "/proc" dst: "/proc" is_bind: true rw: false }',
+                "# Fresh procfs requires Docker systempaths=unconfined for nested nsjail.",
+                'mount { dst: "/proc" fstype: "proc" rw: false }',
             ]
         )
 
@@ -690,6 +691,7 @@ class NsjailExecutor:
                 "",
                 "# Temporary filesystems",
                 'mount { dst: "/tmp" fstype: "tmpfs" rw: true options: "size=256M" }',
+                "# Fresh procfs requires Docker systempaths=unconfined for nested nsjail.",
                 'mount { dst: "/proc" fstype: "proc" rw: false }',
                 "",
                 "# Action execution mounts",

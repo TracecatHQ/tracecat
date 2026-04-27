@@ -61,6 +61,8 @@ def test_agent_nsjail_config_keeps_network_isolated_without_pasta(
 
     assert "clone_newnet: true" in config_text
     assert "user_net {" not in config_text
+    assert 'src: "/proc"' not in config_text
+    assert 'dst: "/proc" fstype: "proc"' in config_text
 
 
 def test_agent_nsjail_config_enables_pasta_for_internet_access(
@@ -113,8 +115,12 @@ def test_python_sandbox_execute_phase_respects_network_flag(tmp_path: Path) -> N
 
     assert "clone_newnet: true" in isolated_config
     assert "user_net {" not in isolated_config
+    assert 'src: "/proc"' not in isolated_config
+    assert 'dst: "/proc" fstype: "proc"' in isolated_config
     assert "clone_newnet: true" in networked_config
     assert "user_net {" in networked_config
+    assert 'src: "/proc"' not in networked_config
+    assert 'dst: "/proc" fstype: "proc"' in networked_config
 
 
 def test_action_sandbox_config_enables_pasta(tmp_path: Path) -> None:
@@ -131,3 +137,5 @@ def test_action_sandbox_config_enables_pasta(tmp_path: Path) -> None:
     assert "clone_newnet: true" in config_text
     assert "user_net {" in config_text
     assert f'src: "{tmp_path}/job/resolv.conf"' in config_text
+    assert 'src: "/proc"' not in config_text
+    assert 'dst: "/proc" fstype: "proc"' in config_text
