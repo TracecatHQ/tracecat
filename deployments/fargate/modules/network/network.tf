@@ -11,8 +11,8 @@ resource "aws_vpc" "tracecat" {
 
   lifecycle {
     precondition {
-      condition     = length(var.public_subnet_cidrs) > 0 && length(var.private_subnet_cidrs) > 0 && length(var.public_subnet_cidrs) == length(var.private_subnet_cidrs)
-      error_message = "public_subnet_cidrs and private_subnet_cidrs must be non-empty and have the same number of entries."
+      condition     = length(var.public_subnet_cidrs) >= 2 && length(var.private_subnet_cidrs) >= 2 && length(var.public_subnet_cidrs) == length(var.private_subnet_cidrs)
+      error_message = "public_subnet_cidrs and private_subnet_cidrs must each have at least two entries and the same number of entries."
     }
   }
 
