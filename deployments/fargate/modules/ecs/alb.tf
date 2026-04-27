@@ -533,9 +533,13 @@ resource "aws_wafv2_web_acl" "this" {
 resource "aws_wafv2_regex_pattern_set" "attachments_endpoint" {
   count = var.enable_waf ? 1 : 0
 
-  name        = "${var.name_prefix}-attachments-endpoint-pattern"
+  name        = var.waf_attachments_endpoint_pattern_name
   description = "Pattern to match attachments API endpoint"
   scope       = "REGIONAL"
+
+  lifecycle {
+    create_before_destroy = true
+  }
 
   regular_expression {
     regex_string = "^/api/cases/[a-fA-F0-9-]+/attachments(\\?.*)?$"
@@ -545,9 +549,13 @@ resource "aws_wafv2_regex_pattern_set" "attachments_endpoint" {
 resource "aws_wafv2_regex_pattern_set" "mcp_oauth_endpoints" {
   count = var.enable_waf ? 1 : 0
 
-  name        = "${var.name_prefix}-mcp-oauth-endpoints-pattern"
+  name        = var.waf_mcp_oauth_endpoints_pattern_name
   description = "Matches MCP OAuth endpoints that carry loopback redirect URIs"
   scope       = "REGIONAL"
+
+  lifecycle {
+    create_before_destroy = true
+  }
 
   regular_expression {
     regex_string = "^/(mcp/)?(register|authorize|consent|token|auth/callback)$"
@@ -559,9 +567,13 @@ resource "aws_wafv2_regex_pattern_set" "mcp_oauth_endpoints" {
 resource "aws_wafv2_regex_pattern_set" "mcp_public_endpoints" {
   count = var.enable_waf ? 1 : 0
 
-  name        = "${var.name_prefix}-mcp-public-endpoint-pattern"
+  name        = var.waf_mcp_public_endpoint_pattern_name
   description = "Matches MCP discovery, transport, and OAuth endpoints"
   scope       = "REGIONAL"
+
+  lifecycle {
+    create_before_destroy = true
+  }
 
   regular_expression {
     regex_string = "^/(mcp|\\.well-known/oauth-(protected-resource|authorization-server)(/mcp)?|(mcp/)?(register|authorize|consent|token|auth/callback))/?$"

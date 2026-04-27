@@ -46,6 +46,24 @@ variable "redis_default_user_id" {
   default     = "default-user-tracecat"
 }
 
+variable "waf_attachments_endpoint_pattern_name" {
+  type        = string
+  description = "WAF regex pattern set name for attachments endpoint matching."
+  default     = "attachments-endpoint-pattern"
+}
+
+variable "waf_mcp_oauth_endpoints_pattern_name" {
+  type        = string
+  description = "WAF regex pattern set name for MCP OAuth endpoint matching."
+  default     = "mcp-oauth-endpoints-pattern"
+}
+
+variable "waf_mcp_public_endpoint_pattern_name" {
+  type        = string
+  description = "WAF regex pattern set name for MCP public endpoint matching."
+  default     = "mcp-public-endpoint-pattern"
+}
+
 ### Networking
 
 variable "vpc_cidr" {
