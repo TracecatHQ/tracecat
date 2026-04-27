@@ -2936,6 +2936,23 @@ export type DataUIPart = {
 }
 
 /**
+ * Canonical default-model selection for an organization.
+ */
+export type DefaultModelSelection = {
+  catalog_id: string
+  model_name: string
+  model_provider: string
+  custom_provider_id?: string | null
+}
+
+/**
+ * Payload for updating the organization's default model selection.
+ */
+export type DefaultModelSelectionUpdate = {
+  catalog_id: string
+}
+
+/**
  * The URL of the document.
  */
 export type DocumentUrl = {
@@ -9585,6 +9602,14 @@ export type AgentSetDefaultModelResponse = {
   [key: string]: string
 }
 
+export type AgentGetDefaultModelSelectionResponse = DefaultModelSelection | null
+
+export type AgentSetDefaultModelSelectionData = {
+  requestBody: DefaultModelSelectionUpdate
+}
+
+export type AgentSetDefaultModelSelectionResponse = DefaultModelSelection
+
 export type AgentGetWorkspaceProvidersStatusData = {
   workspaceId: string
 }
@@ -13770,6 +13795,29 @@ export type $OpenApiTs = {
         200: {
           [key: string]: string
         }
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/agent/default-model-selection": {
+    get: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: DefaultModelSelection | null
+      }
+    }
+    put: {
+      req: AgentSetDefaultModelSelectionData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: DefaultModelSelection
         /**
          * Validation Error
          */

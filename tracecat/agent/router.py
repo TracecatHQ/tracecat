@@ -1,6 +1,8 @@
 from fastapi import APIRouter, HTTPException, status
 
 from tracecat.agent.schemas import (
+    DefaultModelSelection,
+    DefaultModelSelectionUpdate,
     ModelConfig,
     ModelCredentialCreate,
     ModelCredentialUpdate,
@@ -176,6 +178,37 @@ async def set_default_model(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Failed to set default model: {str(e)}",
+        ) from e
+
+
+@router.get("/default-model-selection")
+@require_scope("agent:read")
+async def get_default_model_selection(
+    *,
+    role: OrgUserRole,
+    session: AsyncDBSession,
+) -> DefaultModelSelection | None:
+    """Get the organization's canonical default model selection."""
+    service = AgentManagementService(session, role=role)
+    return await service.get_default_model_selection()
+
+
+@router.put("/default-model-selection", response_model=DefaultModelSelection)
+@require_scope("agent:update")
+async def set_default_model_selection(
+    *,
+    params: DefaultModelSelectionUpdate,
+    role: OrgUserRole,
+    session: AsyncDBSession,
+) -> DefaultModelSelection:
+    """Set the organization's canonical default model selection."""
+    service = AgentManagementService(session, role=role)
+    try:
+        return await service.set_default_model_selection(params)
+    except TracecatNotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
         ) from e
 
 

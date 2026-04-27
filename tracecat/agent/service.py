@@ -15,9 +15,13 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat_registry._internal import secrets as registry_secrets
 
+from tracecat.agent.access.service import AgentModelAccessService
+from tracecat.agent.catalog.schemas import AgentCatalogRead
 from tracecat.agent.config import MODEL_CONFIGS, PROVIDER_CREDENTIAL_CONFIGS
 from tracecat.agent.preset.service import AgentPresetService
 from tracecat.agent.schemas import (
+    DefaultModelSelection,
+    DefaultModelSelectionUpdate,
     ModelConfig,
     ModelCredentialCreate,
     ModelCredentialUpdate,
@@ -43,6 +47,8 @@ _AWS_ASSUME_ROLE_EXTERNAL_ID_SECRET_KEY = "TRACECAT_AWS_EXTERNAL_ID"
 _VERTEX_BEARER_TOKEN_KEY = "VERTEX_AI_BEARER_TOKEN"
 _GOOGLE_CLOUD_SCOPE = "https://www.googleapis.com/auth/cloud-platform"
 _AZURE_COGNITIVE_SCOPE = "https://cognitiveservices.azure.com/.default"
+_DEFAULT_MODEL_SETTING_KEY = "agent_default_model"
+_DEFAULT_MODEL_CATALOG_ID_SETTING_KEY = "agent_default_model_catalog_id"
 
 
 def _refresh_vertex_token(credentials_blob: str) -> str:
@@ -149,6 +155,92 @@ class AgentManagementService(BaseOrgService):
             "bedrock": "amazon_bedrock",
         }
         return provider_to_secret.get(provider, provider)
+
+    async def _stage_org_setting_value(self, *, key: str, value: str) -> None:
+        """Stage a create-or-update for an org setting without committing.
+
+        The caller is responsible for the ``session.commit()`` that flushes
+        all staged changes atomically.
+        """
+        setting = await self.settings_service.get_org_setting(key)
+        if setting:
+            await self.settings_service._update_setting(
+                setting, SettingUpdate(value=value)
+            )
+            return
+
+        logger.warning("Organization setting not found, creating it", key=key)
+        await self.settings_service._create_org_setting(
+            SettingCreate(
+                key=key,
+                value=value,
+                value_type=ValueType.JSON,
+                is_sensitive=False,
+            )
+        )
+
+    async def _set_org_setting_value(self, *, key: str, value: str) -> None:
+        """Create or update an organization setting with a JSON string value."""
+        await self._stage_org_setting_value(key=key, value=value)
+        await self.session.commit()
+
+    async def _get_default_model_name_setting(self) -> str | None:
+        """Return the stored legacy default model name, if present."""
+        setting = await self.settings_service.get_org_setting(
+            _DEFAULT_MODEL_SETTING_KEY
+        )
+        if not setting:
+            return None
+        value = self.settings_service.get_value(setting)
+        return value if isinstance(value, str) and value else None
+
+    async def _get_default_model_catalog_id_setting(self) -> uuid.UUID | None:
+        """Return the stored canonical default model catalog id, if present."""
+        setting = await self.settings_service.get_org_setting(
+            _DEFAULT_MODEL_CATALOG_ID_SETTING_KEY
+        )
+        if not setting:
+            return None
+
+        value = self.settings_service.get_value(setting)
+        if not isinstance(value, str) or not value:
+            return None
+        try:
+            return uuid.UUID(value)
+        except ValueError:
+            logger.warning("Invalid default model catalog id setting", value=value)
+            return None
+
+    def _resolve_legacy_default_model_entry(
+        self,
+        enabled_models: list[AgentCatalogRead],
+        *,
+        model_name: str,
+    ) -> AgentCatalogRead | None:
+        """Resolve a legacy name-only default model selection."""
+        matches = [entry for entry in enabled_models if entry.model_name == model_name]
+        if not matches:
+            return None
+        if len(matches) == 1:
+            return matches[0]
+
+        builtin_matches = [
+            entry for entry in matches if entry.custom_provider_id is None
+        ]
+        if len(builtin_matches) == 1:
+            return builtin_matches[0]
+        return None
+
+    def _to_default_model_selection(
+        self, catalog_entry: AgentCatalogRead
+    ) -> DefaultModelSelection:
+        """Project a catalog row into the public default-model schema."""
+        return DefaultModelSelection(
+            catalog_id=catalog_entry.id,
+            model_name=catalog_entry.model_name,
+            model_provider=catalog_entry.model_provider,
+            custom_provider_id=catalog_entry.custom_provider_id,
+        )
 
     async def list_providers(self) -> list[str]:
         """List all available AI model providers."""
@@ -408,11 +500,60 @@ class AgentManagementService(BaseOrgService):
                 )
             )
 
+    @require_scope("agent:update")
+    async def set_default_model_selection(
+        self,
+        params: DefaultModelSelectionUpdate,
+    ) -> DefaultModelSelection:
+        """Set the canonical default model selection for the organization."""
+        access_svc = AgentModelAccessService(session=self.session, role=self.role)
+        enabled_models = await access_svc.get_org_models()
+        catalog_entry = next(
+            (entry for entry in enabled_models if entry.id == params.catalog_id),
+            None,
+        )
+        if catalog_entry is None:
+            raise TracecatNotFoundError(
+                f"Catalog entry {params.catalog_id} is not enabled for this organization"
+            )
+
+        await self._stage_org_setting_value(
+            key=_DEFAULT_MODEL_SETTING_KEY,
+            value=catalog_entry.model_name,
+        )
+        await self._stage_org_setting_value(
+            key=_DEFAULT_MODEL_CATALOG_ID_SETTING_KEY,
+            value=str(catalog_entry.id),
+        )
+        await self.session.commit()
+        return self._to_default_model_selection(catalog_entry)
+
     async def get_default_model(self) -> str | None:
         """Get the organization's default AI model."""
         setting = await self.settings_service.get_org_setting("agent_default_model")
         if setting:
             return self.settings_service.get_value(setting)
+        return None
+
+    async def get_default_model_selection(self) -> DefaultModelSelection | None:
+        """Get the canonical default model selection, if it resolves cleanly."""
+        access_svc = AgentModelAccessService(session=self.session, role=self.role)
+        enabled_models = await access_svc.get_org_models()
+
+        if catalog_id := await self._get_default_model_catalog_id_setting():
+            if catalog_entry := next(
+                (entry for entry in enabled_models if entry.id == catalog_id),
+                None,
+            ):
+                return self._to_default_model_selection(catalog_entry)
+            return None
+
+        if model_name := await self._get_default_model_name_setting():
+            if catalog_entry := self._resolve_legacy_default_model_entry(
+                enabled_models,
+                model_name=model_name,
+            ):
+                return self._to_default_model_selection(catalog_entry)
         return None
 
     @contextlib.contextmanager
