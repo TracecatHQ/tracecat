@@ -149,6 +149,98 @@ async def test_registry_proxy_handler_strips_metadata_and_forwards_tool_call_id(
 
 
 @pytest.mark.anyio
+async def test_proxy_handler_returns_mcp_error_result_when_trusted_tool_errors(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    call_tool = AsyncMock(
+        return_value=SimpleNamespace(
+            content=[SimpleNamespace(text="external MCP rejected")],
+            is_error=True,
+        )
+    )
+
+    class _FakeClient:
+        def __init__(self, transport):
+            self.transport = transport
+
+        async def __aenter__(self):
+            return SimpleNamespace(call_tool=call_tool)
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return None
+
+    monkeypatch.setattr(proxy_server, "_create_uds_transport", lambda _: object())
+    monkeypatch.setattr(proxy_server, "Client", _FakeClient)
+
+    handler = proxy_server._make_tool_handler(
+        "execute_user_mcp_tool",
+        {"server_name": "Jira", "tool_name": "getIssue"},
+        "auth-token",
+        {"tool_type": "user_mcp", "server_name": "Jira", "tool_name": "getIssue"},
+    )
+
+    result = await handler({"issueKey": "ENG-1"})
+
+    assert result == {
+        "content": [{"type": "text", "text": "external MCP rejected"}],
+        "is_error": True,
+    }
+
+
+@pytest.mark.anyio
+async def test_proxy_mcp_server_preserves_handler_error_as_mcp_tool_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    call_tool = AsyncMock(side_effect=RuntimeError("trusted MCP unavailable"))
+
+    class _FakeClient:
+        def __init__(self, transport):
+            self.transport = transport
+
+        async def __aenter__(self):
+            return SimpleNamespace(call_tool=call_tool)
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return None
+
+    monkeypatch.setattr(proxy_server, "_create_uds_transport", lambda _: object())
+    monkeypatch.setattr(proxy_server, "Client", _FakeClient)
+
+    server_config = await proxy_server.create_proxy_mcp_server(
+        allowed_actions={
+            "mcp__Jira__getIssue": MCPToolDefinition(
+                name="mcp__Jira__getIssue",
+                description="Get issue",
+                parameters_json_schema={
+                    "type": "object",
+                    "properties": {"issueKey": {"type": "string"}},
+                    "required": ["issueKey"],
+                    "additionalProperties": False,
+                },
+            )
+        },
+        auth_token="auth-token",
+    )
+
+    server = server_config["instance"]
+    response = await server.request_handlers[mt.CallToolRequest](
+        mt.CallToolRequest(
+            params=mt.CallToolRequestParams(
+                name="mcp__Jira__getIssue",
+                arguments={"issueKey": "ENG-1"},
+            )
+        )
+    )
+
+    result = cast(mt.CallToolResult, response.root)
+    assert result.isError is True
+    assert result.content
+    first_block = result.content[0]
+    assert isinstance(first_block, mt.TextContent)
+    assert first_block.text == "trusted MCP unavailable"
+
+
+@pytest.mark.anyio
 async def test_registry_proxy_server_accepts_hook_injected_metadata_during_tool_call(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
