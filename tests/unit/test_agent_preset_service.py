@@ -416,6 +416,96 @@ class TestAgentPresetService:
         preset = await agent_preset_service.create_preset(params)
 
         assert preset.catalog_id == catalog.id
+        assert preset.model_name == catalog.model_name
+        assert preset.model_provider == catalog.model_provider
+
+    async def test_create_preset_uses_catalog_model_fields_when_catalog_id_is_set(
+        self,
+        session: AsyncSession,
+        svc_organization: Organization,
+        agent_preset_service: AgentPresetService,
+        agent_preset_create_params: AgentPresetCreate,
+    ) -> None:
+        catalog = AgentCatalog(
+            organization_id=None,
+            custom_provider_id=None,
+            model_provider="openai",
+            model_name="gpt-4.1",
+            model_metadata={},
+        )
+        session.add(catalog)
+        await session.flush()
+        session.add(
+            AgentModelAccess(
+                organization_id=svc_organization.id,
+                workspace_id=None,
+                catalog_id=catalog.id,
+            )
+        )
+        await session.commit()
+
+        params = agent_preset_create_params.model_copy(
+            update={
+                "catalog_id": catalog.id,
+                "model_name": "claude-sonnet-4-5",
+                "model_provider": "anthropic",
+            }
+        )
+
+        preset = await agent_preset_service.create_preset(params)
+
+        assert preset.catalog_id == catalog.id
+        assert preset.model_name == catalog.model_name
+        assert preset.model_provider == catalog.model_provider
+
+    async def test_resolve_agent_preset_config_uses_catalog_model_fields(
+        self,
+        session: AsyncSession,
+        svc_organization: Organization,
+        agent_preset_service: AgentPresetService,
+        agent_preset_create_params: AgentPresetCreate,
+    ) -> None:
+        catalog = AgentCatalog(
+            organization_id=None,
+            custom_provider_id=None,
+            model_provider="openai",
+            model_name="gpt-4.1",
+            model_metadata={},
+        )
+        session.add(catalog)
+        await session.flush()
+        session.add(
+            AgentModelAccess(
+                organization_id=svc_organization.id,
+                workspace_id=None,
+                catalog_id=catalog.id,
+            )
+        )
+        await session.commit()
+
+        params = agent_preset_create_params.model_copy(
+            update={"catalog_id": catalog.id}
+        )
+        preset = await agent_preset_service.create_preset(params)
+        version = (
+            await session.execute(
+                select(AgentPresetVersion).where(
+                    AgentPresetVersion.id == preset.current_version_id
+                )
+            )
+        ).scalar_one()
+        version.model_name = "claude-sonnet-4-5"
+        version.model_provider = "anthropic"
+        session.add(version)
+        await session.commit()
+
+        config = await agent_preset_service.resolve_agent_preset_config(
+            preset_id=preset.id
+        )
+
+        assert config.catalog_id == catalog.id
+        assert config.model_name == catalog.model_name
+        assert config.model_provider == catalog.model_provider
 
     async def test_update_preset_rejects_catalog_id_excluded_by_workspace_override(
         self,
@@ -472,13 +562,22 @@ class TestAgentPresetService:
 
         updated = await agent_preset_service.update_preset(
             preset,
+            AgentPresetUpdate(catalog_id=workspace_catalog.id),
+        )
+        assert updated.catalog_id == workspace_catalog.id
+        assert updated.model_name == workspace_catalog.model_name
+        assert updated.model_provider == workspace_catalog.model_provider
+
+        updated = await agent_preset_service.update_preset(
+            updated,
             AgentPresetUpdate(
-                catalog_id=workspace_catalog.id,
-                model_name=workspace_catalog.model_name,
-                model_provider=workspace_catalog.model_provider,
+                model_name="gpt-4.1",
+                model_provider="openai",
             ),
         )
         assert updated.catalog_id == workspace_catalog.id
+        assert updated.model_name == workspace_catalog.model_name
+        assert updated.model_provider == workspace_catalog.model_provider
 
     async def test_list_presets(
         self,

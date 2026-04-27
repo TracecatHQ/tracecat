@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import uuid
-from collections.abc import AsyncIterator, Iterator
+from collections.abc import AsyncIterator, Iterator, Mapping
 from dataclasses import replace
 from datetime import UTC, datetime
 
@@ -68,6 +68,31 @@ _CLOUD_PROVIDER_TARGET_KEYS: dict[str, tuple[tuple[str, str], ...]] = {
     "azure_ai": (("azure_ai_model_name", "AZURE_AI_MODEL_NAME"),),
     "vertex_ai": (("vertex_model", "VERTEX_AI_MODEL"),),
 }
+_LEGACY_CUSTOM_PROVIDER_CONFIG_KEYS = frozenset(
+    {
+        "CUSTOM_MODEL_PROVIDER_API_KEY",
+        "CUSTOM_MODEL_PROVIDER_BASE_URL",
+        "CUSTOM_MODEL_PROVIDER_MODEL_NAME",
+        "CUSTOM_MODEL_PROVIDER_PASSTHROUGH",
+    }
+)
+
+
+def _is_legacy_custom_provider_config(payload: Mapping[object, object]) -> bool:
+    """Return true for migrated env-var-shaped custom provider config."""
+    return any(key in payload for key in _LEGACY_CUSTOM_PROVIDER_CONFIG_KEYS)
+
+
+def _legacy_custom_provider_credentials(
+    payload: Mapping[object, object],
+) -> dict[str, str]:
+    """Extract runtime credential keys from migrated custom provider config."""
+    credentials: dict[str, str] = {}
+    for key in _LEGACY_CUSTOM_PROVIDER_CONFIG_KEYS:
+        value = payload.get(key)
+        if isinstance(value, str) and value:
+            credentials[key] = value
+    return credentials
 
 
 def _decrypt_custom_provider_config(
@@ -99,6 +124,8 @@ def _decrypt_custom_provider_config(
         plain = decrypt_value(provider_row.encrypted_config, key=key)
         payload = orjson.loads(plain)
         if isinstance(payload, dict):
+            if _is_legacy_custom_provider_config(payload):
+                return _legacy_custom_provider_credentials(payload)
             api_key = payload.get("api_key")
             if isinstance(api_key, str) and api_key:
                 credentials["CUSTOM_MODEL_PROVIDER_API_KEY"] = api_key
@@ -562,8 +589,11 @@ class AgentManagementService(BaseOrgService):
             credentials = _decrypt_custom_provider_config(provider_row)
             if provider_row.base_url:
                 credentials["CUSTOM_MODEL_PROVIDER_BASE_URL"] = provider_row.base_url
-            if provider_row.passthrough:
-                credentials["CUSTOM_MODEL_PROVIDER_PASSTHROUGH"] = "true"
+            else:
+                credentials.pop("CUSTOM_MODEL_PROVIDER_BASE_URL", None)
+            credentials["CUSTOM_MODEL_PROVIDER_PASSTHROUGH"] = (
+                "true" if provider_row.passthrough else "false"
+            )
             return credentials or None
 
         if row.model_provider in _CLOUD_PROVIDER_TARGET_KEYS:

@@ -313,6 +313,64 @@ async def test_resolve_catalog_config_custom_provider(
 
 
 @pytest.mark.anyio
+async def test_resolve_catalog_config_ignores_stale_migrated_custom_provider_base_url(
+    session: AsyncSession,
+    svc_organization: Organization,
+) -> None:
+    service = AgentCustomProviderService(session=session, role=_role(svc_organization))
+    encrypted_config = encrypt_keyvalues(
+        [
+            SecretKeyValue(
+                key="CUSTOM_MODEL_PROVIDER_BASE_URL",
+                value=SecretStr("https://stale.example.com/v1"),
+            ),
+            SecretKeyValue(
+                key="CUSTOM_MODEL_PROVIDER_PASSTHROUGH",
+                value=SecretStr("true"),
+            ),
+            SecretKeyValue(
+                key="CUSTOM_MODEL_PROVIDER_API_KEY",
+                value=SecretStr("secret"),
+            ),
+        ],
+        key=tracecat_config.TRACECAT__DB_ENCRYPTION_KEY or "",
+    )
+    provider = AgentCustomProvider(
+        organization_id=svc_organization.id,
+        display_name="Custom Source",
+        base_url=None,
+        passthrough=False,
+        encrypted_config=encrypted_config,
+    )
+    session.add(provider)
+    await session.flush()
+    catalog = AgentCatalog(
+        organization_id=svc_organization.id,
+        custom_provider_id=provider.id,
+        model_provider="custom-model-provider",
+        model_name="customer-model",
+        model_metadata={},
+    )
+    session.add(catalog)
+    await session.flush()
+    session.add(
+        AgentModelAccess(
+            organization_id=svc_organization.id,
+            workspace_id=None,
+            catalog_id=catalog.id,
+        )
+    )
+    await session.commit()
+
+    target = await service.resolve_catalog_config(catalog_id=catalog.id)
+
+    assert target.base_url is None
+    assert target.passthrough is False
+    assert target.custom_provider_credentials is not None
+    assert target.custom_provider_credentials.api_key == "secret"
+
+
+@pytest.mark.anyio
 async def test_resolve_catalog_config_missing_catalog_entry(
     session: AsyncSession,
     svc_organization: Organization,

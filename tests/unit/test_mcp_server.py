@@ -7147,7 +7147,7 @@ async def test_list_agent_presets_returns_lightweight_metadata(
         )
     ]
 
-    class _PresetService:
+    class _PresetService(_PresetReadBuilder):
         async def list_presets(self) -> list[SimpleNamespace]:
             return presets
 
@@ -7248,7 +7248,7 @@ async def test_run_agent_preset_uses_session_stream_cursor(
     async def _resolve(_workspace_id: str) -> tuple[uuid.UUID, SimpleNamespace]:
         return workspace_id, role
 
-    class _PresetService:
+    class _PresetService(_PresetReadBuilder):
         async def get_preset_by_slug(self, _preset_slug: str) -> SimpleNamespace:
             return preset
 
@@ -7592,9 +7592,11 @@ async def test_create_agent_preset_uses_default_model_and_passes_optional_fields
             assert model_name == "gpt-4o-mini"
             return SimpleNamespace(name="gpt-4o-mini", provider="openai")
 
-        async def check_workspace_provider_credentials(self, provider: str) -> bool:
+        async def get_runtime_provider_credentials(
+            self, provider: str
+        ) -> dict[str, str] | None:
             assert provider == "openai"
-            return True
+            return {"OPENAI_API_KEY": "sk-test"}
 
     class _PresetService(_PresetReadBuilder):
         async def create_preset(self, params: Any) -> SimpleNamespace:
@@ -7685,10 +7687,12 @@ async def test_create_agent_preset_uses_default_model_selection_catalog_id(
         async def get_default_model(self) -> str | None:
             raise AssertionError("legacy default model should not be read")
 
-        async def check_workspace_provider_credentials(self, provider: str) -> bool:
-            raise AssertionError(f"unexpected workspace credential check: {provider}")
+        async def get_runtime_provider_credentials(
+            self, provider: str
+        ) -> dict[str, str] | None:
+            raise AssertionError(f"unexpected runtime credential check: {provider}")
 
-    class _PresetService:
+    class _PresetService(_PresetReadBuilder):
         async def create_preset(self, params: Any) -> SimpleNamespace:
             created["params"] = params
             now = datetime.now(UTC)
@@ -7965,8 +7969,10 @@ async def test_create_agent_preset_requires_default_model_when_model_not_provide
         async def get_default_model(self) -> str | None:
             return None
 
-        async def check_workspace_provider_credentials(self, provider: str) -> bool:
-            return True
+        async def get_runtime_provider_credentials(
+            self, provider: str
+        ) -> dict[str, str] | None:
+            return {"OPENAI_API_KEY": "sk-test"}
 
     monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
     monkeypatch.setattr(
@@ -8004,9 +8010,11 @@ async def test_create_agent_preset_omitted_retry_fields_use_schema_defaults(
             assert model_name == "gpt-4o-mini"
             return SimpleNamespace(name="gpt-4o-mini", provider="openai")
 
-        async def check_workspace_provider_credentials(self, provider: str) -> bool:
+        async def get_runtime_provider_credentials(
+            self, provider: str
+        ) -> dict[str, str] | None:
             assert provider == "openai"
-            return True
+            return {"OPENAI_API_KEY": "sk-test"}
 
     class _PresetService(_PresetReadBuilder):
         async def create_preset(self, params: Any) -> SimpleNamespace:
@@ -8077,9 +8085,11 @@ async def test_create_agent_preset_validates_explicit_model_provider_pair(
             assert model_name == "gpt-4o-mini"
             return SimpleNamespace(name="gpt-4o-mini", provider="openai")
 
-        async def check_workspace_provider_credentials(self, provider: str) -> bool:
+        async def get_runtime_provider_credentials(
+            self, provider: str
+        ) -> dict[str, str] | None:
             assert provider == "openai"
-            return True
+            return {"OPENAI_API_KEY": "sk-test"}
 
     monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
     monkeypatch.setattr(
@@ -8170,7 +8180,7 @@ async def test_create_agent_preset_allows_custom_model_provider(
 
 
 @pytest.mark.anyio
-async def test_create_agent_preset_requires_workspace_credentials_for_default_model(
+async def test_create_agent_preset_requires_org_credentials_for_default_model(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     workspace_id = uuid.uuid4()
@@ -8190,9 +8200,11 @@ async def test_create_agent_preset_requires_workspace_credentials_for_default_mo
             assert model_name == "gpt-4o-mini"
             return SimpleNamespace(name="gpt-4o-mini", provider="openai")
 
-        async def check_workspace_provider_credentials(self, provider: str) -> bool:
+        async def get_runtime_provider_credentials(
+            self, provider: str
+        ) -> dict[str, str] | None:
             assert provider == "openai"
-            return False
+            return None
 
     monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
     monkeypatch.setattr(
@@ -8203,7 +8215,7 @@ async def test_create_agent_preset_requires_workspace_credentials_for_default_mo
 
     with pytest.raises(
         ToolError,
-        match="Workspace credentials for provider 'openai' are not configured",
+        match="Organization credentials for provider 'openai' are not configured",
     ):
         await _tool(mcp_server.create_agent_preset)(
             workspace_id=str(workspace_id),

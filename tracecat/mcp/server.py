@@ -644,10 +644,9 @@ async def _resolve_agent_preset_model(
                     "model_name and model_provider must both be provided when setting an explicit model"
                 )
             if model_provider == "custom-model-provider":
-                if not await svc.check_workspace_provider_credentials(model_provider):
+                if not await svc.check_provider_credentials(model_provider):
                     raise ToolError(
-                        "Workspace credentials for provider "
-                        f"'{model_provider}' are not configured"
+                        f"Organization credentials for provider '{model_provider}' are not configured"
                     )
                 return model_name, model_provider, None
             try:
@@ -676,12 +675,6 @@ async def _resolve_agent_preset_model(
                     raise ToolError(
                         f"Default model '{default_model}' is configured but no longer exists"
                     ) from exc
-        if catalog_id is None and not await svc.check_workspace_provider_credentials(
-            model_config.provider
-        ):
-            raise ToolError(
-                f"Workspace credentials for provider '{model_config.provider}' are not configured"
-            )
         return model_config.name, model_config.provider, catalog_id
 
 

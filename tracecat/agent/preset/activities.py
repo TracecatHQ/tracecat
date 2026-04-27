@@ -85,13 +85,13 @@ class CustomModelProviderConfigResult(BaseModel):
 @activity.defn
 async def resolve_custom_model_provider_config_activity(
     role: Role,
-    catalog_id: uuid.UUID | None = None,
+    catalog_id: bool | uuid.UUID | None = None,
 ) -> CustomModelProviderConfigResult:
     """Resolve custom-model-provider runtime config.
 
     Two paths:
 
-    1. **v2 (preferred).** When ``catalog_id`` is provided, verify the catalog
+    1. **v2 (preferred).** When ``catalog_id`` is a UUID, verify the catalog
        row is backed by a custom provider and resolve credentials through the
        catalog credential loader. That keeps org/workspace model-access checks
        and provider config decryption centralized.
@@ -104,14 +104,22 @@ async def resolve_custom_model_provider_config_activity(
        ``None`` and we error out with a clear message so the caller knows
        to configure a v2 catalog row.
 
-    ``catalog_id`` has a default of ``None`` to keep Temporal replay of
-    old workflow history intact: activity calls recorded with just
-    ``(role,)`` still deserialize cleanly into the new signature.
+    The second positional accepts ``bool`` purely for Temporal replay
+    compatibility: an intermediate workflow revision scheduled this activity
+    with ``args=(role, use_workspace_credentials: bool)``. Without this
+    union, replaying that recorded payload would fail Pydantic validation
+    against ``uuid.UUID | None`` and brick in-flight workflows. ``bool`` is
+    treated as the legacy path regardless of value — the flag's prior
+    semantics no longer apply post-cutover.
     """
     activity.logger.info("Resolving custom model provider config")
 
+    resolved_catalog_id = catalog_id if isinstance(catalog_id, uuid.UUID) else None
+
     async with AgentManagementService.with_session(role) as svc:
-        creds = await _load_custom_model_provider_creds(svc, catalog_id=catalog_id)
+        creds = await _load_custom_model_provider_creds(
+            svc, catalog_id=resolved_catalog_id
+        )
 
     if creds is None:
         activity.logger.error("Custom model provider credentials not found")

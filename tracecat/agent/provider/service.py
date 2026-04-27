@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
@@ -11,6 +12,7 @@ import orjson
 import sqlalchemy as sa
 from sqlalchemy import select
 
+from tracecat.agent.access.service import AgentModelAccessService
 from tracecat.agent.catalog.service import AgentCatalogService
 from tracecat.agent.provider.schemas import (
     AgentCustomProviderCreate,
@@ -35,6 +37,29 @@ from tracecat.secrets.encryption import decrypt_keyvalues, decrypt_value, encryp
 from tracecat.service import BaseOrgService
 
 CUSTOM_MODEL_PROVIDER_SLUG = "custom-model-provider"
+_LEGACY_CUSTOM_PROVIDER_CONFIG_KEYS = {
+    "CUSTOM_MODEL_PROVIDER_API_KEY": "api_key",
+    "CUSTOM_MODEL_PROVIDER_BASE_URL": "base_url",
+    "CUSTOM_MODEL_PROVIDER_MODEL_NAME": "model_name",
+    "CUSTOM_MODEL_PROVIDER_PASSTHROUGH": "passthrough",
+}
+
+
+def _is_legacy_custom_provider_config(payload: Mapping[object, object]) -> bool:
+    """Return true for migrated env-var-shaped custom provider config."""
+    return any(key in payload for key in _LEGACY_CUSTOM_PROVIDER_CONFIG_KEYS)
+
+
+def _normalize_legacy_custom_provider_config(
+    payload: Mapping[object, object],
+) -> dict[str, Any]:
+    """Convert migrated custom-provider config to the CRUD config shape."""
+    config: dict[str, Any] = {}
+    for legacy_key, config_key in _LEGACY_CUSTOM_PROVIDER_CONFIG_KEYS.items():
+        value = payload.get(legacy_key)
+        if isinstance(value, str) and value:
+            config[config_key] = value
+    return config
 
 
 class AgentCustomProviderService(BaseOrgService):
@@ -184,6 +209,8 @@ class AgentCustomProviderService(BaseOrgService):
             )
             raw_config = orjson.loads(decrypted)
             if isinstance(raw_config, dict):
+                if _is_legacy_custom_provider_config(raw_config):
+                    return _normalize_legacy_custom_provider_config(raw_config)
                 return raw_config
         except Exception:
             pass
@@ -215,50 +242,10 @@ class AgentCustomProviderService(BaseOrgService):
         workspace_id: UUID | None = None,
     ) -> ResolvedCatalogConfig:
         """Resolve a catalog selection into an access-validated config."""
-        org_access_exists = (
-            sa.select(sa.literal(1))
-            .select_from(AgentModelAccess)
-            .where(
-                AgentModelAccess.organization_id == self.organization_id,
-                AgentModelAccess.workspace_id.is_(None),
-                AgentModelAccess.catalog_id == AgentCatalog.id,
-            )
-            .exists()
-        )
-
-        effective_enabled_expr: sa.ColumnElement[bool]
-        if workspace_id is None:
-            effective_enabled_expr = org_access_exists
-        else:
-            workspace_override_exists = (
-                sa.select(sa.literal(1))
-                .select_from(AgentModelAccess)
-                .where(
-                    AgentModelAccess.organization_id == self.organization_id,
-                    AgentModelAccess.workspace_id == workspace_id,
-                )
-                .exists()
-            )
-            workspace_access_exists = (
-                sa.select(sa.literal(1))
-                .select_from(AgentModelAccess)
-                .where(
-                    AgentModelAccess.organization_id == self.organization_id,
-                    AgentModelAccess.workspace_id == workspace_id,
-                    AgentModelAccess.catalog_id == AgentCatalog.id,
-                )
-                .exists()
-            )
-            effective_enabled_expr = sa.case(
-                (workspace_override_exists, workspace_access_exists),
-                else_=org_access_exists,
-            )
-
         stmt = (
             sa.select(
                 AgentCatalog,
                 AgentCustomProvider,
-                effective_enabled_expr.label("is_enabled"),
             )
             .outerjoin(
                 AgentCustomProvider,
@@ -279,7 +266,12 @@ class AgentCustomProviderService(BaseOrgService):
         if row is None:
             raise TracecatNotFoundError(f"Catalog entry {catalog_id} not found")
 
-        catalog, provider, is_enabled = row
+        catalog, provider = row
+        access_service = AgentModelAccessService(session=self.session, role=self.role)
+        is_enabled = await access_service.is_catalog_enabled(
+            catalog.id,
+            workspace_id=workspace_id,
+        )
         if not is_enabled:
             scope = (
                 f"workspace {workspace_id}"
@@ -290,23 +282,8 @@ class AgentCustomProviderService(BaseOrgService):
                 f"Catalog entry {catalog_id} is not enabled for {scope}"
             )
 
-        provider_config = (
-            self._decrypt_custom_provider_config(provider)
-            if provider is not None
-            else {}
-        )
-        fallback_base_url = provider_config.get("base_url")
-        fallback_passthrough = provider_config.get("passthrough")
+        base_url = provider.base_url if provider is not None else None
         passthrough = provider.passthrough if provider is not None else False
-        if not passthrough and isinstance(fallback_passthrough, str):
-            passthrough = fallback_passthrough.lower() in {
-                "1",
-                "true",
-                "yes",
-                "on",
-            }
-        elif not passthrough and isinstance(fallback_passthrough, bool):
-            passthrough = fallback_passthrough
 
         return ResolvedCatalogConfig(
             catalog_id=catalog.id,
@@ -314,13 +291,7 @@ class AgentCustomProviderService(BaseOrgService):
             model_provider=catalog.model_provider,
             model_name=catalog.model_name,
             custom_provider_id=catalog.custom_provider_id,
-            base_url=(
-                provider.base_url
-                if provider is not None and provider.base_url is not None
-                else fallback_base_url
-                if isinstance(fallback_base_url, str)
-                else None
-            ),
+            base_url=base_url,
             passthrough=passthrough,
             api_key_header=provider.api_key_header if provider is not None else None,
             custom_provider_credentials=(

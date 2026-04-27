@@ -39,6 +39,7 @@ from tracecat.audit.logger import audit_log
 from tracecat.auth.secrets import get_db_encryption_key
 from tracecat.authz.controls import require_scope
 from tracecat.db.models import (
+    AgentCatalog,
     AgentPreset,
     AgentPresetSkill,
     AgentPresetVersion,
@@ -240,16 +241,25 @@ class AgentPresetService(BaseWorkspaceService):
                 params.skills,
                 for_update=True,
             )
+        catalog_entry: AgentCatalog | None = None
         if params.catalog_id is not None:
-            await self._validate_catalog_enabled(params.catalog_id)
+            catalog_entry = await self._get_enabled_catalog_entry(params.catalog_id)
         preset = AgentPreset(
             workspace_id=self.workspace_id,
             slug=slug,
             name=params.name,
             description=params.description,
             instructions=params.instructions,
-            model_name=params.model_name,
-            model_provider=params.model_provider,
+            model_name=(
+                catalog_entry.model_name
+                if catalog_entry is not None
+                else params.model_name
+            ),
+            model_provider=(
+                catalog_entry.model_provider
+                if catalog_entry is not None
+                else params.model_provider
+            ),
             catalog_id=params.catalog_id,
             base_url=params.base_url,
             output_type=params.output_type,
@@ -287,8 +297,8 @@ class AgentPresetService(BaseWorkspaceService):
                 f"{len(missing_actions)} actions were not found in the registry: {sorted(missing_actions)}"
             )
 
-    async def _validate_catalog_enabled(self, catalog_id: uuid.UUID) -> None:
-        """Validate that a catalog row is enabled for this workspace."""
+    async def _get_enabled_catalog_entry(self, catalog_id: uuid.UUID) -> AgentCatalog:
+        """Return an org-visible catalog row after validating workspace access."""
         access_service = AgentModelAccessService(session=self.session, role=self.role)
         if not await access_service.is_catalog_enabled(
             catalog_id,
@@ -297,6 +307,19 @@ class AgentPresetService(BaseWorkspaceService):
             raise TracecatValidationError(
                 f"Catalog entry {catalog_id} is not enabled for this workspace"
             )
+        stmt = select(AgentCatalog).where(
+            AgentCatalog.id == catalog_id,
+            sa.or_(
+                AgentCatalog.organization_id.is_(None),
+                AgentCatalog.organization_id == self.organization_id,
+            ),
+        )
+        catalog_entry = (await self.session.execute(stmt)).scalar_one_or_none()
+        if catalog_entry is None:
+            raise TracecatValidationError(
+                f"Catalog entry {catalog_id} is not enabled for this workspace"
+            )
+        return catalog_entry
 
     @require_scope("agent:update")
     @audit_log(resource_type="agent_preset", action="update")
@@ -353,8 +376,15 @@ class AgentPresetService(BaseWorkspaceService):
             if current_specs != requested_specs:
                 await self._replace_head_skill_bindings(preset.id, requested_skills)
                 execution_changed = True
-        if (catalog_id := set_fields.get("catalog_id")) is not None:
-            await self._validate_catalog_enabled(catalog_id)
+        effective_catalog_id = None
+        if "catalog_id" in set_fields:
+            effective_catalog_id = set_fields["catalog_id"]
+        elif "model_name" in set_fields or "model_provider" in set_fields:
+            effective_catalog_id = preset.catalog_id
+        if effective_catalog_id is not None:
+            catalog_entry = await self._get_enabled_catalog_entry(effective_catalog_id)
+            set_fields["model_name"] = catalog_entry.model_name
+            set_fields["model_provider"] = catalog_entry.model_provider
 
         # Update remaining fields
         for field, value in set_fields.items():
@@ -1397,9 +1427,22 @@ class AgentPresetService(BaseWorkspaceService):
         # Only disable parallel tool calls if tools will be present
         if version.actions or mcp_servers:
             model_settings["parallel_tool_calls"] = False
+        model_name = version.model_name
+        model_provider = version.model_provider
+        if version.catalog_id is not None:
+            stmt = select(AgentCatalog.model_provider, AgentCatalog.model_name).where(
+                AgentCatalog.id == version.catalog_id,
+                sa.or_(
+                    AgentCatalog.organization_id.is_(None),
+                    AgentCatalog.organization_id == self.organization_id,
+                ),
+            )
+            row = (await self.session.execute(stmt)).one_or_none()
+            if row is not None:
+                model_provider, model_name = row
         return AgentConfig(
-            model_name=version.model_name,
-            model_provider=version.model_provider,
+            model_name=model_name,
+            model_provider=model_provider,
             catalog_id=version.catalog_id,
             base_url=version.base_url,
             instructions=version.instructions,
