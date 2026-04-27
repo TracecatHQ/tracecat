@@ -213,6 +213,10 @@ function finding(
     closed_at: null,
     control_id:
       assetType === "mcp_server"
+        ? "7dca8397-056a-4cc7-a4a6-3fef782b21a2"
+        : "4fd32453-138e-4273-8501-bf4809eb7adf",
+    control_key:
+      assetType === "mcp_server"
         ? "claude.mcp_server.approved"
         : "claude.instruction_file.obfuscation_absent",
     control_revision: "1",
@@ -241,6 +245,7 @@ function finding(
 
 function control(
   id: string,
+  key: string,
   title: string,
   assetType: SpmControlRead["asset_type"]
 ): SpmControlRead {
@@ -251,13 +256,11 @@ function control(
         : "exclude_instruction_file",
     asset_class: assetType === "mcp_server" ? "mcp_server" : "instruction_file",
     asset_type: assetType,
-    check:
-      assetType === "mcp_server"
-        ? "mcp_server_approved"
-        : "instruction_file_obfuscation_absent",
+    aliases: [],
     description: `${title} description`,
     harness: "claude_code",
     id,
+    key,
     revision: "1",
     severity: "high",
     title,
@@ -307,11 +310,13 @@ describe("SPM operator UI", () => {
     mockUseSpmControls.mockReturnValue({
       data: [
         control(
+          "7dca8397-056a-4cc7-a4a6-3fef782b21a2",
           "claude.mcp_server.approved",
           "Approved MCP servers",
           "mcp_server"
         ),
         control(
+          "4fd32453-138e-4273-8501-bf4809eb7adf",
           "claude.instruction_file.obfuscation_absent",
           "Instruction files must not be obfuscated",
           "claude_md"

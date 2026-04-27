@@ -401,6 +401,7 @@ export function SpmFindingsView() {
         [
           finding.summary,
           finding.control_id,
+          finding.control_key,
           finding.status,
           finding.severity,
           finding.asset_type,
@@ -698,6 +699,7 @@ export function SpmControlsView() {
       includesQuery(
         [
           control.id,
+          control.key,
           control.title,
           control.description,
           control.severity,
@@ -782,7 +784,7 @@ export function SpmControlsView() {
                         <FileSearchIcon className="size-4 text-muted-foreground" />
                       }
                       title={control.title}
-                      subtitle={control.id}
+                      subtitle={control.key}
                       badges={
                         <>
                           <SmallBadge

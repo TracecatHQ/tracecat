@@ -14,7 +14,6 @@ from tracecat.pagination import CursorPaginatedResponse
 from tracecat_ee.spm.types import (
     SpmAssetClass,
     SpmAssetType,
-    SpmControlCheck,
     SpmEndpointPlatform,
     SpmEndpointStatus,
     SpmEnforcementAction,
@@ -30,7 +29,9 @@ from tracecat_ee.spm.types import (
 class SpmControlRead(Schema):
     """Static SPM control manifest."""
 
-    id: str
+    id: uuid.UUID
+    key: str = Field(min_length=1, max_length=255)
+    aliases: list[str] = Field(default_factory=list)
     revision: str
     title: str
     description: str
@@ -38,8 +39,174 @@ class SpmControlRead(Schema):
     asset_class: SpmAssetClass
     asset_type: SpmAssetType
     severity: SpmSeverity
-    check: SpmControlCheck
     action: SpmEnforcementAction
+
+
+class SpmControlPolicy(Schema):
+    """Endpoint policy materialized for control evaluation."""
+
+    approved_mcp_servers: set[str] = Field(default_factory=set)
+    approved_trusted_directories: set[str] = Field(default_factory=set)
+    approved_additional_directories: set[str] = Field(default_factory=set)
+    approved_hooks: set[str] = Field(default_factory=set)
+    approved_skills: set[str] = Field(default_factory=set)
+    approved_permission_config: Any = None
+    approved_sandbox_config: Any = None
+
+    @classmethod
+    def from_client_metadata(cls, client_metadata: dict[str, Any]) -> SpmControlPolicy:
+        raw_policy = client_metadata.get("spm_policy")
+        if not isinstance(raw_policy, dict):
+            return cls()
+
+        return cls(
+            approved_mcp_servers={
+                identity
+                for identity in (
+                    cls._normalize_mcp_identity(item)
+                    for item in raw_policy.get("approved_mcp_servers", [])
+                )
+                if identity is not None
+            },
+            approved_trusted_directories=set(
+                cls._string_items(raw_policy.get("approved_trusted_directories", []))
+            ),
+            approved_additional_directories=set(
+                cls._string_items(raw_policy.get("approved_additional_directories", []))
+            ),
+            approved_hooks=set(cls._string_items(raw_policy.get("approved_hooks", []))),
+            approved_skills=set(
+                cls._string_items(raw_policy.get("approved_skills", []))
+            ),
+            approved_permission_config=raw_policy.get("approved_permission_config"),
+            approved_sandbox_config=raw_policy.get("approved_sandbox_config"),
+        )
+
+    @staticmethod
+    def _string_items(raw: Any) -> list[str]:
+        if not isinstance(raw, list):
+            return []
+        return [item for item in raw if isinstance(item, str) and item]
+
+    @staticmethod
+    def _normalize_mcp_identity(raw: Any) -> str | None:
+        if isinstance(raw, str) and raw:
+            return raw
+        if not isinstance(raw, dict):
+            return None
+        server_name = raw.get("server_name")
+        resolved_identity = raw.get("resolved_identity")
+        if not isinstance(server_name, str) or not isinstance(resolved_identity, str):
+            return None
+        return f"{server_name}|{resolved_identity}"
+
+
+class SpmControlAssetBase(Schema):
+    """Common endpoint-collected asset data passed to controls."""
+
+    id: uuid.UUID
+    sighting_id: uuid.UUID
+    identity_key: str
+    display_name: str
+    harness: SpmHarness
+    asset_class: SpmAssetClass
+    asset_type: SpmAssetType
+    content_hash: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    evidence: dict[str, Any] = Field(default_factory=dict)
+    observed_state: dict[str, Any] = Field(default_factory=dict)
+
+
+class SpmDirectoryControlData(SpmControlAssetBase):
+    """Directory asset data collected from endpoint inventory."""
+
+    directory_path: str
+    file_path: str | None = None
+    parse_status: str | None = None
+
+
+class SpmConfigControlData(SpmControlAssetBase):
+    """Permission or sandbox config data collected from endpoint inventory."""
+
+    file_path: str | None = None
+    project_root: str | None = None
+    parse_status: str | None = None
+    value: Any = None
+
+
+class SpmMcpServerControlData(SpmControlAssetBase):
+    """MCP server data collected from endpoint inventory."""
+
+    file_path: str | None = None
+    project_root: str | None = None
+    parse_status: str | None = None
+    server_name: str | None = None
+    resolved_identity: str | None = None
+    mcp_identity_key: str | None = None
+
+
+class SpmHookControlData(SpmControlAssetBase):
+    """Hook data collected from endpoint inventory."""
+
+    file_path: str | None = None
+    project_root: str | None = None
+    parse_status: str | None = None
+    fingerprint: str | None = None
+    event: str | None = None
+    command: str | None = None
+
+
+class SpmSkillControlData(SpmControlAssetBase):
+    """Skill data collected from endpoint inventory."""
+
+    file_path: str | None = None
+    project_root: str | None = None
+    parse_status: str | None = None
+    fingerprint: str | None = None
+    name: str | None = None
+    skill: Any = None
+
+
+class SpmInstructionFileControlData(SpmControlAssetBase):
+    """Claude instruction-file data collected from endpoint inventory."""
+
+    file_path: str | None = None
+    project_root: str | None = None
+    parse_status: str | None = None
+    enforceable: bool | None = None
+    language_signal: dict[str, Any] = Field(default_factory=dict)
+    obfuscation: dict[str, Any] = Field(default_factory=dict)
+    urls: list[str] = Field(default_factory=list)
+    domains: list[str] = Field(default_factory=list)
+    ips: list[str] = Field(default_factory=list)
+
+
+type SpmAnyControlAssetData = (
+    SpmDirectoryControlData
+    | SpmConfigControlData
+    | SpmMcpServerControlData
+    | SpmHookControlData
+    | SpmSkillControlData
+    | SpmInstructionFileControlData
+)
+
+
+class SpmControlContext(Schema):
+    """Input contract for a single SPM control check."""
+
+    asset: SpmAnyControlAssetData
+    policy: SpmControlPolicy
+    intelligence: dict[str, Any] = Field(default_factory=dict)
+
+
+class SpmControlResult(Schema):
+    """Result returned by a single SPM control check."""
+
+    failed: bool
+    summary: str
+    evidence: dict[str, Any] = Field(default_factory=dict)
+    recommended_payload: dict[str, Any] = Field(default_factory=dict)
+    enrichment: dict[str, Any] = Field(default_factory=dict)
 
 
 class SpmEndpointRead(Schema):
@@ -169,7 +336,8 @@ class SpmFindingRead(Schema):
     endpoint_id: uuid.UUID
     asset_id: uuid.UUID
     asset_sighting_id: uuid.UUID | None = None
-    control_id: str
+    control_id: uuid.UUID
+    control_key: str
     control_revision: str | None = None
     harness: SpmHarness
     asset_class: SpmAssetClass

@@ -433,10 +433,14 @@ class BestEffortSpmThreatIntelProvider:
                     json=json,
                 )
                 response.raise_for_status()
-                payload = response.json()
-                return payload if isinstance(payload, dict) else {}
-        except Exception:
+        except httpx.HTTPError:
             return {}
+
+        try:
+            payload = response.json()
+        except ValueError:
+            return {}
+        return payload if isinstance(payload, dict) else {}
 
 
 def _package_coordinate(

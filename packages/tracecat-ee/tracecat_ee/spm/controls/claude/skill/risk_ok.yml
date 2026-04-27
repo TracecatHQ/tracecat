@@ -1,4 +1,6 @@
-id: claude.skill.risk_ok
+id: d304640f-3bdd-4669-b189-35e809525277
+key: claude.skill.risk_ok
+aliases: []
 revision: "1"
 title: Claude Skill Must Not Match Risk Heuristics
 description: Skills configured for Claude must not match high-signal risky content heuristics.
@@ -6,5 +8,4 @@ harness: claude_code
 asset_class: skill
 asset_type: skill
 severity: high
-check: skill_risk_ok
 action: disable_skill

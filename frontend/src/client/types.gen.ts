@@ -2635,6 +2635,54 @@ export type CursorPaginatedResponse_ServiceAccountRead_ = {
   total_estimate?: number | null
 }
 
+export type CursorPaginatedResponse_SkillReadMinimal_ = {
+  items: Array<SkillReadMinimal>
+  /**
+   * Cursor for next page
+   */
+  next_cursor?: string | null
+  /**
+   * Cursor for previous page
+   */
+  prev_cursor?: string | null
+  /**
+   * Whether more items exist
+   */
+  has_more?: boolean
+  /**
+   * Whether previous items exist
+   */
+  has_previous?: boolean
+  /**
+   * Estimated total count from table statistics
+   */
+  total_estimate?: number | null
+}
+
+export type CursorPaginatedResponse_SkillVersionReadMinimal_ = {
+  items: Array<SkillVersionReadMinimal>
+  /**
+   * Cursor for next page
+   */
+  next_cursor?: string | null
+  /**
+   * Cursor for previous page
+   */
+  prev_cursor?: string | null
+  /**
+   * Whether more items exist
+   */
+  has_more?: boolean
+  /**
+   * Whether previous items exist
+   */
+  has_previous?: boolean
+  /**
+   * Estimated total count from table statistics
+   */
+  total_estimate?: number | null
+}
+
 export type CursorPaginatedResponse_SpmAssetRead_ = {
   items: Array<SpmAssetRead>
   /**
@@ -2709,54 +2757,6 @@ export type CursorPaginatedResponse_SpmEndpointRead_ = {
 
 export type CursorPaginatedResponse_SpmFindingRead_ = {
   items: Array<SpmFindingRead>
-  /**
-   * Cursor for next page
-   */
-  next_cursor?: string | null
-  /**
-   * Cursor for previous page
-   */
-  prev_cursor?: string | null
-  /**
-   * Whether more items exist
-   */
-  has_more?: boolean
-  /**
-   * Whether previous items exist
-   */
-  has_previous?: boolean
-  /**
-   * Estimated total count from table statistics
-   */
-  total_estimate?: number | null
-}
-
-export type CursorPaginatedResponse_SkillReadMinimal_ = {
-  items: Array<SkillReadMinimal>
-  /**
-   * Cursor for next page
-   */
-  next_cursor?: string | null
-  /**
-   * Cursor for previous page
-   */
-  prev_cursor?: string | null
-  /**
-   * Whether more items exist
-   */
-  has_more?: boolean
-  /**
-   * Whether previous items exist
-   */
-  has_previous?: boolean
-  /**
-   * Estimated total count from table statistics
-   */
-  total_estimate?: number | null
-}
-
-export type CursorPaginatedResponse_SkillVersionReadMinimal_ = {
-  items: Array<SkillVersionReadMinimal>
   /**
    * Cursor for next page
    */
@@ -6268,29 +6268,12 @@ export type SpmAssetType =
   | "subagent"
 
 /**
- * Registered SPM control evaluation keys.
- */
-export type SpmControlCheck =
-  | "trusted_directory_approved"
-  | "additional_directory_approved"
-  | "permission_config_approved"
-  | "sandbox_config_approved"
-  | "mcp_server_approved"
-  | "mcp_server_vulnerability_ok"
-  | "mcp_server_reputation_ok"
-  | "skill_approved"
-  | "skill_risk_ok"
-  | "hook_approved"
-  | "hook_risk_ok"
-  | "instruction_file_language_english"
-  | "instruction_file_obfuscation_absent"
-  | "instruction_file_external_indicators_reputation_ok"
-
-/**
  * Static SPM control manifest.
  */
 export type SpmControlRead = {
   id: string
+  key: string
+  aliases?: Array<string>
   revision: string
   title: string
   description: string
@@ -6298,7 +6281,6 @@ export type SpmControlRead = {
   asset_class: SpmAssetClass
   asset_type: SpmAssetType
   severity: SpmSeverity
-  check: SpmControlCheck
   action: SpmEnforcementAction
 }
 
@@ -6504,6 +6486,7 @@ export type SpmFindingRead = {
   asset_id: string
   asset_sighting_id?: string | null
   control_id: string
+  control_key: string
   control_revision?: string | null
   harness: SpmHarness
   asset_class: SpmAssetClass

@@ -9014,6 +9014,132 @@ export const $CursorPaginatedResponse_ServiceAccountRead_ = {
   title: "CursorPaginatedResponse[ServiceAccountRead]",
 } as const
 
+export const $CursorPaginatedResponse_SkillReadMinimal_ = {
+  properties: {
+    items: {
+      items: {
+        $ref: "#/components/schemas/SkillReadMinimal",
+      },
+      type: "array",
+      title: "Items",
+    },
+    next_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Next Cursor",
+      description: "Cursor for next page",
+    },
+    prev_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Prev Cursor",
+      description: "Cursor for previous page",
+    },
+    has_more: {
+      type: "boolean",
+      title: "Has More",
+      description: "Whether more items exist",
+      default: false,
+    },
+    has_previous: {
+      type: "boolean",
+      title: "Has Previous",
+      description: "Whether previous items exist",
+      default: false,
+    },
+    total_estimate: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Total Estimate",
+      description: "Estimated total count from table statistics",
+    },
+  },
+  type: "object",
+  required: ["items"],
+  title: "CursorPaginatedResponse[SkillReadMinimal]",
+} as const
+
+export const $CursorPaginatedResponse_SkillVersionReadMinimal_ = {
+  properties: {
+    items: {
+      items: {
+        $ref: "#/components/schemas/SkillVersionReadMinimal",
+      },
+      type: "array",
+      title: "Items",
+    },
+    next_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Next Cursor",
+      description: "Cursor for next page",
+    },
+    prev_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Prev Cursor",
+      description: "Cursor for previous page",
+    },
+    has_more: {
+      type: "boolean",
+      title: "Has More",
+      description: "Whether more items exist",
+      default: false,
+    },
+    has_previous: {
+      type: "boolean",
+      title: "Has Previous",
+      description: "Whether previous items exist",
+      default: false,
+    },
+    total_estimate: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Total Estimate",
+      description: "Estimated total count from table statistics",
+    },
+  },
+  type: "object",
+  required: ["items"],
+  title: "CursorPaginatedResponse[SkillVersionReadMinimal]",
+} as const
+
 export const $CursorPaginatedResponse_SpmAssetRead_ = {
   properties: {
     items: {
@@ -9264,258 +9390,6 @@ export const $CursorPaginatedResponse_SpmFindingRead_ = {
   type: "object",
   required: ["items"],
   title: "CursorPaginatedResponse[SpmFindingRead]",
-} as const
-
-export const $CursorPaginatedResponse_ServiceAccountApiKeyRead_ = {
-  properties: {
-    items: {
-      items: {
-        $ref: "#/components/schemas/ServiceAccountApiKeyRead",
-      },
-      type: "array",
-      title: "Items",
-    },
-    next_cursor: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Next Cursor",
-      description: "Cursor for next page",
-    },
-    prev_cursor: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Prev Cursor",
-      description: "Cursor for previous page",
-    },
-    has_more: {
-      type: "boolean",
-      title: "Has More",
-      description: "Whether more items exist",
-      default: false,
-    },
-    has_previous: {
-      type: "boolean",
-      title: "Has Previous",
-      description: "Whether previous items exist",
-      default: false,
-    },
-    total_estimate: {
-      anyOf: [
-        {
-          type: "integer",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Total Estimate",
-      description: "Estimated total count from table statistics",
-    },
-  },
-  type: "object",
-  required: ["items"],
-  title: "CursorPaginatedResponse[ServiceAccountApiKeyRead]",
-} as const
-
-export const $CursorPaginatedResponse_ServiceAccountRead_ = {
-  properties: {
-    items: {
-      items: {
-        $ref: "#/components/schemas/ServiceAccountRead",
-      },
-      type: "array",
-      title: "Items",
-    },
-    next_cursor: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Next Cursor",
-      description: "Cursor for next page",
-    },
-    prev_cursor: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Prev Cursor",
-      description: "Cursor for previous page",
-    },
-    has_more: {
-      type: "boolean",
-      title: "Has More",
-      description: "Whether more items exist",
-      default: false,
-    },
-    has_previous: {
-      type: "boolean",
-      title: "Has Previous",
-      description: "Whether previous items exist",
-      default: false,
-    },
-    total_estimate: {
-      anyOf: [
-        {
-          type: "integer",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Total Estimate",
-      description: "Estimated total count from table statistics",
-    },
-  },
-  type: "object",
-  required: ["items"],
-  title: "CursorPaginatedResponse[ServiceAccountRead]",
-} as const
-
-export const $CursorPaginatedResponse_SkillReadMinimal_ = {
-  properties: {
-    items: {
-      items: {
-        $ref: "#/components/schemas/SkillReadMinimal",
-      },
-      type: "array",
-      title: "Items",
-    },
-    next_cursor: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Next Cursor",
-      description: "Cursor for next page",
-    },
-    prev_cursor: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Prev Cursor",
-      description: "Cursor for previous page",
-    },
-    has_more: {
-      type: "boolean",
-      title: "Has More",
-      description: "Whether more items exist",
-      default: false,
-    },
-    has_previous: {
-      type: "boolean",
-      title: "Has Previous",
-      description: "Whether previous items exist",
-      default: false,
-    },
-    total_estimate: {
-      anyOf: [
-        {
-          type: "integer",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Total Estimate",
-      description: "Estimated total count from table statistics",
-    },
-  },
-  type: "object",
-  required: ["items"],
-  title: "CursorPaginatedResponse[SkillReadMinimal]",
-} as const
-
-export const $CursorPaginatedResponse_SkillVersionReadMinimal_ = {
-  properties: {
-    items: {
-      items: {
-        $ref: "#/components/schemas/SkillVersionReadMinimal",
-      },
-      type: "array",
-      title: "Items",
-    },
-    next_cursor: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Next Cursor",
-      description: "Cursor for next page",
-    },
-    prev_cursor: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Prev Cursor",
-      description: "Cursor for previous page",
-    },
-    has_more: {
-      type: "boolean",
-      title: "Has More",
-      description: "Whether more items exist",
-      default: false,
-    },
-    has_previous: {
-      type: "boolean",
-      title: "Has Previous",
-      description: "Whether previous items exist",
-      default: false,
-    },
-    total_estimate: {
-      anyOf: [
-        {
-          type: "integer",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Total Estimate",
-      description: "Estimated total count from table statistics",
-    },
-  },
-  type: "object",
-  required: ["items"],
-  title: "CursorPaginatedResponse[SkillVersionReadMinimal]",
 } as const
 
 export const $CursorPaginatedResponse_TableRowRead_ = {
@@ -20475,33 +20349,25 @@ export const $SpmAssetType = {
   description: "Harness-native governed surfaces.",
 } as const
 
-export const $SpmControlCheck = {
-  type: "string",
-  enum: [
-    "trusted_directory_approved",
-    "additional_directory_approved",
-    "permission_config_approved",
-    "sandbox_config_approved",
-    "mcp_server_approved",
-    "mcp_server_vulnerability_ok",
-    "mcp_server_reputation_ok",
-    "skill_approved",
-    "skill_risk_ok",
-    "hook_approved",
-    "hook_risk_ok",
-    "instruction_file_language_english",
-    "instruction_file_obfuscation_absent",
-    "instruction_file_external_indicators_reputation_ok",
-  ],
-  title: "SpmControlCheck",
-  description: "Registered SPM control evaluation keys.",
-} as const
-
 export const $SpmControlRead = {
   properties: {
     id: {
       type: "string",
+      format: "uuid",
       title: "Id",
+    },
+    key: {
+      type: "string",
+      maxLength: 255,
+      minLength: 1,
+      title: "Key",
+    },
+    aliases: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Aliases",
     },
     revision: {
       type: "string",
@@ -20527,9 +20393,6 @@ export const $SpmControlRead = {
     severity: {
       $ref: "#/components/schemas/SpmSeverity",
     },
-    check: {
-      $ref: "#/components/schemas/SpmControlCheck",
-    },
     action: {
       $ref: "#/components/schemas/SpmEnforcementAction",
     },
@@ -20537,6 +20400,7 @@ export const $SpmControlRead = {
   type: "object",
   required: [
     "id",
+    "key",
     "revision",
     "title",
     "description",
@@ -20544,7 +20408,6 @@ export const $SpmControlRead = {
     "asset_class",
     "asset_type",
     "severity",
-    "check",
     "action",
   ],
   title: "SpmControlRead",
@@ -21316,7 +21179,12 @@ export const $SpmFindingRead = {
     },
     control_id: {
       type: "string",
+      format: "uuid",
       title: "Control Id",
+    },
+    control_key: {
+      type: "string",
+      title: "Control Key",
     },
     control_revision: {
       anyOf: [
@@ -21420,6 +21288,7 @@ export const $SpmFindingRead = {
     "endpoint_id",
     "asset_id",
     "control_id",
+    "control_key",
     "harness",
     "asset_class",
     "asset_type",

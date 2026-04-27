@@ -1,4 +1,6 @@
-id: claude.hook.risk_ok
+id: 2f543556-e7b4-486f-817b-724694b81830
+key: claude.hook.risk_ok
+aliases: []
 revision: "1"
 title: Claude Hook Must Not Match Risk Heuristics
 description: Hooks configured for Claude must not match high-signal risky command heuristics.
@@ -6,5 +8,4 @@ harness: claude_code
 asset_class: extension
 asset_type: hook
 severity: high
-check: hook_risk_ok
 action: disable_hook

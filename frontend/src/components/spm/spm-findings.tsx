@@ -70,7 +70,7 @@ export function FindingRow(props: {
   const enforcementState = getFindingEnforcementState(props.finding)
   const controlTitle =
     props.controls?.find((control) => control.id === props.finding.control_id)
-      ?.title ?? props.finding.control_id
+      ?.title ?? props.finding.control_key
   const subtitleParts = [
     showEndpoint
       ? getEndpointName(props.finding.endpoint_id, props.endpoints)
@@ -135,6 +135,7 @@ export function findingMatchesQuery(props: {
     [
       props.finding.summary,
       props.finding.control_id,
+      props.finding.control_key,
       props.finding.status,
       props.finding.severity,
       props.finding.asset_type,

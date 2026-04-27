@@ -3,13 +3,20 @@
 from __future__ import annotations
 
 import hashlib
+import importlib.util
 import secrets
+import sys
 import uuid
+from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import Any
+from functools import lru_cache
+from pathlib import Path
+from typing import Any, cast
 
 import sqlalchemy as sa
-from fastapi import HTTPException, status
+import yaml
+from pydantic import ValidationError
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -22,11 +29,7 @@ from tracecat.db.models import (
     SpmFinding,
     SpmFindingDecision,
 )
-from tracecat.exceptions import (
-    EntitlementRequired,
-    TracecatNotFoundError,
-    TracecatValidationError,
-)
+from tracecat.exceptions import EntitlementRequired
 from tracecat.pagination import (
     BaseCursorPaginator,
     CursorPaginatedResponse,
@@ -35,13 +38,26 @@ from tracecat.pagination import (
 from tracecat.service import BaseOrgService
 from tracecat.tiers.access import is_org_entitled
 from tracecat.tiers.enums import Entitlement
-from tracecat_ee.spm.analyzer import SpmInventoryAnalyzer
-from tracecat_ee.spm.controls import get_control, get_control_catalog
-from tracecat_ee.spm.intel import BestEffortSpmThreatIntelProvider
+from tracecat_ee.spm.exceptions import (
+    SpmAuthenticationError,
+    SpmConflictError,
+    SpmControlCatalogError,
+    SpmNotFoundError,
+)
+from tracecat_ee.spm.intel import (
+    BestEffortSpmThreatIntelProvider,
+    SpmThreatIntelProvider,
+)
 from tracecat_ee.spm.schemas import (
+    SpmAnyControlAssetData,
     SpmAssetQueryParams,
     SpmAssetRead,
+    SpmConfigControlData,
+    SpmControlContext,
+    SpmControlPolicy,
     SpmControlRead,
+    SpmControlResult,
+    SpmDirectoryControlData,
     SpmEndpointAssetRead,
     SpmEndpointCreate,
     SpmEndpointCreateResponse,
@@ -53,10 +69,15 @@ from tracecat_ee.spm.schemas import (
     SpmFindingDecisionRead,
     SpmFindingQueryParams,
     SpmFindingRead,
+    SpmHookControlData,
+    SpmInstructionFileControlData,
+    SpmMcpServerControlData,
+    SpmSkillControlData,
     SpmSyncAssetUpsert,
     SpmSyncTaskResult,
 )
 from tracecat_ee.spm.types import (
+    SpmAssetType,
     SpmEnforcementTaskStatus,
     SpmFindingDecisionType,
     SpmFindingStatus,
@@ -117,6 +138,332 @@ def _apply_desc_cursor_filter_columns(
     )
 
 
+type SpmControlCheckFn = Callable[[SpmControlContext], SpmControlResult]
+
+
+@dataclass(frozen=True, slots=True)
+class SpmControlDefinition:
+    """Loaded SPM control metadata and executable check."""
+
+    control: SpmControlRead
+    check: SpmControlCheckFn
+    metadata_path: Path
+    check_path: Path
+
+
+def load_control_catalog_from_directory(
+    directory: str | Path,
+) -> tuple[SpmControlRead, ...]:
+    """Load and validate an SPM control catalog from a directory tree."""
+    return tuple(
+        definition.control
+        for definition in _load_control_definitions_from_directory(Path(directory))
+    )
+
+
+@lru_cache(maxsize=1)
+def _get_control_definitions() -> tuple[SpmControlDefinition, ...]:
+    return _load_control_definitions_from_directory(_builtin_control_directory())
+
+
+def get_control_catalog() -> tuple[SpmControlRead, ...]:
+    """Return built-in static SPM control metadata."""
+    return tuple(definition.control for definition in _get_control_definitions())
+
+
+def get_control(control_ref: str | uuid.UUID) -> SpmControlRead | None:
+    """Fetch a control by UUID, current key, or alias."""
+    if definition := _get_control_definition(control_ref):
+        return definition.control
+    return None
+
+
+def _builtin_control_directory() -> Path:
+    return Path(__file__).parent / "controls"
+
+
+def _load_control_definitions_from_directory(
+    directory: Path,
+) -> tuple[SpmControlDefinition, ...]:
+    manifest_paths = sorted(
+        path
+        for path in directory.rglob("*")
+        if path.is_file() and path.suffix in {".yml", ".yaml"}
+    )
+    if not manifest_paths:
+        raise SpmControlCatalogError(
+            "SPM control catalog is empty.",
+            code="spm_control_catalog_empty",
+            path=directory,
+        )
+
+    definitions: list[SpmControlDefinition] = []
+    seen_ids: dict[uuid.UUID, Path] = {}
+    seen_refs: dict[str, Path] = {}
+
+    for manifest_path in manifest_paths:
+        raw_manifest = _read_control_manifest(manifest_path)
+        try:
+            control = SpmControlRead.model_validate(raw_manifest)
+        except ValidationError as exc:
+            raise SpmControlCatalogError(
+                "Invalid SPM control manifest.",
+                code="spm_control_manifest_invalid",
+                path=manifest_path,
+            ) from exc
+
+        if control.id in seen_ids:
+            raise SpmControlCatalogError(
+                "Duplicate SPM control id.",
+                code="spm_control_id_duplicate",
+                path=manifest_path,
+                ref=control.id,
+            )
+        seen_ids[control.id] = manifest_path
+
+        for ref in (control.key, *control.aliases):
+            if not ref:
+                raise SpmControlCatalogError(
+                    "Empty SPM control key or alias.",
+                    code="spm_control_ref_empty",
+                    path=manifest_path,
+                )
+            if ref in seen_refs:
+                raise SpmControlCatalogError(
+                    "Duplicate SPM control key or alias.",
+                    code="spm_control_ref_duplicate",
+                    path=manifest_path,
+                    ref=ref,
+                    existing_path=seen_refs[ref],
+                )
+            seen_refs[ref] = manifest_path
+
+        check_path = manifest_path.with_suffix(".py")
+        if not check_path.exists():
+            raise SpmControlCatalogError(
+                "Missing SPM control check file.",
+                code="spm_control_check_missing",
+                path=check_path,
+                ref=control.key,
+            )
+
+        definitions.append(
+            SpmControlDefinition(
+                control=control,
+                check=_load_control_check(control.id, check_path),
+                metadata_path=manifest_path,
+                check_path=check_path,
+            )
+        )
+
+    return tuple(sorted(definitions, key=lambda definition: definition.control.key))
+
+
+def _read_control_manifest(manifest_path: Path) -> dict[str, Any]:
+    with manifest_path.open("r", encoding="utf-8") as handle:
+        raw_manifest = yaml.safe_load(handle)
+    if not isinstance(raw_manifest, dict):
+        raise SpmControlCatalogError(
+            "SPM control manifest must be an object.",
+            code="spm_control_manifest_not_object",
+            path=manifest_path,
+        )
+    return raw_manifest
+
+
+def _load_control_check(control_id: uuid.UUID, check_path: Path) -> SpmControlCheckFn:
+    module_name = f"_tracecat_spm_control_{control_id.hex}"
+    spec = importlib.util.spec_from_file_location(module_name, check_path)
+    if spec is None or spec.loader is None:
+        raise SpmControlCatalogError(
+            "Unable to load SPM control check file.",
+            code="spm_control_check_load_failed",
+            path=check_path,
+            ref=control_id,
+        )
+
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[module_name] = module
+    spec.loader.exec_module(module)
+
+    check = getattr(module, "check", None)
+    if not callable(check):
+        raise SpmControlCatalogError(
+            "SPM control check must define check(ctx).",
+            code="spm_control_check_invalid",
+            path=check_path,
+            ref=control_id,
+        )
+    return cast(SpmControlCheckFn, check)
+
+
+def _get_control_definition(
+    control_ref: str | uuid.UUID,
+) -> SpmControlDefinition | None:
+    ref = str(control_ref)
+    for definition in _get_control_definitions():
+        control = definition.control
+        if ref == str(control.id) or ref == control.key or ref in control.aliases:
+            return definition
+    return None
+
+
+@lru_cache(maxsize=1)
+def _control_definitions_by_target() -> dict[
+    tuple[str, str, str], tuple[SpmControlDefinition, ...]
+]:
+    grouped: dict[tuple[str, str, str], list[SpmControlDefinition]] = {}
+    for definition in _get_control_definitions():
+        control = definition.control
+        target = (
+            control.harness.value,
+            control.asset_class.value,
+            control.asset_type.value,
+        )
+        grouped.setdefault(target, []).append(definition)
+    return {
+        target: tuple(sorted(items, key=lambda definition: definition.control.key))
+        for target, items in grouped.items()
+    }
+
+
+def _controls_for_asset(asset: SpmAsset) -> tuple[SpmControlDefinition, ...]:
+    return _control_definitions_by_target().get(
+        (asset.harness, asset.asset_class, asset.asset_type),
+        (),
+    )
+
+
+def _control_id_for_ref(control_ref: str) -> uuid.UUID | None:
+    if definition := _get_control_definition(control_ref):
+        return definition.control.id
+    try:
+        return uuid.UUID(control_ref)
+    except ValueError:
+        return None
+
+
+def _control_data_from_rows(
+    *,
+    asset: SpmAsset,
+    sighting: SpmAssetSighting,
+) -> SpmAnyControlAssetData:
+    metadata = asset.asset_metadata or {}
+    evidence = sighting.evidence or {}
+    observed_state = sighting.observed_state or {}
+    base = {
+        "id": asset.id,
+        "sighting_id": sighting.id,
+        "identity_key": asset.identity_key,
+        "display_name": asset.display_name,
+        "harness": asset.harness,
+        "asset_class": asset.asset_class,
+        "asset_type": asset.asset_type,
+        "content_hash": sighting.content_hash or asset.content_hash,
+        "metadata": metadata,
+        "evidence": evidence,
+        "observed_state": observed_state,
+    }
+
+    match asset.asset_type:
+        case (
+            SpmAssetType.TRUSTED_DIRECTORY.value
+            | SpmAssetType.ADDITIONAL_DIRECTORY.value
+        ):
+            directory_path = (
+                _string(metadata.get("directory_path")) or asset.identity_key
+            )
+            return SpmDirectoryControlData.model_validate(
+                {
+                    **base,
+                    "directory_path": directory_path,
+                    "file_path": _string(metadata.get("file_path")),
+                    "parse_status": _string(metadata.get("parse_status")),
+                }
+            )
+        case SpmAssetType.PERMISSION_CONFIG.value | SpmAssetType.SANDBOX_CONFIG.value:
+            return SpmConfigControlData.model_validate(
+                {
+                    **base,
+                    "file_path": _string(metadata.get("file_path")),
+                    "project_root": _string(metadata.get("project_root")),
+                    "parse_status": _string(metadata.get("parse_status")),
+                    "value": observed_state.get("value"),
+                }
+            )
+        case SpmAssetType.MCP_SERVER.value:
+            return SpmMcpServerControlData.model_validate(
+                {
+                    **base,
+                    "file_path": _string(metadata.get("file_path")),
+                    "project_root": _string(metadata.get("project_root")),
+                    "parse_status": _string(metadata.get("parse_status")),
+                    "server_name": _string(metadata.get("server_name")),
+                    "resolved_identity": _string(metadata.get("resolved_identity")),
+                    "mcp_identity_key": _string(metadata.get("mcp_identity_key")),
+                }
+            )
+        case SpmAssetType.HOOK.value:
+            return SpmHookControlData.model_validate(
+                {
+                    **base,
+                    "file_path": _string(metadata.get("file_path")),
+                    "project_root": _string(metadata.get("project_root")),
+                    "parse_status": _string(metadata.get("parse_status")),
+                    "fingerprint": _string(metadata.get("fingerprint")),
+                    "event": _string(metadata.get("event")),
+                    "command": _string(metadata.get("command")),
+                }
+            )
+        case SpmAssetType.SKILL.value:
+            return SpmSkillControlData.model_validate(
+                {
+                    **base,
+                    "file_path": _string(metadata.get("file_path")),
+                    "project_root": _string(metadata.get("project_root")),
+                    "parse_status": _string(metadata.get("parse_status")),
+                    "fingerprint": _string(metadata.get("fingerprint")),
+                    "name": _string(metadata.get("name")),
+                    "skill": evidence.get("skill"),
+                }
+            )
+        case SpmAssetType.CLAUDE_MD.value:
+            return SpmInstructionFileControlData.model_validate(
+                {
+                    **base,
+                    "file_path": _string(metadata.get("file_path")),
+                    "project_root": _string(metadata.get("project_root")),
+                    "parse_status": _string(metadata.get("parse_status")),
+                    "enforceable": _bool(metadata.get("enforceable")),
+                    "language_signal": _dict(evidence.get("language_signal")),
+                    "obfuscation": _dict(evidence.get("obfuscation")),
+                    "urls": _string_list(evidence.get("urls")),
+                    "domains": _string_list(evidence.get("domains")),
+                    "ips": _string_list(evidence.get("ips")),
+                }
+            )
+
+    raise ValueError(f"Unsupported SPM asset type for controls: {asset.asset_type}")
+
+
+def _string(raw: Any) -> str | None:
+    return raw if isinstance(raw, str) else None
+
+
+def _bool(raw: Any) -> bool | None:
+    return raw if isinstance(raw, bool) else None
+
+
+def _dict(raw: Any) -> dict[str, Any]:
+    return raw if isinstance(raw, dict) else {}
+
+
+def _string_list(raw: Any) -> list[str]:
+    if not isinstance(raw, list):
+        return []
+    return [item for item in raw if isinstance(item, str)]
+
+
 class SpmService(BaseOrgService):
     """Org-scoped service for SPM operator APIs."""
 
@@ -128,7 +475,11 @@ class SpmService(BaseOrgService):
     async def get_control(self, control_id: str) -> SpmControlRead:
         if control := get_control(control_id):
             return control
-        raise TracecatNotFoundError(f"SPM control not found: {control_id}")
+        raise SpmNotFoundError(
+            "SPM control not found.",
+            code="spm_control_not_found",
+            control_id=control_id,
+        )
 
     async def list_endpoints(
         self,
@@ -200,8 +551,10 @@ class SpmService(BaseOrgService):
     async def delete_pending_endpoint(self, endpoint_id: uuid.UUID) -> None:
         row = await self._get_endpoint_row(endpoint_id)
         if not self._can_delete_pending_endpoint(row):
-            raise TracecatValidationError(
-                "Only pending enrollments that have never enrolled or synced can be removed"
+            raise SpmConflictError(
+                "Only pending enrollments that have never enrolled or synced can be removed.",
+                code="spm_endpoint_delete_conflict",
+                endpoint_id=endpoint_id,
             )
         await self.session.delete(row)
         await self.session.commit()
@@ -326,7 +679,11 @@ class SpmService(BaseOrgService):
         )
         row = (await self.session.scalars(stmt)).one_or_none()
         if row is None:
-            raise TracecatNotFoundError(f"SPM asset not found: {asset_id}")
+            raise SpmNotFoundError(
+                "SPM asset not found.",
+                code="spm_asset_not_found",
+                asset_id=asset_id,
+            )
         return SpmAssetRead.model_validate(row)
 
     async def list_findings(
@@ -339,7 +696,12 @@ class SpmService(BaseOrgService):
         if params.endpoint_id is not None:
             stmt = stmt.where(SpmFinding.endpoint_id == params.endpoint_id)
         if params.control_id is not None:
-            stmt = stmt.where(SpmFinding.control_id == params.control_id)
+            control_id = _control_id_for_ref(params.control_id)
+            stmt = (
+                stmt.where(SpmFinding.control_id == control_id)
+                if control_id is not None
+                else stmt.where(sa.false())
+            )
         stmt = _apply_desc_cursor_filter(
             stmt,
             model=SpmFinding,
@@ -401,9 +763,10 @@ class SpmService(BaseOrgService):
         elif params.decision == SpmFindingDecisionType.ENFORCE:
             finding.status = SpmFindingStatus.ENFORCEMENT_PENDING.value
             if finding.recommended_action is None:
-                raise HTTPException(
-                    status_code=status.HTTP_409_CONFLICT,
-                    detail="Finding has no recommended action to enforce",
+                raise SpmConflictError(
+                    "Finding has no recommended action to enforce.",
+                    code="spm_finding_not_enforceable",
+                    finding_id=finding_id,
                 )
             self.session.add(
                 SpmEnforcementTask(
@@ -429,7 +792,11 @@ class SpmService(BaseOrgService):
         )
         row = (await self.session.scalars(stmt)).one_or_none()
         if row is None:
-            raise TracecatNotFoundError(f"SPM endpoint not found: {endpoint_id}")
+            raise SpmNotFoundError(
+                "SPM endpoint not found.",
+                code="spm_endpoint_not_found",
+                endpoint_id=endpoint_id,
+            )
         return row
 
     async def _get_finding_row(self, finding_id: uuid.UUID) -> SpmFinding:
@@ -439,7 +806,11 @@ class SpmService(BaseOrgService):
         )
         row = (await self.session.scalars(stmt)).one_or_none()
         if row is None:
-            raise TracecatNotFoundError(f"SPM finding not found: {finding_id}")
+            raise SpmNotFoundError(
+                "SPM finding not found.",
+                code="spm_finding_not_found",
+                finding_id=finding_id,
+            )
         return row
 
     @staticmethod
@@ -459,10 +830,10 @@ class SpmSyncService:
         self,
         session: AsyncSession,
         *,
-        analyzer: SpmInventoryAnalyzer | None = None,
+        threat_intel_provider: SpmThreatIntelProvider | None = None,
     ):
         self.session = session
-        self.analyzer = analyzer
+        self.threat_intel_provider = threat_intel_provider
 
     async def sync_endpoint(
         self,
@@ -504,14 +875,16 @@ class SpmSyncService:
             await self._apply_task_result(endpoint=endpoint, task_result=task_result)
 
         await self.session.flush()
-        analyzer = self.analyzer or SpmInventoryAnalyzer(
-            self.session,
-            threat_intel_provider=BestEffortSpmThreatIntelProvider(
+        threat_intel_provider = self.threat_intel_provider
+        if threat_intel_provider is None:
+            threat_intel_provider = BestEffortSpmThreatIntelProvider(
                 self.session,
                 organization_id=endpoint.organization_id,
-            ),
+            )
+        await self._analyze_endpoint(
+            endpoint,
+            threat_intel_provider=threat_intel_provider,
         )
-        await analyzer.analyze_endpoint(endpoint)
         await self.session.commit()
         await self.session.refresh(endpoint)
         tasks = await self._pending_tasks(endpoint.id, endpoint.organization_id)
@@ -520,6 +893,181 @@ class SpmSyncService:
             endpoint_secret=issued_secret,
             tasks=[SpmEnforcementTaskRead.model_validate(task) for task in tasks],
         )
+
+    async def _analyze_endpoint(
+        self,
+        endpoint: SpmEndpoint,
+        *,
+        threat_intel_provider: SpmThreatIntelProvider,
+    ) -> None:
+        policy = SpmControlPolicy.from_client_metadata(endpoint.client_metadata or {})
+        rows = await self._endpoint_rows(endpoint)
+
+        handled_pairs: set[tuple[uuid.UUID, uuid.UUID]] = set()
+        failing_pairs: set[tuple[uuid.UUID, uuid.UUID]] = set()
+
+        for sighting, asset in rows:
+            controls = _controls_for_asset(asset)
+            if not controls:
+                continue
+
+            data = _control_data_from_rows(asset=asset, sighting=sighting)
+            intelligence = await self._asset_intelligence(
+                asset=asset,
+                sighting=sighting,
+                threat_intel_provider=threat_intel_provider,
+            )
+            context = SpmControlContext(
+                asset=data,
+                policy=policy,
+                intelligence=intelligence,
+            )
+
+            for definition in controls:
+                result = definition.check(context)
+                control = definition.control
+                pair = (asset.id, control.id)
+                handled_pairs.add(pair)
+                if not result.failed:
+                    continue
+
+                failing_pairs.add(pair)
+                await self._upsert_finding(
+                    endpoint=endpoint,
+                    asset=asset,
+                    sighting=sighting,
+                    control=control,
+                    result=result,
+                )
+
+        await self._resolve_passing_findings(
+            endpoint=endpoint,
+            handled_pairs=handled_pairs,
+            failing_pairs=failing_pairs,
+        )
+
+    async def _endpoint_rows(
+        self, endpoint: SpmEndpoint
+    ) -> list[tuple[SpmAssetSighting, SpmAsset]]:
+        stmt = (
+            select(SpmAssetSighting, SpmAsset)
+            .join(SpmAsset, SpmAsset.id == SpmAssetSighting.asset_id)
+            .where(
+                SpmAssetSighting.organization_id == endpoint.organization_id,
+                SpmAssetSighting.endpoint_id == endpoint.id,
+            )
+        )
+        result = await self.session.execute(stmt)
+        return [(row[0], row[1]) for row in result.all()]
+
+    async def _asset_intelligence(
+        self,
+        *,
+        asset: SpmAsset,
+        sighting: SpmAssetSighting,
+        threat_intel_provider: SpmThreatIntelProvider,
+    ) -> dict[str, Any]:
+        metadata = asset.asset_metadata or {}
+        evidence = sighting.evidence or {}
+        if asset.asset_type == SpmAssetType.MCP_SERVER.value:
+            return await threat_intel_provider.enrich_mcp_server(
+                metadata=metadata,
+                evidence=evidence,
+            )
+        if asset.asset_type == SpmAssetType.CLAUDE_MD.value:
+            return await threat_intel_provider.enrich_instruction_file(
+                metadata=metadata,
+                evidence=evidence,
+            )
+        return {}
+
+    async def _upsert_finding(
+        self,
+        *,
+        endpoint: SpmEndpoint,
+        asset: SpmAsset,
+        sighting: SpmAssetSighting,
+        control: SpmControlRead,
+        result: SpmControlResult,
+    ) -> SpmFinding:
+        stmt = select(SpmFinding).where(
+            SpmFinding.organization_id == endpoint.organization_id,
+            SpmFinding.endpoint_id == endpoint.id,
+            SpmFinding.asset_id == asset.id,
+            SpmFinding.control_id == control.id,
+        )
+        finding = (await self.session.scalars(stmt)).one_or_none()
+        now = datetime.now(UTC)
+        if finding is None:
+            finding = SpmFinding(
+                id=uuid.uuid4(),
+                organization_id=endpoint.organization_id,
+                endpoint_id=endpoint.id,
+                asset_id=asset.id,
+                asset_sighting_id=sighting.id,
+                control_id=control.id,
+                control_key=control.key,
+                control_revision=control.revision,
+                harness=control.harness.value,
+                asset_class=control.asset_class.value,
+                asset_type=control.asset_type.value,
+                severity=control.severity.value,
+                status=SpmFindingStatus.OPEN.value,
+                summary=result.summary,
+                evidence=result.evidence,
+                enrichment=result.enrichment,
+                recommended_action=control.action.value,
+                recommended_payload=result.recommended_payload,
+                opened_at=now,
+            )
+            self.session.add(finding)
+            await self.session.flush()
+            return finding
+
+        finding.asset_sighting_id = sighting.id
+        finding.control_key = control.key
+        finding.control_revision = control.revision
+        finding.harness = control.harness.value
+        finding.asset_class = control.asset_class.value
+        finding.asset_type = control.asset_type.value
+        finding.severity = control.severity.value
+        finding.summary = result.summary
+        finding.evidence = result.evidence
+        finding.enrichment = result.enrichment
+        finding.recommended_action = control.action.value
+        finding.recommended_payload = result.recommended_payload
+        finding.closed_at = None
+
+        if finding.status != SpmFindingStatus.ENFORCEMENT_PENDING.value:
+            if finding.status != SpmFindingStatus.OPEN.value:
+                finding.opened_at = now
+            finding.status = SpmFindingStatus.OPEN.value
+        return finding
+
+    async def _resolve_passing_findings(
+        self,
+        *,
+        endpoint: SpmEndpoint,
+        handled_pairs: set[tuple[uuid.UUID, uuid.UUID]],
+        failing_pairs: set[tuple[uuid.UUID, uuid.UUID]],
+    ) -> None:
+        if not handled_pairs:
+            return
+        stmt = select(SpmFinding).where(
+            SpmFinding.organization_id == endpoint.organization_id,
+            SpmFinding.endpoint_id == endpoint.id,
+        )
+        findings = list((await self.session.scalars(stmt)).all())
+        now = datetime.now(UTC)
+        for finding in findings:
+            pair = (finding.asset_id, finding.control_id)
+            if pair not in handled_pairs or pair in failing_pairs:
+                continue
+            if finding.status == SpmFindingStatus.DISMISSED.value:
+                continue
+            if finding.status != SpmFindingStatus.RESOLVED.value:
+                finding.status = SpmFindingStatus.RESOLVED.value
+                finding.closed_at = now
 
     async def _authenticate_endpoint(
         self,
@@ -530,9 +1078,10 @@ class SpmSyncService:
         stmt = select(SpmEndpoint).where(SpmEndpoint.id == endpoint_id)
         endpoint = (await self.session.scalars(stmt)).one_or_none()
         if endpoint is None:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"SPM endpoint not found: {endpoint_id}",
+            raise SpmNotFoundError(
+                "SPM endpoint not found.",
+                code="spm_endpoint_not_found",
+                endpoint_id=endpoint_id,
             )
 
         supplied_hash = _hash_token(bearer_token)
@@ -540,9 +1089,10 @@ class SpmSyncService:
         if expected_hash is None or not secrets.compare_digest(
             supplied_hash, expected_hash
         ):
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid endpoint token",
+            raise SpmAuthenticationError(
+                "Invalid endpoint token.",
+                code="spm_endpoint_token_invalid",
+                endpoint_id=endpoint_id,
             )
         return endpoint
 
@@ -630,9 +1180,11 @@ class SpmSyncService:
         )
         task = (await self.session.scalars(stmt)).one_or_none()
         if task is None:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"SPM enforcement task not found: {task_result.task_id}",
+            raise SpmNotFoundError(
+                "SPM enforcement task not found.",
+                code="spm_enforcement_task_not_found",
+                endpoint_id=endpoint.id,
+                task_id=task_result.task_id,
             )
         task.status = task_result.status.value
         task.result = task_result.result

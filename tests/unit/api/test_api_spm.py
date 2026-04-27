@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from fastapi import status
 from fastapi.testclient import TestClient
+from tracecat_ee.spm.exceptions import SpmConflictError, SpmNotFoundError
 from tracecat_ee.spm.schemas import (
     SpmAssetRead,
     SpmControlRead,
@@ -21,7 +22,6 @@ from tracecat_ee.spm.schemas import (
 from tracecat_ee.spm.types import (
     SpmAssetClass,
     SpmAssetType,
-    SpmControlCheck,
     SpmEndpointPlatform,
     SpmEndpointStatus,
     SpmEnforcementAction,
@@ -32,11 +32,7 @@ from tracecat_ee.spm.types import (
 )
 
 from tracecat.auth.types import Role
-from tracecat.exceptions import (
-    EntitlementRequired,
-    TracecatNotFoundError,
-    TracecatValidationError,
-)
+from tracecat.exceptions import EntitlementRequired
 from tracecat.pagination import CursorPaginatedResponse
 
 spm_router_module = importlib.import_module("tracecat_ee.spm.router")
@@ -108,7 +104,9 @@ def _endpoint_asset_read() -> SpmEndpointAssetRead:
 
 def _control_read() -> SpmControlRead:
     return SpmControlRead(
-        id="claude.mcp_server.approved",
+        id=uuid.UUID("7dca8397-056a-4cc7-a4a6-3fef782b21a2"),
+        key="claude.mcp_server.approved",
+        aliases=[],
         revision="1",
         title="Claude MCP Server Must Be Approved",
         description="MCP servers configured for Claude must match an approved server-name plus resolved-identity tuple.",
@@ -116,7 +114,6 @@ def _control_read() -> SpmControlRead:
         asset_class=SpmAssetClass.MCP_SERVER,
         asset_type=SpmAssetType.MCP_SERVER,
         severity=SpmSeverity.HIGH,
-        check=SpmControlCheck.MCP_SERVER_APPROVED,
         action=SpmEnforcementAction.DISABLE_MCP_SERVER,
     )
 
@@ -129,7 +126,8 @@ def _finding_read() -> SpmFindingRead:
         endpoint_id=uuid.UUID("aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa"),
         asset_id=uuid.UUID("dddddddd-dddd-4ddd-dddd-dddddddddddd"),
         asset_sighting_id=uuid.UUID("eeeeeeee-eeee-4eee-eeee-eeeeeeeeeeee"),
-        control_id="claude.mcp_server.approved",
+        control_id=uuid.UUID("7dca8397-056a-4cc7-a4a6-3fef782b21a2"),
+        control_key="claude.mcp_server.approved",
         control_revision="1",
         harness=SpmHarness.CLAUDE_CODE,
         asset_class=SpmAssetClass.MCP_SERVER,
@@ -185,6 +183,7 @@ async def test_list_spm_endpoints_requires_spm_entitlement(
         response = client.get("/spm/endpoints")
 
     assert response.status_code == status.HTTP_403_FORBIDDEN
+    assert response.json()["detail"]["code"] == "spm_entitlement_required"
     mock_check_entitlement.assert_awaited_once()
 
 
@@ -208,7 +207,7 @@ async def test_list_spm_controls_success(
         response = client.get("/spm/controls")
 
     assert response.status_code == status.HTTP_200_OK
-    assert response.json()[0]["id"] == "claude.mcp_server.approved"
+    assert response.json()[0]["key"] == "claude.mcp_server.approved"
 
 
 @pytest.mark.anyio
@@ -231,7 +230,7 @@ async def test_get_spm_control_success(
         response = client.get("/spm/controls/claude.mcp_server.approved")
 
     assert response.status_code == status.HTTP_200_OK
-    assert response.json()["check"] == "mcp_server_approved"
+    assert response.json()["key"] == "claude.mcp_server.approved"
 
 
 @pytest.mark.anyio
@@ -248,15 +247,17 @@ async def test_get_spm_control_not_found(
         patch.object(spm_router_module, "SpmService") as mock_service_cls,
     ):
         mock_service = AsyncMock()
-        mock_service.get_control.side_effect = TracecatNotFoundError(
-            "SPM control not found: missing"
+        mock_service.get_control.side_effect = SpmNotFoundError(
+            "SPM control not found.",
+            code="spm_control_not_found",
+            control_id="missing",
         )
         mock_service_cls.return_value = mock_service
 
         response = client.get("/spm/controls/missing")
 
     assert response.status_code == status.HTTP_404_NOT_FOUND
-    assert response.json()["detail"] == "SPM control not found: missing"
+    assert response.json()["detail"]["code"] == "spm_control_not_found"
 
 
 @pytest.mark.anyio
@@ -392,18 +393,17 @@ async def test_delete_spm_endpoint_rejects_non_pending_endpoint(
         patch.object(spm_router_module, "SpmService") as mock_service_cls,
     ):
         mock_service = AsyncMock()
-        mock_service.delete_pending_endpoint.side_effect = TracecatValidationError(
-            "Only pending enrollments that have never enrolled or synced can be removed"
+        mock_service.delete_pending_endpoint.side_effect = SpmConflictError(
+            "Only pending enrollments that have never enrolled or synced can be removed.",
+            code="spm_endpoint_delete_conflict",
+            endpoint_id=uuid.UUID("aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa"),
         )
         mock_service_cls.return_value = mock_service
 
         response = client.delete("/spm/endpoints/aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa")
 
     assert response.status_code == status.HTTP_409_CONFLICT
-    assert (
-        response.json()["detail"]
-        == "Only pending enrollments that have never enrolled or synced can be removed"
-    )
+    assert response.json()["detail"]["code"] == "spm_endpoint_delete_conflict"
 
 
 @pytest.mark.anyio
@@ -492,6 +492,7 @@ async def test_sync_spm_endpoint_requires_authorization_header(
     )
 
     assert response.status_code == status.HTTP_401_UNAUTHORIZED
+    assert response.json()["detail"]["code"] == "spm_authorization_missing"
 
 
 @pytest.mark.anyio

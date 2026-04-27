@@ -1,4 +1,6 @@
-id: claude.trusted_directory.approved
+id: 834d11af-3e75-49b5-aff0-1441d0d5d616
+key: claude.trusted_directory.approved
+aliases: []
 revision: "1"
 title: Claude Trusted Directory Must Be Approved
 description: Trusted directories configured for Claude must be approved before they remain enabled.
@@ -6,5 +8,4 @@ harness: claude_code
 asset_class: workspace_access
 asset_type: trusted_directory
 severity: high
-check: trusted_directory_approved
 action: revoke_trusted_directory

@@ -1,4 +1,6 @@
-id: claude.instruction_file.external_indicators_reputation_ok
+id: 8e8445fd-9858-41c5-af2a-d16dd8424cb6
+key: claude.instruction_file.external_indicators_reputation_ok
+aliases: []
 revision: "1"
 title: Claude Instruction File External Indicators Must Have Good Reputation
 description: URLs, domains, and IPs extracted from Claude instruction files must pass reputation checks.
@@ -6,5 +8,4 @@ harness: claude_code
 asset_class: instruction_file
 asset_type: claude_md
 severity: high
-check: instruction_file_external_indicators_reputation_ok
 action: exclude_instruction_file

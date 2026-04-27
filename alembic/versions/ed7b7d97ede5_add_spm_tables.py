@@ -1,7 +1,7 @@
 """add spm tables
 
 Revision ID: ed7b7d97ede5
-Revises: 0c9a39e54e2f
+Revises: 7d23a45113ee
 Create Date: 2026-04-22 14:04:45.501239
 
 """
@@ -21,7 +21,7 @@ from tracecat.db.tenant_rls import (
 
 # revision identifiers, used by Alembic.
 revision: str = "ed7b7d97ede5"
-down_revision: str | None = "0c9a39e54e2f"
+down_revision: str | None = "7d23a45113ee"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
@@ -292,7 +292,8 @@ def upgrade() -> None:
         sa.Column("endpoint_id", sa.UUID(), nullable=False),
         sa.Column("asset_id", sa.UUID(), nullable=False),
         sa.Column("asset_sighting_id", sa.UUID(), nullable=True),
-        sa.Column("control_id", sa.String(length=255), nullable=False),
+        sa.Column("control_id", sa.UUID(), nullable=False),
+        sa.Column("control_key", sa.String(length=255), nullable=False),
         sa.Column("control_revision", sa.String(length=64), nullable=True),
         sa.Column("harness", sa.String(length=32), nullable=False),
         sa.Column("asset_class", sa.String(length=64), nullable=False),

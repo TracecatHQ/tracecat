@@ -8,11 +8,11 @@ from typing import Any
 from unittest.mock import AsyncMock, patch
 
 import pytest
-from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
-from tracecat_ee.spm.analyzer import SpmInventoryAnalyzer
+from tracecat_ee.spm.exceptions import SpmConflictError, SpmNotFoundError
+from tracecat_ee.spm.intel import NoopSpmThreatIntelProvider
 from tracecat_ee.spm.schemas import (
     SpmAssetQueryParams,
     SpmEndpointCreate,
@@ -43,7 +43,6 @@ from tracecat.db.models import (
     SpmFinding,
     User,
 )
-from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
 from tracecat.pagination import CursorPaginationParams
 
 
@@ -148,7 +147,7 @@ async def test_list_assets_and_endpoint_assets_preserve_endpoint_state(
     service = SpmService(session, role=svc_role)
     sync_service = SpmSyncService(
         session,
-        analyzer=SpmInventoryAnalyzer(session),
+        threat_intel_provider=NoopSpmThreatIntelProvider(),
     )
     endpoint_one = await service.create_endpoint(
         SpmEndpointCreate(
@@ -233,7 +232,7 @@ async def test_list_findings_supports_endpoint_and_control_filters(
     service = SpmService(session, role=svc_role)
     sync_service = SpmSyncService(
         session,
-        analyzer=SpmInventoryAnalyzer(session),
+        threat_intel_provider=NoopSpmThreatIntelProvider(),
     )
     endpoint_one = await service.create_endpoint(
         SpmEndpointCreate(
@@ -315,7 +314,7 @@ async def test_list_findings_supports_endpoint_and_control_filters(
     assert {finding.endpoint_id for finding in endpoint_one_findings.items} == {
         endpoint_one.endpoint.id
     }
-    assert {finding.control_id for finding in control_findings.items} == {
+    assert {finding.control_key for finding in control_findings.items} == {
         "claude.mcp_server.approved"
     }
 
@@ -328,7 +327,7 @@ async def test_spm_list_methods_paginate_without_duplicates(
     service = SpmService(session, role=svc_role)
     sync_service = SpmSyncService(
         session,
-        analyzer=SpmInventoryAnalyzer(session),
+        threat_intel_provider=NoopSpmThreatIntelProvider(),
     )
 
     created_endpoints = []
@@ -406,7 +405,7 @@ async def test_spm_list_methods_paginate_without_duplicates(
             asset.display_name for asset in asset_rows if asset.id == finding.asset_id
         ): finding.id
         for finding in finding_rows
-        if finding.control_id == "claude.mcp_server.approved"
+        if finding.control_key == "claude.mcp_server.approved"
     }
     await _set_model_updated_at(
         session,
@@ -475,7 +474,10 @@ async def test_delete_pending_endpoint_removes_unused_enrollment(
     svc_role: Role,
 ) -> None:
     service = SpmService(session, role=svc_role)
-    sync_service = SpmSyncService(session, analyzer=SpmInventoryAnalyzer(session))
+    sync_service = SpmSyncService(
+        session,
+        threat_intel_provider=NoopSpmThreatIntelProvider(),
+    )
     created = await service.create_endpoint(
         SpmEndpointCreate(
             name="Chris MacBook",
@@ -489,15 +491,19 @@ async def test_delete_pending_endpoint_removes_unused_enrollment(
     endpoints = await service.list_endpoints(CursorPaginationParams(limit=50))
     assert endpoints.items == []
 
-    with pytest.raises(TracecatNotFoundError):
+    with pytest.raises(SpmNotFoundError) as read_exc:
         await service.get_endpoint(created.endpoint.id)
 
-    with pytest.raises(HTTPException, match="SPM endpoint not found"):
+    assert read_exc.value.code == "spm_endpoint_not_found"
+
+    with pytest.raises(SpmNotFoundError) as sync_exc:
         await sync_service.sync_endpoint(
             endpoint_id=created.endpoint.id,
             bearer_token=created.enrollment_token,
             params=SpmEndpointSyncRequest(name="Chris MacBook"),
         )
+
+    assert sync_exc.value.code == "spm_endpoint_not_found"
 
 
 @pytest.mark.anyio
@@ -508,7 +514,7 @@ async def test_delete_pending_endpoint_rejects_active_endpoint(
     service = SpmService(session, role=svc_role)
     sync_service = SpmSyncService(
         session,
-        analyzer=SpmInventoryAnalyzer(session),
+        threat_intel_provider=NoopSpmThreatIntelProvider(),
     )
     created = await service.create_endpoint(
         SpmEndpointCreate(
@@ -529,11 +535,10 @@ async def test_delete_pending_endpoint_rejects_active_endpoint(
             assets=[],
         )
 
-    with pytest.raises(
-        TracecatValidationError,
-        match="Only pending enrollments that have never enrolled or synced can be removed",
-    ):
+    with pytest.raises(SpmConflictError) as exc_info:
         await service.delete_pending_endpoint(created.endpoint.id)
+
+    assert exc_info.value.code == "spm_endpoint_delete_conflict"
 
 
 @pytest.mark.anyio
@@ -562,7 +567,7 @@ async def test_sync_endpoint_task_results_reconcile_task_and_finding_state(
     service = SpmService(session, role=svc_role)
     sync_service = SpmSyncService(
         session,
-        analyzer=SpmInventoryAnalyzer(session),
+        threat_intel_provider=NoopSpmThreatIntelProvider(),
     )
     created = await service.create_endpoint(
         SpmEndpointCreate(
@@ -604,7 +609,7 @@ async def test_sync_endpoint_task_results_reconcile_task_and_finding_state(
         await session.scalars(
             select(SpmFinding).where(
                 SpmFinding.endpoint_id == created.endpoint.id,
-                SpmFinding.control_id == "claude.mcp_server.approved",
+                SpmFinding.control_key == "claude.mcp_server.approved",
             )
         )
     ).one()

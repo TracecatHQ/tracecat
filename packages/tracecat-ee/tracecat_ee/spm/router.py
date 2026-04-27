@@ -18,6 +18,13 @@ from tracecat.exceptions import (
 from tracecat.pagination import CursorPaginationParams
 from tracecat.tiers.entitlements import check_entitlement
 from tracecat.tiers.enums import Entitlement
+from tracecat_ee.spm.exceptions import (
+    SpmAuthenticationError,
+    SpmConflictError,
+    SpmControlCatalogError,
+    SpmError,
+    SpmNotFoundError,
+)
 from tracecat_ee.spm.schemas import (
     SpmAssetListResponse,
     SpmAssetQueryParams,
@@ -40,6 +47,46 @@ from tracecat_ee.spm.service import SpmService, SpmSyncService
 from tracecat_ee.spm.types import SpmAssetClass, SpmAssetType, SpmHarness
 
 router = APIRouter(prefix="/spm", tags=["spm"])
+
+
+def _spm_http_exception(exc: Exception) -> HTTPException:
+    if isinstance(exc, SpmError):
+        if isinstance(exc, SpmAuthenticationError):
+            status_code = status.HTTP_401_UNAUTHORIZED
+        elif isinstance(exc, SpmNotFoundError):
+            status_code = status.HTTP_404_NOT_FOUND
+        elif isinstance(exc, SpmConflictError):
+            status_code = status.HTTP_409_CONFLICT
+        elif isinstance(exc, SpmControlCatalogError):
+            status_code = status.HTTP_500_INTERNAL_SERVER_ERROR
+        else:
+            status_code = status.HTTP_400_BAD_REQUEST
+        return HTTPException(status_code=status_code, detail=exc.to_detail())
+
+    if isinstance(exc, EntitlementRequired):
+        detail = {
+            "code": "spm_entitlement_required",
+            "message": str(exc),
+            **(exc.detail if isinstance(exc.detail, dict) else {}),
+        }
+        return HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=detail)
+
+    if isinstance(exc, TracecatNotFoundError):
+        return HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"code": "spm_not_found", "message": str(exc)},
+        )
+
+    if isinstance(exc, TracecatValidationError):
+        return HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"code": "spm_validation_failed", "message": str(exc)},
+        )
+
+    return HTTPException(
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        detail={"code": "spm_internal_error", "message": "Internal SPM error."},
+    )
 
 
 def _pagination_params(
@@ -101,20 +148,23 @@ async def _require_spm_entitlement(
     role: OrgUserRole,
     session: AsyncDBSession,
 ) -> None:
-    await check_entitlement(session, role, Entitlement.SPM)
+    try:
+        await check_entitlement(session, role, Entitlement.SPM)
+    except EntitlementRequired as exc:
+        raise _spm_http_exception(exc) from exc
 
 
 def _parse_bearer_token(authorization: str | None) -> str:
     if authorization is None:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Missing Authorization header",
+        raise SpmAuthenticationError(
+            "Missing Authorization header.",
+            code="spm_authorization_missing",
         )
     scheme, _, token = authorization.partition(" ")
     if scheme.lower() != "bearer" or not token:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid Authorization header",
+        raise SpmAuthenticationError(
+            "Invalid Authorization header.",
+            code="spm_authorization_invalid",
         )
     return token
 
@@ -149,10 +199,8 @@ async def get_spm_control(
     service = SpmService(session, role=role)
     try:
         return await service.get_control(control_id)
-    except TracecatNotFoundError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)
-        ) from exc
+    except (SpmError, TracecatNotFoundError) as exc:
+        raise _spm_http_exception(exc) from exc
 
 
 @router.get(
@@ -203,14 +251,8 @@ async def delete_spm_endpoint(
     service = SpmService(session, role=role)
     try:
         await service.delete_pending_endpoint(endpoint_id)
-    except TracecatNotFoundError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)
-        ) from exc
-    except TracecatValidationError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT, detail=str(exc)
-        ) from exc
+    except (SpmError, TracecatNotFoundError, TracecatValidationError) as exc:
+        raise _spm_http_exception(exc) from exc
 
 
 @router.get(
@@ -228,10 +270,8 @@ async def get_spm_endpoint(
     service = SpmService(session, role=role)
     try:
         return await service.get_endpoint(endpoint_id)
-    except TracecatNotFoundError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)
-        ) from exc
+    except (SpmError, TracecatNotFoundError) as exc:
+        raise _spm_http_exception(exc) from exc
 
 
 @router.get(
@@ -250,10 +290,8 @@ async def list_spm_endpoint_assets(
     service = SpmService(session, role=role)
     try:
         return await service.list_endpoint_assets(endpoint_id, pagination)
-    except TracecatNotFoundError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)
-        ) from exc
+    except (SpmError, TracecatNotFoundError) as exc:
+        raise _spm_http_exception(exc) from exc
 
 
 @router.get(
@@ -287,10 +325,8 @@ async def get_spm_asset(
     service = SpmService(session, role=role)
     try:
         return await service.get_asset(asset_id)
-    except TracecatNotFoundError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)
-        ) from exc
+    except (SpmError, TracecatNotFoundError) as exc:
+        raise _spm_http_exception(exc) from exc
 
 
 @router.get(
@@ -324,10 +360,8 @@ async def get_spm_finding(
     service = SpmService(session, role=role)
     try:
         return await service.get_finding(finding_id)
-    except TracecatNotFoundError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)
-        ) from exc
+    except (SpmError, TracecatNotFoundError) as exc:
+        raise _spm_http_exception(exc) from exc
 
 
 @router.post(
@@ -347,10 +381,8 @@ async def create_spm_finding_decision(
     service = SpmService(session, role=role)
     try:
         return await service.create_finding_decision(finding_id, params)
-    except TracecatNotFoundError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)
-        ) from exc
+    except (SpmError, TracecatNotFoundError) as exc:
+        raise _spm_http_exception(exc) from exc
 
 
 @router.post(
@@ -371,11 +403,5 @@ async def sync_spm_endpoint(
             bearer_token=_parse_bearer_token(authorization),
             params=params,
         )
-    except TracecatNotFoundError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)
-        ) from exc
-    except EntitlementRequired as exc:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)
-        ) from exc
+    except (SpmError, TracecatNotFoundError, EntitlementRequired) as exc:
+        raise _spm_http_exception(exc) from exc

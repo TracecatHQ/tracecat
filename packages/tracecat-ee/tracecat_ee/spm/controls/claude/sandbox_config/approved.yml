@@ -1,0 +1,11 @@
+id: 7533af3c-a9f8-45ce-a891-b3ed17c79015
+key: claude.sandbox_config.approved
+aliases: []
+revision: "1"
+title: Claude Sandbox Config Must Be Approved
+description: Claude sandbox settings must match the approved local Claude configuration.
+harness: claude_code
+asset_class: sandbox
+asset_type: sandbox_config
+severity: high
+action: reconcile_sandbox_config

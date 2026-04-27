@@ -9,7 +9,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from tracecat_ee.spm.analyzer import SpmInventoryAnalyzer
+from tracecat_ee.spm.intel import NoopSpmThreatIntelProvider
 from tracecat_ee.spm.schemas import (
     SpmEndpointCreate,
     SpmEndpointSyncRequest,
@@ -69,7 +69,7 @@ async def test_sync_endpoint_creates_identity_based_mcp_findings_and_tasks(
     )
     sync_service = SpmSyncService(
         session,
-        analyzer=SpmInventoryAnalyzer(session),
+        threat_intel_provider=NoopSpmThreatIntelProvider(),
     )
 
     with patch(
@@ -169,7 +169,7 @@ async def test_sync_endpoint_creates_and_resolves_instruction_file_findings(
     )
     sync_service = SpmSyncService(
         session,
-        analyzer=SpmInventoryAnalyzer(session),
+        threat_intel_provider=NoopSpmThreatIntelProvider(),
     )
 
     first_request = SpmEndpointSyncRequest(
@@ -244,7 +244,7 @@ async def test_sync_endpoint_creates_and_resolves_instruction_file_findings(
         )
 
     findings = await _endpoint_findings(session, created.endpoint.id)
-    assert {finding.control_id: finding.status for finding in findings} == {
+    assert {finding.control_key: finding.status for finding in findings} == {
         "claude.instruction_file.external_indicators_reputation_ok": SpmFindingStatus.RESOLVED.value,
         "claude.instruction_file.language_english": SpmFindingStatus.RESOLVED.value,
         "claude.instruction_file.obfuscation_absent": SpmFindingStatus.RESOLVED.value,
@@ -285,10 +285,7 @@ async def test_sync_endpoint_uses_threat_intel_for_mcp_findings(
     )
     sync_service = SpmSyncService(
         session,
-        analyzer=SpmInventoryAnalyzer(
-            session,
-            threat_intel_provider=intel_provider,
-        ),
+        threat_intel_provider=intel_provider,
     )
 
     with patch(
@@ -369,10 +366,7 @@ async def test_sync_endpoint_uses_threat_intel_for_instruction_indicator_finding
     )
     sync_service = SpmSyncService(
         session,
-        analyzer=SpmInventoryAnalyzer(
-            session,
-            threat_intel_provider=intel_provider,
-        ),
+        threat_intel_provider=intel_provider,
     )
 
     with patch(
@@ -437,7 +431,7 @@ async def test_sync_endpoint_creates_risky_hook_and_skill_findings_and_tasks(
     )
     sync_service = SpmSyncService(
         session,
-        analyzer=SpmInventoryAnalyzer(session),
+        threat_intel_provider=NoopSpmThreatIntelProvider(),
     )
 
     with patch(
@@ -538,8 +532,10 @@ async def _endpoint_findings(
     return list((await session.scalars(stmt)).all())
 
 
-def _finding_for_control(findings: Sequence[SpmFinding], control_id: str) -> SpmFinding:
+def _finding_for_control(
+    findings: Sequence[SpmFinding], control_key: str
+) -> SpmFinding:
     for finding in findings:
-        if finding.control_id == control_id:
+        if finding.control_key == control_key:
             return finding
-    raise AssertionError(f"Finding not found for control {control_id}")
+    raise AssertionError(f"Finding not found for control {control_key}")

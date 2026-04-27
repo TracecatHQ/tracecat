@@ -3513,10 +3513,15 @@ class SpmFinding(OrganizationModel):
         index=True,
         doc="Specific endpoint observation that triggered the finding",
     )
-    control_id: Mapped[str] = mapped_column(
+    control_id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        nullable=False,
+        doc="Stable UUID of the control that generated the finding",
+    )
+    control_key: Mapped[str] = mapped_column(
         String(255),
         nullable=False,
-        doc="Control identifier that generated the finding",
+        doc="Readable control key snapshot used during evaluation",
     )
     control_revision: Mapped[str | None] = mapped_column(
         String(64),
