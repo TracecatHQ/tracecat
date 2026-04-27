@@ -16,6 +16,34 @@
     ```
   </Tab>
 
+  <Tab title="GitHub Copilot" icon="https://cdn.simpleicons.org/github">
+
+    ```bash
+    copilot
+    /mcp add
+    # Server Name: tracecat
+    # Server Type: HTTP
+    # URL: https://platform.tracecat.com/mcp
+    # Tools: *
+    ```
+
+    Follow [GitHub Copilot MCP setup](https://docs.github.com/en/copilot/how-tos/copilot-cli/customize-copilot/add-mcp-servers) for the latest CLI prompts.
+
+    Or add this server to `~/.copilot/mcp-config.json`:
+
+    ```json
+    {
+      "mcpServers": {
+        "tracecat": {
+          "type": "http",
+          "url": "https://platform.tracecat.com/mcp",
+          "tools": ["*"]
+        }
+      }
+    }
+    ```
+  </Tab>
+
   <Tab title="Cursor" icon="https://cdn.simpleicons.org/cursor">
 
     Click this link [Add Tracecat to Cursor](https://cursor.com/en/install-mcp?name=tracecat&config=eyJ1cmwiOiJodHRwczovL3BsYXRmb3JtLnRyYWNlY2F0LmNvbS9tY3AifQ)
