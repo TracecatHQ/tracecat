@@ -1508,19 +1508,39 @@ export type CaseDurationEventAnchor = {
    */
   event_type: CaseEventType
   /**
-   * Dot-delimited path to the timestamp field on the event. Defaults to the event creation timestamp.
+   * Optional product-level filters for matching event payload values.
    */
-  timestamp_path?: string
-  /**
-   * Optional dot-delimited equality filters that must match on the event payload, e.g. {'data.new': 'resolved'}.
-   */
-  field_filters?: {
-    [key: string]: unknown
-  }
+  filters?: CaseDurationEventFilters
   /**
    * Whether to use the first or last matching event for this anchor. Defaults to the first match.
    */
   selection?: CaseDurationAnchorSelection
+}
+
+/**
+ * Product-level filters for narrowing case duration event anchors.
+ */
+export type CaseDurationEventFilters = {
+  /**
+   * New priority, severity, or status values to match.
+   */
+  new_values?: Array<string>
+  /**
+   * Case tag refs to match for tag add/remove events.
+   */
+  tag_refs?: Array<string>
+  /**
+   * Case custom field IDs to match for field change events.
+   */
+  field_ids?: Array<string>
+  /**
+   * Dropdown definition ID to match for dropdown value change events.
+   */
+  dropdown_definition_id?: string | null
+  /**
+   * Dropdown option IDs to match for dropdown value change events.
+   */
+  dropdown_option_ids?: Array<string>
 }
 
 /**
@@ -2913,6 +2933,23 @@ export type DataUIPart = {
   type: string
   id?: string
   data: unknown
+}
+
+/**
+ * Canonical default-model selection for an organization.
+ */
+export type DefaultModelSelection = {
+  catalog_id: string
+  model_name: string
+  model_provider: string
+  custom_provider_id?: string | null
+}
+
+/**
+ * Payload for updating the organization's default model selection.
+ */
+export type DefaultModelSelectionUpdate = {
+  catalog_id: string
 }
 
 /**
@@ -9565,6 +9602,14 @@ export type AgentSetDefaultModelResponse = {
   [key: string]: string
 }
 
+export type AgentGetDefaultModelSelectionResponse = DefaultModelSelection | null
+
+export type AgentSetDefaultModelSelectionData = {
+  requestBody: DefaultModelSelectionUpdate
+}
+
+export type AgentSetDefaultModelSelectionResponse = DefaultModelSelection
+
 export type AgentGetWorkspaceProvidersStatusData = {
   workspaceId: string
 }
@@ -13750,6 +13795,29 @@ export type $OpenApiTs = {
         200: {
           [key: string]: string
         }
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/agent/default-model-selection": {
+    get: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: DefaultModelSelection | null
+      }
+    }
+    put: {
+      req: AgentSetDefaultModelSelectionData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: DefaultModelSelection
         /**
          * Validation Error
          */

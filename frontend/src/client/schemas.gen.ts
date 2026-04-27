@@ -5700,19 +5700,10 @@ export const $CaseDurationEventAnchor = {
       $ref: "#/components/schemas/CaseEventType",
       description: "Case event type that should be matched for this anchor.",
     },
-    timestamp_path: {
-      type: "string",
-      title: "Timestamp Path",
+    filters: {
+      $ref: "#/components/schemas/CaseDurationEventFilters",
       description:
-        "Dot-delimited path to the timestamp field on the event. Defaults to the event creation timestamp.",
-      default: "created_at",
-    },
-    field_filters: {
-      additionalProperties: true,
-      type: "object",
-      title: "Field Filters",
-      description:
-        "Optional dot-delimited equality filters that must match on the event payload, e.g. {'data.new': 'resolved'}.",
+        "Optional product-level filters for matching event payload values.",
     },
     selection: {
       $ref: "#/components/schemas/CaseDurationAnchorSelection",
@@ -5721,11 +5712,68 @@ export const $CaseDurationEventAnchor = {
       default: "first",
     },
   },
+  additionalProperties: false,
   type: "object",
   required: ["event_type"],
   title: "CaseDurationEventAnchor",
   description:
     "Selection criteria describing an event boundary for a duration.",
+} as const
+
+export const $CaseDurationEventFilters = {
+  properties: {
+    new_values: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "New Values",
+      description: "New priority, severity, or status values to match.",
+    },
+    tag_refs: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Tag Refs",
+      description: "Case tag refs to match for tag add/remove events.",
+    },
+    field_ids: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Field Ids",
+      description: "Case custom field IDs to match for field change events.",
+    },
+    dropdown_definition_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Dropdown Definition Id",
+      description:
+        "Dropdown definition ID to match for dropdown value change events.",
+    },
+    dropdown_option_ids: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Dropdown Option Ids",
+      description:
+        "Dropdown option IDs to match for dropdown value change events.",
+    },
+  },
+  additionalProperties: false,
+  type: "object",
+  title: "CaseDurationEventFilters",
+  description:
+    "Product-level filters for narrowing case duration event anchors.",
 } as const
 
 export const $CaseDurationRead = {
@@ -9752,6 +9800,59 @@ export const $DataUIPart = {
   required: ["type", "data"],
   title: "DataUIPart",
   description: "A custom data part, where type matches 'data-...'.",
+} as const
+
+export const $DefaultModelSelection = {
+  properties: {
+    catalog_id: {
+      type: "string",
+      format: "uuid",
+      title: "Catalog Id",
+    },
+    model_name: {
+      type: "string",
+      maxLength: 500,
+      minLength: 1,
+      title: "Model Name",
+    },
+    model_provider: {
+      type: "string",
+      maxLength: 120,
+      minLength: 1,
+      title: "Model Provider",
+    },
+    custom_provider_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Custom Provider Id",
+    },
+  },
+  type: "object",
+  required: ["catalog_id", "model_name", "model_provider"],
+  title: "DefaultModelSelection",
+  description: "Canonical default-model selection for an organization.",
+} as const
+
+export const $DefaultModelSelectionUpdate = {
+  properties: {
+    catalog_id: {
+      type: "string",
+      format: "uuid",
+      title: "Catalog Id",
+    },
+  },
+  type: "object",
+  required: ["catalog_id"],
+  title: "DefaultModelSelectionUpdate",
+  description:
+    "Payload for updating the organization's default model selection.",
 } as const
 
 export const $DocumentUrl = {

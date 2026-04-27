@@ -2,7 +2,7 @@
 
 import { useMutation, useQueryClient } from "@tanstack/react-query"
 import {
-  buildFieldFilters,
+  buildDurationFilters,
   CaseDurationDialog,
   type CaseDurationFormValues,
 } from "@/components/cases/case-duration-dialog"
@@ -28,12 +28,12 @@ export function AddCaseDurationDialog({
         throw new Error("Workspace ID is required")
       }
 
-      const startFieldFilters = buildFieldFilters(
+      const startFilters = buildDurationFilters(
         values.start.eventType,
         values.start.filterValues,
         values.start
       )
-      const endFieldFilters = buildFieldFilters(
+      const endFilters = buildDurationFilters(
         values.end.eventType,
         values.end.filterValues,
         values.end
@@ -45,14 +45,12 @@ export function AddCaseDurationDialog({
         start_anchor: {
           event_type: values.start.eventType,
           selection: values.start.selection,
-          timestamp_path: "created_at",
-          ...(startFieldFilters ? { field_filters: startFieldFilters } : {}),
+          ...(startFilters ? { filters: startFilters } : {}),
         },
         end_anchor: {
           event_type: values.end.eventType,
           selection: values.end.selection,
-          timestamp_path: "created_at",
-          ...(endFieldFilters ? { field_filters: endFieldFilters } : {}),
+          ...(endFilters ? { filters: endFilters } : {}),
         },
       }
 

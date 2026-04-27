@@ -1,6 +1,6 @@
 # ECS Task Definition for Caddy service
 resource "aws_ecs_task_definition" "caddy_task_definition" {
-  family                   = "TracecatCaddyTaskDefinition"
+  family                   = "${var.iam_name_prefix}CaddyTaskDefinition"
   network_mode             = "awsvpc"
   requires_compatibilities = ["FARGATE"]
   cpu                      = var.caddy_cpu

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import inspect
 import json
 import re
 import sys
@@ -10,6 +11,7 @@ from collections.abc import Callable, Coroutine
 from datetime import UTC, datetime, timedelta
 from types import ModuleType, SimpleNamespace
 from typing import Any, cast
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 import yaml
@@ -6246,6 +6248,211 @@ async def test_list_workspaces_returns_multi_org_workspaces(monkeypatch):
 def test_tool_namespace_mapping_includes_get_agent_preset() -> None:
     assert mcp_server._TOOL_NAMESPACE_BY_NAME["get_agent_preset"] == "agents"
     assert mcp_server._TOOL_NAMESPACE_BY_NAME["update_agent_preset"] == "agents"
+
+
+def test_tool_namespace_mapping_includes_sync_custom_registry() -> None:
+    assert mcp_server._TOOL_NAMESPACE_BY_NAME["sync_custom_registry"] == "workflows"
+
+
+def _registry_role(
+    *, scopes: frozenset[str] = frozenset({"org:registry:update"})
+) -> SimpleNamespace:
+    return SimpleNamespace(organization_id=uuid.uuid4(), scopes=scopes)
+
+
+def _registry_repo(origin: str) -> SimpleNamespace:
+    return SimpleNamespace(id=uuid.uuid4(), origin=origin)
+
+
+def _sync_response(repo: SimpleNamespace, *, forced: bool = False) -> SimpleNamespace:
+    return SimpleNamespace(
+        success=True,
+        repository_id=repo.id,
+        origin=repo.origin,
+        version="2026.04.25",
+        commit_sha="a" * 40,
+        actions_count=2,
+        forced=forced,
+    )
+
+
+def _patch_sync_custom_registry(
+    monkeypatch,
+    *,
+    role: SimpleNamespace,
+    repositories: list[SimpleNamespace] | None = None,
+    sync_response: SimpleNamespace | None = None,
+    sync_error: Exception | None = None,
+) -> AsyncMock:
+    """Wire role + a mock RegistryReposService into mcp_server."""
+
+    async def _resolve_org() -> SimpleNamespace:
+        return role
+
+    monkeypatch.setattr(mcp_server, "_resolve_org_role", _resolve_org)
+
+    repos_service = AsyncMock()
+    repos_service.list_repositories.return_value = repositories or []
+    if sync_error is not None:
+        repos_service.sync_repository.side_effect = sync_error
+    elif sync_response is not None:
+        repos_service.sync_repository.return_value = sync_response
+
+    monkeypatch.setattr(
+        mcp_server, "RegistryReposService", lambda *_, **__: repos_service
+    )
+    monkeypatch.setattr(
+        mcp_server,
+        "get_async_session_context_manager",
+        lambda: _AsyncContext(MagicMock()),
+    )
+    return repos_service
+
+
+@pytest.mark.anyio
+async def test_sync_custom_registry_surfaces_scope_denied(monkeypatch):
+    """A ScopeDeniedError from the service is surfaced as a ToolError."""
+    from tracecat.exceptions import ScopeDeniedError
+
+    repos_service = AsyncMock()
+    repos_service.list_repositories.side_effect = ScopeDeniedError(
+        required_scopes=["org:registry:read"],
+        missing_scopes=["org:registry:read"],
+    )
+
+    async def _resolve_org() -> SimpleNamespace:
+        return _registry_role()
+
+    monkeypatch.setattr(mcp_server, "_resolve_org_role", _resolve_org)
+    monkeypatch.setattr(
+        mcp_server, "RegistryReposService", lambda *_, **__: repos_service
+    )
+    monkeypatch.setattr(
+        mcp_server,
+        "get_async_session_context_manager",
+        lambda: _AsyncContext(MagicMock()),
+    )
+
+    with pytest.raises(ToolError, match="org:registry:read"):
+        await _tool(mcp_server.sync_custom_registry)()
+
+
+@pytest.mark.anyio
+async def test_sync_custom_registry_requires_organization_context(monkeypatch):
+    role = SimpleNamespace(
+        organization_id=None, scopes=frozenset({"org:registry:update"})
+    )
+    _patch_sync_custom_registry(monkeypatch, role=role)
+
+    with pytest.raises(ToolError, match="organization context"):
+        await _tool(mcp_server.sync_custom_registry)()
+
+
+def test_sync_custom_registry_public_signature_drops_repo_selectors() -> None:
+    signature = inspect.signature(_tool(mcp_server.sync_custom_registry))
+    assert "repository_id" not in signature.parameters
+    assert "origin" not in signature.parameters
+    assert "workspace_id" not in signature.parameters
+
+
+@pytest.mark.anyio
+async def test_sync_custom_registry_uses_org_scoped_repos_service(monkeypatch):
+    repo = _registry_repo("custom_actions")
+    repos_service = _patch_sync_custom_registry(
+        monkeypatch,
+        role=_registry_role(),
+        repositories=[repo],
+        sync_response=_sync_response(repo),
+    )
+
+    result = await _tool(mcp_server.sync_custom_registry)()
+    payload = _payload(result)
+
+    assert payload["success"] is True
+    repos_service.list_repositories.assert_awaited_once()
+    repos_service.sync_repository.assert_awaited_once()
+    assert repos_service.sync_repository.await_args.args[0] is repo
+
+
+@pytest.mark.anyio
+async def test_sync_custom_registry_all_excludes_platform_registry(monkeypatch):
+    platform_repo = _registry_repo(mcp_server.DEFAULT_REGISTRY_ORIGIN)
+    custom_repo = _registry_repo("custom_actions")
+    repos_service = _patch_sync_custom_registry(
+        monkeypatch,
+        role=_registry_role(),
+        repositories=[platform_repo, custom_repo],
+        sync_response=_sync_response(custom_repo),
+    )
+
+    result = await _tool(mcp_server.sync_custom_registry)()
+    payload = _payload(result)
+
+    assert payload["success"] is True
+    assert repos_service.sync_repository.await_args.args[0] is custom_repo
+    assert [item["origin"] for item in payload["results"]] == [custom_repo.origin]
+
+
+@pytest.mark.anyio
+async def test_sync_custom_registry_excludes_local_registry(monkeypatch):
+    platform_repo = _registry_repo(mcp_server.DEFAULT_REGISTRY_ORIGIN)
+    local_repo = _registry_repo(mcp_server.DEFAULT_LOCAL_REGISTRY_ORIGIN)
+    custom_repo = _registry_repo("custom_actions")
+    repos_service = _patch_sync_custom_registry(
+        monkeypatch,
+        role=_registry_role(),
+        repositories=[platform_repo, local_repo, custom_repo],
+        sync_response=_sync_response(custom_repo),
+    )
+
+    result = await _tool(mcp_server.sync_custom_registry)()
+    payload = _payload(result)
+
+    assert payload["success"] is True
+    assert repos_service.sync_repository.await_args.args[0] is custom_repo
+    assert [item["origin"] for item in payload["results"]] == [custom_repo.origin]
+
+
+@pytest.mark.anyio
+async def test_sync_custom_registry_rejects_no_custom_registry(monkeypatch):
+    platform_repo = _registry_repo(mcp_server.DEFAULT_REGISTRY_ORIGIN)
+    _patch_sync_custom_registry(
+        monkeypatch, role=_registry_role(), repositories=[platform_repo]
+    )
+
+    with pytest.raises(ToolError, match="No custom registry repository found"):
+        await _tool(mcp_server.sync_custom_registry)()
+
+
+@pytest.mark.anyio
+async def test_sync_custom_registry_rejects_multiple_custom_registries(monkeypatch):
+    repos = [_registry_repo("custom_one"), _registry_repo("custom_two")]
+    _patch_sync_custom_registry(monkeypatch, role=_registry_role(), repositories=repos)
+
+    with pytest.raises(ToolError, match="Expected exactly one custom registry"):
+        await _tool(mcp_server.sync_custom_registry)()
+
+
+@pytest.mark.anyio
+async def test_sync_custom_registry_reports_per_repo_failure(monkeypatch):
+    from tracecat.exceptions import RegistryError
+
+    bad_repo = _registry_repo("custom_bad")
+    _patch_sync_custom_registry(
+        monkeypatch,
+        role=_registry_role(),
+        repositories=[bad_repo],
+        sync_error=RegistryError("sync failed"),
+    )
+
+    result = await _tool(mcp_server.sync_custom_registry)()
+    payload = _payload(result)
+
+    assert payload["success"] is False
+    assert len(payload["results"]) == 1
+    assert payload["results"][0]["origin"] == bad_repo.origin
+    assert payload["results"][0]["success"] is False
+    assert payload["results"][0]["error"] == "sync failed"
 
 
 @pytest.mark.anyio

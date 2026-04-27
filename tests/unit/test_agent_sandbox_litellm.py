@@ -514,6 +514,7 @@ async def _run_full_claude_harness_runtime_case(
     disable_nsjail_mode: bool,
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
+    enable_internet_access: bool = False,
 ) -> None:
     _FakeLLMSocketProxy.instances.clear()
     broker = ClaudeRuntimeBroker()
@@ -577,7 +578,9 @@ async def _run_full_claude_harness_runtime_case(
 
     try:
         result = await run_agent_activity(
-            _make_passthrough_executor_input(enable_internet_access=False),
+            _make_passthrough_executor_input(
+                enable_internet_access=enable_internet_access
+            ),
         )
     finally:
         await broker.stop()
@@ -604,6 +607,7 @@ def _run_nsjail_harness_in_docker_or_skip(
     *,
     cli_flag: str = "--run-nsjail-harness-smoke",
     failure_label: str = "Dockerized nsjail harness fallback failed.",
+    requires_tun: bool = False,
 ) -> None:
     if os.environ.get("TRACECAT__AGENT_NSJAIL_DOCKER_FALLBACK_CHILD") == "1":
         pytest.skip("nsjail unavailable inside Docker fallback child")
@@ -619,9 +623,30 @@ def _run_nsjail_harness_in_docker_or_skip(
     )
     if docker_info.returncode != 0:
         pytest.skip("Docker daemon unavailable for nsjail fallback")
+    if requires_tun and not Path("/dev/net/tun").exists():
+        pytest.skip("Dockerized nsjail pasta smoke requires host /dev/net/tun")
 
     repo_root = Path(__file__).resolve().parents[2]
+    compose_env = os.environ.copy()
+    compose_env.setdefault(
+        "TRACECAT__LOCAL_REPOSITORY_PATH",
+        str(repo_root / "packages"),
+    )
+    compose_env.setdefault("TRACECAT__LOCAL_REPOSITORY_ENABLED", "false")
+    compose_env.setdefault("PUBLIC_APP_PORT", "80")
+    compose_env.setdefault("BASE_DOMAIN", ":80")
+    compose_env.setdefault("ADDRESS", "0.0.0.0")
+    compose_env.setdefault("LOG_LEVEL", "INFO")
+    compose_env.setdefault("TRACECAT__APP_ENV", "development")
     tests_mount = f"{repo_root / 'tests'}:/app/tests:ro"
+    device_lines = (
+        [
+            "    devices:",
+            "      - /dev/net/tun:/dev/net/tun",
+        ]
+        if requires_tun
+        else []
+    )
     override_path = Path(
         tempfile.mkstemp(prefix="tracecat-agent-nsjail-test-", suffix=".yml")[1]
     )
@@ -636,6 +661,8 @@ def _run_nsjail_harness_in_docker_or_skip(
                 "      - SYS_ADMIN",
                 "    security_opt:",
                 "      - seccomp:unconfined",
+                "      - systempaths=unconfined",
+                *device_lines,
                 "    volumes:",
                 f"      - {json.dumps(tests_mount)}",
                 "    environment:",
@@ -669,6 +696,7 @@ def _run_nsjail_harness_in_docker_or_skip(
                 f"uv run python -m tests.unit.test_agent_sandbox_litellm {cli_flag}",
             ],
             cwd=repo_root,
+            env=compose_env,
             capture_output=True,
             text=True,
             timeout=180,
@@ -693,6 +721,25 @@ def _run_nsjail_harness_smoke_from_cli() -> None:
                 disable_nsjail_mode=False,
                 monkeypatch=monkeypatch,
                 tmp_path=tmp_path,
+            )
+        finally:
+            monkeypatch.undo()
+            shutil.rmtree(tmp_path, ignore_errors=True)
+
+    asyncio.run(run())
+
+
+def _run_nsjail_pasta_smoke_from_cli() -> None:
+    async def run() -> None:
+        monkeypatch = pytest.MonkeyPatch()
+        tmp_path = Path(tempfile.mkdtemp(prefix="tracecat-agent-nsjail-pasta-"))
+        try:
+            _set_disable_nsjail_mode(monkeypatch, False)
+            await _run_full_claude_harness_runtime_case(
+                disable_nsjail_mode=False,
+                monkeypatch=monkeypatch,
+                tmp_path=tmp_path,
+                enable_internet_access=True,
             )
         finally:
             monkeypatch.undo()
@@ -1307,6 +1354,30 @@ async def test_run_agent_activity_spawns_full_claude_harness_runtime_in_each_san
 
 
 @pytest.mark.anyio
+async def test_run_agent_activity_spawns_full_claude_harness_runtime_with_pasta_in_nsjail(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    if not _agent_nsjail_available():
+        _run_nsjail_harness_in_docker_or_skip(
+            cli_flag="--run-nsjail-pasta-smoke",
+            failure_label="Dockerized nsjail pasta smoke fallback failed.",
+            requires_tun=True,
+        )
+        return
+    if not Path("/dev/net/tun").exists():
+        pytest.skip("agent nsjail pasta smoke requires /dev/net/tun")
+
+    _set_disable_nsjail_mode(monkeypatch, False)
+    await _run_full_claude_harness_runtime_case(
+        disable_nsjail_mode=False,
+        monkeypatch=monkeypatch,
+        tmp_path=tmp_path,
+        enable_internet_access=True,
+    )
+
+
+@pytest.mark.anyio
 async def test_executor_always_starts_llm_socket_proxy(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -1486,10 +1557,13 @@ async def test_sandbox_shim_starts_bridge_and_sets_child_base_url(
 if __name__ == "__main__":
     if sys.argv[1:] == ["--run-nsjail-harness-smoke"]:
         _run_nsjail_harness_smoke_from_cli()
+    elif sys.argv[1:] == ["--run-nsjail-pasta-smoke"]:
+        _run_nsjail_pasta_smoke_from_cli()
     elif sys.argv[1:] == ["--run-nsjail-skills-smoke"]:
         _run_nsjail_skills_smoke_from_cli()
     else:
         raise SystemExit(
             "Usage: python -m tests.unit.test_agent_sandbox_litellm "
-            "[--run-nsjail-harness-smoke|--run-nsjail-skills-smoke]"
+            "[--run-nsjail-harness-smoke|--run-nsjail-pasta-smoke|"
+            "--run-nsjail-skills-smoke]"
         )

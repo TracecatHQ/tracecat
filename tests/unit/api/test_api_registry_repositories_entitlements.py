@@ -32,24 +32,13 @@ async def test_sync_custom_repository_requires_entitlement(
     client: TestClient, test_admin_role: Role, mock_role_acl_dependency: AsyncMock
 ) -> None:
     repository_id = uuid4()
-    repository = SimpleNamespace(
-        id=repository_id,
-        origin="git+ssh://git@github.com/acme/custom-registry.git",
-        current_version_id=None,
-    )
 
-    with (
-        patch.object(repos_router_module, "RegistryReposService") as MockReposService,
-        patch.object(
-            repos_router_module,
-            "check_entitlement",
-            new_callable=AsyncMock,
-        ) as mock_check_entitlement,
-    ):
+    with patch.object(repos_router_module, "RegistryReposService") as MockReposService:
         mock_repos_service = AsyncMock()
-        mock_repos_service.get_repository_by_id.return_value = repository
+        mock_repos_service.sync_repository.side_effect = EntitlementRequired(
+            "custom_registry"
+        )
         MockReposService.return_value = mock_repos_service
-        mock_check_entitlement.side_effect = EntitlementRequired("custom_registry")
 
         response = client.post(f"/registry/repos/{repository_id}/sync")
 

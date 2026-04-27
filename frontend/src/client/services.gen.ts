@@ -106,6 +106,7 @@ import type {
   AgentDeleteProviderCredentialsData,
   AgentDeleteProviderCredentialsResponse,
   AgentGetDefaultModelResponse,
+  AgentGetDefaultModelSelectionResponse,
   AgentGetProviderCredentialConfigData,
   AgentGetProviderCredentialConfigResponse,
   AgentGetProvidersStatusResponse,
@@ -154,6 +155,8 @@ import type {
   AgentSessionsUpdateSessionResponse,
   AgentSetDefaultModelData,
   AgentSetDefaultModelResponse,
+  AgentSetDefaultModelSelectionData,
+  AgentSetDefaultModelSelectionResponse,
   AgentSkillsArchiveSkillData,
   AgentSkillsArchiveSkillResponse,
   AgentSkillsCreateSkillData,
@@ -4570,6 +4573,42 @@ export const agentSetDefaultModel = (
     query: {
       model_name: data.modelName,
     },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Get Default Model Selection
+ * Get the organization's canonical default model selection.
+ * @returns unknown Successful Response
+ * @throws ApiError
+ */
+export const agentGetDefaultModelSelection =
+  (): CancelablePromise<AgentGetDefaultModelSelectionResponse> => {
+    return __request(OpenAPI, {
+      method: "GET",
+      url: "/agent/default-model-selection",
+    })
+  }
+
+/**
+ * Set Default Model Selection
+ * Set the organization's canonical default model selection.
+ * @param data The data for the request.
+ * @param data.requestBody
+ * @returns DefaultModelSelection Successful Response
+ * @throws ApiError
+ */
+export const agentSetDefaultModelSelection = (
+  data: AgentSetDefaultModelSelectionData
+): CancelablePromise<AgentSetDefaultModelSelectionResponse> => {
+  return __request(OpenAPI, {
+    method: "PUT",
+    url: "/agent/default-model-selection",
+    body: data.requestBody,
+    mediaType: "application/json",
     errors: {
       422: "Validation Error",
     },

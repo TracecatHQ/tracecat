@@ -4,6 +4,7 @@ from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, patch
 
 import pytest
+from pydantic import ValidationError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -13,6 +14,7 @@ from tracecat.cases.durations import (
     CaseDurationDefinitionCreate,
     CaseDurationDefinitionUpdate,
     CaseDurationEventAnchor,
+    CaseDurationEventFilters,
 )
 from tracecat.cases.durations.service import (
     CaseDurationDefinitionService,
@@ -22,7 +24,8 @@ from tracecat.cases.enums import CaseEventType, CasePriority, CaseSeverity, Case
 from tracecat.cases.schemas import CaseCreate, CaseUpdate
 from tracecat.cases.service import CasesService
 from tracecat.cases.tags.service import CaseTagsService
-from tracecat.db.models import CaseDuration
+from tracecat.db.models import CaseDuration, CaseEvent
+from tracecat.db.models import CaseDurationDefinition as CaseDurationDefinitionDB
 from tracecat.tags.schemas import TagCreate
 
 pytestmark = pytest.mark.usefixtures("db")
@@ -87,7 +90,9 @@ async def test_compute_case_durations_from_events(
             ),
             end_anchor=CaseDurationEventAnchor(
                 event_type=CaseEventType.STATUS_CHANGED,
-                field_filters={"data.new": CaseStatus.RESOLVED},
+                filters=CaseDurationEventFilters(
+                    new_values=[CaseStatus.RESOLVED.value]
+                ),
             ),
         )
     )
@@ -150,7 +155,6 @@ async def test_duration_filters_match_event_payload(
             ),
             end_anchor=CaseDurationEventAnchor(
                 event_type=CaseEventType.CASE_CLOSED,
-                field_filters={"data.new": CaseStatus.CLOSED},
             ),
         )
     )
@@ -192,7 +196,9 @@ async def test_duration_filters_support_multiple_values(
             ),
             end_anchor=CaseDurationEventAnchor(
                 event_type=CaseEventType.STATUS_CHANGED,
-                field_filters={"data.new": [CaseStatus.RESOLVED, CaseStatus.CLOSED]},
+                filters=CaseDurationEventFilters(
+                    new_values=[CaseStatus.RESOLVED.value, CaseStatus.CLOSED.value]
+                ),
             ),
         )
     )
@@ -218,6 +224,56 @@ async def test_duration_filters_support_multiple_values(
 
 
 @pytest.mark.anyio
+async def test_duration_filters_match_custom_field_changes(
+    session: AsyncSession, svc_role
+) -> None:
+    cases_service = CasesService(session=session, role=svc_role)
+    definition_service = CaseDurationDefinitionService(session=session, role=svc_role)
+    duration_service = CaseDurationService(session=session, role=svc_role)
+
+    await definition_service.create_definition(
+        CaseDurationDefinitionCreate(
+            name="Time to severity score update",
+            start_anchor=CaseDurationEventAnchor(
+                event_type=CaseEventType.CASE_CREATED,
+            ),
+            end_anchor=CaseDurationEventAnchor(
+                event_type=CaseEventType.FIELDS_CHANGED,
+                filters=CaseDurationEventFilters(field_ids=["severity_score"]),
+            ),
+        )
+    )
+
+    case = await cases_service.create_case(make_case_create())
+    unrelated_event = CaseEvent(
+        workspace_id=case.workspace_id,
+        case_id=case.id,
+        type=CaseEventType.FIELDS_CHANGED,
+        data={"changes": [{"field": "team", "old": "alpha", "new": "beta"}]},
+        created_at=datetime.now(UTC) + timedelta(seconds=1),
+    )
+    matching_event = CaseEvent(
+        workspace_id=case.workspace_id,
+        case_id=case.id,
+        type=CaseEventType.FIELDS_CHANGED,
+        data={
+            "changes": [
+                {"field": "severity_score", "old": 3, "new": 8},
+                {"field": "team", "old": "alpha", "new": "beta"},
+            ]
+        },
+        created_at=datetime.now(UTC) + timedelta(seconds=2),
+    )
+    session.add_all([unrelated_event, matching_event])
+    await session.flush()
+
+    values = await duration_service.compute_duration(case)
+    assert len(values) == 1
+    assert values[0].end_event_id == matching_event.id
+    assert values[0].duration is not None
+
+
+@pytest.mark.anyio
 async def test_duration_filters_match_closed_under_status_changed(
     session: AsyncSession, svc_role
 ) -> None:
@@ -233,7 +289,7 @@ async def test_duration_filters_match_closed_under_status_changed(
             ),
             end_anchor=CaseDurationEventAnchor(
                 event_type=CaseEventType.STATUS_CHANGED,
-                field_filters={"data.new": CaseStatus.CLOSED},
+                filters=CaseDurationEventFilters(new_values=[CaseStatus.CLOSED.value]),
             ),
         )
     )
@@ -270,7 +326,9 @@ async def test_duration_filters_match_reopened_under_status_changed(
             ),
             end_anchor=CaseDurationEventAnchor(
                 event_type=CaseEventType.STATUS_CHANGED,
-                field_filters={"data.new": CaseStatus.IN_PROGRESS},
+                filters=CaseDurationEventFilters(
+                    new_values=[CaseStatus.IN_PROGRESS.value]
+                ),
             ),
         )
     )
@@ -310,11 +368,11 @@ async def test_duration_supports_tag_events(session: AsyncSession, svc_role) -> 
             name="Tag window",
             start_anchor=CaseDurationEventAnchor(
                 event_type=CaseEventType.TAG_ADDED,
-                field_filters={"data.tag_ref": [tag.ref]},
+                filters=CaseDurationEventFilters(tag_refs=[tag.ref]),
             ),
             end_anchor=CaseDurationEventAnchor(
                 event_type=CaseEventType.TAG_REMOVED,
-                field_filters={"data.tag_ref": [tag.ref]},
+                filters=CaseDurationEventFilters(tag_refs=[tag.ref]),
             ),
         )
     )
@@ -364,7 +422,9 @@ async def test_duration_definition_update_accepts_nested_anchor_models(
             ),
             end_anchor=CaseDurationEventAnchor(
                 event_type=CaseEventType.STATUS_CHANGED,
-                field_filters={"data.new": CaseStatus.RESOLVED},
+                filters=CaseDurationEventFilters(
+                    new_values=[CaseStatus.RESOLVED.value]
+                ),
             ),
         )
     )
@@ -373,12 +433,12 @@ async def test_duration_definition_update_accepts_nested_anchor_models(
         start_anchor=CaseDurationEventAnchor(
             event_type=CaseEventType.STATUS_CHANGED,
             selection=CaseDurationAnchorSelection.LAST,
-            field_filters={"data.new": CaseStatus.IN_PROGRESS},
+            filters=CaseDurationEventFilters(new_values=[CaseStatus.IN_PROGRESS.value]),
         ),
         end_anchor=CaseDurationEventAnchor(
             event_type=CaseEventType.STATUS_CHANGED,
             selection=CaseDurationAnchorSelection.FIRST,
-            field_filters={"data.new": CaseStatus.RESOLVED},
+            filters=CaseDurationEventFilters(new_values=[CaseStatus.RESOLVED.value]),
         ),
     )
 
@@ -386,14 +446,20 @@ async def test_duration_definition_update_accepts_nested_anchor_models(
 
     assert updated.start_anchor.event_type == CaseEventType.STATUS_CHANGED
     assert updated.start_anchor.selection == CaseDurationAnchorSelection.LAST
-    assert updated.start_anchor.field_filters == {"data.new": CaseStatus.IN_PROGRESS}
+    assert updated.start_anchor.filters == CaseDurationEventFilters(
+        new_values=[CaseStatus.IN_PROGRESS.value]
+    )
     assert updated.end_anchor.selection == CaseDurationAnchorSelection.FIRST
-    assert updated.end_anchor.field_filters == {"data.new": CaseStatus.RESOLVED}
+    assert updated.end_anchor.filters == CaseDurationEventFilters(
+        new_values=[CaseStatus.RESOLVED.value]
+    )
 
     persisted = await definition_service.get_definition(definition.id)
     assert persisted.start_anchor.event_type == CaseEventType.STATUS_CHANGED
     assert persisted.start_anchor.selection == CaseDurationAnchorSelection.LAST
-    assert persisted.start_anchor.field_filters == {"data.new": CaseStatus.IN_PROGRESS}
+    assert persisted.start_anchor.filters == CaseDurationEventFilters(
+        new_values=[CaseStatus.IN_PROGRESS.value]
+    )
 
 
 @pytest.mark.anyio
@@ -412,7 +478,9 @@ async def test_duration_anchor_selection_first_vs_last(
             ),
             end_anchor=CaseDurationEventAnchor(
                 event_type=CaseEventType.STATUS_CHANGED,
-                field_filters={"data.new": CaseStatus.RESOLVED},
+                filters=CaseDurationEventFilters(
+                    new_values=[CaseStatus.RESOLVED.value]
+                ),
                 selection=CaseDurationAnchorSelection.FIRST,
             ),
         )
@@ -425,7 +493,9 @@ async def test_duration_anchor_selection_first_vs_last(
             ),
             end_anchor=CaseDurationEventAnchor(
                 event_type=CaseEventType.STATUS_CHANGED,
-                field_filters={"data.new": CaseStatus.RESOLVED},
+                filters=CaseDurationEventFilters(
+                    new_values=[CaseStatus.RESOLVED.value]
+                ),
                 selection=CaseDurationAnchorSelection.LAST,
             ),
         )
@@ -537,7 +607,9 @@ async def test_compute_time_series_returns_metrics(
             ),
             end_anchor=CaseDurationEventAnchor(
                 event_type=CaseEventType.STATUS_CHANGED,
-                field_filters={"data.new": CaseStatus.RESOLVED},
+                filters=CaseDurationEventFilters(
+                    new_values=[CaseStatus.RESOLVED.value]
+                ),
             ),
         )
     )
@@ -638,7 +710,9 @@ async def test_compute_time_series_excludes_incomplete_durations(
             ),
             end_anchor=CaseDurationEventAnchor(
                 event_type=CaseEventType.STATUS_CHANGED,
-                field_filters={"data.new": CaseStatus.RESOLVED},
+                filters=CaseDurationEventFilters(
+                    new_values=[CaseStatus.RESOLVED.value]
+                ),
             ),
         )
     )
@@ -675,7 +749,9 @@ async def test_compute_durations_batch_multiple_cases(
             ),
             end_anchor=CaseDurationEventAnchor(
                 event_type=CaseEventType.STATUS_CHANGED,
-                field_filters={"data.new": CaseStatus.RESOLVED},
+                filters=CaseDurationEventFilters(
+                    new_values=[CaseStatus.RESOLVED.value]
+                ),
             ),
         )
     )
@@ -736,6 +812,110 @@ async def test_compute_durations_batch_multiple_cases(
 
 
 @pytest.mark.anyio
+async def test_compute_durations_batch_applies_start_bound_per_case(
+    session: AsyncSession, svc_role
+) -> None:
+    cases_service = CasesService(session=session, role=svc_role)
+    definition_service = CaseDurationDefinitionService(session=session, role=svc_role)
+    duration_service = CaseDurationService(session=session, role=svc_role)
+
+    await definition_service.create_definition(
+        CaseDurationDefinitionCreate(
+            name="Time from progress to resolve",
+            start_anchor=CaseDurationEventAnchor(
+                event_type=CaseEventType.STATUS_CHANGED,
+                filters=CaseDurationEventFilters(
+                    new_values=[CaseStatus.IN_PROGRESS.value]
+                ),
+            ),
+            end_anchor=CaseDurationEventAnchor(
+                event_type=CaseEventType.STATUS_CHANGED,
+                filters=CaseDurationEventFilters(
+                    new_values=[CaseStatus.RESOLVED.value]
+                ),
+            ),
+        )
+    )
+
+    case1 = await cases_service.create_case(make_case_create(summary="Case 1"))
+    case2 = await cases_service.create_case(make_case_create(summary="Case 2"))
+    case3 = await cases_service.create_case(make_case_create(summary="Case 3"))
+    base_time = datetime.now(UTC)
+
+    case1_early_resolved = CaseEvent(
+        workspace_id=case1.workspace_id,
+        case_id=case1.id,
+        type=CaseEventType.STATUS_CHANGED,
+        data={"old": CaseStatus.NEW.value, "new": CaseStatus.RESOLVED.value},
+        created_at=base_time + timedelta(seconds=1),
+    )
+    case1_start = CaseEvent(
+        workspace_id=case1.workspace_id,
+        case_id=case1.id,
+        type=CaseEventType.STATUS_CHANGED,
+        data={"old": CaseStatus.NEW.value, "new": CaseStatus.IN_PROGRESS.value},
+        created_at=base_time + timedelta(seconds=2),
+    )
+    case1_end = CaseEvent(
+        workspace_id=case1.workspace_id,
+        case_id=case1.id,
+        type=CaseEventType.STATUS_CHANGED,
+        data={"old": CaseStatus.IN_PROGRESS.value, "new": CaseStatus.RESOLVED.value},
+        created_at=base_time + timedelta(seconds=3),
+    )
+    case2_start = CaseEvent(
+        workspace_id=case2.workspace_id,
+        case_id=case2.id,
+        type=CaseEventType.STATUS_CHANGED,
+        data={"old": CaseStatus.NEW.value, "new": CaseStatus.IN_PROGRESS.value},
+        created_at=base_time + timedelta(seconds=4),
+    )
+    case2_end = CaseEvent(
+        workspace_id=case2.workspace_id,
+        case_id=case2.id,
+        type=CaseEventType.STATUS_CHANGED,
+        data={"old": CaseStatus.IN_PROGRESS.value, "new": CaseStatus.RESOLVED.value},
+        created_at=base_time + timedelta(seconds=5),
+    )
+    case3_end_without_start = CaseEvent(
+        workspace_id=case3.workspace_id,
+        case_id=case3.id,
+        type=CaseEventType.STATUS_CHANGED,
+        data={"old": CaseStatus.NEW.value, "new": CaseStatus.RESOLVED.value},
+        created_at=base_time + timedelta(seconds=6),
+    )
+    session.add_all(
+        [
+            case1_early_resolved,
+            case1_start,
+            case1_end,
+            case2_start,
+            case2_end,
+            case3_end_without_start,
+        ]
+    )
+    await session.flush()
+
+    durations_by_case = await duration_service.compute_durations([case1, case2, case3])
+
+    case1_duration = durations_by_case[case1.id][0]
+    assert case1_duration.start_event_id == case1_start.id
+    assert case1_duration.end_event_id == case1_end.id
+    assert case1_duration.end_event_id != case1_early_resolved.id
+    assert case1_duration.duration is not None
+
+    case2_duration = durations_by_case[case2.id][0]
+    assert case2_duration.start_event_id == case2_start.id
+    assert case2_duration.end_event_id == case2_end.id
+    assert case2_duration.duration is not None
+
+    case3_duration = durations_by_case[case3.id][0]
+    assert case3_duration.start_event_id is None
+    assert case3_duration.end_event_id == case3_end_without_start.id
+    assert case3_duration.duration is None
+
+
+@pytest.mark.anyio
 async def test_compute_time_series_multiple_cases_with_mixed_completion(
     session: AsyncSession, svc_role
 ) -> None:
@@ -752,7 +932,9 @@ async def test_compute_time_series_multiple_cases_with_mixed_completion(
             ),
             end_anchor=CaseDurationEventAnchor(
                 event_type=CaseEventType.STATUS_CHANGED,
-                field_filters={"data.new": CaseStatus.RESOLVED},
+                filters=CaseDurationEventFilters(
+                    new_values=[CaseStatus.RESOLVED.value]
+                ),
             ),
         )
     )
@@ -813,86 +995,76 @@ async def test_compute_durations_empty_cases_list(
     assert durations == {}
 
 
-# --- _resolve_field array traversal tests ---
+def test_duration_anchor_rejects_legacy_dot_path_filters() -> None:
+    with pytest.raises(ValidationError):
+        CaseDurationEventAnchor.model_validate(
+            {
+                "event_type": CaseEventType.FIELDS_CHANGED,
+                "field_filters": {"data.changes.field": ["severity_score"]},
+            }
+        )
+
+
+def test_duration_anchor_rejects_custom_timestamp_paths() -> None:
+    with pytest.raises(ValidationError):
+        CaseDurationEventAnchor.model_validate(
+            {
+                "event_type": CaseEventType.CASE_CREATED,
+                "timestamp_path": "data.created_at",
+            }
+        )
 
 
 @pytest.mark.anyio
-async def test_resolve_field_traverses_array_of_dicts(
+async def test_duration_storage_maps_known_legacy_ui_filters(
     session: AsyncSession, svc_role
 ) -> None:
-    """_resolve_field should collect values from each item in a list."""
-    from tracecat.db.models import CaseEvent
+    definition_service = CaseDurationDefinitionService(session=session, role=svc_role)
 
-    duration_service = CaseDurationService(session=session, role=svc_role)
-
-    event = CaseEvent(
-        workspace_id=uuid.uuid4(),
-        case_id=uuid.uuid4(),
-        type=CaseEventType.FIELDS_CHANGED,
-        data={
-            "changes": [
-                {"field": "severity_score", "old": 3, "new": 8},
-                {"field": "team", "old": "alpha", "new": "beta"},
-            ]
-        },
+    filters, unsupported = definition_service._filters_from_storage(
+        CaseEventType.FIELDS_CHANGED,
+        {"data.changes.field": ["severity_score"]},
     )
 
-    result = duration_service._resolve_field(event, "data.changes.field")
-    assert result == ["severity_score", "team"]
+    assert not unsupported
+    assert filters == CaseDurationEventFilters(field_ids=["severity_score"])
 
 
 @pytest.mark.anyio
-async def test_resolve_field_array_returns_none_when_no_items_have_key(
+async def test_duration_storage_marks_arbitrary_legacy_filters_unsupported(
     session: AsyncSession, svc_role
 ) -> None:
-    """_resolve_field should return None if no array items have the target key."""
-    from tracecat.db.models import CaseEvent
+    definition_service = CaseDurationDefinitionService(session=session, role=svc_role)
 
-    duration_service = CaseDurationService(session=session, role=svc_role)
-
-    event = CaseEvent(
-        workspace_id=uuid.uuid4(),
-        case_id=uuid.uuid4(),
-        type=CaseEventType.FIELDS_CHANGED,
-        data={"changes": [{"other": "value"}, {"other": "value2"}]},
+    filters, unsupported = definition_service._filters_from_storage(
+        CaseEventType.FIELDS_CHANGED,
+        {"data.items.name": ["foo"]},
     )
 
-    result = duration_service._resolve_field(event, "data.changes.field")
-    assert result is None
+    assert unsupported
+    assert filters == CaseDurationEventFilters()
 
 
 @pytest.mark.anyio
-async def test_matches_filters_with_array_resolved_values(
+async def test_duration_storage_marks_invalid_legacy_anchor_unsupported(
     session: AsyncSession, svc_role
 ) -> None:
-    """_matches_filters should work when _resolve_field returns a list from array traversal."""
-    from tracecat.db.models import CaseEvent
-
-    duration_service = CaseDurationService(session=session, role=svc_role)
-
-    event = CaseEvent(
-        workspace_id=uuid.uuid4(),
-        case_id=uuid.uuid4(),
-        type=CaseEventType.FIELDS_CHANGED,
-        data={
-            "changes": [
-                {"field": "severity_score", "old": 3, "new": 8},
-                {"field": "team", "old": "alpha", "new": "beta"},
-            ]
-        },
+    definition_service = CaseDurationDefinitionService(session=session, role=svc_role)
+    assert svc_role.workspace_id is not None
+    entity = CaseDurationDefinitionDB(
+        workspace_id=svc_role.workspace_id,
+        name="Legacy status duration",
+        start_event_type=CaseEventType.STATUS_CHANGED,
+        start_timestamp_path="created_at",
+        start_field_filters={},
+        start_selection=CaseDurationAnchorSelection.FIRST,
+        end_event_type=CaseEventType.CASE_CLOSED,
+        end_timestamp_path="created_at",
+        end_field_filters={},
+        end_selection=CaseDurationAnchorSelection.FIRST,
     )
 
-    # Should match when filter value is in the resolved list
-    assert duration_service._matches_filters(
-        event, {"data.changes.field": ["severity_score"]}
-    )
+    anchor = definition_service._anchor_from_entity(entity, "start")
 
-    # Should match when multiple filter values overlap
-    assert duration_service._matches_filters(
-        event, {"data.changes.field": ["severity_score", "unrelated"]}
-    )
-
-    # Should NOT match when filter value is not in the resolved list
-    assert not duration_service._matches_filters(
-        event, {"data.changes.field": ["nonexistent_field"]}
-    )
+    assert anchor._has_unsupported_filters
+    assert anchor.filters == CaseDurationEventFilters()

@@ -1,6 +1,6 @@
 # ECS Task Definition for API Service
 resource "aws_ecs_task_definition" "api_task_definition" {
-  family                   = "TracecatApiTaskDefinition"
+  family                   = "${var.iam_name_prefix}ApiTaskDefinition"
   network_mode             = "awsvpc"
   requires_compatibilities = ["FARGATE"]
   cpu                      = var.api_cpu

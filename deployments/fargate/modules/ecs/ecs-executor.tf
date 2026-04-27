@@ -1,6 +1,6 @@
 # ECS Task Definition for Executor service
 resource "aws_ecs_task_definition" "executor_task_definition" {
-  family                   = "TracecatExecutorTaskDefinition"
+  family                   = "${var.iam_name_prefix}ExecutorTaskDefinition"
   network_mode             = "awsvpc"
   requires_compatibilities = ["FARGATE"]
   cpu                      = var.executor_cpu

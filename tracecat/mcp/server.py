@@ -137,6 +137,10 @@ from tracecat.dsl.validation import (
 )
 from tracecat.exceptions import (
     BuiltinRegistryHasNoSelectionError,
+    RegistryActionValidationError,
+    RegistryError,
+    ScopeDeniedError,
+    TracecatCredentialsNotFoundError,
     TracecatNotFoundError,
     TracecatValidationError,
 )
@@ -154,6 +158,7 @@ from tracecat.mcp.auth import (
     create_mcp_auth,
     get_token_identity,
     list_workspaces_for_request,
+    resolve_org_role_for_request,
     resolve_role_for_request,
 )
 from tracecat.mcp.config import (
@@ -191,8 +196,14 @@ from tracecat.registry.actions.service import (
 from tracecat.registry.actions.service import (
     validate_action_template as validate_template_action_impl,
 )
+from tracecat.registry.constants import (
+    DEFAULT_LOCAL_REGISTRY_ORIGIN,
+    DEFAULT_REGISTRY_ORIGIN,
+)
 from tracecat.registry.lock.service import RegistryLockService
 from tracecat.registry.lock.types import RegistryLock
+from tracecat.registry.repositories.schemas import RegistryRepositorySync
+from tracecat.registry.repositories.service import RegistryReposService
 from tracecat.registry.repository import Repository
 from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
 from tracecat.secrets.service import SecretsService
@@ -360,6 +371,19 @@ async def _resolve_workspace_role(workspace_id: uuid.UUID) -> tuple[uuid.UUID, R
     except ValueError as exc:
         raise ToolError(str(exc)) from exc
     return workspace_id, role
+
+
+async def _resolve_org_role() -> Role:
+    """Resolve a role with organization context for the caller's token.
+
+    Mirrors the HTTP API: queries the caller's OrganizationMembership rows
+    directly. Errors with a clear message on the multi-org case (matching
+    `_resolve_org_for_regular_user` in tracecat/auth/credentials.py).
+    """
+    try:
+        return await resolve_org_role_for_request()
+    except ValueError as exc:
+        raise ToolError(str(exc)) from exc
 
 
 def _role_workspace_id(role: Role) -> uuid.UUID:
@@ -942,6 +966,28 @@ class TemplateValidationResponse(BaseModel):
     valid: bool
     action_name: str | None = None
     errors: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class CustomRegistrySyncResult(BaseModel):
+    """Per-repository custom registry sync result."""
+
+    success: bool
+    synced_at: datetime
+    repository_id: uuid.UUID
+    origin: str
+    version: str | None = None
+    commit_sha: str | None = None
+    actions_count: int | None = None
+    forced: bool = False
+    error: str | None = None
+
+
+class CustomRegistrySyncResponse(BaseModel):
+    """Aggregate custom registry sync response."""
+
+    success: bool
+    synced_at: datetime
+    results: list[CustomRegistrySyncResult] = Field(default_factory=list)
 
 
 class ActionCatalogAction(BaseModel):
@@ -4073,6 +4119,7 @@ _TOOL_NAMESPACE_BY_NAME: dict[str, str] = {
     "validate_workflow": "workflows",
     "prepare_template_file_upload": "workflows",
     "validate_template_action": "workflows",
+    "sync_custom_registry": "workflows",
     "publish_workflow": "workflows",
     "run_draft_workflow": "workflows",
     "run_published_workflow": "workflows",
@@ -5191,6 +5238,116 @@ async def list_actions(
     except Exception as e:
         logger.error("Failed to list actions", error=str(e))
         raise ToolError(f"Failed to list actions: {e}") from None
+
+
+@mcp.tool()
+async def sync_custom_registry(
+    target_commit_sha: str | None = None,
+    force: bool = False,
+) -> CustomRegistrySyncResponse:
+    """Sync the organization's custom action registry from its remote git repository.
+
+    Pulls the latest code from the custom registry repo registered in the
+    caller's organization, builds a versioned tarball, and makes the synced
+    actions available to agents and workflows. Use this after pushing changes
+    to the custom integrations repo, or to roll forward/back to a specific
+    commit. Existing published workflows must be republished to
+    pick up newly synced action versions.
+
+    Args:
+        target_commit_sha: 40-character commit SHA to sync to. Defaults to
+            the remote's HEAD when omitted.
+        force: Delete the repository's current registry version before
+            syncing, so the same commit can be re-synced from scratch.
+
+    Returns JSON with `success`, `synced_at`, and a `results` array containing
+    the per-repository `repository_id`, `origin`, `version`, `commit_sha`,
+    `actions_count`, `forced`, and `error` (if the sync failed).
+    """
+    try:
+        role = await _resolve_org_role()
+        _role_organization_id(role)
+        synced_at = datetime.now(UTC)
+
+        async with get_async_session_context_manager() as session:
+            repos_service = RegistryReposService(session, role)
+            # Tracecat's data model allows at most one custom registry per
+            # org today: either a remote git repo (`git+ssh://...`) or, in
+            # local-dev deployments, a `local` repo. The MCP tool targets the
+            # remote one. Both built-in origins (platform default, local) are
+            # excluded so a deployment running both still resolves to a
+            # single custom repo. Revisit if multiple custom repos per org
+            # are ever supported.
+            repositories = [
+                repo
+                for repo in await repos_service.list_repositories()
+                if repo.origin
+                not in (DEFAULT_REGISTRY_ORIGIN, DEFAULT_LOCAL_REGISTRY_ORIGIN)
+            ]
+            if not repositories:
+                raise ToolError("No custom registry repository found")
+            if len(repositories) > 1:
+                raise ToolError("Expected exactly one custom registry repository")
+
+            repo = repositories[0]
+            try:
+                response = await repos_service.sync_repository(
+                    repo,
+                    RegistryRepositorySync(
+                        target_commit_sha=target_commit_sha,
+                        force=force,
+                    ),
+                )
+            except ScopeDeniedError:
+                raise
+            except (
+                RegistryActionValidationError,
+                RegistryError,
+                TracecatCredentialsNotFoundError,
+                TracecatValidationError,
+                ValueError,
+            ) as exc:
+                return CustomRegistrySyncResponse(
+                    success=False,
+                    synced_at=synced_at,
+                    results=[
+                        CustomRegistrySyncResult(
+                            success=False,
+                            synced_at=synced_at,
+                            repository_id=repo.id,
+                            origin=repo.origin,
+                            forced=force,
+                            error=str(exc),
+                        )
+                    ],
+                )
+
+            return CustomRegistrySyncResponse(
+                success=response.success,
+                synced_at=synced_at,
+                results=[
+                    CustomRegistrySyncResult(
+                        success=response.success,
+                        synced_at=synced_at,
+                        repository_id=response.repository_id,
+                        origin=response.origin,
+                        version=response.version,
+                        commit_sha=response.commit_sha,
+                        actions_count=response.actions_count,
+                        forced=force,
+                    )
+                ],
+            )
+    except ToolError:
+        raise
+    except ScopeDeniedError as e:
+        required = ", ".join(e.required_scopes)
+        raise ToolError(f"Missing required scope: {required}") from e
+    except ValueError as e:
+        raise ToolError(str(e)) from e
+    except Exception as e:
+        logger.error("Failed to sync custom registry", error=str(e))
+        raise ToolError(f"Failed to sync custom registry: {e}") from None
 
 
 @mcp.tool()
