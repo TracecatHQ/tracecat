@@ -3,20 +3,20 @@
 # behaviour for Service Connect SSE traffic must be handled in the downstream
 # proxies (Caddy and the managed Envoy sidecars).
 resource "aws_alb" "this" {
-  name               = "tracecat-alb"
+  name               = "${var.name_prefix}-alb"
   internal           = var.is_internal
   load_balancer_type = "application"
   subnets            = var.public_subnet_ids
   security_groups    = [aws_security_group.alb.id]
 
   tags = {
-    Name = "tracecat-alb"
+    Name = "${var.name_prefix}-alb"
   }
 }
 
 # Target Group for Caddy
 resource "aws_alb_target_group" "caddy" {
-  name        = "tracecat-caddy-tg"
+  name        = "${var.name_prefix}-caddy-tg"
   port        = 80
   protocol    = "HTTP"
   vpc_id      = var.vpc_id
@@ -68,7 +68,7 @@ resource "aws_alb_listener" "http" {
 resource "aws_wafv2_web_acl" "this" {
   count = var.enable_waf ? 1 : 0
 
-  name        = "tracecat-waf-acl"
+  name        = "${var.name_prefix}-waf-acl"
   description = "Default WAF configuration for Tracecat ALB"
   scope       = "REGIONAL"
 
@@ -524,7 +524,7 @@ resource "aws_wafv2_web_acl" "this" {
 
   visibility_config {
     cloudwatch_metrics_enabled = true
-    metric_name                = "tracecat-waf-metric"
+    metric_name                = "${var.name_prefix}-waf-metric"
     sampled_requests_enabled   = true
   }
 }
@@ -533,7 +533,7 @@ resource "aws_wafv2_web_acl" "this" {
 resource "aws_wafv2_regex_pattern_set" "attachments_endpoint" {
   count = var.enable_waf ? 1 : 0
 
-  name        = "attachments-endpoint-pattern"
+  name        = "${var.name_prefix}-attachments-endpoint-pattern"
   description = "Pattern to match attachments API endpoint"
   scope       = "REGIONAL"
 
@@ -545,7 +545,7 @@ resource "aws_wafv2_regex_pattern_set" "attachments_endpoint" {
 resource "aws_wafv2_regex_pattern_set" "mcp_oauth_endpoints" {
   count = var.enable_waf ? 1 : 0
 
-  name        = "mcp-oauth-endpoints-pattern"
+  name        = "${var.name_prefix}-mcp-oauth-endpoints-pattern"
   description = "Matches MCP OAuth endpoints that carry loopback redirect URIs"
   scope       = "REGIONAL"
 
@@ -559,7 +559,7 @@ resource "aws_wafv2_regex_pattern_set" "mcp_oauth_endpoints" {
 resource "aws_wafv2_regex_pattern_set" "mcp_public_endpoints" {
   count = var.enable_waf ? 1 : 0
 
-  name        = "mcp-public-endpoint-pattern"
+  name        = "${var.name_prefix}-mcp-public-endpoint-pattern"
   description = "Matches MCP discovery, transport, and OAuth endpoints"
   scope       = "REGIONAL"
 

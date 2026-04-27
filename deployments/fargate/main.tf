@@ -12,16 +12,26 @@ locals {
 module "network" {
   source = "./modules/network"
 
-  aws_region     = var.aws_region
-  domain_name    = var.domain_name
-  hosted_zone_id = var.hosted_zone_id
+  aws_region           = var.aws_region
+  name_prefix          = var.name_prefix
+  vpc_cidr             = var.vpc_cidr
+  public_subnet_cidrs  = var.public_subnet_cidrs
+  private_subnet_cidrs = var.private_subnet_cidrs
+  domain_name          = var.domain_name
+  hosted_zone_id       = var.hosted_zone_id
 }
 
 module "ecs" {
   source = "./modules/ecs"
 
   # AWS provider
-  aws_region = var.aws_region
+  aws_region                       = var.aws_region
+  name_prefix                      = var.name_prefix
+  iam_name_prefix                  = var.iam_name_prefix
+  core_db_identifier               = var.core_db_identifier
+  temporal_db_identifier           = var.temporal_db_identifier
+  temporal_db_parameter_group_name = var.temporal_db_parameter_group_name
+  redis_default_user_id            = var.redis_default_user_id
 
   # Network configuration from network module
   vpc_id                  = module.network.vpc_id
@@ -128,6 +138,7 @@ module "ecs" {
   # Compute / memory
   api_cpu                                  = var.api_cpu
   api_memory                               = var.api_memory
+  api_desired_count                        = var.api_desired_count
   worker_cpu                               = var.worker_cpu
   worker_memory                            = var.worker_memory
   worker_desired_count                     = var.worker_desired_count

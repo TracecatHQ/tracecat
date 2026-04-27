@@ -5,6 +5,47 @@ variable "aws_region" {
   description = "AWS region (secrets and hosted zone must be in the same region)"
 }
 
+variable "name_prefix" {
+  type        = string
+  description = "Prefix for same-account/regional AWS resource names."
+  default     = "tracecat"
+
+  validation {
+    condition     = length(var.name_prefix) <= 23 && can(regex("^[a-z0-9]([a-z0-9-]*[a-z0-9])?$", var.name_prefix))
+    error_message = "name_prefix must be 23 characters or fewer, contain only lowercase letters, numbers, and hyphens, and start and end with a letter or number."
+  }
+}
+
+variable "iam_name_prefix" {
+  type        = string
+  description = "Prefix for IAM role and policy names."
+  default     = "Tracecat"
+}
+
+variable "core_db_identifier" {
+  type        = string
+  description = "RDS DB instance identifier for the core Tracecat database."
+  default     = "core-database"
+}
+
+variable "temporal_db_identifier" {
+  type        = string
+  description = "RDS DB instance identifier for the Temporal database."
+  default     = "temporal-database"
+}
+
+variable "temporal_db_parameter_group_name" {
+  type        = string
+  description = "RDS parameter group name for Temporal database compatibility settings."
+  default     = "temporal-db-compatibility"
+}
+
+variable "redis_default_user_id" {
+  type        = string
+  description = "ElastiCache Redis default ACL user ID."
+  default     = "default-user-tracecat"
+}
+
 ### Networking
 
 variable "is_internal" {
@@ -239,7 +280,7 @@ variable "db_max_overflow" {
 variable "db_pool_size" {
   type        = string
   description = "The size of the database connection pool"
-  default     = "30"
+  default     = "10"
 }
 
 variable "db_pool_timeout" {
@@ -251,13 +292,13 @@ variable "db_pool_timeout" {
 variable "db_pool_recycle" {
   type        = string
   description = "The time in seconds after which pool connections are recycled"
-  default     = "1800"
+  default     = "300"
 }
 
 variable "db_max_overflow_executor" {
   type        = string
   description = "The maximum number of connections to allow in the DB pool"
-  default     = "30"
+  default     = "60"
 }
 
 variable "db_pool_size_executor" {

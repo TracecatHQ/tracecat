@@ -30,7 +30,7 @@ data "aws_iam_policy_document" "assume_role" {
 
 # ECS Poll policy
 resource "aws_iam_policy" "ecs_poll" {
-  name        = "TracecatECSPollPolicy"
+  name        = "${var.iam_name_prefix}ECSPollPolicy"
   description = "Policy for ECS Poll action"
 
   policy = jsonencode({
@@ -50,7 +50,7 @@ resource "aws_iam_policy" "ecs_poll" {
 
 # Redis IAM access policy
 resource "aws_iam_policy" "redis_iam_access" {
-  name        = "TracecatRedisIAMAccessPolicy"
+  name        = "${var.iam_name_prefix}RedisIAMAccessPolicy"
   description = "Policy for ElastiCache Redis metadata access (no IAM auth)"
 
   policy = jsonencode({
@@ -69,7 +69,7 @@ resource "aws_iam_policy" "redis_iam_access" {
 
 # S3 access policy for Tracecat blob storage buckets
 resource "aws_iam_policy" "s3_blob_access" {
-  name        = "TracecatS3BlobStoragePolicy"
+  name        = "${var.iam_name_prefix}S3BlobStoragePolicy"
   description = "Policy for S3 blob storage access (attachments, registry, skills, workflow)"
 
   policy = jsonencode({
@@ -126,7 +126,7 @@ resource "aws_iam_policy" "s3_blob_access" {
 
 # Secrets access policy
 resource "aws_iam_policy" "secrets_access" {
-  name        = "TracecatSecretsAccessPolicy"
+  name        = "${var.iam_name_prefix}SecretsAccessPolicy"
   description = "Policy for accessing Tracecat secrets"
 
   policy = jsonencode({
@@ -161,7 +161,7 @@ resource "aws_iam_policy" "secrets_access" {
 # service (internal OIDC client-secret derivation).  It must NOT be
 # accessible from worker or executor services to limit blast radius.
 resource "aws_iam_policy" "api_only_secrets_access" {
-  name        = "TracecatAPIOnlySecretsAccessPolicy"
+  name        = "${var.iam_name_prefix}APIOnlySecretsAccessPolicy"
   description = "Policy for accessing API-only secrets (USER_AUTH_SECRET)"
 
   policy = jsonencode({
@@ -178,7 +178,7 @@ resource "aws_iam_policy" "api_only_secrets_access" {
 
 resource "aws_iam_policy" "temporal_payload_encryption_keyring_access" {
   count       = var.temporal_payload_encryption_keyring_arn != null ? 1 : 0
-  name        = "TracecatTemporalPayloadEncryptionKeyringAccessPolicy"
+  name        = "${var.iam_name_prefix}TemporalPayloadEncryptionKeyringAccessPolicy"
   description = "Policy for accessing the Temporal payload encryption keyring"
 
   policy = jsonencode({
@@ -194,7 +194,7 @@ resource "aws_iam_policy" "temporal_payload_encryption_keyring_access" {
 }
 
 resource "aws_iam_policy" "ui_secrets_access" {
-  name        = "TracecatUISecretsAccessPolicy"
+  name        = "${var.iam_name_prefix}UISecretsAccessPolicy"
   description = "Policy for accessing Tracecat UI secrets"
 
   policy = jsonencode({
@@ -213,7 +213,7 @@ resource "aws_iam_policy" "ui_secrets_access" {
 
 resource "aws_iam_policy" "temporal_secrets_access" {
   count       = var.disable_temporal_autosetup ? 0 : 1
-  name        = "TracecatTemporalSecretsAccessPolicy"
+  name        = "${var.iam_name_prefix}TemporalSecretsAccessPolicy"
   description = "Policy for accessing Temporal secrets"
 
   policy = jsonencode({
@@ -234,7 +234,7 @@ resource "aws_iam_policy" "temporal_secrets_access" {
 
 # API execution role
 resource "aws_iam_role" "api_execution" {
-  name               = "TracecatAPIExecutionRole"
+  name               = "${var.iam_name_prefix}APIExecutionRole"
   assume_role_policy = data.aws_iam_policy_document.assume_role.json
 }
 
@@ -255,7 +255,7 @@ resource "aws_iam_role_policy_attachment" "api_execution_api_only_secrets" {
 
 # Worker execution role
 resource "aws_iam_role" "worker_execution" {
-  name               = "TracecatWorkerExecutionRole"
+  name               = "${var.iam_name_prefix}WorkerExecutionRole"
   assume_role_policy = data.aws_iam_policy_document.assume_role.json
 }
 
@@ -271,12 +271,12 @@ resource "aws_iam_role_policy_attachment" "worker_execution_secrets" {
 
 # API and Worker task role
 resource "aws_iam_role" "api_worker_task" {
-  name               = "TracecatAPIWorkerTaskRole"
+  name               = "${var.iam_name_prefix}APIWorkerTaskRole"
   assume_role_policy = data.aws_iam_policy_document.assume_role.json
 }
 
 resource "aws_iam_role_policy" "api_worker_task_db_access" {
-  name = "TracecatAPIWorkerDBAccessPolicy"
+  name = "${var.iam_name_prefix}APIWorkerDBAccessPolicy"
   role = aws_iam_role.api_worker_task.id
 
   policy = jsonencode({
@@ -316,12 +316,12 @@ resource "aws_iam_role_policy_attachment" "api_worker_task_temporal_payload_encr
 }
 
 resource "aws_iam_role" "executor_task" {
-  name               = "TracecatExecutorTaskRole"
+  name               = "${var.iam_name_prefix}ExecutorTaskRole"
   assume_role_policy = data.aws_iam_policy_document.assume_role.json
 }
 
 resource "aws_iam_role_policy" "executor_task_db_access" {
-  name = "TracecatExecutorDBAccessPolicy"
+  name = "${var.iam_name_prefix}ExecutorDBAccessPolicy"
   role = aws_iam_role.executor_task.id
 
   policy = jsonencode({
@@ -343,7 +343,7 @@ resource "aws_iam_role_policy" "executor_task_db_access" {
 }
 
 resource "aws_iam_role_policy" "executor_task_assume_role" {
-  name = "TracecatExecutorAssumeRolePolicy"
+  name = "${var.iam_name_prefix}ExecutorAssumeRolePolicy"
   role = aws_iam_role.executor_task.id
 
   policy = jsonencode({
@@ -380,7 +380,7 @@ resource "aws_iam_role_policy_attachment" "executor_task_temporal_payload_encryp
 
 # UI execution role
 resource "aws_iam_role" "ui_execution" {
-  name               = "TracecatUIExecutionRole"
+  name               = "${var.iam_name_prefix}UIExecutionRole"
   assume_role_policy = data.aws_iam_policy_document.assume_role.json
 }
 
@@ -398,7 +398,7 @@ resource "aws_iam_role_policy_attachment" "ui_execution_secrets" {
 # Temporal execution role
 resource "aws_iam_role" "temporal_execution" {
   count              = var.disable_temporal_autosetup ? 0 : 1
-  name               = "TracecatTemporalExecutionRole"
+  name               = "${var.iam_name_prefix}TemporalExecutionRole"
   assume_role_policy = data.aws_iam_policy_document.assume_role.json
 }
 
@@ -417,13 +417,13 @@ resource "aws_iam_role_policy_attachment" "temporal_execution_secrets" {
 # Temporal task role
 resource "aws_iam_role" "temporal_task" {
   count              = var.disable_temporal_autosetup ? 0 : 1
-  name               = "TracecatTemporalTaskRole"
+  name               = "${var.iam_name_prefix}TemporalTaskRole"
   assume_role_policy = data.aws_iam_policy_document.assume_role.json
 }
 
 resource "aws_iam_role_policy" "temporal_task_db_access" {
   count = var.disable_temporal_autosetup ? 0 : 1
-  name  = "TracecatTemporalDBAccessPolicy"
+  name  = "${var.iam_name_prefix}TemporalDBAccessPolicy"
   role  = aws_iam_role.temporal_task[0].id
 
   policy = jsonencode({
@@ -445,7 +445,7 @@ resource "aws_iam_role_policy" "temporal_task_db_access" {
 # MCP execution role
 resource "aws_iam_role" "mcp_execution" {
   count              = var.enable_mcp ? 1 : 0
-  name               = "TracecatMCPExecutionRole"
+  name               = "${var.iam_name_prefix}MCPExecutionRole"
   assume_role_policy = data.aws_iam_policy_document.assume_role.json
 }
 
@@ -476,13 +476,13 @@ resource "aws_iam_role_policy_attachment" "mcp_execution_cloudwatch_logs" {
 # MCP task role
 resource "aws_iam_role" "mcp_task" {
   count              = var.enable_mcp ? 1 : 0
-  name               = "TracecatMCPTaskRole"
+  name               = "${var.iam_name_prefix}MCPTaskRole"
   assume_role_policy = data.aws_iam_policy_document.assume_role.json
 }
 
 resource "aws_iam_role_policy" "mcp_task_db_access" {
   count = var.enable_mcp ? 1 : 0
-  name  = "TracecatMCPDBAccessPolicy"
+  name  = "${var.iam_name_prefix}MCPDBAccessPolicy"
   role  = aws_iam_role.mcp_task[0].id
 
   policy = jsonencode({
@@ -511,7 +511,7 @@ resource "aws_iam_role_policy_attachment" "mcp_task_temporal_payload_encryption_
 
 # LiteLLM execution role
 resource "aws_iam_role" "litellm_execution" {
-  name               = "TracecatLitellmExecutionRole"
+  name               = "${var.iam_name_prefix}LitellmExecutionRole"
   assume_role_policy = data.aws_iam_policy_document.assume_role.json
 }
 
@@ -532,12 +532,12 @@ resource "aws_iam_role_policy_attachment" "litellm_execution_cloudwatch_logs" {
 
 # LiteLLM task role
 resource "aws_iam_role" "litellm_task" {
-  name               = "TracecatLitellmTaskRole"
+  name               = "${var.iam_name_prefix}LitellmTaskRole"
   assume_role_policy = data.aws_iam_policy_document.assume_role.json
 }
 
 resource "aws_iam_role_policy" "litellm_task_db_access" {
-  name = "TracecatLitellmDBAccessPolicy"
+  name = "${var.iam_name_prefix}LitellmDBAccessPolicy"
   role = aws_iam_role.litellm_task.id
 
   policy = jsonencode({
@@ -559,7 +559,7 @@ resource "aws_iam_role_policy" "litellm_task_db_access" {
 }
 
 resource "aws_iam_role_policy" "litellm_task_assume_role" {
-  name = "TracecatLitellmAssumeRolePolicy"
+  name = "${var.iam_name_prefix}LitellmAssumeRolePolicy"
   role = aws_iam_role.litellm_task.id
 
   policy = jsonencode({
@@ -580,7 +580,7 @@ resource "aws_iam_role_policy" "litellm_task_assume_role" {
 
 # Caddy execution role
 resource "aws_iam_role" "caddy_execution" {
-  name               = "TracecatCaddyExecutionRole"
+  name               = "${var.iam_name_prefix}CaddyExecutionRole"
   assume_role_policy = data.aws_iam_policy_document.assume_role.json
 }
 
@@ -591,7 +591,7 @@ resource "aws_iam_role_policy_attachment" "caddy_execution_ecs_poll" {
 
 # Add CloudWatch Logs policy
 resource "aws_iam_policy" "cloudwatch_logs" {
-  name        = "TracecatCloudWatchLogsPolicy"
+  name        = "${var.iam_name_prefix}CloudWatchLogsPolicy"
   description = "Policy for writing to CloudWatch Logs"
 
   policy = jsonencode({
@@ -640,7 +640,7 @@ resource "aws_iam_role_policy_attachment" "caddy_execution_cloudwatch_logs" {
 # (Optional) Temporal UI execution role
 resource "aws_iam_policy" "temporal_ui_secrets_access" {
   count       = var.disable_temporal_ui ? 0 : 1
-  name        = "TracecatTemporalUISecretsAccessPolicy"
+  name        = "${var.iam_name_prefix}TemporalUISecretsAccessPolicy"
   description = "Policy for accessing Temporal UI secrets"
 
   policy = jsonencode({
@@ -660,7 +660,7 @@ resource "aws_iam_policy" "temporal_ui_secrets_access" {
 
 resource "aws_iam_role" "temporal_ui_execution" {
   count              = var.disable_temporal_ui ? 0 : 1
-  name               = "TracecatTemporalUIExecutionRole"
+  name               = "${var.iam_name_prefix}TemporalUIExecutionRole"
   assume_role_policy = data.aws_iam_policy_document.assume_role.json
 }
 
@@ -685,6 +685,6 @@ resource "aws_iam_role_policy_attachment" "temporal_ui_execution_secrets" {
 # Temporal UI task role (minimal permissions)
 resource "aws_iam_role" "temporal_ui_task" {
   count              = var.disable_temporal_ui ? 0 : 1
-  name               = "TracecatTemporalUITaskRole"
+  name               = "${var.iam_name_prefix}TemporalUITaskRole"
   assume_role_policy = data.aws_iam_policy_document.assume_role.json
 }

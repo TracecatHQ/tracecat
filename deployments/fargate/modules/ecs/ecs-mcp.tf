@@ -1,7 +1,7 @@
 # ECS Task Definition for MCP Service
 resource "aws_ecs_task_definition" "mcp_task_definition" {
   count                    = var.enable_mcp ? 1 : 0
-  family                   = "TracecatMcpTaskDefinition"
+  family                   = "${var.iam_name_prefix}McpTaskDefinition"
   network_mode             = "awsvpc"
   requires_compatibilities = ["FARGATE"]
   cpu                      = var.mcp_cpu
