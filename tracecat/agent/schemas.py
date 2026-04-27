@@ -10,13 +10,14 @@ from typing import (
     TypedDict,
 )
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from pydantic_ai.messages import ModelMessage, ModelResponse
 from pydantic_ai.models import ModelRequestParameters
 from pydantic_ai.settings import ModelSettings
 from pydantic_ai.tools import DeferredToolResults
 
 from tracecat.agent.types import AgentConfig
+from tracecat.agent.validation import validate_actions_length
 from tracecat.auth.types import Role
 from tracecat.chat.schemas import ChatMessage
 
@@ -273,6 +274,8 @@ class AgentConfigSchema(BaseModel):
     mcp_servers: list[MCPServerConfigSchema] | None = None
     retries: int = Field(default=20)
     enable_thinking: bool = Field(default=True)
+
+    _validate_actions = field_validator("actions")(validate_actions_length)
 
 
 class RankableItemSchema(TypedDict):

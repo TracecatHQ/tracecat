@@ -1,10 +1,11 @@
 import uuid
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from tracecat import config
 from tracecat.agent.types import OutputType
+from tracecat.agent.validation import validate_actions_length
 
 
 class AgentActionArgs(BaseModel):
@@ -37,6 +38,8 @@ class AgentActionArgs(BaseModel):
         description="If True, use workspace-scoped credentials; otherwise org-level",
     )
 
+    _validate_actions = field_validator("actions")(validate_actions_length)
+
 
 class PresetAgentActionArgs(BaseModel):
     preset: str
@@ -61,3 +64,5 @@ class PresetAgentActionArgs(BaseModel):
         default=True,
         description="If True, use workspace-scoped credentials; otherwise org-level",
     )
+
+    _validate_actions = field_validator("actions")(validate_actions_length)

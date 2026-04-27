@@ -6,9 +6,10 @@ import uuid
 from datetime import datetime
 from typing import Annotated, Any
 
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_validator
 
 from tracecat.agent.types import AgentConfig, OutputType
+from tracecat.agent.validation import validate_actions_length
 from tracecat.core.schemas import Schema
 from tracecat.identifiers import WorkspaceID
 
@@ -57,7 +58,15 @@ PresetModelWriteField = Annotated[
 
 
 class AgentPresetExecutionConfig(Schema):
-    """Execution fields that define a preset version."""
+    """Execution fields that define a preset version.
+
+    Used as the base for read models (``AgentPresetRead``,
+    ``AgentPresetVersionReadMinimal``). Deliberately does **not** enforce
+    ``TRACECAT__AGENT_MAX_TOOLS`` on ``actions`` — historical presets created
+    under a higher cap must remain readable so users can view and fix them
+    after lowering the cap. Write-time enforcement lives on
+    ``AgentPresetExecutionConfigWrite`` and ``AgentPresetUpdate``.
+    """
 
     instructions: str | None = Field(default=None)
     model_name: PresetModelField
@@ -88,6 +97,8 @@ class AgentPresetExecutionConfigWrite(Schema):
     retries: int = Field(default=3, ge=0)
     enable_thinking: bool = Field(default=True)
     enable_internet_access: bool = Field(default=False)
+
+    _validate_actions = field_validator("actions")(validate_actions_length)
 
 
 class AgentPresetBase(AgentPresetExecutionConfigWrite):
@@ -123,6 +134,8 @@ class AgentPresetUpdate(BaseModel):
     enable_thinking: bool | None = Field(default=None)
     enable_internet_access: bool | None = Field(default=None)
     skills: list[AgentPresetSkillBindingBase] | None = Field(default=None)
+
+    _validate_actions = field_validator("actions")(validate_actions_length)
 
 
 class AgentPresetReadMinimal(Schema):
