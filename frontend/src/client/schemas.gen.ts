@@ -9997,6 +9997,59 @@ export const $DataUIPart = {
   description: "A custom data part, where type matches 'data-...'.",
 } as const
 
+export const $DefaultModelSelection = {
+  properties: {
+    catalog_id: {
+      type: "string",
+      format: "uuid",
+      title: "Catalog Id",
+    },
+    model_name: {
+      type: "string",
+      maxLength: 500,
+      minLength: 1,
+      title: "Model Name",
+    },
+    model_provider: {
+      type: "string",
+      maxLength: 120,
+      minLength: 1,
+      title: "Model Provider",
+    },
+    custom_provider_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Custom Provider Id",
+    },
+  },
+  type: "object",
+  required: ["catalog_id", "model_name", "model_provider"],
+  title: "DefaultModelSelection",
+  description: "Canonical default-model selection for an organization.",
+} as const
+
+export const $DefaultModelSelectionUpdate = {
+  properties: {
+    catalog_id: {
+      type: "string",
+      format: "uuid",
+      title: "Catalog Id",
+    },
+  },
+  type: "object",
+  required: ["catalog_id"],
+  title: "DefaultModelSelectionUpdate",
+  description:
+    "Payload for updating the organization's default model selection.",
+} as const
+
 export const $DocumentUrl = {
   properties: {
     url: {

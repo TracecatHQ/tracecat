@@ -2,7 +2,7 @@
 resource "aws_ecs_task_definition" "temporal_ui_task_definition" {
   count = var.disable_temporal_ui ? 0 : 1
 
-  family                   = "TemporalUiTaskDefinition"
+  family                   = "${var.iam_name_prefix}TemporalUiTaskDefinition"
   network_mode             = "awsvpc"
   requires_compatibilities = ["FARGATE"]
   cpu                      = "256"

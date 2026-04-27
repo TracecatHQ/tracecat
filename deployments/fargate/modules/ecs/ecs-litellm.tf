@@ -1,6 +1,6 @@
 # ECS Task Definition for LiteLLM Service
 resource "aws_ecs_task_definition" "litellm_task_definition" {
-  family                   = "TracecatLitellmTaskDefinition"
+  family                   = "${var.iam_name_prefix}LitellmTaskDefinition"
   network_mode             = "awsvpc"
   requires_compatibilities = ["FARGATE"]
   cpu                      = var.litellm_cpu

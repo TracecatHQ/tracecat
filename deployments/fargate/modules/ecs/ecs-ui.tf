@@ -1,6 +1,6 @@
 # ECS Task Definition for UI Service
 resource "aws_ecs_task_definition" "ui_task_definition" {
-  family                   = "TracecatUiTaskDefinition"
+  family                   = "${var.iam_name_prefix}UiTaskDefinition"
   network_mode             = "awsvpc"
   requires_compatibilities = ["FARGATE"]
   cpu                      = var.ui_cpu

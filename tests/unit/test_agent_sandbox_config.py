@@ -100,3 +100,17 @@ def test_build_agent_nsjail_config_uses_reduced_broker_shim_mounts() -> None:
         'exec_bin { path: "/usr/local/bin/python3" arg: "/work/shim_entrypoint.py" }'
         in config_text
     )
+
+
+def test_build_agent_nsjail_config_mounts_fresh_procfs() -> None:
+    config_text = build_agent_nsjail_config(
+        rootfs=Path("/var/lib/tracecat/sandbox-rootfs"),
+        job_dir=Path("/tmp/agent-job"),
+        socket_dir=Path("/tmp/agent-job/sockets"),
+        config=AgentSandboxConfig(),
+        site_packages_dir=Path("/app/.venv/lib/python3.12/site-packages"),
+        llm_socket_path=Path("/tmp/agent-job/sockets/llm.sock"),
+    )
+
+    assert 'src: "/proc"' not in config_text
+    assert 'mount { dst: "/proc" fstype: "proc" rw: false }' in config_text

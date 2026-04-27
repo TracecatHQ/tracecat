@@ -1,7 +1,7 @@
 # ECS Task Definition for Temporal Service
 resource "aws_ecs_task_definition" "temporal_task_definition" {
   count                    = var.disable_temporal_autosetup ? 0 : 1
-  family                   = "temporal"
+  family                   = "${var.name_prefix}-temporal"
   network_mode             = "awsvpc"
   requires_compatibilities = ["FARGATE"]
   cpu                      = var.temporal_cpu

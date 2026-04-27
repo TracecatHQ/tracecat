@@ -1,6 +1,6 @@
 # CloudMap Namespace for Service Connect
 resource "aws_service_discovery_http_namespace" "namespace" {
-  name        = "tracecat.local"
+  name        = "${var.name_prefix}.local"
   description = "Private DNS namespace for ECS services"
 }
 
@@ -11,7 +11,7 @@ resource "time_sleep" "wait_for_namespace" {
 }
 
 resource "aws_ecs_cluster" "tracecat_cluster" {
-  name = "tracecat-cluster"
+  name = "${var.name_prefix}-cluster"
 
   depends_on = [time_sleep.wait_for_namespace]
 

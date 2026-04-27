@@ -28,6 +28,21 @@ class ModelInfo(BaseModel):
     base_url: str | None
 
 
+class DefaultModelSelection(BaseModel):
+    """Canonical default-model selection for an organization."""
+
+    catalog_id: uuid.UUID
+    model_name: str = Field(..., min_length=1, max_length=500)
+    model_provider: str = Field(..., min_length=1, max_length=120)
+    custom_provider_id: uuid.UUID | None = Field(default=None)
+
+
+class DefaultModelSelectionUpdate(BaseModel):
+    """Payload for updating the organization's default model selection."""
+
+    catalog_id: uuid.UUID
+
+
 class RunAgentArgs(BaseModel):
     user_prompt: str
     """User prompt for the agent."""
