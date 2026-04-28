@@ -312,7 +312,7 @@ async def test_get_catalog_credentials_uses_migrated_cloud_target_as_fallback(
 
 @pytest.mark.anyio
 @pytest.mark.usefixtures("db")
-async def test_get_catalog_credentials_uses_custom_provider_columns_over_migrated_blob(
+async def test_get_catalog_credentials_preserves_migrated_custom_provider_base_url_fallback(
     session: AsyncSession,
     svc_organization: Organization,
     svc_workspace: Workspace,
@@ -377,10 +377,21 @@ async def test_get_catalog_credentials_uses_custom_provider_columns_over_migrate
     credentials = await service.get_catalog_credentials(catalog.id)
 
     assert credentials == {
+        "CUSTOM_MODEL_PROVIDER_BASE_URL": "https://llm.example.com/v1",
         "CUSTOM_MODEL_PROVIDER_API_KEY": "sk-custom",
         "CUSTOM_MODEL_PROVIDER_MODEL_NAME": "provider/custom-model",
         "CUSTOM_MODEL_PROVIDER_PASSTHROUGH": "false",
     }
+
+    provider.base_url = "https://column.example.com/v1"
+    await session.commit()
+
+    credentials = await service.get_catalog_credentials(catalog.id)
+
+    assert credentials is not None
+    assert credentials["CUSTOM_MODEL_PROVIDER_BASE_URL"] == (
+        "https://column.example.com/v1"
+    )
 
 
 @pytest.mark.anyio

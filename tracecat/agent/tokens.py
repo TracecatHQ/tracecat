@@ -263,6 +263,14 @@ class LLMTokenClaims(BaseModel):
             "direct-provider platform rows and for legacy-replay tokens."
         ),
     )
+    use_workspace_credentials: bool = Field(
+        default=False,
+        description=(
+            "Legacy credential-scope claim for pre-catalog tokens. When true "
+            "and catalog_id is null, the gateway resolves workspace provider "
+            "credentials during the migration window."
+        ),
+    )
     base_url: str | None = Field(
         default=None,
         description="Optional provider base URL override from the agent config/preset",
@@ -286,6 +294,7 @@ def mint_llm_token(
     catalog_id: uuid.UUID | None = None,
     base_url: str | None = None,
     model_settings: dict[str, Any] | None = None,
+    use_workspace_credentials: bool = False,
     ttl_seconds: int | None = None,
 ) -> str:
     """Create a signed LLM JWT for jailed agent runtime.
@@ -306,6 +315,7 @@ def mint_llm_token(
         base_url: Optional provider base URL override from the agent config/preset
         model_settings: Model-specific settings (temperature, max_tokens,
             reasoning_effort, etc.) passed through to LLM provider
+        use_workspace_credentials: Legacy credential scope for no-catalog tokens
         ttl_seconds: Token TTL in seconds (defaults to executor token TTL)
 
     Returns:
@@ -331,6 +341,7 @@ def mint_llm_token(
         "catalog_id": str(catalog_id) if catalog_id is not None else None,
         "base_url": base_url,
         "model_settings": model_settings or {},
+        "use_workspace_credentials": use_workspace_credentials,
     }
 
     return jwt.encode(payload, get_service_key(), algorithm="HS256")

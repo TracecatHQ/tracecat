@@ -2,14 +2,18 @@
 
 import importlib.resources as resources
 import logging
-from typing import cast
 
 import orjson
+from pydantic import TypeAdapter, ValidationError
 
 from tracecat.agent.catalog.service import AgentCatalogService, PlatformCatalogEntry
 from tracecat.db.engine import get_async_session_bypass_rls_context_manager
 
 logger = logging.getLogger(__name__)
+
+PlatformCatalogEntryValidator: TypeAdapter[PlatformCatalogEntry] = TypeAdapter(
+    PlatformCatalogEntry
+)
 
 
 def get_platform_catalog_models() -> list[PlatformCatalogEntry]:
@@ -35,11 +39,15 @@ def get_platform_catalog_models() -> list[PlatformCatalogEntry]:
     if not isinstance(models, list):
         return []
 
-    return [
-        cast(PlatformCatalogEntry, m)
-        for m in models
-        if isinstance(m, dict) and m.get("model_provider") and m.get("model_name")
-    ]
+    valid_models: list[PlatformCatalogEntry] = []
+    for model in models:
+        try:
+            entry = PlatformCatalogEntryValidator.validate_python(model)
+        except ValidationError:
+            continue
+        if entry["model_provider"] and entry["model_name"]:
+            valid_models.append(entry)
+    return valid_models
 
 
 async def load_platform_catalog_on_startup() -> None:

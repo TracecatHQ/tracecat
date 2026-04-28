@@ -85,7 +85,8 @@ class CustomModelProviderConfigResult(BaseModel):
 @activity.defn
 async def resolve_custom_model_provider_config_activity(
     role: Role,
-    catalog_id: bool | uuid.UUID | None = None,
+    catalog_id: uuid.UUID | None = None,
+    use_workspace_credentials: bool = False,  # noqa: ARG001 - signature compatibility
 ) -> CustomModelProviderConfigResult:
     """Resolve custom-model-provider runtime config.
 
@@ -104,21 +105,18 @@ async def resolve_custom_model_provider_config_activity(
        ``None`` and we error out with a clear message so the caller knows
        to configure a v2 catalog row.
 
-    The second positional accepts ``bool`` purely for Temporal replay
-    compatibility: an intermediate workflow revision scheduled this activity
-    with ``args=(role, use_workspace_credentials: bool)``. Without this
-    union, replaying that recorded payload would fail Pydantic validation
-    against ``uuid.UUID | None`` and brick in-flight workflows. ``bool`` is
-    treated as the legacy path regardless of value — the flag's prior
-    semantics no longer apply post-cutover.
+    ``catalog_id`` remains nullable for legacy no-catalog executions.
+    ``use_workspace_credentials`` is retained for activity signature
+    compatibility with workflow code that scheduled the third argument before
+    the catalog cutover; credential scope is now resolved by catalog id or the
+    legacy runtime provider lookup.
     """
     activity.logger.info("Resolving custom model provider config")
 
-    resolved_catalog_id = catalog_id if isinstance(catalog_id, uuid.UUID) else None
-
     async with AgentManagementService.with_session(role) as svc:
         creds = await _load_custom_model_provider_creds(
-            svc, catalog_id=resolved_catalog_id
+            svc,
+            catalog_id=catalog_id,
         )
 
     if creds is None:

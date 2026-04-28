@@ -409,7 +409,7 @@ class AgentCustomProviderService(BaseOrgService):
             raise ValueError("Provider base_url not configured")
 
         api_key = provider_config.get("api_key")
-        custom_headers = provider_config.get("custom_headers", {})
+        custom_headers = provider_config.get("custom_headers")
 
         models = await self._discover_models(
             base_url,

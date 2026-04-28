@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import asyncio
 import os
-import re
 import time
 import uuid
 from collections.abc import AsyncIterable, Callable
@@ -27,9 +26,6 @@ from tracecat.agent.observability import get_load_tracker
 from tracecat.agent.service import AgentManagementService
 from tracecat.auth.types import Role
 from tracecat.logger import logger
-
-# Strip a trailing "/vN" version segment from a passthrough upstream URL.
-_VERSION_SUFFIX_RE = re.compile(r"/v\d+$")
 
 # Socket filename (created in job's socket directory)
 LLM_SOCKET_NAME = "llm.sock"
@@ -182,18 +178,11 @@ class LLMSocketProxy:
                 the legacy ``agent-custom-model-provider-credentials`` secret.
         """
         self.socket_path = socket_path
-        if upstream_url is not None:
-            trimmed_upstream = upstream_url.rstrip("/")
-            if passthrough:
-                # Passthrough clients (Claude Code SDK, pydantic-ai) already
-                # emit fully-qualified paths like "/v1/messages" or
-                # "/v1/chat/completions", so strip a trailing version suffix
-                # from the custom provider's stored base URL to avoid
-                # "/v1/v1/messages".
-                trimmed_upstream = _VERSION_SUFFIX_RE.sub("", trimmed_upstream)
-            self.upstream_url = trimmed_upstream
-        else:
-            self.upstream_url = app_config.TRACECAT__LITELLM_BASE_URL.rstrip("/")
+        self.upstream_url = (
+            upstream_url.rstrip("/")
+            if upstream_url is not None
+            else app_config.TRACECAT__LITELLM_BASE_URL.rstrip("/")
+        )
         self._server: asyncio.Server | None = None
         self._client: httpx.AsyncClient | None = None
         self._on_error = on_error

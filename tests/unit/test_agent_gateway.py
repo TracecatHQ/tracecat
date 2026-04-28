@@ -272,6 +272,7 @@ async def test_user_api_key_auth_strips_anthropic_beta_metadata_for_non_anthropi
             organization_id="00000000-0000-0000-0000-000000000002",
             session_id="00000000-0000-0000-0000-000000000003",
             catalog_id=None,
+            use_workspace_credentials=False,
             model="bedrock",
             provider="bedrock",
             base_url=None,
@@ -301,6 +302,7 @@ async def test_user_api_key_auth_preserves_anthropic_beta_metadata_for_anthropic
             organization_id="00000000-0000-0000-0000-000000000002",
             session_id="00000000-0000-0000-0000-000000000003",
             catalog_id=None,
+            use_workspace_credentials=False,
             model="claude-sonnet-4",
             provider="anthropic",
             base_url=None,
@@ -320,10 +322,40 @@ async def test_user_api_key_auth_preserves_anthropic_beta_metadata_for_anthropic
 
 
 @pytest.mark.anyio
+async def test_user_api_key_auth_preserves_legacy_workspace_credentials_claim(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "tracecat.agent.gateway.verify_llm_token",
+        lambda _: SimpleNamespace(
+            workspace_id="00000000-0000-0000-0000-000000000001",
+            organization_id="00000000-0000-0000-0000-000000000002",
+            session_id="00000000-0000-0000-0000-000000000003",
+            catalog_id=None,
+            use_workspace_credentials=True,
+            model="gpt-5",
+            provider="openai",
+            base_url=None,
+            model_settings={},
+        ),
+    )
+
+    auth = await user_api_key_auth(
+        request=_make_request("/v1/chat/completions"),
+        api_key="valid-token",
+    )
+
+    assert auth.metadata["use_workspace_credentials"] is True
+
+
+@pytest.mark.anyio
 async def test_pre_call_hook_filters_model_settings(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    async def mock_get_provider_credentials(**_: object) -> dict[str, str]:
+    captured_kwargs: dict[str, object] = {}
+
+    async def mock_get_provider_credentials(**kwargs: object) -> dict[str, str]:
+        captured_kwargs.update(kwargs)
         return {"OPENAI_API_KEY": "test-openai-key"}
 
     monkeypatch.setattr(
@@ -360,6 +392,7 @@ async def test_pre_call_hook_filters_model_settings(
     assert result["seed"] == 7
     assert "metadata" not in result
     assert result["api_key"] == "test-openai-key"
+    assert captured_kwargs["use_workspace_credentials"] is True
 
 
 @pytest.mark.anyio

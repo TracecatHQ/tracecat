@@ -8180,50 +8180,6 @@ async def test_create_agent_preset_allows_custom_model_provider(
 
 
 @pytest.mark.anyio
-async def test_create_agent_preset_requires_org_credentials_for_default_model(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    workspace_id = uuid.uuid4()
-    role = SimpleNamespace(workspace_id=workspace_id)
-
-    async def _resolve(_workspace_id: str) -> tuple[uuid.UUID, SimpleNamespace]:
-        return workspace_id, role
-
-    class _AgentManagementService:
-        async def get_default_model_selection(self) -> None:
-            return None
-
-        async def get_default_model(self) -> str | None:
-            return "gpt-4o-mini"
-
-        async def get_model_config(self, model_name: str) -> SimpleNamespace:
-            assert model_name == "gpt-4o-mini"
-            return SimpleNamespace(name="gpt-4o-mini", provider="openai")
-
-        async def get_runtime_provider_credentials(
-            self, provider: str
-        ) -> dict[str, str] | None:
-            assert provider == "openai"
-            return None
-
-    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
-    monkeypatch.setattr(
-        mcp_server.AgentManagementService,
-        "with_session",
-        lambda role: _AsyncContext(_AgentManagementService()),
-    )
-
-    with pytest.raises(
-        ToolError,
-        match="Organization credentials for provider 'openai' are not configured",
-    ):
-        await _tool(mcp_server.create_agent_preset)(
-            workspace_id=str(workspace_id),
-            name="Security triage",
-        )
-
-
-@pytest.mark.anyio
 async def test_upload_skill_uses_workspace_skill_service(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

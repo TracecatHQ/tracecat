@@ -6,6 +6,7 @@ import uuid
 from collections.abc import AsyncIterator, Iterator, Mapping
 from dataclasses import replace
 from datetime import UTC, datetime
+from typing import Literal, NamedTuple, TypeGuard
 
 import orjson
 import sqlalchemy as sa
@@ -59,14 +60,22 @@ _GOOGLE_CLOUD_SCOPE = "https://www.googleapis.com/auth/cloud-platform"
 _AZURE_COGNITIVE_SCOPE = "https://cognitiveservices.azure.com/.default"
 _DEFAULT_MODEL_SETTING_KEY = "agent_default_model"
 _DEFAULT_MODEL_CATALOG_ID_SETTING_KEY = "agent_default_model_catalog_id"
-_CLOUD_PROVIDER_TARGET_KEYS: dict[str, tuple[tuple[str, str], ...]] = {
+CloudProviderSlug = Literal["bedrock", "azure_openai", "azure_ai", "vertex_ai"]
+
+
+class CloudTargetKey(NamedTuple):
+    metadata_key: str
+    credential_key: str
+
+
+_CLOUD_PROVIDER_TARGET_KEYS: dict[CloudProviderSlug, tuple[CloudTargetKey, ...]] = {
     "bedrock": (
-        ("inference_profile_id", "AWS_INFERENCE_PROFILE_ID"),
-        ("model_id", "AWS_MODEL_ID"),
+        CloudTargetKey("inference_profile_id", "AWS_INFERENCE_PROFILE_ID"),
+        CloudTargetKey("model_id", "AWS_MODEL_ID"),
     ),
-    "azure_openai": (("deployment_name", "AZURE_DEPLOYMENT_NAME"),),
-    "azure_ai": (("azure_ai_model_name", "AZURE_AI_MODEL_NAME"),),
-    "vertex_ai": (("vertex_model", "VERTEX_AI_MODEL"),),
+    "azure_openai": (CloudTargetKey("deployment_name", "AZURE_DEPLOYMENT_NAME"),),
+    "azure_ai": (CloudTargetKey("azure_ai_model_name", "AZURE_AI_MODEL_NAME"),),
+    "vertex_ai": (CloudTargetKey("vertex_model", "VERTEX_AI_MODEL"),),
 }
 _LEGACY_CUSTOM_PROVIDER_CONFIG_KEYS = frozenset(
     {
@@ -76,6 +85,10 @@ _LEGACY_CUSTOM_PROVIDER_CONFIG_KEYS = frozenset(
         "CUSTOM_MODEL_PROVIDER_PASSTHROUGH",
     }
 )
+
+
+def _is_cloud_provider(slug: str) -> TypeGuard[CloudProviderSlug]:
+    return slug in _CLOUD_PROVIDER_TARGET_KEYS
 
 
 def _is_legacy_custom_provider_config(payload: Mapping[object, object]) -> bool:
@@ -441,6 +454,23 @@ class AgentManagementService(BaseOrgService):
         except TracecatNotFoundError:
             return None
 
+    @require_scope("agent:read")
+    async def get_workspace_provider_credentials(
+        self,
+        provider: str,
+    ) -> dict[str, str] | None:
+        """Get decrypted credentials for an AI provider at workspace level."""
+        secret_name = self._get_workspace_credential_secret_name(provider)
+        try:
+            secret = await self.secrets_service.get_secret_by_name(
+                secret_name,
+                DEFAULT_SECRETS_ENVIRONMENT,
+            )
+            decrypted_keys = self.secrets_service.decrypt_keys(secret.encrypted_keys)
+            return {kv.key: kv.value.get_secret_value() for kv in decrypted_keys}
+        except TracecatNotFoundError:
+            return None
+
     async def _augment_runtime_provider_credentials(
         self, provider: str, credentials: dict[str, str]
     ) -> dict[str, str]:
@@ -476,15 +506,15 @@ class AgentManagementService(BaseOrgService):
 
     def _catalog_target_credentials(self, row: AgentCatalog) -> dict[str, str]:
         """Project cloud catalog target metadata into runtime credential keys."""
-        target_keys = _CLOUD_PROVIDER_TARGET_KEYS.get(row.model_provider)
-        if not target_keys:
+        if not _is_cloud_provider(row.model_provider):
             return {}
+        target_keys = _CLOUD_PROVIDER_TARGET_KEYS[row.model_provider]
         metadata = row.model_metadata if isinstance(row.model_metadata, dict) else {}
         credentials: dict[str, str] = {}
-        for metadata_key, credential_key in target_keys:
-            value = metadata.get(metadata_key)
+        for spec in target_keys:
+            value = metadata.get(spec.metadata_key)
             if isinstance(value, str) and value:
-                credentials[credential_key] = value
+                credentials[spec.credential_key] = value
         return credentials
 
     def _catalog_encrypted_target_credentials(
@@ -492,10 +522,10 @@ class AgentManagementService(BaseOrgService):
         row: AgentCatalog,
     ) -> dict[str, str]:
         """Decrypt migrated catalog config for cloud target keys only."""
-        target_keys = _CLOUD_PROVIDER_TARGET_KEYS.get(row.model_provider)
-        if not target_keys or row.encrypted_config is None:
+        if not _is_cloud_provider(row.model_provider) or row.encrypted_config is None:
             return {}
-        allowed_keys = {credential_key for _, credential_key in target_keys}
+        target_keys = _CLOUD_PROVIDER_TARGET_KEYS[row.model_provider]
+        allowed_keys = {spec.credential_key for spec in target_keys}
         try:
             decrypted = decrypt_keyvalues(
                 row.encrypted_config,
@@ -589,14 +619,12 @@ class AgentManagementService(BaseOrgService):
             credentials = _decrypt_custom_provider_config(provider_row)
             if provider_row.base_url:
                 credentials["CUSTOM_MODEL_PROVIDER_BASE_URL"] = provider_row.base_url
-            else:
-                credentials.pop("CUSTOM_MODEL_PROVIDER_BASE_URL", None)
             credentials["CUSTOM_MODEL_PROVIDER_PASSTHROUGH"] = (
                 "true" if provider_row.passthrough else "false"
             )
             return credentials or None
 
-        if row.model_provider in _CLOUD_PROVIDER_TARGET_KEYS:
+        if _is_cloud_provider(row.model_provider):
             return await self._get_cloud_catalog_credentials(row)
 
         if row.encrypted_config is None:

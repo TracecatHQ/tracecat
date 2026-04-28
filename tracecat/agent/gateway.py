@@ -85,13 +85,28 @@ def _credential_cache_key(
     organization_id: OrganizationID,
     provider: str,
     catalog_id: uuid.UUID | None,
+    use_workspace_credentials: bool,
 ) -> str:
     # When a catalog_id is set the credentials belong to that specific
     # catalog row (cloud or custom provider in v2). Without it, we fall back
-    # to the legacy ``agent-{provider}-credentials`` secret which is
-    # org-scoped.
-    scope = str(catalog_id) if catalog_id is not None else "org"
+    # to legacy org/workspace provider secrets depending on the migration-era
+    # token scope claim.
+    if catalog_id is not None:
+        scope = str(catalog_id)
+    elif use_workspace_credentials:
+        scope = "workspace"
+    else:
+        scope = "org"
     return f"creds:{workspace_id}:{organization_id}:{provider}:{scope}"
+
+
+def _metadata_bool(value: Any) -> bool:
+    """Parse a bool-like metadata value from LiteLLM user metadata."""
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "on"}
+    return False
 
 
 def _get_aws_role_session_name(credentials: dict[str, str]) -> str:
@@ -188,17 +203,22 @@ async def get_provider_credentials(
     organization_id: OrganizationID,
     provider: str,
     catalog_id: uuid.UUID | None = None,
+    use_workspace_credentials: bool = False,
 ) -> dict[str, str] | None:
     """Fetch provider credentials, with a process-local TTL cache.
 
     When ``catalog_id`` is set (v2 path), credentials are loaded from
-    ``agent_catalog.encrypted_config`` via
     ``AgentManagementService.get_catalog_credentials``. When it's ``None``
     (legacy-replay tokens or direct-provider platform rows), falls back to
-    the org-scoped ``agent-{provider}-credentials`` secret.
+    org- or workspace-scoped provider secrets depending on the legacy
+    ``use_workspace_credentials`` claim.
     """
     cache_key = _credential_cache_key(
-        workspace_id, organization_id, provider, catalog_id
+        workspace_id,
+        organization_id,
+        provider,
+        catalog_id,
+        use_workspace_credentials,
     )
 
     cached = await _credential_cache.get(key=cache_key)
@@ -217,6 +237,13 @@ async def get_provider_credentials(
         try:
             if catalog_id is not None:
                 creds = await service.get_catalog_credentials(catalog_id)
+            elif use_workspace_credentials:
+                creds = await service.get_workspace_provider_credentials(provider)
+                if creds is not None:
+                    creds = await service._augment_runtime_provider_credentials(
+                        provider,
+                        creds,
+                    )
             else:
                 creds = await service.get_runtime_provider_credentials(provider)
         except ValueError as exc:
@@ -268,6 +295,7 @@ async def user_api_key_auth(request: Request, api_key: str | None) -> UserAPIKey
             "organization_id": str(claims.organization_id),
             "session_id": str(claims.session_id),
             "catalog_id": str(claims.catalog_id) if claims.catalog_id else "",
+            "use_workspace_credentials": claims.use_workspace_credentials,
             "model": claims.model,
             "provider": claims.provider,
             "base_url": claims.base_url,
@@ -305,6 +333,13 @@ class TracecatCallbackHandler(CustomLogger):
                     param=None,
                     code=400,
                 ) from None
+        use_workspace_credentials = (
+            False
+            if catalog_id is not None
+            else _metadata_bool(
+                user_api_key_dict.metadata.get("use_workspace_credentials")
+            )
+        )
         if not model or not provider:
             raise ProxyException(
                 message="Model not specified. Please select a model in the chat settings.",
@@ -319,6 +354,7 @@ class TracecatCallbackHandler(CustomLogger):
             organization_id=organization_id,
             provider=provider,
             catalog_id=catalog_id,
+            use_workspace_credentials=use_workspace_credentials,
         )
         if not creds:
             raise ProxyException(

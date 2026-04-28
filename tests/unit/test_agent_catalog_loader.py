@@ -32,6 +32,8 @@ def _stub_catalog_resource(monkeypatch: pytest.MonkeyPatch, payload: bytes) -> N
         b"[]",
         b'{"models": {"model_provider": "openai", "model_name": "gpt-5"}}',
         b'{"models": ["not-a-model", {"model_provider": "openai"}]}',
+        b'{"models": [{"model_provider": "", "model_name": "gpt-5"}]}',
+        b'{"models": [{"model_provider": "openai", "model_name": "gpt-5", "metadata": "bad"}]}',
     ],
 )
 def test_get_platform_catalog_models_ignores_malformed_shapes(
