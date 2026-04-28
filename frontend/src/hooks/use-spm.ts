@@ -18,7 +18,7 @@ import {
   spmListSpmFindings,
 } from "@/client"
 
-const SPM_REFRESH_MS = 10_000
+export const SPM_REFRESH_MS = 10_000
 
 export interface UseSpmAssetsParams {
   assetClass?: SpmListSpmAssetsData["assetClass"]

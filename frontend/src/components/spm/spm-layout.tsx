@@ -47,6 +47,8 @@ export function SpmListShell(props: {
   countLabel: string
   filters?: ReactNode
   hasFilters?: boolean
+  headerStatus?: ReactNode
+  hideToolbarCount?: boolean
   icon: ComponentType<{ className?: string }>
   onSearchChange: (value: string) => void
   resetButton?: ReactNode
@@ -64,7 +66,10 @@ export function SpmListShell(props: {
           </div>
           <span className="truncate text-sm font-medium">{props.title}</span>
         </div>
-        <div className="ml-auto flex items-center gap-2">{props.action}</div>
+        <div className="ml-auto flex items-center gap-2">
+          {props.headerStatus}
+          {props.action}
+        </div>
       </header>
 
       <div className="shrink-0 border-b">
@@ -85,11 +90,13 @@ export function SpmListShell(props: {
               )}
             />
           </div>
-          <div className="ml-auto flex items-center gap-2">
-            <span className="text-xs text-muted-foreground">
-              {props.count} {props.countLabel}
-            </span>
-          </div>
+          {props.hideToolbarCount ? null : (
+            <div className="ml-auto flex items-center gap-2">
+              <span className="text-xs text-muted-foreground">
+                {props.count} {props.countLabel}
+              </span>
+            </div>
+          )}
         </div>
         {props.filters ? (
           <div className="flex flex-wrap items-center gap-2 py-2 pl-3 pr-4">

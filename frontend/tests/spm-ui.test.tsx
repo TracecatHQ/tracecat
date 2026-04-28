@@ -508,6 +508,53 @@ describe("SPM operator UI", () => {
     expect(screen.getAllByRole("link")).toHaveLength(2)
   })
 
+  it("keeps endpoint headers visible while endpoints are loading", () => {
+    mockUseSpmEndpoints.mockReturnValue({
+      data: undefined,
+      isError: false,
+      isFetching: true,
+      isLoading: true,
+    })
+
+    render(<SpmEndpointsView />)
+
+    expect(screen.getByText("Endpoints")).toBeInTheDocument()
+    expect(
+      screen.getByPlaceholderText("Search endpoints...")
+    ).toBeInTheDocument()
+    expect(screen.getByLabelText("Filter by status")).toBeInTheDocument()
+    expect(screen.getByLabelText("Filter by compliance")).toBeInTheDocument()
+    expect(screen.getByLabelText("Filter by sync")).toBeInTheDocument()
+    expect(
+      screen.getByRole("button", { name: "Install endpoint" })
+    ).toBeInTheDocument()
+    expect(screen.getAllByText("Loading endpoints...").length).toBeGreaterThan(
+      0
+    )
+    expect(screen.queryByText("No endpoints yet")).not.toBeInTheDocument()
+  })
+
+  it("shows the endpoint header status with the endpoint poll cadence", () => {
+    render(<SpmEndpointsView />)
+
+    expect(
+      screen.getByText("2 endpoints · Poll every 5 minutes")
+    ).toBeInTheDocument()
+  })
+
+  it("shows refreshing endpoint header status while keeping cached rows", () => {
+    mockUseSpmEndpoints.mockReturnValue({
+      ...paginated(endpoints),
+      isFetching: true,
+    })
+
+    render(<SpmEndpointsView />)
+
+    expect(screen.getByText("2 endpoints · Refreshing...")).toBeInTheDocument()
+    expect(screen.getByText("Chris MacBook")).toBeInTheDocument()
+    expect(screen.getByText("CI Mac Mini")).toBeInTheDocument()
+  })
+
   it("keeps endpoint headers visible while findings are loading", () => {
     mockUseSpmFindings.mockReturnValue({
       data: undefined,

@@ -27,6 +27,7 @@ import type {
   SpmHarness,
   SpmSeverity,
 } from "@/client"
+import { Spinner } from "@/components/loading/spinner"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import {
   AlertDialog,
@@ -97,6 +98,8 @@ import {
 
 export { SpmInstallDrawer } from "./spm-install-drawer"
 
+const SPM_ENDPOINT_POLL_STATUS = "Poll every 5 minutes"
+
 /**
  * Endpoints feed plus install drawer.
  */
@@ -118,6 +121,12 @@ export function SpmEndpointsView() {
   const [syncFilter, setSyncFilter] =
     useState<(typeof SYNC_OPTIONS)[number]["value"]>(ALL_VALUE)
   const endpoints = endpointsQuery.data?.items ?? []
+  const endpointsLoaded = endpointsQuery.data != null
+  const endpointsArePending = endpointsQuery.isLoading && !endpointsLoaded
+  const endpointsUnavailable = endpointsQuery.isError && !endpointsLoaded
+  const endpointsErrorDetail = endpointsUnavailable
+    ? (getApiErrorDetail(endpointsQuery.error) ?? "Unable to load endpoints.")
+    : null
   const findings = findingsQuery.data?.items ?? []
   const findingsLoaded = findingsQuery.data != null
   const findingsArePending = findingsQuery.isLoading && !findingsLoaded
@@ -203,8 +212,15 @@ export function SpmEndpointsView() {
     complianceFilter !== ALL_VALUE ||
     syncFilter !== ALL_VALUE
 
+  let endpointsHeaderStatus = `${endpoints.length} endpoints · ${SPM_ENDPOINT_POLL_STATUS}`
+  if (endpointsArePending) {
+    endpointsHeaderStatus = "Loading endpoints..."
+  } else if (endpointsQuery.isFetching && endpointsLoaded) {
+    endpointsHeaderStatus = `${endpoints.length} endpoints · Refreshing...`
+  }
+
   return renderMaybeLoading(
-    entitlementLoading || endpointsQuery.isLoading,
+    entitlementLoading,
     hasEntitlement("spm"),
     "SPM entitlement required",
     "This organization does not have access to AI SPM yet.",
@@ -217,7 +233,13 @@ export function SpmEndpointsView() {
       searchPlaceholder="Search endpoints..."
       count={filteredEndpoints.length}
       countLabel="endpoints"
+      headerStatus={
+        <span className="text-xs text-muted-foreground">
+          {endpointsHeaderStatus}
+        </span>
+      }
       hasFilters={hasFilters}
+      hideToolbarCount
       resetButton={<ResetFiltersButton onClick={resetFilters} />}
       filters={
         <>
@@ -255,7 +277,27 @@ export function SpmEndpointsView() {
           </Alert>
         </div>
       ) : null}
-      {filteredEndpoints.length === 0 ? (
+      {endpointsArePending ? (
+        <div className="flex h-full min-h-[260px] items-center justify-center">
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            <Spinner className="size-4" />
+            <span>Loading endpoints...</span>
+          </div>
+        </div>
+      ) : null}
+      {endpointsUnavailable ? (
+        <div className="p-3">
+          <Alert variant="destructive" className="py-3">
+            <AlertTriangleIcon className="size-4" />
+            <AlertDescription className="text-xs">
+              Endpoints are unavailable. {endpointsErrorDetail}
+            </AlertDescription>
+          </Alert>
+        </div>
+      ) : null}
+      {!endpointsArePending &&
+      !endpointsUnavailable &&
+      filteredEndpoints.length === 0 ? (
         <SpmEmptyState
           title={endpoints.length === 0 ? "No endpoints yet" : EMPTY_FILTERS}
           description={
@@ -265,7 +307,10 @@ export function SpmEndpointsView() {
           }
           icon={<ComputerIcon className="h-6 w-6" />}
         />
-      ) : (
+      ) : null}
+      {!endpointsArePending &&
+      !endpointsUnavailable &&
+      filteredEndpoints.length > 0 ? (
         <FeedSection>
           {filteredEndpoints.map((endpoint) => {
             const rollup = endpointComplianceRollup(endpoint.id)
@@ -327,7 +372,7 @@ export function SpmEndpointsView() {
             )
           })}
         </FeedSection>
-      )}
+      ) : null}
       <AlertDialog
         open={deleteCandidate != null}
         onOpenChange={(open) => {
