@@ -6,7 +6,6 @@ import type { ReactNode } from "react"
 import type {
   SpmAssetRead,
   SpmControlRead,
-  SpmEndpointAssetRead,
   SpmEndpointRead,
   SpmFindingRead,
 } from "@/client"
@@ -104,7 +103,7 @@ export function getAssetRecord(
 }
 
 export function getAssetPath(
-  asset: Pick<SpmAssetRead, "identity_key" | "metadata"> | SpmEndpointAssetRead
+  asset: Pick<SpmAssetRead, "identity_key" | "metadata">
 ) {
   if (typeof asset.metadata?.file_path === "string") {
     return asset.metadata.file_path
@@ -130,28 +129,6 @@ export function getPolicyScope(assetType: string) {
   return {
     description: "Standard inventory",
     label: "Inventory",
-    variant: "outline" as BadgeVariant,
-  }
-}
-
-export function getObservedState(asset: SpmEndpointAssetRead) {
-  if (asset.observed_state?.excluded === true) {
-    return {
-      detail: "Excluded from Claude instruction-file loading",
-      label: "Excluded",
-      variant: "secondary" as BadgeVariant,
-    }
-  }
-  if (asset.observed_state?.disabled === true) {
-    return {
-      detail: "Disabled locally on the endpoint",
-      label: "Disabled",
-      variant: "outline" as BadgeVariant,
-    }
-  }
-  return {
-    detail: "Currently observed with no local override",
-    label: "Observed",
     variant: "outline" as BadgeVariant,
   }
 }

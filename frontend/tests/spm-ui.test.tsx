@@ -7,14 +7,12 @@ import type { ReactNode } from "react"
 import type {
   SpmAssetRead,
   SpmControlRead,
-  SpmEndpointAssetRead,
   SpmEndpointRead,
   SpmFindingRead,
 } from "@/client"
 import {
   SpmAssetsView,
   SpmControlsView,
-  SpmEndpointDetailView,
   SpmEndpointsView,
   SpmFindingsView,
   SpmInstallDrawer,
@@ -28,17 +26,8 @@ const mockUseEntitlements = jest.fn()
 const mockUseSpmActions = jest.fn()
 const mockUseSpmAssets = jest.fn()
 const mockUseSpmControls = jest.fn()
-const mockUseSpmEndpoint = jest.fn()
-const mockUseSpmEndpointAssets = jest.fn()
 const mockUseSpmEndpoints = jest.fn()
 const mockUseSpmFindings = jest.fn()
-
-jest.mock("next/link", () => ({
-  __esModule: true,
-  default: ({ children, href }: { children: ReactNode; href: string }) => (
-    <a href={href}>{children}</a>
-  ),
-}))
 
 jest.mock("@/components/ui/sheet", () => ({
   Sheet: ({ children }: { children: ReactNode }) => <div>{children}</div>,
@@ -114,9 +103,6 @@ jest.mock("@/hooks/use-spm", () => ({
   useSpmActions: () => mockUseSpmActions(),
   useSpmAssets: (params?: unknown) => mockUseSpmAssets(params),
   useSpmControls: () => mockUseSpmControls(),
-  useSpmEndpoint: (endpointId: string) => mockUseSpmEndpoint(endpointId),
-  useSpmEndpointAssets: (endpointId: string) =>
-    mockUseSpmEndpointAssets(endpointId),
   useSpmEndpoints: () => mockUseSpmEndpoints(),
   useSpmFindings: (params?: unknown) => mockUseSpmFindings(params),
 }))
@@ -350,36 +336,6 @@ describe("SPM operator UI", () => {
         return paginated(filteredFindings)
       }
     )
-    mockUseSpmEndpoint.mockReturnValue({
-      data: endpoints[0],
-      isLoading: false,
-    })
-    mockUseSpmEndpointAssets.mockReturnValue(
-      paginated<SpmEndpointAssetRead>([
-        {
-          asset_class: "instruction_file",
-          asset_id: "asset-2",
-          asset_sighting_id: "sighting-1",
-          asset_type: "claude_md",
-          content_hash: null,
-          display_name: "CLAUDE.md",
-          endpoint_id: "endpoint-1",
-          evidence: {},
-          first_seen_at: "2026-04-22T00:00:00Z",
-          harness: "claude_code",
-          identity_key: "/Users/chris/project/CLAUDE.md",
-          last_seen_at: "2026-04-22T00:00:00Z",
-          metadata: {
-            file_path: "/Users/chris/project/CLAUDE.md",
-          },
-          observed_state: {
-            excluded: true,
-          },
-          organization_id: "org-1",
-          workspace_id: null,
-        },
-      ])
-    )
   })
 
   it("filters assets by endpoint name and passes the resolved endpoint id", async () => {
@@ -443,14 +399,6 @@ describe("SPM operator UI", () => {
     })
   })
 
-  it("renders endpoint-scoped asset state and findings", () => {
-    render(<SpmEndpointDetailView endpointId="endpoint-1" />)
-
-    expect(screen.getByText("Latest sync state")).toBeInTheDocument()
-    expect(screen.getByText("Excluded")).toBeInTheDocument()
-    expect(screen.getByText("Endpoint findings")).toBeInTheDocument()
-  })
-
   it("shows install commands after a successful endpoint enrollment", async () => {
     mockCreateEndpoint.mockResolvedValue({
       endpoint: endpoints[0],
@@ -505,7 +453,7 @@ describe("SPM operator UI", () => {
     ).toHaveLength(1)
     expect(screen.getByText("Pending MacBook")).toBeInTheDocument()
     expect(screen.getByText("Active MacBook")).toBeInTheDocument()
-    expect(screen.getAllByRole("link")).toHaveLength(2)
+    expect(screen.queryAllByRole("link")).toHaveLength(0)
   })
 
   it("keeps endpoint headers visible while endpoints are loading", () => {

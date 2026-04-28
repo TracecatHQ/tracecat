@@ -2,7 +2,6 @@
 
 import {
   AlertTriangleIcon,
-  BoxIcon,
   CircleDotIcon,
   Clock3Icon,
   ComputerIcon,
@@ -12,14 +11,11 @@ import {
   RadarIcon,
   ShieldAlertIcon,
   ShieldCheckIcon,
-  TerminalSquareIcon,
   WrenchIcon,
 } from "lucide-react"
-import Link from "next/link"
 import { useDeferredValue, useState } from "react"
 import type {
   SpmAssetClass,
-  SpmAssetRead,
   SpmAssetType,
   SpmEndpointRead,
   SpmEndpointStatus,
@@ -46,8 +42,6 @@ import {
   useSpmActions,
   useSpmAssets,
   useSpmControls,
-  useSpmEndpoint,
-  useSpmEndpointAssets,
   useSpmEndpoints,
   useSpmFindings,
 } from "@/hooks/use-spm"
@@ -65,7 +59,6 @@ import {
   getAssetRecord,
   getComplianceRollup,
   getEndpointName,
-  getObservedState,
   getPolicyScope,
   includesQuery,
   renderMaybeLoading,
@@ -91,7 +84,6 @@ import {
   FeedRow,
   FeedSection,
   SmallBadge,
-  SpmDetailShell,
   SpmEmptyState,
   SpmListShell,
 } from "./spm-layout"
@@ -319,14 +311,7 @@ export function SpmEndpointsView() {
               <FeedRow
                 key={endpoint.id}
                 icon={<ComputerIcon className="size-4 text-muted-foreground" />}
-                title={
-                  <Link
-                    href={`/watchtower/endpoints/${endpoint.id}`}
-                    className="underline-offset-4 hover:underline"
-                  >
-                    {endpoint.name}
-                  </Link>
-                }
+                title={endpoint.name}
                 subtitle={`${formatLabel(endpoint.harness)} on ${formatLabel(endpoint.platform)} · ${endpoint.hostname ?? "No hostname"}`}
                 badges={
                   <>
@@ -973,213 +958,5 @@ export function SpmControlsView() {
         </div>
       )}
     </SpmListShell>
-  )
-}
-
-/**
- * Endpoint detail page with related assets and findings.
- */
-export function SpmEndpointDetailView(props: { endpointId: string }) {
-  const { toast } = useToast()
-  const { hasEntitlement, isLoading: entitlementLoading } = useEntitlements()
-  const endpointQuery = useSpmEndpoint(props.endpointId)
-  const endpointAssetsQuery = useSpmEndpointAssets(props.endpointId)
-  const endpointsQuery = useSpmEndpoints()
-  const findingsQuery = useSpmFindings({ endpointId: props.endpointId })
-  const { decideFinding } = useSpmActions()
-  const [busyDecision, setBusyDecision] = useState<{
-    decision: FindingDecision
-    findingId: string
-  } | null>(null)
-  const endpoint = endpointQuery.data
-  const endpointAssets = endpointAssetsQuery.data?.items ?? []
-  const findings = findingsQuery.data?.items ?? []
-  const dedupedAssets: SpmAssetRead[] = endpointAssets.map((asset) => ({
-    id: asset.asset_id,
-    organization_id: asset.organization_id,
-    harness: asset.harness,
-    asset_class: asset.asset_class,
-    asset_type: asset.asset_type,
-    identity_key: asset.identity_key,
-    display_name: asset.display_name,
-    content_hash: asset.content_hash,
-    metadata: asset.metadata ?? {},
-    first_seen_at: asset.first_seen_at,
-    last_seen_at: asset.last_seen_at,
-    created_at: asset.first_seen_at,
-    updated_at: asset.last_seen_at,
-  }))
-
-  async function handleDecision(findingId: string, decision: FindingDecision) {
-    setBusyDecision({ decision, findingId })
-    try {
-      await decideFinding.mutateAsync({
-        findingId,
-        requestBody: {
-          decision,
-          payload: {},
-        },
-      })
-      toast({
-        title: "Finding updated",
-        description:
-          decision === "enforce"
-            ? "Enforcement task queued."
-            : "Finding dismissed.",
-      })
-    } catch (error) {
-      toast({
-        title: "Finding update failed",
-        description: getApiErrorDetail(error) ?? "Failed to update finding",
-        variant: "destructive",
-      })
-    } finally {
-      setBusyDecision(null)
-    }
-  }
-
-  return renderMaybeLoading(
-    entitlementLoading ||
-      endpointQuery.isLoading ||
-      endpointAssetsQuery.isLoading ||
-      endpointsQuery.isLoading ||
-      findingsQuery.isLoading,
-    hasEntitlement("spm"),
-    "SPM entitlement required",
-    "This organization does not have access to AI SPM yet.",
-    <SpmDetailShell
-      backHref="/watchtower/endpoints"
-      backLabel="Back to endpoints"
-      icon={TerminalSquareIcon}
-      title={endpoint?.name ?? "Endpoint"}
-      subtitle="Endpoint metadata, latest sync state, inventory, and findings."
-    >
-      {endpoint ? (
-        <>
-          <FeedSection title="Endpoint overview">
-            <FeedRow
-              icon={<ComputerIcon className="size-4 text-muted-foreground" />}
-              title="Endpoint status"
-              subtitle={`${endpoint.hostname ?? "No hostname"} · ${endpoint.os_user ?? "Unknown user"}`}
-              badges={
-                <>
-                  <SmallBadge variant={endpointStatusVariant(endpoint.status)}>
-                    {formatLabel(endpoint.status)}
-                  </SmallBadge>
-                  <SmallBadge>{formatLabel(endpoint.harness)}</SmallBadge>
-                  <SmallBadge>{formatLabel(endpoint.platform)}</SmallBadge>
-                </>
-              }
-              meta={
-                <>
-                  <span>Version {endpoint.endpoint_version ?? "Unknown"}</span>
-                  <span>
-                    Seen {formatRelativeTimestamp(endpoint.last_seen_at)}
-                  </span>
-                  <span>
-                    Synced {formatRelativeTimestamp(endpoint.last_sync_at)}
-                  </span>
-                </>
-              }
-            />
-            <FeedRow
-              icon={<Clock3Icon className="size-4 text-muted-foreground" />}
-              title="Latest sync state"
-              subtitle={endpoint.last_sync_error ?? "No sync error reported."}
-              badges={
-                <SmallBadge
-                  variant={endpoint.last_sync_error ? "destructive" : "outline"}
-                >
-                  {endpoint.last_sync_error
-                    ? "Last sync failed"
-                    : "No sync error"}
-                </SmallBadge>
-              }
-            />
-            <FeedRow
-              icon={<BoxIcon className="size-4 text-muted-foreground" />}
-              title="Local paths"
-              subtitle={endpoint.home_path ?? "Unknown home path"}
-              badges={
-                <SmallBadge>
-                  {endpoint.client_metadata
-                    ? "Client metadata available"
-                    : "No client metadata"}
-                </SmallBadge>
-              }
-            />
-          </FeedSection>
-          <FeedSection title="Endpoint assets">
-            {endpointAssets.length > 0 ? (
-              endpointAssets.map((asset) => {
-                const scope = getPolicyScope(asset.asset_type)
-                const observedState = getObservedState(asset)
-                return (
-                  <FeedRow
-                    key={asset.asset_sighting_id}
-                    icon={
-                      <PackageIcon className="size-4 text-muted-foreground" />
-                    }
-                    title={asset.display_name}
-                    subtitle={getAssetPath(asset)}
-                    badges={
-                      <>
-                        <SmallBadge>
-                          {formatLabel(asset.asset_class)}
-                        </SmallBadge>
-                        <SmallBadge>{formatLabel(asset.asset_type)}</SmallBadge>
-                        <SmallBadge variant={scope.variant}>
-                          {scope.label}
-                        </SmallBadge>
-                        <SmallBadge variant={observedState.variant}>
-                          {observedState.label}
-                        </SmallBadge>
-                      </>
-                    }
-                    meta={
-                      <>
-                        <span>{observedState.detail}</span>
-                        <span>
-                          Seen {formatRelativeTimestamp(asset.last_seen_at)}
-                        </span>
-                      </>
-                    }
-                  />
-                )
-              })
-            ) : (
-              <div className="px-3 py-6 text-sm text-muted-foreground">
-                This endpoint has not reported any inventory yet.
-              </div>
-            )}
-          </FeedSection>
-          <FeedSection title="Endpoint findings">
-            {findings.length > 0 ? (
-              findings.map((finding) => (
-                <FindingRow
-                  key={finding.id}
-                  assets={dedupedAssets}
-                  busyDecision={busyDecision}
-                  endpoints={endpointsQuery.data?.items ?? []}
-                  finding={finding}
-                  onDecision={handleDecision}
-                  showEndpoint={false}
-                />
-              ))
-            ) : (
-              <div className="px-3 py-6 text-sm text-muted-foreground">
-                No control failures are currently open for this endpoint.
-              </div>
-            )}
-          </FeedSection>
-        </>
-      ) : (
-        <SpmEmptyState
-          title="Endpoint not found"
-          description="The requested endpoint did not load."
-          icon={<ComputerIcon className="h-6 w-6" />}
-        />
-      )}
-    </SpmDetailShell>
   )
 }

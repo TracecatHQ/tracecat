@@ -1,12 +1,6 @@
 "use client"
 
-import {
-  ArrowLeftIcon,
-  CircleDotIcon,
-  SearchIcon,
-  ShieldCheckIcon,
-} from "lucide-react"
-import Link from "next/link"
+import { CircleDotIcon, SearchIcon, ShieldCheckIcon } from "lucide-react"
 import type { ComponentType, ReactNode } from "react"
 import { Badge } from "@/components/ui/badge"
 import {
@@ -106,46 +100,6 @@ export function SpmListShell(props: {
         ) : null}
       </div>
 
-      <div className="min-h-0 flex-1 overflow-auto">{props.children}</div>
-    </div>
-  )
-}
-
-export function SpmDetailShell(props: {
-  backHref: string
-  backLabel: string
-  children: ReactNode
-  icon: ComponentType<{ className?: string }>
-  subtitle?: ReactNode
-  title: ReactNode
-}) {
-  const Icon = props.icon
-  return (
-    <div className="flex size-full flex-col">
-      <header className="shrink-0 border-b">
-        <div className="flex h-10 items-center pl-3 pr-4">
-          <Link
-            href={props.backHref}
-            className="inline-flex items-center gap-2 text-sm text-muted-foreground transition-colors hover:text-foreground"
-          >
-            <ArrowLeftIcon className="size-4" />
-            {props.backLabel}
-          </Link>
-        </div>
-        <div className="flex min-h-10 items-center gap-3 border-t pl-3 pr-4">
-          <div className="flex h-7 w-7 shrink-0 items-center justify-center">
-            <Icon className="size-4 text-muted-foreground" />
-          </div>
-          <div className="min-w-0">
-            <div className="truncate text-sm font-medium">{props.title}</div>
-            {props.subtitle ? (
-              <div className="mt-0.5 text-xs text-muted-foreground">
-                {props.subtitle}
-              </div>
-            ) : null}
-          </div>
-        </div>
-      </header>
       <div className="min-h-0 flex-1 overflow-auto">{props.children}</div>
     </div>
   )

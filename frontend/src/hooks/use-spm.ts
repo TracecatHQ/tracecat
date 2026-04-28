@@ -10,10 +10,8 @@ import {
   spmCreateSpmEndpoint,
   spmCreateSpmFindingDecision,
   spmDeleteSpmEndpoint,
-  spmGetSpmEndpoint,
   spmListSpmAssets,
   spmListSpmControls,
-  spmListSpmEndpointAssets,
   spmListSpmEndpoints,
   spmListSpmFindings,
 } from "@/client"
@@ -43,42 +41,6 @@ export function useSpmEndpoints(limit = 100) {
   return useQuery({
     queryKey: ["spm", "endpoints", { limit }],
     queryFn: () => spmListSpmEndpoints({ limit }),
-    refetchInterval: SPM_REFRESH_MS,
-    staleTime: 2_000,
-  })
-}
-
-/**
- * Fetch a single SPM endpoint.
- */
-export function useSpmEndpoint(endpointId: string | null) {
-  return useQuery({
-    queryKey: ["spm", "endpoint", endpointId],
-    queryFn: () => {
-      if (!endpointId) {
-        throw new Error("Missing endpoint ID")
-      }
-      return spmGetSpmEndpoint({ endpointId })
-    },
-    enabled: Boolean(endpointId),
-    refetchInterval: SPM_REFRESH_MS,
-    staleTime: 2_000,
-  })
-}
-
-/**
- * Fetch endpoint-scoped asset sightings.
- */
-export function useSpmEndpointAssets(endpointId: string | null, limit = 100) {
-  return useQuery({
-    queryKey: ["spm", "endpoint-assets", endpointId, { limit }],
-    queryFn: () => {
-      if (!endpointId) {
-        throw new Error("Missing endpoint ID")
-      }
-      return spmListSpmEndpointAssets({ endpointId, limit })
-    },
-    enabled: Boolean(endpointId),
     refetchInterval: SPM_REFRESH_MS,
     staleTime: 2_000,
   })
