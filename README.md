@@ -1,3 +1,5 @@
+[![MseeP.ai Security Assessment Badge](https://mseep.net/pr/tracecathq-tracecat-badge.png)](https://mseep.ai/app/tracecathq-tracecat)
+
 <div align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="img/banner-dark.svg">
