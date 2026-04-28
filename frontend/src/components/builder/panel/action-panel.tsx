@@ -280,7 +280,7 @@ export interface ActionPanelRef extends ImperativePanelHandle {
   getActiveTab: () => ActionPanelTabs
   setOpen: (open: boolean) => void
   isOpen: () => boolean
-  saveIfDirty: () => Promise<boolean>
+  saveIfDirty?: () => Promise<boolean>
 }
 
 function ActionPanelContent({
@@ -691,23 +691,26 @@ function ActionPanelContent({
 
   // Set up the ref methods
   useEffect(() => {
-    if (actionPanelRef.current) {
-      actionPanelRef.current.setActiveTab = setActiveTab
-      actionPanelRef.current.getActiveTab = () => activeTab
-      actionPanelRef.current.setOpen = (newOpen: boolean) => {
+    const panelHandle = actionPanelRef.current
+
+    if (panelHandle) {
+      panelHandle.setActiveTab = setActiveTab
+      panelHandle.getActiveTab = () => activeTab
+      panelHandle.setOpen = (newOpen: boolean) => {
         setOpen(newOpen)
         // If the panel has a collapse method, use it
-        if (
-          actionPanelRef.current?.collapse &&
-          actionPanelRef.current?.expand
-        ) {
-          newOpen
-            ? actionPanelRef.current.expand()
-            : actionPanelRef.current.collapse()
+        if (panelHandle.collapse && panelHandle.expand) {
+          newOpen ? panelHandle.expand() : panelHandle.collapse()
         }
       }
-      actionPanelRef.current.isOpen = () => open
-      actionPanelRef.current.saveIfDirty = saveIfDirty
+      panelHandle.isOpen = () => open
+      panelHandle.saveIfDirty = saveIfDirty
+    }
+
+    return () => {
+      if (panelHandle?.saveIfDirty === saveIfDirty) {
+        panelHandle.saveIfDirty = undefined
+      }
     }
   }, [actionPanelRef, activeTab, setOpen, open, saveIfDirty])
 
