@@ -2,23 +2,40 @@
 
 import {
   AlertTriangleIcon,
+  CheckCircleIcon,
   CircleDotIcon,
-  Clock3Icon,
+  CirclePauseIcon,
+  ClockArrowUpIcon,
   ComputerIcon,
   FileSearchIcon,
+  FlagTriangleRightIcon,
+  LaptopIcon,
   LayersIcon,
+  type LucideIcon,
   PackageIcon,
   RadarIcon,
   ShieldAlertIcon,
   ShieldCheckIcon,
+  SignalHighIcon,
+  SignalIcon,
+  SignalMediumIcon,
+  TagIcon,
   WrenchIcon,
 } from "lucide-react"
-import { useDeferredValue, useState } from "react"
+import {
+  type ComponentType,
+  type ReactNode,
+  useDeferredValue,
+  useState,
+} from "react"
 import type {
   SpmAssetClass,
+  SpmAssetRead,
   SpmAssetType,
+  SpmControlRead,
   SpmEndpointRead,
   SpmEndpointStatus,
+  SpmFindingRead,
   SpmFindingStatus,
   SpmHarness,
   SpmSeverity,
@@ -35,6 +52,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { useToast } from "@/components/ui/use-toast"
 import { useEntitlements } from "@/hooks/use-entitlements"
@@ -46,23 +64,20 @@ import {
   useSpmFindings,
 } from "@/hooks/use-spm"
 import { getApiErrorDetail } from "@/lib/errors"
+import { cn } from "@/lib/utils"
 import {
   ALL_VALUE,
-  type BadgeVariant,
   canCancelPendingEnrollment,
   EMPTY_FILTERS,
-  endpointStatusVariant,
   type FindingDecision,
   formatLabel,
-  formatRelativeTimestamp,
   getAssetPath,
   getAssetRecord,
-  getComplianceRollup,
   getEndpointName,
+  getFindingEnforcementState,
   getPolicyScope,
   includesQuery,
   renderMaybeLoading,
-  severityVariant,
 } from "./spm-common"
 import {
   ASSET_CLASS_OPTIONS,
@@ -70,27 +85,384 @@ import {
   COMPLIANCE_OPTIONS,
   controlOptions,
   ENDPOINT_STATUS_OPTIONS,
+  type EndpointComplianceKey,
+  endpointComplianceStyles,
   endpointOptions,
+  endpointStatusStyles,
   FINDING_STATUS_OPTIONS,
   FilterSelect,
   HARNESS_OPTIONS,
+  MultiFilterSelect,
   ResetFiltersButton,
   SEVERITY_OPTIONS,
-  SYNC_OPTIONS,
 } from "./spm-filters"
-import { FindingRow } from "./spm-findings"
+import { FindingActionButtons } from "./spm-findings"
 import { SpmInstallDrawer } from "./spm-install-drawer"
 import {
-  FeedRow,
-  FeedSection,
   SmallBadge,
+  SpmAccordion,
+  SpmCompactRow,
   SpmEmptyState,
   SpmListShell,
+  SpmSeenAtIcon,
+  SpmTimestamp,
+  SpmUpdatedAtIcon,
 } from "./spm-layout"
 
 export { SpmInstallDrawer } from "./spm-install-drawer"
 
-const SPM_ENDPOINT_POLL_STATUS = "Poll every 5 minutes"
+type FilterMode = "include" | "exclude"
+type SelectOption<TValue extends string> = {
+  label: string
+  value: TValue
+}
+
+const SPM_HARNESS_ORDER: SpmHarness[] = ["claude_code"]
+const FINDING_STATUS_ORDER: SpmFindingStatus[] = [
+  "open",
+  "enforcement_pending",
+  "enforced",
+  "resolved",
+  "dismissed",
+]
+const SEVERITY_ORDER: SpmSeverity[] = ["critical", "high", "medium", "low"]
+
+const severityStyles: Record<
+  SpmSeverity,
+  { className: string; icon: LucideIcon; label: string }
+> = {
+  critical: {
+    label: "Critical",
+    icon: AlertTriangleIcon,
+    className: "bg-fuchsia-500/10 text-fuchsia-700",
+  },
+  high: {
+    label: "High",
+    icon: SignalIcon,
+    className: "bg-red-500/10 text-red-700",
+  },
+  medium: {
+    label: "Medium",
+    icon: SignalHighIcon,
+    className: "bg-orange-500/10 text-orange-700",
+  },
+  low: {
+    label: "Low",
+    icon: SignalMediumIcon,
+    className: "bg-yellow-500/10 text-yellow-700",
+  },
+}
+
+const findingStatusStyles: Record<
+  SpmFindingStatus,
+  {
+    className: string
+    icon: LucideIcon
+    iconClassName: string
+    label: string
+    triggerClassName: string
+  }
+> = {
+  open: {
+    label: "Open",
+    icon: FlagTriangleRightIcon,
+    iconClassName: "text-yellow-600",
+    className: "bg-yellow-500/10 text-yellow-700",
+    triggerClassName:
+      "data-[state=open]:border-l-yellow-600 data-[state=open]:bg-yellow-600/[0.03] dark:data-[state=open]:bg-yellow-600/[0.08]",
+  },
+  enforcement_pending: {
+    label: "Enforcement pending",
+    icon: ClockArrowUpIcon,
+    iconClassName: "text-blue-600",
+    className: "bg-blue-500/10 text-blue-700",
+    triggerClassName:
+      "data-[state=open]:border-l-blue-600 data-[state=open]:bg-blue-600/[0.03] dark:data-[state=open]:bg-blue-600/[0.08]",
+  },
+  enforced: {
+    label: "Enforced",
+    icon: CheckCircleIcon,
+    iconClassName: "text-green-600",
+    className: "bg-green-500/10 text-green-700",
+    triggerClassName:
+      "data-[state=open]:border-l-green-600 data-[state=open]:bg-green-600/[0.03] dark:data-[state=open]:bg-green-600/[0.08]",
+  },
+  resolved: {
+    label: "Resolved",
+    icon: CheckCircleIcon,
+    iconClassName: "text-violet-600",
+    className: "bg-violet-500/10 text-violet-700",
+    triggerClassName:
+      "data-[state=open]:border-l-violet-600 data-[state=open]:bg-violet-600/[0.03] dark:data-[state=open]:bg-violet-600/[0.08]",
+  },
+  dismissed: {
+    label: "Dismissed",
+    icon: CirclePauseIcon,
+    iconClassName: "text-orange-600",
+    className: "bg-orange-500/10 text-orange-700",
+    triggerClassName:
+      "data-[state=open]:border-l-orange-600 data-[state=open]:bg-orange-600/[0.03] dark:data-[state=open]:bg-orange-600/[0.08]",
+  },
+}
+
+function firstCharacterUppercase(value: string): string {
+  if (value.length === 0) return value
+  return value.charAt(0).toUpperCase() + value.slice(1)
+}
+
+function ColorBadge(props: {
+  children: ReactNode
+  className?: string
+  icon?: ComponentType<{ className?: string }>
+}) {
+  const Icon = props.icon
+  return (
+    <Badge
+      variant="outline"
+      className={cn(
+        "h-5 max-w-[220px] items-center gap-1 border-0 px-2 text-[10px] font-normal leading-tight",
+        props.className
+      )}
+    >
+      {Icon ? <Icon className="size-3 shrink-0" /> : null}
+      <span className="truncate">{props.children}</span>
+    </Badge>
+  )
+}
+
+function SeverityBadge({ severity }: { severity: SpmSeverity }) {
+  const config = severityStyles[severity]
+  return (
+    <ColorBadge icon={config.icon} className={config.className}>
+      {config.label}
+    </ColorBadge>
+  )
+}
+
+function FindingStatusBadge({ status }: { status: SpmFindingStatus }) {
+  const config = findingStatusStyles[status]
+  return (
+    <ColorBadge icon={config.icon} className={config.className}>
+      {config.label}
+    </ColorBadge>
+  )
+}
+
+function harnessLabel(harness: SpmHarness) {
+  if (harness === "claude_code") return "Claude Code"
+  return formatLabel(harness)
+}
+
+function harnessTriggerClassName(harness: SpmHarness) {
+  if (harness === "claude_code") {
+    return "data-[state=open]:border-l-amber-600 data-[state=open]:bg-amber-600/[0.03] dark:data-[state=open]:bg-amber-600/[0.08]"
+  }
+  return "data-[state=open]:border-l-muted-foreground data-[state=open]:bg-muted/50"
+}
+
+function groupByHarness<TItem extends { harness: SpmHarness }>(items: TItem[]) {
+  const grouped = new Map<SpmHarness, TItem[]>()
+  for (const item of items) {
+    const next = grouped.get(item.harness) ?? []
+    next.push(item)
+    grouped.set(item.harness, next)
+  }
+  return SPM_HARNESS_ORDER.map((harness) => ({
+    harness,
+    items: grouped.get(harness) ?? [],
+  })).filter((group) => group.items.length > 0)
+}
+
+function withoutAll<TValue extends string>(
+  options: ReadonlyArray<SelectOption<TValue | typeof ALL_VALUE>>
+): SelectOption<TValue>[] {
+  return options.filter(
+    (option): option is SelectOption<TValue> => option.value !== ALL_VALUE
+  )
+}
+
+function EndpointStatusBadge({ status }: { status: SpmEndpointStatus }) {
+  const config = endpointStatusStyles[status]
+  return (
+    <ColorBadge icon={config.icon} className={config.badgeClassName}>
+      {config.label}
+    </ColorBadge>
+  )
+}
+
+function EndpointComplianceBadge({
+  complianceKey,
+}: {
+  complianceKey: EndpointComplianceKey
+}) {
+  const config = endpointComplianceStyles[complianceKey]
+  return (
+    <ColorBadge icon={config.icon} className={config.badgeClassName}>
+      {config.label}
+    </ColorBadge>
+  )
+}
+
+function EndpointRow({
+  endpoint,
+  complianceKey,
+  onCancelEnrollment,
+}: {
+  endpoint: SpmEndpointRead
+  complianceKey: EndpointComplianceKey
+  onCancelEnrollment: () => void
+}) {
+  return (
+    <SpmCompactRow
+      icon={<ComputerIcon className="size-4 text-muted-foreground" />}
+      title={firstCharacterUppercase(endpoint.name)}
+      badges={
+        <>
+          <EndpointStatusBadge status={endpoint.status} />
+          <EndpointComplianceBadge complianceKey={complianceKey} />
+        </>
+      }
+      meta={
+        <>
+          <SmallBadge icon={LaptopIcon}>macOS</SmallBadge>
+          <SmallBadge icon={RadarIcon}>
+            {harnessLabel(endpoint.harness)}
+          </SmallBadge>
+          {endpoint.endpoint_version ? (
+            <SmallBadge icon={TagIcon}>{endpoint.endpoint_version}</SmallBadge>
+          ) : null}
+          <SpmTimestamp
+            label="Seen"
+            value={endpoint.last_seen_at}
+            icon={SpmSeenAtIcon}
+          />
+          <SpmTimestamp
+            label="Synced"
+            value={endpoint.last_sync_at}
+            icon={SpmUpdatedAtIcon}
+          />
+        </>
+      }
+      actions={
+        canCancelPendingEnrollment(endpoint) ? (
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-7 px-2 text-xs"
+            onClick={onCancelEnrollment}
+          >
+            Cancel enrollment
+          </Button>
+        ) : null
+      }
+    />
+  )
+}
+
+function AssetRow({ asset }: { asset: SpmAssetRead }) {
+  const scope = getPolicyScope(asset.asset_type)
+  return (
+    <SpmCompactRow
+      icon={<PackageIcon className="size-4 text-muted-foreground" />}
+      title={asset.display_name}
+      badges={
+        <>
+          <SmallBadge>{harnessLabel(asset.harness)}</SmallBadge>
+          <SmallBadge>{formatLabel(asset.asset_class)}</SmallBadge>
+          <SmallBadge>{formatLabel(asset.asset_type)}</SmallBadge>
+          <SmallBadge variant={scope.variant}>{scope.label}</SmallBadge>
+        </>
+      }
+      meta={
+        <SpmTimestamp
+          label="Seen"
+          value={asset.last_seen_at}
+          icon={SpmSeenAtIcon}
+        />
+      }
+    />
+  )
+}
+
+function FindingRow(props: {
+  assets: SpmAssetRead[]
+  busyDecision: { decision: FindingDecision; findingId: string } | null
+  endpoints: SpmEndpointRead[]
+  finding: SpmFindingRead
+  onDecision: (findingId: string, decision: FindingDecision) => Promise<void>
+}) {
+  const asset = getAssetRecord(props.finding.asset_id, props.assets)
+  const enforcementState = getFindingEnforcementState(props.finding)
+  return (
+    <SpmCompactRow
+      icon={<ShieldAlertIcon className="size-4 text-muted-foreground" />}
+      title={
+        <>
+          <span className="shrink-0 text-xs text-muted-foreground">
+            {props.finding.control_key}
+          </span>
+          <span className="truncate text-xs">{props.finding.summary}</span>
+        </>
+      }
+      badges={
+        <>
+          <SeverityBadge severity={props.finding.severity} />
+          <FindingStatusBadge status={props.finding.status} />
+          <SmallBadge variant={enforcementState.variant}>
+            {enforcementState.label}
+          </SmallBadge>
+          <SmallBadge>{formatLabel(props.finding.asset_class)}</SmallBadge>
+          <SmallBadge>
+            {asset?.display_name ?? props.finding.asset_id}
+          </SmallBadge>
+          <SmallBadge>
+            {getEndpointName(props.finding.endpoint_id, props.endpoints)}
+          </SmallBadge>
+        </>
+      }
+      meta={
+        <SpmTimestamp
+          label="Updated"
+          value={props.finding.updated_at}
+          icon={SpmUpdatedAtIcon}
+        />
+      }
+      actions={
+        <FindingActionButtons
+          busyDecision={props.busyDecision}
+          finding={props.finding}
+          onDecision={props.onDecision}
+        />
+      }
+    />
+  )
+}
+
+function ControlRow({ control }: { control: SpmControlRead }) {
+  return (
+    <SpmCompactRow
+      icon={<FileSearchIcon className="size-4 text-muted-foreground" />}
+      title={
+        <>
+          <span className="shrink-0 text-xs text-muted-foreground">
+            {control.key}
+          </span>
+          <span className="truncate text-xs">{control.title}</span>
+        </>
+      }
+      badges={
+        <>
+          <SeverityBadge severity={control.severity} />
+          <SmallBadge>{formatLabel(control.asset_class)}</SmallBadge>
+          <SmallBadge>{formatLabel(control.asset_type)}</SmallBadge>
+          <SmallBadge icon={WrenchIcon}>
+            {formatLabel(control.action)}
+          </SmallBadge>
+        </>
+      }
+    />
+  )
+}
 
 /**
  * Endpoints feed plus install drawer.
@@ -108,49 +480,45 @@ export function SpmEndpointsView() {
   const [statusFilter, setStatusFilter] = useState<
     SpmEndpointStatus | typeof ALL_VALUE
   >(ALL_VALUE)
-  const [complianceFilter, setComplianceFilter] =
-    useState<(typeof COMPLIANCE_OPTIONS)[number]["value"]>(ALL_VALUE)
-  const [syncFilter, setSyncFilter] =
-    useState<(typeof SYNC_OPTIONS)[number]["value"]>(ALL_VALUE)
+  const [complianceFilter, setComplianceFilter] = useState<
+    EndpointComplianceKey | typeof ALL_VALUE
+  >(ALL_VALUE)
   const endpoints = endpointsQuery.data?.items ?? []
+  const findings = findingsQuery.data?.items ?? []
   const endpointsLoaded = endpointsQuery.data != null
   const endpointsArePending = endpointsQuery.isLoading && !endpointsLoaded
   const endpointsUnavailable = endpointsQuery.isError && !endpointsLoaded
   const endpointsErrorDetail = endpointsUnavailable
     ? (getApiErrorDetail(endpointsQuery.error) ?? "Unable to load endpoints.")
     : null
-  const findings = findingsQuery.data?.items ?? []
-  const findingsLoaded = findingsQuery.data != null
-  const findingsArePending = findingsQuery.isLoading && !findingsLoaded
-  const findingsUnavailable = findingsQuery.isError && !findingsLoaded
+  const findingsUnavailable =
+    findingsQuery.isError && findingsQuery.data == null
   const findingsErrorDetail = findingsUnavailable
     ? (getApiErrorDetail(findingsQuery.error) ?? "Unable to load findings.")
     : null
 
-  function endpointComplianceRollup(endpointId: string) {
-    if (findingsUnavailable) {
-      return {
-        detail: "Findings could not be loaded",
-        key: "unknown",
-        label: "Findings unavailable",
-        variant: "destructive" as BadgeVariant,
-      }
+  function endpointComplianceKey(endpointId: string): EndpointComplianceKey {
+    const endpointFindings = findings.filter(
+      (finding) => finding.endpoint_id === endpointId
+    )
+    if (endpointFindings.some((finding) => finding.status === "open")) {
+      return "needs_attention"
     }
-    if (findingsArePending) {
-      return {
-        detail: "Findings are still loading",
-        key: "unknown",
-        label: "Checking findings",
-        variant: "outline" as BadgeVariant,
-      }
+    if (
+      endpointFindings.some(
+        (finding) => finding.status === "enforcement_pending"
+      )
+    ) {
+      return "enforcement_queued"
     }
-    return getComplianceRollup(endpointId, findings)
+    if (endpointFindings.length > 0) {
+      return "compliant"
+    }
+    return "unknown"
   }
 
   async function handleDeleteEndpoint() {
-    if (!deleteCandidate) {
-      return
-    }
+    if (!deleteCandidate) return
     try {
       await deleteEndpoint.mutateAsync({ endpointId: deleteCandidate.id })
       toast({
@@ -172,12 +540,10 @@ export function SpmEndpointsView() {
     setSearchQuery("")
     setStatusFilter(ALL_VALUE)
     setComplianceFilter(ALL_VALUE)
-    setSyncFilter(ALL_VALUE)
   }
 
   const filteredEndpoints = endpoints.filter((endpoint) => {
-    const rollup = endpointComplianceRollup(endpoint.id)
-    const syncKey = endpoint.last_sync_error ? "error" : "healthy"
+    const complianceKey = endpointComplianceKey(endpoint.id)
     return (
       includesQuery(
         [
@@ -188,28 +554,18 @@ export function SpmEndpointsView() {
           endpoint.status,
           endpoint.harness,
           endpoint.platform,
-          rollup.label,
         ],
         deferredSearchQuery
       ) &&
       (statusFilter === ALL_VALUE || endpoint.status === statusFilter) &&
-      (complianceFilter === ALL_VALUE || rollup.key === complianceFilter) &&
-      (syncFilter === ALL_VALUE || syncKey === syncFilter)
+      (complianceFilter === ALL_VALUE || complianceKey === complianceFilter)
     )
   })
 
   const hasFilters =
     searchQuery.trim().length > 0 ||
     statusFilter !== ALL_VALUE ||
-    complianceFilter !== ALL_VALUE ||
-    syncFilter !== ALL_VALUE
-
-  let endpointsHeaderStatus = `${endpoints.length} endpoints · ${SPM_ENDPOINT_POLL_STATUS}`
-  if (endpointsArePending) {
-    endpointsHeaderStatus = "Loading endpoints..."
-  } else if (endpointsQuery.isFetching && endpointsLoaded) {
-    endpointsHeaderStatus = `${endpoints.length} endpoints · Refreshing...`
-  }
+    complianceFilter !== ALL_VALUE
 
   return renderMaybeLoading(
     entitlementLoading,
@@ -225,13 +581,7 @@ export function SpmEndpointsView() {
       searchPlaceholder="Search endpoints..."
       count={filteredEndpoints.length}
       countLabel="endpoints"
-      headerStatus={
-        <span className="text-xs text-muted-foreground">
-          {endpointsHeaderStatus}
-        </span>
-      }
       hasFilters={hasFilters}
-      hideToolbarCount
       resetButton={<ResetFiltersButton onClick={resetFilters} />}
       filters={
         <>
@@ -246,15 +596,8 @@ export function SpmEndpointsView() {
             label="Compliance"
             icon={ShieldCheckIcon}
             value={complianceFilter}
-            options={[...COMPLIANCE_OPTIONS]}
+            options={COMPLIANCE_OPTIONS}
             onChange={setComplianceFilter}
-          />
-          <FilterSelect
-            label="Sync"
-            icon={Clock3Icon}
-            value={syncFilter}
-            options={[...SYNC_OPTIONS]}
-            onChange={setSyncFilter}
           />
         </>
       }
@@ -303,67 +646,21 @@ export function SpmEndpointsView() {
       {!endpointsArePending &&
       !endpointsUnavailable &&
       filteredEndpoints.length > 0 ? (
-        <FeedSection>
-          {filteredEndpoints.map((endpoint) => {
-            const rollup = endpointComplianceRollup(endpoint.id)
-            const hasSyncError = Boolean(endpoint.last_sync_error)
-            return (
-              <FeedRow
-                key={endpoint.id}
-                icon={<ComputerIcon className="size-4 text-muted-foreground" />}
-                title={endpoint.name}
-                subtitle={`${formatLabel(endpoint.harness)} on ${formatLabel(endpoint.platform)} · ${endpoint.hostname ?? "No hostname"}`}
-                badges={
-                  <>
-                    <SmallBadge
-                      variant={endpointStatusVariant(endpoint.status)}
-                    >
-                      {formatLabel(endpoint.status)}
-                    </SmallBadge>
-                    <SmallBadge variant={rollup.variant}>
-                      {rollup.label}
-                    </SmallBadge>
-                    <SmallBadge
-                      variant={hasSyncError ? "destructive" : "outline"}
-                    >
-                      {hasSyncError ? "Last sync failed" : "No sync error"}
-                    </SmallBadge>
-                  </>
-                }
-                meta={
-                  <>
-                    <span>{rollup.detail}</span>
-                    <span>
-                      Seen {formatRelativeTimestamp(endpoint.last_seen_at)}
-                    </span>
-                    <span>
-                      Synced {formatRelativeTimestamp(endpoint.last_sync_at)}
-                    </span>
-                  </>
-                }
-                actions={
-                  canCancelPendingEnrollment(endpoint) ? (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="h-7 px-2 text-xs"
-                      onClick={() => setDeleteCandidate(endpoint)}
-                    >
-                      Cancel enrollment
-                    </Button>
-                  ) : null
-                }
-              />
-            )
-          })}
-        </FeedSection>
+        <div className="ml-[18px] divide-y divide-border/50">
+          {filteredEndpoints.map((endpoint) => (
+            <EndpointRow
+              key={endpoint.id}
+              endpoint={endpoint}
+              complianceKey={endpointComplianceKey(endpoint.id)}
+              onCancelEnrollment={() => setDeleteCandidate(endpoint)}
+            />
+          ))}
+        </div>
       ) : null}
       <AlertDialog
         open={deleteCandidate != null}
         onOpenChange={(open) => {
-          if (!open) {
-            setDeleteCandidate(null)
-          }
+          if (!open) setDeleteCandidate(null)
         }}
       >
         <AlertDialogContent>
@@ -409,18 +706,15 @@ export function SpmFindingsView() {
   } | null>(null)
   const [searchQuery, setSearchQuery] = useState("")
   const deferredSearchQuery = useDeferredValue(searchQuery)
-  const [statusFilter, setStatusFilter] = useState<
-    SpmFindingStatus | typeof ALL_VALUE
-  >(ALL_VALUE)
-  const [severityFilter, setSeverityFilter] = useState<
-    SpmSeverity | typeof ALL_VALUE
-  >(ALL_VALUE)
-  const [endpointFilter, setEndpointFilter] = useState(ALL_VALUE)
-  const [controlFilter, setControlFilter] = useState(ALL_VALUE)
-  const findingsQuery = useSpmFindings({
-    controlId: controlFilter === ALL_VALUE ? undefined : controlFilter,
-    endpointId: endpointFilter === ALL_VALUE ? undefined : endpointFilter,
-  })
+  const [statusFilter, setStatusFilter] = useState<SpmFindingStatus[]>([])
+  const [statusMode, setStatusMode] = useState<FilterMode>("include")
+  const [severityFilter, setSeverityFilter] = useState<SpmSeverity[]>([])
+  const [severityMode, setSeverityMode] = useState<FilterMode>("include")
+  const [endpointFilter, setEndpointFilter] = useState<string[]>([])
+  const [endpointMode, setEndpointMode] = useState<FilterMode>("include")
+  const [controlFilter, setControlFilter] = useState<string[]>([])
+  const [controlMode, setControlMode] = useState<FilterMode>("include")
+  const findingsQuery = useSpmFindings()
   const assets = assetsQuery.data?.items ?? []
   const controls = controlsQuery.data ?? []
   const endpoints = endpointsQuery.data?.items ?? []
@@ -456,15 +750,33 @@ export function SpmFindingsView() {
 
   function resetFilters() {
     setSearchQuery("")
-    setStatusFilter(ALL_VALUE)
-    setSeverityFilter(ALL_VALUE)
-    setEndpointFilter(ALL_VALUE)
-    setControlFilter(ALL_VALUE)
+    setStatusFilter([])
+    setStatusMode("include")
+    setSeverityFilter([])
+    setSeverityMode("include")
+    setEndpointFilter([])
+    setEndpointMode("include")
+    setControlFilter([])
+    setControlMode("include")
   }
 
   const filteredFindings = findings.filter((finding) => {
     const asset = getAssetRecord(finding.asset_id, assets)
     const endpointName = getEndpointName(finding.endpoint_id, endpoints)
+    const statusMatches =
+      statusFilter.length === 0 ||
+      statusFilter.includes(finding.status) === (statusMode === "include")
+    const severityMatches =
+      severityFilter.length === 0 ||
+      severityFilter.includes(finding.severity) === (severityMode === "include")
+    const endpointMatches =
+      endpointFilter.length === 0 ||
+      endpointFilter.includes(finding.endpoint_id) ===
+        (endpointMode === "include")
+    const controlMatches =
+      controlFilter.length === 0 ||
+      controlFilter.includes(finding.control_id) === (controlMode === "include")
+
     return (
       includesQuery(
         [
@@ -481,17 +793,23 @@ export function SpmFindingsView() {
         ],
         deferredSearchQuery
       ) &&
-      (statusFilter === ALL_VALUE || finding.status === statusFilter) &&
-      (severityFilter === ALL_VALUE || finding.severity === severityFilter)
+      statusMatches &&
+      severityMatches &&
+      endpointMatches &&
+      controlMatches
     )
   })
 
+  const groupedFindings = FINDING_STATUS_ORDER.map((status) => ({
+    status,
+    items: filteredFindings.filter((finding) => finding.status === status),
+  }))
   const hasFilters =
     searchQuery.trim().length > 0 ||
-    statusFilter !== ALL_VALUE ||
-    severityFilter !== ALL_VALUE ||
-    endpointFilter !== ALL_VALUE ||
-    controlFilter !== ALL_VALUE
+    statusFilter.length > 0 ||
+    severityFilter.length > 0 ||
+    endpointFilter.length > 0 ||
+    controlFilter.length > 0
 
   return renderMaybeLoading(
     entitlementLoading ||
@@ -514,32 +832,44 @@ export function SpmFindingsView() {
       resetButton={<ResetFiltersButton onClick={resetFilters} />}
       filters={
         <>
-          <FilterSelect
+          <MultiFilterSelect
             label="Status"
             icon={CircleDotIcon}
             value={statusFilter}
-            options={FINDING_STATUS_OPTIONS}
+            options={withoutAll<SpmFindingStatus>(FINDING_STATUS_OPTIONS)}
+            mode={statusMode}
+            onModeChange={setStatusMode}
             onChange={setStatusFilter}
           />
-          <FilterSelect
+          <MultiFilterSelect
             label="Severity"
             icon={ShieldAlertIcon}
             value={severityFilter}
-            options={SEVERITY_OPTIONS}
+            options={withoutAll<SpmSeverity>(SEVERITY_OPTIONS)}
+            mode={severityMode}
+            onModeChange={setSeverityMode}
             onChange={setSeverityFilter}
           />
-          <FilterSelect
+          <MultiFilterSelect
             label="Endpoint"
             icon={ComputerIcon}
             value={endpointFilter}
-            options={endpointOptions(endpoints)}
+            options={endpointOptions(endpoints).filter(
+              (option) => option.value !== ALL_VALUE
+            )}
+            mode={endpointMode}
+            onModeChange={setEndpointMode}
             onChange={setEndpointFilter}
           />
-          <FilterSelect
+          <MultiFilterSelect
             label="Control"
             icon={FileSearchIcon}
             value={controlFilter}
-            options={controlOptions(controls)}
+            options={controlOptions(controls).filter(
+              (option) => option.value !== ALL_VALUE
+            )}
+            mode={controlMode}
+            onModeChange={setControlMode}
             onChange={setControlFilter}
           />
         </>
@@ -556,19 +886,34 @@ export function SpmFindingsView() {
           icon={<ShieldAlertIcon className="h-6 w-6" />}
         />
       ) : (
-        <FeedSection>
-          {filteredFindings.map((finding) => (
-            <FindingRow
-              key={finding.id}
-              assets={assets}
-              busyDecision={busyDecision}
-              controls={controls}
-              endpoints={endpoints}
-              finding={finding}
-              onDecision={handleDecision}
-            />
-          ))}
-        </FeedSection>
+        <SpmAccordion
+          groups={groupedFindings.map((group) => {
+            const config = findingStatusStyles[group.status]
+            return {
+              value: group.status,
+              label: config.label,
+              count: group.items.length,
+              icon: config.icon,
+              iconClassName: config.iconClassName,
+              triggerClassName: config.triggerClassName,
+            }
+          })}
+        >
+          {(status) =>
+            groupedFindings
+              .find((group) => group.status === status)
+              ?.items.map((finding) => (
+                <FindingRow
+                  key={finding.id}
+                  assets={assets}
+                  busyDecision={busyDecision}
+                  endpoints={endpoints}
+                  finding={finding}
+                  onDecision={handleDecision}
+                />
+              ))
+          }
+        </SpmAccordion>
       )}
     </SpmListShell>
   )
@@ -623,7 +968,7 @@ export function SpmAssetsView() {
       deferredSearchQuery
     )
   )
-
+  const groupedAssets = groupByHarness(filteredAssets)
   const hasFilters =
     searchQuery.trim().length > 0 ||
     selectedAssetClass !== ALL_VALUE ||
@@ -690,81 +1035,62 @@ export function SpmAssetsView() {
           icon={<PackageIcon className="h-6 w-6" />}
         />
       ) : (
-        <FeedSection>
-          {filteredAssets.map((asset) => {
-            const scope = getPolicyScope(asset.asset_type)
-            return (
-              <FeedRow
-                key={asset.id}
-                icon={<PackageIcon className="size-4 text-muted-foreground" />}
-                title={asset.display_name}
-                subtitle={getAssetPath(asset)}
-                badges={
-                  <>
-                    <SmallBadge>{formatLabel(asset.harness)}</SmallBadge>
-                    <SmallBadge>{formatLabel(asset.asset_class)}</SmallBadge>
-                    <SmallBadge>{formatLabel(asset.asset_type)}</SmallBadge>
-                    <SmallBadge variant={scope.variant}>
-                      {scope.label}
-                    </SmallBadge>
-                  </>
-                }
-                meta={
-                  <>
-                    <span>{scope.description}</span>
-                    <span>
-                      Seen {formatRelativeTimestamp(asset.last_seen_at)}
-                    </span>
-                  </>
-                }
-              />
-            )
-          })}
-        </FeedSection>
+        <SpmAccordion
+          groups={groupedAssets.map((group) => ({
+            value: group.harness,
+            label: harnessLabel(group.harness),
+            count: group.items.length,
+            icon: RadarIcon,
+            iconClassName:
+              group.harness === "claude_code"
+                ? "text-amber-600"
+                : "text-muted-foreground",
+            triggerClassName: harnessTriggerClassName(group.harness),
+          }))}
+        >
+          {(harness) =>
+            groupedAssets
+              .find((group) => group.harness === harness)
+              ?.items.map((asset) => <AssetRow key={asset.id} asset={asset} />)
+          }
+        </SpmAccordion>
       )}
     </SpmListShell>
   )
 }
 
 /**
- * Controls feed with a right-side detail panel.
+ * Controls feed grouped by severity.
  */
 export function SpmControlsView() {
   const { hasEntitlement, isLoading: entitlementLoading } = useEntitlements()
   const controlsQuery = useSpmControls()
-  const endpointsQuery = useSpmEndpoints()
-  const [selectedControlId, setSelectedControlId] = useState<string | null>(
-    null
-  )
   const [searchQuery, setSearchQuery] = useState("")
   const deferredSearchQuery = useDeferredValue(searchQuery)
-  const [severityFilter, setSeverityFilter] = useState<
-    SpmSeverity | typeof ALL_VALUE
-  >(ALL_VALUE)
-  const [assetClassFilter, setAssetClassFilter] = useState<
-    SpmAssetClass | typeof ALL_VALUE
-  >(ALL_VALUE)
+  const [severityFilter, setSeverityFilter] = useState<SpmSeverity[]>([])
+  const [severityMode, setSeverityMode] = useState<FilterMode>("include")
+  const [assetClassFilter, setAssetClassFilter] = useState<SpmAssetClass[]>([])
+  const [assetClassMode, setAssetClassMode] = useState<FilterMode>("include")
   const controls = controlsQuery.data ?? []
-  const activeControlId = selectedControlId ?? controls[0]?.id
-  const findingsQuery = useSpmFindings({
-    controlId: activeControlId,
-  })
-  const endpoints = endpointsQuery.data?.items ?? []
-  const findings = findingsQuery.data?.items ?? []
-  const selectedControl =
-    controls.find((control) => control.id === activeControlId) ?? controls[0]
-  const impactedEndpointIds = Array.from(
-    new Set(findings.map((finding) => finding.endpoint_id))
-  )
 
   function resetFilters() {
     setSearchQuery("")
-    setSeverityFilter(ALL_VALUE)
-    setAssetClassFilter(ALL_VALUE)
+    setSeverityFilter([])
+    setSeverityMode("include")
+    setAssetClassFilter([])
+    setAssetClassMode("include")
   }
 
-  const visibleControls = controls.filter(
-    (control) =>
+  const visibleControls = controls.filter((control) => {
+    const severityMatches =
+      severityFilter.length === 0 ||
+      severityFilter.includes(control.severity) === (severityMode === "include")
+    const assetClassMatches =
+      assetClassFilter.length === 0 ||
+      assetClassFilter.includes(control.asset_class) ===
+        (assetClassMode === "include")
+
+    return (
       includesQuery(
         [
           control.id,
@@ -778,21 +1104,21 @@ export function SpmControlsView() {
         ],
         deferredSearchQuery
       ) &&
-      (severityFilter === ALL_VALUE || control.severity === severityFilter) &&
-      (assetClassFilter === ALL_VALUE ||
-        control.asset_class === assetClassFilter)
-  )
-
+      severityMatches &&
+      assetClassMatches
+    )
+  })
+  const groupedControls = SEVERITY_ORDER.map((severity) => ({
+    severity,
+    items: visibleControls.filter((control) => control.severity === severity),
+  }))
   const hasFilters =
     searchQuery.trim().length > 0 ||
-    severityFilter !== ALL_VALUE ||
-    assetClassFilter !== ALL_VALUE
+    severityFilter.length > 0 ||
+    assetClassFilter.length > 0
 
   return renderMaybeLoading(
-    entitlementLoading ||
-      controlsQuery.isLoading ||
-      endpointsQuery.isLoading ||
-      findingsQuery.isLoading,
+    entitlementLoading || controlsQuery.isLoading,
     hasEntitlement("spm"),
     "SPM entitlement required",
     "This organization does not have access to AI SPM yet.",
@@ -808,18 +1134,22 @@ export function SpmControlsView() {
       resetButton={<ResetFiltersButton onClick={resetFilters} />}
       filters={
         <>
-          <FilterSelect
+          <MultiFilterSelect
             label="Severity"
             icon={ShieldAlertIcon}
             value={severityFilter}
-            options={SEVERITY_OPTIONS}
+            options={withoutAll<SpmSeverity>(SEVERITY_OPTIONS)}
+            mode={severityMode}
+            onModeChange={setSeverityMode}
             onChange={setSeverityFilter}
           />
-          <FilterSelect
+          <MultiFilterSelect
             label="Asset class"
             icon={LayersIcon}
             value={assetClassFilter}
-            options={ASSET_CLASS_OPTIONS}
+            options={withoutAll<SpmAssetClass>(ASSET_CLASS_OPTIONS)}
+            mode={assetClassMode}
+            onModeChange={setAssetClassMode}
             onChange={setAssetClassFilter}
           />
         </>
@@ -831,131 +1161,49 @@ export function SpmControlsView() {
           description="The generated client did not return any SPM controls."
           icon={<FileSearchIcon className="h-6 w-6" />}
         />
+      ) : visibleControls.length === 0 ? (
+        <SpmEmptyState
+          title={EMPTY_FILTERS}
+          description="Adjust search or filters to find another control."
+          icon={<FileSearchIcon className="h-6 w-6" />}
+        />
       ) : (
-        <div className="grid h-full min-h-0 grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(360px,0.8fr)]">
-          <div className="min-h-0 overflow-auto">
-            {visibleControls.length === 0 ? (
-              <SpmEmptyState
-                title={EMPTY_FILTERS}
-                description="Adjust search or filters to find another control."
-                icon={<FileSearchIcon className="h-6 w-6" />}
-              />
-            ) : (
-              <FeedSection>
-                {visibleControls.map((control) => {
-                  const isSelected = control.id === selectedControl?.id
-                  return (
-                    <FeedRow
-                      key={control.id}
-                      isSelected={isSelected}
-                      onClick={() => setSelectedControlId(control.id)}
-                      icon={
-                        <FileSearchIcon className="size-4 text-muted-foreground" />
-                      }
-                      title={control.title}
-                      subtitle={control.key}
-                      badges={
-                        <>
-                          <SmallBadge
-                            variant={severityVariant(control.severity)}
-                          >
-                            {formatLabel(control.severity)}
-                          </SmallBadge>
-                          <SmallBadge>
-                            {formatLabel(control.asset_class)}
-                          </SmallBadge>
-                          <SmallBadge>
-                            {formatLabel(control.asset_type)}
-                          </SmallBadge>
-                          <SmallBadge icon={WrenchIcon}>
-                            {formatLabel(control.action)}
-                          </SmallBadge>
-                        </>
-                      }
-                    />
-                  )
-                })}
-              </FeedSection>
-            )}
-          </div>
-          <div className="min-h-0 border-t lg:border-l lg:border-t-0">
-            {selectedControl ? (
-              <div className="flex h-full min-h-0 flex-col">
-                <div className="shrink-0 border-b px-4 py-3">
-                  <div className="flex items-start gap-3">
-                    <FileSearchIcon className="mt-0.5 size-4 text-muted-foreground" />
-                    <div className="min-w-0 flex-1">
-                      <div className="text-sm font-medium">
-                        {selectedControl.title}
-                      </div>
-                      <div className="mt-1 text-xs text-muted-foreground">
-                        {selectedControl.description}
-                      </div>
-                      <div className="mt-2 flex flex-wrap items-center gap-1">
-                        <SmallBadge
-                          variant={severityVariant(selectedControl.severity)}
-                        >
-                          {formatLabel(selectedControl.severity)}
-                        </SmallBadge>
-                        <SmallBadge>
-                          {formatLabel(selectedControl.asset_class)} /{" "}
-                          {formatLabel(selectedControl.asset_type)}
-                        </SmallBadge>
-                        <SmallBadge icon={RadarIcon}>
-                          {formatLabel(selectedControl.harness)}
-                        </SmallBadge>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-                <div className="min-h-0 flex-1 overflow-auto">
-                  <FeedSection title="Impacted endpoints">
-                    {impactedEndpointIds.length > 0 ? (
-                      impactedEndpointIds.map((endpointId) => (
-                        <FeedRow
-                          key={endpointId}
-                          icon={
-                            <ComputerIcon className="size-4 text-muted-foreground" />
-                          }
-                          title={getEndpointName(endpointId, endpoints)}
-                          subtitle={endpointId}
-                        />
-                      ))
-                    ) : (
-                      <div className="px-3 py-6 text-sm text-muted-foreground">
-                        No current findings for this control.
-                      </div>
-                    )}
-                  </FeedSection>
-                  <FeedSection title="Matching findings">
-                    {findings.length > 0 ? (
-                      findings.map((finding) => (
-                        <FindingRow
-                          key={finding.id}
-                          assets={[]}
-                          busyDecision={null}
-                          controls={controls}
-                          endpoints={endpoints}
-                          finding={finding}
-                        />
-                      ))
-                    ) : (
-                      <div className="px-3 py-6 text-sm text-muted-foreground">
-                        No findings currently match this control.
-                      </div>
-                    )}
-                  </FeedSection>
-                </div>
-              </div>
-            ) : (
-              <SpmEmptyState
-                title="Select a control"
-                description="Choose a control to inspect related endpoints and findings."
-                icon={<FileSearchIcon className="h-6 w-6" />}
-              />
-            )}
-          </div>
-        </div>
+        <SpmAccordion
+          groups={groupedControls.map((group) => {
+            const config = severityStyles[group.severity]
+            const triggerClassName =
+              group.severity === "critical"
+                ? "data-[state=open]:border-l-fuchsia-600 data-[state=open]:bg-fuchsia-600/[0.03] dark:data-[state=open]:bg-fuchsia-600/[0.08]"
+                : group.severity === "high"
+                  ? "data-[state=open]:border-l-red-600 data-[state=open]:bg-red-600/[0.03] dark:data-[state=open]:bg-red-600/[0.08]"
+                  : group.severity === "medium"
+                    ? "data-[state=open]:border-l-orange-600 data-[state=open]:bg-orange-600/[0.03] dark:data-[state=open]:bg-orange-600/[0.08]"
+                    : "data-[state=open]:border-l-yellow-600 data-[state=open]:bg-yellow-600/[0.03] dark:data-[state=open]:bg-yellow-600/[0.08]"
+            return {
+              value: group.severity,
+              label: config.label,
+              count: group.items.length,
+              icon: config.icon,
+              iconClassName:
+                group.severity === "critical"
+                  ? "text-fuchsia-600"
+                  : group.severity === "high"
+                    ? "text-red-600"
+                    : group.severity === "medium"
+                      ? "text-orange-600"
+                      : "text-yellow-600",
+              triggerClassName,
+            }
+          })}
+        >
+          {(severity) =>
+            groupedControls
+              .find((group) => group.severity === severity)
+              ?.items.map((control) => (
+                <ControlRow key={control.id} control={control} />
+              ))
+          }
+        </SpmAccordion>
       )}
     </SpmListShell>
   )

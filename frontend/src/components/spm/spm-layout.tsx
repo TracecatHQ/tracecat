@@ -1,6 +1,15 @@
 "use client"
 
-import { CircleDotIcon, SearchIcon, ShieldCheckIcon } from "lucide-react"
+import * as AccordionPrimitive from "@radix-ui/react-accordion"
+import {
+  ChevronRightIcon,
+  CircleDotIcon,
+  EyeIcon,
+  type LucideIcon,
+  RefreshCwIcon,
+  SearchIcon,
+  ShieldCheckIcon,
+} from "lucide-react"
 import type { ComponentType, ReactNode } from "react"
 import { Badge } from "@/components/ui/badge"
 import {
@@ -11,6 +20,12 @@ import {
   EmptyTitle,
 } from "@/components/ui/empty"
 import { Input } from "@/components/ui/input"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
 import { cn } from "@/lib/utils"
 import type { BadgeVariant } from "./spm-common"
 
@@ -118,7 +133,74 @@ export function FeedSection(props: { children: ReactNode; title?: string }) {
   )
 }
 
-export function FeedRow(props: {
+export function SpmAccordion<TValue extends string>(props: {
+  children: (value: TValue) => ReactNode
+  groups: Array<{
+    count: number
+    icon: LucideIcon
+    iconClassName: string
+    label: string
+    triggerClassName: string
+    value: TValue
+  }>
+}) {
+  const defaultOpen = props.groups
+    .filter((group) => group.count > 0)
+    .map((group) => group.value)
+
+  return (
+    <div className="h-full overflow-auto">
+      <AccordionPrimitive.Root
+        type="multiple"
+        defaultValue={defaultOpen}
+        className="w-full"
+      >
+        {props.groups.map((group) => {
+          const GroupIcon = group.icon
+          return (
+            <AccordionPrimitive.Item
+              key={group.value}
+              value={group.value}
+              className="group/accordion border-b border-border/50"
+            >
+              <AccordionPrimitive.Header className="flex">
+                <AccordionPrimitive.Trigger
+                  className={cn(
+                    "flex w-full items-center gap-1 border-l-2 border-l-transparent py-1.5 pl-[10px] pr-3 text-left transition-colors",
+                    "hover:bg-muted/50",
+                    "[&[data-state=open]_.chevron]:rotate-90",
+                    "data-[state=open]:border-l-current",
+                    group.triggerClassName
+                  )}
+                >
+                  <div className="flex h-7 w-7 shrink-0 items-center justify-center">
+                    <ChevronRightIcon className="chevron size-4 text-muted-foreground transition-transform duration-200" />
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <GroupIcon
+                      className={cn("size-4 shrink-0", group.iconClassName)}
+                    />
+                    <span className="text-xs font-medium">{group.label}</span>
+                    <span className="text-xs text-muted-foreground">
+                      {group.count}
+                    </span>
+                  </div>
+                </AccordionPrimitive.Trigger>
+              </AccordionPrimitive.Header>
+              <AccordionPrimitive.Content className="overflow-hidden data-[state=closed]:animate-accordion-up data-[state=open]:animate-accordion-down">
+                <div className="ml-[18px] divide-y divide-border/50">
+                  {props.children(group.value)}
+                </div>
+              </AccordionPrimitive.Content>
+            </AccordionPrimitive.Item>
+          )
+        })}
+      </AccordionPrimitive.Root>
+    </div>
+  )
+}
+
+export function SpmCompactRow(props: {
   actions?: ReactNode
   badges?: ReactNode
   icon?: ReactNode
@@ -137,7 +219,7 @@ export function FeedRow(props: {
       </div>
       <div className="min-w-0 flex-1">
         <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
-          <div className="min-w-0 truncate text-sm font-medium">
+          <div className="flex min-w-0 items-center gap-2 truncate text-xs">
             {props.title}
           </div>
           {props.badges ? (
@@ -153,12 +235,14 @@ export function FeedRow(props: {
         ) : null}
       </div>
       {props.meta ? (
-        <div className="hidden shrink-0 items-center gap-2 text-xs text-muted-foreground md:flex">
+        <div className="ml-auto hidden shrink-0 items-center gap-2 text-xs text-muted-foreground md:flex">
           {props.meta}
         </div>
       ) : null}
       {props.actions ? (
-        <div className="flex shrink-0 items-center gap-2">{props.actions}</div>
+        <div className="flex shrink-0 items-center gap-2 opacity-0 transition-opacity group-hover/item:opacity-100 group-focus-within/item:opacity-100">
+          {props.actions}
+        </div>
       ) : null}
     </>
   )
@@ -169,7 +253,7 @@ export function FeedRow(props: {
         type="button"
         onClick={props.onClick}
         className={cn(
-          "flex w-full items-center gap-3 border-b px-3 py-2 text-left last:border-b-0 hover:bg-muted/50",
+          "group/item -ml-[18px] flex w-[calc(100%+18px)] items-center gap-3 py-2 pl-3 pr-3 text-left transition-colors hover:bg-muted/50",
           props.isSelected && "bg-muted/60"
         )}
       >
@@ -179,11 +263,13 @@ export function FeedRow(props: {
   }
 
   return (
-    <div className="flex items-center gap-3 border-b px-3 py-2 last:border-b-0 hover:bg-muted/50">
+    <div className="group/item -ml-[18px] flex w-[calc(100%+18px)] items-center gap-3 py-2 pl-3 pr-3 transition-colors hover:bg-muted/50">
       {content}
     </div>
   )
 }
+
+export const FeedRow = SpmCompactRow
 
 export function SmallBadge(props: {
   children: ReactNode
@@ -201,3 +287,66 @@ export function SmallBadge(props: {
     </Badge>
   )
 }
+
+function shortTimeAgo(date: Date): string {
+  const diffMs = Date.now() - date.getTime()
+  const diffMins = Math.floor(diffMs / 60_000)
+  const diffHours = Math.floor(diffMs / 3_600_000)
+  const diffDays = Math.floor(diffMs / 86_400_000)
+  const diffWeeks = Math.floor(diffDays / 7)
+  const diffMonths = Math.floor(diffDays / 30)
+
+  if (diffMins < 1) return "now"
+  if (diffMins < 60) return `${diffMins}m`
+  if (diffHours < 24) return `${diffHours}h`
+  if (diffDays < 7) return `${diffDays}d`
+  if (diffDays < 30) return `${diffWeeks}w`
+  return `${diffMonths}mo`
+}
+
+const TIMESTAMP_BADGE_CLASS = "h-5 cursor-default px-2 text-[10px] font-normal"
+
+export function SpmTimestamp(props: {
+  icon?: LucideIcon
+  label: string
+  value: string | null | undefined
+}) {
+  const Icon = props.icon ?? RefreshCwIcon
+  if (!props.value) {
+    return (
+      <Badge variant="secondary" className={TIMESTAMP_BADGE_CLASS}>
+        <Icon className="mr-1 size-3" />
+        {props.label} never
+      </Badge>
+    )
+  }
+
+  const date = new Date(props.value)
+  if (Number.isNaN(date.getTime())) {
+    return (
+      <Badge variant="secondary" className={TIMESTAMP_BADGE_CLASS}>
+        <Icon className="mr-1 size-3" />
+        {props.label} unknown
+      </Badge>
+    )
+  }
+
+  return (
+    <TooltipProvider>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Badge variant="secondary" className={TIMESTAMP_BADGE_CLASS}>
+            <Icon className="mr-1 size-3" />
+            {props.label} {shortTimeAgo(date)}
+          </Badge>
+        </TooltipTrigger>
+        <TooltipContent>
+          {props.label}: {date.toLocaleString()}
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  )
+}
+
+export const SpmSeenAtIcon = EyeIcon
+export const SpmUpdatedAtIcon = RefreshCwIcon
