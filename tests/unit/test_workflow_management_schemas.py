@@ -23,3 +23,20 @@ def test_build_trigger_inputs_schema_generates_json_schema():
 
     severity_schema = properties["severity"]
     assert severity_schema["enum"] == ["low", "high"]
+
+
+def test_build_trigger_inputs_schema_honors_optional_metadata():
+    expects = {
+        "cursor": {
+            "type": "str",
+            "description": "Pagination cursor.",
+            "optional": True,
+        },
+    }
+
+    schema = build_trigger_inputs_schema(expects)
+
+    assert schema is not None
+    assert "cursor" not in schema.get("required", [])
+    properties = schema.get("properties", {})
+    assert properties["cursor"]["type"] == "string"

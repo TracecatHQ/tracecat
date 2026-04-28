@@ -74,6 +74,8 @@ const createWorkflowUpdateFormSchema = (workspaceId: string) =>
               type: z.string().min(1, { message: "Type is required" }),
               description: z.string().nullable().optional(),
               default: z.unknown().nullable().optional(),
+              enum: z.array(z.string()).nullable().optional(),
+              optional: z.boolean().nullable().optional(),
             })
             .refine((val): val is ExpectedField_Input => true)
         )
@@ -712,7 +714,8 @@ my_param:
 
 my_list:
   type: list[int]
-  description: This is a list of integers without a default value
+  description: This is an optional list of integers
+  optional: true
 
 my_union:
   type: str | int | None
@@ -730,7 +733,8 @@ function WorkflowInputSchemaTooltip() {
         trigger inputs to the workflow.
       </span>
       <span className="w-full text-muted-foreground">
-        Passing a default value makes the field optional.
+        Use optional: true to allow omitted inputs, or default to provide a
+        fallback value.
       </span>
       <span className="w-full text-muted-foreground">Usage example:</span>
       <div className="rounded-md border bg-muted-foreground/10 p-2">
