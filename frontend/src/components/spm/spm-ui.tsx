@@ -1,6 +1,7 @@
 "use client"
 
 import {
+  AlertTriangleIcon,
   BoxIcon,
   CircleDotIcon,
   Clock3Icon,
@@ -26,6 +27,7 @@ import type {
   SpmHarness,
   SpmSeverity,
 } from "@/client"
+import { Alert, AlertDescription } from "@/components/ui/alert"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -51,6 +53,7 @@ import {
 import { getApiErrorDetail } from "@/lib/errors"
 import {
   ALL_VALUE,
+  type BadgeVariant,
   canCancelPendingEnrollment,
   EMPTY_FILTERS,
   endpointStatusVariant,
@@ -116,6 +119,32 @@ export function SpmEndpointsView() {
     useState<(typeof SYNC_OPTIONS)[number]["value"]>(ALL_VALUE)
   const endpoints = endpointsQuery.data?.items ?? []
   const findings = findingsQuery.data?.items ?? []
+  const findingsLoaded = findingsQuery.data != null
+  const findingsArePending = findingsQuery.isLoading && !findingsLoaded
+  const findingsUnavailable = findingsQuery.isError && !findingsLoaded
+  const findingsErrorDetail = findingsUnavailable
+    ? (getApiErrorDetail(findingsQuery.error) ?? "Unable to load findings.")
+    : null
+
+  function endpointComplianceRollup(endpointId: string) {
+    if (findingsUnavailable) {
+      return {
+        detail: "Findings could not be loaded",
+        key: "unknown",
+        label: "Findings unavailable",
+        variant: "destructive" as BadgeVariant,
+      }
+    }
+    if (findingsArePending) {
+      return {
+        detail: "Findings are still loading",
+        key: "unknown",
+        label: "Checking findings",
+        variant: "outline" as BadgeVariant,
+      }
+    }
+    return getComplianceRollup(endpointId, findings)
+  }
 
   async function handleDeleteEndpoint() {
     if (!deleteCandidate) {
@@ -146,7 +175,7 @@ export function SpmEndpointsView() {
   }
 
   const filteredEndpoints = endpoints.filter((endpoint) => {
-    const rollup = getComplianceRollup(endpoint.id, findings)
+    const rollup = endpointComplianceRollup(endpoint.id)
     const syncKey = endpoint.last_sync_error ? "error" : "healthy"
     return (
       includesQuery(
@@ -175,7 +204,7 @@ export function SpmEndpointsView() {
     syncFilter !== ALL_VALUE
 
   return renderMaybeLoading(
-    entitlementLoading || endpointsQuery.isLoading || findingsQuery.isLoading,
+    entitlementLoading || endpointsQuery.isLoading,
     hasEntitlement("spm"),
     "SPM entitlement required",
     "This organization does not have access to AI SPM yet.",
@@ -216,6 +245,16 @@ export function SpmEndpointsView() {
         </>
       }
     >
+      {findingsUnavailable ? (
+        <div className="border-b p-3">
+          <Alert variant="destructive" className="py-3">
+            <AlertTriangleIcon className="size-4" />
+            <AlertDescription className="text-xs">
+              Findings are unavailable. {findingsErrorDetail}
+            </AlertDescription>
+          </Alert>
+        </div>
+      ) : null}
       {filteredEndpoints.length === 0 ? (
         <SpmEmptyState
           title={endpoints.length === 0 ? "No endpoints yet" : EMPTY_FILTERS}
@@ -229,7 +268,7 @@ export function SpmEndpointsView() {
       ) : (
         <FeedSection>
           {filteredEndpoints.map((endpoint) => {
-            const rollup = getComplianceRollup(endpoint.id, findings)
+            const rollup = endpointComplianceRollup(endpoint.id)
             const hasSyncError = Boolean(endpoint.last_sync_error)
             return (
               <FeedRow

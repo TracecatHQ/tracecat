@@ -508,6 +508,46 @@ describe("SPM operator UI", () => {
     expect(screen.getAllByRole("link")).toHaveLength(2)
   })
 
+  it("keeps endpoint headers visible while findings are loading", () => {
+    mockUseSpmFindings.mockReturnValue({
+      data: undefined,
+      isError: false,
+      isLoading: true,
+    })
+
+    render(<SpmEndpointsView />)
+
+    expect(screen.getByText("Endpoints")).toBeInTheDocument()
+    expect(
+      screen.getByPlaceholderText("Search endpoints...")
+    ).toBeInTheDocument()
+    expect(screen.getByText("Chris MacBook")).toBeInTheDocument()
+    expect(screen.getAllByText("Checking findings").length).toBeGreaterThan(0)
+  })
+
+  it("keeps endpoint headers visible when findings fail to load", () => {
+    mockUseSpmFindings.mockReturnValue({
+      data: undefined,
+      error: Object.assign(new Error("request failed"), {
+        body: { detail: "database unavailable" },
+      }),
+      isError: true,
+      isLoading: false,
+    })
+
+    render(<SpmEndpointsView />)
+
+    expect(screen.getByText("Endpoints")).toBeInTheDocument()
+    expect(
+      screen.getByPlaceholderText("Search endpoints...")
+    ).toBeInTheDocument()
+    expect(screen.getByText("Chris MacBook")).toBeInTheDocument()
+    expect(screen.getAllByText("Findings unavailable").length).toBeGreaterThan(
+      0
+    )
+    expect(screen.getByText(/database unavailable/)).toBeInTheDocument()
+  })
+
   it("cancels a pending enrollment after confirmation", async () => {
     mockUseSpmEndpoints.mockReturnValue(paginated(pendingEndpoints))
 
