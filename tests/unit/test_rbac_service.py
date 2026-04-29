@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import uuid
+from unittest.mock import MagicMock
 
 import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat_ee.rbac.service import RBACService
 
+from tracecat.auth.credentials import _get_membership_with_cache
 from tracecat.auth.types import Role
 from tracecat.authz.enums import ScopeSource
 from tracecat.authz.scopes import ORG_ADMIN_SCOPES
@@ -16,6 +18,7 @@ from tracecat.authz.seeding import seed_system_scopes
 from tracecat.db.models import (
     Group,
     GroupMember,
+    Membership,
     Organization,
     OrganizationMembership,
     Scope,
@@ -96,6 +99,50 @@ def role(org: Organization, user: User) -> Role:
         service_id="tracecat-api",
         scopes=ORG_ADMIN_SCOPES,
     )
+
+
+async def _create_external_user(session: AsyncSession, prefix: str) -> User:
+    """Create a user without organization membership."""
+    user = User(
+        id=uuid.uuid4(),
+        email=f"{prefix}-{uuid.uuid4().hex[:8]}@example.com",
+        hashed_password="test",
+        is_active=True,
+        is_superuser=False,
+        is_verified=True,
+    )
+    session.add(user)
+    await session.commit()
+    await session.refresh(user)
+    return user
+
+
+async def _has_org_membership(
+    session: AsyncSession,
+    user_id: uuid.UUID,
+    org_id: uuid.UUID,
+) -> bool:
+    membership = await session.scalar(
+        select(OrganizationMembership).where(
+            OrganizationMembership.user_id == user_id,
+            OrganizationMembership.organization_id == org_id,
+        )
+    )
+    return membership is not None
+
+
+async def _has_workspace_membership(
+    session: AsyncSession,
+    user_id: uuid.UUID,
+    workspace_id: uuid.UUID,
+) -> bool:
+    membership = await session.scalar(
+        select(Membership).where(
+            Membership.user_id == user_id,
+            Membership.workspace_id == workspace_id,
+        )
+    )
+    return membership is not None
 
 
 @pytest.mark.anyio
@@ -523,30 +570,325 @@ class TestRBACServiceUserAssignments:
         assert assignment.role_id == custom_role.id
         assert assignment.organization_id == role.organization_id
 
-    async def test_create_user_assignment_rejects_non_member(
+    async def test_create_user_assignment_creates_org_membership_for_non_member(
         self,
         session: AsyncSession,
         role: Role,
+        org: Organization,
     ):
-        """Cannot assign org role to user outside organization."""
+        """Creating an org assignment creates org membership when missing."""
         service = RBACService(session, role=role)
         custom_role = await service.create_role(name="Direct User Role")
 
-        external_user = User(
-            id=uuid.uuid4(),
-            email="external@example.com",
-            hashed_password="test",
-        )
-        session.add(external_user)
-        await session.commit()
+        external_user = await _create_external_user(session, "external-direct")
 
-        with pytest.raises(
-            TracecatNotFoundError, match="User not found in organization"
-        ):
-            await service.create_user_assignment(
-                user_id=external_user.id,
-                role_id=custom_role.id,
-            )
+        await service.create_user_assignment(
+            user_id=external_user.id,
+            role_id=custom_role.id,
+        )
+
+        assert await _has_org_membership(session, external_user.id, org.id)
+
+
+@pytest.mark.anyio
+class TestRBACServiceMembershipSync:
+    """Test RBAC assignment mutations synchronize membership rows."""
+
+    async def test_workspace_group_assignment_creates_memberships_for_existing_members(
+        self,
+        session: AsyncSession,
+        role: Role,
+        org: Organization,
+        workspace: Workspace,
+    ):
+        """Workspace group assignment syncs existing group members."""
+        service = RBACService(session, role=role)
+        custom_role = await service.create_role(name="Workspace Group Role")
+        group = await service.create_group(name="Workspace Sync Group")
+        external_user = await _create_external_user(session, "group-existing")
+
+        await service.add_group_member(group.id, external_user.id)
+        assert not await _has_org_membership(session, external_user.id, org.id)
+
+        await service.create_group_role_assignment(
+            group_id=group.id,
+            role_id=custom_role.id,
+            workspace_id=workspace.id,
+        )
+
+        assert await _has_org_membership(session, external_user.id, org.id)
+        assert await _has_workspace_membership(session, external_user.id, workspace.id)
+
+    async def test_add_group_member_with_workspace_assignment_syncs_memberships(
+        self,
+        session: AsyncSession,
+        role: Role,
+        org: Organization,
+        workspace: Workspace,
+    ):
+        """Adding a member to a workspace-assigned group creates memberships."""
+        service = RBACService(session, role=role)
+        custom_role = await service.create_role(name="Existing Group Role")
+        group = await service.create_group(name="Existing Assignment Group")
+        external_user = await _create_external_user(session, "group-add")
+
+        await service.create_group_role_assignment(
+            group_id=group.id,
+            role_id=custom_role.id,
+            workspace_id=workspace.id,
+        )
+        await service.add_group_member(group.id, external_user.id)
+
+        assert await _has_org_membership(session, external_user.id, org.id)
+        assert await _has_workspace_membership(session, external_user.id, workspace.id)
+
+    async def test_remove_group_member_deletes_memberships_without_sources(
+        self,
+        session: AsyncSession,
+        role: Role,
+        org: Organization,
+        workspace: Workspace,
+    ):
+        """Removing a group member removes memberships when no RBAC source remains."""
+        service = RBACService(session, role=role)
+        custom_role = await service.create_role(name="Removal Group Role")
+        group = await service.create_group(name="Removal Group")
+        external_user = await _create_external_user(session, "group-remove")
+
+        await service.create_group_role_assignment(
+            group_id=group.id,
+            role_id=custom_role.id,
+            workspace_id=workspace.id,
+        )
+        await service.add_group_member(group.id, external_user.id)
+        await service.remove_group_member(group.id, external_user.id)
+
+        assert not await _has_workspace_membership(
+            session, external_user.id, workspace.id
+        )
+        assert not await _has_org_membership(session, external_user.id, org.id)
+
+    async def test_delete_workspace_group_assignment_syncs_all_group_members(
+        self,
+        session: AsyncSession,
+        role: Role,
+        org: Organization,
+        workspace: Workspace,
+    ):
+        """Deleting a workspace group assignment syncs every group member."""
+        service = RBACService(session, role=role)
+        custom_role = await service.create_role(name="Delete Assignment Role")
+        group = await service.create_group(name="Delete Assignment Group")
+        user_one = await _create_external_user(session, "group-delete-one")
+        user_two = await _create_external_user(session, "group-delete-two")
+
+        await service.add_group_member(group.id, user_one.id)
+        await service.add_group_member(group.id, user_two.id)
+        assignment = await service.create_group_role_assignment(
+            group_id=group.id,
+            role_id=custom_role.id,
+            workspace_id=workspace.id,
+        )
+
+        await service.delete_group_role_assignment(assignment.id)
+
+        for member in (user_one, user_two):
+            assert not await _has_workspace_membership(session, member.id, workspace.id)
+            assert not await _has_org_membership(session, member.id, org.id)
+
+    async def test_delete_group_syncs_previous_members(
+        self,
+        session: AsyncSession,
+        role: Role,
+        org: Organization,
+        workspace: Workspace,
+    ):
+        """Deleting a group removes memberships that only came from that group."""
+        service = RBACService(session, role=role)
+        custom_role = await service.create_role(name="Delete Group Role")
+        group = await service.create_group(name="Delete Group")
+        external_user = await _create_external_user(session, "group-delete")
+
+        await service.create_group_role_assignment(
+            group_id=group.id,
+            role_id=custom_role.id,
+            workspace_id=workspace.id,
+        )
+        await service.add_group_member(group.id, external_user.id)
+        await service.delete_group(group.id)
+
+        assert not await _has_workspace_membership(
+            session, external_user.id, workspace.id
+        )
+        assert not await _has_org_membership(session, external_user.id, org.id)
+
+    async def test_org_wide_group_assignment_creates_org_membership_only(
+        self,
+        session: AsyncSession,
+        role: Role,
+        org: Organization,
+        workspace: Workspace,
+    ):
+        """Org-wide group assignment does not create workspace memberships."""
+        service = RBACService(session, role=role)
+        custom_role = await service.create_role(name="Org Group Role")
+        group = await service.create_group(name="Org Assignment Group")
+        external_user = await _create_external_user(session, "group-org")
+
+        await service.create_group_role_assignment(
+            group_id=group.id,
+            role_id=custom_role.id,
+        )
+        await service.add_group_member(group.id, external_user.id)
+
+        assert await _has_org_membership(session, external_user.id, org.id)
+        assert not await _has_workspace_membership(
+            session, external_user.id, workspace.id
+        )
+
+    async def test_direct_org_assignment_syncs_create_update_delete(
+        self,
+        session: AsyncSession,
+        role: Role,
+        org: Organization,
+        workspace: Workspace,
+    ):
+        """Direct org assignment create, update, and delete sync memberships."""
+        service = RBACService(session, role=role)
+        first_role = await service.create_role(name="Direct Org Role 1")
+        second_role = await service.create_role(name="Direct Org Role 2")
+        external_user = await _create_external_user(session, "direct-org")
+
+        assignment = await service.create_user_assignment(
+            user_id=external_user.id,
+            role_id=first_role.id,
+        )
+        assert await _has_org_membership(session, external_user.id, org.id)
+        assert not await _has_workspace_membership(
+            session, external_user.id, workspace.id
+        )
+
+        updated = await service.update_user_assignment(
+            assignment.id,
+            role_id=second_role.id,
+        )
+        assert updated.role_id == second_role.id
+        assert await _has_org_membership(session, external_user.id, org.id)
+        assert not await _has_workspace_membership(
+            session, external_user.id, workspace.id
+        )
+
+        await service.delete_user_assignment(assignment.id)
+        assert not await _has_org_membership(session, external_user.id, org.id)
+        assert not await _has_workspace_membership(
+            session, external_user.id, workspace.id
+        )
+
+    async def test_direct_workspace_assignment_syncs_create_update_delete(
+        self,
+        session: AsyncSession,
+        role: Role,
+        org: Organization,
+        workspace: Workspace,
+    ):
+        """Direct workspace assignment create, update, and delete sync memberships."""
+        service = RBACService(session, role=role)
+        first_role = await service.create_role(name="Direct Workspace Role 1")
+        second_role = await service.create_role(name="Direct Workspace Role 2")
+        external_user = await _create_external_user(session, "direct-workspace")
+
+        assignment = await service.create_user_assignment(
+            user_id=external_user.id,
+            role_id=first_role.id,
+            workspace_id=workspace.id,
+        )
+        assert await _has_org_membership(session, external_user.id, org.id)
+        assert await _has_workspace_membership(session, external_user.id, workspace.id)
+
+        updated = await service.update_user_assignment(
+            assignment.id,
+            role_id=second_role.id,
+        )
+        assert updated.role_id == second_role.id
+        assert await _has_org_membership(session, external_user.id, org.id)
+        assert await _has_workspace_membership(session, external_user.id, workspace.id)
+
+        await service.delete_user_assignment(assignment.id)
+        assert not await _has_workspace_membership(
+            session, external_user.id, workspace.id
+        )
+        assert not await _has_org_membership(session, external_user.id, org.id)
+
+    async def test_overlapping_workspace_assignments_keep_membership_until_last_source_removed(
+        self,
+        session: AsyncSession,
+        role: Role,
+        org: Organization,
+        workspace: Workspace,
+    ):
+        """Overlapping direct and group assignments keep membership until both end."""
+        service = RBACService(session, role=role)
+        direct_role = await service.create_role(name="Overlap Direct Role")
+        group_role = await service.create_role(name="Overlap Group Role")
+        group = await service.create_group(name="Overlap Group")
+        external_user = await _create_external_user(session, "overlap")
+
+        await service.add_group_member(group.id, external_user.id)
+        direct_assignment = await service.create_user_assignment(
+            user_id=external_user.id,
+            role_id=direct_role.id,
+            workspace_id=workspace.id,
+        )
+        group_assignment = await service.create_group_role_assignment(
+            group_id=group.id,
+            role_id=group_role.id,
+            workspace_id=workspace.id,
+        )
+
+        await service.delete_user_assignment(direct_assignment.id)
+        assert await _has_org_membership(session, external_user.id, org.id)
+        assert await _has_workspace_membership(session, external_user.id, workspace.id)
+
+        await service.delete_group_role_assignment(group_assignment.id)
+        assert not await _has_workspace_membership(
+            session, external_user.id, workspace.id
+        )
+        assert not await _has_org_membership(session, external_user.id, org.id)
+
+    async def test_workspace_group_assignment_passes_workspace_membership_gate_after_sync(
+        self,
+        session: AsyncSession,
+        role: Role,
+        org: Organization,
+        workspace: Workspace,
+    ):
+        """Workspace group assignment creates the row used by the auth gate."""
+        service = RBACService(session, role=role)
+        custom_role = await service.create_role(name="Auth Gate Group Role")
+        group = await service.create_group(name="Auth Gate Group")
+        external_user = await _create_external_user(session, "auth-gate")
+
+        await service.create_group_role_assignment(
+            group_id=group.id,
+            role_id=custom_role.id,
+            workspace_id=workspace.id,
+        )
+        await service.add_group_member(group.id, external_user.id)
+
+        request = MagicMock()
+        request.state = MagicMock()
+        request.state.auth_cache = None
+
+        membership_with_org = await _get_membership_with_cache(
+            request=request,
+            session=session,
+            workspace_id=workspace.id,
+            user=external_user,
+        )
+
+        assert membership_with_org.org_id == org.id
+        assert membership_with_org.membership.user_id == external_user.id
+        assert membership_with_org.membership.workspace_id == workspace.id
 
 
 @pytest.mark.anyio
