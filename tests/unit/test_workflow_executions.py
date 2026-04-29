@@ -1213,12 +1213,12 @@ class TestWorkflowExecutionEvents:
         assert event.action_input == {"value": "visible-input"}
         assert event.should_mask_output is True
 
-    async def test_compact_masked_action_result_redacts_dict_action_input(
+    async def test_compact_masked_action_result_redacts_leaf_values(
         self,
         workflow_executions_service: WorkflowExecutionsService,
         workflow_exec_id: WorkflowExecutionID,
     ) -> None:
-        """Masked action results redact even when compact action_input is task args."""
+        """Masked action results preserve shape for JSONPath copy flows."""
         scheduled = create_mock_history_event(
             event_id=1,
             event_type=EventType.EVENT_TYPE_ACTIVITY_TASK_SCHEDULED,  # type: ignore
@@ -1265,7 +1265,19 @@ class TestWorkflowExecutionEvents:
             with patch(
                 "tracecat.workflow.executions.service.get_result"
             ) as mock_get_result:
-                mock_get_result.return_value = {"secret": "hidden-output"}
+                mock_get_result.return_value = {
+                    "secret": "hidden-output",
+                    "nested": {
+                        "token": "secret-token",
+                        "none_value": None,
+                        "empty_object": {},
+                        "items": [
+                            "first",
+                            {"id": 123, "enabled": True},
+                            [],
+                        ],
+                    },
+                }
 
                 events = await workflow_executions_service.list_workflow_execution_events_compact(
                     workflow_exec_id
@@ -1274,7 +1286,19 @@ class TestWorkflowExecutionEvents:
                 assert len(events) == 1
                 event = events[0]
                 assert event.action_input == {"value": "visible-input"}
-                assert event.action_result == "[REDACTED]"
+                assert event.action_result == {
+                    "secret": "[REDACTED]",
+                    "nested": {
+                        "token": "[REDACTED]",
+                        "none_value": "[REDACTED]",
+                        "empty_object": {},
+                        "items": [
+                            "[REDACTED]",
+                            {"id": "[REDACTED]", "enabled": "[REDACTED]"},
+                            [],
+                        ],
+                    },
+                }
 
     async def test_compact_duplicate_actions_latest_failure_wins(
         self,

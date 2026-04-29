@@ -155,10 +155,24 @@ def _extract_while_metadata(
     return None, None
 
 
+REDACTED_ACTION_RESULT = "[REDACTED]"
+
+
+def _redact_leaf_values(value: Any) -> Any:
+    """Preserve result structure while redacting displayable values."""
+    if isinstance(value, dict):
+        return {key: _redact_leaf_values(child) for key, child in value.items()}
+    if isinstance(value, list):
+        return [_redact_leaf_values(item) for item in value]
+    if isinstance(value, tuple):
+        return tuple(_redact_leaf_values(item) for item in value)
+    return REDACTED_ACTION_RESULT
+
+
 def _sanitize_action_result(mask_output: bool, action_result: Any) -> Any:
     """Redact action output for API consumers when the statement opts in."""
     if mask_output:
-        return "[REDACTED]"
+        return _redact_leaf_values(action_result)
     return action_result
 
 
