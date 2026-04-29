@@ -708,6 +708,21 @@ async def test_restore_workflow_definition_duplicate_alias_returns_conflict(
 
 
 @pytest.mark.anyio
+async def test_restore_workflow_definition_rejects_non_positive_version(
+    client: TestClient,
+    test_admin_role: Role,
+    mock_workflow: Workflow,
+) -> None:
+    """Test restore rejects invalid definition versions before service lookup."""
+    response = client.post(
+        f"/workflows/{mock_workflow.id}/definitions/0/restore",
+        params={"workspace_id": str(test_admin_role.workspace_id)},
+    )
+
+    assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+
+
+@pytest.mark.anyio
 async def test_delete_workflow_success(
     client: TestClient,
     test_admin_role: Role,

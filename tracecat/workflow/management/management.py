@@ -678,6 +678,10 @@ class WorkflowsManagementService(BaseWorkspaceService):
                     WorkflowDefinition.workspace_id == self.workspace_id,
                     WorkflowDefinition.alias == alias,
                 )
+                .order_by(
+                    WorkflowDefinition.created_at.desc(),
+                    WorkflowDefinition.workflow_id.desc(),
+                )
                 .limit(1)
             )
             result = await self.session.execute(statement)

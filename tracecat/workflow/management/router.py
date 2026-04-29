@@ -11,6 +11,7 @@ from fastapi import (
     File,
     Form,
     HTTPException,
+    Path,
     Query,
     Response,
     UploadFile,
@@ -721,7 +722,7 @@ async def restore_workflow_definition(
     role: WorkspaceActorRole,
     session: AsyncDBSession,
     workflow_id: AnyWorkflowIDPath,
-    version: int,
+    version: int = Path(..., ge=1),
 ) -> WorkflowRead:
     """Restore a saved workflow definition as the current published version."""
     mgmt_service = WorkflowsManagementService(session, role=role)
