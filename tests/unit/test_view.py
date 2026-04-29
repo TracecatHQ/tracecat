@@ -1833,6 +1833,27 @@ def test_build_action_statements_simple_sequence():
     assert stmts_by_ref["action_c"].depends_on == ["action_b"]  # C depends on B
 
 
+def test_build_action_statements_preserves_disable_secrets_masking():
+    """Test that control_flow.disable_secrets_masking is carried to ActionStatement."""
+    trigger_id = f"trigger-{WORKFLOW_UUID}"
+
+    action = MockActionWithRef(
+        id=UUID_A,
+        type="udf",
+        title="Action A",
+        ref="action_a",
+        control_flow={"disable_secrets_masking": True},
+        upstream_edges=[
+            {"source_id": trigger_id, "source_type": "trigger"},
+        ],
+    )
+
+    stmts = build_action_statements_from_actions(cast("list[Action]", [action]))
+
+    assert len(stmts) == 1
+    assert stmts[0].disable_secrets_masking is True
+
+
 def test_build_action_statements_diamond():
     r"""Test build_action_statements_from_actions with diamond pattern.
 

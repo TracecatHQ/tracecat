@@ -272,6 +272,83 @@ async def test_executor_can_run_udf_with_secrets(
 
 @pytest.mark.integration
 @pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("disable_secrets_masking", "expected_result"),
+    [
+        pytest.param(False, "***", id="masked-by-default"),
+        pytest.param(True, "__SECRET_VALUE_UDF__", id="action-opt-out"),
+    ],
+)
+async def test_executor_respects_action_statement_secret_masking(
+    mock_package,
+    test_role,
+    db_session_with_repo,
+    mock_run_context,
+    monkeypatch,
+    disable_secrets_masking,
+    expected_result,
+):
+    """Test that ActionStatement masking opt-out changes the final action result."""
+    from tracecat import config
+
+    monkeypatch.setattr(config, "TRACECAT__UNSAFE_DISABLE_SM_MASKING", False)
+
+    session, db_repo_id = db_session_with_repo
+
+    repo = Repository()
+    repo._register_udfs_from_package(mock_package)
+
+    sec_service = SecretsService(session, role=test_role)
+    try:
+        await sec_service.create_secret(
+            SecretCreate(
+                name="test",
+                environment="default",
+                keys=[
+                    SecretKeyValue(
+                        key="TEST_UDF_SECRET_KEY",
+                        value=SecretStr("__SECRET_VALUE_UDF__"),
+                    )
+                ],
+            )
+        )
+
+        ra_service = RegistryActionsService(session, role=test_role)
+        await ra_service.create_action(
+            RegistryActionCreate.from_bound(
+                repo.get("testing.fetch_secret"), db_repo_id
+            )
+        )
+
+        registry_lock = await create_manifest_for_actions(
+            session,
+            db_repo_id,
+            [repo.get("testing.fetch_secret")],
+            test_role.organization_id,
+        )
+
+        input = RunActionInput(
+            task=ActionStatement(
+                ref="test",
+                action="testing.fetch_secret",
+                args={"secret_key_name": "TEST_UDF_SECRET_KEY"},
+                disable_secrets_masking=disable_secrets_masking,
+            ),
+            exec_context=create_default_execution_context(),
+            run_context=mock_run_context,
+            registry_lock=registry_lock,
+        )
+
+        result = await run_action_test(input, test_role)
+
+        assert result == expected_result
+    finally:
+        secret = await sec_service.get_secret_by_name("test")
+        await sec_service.delete_secret(secret)
+
+
+@pytest.mark.integration
+@pytest.mark.anyio
 async def test_executor_can_run_template_action_with_secret(
     mock_package, test_role, db_session_with_repo, mock_run_context
 ):
