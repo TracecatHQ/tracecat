@@ -3309,19 +3309,20 @@ class SpmAsset(OrganizationModel):
         UniqueConstraint(
             "organization_id",
             "harness",
-            "asset_class",
             "asset_type",
+            "artifact_type",
+            "artifact_location",
             "identity_key",
             name="uq_spm_asset_org_identity",
         ),
         Index("ix_spm_asset_org_updated", "organization_id", "updated_at"),
         Index("ix_spm_asset_org_last_seen", "organization_id", "last_seen_at"),
         Index(
-            "ix_spm_asset_org_harness_class_type",
+            "ix_spm_asset_org_harness_type_artifact",
             "organization_id",
             "harness",
-            "asset_class",
             "asset_type",
+            "artifact_type",
         ),
     )
 
@@ -3338,15 +3339,20 @@ class SpmAsset(OrganizationModel):
         nullable=False,
         doc="Normalized harness identifier",
     )
-    asset_class: Mapped[str] = mapped_column(
-        String(64),
-        nullable=False,
-        doc="Harness-agnostic SPM asset class",
-    )
     asset_type: Mapped[str] = mapped_column(
         String(64),
         nullable=False,
-        doc="Harness-native asset type",
+        doc="Broad governed asset surface",
+    )
+    artifact_type: Mapped[str] = mapped_column(
+        String(64),
+        nullable=False,
+        doc="File kind or artifact host for the asset",
+    )
+    artifact_location: Mapped[str] = mapped_column(
+        String(1024),
+        nullable=False,
+        doc="Full artifact path or location that hosts the asset",
     )
     identity_key: Mapped[str] = mapped_column(
         String(500),
@@ -3533,15 +3539,20 @@ class SpmFinding(OrganizationModel):
         nullable=False,
         doc="Harness snapshot for the finding",
     )
-    asset_class: Mapped[str] = mapped_column(
-        String(64),
-        nullable=False,
-        doc="Asset class snapshot for the finding",
-    )
     asset_type: Mapped[str] = mapped_column(
         String(64),
         nullable=False,
         doc="Asset type snapshot for the finding",
+    )
+    artifact_type: Mapped[str] = mapped_column(
+        String(64),
+        nullable=False,
+        doc="Artifact type snapshot for the finding",
+    )
+    artifact_location: Mapped[str] = mapped_column(
+        String(1024),
+        nullable=False,
+        doc="Artifact location snapshot for the finding",
     )
     severity: Mapped[str] = mapped_column(
         String(16),

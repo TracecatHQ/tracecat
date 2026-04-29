@@ -18,7 +18,7 @@ from tracecat_ee.spm.schemas import (
 )
 from tracecat_ee.spm.service import SpmService, SpmSyncService
 from tracecat_ee.spm.types import (
-    SpmAssetClass,
+    SpmArtifactType,
     SpmAssetType,
     SpmEndpointPlatform,
     SpmEnforcementAction,
@@ -94,8 +94,9 @@ async def test_sync_endpoint_creates_identity_based_mcp_findings_and_tasks(
                 assets=[
                     SpmSyncAssetUpsert(
                         harness=SpmHarness.CLAUDE_CODE,
-                        asset_class=SpmAssetClass.MCP_SERVER,
                         asset_type=SpmAssetType.MCP_SERVER,
+                        artifact_type=SpmArtifactType.CLAUDE_JSON,
+                        artifact_location="/Users/chris/.claude.json",
                         identity_key="file:/Users/chris/.claude.json#mcp:github|https://api.github.com/mcp",
                         display_name="github",
                         metadata={
@@ -177,8 +178,9 @@ async def test_sync_endpoint_creates_and_resolves_instruction_file_findings(
         assets=[
             SpmSyncAssetUpsert(
                 harness=SpmHarness.CLAUDE_CODE,
-                asset_class=SpmAssetClass.INSTRUCTION_FILE,
-                asset_type=SpmAssetType.CLAUDE_MD,
+                asset_type=SpmAssetType.INSTRUCTION_FILE,
+                artifact_type=SpmArtifactType.CLAUDE_MD,
+                artifact_location="/Users/chris/project/CLAUDE.md",
                 identity_key="/Users/chris/project/CLAUDE.md",
                 display_name="CLAUDE.md",
                 metadata={
@@ -215,8 +217,9 @@ async def test_sync_endpoint_creates_and_resolves_instruction_file_findings(
             assets=[
                 SpmSyncAssetUpsert(
                     harness=SpmHarness.CLAUDE_CODE,
-                    asset_class=SpmAssetClass.INSTRUCTION_FILE,
-                    asset_type=SpmAssetType.CLAUDE_MD,
+                    asset_type=SpmAssetType.INSTRUCTION_FILE,
+                    artifact_type=SpmArtifactType.CLAUDE_MD,
+                    artifact_location="/Users/chris/project/CLAUDE.md",
                     identity_key="/Users/chris/project/CLAUDE.md",
                     display_name="CLAUDE.md",
                     metadata={
@@ -300,8 +303,9 @@ async def test_sync_endpoint_uses_threat_intel_for_mcp_findings(
                 assets=[
                     SpmSyncAssetUpsert(
                         harness=SpmHarness.CLAUDE_CODE,
-                        asset_class=SpmAssetClass.MCP_SERVER,
                         asset_type=SpmAssetType.MCP_SERVER,
+                        artifact_type=SpmArtifactType.CLAUDE_JSON,
+                        artifact_location="/Users/chris/.claude.json",
                         identity_key="file:/Users/chris/.claude.json#mcp:tracecat|package:@tracecat/mcp",
                         display_name="tracecat",
                         metadata={
@@ -381,8 +385,9 @@ async def test_sync_endpoint_uses_threat_intel_for_instruction_indicator_finding
                 assets=[
                     SpmSyncAssetUpsert(
                         harness=SpmHarness.CLAUDE_CODE,
-                        asset_class=SpmAssetClass.INSTRUCTION_FILE,
-                        asset_type=SpmAssetType.CLAUDE_MD,
+                        asset_type=SpmAssetType.INSTRUCTION_FILE,
+                        artifact_type=SpmArtifactType.CLAUDE_MD,
+                        artifact_location="/Users/chris/project/CLAUDE.md",
                         identity_key="/Users/chris/project/CLAUDE.md",
                         display_name="CLAUDE.md",
                         metadata={
@@ -446,8 +451,9 @@ async def test_sync_endpoint_creates_risky_hook_and_skill_findings_and_tasks(
                 assets=[
                     SpmSyncAssetUpsert(
                         harness=SpmHarness.CLAUDE_CODE,
-                        asset_class=SpmAssetClass.EXTENSION,
                         asset_type=SpmAssetType.HOOK,
+                        artifact_type=SpmArtifactType.CLAUDE_JSON,
+                        artifact_location="/Users/chris/.claude.json",
                         identity_key="/Users/chris/.claude.json#hook:pretool",
                         display_name="PreToolUse curl hook",
                         metadata={
@@ -462,8 +468,9 @@ async def test_sync_endpoint_creates_risky_hook_and_skill_findings_and_tasks(
                     ),
                     SpmSyncAssetUpsert(
                         harness=SpmHarness.CLAUDE_CODE,
-                        asset_class=SpmAssetClass.SKILL,
                         asset_type=SpmAssetType.SKILL,
+                        artifact_type=SpmArtifactType.CLAUDE_JSON,
+                        artifact_location="/Users/chris/.claude.json",
                         identity_key="/Users/chris/.claude.json#skill:risky-skill",
                         display_name="risky-skill",
                         metadata={

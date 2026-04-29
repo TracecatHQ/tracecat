@@ -26,32 +26,36 @@ class SpmEndpointStatus(StrEnum):
     DISABLED = "disabled"
 
 
-class SpmAssetClass(StrEnum):
-    """Harness-agnostic asset taxonomy."""
+class SpmAssetType(StrEnum):
+    """Harness surface bucket. The broad kind of governed thing."""
 
-    WORKSPACE_ACCESS = "workspace_access"
-    PERMISSIONS = "permissions"
-    SANDBOX = "sandbox"
+    HOOK = "hook"
+    PLUGIN = "plugin"
     MCP_SERVER = "mcp_server"
-    SKILL = "skill"
-    EXTENSION = "extension"
     INSTRUCTION_FILE = "instruction_file"
+    PERMISSION_CONFIG = "permission_config"
+    SANDBOX_CONFIG = "sandbox_config"
+    TRUSTED_DIRECTORY = "trusted_directory"
+    ADDITIONAL_DIRECTORY = "additional_directory"
+    SKILL = "skill"
     AGENT = "agent"
 
 
-class SpmAssetType(StrEnum):
-    """Harness-native governed surfaces."""
+class SpmArtifactType(StrEnum):
+    """The file kind that hosts an asset."""
 
-    TRUSTED_DIRECTORY = "trusted_directory"
-    ADDITIONAL_DIRECTORY = "additional_directory"
-    PERMISSION_CONFIG = "permission_config"
-    SANDBOX_CONFIG = "sandbox_config"
-    MCP_SERVER = "mcp_server"
-    SKILL = "skill"
-    HOOK = "hook"
-    CLAUDE_MD = "claude_md"
-    AGENTS_MD = "agents_md"
-    SUBAGENT = "subagent"
+    SETTINGS_JSON = "settings.json"
+    SETTINGS_LOCAL_JSON = "settings.local.json"
+    CLAUDE_JSON = ".claude.json"
+    HOOKS_JSON = "hooks.json"
+    MCP_JSON = ".mcp.json"
+    CLAUDE_MD = "CLAUDE.md"
+    CLAUDE_LOCAL_MD = "CLAUDE.local.md"
+    AGENTS_MD = "AGENTS.md"
+    SKILL_FRONTMATTER = "skill-frontmatter"
+    AGENT_FRONTMATTER = "agent-frontmatter"
+    PLUGIN_MANIFEST = "plugin.json"
+    DIRECTORY = "directory"
 
 
 class SpmSeverity(StrEnum):

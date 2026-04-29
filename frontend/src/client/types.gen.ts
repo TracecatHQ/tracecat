@@ -6219,17 +6219,21 @@ export type SourceUrlUIPart = {
 export type SpecialUserID = "current"
 
 /**
- * Harness-agnostic asset taxonomy.
+ * The file kind that hosts an asset.
  */
-export type SpmAssetClass =
-  | "workspace_access"
-  | "permissions"
-  | "sandbox"
-  | "mcp_server"
-  | "skill"
-  | "extension"
-  | "instruction_file"
-  | "agent"
+export type SpmArtifactType =
+  | "settings.json"
+  | "settings.local.json"
+  | ".claude.json"
+  | "hooks.json"
+  | ".mcp.json"
+  | "CLAUDE.md"
+  | "CLAUDE.local.md"
+  | "AGENTS.md"
+  | "skill-frontmatter"
+  | "agent-frontmatter"
+  | "plugin.json"
+  | "directory"
 
 /**
  * Deduplicated SPM asset row.
@@ -6238,8 +6242,9 @@ export type SpmAssetRead = {
   id: string
   organization_id: string
   harness: SpmHarness
-  asset_class: SpmAssetClass
   asset_type: SpmAssetType
+  artifact_type: SpmArtifactType
+  artifact_location: string
   identity_key: string
   display_name: string
   content_hash?: string | null
@@ -6253,19 +6258,19 @@ export type SpmAssetRead = {
 }
 
 /**
- * Harness-native governed surfaces.
+ * Harness surface bucket. The broad kind of governed thing.
  */
 export type SpmAssetType =
-  | "trusted_directory"
-  | "additional_directory"
+  | "hook"
+  | "plugin"
+  | "mcp_server"
+  | "instruction_file"
   | "permission_config"
   | "sandbox_config"
-  | "mcp_server"
+  | "trusted_directory"
+  | "additional_directory"
   | "skill"
-  | "hook"
-  | "claude_md"
-  | "agents_md"
-  | "subagent"
+  | "agent"
 
 /**
  * Static SPM control manifest.
@@ -6278,8 +6283,8 @@ export type SpmControlRead = {
   title: string
   description: string
   harness: SpmHarness
-  asset_class: SpmAssetClass
   asset_type: SpmAssetType
+  artifact_types?: Array<SpmArtifactType>
   severity: SpmSeverity
   action: SpmEnforcementAction
 }
@@ -6294,8 +6299,9 @@ export type SpmEndpointAssetRead = {
   endpoint_id: string
   workspace_id?: string | null
   harness: SpmHarness
-  asset_class: SpmAssetClass
   asset_type: SpmAssetType
+  artifact_type: SpmArtifactType
+  artifact_location: string
   identity_key: string
   display_name: string
   content_hash?: string | null
@@ -6489,8 +6495,9 @@ export type SpmFindingRead = {
   control_key: string
   control_revision?: string | null
   harness: SpmHarness
-  asset_class: SpmAssetClass
   asset_type: SpmAssetType
+  artifact_type: SpmArtifactType
+  artifact_location: string
   severity: SpmSeverity
   status: SpmFindingStatus
   summary: string
@@ -6536,8 +6543,9 @@ export type SpmSeverity = "low" | "medium" | "high" | "critical"
  */
 export type SpmSyncAssetUpsert = {
   harness: SpmHarness
-  asset_class: SpmAssetClass
   asset_type: SpmAssetType
+  artifact_type: SpmArtifactType
+  artifact_location: string
   identity_key: string
   display_name: string
   content_hash?: string | null
@@ -10467,7 +10475,7 @@ export type SpmListSpmEndpointAssetsResponse =
   CursorPaginatedResponse_SpmEndpointAssetRead_
 
 export type SpmListSpmAssetsData = {
-  assetClass?: SpmAssetClass | null
+  artifactType?: SpmArtifactType | null
   assetType?: SpmAssetType | null
   cursor?: string | null
   endpointId?: string | null

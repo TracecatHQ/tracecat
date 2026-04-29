@@ -24,7 +24,7 @@ from tracecat_ee.spm.schemas import (
 )
 from tracecat_ee.spm.service import SpmService, SpmSyncService
 from tracecat_ee.spm.types import (
-    SpmAssetClass,
+    SpmArtifactType,
     SpmAssetType,
     SpmEndpointPlatform,
     SpmEnforcementTaskStatus,
@@ -71,8 +71,9 @@ def _mcp_asset(
 ) -> SpmSyncAssetUpsert:
     return SpmSyncAssetUpsert(
         harness=SpmHarness.CLAUDE_CODE,
-        asset_class=SpmAssetClass.MCP_SERVER,
         asset_type=SpmAssetType.MCP_SERVER,
+        artifact_type=SpmArtifactType.CLAUDE_JSON,
+        artifact_location="/Users/chris/.claude.json",
         identity_key=(
             f"file:/Users/chris/.claude.json#mcp:{server_name}|{resolved_identity}"
         ),
@@ -93,8 +94,9 @@ def _mcp_asset(
 def _permission_asset() -> SpmSyncAssetUpsert:
     return SpmSyncAssetUpsert(
         harness=SpmHarness.CLAUDE_CODE,
-        asset_class=SpmAssetClass.PERMISSIONS,
         asset_type=SpmAssetType.PERMISSION_CONFIG,
+        artifact_type=SpmArtifactType.SETTINGS_JSON,
+        artifact_location="/Users/chris/.claude/settings.json",
         identity_key="/Users/chris/.claude/settings.json#permission_config",
         display_name="permissions in settings.json",
         metadata={
@@ -166,8 +168,9 @@ async def test_list_assets_and_endpoint_assets_preserve_endpoint_state(
 
     github_asset = SpmSyncAssetUpsert(
         harness=SpmHarness.CLAUDE_CODE,
-        asset_class=SpmAssetClass.MCP_SERVER,
         asset_type=SpmAssetType.MCP_SERVER,
+        artifact_type=SpmArtifactType.CLAUDE_JSON,
+        artifact_location="/Users/chris/.claude.json",
         identity_key="file:/Users/chris/.claude.json#mcp:github|https://api.github.com/mcp",
         display_name="github",
         metadata={
@@ -204,8 +207,8 @@ async def test_list_assets_and_endpoint_assets_preserve_endpoint_state(
             limit=50,
             endpoint_id=endpoint_one.endpoint.id,
             harness=SpmHarness.CLAUDE_CODE,
-            asset_class=SpmAssetClass.MCP_SERVER,
             asset_type=SpmAssetType.MCP_SERVER,
+            artifact_type=SpmArtifactType.CLAUDE_JSON,
         )
     )
     endpoint_one_assets = await service.list_endpoint_assets(
@@ -260,8 +263,9 @@ async def test_list_findings_supports_endpoint_and_control_filters(
             assets=[
                 SpmSyncAssetUpsert(
                     harness=SpmHarness.CLAUDE_CODE,
-                    asset_class=SpmAssetClass.MCP_SERVER,
                     asset_type=SpmAssetType.MCP_SERVER,
+                    artifact_type=SpmArtifactType.CLAUDE_JSON,
+                    artifact_location="/Users/chris/.claude.json",
                     identity_key="file:/Users/chris/.claude.json#mcp:github|https://api.github.com/mcp",
                     display_name="github",
                     metadata={
@@ -281,8 +285,9 @@ async def test_list_findings_supports_endpoint_and_control_filters(
             assets=[
                 SpmSyncAssetUpsert(
                     harness=SpmHarness.CLAUDE_CODE,
-                    asset_class=SpmAssetClass.INSTRUCTION_FILE,
-                    asset_type=SpmAssetType.CLAUDE_MD,
+                    asset_type=SpmAssetType.INSTRUCTION_FILE,
+                    artifact_type=SpmArtifactType.CLAUDE_MD,
+                    artifact_location="/Users/chris/project/CLAUDE.md",
                     identity_key="/Users/chris/project/CLAUDE.md",
                     display_name="CLAUDE.md",
                     metadata={
@@ -433,8 +438,8 @@ async def test_spm_list_methods_paginate_without_duplicates(
             limit=2,
             endpoint_id=primary_endpoint.endpoint.id,
             harness=SpmHarness.CLAUDE_CODE,
-            asset_class=SpmAssetClass.MCP_SERVER,
             asset_type=SpmAssetType.MCP_SERVER,
+            artifact_type=SpmArtifactType.CLAUDE_JSON,
         )
     )
     assets_page_two = await service.list_assets(
@@ -443,8 +448,8 @@ async def test_spm_list_methods_paginate_without_duplicates(
             cursor=assets_page_one.next_cursor,
             endpoint_id=primary_endpoint.endpoint.id,
             harness=SpmHarness.CLAUDE_CODE,
-            asset_class=SpmAssetClass.MCP_SERVER,
             asset_type=SpmAssetType.MCP_SERVER,
+            artifact_type=SpmArtifactType.CLAUDE_JSON,
         )
     )
     findings_page_one = await service.list_findings(SpmFindingQueryParams(limit=2))
@@ -746,8 +751,9 @@ async def test_upsert_asset_recovers_from_duplicate_insert_race() -> None:
         id=uuid.uuid4(),
         organization_id=uuid.uuid4(),
         harness=SpmHarness.CLAUDE_CODE.value,
-        asset_class=SpmAssetClass.PERMISSIONS.value,
         asset_type=SpmAssetType.PERMISSION_CONFIG.value,
+        artifact_type=SpmArtifactType.SETTINGS_JSON.value,
+        artifact_location="/Users/chris/.claude/settings.json",
         identity_key="/Users/chris/.claude/settings.json#permission_config",
         display_name="stale name",
         content_hash=None,

@@ -20231,20 +20231,24 @@ export const $SpecialUserID = {
   description: "A sentinel user ID that represents the current user.",
 } as const
 
-export const $SpmAssetClass = {
+export const $SpmArtifactType = {
   type: "string",
   enum: [
-    "workspace_access",
-    "permissions",
-    "sandbox",
-    "mcp_server",
-    "skill",
-    "extension",
-    "instruction_file",
-    "agent",
+    "settings.json",
+    "settings.local.json",
+    ".claude.json",
+    "hooks.json",
+    ".mcp.json",
+    "CLAUDE.md",
+    "CLAUDE.local.md",
+    "AGENTS.md",
+    "skill-frontmatter",
+    "agent-frontmatter",
+    "plugin.json",
+    "directory",
   ],
-  title: "SpmAssetClass",
-  description: "Harness-agnostic asset taxonomy.",
+  title: "SpmArtifactType",
+  description: "The file kind that hosts an asset.",
 } as const
 
 export const $SpmAssetRead = {
@@ -20262,11 +20266,15 @@ export const $SpmAssetRead = {
     harness: {
       $ref: "#/components/schemas/SpmHarness",
     },
-    asset_class: {
-      $ref: "#/components/schemas/SpmAssetClass",
-    },
     asset_type: {
       $ref: "#/components/schemas/SpmAssetType",
+    },
+    artifact_type: {
+      $ref: "#/components/schemas/SpmArtifactType",
+    },
+    artifact_location: {
+      type: "string",
+      title: "Artifact Location",
     },
     identity_key: {
       type: "string",
@@ -20318,8 +20326,9 @@ export const $SpmAssetRead = {
     "id",
     "organization_id",
     "harness",
-    "asset_class",
     "asset_type",
+    "artifact_type",
+    "artifact_location",
     "identity_key",
     "display_name",
     "first_seen_at",
@@ -20334,19 +20343,19 @@ export const $SpmAssetRead = {
 export const $SpmAssetType = {
   type: "string",
   enum: [
-    "trusted_directory",
-    "additional_directory",
+    "hook",
+    "plugin",
+    "mcp_server",
+    "instruction_file",
     "permission_config",
     "sandbox_config",
-    "mcp_server",
+    "trusted_directory",
+    "additional_directory",
     "skill",
-    "hook",
-    "claude_md",
-    "agents_md",
-    "subagent",
+    "agent",
   ],
   title: "SpmAssetType",
-  description: "Harness-native governed surfaces.",
+  description: "Harness surface bucket. The broad kind of governed thing.",
 } as const
 
 export const $SpmControlRead = {
@@ -20384,11 +20393,15 @@ export const $SpmControlRead = {
     harness: {
       $ref: "#/components/schemas/SpmHarness",
     },
-    asset_class: {
-      $ref: "#/components/schemas/SpmAssetClass",
-    },
     asset_type: {
       $ref: "#/components/schemas/SpmAssetType",
+    },
+    artifact_types: {
+      items: {
+        $ref: "#/components/schemas/SpmArtifactType",
+      },
+      type: "array",
+      title: "Artifact Types",
     },
     severity: {
       $ref: "#/components/schemas/SpmSeverity",
@@ -20405,7 +20418,6 @@ export const $SpmControlRead = {
     "title",
     "description",
     "harness",
-    "asset_class",
     "asset_type",
     "severity",
     "action",
@@ -20451,11 +20463,15 @@ export const $SpmEndpointAssetRead = {
     harness: {
       $ref: "#/components/schemas/SpmHarness",
     },
-    asset_class: {
-      $ref: "#/components/schemas/SpmAssetClass",
-    },
     asset_type: {
       $ref: "#/components/schemas/SpmAssetType",
+    },
+    artifact_type: {
+      $ref: "#/components/schemas/SpmArtifactType",
+    },
+    artifact_location: {
+      type: "string",
+      title: "Artifact Location",
     },
     identity_key: {
       type: "string",
@@ -20509,8 +20525,9 @@ export const $SpmEndpointAssetRead = {
     "organization_id",
     "endpoint_id",
     "harness",
-    "asset_class",
     "asset_type",
+    "artifact_type",
+    "artifact_location",
     "identity_key",
     "display_name",
     "first_seen_at",
@@ -21200,11 +21217,15 @@ export const $SpmFindingRead = {
     harness: {
       $ref: "#/components/schemas/SpmHarness",
     },
-    asset_class: {
-      $ref: "#/components/schemas/SpmAssetClass",
-    },
     asset_type: {
       $ref: "#/components/schemas/SpmAssetType",
+    },
+    artifact_type: {
+      $ref: "#/components/schemas/SpmArtifactType",
+    },
+    artifact_location: {
+      type: "string",
+      title: "Artifact Location",
     },
     severity: {
       $ref: "#/components/schemas/SpmSeverity",
@@ -21290,8 +21311,9 @@ export const $SpmFindingRead = {
     "control_id",
     "control_key",
     "harness",
-    "asset_class",
     "asset_type",
+    "artifact_type",
+    "artifact_location",
     "severity",
     "status",
     "summary",
@@ -21329,11 +21351,17 @@ export const $SpmSyncAssetUpsert = {
     harness: {
       $ref: "#/components/schemas/SpmHarness",
     },
-    asset_class: {
-      $ref: "#/components/schemas/SpmAssetClass",
-    },
     asset_type: {
       $ref: "#/components/schemas/SpmAssetType",
+    },
+    artifact_type: {
+      $ref: "#/components/schemas/SpmArtifactType",
+    },
+    artifact_location: {
+      type: "string",
+      maxLength: 1024,
+      minLength: 1,
+      title: "Artifact Location",
     },
     identity_key: {
       type: "string",
@@ -21390,8 +21418,9 @@ export const $SpmSyncAssetUpsert = {
   type: "object",
   required: [
     "harness",
-    "asset_class",
     "asset_type",
+    "artifact_type",
+    "artifact_location",
     "identity_key",
     "display_name",
   ],

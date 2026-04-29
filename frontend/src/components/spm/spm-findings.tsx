@@ -19,6 +19,7 @@ import {
   getFindingEnforcementState,
   severityVariant,
 } from "./spm-common"
+import { artifactTypeIcon, artifactTypeLabel } from "./spm-icons"
 import { FeedRow, SmallBadge } from "./spm-layout"
 
 export function FindingActionButtons(props: {
@@ -71,6 +72,7 @@ export function FindingRow(props: {
   const controlTitle =
     props.controls?.find((control) => control.id === props.finding.control_id)
       ?.title ?? props.finding.control_key
+  const ArtifactIcon = artifactTypeIcon(props.finding.artifact_type)
   const subtitleParts = [
     showEndpoint
       ? getEndpointName(props.finding.endpoint_id, props.endpoints)
@@ -99,7 +101,9 @@ export function FindingRow(props: {
       }
       meta={
         <>
-          <span>{formatLabel(props.finding.asset_class)}</span>
+          <SmallBadge icon={ArtifactIcon}>
+            {artifactTypeLabel(props.finding.artifact_type)}
+          </SmallBadge>
           <span>{formatRelativeTimestamp(props.finding.updated_at)}</span>
         </>
       }
@@ -139,7 +143,8 @@ export function findingMatchesQuery(props: {
       props.finding.status,
       props.finding.severity,
       props.finding.asset_type,
-      props.finding.asset_class,
+      props.finding.artifact_type,
+      props.finding.artifact_location,
       asset?.display_name,
       asset ? getAssetPath(asset) : props.finding.asset_id,
       endpointName,

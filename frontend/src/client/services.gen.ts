@@ -5988,8 +5988,8 @@ export const spmListSpmEndpointAssets = (
  * @param data.cursor
  * @param data.harness
  * @param data.endpointId
- * @param data.assetClass
  * @param data.assetType
+ * @param data.artifactType
  * @returns CursorPaginatedResponse_SpmAssetRead_ Successful Response
  * @throws ApiError
  */
@@ -6004,8 +6004,8 @@ export const spmListSpmAssets = (
       cursor: data.cursor,
       harness: data.harness,
       endpoint_id: data.endpointId,
-      asset_class: data.assetClass,
       asset_type: data.assetType,
+      artifact_type: data.artifactType,
     },
     errors: {
       422: "Validation Error",

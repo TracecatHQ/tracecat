@@ -2,6 +2,8 @@
 
 import {
   AlertTriangleIcon,
+  ArrowDownAZIcon,
+  BotIcon,
   CheckCircleIcon,
   CircleDotIcon,
   CirclePauseIcon,
@@ -10,7 +12,6 @@ import {
   FileSearchIcon,
   FlagTriangleRightIcon,
   LaptopIcon,
-  LayersIcon,
   type LucideIcon,
   PackageIcon,
   RadarIcon,
@@ -20,7 +21,6 @@ import {
   SignalIcon,
   SignalMediumIcon,
   TagIcon,
-  WrenchIcon,
 } from "lucide-react"
 import {
   type ComponentType,
@@ -29,10 +29,11 @@ import {
   useState,
 } from "react"
 import type {
-  SpmAssetClass,
+  SpmArtifactType,
   SpmAssetRead,
   SpmAssetType,
   SpmControlRead,
+  SpmEndpointAssetRead,
   SpmEndpointRead,
   SpmEndpointStatus,
   SpmFindingRead,
@@ -60,6 +61,7 @@ import {
   useSpmActions,
   useSpmAssets,
   useSpmControls,
+  useSpmEndpointAssetsForEndpoints,
   useSpmEndpoints,
   useSpmFindings,
 } from "@/hooks/use-spm"
@@ -75,12 +77,12 @@ import {
   getAssetRecord,
   getEndpointName,
   getFindingEnforcementState,
-  getPolicyScope,
   includesQuery,
   renderMaybeLoading,
 } from "./spm-common"
+import { SpmControlSheet } from "./spm-control-sheet"
 import {
-  ASSET_CLASS_OPTIONS,
+  ARTIFACT_TYPE_OPTIONS,
   ASSET_TYPE_OPTIONS,
   COMPLIANCE_OPTIONS,
   controlOptions,
@@ -97,6 +99,12 @@ import {
   SEVERITY_OPTIONS,
 } from "./spm-filters"
 import { FindingActionButtons } from "./spm-findings"
+import {
+  artifactTypeIcon,
+  artifactTypeLabel,
+  assetTypeIcon,
+  assetTypeLabel,
+} from "./spm-icons"
 import { SpmInstallDrawer } from "./spm-install-drawer"
 import {
   SmallBadge,
@@ -116,16 +124,20 @@ type SelectOption<TValue extends string> = {
   label: string
   value: TValue
 }
+type AssetSortKey = "asset_type" | "artifact_type" | "last_seen"
 
-const SPM_HARNESS_ORDER: SpmHarness[] = ["claude_code"]
-const FINDING_STATUS_ORDER: SpmFindingStatus[] = [
-  "open",
-  "enforcement_pending",
-  "enforced",
-  "resolved",
-  "dismissed",
-]
 const SEVERITY_ORDER: SpmSeverity[] = ["critical", "high", "medium", "low"]
+const SEVERITY_RANK: Record<SpmSeverity, number> = {
+  critical: 0,
+  high: 1,
+  medium: 2,
+  low: 3,
+}
+const ASSET_SORT_OPTIONS: Array<SelectOption<AssetSortKey>> = [
+  { value: "asset_type", label: "Asset type" },
+  { value: "artifact_type", label: "Artifact type" },
+  { value: "last_seen", label: "Last seen" },
+]
 
 const severityStyles: Record<
   SpmSeverity,
@@ -253,32 +265,63 @@ function harnessLabel(harness: SpmHarness) {
   return formatLabel(harness)
 }
 
-function harnessTriggerClassName(harness: SpmHarness) {
-  if (harness === "claude_code") {
-    return "data-[state=open]:border-l-amber-600 data-[state=open]:bg-amber-600/[0.03] dark:data-[state=open]:bg-amber-600/[0.08]"
-  }
-  return "data-[state=open]:border-l-muted-foreground data-[state=open]:bg-muted/50"
-}
-
-function groupByHarness<TItem extends { harness: SpmHarness }>(items: TItem[]) {
-  const grouped = new Map<SpmHarness, TItem[]>()
-  for (const item of items) {
-    const next = grouped.get(item.harness) ?? []
-    next.push(item)
-    grouped.set(item.harness, next)
-  }
-  return SPM_HARNESS_ORDER.map((harness) => ({
-    harness,
-    items: grouped.get(harness) ?? [],
-  })).filter((group) => group.items.length > 0)
-}
-
 function withoutAll<TValue extends string>(
   options: ReadonlyArray<SelectOption<TValue | typeof ALL_VALUE>>
 ): SelectOption<TValue>[] {
   return options.filter(
     (option): option is SelectOption<TValue> => option.value !== ALL_VALUE
   )
+}
+
+function endpointTriggerClassName(status: SpmEndpointStatus) {
+  if (status === "active") {
+    return "data-[state=open]:border-l-green-600 data-[state=open]:bg-green-600/[0.03] dark:data-[state=open]:bg-green-600/[0.08]"
+  }
+  if (status === "error") {
+    return "data-[state=open]:border-l-red-600 data-[state=open]:bg-red-600/[0.03] dark:data-[state=open]:bg-red-600/[0.08]"
+  }
+  if (status === "pending") {
+    return "data-[state=open]:border-l-yellow-600 data-[state=open]:bg-yellow-600/[0.03] dark:data-[state=open]:bg-yellow-600/[0.08]"
+  }
+  return "data-[state=open]:border-l-slate-500 data-[state=open]:bg-slate-500/[0.03] dark:data-[state=open]:bg-slate-500/[0.08]"
+}
+
+function assetIdentityKey(asset: SpmEndpointAssetRead) {
+  return `${asset.asset_type}:${asset.identity_key}:${asset.artifact_location}`
+}
+
+function dedupeEndpointAssets(assets: SpmEndpointAssetRead[]) {
+  const seen = new Map<string, SpmEndpointAssetRead>()
+  for (const asset of assets) {
+    seen.set(assetIdentityKey(asset), asset)
+  }
+  return Array.from(seen.values())
+}
+
+function sortAssets(assets: SpmEndpointAssetRead[], sortBy: AssetSortKey) {
+  return [...assets].sort((left, right) => {
+    if (sortBy === "last_seen") {
+      return (
+        new Date(right.last_seen_at ?? 0).getTime() -
+        new Date(left.last_seen_at ?? 0).getTime()
+      )
+    }
+    if (sortBy === "artifact_type") {
+      return left.artifact_type.localeCompare(right.artifact_type)
+    }
+    return left.asset_type.localeCompare(right.asset_type)
+  })
+}
+
+function sortFindingsBySeverity(findings: SpmFindingRead[]) {
+  return [...findings].sort((left, right) => {
+    const severityDelta =
+      SEVERITY_RANK[left.severity] - SEVERITY_RANK[right.severity]
+    if (severityDelta !== 0) return severityDelta
+    return (
+      new Date(right.updated_at).getTime() - new Date(left.updated_at).getTime()
+    )
+  })
 }
 
 function EndpointStatusBadge({ status }: { status: SpmEndpointStatus }) {
@@ -359,18 +402,23 @@ function EndpointRow({
   )
 }
 
-function AssetRow({ asset }: { asset: SpmAssetRead }) {
-  const scope = getPolicyScope(asset.asset_type)
+function AssetRow({ asset }: { asset: SpmEndpointAssetRead }) {
+  const AssetIcon = assetTypeIcon(asset.asset_type)
+  const ArtifactIcon = artifactTypeIcon(asset.artifact_type)
   return (
     <SpmCompactRow
-      icon={<PackageIcon className="size-4 text-muted-foreground" />}
-      title={asset.display_name}
+      icon={<AssetIcon className="size-4 text-muted-foreground" />}
+      title={<span className="truncate text-xs">{getAssetPath(asset)}</span>}
+      subtitle={asset.display_name}
       badges={
         <>
-          <SmallBadge>{harnessLabel(asset.harness)}</SmallBadge>
-          <SmallBadge>{formatLabel(asset.asset_class)}</SmallBadge>
-          <SmallBadge>{formatLabel(asset.asset_type)}</SmallBadge>
-          <SmallBadge variant={scope.variant}>{scope.label}</SmallBadge>
+          <SmallBadge icon={AssetIcon}>
+            {assetTypeLabel(asset.asset_type)}
+          </SmallBadge>
+          <SmallBadge icon={ArtifactIcon}>
+            {artifactTypeLabel(asset.artifact_type)}
+          </SmallBadge>
+          <SmallBadge icon={BotIcon}>{harnessLabel(asset.harness)}</SmallBadge>
         </>
       }
       meta={
@@ -393,6 +441,8 @@ function FindingRow(props: {
 }) {
   const asset = getAssetRecord(props.finding.asset_id, props.assets)
   const enforcementState = getFindingEnforcementState(props.finding)
+  const AssetIcon = assetTypeIcon(props.finding.asset_type)
+  const ArtifactIcon = artifactTypeIcon(props.finding.artifact_type)
   return (
     <SpmCompactRow
       icon={<ShieldAlertIcon className="size-4 text-muted-foreground" />}
@@ -411,7 +461,12 @@ function FindingRow(props: {
           <SmallBadge variant={enforcementState.variant}>
             {enforcementState.label}
           </SmallBadge>
-          <SmallBadge>{formatLabel(props.finding.asset_class)}</SmallBadge>
+          <SmallBadge icon={AssetIcon}>
+            {assetTypeLabel(props.finding.asset_type)}
+          </SmallBadge>
+          <SmallBadge icon={ArtifactIcon}>
+            {artifactTypeLabel(props.finding.artifact_type)}
+          </SmallBadge>
           <SmallBadge>
             {asset?.display_name ?? props.finding.asset_id}
           </SmallBadge>
@@ -438,28 +493,43 @@ function FindingRow(props: {
   )
 }
 
-function ControlRow({ control }: { control: SpmControlRead }) {
+function ControlRow({
+  control,
+  isSelected,
+  onSelect,
+}: {
+  control: SpmControlRead
+  isSelected: boolean
+  onSelect: () => void
+}) {
+  const AssetIcon = assetTypeIcon(control.asset_type)
+  const artifactTypes = control.artifact_types ?? []
   return (
     <SpmCompactRow
       icon={<FileSearchIcon className="size-4 text-muted-foreground" />}
-      title={
-        <>
-          <span className="shrink-0 text-xs text-muted-foreground">
-            {control.key}
-          </span>
-          <span className="truncate text-xs">{control.title}</span>
-        </>
-      }
+      isSelected={isSelected}
+      onClick={onSelect}
+      title={<span className="truncate text-xs">{control.title}</span>}
       badges={
         <>
-          <SeverityBadge severity={control.severity} />
-          <SmallBadge>{formatLabel(control.asset_class)}</SmallBadge>
-          <SmallBadge>{formatLabel(control.asset_type)}</SmallBadge>
-          <SmallBadge icon={WrenchIcon}>
-            {formatLabel(control.action)}
+          <SmallBadge icon={AssetIcon}>
+            {assetTypeLabel(control.asset_type)}
           </SmallBadge>
+          {artifactTypes.length === 0 ? (
+            <SmallBadge>All artifacts</SmallBadge>
+          ) : (
+            artifactTypes.map((artifactType) => {
+              const ArtifactIcon = artifactTypeIcon(artifactType)
+              return (
+                <SmallBadge key={artifactType} icon={ArtifactIcon}>
+                  {artifactTypeLabel(artifactType)}
+                </SmallBadge>
+              )
+            })
+          )}
         </>
       }
+      meta={<span className="font-mono text-xs">{control.key}</span>}
     />
   )
 }
@@ -786,7 +856,8 @@ export function SpmFindingsView() {
           finding.status,
           finding.severity,
           finding.asset_type,
-          finding.asset_class,
+          finding.artifact_type,
+          finding.artifact_location,
           asset?.display_name,
           asset ? getAssetPath(asset) : finding.asset_id,
           endpointName,
@@ -800,9 +871,11 @@ export function SpmFindingsView() {
     )
   })
 
-  const groupedFindings = FINDING_STATUS_ORDER.map((status) => ({
-    status,
-    items: filteredFindings.filter((finding) => finding.status === status),
+  const endpointGroups = endpoints.map((endpoint) => ({
+    endpoint,
+    items: sortFindingsBySeverity(
+      filteredFindings.filter((finding) => finding.endpoint_id === endpoint.id)
+    ),
   }))
   const hasFilters =
     searchQuery.trim().length > 0 ||
@@ -875,33 +948,30 @@ export function SpmFindingsView() {
         </>
       }
     >
-      {filteredFindings.length === 0 ? (
+      {endpoints.length === 0 ? (
         <SpmEmptyState
-          title={findings.length === 0 ? "No findings" : EMPTY_FILTERS}
-          description={
-            findings.length === 0
-              ? "Once endpoints sync inventory, control failures will appear here."
-              : "Adjust search or filters to find another finding."
-          }
+          title="No endpoints"
+          description="Once endpoints sync inventory, control failures will appear here."
           icon={<ShieldAlertIcon className="h-6 w-6" />}
         />
       ) : (
         <SpmAccordion
-          groups={groupedFindings.map((group) => {
-            const config = findingStatusStyles[group.status]
+          groups={endpointGroups.map((group) => {
+            const config = endpointStatusStyles[group.endpoint.status]
             return {
-              value: group.status,
-              label: config.label,
+              value: group.endpoint.id,
+              label: group.endpoint.name,
               count: group.items.length,
               icon: config.icon,
               iconClassName: config.iconClassName,
-              triggerClassName: config.triggerClassName,
+              triggerClassName: endpointTriggerClassName(group.endpoint.status),
+              disabled: group.items.length === 0,
             }
           })}
         >
-          {(status) =>
-            groupedFindings
-              .find((group) => group.status === status)
+          {(endpointId) =>
+            endpointGroups
+              .find((group) => group.endpoint.id === endpointId)
               ?.items.map((finding) => (
                 <FindingRow
                   key={finding.id}
@@ -927,57 +997,81 @@ export function SpmAssetsView() {
   const endpointsQuery = useSpmEndpoints()
   const [searchQuery, setSearchQuery] = useState("")
   const deferredSearchQuery = useDeferredValue(searchQuery)
-  const [selectedAssetClass, setSelectedAssetClass] = useState<
-    SpmAssetClass | typeof ALL_VALUE
-  >(ALL_VALUE)
   const [selectedAssetType, setSelectedAssetType] = useState<
     SpmAssetType | typeof ALL_VALUE
+  >(ALL_VALUE)
+  const [selectedArtifactType, setSelectedArtifactType] = useState<
+    SpmArtifactType | typeof ALL_VALUE
   >(ALL_VALUE)
   const [selectedEndpointId, setSelectedEndpointId] = useState(ALL_VALUE)
   const [selectedHarness, setSelectedHarness] = useState<
     SpmHarness | typeof ALL_VALUE
   >(ALL_VALUE)
-  const assetsQuery = useSpmAssets({
-    assetClass:
-      selectedAssetClass === ALL_VALUE ? undefined : selectedAssetClass,
-    assetType: selectedAssetType === ALL_VALUE ? undefined : selectedAssetType,
-    endpointId:
-      selectedEndpointId === ALL_VALUE ? undefined : selectedEndpointId,
-    harness: selectedHarness === ALL_VALUE ? undefined : selectedHarness,
-  })
-  const assets = assetsQuery.data?.items ?? []
+  const [sortBy, setSortBy] = useState<AssetSortKey>("asset_type")
   const endpoints = endpointsQuery.data?.items ?? []
+  const endpointAssetQueries = useSpmEndpointAssetsForEndpoints(
+    endpoints.map((endpoint) => endpoint.id)
+  )
+  const endpointGroups = endpoints
+    .map((endpoint, index) => {
+      const rows = endpointAssetQueries[index]?.data?.items ?? []
+      const items = sortAssets(
+        dedupeEndpointAssets(rows).filter((asset) => {
+          const harnessMatches =
+            selectedHarness === ALL_VALUE || asset.harness === selectedHarness
+          const assetTypeMatches =
+            selectedAssetType === ALL_VALUE ||
+            asset.asset_type === selectedAssetType
+          const artifactTypeMatches =
+            selectedArtifactType === ALL_VALUE ||
+            asset.artifact_type === selectedArtifactType
+          const queryMatches = includesQuery(
+            [
+              asset.display_name,
+              asset.identity_key,
+              getAssetPath(asset),
+              asset.harness,
+              asset.asset_type,
+              asset.artifact_type,
+            ],
+            deferredSearchQuery
+          )
+          return (
+            harnessMatches &&
+            assetTypeMatches &&
+            artifactTypeMatches &&
+            queryMatches
+          )
+        }),
+        sortBy
+      )
+      return { endpoint, items }
+    })
+    .filter(
+      (group) =>
+        selectedEndpointId === ALL_VALUE ||
+        group.endpoint.id === selectedEndpointId
+    )
+  const filteredAssets = endpointGroups.flatMap((group) => group.items)
+  const assetsAreLoading = endpointAssetQueries.some((query) => query.isLoading)
 
   function resetFilters() {
     setSearchQuery("")
-    setSelectedAssetClass(ALL_VALUE)
     setSelectedAssetType(ALL_VALUE)
+    setSelectedArtifactType(ALL_VALUE)
     setSelectedEndpointId(ALL_VALUE)
     setSelectedHarness(ALL_VALUE)
+    setSortBy("asset_type")
   }
-
-  const filteredAssets = assets.filter((asset) =>
-    includesQuery(
-      [
-        asset.display_name,
-        getAssetPath(asset),
-        asset.harness,
-        asset.asset_class,
-        asset.asset_type,
-      ],
-      deferredSearchQuery
-    )
-  )
-  const groupedAssets = groupByHarness(filteredAssets)
   const hasFilters =
     searchQuery.trim().length > 0 ||
-    selectedAssetClass !== ALL_VALUE ||
     selectedAssetType !== ALL_VALUE ||
+    selectedArtifactType !== ALL_VALUE ||
     selectedEndpointId !== ALL_VALUE ||
     selectedHarness !== ALL_VALUE
 
   return renderMaybeLoading(
-    entitlementLoading || endpointsQuery.isLoading || assetsQuery.isLoading,
+    entitlementLoading || endpointsQuery.isLoading || assetsAreLoading,
     hasEntitlement("spm"),
     "SPM entitlement required",
     "This organization does not have access to AI SPM yet.",
@@ -1008,50 +1102,56 @@ export function SpmAssetsView() {
             onChange={setSelectedEndpointId}
           />
           <FilterSelect
-            label="Asset class"
-            icon={LayersIcon}
-            value={selectedAssetClass}
-            options={ASSET_CLASS_OPTIONS}
-            onChange={setSelectedAssetClass}
-          />
-          <FilterSelect
             label="Asset type"
             icon={PackageIcon}
             value={selectedAssetType}
             options={ASSET_TYPE_OPTIONS}
             onChange={setSelectedAssetType}
           />
+          <FilterSelect
+            label="Artifact type"
+            icon={FileSearchIcon}
+            value={selectedArtifactType}
+            options={ARTIFACT_TYPE_OPTIONS}
+            onChange={setSelectedArtifactType}
+          />
+          <FilterSelect
+            label="Sort by"
+            icon={ArrowDownAZIcon}
+            value={sortBy}
+            options={ASSET_SORT_OPTIONS}
+            onChange={setSortBy}
+          />
         </>
       }
     >
-      {filteredAssets.length === 0 ? (
+      {endpoints.length === 0 ? (
         <SpmEmptyState
-          title={assets.length === 0 ? "No assets" : EMPTY_FILTERS}
-          description={
-            assets.length === 0
-              ? "Endpoint inventory will appear here after a successful sync."
-              : "Adjust search or filters to find another asset."
-          }
+          title="No endpoints"
+          description="Endpoint inventory will appear here after a successful sync."
           icon={<PackageIcon className="h-6 w-6" />}
         />
       ) : (
         <SpmAccordion
-          groups={groupedAssets.map((group) => ({
-            value: group.harness,
-            label: harnessLabel(group.harness),
-            count: group.items.length,
-            icon: RadarIcon,
-            iconClassName:
-              group.harness === "claude_code"
-                ? "text-amber-600"
-                : "text-muted-foreground",
-            triggerClassName: harnessTriggerClassName(group.harness),
-          }))}
+          groups={endpointGroups.map((group) => {
+            const config = endpointStatusStyles[group.endpoint.status]
+            return {
+              value: group.endpoint.id,
+              label: group.endpoint.name,
+              count: group.items.length,
+              icon: config.icon,
+              iconClassName: config.iconClassName,
+              triggerClassName: endpointTriggerClassName(group.endpoint.status),
+              disabled: group.items.length === 0,
+            }
+          })}
         >
-          {(harness) =>
-            groupedAssets
-              .find((group) => group.harness === harness)
-              ?.items.map((asset) => <AssetRow key={asset.id} asset={asset} />)
+          {(endpointId) =>
+            endpointGroups
+              .find((group) => group.endpoint.id === endpointId)
+              ?.items.map((asset) => (
+                <AssetRow key={asset.asset_sighting_id} asset={asset} />
+              ))
           }
         </SpmAccordion>
       )}
@@ -1069,26 +1169,29 @@ export function SpmControlsView() {
   const deferredSearchQuery = useDeferredValue(searchQuery)
   const [severityFilter, setSeverityFilter] = useState<SpmSeverity[]>([])
   const [severityMode, setSeverityMode] = useState<FilterMode>("include")
-  const [assetClassFilter, setAssetClassFilter] = useState<SpmAssetClass[]>([])
-  const [assetClassMode, setAssetClassMode] = useState<FilterMode>("include")
+  const [assetTypeFilter, setAssetTypeFilter] = useState<SpmAssetType[]>([])
+  const [assetTypeMode, setAssetTypeMode] = useState<FilterMode>("include")
+  const [selectedControl, setSelectedControl] = useState<SpmControlRead | null>(
+    null
+  )
   const controls = controlsQuery.data ?? []
 
   function resetFilters() {
     setSearchQuery("")
     setSeverityFilter([])
     setSeverityMode("include")
-    setAssetClassFilter([])
-    setAssetClassMode("include")
+    setAssetTypeFilter([])
+    setAssetTypeMode("include")
   }
 
   const visibleControls = controls.filter((control) => {
     const severityMatches =
       severityFilter.length === 0 ||
       severityFilter.includes(control.severity) === (severityMode === "include")
-    const assetClassMatches =
-      assetClassFilter.length === 0 ||
-      assetClassFilter.includes(control.asset_class) ===
-        (assetClassMode === "include")
+    const assetTypeMatches =
+      assetTypeFilter.length === 0 ||
+      assetTypeFilter.includes(control.asset_type) ===
+        (assetTypeMode === "include")
 
     return (
       includesQuery(
@@ -1098,14 +1201,14 @@ export function SpmControlsView() {
           control.title,
           control.description,
           control.severity,
-          control.asset_class,
           control.asset_type,
+          ...(control.artifact_types ?? []),
           control.action,
         ],
         deferredSearchQuery
       ) &&
       severityMatches &&
-      assetClassMatches
+      assetTypeMatches
     )
   })
   const groupedControls = SEVERITY_ORDER.map((severity) => ({
@@ -1115,7 +1218,7 @@ export function SpmControlsView() {
   const hasFilters =
     searchQuery.trim().length > 0 ||
     severityFilter.length > 0 ||
-    assetClassFilter.length > 0
+    assetTypeFilter.length > 0
 
   return renderMaybeLoading(
     entitlementLoading || controlsQuery.isLoading,
@@ -1144,13 +1247,13 @@ export function SpmControlsView() {
             onChange={setSeverityFilter}
           />
           <MultiFilterSelect
-            label="Asset class"
-            icon={LayersIcon}
-            value={assetClassFilter}
-            options={withoutAll<SpmAssetClass>(ASSET_CLASS_OPTIONS)}
-            mode={assetClassMode}
-            onModeChange={setAssetClassMode}
-            onChange={setAssetClassFilter}
+            label="Asset type"
+            icon={PackageIcon}
+            value={assetTypeFilter}
+            options={withoutAll<SpmAssetType>(ASSET_TYPE_OPTIONS)}
+            mode={assetTypeMode}
+            onModeChange={setAssetTypeMode}
+            onChange={setAssetTypeFilter}
           />
         </>
       }
@@ -1200,11 +1303,23 @@ export function SpmControlsView() {
             groupedControls
               .find((group) => group.severity === severity)
               ?.items.map((control) => (
-                <ControlRow key={control.id} control={control} />
+                <ControlRow
+                  key={control.id}
+                  control={control}
+                  isSelected={selectedControl?.id === control.id}
+                  onSelect={() => setSelectedControl(control)}
+                />
               ))
           }
         </SpmAccordion>
       )}
+      <SpmControlSheet
+        control={selectedControl}
+        open={selectedControl != null}
+        onOpenChange={(open) => {
+          if (!open) setSelectedControl(null)
+        }}
+      />
     </SpmListShell>
   )
 }

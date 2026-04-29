@@ -12,7 +12,7 @@ from tracecat import config
 from tracecat.core.schemas import Schema
 from tracecat.pagination import CursorPaginatedResponse
 from tracecat_ee.spm.types import (
-    SpmAssetClass,
+    SpmArtifactType,
     SpmAssetType,
     SpmEndpointPlatform,
     SpmEndpointStatus,
@@ -36,8 +36,8 @@ class SpmControlRead(Schema):
     title: str
     description: str
     harness: SpmHarness
-    asset_class: SpmAssetClass
     asset_type: SpmAssetType
+    artifact_types: list[SpmArtifactType] = Field(default_factory=list)
     severity: SpmSeverity
     action: SpmEnforcementAction
 
@@ -109,8 +109,9 @@ class SpmControlAssetBase(Schema):
     identity_key: str
     display_name: str
     harness: SpmHarness
-    asset_class: SpmAssetClass
     asset_type: SpmAssetType
+    artifact_type: SpmArtifactType
+    artifact_location: str
     content_hash: str | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
     evidence: dict[str, Any] = Field(default_factory=dict)
@@ -257,8 +258,9 @@ class SpmAssetRead(Schema):
     id: uuid.UUID
     organization_id: uuid.UUID
     harness: SpmHarness
-    asset_class: SpmAssetClass
     asset_type: SpmAssetType
+    artifact_type: SpmArtifactType
+    artifact_location: str
     identity_key: str
     display_name: str
     content_hash: str | None = None
@@ -283,8 +285,8 @@ class SpmAssetQueryParams(Schema):
     cursor: str | None = None
     harness: SpmHarness | None = None
     endpoint_id: uuid.UUID | None = None
-    asset_class: SpmAssetClass | None = None
     asset_type: SpmAssetType | None = None
+    artifact_type: SpmArtifactType | None = None
 
 
 class SpmAssetSightingRead(Schema):
@@ -313,8 +315,9 @@ class SpmEndpointAssetRead(Schema):
     endpoint_id: uuid.UUID
     workspace_id: uuid.UUID | None = None
     harness: SpmHarness
-    asset_class: SpmAssetClass
     asset_type: SpmAssetType
+    artifact_type: SpmArtifactType
+    artifact_location: str
     identity_key: str
     display_name: str
     content_hash: str | None = None
@@ -340,8 +343,9 @@ class SpmFindingRead(Schema):
     control_key: str
     control_revision: str | None = None
     harness: SpmHarness
-    asset_class: SpmAssetClass
     asset_type: SpmAssetType
+    artifact_type: SpmArtifactType
+    artifact_location: str
     severity: SpmSeverity
     status: SpmFindingStatus
     summary: str
@@ -420,8 +424,9 @@ class SpmSyncAssetUpsert(Schema):
     """Asset observation submitted by an endpoint."""
 
     harness: SpmHarness
-    asset_class: SpmAssetClass
     asset_type: SpmAssetType
+    artifact_type: SpmArtifactType
+    artifact_location: str = Field(min_length=1, max_length=1024)
     identity_key: str = Field(min_length=1, max_length=500)
     display_name: str = Field(min_length=1, max_length=255)
     content_hash: str | None = Field(default=None, max_length=64)

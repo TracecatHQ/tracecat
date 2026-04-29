@@ -2,10 +2,12 @@ id: 4fd32453-138e-4273-8501-bf4809eb7adf
 key: claude.instruction_file.obfuscation_absent
 aliases: []
 revision: "1"
-title: Claude Instruction File Must Not Be Obfuscated
+title: Claude instruction file must not be obfuscated
 description: Claude instruction files must not contain base64, high-entropy, or obfuscated prompt material.
 harness: claude_code
-asset_class: instruction_file
-asset_type: claude_md
+asset_type: instruction_file
+artifact_types:
+  - CLAUDE.md
+  - CLAUDE.local.md
 severity: high
 action: exclude_instruction_file

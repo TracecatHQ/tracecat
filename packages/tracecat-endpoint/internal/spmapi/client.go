@@ -49,16 +49,17 @@ type Endpoint struct {
 }
 
 type SyncAsset struct {
-	Harness       string         `json:"harness"`
-	AssetClass    string         `json:"asset_class"`
-	AssetType     string         `json:"asset_type"`
-	IdentityKey   string         `json:"identity_key"`
-	DisplayName   string         `json:"display_name"`
-	ContentHash   string         `json:"content_hash,omitempty"`
-	WorkspaceID   string         `json:"workspace_id,omitempty"`
-	Metadata      map[string]any `json:"metadata,omitempty"`
-	Evidence      map[string]any `json:"evidence,omitempty"`
-	ObservedState map[string]any `json:"observed_state,omitempty"`
+	Harness          string         `json:"harness"`
+	AssetType        string         `json:"asset_type"`
+	ArtifactType     string         `json:"artifact_type"`
+	ArtifactLocation string         `json:"artifact_location"`
+	IdentityKey      string         `json:"identity_key"`
+	DisplayName      string         `json:"display_name"`
+	ContentHash      string         `json:"content_hash,omitempty"`
+	WorkspaceID      string         `json:"workspace_id,omitempty"`
+	Metadata         map[string]any `json:"metadata,omitempty"`
+	Evidence         map[string]any `json:"evidence,omitempty"`
+	ObservedState    map[string]any `json:"observed_state,omitempty"`
 }
 
 type SyncTaskResult struct {

@@ -33,7 +33,8 @@ export function formatLabel(value: string | null | undefined) {
   if (!value) {
     return "Unknown"
   }
-  return value.replaceAll("_", " ")
+  const label = value.replaceAll("_", " ")
+  return label.charAt(0).toUpperCase() + label.slice(1)
 }
 
 export function formatRelativeTimestamp(value: string | null | undefined) {
@@ -102,35 +103,18 @@ export function getAssetRecord(
   return assets.find((asset) => asset.id === assetId)
 }
 
-export function getAssetPath(
-  asset: Pick<SpmAssetRead, "identity_key" | "metadata">
-) {
+export function getAssetPath(asset: {
+  artifact_location: string
+  identity_key: string
+  metadata?: Record<string, unknown> | null
+}) {
+  if (asset.artifact_location) {
+    return asset.artifact_location
+  }
   if (typeof asset.metadata?.file_path === "string") {
     return asset.metadata.file_path
   }
   return asset.identity_key
-}
-
-export function getPolicyScope(assetType: string) {
-  if (assetType === "claude_md") {
-    return {
-      description: "Claude local exclusions supported",
-      label: "Enforceable",
-      variant: "secondary" as BadgeVariant,
-    }
-  }
-  if (assetType === "agents_md") {
-    return {
-      description: "Inventory only for Claude",
-      label: "Inventory only",
-      variant: "outline" as BadgeVariant,
-    }
-  }
-  return {
-    description: "Standard inventory",
-    label: "Inventory",
-    variant: "outline" as BadgeVariant,
-  }
 }
 
 export function getFindingEnforcementState(finding: SpmFindingRead) {
@@ -148,7 +132,7 @@ export function getFindingEnforcementState(finding: SpmFindingRead) {
       variant: "default" as BadgeVariant,
     }
   }
-  if (finding.asset_type === "agents_md") {
+  if (finding.artifact_type === "AGENTS.md") {
     return {
       label: "Inventory only",
       value: "No Claude enforcement path",

@@ -2,6 +2,7 @@
 
 import {
   AlertTriangleIcon,
+  BotIcon,
   CheckCircleIcon,
   CircleHelpIcon,
   CirclePauseIcon,
@@ -12,9 +13,9 @@ import {
   ShieldCheckIcon,
   XCircleIcon,
 } from "lucide-react"
-import { type ComponentType, useMemo } from "react"
+import type { ComponentType } from "react"
 import type {
-  SpmAssetClass,
+  SpmArtifactType,
   SpmAssetType,
   SpmEndpointRead,
   SpmEndpointStatus,
@@ -36,6 +37,12 @@ import {
 } from "@/components/ui/select"
 import { cn } from "@/lib/utils"
 import { ALL_VALUE } from "./spm-common"
+import {
+  ARTIFACT_TYPE_ICONS,
+  ASSET_TYPE_ICONS,
+  artifactTypeLabel,
+  assetTypeLabel,
+} from "./spm-icons"
 
 export type FilterOption<TValue extends string = string> = {
   value: TValue
@@ -124,34 +131,54 @@ export const SEVERITY_OPTIONS: Array<
   { value: "low", label: "Low" },
 ]
 
-export const ASSET_CLASS_OPTIONS: Array<
-  FilterOption<SpmAssetClass | typeof ALL_VALUE>
-> = [
-  { value: ALL_VALUE, label: "All classes" },
-  { value: "mcp_server", label: "MCP server" },
-  { value: "skill", label: "Skill" },
-  { value: "instruction_file", label: "Instruction file" },
-  { value: "workspace_access", label: "Workspace access" },
-  { value: "permissions", label: "Permissions" },
-  { value: "sandbox", label: "Sandbox" },
-  { value: "extension", label: "Extension" },
-  { value: "agent", label: "Agent" },
-]
-
 export const ASSET_TYPE_OPTIONS: Array<
   FilterOption<SpmAssetType | typeof ALL_VALUE>
 > = [
-  { value: ALL_VALUE, label: "All types" },
-  { value: "mcp_server", label: "MCP server" },
-  { value: "skill", label: "Skill" },
-  { value: "claude_md", label: "CLAUDE.md" },
-  { value: "agents_md", label: "AGENTS.md" },
-  { value: "trusted_directory", label: "Trusted directory" },
-  { value: "additional_directory", label: "Additional directory" },
-  { value: "permission_config", label: "Permission config" },
-  { value: "sandbox_config", label: "Sandbox config" },
-  { value: "hook", label: "Hook" },
-  { value: "subagent", label: "Subagent" },
+  { value: ALL_VALUE, label: "All asset types" },
+  ...(
+    [
+      "hook",
+      "plugin",
+      "mcp_server",
+      "instruction_file",
+      "permission_config",
+      "sandbox_config",
+      "trusted_directory",
+      "additional_directory",
+      "skill",
+      "agent",
+    ] satisfies SpmAssetType[]
+  ).map((assetType) => ({
+    value: assetType,
+    label: assetTypeLabel(assetType),
+    icon: ASSET_TYPE_ICONS[assetType],
+  })),
+]
+
+export const ARTIFACT_TYPE_OPTIONS: Array<
+  FilterOption<SpmArtifactType | typeof ALL_VALUE>
+> = [
+  { value: ALL_VALUE, label: "All artifact types" },
+  ...(
+    [
+      "settings.json",
+      "settings.local.json",
+      ".claude.json",
+      "hooks.json",
+      ".mcp.json",
+      "CLAUDE.md",
+      "CLAUDE.local.md",
+      "AGENTS.md",
+      "skill-frontmatter",
+      "agent-frontmatter",
+      "plugin.json",
+      "directory",
+    ] satisfies SpmArtifactType[]
+  ).map((artifactType) => ({
+    value: artifactType,
+    label: artifactTypeLabel(artifactType),
+    icon: ARTIFACT_TYPE_ICONS[artifactType],
+  })),
 ]
 
 export const ENDPOINT_STATUS_OPTIONS: Array<
@@ -202,7 +229,7 @@ export const HARNESS_OPTIONS: Array<
   FilterOption<SpmHarness | typeof ALL_VALUE>
 > = [
   { value: ALL_VALUE, label: "All harnesses" },
-  { value: "claude_code", label: "Claude Code" },
+  { value: "claude_code", label: "Claude Code", icon: BotIcon },
 ]
 
 export function endpointOptions(endpoints: SpmEndpointRead[]) {
@@ -237,20 +264,6 @@ export function FilterSelect<TValue extends string>(props: {
   const selectedLabel =
     props.options.find((option) => option.value === props.value)?.label ??
     props.options[0]?.label
-  const widestOptionLength = useMemo(
-    () =>
-      props.options.reduce(
-        (max, option) => Math.max(max, option.label.length),
-        0
-      ),
-    [props.options]
-  )
-  const triggerStyle = useMemo(
-    () => ({
-      width: `calc(${widestOptionLength + props.label.length + 1}ch + 3.5rem)`,
-    }),
-    [widestOptionLength, props.label]
-  )
 
   return (
     <Select
@@ -259,10 +272,9 @@ export function FilterSelect<TValue extends string>(props: {
     >
       <SelectTrigger
         className={cn(
-          "h-6 w-auto gap-1.5 rounded-md px-2 text-xs font-medium",
+          "h-6 min-w-32 max-w-56 gap-1.5 rounded-md px-2 text-xs font-medium",
           isFiltered && "border-primary/50 bg-primary/5"
         )}
-        style={triggerStyle}
       >
         <div className="flex shrink-0 items-center gap-1.5 whitespace-nowrap text-muted-foreground">
           <Icon className="size-3.5 shrink-0" />

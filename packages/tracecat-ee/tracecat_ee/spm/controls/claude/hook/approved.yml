@@ -2,10 +2,9 @@ id: c08bb549-e616-41ce-a414-e2c13aa98a33
 key: claude.hook.approved
 aliases: []
 revision: "1"
-title: Claude Hook Must Be Approved
+title: Claude hook must be approved
 description: Hooks configured for Claude must be approved before they remain enabled.
 harness: claude_code
-asset_class: extension
 asset_type: hook
 severity: high
 action: disable_hook

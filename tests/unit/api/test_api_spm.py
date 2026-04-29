@@ -20,7 +20,7 @@ from tracecat_ee.spm.schemas import (
     SpmFindingRead,
 )
 from tracecat_ee.spm.types import (
-    SpmAssetClass,
+    SpmArtifactType,
     SpmAssetType,
     SpmEndpointPlatform,
     SpmEndpointStatus,
@@ -67,8 +67,9 @@ def _asset_read() -> SpmAssetRead:
         id=uuid.UUID("dddddddd-dddd-4ddd-dddd-dddddddddddd"),
         organization_id=uuid.UUID("11111111-1111-1111-1111-111111111111"),
         harness=SpmHarness.CLAUDE_CODE,
-        asset_class=SpmAssetClass.MCP_SERVER,
         asset_type=SpmAssetType.MCP_SERVER,
+        artifact_type=SpmArtifactType.CLAUDE_JSON,
+        artifact_location="/Users/chris/.claude.json",
         identity_key="file:/Users/chris/.claude.json#mcp:github|https://api.github.com/mcp",
         display_name="github",
         content_hash="abc123",
@@ -89,8 +90,9 @@ def _endpoint_asset_read() -> SpmEndpointAssetRead:
         endpoint_id=uuid.UUID("aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa"),
         workspace_id=None,
         harness=SpmHarness.CLAUDE_CODE,
-        asset_class=SpmAssetClass.MCP_SERVER,
         asset_type=SpmAssetType.MCP_SERVER,
+        artifact_type=SpmArtifactType.CLAUDE_JSON,
+        artifact_location="/Users/chris/.claude.json",
         identity_key="file:/Users/chris/.claude.json#mcp:github|https://api.github.com/mcp",
         display_name="github",
         content_hash="abc123",
@@ -108,10 +110,9 @@ def _control_read() -> SpmControlRead:
         key="claude.mcp_server.approved",
         aliases=[],
         revision="1",
-        title="Claude MCP Server Must Be Approved",
+        title="Claude MCP server must be approved",
         description="MCP servers configured for Claude must match an approved server-name plus resolved-identity tuple.",
         harness=SpmHarness.CLAUDE_CODE,
-        asset_class=SpmAssetClass.MCP_SERVER,
         asset_type=SpmAssetType.MCP_SERVER,
         severity=SpmSeverity.HIGH,
         action=SpmEnforcementAction.DISABLE_MCP_SERVER,
@@ -130,8 +131,9 @@ def _finding_read() -> SpmFindingRead:
         control_key="claude.mcp_server.approved",
         control_revision="1",
         harness=SpmHarness.CLAUDE_CODE,
-        asset_class=SpmAssetClass.MCP_SERVER,
         asset_type=SpmAssetType.MCP_SERVER,
+        artifact_type=SpmArtifactType.CLAUDE_JSON,
+        artifact_location="/Users/chris/.claude.json",
         severity=SpmSeverity.HIGH,
         status=SpmFindingStatus.OPEN,
         summary="Github MCP server is not approved",
@@ -432,8 +434,8 @@ async def test_list_spm_assets_passes_filters(
             params={
                 "endpoint_id": "aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa",
                 "harness": "claude_code",
-                "asset_class": "mcp_server",
                 "asset_type": "mcp_server",
+                "artifact_type": ".claude.json",
             },
         )
 
@@ -441,8 +443,8 @@ async def test_list_spm_assets_passes_filters(
     params = mock_service.list_assets.await_args.args[0]
     assert str(params.endpoint_id) == "aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa"
     assert params.harness == SpmHarness.CLAUDE_CODE
-    assert params.asset_class == SpmAssetClass.MCP_SERVER
     assert params.asset_type == SpmAssetType.MCP_SERVER
+    assert params.artifact_type == SpmArtifactType.CLAUDE_JSON
 
 
 @pytest.mark.anyio

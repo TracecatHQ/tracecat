@@ -310,14 +310,13 @@ def _get_control_definition(
 
 @lru_cache(maxsize=1)
 def _control_definitions_by_target() -> dict[
-    tuple[str, str, str], tuple[SpmControlDefinition, ...]
+    tuple[str, str], tuple[SpmControlDefinition, ...]
 ]:
-    grouped: dict[tuple[str, str, str], list[SpmControlDefinition]] = {}
+    grouped: dict[tuple[str, str], list[SpmControlDefinition]] = {}
     for definition in _get_control_definitions():
         control = definition.control
         target = (
             control.harness.value,
-            control.asset_class.value,
             control.asset_type.value,
         )
         grouped.setdefault(target, []).append(definition)
@@ -328,9 +327,15 @@ def _control_definitions_by_target() -> dict[
 
 
 def _controls_for_asset(asset: SpmAsset) -> tuple[SpmControlDefinition, ...]:
-    return _control_definitions_by_target().get(
-        (asset.harness, asset.asset_class, asset.asset_type),
-        (),
+    definitions = _control_definitions_by_target().get(
+        (asset.harness, asset.asset_type), ()
+    )
+    return tuple(
+        definition
+        for definition in definitions
+        if not definition.control.artifact_types
+        or asset.artifact_type
+        in {artifact_type.value for artifact_type in definition.control.artifact_types}
     )
 
 
@@ -357,8 +362,9 @@ def _control_data_from_rows(
         "identity_key": asset.identity_key,
         "display_name": asset.display_name,
         "harness": asset.harness,
-        "asset_class": asset.asset_class,
         "asset_type": asset.asset_type,
+        "artifact_type": asset.artifact_type,
+        "artifact_location": asset.artifact_location,
         "content_hash": sighting.content_hash or asset.content_hash,
         "metadata": metadata,
         "evidence": evidence,
@@ -427,7 +433,7 @@ def _control_data_from_rows(
                     "skill": evidence.get("skill"),
                 }
             )
-        case SpmAssetType.CLAUDE_MD.value:
+        case SpmAssetType.INSTRUCTION_FILE.value:
             return SpmInstructionFileControlData.model_validate(
                 {
                     **base,
@@ -566,10 +572,10 @@ class SpmService(BaseOrgService):
         stmt = select(SpmAsset).where(SpmAsset.organization_id == self.organization_id)
         if params.harness is not None:
             stmt = stmt.where(SpmAsset.harness == params.harness.value)
-        if params.asset_class is not None:
-            stmt = stmt.where(SpmAsset.asset_class == params.asset_class.value)
         if params.asset_type is not None:
             stmt = stmt.where(SpmAsset.asset_type == params.asset_type.value)
+        if params.artifact_type is not None:
+            stmt = stmt.where(SpmAsset.artifact_type == params.artifact_type.value)
         if params.endpoint_id is not None:
             asset_sighting_exists = (
                 select(SpmAssetSighting.id)
@@ -623,8 +629,9 @@ class SpmService(BaseOrgService):
                 SpmAssetSighting.endpoint_id.label("endpoint_id"),
                 SpmAssetSighting.workspace_id.label("workspace_id"),
                 SpmAsset.harness.label("harness"),
-                SpmAsset.asset_class.label("asset_class"),
                 SpmAsset.asset_type.label("asset_type"),
+                SpmAsset.artifact_type.label("artifact_type"),
+                SpmAsset.artifact_location.label("artifact_location"),
                 SpmAsset.identity_key.label("identity_key"),
                 SpmAsset.display_name.label("display_name"),
                 SpmAssetSighting.content_hash.label("content_hash"),
@@ -974,7 +981,7 @@ class SpmSyncService:
                 metadata=metadata,
                 evidence=evidence,
             )
-        if asset.asset_type == SpmAssetType.CLAUDE_MD.value:
+        if asset.asset_type == SpmAssetType.INSTRUCTION_FILE.value:
             return await threat_intel_provider.enrich_instruction_file(
                 metadata=metadata,
                 evidence=evidence,
@@ -1009,8 +1016,9 @@ class SpmSyncService:
                 control_key=control.key,
                 control_revision=control.revision,
                 harness=control.harness.value,
-                asset_class=control.asset_class.value,
-                asset_type=control.asset_type.value,
+                asset_type=asset.asset_type,
+                artifact_type=asset.artifact_type,
+                artifact_location=asset.artifact_location,
                 severity=control.severity.value,
                 status=SpmFindingStatus.OPEN.value,
                 summary=result.summary,
@@ -1028,8 +1036,9 @@ class SpmSyncService:
         finding.control_key = control.key
         finding.control_revision = control.revision
         finding.harness = control.harness.value
-        finding.asset_class = control.asset_class.value
-        finding.asset_type = control.asset_type.value
+        finding.asset_type = asset.asset_type
+        finding.artifact_type = asset.artifact_type
+        finding.artifact_location = asset.artifact_location
         finding.severity = control.severity.value
         finding.summary = result.summary
         finding.evidence = result.evidence
@@ -1105,8 +1114,9 @@ class SpmSyncService:
         stmt = select(SpmAsset).where(
             SpmAsset.organization_id == endpoint.organization_id,
             SpmAsset.harness == asset.harness.value,
-            SpmAsset.asset_class == asset.asset_class.value,
             SpmAsset.asset_type == asset.asset_type.value,
+            SpmAsset.artifact_type == asset.artifact_type.value,
+            SpmAsset.artifact_location == asset.artifact_location,
             SpmAsset.identity_key == asset.identity_key,
         )
         now = datetime.now(UTC)
@@ -1116,8 +1126,9 @@ class SpmSyncService:
                 id=uuid.uuid4(),
                 organization_id=endpoint.organization_id,
                 harness=asset.harness.value,
-                asset_class=asset.asset_class.value,
                 asset_type=asset.asset_type.value,
+                artifact_type=asset.artifact_type.value,
+                artifact_location=asset.artifact_location,
                 identity_key=asset.identity_key,
                 display_name=asset.display_name,
                 content_hash=asset.content_hash,

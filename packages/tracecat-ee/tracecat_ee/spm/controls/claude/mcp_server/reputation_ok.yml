@@ -2,10 +2,9 @@ id: 6030d9e9-8c58-4068-89fa-74a4ffbaf5c1
 key: claude.mcp_server.reputation_ok
 aliases: []
 revision: "1"
-title: Claude MCP Server Must Have Good Reputation
+title: Claude MCP server must have good reputation
 description: MCP servers configured for Claude must pass the configured reputation checks for the resolved identity.
 harness: claude_code
-asset_class: mcp_server
 asset_type: mcp_server
 severity: medium
 action: disable_mcp_server

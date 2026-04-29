@@ -5,8 +5,11 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react"
 import type { ReactNode } from "react"
 import type {
+  SpmArtifactType,
   SpmAssetRead,
+  SpmAssetType,
   SpmControlRead,
+  SpmEndpointAssetRead,
   SpmEndpointRead,
   SpmFindingRead,
 } from "@/client"
@@ -26,6 +29,7 @@ const mockUseEntitlements = jest.fn()
 const mockUseSpmActions = jest.fn()
 const mockUseSpmAssets = jest.fn()
 const mockUseSpmControls = jest.fn()
+const mockUseSpmEndpointAssetsForEndpoints = jest.fn()
 const mockUseSpmEndpoints = jest.fn()
 const mockUseSpmFindings = jest.fn()
 
@@ -103,6 +107,8 @@ jest.mock("@/hooks/use-spm", () => ({
   useSpmActions: () => mockUseSpmActions(),
   useSpmAssets: (params?: unknown) => mockUseSpmAssets(params),
   useSpmControls: () => mockUseSpmControls(),
+  useSpmEndpointAssetsForEndpoints: (endpointIds: string[]) =>
+    mockUseSpmEndpointAssetsForEndpoints(endpointIds),
   useSpmEndpoints: () => mockUseSpmEndpoints(),
   useSpmFindings: (params?: unknown) => mockUseSpmFindings(params),
 }))
@@ -154,14 +160,17 @@ function asset(
   id: string,
   endpointId: string,
   displayName: string,
-  assetType: SpmAssetRead["asset_type"]
+  assetType: SpmAssetType,
+  artifactType: SpmArtifactType
 ): SpmAssetRead {
+  const artifactLocation =
+    displayName === "github"
+      ? "/Users/chris/.claude.json"
+      : `/Users/chris/project/${displayName}`
   return {
-    asset_class:
-      assetType === "claude_md" || assetType === "agents_md"
-        ? "instruction_file"
-        : "mcp_server",
     asset_type: assetType,
+    artifact_location: artifactLocation,
+    artifact_type: artifactType,
     content_hash: null,
     created_at: "2026-04-22T00:00:00Z",
     display_name: displayName,
@@ -171,13 +180,35 @@ function asset(
     identity_key: `${endpointId}:${displayName}`,
     last_seen_at: "2026-04-22T00:00:00Z",
     metadata: {
-      file_path:
-        displayName === "github"
-          ? "/Users/chris/.claude.json"
-          : `/Users/chris/project/${displayName}`,
+      file_path: artifactLocation,
     },
     organization_id: "org-1",
     updated_at: "2026-04-22T00:00:00Z",
+  }
+}
+
+function endpointAsset(
+  asset: SpmAssetRead,
+  endpointId: string
+): SpmEndpointAssetRead {
+  return {
+    asset_id: asset.id,
+    asset_sighting_id: `${endpointId}:${asset.id}`,
+    asset_type: asset.asset_type,
+    artifact_location: asset.artifact_location,
+    artifact_type: asset.artifact_type,
+    content_hash: asset.content_hash,
+    display_name: asset.display_name,
+    endpoint_id: endpointId,
+    evidence: {},
+    first_seen_at: asset.first_seen_at,
+    harness: asset.harness,
+    identity_key: asset.identity_key,
+    last_seen_at: asset.last_seen_at,
+    metadata: asset.metadata,
+    observed_state: {},
+    organization_id: asset.organization_id,
+    workspace_id: null,
   }
 }
 
@@ -185,17 +216,19 @@ function finding(
   id: string,
   endpointId: string,
   assetId: string,
-  assetType: SpmFindingRead["asset_type"],
+  assetType: SpmAssetType,
+  artifactType: SpmArtifactType,
   overrides: Partial<SpmFindingRead> = {}
 ): SpmFindingRead {
   return {
-    asset_class:
-      assetType === "claude_md" || assetType === "agents_md"
-        ? "instruction_file"
-        : "mcp_server",
     asset_id: assetId,
     asset_sighting_id: null,
     asset_type: assetType,
+    artifact_location:
+      artifactType === ".claude.json"
+        ? "/Users/chris/.claude.json"
+        : `/Users/chris/project/${artifactType}`,
+    artifact_type: artifactType,
     closed_at: null,
     control_id:
       assetType === "mcp_server"
@@ -216,12 +249,12 @@ function finding(
     opened_at: "2026-04-22T00:00:00Z",
     organization_id: "org-1",
     recommended_action:
-      assetType === "agents_md" ? null : "exclude_instruction_file",
+      artifactType === "AGENTS.md" ? null : "exclude_instruction_file",
     recommended_payload: {},
     severity: "high",
     status: "open",
     summary:
-      assetType === "agents_md"
+      artifactType === "AGENTS.md"
         ? "AGENTS.md should be reviewed"
         : "Instruction file requires enforcement",
     updated_at: "2026-04-22T00:00:00Z",
@@ -233,15 +266,16 @@ function control(
   id: string,
   key: string,
   title: string,
-  assetType: SpmControlRead["asset_type"]
+  assetType: SpmAssetType
 ): SpmControlRead {
   return {
     action:
       assetType === "mcp_server"
         ? "disable_mcp_server"
         : "exclude_instruction_file",
-    asset_class: assetType === "mcp_server" ? "mcp_server" : "instruction_file",
     asset_type: assetType,
+    artifact_types:
+      assetType === "instruction_file" ? ["CLAUDE.md", "CLAUDE.local.md"] : [],
     aliases: [],
     description: `${title} description`,
     harness: "claude_code",
@@ -263,8 +297,21 @@ describe("SPM operator UI", () => {
     endpoint("endpoint-active", "Active MacBook"),
   ]
   const assets = [
-    asset("asset-1", "endpoint-1", "github", "mcp_server"),
-    asset("asset-2", "endpoint-2", "CLAUDE.md", "claude_md"),
+    asset("asset-1", "endpoint-1", "github", "mcp_server", ".claude.json"),
+    asset(
+      "asset-2",
+      "endpoint-2",
+      "CLAUDE.md",
+      "instruction_file",
+      "CLAUDE.md"
+    ),
+    asset(
+      "asset-3",
+      "endpoint-2",
+      "AGENTS.md",
+      "instruction_file",
+      "AGENTS.md"
+    ),
   ]
 
   beforeEach(() => {
@@ -288,11 +335,21 @@ describe("SPM operator UI", () => {
     mockUseSpmAssets.mockImplementation((params?: { endpointId?: string }) => {
       if (params?.endpointId) {
         const filteredAssets =
-          params.endpointId === "endpoint-2" ? [assets[1]] : [assets[0]]
+          params.endpointId === "endpoint-2" ? assets.slice(1) : [assets[0]]
         return paginated(filteredAssets)
       }
       return paginated(assets)
     })
+    mockUseSpmEndpointAssetsForEndpoints.mockImplementation(
+      (endpointIds: string[]) =>
+        endpointIds.map((endpointId) =>
+          paginated(
+            assets
+              .filter((item) => item.identity_key.startsWith(`${endpointId}:`))
+              .map((item) => endpointAsset(item, endpointId))
+          )
+        )
+    )
     mockUseSpmControls.mockReturnValue({
       data: [
         control(
@@ -305,7 +362,7 @@ describe("SPM operator UI", () => {
           "4fd32453-138e-4273-8501-bf4809eb7adf",
           "claude.instruction_file.obfuscation_absent",
           "Instruction files must not be obfuscated",
-          "claude_md"
+          "instruction_file"
         ),
       ],
       isLoading: false,
@@ -313,16 +370,37 @@ describe("SPM operator UI", () => {
     mockUseSpmFindings.mockImplementation(
       (params?: { controlId?: string; endpointId?: string }) => {
         const findings = [
-          finding("finding-1", "endpoint-1", "asset-1", "mcp_server", {
-            recommended_action: "disable_mcp_server",
-            summary: "Github MCP server is not approved",
-          }),
-          finding("finding-2", "endpoint-2", "asset-2", "claude_md", {
-            summary: "CLAUDE.md should be excluded",
-          }),
-          finding("finding-3", "endpoint-2", "asset-2", "agents_md", {
-            summary: "AGENTS.md is inventory only",
-          }),
+          finding(
+            "finding-1",
+            "endpoint-1",
+            "asset-1",
+            "mcp_server",
+            ".claude.json",
+            {
+              recommended_action: "disable_mcp_server",
+              summary: "Github MCP server is not approved",
+            }
+          ),
+          finding(
+            "finding-2",
+            "endpoint-2",
+            "asset-2",
+            "instruction_file",
+            "CLAUDE.md",
+            {
+              summary: "CLAUDE.md should be excluded",
+            }
+          ),
+          finding(
+            "finding-3",
+            "endpoint-2",
+            "asset-3",
+            "instruction_file",
+            "AGENTS.md",
+            {
+              summary: "AGENTS.md is inventory only",
+            }
+          ),
         ]
         const filteredFindings = findings.filter((item) => {
           if (params?.controlId && item.control_id !== params.controlId) {
@@ -338,19 +416,17 @@ describe("SPM operator UI", () => {
     )
   })
 
-  it("filters assets by endpoint name and passes the resolved endpoint id", async () => {
+  it("groups assets by endpoint using endpoint-scoped inventory", async () => {
     render(<SpmAssetsView />)
 
-    fireEvent.change(screen.getByLabelText("Filter by endpoint"), {
-      target: { value: "endpoint-2" },
-    })
-
     await waitFor(() => {
-      expect(mockUseSpmAssets).toHaveBeenLastCalledWith(
-        expect.objectContaining({ endpointId: "endpoint-2" })
-      )
+      expect(mockUseSpmEndpointAssetsForEndpoints).toHaveBeenLastCalledWith([
+        "endpoint-1",
+        "endpoint-2",
+      ])
     })
     expect(screen.getAllByText("CLAUDE.md").length).toBeGreaterThan(0)
+    expect(screen.getByText("/Users/chris/.claude.json")).toBeInTheDocument()
   })
 
   it("shows control detail drill-in for the selected control", async () => {
@@ -379,16 +455,19 @@ describe("SPM operator UI", () => {
     expect(screen.getByText("Inventory only")).toBeInTheDocument()
   })
 
-  it("filters findings by status and resets the feed filters", async () => {
+  it("filters findings by search and resets the feed filters", async () => {
     render(<SpmFindingsView />)
 
-    fireEvent.change(screen.getByLabelText("Filter by status"), {
-      target: { value: "resolved" },
+    fireEvent.change(screen.getByPlaceholderText("Search findings..."), {
+      target: { value: "Github" },
     })
 
     await waitFor(() => {
-      expect(screen.getByText("No matching records.")).toBeInTheDocument()
+      expect(
+        screen.getByText("Github MCP server is not approved")
+      ).toBeInTheDocument()
     })
+    expect(screen.queryByText("CLAUDE.md should be excluded")).toBeNull()
 
     fireEvent.click(screen.getByRole("button", { name: /Reset/i }))
 
@@ -470,9 +549,8 @@ describe("SPM operator UI", () => {
     expect(
       screen.getByPlaceholderText("Search endpoints...")
     ).toBeInTheDocument()
-    expect(screen.getByLabelText("Filter by status")).toBeInTheDocument()
-    expect(screen.getByLabelText("Filter by compliance")).toBeInTheDocument()
-    expect(screen.getByLabelText("Filter by sync")).toBeInTheDocument()
+    expect(screen.getByText("Status")).toBeInTheDocument()
+    expect(screen.getByText("Compliance")).toBeInTheDocument()
     expect(
       screen.getByRole("button", { name: "Install endpoint" })
     ).toBeInTheDocument()
@@ -485,9 +563,9 @@ describe("SPM operator UI", () => {
   it("shows the endpoint header status with the endpoint poll cadence", () => {
     render(<SpmEndpointsView />)
 
-    expect(
-      screen.getByText("2 endpoints · Poll every 5 minutes")
-    ).toBeInTheDocument()
+    expect(screen.getByText("2 endpoints")).toBeInTheDocument()
+    expect(screen.getByText("Chris MacBook")).toBeInTheDocument()
+    expect(screen.getByText("CI Mac Mini")).toBeInTheDocument()
   })
 
   it("shows refreshing endpoint header status while keeping cached rows", () => {
@@ -498,7 +576,7 @@ describe("SPM operator UI", () => {
 
     render(<SpmEndpointsView />)
 
-    expect(screen.getByText("2 endpoints · Refreshing...")).toBeInTheDocument()
+    expect(screen.getByText("2 endpoints")).toBeInTheDocument()
     expect(screen.getByText("Chris MacBook")).toBeInTheDocument()
     expect(screen.getByText("CI Mac Mini")).toBeInTheDocument()
   })
@@ -517,7 +595,7 @@ describe("SPM operator UI", () => {
       screen.getByPlaceholderText("Search endpoints...")
     ).toBeInTheDocument()
     expect(screen.getByText("Chris MacBook")).toBeInTheDocument()
-    expect(screen.getAllByText("Checking findings").length).toBeGreaterThan(0)
+    expect(screen.getAllByText("Unknown").length).toBeGreaterThan(0)
   })
 
   it("keeps endpoint headers visible when findings fail to load", () => {
@@ -537,9 +615,7 @@ describe("SPM operator UI", () => {
       screen.getByPlaceholderText("Search endpoints...")
     ).toBeInTheDocument()
     expect(screen.getByText("Chris MacBook")).toBeInTheDocument()
-    expect(screen.getAllByText("Findings unavailable").length).toBeGreaterThan(
-      0
-    )
+    expect(screen.getByText(/Findings are unavailable/)).toBeInTheDocument()
     expect(screen.getByText(/database unavailable/)).toBeInTheDocument()
   })
 

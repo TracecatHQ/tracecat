@@ -2,10 +2,12 @@ id: 87c10d25-c2c0-4803-82c0-19da6255b5e7
 key: claude.instruction_file.language_english
 aliases: []
 revision: "1"
-title: Claude Instruction File Must Be English
+title: Claude instruction file must be English
 description: Claude instruction files must remain English-language when the policy requires it.
 harness: claude_code
-asset_class: instruction_file
-asset_type: claude_md
+asset_type: instruction_file
+artifact_types:
+  - CLAUDE.md
+  - CLAUDE.local.md
 severity: medium
 action: exclude_instruction_file

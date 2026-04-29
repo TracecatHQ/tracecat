@@ -11,7 +11,7 @@ from tracecat_ee.spm.service import (
     get_control_catalog,
     load_control_catalog_from_directory,
 )
-from tracecat_ee.spm.types import SpmAssetClass, SpmAssetType
+from tracecat_ee.spm.types import SpmArtifactType, SpmAssetType
 
 
 def test_builtin_spm_control_catalog_contains_required_v1_controls() -> None:
@@ -39,18 +39,23 @@ def test_builtin_spm_control_catalog_keeps_claude_instruction_file_taxonomy() ->
     instruction_controls = [
         control
         for control in get_control_catalog()
-        if control.asset_class == SpmAssetClass.INSTRUCTION_FILE
+        if control.asset_type == SpmAssetType.INSTRUCTION_FILE
     ]
 
     assert instruction_controls
-    assert {control.asset_type for control in instruction_controls} == {
-        SpmAssetType.CLAUDE_MD
+    assert {
+        artifact
+        for control in instruction_controls
+        for artifact in control.artifact_types
+    } == {
+        SpmArtifactType.CLAUDE_MD,
+        SpmArtifactType.CLAUDE_LOCAL_MD,
     }
 
 
 def test_builtin_spm_control_catalog_omits_agents_md_for_claude_v1() -> None:
     assert all(
-        control.asset_type != SpmAssetType.AGENTS_MD
+        SpmArtifactType.AGENTS_MD not in control.artifact_types
         for control in get_control_catalog()
     )
 
@@ -59,7 +64,6 @@ def test_get_control_returns_expected_manifest_by_key_and_uuid() -> None:
     control = get_control("claude.mcp_server.approved")
 
     assert control is not None
-    assert control.asset_class == SpmAssetClass.MCP_SERVER
     assert control.asset_type == SpmAssetType.MCP_SERVER
     assert get_control(control.id) == control
 
@@ -121,7 +125,6 @@ def _manifest(
             "title: Test Control",
             "description: Test manifest.",
             "harness: claude_code",
-            "asset_class: mcp_server",
             "asset_type: mcp_server",
             "severity: low",
             f"action: {action}",

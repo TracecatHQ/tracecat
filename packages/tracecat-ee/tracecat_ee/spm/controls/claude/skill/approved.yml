@@ -2,10 +2,9 @@ id: 2318df58-a153-4a71-ae52-ddee6270d976
 key: claude.skill.approved
 aliases: []
 revision: "1"
-title: Claude Skill Must Be Approved
+title: Claude skill must be approved
 description: Skills configured for Claude must be approved before they remain enabled.
 harness: claude_code
-asset_class: skill
 asset_type: skill
 severity: medium
 action: disable_skill

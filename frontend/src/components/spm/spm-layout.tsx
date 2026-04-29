@@ -26,6 +26,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
+import { getRelativeDateLabel } from "@/lib/date-relative"
 import { cn } from "@/lib/utils"
 import type { BadgeVariant } from "./spm-common"
 
@@ -137,6 +138,7 @@ export function SpmAccordion<TValue extends string>(props: {
   children: (value: TValue) => ReactNode
   groups: Array<{
     count: number
+    disabled?: boolean
     icon: LucideIcon
     iconClassName: string
     label: string
@@ -145,7 +147,7 @@ export function SpmAccordion<TValue extends string>(props: {
   }>
 }) {
   const defaultOpen = props.groups
-    .filter((group) => group.count > 0)
+    .filter((group) => group.count > 0 && !group.disabled)
     .map((group) => group.value)
 
   return (
@@ -165,16 +167,23 @@ export function SpmAccordion<TValue extends string>(props: {
             >
               <AccordionPrimitive.Header className="flex">
                 <AccordionPrimitive.Trigger
+                  disabled={group.disabled}
                   className={cn(
                     "flex w-full items-center gap-1 border-l-2 border-l-transparent py-1.5 pl-[10px] pr-3 text-left transition-colors",
                     "hover:bg-muted/50",
                     "[&[data-state=open]_.chevron]:rotate-90",
                     "data-[state=open]:border-l-current",
+                    "disabled:pointer-events-none disabled:opacity-60",
                     group.triggerClassName
                   )}
                 >
                   <div className="flex h-7 w-7 shrink-0 items-center justify-center">
-                    <ChevronRightIcon className="chevron size-4 text-muted-foreground transition-transform duration-200" />
+                    <ChevronRightIcon
+                      className={cn(
+                        "chevron size-4 text-muted-foreground transition-transform duration-200",
+                        group.disabled && "opacity-30"
+                      )}
+                    />
                   </div>
                   <div className="flex items-center gap-1.5">
                     <GroupIcon
@@ -218,12 +227,12 @@ export function SpmCompactRow(props: {
         )}
       </div>
       <div className="min-w-0 flex-1">
-        <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
-          <div className="flex min-w-0 items-center gap-2 truncate text-xs">
+        <div className="flex min-w-0 items-center gap-3">
+          <div className="flex min-w-0 flex-1 items-center gap-2 truncate text-xs">
             {props.title}
           </div>
           {props.badges ? (
-            <div className="flex min-w-0 flex-wrap items-center gap-1">
+            <div className="hidden w-[360px] shrink-0 items-center justify-start gap-1 md:flex">
               {props.badges}
             </div>
           ) : null}
@@ -288,22 +297,6 @@ export function SmallBadge(props: {
   )
 }
 
-function shortTimeAgo(date: Date): string {
-  const diffMs = Date.now() - date.getTime()
-  const diffMins = Math.floor(diffMs / 60_000)
-  const diffHours = Math.floor(diffMs / 3_600_000)
-  const diffDays = Math.floor(diffMs / 86_400_000)
-  const diffWeeks = Math.floor(diffDays / 7)
-  const diffMonths = Math.floor(diffDays / 30)
-
-  if (diffMins < 1) return "now"
-  if (diffMins < 60) return `${diffMins}m`
-  if (diffHours < 24) return `${diffHours}h`
-  if (diffDays < 7) return `${diffDays}d`
-  if (diffDays < 30) return `${diffWeeks}w`
-  return `${diffMonths}mo`
-}
-
 const TIMESTAMP_BADGE_CLASS = "h-5 cursor-default px-2 text-[10px] font-normal"
 
 export function SpmTimestamp(props: {
@@ -337,7 +330,7 @@ export function SpmTimestamp(props: {
         <TooltipTrigger asChild>
           <Badge variant="secondary" className={TIMESTAMP_BADGE_CLASS}>
             <Icon className="mr-1 size-3" />
-            {props.label} {shortTimeAgo(date)}
+            {props.label} {getRelativeDateLabel(props.value)}
           </Badge>
         </TooltipTrigger>
         <TooltipContent>

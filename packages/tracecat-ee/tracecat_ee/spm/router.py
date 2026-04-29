@@ -44,7 +44,7 @@ from tracecat_ee.spm.schemas import (
     SpmFindingRead,
 )
 from tracecat_ee.spm.service import SpmService, SpmSyncService
-from tracecat_ee.spm.types import SpmAssetClass, SpmAssetType, SpmHarness
+from tracecat_ee.spm.types import SpmArtifactType, SpmAssetType, SpmHarness
 
 router = APIRouter(prefix="/spm", tags=["spm"])
 
@@ -109,8 +109,8 @@ def _asset_query_params(
     cursor: str | None = Query(default=None),
     harness: SpmHarness | None = Query(default=None),
     endpoint_id: uuid.UUID | None = Query(default=None),
-    asset_class: SpmAssetClass | None = Query(default=None),
     asset_type: SpmAssetType | None = Query(default=None),
+    artifact_type: SpmArtifactType | None = Query(default=None),
 ) -> SpmAssetQueryParams:
     return SpmAssetQueryParams.model_validate(
         {
@@ -118,8 +118,8 @@ def _asset_query_params(
             "cursor": cursor,
             "harness": harness,
             "endpoint_id": endpoint_id,
-            "asset_class": asset_class,
             "asset_type": asset_type,
+            "artifact_type": artifact_type,
         }
     )
 

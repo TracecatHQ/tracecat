@@ -5,7 +5,7 @@ from datetime import UTC, datetime
 
 from tracecat_ee.spm.schemas import SpmEndpointAssetRead, SpmSyncTaskResult
 from tracecat_ee.spm.types import (
-    SpmAssetClass,
+    SpmArtifactType,
     SpmAssetType,
     SpmEnforcementAction,
     SpmHarness,
@@ -51,8 +51,9 @@ def test_endpoint_asset_read_accepts_asset_metadata_alias() -> None:
             "endpoint_id": uuid.UUID("cccccccc-cccc-4ccc-cccc-cccccccccccc"),
             "workspace_id": None,
             "harness": SpmHarness.CLAUDE_CODE,
-            "asset_class": SpmAssetClass.INSTRUCTION_FILE,
-            "asset_type": SpmAssetType.CLAUDE_MD,
+            "asset_type": SpmAssetType.INSTRUCTION_FILE,
+            "artifact_type": SpmArtifactType.CLAUDE_MD,
+            "artifact_location": "/Users/chris/project/CLAUDE.md",
             "identity_key": "/Users/chris/project/CLAUDE.md",
             "display_name": "CLAUDE.md",
             "content_hash": "abc123",
