@@ -37,7 +37,7 @@ from tracecat.db.models import Interaction
 from tracecat.dsl.client import get_temporal_client
 from tracecat.dsl.common import RETRY_POLICIES, DSLInput, DSLRunArgs
 from tracecat.dsl.enums import PlatformAction
-from tracecat.dsl.schemas import RunActionInput, TriggerInputs
+from tracecat.dsl.schemas import TriggerInputs
 from tracecat.dsl.types import Task
 from tracecat.dsl.workflow import DSLWorkflow
 from tracecat.ee.interactions.schemas import InteractionInput
@@ -155,9 +155,9 @@ def _extract_while_metadata(
     return None, None
 
 
-def _sanitize_action_result(action_input: Any | None, action_result: Any) -> Any:
+def _sanitize_action_result(mask_output: bool, action_result: Any) -> Any:
     """Redact action output for API consumers when the statement opts in."""
-    if isinstance(action_input, RunActionInput) and action_input.task.mask_output:
+    if mask_output:
         return "[REDACTED]"
     return action_result
 
@@ -702,14 +702,12 @@ class WorkflowExecutionsService:
                     source.close_time = event.event_time.ToDatetime(datetime.UTC)
                     raw_result = await get_result(event)
                     source.action_result = _sanitize_action_result(
-                        source.action_input, raw_result
+                        source.should_mask_output, raw_result
                     )
                     (
                         source.while_iteration,
                         source.while_continue,
-                    ) = _extract_while_metadata(
-                        source.action_name, raw_result
-                    )
+                    ) = _extract_while_metadata(source.action_name, raw_result)
                 if is_error_event(event):
                     source.action_error = await EventFailure.from_history_event(event)
 

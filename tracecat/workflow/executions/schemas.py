@@ -15,7 +15,14 @@ from typing import (
 import temporalio.api.enums.v1
 import temporalio.api.history.v1
 from google.protobuf.json_format import MessageToDict
-from pydantic import BaseModel, ConfigDict, Field, PlainSerializer, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    PlainSerializer,
+    PrivateAttr,
+    model_validator,
+)
 from temporalio.api.failure.v1 import Failure
 from temporalio.client import WorkflowExecution, WorkflowExecutionStatus
 from tracecat_ee.agent.types import AgentWorkflowID
@@ -707,6 +714,8 @@ class WorkflowExecutionEventCompact[TInput: Any, TResult: Any, TSessionEvent: An
 ):
     """A compact representation of a workflow execution event."""
 
+    _mask_output: bool = PrivateAttr(default=False)
+
     source_event_id: int
     """The event ID of the source event."""
     schedule_time: datetime
@@ -733,6 +742,13 @@ class WorkflowExecutionEventCompact[TInput: Any, TResult: Any, TSessionEvent: An
     child_wf_wait_strategy: WaitStrategy | None = None
     # SSE streaming for agents
     session: Session[TSessionEvent] | None = None
+
+    @property
+    def should_mask_output(self) -> bool:
+        return self._mask_output
+
+    def set_mask_output(self, mask_output: bool) -> None:
+        self._mask_output = mask_output
 
     @staticmethod
     async def from_source_event(
@@ -801,7 +817,7 @@ class WorkflowExecutionEventCompact[TInput: Any, TResult: Any, TSessionEvent: An
                 logger.debug("Scatter input task is None", event_id=event.event_id)
                 return None
 
-            return WorkflowExecutionEventCompact(
+            compact_event = WorkflowExecutionEventCompact(
                 source_event_id=event.event_id,
                 schedule_time=event.event_time.ToDatetime(UTC),
                 curr_event_type=HISTORY_TO_WF_EVENT_TYPE[event.event_type],
@@ -812,6 +828,8 @@ class WorkflowExecutionEventCompact[TInput: Any, TResult: Any, TSessionEvent: An
                 stream_id=scatter_input.stream_id or ROOT_STREAM,
                 session=None,
             )
+            compact_event.set_mask_output(task.mask_output)
+            return compact_event
 
         # Handle RunActionInput for other action activities
         try:
@@ -828,7 +846,7 @@ class WorkflowExecutionEventCompact[TInput: Any, TResult: Any, TSessionEvent: An
         if action_input.session_id is not None:
             session = Session(id=action_input.session_id)  # No events
 
-        return WorkflowExecutionEventCompact(
+        compact_event = WorkflowExecutionEventCompact(
             source_event_id=event.event_id,
             schedule_time=event.event_time.ToDatetime(UTC),
             curr_event_type=HISTORY_TO_WF_EVENT_TYPE[event.event_type],
@@ -839,6 +857,8 @@ class WorkflowExecutionEventCompact[TInput: Any, TResult: Any, TSessionEvent: An
             stream_id=action_input.stream_id,
             session=session,
         )
+        compact_event.set_mask_output(task.mask_output)
+        return compact_event
 
     @staticmethod
     async def from_initiated_child_workflow(

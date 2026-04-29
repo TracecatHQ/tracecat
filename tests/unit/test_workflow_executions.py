@@ -13,6 +13,7 @@ Objectives
 
 import datetime
 import hashlib
+import uuid
 from typing import Any, cast
 from unittest.mock import AsyncMock, Mock, patch
 
@@ -28,9 +29,14 @@ from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.db.models import Workspace
 from tracecat.dsl.common import DSLInput
-from tracecat.dsl.schemas import StreamID
-from tracecat.identifiers.workflow import WorkflowExecutionID, WorkflowUUID
+from tracecat.dsl.schemas import ActionStatement, RunActionInput, RunContext, StreamID
+from tracecat.identifiers.workflow import (
+    ExecutionUUID,
+    WorkflowExecutionID,
+    WorkflowUUID,
+)
 from tracecat.pagination import CursorPaginationParams
+from tracecat.registry.lock.types import RegistryLock
 from tracecat.storage.object import ExternalObject, InlineObject, ObjectRef
 from tracecat.workflow.executions.common import UnreadableTemporalPayload
 from tracecat.workflow.executions.enums import (
@@ -1160,6 +1166,115 @@ class TestWorkflowExecutionEvents:
                 assert (
                     event.curr_event_type == WorkflowEventType.ACTIVITY_TASK_COMPLETED
                 )
+
+    async def test_compact_scheduled_activity_preserves_mask_output_metadata(
+        self,
+    ) -> None:
+        """Compact events keep redaction metadata while exposing only task args."""
+        scheduled = create_mock_history_event(
+            event_id=1,
+            event_type=EventType.EVENT_TYPE_ACTIVITY_TASK_SCHEDULED,  # type: ignore
+            activity_id="masked-action",
+            activity_name="execute_action_activity",
+        )
+        action_name = "core.transform.reshape"
+        wf_id = WorkflowUUID.new_uuid4()
+        exec_id = ExecutionUUID.new_uuid4()
+        run_input = RunActionInput(
+            task=ActionStatement(
+                action=action_name,
+                args={"value": "visible-input"},
+                ref="masked_action",
+                mask_output=True,
+            ),
+            exec_context={"ACTIONS": {}, "TRIGGER": None},
+            run_context=RunContext(
+                wf_id=wf_id,
+                wf_exec_id=f"{wf_id.short()}/{exec_id.short()}",
+                wf_run_id=uuid.uuid4(),
+                environment="test",
+                logical_time=datetime.datetime.now(datetime.UTC),
+            ),
+            registry_lock=RegistryLock(
+                origins={"tracecat_registry": "test-version"},
+                actions={action_name: "tracecat_registry"},
+            ),
+        )
+
+        with patch(
+            "tracecat.workflow.executions.schemas.extract_first",
+            AsyncMock(return_value=run_input.model_dump(mode="json")),
+        ):
+            event = await WorkflowExecutionEventCompact.from_scheduled_activity(
+                scheduled
+            )
+
+        assert event is not None
+        assert event.action_input == {"value": "visible-input"}
+        assert event.should_mask_output is True
+
+    async def test_compact_masked_action_result_redacts_dict_action_input(
+        self,
+        workflow_executions_service: WorkflowExecutionsService,
+        workflow_exec_id: WorkflowExecutionID,
+    ) -> None:
+        """Masked action results redact even when compact action_input is task args."""
+        scheduled = create_mock_history_event(
+            event_id=1,
+            event_type=EventType.EVENT_TYPE_ACTIVITY_TASK_SCHEDULED,  # type: ignore
+            activity_id="masked-action",
+            activity_name="execute_action_activity",
+        )
+        completed = create_mock_history_event(
+            event_id=11,
+            event_type=EventType.EVENT_TYPE_ACTIVITY_TASK_COMPLETED,  # type: ignore
+            scheduled_event_id=1,
+        )
+
+        mock_handle = Mock(spec=WorkflowHandle)
+
+        async def mock_fetch_history_events(**kwargs):
+            yield scheduled
+            yield completed
+
+        mock_handle.fetch_history_events.return_value = mock_fetch_history_events()
+        mock_handle.describe = AsyncMock(
+            return_value=Mock(raw_description=Mock(pending_activities=[]))
+        )
+        workflow_executions_service._client.get_workflow_handle_for = Mock(
+            return_value=mock_handle
+        )
+        root_stream = StreamID.new("<root>", 0)
+
+        source = WorkflowExecutionEventCompact(
+            source_event_id=1,
+            schedule_time=datetime.datetime.fromtimestamp(1640995200, tz=datetime.UTC),
+            curr_event_type=WorkflowEventType.ACTIVITY_TASK_SCHEDULED,
+            status=WorkflowExecutionEventStatus.SCHEDULED,
+            action_name="core.transform.reshape",
+            action_ref="masked_action",
+            action_input={"value": "visible-input"},
+            stream_id=root_stream,
+        )
+        source.set_mask_output(True)
+
+        with patch(
+            "tracecat.workflow.executions.service.WorkflowExecutionEventCompact.from_source_event"
+        ) as mock_from_source:
+            mock_from_source.return_value = source
+            with patch(
+                "tracecat.workflow.executions.service.get_result"
+            ) as mock_get_result:
+                mock_get_result.return_value = {"secret": "hidden-output"}
+
+                events = await workflow_executions_service.list_workflow_execution_events_compact(
+                    workflow_exec_id
+                )
+
+                assert len(events) == 1
+                event = events[0]
+                assert event.action_input == {"value": "visible-input"}
+                assert event.action_result == "[REDACTED]"
 
     async def test_compact_duplicate_actions_latest_failure_wins(
         self,
