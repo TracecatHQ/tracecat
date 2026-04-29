@@ -664,6 +664,50 @@ async def test_update_workflow_duplicate_alias(
 
 
 @pytest.mark.anyio
+async def test_restore_workflow_definition_duplicate_alias_returns_conflict(
+    client: TestClient,
+    test_admin_role: Role,
+    mock_workflow: Workflow,
+) -> None:
+    """Test restore maps duplicate alias constraint violations to 409."""
+    with (
+        patch(
+            "tracecat.workflow.management.router.WorkflowsManagementService"
+        ) as MockManagementService,
+        patch(
+            "tracecat.workflow.management.router.WorkflowDefinitionsService"
+        ) as MockDefinitionsService,
+    ):
+        definition = SimpleNamespace(
+            workflow_id=mock_workflow.id,
+            version=1,
+        )
+        unique_error = AsyncpgUniqueViolationError("uq_workflow_alias_workspace_id")
+        integrity_error = IntegrityError("", {}, unique_error)
+        integrity_error.__cause__ = unique_error
+
+        mock_mgmt = AsyncMock()
+        mock_mgmt.get_workflow.return_value = mock_workflow
+        mock_mgmt.restore_workflow_definition.side_effect = integrity_error
+        MockManagementService.return_value = mock_mgmt
+
+        mock_definitions = AsyncMock()
+        mock_definitions.get_definition_by_workflow_id.return_value = definition
+        MockDefinitionsService.return_value = mock_definitions
+
+        response = client.post(
+            f"/workflows/{mock_workflow.id}/definitions/1/restore",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
+        )
+
+    assert response.status_code == status.HTTP_409_CONFLICT
+    assert (
+        response.json()["detail"]
+        == "Workflow alias must be unique within the workspace."
+    )
+
+
+@pytest.mark.anyio
 async def test_delete_workflow_success(
     client: TestClient,
     test_admin_role: Role,

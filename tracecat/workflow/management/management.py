@@ -664,7 +664,27 @@ class WorkflowsManagementService(BaseWorkspaceService):
                            If False, resolve from draft Workflow aliases (for draft executions).
         """
         if use_committed:
-            # For published executions: resolve from the latest committed definition with this alias
+            # For published executions: resolve from the current committed definition.
+            statement = (
+                select(WorkflowDefinition.workflow_id)
+                .join(
+                    Workflow,
+                    and_(
+                        Workflow.id == WorkflowDefinition.workflow_id,
+                        Workflow.version == WorkflowDefinition.version,
+                    ),
+                )
+                .where(
+                    WorkflowDefinition.workspace_id == self.workspace_id,
+                    WorkflowDefinition.alias == alias,
+                )
+                .limit(1)
+            )
+            result = await self.session.execute(statement)
+            if res := result.scalar_one_or_none():
+                return WorkflowUUID.new(res)
+
+            # Legacy fallback for workflows without a current version pointer.
             statement = (
                 select(WorkflowDefinition.workflow_id)
                 .where(
@@ -868,6 +888,40 @@ class WorkflowsManagementService(BaseWorkspaceService):
             returns=workflow.returns,
             error_handler=workflow.error_handler,
         )
+
+    @require_scope("workflow:update")
+    async def restore_workflow_definition(
+        self, workflow: Workflow, definition: WorkflowDefinition
+    ) -> Workflow:
+        """Restore a workflow definition as the current mutable draft."""
+        if definition.workflow_id != workflow.id:
+            raise TracecatValidationError(
+                "Workflow definition does not belong to the selected workflow"
+            )
+
+        dsl = DSLInput.model_validate(definition.content)
+        workflow.title = dsl.title
+        workflow.description = dsl.description
+        workflow.expects = dsl.entrypoint.expects or {}
+        workflow.returns = dsl.returns
+        workflow.config = dsl.config.model_dump()
+        workflow.error_handler = dsl.error_handler
+        workflow.alias = definition.alias
+        workflow.version = definition.version
+        workflow.registry_lock = definition.registry_lock
+        workflow.graph_version += 1
+
+        await self.session.execute(
+            sa.delete(Action).where(
+                Action.workspace_id == self.workspace_id,
+                Action.workflow_id == workflow.id,
+            )
+        )
+        await self.create_actions_from_dsl(dsl, workflow.id)
+        await self.session.commit()
+        await self.session.refresh(workflow)
+        await self.session.refresh(workflow, ["actions", "webhook", "schedules"])
+        return workflow
 
     @require_scope("workflow:create")
     async def create_workflow_from_external_definition(

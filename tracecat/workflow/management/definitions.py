@@ -43,7 +43,22 @@ class WorkflowDefinitionsService(BaseWorkspaceService):
         if version:
             statement = statement.where(WorkflowDefinition.version == version)
         else:
-            # Get the latest version
+            version_stmt = select(Workflow.version).where(
+                Workflow.workspace_id == self.workspace_id,
+                Workflow.id == workflow_id,
+            )
+            current_version = (
+                await self.session.execute(version_stmt)
+            ).scalar_one_or_none()
+            if current_version:
+                current_statement = statement.where(
+                    WorkflowDefinition.version == current_version
+                )
+                current_result = await self.session.execute(current_statement)
+                if current_defn := current_result.scalars().first():
+                    return current_defn
+
+            # Legacy fallback for workflows without a current version pointer.
             statement = statement.order_by(WorkflowDefinition.version.desc())
 
         result = await self.session.execute(statement)

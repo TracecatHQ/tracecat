@@ -771,6 +771,8 @@ import type {
   WorkflowsPullWorkflowsResponse,
   WorkflowsRemoveTagData,
   WorkflowsRemoveTagResponse,
+  WorkflowsRestoreWorkflowDefinitionData,
+  WorkflowsRestoreWorkflowDefinitionResponse,
   WorkflowsUpdateWorkflowData,
   WorkflowsUpdateWorkflowResponse,
   WorkflowsValidateWorkflowEntrypointData,
@@ -1918,6 +1920,35 @@ export const workflowsListWorkflowDefinitions = (
     method: "GET",
     url: "/workflows/{workflow_id}/definitions",
     path: {
+      workflow_id: data.workflowId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Restore Workflow Definition
+ * Restore a saved workflow definition as the current published version.
+ * @param data The data for the request.
+ * @param data.version
+ * @param data.workflowId
+ * @param data.workspaceId
+ * @returns WorkflowRead Successful Response
+ * @throws ApiError
+ */
+export const workflowsRestoreWorkflowDefinition = (
+  data: WorkflowsRestoreWorkflowDefinitionData
+): CancelablePromise<WorkflowsRestoreWorkflowDefinitionResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/workflows/{workflow_id}/definitions/{version}/restore",
+    path: {
+      version: data.version,
       workflow_id: data.workflowId,
     },
     query: {

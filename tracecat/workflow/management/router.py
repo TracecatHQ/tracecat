@@ -711,6 +711,62 @@ async def list_workflow_definitions(
     return WorkflowDefinitionRead.list_adapter().validate_python(defns)
 
 
+@router.post(
+    "/{workflow_id}/definitions/{version}/restore",
+    tags=["workflows"],
+    response_model=WorkflowRead,
+)
+@require_scope("workflow:update")
+async def restore_workflow_definition(
+    role: WorkspaceActorRole,
+    session: AsyncDBSession,
+    workflow_id: AnyWorkflowIDPath,
+    version: int,
+) -> WorkflowRead:
+    """Restore a saved workflow definition as the current published version."""
+    mgmt_service = WorkflowsManagementService(session, role=role)
+    workflow = await mgmt_service.get_workflow(workflow_id)
+    if workflow is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Workflow not found",
+        )
+
+    defn_service = WorkflowDefinitionsService(session, role=role)
+    definition = await defn_service.get_definition_by_workflow_id(
+        workflow_id, version=version
+    )
+    if definition is None or definition.workflow_id != workflow.id:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Workflow definition not found",
+        )
+
+    try:
+        await mgmt_service.restore_workflow_definition(workflow, definition)
+    except (TracecatValidationError, ValidationError) as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        ) from e
+    except IntegrityError as e:
+        while cause := e.__cause__:
+            e = cause
+        if isinstance(
+            e, UniqueViolationError
+        ) and DBConstraints.WORKFLOW_ALIAS_UNIQUE_IN_WORKSPACE in str(e):
+            logger.warning("Unique violation error", error=e)
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=DBConstraints.WORKFLOW_ALIAS_UNIQUE_IN_WORKSPACE.msg(),
+            ) from e
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Workflow already exists",
+        ) from e
+    return await get_workflow(role=role, session=session, workflow_id=workflow_id)
+
+
 @router.get("/{workflow_id}/definition", tags=["workflows"])
 @require_scope("workflow:read")
 async def get_workflow_definition(

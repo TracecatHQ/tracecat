@@ -6,19 +6,36 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 
 import "@radix-ui/react-dialog"
 
-import { FileTextIcon, Info, LayoutListIcon } from "lucide-react"
+import {
+  FileTextIcon,
+  History,
+  Info,
+  LayoutListIcon,
+  RotateCcw,
+} from "lucide-react"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
 import {
   ApiError,
   type ExpectedField_Input,
+  type WorkflowDefinitionRead,
   type WorkflowRead,
   type WorkflowUpdate,
   workflowsValidateWorkflowEntrypoint,
 } from "@/client"
 import { ControlledYamlField } from "@/components/builder/panel/action-panel-fields"
 import { CopyButton } from "@/components/copy-button"
+import { CenteredSpinner } from "@/components/loading/spinner"
 import { SimpleEditor } from "@/components/tiptap-templates/simple/simple-editor"
+import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
+import {
+  Empty,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from "@/components/ui/empty"
 import {
   Form,
   FormControl,
@@ -33,12 +50,24 @@ import {
   HoverCardTrigger,
 } from "@/components/ui/hover-card"
 import { Input } from "@/components/ui/input"
+import { ScrollArea } from "@/components/ui/scroll-area"
 import { Separator } from "@/components/ui/separator"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
+import {
+  useRestoreWorkflowDefinition,
+  useWorkflowDefinitions,
+} from "@/hooks/use-workflow-definitions"
 import {
   isRequestValidationErrorArray,
   type TracecatApiError,
 } from "@/lib/errors"
+import { getRelativeTime } from "@/lib/event-history"
 import { useWorkflow } from "@/providers/workflow"
 
 const createWorkflowUpdateFormSchema = (workspaceId: string) =>
@@ -134,7 +163,7 @@ const workflowReadmeSchema = z
   .string()
   .max(1000, { message: "README cannot exceed 1000 characters" })
 
-type WorkflowPanelTab = "workflow" | "readme"
+type WorkflowPanelTab = "workflow" | "readme" | "versions"
 
 export function WorkflowPanel({
   workflow,
@@ -168,6 +197,13 @@ export function WorkflowPanel({
                 <FileTextIcon className="mr-2 size-4" />
                 <span>README</span>
               </TabsTrigger>
+              <TabsTrigger
+                className="flex h-full min-w-24 items-center justify-center rounded-none px-5 text-xs data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+                value="versions"
+              >
+                <History className="mr-2 size-4" />
+                <span>Versions</span>
+              </TabsTrigger>
             </TabsList>
           </div>
           <Separator />
@@ -179,9 +215,148 @@ export function WorkflowPanel({
           <TabsContent value="readme" className="mt-0 h-full">
             <WorkflowReadmePanel workflow={workflow} />
           </TabsContent>
+          <TabsContent value="versions" className="mt-0 h-full">
+            <WorkflowVersionsPanel workflow={workflow} />
+          </TabsContent>
         </div>
       </Tabs>
     </div>
+  )
+}
+
+function WorkflowVersionsPanel({
+  workflow,
+}: {
+  workflow: WorkflowRead
+}): React.JSX.Element {
+  const { workspaceId, workflowId } = useWorkflow()
+  const { definitions, definitionsIsLoading, definitionsError } =
+    useWorkflowDefinitions(workspaceId, workflowId)
+  const { restoreWorkflowDefinition, restoreWorkflowDefinitionIsPending } =
+    useRestoreWorkflowDefinition(workspaceId, workflowId)
+
+  async function handleRestore(version: number) {
+    await restoreWorkflowDefinition({ version })
+  }
+
+  return (
+    <div className="flex h-full flex-col">
+      <div className="flex h-10 items-center justify-between border-b px-3">
+        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+          <History className="size-3.5" />
+          <span>Workflow history</span>
+        </div>
+        {workflow.version ? (
+          <Badge variant="secondary">{`Current v${workflow.version}`}</Badge>
+        ) : null}
+      </div>
+      <ScrollArea className="flex-1">
+        <WorkflowVersionsHistory
+          definitions={definitions}
+          definitionsIsLoading={definitionsIsLoading}
+          definitionsError={definitionsError}
+          currentVersion={workflow.version ?? null}
+          restorePending={restoreWorkflowDefinitionIsPending}
+          onRestore={handleRestore}
+        />
+      </ScrollArea>
+    </div>
+  )
+}
+
+function WorkflowVersionsHistory({
+  definitions,
+  definitionsIsLoading,
+  definitionsError,
+  currentVersion,
+  restorePending,
+  onRestore,
+}: {
+  definitions?: WorkflowDefinitionRead[]
+  definitionsIsLoading: boolean
+  definitionsError: unknown
+  currentVersion: number | null
+  restorePending: boolean
+  onRestore: (version: number) => Promise<void>
+}): React.JSX.Element {
+  if (definitionsIsLoading) {
+    return (
+      <div className="flex items-center justify-center py-10">
+        <CenteredSpinner />
+      </div>
+    )
+  }
+
+  if (definitionsError) {
+    return (
+      <div className="px-4 py-6 text-sm text-destructive">
+        Failed to load workflow versions.
+      </div>
+    )
+  }
+
+  if (!definitions?.length) {
+    return (
+      <div className="flex h-full items-center justify-center px-4">
+        <Empty>
+          <EmptyHeader>
+            <EmptyMedia variant="icon">
+              <History />
+            </EmptyMedia>
+            <EmptyTitle>Versions</EmptyTitle>
+            <EmptyDescription>
+              Save the workflow to start tracking versions.
+            </EmptyDescription>
+          </EmptyHeader>
+        </Empty>
+      </div>
+    )
+  }
+
+  return (
+    <TooltipProvider>
+      <div className="flex flex-col">
+        {definitions.map((definition, index) => {
+          const isCurrent = definition.version === currentVersion
+          return (
+            <div key={definition.id}>
+              <div className="flex items-center gap-3 px-4 py-3">
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2">
+                    <span className="font-medium">{`v${definition.version}`}</span>
+                    {isCurrent ? (
+                      <Badge variant="secondary">Current</Badge>
+                    ) : null}
+                  </div>
+                  <div className="mt-1 text-xs text-muted-foreground">
+                    {getRelativeTime(new Date(definition.created_at))}
+                  </div>
+                </div>
+                {!isCurrent ? (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="size-8"
+                        disabled={restorePending}
+                        onClick={() => void onRestore(definition.version)}
+                        aria-label={`Restore v${definition.version}`}
+                      >
+                        <RotateCcw className="size-3.5" />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>Restore</TooltipContent>
+                  </Tooltip>
+                ) : null}
+              </div>
+              {index < definitions.length - 1 ? <Separator /> : null}
+            </div>
+          )
+        })}
+      </div>
+    </TooltipProvider>
   )
 }
 
