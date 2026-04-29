@@ -1428,6 +1428,9 @@ _WORKFLOW_NONEDITABLE_PATH_PATTERNS: tuple[tuple[str, ...], ...] = (
     ("definition", "config", "scheduler"),
     ("definition", "actions", "*", "id"),
 )
+_WORKFLOW_NONREMOVABLE_PATH_PATTERNS: tuple[tuple[str, ...], ...] = (
+    ("schedules", "*", "status"),
+)
 
 
 class _WorkflowEditDocumentSource(Protocol):
@@ -1734,6 +1737,23 @@ def _validate_workflow_patch_paths(patch_ops: list[JsonPatchOperation]) -> None:
             ):
                 raise ToolError(
                     f"Patch path '{path}' is not editable via edit_workflow"
+                )
+        removed_paths: tuple[str | None, ...] = (
+            (patch_op.path,)
+            if patch_op.op == "remove"
+            else (patch_op.from_,)
+            if patch_op.op == "move"
+            else ()
+        )
+        for path in removed_paths:
+            if path is None:
+                continue
+            if any(
+                _patch_path_matches_pattern(path, pattern)
+                for pattern in _WORKFLOW_NONREMOVABLE_PATH_PATTERNS
+            ):
+                raise ToolError(
+                    f"Patch path '{path}' cannot be removed via edit_workflow"
                 )
 
 
