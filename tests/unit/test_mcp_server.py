@@ -159,6 +159,18 @@ def _schedule_stub(**overrides: Any) -> SimpleNamespace:
     return SimpleNamespace(**data)
 
 
+def _case_trigger_stub(**overrides: Any) -> SimpleNamespace:
+    data: dict[str, Any] = {
+        "id": uuid.uuid4(),
+        "workflow_id": uuid.uuid4(),
+        "status": "online",
+        "event_types": ["case_created"],
+        "tag_filters": [],
+    }
+    data.update(overrides)
+    return SimpleNamespace(**data)
+
+
 def _action_stub(**overrides: Any) -> SimpleNamespace:
     data: dict[str, Any] = {
         "id": uuid.uuid4(),
@@ -1894,6 +1906,122 @@ def test_parse_workflow_edit_request_rejects_removing_case_trigger_status(
             base_revision="revision",
             patch_ops=patch_ops,
             validate_only=False,
+        )
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("patch_path", ["/schedules/0", "/schedules"])
+async def test_edit_workflow_rejects_schedule_parent_replace_that_omits_status(
+    monkeypatch,
+    patch_path,
+):
+    async def _resolve(_workspace_id):
+        return uuid.uuid4(), SimpleNamespace()
+
+    workflow_id = uuid.uuid4()
+    workflow = _workflow_stub(
+        id=workflow_id,
+        schedules=[_schedule_stub(workflow_id=workflow_id, status="offline")],
+    )
+
+    class _WorkflowService:
+        def __init__(self) -> None:
+            self.session = object()
+
+        async def get_workflow(self, _wf_id, *, for_update: bool = False):
+            _ = for_update
+            return workflow
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server.WorkflowsManagementService,
+        "with_session",
+        lambda role: _AsyncContext(_WorkflowService()),
+    )
+
+    draft_document = mcp_server._build_workflow_edit_document(
+        cast(mcp_server._WorkflowEditDocumentSource, workflow)
+    )
+    base_revision = mcp_server._compute_workflow_edit_revision(draft_document)
+    schedule_payload = mcp_server._workflow_edit_document_payload(draft_document)[
+        "schedules"
+    ][0]
+    del schedule_payload["status"]
+
+    with pytest.raises(
+        ToolError,
+        match=re.escape("Patch path '/schedules/0/status' cannot be removed"),
+    ):
+        await _tool(mcp_server.edit_workflow)(
+            workspace_id=str(uuid.uuid4()),
+            workflow_id=str(workflow_id),
+            base_revision=base_revision,
+            patch_ops=[
+                {
+                    "op": "replace",
+                    "path": patch_path,
+                    "value": [schedule_payload]
+                    if patch_path == "/schedules"
+                    else schedule_payload,
+                }
+            ],
+            validate_only=True,
+        )
+
+
+@pytest.mark.anyio
+async def test_edit_workflow_rejects_case_trigger_parent_replace_that_omits_status(
+    monkeypatch,
+):
+    async def _resolve(_workspace_id):
+        return uuid.uuid4(), SimpleNamespace()
+
+    workflow_id = uuid.uuid4()
+    workflow = _workflow_stub(
+        id=workflow_id,
+        case_trigger=_case_trigger_stub(workflow_id=workflow_id, status="online"),
+    )
+
+    class _WorkflowService:
+        def __init__(self) -> None:
+            self.session = object()
+
+        async def get_workflow(self, _wf_id, *, for_update: bool = False):
+            _ = for_update
+            return workflow
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server.WorkflowsManagementService,
+        "with_session",
+        lambda role: _AsyncContext(_WorkflowService()),
+    )
+
+    draft_document = mcp_server._build_workflow_edit_document(
+        cast(mcp_server._WorkflowEditDocumentSource, workflow)
+    )
+    base_revision = mcp_server._compute_workflow_edit_revision(draft_document)
+    case_trigger_payload = mcp_server._workflow_edit_document_payload(draft_document)[
+        "case_trigger"
+    ]
+    del case_trigger_payload["status"]
+
+    with pytest.raises(
+        ToolError,
+        match=re.escape("Patch path '/case_trigger/status' cannot be removed"),
+    ):
+        await _tool(mcp_server.edit_workflow)(
+            workspace_id=str(uuid.uuid4()),
+            workflow_id=str(workflow_id),
+            base_revision=base_revision,
+            patch_ops=[
+                {
+                    "op": "replace",
+                    "path": "/case_trigger",
+                    "value": case_trigger_payload,
+                }
+            ],
+            validate_only=True,
         )
 
 

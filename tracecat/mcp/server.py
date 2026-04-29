@@ -1723,12 +1723,62 @@ def _iter_noneditable_payload_paths(
                 )
 
 
+def _iter_missing_payload_paths(
+    payload: Any,
+    pattern: tuple[str, ...],
+    *,
+    prefix: tuple[str, ...] = (),
+) -> Iterator[tuple[str, ...]]:
+    """Yield non-removable JSON pointer token paths missing from a payload."""
+    if not pattern:
+        return
+
+    token, *rest = pattern
+    if isinstance(payload, dict):
+        if token == "*":
+            for key, value in payload.items():
+                yield from _iter_missing_payload_paths(
+                    value,
+                    tuple(rest),
+                    prefix=prefix + (str(key),),
+                )
+        elif token in payload:
+            yield from _iter_missing_payload_paths(
+                payload[token],
+                tuple(rest),
+                prefix=prefix + (token,),
+            )
+        elif not rest:
+            yield prefix + (token,)
+    elif isinstance(payload, list):
+        if token == "*":
+            for index, value in enumerate(payload):
+                yield from _iter_missing_payload_paths(
+                    value,
+                    tuple(rest),
+                    prefix=prefix + (str(index),),
+                )
+        elif token.isdigit():
+            index = int(token)
+            if 0 <= index < len(payload):
+                yield from _iter_missing_payload_paths(
+                    payload[index],
+                    tuple(rest),
+                    prefix=prefix + (token,),
+                )
+
+
 def _validate_workflow_patch_payload(payload: dict[str, Any]) -> None:
     """Reject patched payloads that still contain non-editable nested fields."""
     for pattern in _WORKFLOW_NONEDITABLE_PATH_PATTERNS:
         if found_path := next(_iter_noneditable_payload_paths(payload, pattern), None):
             raise ToolError(
                 f"Patch path '{_encode_patch_path(found_path)}' is not editable via edit_workflow"
+            )
+    for pattern in _WORKFLOW_NONREMOVABLE_PATH_PATTERNS:
+        if missing_path := next(_iter_missing_payload_paths(payload, pattern), None):
+            raise ToolError(
+                f"Patch path '{_encode_patch_path(missing_path)}' cannot be removed via edit_workflow"
             )
 
 
