@@ -59,7 +59,9 @@ def _json_pointer_array_index(
     """Convert an array JSON Pointer token to an integer index."""
     if allow_end and token == "-":
         return length
-    if not token.isdigit():
+    if token != "0" and (
+        not token.isascii() or not token.isdigit() or token.startswith("0")
+    ):
         raise ToolError(f"Invalid array index in patch path: {token!r}")
     index = int(token)
     max_index = length if allow_end else length - 1

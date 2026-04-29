@@ -168,3 +168,23 @@ def test_apply_json_patch_operations_rejects_invalid_array_index() -> None:
             document=cast(dict[str, JsonValue], {"layout": {"actions": []}}),
             patch_ops=[_op(op="remove", path="/layout/actions/1")],
         )
+
+
+@pytest.mark.parametrize(
+    "patch_op",
+    [
+        _op(op="remove", path="/layout/actions/01"),
+        _op(op="add", path="/layout/actions/01", value={"ref": "step_c"}),
+    ],
+)
+def test_apply_json_patch_operations_rejects_non_canonical_array_index(
+    patch_op: JsonPatchOperation,
+) -> None:
+    with pytest.raises(ToolError, match="Invalid array index"):
+        apply_json_patch_operations(
+            document=cast(
+                dict[str, JsonValue],
+                {"layout": {"actions": [{"ref": "step_a"}, {"ref": "step_b"}]}},
+            ),
+            patch_ops=[patch_op],
+        )
