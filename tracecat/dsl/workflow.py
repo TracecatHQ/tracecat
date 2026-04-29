@@ -949,6 +949,7 @@ class DSLWorkflow:
                                 model_settings=action_args.model_settings,
                                 retries=action_args.retries,
                                 enable_thinking=action_args.enable_thinking,
+                                base_url=action_args.base_url,
                                 actions=action_args.actions,
                                 tool_approvals=action_args.tool_approvals,
                             ),
@@ -1012,6 +1013,9 @@ class DSLWorkflow:
                                 model_settings=action_args.model_settings,
                                 retries=action_args.retries,
                                 enable_thinking=action_args.enable_thinking,
+                                base_url=action_args.base_url
+                                if action_args.catalog_id is None
+                                else None,
                                 # AI action has no tools
                                 actions=None,
                                 tool_approvals=None,

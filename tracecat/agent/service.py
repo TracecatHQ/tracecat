@@ -759,6 +759,11 @@ class AgentManagementService(BaseOrgService):
         non-null) are intentionally left alone — they represent explicit
         subset overrides that the admin may want to keep for when creds are
         reattached.
+
+        ``custom-model-provider`` is special after the v2 catalog migration:
+        linked custom-provider catalog rows store their credentials on
+        ``AgentCustomProvider``. Deleting the legacy org secret must not
+        disable those rows.
         """
         org_id = self.role.organization_id
         if org_id is None:
@@ -771,6 +776,10 @@ class AgentManagementService(BaseOrgService):
                 AgentCatalog.organization_id == org_id,
             ),
         )
+        if provider == "custom-model-provider":
+            catalog_id_select = catalog_id_select.where(
+                AgentCatalog.custom_provider_id.is_(None)
+            )
         await self.session.execute(
             sa.delete(AgentModelAccess).where(
                 AgentModelAccess.organization_id == org_id,
@@ -855,16 +864,24 @@ class AgentManagementService(BaseOrgService):
         is written alongside the canonical catalog-id setting for
         backwards compatibility with readers that haven't migrated.
         """
-        access_svc = AgentModelAccessService(session=self.session, role=self.role)
-        enabled_models = await access_svc.get_org_models()
-        catalog_entry = next(
-            (entry for entry in enabled_models if entry.id == catalog_id),
-            None,
+        catalog_row = await self.session.scalar(
+            select(AgentCatalog)
+            .join(AgentModelAccess, AgentModelAccess.catalog_id == AgentCatalog.id)
+            .where(
+                AgentCatalog.id == catalog_id,
+                AgentModelAccess.organization_id == self.organization_id,
+                AgentModelAccess.workspace_id.is_(None),
+                sa.or_(
+                    AgentCatalog.organization_id == self.organization_id,
+                    AgentCatalog.organization_id.is_(None),
+                ),
+            )
         )
-        if catalog_entry is None:
+        if catalog_row is None:
             raise TracecatNotFoundError(
                 f"Catalog row {catalog_id!s} is not enabled for this organization"
             )
+        catalog_entry = AgentCatalogRead.model_validate(catalog_row)
 
         await self._stage_org_setting_value(
             key=_DEFAULT_MODEL_SETTING_KEY,

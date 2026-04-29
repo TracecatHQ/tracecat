@@ -246,6 +246,13 @@ async def get_provider_credentials(
                     )
             else:
                 creds = await service.get_runtime_provider_credentials(provider)
+                if creds is None and provider == "custom-model-provider":
+                    creds = await service.get_workspace_provider_credentials(provider)
+                    if creds is not None:
+                        creds = await service._augment_runtime_provider_credentials(
+                            provider,
+                            creds,
+                        )
         except ValueError as exc:
             raise ProxyException(
                 message=str(exc),

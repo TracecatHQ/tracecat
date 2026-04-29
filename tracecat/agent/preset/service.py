@@ -181,6 +181,7 @@ class AgentPresetService(BaseWorkspaceService):
             instructions=preset.instructions,
             model_name=preset.model_name,
             model_provider=preset.model_provider,
+            catalog_id=preset.catalog_id,
             base_url=preset.base_url,
             output_type=cast(OutputType | None, preset.output_type),
             actions=preset.actions,

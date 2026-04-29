@@ -172,7 +172,12 @@ async def _load_custom_model_provider_creds(
     reads the legacy ``agent-custom-model-provider-credentials`` secret.
     """
     if catalog_id is None:
-        return await svc.get_runtime_provider_credentials("custom-model-provider")
+        credentials = await svc.get_runtime_provider_credentials(
+            "custom-model-provider"
+        )
+        if credentials is not None:
+            return credentials
+        return await svc.get_workspace_provider_credentials("custom-model-provider")
 
     catalog_row = (
         await svc.session.execute(

@@ -5,29 +5,26 @@ from __future__ import annotations
 from collections.abc import Mapping
 from datetime import UTC, datetime
 from typing import Any
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import httpx
 import orjson
 import sqlalchemy as sa
 from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 
-from tracecat.agent.access.service import AgentModelAccessService
 from tracecat.agent.catalog.service import AgentCatalogService
 from tracecat.agent.provider.schemas import (
     AgentCustomProviderCreate,
     AgentCustomProviderRead,
     AgentCustomProviderUpdate,
 )
-from tracecat.agent.provider.types import (
-    ResolvedCatalogConfig,
-    ResolvedCustomProviderCredentials,
-)
+from tracecat.agent.provider.types import ResolvedCustomProviderCredentials
 from tracecat.audit.logger import audit_log
 from tracecat.auth.secrets import get_db_encryption_key
 from tracecat.authz.controls import require_scope
 from tracecat.db.models import AgentCatalog, AgentCustomProvider, AgentModelAccess
-from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
+from tracecat.exceptions import TracecatNotFoundError
 from tracecat.pagination import (
     BaseCursorPaginator,
     CursorPaginatedResponse,
@@ -235,72 +232,6 @@ class AgentCustomProviderService(BaseOrgService):
             config["passthrough"] = passthrough
         return config
 
-    async def resolve_catalog_config(
-        self,
-        *,
-        catalog_id: UUID,
-        workspace_id: UUID | None = None,
-    ) -> ResolvedCatalogConfig:
-        """Resolve a catalog selection into an access-validated config."""
-        stmt = (
-            sa.select(
-                AgentCatalog,
-                AgentCustomProvider,
-            )
-            .outerjoin(
-                AgentCustomProvider,
-                sa.and_(
-                    AgentCustomProvider.organization_id == AgentCatalog.organization_id,
-                    AgentCustomProvider.id == AgentCatalog.custom_provider_id,
-                ),
-            )
-            .where(
-                AgentCatalog.id == catalog_id,
-                sa.or_(
-                    AgentCatalog.organization_id == self.organization_id,
-                    AgentCatalog.organization_id.is_(None),
-                ),
-            )
-        )
-        row = (await self.session.execute(stmt)).one_or_none()
-        if row is None:
-            raise TracecatNotFoundError(f"Catalog entry {catalog_id} not found")
-
-        catalog, provider = row
-        access_service = AgentModelAccessService(session=self.session, role=self.role)
-        is_enabled = await access_service.is_catalog_enabled(
-            catalog.id,
-            workspace_id=workspace_id,
-        )
-        if not is_enabled:
-            scope = (
-                f"workspace {workspace_id}"
-                if workspace_id is not None
-                else "organization"
-            )
-            raise TracecatValidationError(
-                f"Catalog entry {catalog_id} is not enabled for {scope}"
-            )
-
-        base_url = provider.base_url if provider is not None else None
-        passthrough = provider.passthrough if provider is not None else False
-
-        return ResolvedCatalogConfig(
-            catalog_id=catalog.id,
-            organization_id=catalog.organization_id,
-            model_provider=catalog.model_provider,
-            model_name=catalog.model_name,
-            custom_provider_id=catalog.custom_provider_id,
-            base_url=base_url,
-            passthrough=passthrough,
-            api_key_header=provider.api_key_header if provider is not None else None,
-            custom_provider_credentials=(
-                self._decrypt_custom_provider_credentials(provider)
-                if provider is not None
-                else None
-            ),
-        )
-
     @require_scope("agent:update")
     @audit_log(
         resource_type="agent_custom_provider",
@@ -440,11 +371,6 @@ class AgentCustomProviderService(BaseOrgService):
 
     async def _auto_grant_custom_provider_access(self, provider_id: UUID) -> None:
         """Grant org-wide access to all catalog rows for a custom provider."""
-        import uuid as _uuid
-        from datetime import UTC, datetime
-
-        from sqlalchemy.dialects.postgresql import insert as pg_insert
-
         catalog_ids = (
             (
                 await self.session.execute(
@@ -463,7 +389,7 @@ class AgentCustomProviderService(BaseOrgService):
         now = datetime.now(UTC)
         values = [
             {
-                "id": _uuid.uuid4(),
+                "id": uuid4(),
                 "organization_id": self.organization_id,
                 "workspace_id": None,
                 "catalog_id": catalog_id,

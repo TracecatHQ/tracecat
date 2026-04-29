@@ -214,6 +214,10 @@ class LLMSocketProxy:
                 creds = await svc.get_runtime_provider_credentials(
                     "custom-model-provider",
                 )
+                if creds is None:
+                    creds = await svc.get_workspace_provider_credentials(
+                        "custom-model-provider",
+                    )
         if creds is None:
             logger.warning("Passthrough credentials not found")
             return

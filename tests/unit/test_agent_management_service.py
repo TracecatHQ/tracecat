@@ -6,6 +6,7 @@ from typing import cast
 from unittest.mock import AsyncMock
 
 import pytest
+import sqlalchemy as sa
 from cryptography.fernet import Fernet
 from pydantic import SecretStr
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -448,6 +449,91 @@ async def test_load_custom_model_provider_creds_requires_catalog_access(
         "CUSTOM_MODEL_PROVIDER_BASE_URL": "https://llm.example.com/v1",
         "CUSTOM_MODEL_PROVIDER_PASSTHROUGH": "true",
     }
+
+
+@pytest.mark.anyio
+@pytest.mark.usefixtures("db")
+async def test_delete_custom_provider_legacy_secret_preserves_v2_catalog_access(
+    session: AsyncSession,
+    svc_organization: Organization,
+    svc_workspace: Workspace,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    encryption_key = Fernet.generate_key().decode()
+    monkeypatch.setattr(
+        tracecat_config,
+        "TRACECAT__DB_ENCRYPTION_KEY",
+        encryption_key,
+    )
+    await _seed_org_secret(
+        session,
+        org_id=svc_organization.id,
+        name="agent-custom-model-provider-credentials",
+        values={"CUSTOM_MODEL_PROVIDER_API_KEY": "legacy-key"},
+        encryption_key=encryption_key,
+    )
+    provider = AgentCustomProvider(
+        organization_id=svc_organization.id,
+        display_name="Migrated provider",
+        base_url="https://llm.example.com/v1",
+        passthrough=True,
+        encrypted_config=None,
+    )
+    session.add(provider)
+    await session.flush()
+    v2_catalog = await _seed_catalog(
+        session,
+        org_id=svc_organization.id,
+        provider="custom-model-provider",
+        model_name="custom",
+        custom_provider_id=provider.id,
+    )
+    legacy_catalog = await _seed_catalog(
+        session,
+        org_id=svc_organization.id,
+        provider="custom-model-provider",
+        model_name="legacy-custom",
+    )
+    await _grant_access(
+        session,
+        org_id=svc_organization.id,
+        catalog_id=v2_catalog.id,
+    )
+    await _grant_access(
+        session,
+        org_id=svc_organization.id,
+        catalog_id=legacy_catalog.id,
+    )
+    await session.commit()
+
+    service = AgentManagementService(
+        session=session,
+        role=_db_role(svc_organization, svc_workspace),
+    )
+
+    await service.delete_provider_credentials("custom-model-provider")
+
+    deleted_secret_id = await session.scalar(
+        sa.select(OrganizationSecret.id).where(
+            OrganizationSecret.organization_id == svc_organization.id,
+            OrganizationSecret.name == "agent-custom-model-provider-credentials",
+        )
+    )
+    assert deleted_secret_id is None
+    remaining_catalog_ids = set(
+        (
+            await session.execute(
+                sa.select(AgentModelAccess.catalog_id).where(
+                    AgentModelAccess.organization_id == svc_organization.id,
+                    AgentModelAccess.workspace_id.is_(None),
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert v2_catalog.id in remaining_catalog_ids
+    assert legacy_catalog.id not in remaining_catalog_ids
 
 
 @pytest.mark.anyio

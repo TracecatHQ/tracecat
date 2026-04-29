@@ -57,6 +57,7 @@ class AgentActionArgs(BaseModel):
     )
     retries: int = 3
     enable_thinking: bool = True
+    base_url: str | None = None
     tool_approvals: dict[str, bool] | None = None
 
 
