@@ -206,6 +206,12 @@ class Organization(Base, TimestampMixin):
     name: Mapped[str] = mapped_column(String, index=True)
     slug: Mapped[str] = mapped_column(String, unique=True, index=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    disable_github_workflow_pulls: Mapped[bool] = mapped_column(
+        Boolean,
+        default=False,
+        server_default=text("false"),
+        nullable=False,
+    )
 
     # Relationships
     members: Mapped[list[User]] = relationship(
