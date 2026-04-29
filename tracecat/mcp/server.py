@@ -1616,6 +1616,10 @@ def _normalize_workflow_edit_document_for_persisted_revision(
         for action_layout in payload["layout"]["actions"]
         if action_layout["ref"] in action_refs
     ]
+    if payload["case_trigger"] is not None:
+        case_trigger = CaseTriggerConfig.model_validate(payload["case_trigger"])
+        if not case_trigger.is_configured():
+            payload["case_trigger"] = None
     return WorkflowEditDocument.model_validate(payload)
 
 

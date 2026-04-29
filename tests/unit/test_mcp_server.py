@@ -1668,6 +1668,61 @@ async def test_edit_workflow_validate_only_revision_drops_removed_action_layout(
 
 
 @pytest.mark.anyio
+async def test_edit_workflow_validate_only_revision_drops_inert_case_trigger(
+    monkeypatch,
+):
+    async def _resolve(_workspace_id):
+        return uuid.uuid4(), SimpleNamespace()
+
+    workflow_id = uuid.uuid4()
+    workflow = _workflow_stub(id=workflow_id)
+
+    class _WorkflowService:
+        def __init__(self) -> None:
+            self.session = object()
+
+        async def get_workflow(self, _wf_id, *, for_update: bool = False):
+            _ = for_update
+            return workflow
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server.WorkflowsManagementService,
+        "with_session",
+        lambda role: _AsyncContext(_WorkflowService()),
+    )
+
+    draft_document = mcp_server._build_workflow_edit_document(
+        cast(mcp_server._WorkflowEditDocumentSource, workflow)
+    )
+    base_revision = mcp_server._compute_workflow_edit_revision(draft_document)
+
+    payload = _payload(
+        await _tool(mcp_server.edit_workflow)(
+            workspace_id=str(uuid.uuid4()),
+            workflow_id=str(workflow_id),
+            base_revision=base_revision,
+            patch_ops=[
+                {
+                    "op": "add",
+                    "path": "/case_trigger",
+                    "value": {
+                        "status": "offline",
+                        "event_types": [],
+                        "tag_filters": [],
+                    },
+                }
+            ],
+            validate_only=True,
+        )
+    )
+
+    assert payload["valid"] is True
+    assert payload["validate_only"] is True
+    assert payload["draft_revision"] == base_revision
+
+
+@pytest.mark.anyio
 async def test_edit_workflow_rejects_stale_revision(monkeypatch):
     async def _resolve(_workspace_id):
         return uuid.uuid4(), SimpleNamespace()
