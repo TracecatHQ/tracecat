@@ -208,8 +208,9 @@ class _StrictWorkflowEditLayout(WorkflowLayout):
             _StrictWorkflowEditLayoutPosition.model_validate(trigger)
         if (viewport := value.get("viewport")) is not None:
             _StrictWorkflowEditLayoutViewport.model_validate(viewport)
-        for action in value.get("actions", []):
-            _StrictWorkflowEditLayoutActionPosition.model_validate(action)
+        if isinstance(actions := value.get("actions", []), list):
+            for action in actions:
+                _StrictWorkflowEditLayoutActionPosition.model_validate(action)
         return value
 
 

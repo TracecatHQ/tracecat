@@ -19,6 +19,7 @@ from fastmcp.exceptions import ToolError
 from fastmcp.server.middleware.middleware import MiddlewareContext
 from fastmcp.tools import ToolResult
 from mcp.types import CallToolRequestParams
+from pydantic import ValidationError
 from tracecat_registry import RegistrySecret
 
 import tracecat.mcp.auth as mcp_auth
@@ -871,6 +872,19 @@ def test_compute_workflow_edit_revision_normalizes_layout_position_aliases() -> 
     assert mcp_server._compute_workflow_edit_revision(
         alias_document
     ) == mcp_server._compute_workflow_edit_revision(document)
+
+
+def test_workflow_edit_document_rejects_null_layout_actions() -> None:
+    workflow = _workflow_stub(actions=[_action_stub()])
+    payload = mcp_server._workflow_edit_document_payload(
+        mcp_server._build_workflow_edit_document(
+            cast(mcp_server._WorkflowEditDocumentSource, workflow)
+        )
+    )
+    payload["layout"]["actions"] = None
+
+    with pytest.raises(ValidationError, match="Input should be a valid list"):
+        mcp_server.WorkflowEditDocument.model_validate(payload)
 
 
 @pytest.mark.anyio
