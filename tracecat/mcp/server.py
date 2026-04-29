@@ -1430,6 +1430,7 @@ _WORKFLOW_NONEDITABLE_PATH_PATTERNS: tuple[tuple[str, ...], ...] = (
 )
 _WORKFLOW_NONREMOVABLE_PATH_PATTERNS: tuple[tuple[str, ...], ...] = (
     ("schedules", "*", "status"),
+    ("case_trigger", "status"),
 )
 
 

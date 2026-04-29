@@ -1831,6 +1831,40 @@ def test_parse_workflow_edit_request_rejects_removing_schedule_status(
         )
 
 
+@pytest.mark.parametrize(
+    ("patch_ops", "expected_path"),
+    [
+        (
+            [{"op": "remove", "path": "/case_trigger/status"}],
+            "/case_trigger/status",
+        ),
+        (
+            [
+                {
+                    "op": "move",
+                    "from": "/case_trigger/status",
+                    "path": "/metadata/title",
+                }
+            ],
+            "/case_trigger/status",
+        ),
+    ],
+)
+def test_parse_workflow_edit_request_rejects_removing_case_trigger_status(
+    patch_ops,
+    expected_path,
+):
+    with pytest.raises(
+        ToolError,
+        match=re.escape(f"Patch path '{expected_path}' cannot be removed"),
+    ):
+        mcp_server._parse_workflow_edit_request(
+            base_revision="revision",
+            patch_ops=patch_ops,
+            validate_only=False,
+        )
+
+
 @pytest.mark.anyio
 async def test_edit_workflow_rejects_unknown_nested_fields(monkeypatch):
     async def _resolve(_workspace_id):
