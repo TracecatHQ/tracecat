@@ -1512,9 +1512,15 @@ def _build_workflow_edit_document(
             event_types=case_trigger_read.event_types,
             tag_filters=case_trigger_read.tag_filters,
         ):
-            case_trigger_payload = case_trigger_read.model_dump(
+            candidate_payload = case_trigger_read.model_dump(
                 mode="json", exclude={"id", "workflow_id"}
             )
+            try:
+                case_trigger_payload = CaseTriggerConfig.model_validate(
+                    candidate_payload
+                ).model_dump(mode="json")
+            except ValidationError:
+                case_trigger_payload = None
 
     return WorkflowEditDocument.model_validate(
         {

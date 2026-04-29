@@ -826,6 +826,24 @@ def test_build_workflow_edit_document_sorts_schedules_by_canonical_content() -> 
     ] == [schedule.model_dump(mode="json") for schedule in document_two.schedules]
 
 
+def test_build_workflow_edit_document_omits_invalid_online_case_trigger() -> None:
+    workflow = _workflow_stub(
+        case_trigger=SimpleNamespace(
+            id=uuid.uuid4(),
+            workflow_id=uuid.uuid4(),
+            status="online",
+            event_types=[],
+            tag_filters=[],
+        )
+    )
+
+    document = mcp_server._build_workflow_edit_document(
+        cast(mcp_server._WorkflowEditDocumentSource, workflow)
+    )
+
+    assert document.case_trigger is None
+
+
 def test_compute_workflow_edit_revision_normalizes_layout_position_aliases() -> None:
     workflow = _workflow_stub(
         trigger_position_x=10.0,
