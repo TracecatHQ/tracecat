@@ -29,16 +29,16 @@ import {
   useState,
 } from "react"
 import type {
-  SpmArtifactType,
-  SpmAssetRead,
-  SpmAssetType,
   SpmControlRead,
-  SpmEndpointAssetRead,
+  SpmEndpointInventoryItemRead,
   SpmEndpointRead,
   SpmEndpointStatus,
   SpmFindingRead,
   SpmFindingStatus,
   SpmHarness,
+  SpmInventoryItemRead,
+  SpmInventoryItemType,
+  SpmInventorySourceType,
   SpmSeverity,
 } from "@/client"
 import { Spinner } from "@/components/loading/spinner"
@@ -59,11 +59,12 @@ import { useToast } from "@/components/ui/use-toast"
 import { useEntitlements } from "@/hooks/use-entitlements"
 import {
   useSpmActions,
-  useSpmAssets,
   useSpmControls,
-  useSpmEndpointAssetsForEndpoints,
+  useSpmEndpointInventoryForEndpoints,
   useSpmEndpoints,
   useSpmFindings,
+  useSpmInventory,
+  useSpmInventoryTaxonomy,
 } from "@/hooks/use-spm"
 import { getApiErrorDetail } from "@/lib/errors"
 import { cn } from "@/lib/utils"
@@ -72,18 +73,15 @@ import {
   canCancelPendingEnrollment,
   EMPTY_FILTERS,
   type FindingDecision,
-  formatLabel,
-  getAssetPath,
-  getAssetRecord,
   getEndpointName,
   getFindingEnforcementState,
+  getInventoryItemPath,
+  getInventoryItemRecord,
   includesQuery,
   renderMaybeLoading,
 } from "./spm-common"
 import { SpmControlSheet } from "./spm-control-sheet"
 import {
-  ARTIFACT_TYPE_OPTIONS,
-  ASSET_TYPE_OPTIONS,
   COMPLIANCE_OPTIONS,
   controlOptions,
   ENDPOINT_STATUS_OPTIONS,
@@ -97,13 +95,15 @@ import {
   MultiFilterSelect,
   ResetFiltersButton,
   SEVERITY_OPTIONS,
+  taxonomyItemTypeOptions,
+  taxonomySourceTypeOptions,
 } from "./spm-filters"
 import { FindingActionButtons } from "./spm-findings"
 import {
-  artifactTypeIcon,
-  artifactTypeLabel,
-  assetTypeIcon,
-  assetTypeLabel,
+  itemTypeIcon,
+  itemTypeLabel,
+  sourceTypeIcon,
+  sourceTypeLabel,
 } from "./spm-icons"
 import { SpmInstallDrawer } from "./spm-install-drawer"
 import {
@@ -124,7 +124,7 @@ type SelectOption<TValue extends string> = {
   label: string
   value: TValue
 }
-type AssetSortKey = "asset_type" | "artifact_type" | "last_seen"
+type InventorySortKey = "item_type" | "source_type" | "last_seen"
 
 const SEVERITY_ORDER: SpmSeverity[] = ["critical", "high", "medium", "low"]
 const SEVERITY_RANK: Record<SpmSeverity, number> = {
@@ -133,10 +133,10 @@ const SEVERITY_RANK: Record<SpmSeverity, number> = {
   medium: 2,
   low: 3,
 }
-const ASSET_SORT_OPTIONS: Array<SelectOption<AssetSortKey>> = [
-  { value: "asset_type", label: "Asset type" },
-  { value: "artifact_type", label: "Artifact type" },
-  { value: "last_seen", label: "Last seen" },
+const INVENTORY_SORT_OPTIONS: Array<SelectOption<InventorySortKey>> = [
+  { value: "item_type", label: "item_type" },
+  { value: "source_type", label: "source_type" },
+  { value: "last_seen", label: "last_seen" },
 ]
 
 const severityStyles: Record<
@@ -144,22 +144,22 @@ const severityStyles: Record<
   { className: string; icon: LucideIcon; label: string }
 > = {
   critical: {
-    label: "Critical",
+    label: "critical",
     icon: AlertTriangleIcon,
     className: "bg-fuchsia-500/10 text-fuchsia-700",
   },
   high: {
-    label: "High",
+    label: "high",
     icon: SignalIcon,
     className: "bg-red-500/10 text-red-700",
   },
   medium: {
-    label: "Medium",
+    label: "medium",
     icon: SignalHighIcon,
     className: "bg-orange-500/10 text-orange-700",
   },
   low: {
-    label: "Low",
+    label: "low",
     icon: SignalMediumIcon,
     className: "bg-yellow-500/10 text-yellow-700",
   },
@@ -176,7 +176,7 @@ const findingStatusStyles: Record<
   }
 > = {
   open: {
-    label: "Open",
+    label: "open",
     icon: FlagTriangleRightIcon,
     iconClassName: "text-yellow-600",
     className: "bg-yellow-500/10 text-yellow-700",
@@ -184,7 +184,7 @@ const findingStatusStyles: Record<
       "data-[state=open]:border-l-yellow-600 data-[state=open]:bg-yellow-600/[0.03] dark:data-[state=open]:bg-yellow-600/[0.08]",
   },
   enforcement_pending: {
-    label: "Enforcement pending",
+    label: "enforcement_pending",
     icon: ClockArrowUpIcon,
     iconClassName: "text-blue-600",
     className: "bg-blue-500/10 text-blue-700",
@@ -192,7 +192,7 @@ const findingStatusStyles: Record<
       "data-[state=open]:border-l-blue-600 data-[state=open]:bg-blue-600/[0.03] dark:data-[state=open]:bg-blue-600/[0.08]",
   },
   enforced: {
-    label: "Enforced",
+    label: "enforced",
     icon: CheckCircleIcon,
     iconClassName: "text-green-600",
     className: "bg-green-500/10 text-green-700",
@@ -200,7 +200,7 @@ const findingStatusStyles: Record<
       "data-[state=open]:border-l-green-600 data-[state=open]:bg-green-600/[0.03] dark:data-[state=open]:bg-green-600/[0.08]",
   },
   resolved: {
-    label: "Resolved",
+    label: "resolved",
     icon: CheckCircleIcon,
     iconClassName: "text-violet-600",
     className: "bg-violet-500/10 text-violet-700",
@@ -208,7 +208,7 @@ const findingStatusStyles: Record<
       "data-[state=open]:border-l-violet-600 data-[state=open]:bg-violet-600/[0.03] dark:data-[state=open]:bg-violet-600/[0.08]",
   },
   dismissed: {
-    label: "Dismissed",
+    label: "dismissed",
     icon: CirclePauseIcon,
     iconClassName: "text-orange-600",
     className: "bg-orange-500/10 text-orange-700",
@@ -261,8 +261,7 @@ function FindingStatusBadge({ status }: { status: SpmFindingStatus }) {
 }
 
 function harnessLabel(harness: SpmHarness) {
-  if (harness === "claude_code") return "Claude Code"
-  return formatLabel(harness)
+  return harness
 }
 
 function withoutAll<TValue extends string>(
@@ -286,30 +285,35 @@ function endpointTriggerClassName(status: SpmEndpointStatus) {
   return "data-[state=open]:border-l-slate-500 data-[state=open]:bg-slate-500/[0.03] dark:data-[state=open]:bg-slate-500/[0.08]"
 }
 
-function assetIdentityKey(asset: SpmEndpointAssetRead) {
-  return `${asset.asset_type}:${asset.identity_key}:${asset.artifact_location}`
+function inventoryItemIdentityKey(item: SpmEndpointInventoryItemRead) {
+  return `${item.item_type}:${item.identity_key}:${item.source_location}`
 }
 
-function dedupeEndpointAssets(assets: SpmEndpointAssetRead[]) {
-  const seen = new Map<string, SpmEndpointAssetRead>()
-  for (const asset of assets) {
-    seen.set(assetIdentityKey(asset), asset)
+function dedupeEndpointInventory(
+  inventoryItems: SpmEndpointInventoryItemRead[]
+) {
+  const seen = new Map<string, SpmEndpointInventoryItemRead>()
+  for (const item of inventoryItems) {
+    seen.set(inventoryItemIdentityKey(item), item)
   }
   return Array.from(seen.values())
 }
 
-function sortAssets(assets: SpmEndpointAssetRead[], sortBy: AssetSortKey) {
-  return [...assets].sort((left, right) => {
+function sortInventory(
+  inventoryItems: SpmEndpointInventoryItemRead[],
+  sortBy: InventorySortKey
+) {
+  return [...inventoryItems].sort((left, right) => {
     if (sortBy === "last_seen") {
       return (
         new Date(right.last_seen_at ?? 0).getTime() -
         new Date(left.last_seen_at ?? 0).getTime()
       )
     }
-    if (sortBy === "artifact_type") {
-      return left.artifact_type.localeCompare(right.artifact_type)
+    if (sortBy === "source_type") {
+      return left.source_type.localeCompare(right.source_type)
     }
-    return left.asset_type.localeCompare(right.asset_type)
+    return left.item_type.localeCompare(right.item_type)
   })
 }
 
@@ -402,29 +406,31 @@ function EndpointRow({
   )
 }
 
-function AssetRow({ asset }: { asset: SpmEndpointAssetRead }) {
-  const AssetIcon = assetTypeIcon(asset.asset_type)
-  const ArtifactIcon = artifactTypeIcon(asset.artifact_type)
+function InventoryItemRow({ item }: { item: SpmEndpointInventoryItemRead }) {
+  const ItemIcon = itemTypeIcon(item.item_type)
+  const SourceIcon = sourceTypeIcon(item.source_type)
   return (
     <SpmCompactRow
-      icon={<AssetIcon className="size-4 text-muted-foreground" />}
-      title={<span className="truncate text-xs">{getAssetPath(asset)}</span>}
-      subtitle={asset.display_name}
+      icon={<ItemIcon className="size-4 text-muted-foreground" />}
+      title={
+        <span className="truncate text-xs">{getInventoryItemPath(item)}</span>
+      }
+      subtitle={item.display_name}
       badges={
         <>
-          <SmallBadge icon={AssetIcon}>
-            {assetTypeLabel(asset.asset_type)}
+          <SmallBadge icon={ItemIcon}>
+            {itemTypeLabel(item.item_type)}
           </SmallBadge>
-          <SmallBadge icon={ArtifactIcon}>
-            {artifactTypeLabel(asset.artifact_type)}
+          <SmallBadge icon={SourceIcon}>
+            {sourceTypeLabel(item.source_type)}
           </SmallBadge>
-          <SmallBadge icon={BotIcon}>{harnessLabel(asset.harness)}</SmallBadge>
+          <SmallBadge icon={BotIcon}>{harnessLabel(item.harness)}</SmallBadge>
         </>
       }
       meta={
         <SpmTimestamp
           label="Seen"
-          value={asset.last_seen_at}
+          value={item.last_seen_at}
           icon={SpmSeenAtIcon}
         />
       }
@@ -433,16 +439,19 @@ function AssetRow({ asset }: { asset: SpmEndpointAssetRead }) {
 }
 
 function FindingRow(props: {
-  assets: SpmAssetRead[]
+  inventoryItems: SpmInventoryItemRead[]
   busyDecision: { decision: FindingDecision; findingId: string } | null
   endpoints: SpmEndpointRead[]
   finding: SpmFindingRead
   onDecision: (findingId: string, decision: FindingDecision) => Promise<void>
 }) {
-  const asset = getAssetRecord(props.finding.asset_id, props.assets)
+  const item = getInventoryItemRecord(
+    props.finding.inventory_item_id,
+    props.inventoryItems
+  )
   const enforcementState = getFindingEnforcementState(props.finding)
-  const AssetIcon = assetTypeIcon(props.finding.asset_type)
-  const ArtifactIcon = artifactTypeIcon(props.finding.artifact_type)
+  const ItemIcon = itemTypeIcon(props.finding.item_type)
+  const SourceIcon = sourceTypeIcon(props.finding.source_type)
   return (
     <SpmCompactRow
       icon={<ShieldAlertIcon className="size-4 text-muted-foreground" />}
@@ -461,14 +470,14 @@ function FindingRow(props: {
           <SmallBadge variant={enforcementState.variant}>
             {enforcementState.label}
           </SmallBadge>
-          <SmallBadge icon={AssetIcon}>
-            {assetTypeLabel(props.finding.asset_type)}
+          <SmallBadge icon={ItemIcon}>
+            {itemTypeLabel(props.finding.item_type)}
           </SmallBadge>
-          <SmallBadge icon={ArtifactIcon}>
-            {artifactTypeLabel(props.finding.artifact_type)}
+          <SmallBadge icon={SourceIcon}>
+            {sourceTypeLabel(props.finding.source_type)}
           </SmallBadge>
           <SmallBadge>
-            {asset?.display_name ?? props.finding.asset_id}
+            {item?.display_name ?? props.finding.inventory_item_id}
           </SmallBadge>
           <SmallBadge>
             {getEndpointName(props.finding.endpoint_id, props.endpoints)}
@@ -502,8 +511,8 @@ function ControlRow({
   isSelected: boolean
   onSelect: () => void
 }) {
-  const AssetIcon = assetTypeIcon(control.asset_type)
-  const artifactTypes = control.artifact_types ?? []
+  const ItemIcon = itemTypeIcon(control.item_type)
+  const sourceTypes = control.source_types ?? []
   return (
     <SpmCompactRow
       icon={<FileSearchIcon className="size-4 text-muted-foreground" />}
@@ -512,17 +521,17 @@ function ControlRow({
       title={<span className="truncate text-xs">{control.title}</span>}
       badges={
         <>
-          <SmallBadge icon={AssetIcon}>
-            {assetTypeLabel(control.asset_type)}
+          <SmallBadge icon={ItemIcon}>
+            {itemTypeLabel(control.item_type)}
           </SmallBadge>
-          {artifactTypes.length === 0 ? (
-            <SmallBadge>All artifacts</SmallBadge>
+          {sourceTypes.length === 0 ? (
+            <SmallBadge>All sources</SmallBadge>
           ) : (
-            artifactTypes.map((artifactType) => {
-              const ArtifactIcon = artifactTypeIcon(artifactType)
+            sourceTypes.map((sourceType) => {
+              const SourceIcon = sourceTypeIcon(sourceType)
               return (
-                <SmallBadge key={artifactType} icon={ArtifactIcon}>
-                  {artifactTypeLabel(artifactType)}
+                <SmallBadge key={sourceType} icon={SourceIcon}>
+                  {sourceTypeLabel(sourceType)}
                 </SmallBadge>
               )
             })
@@ -766,7 +775,7 @@ export function SpmEndpointsView() {
 export function SpmFindingsView() {
   const { toast } = useToast()
   const { hasEntitlement, isLoading: entitlementLoading } = useEntitlements()
-  const assetsQuery = useSpmAssets()
+  const inventoryQuery = useSpmInventory()
   const controlsQuery = useSpmControls()
   const endpointsQuery = useSpmEndpoints()
   const { decideFinding } = useSpmActions()
@@ -785,7 +794,7 @@ export function SpmFindingsView() {
   const [controlFilter, setControlFilter] = useState<string[]>([])
   const [controlMode, setControlMode] = useState<FilterMode>("include")
   const findingsQuery = useSpmFindings()
-  const assets = assetsQuery.data?.items ?? []
+  const inventoryItems = inventoryQuery.data?.items ?? []
   const controls = controlsQuery.data ?? []
   const endpoints = endpointsQuery.data?.items ?? []
   const findings = findingsQuery.data?.items ?? []
@@ -831,7 +840,10 @@ export function SpmFindingsView() {
   }
 
   const filteredFindings = findings.filter((finding) => {
-    const asset = getAssetRecord(finding.asset_id, assets)
+    const item = getInventoryItemRecord(
+      finding.inventory_item_id,
+      inventoryItems
+    )
     const endpointName = getEndpointName(finding.endpoint_id, endpoints)
     const statusMatches =
       statusFilter.length === 0 ||
@@ -855,11 +867,11 @@ export function SpmFindingsView() {
           finding.control_key,
           finding.status,
           finding.severity,
-          finding.asset_type,
-          finding.artifact_type,
-          finding.artifact_location,
-          asset?.display_name,
-          asset ? getAssetPath(asset) : finding.asset_id,
+          finding.item_type,
+          finding.source_type,
+          finding.source_location,
+          item?.display_name,
+          item ? getInventoryItemPath(item) : finding.inventory_item_id,
           endpointName,
         ],
         deferredSearchQuery
@@ -886,7 +898,7 @@ export function SpmFindingsView() {
 
   return renderMaybeLoading(
     entitlementLoading ||
-      assetsQuery.isLoading ||
+      inventoryQuery.isLoading ||
       controlsQuery.isLoading ||
       endpointsQuery.isLoading ||
       findingsQuery.isLoading,
@@ -975,7 +987,7 @@ export function SpmFindingsView() {
               ?.items.map((finding) => (
                 <FindingRow
                   key={finding.id}
-                  assets={assets}
+                  inventoryItems={inventoryItems}
                   busyDecision={busyDecision}
                   endpoints={endpoints}
                   finding={finding}
@@ -990,56 +1002,59 @@ export function SpmFindingsView() {
 }
 
 /**
- * Assets feed for the current SPM catalog.
+ * Inventory feed for the current SPM catalog.
  */
-export function SpmAssetsView() {
+export function SpmInventoryView() {
   const { hasEntitlement, isLoading: entitlementLoading } = useEntitlements()
   const endpointsQuery = useSpmEndpoints()
+  const taxonomyQuery = useSpmInventoryTaxonomy()
   const [searchQuery, setSearchQuery] = useState("")
   const deferredSearchQuery = useDeferredValue(searchQuery)
-  const [selectedAssetType, setSelectedAssetType] = useState<
-    SpmAssetType | typeof ALL_VALUE
+  const [selectedItemType, setSelectedItemType] = useState<
+    SpmInventoryItemType | typeof ALL_VALUE
   >(ALL_VALUE)
-  const [selectedArtifactType, setSelectedArtifactType] = useState<
-    SpmArtifactType | typeof ALL_VALUE
+  const [selectedSourceType, setSelectedSourceType] = useState<
+    SpmInventorySourceType | typeof ALL_VALUE
   >(ALL_VALUE)
   const [selectedEndpointId, setSelectedEndpointId] = useState(ALL_VALUE)
   const [selectedHarness, setSelectedHarness] = useState<
     SpmHarness | typeof ALL_VALUE
   >(ALL_VALUE)
-  const [sortBy, setSortBy] = useState<AssetSortKey>("asset_type")
+  const [sortBy, setSortBy] = useState<InventorySortKey>("item_type")
   const endpoints = endpointsQuery.data?.items ?? []
-  const endpointAssetQueries = useSpmEndpointAssetsForEndpoints(
+  const itemTypeOptions = taxonomyItemTypeOptions(taxonomyQuery.data)
+  const sourceTypeOptions = taxonomySourceTypeOptions(taxonomyQuery.data)
+  const endpointInventoryQueries = useSpmEndpointInventoryForEndpoints(
     endpoints.map((endpoint) => endpoint.id)
   )
   const endpointGroups = endpoints
     .map((endpoint, index) => {
-      const rows = endpointAssetQueries[index]?.data?.items ?? []
-      const items = sortAssets(
-        dedupeEndpointAssets(rows).filter((asset) => {
+      const rows = endpointInventoryQueries[index]?.data?.items ?? []
+      const items = sortInventory(
+        dedupeEndpointInventory(rows).filter((item) => {
           const harnessMatches =
-            selectedHarness === ALL_VALUE || asset.harness === selectedHarness
-          const assetTypeMatches =
-            selectedAssetType === ALL_VALUE ||
-            asset.asset_type === selectedAssetType
-          const artifactTypeMatches =
-            selectedArtifactType === ALL_VALUE ||
-            asset.artifact_type === selectedArtifactType
+            selectedHarness === ALL_VALUE || item.harness === selectedHarness
+          const itemTypeMatches =
+            selectedItemType === ALL_VALUE ||
+            item.item_type === selectedItemType
+          const sourceTypeMatches =
+            selectedSourceType === ALL_VALUE ||
+            item.source_type === selectedSourceType
           const queryMatches = includesQuery(
             [
-              asset.display_name,
-              asset.identity_key,
-              getAssetPath(asset),
-              asset.harness,
-              asset.asset_type,
-              asset.artifact_type,
+              item.display_name,
+              item.identity_key,
+              getInventoryItemPath(item),
+              item.harness,
+              item.item_type,
+              item.source_type,
             ],
             deferredSearchQuery
           )
           return (
             harnessMatches &&
-            assetTypeMatches &&
-            artifactTypeMatches &&
+            itemTypeMatches &&
+            sourceTypeMatches &&
             queryMatches
           )
         }),
@@ -1052,37 +1067,39 @@ export function SpmAssetsView() {
         selectedEndpointId === ALL_VALUE ||
         group.endpoint.id === selectedEndpointId
     )
-  const filteredAssets = endpointGroups.flatMap((group) => group.items)
-  const assetsAreLoading = endpointAssetQueries.some((query) => query.isLoading)
+  const filteredInventory = endpointGroups.flatMap((group) => group.items)
+  const inventoryIsLoading = endpointInventoryQueries.some(
+    (query) => query.isLoading
+  )
 
   function resetFilters() {
     setSearchQuery("")
-    setSelectedAssetType(ALL_VALUE)
-    setSelectedArtifactType(ALL_VALUE)
+    setSelectedItemType(ALL_VALUE)
+    setSelectedSourceType(ALL_VALUE)
     setSelectedEndpointId(ALL_VALUE)
     setSelectedHarness(ALL_VALUE)
-    setSortBy("asset_type")
+    setSortBy("item_type")
   }
   const hasFilters =
     searchQuery.trim().length > 0 ||
-    selectedAssetType !== ALL_VALUE ||
-    selectedArtifactType !== ALL_VALUE ||
+    selectedItemType !== ALL_VALUE ||
+    selectedSourceType !== ALL_VALUE ||
     selectedEndpointId !== ALL_VALUE ||
     selectedHarness !== ALL_VALUE
 
   return renderMaybeLoading(
-    entitlementLoading || endpointsQuery.isLoading || assetsAreLoading,
+    entitlementLoading || endpointsQuery.isLoading || inventoryIsLoading,
     hasEntitlement("spm"),
     "SPM entitlement required",
     "This organization does not have access to AI SPM yet.",
     <SpmListShell
-      title="Assets"
+      title="Inventory"
       icon={PackageIcon}
       searchQuery={searchQuery}
       onSearchChange={setSearchQuery}
-      searchPlaceholder="Search assets..."
-      count={filteredAssets.length}
-      countLabel="assets"
+      searchPlaceholder="Search inventory..."
+      count={filteredInventory.length}
+      countLabel="items"
       hasFilters={hasFilters}
       resetButton={<ResetFiltersButton onClick={resetFilters} />}
       filters={
@@ -1102,24 +1119,24 @@ export function SpmAssetsView() {
             onChange={setSelectedEndpointId}
           />
           <FilterSelect
-            label="Asset type"
+            label="item_type"
             icon={PackageIcon}
-            value={selectedAssetType}
-            options={ASSET_TYPE_OPTIONS}
-            onChange={setSelectedAssetType}
+            value={selectedItemType}
+            options={itemTypeOptions}
+            onChange={setSelectedItemType}
           />
           <FilterSelect
-            label="Artifact type"
+            label="source_type"
             icon={FileSearchIcon}
-            value={selectedArtifactType}
-            options={ARTIFACT_TYPE_OPTIONS}
-            onChange={setSelectedArtifactType}
+            value={selectedSourceType}
+            options={sourceTypeOptions}
+            onChange={setSelectedSourceType}
           />
           <FilterSelect
-            label="Sort by"
+            label="sort_by"
             icon={ArrowDownAZIcon}
             value={sortBy}
-            options={ASSET_SORT_OPTIONS}
+            options={INVENTORY_SORT_OPTIONS}
             onChange={setSortBy}
           />
         </>
@@ -1149,8 +1166,11 @@ export function SpmAssetsView() {
           {(endpointId) =>
             endpointGroups
               .find((group) => group.endpoint.id === endpointId)
-              ?.items.map((asset) => (
-                <AssetRow key={asset.asset_sighting_id} asset={asset} />
+              ?.items.map((item) => (
+                <InventoryItemRow
+                  key={item.inventory_observation_id}
+                  item={item}
+                />
               ))
           }
         </SpmAccordion>
@@ -1165,33 +1185,37 @@ export function SpmAssetsView() {
 export function SpmControlsView() {
   const { hasEntitlement, isLoading: entitlementLoading } = useEntitlements()
   const controlsQuery = useSpmControls()
+  const taxonomyQuery = useSpmInventoryTaxonomy()
   const [searchQuery, setSearchQuery] = useState("")
   const deferredSearchQuery = useDeferredValue(searchQuery)
   const [severityFilter, setSeverityFilter] = useState<SpmSeverity[]>([])
   const [severityMode, setSeverityMode] = useState<FilterMode>("include")
-  const [assetTypeFilter, setAssetTypeFilter] = useState<SpmAssetType[]>([])
-  const [assetTypeMode, setAssetTypeMode] = useState<FilterMode>("include")
+  const [itemTypeFilter, setItemTypeFilter] = useState<SpmInventoryItemType[]>(
+    []
+  )
+  const [itemTypeMode, setItemTypeMode] = useState<FilterMode>("include")
   const [selectedControl, setSelectedControl] = useState<SpmControlRead | null>(
     null
   )
   const controls = controlsQuery.data ?? []
+  const itemTypeOptions = taxonomyItemTypeOptions(taxonomyQuery.data)
 
   function resetFilters() {
     setSearchQuery("")
     setSeverityFilter([])
     setSeverityMode("include")
-    setAssetTypeFilter([])
-    setAssetTypeMode("include")
+    setItemTypeFilter([])
+    setItemTypeMode("include")
   }
 
   const visibleControls = controls.filter((control) => {
     const severityMatches =
       severityFilter.length === 0 ||
       severityFilter.includes(control.severity) === (severityMode === "include")
-    const assetTypeMatches =
-      assetTypeFilter.length === 0 ||
-      assetTypeFilter.includes(control.asset_type) ===
-        (assetTypeMode === "include")
+    const itemTypeMatches =
+      itemTypeFilter.length === 0 ||
+      itemTypeFilter.includes(control.item_type) ===
+        (itemTypeMode === "include")
 
     return (
       includesQuery(
@@ -1201,14 +1225,14 @@ export function SpmControlsView() {
           control.title,
           control.description,
           control.severity,
-          control.asset_type,
-          ...(control.artifact_types ?? []),
+          control.item_type,
+          ...(control.source_types ?? []),
           control.action,
         ],
         deferredSearchQuery
       ) &&
       severityMatches &&
-      assetTypeMatches
+      itemTypeMatches
     )
   })
   const groupedControls = SEVERITY_ORDER.map((severity) => ({
@@ -1218,7 +1242,7 @@ export function SpmControlsView() {
   const hasFilters =
     searchQuery.trim().length > 0 ||
     severityFilter.length > 0 ||
-    assetTypeFilter.length > 0
+    itemTypeFilter.length > 0
 
   return renderMaybeLoading(
     entitlementLoading || controlsQuery.isLoading,
@@ -1247,13 +1271,13 @@ export function SpmControlsView() {
             onChange={setSeverityFilter}
           />
           <MultiFilterSelect
-            label="Asset type"
+            label="item_type"
             icon={PackageIcon}
-            value={assetTypeFilter}
-            options={withoutAll<SpmAssetType>(ASSET_TYPE_OPTIONS)}
-            mode={assetTypeMode}
-            onModeChange={setAssetTypeMode}
-            onChange={setAssetTypeFilter}
+            value={itemTypeFilter}
+            options={withoutAll<SpmInventoryItemType>(itemTypeOptions)}
+            mode={itemTypeMode}
+            onModeChange={setItemTypeMode}
+            onChange={setItemTypeFilter}
           />
         </>
       }

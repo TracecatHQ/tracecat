@@ -8,72 +8,77 @@ from typing import Any
 from unittest.mock import AsyncMock, patch
 
 import pytest
+from pydantic import ValidationError
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat_ee.spm.exceptions import SpmConflictError, SpmNotFoundError
 from tracecat_ee.spm.intel import NoopSpmThreatIntelProvider
 from tracecat_ee.spm.schemas import (
-    SpmAssetQueryParams,
     SpmEndpointCreate,
     SpmEndpointSyncRequest,
     SpmFindingDecisionCreate,
     SpmFindingQueryParams,
-    SpmSyncAssetUpsert,
+    SpmInventoryQueryParams,
+    SpmSyncInventoryItemUpsert,
+    SpmSyncInventoryRelationshipUpsert,
     SpmSyncTaskResult,
 )
 from tracecat_ee.spm.service import SpmService, SpmSyncService
 from tracecat_ee.spm.types import (
-    SpmArtifactType,
-    SpmAssetType,
     SpmEndpointPlatform,
     SpmEnforcementTaskStatus,
     SpmFindingDecisionType,
     SpmFindingStatus,
     SpmHarness,
+    SpmInventoryItemType,
+    SpmInventoryRelationshipType,
+    SpmInventorySourceType,
     SpmSyncTaskResultStatus,
 )
 
 from tracecat.auth.types import Role
 from tracecat.db.models import (
-    SpmAsset,
-    SpmAssetSighting,
     SpmEndpoint,
     SpmEnforcementTask,
     SpmFinding,
+    SpmInventoryItem,
+    SpmInventoryObservation,
+    SpmInventoryRelationship,
     User,
 )
 from tracecat.pagination import CursorPaginationParams
 
 
-async def _sync_assets(
+async def _sync_inventory_items(
     sync_service: SpmSyncService,
     *,
     endpoint_id: uuid.UUID,
     bearer_token: str,
-    assets: list[SpmSyncAssetUpsert],
+    items: list[SpmSyncInventoryItemUpsert],
 ) -> None:
     await sync_service.sync_endpoint(
         endpoint_id=endpoint_id,
         bearer_token=bearer_token,
         params=SpmEndpointSyncRequest(
             name="Chris MacBook",
-            assets=assets,
+            inventory_items=items,
         ),
     )
 
 
-def _mcp_asset(
+def _mcp_item(
     *,
     server_name: str,
     resolved_identity: str,
     disabled: bool = False,
-) -> SpmSyncAssetUpsert:
-    return SpmSyncAssetUpsert(
+) -> SpmSyncInventoryItemUpsert:
+    return SpmSyncInventoryItemUpsert(
         harness=SpmHarness.CLAUDE_CODE,
-        asset_type=SpmAssetType.MCP_SERVER,
-        artifact_type=SpmArtifactType.CLAUDE_JSON,
-        artifact_location="/Users/chris/.claude.json",
+        item_type=SpmInventoryItemType.MCP_SERVER,
+        source_type=SpmInventorySourceType.CLAUDE_JSON,
+        item_location=f"{server_name}|{resolved_identity}",
+        source_location="/Users/chris/.claude.json",
         identity_key=(
             f"file:/Users/chris/.claude.json#mcp:{server_name}|{resolved_identity}"
         ),
@@ -91,12 +96,13 @@ def _mcp_asset(
     )
 
 
-def _permission_asset() -> SpmSyncAssetUpsert:
-    return SpmSyncAssetUpsert(
+def _permission_item() -> SpmSyncInventoryItemUpsert:
+    return SpmSyncInventoryItemUpsert(
         harness=SpmHarness.CLAUDE_CODE,
-        asset_type=SpmAssetType.PERMISSION_CONFIG,
-        artifact_type=SpmArtifactType.SETTINGS_JSON,
-        artifact_location="/Users/chris/.claude/settings.json",
+        item_type=SpmInventoryItemType.PERMISSION_CONFIG,
+        source_type=SpmInventorySourceType.SETTINGS_JSON,
+        item_location="/Users/chris/.claude/settings.json",
+        source_location="/Users/chris/.claude/settings.json",
         identity_key="/Users/chris/.claude/settings.json#permission_config",
         display_name="permissions in settings.json",
         metadata={
@@ -142,7 +148,7 @@ async def _set_model_updated_at(
 
 
 @pytest.mark.anyio
-async def test_list_assets_and_endpoint_assets_preserve_endpoint_state(
+async def test_list_inventory_and_endpoint_inventory_preserve_endpoint_state(
     session: AsyncSession,
     svc_role: Role,
 ) -> None:
@@ -166,11 +172,12 @@ async def test_list_assets_and_endpoint_assets_preserve_endpoint_state(
         )
     )
 
-    github_asset = SpmSyncAssetUpsert(
+    github_item = SpmSyncInventoryItemUpsert(
         harness=SpmHarness.CLAUDE_CODE,
-        asset_type=SpmAssetType.MCP_SERVER,
-        artifact_type=SpmArtifactType.CLAUDE_JSON,
-        artifact_location="/Users/chris/.claude.json",
+        item_type=SpmInventoryItemType.MCP_SERVER,
+        source_type=SpmInventorySourceType.CLAUDE_JSON,
+        item_location="github|https://api.github.com/mcp",
+        source_location="/Users/chris/.claude.json",
         identity_key="file:/Users/chris/.claude.json#mcp:github|https://api.github.com/mcp",
         display_name="github",
         metadata={
@@ -181,7 +188,7 @@ async def test_list_assets_and_endpoint_assets_preserve_endpoint_state(
         evidence={"config": {"url": "https://api.github.com/mcp"}},
         observed_state={"disabled": False},
     )
-    disabled_github_asset = github_asset.model_copy(
+    disabled_github_item = github_item.model_copy(
         update={"observed_state": {"disabled": True}}
     )
 
@@ -189,42 +196,42 @@ async def test_list_assets_and_endpoint_assets_preserve_endpoint_state(
         "tracecat_ee.spm.service.is_org_entitled",
         new=AsyncMock(return_value=True),
     ):
-        await _sync_assets(
+        await _sync_inventory_items(
             sync_service,
             endpoint_id=endpoint_one.endpoint.id,
             bearer_token=endpoint_one.enrollment_token,
-            assets=[github_asset],
+            items=[github_item],
         )
-        await _sync_assets(
+        await _sync_inventory_items(
             sync_service,
             endpoint_id=endpoint_two.endpoint.id,
             bearer_token=endpoint_two.enrollment_token,
-            assets=[disabled_github_asset],
+            items=[disabled_github_item],
         )
 
-    deduped_assets = await service.list_assets(
-        SpmAssetQueryParams(
+    deduped_items = await service.list_inventory(
+        SpmInventoryQueryParams(
             limit=50,
             endpoint_id=endpoint_one.endpoint.id,
             harness=SpmHarness.CLAUDE_CODE,
-            asset_type=SpmAssetType.MCP_SERVER,
-            artifact_type=SpmArtifactType.CLAUDE_JSON,
+            item_type=SpmInventoryItemType.MCP_SERVER,
+            source_type=SpmInventorySourceType.CLAUDE_JSON,
         )
     )
-    endpoint_one_assets = await service.list_endpoint_assets(
+    endpoint_one_items = await service.list_endpoint_inventory(
         endpoint_one.endpoint.id,
         CursorPaginationParams(limit=50),
     )
-    endpoint_two_assets = await service.list_endpoint_assets(
+    endpoint_two_items = await service.list_endpoint_inventory(
         endpoint_two.endpoint.id,
         CursorPaginationParams(limit=50),
     )
 
-    assert len(deduped_assets.items) == 1
-    assert endpoint_one_assets.items[0].asset_id == deduped_assets.items[0].id
-    assert endpoint_one_assets.items[0].observed_state == {"disabled": False}
-    assert endpoint_two_assets.items[0].asset_id == deduped_assets.items[0].id
-    assert endpoint_two_assets.items[0].observed_state == {"disabled": True}
+    assert len(deduped_items.items) == 1
+    assert endpoint_one_items.items[0].inventory_item_id == deduped_items.items[0].id
+    assert endpoint_one_items.items[0].observed_state == {"disabled": False}
+    assert endpoint_two_items.items[0].inventory_item_id == deduped_items.items[0].id
+    assert endpoint_two_items.items[0].observed_state == {"disabled": True}
 
 
 @pytest.mark.anyio
@@ -256,16 +263,17 @@ async def test_list_findings_supports_endpoint_and_control_filters(
         "tracecat_ee.spm.service.is_org_entitled",
         new=AsyncMock(return_value=True),
     ):
-        await _sync_assets(
+        await _sync_inventory_items(
             sync_service,
             endpoint_id=endpoint_one.endpoint.id,
             bearer_token=endpoint_one.enrollment_token,
-            assets=[
-                SpmSyncAssetUpsert(
+            items=[
+                SpmSyncInventoryItemUpsert(
                     harness=SpmHarness.CLAUDE_CODE,
-                    asset_type=SpmAssetType.MCP_SERVER,
-                    artifact_type=SpmArtifactType.CLAUDE_JSON,
-                    artifact_location="/Users/chris/.claude.json",
+                    item_type=SpmInventoryItemType.MCP_SERVER,
+                    source_type=SpmInventorySourceType.CLAUDE_JSON,
+                    item_location="github|https://api.github.com/mcp",
+                    source_location="/Users/chris/.claude.json",
                     identity_key="file:/Users/chris/.claude.json#mcp:github|https://api.github.com/mcp",
                     display_name="github",
                     metadata={
@@ -278,16 +286,17 @@ async def test_list_findings_supports_endpoint_and_control_filters(
                 )
             ],
         )
-        await _sync_assets(
+        await _sync_inventory_items(
             sync_service,
             endpoint_id=endpoint_two.endpoint.id,
             bearer_token=endpoint_two.enrollment_token,
-            assets=[
-                SpmSyncAssetUpsert(
+            items=[
+                SpmSyncInventoryItemUpsert(
                     harness=SpmHarness.CLAUDE_CODE,
-                    asset_type=SpmAssetType.INSTRUCTION_FILE,
-                    artifact_type=SpmArtifactType.CLAUDE_MD,
-                    artifact_location="/Users/chris/project/CLAUDE.md",
+                    item_type=SpmInventoryItemType.INSTRUCTION_FILE,
+                    source_type=SpmInventorySourceType.CLAUDE_MD,
+                    item_location="/Users/chris/project/CLAUDE.md",
+                    source_location="/Users/chris/project/CLAUDE.md",
                     identity_key="/Users/chris/project/CLAUDE.md",
                     display_name="CLAUDE.md",
                     metadata={
@@ -322,6 +331,111 @@ async def test_list_findings_supports_endpoint_and_control_filters(
     assert {finding.control_key for finding in control_findings.items} == {
         "claude.mcp_server.approved"
     }
+
+
+@pytest.mark.anyio
+async def test_sync_endpoint_persists_inventory_relationships(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    service = SpmService(session, role=svc_role)
+    sync_service = SpmSyncService(
+        session,
+        threat_intel_provider=NoopSpmThreatIntelProvider(),
+    )
+    created = await service.create_endpoint(
+        SpmEndpointCreate(
+            name="Plugin MacBook",
+            harness=SpmHarness.CLAUDE_CODE,
+            platform=SpmEndpointPlatform.MACOS,
+        )
+    )
+
+    plugin_identity = "/Users/chris/.claude/plugins/demo/.claude-plugin/plugin.json"
+    skill_identity = "/Users/chris/.claude/plugins/demo/skills/review/SKILL.md"
+    with patch(
+        "tracecat_ee.spm.service.is_org_entitled",
+        new=AsyncMock(return_value=True),
+    ):
+        await sync_service.sync_endpoint(
+            endpoint_id=created.endpoint.id,
+            bearer_token=created.enrollment_token,
+            params=SpmEndpointSyncRequest(
+                name="Plugin MacBook",
+                inventory_items=[
+                    SpmSyncInventoryItemUpsert(
+                        harness=SpmHarness.CLAUDE_CODE,
+                        item_type=SpmInventoryItemType.PLUGIN,
+                        source_type=SpmInventorySourceType.PLUGIN_MANIFEST,
+                        item_location=plugin_identity,
+                        source_location=plugin_identity,
+                        identity_key=plugin_identity,
+                        display_name="demo",
+                        metadata={"parse_status": "ok"},
+                        observed_state={"enabled": True},
+                    ),
+                    SpmSyncInventoryItemUpsert(
+                        harness=SpmHarness.CLAUDE_CODE,
+                        item_type=SpmInventoryItemType.SKILL,
+                        source_type=SpmInventorySourceType.SKILL_FRONTMATTER,
+                        item_location=skill_identity,
+                        source_location=skill_identity,
+                        identity_key=skill_identity,
+                        display_name="review",
+                        metadata={"parse_status": "ok", "name": "review"},
+                        observed_state={"disabled": False},
+                    ),
+                ],
+                relationships=[
+                    SpmSyncInventoryRelationshipUpsert(
+                        relationship_type=SpmInventoryRelationshipType.CONTAINS,
+                        from_identity_key=plugin_identity,
+                        to_identity_key=skill_identity,
+                        evidence={"source_location": skill_identity},
+                        observed_state={"enabled": True},
+                    )
+                ],
+            ),
+        )
+
+    relationship = (await session.scalars(select(SpmInventoryRelationship))).one()
+    items = {
+        item.identity_key: item
+        for item in (await session.scalars(select(SpmInventoryItem))).all()
+    }
+    assert relationship.endpoint_id == created.endpoint.id
+    assert relationship.relationship_type == SpmInventoryRelationshipType.CONTAINS.value
+    assert relationship.from_inventory_item_id == items[plugin_identity].id
+    assert relationship.to_inventory_item_id == items[skill_identity].id
+
+
+def test_sync_inventory_item_rejects_invalid_taxonomy_binding() -> None:
+    with pytest.raises(ValidationError):
+        SpmSyncInventoryItemUpsert(
+            harness=SpmHarness.CLAUDE_CODE,
+            item_type=SpmInventoryItemType.PLUGIN,
+            source_type=SpmInventorySourceType.CLAUDE_JSON,
+            item_location="/Users/chris/.claude.json",
+            source_location="/Users/chris/.claude.json",
+            identity_key="/Users/chris/.claude.json#plugin",
+            display_name="invalid plugin",
+        )
+
+
+def test_sync_inventory_item_rejects_invalid_source_location() -> None:
+    with pytest.raises(ValidationError):
+        SpmSyncInventoryItemUpsert(
+            harness=SpmHarness.CLAUDE_CODE,
+            item_type=SpmInventoryItemType.MCP_SERVER,
+            source_type=SpmInventorySourceType.CLAUDE_JSON,
+            item_location="github|https://api.githubcopilot.com/mcp/",
+            source_location="/Users/chris/.claude/settings.json",
+            identity_key=(
+                "file:/Users/chris/.claude/settings.json"
+                "#mcp:github|https://api.githubcopilot.com/mcp/"
+            ),
+            display_name="invalid source location",
+        )
 
 
 @pytest.mark.anyio
@@ -385,16 +499,16 @@ async def test_spm_list_methods_paginate_without_duplicates(
                         ]
                     }
                 },
-                assets=[
-                    _mcp_asset(
+                inventory_items=[
+                    _mcp_item(
                         server_name="gamma",
                         resolved_identity="https://gamma.example/mcp",
                     ),
-                    _mcp_asset(
+                    _mcp_item(
                         server_name="beta",
                         resolved_identity="https://beta.example/mcp",
                     ),
-                    _mcp_asset(
+                    _mcp_item(
                         server_name="alpha",
                         resolved_identity="https://alpha.example/mcp",
                     ),
@@ -402,23 +516,25 @@ async def test_spm_list_methods_paginate_without_duplicates(
             ),
         )
 
-    asset_rows = list((await session.scalars(select(SpmAsset))).all())
-    asset_ids_by_name = {asset.display_name: asset.id for asset in asset_rows}
+    item_rows = list((await session.scalars(select(SpmInventoryItem))).all())
+    inventory_item_ids_by_name = {item.display_name: item.id for item in item_rows}
     finding_rows = list((await session.scalars(select(SpmFinding))).all())
-    finding_ids_by_asset_name = {
+    finding_ids_by_item_name = {
         next(
-            asset.display_name for asset in asset_rows if asset.id == finding.asset_id
+            item.display_name
+            for item in item_rows
+            if item.id == finding.inventory_item_id
         ): finding.id
         for finding in finding_rows
         if finding.control_key == "claude.mcp_server.approved"
     }
     await _set_model_updated_at(
         session,
-        SpmAsset,
+        SpmInventoryItem,
         [
-            asset_ids_by_name["alpha"],
-            asset_ids_by_name["beta"],
-            asset_ids_by_name["gamma"],
+            inventory_item_ids_by_name["alpha"],
+            inventory_item_ids_by_name["beta"],
+            inventory_item_ids_by_name["gamma"],
         ],
         base_time=base_time,
     )
@@ -426,30 +542,30 @@ async def test_spm_list_methods_paginate_without_duplicates(
         session,
         SpmFinding,
         [
-            finding_ids_by_asset_name["alpha"],
-            finding_ids_by_asset_name["beta"],
-            finding_ids_by_asset_name["gamma"],
+            finding_ids_by_item_name["alpha"],
+            finding_ids_by_item_name["beta"],
+            finding_ids_by_item_name["gamma"],
         ],
         base_time=base_time + timedelta(hours=1),
     )
 
-    assets_page_one = await service.list_assets(
-        SpmAssetQueryParams(
+    items_page_one = await service.list_inventory(
+        SpmInventoryQueryParams(
             limit=2,
             endpoint_id=primary_endpoint.endpoint.id,
             harness=SpmHarness.CLAUDE_CODE,
-            asset_type=SpmAssetType.MCP_SERVER,
-            artifact_type=SpmArtifactType.CLAUDE_JSON,
+            item_type=SpmInventoryItemType.MCP_SERVER,
+            source_type=SpmInventorySourceType.CLAUDE_JSON,
         )
     )
-    assets_page_two = await service.list_assets(
-        SpmAssetQueryParams(
+    items_page_two = await service.list_inventory(
+        SpmInventoryQueryParams(
             limit=2,
-            cursor=assets_page_one.next_cursor,
+            cursor=items_page_one.next_cursor,
             endpoint_id=primary_endpoint.endpoint.id,
             harness=SpmHarness.CLAUDE_CODE,
-            asset_type=SpmAssetType.MCP_SERVER,
-            artifact_type=SpmArtifactType.CLAUDE_JSON,
+            item_type=SpmInventoryItemType.MCP_SERVER,
+            source_type=SpmInventorySourceType.CLAUDE_JSON,
         )
     )
     findings_page_one = await service.list_findings(SpmFindingQueryParams(limit=2))
@@ -457,10 +573,10 @@ async def test_spm_list_methods_paginate_without_duplicates(
         SpmFindingQueryParams(limit=2, cursor=findings_page_one.next_cursor)
     )
 
-    assert [asset.display_name for asset in assets_page_one.items] == ["gamma", "beta"]
-    assert [asset.display_name for asset in assets_page_two.items] == ["alpha"]
-    assert assets_page_one.has_more is True
-    assert assets_page_two.has_more is False
+    assert [item.display_name for item in items_page_one.items] == ["gamma", "beta"]
+    assert [item.display_name for item in items_page_two.items] == ["alpha"]
+    assert items_page_one.has_more is True
+    assert items_page_two.has_more is False
     assert [finding.summary for finding in findings_page_one.items] == [
         "gamma is not approved",
         "beta is not approved",
@@ -533,11 +649,11 @@ async def test_delete_pending_endpoint_rejects_active_endpoint(
         "tracecat_ee.spm.service.is_org_entitled",
         new=AsyncMock(return_value=True),
     ):
-        await _sync_assets(
+        await _sync_inventory_items(
             sync_service,
             endpoint_id=created.endpoint.id,
             bearer_token=created.enrollment_token,
-            assets=[],
+            items=[],
         )
 
     with pytest.raises(SpmConflictError) as exc_info:
@@ -548,7 +664,7 @@ async def test_delete_pending_endpoint_rejects_active_endpoint(
 
 @pytest.mark.anyio
 @pytest.mark.parametrize(
-    ("task_status", "asset_disabled", "expected_finding_status"),
+    ("task_status", "item_disabled", "expected_finding_status"),
     [
         (
             SpmSyncTaskResultStatus.APPLIED,
@@ -566,7 +682,7 @@ async def test_sync_endpoint_task_results_reconcile_task_and_finding_state(
     session: AsyncSession,
     svc_role: Role,
     task_status: SpmSyncTaskResultStatus,
-    asset_disabled: bool,
+    item_disabled: bool,
     expected_finding_status: SpmFindingStatus,
 ) -> None:
     service = SpmService(session, role=svc_role)
@@ -601,8 +717,8 @@ async def test_sync_endpoint_task_results_reconcile_task_and_finding_state(
                         ]
                     }
                 },
-                assets=[
-                    _mcp_asset(
+                inventory_items=[
+                    _mcp_item(
                         server_name="github",
                         resolved_identity="https://api.github.com/mcp",
                     )
@@ -659,11 +775,11 @@ async def test_sync_endpoint_task_results_reconcile_task_and_finding_state(
                         ]
                     }
                 },
-                assets=[
-                    _mcp_asset(
+                inventory_items=[
+                    _mcp_item(
                         server_name="github",
                         resolved_identity="https://api.github.com/mcp",
-                        disabled=asset_disabled,
+                        disabled=item_disabled,
                     )
                 ],
                 task_results=[
@@ -697,7 +813,7 @@ async def test_sync_endpoint_task_results_reconcile_task_and_finding_state(
 
 
 @pytest.mark.anyio
-async def test_upsert_asset_recovers_from_duplicate_insert_race() -> None:
+async def test_upsert_inventory_item_recovers_from_duplicate_insert_race() -> None:
     class _ScalarResult:
         def __init__(self, value: Any) -> None:
             self.value = value
@@ -718,8 +834,8 @@ async def test_upsert_asset_recovers_from_duplicate_insert_race() -> None:
             return False
 
     class _SessionStub:
-        def __init__(self, asset_row: SpmAsset) -> None:
-            self.asset_row = asset_row
+        def __init__(self, item_row: SpmInventoryItem) -> None:
+            self.item_row = item_row
             self.scalars_calls = 0
             self.flush_calls = 0
             self.added: list[Any] = []
@@ -729,7 +845,7 @@ async def test_upsert_asset_recovers_from_duplicate_insert_race() -> None:
             if self.scalars_calls == 1:
                 return _ScalarResult(None)
             if self.scalars_calls == 2:
-                return _ScalarResult(self.asset_row)
+                return _ScalarResult(self.item_row)
             return _ScalarResult(None)
 
         def add(self, row: Any) -> None:
@@ -739,7 +855,7 @@ async def test_upsert_asset_recovers_from_duplicate_insert_race() -> None:
             self.flush_calls += 1
             if self.flush_calls == 1:
                 raise IntegrityError(
-                    "INSERT INTO spm_asset ...",
+                    "INSERT INTO spm_inventory_item ...",
                     params={},
                     orig=Exception("duplicate key value violates unique constraint"),
                 )
@@ -747,36 +863,39 @@ async def test_upsert_asset_recovers_from_duplicate_insert_race() -> None:
         def begin_nested(self) -> _NestedTransaction:
             return _NestedTransaction()
 
-    existing_asset = SpmAsset(
+    existing_item = SpmInventoryItem(
         id=uuid.uuid4(),
         organization_id=uuid.uuid4(),
         harness=SpmHarness.CLAUDE_CODE.value,
-        asset_type=SpmAssetType.PERMISSION_CONFIG.value,
-        artifact_type=SpmArtifactType.SETTINGS_JSON.value,
-        artifact_location="/Users/chris/.claude/settings.json",
+        item_type=SpmInventoryItemType.PERMISSION_CONFIG.value,
+        source_type=SpmInventorySourceType.SETTINGS_JSON.value,
+        item_location="/Users/chris/.claude/settings.json",
+        source_location="/Users/chris/.claude/settings.json",
         identity_key="/Users/chris/.claude/settings.json#permission_config",
         display_name="stale name",
         content_hash=None,
-        asset_metadata={},
+        item_metadata={},
         first_seen_at=datetime.now(UTC),
         last_seen_at=datetime.now(UTC),
     )
-    session = _SessionStub(existing_asset)
+    session = _SessionStub(existing_item)
     service = SpmSyncService(session=session)  # type: ignore[arg-type]
 
     endpoint = SpmEndpoint(
         id=uuid.uuid4(),
-        organization_id=existing_asset.organization_id,
+        organization_id=existing_item.organization_id,
         name="Pending MacBook",
         harness=SpmHarness.CLAUDE_CODE.value,
         platform=SpmEndpointPlatform.MACOS.value,
         status="pending",
     )
 
-    await service._upsert_asset(endpoint=endpoint, asset=_permission_asset())
+    await service._upsert_inventory_item(endpoint=endpoint, item=_permission_item())
 
     assert session.flush_calls == 1
-    assert existing_asset.display_name == "permissions in settings.json"
-    assert existing_asset.asset_metadata["source_surface"] == "user_settings_json"
-    sighting = next(row for row in session.added if isinstance(row, SpmAssetSighting))
-    assert sighting.asset_id == existing_asset.id
+    assert existing_item.display_name == "permissions in settings.json"
+    assert existing_item.item_metadata["source_surface"] == "user_settings_json"
+    observation = next(
+        row for row in session.added if isinstance(row, SpmInventoryObservation)
+    )
+    assert observation.inventory_item_id == existing_item.id

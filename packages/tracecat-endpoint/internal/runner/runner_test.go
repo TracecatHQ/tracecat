@@ -17,11 +17,15 @@ import (
 )
 
 type staticInventory struct {
-	assets []spmapi.SyncAsset
+	items         []spmapi.SyncInventoryItem
+	relationships []spmapi.SyncInventoryRelationship
 }
 
-func (s staticInventory) Collect(context.Context) ([]spmapi.SyncAsset, error) {
-	return s.assets, nil
+func (s staticInventory) Collect(context.Context) (spmapi.InventorySnapshot, error) {
+	return spmapi.InventorySnapshot{
+		InventoryItems: s.items,
+		Relationships:  s.relationships,
+	}, nil
 }
 
 func TestRunOnceRedeemsEnrollmentTokenAndFlushesTaskResults(t *testing.T) {
@@ -222,7 +226,7 @@ func TestRunOnceWithClaudeFixtureFlushesRealTaskResultsAndStaysIdempotent(t *tes
 			t.Fatalf("decode request: %v", err)
 		}
 
-		localStdio := findRequestAsset(t, req.Assets, "local-stdio")
+		localStdio := findRequestItem(t, req.InventoryItems, "local-stdio")
 		disabled, _ := localStdio.ObservedState["disabled"].(bool)
 
 		w.Header().Set("Content-Type", "application/json")
@@ -535,15 +539,15 @@ func syncResponse(name string, endpointSecret string, tasks []spmapi.Enforcement
 	}
 }
 
-func findRequestAsset(t *testing.T, assets []spmapi.SyncAsset, displayName string) spmapi.SyncAsset {
+func findRequestItem(t *testing.T, items []spmapi.SyncInventoryItem, displayName string) spmapi.SyncInventoryItem {
 	t.Helper()
-	for _, asset := range assets {
-		if asset.DisplayName == displayName {
-			return asset
+	for _, item := range items {
+		if item.DisplayName == displayName {
+			return item
 		}
 	}
-	t.Fatalf("asset with display name %s not found in request", displayName)
-	return spmapi.SyncAsset{}
+	t.Fatalf("item with display name %s not found in request", displayName)
+	return spmapi.SyncInventoryItem{}
 }
 
 func copyInventoryFixture(t *testing.T, fixtureName string) string {

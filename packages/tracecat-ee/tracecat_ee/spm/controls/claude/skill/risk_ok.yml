@@ -5,6 +5,6 @@ revision: "1"
 title: Claude skill must not match risk heuristics
 description: Skills configured for Claude must not match high-signal risky content heuristics.
 harness: claude_code
-asset_type: skill
+item_type: skill
 severity: high
 action: disable_skill

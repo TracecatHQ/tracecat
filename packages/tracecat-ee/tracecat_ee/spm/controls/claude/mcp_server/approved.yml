@@ -5,6 +5,6 @@ revision: "1"
 title: Claude MCP server must be approved
 description: MCP servers configured for Claude must match an approved server-name plus resolved-identity tuple.
 harness: claude_code
-asset_type: mcp_server
+item_type: mcp_server
 severity: high
 action: disable_mcp_server

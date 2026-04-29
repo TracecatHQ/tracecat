@@ -10,28 +10,29 @@ import {
   type SpmCreateSpmEndpointData,
   type SpmCreateSpmFindingDecisionData,
   type SpmDeleteSpmEndpointData,
-  type SpmListSpmAssetsData,
-  type SpmListSpmEndpointAssetsData,
+  type SpmListSpmEndpointInventoryData,
   type SpmListSpmFindingsData,
+  type SpmListSpmInventoryData,
   spmCreateSpmEndpoint,
   spmCreateSpmFindingDecision,
   spmDeleteSpmEndpoint,
-  spmListSpmAssets,
+  spmGetSpmInventoryTaxonomy,
   spmListSpmControls,
-  spmListSpmEndpointAssets,
+  spmListSpmEndpointInventory,
   spmListSpmEndpoints,
   spmListSpmFindings,
+  spmListSpmInventory,
 } from "@/client"
 
 export const SPM_REFRESH_MS = 10_000
 
-export interface UseSpmAssetsParams {
-  assetType?: SpmListSpmAssetsData["assetType"]
-  artifactType?: SpmListSpmAssetsData["artifactType"]
-  cursor?: SpmListSpmAssetsData["cursor"]
-  endpointId?: SpmListSpmAssetsData["endpointId"]
-  harness?: SpmListSpmAssetsData["harness"]
-  limit?: SpmListSpmAssetsData["limit"]
+export interface UseSpmInventoryParams {
+  itemType?: SpmListSpmInventoryData["itemType"]
+  sourceType?: SpmListSpmInventoryData["sourceType"]
+  cursor?: SpmListSpmInventoryData["cursor"]
+  endpointId?: SpmListSpmInventoryData["endpointId"]
+  harness?: SpmListSpmInventoryData["harness"]
+  limit?: SpmListSpmInventoryData["limit"]
 }
 
 export interface UseSpmFindingsParams {
@@ -75,12 +76,12 @@ export function useSpmFindings(params: UseSpmFindingsParams = {}) {
 }
 
 /**
- * Fetch SPM assets with optional filters.
+ * Fetch SPM inventory with optional filters.
  */
-export function useSpmAssets(params: UseSpmAssetsParams = {}) {
+export function useSpmInventory(params: UseSpmInventoryParams = {}) {
   const {
-    assetType,
-    artifactType,
+    itemType,
+    sourceType,
     cursor,
     endpointId,
     harness,
@@ -89,13 +90,13 @@ export function useSpmAssets(params: UseSpmAssetsParams = {}) {
   return useQuery({
     queryKey: [
       "spm",
-      "assets",
-      { assetType, artifactType, cursor, endpointId, harness, limit },
+      "inventory",
+      { itemType, sourceType, cursor, endpointId, harness, limit },
     ],
     queryFn: () =>
-      spmListSpmAssets({
-        assetType,
-        artifactType,
+      spmListSpmInventory({
+        itemType,
+        sourceType,
         cursor,
         endpointId,
         harness,
@@ -107,19 +108,30 @@ export function useSpmAssets(params: UseSpmAssetsParams = {}) {
 }
 
 /**
- * Fetch first-page endpoint-scoped assets for a set of endpoints.
+ * Fetch first-page endpoint-scoped inventory for a set of endpoints.
  */
-export function useSpmEndpointAssetsForEndpoints(
+export function useSpmEndpointInventoryForEndpoints(
   endpointIds: string[],
-  limit: SpmListSpmEndpointAssetsData["limit"] = 100
+  limit: SpmListSpmEndpointInventoryData["limit"] = 100
 ) {
   return useQueries({
     queries: endpointIds.map((endpointId) => ({
-      queryKey: ["spm", "endpoint-assets", { endpointId, limit }],
-      queryFn: () => spmListSpmEndpointAssets({ endpointId, limit }),
+      queryKey: ["spm", "endpoint-inventory", { endpointId, limit }],
+      queryFn: () => spmListSpmEndpointInventory({ endpointId, limit }),
       refetchInterval: SPM_REFRESH_MS,
       staleTime: 2_000,
     })),
+  })
+}
+
+/**
+ * Fetch the manifest-backed SPM inventory taxonomy.
+ */
+export function useSpmInventoryTaxonomy() {
+  return useQuery({
+    queryKey: ["spm", "inventory-taxonomy"],
+    queryFn: () => spmGetSpmInventoryTaxonomy(),
+    staleTime: 60_000,
   })
 }
 

@@ -8,21 +8,21 @@ from tracecat_ee.spm.schemas import (
 
 
 def check(ctx: SpmControlContext) -> SpmControlResult:
-    asset = cast(SpmDirectoryControlData, ctx.asset)
-    failed = asset.parse_status != "ok" or (
+    item = cast(SpmDirectoryControlData, ctx.item)
+    failed = item.parse_status != "ok" or (
         bool(ctx.policy.approved_trusted_directories)
-        and asset.directory_path not in ctx.policy.approved_trusted_directories
+        and item.directory_path not in ctx.policy.approved_trusted_directories
     )
-    summary = f"{asset.display_name} is not approved"
-    if asset.parse_status != "ok":
-        summary = f"{asset.display_name} could not be parsed for approval evaluation"
+    summary = f"{item.display_name} is not approved"
+    if item.parse_status != "ok":
+        summary = f"{item.display_name} could not be parsed for approval evaluation"
 
     return SpmControlResult(
         failed=failed,
         summary=summary,
         evidence={
-            "directory_path": asset.directory_path,
-            "parse_status": asset.parse_status,
+            "directory_path": item.directory_path,
+            "parse_status": item.parse_status,
         },
-        recommended_payload={"directory_path": asset.directory_path},
+        recommended_payload={"directory_path": item.directory_path},
     )

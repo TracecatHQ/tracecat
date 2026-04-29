@@ -60,7 +60,7 @@ func TestSyncEndpoint(t *testing.T) {
 	resp, err := client.SyncEndpoint(context.Background(), "endpoint-123", "endpoint-secret", SyncRequest{
 		Name:            "test-host",
 		Status:          EndpointStatusActive,
-		Assets:          []SyncAsset{},
+		InventoryItems:  []SyncInventoryItem{},
 		TaskResults:     []SyncTaskResult{},
 		ClientMetadata:  map[string]any{"binary": "tracecatd"},
 		EndpointVersion: "0.1.0",

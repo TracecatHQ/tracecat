@@ -5,6 +5,6 @@ revision: "1"
 title: Claude additional directory must be approved
 description: Additional directories configured for Claude must be approved before they remain enabled.
 harness: claude_code
-asset_type: additional_directory
+item_type: additional_directory
 severity: medium
 action: revoke_additional_directory

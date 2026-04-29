@@ -2683,32 +2683,8 @@ export type CursorPaginatedResponse_SkillVersionReadMinimal_ = {
   total_estimate?: number | null
 }
 
-export type CursorPaginatedResponse_SpmAssetRead_ = {
-  items: Array<SpmAssetRead>
-  /**
-   * Cursor for next page
-   */
-  next_cursor?: string | null
-  /**
-   * Cursor for previous page
-   */
-  prev_cursor?: string | null
-  /**
-   * Whether more items exist
-   */
-  has_more?: boolean
-  /**
-   * Whether previous items exist
-   */
-  has_previous?: boolean
-  /**
-   * Estimated total count from table statistics
-   */
-  total_estimate?: number | null
-}
-
-export type CursorPaginatedResponse_SpmEndpointAssetRead_ = {
-  items: Array<SpmEndpointAssetRead>
+export type CursorPaginatedResponse_SpmEndpointInventoryItemRead_ = {
+  items: Array<SpmEndpointInventoryItemRead>
   /**
    * Cursor for next page
    */
@@ -2757,6 +2733,30 @@ export type CursorPaginatedResponse_SpmEndpointRead_ = {
 
 export type CursorPaginatedResponse_SpmFindingRead_ = {
   items: Array<SpmFindingRead>
+  /**
+   * Cursor for next page
+   */
+  next_cursor?: string | null
+  /**
+   * Cursor for previous page
+   */
+  prev_cursor?: string | null
+  /**
+   * Whether more items exist
+   */
+  has_more?: boolean
+  /**
+   * Whether previous items exist
+   */
+  has_previous?: boolean
+  /**
+   * Estimated total count from table statistics
+   */
+  total_estimate?: number | null
+}
+
+export type CursorPaginatedResponse_SpmInventoryItemRead_ = {
+  items: Array<SpmInventoryItemRead>
   /**
    * Cursor for next page
    */
@@ -6219,60 +6219,6 @@ export type SourceUrlUIPart = {
 export type SpecialUserID = "current"
 
 /**
- * The file kind that hosts an asset.
- */
-export type SpmArtifactType =
-  | "settings.json"
-  | "settings.local.json"
-  | ".claude.json"
-  | "hooks.json"
-  | ".mcp.json"
-  | "CLAUDE.md"
-  | "CLAUDE.local.md"
-  | "AGENTS.md"
-  | "skill-frontmatter"
-  | "agent-frontmatter"
-  | "plugin.json"
-  | "directory"
-
-/**
- * Deduplicated SPM asset row.
- */
-export type SpmAssetRead = {
-  id: string
-  organization_id: string
-  harness: SpmHarness
-  asset_type: SpmAssetType
-  artifact_type: SpmArtifactType
-  artifact_location: string
-  identity_key: string
-  display_name: string
-  content_hash?: string | null
-  metadata?: {
-    [key: string]: unknown
-  }
-  first_seen_at: string
-  last_seen_at: string
-  created_at: string
-  updated_at: string
-}
-
-/**
- * Harness surface bucket. The broad kind of governed thing.
- */
-export type SpmAssetType =
-  | "hook"
-  | "plugin"
-  | "mcp_server"
-  | "instruction_file"
-  | "permission_config"
-  | "sandbox_config"
-  | "trusted_directory"
-  | "additional_directory"
-  | "skill"
-  | "agent"
-
-/**
  * Static SPM control manifest.
  */
 export type SpmControlRead = {
@@ -6283,39 +6229,10 @@ export type SpmControlRead = {
   title: string
   description: string
   harness: SpmHarness
-  asset_type: SpmAssetType
-  artifact_types?: Array<SpmArtifactType>
+  item_type: SpmInventoryItemType
+  source_types?: Array<SpmInventorySourceType>
   severity: SpmSeverity
   action: SpmEnforcementAction
-}
-
-/**
- * Endpoint-scoped asset row with per-sighting state.
- */
-export type SpmEndpointAssetRead = {
-  asset_id: string
-  asset_sighting_id: string
-  organization_id: string
-  endpoint_id: string
-  workspace_id?: string | null
-  harness: SpmHarness
-  asset_type: SpmAssetType
-  artifact_type: SpmArtifactType
-  artifact_location: string
-  identity_key: string
-  display_name: string
-  content_hash?: string | null
-  metadata?: {
-    [key: string]: unknown
-  }
-  evidence?: {
-    [key: string]: unknown
-  }
-  observed_state?: {
-    [key: string]: unknown
-  }
-  first_seen_at: string
-  last_seen_at: string
 }
 
 /**
@@ -6340,6 +6257,36 @@ export type SpmEndpointCreate = {
 export type SpmEndpointCreateResponse = {
   endpoint: SpmEndpointRead
   enrollment_token: string
+}
+
+/**
+ * Endpoint-scoped inventory item row with per-observation state.
+ */
+export type SpmEndpointInventoryItemRead = {
+  inventory_item_id: string
+  inventory_observation_id: string
+  organization_id: string
+  endpoint_id: string
+  workspace_id?: string | null
+  harness: SpmHarness
+  item_type: SpmInventoryItemType
+  source_type: SpmInventorySourceType
+  item_location: string
+  source_location: string
+  identity_key: string
+  display_name: string
+  content_hash?: string | null
+  metadata?: {
+    [key: string]: unknown
+  }
+  evidence?: {
+    [key: string]: unknown
+  }
+  observed_state?: {
+    [key: string]: unknown
+  }
+  first_seen_at: string
+  last_seen_at: string
 }
 
 /**
@@ -6390,7 +6337,8 @@ export type SpmEndpointSyncRequest = {
   client_metadata?: {
     [key: string]: unknown
   }
-  assets?: Array<SpmSyncAssetUpsert>
+  inventory_items?: Array<SpmSyncInventoryItemUpsert>
+  relationships?: Array<SpmSyncInventoryRelationshipUpsert>
   task_results?: Array<SpmSyncTaskResult>
 }
 
@@ -6489,15 +6437,16 @@ export type SpmFindingRead = {
   id: string
   organization_id: string
   endpoint_id: string
-  asset_id: string
-  asset_sighting_id?: string | null
+  inventory_item_id: string
+  inventory_observation_id?: string | null
   control_id: string
   control_key: string
   control_revision?: string | null
   harness: SpmHarness
-  asset_type: SpmAssetType
-  artifact_type: SpmArtifactType
-  artifact_location: string
+  item_type: SpmInventoryItemType
+  source_type: SpmInventorySourceType
+  item_location: string
+  source_location: string
   severity: SpmSeverity
   status: SpmFindingStatus
   summary: string
@@ -6534,18 +6483,120 @@ export type SpmFindingStatus =
 export type SpmHarness = "claude_code"
 
 /**
+ * Deduplicated SPM inventory item row.
+ */
+export type SpmInventoryItemRead = {
+  id: string
+  organization_id: string
+  harness: SpmHarness
+  item_type: SpmInventoryItemType
+  source_type: SpmInventorySourceType
+  item_location: string
+  source_location: string
+  identity_key: string
+  display_name: string
+  content_hash?: string | null
+  metadata?: {
+    [key: string]: unknown
+  }
+  first_seen_at: string
+  last_seen_at: string
+  created_at: string
+  updated_at: string
+}
+
+/**
+ * Harness surface bucket. The broad kind of governed inventory item.
+ */
+export type SpmInventoryItemType =
+  | "hook"
+  | "plugin"
+  | "mcp_server"
+  | "instruction_file"
+  | "permission_config"
+  | "sandbox_config"
+  | "trusted_directory"
+  | "additional_directory"
+  | "skill"
+  | "agent"
+
+/**
+ * Endpoint-observed relationship between inventory items.
+ */
+export type SpmInventoryRelationshipType = "contains" | "defines" | "imports"
+
+/**
+ * The source kind that produced an inventory item.
+ */
+export type SpmInventorySourceType =
+  | "settings_json"
+  | "settings_local_json"
+  | "claude_json"
+  | "hooks_json"
+  | "mcp_json"
+  | "claude_md"
+  | "claude_local_md"
+  | "agents_md"
+  | "skill_frontmatter"
+  | "agent_frontmatter"
+  | "plugin_manifest"
+  | "directory"
+
+/**
+ * Allowed source types for an inventory item type.
+ */
+export type SpmInventoryTaxonomyBindingRead = {
+  item_type: SpmInventoryItemType
+  source_types: Array<SpmInventorySourceType>
+  enforcement: string
+}
+
+/**
+ * Public taxonomy metadata for an inventory item or source type.
+ */
+export type SpmInventoryTaxonomyEntryRead = {
+  key: string
+  display_value: string
+  icon_key: string
+  description: string
+  kind?: string | null
+  enforcement?: string | null
+}
+
+/**
+ * Harness-scoped Agent SPM inventory taxonomy.
+ */
+export type SpmInventoryTaxonomyHarnessRead = {
+  item_types: Array<SpmInventoryTaxonomyEntryRead>
+  source_types: Array<SpmInventoryTaxonomyEntryRead>
+  bindings: Array<SpmInventoryTaxonomyBindingRead>
+  relationship_types: Array<string>
+}
+
+/**
+ * Agent SPM inventory taxonomy.
+ */
+export type SpmInventoryTaxonomyRead = {
+  version: number
+  harnesses: {
+    [key: string]: SpmInventoryTaxonomyHarnessRead
+  }
+}
+
+/**
  * Normalized SPM severity levels.
  */
 export type SpmSeverity = "low" | "medium" | "high" | "critical"
 
 /**
- * Asset observation submitted by an endpoint.
+ * Inventory item observation submitted by an endpoint.
  */
-export type SpmSyncAssetUpsert = {
+export type SpmSyncInventoryItemUpsert = {
   harness: SpmHarness
-  asset_type: SpmAssetType
-  artifact_type: SpmArtifactType
-  artifact_location: string
+  item_type: SpmInventoryItemType
+  source_type: SpmInventorySourceType
+  item_location: string
+  source_location: string
   identity_key: string
   display_name: string
   content_hash?: string | null
@@ -6553,6 +6604,21 @@ export type SpmSyncAssetUpsert = {
   metadata?: {
     [key: string]: unknown
   }
+  evidence?: {
+    [key: string]: unknown
+  }
+  observed_state?: {
+    [key: string]: unknown
+  }
+}
+
+/**
+ * Endpoint-observed relationship between inventory items.
+ */
+export type SpmSyncInventoryRelationshipUpsert = {
+  relationship_type: SpmInventoryRelationshipType
+  from_identity_key: string
+  to_identity_key: string
   evidence?: {
     [key: string]: unknown
   }
@@ -10465,31 +10531,34 @@ export type SpmGetSpmEndpointData = {
 
 export type SpmGetSpmEndpointResponse = SpmEndpointRead
 
-export type SpmListSpmEndpointAssetsData = {
+export type SpmGetSpmInventoryTaxonomyResponse = SpmInventoryTaxonomyRead
+
+export type SpmListSpmEndpointInventoryData = {
   cursor?: string | null
   endpointId: string
   limit?: number
 }
 
-export type SpmListSpmEndpointAssetsResponse =
-  CursorPaginatedResponse_SpmEndpointAssetRead_
+export type SpmListSpmEndpointInventoryResponse =
+  CursorPaginatedResponse_SpmEndpointInventoryItemRead_
 
-export type SpmListSpmAssetsData = {
-  artifactType?: SpmArtifactType | null
-  assetType?: SpmAssetType | null
+export type SpmListSpmInventoryData = {
   cursor?: string | null
   endpointId?: string | null
   harness?: SpmHarness | null
+  itemType?: SpmInventoryItemType | null
   limit?: number
+  sourceType?: SpmInventorySourceType | null
 }
 
-export type SpmListSpmAssetsResponse = CursorPaginatedResponse_SpmAssetRead_
+export type SpmListSpmInventoryResponse =
+  CursorPaginatedResponse_SpmInventoryItemRead_
 
-export type SpmGetSpmAssetData = {
-  assetId: string
+export type SpmGetSpmInventoryItemData = {
+  inventoryItemId: string
 }
 
-export type SpmGetSpmAssetResponse = SpmAssetRead
+export type SpmGetSpmInventoryItemResponse = SpmInventoryItemRead
 
 export type SpmListSpmFindingsData = {
   controlId?: string | null
@@ -15066,14 +15135,24 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/spm/endpoints/{endpoint_id}/assets": {
+  "/spm/inventory/taxonomy": {
     get: {
-      req: SpmListSpmEndpointAssetsData
       res: {
         /**
          * Successful Response
          */
-        200: CursorPaginatedResponse_SpmEndpointAssetRead_
+        200: SpmInventoryTaxonomyRead
+      }
+    }
+  }
+  "/spm/endpoints/{endpoint_id}/inventory": {
+    get: {
+      req: SpmListSpmEndpointInventoryData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: CursorPaginatedResponse_SpmEndpointInventoryItemRead_
         /**
          * Validation Error
          */
@@ -15081,14 +15160,14 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/spm/assets": {
+  "/spm/inventory": {
     get: {
-      req: SpmListSpmAssetsData
+      req: SpmListSpmInventoryData
       res: {
         /**
          * Successful Response
          */
-        200: CursorPaginatedResponse_SpmAssetRead_
+        200: CursorPaginatedResponse_SpmInventoryItemRead_
         /**
          * Validation Error
          */
@@ -15096,14 +15175,14 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/spm/assets/{asset_id}": {
+  "/spm/inventory/{inventory_item_id}": {
     get: {
-      req: SpmGetSpmAssetData
+      req: SpmGetSpmInventoryItemData
       res: {
         /**
          * Successful Response
          */
-        200: SpmAssetRead
+        200: SpmInventoryItemRead
         /**
          * Validation Error
          */

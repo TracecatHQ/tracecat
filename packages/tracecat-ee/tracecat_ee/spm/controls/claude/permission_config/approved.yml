@@ -5,6 +5,6 @@ revision: "1"
 title: Claude permission config must be approved
 description: Claude permission settings must match the approved local configuration.
 harness: claude_code
-asset_type: permission_config
+item_type: permission_config
 severity: high
 action: reconcile_permission_config

@@ -11,7 +11,7 @@ import {
 import { useSpmEndpoints, useSpmFindings } from "@/hooks/use-spm"
 import { cn } from "@/lib/utils"
 import { formatLabel, getEndpointName } from "./spm-common"
-import { assetTypeIcon, assetTypeLabel } from "./spm-icons"
+import { itemTypeIcon, itemTypeLabel } from "./spm-icons"
 import { SmallBadge } from "./spm-layout"
 
 function groupFindingsByEndpoint(findings: SpmFindingRead[]) {
@@ -41,7 +41,7 @@ export function SpmControlSheet(props: {
   const endpoints = endpointsQuery.data?.items ?? []
   const groupedFindings = groupFindingsByEndpoint(findings)
   const control = props.control
-  const AssetIcon = control ? assetTypeIcon(control.asset_type) : null
+  const ItemIcon = control ? itemTypeIcon(control.item_type) : null
 
   return (
     <Sheet open={props.open} onOpenChange={props.onOpenChange}>
@@ -50,9 +50,9 @@ export function SpmControlSheet(props: {
           <div className="flex h-full flex-col">
             <SheetHeader className="border-b px-5 py-4 pr-12">
               <div className="flex min-w-0 items-start gap-3">
-                {AssetIcon ? (
+                {ItemIcon ? (
                   <div className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-md border bg-muted/40">
-                    <AssetIcon className="size-4 text-muted-foreground" />
+                    <ItemIcon className="size-4 text-muted-foreground" />
                   </div>
                 ) : null}
                 <div className="min-w-0 flex-1">
@@ -120,7 +120,7 @@ export function SpmControlSheet(props: {
                                 {finding.summary}
                               </span>
                               <SmallBadge>
-                                {assetTypeLabel(finding.asset_type)}
+                                {itemTypeLabel(finding.item_type)}
                               </SmallBadge>
                             </div>
                           ))}

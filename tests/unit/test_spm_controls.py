@@ -11,7 +11,34 @@ from tracecat_ee.spm.service import (
     get_control_catalog,
     load_control_catalog_from_directory,
 )
-from tracecat_ee.spm.types import SpmArtifactType, SpmAssetType
+from tracecat_ee.spm.taxonomy import get_inventory_taxonomy
+from tracecat_ee.spm.types import (
+    SpmHarness,
+    SpmInventoryItemType,
+    SpmInventoryRelationshipType,
+    SpmInventorySourceType,
+)
+
+
+def test_inventory_taxonomy_covers_supported_claude_enums() -> None:
+    taxonomy = get_inventory_taxonomy()
+    claude_taxonomy = taxonomy.harnesses[SpmHarness.CLAUDE_CODE]
+
+    assert set(claude_taxonomy.item_types) == set(SpmInventoryItemType)
+    assert set(claude_taxonomy.source_types) == set(SpmInventorySourceType)
+    assert claude_taxonomy.relationship_types == set(SpmInventoryRelationshipType)
+    assert {
+        source_type
+        for binding in claude_taxonomy.bindings
+        for source_type in binding.source_types
+    } == set(SpmInventorySourceType)
+    assert all(
+        entry.display_value == entry.key
+        for entry in [
+            *claude_taxonomy.item_types.values(),
+            *claude_taxonomy.source_types.values(),
+        ]
+    )
 
 
 def test_builtin_spm_control_catalog_contains_required_v1_controls() -> None:
@@ -39,23 +66,21 @@ def test_builtin_spm_control_catalog_keeps_claude_instruction_file_taxonomy() ->
     instruction_controls = [
         control
         for control in get_control_catalog()
-        if control.asset_type == SpmAssetType.INSTRUCTION_FILE
+        if control.item_type == SpmInventoryItemType.INSTRUCTION_FILE
     ]
 
     assert instruction_controls
     assert {
-        artifact
-        for control in instruction_controls
-        for artifact in control.artifact_types
+        source for control in instruction_controls for source in control.source_types
     } == {
-        SpmArtifactType.CLAUDE_MD,
-        SpmArtifactType.CLAUDE_LOCAL_MD,
+        SpmInventorySourceType.CLAUDE_MD,
+        SpmInventorySourceType.CLAUDE_LOCAL_MD,
     }
 
 
 def test_builtin_spm_control_catalog_omits_agents_md_for_claude_v1() -> None:
     assert all(
-        SpmArtifactType.AGENTS_MD not in control.artifact_types
+        SpmInventorySourceType.AGENTS_MD not in control.source_types
         for control in get_control_catalog()
     )
 
@@ -64,7 +89,7 @@ def test_get_control_returns_expected_manifest_by_key_and_uuid() -> None:
     control = get_control("claude.mcp_server.approved")
 
     assert control is not None
-    assert control.asset_type == SpmAssetType.MCP_SERVER
+    assert control.item_type == SpmInventoryItemType.MCP_SERVER
     assert get_control(control.id) == control
 
 
@@ -125,7 +150,7 @@ def _manifest(
             "title: Test Control",
             "description: Test manifest.",
             "harness: claude_code",
-            "asset_type: mcp_server",
+            "item_type: mcp_server",
             "severity: low",
             f"action: {action}",
         ]

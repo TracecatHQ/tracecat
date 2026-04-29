@@ -16,10 +16,9 @@ import {
   SparklesIcon,
   WebhookIcon,
 } from "lucide-react"
-import type { SpmArtifactType, SpmAssetType } from "@/client"
-import { formatLabel } from "./spm-common"
+import type { SpmInventoryItemType, SpmInventorySourceType } from "@/client"
 
-export const ASSET_TYPE_ICONS: Record<SpmAssetType, LucideIcon> = {
+export const ITEM_TYPE_ICONS: Record<SpmInventoryItemType, LucideIcon> = {
   hook: WebhookIcon,
   plugin: PuzzleIcon,
   mcp_server: ServerIcon,
@@ -32,36 +31,33 @@ export const ASSET_TYPE_ICONS: Record<SpmAssetType, LucideIcon> = {
   agent: BotIcon,
 }
 
-export const ARTIFACT_TYPE_ICONS: Record<SpmArtifactType, LucideIcon> = {
-  "settings.json": FileCogIcon,
-  "settings.local.json": FileCogIcon,
-  ".claude.json": FileJsonIcon,
-  "hooks.json": WebhookIcon,
-  ".mcp.json": ServerIcon,
-  "CLAUDE.md": FileTextIcon,
-  "CLAUDE.local.md": FileTextIcon,
-  "AGENTS.md": FileTextIcon,
-  "skill-frontmatter": SparklesIcon,
-  "agent-frontmatter": BotIcon,
-  "plugin.json": PuzzleIcon,
+export const SOURCE_TYPE_ICONS: Record<SpmInventorySourceType, LucideIcon> = {
+  settings_json: FileCogIcon,
+  settings_local_json: FileCogIcon,
+  claude_json: FileJsonIcon,
+  hooks_json: WebhookIcon,
+  mcp_json: ServerIcon,
+  claude_md: FileTextIcon,
+  claude_local_md: FileTextIcon,
+  agents_md: FileTextIcon,
+  skill_frontmatter: SparklesIcon,
+  agent_frontmatter: BotIcon,
+  plugin_manifest: PuzzleIcon,
   directory: FolderIcon,
 }
 
-export function assetTypeLabel(assetType: SpmAssetType): string {
-  if (assetType === "mcp_server") return "MCP server"
-  return formatLabel(assetType)
+export function itemTypeLabel(itemType: SpmInventoryItemType): string {
+  return itemType
 }
 
-export function artifactTypeLabel(artifactType: SpmArtifactType): string {
-  if (artifactType === "skill-frontmatter") return "Skill frontmatter"
-  if (artifactType === "agent-frontmatter") return "Agent frontmatter"
-  return artifactType
+export function sourceTypeLabel(sourceType: SpmInventorySourceType): string {
+  return sourceType
 }
 
-export function assetTypeIcon(assetType: SpmAssetType): LucideIcon {
-  return ASSET_TYPE_ICONS[assetType]
+export function itemTypeIcon(itemType: SpmInventoryItemType): LucideIcon {
+  return ITEM_TYPE_ICONS[itemType]
 }
 
-export function artifactTypeIcon(artifactType: SpmArtifactType): LucideIcon {
-  return ARTIFACT_TYPE_ICONS[artifactType]
+export function sourceTypeIcon(sourceType: SpmInventorySourceType): LucideIcon {
+  return SOURCE_TYPE_ICONS[sourceType]
 }

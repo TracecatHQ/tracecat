@@ -5,6 +5,6 @@ revision: "1"
 title: Claude sandbox config must be approved
 description: Claude sandbox settings must match the approved local Claude configuration.
 harness: claude_code
-asset_type: sandbox_config
+item_type: sandbox_config
 severity: high
 action: reconcile_sandbox_config

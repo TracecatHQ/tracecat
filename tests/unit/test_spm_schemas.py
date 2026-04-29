@@ -3,12 +3,12 @@
 import uuid
 from datetime import UTC, datetime
 
-from tracecat_ee.spm.schemas import SpmEndpointAssetRead, SpmSyncTaskResult
+from tracecat_ee.spm.schemas import SpmEndpointInventoryItemRead, SpmSyncTaskResult
 from tracecat_ee.spm.types import (
-    SpmArtifactType,
-    SpmAssetType,
     SpmEnforcementAction,
     SpmHarness,
+    SpmInventoryItemType,
+    SpmInventorySourceType,
     SpmSyncTaskResultStatus,
 )
 
@@ -40,24 +40,27 @@ def test_enforcement_action_enum_contains_locked_v1_actions() -> None:
     )
 
 
-def test_endpoint_asset_read_accepts_asset_metadata_alias() -> None:
-    """Endpoint asset reads should accept joined asset metadata rows."""
+def test_endpoint_inventory_item_read_accepts_item_metadata_alias() -> None:
+    """Endpoint item reads should accept joined item metadata rows."""
     now = datetime(2026, 4, 22, tzinfo=UTC)
-    row = SpmEndpointAssetRead.model_validate(
+    row = SpmEndpointInventoryItemRead.model_validate(
         {
-            "asset_id": uuid.UUID("aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa"),
-            "asset_sighting_id": uuid.UUID("bbbbbbbb-bbbb-4bbb-bbbb-bbbbbbbbbbbb"),
+            "inventory_item_id": uuid.UUID("aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa"),
+            "inventory_observation_id": uuid.UUID(
+                "bbbbbbbb-bbbb-4bbb-bbbb-bbbbbbbbbbbb"
+            ),
             "organization_id": uuid.UUID("11111111-1111-1111-1111-111111111111"),
             "endpoint_id": uuid.UUID("cccccccc-cccc-4ccc-cccc-cccccccccccc"),
             "workspace_id": None,
             "harness": SpmHarness.CLAUDE_CODE,
-            "asset_type": SpmAssetType.INSTRUCTION_FILE,
-            "artifact_type": SpmArtifactType.CLAUDE_MD,
-            "artifact_location": "/Users/chris/project/CLAUDE.md",
+            "item_type": SpmInventoryItemType.INSTRUCTION_FILE,
+            "source_type": SpmInventorySourceType.CLAUDE_MD,
+            "item_location": "/Users/chris/project/CLAUDE.md",
+            "source_location": "/Users/chris/project/CLAUDE.md",
             "identity_key": "/Users/chris/project/CLAUDE.md",
             "display_name": "CLAUDE.md",
             "content_hash": "abc123",
-            "asset_metadata": {"file_path": "/Users/chris/project/CLAUDE.md"},
+            "item_metadata": {"file_path": "/Users/chris/project/CLAUDE.md"},
             "evidence": {"language_signal": {"likely_english": False}},
             "observed_state": {"excluded": True},
             "first_seen_at": now,

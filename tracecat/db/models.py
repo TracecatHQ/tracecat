@@ -3301,28 +3301,29 @@ class SpmEndpoint(OrganizationModel):
     )
 
 
-class SpmAsset(OrganizationModel):
-    """Deduplicated AI SPM asset catalog row."""
+class SpmInventoryItem(OrganizationModel):
+    """Deduplicated Agent SPM inventory item row."""
 
-    __tablename__ = "spm_asset"
+    __tablename__ = "spm_inventory_item"
     __table_args__ = (
         UniqueConstraint(
             "organization_id",
             "harness",
-            "asset_type",
-            "artifact_type",
-            "artifact_location",
+            "item_type",
+            "source_type",
+            "item_location",
+            "source_location",
             "identity_key",
-            name="uq_spm_asset_org_identity",
+            name="uq_spm_inventory_item_org_identity",
         ),
-        Index("ix_spm_asset_org_updated", "organization_id", "updated_at"),
-        Index("ix_spm_asset_org_last_seen", "organization_id", "last_seen_at"),
+        Index("ix_spm_inventory_item_org_updated", "organization_id", "updated_at"),
+        Index("ix_spm_inventory_item_org_last_seen", "organization_id", "last_seen_at"),
         Index(
-            "ix_spm_asset_org_harness_type_artifact",
+            "ix_spm_inventory_item_org_harness_type_source",
             "organization_id",
             "harness",
-            "asset_type",
-            "artifact_type",
+            "item_type",
+            "source_type",
         ),
     )
 
@@ -3332,79 +3333,86 @@ class SpmAsset(OrganizationModel):
         nullable=False,
         unique=True,
         index=True,
-        doc="Unique SPM asset identifier",
+        doc="Unique SPM inventory item identifier",
     )
     harness: Mapped[str] = mapped_column(
         String(32),
         nullable=False,
         doc="Normalized harness identifier",
     )
-    asset_type: Mapped[str] = mapped_column(
+    item_type: Mapped[str] = mapped_column(
         String(64),
         nullable=False,
-        doc="Broad governed asset surface",
+        doc="Broad governed inventory item surface",
     )
-    artifact_type: Mapped[str] = mapped_column(
+    source_type: Mapped[str] = mapped_column(
         String(64),
         nullable=False,
-        doc="File kind or artifact host for the asset",
+        doc="Source kind that produced the inventory item",
     )
-    artifact_location: Mapped[str] = mapped_column(
+    item_location: Mapped[str] = mapped_column(
         String(1024),
         nullable=False,
-        doc="Full artifact path or location that hosts the asset",
+        doc="Location or resolved identity of the governed inventory item",
+    )
+    source_location: Mapped[str] = mapped_column(
+        String(1024),
+        nullable=False,
+        doc="Full source path or location that produced the inventory item",
     )
     identity_key: Mapped[str] = mapped_column(
         String(500),
         nullable=False,
-        doc="Stable deduplication key for the asset within an organization",
+        doc="Stable deduplication key for the inventory item within an organization",
     )
     display_name: Mapped[str] = mapped_column(
         String(255),
         nullable=False,
-        doc="Operator-visible asset name",
+        doc="Operator-visible inventory item name",
     )
     content_hash: Mapped[str | None] = mapped_column(
         String(64),
         nullable=True,
-        doc="Optional content hash of the current asset materialization",
+        doc="Optional content hash of the current inventory item materialization",
     )
-    asset_metadata: Mapped[dict[str, Any]] = mapped_column(
+    item_metadata: Mapped[dict[str, Any]] = mapped_column(
         JSONB,
         name="metadata",
         nullable=False,
         server_default=text("'{}'::jsonb"),
         default=dict,
-        doc="Latest normalized metadata for the asset",
+        doc="Latest normalized metadata for the inventory item",
     )
     first_seen_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True),
         nullable=False,
         server_default=func.now(),
-        doc="When the asset was first seen in this organization",
+        doc="When the inventory item was first seen in this organization",
     )
     last_seen_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True),
         nullable=False,
         server_default=func.now(),
-        doc="When the asset was most recently observed",
+        doc="When the inventory item was most recently observed",
     )
 
 
-class SpmAssetSighting(OrganizationModel):
-    """Endpoint-scoped asset observation row."""
+class SpmInventoryObservation(OrganizationModel):
+    """Endpoint-scoped inventory item observation row."""
 
-    __tablename__ = "spm_asset_sighting"
+    __tablename__ = "spm_inventory_observation"
     __table_args__ = (
         UniqueConstraint(
             "organization_id",
             "endpoint_id",
-            "asset_id",
-            name="uq_spm_asset_sighting_endpoint_asset",
+            "inventory_item_id",
+            name="uq_spm_inventory_observation_endpoint_item",
         ),
-        Index("ix_spm_asset_sighting_org_seen", "organization_id", "last_seen_at"),
         Index(
-            "ix_spm_asset_sighting_org_workspace_seen",
+            "ix_spm_inventory_observation_org_seen", "organization_id", "last_seen_at"
+        ),
+        Index(
+            "ix_spm_inventory_observation_org_workspace_seen",
             "organization_id",
             "workspace_id",
             "last_seen_at",
@@ -3417,21 +3425,21 @@ class SpmAssetSighting(OrganizationModel):
         nullable=False,
         unique=True,
         index=True,
-        doc="Unique SPM asset sighting identifier",
+        doc="Unique SPM inventory observation identifier",
     )
     endpoint_id: Mapped[uuid.UUID] = mapped_column(
         UUID,
         ForeignKey("spm_endpoint.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
-        doc="Endpoint that reported this asset observation",
+        doc="Endpoint that reported this inventory observation",
     )
-    asset_id: Mapped[uuid.UUID] = mapped_column(
+    inventory_item_id: Mapped[uuid.UUID] = mapped_column(
         UUID,
-        ForeignKey("spm_asset.id", ondelete="CASCADE"),
+        ForeignKey("spm_inventory_item.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
-        doc="Deduplicated asset referenced by this observation",
+        doc="Deduplicated inventory item referenced by this observation",
     )
     workspace_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID,
@@ -3452,7 +3460,7 @@ class SpmAssetSighting(OrganizationModel):
         nullable=False,
         server_default=text("'{}'::jsonb"),
         default=dict,
-        doc="Endpoint-reported effective state for this asset",
+        doc="Endpoint-reported effective state for this inventory item",
     )
     content_hash: Mapped[str | None] = mapped_column(
         String(64),
@@ -3463,27 +3471,119 @@ class SpmAssetSighting(OrganizationModel):
         TIMESTAMP(timezone=True),
         nullable=False,
         server_default=func.now(),
-        doc="When this endpoint first reported the asset",
+        doc="When this endpoint first reported the inventory item",
     )
     last_seen_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True),
         nullable=False,
         server_default=func.now(),
-        doc="Most recent time this endpoint reported the asset",
+        doc="Most recent time this endpoint reported the inventory item",
+    )
+
+
+class SpmInventoryRelationship(OrganizationModel):
+    """Endpoint-scoped relationship between observed inventory items."""
+
+    __tablename__ = "spm_inventory_relationship"
+    __table_args__ = (
+        UniqueConstraint(
+            "organization_id",
+            "endpoint_id",
+            "relationship_type",
+            "from_inventory_item_id",
+            "to_inventory_item_id",
+            name="uq_spm_inventory_relationship_endpoint_items",
+        ),
+        Index(
+            "ix_spm_inventory_relationship_org_endpoint",
+            "organization_id",
+            "endpoint_id",
+        ),
+        Index(
+            "ix_spm_inventory_relationship_org_from",
+            "organization_id",
+            "from_inventory_item_id",
+        ),
+        Index(
+            "ix_spm_inventory_relationship_org_to",
+            "organization_id",
+            "to_inventory_item_id",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        default=uuid.uuid4,
+        nullable=False,
+        unique=True,
+        index=True,
+        doc="Unique SPM inventory relationship identifier",
+    )
+    endpoint_id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        ForeignKey("spm_endpoint.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+        doc="Endpoint that reported this inventory relationship",
+    )
+    relationship_type: Mapped[str] = mapped_column(
+        String(64),
+        nullable=False,
+        doc="Observed relationship type",
+    )
+    from_inventory_item_id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        ForeignKey("spm_inventory_item.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+        doc="Source inventory item for the relationship",
+    )
+    to_inventory_item_id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        ForeignKey("spm_inventory_item.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+        doc="Target inventory item for the relationship",
+    )
+    evidence: Mapped[dict[str, Any]] = mapped_column(
+        JSONB,
+        nullable=False,
+        server_default=text("'{}'::jsonb"),
+        default=dict,
+        doc="Relationship evidence for analyzers and operator views",
+    )
+    observed_state: Mapped[dict[str, Any]] = mapped_column(
+        JSONB,
+        nullable=False,
+        server_default=text("'{}'::jsonb"),
+        default=dict,
+        doc="Endpoint-reported relationship state",
+    )
+    first_seen_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        doc="When this endpoint first reported the relationship",
+    )
+    last_seen_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        doc="Most recent time this endpoint reported the relationship",
     )
 
 
 class SpmFinding(OrganizationModel):
-    """Current-state SPM finding tied to an endpoint asset."""
+    """Current-state SPM finding tied to an inventory item."""
 
     __tablename__ = "spm_finding"
     __table_args__ = (
         UniqueConstraint(
             "organization_id",
             "endpoint_id",
-            "asset_id",
+            "inventory_item_id",
             "control_id",
-            name="uq_spm_finding_endpoint_asset_control",
+            name="uq_spm_finding_endpoint_item_control",
         ),
         Index("ix_spm_finding_org_updated", "organization_id", "updated_at"),
         Index("ix_spm_finding_org_status", "organization_id", "status"),
@@ -3505,16 +3605,16 @@ class SpmFinding(OrganizationModel):
         index=True,
         doc="Endpoint where the finding is currently open",
     )
-    asset_id: Mapped[uuid.UUID] = mapped_column(
+    inventory_item_id: Mapped[uuid.UUID] = mapped_column(
         UUID,
-        ForeignKey("spm_asset.id", ondelete="CASCADE"),
+        ForeignKey("spm_inventory_item.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
-        doc="Asset referenced by the finding",
+        doc="Inventory item referenced by the finding",
     )
-    asset_sighting_id: Mapped[uuid.UUID | None] = mapped_column(
+    inventory_observation_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID,
-        ForeignKey("spm_asset_sighting.id", ondelete="SET NULL"),
+        ForeignKey("spm_inventory_observation.id", ondelete="SET NULL"),
         nullable=True,
         index=True,
         doc="Specific endpoint observation that triggered the finding",
@@ -3539,20 +3639,25 @@ class SpmFinding(OrganizationModel):
         nullable=False,
         doc="Harness snapshot for the finding",
     )
-    asset_type: Mapped[str] = mapped_column(
+    item_type: Mapped[str] = mapped_column(
         String(64),
         nullable=False,
-        doc="Asset type snapshot for the finding",
+        doc="Inventory item type snapshot for the finding",
     )
-    artifact_type: Mapped[str] = mapped_column(
+    source_type: Mapped[str] = mapped_column(
         String(64),
         nullable=False,
-        doc="Artifact type snapshot for the finding",
+        doc="Inventory source type snapshot for the finding",
     )
-    artifact_location: Mapped[str] = mapped_column(
+    item_location: Mapped[str] = mapped_column(
         String(1024),
         nullable=False,
-        doc="Artifact location snapshot for the finding",
+        doc="Inventory item location snapshot for the finding",
+    )
+    source_location: Mapped[str] = mapped_column(
+        String(1024),
+        nullable=False,
+        doc="Inventory source location snapshot for the finding",
     )
     severity: Mapped[str] = mapped_column(
         String(16),

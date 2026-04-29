@@ -147,7 +147,7 @@ func (s *Service) runCycle(ctx context.Context) (*state.File, error) {
 		return nil, err
 	}
 
-	assets, err := s.inventory.Collect(ctx)
+	snapshot, err := s.inventory.Collect(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("collect inventory: %w", err)
 	}
@@ -164,7 +164,8 @@ func (s *Service) runCycle(ctx context.Context) (*state.File, error) {
 		HomePath:        metadata.HomePath,
 		Status:          spmapi.EndpointStatusActive,
 		ClientMetadata:  metadata.ClientMetadata,
-		Assets:          assets,
+		InventoryItems:  snapshot.InventoryItems,
+		Relationships:   snapshot.Relationships,
 		TaskResults:     cloneTaskResults(st.PendingTaskResults),
 	}
 

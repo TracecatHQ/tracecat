@@ -17,12 +17,13 @@ func TestClaudeProviderCollectsClaudeSurfaces(t *testing.T) {
 	homeDir := copyFixture(t, "claude")
 	provider := NewClaudeProvider(homeDir)
 
-	assets, err := provider.Collect(context.Background())
+	snapshot, err := provider.Collect(context.Background())
 	if err != nil {
 		t.Fatalf("Collect() error = %v", err)
 	}
-	if len(assets) == 0 {
-		t.Fatal("expected assets to be collected")
+	items := snapshot.InventoryItems
+	if len(items) == 0 {
+		t.Fatal("expected items to be collected")
 	}
 
 	trustedPath := filepath.Join(homeDir, "workspace-alpha")
@@ -32,30 +33,30 @@ func TestClaudeProviderCollectsClaudeSurfaces(t *testing.T) {
 	claudeLocalPath := filepath.Join(homeDir, "workspace-alpha", "CLAUDE.local.md")
 	agentsPath := filepath.Join(homeDir, "workspace-alpha", "AGENTS.md")
 
-	trusted := findAsset(t, assets, assetTypeTrustedDirectory, artifactTypeDirectory, trustedPath)
+	trusted := findItem(t, items, itemTypeTrustedDirectory, sourceTypeDirectory, trustedPath)
 	if trusted.Metadata["source_surface"] != "user_state_json" {
 		t.Fatalf("unexpected trusted directory source %v", trusted.Metadata["source_surface"])
 	}
 
-	additional := findAsset(t, assets, assetTypeAdditionalDirectory, artifactTypeDirectory, additionalPath)
+	additional := findItem(t, items, itemTypeAdditionalDirectory, sourceTypeDirectory, additionalPath)
 	if additional.IdentityKey != additionalPath {
 		t.Fatalf("unexpected additional directory identity %q", additional.IdentityKey)
 	}
 
-	permissionAsset := findAssetBySuffix(t, assets, assetTypePermissionConfig, artifactTypeSettingsJSON, ".claude/settings.json#permission_config")
-	if permissionAsset.Metadata["parse_status"] != parseStatusOK {
-		t.Fatalf("unexpected permission parse status %v", permissionAsset.Metadata["parse_status"])
+	permissionItem := findItemBySuffix(t, items, itemTypePermissionConfig, sourceTypeSettingsJSON, ".claude/settings.json#permission_config")
+	if permissionItem.Metadata["parse_status"] != parseStatusOK {
+		t.Fatalf("unexpected permission parse status %v", permissionItem.Metadata["parse_status"])
 	}
-	projectPermissionAsset := findAsset(t, assets, assetTypePermissionConfig, artifactTypeSettingsJSON, projectSettingsPath+"#permission_config")
-	if projectPermissionAsset.Metadata["source_surface"] != "project_settings_json" {
-		t.Fatalf("unexpected project permission source %v", projectPermissionAsset.Metadata["source_surface"])
+	projectPermissionItem := findItem(t, items, itemTypePermissionConfig, sourceTypeSettingsJSON, projectSettingsPath+"#permission_config")
+	if projectPermissionItem.Metadata["source_surface"] != "project_settings_json" {
+		t.Fatalf("unexpected project permission source %v", projectPermissionItem.Metadata["source_surface"])
 	}
-	projectSandboxAsset := findAsset(t, assets, assetTypeSandboxConfig, artifactTypeSettingsJSON, projectSettingsPath+"#sandbox_config")
-	if projectSandboxAsset.Metadata["writable"] != false {
-		t.Fatalf("expected project settings sandbox surface to be non-writable, got %v", projectSandboxAsset.Metadata["writable"])
+	projectSandboxItem := findItem(t, items, itemTypeSandboxConfig, sourceTypeSettingsJSON, projectSettingsPath+"#sandbox_config")
+	if projectSandboxItem.Metadata["writable"] != false {
+		t.Fatalf("expected project settings sandbox surface to be non-writable, got %v", projectSandboxItem.Metadata["writable"])
 	}
 
-	httpMCP := findAssetByDisplayName(t, assets, assetTypeMCPServer, "github-http")
+	httpMCP := findItemByDisplayName(t, items, itemTypeMCPServer, "github-http")
 	if httpMCP.Metadata["resolved_identity"] != "https://api.github.com/mcp" {
 		t.Fatalf("unexpected http mcp identity %v", httpMCP.Metadata["resolved_identity"])
 	}
@@ -67,22 +68,22 @@ func TestClaudeProviderCollectsClaudeSurfaces(t *testing.T) {
 		t.Fatalf("unexpected approval identity %v", approvalIdentity)
 	}
 
-	stdioMCP := findAssetByDisplayName(t, assets, assetTypeMCPServer, "local-stdio")
+	stdioMCP := findItemByDisplayName(t, items, itemTypeMCPServer, "local-stdio")
 	if stdioMCP.Metadata["resolved_identity"] != "package:@tracecat/mcp" {
 		t.Fatalf("unexpected stdio mcp identity %v", stdioMCP.Metadata["resolved_identity"])
 	}
 
-	projectMCP := findAssetByDisplayName(t, assets, assetTypeMCPServer, "slack")
+	projectMCP := findItemByDisplayName(t, items, itemTypeMCPServer, "slack")
 	if projectMCP.Metadata["resolved_identity"] != "package:slack-mcp" {
 		t.Fatalf("unexpected project mcp identity %v", projectMCP.Metadata["resolved_identity"])
 	}
 
-	projectLocalMCP := findAssetByDisplayName(t, assets, assetTypeMCPServer, "github-project")
+	projectLocalMCP := findItemByDisplayName(t, items, itemTypeMCPServer, "github-project")
 	if projectLocalMCP.Metadata["resolved_identity"] != "https://api.github.com/mcp" {
 		t.Fatalf("unexpected project-local mcp identity %v", projectLocalMCP.Metadata["resolved_identity"])
 	}
 
-	claudeFile := findAsset(t, assets, assetTypeInstructionFile, artifactTypeClaudeMD, claudePath)
+	claudeFile := findItem(t, items, itemTypeInstructionFile, sourceTypeClaudeMD, claudePath)
 	urls, ok := claudeFile.Evidence["urls"].([]string)
 	if !ok || len(urls) != 1 || urls[0] != "https://example.com" {
 		t.Fatalf("unexpected claude file urls %v", claudeFile.Evidence["urls"])
@@ -92,7 +93,7 @@ func TestClaudeProviderCollectsClaudeSurfaces(t *testing.T) {
 		t.Fatalf("unexpected claude file ips %v", claudeFile.Evidence["ips"])
 	}
 
-	claudeLocalFile := findAsset(t, assets, assetTypeInstructionFile, artifactTypeClaudeLocalMD, claudeLocalPath)
+	claudeLocalFile := findItem(t, items, itemTypeInstructionFile, sourceTypeClaudeLocalMD, claudeLocalPath)
 	languageSignal, ok := claudeLocalFile.Evidence["language_signal"].(map[string]any)
 	if !ok || languageSignal["likely_english"] != false {
 		t.Fatalf("unexpected claude.local language signal %v", claudeLocalFile.Evidence["language_signal"])
@@ -106,78 +107,80 @@ func TestClaudeProviderCollectsClaudeSurfaces(t *testing.T) {
 		t.Fatalf("unexpected claude.local domains %v", claudeLocalFile.Evidence["domains"])
 	}
 
-	agentsFile := findAsset(t, assets, assetTypeInstructionFile, artifactTypeAgentsMD, agentsPath)
+	agentsFile := findItem(t, items, itemTypeInstructionFile, sourceTypeAgentsMD, agentsPath)
 	if agentsFile.Metadata["enforceable"] != false {
 		t.Fatalf("expected AGENTS.md to be inventory-only, got %v", agentsFile.Metadata["enforceable"])
 	}
 
-	findAssetByDisplayName(t, assets, assetTypeHook, "PreToolUse .* echo audit")
-	findAssetByDisplayName(t, assets, assetTypeSkill, "registry-review")
-	findAssetByDisplayName(t, assets, assetTypeAgent, "investigator")
+	findItemByDisplayName(t, items, itemTypeHook, "PreToolUse .* echo audit")
+	findItemByDisplayName(t, items, itemTypeSkill, "registry-review")
+	findItemByDisplayName(t, items, itemTypeAgent, "investigator")
 }
 
-func TestClaudeProviderEmitsParseErrorAssetsWithoutFailingSync(t *testing.T) {
+func TestClaudeProviderEmitsParseErrorItemsWithoutFailingSync(t *testing.T) {
 	t.Parallel()
 
 	homeDir := copyFixture(t, "claude-invalid")
 	provider := NewClaudeProvider(homeDir)
 
-	assets, err := provider.Collect(context.Background())
+	snapshot, err := provider.Collect(context.Background())
 	if err != nil {
 		t.Fatalf("Collect() error = %v", err)
 	}
-	if len(assets) == 0 {
-		t.Fatal("expected parse-error assets to be returned")
+	items := snapshot.InventoryItems
+	if len(items) == 0 {
+		t.Fatal("expected parse-error items to be returned")
 	}
 
-	parseErrorAsset := findAssetBySuffix(t, assets, assetTypeMCPServer, artifactTypeClaudeJSON, ".claude.json#parse_error#mcp_server")
-	if parseErrorAsset.Metadata["parse_status"] != parseStatusInvalid {
-		t.Fatalf("unexpected parse status %v", parseErrorAsset.Metadata["parse_status"])
+	parseErrorItem := findItemBySuffix(t, items, itemTypeMCPServer, sourceTypeClaudeJSON, ".claude.json#parse_error#mcp_server")
+	if parseErrorItem.Metadata["parse_status"] != parseStatusInvalid {
+		t.Fatalf("unexpected parse status %v", parseErrorItem.Metadata["parse_status"])
 	}
 }
 
-func TestClaudeProviderEmitsParseErrorAssetsFromFixtureSurfaces(t *testing.T) {
+func TestClaudeProviderEmitsParseErrorItemsFromFixtureSurfaces(t *testing.T) {
 	t.Parallel()
 
 	homeDir := copyFixture(t, "claude-invalid-surfaces")
 	provider := NewClaudeProvider(homeDir)
 
-	assets, err := provider.Collect(context.Background())
+	snapshot, err := provider.Collect(context.Background())
 	if err != nil {
 		t.Fatalf("Collect() error = %v", err)
 	}
+	items := snapshot.InventoryItems
 
 	testCases := []struct {
-		assetType    string
-		artifactType string
-		identity     string
+		itemType   string
+		sourceType string
+		identity   string
 	}{
 		{
-			assetType:    assetTypeMCPServer,
-			artifactType: artifactTypeSettingsJSON,
-			identity:     filepath.Join(homeDir, ".claude", "settings.json") + "#parse_error#mcp_server",
+			itemType:   itemTypeMCPServer,
+			sourceType: sourceTypeSettingsJSON,
+			identity:   filepath.Join(homeDir, ".claude", "settings.json") + "#parse_error#mcp_server",
 		},
 		{
-			assetType:    assetTypePermissionConfig,
-			artifactType: artifactTypeSettingsJSON,
-			identity:     filepath.Join(homeDir, "workspace-alpha", ".claude", "settings.json") + "#parse_error#permission_config",
+			itemType:   itemTypePermissionConfig,
+			sourceType: sourceTypeSettingsJSON,
+			identity:   filepath.Join(homeDir, "workspace-alpha", ".claude", "settings.json") + "#parse_error#permission_config",
 		},
 		{
-			assetType:    assetTypeSandboxConfig,
-			artifactType: artifactTypeSettingsLocalJSON,
-			identity:     filepath.Join(homeDir, "workspace-alpha", ".claude", "settings.local.json") + "#parse_error#sandbox_config",
+			itemType:   itemTypeSandboxConfig,
+			sourceType: sourceTypeSettingsLocalJSON,
+			identity:   filepath.Join(homeDir, "workspace-alpha", ".claude", "settings.local.json") + "#parse_error#sandbox_config",
 		},
 		{
-			assetType:    assetTypeMCPServer,
-			artifactType: artifactTypeMCPJSON,
-			identity:     filepath.Join(homeDir, "workspace-alpha", ".mcp.json") + "#parse_error#mcp_server",
+			itemType:   itemTypeMCPServer,
+			sourceType: sourceTypeMCPJSON,
+			identity:   filepath.Join(homeDir, "workspace-alpha", ".mcp.json") + "#parse_error#mcp_server",
 		},
 	}
 
 	for _, tc := range testCases {
-		asset := findAsset(t, assets, tc.assetType, tc.artifactType, tc.identity)
-		if asset.Metadata["parse_status"] != parseStatusInvalid {
-			t.Fatalf("unexpected parse status for %s: %v", tc.identity, asset.Metadata["parse_status"])
+		item := findItem(t, items, tc.itemType, tc.sourceType, tc.identity)
+		if item.Metadata["parse_status"] != parseStatusInvalid {
+			t.Fatalf("unexpected parse status for %s: %v", tc.identity, item.Metadata["parse_status"])
 		}
 	}
 }
@@ -198,13 +201,14 @@ func TestClaudeProviderDoesNotCrawlUndiscoveredProjectRoots(t *testing.T) {
 	}
 
 	provider := NewClaudeProvider(homeDir)
-	assets, err := provider.Collect(context.Background())
+	snapshot, err := provider.Collect(context.Background())
 	if err != nil {
 		t.Fatalf("Collect() error = %v", err)
 	}
+	items := snapshot.InventoryItems
 
-	assertAssetMissing(t, assets, assetTypeInstructionFile, artifactTypeClaudeMD, filepath.Join(undiscoveredRoot, "CLAUDE.md"))
-	assertDisplayNameMissing(t, assets, assetTypeMCPServer, "hidden")
+	assertItemMissing(t, items, itemTypeInstructionFile, sourceTypeClaudeMD, filepath.Join(undiscoveredRoot, "CLAUDE.md"))
+	assertDisplayNameMissing(t, items, itemTypeMCPServer, "hidden")
 }
 
 func TestClaudeProviderEmitsMCPParseErrorsForSettingsSurfaces(t *testing.T) {
@@ -231,14 +235,15 @@ func TestClaudeProviderEmitsMCPParseErrorsForSettingsSurfaces(t *testing.T) {
 			}
 
 			provider := NewClaudeProvider(homeDir)
-			assets, err := provider.Collect(context.Background())
+			snapshot, err := provider.Collect(context.Background())
 			if err != nil {
 				t.Fatalf("Collect() error = %v", err)
 			}
+			items := snapshot.InventoryItems
 
-			parseErrorAsset := findAssetBySuffix(t, assets, assetTypeMCPServer, artifactTypeFromPath(tc.relativePath), tc.relativePath+"#parse_error#mcp_server")
-			if parseErrorAsset.Metadata["parse_status"] != parseStatusInvalid {
-				t.Fatalf("unexpected parse status %v", parseErrorAsset.Metadata["parse_status"])
+			parseErrorItem := findItemBySuffix(t, items, itemTypeMCPServer, sourceTypeFromPath(tc.relativePath), tc.relativePath+"#parse_error#mcp_server")
+			if parseErrorItem.Metadata["parse_status"] != parseStatusInvalid {
+				t.Fatalf("unexpected parse status %v", parseErrorItem.Metadata["parse_status"])
 			}
 		})
 	}
@@ -312,94 +317,94 @@ func copyDirectory(source string, target string, homeDir string) error {
 	return nil
 }
 
-func findAsset(
+func findItem(
 	t *testing.T,
-	assets []spmapi.SyncAsset,
-	assetType string,
-	artifactType string,
+	items []spmapi.SyncInventoryItem,
+	itemType string,
+	sourceType string,
 	identity string,
-) spmapi.SyncAsset {
+) spmapi.SyncInventoryItem {
 	t.Helper()
-	for _, asset := range assets {
-		if asset.AssetType == assetType && asset.ArtifactType == artifactType && asset.IdentityKey == identity {
-			return asset
+	for _, item := range items {
+		if item.ItemType == itemType && item.SourceType == sourceType && item.IdentityKey == identity {
+			return item
 		}
 	}
-	t.Fatalf("asset %s/%s with identity %s not found", assetType, artifactType, identity)
-	return spmapi.SyncAsset{}
+	t.Fatalf("item %s/%s with identity %s not found", itemType, sourceType, identity)
+	return spmapi.SyncInventoryItem{}
 }
 
-func findAssetByDisplayName(
+func findItemByDisplayName(
 	t *testing.T,
-	assets []spmapi.SyncAsset,
-	assetType string,
+	items []spmapi.SyncInventoryItem,
+	itemType string,
 	displayName string,
-) spmapi.SyncAsset {
+) spmapi.SyncInventoryItem {
 	t.Helper()
-	for _, asset := range assets {
-		if asset.AssetType == assetType && asset.DisplayName == displayName {
-			return asset
+	for _, item := range items {
+		if item.ItemType == itemType && item.DisplayName == displayName {
+			return item
 		}
 	}
-	t.Fatalf("asset %s with display name %s not found", assetType, displayName)
-	return spmapi.SyncAsset{}
+	t.Fatalf("item %s with display name %s not found", itemType, displayName)
+	return spmapi.SyncInventoryItem{}
 }
 
-func findAssetBySuffix(
+func findItemBySuffix(
 	t *testing.T,
-	assets []spmapi.SyncAsset,
-	assetType string,
-	artifactType string,
+	items []spmapi.SyncInventoryItem,
+	itemType string,
+	sourceType string,
 	suffix string,
-) spmapi.SyncAsset {
+) spmapi.SyncInventoryItem {
 	t.Helper()
-	for _, asset := range assets {
-		if asset.AssetType == assetType && asset.ArtifactType == artifactType && strings.HasSuffix(asset.IdentityKey, suffix) {
-			return asset
+	for _, item := range items {
+		if item.ItemType == itemType && item.SourceType == sourceType && strings.HasSuffix(item.IdentityKey, suffix) {
+			return item
 		}
 	}
-	t.Fatalf("asset %s/%s with identity suffix %s not found", assetType, artifactType, suffix)
-	return spmapi.SyncAsset{}
+	t.Fatalf("item %s/%s with identity suffix %s not found", itemType, sourceType, suffix)
+	return spmapi.SyncInventoryItem{}
 }
 
-func assertAssetMissing(
+func assertItemMissing(
 	t *testing.T,
-	assets []spmapi.SyncAsset,
-	assetType string,
-	artifactType string,
+	items []spmapi.SyncInventoryItem,
+	itemType string,
+	sourceType string,
 	identity string,
 ) {
 	t.Helper()
-	for _, asset := range assets {
-		if asset.AssetType == assetType && asset.ArtifactType == artifactType && asset.IdentityKey == identity {
-			t.Fatalf("unexpected asset %s/%s with identity %s", assetType, artifactType, identity)
+	for _, item := range items {
+		if item.ItemType == itemType && item.SourceType == sourceType && item.IdentityKey == identity {
+			t.Fatalf("unexpected item %s/%s with identity %s", itemType, sourceType, identity)
 		}
 	}
 }
 
 func assertDisplayNameMissing(
 	t *testing.T,
-	assets []spmapi.SyncAsset,
-	assetType string,
+	items []spmapi.SyncInventoryItem,
+	itemType string,
 	displayName string,
 ) {
 	t.Helper()
-	for _, asset := range assets {
-		if asset.AssetType == assetType && asset.DisplayName == displayName {
-			t.Fatalf("unexpected asset %s with display name %s", assetType, displayName)
+	for _, item := range items {
+		if item.ItemType == itemType && item.DisplayName == displayName {
+			t.Fatalf("unexpected item %s with display name %s", itemType, displayName)
 		}
 	}
 }
 
-func artifactTypeFromPath(path string) string {
+func sourceTypeFromPath(path string) string {
 	switch filepath.Base(path) {
 	case "settings.local.json":
-		return artifactTypeSettingsLocalJSON
+		return sourceTypeSettingsLocalJSON
 	case "settings.json":
-		return artifactTypeSettingsJSON
+		return sourceTypeSettingsJSON
 	case ".mcp.json":
-		return artifactTypeMCPJSON
+		return sourceTypeMCPJSON
 	default:
-		return artifactTypeClaudeJSON
+		return sourceTypeClaudeJSON
 	}
 }

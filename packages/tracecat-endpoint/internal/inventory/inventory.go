@@ -21,33 +21,37 @@ import (
 const (
 	claudeHarness = "claude_code"
 
-	assetTypeTrustedDirectory    = "trusted_directory"
-	assetTypeAdditionalDirectory = "additional_directory"
-	assetTypePermissionConfig    = "permission_config"
-	assetTypeSandboxConfig       = "sandbox_config"
-	assetTypeMCPServer           = "mcp_server"
-	assetTypeSkill               = "skill"
-	assetTypeHook                = "hook"
-	assetTypeInstructionFile     = "instruction_file"
-	assetTypeAgent               = "agent"
-	assetTypePlugin              = "plugin"
+	itemTypeTrustedDirectory    = "trusted_directory"
+	itemTypeAdditionalDirectory = "additional_directory"
+	itemTypePermissionConfig    = "permission_config"
+	itemTypeSandboxConfig       = "sandbox_config"
+	itemTypeMCPServer           = "mcp_server"
+	itemTypeSkill               = "skill"
+	itemTypeHook                = "hook"
+	itemTypeInstructionFile     = "instruction_file"
+	itemTypeAgent               = "agent"
+	itemTypePlugin              = "plugin"
 
-	artifactTypeSettingsJSON      = "settings.json"
-	artifactTypeSettingsLocalJSON = "settings.local.json"
-	artifactTypeClaudeJSON        = ".claude.json"
-	artifactTypeHooksJSON         = "hooks.json"
-	artifactTypeMCPJSON           = ".mcp.json"
-	artifactTypeClaudeMD          = "CLAUDE.md"
-	artifactTypeClaudeLocalMD     = "CLAUDE.local.md"
-	artifactTypeAgentsMD          = "AGENTS.md"
-	artifactTypeSkillFrontmatter  = "skill-frontmatter"
-	artifactTypeAgentFrontmatter  = "agent-frontmatter"
-	artifactTypePluginManifest    = "plugin.json"
-	artifactTypeDirectory         = "directory"
+	sourceTypeSettingsJSON      = "settings_json"
+	sourceTypeSettingsLocalJSON = "settings_local_json"
+	sourceTypeClaudeJSON        = "claude_json"
+	sourceTypeHooksJSON         = "hooks_json"
+	sourceTypeMCPJSON           = "mcp_json"
+	sourceTypeClaudeMD          = "claude_md"
+	sourceTypeClaudeLocalMD     = "claude_local_md"
+	sourceTypeAgentsMD          = "agents_md"
+	sourceTypeSkillFrontmatter  = "skill_frontmatter"
+	sourceTypeAgentFrontmatter  = "agent_frontmatter"
+	sourceTypePluginManifest    = "plugin_manifest"
+	sourceTypeDirectory         = "directory"
 
 	parseStatusOK         = "ok"
 	parseStatusInvalid    = "invalid"
 	parseStatusUnreadable = "unreadable"
+
+	relationshipTypeContains = "contains"
+	relationshipTypeDefines  = "defines"
+	relationshipTypeImports  = "imports"
 )
 
 var (
@@ -59,9 +63,80 @@ var (
 	tokenPattern           = regexp.MustCompile(`\b[A-Za-z0-9+/=_-]{20,}\b`)
 )
 
+var allowedInventoryBindings = map[string]map[string]struct{}{
+	itemTypeHook: {
+		sourceTypeSettingsJSON:      {},
+		sourceTypeSettingsLocalJSON: {},
+		sourceTypeClaudeJSON:        {},
+		sourceTypeHooksJSON:         {},
+	},
+	itemTypePlugin: {
+		sourceTypePluginManifest: {},
+	},
+	itemTypeMCPServer: {
+		sourceTypeSettingsJSON:      {},
+		sourceTypeSettingsLocalJSON: {},
+		sourceTypeClaudeJSON:        {},
+		sourceTypeMCPJSON:           {},
+	},
+	itemTypeInstructionFile: {
+		sourceTypeClaudeMD:      {},
+		sourceTypeClaudeLocalMD: {},
+		sourceTypeAgentsMD:      {},
+	},
+	itemTypePermissionConfig: {
+		sourceTypeSettingsJSON:      {},
+		sourceTypeSettingsLocalJSON: {},
+		sourceTypeClaudeJSON:        {},
+	},
+	itemTypeSandboxConfig: {
+		sourceTypeSettingsJSON:      {},
+		sourceTypeSettingsLocalJSON: {},
+		sourceTypeClaudeJSON:        {},
+	},
+	itemTypeTrustedDirectory: {
+		sourceTypeDirectory: {},
+	},
+	itemTypeAdditionalDirectory: {
+		sourceTypeDirectory: {},
+	},
+	itemTypeSkill: {
+		sourceTypeSettingsJSON:      {},
+		sourceTypeSettingsLocalJSON: {},
+		sourceTypeClaudeJSON:        {},
+		sourceTypeSkillFrontmatter:  {},
+	},
+	itemTypeAgent: {
+		sourceTypeSettingsJSON:      {},
+		sourceTypeSettingsLocalJSON: {},
+		sourceTypeClaudeJSON:        {},
+		sourceTypeAgentFrontmatter:  {},
+	},
+}
+
+func validateInventoryItem(item spmapi.SyncInventoryItem) error {
+	if item.Harness != claudeHarness {
+		return fmt.Errorf("unsupported inventory harness %q", item.Harness)
+	}
+	sourceTypes, ok := allowedInventoryBindings[item.ItemType]
+	if !ok {
+		return fmt.Errorf("unsupported inventory item type %q", item.ItemType)
+	}
+	if _, ok := sourceTypes[item.SourceType]; !ok {
+		return fmt.Errorf("invalid inventory item/source binding %s/%s", item.ItemType, item.SourceType)
+	}
+	if item.SourceLocation == "" {
+		return fmt.Errorf("inventory source location is required")
+	}
+	if item.ItemLocation == "" {
+		return fmt.Errorf("inventory item location is required")
+	}
+	return nil
+}
+
 // Provider returns the current local inventory for sync requests.
 type Provider interface {
-	Collect(context.Context) ([]spmapi.SyncAsset, error)
+	Collect(context.Context) (spmapi.InventorySnapshot, error)
 }
 
 // ClaudeProvider inventories Claude Code user and project surfaces.
@@ -73,57 +148,57 @@ func NewClaudeProvider(homeDir string) ClaudeProvider {
 	return ClaudeProvider{HomeDir: strings.TrimSpace(homeDir)}
 }
 
-func (p ClaudeProvider) Collect(ctx context.Context) ([]spmapi.SyncAsset, error) {
+func (p ClaudeProvider) Collect(ctx context.Context) (spmapi.InventorySnapshot, error) {
 	if err := ctx.Err(); err != nil {
-		return nil, err
+		return spmapi.InventorySnapshot{}, err
 	}
 	if p.HomeDir == "" {
-		return nil, fmt.Errorf("home directory is required")
+		return spmapi.InventorySnapshot{}, fmt.Errorf("home directory is required")
 	}
 
-	collector := newAssetCollector()
+	collector := newInventoryCollector()
 	projectRoots := map[string]projectDirectory{}
 
 	userSettingsPath := filepath.Join(p.HomeDir, ".claude", "settings.json")
 	if err := collectJSONSurface(collector, jsonSurfaceConfig{
 		Path:          userSettingsPath,
-		ArtifactType:  artifactTypeSettingsJSON,
+		SourceType:    sourceTypeSettingsJSON,
 		SourceSurface: "user_settings_json",
 		ProjectRoot:   "",
 		Writable:      true,
 		EmitParseOnError: []parseErrorSurface{
-			{AssetType: assetTypePermissionConfig, DisplaySuffix: "permissions"},
-			{AssetType: assetTypeSandboxConfig, DisplaySuffix: "sandbox"},
-			{AssetType: assetTypeMCPServer, DisplaySuffix: "mcp"},
-			{AssetType: assetTypeHook, DisplaySuffix: "hooks"},
+			{ItemType: itemTypePermissionConfig, DisplaySuffix: "permissions"},
+			{ItemType: itemTypeSandboxConfig, DisplaySuffix: "sandbox"},
+			{ItemType: itemTypeMCPServer, DisplaySuffix: "mcp"},
+			{ItemType: itemTypeHook, DisplaySuffix: "hooks"},
 		},
 		DiscoverProjects: true,
 	}, projectRoots); err != nil {
-		return nil, err
+		return spmapi.InventorySnapshot{}, err
 	}
 
 	userStatePath := filepath.Join(p.HomeDir, ".claude.json")
 	if err := collectJSONSurface(collector, jsonSurfaceConfig{
 		Path:          userStatePath,
-		ArtifactType:  artifactTypeClaudeJSON,
+		SourceType:    sourceTypeClaudeJSON,
 		SourceSurface: "user_state_json",
 		ProjectRoot:   "",
 		Writable:      true,
 		EmitParseOnError: []parseErrorSurface{
-			{AssetType: assetTypePermissionConfig, DisplaySuffix: "permissions"},
-			{AssetType: assetTypeSandboxConfig, DisplaySuffix: "sandbox"},
-			{AssetType: assetTypeMCPServer, DisplaySuffix: "mcp"},
-			{AssetType: assetTypeHook, DisplaySuffix: "hooks"},
+			{ItemType: itemTypePermissionConfig, DisplaySuffix: "permissions"},
+			{ItemType: itemTypeSandboxConfig, DisplaySuffix: "sandbox"},
+			{ItemType: itemTypeMCPServer, DisplaySuffix: "mcp"},
+			{ItemType: itemTypeHook, DisplaySuffix: "hooks"},
 		},
 		DiscoverProjects: true,
 	}, projectRoots); err != nil {
-		return nil, err
+		return spmapi.InventorySnapshot{}, err
 	}
-	if err := collectComponentSurfaces(collector, filepath.Join(p.HomeDir, ".claude"), "", "user"); err != nil {
-		return nil, err
+	if err := collectComponentSurfaces(collector, filepath.Join(p.HomeDir, ".claude"), "", "user", ""); err != nil {
+		return spmapi.InventorySnapshot{}, err
 	}
 	if err := collectPluginSurfaces(collector, p.HomeDir); err != nil {
-		return nil, err
+		return spmapi.InventorySnapshot{}, err
 	}
 
 	roots := make([]projectDirectory, 0, len(projectRoots))
@@ -131,92 +206,182 @@ func (p ClaudeProvider) Collect(ctx context.Context) ([]spmapi.SyncAsset, error)
 		roots = append(roots, root)
 	}
 	sort.Slice(roots, func(i, j int) bool {
-		if roots[i].AssetType == roots[j].AssetType {
+		if roots[i].ItemType == roots[j].ItemType {
 			return roots[i].Path < roots[j].Path
 		}
-		return roots[i].AssetType < roots[j].AssetType
+		return roots[i].ItemType < roots[j].ItemType
 	})
 
 	for _, root := range roots {
 		if err := ctx.Err(); err != nil {
-			return nil, err
+			return spmapi.InventorySnapshot{}, err
 		}
-		collector.addDirectoryAsset(root)
+		collector.addDirectoryItem(root)
 		if err := collectProjectSurfaces(collector, root.Path); err != nil {
-			return nil, err
+			return spmapi.InventorySnapshot{}, err
 		}
 	}
 
-	return collector.assets(), nil
+	return collector.snapshot()
 }
 
 type projectDirectory struct {
 	Path          string
-	AssetType     string
+	ItemType      string
 	SourceSurface string
 	FilePath      string
 }
 
 type parseErrorSurface struct {
-	AssetType     string
+	ItemType      string
 	DisplaySuffix string
 }
 
 type jsonSurfaceConfig struct {
-	Path             string
-	ArtifactType     string
-	SourceSurface    string
-	ProjectRoot      string
-	Writable         bool
-	EmitParseOnError []parseErrorSurface
-	DiscoverProjects bool
+	Path              string
+	SourceType        string
+	SourceSurface     string
+	ProjectRoot       string
+	Writable          bool
+	ParentIdentityKey string
+	ParentRelation    string
+	EmitParseOnError  []parseErrorSurface
+	DiscoverProjects  bool
 }
 
-type assetCollector struct {
-	items map[string]spmapi.SyncAsset
+type inventoryCollector struct {
+	items         map[string]spmapi.SyncInventoryItem
+	relationships map[string]spmapi.SyncInventoryRelationship
+	err           error
 }
 
-func newAssetCollector() *assetCollector {
-	return &assetCollector{items: make(map[string]spmapi.SyncAsset)}
+func newInventoryCollector() *inventoryCollector {
+	return &inventoryCollector{
+		items:         make(map[string]spmapi.SyncInventoryItem),
+		relationships: make(map[string]spmapi.SyncInventoryRelationship),
+	}
 }
 
-func (c *assetCollector) add(asset spmapi.SyncAsset) {
-	key := asset.Harness + "|" + asset.AssetType + "|" + asset.ArtifactType + "|" + asset.ArtifactLocation + "|" + asset.IdentityKey
-	c.items[key] = asset
+func (c *inventoryCollector) add(item spmapi.SyncInventoryItem) {
+	if c.err != nil {
+		return
+	}
+	if item.ItemLocation == "" {
+		item.ItemLocation = item.SourceLocation
+	}
+	if err := validateInventoryItem(item); err != nil {
+		c.err = err
+		return
+	}
+	key := item.Harness + "|" + item.ItemType + "|" + item.SourceType + "|" + item.ItemLocation + "|" + item.SourceLocation + "|" + item.IdentityKey
+	c.items[key] = item
 }
 
-func (c *assetCollector) assets() []spmapi.SyncAsset {
-	items := make([]spmapi.SyncAsset, 0, len(c.items))
-	for _, asset := range c.items {
-		items = append(items, asset)
+func (c *inventoryCollector) addRelationship(relationship spmapi.SyncInventoryRelationship) {
+	if relationship.FromIdentityKey == "" || relationship.ToIdentityKey == "" {
+		return
+	}
+	key := relationship.RelationshipType + "|" + relationship.FromIdentityKey + "|" + relationship.ToIdentityKey
+	c.relationships[key] = relationship
+}
+
+func (c *inventoryCollector) addParentRelationship(
+	parentIdentityKey string,
+	relationshipType string,
+	child spmapi.SyncInventoryItem,
+) {
+	if parentIdentityKey == "" || relationshipType == "" {
+		return
+	}
+	c.addRelationship(spmapi.SyncInventoryRelationship{
+		RelationshipType: relationshipType,
+		FromIdentityKey:  parentIdentityKey,
+		ToIdentityKey:    child.IdentityKey,
+		Evidence: map[string]any{
+			"source_location": child.SourceLocation,
+			"item_type":       child.ItemType,
+			"source_type":     child.SourceType,
+		},
+		ObservedState: map[string]any{
+			"enabled": true,
+		},
+	})
+}
+
+func (c *inventoryCollector) snapshot() (spmapi.InventorySnapshot, error) {
+	if c.err != nil {
+		return spmapi.InventorySnapshot{}, c.err
+	}
+	return spmapi.InventorySnapshot{
+		InventoryItems: c.inventoryItems(),
+		Relationships:  c.validRelationships(),
+	}, nil
+}
+
+func (c *inventoryCollector) inventoryItems() []spmapi.SyncInventoryItem {
+	items := make([]spmapi.SyncInventoryItem, 0, len(c.items))
+	for _, item := range c.items {
+		items = append(items, item)
 	}
 	sort.Slice(items, func(i, j int) bool {
 		left := items[i]
 		right := items[j]
-		if left.AssetType != right.AssetType {
-			return left.AssetType < right.AssetType
+		if left.ItemType != right.ItemType {
+			return left.ItemType < right.ItemType
 		}
-		if left.ArtifactType != right.ArtifactType {
-			return left.ArtifactType < right.ArtifactType
+		if left.SourceType != right.SourceType {
+			return left.SourceType < right.SourceType
 		}
-		if left.ArtifactLocation != right.ArtifactLocation {
-			return left.ArtifactLocation < right.ArtifactLocation
+		if left.SourceLocation != right.SourceLocation {
+			return left.SourceLocation < right.SourceLocation
 		}
 		return left.IdentityKey < right.IdentityKey
 	})
 	return items
 }
 
-func (c *assetCollector) addDirectoryAsset(root projectDirectory) {
+func (c *inventoryCollector) validRelationships() []spmapi.SyncInventoryRelationship {
+	identityKeys := make(map[string]struct{}, len(c.items))
+	for _, item := range c.items {
+		identityKeys[item.IdentityKey] = struct{}{}
+	}
+	relationships := make([]spmapi.SyncInventoryRelationship, 0, len(c.relationships))
+	for _, relationship := range c.relationships {
+		if _, ok := identityKeys[relationship.FromIdentityKey]; !ok {
+			continue
+		}
+		if _, ok := identityKeys[relationship.ToIdentityKey]; !ok {
+			continue
+		}
+		relationships = append(relationships, relationship)
+	}
+	sort.Slice(relationships, func(i, j int) bool {
+		if relationships[i].RelationshipType != relationships[j].RelationshipType {
+			return relationships[i].RelationshipType < relationships[j].RelationshipType
+		}
+		if relationships[i].FromIdentityKey != relationships[j].FromIdentityKey {
+			return relationships[i].FromIdentityKey < relationships[j].FromIdentityKey
+		}
+		return relationships[i].ToIdentityKey < relationships[j].ToIdentityKey
+	})
+	return relationships
+}
+
+func (c *inventoryCollector) addDirectoryItem(root projectDirectory) {
 	path := filepath.Clean(root.Path)
-	c.add(spmapi.SyncAsset{
-		Harness:          claudeHarness,
-		AssetType:        root.AssetType,
-		ArtifactType:     artifactTypeDirectory,
-		ArtifactLocation: path,
-		IdentityKey:      path,
-		DisplayName:      path,
-		ContentHash:      hashString(path + "|" + root.AssetType + "|" + root.SourceSurface),
+	sourceLocation := root.FilePath
+	if sourceLocation == "" {
+		sourceLocation = path
+	}
+	c.add(spmapi.SyncInventoryItem{
+		Harness:        claudeHarness,
+		ItemType:       root.ItemType,
+		SourceType:     sourceTypeDirectory,
+		ItemLocation:   path,
+		SourceLocation: sourceLocation,
+		IdentityKey:    path,
+		DisplayName:    path,
+		ContentHash:    hashString(path + "|" + root.ItemType + "|" + root.SourceSurface),
 		Metadata: map[string]any{
 			"directory_path": path,
 			"file_path":      root.FilePath,
@@ -232,31 +397,31 @@ func (c *assetCollector) addDirectoryAsset(root projectDirectory) {
 	})
 }
 
-func collectProjectSurfaces(collector *assetCollector, projectRoot string) error {
+func collectProjectSurfaces(collector *inventoryCollector, projectRoot string) error {
 	surfaces := []jsonSurfaceConfig{
 		{
 			Path:             filepath.Join(projectRoot, ".claude", "settings.json"),
-			ArtifactType:     artifactTypeSettingsJSON,
+			SourceType:       sourceTypeSettingsJSON,
 			SourceSurface:    "project_settings_json",
 			ProjectRoot:      projectRoot,
 			Writable:         false,
-			EmitParseOnError: []parseErrorSurface{{AssetType: assetTypePermissionConfig, DisplaySuffix: "permissions"}, {AssetType: assetTypeSandboxConfig, DisplaySuffix: "sandbox"}, {AssetType: assetTypeMCPServer, DisplaySuffix: "mcp"}, {AssetType: assetTypeHook, DisplaySuffix: "hooks"}},
+			EmitParseOnError: []parseErrorSurface{{ItemType: itemTypePermissionConfig, DisplaySuffix: "permissions"}, {ItemType: itemTypeSandboxConfig, DisplaySuffix: "sandbox"}, {ItemType: itemTypeMCPServer, DisplaySuffix: "mcp"}, {ItemType: itemTypeHook, DisplaySuffix: "hooks"}},
 		},
 		{
 			Path:             filepath.Join(projectRoot, ".claude", "settings.local.json"),
-			ArtifactType:     artifactTypeSettingsLocalJSON,
+			SourceType:       sourceTypeSettingsLocalJSON,
 			SourceSurface:    "project_local_settings_json",
 			ProjectRoot:      projectRoot,
 			Writable:         true,
-			EmitParseOnError: []parseErrorSurface{{AssetType: assetTypePermissionConfig, DisplaySuffix: "permissions"}, {AssetType: assetTypeSandboxConfig, DisplaySuffix: "sandbox"}, {AssetType: assetTypeMCPServer, DisplaySuffix: "mcp"}, {AssetType: assetTypeHook, DisplaySuffix: "hooks"}},
+			EmitParseOnError: []parseErrorSurface{{ItemType: itemTypePermissionConfig, DisplaySuffix: "permissions"}, {ItemType: itemTypeSandboxConfig, DisplaySuffix: "sandbox"}, {ItemType: itemTypeMCPServer, DisplaySuffix: "mcp"}, {ItemType: itemTypeHook, DisplaySuffix: "hooks"}},
 		},
 		{
 			Path:             filepath.Join(projectRoot, ".mcp.json"),
-			ArtifactType:     artifactTypeMCPJSON,
+			SourceType:       sourceTypeMCPJSON,
 			SourceSurface:    "project_mcp_json",
 			ProjectRoot:      projectRoot,
 			Writable:         false,
-			EmitParseOnError: []parseErrorSurface{{AssetType: assetTypeMCPServer, DisplaySuffix: "mcp"}},
+			EmitParseOnError: []parseErrorSurface{{ItemType: itemTypeMCPServer, DisplaySuffix: "mcp"}},
 		},
 	}
 	for _, surface := range surfaces {
@@ -268,27 +433,27 @@ func collectProjectSurfaces(collector *assetCollector, projectRoot string) error
 	instructionSurfaces := []struct {
 		Path          string
 		SourceSurface string
-		ArtifactType  string
+		SourceType    string
 		Enforceable   bool
 	}{
-		{Path: filepath.Join(projectRoot, "CLAUDE.md"), SourceSurface: "project_claude_md", ArtifactType: artifactTypeClaudeMD, Enforceable: true},
-		{Path: filepath.Join(projectRoot, "CLAUDE.local.md"), SourceSurface: "project_claude_local_md", ArtifactType: artifactTypeClaudeLocalMD, Enforceable: true},
-		{Path: filepath.Join(projectRoot, ".claude", "CLAUDE.md"), SourceSurface: "project_dot_claude_md", ArtifactType: artifactTypeClaudeMD, Enforceable: true},
-		{Path: filepath.Join(projectRoot, "AGENTS.md"), SourceSurface: "project_agents_md", ArtifactType: artifactTypeAgentsMD, Enforceable: false},
+		{Path: filepath.Join(projectRoot, "CLAUDE.md"), SourceSurface: "project_claude_md", SourceType: sourceTypeClaudeMD, Enforceable: true},
+		{Path: filepath.Join(projectRoot, "CLAUDE.local.md"), SourceSurface: "project_claude_local_md", SourceType: sourceTypeClaudeLocalMD, Enforceable: true},
+		{Path: filepath.Join(projectRoot, ".claude", "CLAUDE.md"), SourceSurface: "project_dot_claude_md", SourceType: sourceTypeClaudeMD, Enforceable: true},
+		{Path: filepath.Join(projectRoot, "AGENTS.md"), SourceSurface: "project_agents_md", SourceType: sourceTypeAgentsMD, Enforceable: false},
 	}
 	for _, surface := range instructionSurfaces {
-		if err := collectInstructionFile(collector, projectRoot, surface.Path, surface.SourceSurface, surface.ArtifactType, surface.Enforceable); err != nil {
+		if err := collectInstructionFile(collector, projectRoot, surface.Path, surface.SourceSurface, surface.SourceType, surface.Enforceable); err != nil {
 			return err
 		}
 	}
-	if err := collectComponentSurfaces(collector, filepath.Join(projectRoot, ".claude"), projectRoot, "project"); err != nil {
+	if err := collectComponentSurfaces(collector, filepath.Join(projectRoot, ".claude"), projectRoot, "project", ""); err != nil {
 		return err
 	}
 	return nil
 }
 
 func collectJSONSurface(
-	collector *assetCollector,
+	collector *inventoryCollector,
 	cfg jsonSurfaceConfig,
 	projectRoots map[string]projectDirectory,
 ) error {
@@ -312,28 +477,34 @@ func collectJSONSurface(
 	}
 
 	if permissionsValue, ok := pickFirst(doc, "permissions", "permissionSettings", "permissionMode"); ok {
-		collector.addConfigAsset(cfg, assetTypePermissionConfig, "permissions", permissionsValue)
+		collector.addConfigItem(cfg, itemTypePermissionConfig, "permissions", permissionsValue)
 	}
 	if sandboxValue, ok := pickFirst(doc, "sandbox", "sandboxSettings", "sandboxMode"); ok {
-		collector.addConfigAsset(cfg, assetTypeSandboxConfig, "sandbox", sandboxValue)
+		collector.addConfigItem(cfg, itemTypeSandboxConfig, "sandbox", sandboxValue)
 	}
 
 	for _, server := range extractMCPServers(doc, cfg) {
 		collector.add(server)
+		collector.addParentRelationship(cfg.ParentIdentityKey, cfg.ParentRelation, server)
 	}
 	for _, hook := range extractHooks(doc, cfg) {
 		collector.add(hook)
+		collector.addParentRelationship(cfg.ParentIdentityKey, cfg.ParentRelation, hook)
 	}
-	for _, skill := range extractSkills(doc, cfg) {
-		collector.add(skill)
-	}
-	for _, subagent := range extractSubagents(doc, cfg) {
-		collector.add(subagent)
+	if cfg.SourceType != sourceTypeMCPJSON {
+		for _, skill := range extractSkills(doc, cfg) {
+			collector.add(skill)
+			collector.addParentRelationship(cfg.ParentIdentityKey, cfg.ParentRelation, skill)
+		}
+		for _, subagent := range extractSubagents(doc, cfg) {
+			collector.add(subagent)
+			collector.addParentRelationship(cfg.ParentIdentityKey, cfg.ParentRelation, subagent)
+		}
 	}
 
 	if cfg.DiscoverProjects && projectRoots != nil {
 		for _, root := range discoverProjectDirectories(doc, cfg) {
-			key := root.AssetType + "|" + root.Path
+			key := root.ItemType + "|" + root.Path
 			projectRoots[key] = root
 		}
 	}
@@ -341,20 +512,20 @@ func collectJSONSurface(
 	return nil
 }
 
-func (c *assetCollector) addSyntheticParseError(
+func (c *inventoryCollector) addSyntheticParseError(
 	cfg jsonSurfaceConfig,
 	surface parseErrorSurface,
 	parseStatus string,
 	err error,
 ) {
-	identity := cfg.Path + "#parse_error#" + surface.AssetType
-	c.add(spmapi.SyncAsset{
-		Harness:          claudeHarness,
-		AssetType:        surface.AssetType,
-		ArtifactType:     cfg.ArtifactType,
-		ArtifactLocation: cfg.Path,
-		IdentityKey:      identity,
-		DisplayName:      filepath.Base(cfg.Path) + " " + surface.DisplaySuffix,
+	identity := cfg.Path + "#parse_error#" + surface.ItemType
+	c.add(spmapi.SyncInventoryItem{
+		Harness:        claudeHarness,
+		ItemType:       surface.ItemType,
+		SourceType:     cfg.SourceType,
+		SourceLocation: cfg.Path,
+		IdentityKey:    identity,
+		DisplayName:    filepath.Base(cfg.Path) + " " + surface.DisplaySuffix,
 		Metadata: map[string]any{
 			"file_path":      cfg.Path,
 			"project_root":   cfg.ProjectRoot,
@@ -373,22 +544,22 @@ func (c *assetCollector) addSyntheticParseError(
 	})
 }
 
-func (c *assetCollector) addConfigAsset(
+func (c *inventoryCollector) addConfigItem(
 	cfg jsonSurfaceConfig,
-	assetType string,
+	itemType string,
 	name string,
 	value any,
 ) {
 	contentHash, normalized := hashValue(value)
-	identity := cfg.Path + "#" + assetType
-	c.add(spmapi.SyncAsset{
-		Harness:          claudeHarness,
-		AssetType:        assetType,
-		ArtifactType:     cfg.ArtifactType,
-		ArtifactLocation: cfg.Path,
-		IdentityKey:      identity,
-		DisplayName:      name + " in " + filepath.Base(cfg.Path),
-		ContentHash:      contentHash,
+	identity := cfg.Path + "#" + itemType
+	c.add(spmapi.SyncInventoryItem{
+		Harness:        claudeHarness,
+		ItemType:       itemType,
+		SourceType:     cfg.SourceType,
+		SourceLocation: cfg.Path,
+		IdentityKey:    identity,
+		DisplayName:    name + " in " + filepath.Base(cfg.Path),
+		ContentHash:    contentHash,
 		Metadata: map[string]any{
 			"file_path":      cfg.Path,
 			"project_root":   cfg.ProjectRoot,
@@ -408,11 +579,11 @@ func (c *assetCollector) addConfigAsset(
 }
 
 func collectInstructionFile(
-	collector *assetCollector,
+	collector *inventoryCollector,
 	projectRoot string,
 	path string,
 	sourceSurface string,
-	artifactType string,
+	sourceType string,
 	enforceable bool,
 ) error {
 	data, err := os.ReadFile(path)
@@ -420,13 +591,13 @@ func collectInstructionFile(
 		if os.IsNotExist(err) {
 			return nil
 		}
-		collector.add(spmapi.SyncAsset{
-			Harness:          claudeHarness,
-			AssetType:        assetTypeInstructionFile,
-			ArtifactType:     artifactType,
-			ArtifactLocation: path,
-			IdentityKey:      path,
-			DisplayName:      filepath.Base(path),
+		collector.add(spmapi.SyncInventoryItem{
+			Harness:        claudeHarness,
+			ItemType:       itemTypeInstructionFile,
+			SourceType:     sourceType,
+			SourceLocation: path,
+			IdentityKey:    path,
+			DisplayName:    filepath.Base(path),
 			Metadata: map[string]any{
 				"file_path":      path,
 				"project_root":   projectRoot,
@@ -448,14 +619,14 @@ func collectInstructionFile(
 	language := languageSignal(text)
 	obfuscation := obfuscationSignals(text)
 
-	collector.add(spmapi.SyncAsset{
-		Harness:          claudeHarness,
-		AssetType:        assetTypeInstructionFile,
-		ArtifactType:     artifactType,
-		ArtifactLocation: path,
-		IdentityKey:      path,
-		DisplayName:      filepath.Base(path),
-		ContentHash:      hashBytes(data),
+	collector.add(spmapi.SyncInventoryItem{
+		Harness:        claudeHarness,
+		ItemType:       itemTypeInstructionFile,
+		SourceType:     sourceType,
+		SourceLocation: path,
+		IdentityKey:    path,
+		DisplayName:    filepath.Base(path),
+		ContentHash:    hashBytes(data),
 		Metadata: map[string]any{
 			"file_path":      path,
 			"project_root":   projectRoot,
@@ -483,10 +654,11 @@ func collectInstructionFile(
 }
 
 func collectComponentSurfaces(
-	collector *assetCollector,
+	collector *inventoryCollector,
 	claudeDir string,
 	projectRoot string,
 	sourcePrefix string,
+	parentIdentityKey string,
 ) error {
 	skillsRoot := filepath.Join(claudeDir, "skills")
 	if err := filepath.WalkDir(skillsRoot, func(path string, entry os.DirEntry, err error) error {
@@ -495,13 +667,14 @@ func collectComponentSurfaces(
 		}
 		name := filepath.Base(filepath.Dir(path))
 		return collectMarkdownComponent(collector, markdownComponentConfig{
-			Path:          path,
-			ProjectRoot:   projectRoot,
-			SourceSurface: sourcePrefix + "_skill_frontmatter",
-			AssetType:     assetTypeSkill,
-			ArtifactType:  artifactTypeSkillFrontmatter,
-			Name:          name,
-			EvidenceKey:   "skill",
+			Path:              path,
+			ProjectRoot:       projectRoot,
+			SourceSurface:     sourcePrefix + "_skill_frontmatter",
+			ItemType:          itemTypeSkill,
+			SourceType:        sourceTypeSkillFrontmatter,
+			Name:              name,
+			EvidenceKey:       "skill",
+			ParentIdentityKey: parentIdentityKey,
 		})
 	}); err != nil && !os.IsNotExist(err) {
 		return err
@@ -514,13 +687,14 @@ func collectComponentSurfaces(
 		}
 		name := strings.TrimSuffix(entry.Name(), filepath.Ext(entry.Name()))
 		return collectMarkdownComponent(collector, markdownComponentConfig{
-			Path:          path,
-			ProjectRoot:   projectRoot,
-			SourceSurface: sourcePrefix + "_agent_frontmatter",
-			AssetType:     assetTypeAgent,
-			ArtifactType:  artifactTypeAgentFrontmatter,
-			Name:          name,
-			EvidenceKey:   "agent",
+			Path:              path,
+			ProjectRoot:       projectRoot,
+			SourceSurface:     sourcePrefix + "_agent_frontmatter",
+			ItemType:          itemTypeAgent,
+			SourceType:        sourceTypeAgentFrontmatter,
+			Name:              name,
+			EvidenceKey:       "agent",
+			ParentIdentityKey: parentIdentityKey,
 		})
 	}); err != nil && !os.IsNotExist(err) {
 		return err
@@ -528,7 +702,7 @@ func collectComponentSurfaces(
 	return nil
 }
 
-func collectPluginSurfaces(collector *assetCollector, homeDir string) error {
+func collectPluginSurfaces(collector *inventoryCollector, homeDir string) error {
 	pluginsRoot := filepath.Join(homeDir, ".claude", "plugins")
 	err := filepath.WalkDir(pluginsRoot, func(path string, entry os.DirEntry, err error) error {
 		if err != nil || entry.IsDir() || entry.Name() != "plugin.json" {
@@ -538,34 +712,45 @@ func collectPluginSurfaces(collector *assetCollector, homeDir string) error {
 			return nil
 		}
 		pluginRoot := filepath.Dir(filepath.Dir(path))
-		if err := collectPluginManifest(collector, pluginRoot, path); err != nil {
+		pluginIdentityKey, err := collectPluginManifest(collector, pluginRoot, path)
+		if err != nil {
 			return err
 		}
 		if err := collectJSONSurface(collector, jsonSurfaceConfig{
-			Path:          filepath.Join(pluginRoot, "hooks", "hooks.json"),
-			ArtifactType:  artifactTypeHooksJSON,
-			SourceSurface: "plugin_hooks_json",
-			ProjectRoot:   "",
-			Writable:      false,
+			Path:              filepath.Join(pluginRoot, "hooks", "hooks.json"),
+			SourceType:        sourceTypeHooksJSON,
+			SourceSurface:     "plugin_hooks_json",
+			ProjectRoot:       "",
+			Writable:          false,
+			ParentIdentityKey: pluginIdentityKey,
+			ParentRelation:    relationshipTypeDefines,
 			EmitParseOnError: []parseErrorSurface{
-				{AssetType: assetTypeHook, DisplaySuffix: "hooks"},
+				{ItemType: itemTypeHook, DisplaySuffix: "hooks"},
 			},
 		}, nil); err != nil {
 			return err
 		}
 		if err := collectJSONSurface(collector, jsonSurfaceConfig{
-			Path:          filepath.Join(pluginRoot, ".mcp.json"),
-			ArtifactType:  artifactTypeMCPJSON,
-			SourceSurface: "plugin_mcp_json",
-			ProjectRoot:   "",
-			Writable:      false,
+			Path:              filepath.Join(pluginRoot, ".mcp.json"),
+			SourceType:        sourceTypeMCPJSON,
+			SourceSurface:     "plugin_mcp_json",
+			ProjectRoot:       "",
+			Writable:          false,
+			ParentIdentityKey: pluginIdentityKey,
+			ParentRelation:    relationshipTypeDefines,
 			EmitParseOnError: []parseErrorSurface{
-				{AssetType: assetTypeMCPServer, DisplaySuffix: "mcp"},
+				{ItemType: itemTypeMCPServer, DisplaySuffix: "mcp"},
 			},
 		}, nil); err != nil {
 			return err
 		}
-		return collectComponentSurfaces(collector, pluginRoot, "", "plugin")
+		return collectComponentSurfaces(
+			collector,
+			pluginRoot,
+			"",
+			"plugin",
+			pluginIdentityKey,
+		)
 	})
 	if err != nil && !os.IsNotExist(err) {
 		return err
@@ -574,16 +759,17 @@ func collectPluginSurfaces(collector *assetCollector, homeDir string) error {
 }
 
 type markdownComponentConfig struct {
-	Path          string
-	ProjectRoot   string
-	SourceSurface string
-	AssetType     string
-	ArtifactType  string
-	Name          string
-	EvidenceKey   string
+	Path              string
+	ProjectRoot       string
+	SourceSurface     string
+	ItemType          string
+	SourceType        string
+	Name              string
+	EvidenceKey       string
+	ParentIdentityKey string
 }
 
-func collectMarkdownComponent(collector *assetCollector, cfg markdownComponentConfig) error {
+func collectMarkdownComponent(collector *inventoryCollector, cfg markdownComponentConfig) error {
 	data, err := os.ReadFile(cfg.Path)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -602,14 +788,14 @@ func collectMarkdownComponent(collector *assetCollector, cfg markdownComponentCo
 		"frontmatter": frontmatter,
 		"preview":     previewText(text),
 	}
-	collector.add(spmapi.SyncAsset{
-		Harness:          claudeHarness,
-		AssetType:        cfg.AssetType,
-		ArtifactType:     cfg.ArtifactType,
-		ArtifactLocation: cfg.Path,
-		IdentityKey:      cfg.Path,
-		DisplayName:      cfg.Name,
-		ContentHash:      hashBytes(data),
+	item := spmapi.SyncInventoryItem{
+		Harness:        claudeHarness,
+		ItemType:       cfg.ItemType,
+		SourceType:     cfg.SourceType,
+		SourceLocation: cfg.Path,
+		IdentityKey:    cfg.Path,
+		DisplayName:    cfg.Name,
+		ContentHash:    hashBytes(data),
 		Metadata: map[string]any{
 			"file_path":      cfg.Path,
 			"project_root":   cfg.ProjectRoot,
@@ -627,17 +813,23 @@ func collectMarkdownComponent(collector *assetCollector, cfg markdownComponentCo
 		ObservedState: map[string]any{
 			"disabled": false,
 		},
-	})
+	}
+	collector.add(item)
+	collector.addParentRelationship(
+		cfg.ParentIdentityKey,
+		relationshipTypeContains,
+		item,
+	)
 	return nil
 }
 
-func collectPluginManifest(collector *assetCollector, pluginRoot string, manifestPath string) error {
+func collectPluginManifest(collector *inventoryCollector, pluginRoot string, manifestPath string) (string, error) {
 	data, err := os.ReadFile(manifestPath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil
+			return "", nil
 		}
-		return err
+		return "", err
 	}
 	var manifest map[string]any
 	parseStatus := parseStatusOK
@@ -650,14 +842,14 @@ func collectPluginManifest(collector *assetCollector, pluginRoot string, manifes
 		name = filepath.Base(pluginRoot)
 	}
 	version, _ := stringValue(manifest["version"])
-	collector.add(spmapi.SyncAsset{
-		Harness:          claudeHarness,
-		AssetType:        assetTypePlugin,
-		ArtifactType:     artifactTypePluginManifest,
-		ArtifactLocation: manifestPath,
-		IdentityKey:      manifestPath,
-		DisplayName:      name,
-		ContentHash:      hashBytes(data),
+	item := spmapi.SyncInventoryItem{
+		Harness:        claudeHarness,
+		ItemType:       itemTypePlugin,
+		SourceType:     sourceTypePluginManifest,
+		SourceLocation: manifestPath,
+		IdentityKey:    manifestPath,
+		DisplayName:    name,
+		ContentHash:    hashBytes(data),
 		Metadata: map[string]any{
 			"file_path":      manifestPath,
 			"plugin_root":    pluginRoot,
@@ -673,8 +865,9 @@ func collectPluginManifest(collector *assetCollector, pluginRoot string, manifes
 		ObservedState: map[string]any{
 			"enabled": true,
 		},
-	})
-	return nil
+	}
+	collector.add(item)
+	return item.IdentityKey, nil
 }
 
 func parseSimpleFrontmatter(text string) map[string]any {
@@ -706,18 +899,18 @@ func discoverProjectDirectories(doc map[string]any, cfg jsonSurfaceConfig) []pro
 	dirs := map[string]projectDirectory{}
 	for _, item := range readDirectoryEntries(doc, "trustedDirectories", "trusted_projects", "trustedProjectDirectories") {
 		path := filepath.Clean(item)
-		dirs[assetTypeTrustedDirectory+"|"+path] = projectDirectory{
+		dirs[itemTypeTrustedDirectory+"|"+path] = projectDirectory{
 			Path:          path,
-			AssetType:     assetTypeTrustedDirectory,
+			ItemType:      itemTypeTrustedDirectory,
 			SourceSurface: cfg.SourceSurface,
 			FilePath:      cfg.Path,
 		}
 	}
 	for _, item := range readDirectoryEntries(doc, "additionalDirectories", "additional_projects", "additionalProjectDirectories") {
 		path := filepath.Clean(item)
-		dirs[assetTypeAdditionalDirectory+"|"+path] = projectDirectory{
+		dirs[itemTypeAdditionalDirectory+"|"+path] = projectDirectory{
 			Path:          path,
-			AssetType:     assetTypeAdditionalDirectory,
+			ItemType:      itemTypeAdditionalDirectory,
 			SourceSurface: cfg.SourceSurface,
 			FilePath:      cfg.Path,
 		}
@@ -727,13 +920,13 @@ func discoverProjectDirectories(doc map[string]any, cfg jsonSurfaceConfig) []pro
 		if projects, ok := rawProjects.(map[string]any); ok {
 			for projectPath, rawValue := range projects {
 				path := filepath.Clean(projectPath)
-				assetType := assetTypeTrustedDirectory
+				itemType := itemTypeTrustedDirectory
 				if projectType := classifyProjectValue(rawValue); projectType != "" {
-					assetType = projectType
+					itemType = projectType
 				}
-				dirs[assetType+"|"+path] = projectDirectory{
+				dirs[itemType+"|"+path] = projectDirectory{
 					Path:          path,
-					AssetType:     assetType,
+					ItemType:      itemType,
 					SourceSurface: cfg.SourceSurface,
 					FilePath:      cfg.Path,
 				}
@@ -746,10 +939,10 @@ func discoverProjectDirectories(doc map[string]any, cfg jsonSurfaceConfig) []pro
 		items = append(items, item)
 	}
 	sort.Slice(items, func(i, j int) bool {
-		if items[i].AssetType == items[j].AssetType {
+		if items[i].ItemType == items[j].ItemType {
 			return items[i].Path < items[j].Path
 		}
-		return items[i].AssetType < items[j].AssetType
+		return items[i].ItemType < items[j].ItemType
 	})
 	return items
 }
@@ -762,32 +955,32 @@ func classifyProjectValue(raw any) string {
 	if trustLevel, ok := stringValue(project["trustLevel"]); ok {
 		switch strings.ToLower(trustLevel) {
 		case "additional":
-			return assetTypeAdditionalDirectory
+			return itemTypeAdditionalDirectory
 		case "trusted":
-			return assetTypeTrustedDirectory
+			return itemTypeTrustedDirectory
 		}
 	}
 	if trusted, ok := boolValue(project["trusted"]); ok && trusted {
-		return assetTypeTrustedDirectory
+		return itemTypeTrustedDirectory
 	}
 	if additional, ok := boolValue(project["additional"]); ok && additional {
-		return assetTypeAdditionalDirectory
+		return itemTypeAdditionalDirectory
 	}
 	return ""
 }
 
-func extractMCPServers(doc map[string]any, cfg jsonSurfaceConfig) []spmapi.SyncAsset {
+func extractMCPServers(doc map[string]any, cfg jsonSurfaceConfig) []spmapi.SyncInventoryItem {
 	raw, ok := pickFirst(doc, "mcpServers", "mcp_servers")
 	if !ok {
 		return nil
 	}
 
-	assets := []spmapi.SyncAsset{}
+	items := []spmapi.SyncInventoryItem{}
 	switch servers := raw.(type) {
 	case map[string]any:
 		for serverName, rawServer := range servers {
-			if asset, ok := buildMCPAsset(cfg, serverName, rawServer); ok {
-				assets = append(assets, asset)
+			if item, ok := buildMCPItem(cfg, serverName, rawServer); ok {
+				items = append(items, item)
 			}
 		}
 	case []any:
@@ -800,22 +993,22 @@ func extractMCPServers(doc map[string]any, cfg jsonSurfaceConfig) []spmapi.SyncA
 			if !ok {
 				serverName = fmt.Sprintf("server-%d", index)
 			}
-			if asset, ok := buildMCPAsset(cfg, serverName, rawServer); ok {
-				assets = append(assets, asset)
+			if item, ok := buildMCPItem(cfg, serverName, rawServer); ok {
+				items = append(items, item)
 			}
 		}
 	}
 
-	sort.Slice(assets, func(i, j int) bool {
-		return assets[i].IdentityKey < assets[j].IdentityKey
+	sort.Slice(items, func(i, j int) bool {
+		return items[i].IdentityKey < items[j].IdentityKey
 	})
-	return assets
+	return items
 }
 
-func buildMCPAsset(cfg jsonSurfaceConfig, serverName string, raw any) (spmapi.SyncAsset, bool) {
+func buildMCPItem(cfg jsonSurfaceConfig, serverName string, raw any) (spmapi.SyncInventoryItem, bool) {
 	server, ok := raw.(map[string]any)
 	if !ok {
-		return spmapi.SyncAsset{}, false
+		return spmapi.SyncInventoryItem{}, false
 	}
 
 	identity := claude.ResolveMCPIdentity(server)
@@ -850,31 +1043,32 @@ func buildMCPAsset(cfg jsonSurfaceConfig, serverName string, raw any) (spmapi.Sy
 		evidence[key] = value
 	}
 
-	return spmapi.SyncAsset{
-		Harness:          claudeHarness,
-		AssetType:        assetTypeMCPServer,
-		ArtifactType:     cfg.ArtifactType,
-		ArtifactLocation: cfg.Path,
-		IdentityKey:      identityKey,
-		DisplayName:      serverName,
-		ContentHash:      contentHash,
-		Metadata:         metadata,
-		Evidence:         evidence,
+	return spmapi.SyncInventoryItem{
+		Harness:        claudeHarness,
+		ItemType:       itemTypeMCPServer,
+		SourceType:     cfg.SourceType,
+		ItemLocation:   serverName + "|" + identity.Resolved,
+		SourceLocation: cfg.Path,
+		IdentityKey:    identityKey,
+		DisplayName:    serverName,
+		ContentHash:    contentHash,
+		Metadata:       metadata,
+		Evidence:       evidence,
 		ObservedState: map[string]any{
 			"disabled": disabled,
 		},
 	}, true
 }
 
-func extractHooks(doc map[string]any, cfg jsonSurfaceConfig) []spmapi.SyncAsset {
+func extractHooks(doc map[string]any, cfg jsonSurfaceConfig) []spmapi.SyncInventoryItem {
 	raw, ok := doc["hooks"]
 	if !ok {
-		if cfg.ArtifactType != artifactTypeHooksJSON {
+		if cfg.SourceType != sourceTypeHooksJSON {
 			return nil
 		}
 		raw = doc
 	}
-	assets := []spmapi.SyncAsset{}
+	items := []spmapi.SyncInventoryItem{}
 	hooks, ok := raw.(map[string]any)
 	if !ok {
 		return nil
@@ -883,14 +1077,14 @@ func extractHooks(doc map[string]any, cfg jsonSurfaceConfig) []spmapi.SyncAsset 
 		for index, hook := range normalizeHookEntries(eventValue) {
 			fingerprint := fmt.Sprintf("%s|%s|%s|%d", eventName, hook.Matcher, hook.Command, index)
 			contentHash, normalized := hashValue(hook.Raw)
-			assets = append(assets, spmapi.SyncAsset{
-				Harness:          claudeHarness,
-				AssetType:        assetTypeHook,
-				ArtifactType:     cfg.ArtifactType,
-				ArtifactLocation: cfg.Path,
-				IdentityKey:      cfg.Path + "#hook:" + fingerprint,
-				DisplayName:      hookDisplayName(eventName, hook.Matcher, hook.Command),
-				ContentHash:      contentHash,
+			items = append(items, spmapi.SyncInventoryItem{
+				Harness:        claudeHarness,
+				ItemType:       itemTypeHook,
+				SourceType:     cfg.SourceType,
+				SourceLocation: cfg.Path,
+				IdentityKey:    cfg.Path + "#hook:" + fingerprint,
+				DisplayName:    hookDisplayName(eventName, hook.Matcher, hook.Command),
+				ContentHash:    contentHash,
 				Metadata: map[string]any{
 					"file_path":      cfg.Path,
 					"project_root":   cfg.ProjectRoot,
@@ -912,10 +1106,10 @@ func extractHooks(doc map[string]any, cfg jsonSurfaceConfig) []spmapi.SyncAsset 
 			})
 		}
 	}
-	sort.Slice(assets, func(i, j int) bool {
-		return assets[i].IdentityKey < assets[j].IdentityKey
+	sort.Slice(items, func(i, j int) bool {
+		return items[i].IdentityKey < items[j].IdentityKey
 	})
-	return assets
+	return items
 }
 
 type hookEntry struct {
@@ -961,22 +1155,22 @@ func hookDisplayName(eventName string, matcher string, command string) string {
 	return strings.TrimSpace(name)
 }
 
-func extractSkills(doc map[string]any, cfg jsonSurfaceConfig) []spmapi.SyncAsset {
+func extractSkills(doc map[string]any, cfg jsonSurfaceConfig) []spmapi.SyncInventoryItem {
 	raw, ok := doc["skills"]
 	if !ok {
 		return nil
 	}
-	assets := []spmapi.SyncAsset{}
+	items := []spmapi.SyncInventoryItem{}
 	for _, skill := range normalizeNamedEntries(raw) {
 		contentHash, normalized := hashValue(skill.Raw)
-		assets = append(assets, spmapi.SyncAsset{
-			Harness:          claudeHarness,
-			AssetType:        assetTypeSkill,
-			ArtifactType:     cfg.ArtifactType,
-			ArtifactLocation: cfg.Path,
-			IdentityKey:      cfg.Path + "#skill:" + skill.Fingerprint,
-			DisplayName:      skill.Name,
-			ContentHash:      contentHash,
+		items = append(items, spmapi.SyncInventoryItem{
+			Harness:        claudeHarness,
+			ItemType:       itemTypeSkill,
+			SourceType:     cfg.SourceType,
+			SourceLocation: cfg.Path,
+			IdentityKey:    cfg.Path + "#skill:" + skill.Fingerprint,
+			DisplayName:    skill.Name,
+			ContentHash:    contentHash,
 			Metadata: map[string]any{
 				"file_path":      cfg.Path,
 				"project_root":   cfg.ProjectRoot,
@@ -995,28 +1189,28 @@ func extractSkills(doc map[string]any, cfg jsonSurfaceConfig) []spmapi.SyncAsset
 			},
 		})
 	}
-	sort.Slice(assets, func(i, j int) bool {
-		return assets[i].IdentityKey < assets[j].IdentityKey
+	sort.Slice(items, func(i, j int) bool {
+		return items[i].IdentityKey < items[j].IdentityKey
 	})
-	return assets
+	return items
 }
 
-func extractSubagents(doc map[string]any, cfg jsonSurfaceConfig) []spmapi.SyncAsset {
+func extractSubagents(doc map[string]any, cfg jsonSurfaceConfig) []spmapi.SyncInventoryItem {
 	raw, ok := doc["subagents"]
 	if !ok {
 		return nil
 	}
-	assets := []spmapi.SyncAsset{}
+	items := []spmapi.SyncInventoryItem{}
 	for _, item := range normalizeNamedEntries(raw) {
 		contentHash, normalized := hashValue(item.Raw)
-		assets = append(assets, spmapi.SyncAsset{
-			Harness:          claudeHarness,
-			AssetType:        assetTypeAgent,
-			ArtifactType:     cfg.ArtifactType,
-			ArtifactLocation: cfg.Path,
-			IdentityKey:      cfg.Path + "#agent:" + item.Fingerprint,
-			DisplayName:      item.Name,
-			ContentHash:      contentHash,
+		items = append(items, spmapi.SyncInventoryItem{
+			Harness:        claudeHarness,
+			ItemType:       itemTypeAgent,
+			SourceType:     cfg.SourceType,
+			SourceLocation: cfg.Path,
+			IdentityKey:    cfg.Path + "#agent:" + item.Fingerprint,
+			DisplayName:    item.Name,
+			ContentHash:    contentHash,
 			Metadata: map[string]any{
 				"file_path":      cfg.Path,
 				"project_root":   cfg.ProjectRoot,
@@ -1035,10 +1229,10 @@ func extractSubagents(doc map[string]any, cfg jsonSurfaceConfig) []spmapi.SyncAs
 			},
 		})
 	}
-	sort.Slice(assets, func(i, j int) bool {
-		return assets[i].IdentityKey < assets[j].IdentityKey
+	sort.Slice(items, func(i, j int) bool {
+		return items[i].IdentityKey < items[j].IdentityKey
 	})
-	return assets
+	return items
 }
 
 type namedEntry struct {

@@ -26,8 +26,8 @@ class SpmEndpointStatus(StrEnum):
     DISABLED = "disabled"
 
 
-class SpmAssetType(StrEnum):
-    """Harness surface bucket. The broad kind of governed thing."""
+class SpmInventoryItemType(StrEnum):
+    """Harness surface bucket. The broad kind of governed inventory item."""
 
     HOOK = "hook"
     PLUGIN = "plugin"
@@ -41,21 +41,29 @@ class SpmAssetType(StrEnum):
     AGENT = "agent"
 
 
-class SpmArtifactType(StrEnum):
-    """The file kind that hosts an asset."""
+class SpmInventorySourceType(StrEnum):
+    """The source kind that produced an inventory item."""
 
-    SETTINGS_JSON = "settings.json"
-    SETTINGS_LOCAL_JSON = "settings.local.json"
-    CLAUDE_JSON = ".claude.json"
-    HOOKS_JSON = "hooks.json"
-    MCP_JSON = ".mcp.json"
-    CLAUDE_MD = "CLAUDE.md"
-    CLAUDE_LOCAL_MD = "CLAUDE.local.md"
-    AGENTS_MD = "AGENTS.md"
-    SKILL_FRONTMATTER = "skill-frontmatter"
-    AGENT_FRONTMATTER = "agent-frontmatter"
-    PLUGIN_MANIFEST = "plugin.json"
+    SETTINGS_JSON = "settings_json"
+    SETTINGS_LOCAL_JSON = "settings_local_json"
+    CLAUDE_JSON = "claude_json"
+    HOOKS_JSON = "hooks_json"
+    MCP_JSON = "mcp_json"
+    CLAUDE_MD = "claude_md"
+    CLAUDE_LOCAL_MD = "claude_local_md"
+    AGENTS_MD = "agents_md"
+    SKILL_FRONTMATTER = "skill_frontmatter"
+    AGENT_FRONTMATTER = "agent_frontmatter"
+    PLUGIN_MANIFEST = "plugin_manifest"
     DIRECTORY = "directory"
+
+
+class SpmInventoryRelationshipType(StrEnum):
+    """Endpoint-observed relationship between inventory items."""
+
+    CONTAINS = "contains"
+    DEFINES = "defines"
+    IMPORTS = "imports"
 
 
 class SpmSeverity(StrEnum):

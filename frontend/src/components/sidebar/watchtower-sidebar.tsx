@@ -48,10 +48,10 @@ export function WatchtowerSidebar({
       isActive: pathname?.startsWith("/watchtower/controls"),
     },
     {
-      title: "Assets",
-      url: "/watchtower/assets",
+      title: "Inventory",
+      url: "/watchtower/inventory",
       icon: PackageIcon,
-      isActive: pathname?.startsWith("/watchtower/assets"),
+      isActive: pathname?.startsWith("/watchtower/inventory"),
     },
     {
       title: "Findings",

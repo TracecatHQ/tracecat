@@ -1,0 +1,143 @@
+version: 1
+harnesses:
+  claude_code:
+    item_types:
+      hook:
+        display_value: hook
+        icon_key: webhook
+        description: claude_hook
+      plugin:
+        display_value: plugin
+        icon_key: puzzle
+        description: claude_plugin
+      mcp_server:
+        display_value: mcp_server
+        icon_key: server
+        description: mcp_server
+      instruction_file:
+        display_value: instruction_file
+        icon_key: file_text
+        description: instruction_file
+      permission_config:
+        display_value: permission_config
+        icon_key: key_round
+        description: permission_config
+      sandbox_config:
+        display_value: sandbox_config
+        icon_key: shield
+        description: sandbox_config
+      trusted_directory:
+        display_value: trusted_directory
+        icon_key: folder_check
+        description: trusted_directory
+      additional_directory:
+        display_value: additional_directory
+        icon_key: folder_plus
+        description: additional_directory
+      skill:
+        display_value: skill
+        icon_key: sparkles
+        description: claude_skill
+      agent:
+        display_value: agent
+        icon_key: bot
+        description: claude_agent
+    source_types:
+      settings_json:
+        display_value: settings_json
+        icon_key: file_cog
+        description: claude_settings_json
+        kind: file
+      settings_local_json:
+        display_value: settings_local_json
+        icon_key: file_cog
+        description: claude_settings_local_json
+        kind: file
+      claude_json:
+        display_value: claude_json
+        icon_key: file_json
+        description: claude_user_state_json
+        kind: file
+      hooks_json:
+        display_value: hooks_json
+        icon_key: webhook
+        description: plugin_hooks_json
+        kind: file
+      mcp_json:
+        display_value: mcp_json
+        icon_key: server
+        description: mcp_json
+        kind: file
+      claude_md:
+        display_value: claude_md
+        icon_key: file_text
+        description: claude_md
+        kind: file
+      claude_local_md:
+        display_value: claude_local_md
+        icon_key: file_text
+        description: claude_local_md
+        kind: file
+      agents_md:
+        display_value: agents_md
+        icon_key: file_text
+        description: agents_md
+        kind: file
+      skill_frontmatter:
+        display_value: skill_frontmatter
+        icon_key: sparkles
+        description: skill_frontmatter
+        kind: frontmatter
+      agent_frontmatter:
+        display_value: agent_frontmatter
+        icon_key: bot
+        description: agent_frontmatter
+        kind: frontmatter
+      plugin_manifest:
+        display_value: plugin_manifest
+        icon_key: puzzle
+        description: plugin_manifest
+        kind: file
+      directory:
+        display_value: directory
+        icon_key: folder
+        description: directory_record
+        kind: record
+    bindings:
+      - item_type: hook
+        source_types: [settings_json, settings_local_json, claude_json, hooks_json]
+        enforcement: enforceable
+      - item_type: plugin
+        source_types: [plugin_manifest]
+        enforcement: inventory_only
+      - item_type: mcp_server
+        source_types: [settings_json, settings_local_json, claude_json, mcp_json]
+        enforcement: enforceable
+      - item_type: instruction_file
+        source_types: [claude_md, claude_local_md]
+        enforcement: enforceable
+      - item_type: instruction_file
+        source_types: [agents_md]
+        enforcement: inventory_only
+      - item_type: permission_config
+        source_types: [settings_json, settings_local_json, claude_json]
+        enforcement: enforceable
+      - item_type: sandbox_config
+        source_types: [settings_json, settings_local_json, claude_json]
+        enforcement: collector_observed
+      - item_type: trusted_directory
+        source_types: [directory]
+        enforcement: enforceable
+      - item_type: additional_directory
+        source_types: [directory]
+        enforcement: enforceable
+      - item_type: skill
+        source_types: [settings_json, settings_local_json, claude_json, skill_frontmatter]
+        enforcement: enforceable
+      - item_type: agent
+        source_types: [settings_json, settings_local_json, claude_json, agent_frontmatter]
+        enforcement: inventory_only
+    relationship_types:
+      - contains
+      - defines
+      - imports

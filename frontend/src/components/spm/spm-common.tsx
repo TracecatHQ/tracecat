@@ -4,10 +4,10 @@ import { formatDistanceToNow } from "date-fns"
 import { ShieldXIcon } from "lucide-react"
 import type { ReactNode } from "react"
 import type {
-  SpmAssetRead,
   SpmControlRead,
   SpmEndpointRead,
   SpmFindingRead,
+  SpmInventoryItemRead,
 } from "@/client"
 import { EntitlementRequiredEmptyState } from "@/components/entitlement-required-empty-state"
 import { CenteredSpinner } from "@/components/loading/spinner"
@@ -31,19 +31,18 @@ export function includesQuery(
 
 export function formatLabel(value: string | null | undefined) {
   if (!value) {
-    return "Unknown"
+    return "unknown"
   }
-  const label = value.replaceAll("_", " ")
-  return label.charAt(0).toUpperCase() + label.slice(1)
+  return value
 }
 
 export function formatRelativeTimestamp(value: string | null | undefined) {
   if (!value) {
-    return "Never"
+    return "never"
   }
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) {
-    return "Unknown"
+    return "unknown"
   }
   return formatDistanceToNow(date, { addSuffix: true })
 }
@@ -96,52 +95,53 @@ export function getEndpointName(
   )
 }
 
-export function getAssetRecord(
-  assetId: string,
-  assets: SpmAssetRead[]
-): SpmAssetRead | undefined {
-  return assets.find((asset) => asset.id === assetId)
+export function getInventoryItemRecord(
+  inventoryItemId: string,
+  inventoryItems: SpmInventoryItemRead[]
+): SpmInventoryItemRead | undefined {
+  return inventoryItems.find((item) => item.id === inventoryItemId)
 }
 
-export function getAssetPath(asset: {
-  artifact_location: string
+export function getInventoryItemPath(item: {
+  item_location?: string
+  source_location: string
   identity_key: string
   metadata?: Record<string, unknown> | null
 }) {
-  if (asset.artifact_location) {
-    return asset.artifact_location
+  if (item.source_location) {
+    return item.source_location
   }
-  if (typeof asset.metadata?.file_path === "string") {
-    return asset.metadata.file_path
+  if (typeof item.metadata?.file_path === "string") {
+    return item.metadata.file_path
   }
-  return asset.identity_key
+  return item.identity_key
 }
 
 export function getFindingEnforcementState(finding: SpmFindingRead) {
   if (finding.status === "enforcement_pending") {
     return {
-      label: "Queued",
+      label: "queued",
       value: formatLabel(finding.recommended_action),
       variant: "secondary" as BadgeVariant,
     }
   }
   if (finding.status === "enforced") {
     return {
-      label: "Applied",
+      label: "applied",
       value: formatLabel(finding.recommended_action),
       variant: "default" as BadgeVariant,
     }
   }
-  if (finding.artifact_type === "AGENTS.md") {
+  if (finding.source_type === "agents_md") {
     return {
-      label: "Inventory only",
+      label: "inventory_only",
       value: "No Claude enforcement path",
       variant: "outline" as BadgeVariant,
     }
   }
   if (finding.recommended_action) {
     return {
-      label: "Ready",
+      label: "ready",
       value: formatLabel(finding.recommended_action),
       variant: "outline" as BadgeVariant,
     }
@@ -149,13 +149,13 @@ export function getFindingEnforcementState(finding: SpmFindingRead) {
   if (finding.status === "dismissed" || finding.status === "resolved") {
     return {
       label: formatLabel(finding.status),
-      value: "No action queued",
+      value: "no_action_queued",
       variant: "outline" as BadgeVariant,
     }
   }
   return {
-    label: "No action",
-    value: "No enforcement payload available",
+    label: "no_action",
+    value: "no_enforcement_payload_available",
     variant: "outline" as BadgeVariant,
   }
 }
@@ -191,7 +191,7 @@ export function getComplianceRollup(
     return {
       detail: `${open} open, ${pending} queued, ${enforced + resolved + dismissed} closed`,
       key: "needs_attention",
-      label: "Needs attention",
+      label: "needs_attention",
       variant: "destructive" as BadgeVariant,
     }
   }
@@ -199,7 +199,7 @@ export function getComplianceRollup(
     return {
       detail: `${pending} queued, ${enforced + resolved + dismissed} closed`,
       key: "enforcement_queued",
-      label: "Enforcement queued",
+      label: "enforcement_queued",
       variant: "secondary" as BadgeVariant,
     }
   }
@@ -207,14 +207,14 @@ export function getComplianceRollup(
     return {
       detail: `${enforced} enforced, ${resolved} resolved, ${dismissed} dismissed`,
       key: "compliant",
-      label: "Compliant",
+      label: "compliant",
       variant: "default" as BadgeVariant,
     }
   }
   return {
     detail: "No findings reported yet",
     key: "unknown",
-    label: "Unknown",
+    label: "unknown",
     variant: "outline" as BadgeVariant,
   }
 }

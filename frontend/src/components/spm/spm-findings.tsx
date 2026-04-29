@@ -2,10 +2,10 @@
 
 import { ShieldAlertIcon } from "lucide-react"
 import type {
-  SpmAssetRead,
   SpmControlRead,
   SpmEndpointRead,
   SpmFindingRead,
+  SpmInventoryItemRead,
 } from "@/client"
 import { Button } from "@/components/ui/button"
 import {
@@ -13,13 +13,13 @@ import {
   findingStatusVariant,
   formatLabel,
   formatRelativeTimestamp,
-  getAssetPath,
-  getAssetRecord,
   getEndpointName,
   getFindingEnforcementState,
+  getInventoryItemPath,
+  getInventoryItemRecord,
   severityVariant,
 } from "./spm-common"
-import { artifactTypeIcon, artifactTypeLabel } from "./spm-icons"
+import { sourceTypeIcon, sourceTypeLabel } from "./spm-icons"
 import { FeedRow, SmallBadge } from "./spm-layout"
 
 export function FindingActionButtons(props: {
@@ -58,7 +58,7 @@ export function FindingActionButtons(props: {
 }
 
 export function FindingRow(props: {
-  assets: SpmAssetRead[]
+  inventoryItems: SpmInventoryItemRead[]
   busyDecision: { decision: FindingDecision; findingId: string } | null
   controls?: SpmControlRead[]
   endpoints: SpmEndpointRead[]
@@ -67,17 +67,20 @@ export function FindingRow(props: {
   showEndpoint?: boolean
 }) {
   const showEndpoint = props.showEndpoint ?? true
-  const asset = getAssetRecord(props.finding.asset_id, props.assets)
+  const item = getInventoryItemRecord(
+    props.finding.inventory_item_id,
+    props.inventoryItems
+  )
   const enforcementState = getFindingEnforcementState(props.finding)
   const controlTitle =
     props.controls?.find((control) => control.id === props.finding.control_id)
       ?.title ?? props.finding.control_key
-  const ArtifactIcon = artifactTypeIcon(props.finding.artifact_type)
+  const SourceIcon = sourceTypeIcon(props.finding.source_type)
   const subtitleParts = [
     showEndpoint
       ? getEndpointName(props.finding.endpoint_id, props.endpoints)
       : null,
-    asset?.display_name ?? props.finding.asset_id,
+    item?.display_name ?? props.finding.inventory_item_id,
     controlTitle,
   ].filter((part): part is string => Boolean(part))
 
@@ -101,8 +104,8 @@ export function FindingRow(props: {
       }
       meta={
         <>
-          <SmallBadge icon={ArtifactIcon}>
-            {artifactTypeLabel(props.finding.artifact_type)}
+          <SmallBadge icon={SourceIcon}>
+            {sourceTypeLabel(props.finding.source_type)}
           </SmallBadge>
           <span>{formatRelativeTimestamp(props.finding.updated_at)}</span>
         </>
@@ -121,7 +124,7 @@ export function FindingRow(props: {
 }
 
 export function findingMatchesQuery(props: {
-  assets: SpmAssetRead[]
+  inventoryItems: SpmInventoryItemRead[]
   endpoints: SpmEndpointRead[]
   finding: SpmFindingRead
   query: string
@@ -130,7 +133,10 @@ export function findingMatchesQuery(props: {
     query: string
   ) => boolean
 }) {
-  const asset = getAssetRecord(props.finding.asset_id, props.assets)
+  const item = getInventoryItemRecord(
+    props.finding.inventory_item_id,
+    props.inventoryItems
+  )
   const endpointName = getEndpointName(
     props.finding.endpoint_id,
     props.endpoints
@@ -142,11 +148,11 @@ export function findingMatchesQuery(props: {
       props.finding.control_key,
       props.finding.status,
       props.finding.severity,
-      props.finding.asset_type,
-      props.finding.artifact_type,
-      props.finding.artifact_location,
-      asset?.display_name,
-      asset ? getAssetPath(asset) : props.finding.asset_id,
+      props.finding.item_type,
+      props.finding.source_type,
+      props.finding.source_location,
+      item?.display_name,
+      item ? getInventoryItemPath(item) : props.finding.inventory_item_id,
       endpointName,
     ],
     props.query

@@ -31,23 +31,23 @@ _RISK_RULES: list[tuple[str, re.Pattern[str]]] = [
 
 
 def check(ctx: SpmControlContext) -> SpmControlResult:
-    asset = cast(SpmSkillControlData, ctx.asset)
-    serialized_skill = json.dumps(asset.skill, sort_keys=True, default=str)
-    text = "\n".join(filter(None, [asset.name or "", serialized_skill]))
+    item = cast(SpmSkillControlData, ctx.item)
+    serialized_skill = json.dumps(item.skill, sort_keys=True, default=str)
+    text = "\n".join(filter(None, [item.name or "", serialized_skill]))
     matches = [rule_id for rule_id, pattern in _RISK_RULES if pattern.search(text)]
 
     return SpmControlResult(
-        failed=asset.parse_status == "ok" and bool(matches),
-        summary=f"{asset.display_name} matches risky skill heuristics",
+        failed=item.parse_status == "ok" and bool(matches),
+        summary=f"{item.display_name} matches risky skill heuristics",
         evidence={
-            "fingerprint": asset.fingerprint,
-            "name": asset.name,
+            "fingerprint": item.fingerprint,
+            "name": item.name,
             "matched_rules": matches,
-            "parse_status": asset.parse_status,
+            "parse_status": item.parse_status,
         },
         recommended_payload={
-            "fingerprint": asset.fingerprint,
-            "name": asset.name,
-            "target_path": asset.file_path,
+            "fingerprint": item.fingerprint,
+            "name": item.name,
+            "target_path": item.file_path,
         },
     )

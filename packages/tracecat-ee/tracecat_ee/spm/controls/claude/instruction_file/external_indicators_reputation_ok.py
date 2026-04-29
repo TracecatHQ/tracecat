@@ -8,32 +8,32 @@ from tracecat_ee.spm.schemas import (
 
 
 def check(ctx: SpmControlContext) -> SpmControlResult:
-    asset = cast(SpmInstructionFileControlData, ctx.asset)
-    reputation_status = _status(asset, ctx.intelligence)
+    item = cast(SpmInstructionFileControlData, ctx.item)
+    reputation_status = _status(item, ctx.intelligence)
 
     return SpmControlResult(
         failed=reputation_status == "bad",
-        summary=f"{asset.display_name} contains indicators with failing reputation",
+        summary=f"{item.display_name} contains indicators with failing reputation",
         evidence={
-            "urls": asset.urls,
-            "domains": asset.domains,
-            "ips": asset.ips,
+            "urls": item.urls,
+            "domains": item.domains,
+            "ips": item.ips,
             "indicator_reputation_status": reputation_status,
             "bad_indicators": ctx.intelligence.get("bad_indicators", []),
         },
         recommended_payload={
-            "file_path": asset.file_path,
-            "project_root": asset.project_root,
+            "file_path": item.file_path,
+            "project_root": item.project_root,
         },
         enrichment=ctx.intelligence,
     )
 
 
 def _status(
-    asset: SpmInstructionFileControlData,
+    item: SpmInstructionFileControlData,
     intelligence: dict[str, Any],
 ) -> str | None:
-    for source in (asset.metadata, asset.evidence, intelligence):
+    for source in (item.metadata, item.evidence, intelligence):
         value = source.get("reputation_status")
         if isinstance(value, str):
             return value

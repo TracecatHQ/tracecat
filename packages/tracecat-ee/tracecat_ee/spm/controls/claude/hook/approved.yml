@@ -5,6 +5,6 @@ revision: "1"
 title: Claude hook must be approved
 description: Hooks configured for Claude must be approved before they remain enabled.
 harness: claude_code
-asset_type: hook
+item_type: hook
 severity: high
 action: disable_hook

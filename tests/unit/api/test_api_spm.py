@@ -10,24 +10,24 @@ from fastapi import status
 from fastapi.testclient import TestClient
 from tracecat_ee.spm.exceptions import SpmConflictError, SpmNotFoundError
 from tracecat_ee.spm.schemas import (
-    SpmAssetRead,
     SpmControlRead,
-    SpmEndpointAssetRead,
     SpmEndpointCreateResponse,
+    SpmEndpointInventoryItemRead,
     SpmEndpointRead,
     SpmEndpointSyncResponse,
     SpmEnforcementTaskRead,
     SpmFindingRead,
+    SpmInventoryItemRead,
 )
 from tracecat_ee.spm.types import (
-    SpmArtifactType,
-    SpmAssetType,
     SpmEndpointPlatform,
     SpmEndpointStatus,
     SpmEnforcementAction,
     SpmEnforcementTaskStatus,
     SpmFindingStatus,
     SpmHarness,
+    SpmInventoryItemType,
+    SpmInventorySourceType,
     SpmSeverity,
 )
 
@@ -61,15 +61,16 @@ def _endpoint_read() -> SpmEndpointRead:
     )
 
 
-def _asset_read() -> SpmAssetRead:
+def _inventory_item_read() -> SpmInventoryItemRead:
     now = datetime(2026, 4, 22, tzinfo=UTC)
-    return SpmAssetRead(
+    return SpmInventoryItemRead(
         id=uuid.UUID("dddddddd-dddd-4ddd-dddd-dddddddddddd"),
         organization_id=uuid.UUID("11111111-1111-1111-1111-111111111111"),
         harness=SpmHarness.CLAUDE_CODE,
-        asset_type=SpmAssetType.MCP_SERVER,
-        artifact_type=SpmArtifactType.CLAUDE_JSON,
-        artifact_location="/Users/chris/.claude.json",
+        item_type=SpmInventoryItemType.MCP_SERVER,
+        source_type=SpmInventorySourceType.CLAUDE_JSON,
+        item_location="github|https://api.github.com/mcp",
+        source_location="/Users/chris/.claude.json",
         identity_key="file:/Users/chris/.claude.json#mcp:github|https://api.github.com/mcp",
         display_name="github",
         content_hash="abc123",
@@ -81,18 +82,19 @@ def _asset_read() -> SpmAssetRead:
     )
 
 
-def _endpoint_asset_read() -> SpmEndpointAssetRead:
+def _endpoint_inventory_item_read() -> SpmEndpointInventoryItemRead:
     now = datetime(2026, 4, 22, tzinfo=UTC)
-    return SpmEndpointAssetRead(
-        asset_id=uuid.UUID("dddddddd-dddd-4ddd-dddd-dddddddddddd"),
-        asset_sighting_id=uuid.UUID("eeeeeeee-eeee-4eee-eeee-eeeeeeeeeeee"),
+    return SpmEndpointInventoryItemRead(
+        inventory_item_id=uuid.UUID("dddddddd-dddd-4ddd-dddd-dddddddddddd"),
+        inventory_observation_id=uuid.UUID("eeeeeeee-eeee-4eee-eeee-eeeeeeeeeeee"),
         organization_id=uuid.UUID("11111111-1111-1111-1111-111111111111"),
         endpoint_id=uuid.UUID("aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa"),
         workspace_id=None,
         harness=SpmHarness.CLAUDE_CODE,
-        asset_type=SpmAssetType.MCP_SERVER,
-        artifact_type=SpmArtifactType.CLAUDE_JSON,
-        artifact_location="/Users/chris/.claude.json",
+        item_type=SpmInventoryItemType.MCP_SERVER,
+        source_type=SpmInventorySourceType.CLAUDE_JSON,
+        item_location="github|https://api.github.com/mcp",
+        source_location="/Users/chris/.claude.json",
         identity_key="file:/Users/chris/.claude.json#mcp:github|https://api.github.com/mcp",
         display_name="github",
         content_hash="abc123",
@@ -113,7 +115,7 @@ def _control_read() -> SpmControlRead:
         title="Claude MCP server must be approved",
         description="MCP servers configured for Claude must match an approved server-name plus resolved-identity tuple.",
         harness=SpmHarness.CLAUDE_CODE,
-        asset_type=SpmAssetType.MCP_SERVER,
+        item_type=SpmInventoryItemType.MCP_SERVER,
         severity=SpmSeverity.HIGH,
         action=SpmEnforcementAction.DISABLE_MCP_SERVER,
     )
@@ -125,15 +127,16 @@ def _finding_read() -> SpmFindingRead:
         id=uuid.UUID("cccccccc-cccc-4ccc-cccc-cccccccccccc"),
         organization_id=uuid.UUID("11111111-1111-1111-1111-111111111111"),
         endpoint_id=uuid.UUID("aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa"),
-        asset_id=uuid.UUID("dddddddd-dddd-4ddd-dddd-dddddddddddd"),
-        asset_sighting_id=uuid.UUID("eeeeeeee-eeee-4eee-eeee-eeeeeeeeeeee"),
+        inventory_item_id=uuid.UUID("dddddddd-dddd-4ddd-dddd-dddddddddddd"),
+        inventory_observation_id=uuid.UUID("eeeeeeee-eeee-4eee-eeee-eeeeeeeeeeee"),
         control_id=uuid.UUID("7dca8397-056a-4cc7-a4a6-3fef782b21a2"),
         control_key="claude.mcp_server.approved",
         control_revision="1",
         harness=SpmHarness.CLAUDE_CODE,
-        asset_type=SpmAssetType.MCP_SERVER,
-        artifact_type=SpmArtifactType.CLAUDE_JSON,
-        artifact_location="/Users/chris/.claude.json",
+        item_type=SpmInventoryItemType.MCP_SERVER,
+        source_type=SpmInventorySourceType.CLAUDE_JSON,
+        item_location="github|https://api.github.com/mcp",
+        source_location="/Users/chris/.claude.json",
         severity=SpmSeverity.HIGH,
         status=SpmFindingStatus.OPEN,
         summary="Github MCP server is not approved",
@@ -293,7 +296,7 @@ async def test_list_spm_endpoints_success(
 
 
 @pytest.mark.anyio
-async def test_list_spm_endpoint_assets_success(
+async def test_list_spm_endpoint_inventory_success(
     client: TestClient,
     test_admin_role: Role,
 ) -> None:
@@ -306,17 +309,17 @@ async def test_list_spm_endpoint_assets_success(
         patch.object(spm_router_module, "SpmService") as mock_service_cls,
     ):
         mock_service = AsyncMock()
-        mock_service.list_endpoint_assets.return_value = CursorPaginatedResponse[
-            SpmEndpointAssetRead
+        mock_service.list_endpoint_inventory.return_value = CursorPaginatedResponse[
+            SpmEndpointInventoryItemRead
         ](
-            items=[_endpoint_asset_read()],
+            items=[_endpoint_inventory_item_read()],
             next_cursor=None,
             has_more=False,
         )
         mock_service_cls.return_value = mock_service
 
         response = client.get(
-            "/spm/endpoints/aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa/assets"
+            "/spm/endpoints/aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa/inventory"
         )
 
     assert response.status_code == status.HTTP_200_OK
@@ -409,7 +412,7 @@ async def test_delete_spm_endpoint_rejects_non_pending_endpoint(
 
 
 @pytest.mark.anyio
-async def test_list_spm_assets_passes_filters(
+async def test_list_spm_inventory_passes_filters(
     client: TestClient,
     test_admin_role: Role,
 ) -> None:
@@ -422,29 +425,31 @@ async def test_list_spm_assets_passes_filters(
         patch.object(spm_router_module, "SpmService") as mock_service_cls,
     ):
         mock_service = AsyncMock()
-        mock_service.list_assets.return_value = CursorPaginatedResponse[SpmAssetRead](
-            items=[_asset_read()],
+        mock_service.list_inventory.return_value = CursorPaginatedResponse[
+            SpmInventoryItemRead
+        ](
+            items=[_inventory_item_read()],
             next_cursor=None,
             has_more=False,
         )
         mock_service_cls.return_value = mock_service
 
         response = client.get(
-            "/spm/assets",
+            "/spm/inventory",
             params={
                 "endpoint_id": "aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa",
                 "harness": "claude_code",
-                "asset_type": "mcp_server",
-                "artifact_type": ".claude.json",
+                "item_type": "mcp_server",
+                "source_type": "claude_json",
             },
         )
 
     assert response.status_code == status.HTTP_200_OK
-    params = mock_service.list_assets.await_args.args[0]
+    params = mock_service.list_inventory.await_args.args[0]
     assert str(params.endpoint_id) == "aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa"
     assert params.harness == SpmHarness.CLAUDE_CODE
-    assert params.asset_type == SpmAssetType.MCP_SERVER
-    assert params.artifact_type == SpmArtifactType.CLAUDE_JSON
+    assert params.item_type == SpmInventoryItemType.MCP_SERVER
+    assert params.source_type == SpmInventorySourceType.CLAUDE_JSON
 
 
 @pytest.mark.anyio
@@ -513,7 +518,7 @@ async def test_sync_spm_endpoint_passes_bearer_token(
         response = client.post(
             "/spm/endpoints/aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa/sync",
             headers={"Authorization": "Bearer tcspm_enroll_example"},
-            json={"assets": [], "task_results": []},
+            json={"items": [], "task_results": []},
         )
 
     assert response.status_code == status.HTTP_200_OK

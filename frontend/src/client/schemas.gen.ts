@@ -9140,11 +9140,11 @@ export const $CursorPaginatedResponse_SkillVersionReadMinimal_ = {
   title: "CursorPaginatedResponse[SkillVersionReadMinimal]",
 } as const
 
-export const $CursorPaginatedResponse_SpmAssetRead_ = {
+export const $CursorPaginatedResponse_SpmEndpointInventoryItemRead_ = {
   properties: {
     items: {
       items: {
-        $ref: "#/components/schemas/SpmAssetRead",
+        $ref: "#/components/schemas/SpmEndpointInventoryItemRead",
       },
       type: "array",
       title: "Items",
@@ -9200,70 +9200,7 @@ export const $CursorPaginatedResponse_SpmAssetRead_ = {
   },
   type: "object",
   required: ["items"],
-  title: "CursorPaginatedResponse[SpmAssetRead]",
-} as const
-
-export const $CursorPaginatedResponse_SpmEndpointAssetRead_ = {
-  properties: {
-    items: {
-      items: {
-        $ref: "#/components/schemas/SpmEndpointAssetRead",
-      },
-      type: "array",
-      title: "Items",
-    },
-    next_cursor: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Next Cursor",
-      description: "Cursor for next page",
-    },
-    prev_cursor: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Prev Cursor",
-      description: "Cursor for previous page",
-    },
-    has_more: {
-      type: "boolean",
-      title: "Has More",
-      description: "Whether more items exist",
-      default: false,
-    },
-    has_previous: {
-      type: "boolean",
-      title: "Has Previous",
-      description: "Whether previous items exist",
-      default: false,
-    },
-    total_estimate: {
-      anyOf: [
-        {
-          type: "integer",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Total Estimate",
-      description: "Estimated total count from table statistics",
-    },
-  },
-  type: "object",
-  required: ["items"],
-  title: "CursorPaginatedResponse[SpmEndpointAssetRead]",
+  title: "CursorPaginatedResponse[SpmEndpointInventoryItemRead]",
 } as const
 
 export const $CursorPaginatedResponse_SpmEndpointRead_ = {
@@ -9390,6 +9327,69 @@ export const $CursorPaginatedResponse_SpmFindingRead_ = {
   type: "object",
   required: ["items"],
   title: "CursorPaginatedResponse[SpmFindingRead]",
+} as const
+
+export const $CursorPaginatedResponse_SpmInventoryItemRead_ = {
+  properties: {
+    items: {
+      items: {
+        $ref: "#/components/schemas/SpmInventoryItemRead",
+      },
+      type: "array",
+      title: "Items",
+    },
+    next_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Next Cursor",
+      description: "Cursor for next page",
+    },
+    prev_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Prev Cursor",
+      description: "Cursor for previous page",
+    },
+    has_more: {
+      type: "boolean",
+      title: "Has More",
+      description: "Whether more items exist",
+      default: false,
+    },
+    has_previous: {
+      type: "boolean",
+      title: "Has Previous",
+      description: "Whether previous items exist",
+      default: false,
+    },
+    total_estimate: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Total Estimate",
+      description: "Estimated total count from table statistics",
+    },
+  },
+  type: "object",
+  required: ["items"],
+  title: "CursorPaginatedResponse[SpmInventoryItemRead]",
 } as const
 
 export const $CursorPaginatedResponse_TableRowRead_ = {
@@ -20231,133 +20231,6 @@ export const $SpecialUserID = {
   description: "A sentinel user ID that represents the current user.",
 } as const
 
-export const $SpmArtifactType = {
-  type: "string",
-  enum: [
-    "settings.json",
-    "settings.local.json",
-    ".claude.json",
-    "hooks.json",
-    ".mcp.json",
-    "CLAUDE.md",
-    "CLAUDE.local.md",
-    "AGENTS.md",
-    "skill-frontmatter",
-    "agent-frontmatter",
-    "plugin.json",
-    "directory",
-  ],
-  title: "SpmArtifactType",
-  description: "The file kind that hosts an asset.",
-} as const
-
-export const $SpmAssetRead = {
-  properties: {
-    id: {
-      type: "string",
-      format: "uuid",
-      title: "Id",
-    },
-    organization_id: {
-      type: "string",
-      format: "uuid",
-      title: "Organization Id",
-    },
-    harness: {
-      $ref: "#/components/schemas/SpmHarness",
-    },
-    asset_type: {
-      $ref: "#/components/schemas/SpmAssetType",
-    },
-    artifact_type: {
-      $ref: "#/components/schemas/SpmArtifactType",
-    },
-    artifact_location: {
-      type: "string",
-      title: "Artifact Location",
-    },
-    identity_key: {
-      type: "string",
-      title: "Identity Key",
-    },
-    display_name: {
-      type: "string",
-      title: "Display Name",
-    },
-    content_hash: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Content Hash",
-    },
-    metadata: {
-      additionalProperties: true,
-      type: "object",
-      title: "Metadata",
-    },
-    first_seen_at: {
-      type: "string",
-      format: "date-time",
-      title: "First Seen At",
-    },
-    last_seen_at: {
-      type: "string",
-      format: "date-time",
-      title: "Last Seen At",
-    },
-    created_at: {
-      type: "string",
-      format: "date-time",
-      title: "Created At",
-    },
-    updated_at: {
-      type: "string",
-      format: "date-time",
-      title: "Updated At",
-    },
-  },
-  type: "object",
-  required: [
-    "id",
-    "organization_id",
-    "harness",
-    "asset_type",
-    "artifact_type",
-    "artifact_location",
-    "identity_key",
-    "display_name",
-    "first_seen_at",
-    "last_seen_at",
-    "created_at",
-    "updated_at",
-  ],
-  title: "SpmAssetRead",
-  description: "Deduplicated SPM asset row.",
-} as const
-
-export const $SpmAssetType = {
-  type: "string",
-  enum: [
-    "hook",
-    "plugin",
-    "mcp_server",
-    "instruction_file",
-    "permission_config",
-    "sandbox_config",
-    "trusted_directory",
-    "additional_directory",
-    "skill",
-    "agent",
-  ],
-  title: "SpmAssetType",
-  description: "Harness surface bucket. The broad kind of governed thing.",
-} as const
-
 export const $SpmControlRead = {
   properties: {
     id: {
@@ -20393,15 +20266,15 @@ export const $SpmControlRead = {
     harness: {
       $ref: "#/components/schemas/SpmHarness",
     },
-    asset_type: {
-      $ref: "#/components/schemas/SpmAssetType",
+    item_type: {
+      $ref: "#/components/schemas/SpmInventoryItemType",
     },
-    artifact_types: {
+    source_types: {
       items: {
-        $ref: "#/components/schemas/SpmArtifactType",
+        $ref: "#/components/schemas/SpmInventorySourceType",
       },
       type: "array",
-      title: "Artifact Types",
+      title: "Source Types",
     },
     severity: {
       $ref: "#/components/schemas/SpmSeverity",
@@ -20418,123 +20291,12 @@ export const $SpmControlRead = {
     "title",
     "description",
     "harness",
-    "asset_type",
+    "item_type",
     "severity",
     "action",
   ],
   title: "SpmControlRead",
   description: "Static SPM control manifest.",
-} as const
-
-export const $SpmEndpointAssetRead = {
-  properties: {
-    asset_id: {
-      type: "string",
-      format: "uuid",
-      title: "Asset Id",
-    },
-    asset_sighting_id: {
-      type: "string",
-      format: "uuid",
-      title: "Asset Sighting Id",
-    },
-    organization_id: {
-      type: "string",
-      format: "uuid",
-      title: "Organization Id",
-    },
-    endpoint_id: {
-      type: "string",
-      format: "uuid",
-      title: "Endpoint Id",
-    },
-    workspace_id: {
-      anyOf: [
-        {
-          type: "string",
-          format: "uuid",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Workspace Id",
-    },
-    harness: {
-      $ref: "#/components/schemas/SpmHarness",
-    },
-    asset_type: {
-      $ref: "#/components/schemas/SpmAssetType",
-    },
-    artifact_type: {
-      $ref: "#/components/schemas/SpmArtifactType",
-    },
-    artifact_location: {
-      type: "string",
-      title: "Artifact Location",
-    },
-    identity_key: {
-      type: "string",
-      title: "Identity Key",
-    },
-    display_name: {
-      type: "string",
-      title: "Display Name",
-    },
-    content_hash: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Content Hash",
-    },
-    metadata: {
-      additionalProperties: true,
-      type: "object",
-      title: "Metadata",
-    },
-    evidence: {
-      additionalProperties: true,
-      type: "object",
-      title: "Evidence",
-    },
-    observed_state: {
-      additionalProperties: true,
-      type: "object",
-      title: "Observed State",
-    },
-    first_seen_at: {
-      type: "string",
-      format: "date-time",
-      title: "First Seen At",
-    },
-    last_seen_at: {
-      type: "string",
-      format: "date-time",
-      title: "Last Seen At",
-    },
-  },
-  type: "object",
-  required: [
-    "asset_id",
-    "asset_sighting_id",
-    "organization_id",
-    "endpoint_id",
-    "harness",
-    "asset_type",
-    "artifact_type",
-    "artifact_location",
-    "identity_key",
-    "display_name",
-    "first_seen_at",
-    "last_seen_at",
-  ],
-  title: "SpmEndpointAssetRead",
-  description: "Endpoint-scoped asset row with per-sighting state.",
 } as const
 
 export const $SpmEndpointCreate = {
@@ -20627,6 +20389,122 @@ export const $SpmEndpointCreateResponse = {
   required: ["endpoint", "enrollment_token"],
   title: "SpmEndpointCreateResponse",
   description: "Endpoint create response with one-time enrollment token.",
+} as const
+
+export const $SpmEndpointInventoryItemRead = {
+  properties: {
+    inventory_item_id: {
+      type: "string",
+      format: "uuid",
+      title: "Inventory Item Id",
+    },
+    inventory_observation_id: {
+      type: "string",
+      format: "uuid",
+      title: "Inventory Observation Id",
+    },
+    organization_id: {
+      type: "string",
+      format: "uuid",
+      title: "Organization Id",
+    },
+    endpoint_id: {
+      type: "string",
+      format: "uuid",
+      title: "Endpoint Id",
+    },
+    workspace_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Workspace Id",
+    },
+    harness: {
+      $ref: "#/components/schemas/SpmHarness",
+    },
+    item_type: {
+      $ref: "#/components/schemas/SpmInventoryItemType",
+    },
+    source_type: {
+      $ref: "#/components/schemas/SpmInventorySourceType",
+    },
+    item_location: {
+      type: "string",
+      title: "Item Location",
+    },
+    source_location: {
+      type: "string",
+      title: "Source Location",
+    },
+    identity_key: {
+      type: "string",
+      title: "Identity Key",
+    },
+    display_name: {
+      type: "string",
+      title: "Display Name",
+    },
+    content_hash: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Content Hash",
+    },
+    metadata: {
+      additionalProperties: true,
+      type: "object",
+      title: "Metadata",
+    },
+    evidence: {
+      additionalProperties: true,
+      type: "object",
+      title: "Evidence",
+    },
+    observed_state: {
+      additionalProperties: true,
+      type: "object",
+      title: "Observed State",
+    },
+    first_seen_at: {
+      type: "string",
+      format: "date-time",
+      title: "First Seen At",
+    },
+    last_seen_at: {
+      type: "string",
+      format: "date-time",
+      title: "Last Seen At",
+    },
+  },
+  type: "object",
+  required: [
+    "inventory_item_id",
+    "inventory_observation_id",
+    "organization_id",
+    "endpoint_id",
+    "harness",
+    "item_type",
+    "source_type",
+    "item_location",
+    "source_location",
+    "identity_key",
+    "display_name",
+    "first_seen_at",
+    "last_seen_at",
+  ],
+  title: "SpmEndpointInventoryItemRead",
+  description: "Endpoint-scoped inventory item row with per-observation state.",
 } as const
 
 export const $SpmEndpointPlatform = {
@@ -20862,12 +20740,19 @@ export const $SpmEndpointSyncRequest = {
       type: "object",
       title: "Client Metadata",
     },
-    assets: {
+    inventory_items: {
       items: {
-        $ref: "#/components/schemas/SpmSyncAssetUpsert",
+        $ref: "#/components/schemas/SpmSyncInventoryItemUpsert",
       },
       type: "array",
-      title: "Assets",
+      title: "Inventory Items",
+    },
+    relationships: {
+      items: {
+        $ref: "#/components/schemas/SpmSyncInventoryRelationshipUpsert",
+      },
+      type: "array",
+      title: "Relationships",
     },
     task_results: {
       items: {
@@ -21177,12 +21062,12 @@ export const $SpmFindingRead = {
       format: "uuid",
       title: "Endpoint Id",
     },
-    asset_id: {
+    inventory_item_id: {
       type: "string",
       format: "uuid",
-      title: "Asset Id",
+      title: "Inventory Item Id",
     },
-    asset_sighting_id: {
+    inventory_observation_id: {
       anyOf: [
         {
           type: "string",
@@ -21192,7 +21077,7 @@ export const $SpmFindingRead = {
           type: "null",
         },
       ],
-      title: "Asset Sighting Id",
+      title: "Inventory Observation Id",
     },
     control_id: {
       type: "string",
@@ -21217,15 +21102,19 @@ export const $SpmFindingRead = {
     harness: {
       $ref: "#/components/schemas/SpmHarness",
     },
-    asset_type: {
-      $ref: "#/components/schemas/SpmAssetType",
+    item_type: {
+      $ref: "#/components/schemas/SpmInventoryItemType",
     },
-    artifact_type: {
-      $ref: "#/components/schemas/SpmArtifactType",
+    source_type: {
+      $ref: "#/components/schemas/SpmInventorySourceType",
     },
-    artifact_location: {
+    item_location: {
       type: "string",
-      title: "Artifact Location",
+      title: "Item Location",
+    },
+    source_location: {
+      type: "string",
+      title: "Source Location",
     },
     severity: {
       $ref: "#/components/schemas/SpmSeverity",
@@ -21307,13 +21196,14 @@ export const $SpmFindingRead = {
     "id",
     "organization_id",
     "endpoint_id",
-    "asset_id",
+    "inventory_item_id",
     "control_id",
     "control_key",
     "harness",
-    "asset_type",
-    "artifact_type",
-    "artifact_location",
+    "item_type",
+    "source_type",
+    "item_location",
+    "source_location",
     "severity",
     "status",
     "summary",
@@ -21339,6 +21229,276 @@ export const $SpmHarness = {
   description: "Normalized harness IDs supported by the SPM model.",
 } as const
 
+export const $SpmInventoryItemRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    organization_id: {
+      type: "string",
+      format: "uuid",
+      title: "Organization Id",
+    },
+    harness: {
+      $ref: "#/components/schemas/SpmHarness",
+    },
+    item_type: {
+      $ref: "#/components/schemas/SpmInventoryItemType",
+    },
+    source_type: {
+      $ref: "#/components/schemas/SpmInventorySourceType",
+    },
+    item_location: {
+      type: "string",
+      title: "Item Location",
+    },
+    source_location: {
+      type: "string",
+      title: "Source Location",
+    },
+    identity_key: {
+      type: "string",
+      title: "Identity Key",
+    },
+    display_name: {
+      type: "string",
+      title: "Display Name",
+    },
+    content_hash: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Content Hash",
+    },
+    metadata: {
+      additionalProperties: true,
+      type: "object",
+      title: "Metadata",
+    },
+    first_seen_at: {
+      type: "string",
+      format: "date-time",
+      title: "First Seen At",
+    },
+    last_seen_at: {
+      type: "string",
+      format: "date-time",
+      title: "Last Seen At",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+    updated_at: {
+      type: "string",
+      format: "date-time",
+      title: "Updated At",
+    },
+  },
+  type: "object",
+  required: [
+    "id",
+    "organization_id",
+    "harness",
+    "item_type",
+    "source_type",
+    "item_location",
+    "source_location",
+    "identity_key",
+    "display_name",
+    "first_seen_at",
+    "last_seen_at",
+    "created_at",
+    "updated_at",
+  ],
+  title: "SpmInventoryItemRead",
+  description: "Deduplicated SPM inventory item row.",
+} as const
+
+export const $SpmInventoryItemType = {
+  type: "string",
+  enum: [
+    "hook",
+    "plugin",
+    "mcp_server",
+    "instruction_file",
+    "permission_config",
+    "sandbox_config",
+    "trusted_directory",
+    "additional_directory",
+    "skill",
+    "agent",
+  ],
+  title: "SpmInventoryItemType",
+  description:
+    "Harness surface bucket. The broad kind of governed inventory item.",
+} as const
+
+export const $SpmInventoryRelationshipType = {
+  type: "string",
+  enum: ["contains", "defines", "imports"],
+  title: "SpmInventoryRelationshipType",
+  description: "Endpoint-observed relationship between inventory items.",
+} as const
+
+export const $SpmInventorySourceType = {
+  type: "string",
+  enum: [
+    "settings_json",
+    "settings_local_json",
+    "claude_json",
+    "hooks_json",
+    "mcp_json",
+    "claude_md",
+    "claude_local_md",
+    "agents_md",
+    "skill_frontmatter",
+    "agent_frontmatter",
+    "plugin_manifest",
+    "directory",
+  ],
+  title: "SpmInventorySourceType",
+  description: "The source kind that produced an inventory item.",
+} as const
+
+export const $SpmInventoryTaxonomyBindingRead = {
+  properties: {
+    item_type: {
+      $ref: "#/components/schemas/SpmInventoryItemType",
+    },
+    source_types: {
+      items: {
+        $ref: "#/components/schemas/SpmInventorySourceType",
+      },
+      type: "array",
+      title: "Source Types",
+    },
+    enforcement: {
+      type: "string",
+      title: "Enforcement",
+    },
+  },
+  type: "object",
+  required: ["item_type", "source_types", "enforcement"],
+  title: "SpmInventoryTaxonomyBindingRead",
+  description: "Allowed source types for an inventory item type.",
+} as const
+
+export const $SpmInventoryTaxonomyEntryRead = {
+  properties: {
+    key: {
+      type: "string",
+      title: "Key",
+    },
+    display_value: {
+      type: "string",
+      title: "Display Value",
+    },
+    icon_key: {
+      type: "string",
+      title: "Icon Key",
+    },
+    description: {
+      type: "string",
+      title: "Description",
+    },
+    kind: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Kind",
+    },
+    enforcement: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Enforcement",
+    },
+  },
+  type: "object",
+  required: ["key", "display_value", "icon_key", "description"],
+  title: "SpmInventoryTaxonomyEntryRead",
+  description: "Public taxonomy metadata for an inventory item or source type.",
+} as const
+
+export const $SpmInventoryTaxonomyHarnessRead = {
+  properties: {
+    item_types: {
+      items: {
+        $ref: "#/components/schemas/SpmInventoryTaxonomyEntryRead",
+      },
+      type: "array",
+      title: "Item Types",
+    },
+    source_types: {
+      items: {
+        $ref: "#/components/schemas/SpmInventoryTaxonomyEntryRead",
+      },
+      type: "array",
+      title: "Source Types",
+    },
+    bindings: {
+      items: {
+        $ref: "#/components/schemas/SpmInventoryTaxonomyBindingRead",
+      },
+      type: "array",
+      title: "Bindings",
+    },
+    relationship_types: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Relationship Types",
+    },
+  },
+  type: "object",
+  required: ["item_types", "source_types", "bindings", "relationship_types"],
+  title: "SpmInventoryTaxonomyHarnessRead",
+  description: "Harness-scoped Agent SPM inventory taxonomy.",
+} as const
+
+export const $SpmInventoryTaxonomyRead = {
+  properties: {
+    version: {
+      type: "integer",
+      title: "Version",
+    },
+    harnesses: {
+      additionalProperties: {
+        $ref: "#/components/schemas/SpmInventoryTaxonomyHarnessRead",
+      },
+      propertyNames: {
+        $ref: "#/components/schemas/SpmHarness",
+      },
+      type: "object",
+      title: "Harnesses",
+    },
+  },
+  type: "object",
+  required: ["version", "harnesses"],
+  title: "SpmInventoryTaxonomyRead",
+  description: "Agent SPM inventory taxonomy.",
+} as const
+
 export const $SpmSeverity = {
   type: "string",
   enum: ["low", "medium", "high", "critical"],
@@ -21346,22 +21506,28 @@ export const $SpmSeverity = {
   description: "Normalized SPM severity levels.",
 } as const
 
-export const $SpmSyncAssetUpsert = {
+export const $SpmSyncInventoryItemUpsert = {
   properties: {
     harness: {
       $ref: "#/components/schemas/SpmHarness",
     },
-    asset_type: {
-      $ref: "#/components/schemas/SpmAssetType",
+    item_type: {
+      $ref: "#/components/schemas/SpmInventoryItemType",
     },
-    artifact_type: {
-      $ref: "#/components/schemas/SpmArtifactType",
+    source_type: {
+      $ref: "#/components/schemas/SpmInventorySourceType",
     },
-    artifact_location: {
+    item_location: {
       type: "string",
       maxLength: 1024,
       minLength: 1,
-      title: "Artifact Location",
+      title: "Item Location",
+    },
+    source_location: {
+      type: "string",
+      maxLength: 1024,
+      minLength: 1,
+      title: "Source Location",
     },
     identity_key: {
       type: "string",
@@ -21418,14 +21584,49 @@ export const $SpmSyncAssetUpsert = {
   type: "object",
   required: [
     "harness",
-    "asset_type",
-    "artifact_type",
-    "artifact_location",
+    "item_type",
+    "source_type",
+    "item_location",
+    "source_location",
     "identity_key",
     "display_name",
   ],
-  title: "SpmSyncAssetUpsert",
-  description: "Asset observation submitted by an endpoint.",
+  title: "SpmSyncInventoryItemUpsert",
+  description: "Inventory item observation submitted by an endpoint.",
+} as const
+
+export const $SpmSyncInventoryRelationshipUpsert = {
+  properties: {
+    relationship_type: {
+      $ref: "#/components/schemas/SpmInventoryRelationshipType",
+    },
+    from_identity_key: {
+      type: "string",
+      maxLength: 500,
+      minLength: 1,
+      title: "From Identity Key",
+    },
+    to_identity_key: {
+      type: "string",
+      maxLength: 500,
+      minLength: 1,
+      title: "To Identity Key",
+    },
+    evidence: {
+      additionalProperties: true,
+      type: "object",
+      title: "Evidence",
+    },
+    observed_state: {
+      additionalProperties: true,
+      type: "object",
+      title: "Observed State",
+    },
+  },
+  type: "object",
+  required: ["relationship_type", "from_identity_key", "to_identity_key"],
+  title: "SpmSyncInventoryRelationshipUpsert",
+  description: "Endpoint-observed relationship between inventory items.",
 } as const
 
 export const $SpmSyncTaskResult = {

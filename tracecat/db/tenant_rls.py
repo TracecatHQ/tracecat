@@ -89,7 +89,8 @@ POST_RLS_ORG_SCOPED_TABLES = (
     "mcp_refresh_token",
     "agent_custom_provider",
     "spm_endpoint",
-    "spm_asset",
+    "spm_inventory_item",
+    "spm_inventory_relationship",
     "spm_finding",
     "spm_finding_decision",
     "spm_enforcement_task",
@@ -100,7 +101,7 @@ POST_RLS_ORG_OPTIONAL_WORKSPACE_SCOPED_TABLES = (
     "watchtower_agent_tool_call",
     "service_account",
     "agent_model_access",
-    "spm_asset_sighting",
+    "spm_inventory_observation",
 )
 
 SPECIAL_TENANT_POLICY_TABLES = frozenset(

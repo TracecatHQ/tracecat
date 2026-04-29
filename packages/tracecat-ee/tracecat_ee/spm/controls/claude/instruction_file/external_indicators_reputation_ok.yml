@@ -5,9 +5,9 @@ revision: "1"
 title: Claude instruction file external indicators must have good reputation
 description: URLs, domains, and IPs extracted from Claude instruction files must pass reputation checks.
 harness: claude_code
-asset_type: instruction_file
-artifact_types:
-  - CLAUDE.md
-  - CLAUDE.local.md
+item_type: instruction_file
+source_types:
+  - claude_md
+  - claude_local_md
 severity: high
 action: exclude_instruction_file

@@ -605,23 +605,24 @@ import type {
   SpmCreateSpmFindingDecisionResponse,
   SpmDeleteSpmEndpointData,
   SpmDeleteSpmEndpointResponse,
-  SpmGetSpmAssetData,
-  SpmGetSpmAssetResponse,
   SpmGetSpmControlData,
   SpmGetSpmControlResponse,
   SpmGetSpmEndpointData,
   SpmGetSpmEndpointResponse,
   SpmGetSpmFindingData,
   SpmGetSpmFindingResponse,
-  SpmListSpmAssetsData,
-  SpmListSpmAssetsResponse,
+  SpmGetSpmInventoryItemData,
+  SpmGetSpmInventoryItemResponse,
+  SpmGetSpmInventoryTaxonomyResponse,
   SpmListSpmControlsResponse,
-  SpmListSpmEndpointAssetsData,
-  SpmListSpmEndpointAssetsResponse,
+  SpmListSpmEndpointInventoryData,
+  SpmListSpmEndpointInventoryResponse,
   SpmListSpmEndpointsData,
   SpmListSpmEndpointsResponse,
   SpmListSpmFindingsData,
   SpmListSpmFindingsResponse,
+  SpmListSpmInventoryData,
+  SpmListSpmInventoryResponse,
   SpmSyncSpmEndpointData,
   SpmSyncSpmEndpointResponse,
   TablesBatchDeleteRowsData,
@@ -5954,20 +5955,33 @@ export const spmGetSpmEndpoint = (
 }
 
 /**
- * List Spm Endpoint Assets
+ * Get Spm Inventory Taxonomy
+ * @returns SpmInventoryTaxonomyRead Successful Response
+ * @throws ApiError
+ */
+export const spmGetSpmInventoryTaxonomy =
+  (): CancelablePromise<SpmGetSpmInventoryTaxonomyResponse> => {
+    return __request(OpenAPI, {
+      method: "GET",
+      url: "/spm/inventory/taxonomy",
+    })
+  }
+
+/**
+ * List Spm Endpoint Inventory
  * @param data The data for the request.
  * @param data.endpointId
  * @param data.limit
  * @param data.cursor
- * @returns CursorPaginatedResponse_SpmEndpointAssetRead_ Successful Response
+ * @returns CursorPaginatedResponse_SpmEndpointInventoryItemRead_ Successful Response
  * @throws ApiError
  */
-export const spmListSpmEndpointAssets = (
-  data: SpmListSpmEndpointAssetsData
-): CancelablePromise<SpmListSpmEndpointAssetsResponse> => {
+export const spmListSpmEndpointInventory = (
+  data: SpmListSpmEndpointInventoryData
+): CancelablePromise<SpmListSpmEndpointInventoryResponse> => {
   return __request(OpenAPI, {
     method: "GET",
-    url: "/spm/endpoints/{endpoint_id}/assets",
+    url: "/spm/endpoints/{endpoint_id}/inventory",
     path: {
       endpoint_id: data.endpointId,
     },
@@ -5982,30 +5996,30 @@ export const spmListSpmEndpointAssets = (
 }
 
 /**
- * List Spm Assets
+ * List Spm Inventory
  * @param data The data for the request.
  * @param data.limit
  * @param data.cursor
  * @param data.harness
  * @param data.endpointId
- * @param data.assetType
- * @param data.artifactType
- * @returns CursorPaginatedResponse_SpmAssetRead_ Successful Response
+ * @param data.itemType
+ * @param data.sourceType
+ * @returns CursorPaginatedResponse_SpmInventoryItemRead_ Successful Response
  * @throws ApiError
  */
-export const spmListSpmAssets = (
-  data: SpmListSpmAssetsData = {}
-): CancelablePromise<SpmListSpmAssetsResponse> => {
+export const spmListSpmInventory = (
+  data: SpmListSpmInventoryData = {}
+): CancelablePromise<SpmListSpmInventoryResponse> => {
   return __request(OpenAPI, {
     method: "GET",
-    url: "/spm/assets",
+    url: "/spm/inventory",
     query: {
       limit: data.limit,
       cursor: data.cursor,
       harness: data.harness,
       endpoint_id: data.endpointId,
-      asset_type: data.assetType,
-      artifact_type: data.artifactType,
+      item_type: data.itemType,
+      source_type: data.sourceType,
     },
     errors: {
       422: "Validation Error",
@@ -6014,20 +6028,20 @@ export const spmListSpmAssets = (
 }
 
 /**
- * Get Spm Asset
+ * Get Spm Inventory Item
  * @param data The data for the request.
- * @param data.assetId
- * @returns SpmAssetRead Successful Response
+ * @param data.inventoryItemId
+ * @returns SpmInventoryItemRead Successful Response
  * @throws ApiError
  */
-export const spmGetSpmAsset = (
-  data: SpmGetSpmAssetData
-): CancelablePromise<SpmGetSpmAssetResponse> => {
+export const spmGetSpmInventoryItem = (
+  data: SpmGetSpmInventoryItemData
+): CancelablePromise<SpmGetSpmInventoryItemResponse> => {
   return __request(OpenAPI, {
     method: "GET",
-    url: "/spm/assets/{asset_id}",
+    url: "/spm/inventory/{inventory_item_id}",
     path: {
-      asset_id: data.assetId,
+      inventory_item_id: data.inventoryItemId,
     },
     errors: {
       422: "Validation Error",

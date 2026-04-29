@@ -27,24 +27,24 @@ _RISK_RULES: list[tuple[str, re.Pattern[str]]] = [
 
 
 def check(ctx: SpmControlContext) -> SpmControlResult:
-    asset = cast(SpmHookControlData, ctx.asset)
+    item = cast(SpmHookControlData, ctx.item)
     matches = [
         rule_id
         for rule_id, pattern in _RISK_RULES
-        if asset.command and pattern.search(asset.command)
+        if item.command and pattern.search(item.command)
     ]
     return SpmControlResult(
-        failed=asset.parse_status == "ok" and bool(matches),
-        summary=f"{asset.display_name} matches risky hook heuristics",
+        failed=item.parse_status == "ok" and bool(matches),
+        summary=f"{item.display_name} matches risky hook heuristics",
         evidence={
-            "fingerprint": asset.fingerprint,
-            "event": asset.event,
-            "command": asset.command,
+            "fingerprint": item.fingerprint,
+            "event": item.event,
+            "command": item.command,
             "matched_rules": matches,
-            "parse_status": asset.parse_status,
+            "parse_status": item.parse_status,
         },
         recommended_payload={
-            "fingerprint": asset.fingerprint,
-            "target_path": asset.file_path,
+            "fingerprint": item.fingerprint,
+            "target_path": item.file_path,
         },
     )

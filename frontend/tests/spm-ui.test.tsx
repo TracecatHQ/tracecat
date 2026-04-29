@@ -5,20 +5,20 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react"
 import type { ReactNode } from "react"
 import type {
-  SpmArtifactType,
-  SpmAssetRead,
-  SpmAssetType,
   SpmControlRead,
-  SpmEndpointAssetRead,
+  SpmEndpointInventoryItemRead,
   SpmEndpointRead,
   SpmFindingRead,
+  SpmInventoryItemRead,
+  SpmInventoryItemType,
+  SpmInventorySourceType,
 } from "@/client"
 import {
-  SpmAssetsView,
   SpmControlsView,
   SpmEndpointsView,
   SpmFindingsView,
   SpmInstallDrawer,
+  SpmInventoryView,
 } from "@/components/spm/spm-ui"
 
 const mockToast = jest.fn()
@@ -27,11 +27,12 @@ const mockDeleteEndpoint = jest.fn()
 const mockDecideFinding = jest.fn()
 const mockUseEntitlements = jest.fn()
 const mockUseSpmActions = jest.fn()
-const mockUseSpmAssets = jest.fn()
+const mockUseSpmInventory = jest.fn()
 const mockUseSpmControls = jest.fn()
-const mockUseSpmEndpointAssetsForEndpoints = jest.fn()
+const mockUseSpmEndpointInventoryForEndpoints = jest.fn()
 const mockUseSpmEndpoints = jest.fn()
 const mockUseSpmFindings = jest.fn()
+const mockUseSpmInventoryTaxonomy = jest.fn()
 
 jest.mock("@/components/ui/sheet", () => ({
   Sheet: ({ children }: { children: ReactNode }) => <div>{children}</div>,
@@ -105,12 +106,13 @@ jest.mock("@/hooks/use-entitlements", () => ({
 
 jest.mock("@/hooks/use-spm", () => ({
   useSpmActions: () => mockUseSpmActions(),
-  useSpmAssets: (params?: unknown) => mockUseSpmAssets(params),
+  useSpmInventory: (params?: unknown) => mockUseSpmInventory(params),
   useSpmControls: () => mockUseSpmControls(),
-  useSpmEndpointAssetsForEndpoints: (endpointIds: string[]) =>
-    mockUseSpmEndpointAssetsForEndpoints(endpointIds),
+  useSpmEndpointInventoryForEndpoints: (endpointIds: string[]) =>
+    mockUseSpmEndpointInventoryForEndpoints(endpointIds),
   useSpmEndpoints: () => mockUseSpmEndpoints(),
   useSpmFindings: (params?: unknown) => mockUseSpmFindings(params),
+  useSpmInventoryTaxonomy: () => mockUseSpmInventoryTaxonomy(),
 }))
 
 function paginated<T>(items: T[]) {
@@ -156,21 +158,22 @@ function pendingEndpoint(id: string, name: string): SpmEndpointRead {
   }
 }
 
-function asset(
+function inventoryItem(
   id: string,
   endpointId: string,
   displayName: string,
-  assetType: SpmAssetType,
-  artifactType: SpmArtifactType
-): SpmAssetRead {
-  const artifactLocation =
+  itemType: SpmInventoryItemType,
+  sourceType: SpmInventorySourceType
+): SpmInventoryItemRead {
+  const sourceLocation =
     displayName === "github"
       ? "/Users/chris/.claude.json"
       : `/Users/chris/project/${displayName}`
   return {
-    asset_type: assetType,
-    artifact_location: artifactLocation,
-    artifact_type: artifactType,
+    item_type: itemType,
+    item_location: sourceLocation,
+    source_location: sourceLocation,
+    source_type: sourceType,
     content_hash: null,
     created_at: "2026-04-22T00:00:00Z",
     display_name: displayName,
@@ -180,34 +183,35 @@ function asset(
     identity_key: `${endpointId}:${displayName}`,
     last_seen_at: "2026-04-22T00:00:00Z",
     metadata: {
-      file_path: artifactLocation,
+      file_path: sourceLocation,
     },
     organization_id: "org-1",
     updated_at: "2026-04-22T00:00:00Z",
   }
 }
 
-function endpointAsset(
-  asset: SpmAssetRead,
+function endpointInventoryItem(
+  item: SpmInventoryItemRead,
   endpointId: string
-): SpmEndpointAssetRead {
+): SpmEndpointInventoryItemRead {
   return {
-    asset_id: asset.id,
-    asset_sighting_id: `${endpointId}:${asset.id}`,
-    asset_type: asset.asset_type,
-    artifact_location: asset.artifact_location,
-    artifact_type: asset.artifact_type,
-    content_hash: asset.content_hash,
-    display_name: asset.display_name,
+    inventory_item_id: item.id,
+    inventory_observation_id: `${endpointId}:${item.id}`,
+    item_type: item.item_type,
+    item_location: item.item_location,
+    source_location: item.source_location,
+    source_type: item.source_type,
+    content_hash: item.content_hash,
+    display_name: item.display_name,
     endpoint_id: endpointId,
     evidence: {},
-    first_seen_at: asset.first_seen_at,
-    harness: asset.harness,
-    identity_key: asset.identity_key,
-    last_seen_at: asset.last_seen_at,
-    metadata: asset.metadata,
+    first_seen_at: item.first_seen_at,
+    harness: item.harness,
+    identity_key: item.identity_key,
+    last_seen_at: item.last_seen_at,
+    metadata: item.metadata,
     observed_state: {},
-    organization_id: asset.organization_id,
+    organization_id: item.organization_id,
     workspace_id: null,
   }
 }
@@ -215,27 +219,31 @@ function endpointAsset(
 function finding(
   id: string,
   endpointId: string,
-  assetId: string,
-  assetType: SpmAssetType,
-  artifactType: SpmArtifactType,
+  inventoryItemId: string,
+  itemType: SpmInventoryItemType,
+  sourceType: SpmInventorySourceType,
   overrides: Partial<SpmFindingRead> = {}
 ): SpmFindingRead {
   return {
-    asset_id: assetId,
-    asset_sighting_id: null,
-    asset_type: assetType,
-    artifact_location:
-      artifactType === ".claude.json"
+    inventory_item_id: inventoryItemId,
+    inventory_observation_id: null,
+    item_type: itemType,
+    item_location:
+      sourceType === "claude_json"
         ? "/Users/chris/.claude.json"
-        : `/Users/chris/project/${artifactType}`,
-    artifact_type: artifactType,
+        : `/Users/chris/project/${sourceType}`,
+    source_location:
+      sourceType === "claude_json"
+        ? "/Users/chris/.claude.json"
+        : `/Users/chris/project/${sourceType}`,
+    source_type: sourceType,
     closed_at: null,
     control_id:
-      assetType === "mcp_server"
+      itemType === "mcp_server"
         ? "7dca8397-056a-4cc7-a4a6-3fef782b21a2"
         : "4fd32453-138e-4273-8501-bf4809eb7adf",
     control_key:
-      assetType === "mcp_server"
+      itemType === "mcp_server"
         ? "claude.mcp_server.approved"
         : "claude.instruction_file.obfuscation_absent",
     control_revision: "1",
@@ -249,12 +257,12 @@ function finding(
     opened_at: "2026-04-22T00:00:00Z",
     organization_id: "org-1",
     recommended_action:
-      artifactType === "AGENTS.md" ? null : "exclude_instruction_file",
+      sourceType === "agents_md" ? null : "exclude_instruction_file",
     recommended_payload: {},
     severity: "high",
     status: "open",
     summary:
-      artifactType === "AGENTS.md"
+      sourceType === "agents_md"
         ? "AGENTS.md should be reviewed"
         : "Instruction file requires enforcement",
     updated_at: "2026-04-22T00:00:00Z",
@@ -266,16 +274,16 @@ function control(
   id: string,
   key: string,
   title: string,
-  assetType: SpmAssetType
+  itemType: SpmInventoryItemType
 ): SpmControlRead {
   return {
     action:
-      assetType === "mcp_server"
+      itemType === "mcp_server"
         ? "disable_mcp_server"
         : "exclude_instruction_file",
-    asset_type: assetType,
-    artifact_types:
-      assetType === "instruction_file" ? ["CLAUDE.md", "CLAUDE.local.md"] : [],
+    item_type: itemType,
+    source_types:
+      itemType === "instruction_file" ? ["claude_md", "claude_local_md"] : [],
     aliases: [],
     description: `${title} description`,
     harness: "claude_code",
@@ -296,21 +304,27 @@ describe("SPM operator UI", () => {
     pendingEndpoint("endpoint-pending", "Pending MacBook"),
     endpoint("endpoint-active", "Active MacBook"),
   ]
-  const assets = [
-    asset("asset-1", "endpoint-1", "github", "mcp_server", ".claude.json"),
-    asset(
-      "asset-2",
+  const inventoryItems = [
+    inventoryItem(
+      "item-1",
+      "endpoint-1",
+      "github",
+      "mcp_server",
+      "claude_json"
+    ),
+    inventoryItem(
+      "item-2",
       "endpoint-2",
       "CLAUDE.md",
       "instruction_file",
-      "CLAUDE.md"
+      "claude_md"
     ),
-    asset(
-      "asset-3",
+    inventoryItem(
+      "item-3",
       "endpoint-2",
       "AGENTS.md",
       "instruction_file",
-      "AGENTS.md"
+      "agents_md"
     ),
   ]
 
@@ -330,23 +344,73 @@ describe("SPM operator UI", () => {
         mutateAsync: mockDecideFinding,
       },
     })
+    mockUseSpmInventoryTaxonomy.mockReturnValue({
+      data: {
+        harnesses: {
+          claude_code: {
+            bindings: [],
+            item_types: [
+              {
+                description: "",
+                display_value: "mcp_server",
+                icon_key: "server",
+                key: "mcp_server",
+              },
+              {
+                description: "",
+                display_value: "instruction_file",
+                icon_key: "file_text",
+                key: "instruction_file",
+              },
+            ],
+            relationship_types: [],
+            source_types: [
+              {
+                description: "",
+                display_value: "claude_json",
+                icon_key: "file_json",
+                key: "claude_json",
+              },
+              {
+                description: "",
+                display_value: "claude_md",
+                icon_key: "file_text",
+                key: "claude_md",
+              },
+              {
+                description: "",
+                display_value: "agents_md",
+                icon_key: "file_text",
+                key: "agents_md",
+              },
+            ],
+          },
+        },
+        version: 1,
+      },
+      isLoading: false,
+    })
     mockDeleteEndpoint.mockResolvedValue(undefined)
     mockUseSpmEndpoints.mockReturnValue(paginated(endpoints))
-    mockUseSpmAssets.mockImplementation((params?: { endpointId?: string }) => {
-      if (params?.endpointId) {
-        const filteredAssets =
-          params.endpointId === "endpoint-2" ? assets.slice(1) : [assets[0]]
-        return paginated(filteredAssets)
+    mockUseSpmInventory.mockImplementation(
+      (params?: { endpointId?: string }) => {
+        if (params?.endpointId) {
+          const filteredInventory =
+            params.endpointId === "endpoint-2"
+              ? inventoryItems.slice(1)
+              : [inventoryItems[0]]
+          return paginated(filteredInventory)
+        }
+        return paginated(inventoryItems)
       }
-      return paginated(assets)
-    })
-    mockUseSpmEndpointAssetsForEndpoints.mockImplementation(
+    )
+    mockUseSpmEndpointInventoryForEndpoints.mockImplementation(
       (endpointIds: string[]) =>
         endpointIds.map((endpointId) =>
           paginated(
-            assets
+            inventoryItems
               .filter((item) => item.identity_key.startsWith(`${endpointId}:`))
-              .map((item) => endpointAsset(item, endpointId))
+              .map((item) => endpointInventoryItem(item, endpointId))
           )
         )
     )
@@ -373,9 +437,9 @@ describe("SPM operator UI", () => {
           finding(
             "finding-1",
             "endpoint-1",
-            "asset-1",
+            "item-1",
             "mcp_server",
-            ".claude.json",
+            "claude_json",
             {
               recommended_action: "disable_mcp_server",
               summary: "Github MCP server is not approved",
@@ -384,9 +448,9 @@ describe("SPM operator UI", () => {
           finding(
             "finding-2",
             "endpoint-2",
-            "asset-2",
+            "item-2",
             "instruction_file",
-            "CLAUDE.md",
+            "claude_md",
             {
               summary: "CLAUDE.md should be excluded",
             }
@@ -394,9 +458,9 @@ describe("SPM operator UI", () => {
           finding(
             "finding-3",
             "endpoint-2",
-            "asset-3",
+            "item-3",
             "instruction_file",
-            "AGENTS.md",
+            "agents_md",
             {
               summary: "AGENTS.md is inventory only",
             }
@@ -416,11 +480,11 @@ describe("SPM operator UI", () => {
     )
   })
 
-  it("groups assets by endpoint using endpoint-scoped inventory", async () => {
-    render(<SpmAssetsView />)
+  it("groups inventory by endpoint using endpoint-scoped inventory", async () => {
+    render(<SpmInventoryView />)
 
     await waitFor(() => {
-      expect(mockUseSpmEndpointAssetsForEndpoints).toHaveBeenLastCalledWith([
+      expect(mockUseSpmEndpointInventoryForEndpoints).toHaveBeenLastCalledWith([
         "endpoint-1",
         "endpoint-2",
       ])
@@ -449,10 +513,10 @@ describe("SPM operator UI", () => {
   it("shows enforceable and inventory-only finding action states", () => {
     render(<SpmFindingsView />)
 
-    expect(screen.queryByText("Queued")).not.toBeInTheDocument()
+    expect(screen.queryByText("queued")).not.toBeInTheDocument()
     expect(screen.getAllByRole("button", { name: "Enforce" })[0]).toBeEnabled()
     expect(screen.getAllByRole("button", { name: "Enforce" })[2]).toBeDisabled()
-    expect(screen.getByText("Inventory only")).toBeInTheDocument()
+    expect(screen.getByText("inventory_only")).toBeInTheDocument()
   })
 
   it("filters findings by search and resets the feed filters", async () => {
@@ -595,7 +659,7 @@ describe("SPM operator UI", () => {
       screen.getByPlaceholderText("Search endpoints...")
     ).toBeInTheDocument()
     expect(screen.getByText("Chris MacBook")).toBeInTheDocument()
-    expect(screen.getAllByText("Unknown").length).toBeGreaterThan(0)
+    expect(screen.getAllByText("unknown").length).toBeGreaterThan(0)
   })
 
   it("keeps endpoint headers visible when findings fail to load", () => {

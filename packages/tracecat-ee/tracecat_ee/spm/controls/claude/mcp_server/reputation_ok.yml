@@ -5,6 +5,6 @@ revision: "1"
 title: Claude MCP server must have good reputation
 description: MCP servers configured for Claude must pass the configured reputation checks for the resolved identity.
 harness: claude_code
-asset_type: mcp_server
+item_type: mcp_server
 severity: medium
 action: disable_mcp_server

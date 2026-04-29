@@ -6,14 +6,13 @@ import uuid
 from datetime import UTC, datetime
 from typing import Any
 
-from pydantic import Field
+from pydantic import Field, model_validator
 
 from tracecat import config
 from tracecat.core.schemas import Schema
 from tracecat.pagination import CursorPaginatedResponse
+from tracecat_ee.spm.taxonomy import validate_inventory_binding
 from tracecat_ee.spm.types import (
-    SpmArtifactType,
-    SpmAssetType,
     SpmEndpointPlatform,
     SpmEndpointStatus,
     SpmEnforcementAction,
@@ -21,6 +20,9 @@ from tracecat_ee.spm.types import (
     SpmFindingDecisionType,
     SpmFindingStatus,
     SpmHarness,
+    SpmInventoryItemType,
+    SpmInventoryRelationshipType,
+    SpmInventorySourceType,
     SpmSeverity,
     SpmSyncTaskResultStatus,
 )
@@ -36,8 +38,8 @@ class SpmControlRead(Schema):
     title: str
     description: str
     harness: SpmHarness
-    asset_type: SpmAssetType
-    artifact_types: list[SpmArtifactType] = Field(default_factory=list)
+    item_type: SpmInventoryItemType
+    source_types: list[SpmInventorySourceType] = Field(default_factory=list)
     severity: SpmSeverity
     action: SpmEnforcementAction
 
@@ -101,32 +103,33 @@ class SpmControlPolicy(Schema):
         return f"{server_name}|{resolved_identity}"
 
 
-class SpmControlAssetBase(Schema):
-    """Common endpoint-collected asset data passed to controls."""
+class SpmControlInventoryItemBase(Schema):
+    """Common endpoint-collected inventory item data passed to controls."""
 
     id: uuid.UUID
-    sighting_id: uuid.UUID
+    observation_id: uuid.UUID
     identity_key: str
     display_name: str
     harness: SpmHarness
-    asset_type: SpmAssetType
-    artifact_type: SpmArtifactType
-    artifact_location: str
+    item_type: SpmInventoryItemType
+    source_type: SpmInventorySourceType
+    item_location: str
+    source_location: str
     content_hash: str | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
     evidence: dict[str, Any] = Field(default_factory=dict)
     observed_state: dict[str, Any] = Field(default_factory=dict)
 
 
-class SpmDirectoryControlData(SpmControlAssetBase):
-    """Directory asset data collected from endpoint inventory."""
+class SpmDirectoryControlData(SpmControlInventoryItemBase):
+    """Directory item data collected from endpoint inventory."""
 
     directory_path: str
     file_path: str | None = None
     parse_status: str | None = None
 
 
-class SpmConfigControlData(SpmControlAssetBase):
+class SpmConfigControlData(SpmControlInventoryItemBase):
     """Permission or sandbox config data collected from endpoint inventory."""
 
     file_path: str | None = None
@@ -135,7 +138,7 @@ class SpmConfigControlData(SpmControlAssetBase):
     value: Any = None
 
 
-class SpmMcpServerControlData(SpmControlAssetBase):
+class SpmMcpServerControlData(SpmControlInventoryItemBase):
     """MCP server data collected from endpoint inventory."""
 
     file_path: str | None = None
@@ -146,7 +149,7 @@ class SpmMcpServerControlData(SpmControlAssetBase):
     mcp_identity_key: str | None = None
 
 
-class SpmHookControlData(SpmControlAssetBase):
+class SpmHookControlData(SpmControlInventoryItemBase):
     """Hook data collected from endpoint inventory."""
 
     file_path: str | None = None
@@ -157,7 +160,7 @@ class SpmHookControlData(SpmControlAssetBase):
     command: str | None = None
 
 
-class SpmSkillControlData(SpmControlAssetBase):
+class SpmSkillControlData(SpmControlInventoryItemBase):
     """Skill data collected from endpoint inventory."""
 
     file_path: str | None = None
@@ -168,7 +171,7 @@ class SpmSkillControlData(SpmControlAssetBase):
     skill: Any = None
 
 
-class SpmInstructionFileControlData(SpmControlAssetBase):
+class SpmInstructionFileControlData(SpmControlInventoryItemBase):
     """Claude instruction-file data collected from endpoint inventory."""
 
     file_path: str | None = None
@@ -182,7 +185,7 @@ class SpmInstructionFileControlData(SpmControlAssetBase):
     ips: list[str] = Field(default_factory=list)
 
 
-type SpmAnyControlAssetData = (
+type SpmAnyControlInventoryItemData = (
     SpmDirectoryControlData
     | SpmConfigControlData
     | SpmMcpServerControlData
@@ -195,7 +198,7 @@ type SpmAnyControlAssetData = (
 class SpmControlContext(Schema):
     """Input contract for a single SPM control check."""
 
-    asset: SpmAnyControlAssetData
+    item: SpmAnyControlInventoryItemData
     policy: SpmControlPolicy
     intelligence: dict[str, Any] = Field(default_factory=dict)
 
@@ -252,21 +255,22 @@ class SpmEndpointCreateResponse(Schema):
     enrollment_token: str
 
 
-class SpmAssetRead(Schema):
-    """Deduplicated SPM asset row."""
+class SpmInventoryItemRead(Schema):
+    """Deduplicated SPM inventory item row."""
 
     id: uuid.UUID
     organization_id: uuid.UUID
     harness: SpmHarness
-    asset_type: SpmAssetType
-    artifact_type: SpmArtifactType
-    artifact_location: str
+    item_type: SpmInventoryItemType
+    source_type: SpmInventorySourceType
+    item_location: str
+    source_location: str
     identity_key: str
     display_name: str
     content_hash: str | None = None
     metadata: dict[str, Any] = Field(
         default_factory=dict,
-        validation_alias="asset_metadata",
+        validation_alias="item_metadata",
     )
     first_seen_at: datetime
     last_seen_at: datetime
@@ -274,8 +278,8 @@ class SpmAssetRead(Schema):
     updated_at: datetime
 
 
-class SpmAssetQueryParams(Schema):
-    """Filter params for deduplicated asset inventory."""
+class SpmInventoryQueryParams(Schema):
+    """Filter params for deduplicated inventory."""
 
     limit: int = Field(
         default=config.TRACECAT__LIMIT_DEFAULT,
@@ -285,17 +289,17 @@ class SpmAssetQueryParams(Schema):
     cursor: str | None = None
     harness: SpmHarness | None = None
     endpoint_id: uuid.UUID | None = None
-    asset_type: SpmAssetType | None = None
-    artifact_type: SpmArtifactType | None = None
+    item_type: SpmInventoryItemType | None = None
+    source_type: SpmInventorySourceType | None = None
 
 
-class SpmAssetSightingRead(Schema):
-    """Endpoint-scoped observation for an asset."""
+class SpmInventoryObservationRead(Schema):
+    """Endpoint-scoped observation for an inventory item."""
 
     id: uuid.UUID
     organization_id: uuid.UUID
     endpoint_id: uuid.UUID
-    asset_id: uuid.UUID
+    inventory_item_id: uuid.UUID
     workspace_id: uuid.UUID | None = None
     evidence: dict[str, Any] = Field(default_factory=dict)
     observed_state: dict[str, Any] = Field(default_factory=dict)
@@ -306,24 +310,25 @@ class SpmAssetSightingRead(Schema):
     updated_at: datetime
 
 
-class SpmEndpointAssetRead(Schema):
-    """Endpoint-scoped asset row with per-sighting state."""
+class SpmEndpointInventoryItemRead(Schema):
+    """Endpoint-scoped inventory item row with per-observation state."""
 
-    asset_id: uuid.UUID
-    asset_sighting_id: uuid.UUID
+    inventory_item_id: uuid.UUID
+    inventory_observation_id: uuid.UUID
     organization_id: uuid.UUID
     endpoint_id: uuid.UUID
     workspace_id: uuid.UUID | None = None
     harness: SpmHarness
-    asset_type: SpmAssetType
-    artifact_type: SpmArtifactType
-    artifact_location: str
+    item_type: SpmInventoryItemType
+    source_type: SpmInventorySourceType
+    item_location: str
+    source_location: str
     identity_key: str
     display_name: str
     content_hash: str | None = None
     metadata: dict[str, Any] = Field(
         default_factory=dict,
-        validation_alias="asset_metadata",
+        validation_alias="item_metadata",
     )
     evidence: dict[str, Any] = Field(default_factory=dict)
     observed_state: dict[str, Any] = Field(default_factory=dict)
@@ -337,15 +342,16 @@ class SpmFindingRead(Schema):
     id: uuid.UUID
     organization_id: uuid.UUID
     endpoint_id: uuid.UUID
-    asset_id: uuid.UUID
-    asset_sighting_id: uuid.UUID | None = None
+    inventory_item_id: uuid.UUID
+    inventory_observation_id: uuid.UUID | None = None
     control_id: uuid.UUID
     control_key: str
     control_revision: str | None = None
     harness: SpmHarness
-    asset_type: SpmAssetType
-    artifact_type: SpmArtifactType
-    artifact_location: str
+    item_type: SpmInventoryItemType
+    source_type: SpmInventorySourceType
+    item_location: str
+    source_location: str
     severity: SpmSeverity
     status: SpmFindingStatus
     summary: str
@@ -420,13 +426,14 @@ class SpmSyncAuthKind(Schema):
     type: str
 
 
-class SpmSyncAssetUpsert(Schema):
-    """Asset observation submitted by an endpoint."""
+class SpmSyncInventoryItemUpsert(Schema):
+    """Inventory item observation submitted by an endpoint."""
 
     harness: SpmHarness
-    asset_type: SpmAssetType
-    artifact_type: SpmArtifactType
-    artifact_location: str = Field(min_length=1, max_length=1024)
+    item_type: SpmInventoryItemType
+    source_type: SpmInventorySourceType
+    item_location: str = Field(min_length=1, max_length=1024)
+    source_location: str = Field(min_length=1, max_length=1024)
     identity_key: str = Field(min_length=1, max_length=500)
     display_name: str = Field(min_length=1, max_length=255)
     content_hash: str | None = Field(default=None, max_length=64)
@@ -434,6 +441,78 @@ class SpmSyncAssetUpsert(Schema):
     metadata: dict[str, Any] = Field(default_factory=dict)
     evidence: dict[str, Any] = Field(default_factory=dict)
     observed_state: dict[str, Any] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def validate_inventory_taxonomy(self) -> SpmSyncInventoryItemUpsert:
+        validate_inventory_binding(
+            harness=self.harness,
+            item_type=self.item_type,
+            source_type=self.source_type,
+            source_location=self.source_location,
+        )
+        return self
+
+
+class SpmSyncInventoryRelationshipUpsert(Schema):
+    """Endpoint-observed relationship between inventory items."""
+
+    relationship_type: SpmInventoryRelationshipType
+    from_identity_key: str = Field(min_length=1, max_length=500)
+    to_identity_key: str = Field(min_length=1, max_length=500)
+    evidence: dict[str, Any] = Field(default_factory=dict)
+    observed_state: dict[str, Any] = Field(default_factory=dict)
+
+
+class SpmInventoryRelationshipRead(Schema):
+    """Endpoint-scoped relationship between observed inventory items."""
+
+    id: uuid.UUID
+    organization_id: uuid.UUID
+    endpoint_id: uuid.UUID
+    relationship_type: SpmInventoryRelationshipType
+    from_inventory_item_id: uuid.UUID
+    to_inventory_item_id: uuid.UUID
+    evidence: dict[str, Any] = Field(default_factory=dict)
+    observed_state: dict[str, Any] = Field(default_factory=dict)
+    first_seen_at: datetime
+    last_seen_at: datetime
+    created_at: datetime
+    updated_at: datetime
+
+
+class SpmInventoryTaxonomyEntryRead(Schema):
+    """Public taxonomy metadata for an inventory item or source type."""
+
+    key: str
+    display_value: str
+    icon_key: str
+    description: str
+    kind: str | None = None
+    enforcement: str | None = None
+
+
+class SpmInventoryTaxonomyBindingRead(Schema):
+    """Allowed source types for an inventory item type."""
+
+    item_type: SpmInventoryItemType
+    source_types: list[SpmInventorySourceType]
+    enforcement: str
+
+
+class SpmInventoryTaxonomyHarnessRead(Schema):
+    """Harness-scoped Agent SPM inventory taxonomy."""
+
+    item_types: list[SpmInventoryTaxonomyEntryRead]
+    source_types: list[SpmInventoryTaxonomyEntryRead]
+    bindings: list[SpmInventoryTaxonomyBindingRead]
+    relationship_types: list[str]
+
+
+class SpmInventoryTaxonomyRead(Schema):
+    """Agent SPM inventory taxonomy."""
+
+    version: int
+    harnesses: dict[SpmHarness, SpmInventoryTaxonomyHarnessRead]
 
 
 class SpmSyncTaskResult(Schema):
@@ -456,7 +535,10 @@ class SpmEndpointSyncRequest(Schema):
     home_path: str | None = Field(default=None, max_length=500)
     status: SpmEndpointStatus = Field(default=SpmEndpointStatus.ACTIVE)
     client_metadata: dict[str, Any] = Field(default_factory=dict)
-    assets: list[SpmSyncAssetUpsert] = Field(default_factory=list)
+    inventory_items: list[SpmSyncInventoryItemUpsert] = Field(default_factory=list)
+    relationships: list[SpmSyncInventoryRelationshipUpsert] = Field(
+        default_factory=list
+    )
     task_results: list[SpmSyncTaskResult] = Field(default_factory=list)
 
 
@@ -469,6 +551,6 @@ class SpmEndpointSyncResponse(Schema):
 
 
 SpmEndpointListResponse = CursorPaginatedResponse[SpmEndpointRead]
-SpmAssetListResponse = CursorPaginatedResponse[SpmAssetRead]
-SpmEndpointAssetListResponse = CursorPaginatedResponse[SpmEndpointAssetRead]
+SpmInventoryListResponse = CursorPaginatedResponse[SpmInventoryItemRead]
+SpmEndpointInventoryListResponse = CursorPaginatedResponse[SpmEndpointInventoryItemRead]
 SpmFindingListResponse = CursorPaginatedResponse[SpmFindingRead]

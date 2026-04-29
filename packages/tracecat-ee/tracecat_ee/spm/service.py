@@ -22,12 +22,13 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.db.models import (
-    SpmAsset,
-    SpmAssetSighting,
     SpmEndpoint,
     SpmEnforcementTask,
     SpmFinding,
     SpmFindingDecision,
+    SpmInventoryItem,
+    SpmInventoryObservation,
+    SpmInventoryRelationship,
 )
 from tracecat.exceptions import EntitlementRequired
 from tracecat.pagination import (
@@ -49,18 +50,16 @@ from tracecat_ee.spm.intel import (
     SpmThreatIntelProvider,
 )
 from tracecat_ee.spm.schemas import (
-    SpmAnyControlAssetData,
-    SpmAssetQueryParams,
-    SpmAssetRead,
+    SpmAnyControlInventoryItemData,
     SpmConfigControlData,
     SpmControlContext,
     SpmControlPolicy,
     SpmControlRead,
     SpmControlResult,
     SpmDirectoryControlData,
-    SpmEndpointAssetRead,
     SpmEndpointCreate,
     SpmEndpointCreateResponse,
+    SpmEndpointInventoryItemRead,
     SpmEndpointRead,
     SpmEndpointSyncRequest,
     SpmEndpointSyncResponse,
@@ -71,16 +70,24 @@ from tracecat_ee.spm.schemas import (
     SpmFindingRead,
     SpmHookControlData,
     SpmInstructionFileControlData,
+    SpmInventoryItemRead,
+    SpmInventoryQueryParams,
+    SpmInventoryTaxonomyRead,
     SpmMcpServerControlData,
     SpmSkillControlData,
-    SpmSyncAssetUpsert,
+    SpmSyncInventoryItemUpsert,
+    SpmSyncInventoryRelationshipUpsert,
     SpmSyncTaskResult,
 )
+from tracecat_ee.spm.taxonomy import (
+    inventory_taxonomy_as_dict,
+    validate_control_target,
+)
 from tracecat_ee.spm.types import (
-    SpmAssetType,
     SpmEnforcementTaskStatus,
     SpmFindingDecisionType,
     SpmFindingStatus,
+    SpmInventoryItemType,
     SpmSyncTaskResultStatus,
 )
 
@@ -211,6 +218,19 @@ def _load_control_definitions_from_directory(
                 code="spm_control_manifest_invalid",
                 path=manifest_path,
             ) from exc
+        try:
+            validate_control_target(
+                harness=control.harness,
+                item_type=control.item_type,
+                source_types=control.source_types,
+            )
+        except ValueError as exc:
+            raise SpmControlCatalogError(
+                "SPM control target is not in the inventory taxonomy.",
+                code="spm_control_target_invalid",
+                path=manifest_path,
+                ref=control.key,
+            ) from exc
 
         if control.id in seen_ids:
             raise SpmControlCatalogError(
@@ -317,7 +337,7 @@ def _control_definitions_by_target() -> dict[
         control = definition.control
         target = (
             control.harness.value,
-            control.asset_type.value,
+            control.item_type.value,
         )
         grouped.setdefault(target, []).append(definition)
     return {
@@ -326,16 +346,16 @@ def _control_definitions_by_target() -> dict[
     }
 
 
-def _controls_for_asset(asset: SpmAsset) -> tuple[SpmControlDefinition, ...]:
+def _controls_for_item(item: SpmInventoryItem) -> tuple[SpmControlDefinition, ...]:
     definitions = _control_definitions_by_target().get(
-        (asset.harness, asset.asset_type), ()
+        (item.harness, item.item_type), ()
     )
     return tuple(
         definition
         for definition in definitions
-        if not definition.control.artifact_types
-        or asset.artifact_type
-        in {artifact_type.value for artifact_type in definition.control.artifact_types}
+        if not definition.control.source_types
+        or item.source_type
+        in {source_type.value for source_type in definition.control.source_types}
     )
 
 
@@ -350,34 +370,35 @@ def _control_id_for_ref(control_ref: str) -> uuid.UUID | None:
 
 def _control_data_from_rows(
     *,
-    asset: SpmAsset,
-    sighting: SpmAssetSighting,
-) -> SpmAnyControlAssetData:
-    metadata = asset.asset_metadata or {}
-    evidence = sighting.evidence or {}
-    observed_state = sighting.observed_state or {}
+    item: SpmInventoryItem,
+    observation: SpmInventoryObservation,
+) -> SpmAnyControlInventoryItemData:
+    metadata = item.item_metadata or {}
+    evidence = observation.evidence or {}
+    observed_state = observation.observed_state or {}
     base = {
-        "id": asset.id,
-        "sighting_id": sighting.id,
-        "identity_key": asset.identity_key,
-        "display_name": asset.display_name,
-        "harness": asset.harness,
-        "asset_type": asset.asset_type,
-        "artifact_type": asset.artifact_type,
-        "artifact_location": asset.artifact_location,
-        "content_hash": sighting.content_hash or asset.content_hash,
+        "id": item.id,
+        "observation_id": observation.id,
+        "identity_key": item.identity_key,
+        "display_name": item.display_name,
+        "harness": item.harness,
+        "item_type": item.item_type,
+        "source_type": item.source_type,
+        "item_location": item.item_location,
+        "source_location": item.source_location,
+        "content_hash": observation.content_hash or item.content_hash,
         "metadata": metadata,
         "evidence": evidence,
         "observed_state": observed_state,
     }
 
-    match asset.asset_type:
+    match item.item_type:
         case (
-            SpmAssetType.TRUSTED_DIRECTORY.value
-            | SpmAssetType.ADDITIONAL_DIRECTORY.value
+            SpmInventoryItemType.TRUSTED_DIRECTORY.value
+            | SpmInventoryItemType.ADDITIONAL_DIRECTORY.value
         ):
             directory_path = (
-                _string(metadata.get("directory_path")) or asset.identity_key
+                _string(metadata.get("directory_path")) or item.identity_key
             )
             return SpmDirectoryControlData.model_validate(
                 {
@@ -387,7 +408,10 @@ def _control_data_from_rows(
                     "parse_status": _string(metadata.get("parse_status")),
                 }
             )
-        case SpmAssetType.PERMISSION_CONFIG.value | SpmAssetType.SANDBOX_CONFIG.value:
+        case (
+            SpmInventoryItemType.PERMISSION_CONFIG.value
+            | SpmInventoryItemType.SANDBOX_CONFIG.value
+        ):
             return SpmConfigControlData.model_validate(
                 {
                     **base,
@@ -397,7 +421,7 @@ def _control_data_from_rows(
                     "value": observed_state.get("value"),
                 }
             )
-        case SpmAssetType.MCP_SERVER.value:
+        case SpmInventoryItemType.MCP_SERVER.value:
             return SpmMcpServerControlData.model_validate(
                 {
                     **base,
@@ -409,7 +433,7 @@ def _control_data_from_rows(
                     "mcp_identity_key": _string(metadata.get("mcp_identity_key")),
                 }
             )
-        case SpmAssetType.HOOK.value:
+        case SpmInventoryItemType.HOOK.value:
             return SpmHookControlData.model_validate(
                 {
                     **base,
@@ -421,7 +445,7 @@ def _control_data_from_rows(
                     "command": _string(metadata.get("command")),
                 }
             )
-        case SpmAssetType.SKILL.value:
+        case SpmInventoryItemType.SKILL.value:
             return SpmSkillControlData.model_validate(
                 {
                     **base,
@@ -433,7 +457,7 @@ def _control_data_from_rows(
                     "skill": evidence.get("skill"),
                 }
             )
-        case SpmAssetType.INSTRUCTION_FILE.value:
+        case SpmInventoryItemType.INSTRUCTION_FILE.value:
             return SpmInstructionFileControlData.model_validate(
                 {
                     **base,
@@ -449,7 +473,9 @@ def _control_data_from_rows(
                 }
             )
 
-    raise ValueError(f"Unsupported SPM asset type for controls: {asset.asset_type}")
+    raise ValueError(
+        f"Unsupported SPM inventory item type for controls: {item.item_type}"
+    )
 
 
 def _string(raw: Any) -> str | None:
@@ -486,6 +512,9 @@ class SpmService(BaseOrgService):
             code="spm_control_not_found",
             control_id=control_id,
         )
+
+    async def get_inventory_taxonomy(self) -> SpmInventoryTaxonomyRead:
+        return SpmInventoryTaxonomyRead.model_validate(inventory_taxonomy_as_dict())
 
     async def list_endpoints(
         self,
@@ -565,35 +594,40 @@ class SpmService(BaseOrgService):
         await self.session.delete(row)
         await self.session.commit()
 
-    async def list_assets(
+    async def list_inventory(
         self,
-        params: SpmAssetQueryParams,
-    ) -> CursorPaginatedResponse[SpmAssetRead]:
-        stmt = select(SpmAsset).where(SpmAsset.organization_id == self.organization_id)
+        params: SpmInventoryQueryParams,
+    ) -> CursorPaginatedResponse[SpmInventoryItemRead]:
+        stmt = select(SpmInventoryItem).where(
+            SpmInventoryItem.organization_id == self.organization_id
+        )
         if params.harness is not None:
-            stmt = stmt.where(SpmAsset.harness == params.harness.value)
-        if params.asset_type is not None:
-            stmt = stmt.where(SpmAsset.asset_type == params.asset_type.value)
-        if params.artifact_type is not None:
-            stmt = stmt.where(SpmAsset.artifact_type == params.artifact_type.value)
+            stmt = stmt.where(SpmInventoryItem.harness == params.harness.value)
+        if params.item_type is not None:
+            stmt = stmt.where(SpmInventoryItem.item_type == params.item_type.value)
+        if params.source_type is not None:
+            stmt = stmt.where(SpmInventoryItem.source_type == params.source_type.value)
         if params.endpoint_id is not None:
-            asset_sighting_exists = (
-                select(SpmAssetSighting.id)
+            inventory_observation_exists = (
+                select(SpmInventoryObservation.id)
                 .where(
-                    SpmAssetSighting.organization_id == self.organization_id,
-                    SpmAssetSighting.endpoint_id == params.endpoint_id,
-                    SpmAssetSighting.asset_id == SpmAsset.id,
+                    SpmInventoryObservation.organization_id == self.organization_id,
+                    SpmInventoryObservation.endpoint_id == params.endpoint_id,
+                    SpmInventoryObservation.inventory_item_id == SpmInventoryItem.id,
                 )
                 .exists()
             )
-            stmt = stmt.where(asset_sighting_exists)
+            stmt = stmt.where(inventory_observation_exists)
         stmt = _apply_desc_cursor_filter(
             stmt,
-            model=SpmAsset,
+            model=SpmInventoryItem,
             cursor=params.cursor,
             sort_attr="updated_at",
         )
-        stmt = stmt.order_by(SpmAsset.updated_at.desc(), SpmAsset.id.desc())
+        stmt = stmt.order_by(
+            SpmInventoryItem.updated_at.desc(),
+            SpmInventoryItem.id.desc(),
+        )
         stmt = stmt.limit(params.limit + 1)
         rows = list((await self.session.scalars(stmt)).all())
         has_more = len(rows) > params.limit
@@ -609,54 +643,58 @@ class SpmService(BaseOrgService):
                 sort_value=last.updated_at,
             )
 
-        return CursorPaginatedResponse[SpmAssetRead](
-            items=SpmAssetRead.list_adapter().validate_python(rows),
+        return CursorPaginatedResponse[SpmInventoryItemRead](
+            items=SpmInventoryItemRead.list_adapter().validate_python(rows),
             next_cursor=next_cursor,
             has_more=has_more,
         )
 
-    async def list_endpoint_assets(
+    async def list_endpoint_inventory(
         self,
         endpoint_id: uuid.UUID,
         params: CursorPaginationParams,
-    ) -> CursorPaginatedResponse[SpmEndpointAssetRead]:
+    ) -> CursorPaginatedResponse[SpmEndpointInventoryItemRead]:
         await self._get_endpoint_row(endpoint_id)
         stmt = (
             select(
-                SpmAsset.id.label("asset_id"),
-                SpmAssetSighting.id.label("asset_sighting_id"),
-                SpmAsset.organization_id.label("organization_id"),
-                SpmAssetSighting.endpoint_id.label("endpoint_id"),
-                SpmAssetSighting.workspace_id.label("workspace_id"),
-                SpmAsset.harness.label("harness"),
-                SpmAsset.asset_type.label("asset_type"),
-                SpmAsset.artifact_type.label("artifact_type"),
-                SpmAsset.artifact_location.label("artifact_location"),
-                SpmAsset.identity_key.label("identity_key"),
-                SpmAsset.display_name.label("display_name"),
-                SpmAssetSighting.content_hash.label("content_hash"),
-                SpmAsset.asset_metadata.label("asset_metadata"),
-                SpmAssetSighting.evidence.label("evidence"),
-                SpmAssetSighting.observed_state.label("observed_state"),
-                SpmAssetSighting.first_seen_at.label("first_seen_at"),
-                SpmAssetSighting.last_seen_at.label("last_seen_at"),
+                SpmInventoryItem.id.label("inventory_item_id"),
+                SpmInventoryObservation.id.label("inventory_observation_id"),
+                SpmInventoryItem.organization_id.label("organization_id"),
+                SpmInventoryObservation.endpoint_id.label("endpoint_id"),
+                SpmInventoryObservation.workspace_id.label("workspace_id"),
+                SpmInventoryItem.harness.label("harness"),
+                SpmInventoryItem.item_type.label("item_type"),
+                SpmInventoryItem.source_type.label("source_type"),
+                SpmInventoryItem.item_location.label("item_location"),
+                SpmInventoryItem.source_location.label("source_location"),
+                SpmInventoryItem.identity_key.label("identity_key"),
+                SpmInventoryItem.display_name.label("display_name"),
+                SpmInventoryObservation.content_hash.label("content_hash"),
+                SpmInventoryItem.item_metadata.label("item_metadata"),
+                SpmInventoryObservation.evidence.label("evidence"),
+                SpmInventoryObservation.observed_state.label("observed_state"),
+                SpmInventoryObservation.first_seen_at.label("first_seen_at"),
+                SpmInventoryObservation.last_seen_at.label("last_seen_at"),
             )
-            .select_from(SpmAssetSighting)
-            .join(SpmAsset, SpmAsset.id == SpmAssetSighting.asset_id)
+            .select_from(SpmInventoryObservation)
+            .join(
+                SpmInventoryItem,
+                SpmInventoryItem.id == SpmInventoryObservation.inventory_item_id,
+            )
             .where(
-                SpmAssetSighting.organization_id == self.organization_id,
-                SpmAssetSighting.endpoint_id == endpoint_id,
+                SpmInventoryObservation.organization_id == self.organization_id,
+                SpmInventoryObservation.endpoint_id == endpoint_id,
             )
         )
         stmt = _apply_desc_cursor_filter_columns(
             stmt,
             cursor=params.cursor,
-            sort_column=SpmAssetSighting.last_seen_at,
-            id_column=SpmAssetSighting.id,
+            sort_column=SpmInventoryObservation.last_seen_at,
+            id_column=SpmInventoryObservation.id,
         )
         stmt = stmt.order_by(
-            SpmAssetSighting.last_seen_at.desc(),
-            SpmAssetSighting.id.desc(),
+            SpmInventoryObservation.last_seen_at.desc(),
+            SpmInventoryObservation.id.desc(),
         )
         stmt = stmt.limit(params.limit + 1)
         rows = list((await self.session.execute(stmt)).mappings().all())
@@ -668,30 +706,33 @@ class SpmService(BaseOrgService):
         if has_more and rows:
             last = rows[-1]
             next_cursor = BaseCursorPaginator.encode_cursor(
-                id=last["asset_sighting_id"],
+                id=last["inventory_observation_id"],
                 sort_column="last_seen_at",
                 sort_value=last["last_seen_at"],
             )
 
-        return CursorPaginatedResponse[SpmEndpointAssetRead](
-            items=SpmEndpointAssetRead.list_adapter().validate_python(rows),
+        return CursorPaginatedResponse[SpmEndpointInventoryItemRead](
+            items=SpmEndpointInventoryItemRead.list_adapter().validate_python(rows),
             next_cursor=next_cursor,
             has_more=has_more,
         )
 
-    async def get_asset(self, asset_id: uuid.UUID) -> SpmAssetRead:
-        stmt = select(SpmAsset).where(
-            SpmAsset.id == asset_id,
-            SpmAsset.organization_id == self.organization_id,
+    async def get_inventory_item(
+        self,
+        inventory_item_id: uuid.UUID,
+    ) -> SpmInventoryItemRead:
+        stmt = select(SpmInventoryItem).where(
+            SpmInventoryItem.id == inventory_item_id,
+            SpmInventoryItem.organization_id == self.organization_id,
         )
         row = (await self.session.scalars(stmt)).one_or_none()
         if row is None:
             raise SpmNotFoundError(
-                "SPM asset not found.",
-                code="spm_asset_not_found",
-                asset_id=asset_id,
+                "SPM inventory item not found.",
+                code="spm_inventory_item_not_found",
+                inventory_item_id=inventory_item_id,
             )
-        return SpmAssetRead.model_validate(row)
+        return SpmInventoryItemRead.model_validate(row)
 
     async def list_findings(
         self,
@@ -876,8 +917,16 @@ class SpmSyncService:
         endpoint.last_sync_at = endpoint.last_seen_at
         endpoint.last_sync_error = None
 
-        for asset in params.assets:
-            await self._upsert_asset(endpoint=endpoint, asset=asset)
+        items_by_identity_key: dict[str, SpmInventoryItem] = {}
+        for item in params.inventory_items:
+            item_row = await self._upsert_inventory_item(endpoint=endpoint, item=item)
+            items_by_identity_key[item.identity_key] = item_row
+        for relationship in params.relationships:
+            await self._upsert_inventory_relationship(
+                endpoint=endpoint,
+                relationship=relationship,
+                items_by_identity_key=items_by_identity_key,
+            )
         for task_result in params.task_results:
             await self._apply_task_result(endpoint=endpoint, task_result=task_result)
 
@@ -913,19 +962,19 @@ class SpmSyncService:
         handled_pairs: set[tuple[uuid.UUID, uuid.UUID]] = set()
         failing_pairs: set[tuple[uuid.UUID, uuid.UUID]] = set()
 
-        for sighting, asset in rows:
-            controls = _controls_for_asset(asset)
+        for observation, item in rows:
+            controls = _controls_for_item(item)
             if not controls:
                 continue
 
-            data = _control_data_from_rows(asset=asset, sighting=sighting)
-            intelligence = await self._asset_intelligence(
-                asset=asset,
-                sighting=sighting,
+            data = _control_data_from_rows(item=item, observation=observation)
+            intelligence = await self._item_intelligence(
+                item=item,
+                observation=observation,
                 threat_intel_provider=threat_intel_provider,
             )
             context = SpmControlContext(
-                asset=data,
+                item=data,
                 policy=policy,
                 intelligence=intelligence,
             )
@@ -933,7 +982,7 @@ class SpmSyncService:
             for definition in controls:
                 result = definition.check(context)
                 control = definition.control
-                pair = (asset.id, control.id)
+                pair = (item.id, control.id)
                 handled_pairs.add(pair)
                 if not result.failed:
                     continue
@@ -941,8 +990,8 @@ class SpmSyncService:
                 failing_pairs.add(pair)
                 await self._upsert_finding(
                     endpoint=endpoint,
-                    asset=asset,
-                    sighting=sighting,
+                    item=item,
+                    observation=observation,
                     control=control,
                     result=result,
                 )
@@ -955,33 +1004,36 @@ class SpmSyncService:
 
     async def _endpoint_rows(
         self, endpoint: SpmEndpoint
-    ) -> list[tuple[SpmAssetSighting, SpmAsset]]:
+    ) -> list[tuple[SpmInventoryObservation, SpmInventoryItem]]:
         stmt = (
-            select(SpmAssetSighting, SpmAsset)
-            .join(SpmAsset, SpmAsset.id == SpmAssetSighting.asset_id)
+            select(SpmInventoryObservation, SpmInventoryItem)
+            .join(
+                SpmInventoryItem,
+                SpmInventoryItem.id == SpmInventoryObservation.inventory_item_id,
+            )
             .where(
-                SpmAssetSighting.organization_id == endpoint.organization_id,
-                SpmAssetSighting.endpoint_id == endpoint.id,
+                SpmInventoryObservation.organization_id == endpoint.organization_id,
+                SpmInventoryObservation.endpoint_id == endpoint.id,
             )
         )
         result = await self.session.execute(stmt)
         return [(row[0], row[1]) for row in result.all()]
 
-    async def _asset_intelligence(
+    async def _item_intelligence(
         self,
         *,
-        asset: SpmAsset,
-        sighting: SpmAssetSighting,
+        item: SpmInventoryItem,
+        observation: SpmInventoryObservation,
         threat_intel_provider: SpmThreatIntelProvider,
     ) -> dict[str, Any]:
-        metadata = asset.asset_metadata or {}
-        evidence = sighting.evidence or {}
-        if asset.asset_type == SpmAssetType.MCP_SERVER.value:
+        metadata = item.item_metadata or {}
+        evidence = observation.evidence or {}
+        if item.item_type == SpmInventoryItemType.MCP_SERVER.value:
             return await threat_intel_provider.enrich_mcp_server(
                 metadata=metadata,
                 evidence=evidence,
             )
-        if asset.asset_type == SpmAssetType.INSTRUCTION_FILE.value:
+        if item.item_type == SpmInventoryItemType.INSTRUCTION_FILE.value:
             return await threat_intel_provider.enrich_instruction_file(
                 metadata=metadata,
                 evidence=evidence,
@@ -992,15 +1044,15 @@ class SpmSyncService:
         self,
         *,
         endpoint: SpmEndpoint,
-        asset: SpmAsset,
-        sighting: SpmAssetSighting,
+        item: SpmInventoryItem,
+        observation: SpmInventoryObservation,
         control: SpmControlRead,
         result: SpmControlResult,
     ) -> SpmFinding:
         stmt = select(SpmFinding).where(
             SpmFinding.organization_id == endpoint.organization_id,
             SpmFinding.endpoint_id == endpoint.id,
-            SpmFinding.asset_id == asset.id,
+            SpmFinding.inventory_item_id == item.id,
             SpmFinding.control_id == control.id,
         )
         finding = (await self.session.scalars(stmt)).one_or_none()
@@ -1010,15 +1062,16 @@ class SpmSyncService:
                 id=uuid.uuid4(),
                 organization_id=endpoint.organization_id,
                 endpoint_id=endpoint.id,
-                asset_id=asset.id,
-                asset_sighting_id=sighting.id,
+                inventory_item_id=item.id,
+                inventory_observation_id=observation.id,
                 control_id=control.id,
                 control_key=control.key,
                 control_revision=control.revision,
                 harness=control.harness.value,
-                asset_type=asset.asset_type,
-                artifact_type=asset.artifact_type,
-                artifact_location=asset.artifact_location,
+                item_type=item.item_type,
+                source_type=item.source_type,
+                item_location=item.item_location,
+                source_location=item.source_location,
                 severity=control.severity.value,
                 status=SpmFindingStatus.OPEN.value,
                 summary=result.summary,
@@ -1032,13 +1085,14 @@ class SpmSyncService:
             await self.session.flush()
             return finding
 
-        finding.asset_sighting_id = sighting.id
+        finding.inventory_observation_id = observation.id
         finding.control_key = control.key
         finding.control_revision = control.revision
         finding.harness = control.harness.value
-        finding.asset_type = asset.asset_type
-        finding.artifact_type = asset.artifact_type
-        finding.artifact_location = asset.artifact_location
+        finding.item_type = item.item_type
+        finding.source_type = item.source_type
+        finding.item_location = item.item_location
+        finding.source_location = item.source_location
         finding.severity = control.severity.value
         finding.summary = result.summary
         finding.evidence = result.evidence
@@ -1069,7 +1123,7 @@ class SpmSyncService:
         findings = list((await self.session.scalars(stmt)).all())
         now = datetime.now(UTC)
         for finding in findings:
-            pair = (finding.asset_id, finding.control_id)
+            pair = (finding.inventory_item_id, finding.control_id)
             if pair not in handled_pairs or pair in failing_pairs:
                 continue
             if finding.status == SpmFindingStatus.DISMISSED.value:
@@ -1105,78 +1159,129 @@ class SpmSyncService:
             )
         return endpoint
 
-    async def _upsert_asset(
+    async def _upsert_inventory_item(
         self,
         *,
         endpoint: SpmEndpoint,
-        asset: SpmSyncAssetUpsert,
-    ) -> None:
-        stmt = select(SpmAsset).where(
-            SpmAsset.organization_id == endpoint.organization_id,
-            SpmAsset.harness == asset.harness.value,
-            SpmAsset.asset_type == asset.asset_type.value,
-            SpmAsset.artifact_type == asset.artifact_type.value,
-            SpmAsset.artifact_location == asset.artifact_location,
-            SpmAsset.identity_key == asset.identity_key,
+        item: SpmSyncInventoryItemUpsert,
+    ) -> SpmInventoryItem:
+        stmt = select(SpmInventoryItem).where(
+            SpmInventoryItem.organization_id == endpoint.organization_id,
+            SpmInventoryItem.harness == item.harness.value,
+            SpmInventoryItem.item_type == item.item_type.value,
+            SpmInventoryItem.source_type == item.source_type.value,
+            SpmInventoryItem.item_location == item.item_location,
+            SpmInventoryItem.source_location == item.source_location,
+            SpmInventoryItem.identity_key == item.identity_key,
         )
         now = datetime.now(UTC)
-        asset_row = (await self.session.scalars(stmt)).one_or_none()
-        if asset_row is None:
-            asset_row = SpmAsset(
+        item_row = (await self.session.scalars(stmt)).one_or_none()
+        if item_row is None:
+            item_row = SpmInventoryItem(
                 id=uuid.uuid4(),
                 organization_id=endpoint.organization_id,
-                harness=asset.harness.value,
-                asset_type=asset.asset_type.value,
-                artifact_type=asset.artifact_type.value,
-                artifact_location=asset.artifact_location,
-                identity_key=asset.identity_key,
-                display_name=asset.display_name,
-                content_hash=asset.content_hash,
-                asset_metadata=asset.metadata,
+                harness=item.harness.value,
+                item_type=item.item_type.value,
+                source_type=item.source_type.value,
+                item_location=item.item_location,
+                source_location=item.source_location,
+                identity_key=item.identity_key,
+                display_name=item.display_name,
+                content_hash=item.content_hash,
+                item_metadata=item.metadata,
                 first_seen_at=now,
                 last_seen_at=now,
             )
-            # Multiple endpoints can discover the same org-scoped asset on their
+            # Multiple endpoints can discover the same org-scoped item on their
             # first sync. Use a savepoint so a duplicate insert can fall back to
             # the row that another transaction just committed.
             try:
                 async with self.session.begin_nested():
-                    self.session.add(asset_row)
+                    self.session.add(item_row)
                     await self.session.flush()
             except IntegrityError:
-                asset_row = (await self.session.scalars(stmt)).one()
+                item_row = (await self.session.scalars(stmt)).one()
 
-        asset_row.display_name = asset.display_name
-        asset_row.content_hash = asset.content_hash
-        asset_row.asset_metadata = asset.metadata
-        asset_row.last_seen_at = now
+        item_row.display_name = item.display_name
+        item_row.content_hash = item.content_hash
+        item_row.item_metadata = item.metadata
+        item_row.last_seen_at = now
 
-        sighting_stmt = select(SpmAssetSighting).where(
-            SpmAssetSighting.organization_id == endpoint.organization_id,
-            SpmAssetSighting.endpoint_id == endpoint.id,
-            SpmAssetSighting.asset_id == asset_row.id,
+        observation_stmt = select(SpmInventoryObservation).where(
+            SpmInventoryObservation.organization_id == endpoint.organization_id,
+            SpmInventoryObservation.endpoint_id == endpoint.id,
+            SpmInventoryObservation.inventory_item_id == item_row.id,
         )
-        sighting = (await self.session.scalars(sighting_stmt)).one_or_none()
-        if sighting is None:
-            sighting = SpmAssetSighting(
+        observation = (await self.session.scalars(observation_stmt)).one_or_none()
+        if observation is None:
+            observation = SpmInventoryObservation(
                 id=uuid.uuid4(),
                 organization_id=endpoint.organization_id,
                 endpoint_id=endpoint.id,
-                asset_id=asset_row.id,
-                workspace_id=asset.workspace_id,
-                evidence=asset.evidence,
-                observed_state=asset.observed_state,
-                content_hash=asset.content_hash,
+                inventory_item_id=item_row.id,
+                workspace_id=item.workspace_id,
+                evidence=item.evidence,
+                observed_state=item.observed_state,
+                content_hash=item.content_hash,
                 first_seen_at=now,
                 last_seen_at=now,
             )
-            self.session.add(sighting)
+            self.session.add(observation)
         else:
-            sighting.workspace_id = asset.workspace_id
-            sighting.evidence = asset.evidence
-            sighting.observed_state = asset.observed_state
-            sighting.content_hash = asset.content_hash
-            sighting.last_seen_at = now
+            observation.workspace_id = item.workspace_id
+            observation.evidence = item.evidence
+            observation.observed_state = item.observed_state
+            observation.content_hash = item.content_hash
+            observation.last_seen_at = now
+        return item_row
+
+    async def _upsert_inventory_relationship(
+        self,
+        *,
+        endpoint: SpmEndpoint,
+        relationship: SpmSyncInventoryRelationshipUpsert,
+        items_by_identity_key: dict[str, SpmInventoryItem],
+    ) -> None:
+        from_item = items_by_identity_key.get(relationship.from_identity_key)
+        to_item = items_by_identity_key.get(relationship.to_identity_key)
+        if from_item is None or to_item is None:
+            raise SpmNotFoundError(
+                "SPM inventory relationship references an item not in this sync.",
+                code="spm_inventory_relationship_item_not_found",
+                endpoint_id=endpoint.id,
+                from_identity_key=relationship.from_identity_key,
+                to_identity_key=relationship.to_identity_key,
+            )
+
+        stmt = select(SpmInventoryRelationship).where(
+            SpmInventoryRelationship.organization_id == endpoint.organization_id,
+            SpmInventoryRelationship.endpoint_id == endpoint.id,
+            SpmInventoryRelationship.relationship_type
+            == relationship.relationship_type.value,
+            SpmInventoryRelationship.from_inventory_item_id == from_item.id,
+            SpmInventoryRelationship.to_inventory_item_id == to_item.id,
+        )
+        now = datetime.now(UTC)
+        row = (await self.session.scalars(stmt)).one_or_none()
+        if row is None:
+            row = SpmInventoryRelationship(
+                id=uuid.uuid4(),
+                organization_id=endpoint.organization_id,
+                endpoint_id=endpoint.id,
+                relationship_type=relationship.relationship_type.value,
+                from_inventory_item_id=from_item.id,
+                to_inventory_item_id=to_item.id,
+                evidence=relationship.evidence,
+                observed_state=relationship.observed_state,
+                first_seen_at=now,
+                last_seen_at=now,
+            )
+            self.session.add(row)
+            return
+
+        row.evidence = relationship.evidence
+        row.observed_state = relationship.observed_state
+        row.last_seen_at = now
 
     async def _apply_task_result(
         self,

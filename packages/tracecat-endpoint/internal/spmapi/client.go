@@ -48,18 +48,32 @@ type Endpoint struct {
 	UpdatedAt       time.Time      `json:"updated_at"`
 }
 
-type SyncAsset struct {
-	Harness          string         `json:"harness"`
-	AssetType        string         `json:"asset_type"`
-	ArtifactType     string         `json:"artifact_type"`
-	ArtifactLocation string         `json:"artifact_location"`
-	IdentityKey      string         `json:"identity_key"`
-	DisplayName      string         `json:"display_name"`
-	ContentHash      string         `json:"content_hash,omitempty"`
-	WorkspaceID      string         `json:"workspace_id,omitempty"`
-	Metadata         map[string]any `json:"metadata,omitempty"`
+type SyncInventoryItem struct {
+	Harness        string         `json:"harness"`
+	ItemType       string         `json:"item_type"`
+	SourceType     string         `json:"source_type"`
+	ItemLocation   string         `json:"item_location"`
+	SourceLocation string         `json:"source_location"`
+	IdentityKey    string         `json:"identity_key"`
+	DisplayName    string         `json:"display_name"`
+	ContentHash    string         `json:"content_hash,omitempty"`
+	WorkspaceID    string         `json:"workspace_id,omitempty"`
+	Metadata       map[string]any `json:"metadata,omitempty"`
+	Evidence       map[string]any `json:"evidence,omitempty"`
+	ObservedState  map[string]any `json:"observed_state,omitempty"`
+}
+
+type SyncInventoryRelationship struct {
+	RelationshipType string         `json:"relationship_type"`
+	FromIdentityKey  string         `json:"from_identity_key"`
+	ToIdentityKey    string         `json:"to_identity_key"`
 	Evidence         map[string]any `json:"evidence,omitempty"`
 	ObservedState    map[string]any `json:"observed_state,omitempty"`
+}
+
+type InventorySnapshot struct {
+	InventoryItems []SyncInventoryItem
+	Relationships  []SyncInventoryRelationship
 }
 
 type SyncTaskResult struct {
@@ -87,15 +101,16 @@ type EnforcementTask struct {
 }
 
 type SyncRequest struct {
-	Name            string           `json:"name,omitempty"`
-	EndpointVersion string           `json:"endpoint_version,omitempty"`
-	Hostname        string           `json:"hostname,omitempty"`
-	OSUser          string           `json:"os_user,omitempty"`
-	HomePath        string           `json:"home_path,omitempty"`
-	Status          EndpointStatus   `json:"status"`
-	ClientMetadata  map[string]any   `json:"client_metadata,omitempty"`
-	Assets          []SyncAsset      `json:"assets"`
-	TaskResults     []SyncTaskResult `json:"task_results"`
+	Name            string                      `json:"name,omitempty"`
+	EndpointVersion string                      `json:"endpoint_version,omitempty"`
+	Hostname        string                      `json:"hostname,omitempty"`
+	OSUser          string                      `json:"os_user,omitempty"`
+	HomePath        string                      `json:"home_path,omitempty"`
+	Status          EndpointStatus              `json:"status"`
+	ClientMetadata  map[string]any              `json:"client_metadata,omitempty"`
+	InventoryItems  []SyncInventoryItem         `json:"inventory_items"`
+	Relationships   []SyncInventoryRelationship `json:"relationships,omitempty"`
+	TaskResults     []SyncTaskResult            `json:"task_results"`
 }
 
 type SyncResponse struct {

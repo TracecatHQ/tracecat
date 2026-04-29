@@ -5,6 +5,6 @@ revision: "1"
 title: Claude skill must be approved
 description: Skills configured for Claude must be approved before they remain enabled.
 harness: claude_code
-asset_type: skill
+item_type: skill
 severity: medium
 action: disable_skill

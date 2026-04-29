@@ -26,13 +26,10 @@ from tracecat_ee.spm.exceptions import (
     SpmNotFoundError,
 )
 from tracecat_ee.spm.schemas import (
-    SpmAssetListResponse,
-    SpmAssetQueryParams,
-    SpmAssetRead,
     SpmControlRead,
-    SpmEndpointAssetListResponse,
     SpmEndpointCreate,
     SpmEndpointCreateResponse,
+    SpmEndpointInventoryListResponse,
     SpmEndpointListResponse,
     SpmEndpointRead,
     SpmEndpointSyncRequest,
@@ -42,9 +39,17 @@ from tracecat_ee.spm.schemas import (
     SpmFindingListResponse,
     SpmFindingQueryParams,
     SpmFindingRead,
+    SpmInventoryItemRead,
+    SpmInventoryListResponse,
+    SpmInventoryQueryParams,
+    SpmInventoryTaxonomyRead,
 )
 from tracecat_ee.spm.service import SpmService, SpmSyncService
-from tracecat_ee.spm.types import SpmArtifactType, SpmAssetType, SpmHarness
+from tracecat_ee.spm.types import (
+    SpmHarness,
+    SpmInventoryItemType,
+    SpmInventorySourceType,
+)
 
 router = APIRouter(prefix="/spm", tags=["spm"])
 
@@ -100,7 +105,7 @@ def _pagination_params(
     return CursorPaginationParams.model_construct(limit=limit, cursor=cursor)
 
 
-def _asset_query_params(
+def _inventory_query_params(
     limit: int = Query(
         default=config.TRACECAT__LIMIT_DEFAULT,
         ge=config.TRACECAT__LIMIT_MIN,
@@ -109,17 +114,17 @@ def _asset_query_params(
     cursor: str | None = Query(default=None),
     harness: SpmHarness | None = Query(default=None),
     endpoint_id: uuid.UUID | None = Query(default=None),
-    asset_type: SpmAssetType | None = Query(default=None),
-    artifact_type: SpmArtifactType | None = Query(default=None),
-) -> SpmAssetQueryParams:
-    return SpmAssetQueryParams.model_validate(
+    item_type: SpmInventoryItemType | None = Query(default=None),
+    source_type: SpmInventorySourceType | None = Query(default=None),
+) -> SpmInventoryQueryParams:
+    return SpmInventoryQueryParams.model_validate(
         {
             "limit": limit,
             "cursor": cursor,
             "harness": harness,
             "endpoint_id": endpoint_id,
-            "asset_type": asset_type,
-            "artifact_type": artifact_type,
+            "item_type": item_type,
+            "source_type": source_type,
         }
     )
 
@@ -275,56 +280,71 @@ async def get_spm_endpoint(
 
 
 @router.get(
-    "/endpoints/{endpoint_id}/assets",
-    response_model=SpmEndpointAssetListResponse,
+    "/inventory/taxonomy",
+    response_model=SpmInventoryTaxonomyRead,
     dependencies=[Depends(_require_spm_entitlement)],
 )
 @require_scope("org:read")
-async def list_spm_endpoint_assets(
+async def get_spm_inventory_taxonomy(
+    *,
+    role: OrgUserRole,
+    session: AsyncDBSession,
+) -> SpmInventoryTaxonomyRead:
+    service = SpmService(session, role=role)
+    return await service.get_inventory_taxonomy()
+
+
+@router.get(
+    "/endpoints/{endpoint_id}/inventory",
+    response_model=SpmEndpointInventoryListResponse,
+    dependencies=[Depends(_require_spm_entitlement)],
+)
+@require_scope("org:read")
+async def list_spm_endpoint_inventory(
     *,
     role: OrgUserRole,
     session: AsyncDBSession,
     endpoint_id: uuid.UUID,
     pagination: CursorPaginationParams = Depends(_pagination_params),
-) -> SpmEndpointAssetListResponse:
+) -> SpmEndpointInventoryListResponse:
     service = SpmService(session, role=role)
     try:
-        return await service.list_endpoint_assets(endpoint_id, pagination)
+        return await service.list_endpoint_inventory(endpoint_id, pagination)
     except (SpmError, TracecatNotFoundError) as exc:
         raise _spm_http_exception(exc) from exc
 
 
 @router.get(
-    "/assets",
-    response_model=SpmAssetListResponse,
+    "/inventory",
+    response_model=SpmInventoryListResponse,
     dependencies=[Depends(_require_spm_entitlement)],
 )
 @require_scope("org:read")
-async def list_spm_assets(
+async def list_spm_inventory(
     *,
     role: OrgUserRole,
     session: AsyncDBSession,
-    params: SpmAssetQueryParams = Depends(_asset_query_params),
-) -> SpmAssetListResponse:
+    params: SpmInventoryQueryParams = Depends(_inventory_query_params),
+) -> SpmInventoryListResponse:
     service = SpmService(session, role=role)
-    return await service.list_assets(params)
+    return await service.list_inventory(params)
 
 
 @router.get(
-    "/assets/{asset_id}",
-    response_model=SpmAssetRead,
+    "/inventory/{inventory_item_id}",
+    response_model=SpmInventoryItemRead,
     dependencies=[Depends(_require_spm_entitlement)],
 )
 @require_scope("org:read")
-async def get_spm_asset(
+async def get_spm_inventory_item(
     *,
     role: OrgUserRole,
     session: AsyncDBSession,
-    asset_id: uuid.UUID,
-) -> SpmAssetRead:
+    inventory_item_id: uuid.UUID,
+) -> SpmInventoryItemRead:
     service = SpmService(session, role=role)
     try:
-        return await service.get_asset(asset_id)
+        return await service.get_inventory_item(inventory_item_id)
     except (SpmError, TracecatNotFoundError) as exc:
         raise _spm_http_exception(exc) from exc
 
