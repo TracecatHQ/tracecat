@@ -944,7 +944,7 @@ class WorkflowExecutionsService:
                     source = await WorkflowExecutionEventCompact.from_source_event(
                         event
                     )
-                except Exception as e:
+                except (TypeError, ValueError, ValidationError) as e:
                     self.logger.warning(
                         "Failed to parse source event mask metadata; treating result as masked",
                         event_id=event.event_id,

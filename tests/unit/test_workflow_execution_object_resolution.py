@@ -188,6 +188,48 @@ class TestWorkflowExecutionObjectResolution:
                     3,
                 )
 
+    async def test_get_external_action_result_propagates_unexpected_metadata_error(
+        self,
+        workflow_executions_service: WorkflowExecutionsService,
+        workflow_exec_id: WorkflowExecutionID,
+    ) -> None:
+        scheduled_event = create_mock_scheduled_event(event_id=3)
+        completed_event = create_mock_completed_event(event_id=11, scheduled_event_id=3)
+
+        mock_handle = Mock(spec=WorkflowHandle)
+
+        async def mock_fetch_history_events(**_kwargs: Any):
+            yield scheduled_event
+            yield completed_event
+
+        mock_handle.fetch_history_events.return_value = mock_fetch_history_events()
+        workflow_executions_service._client.get_workflow_handle_for = Mock(
+            return_value=mock_handle
+        )
+
+        with (
+            patch.object(
+                workflow_executions_service,
+                "require_execution",
+                AsyncMock(return_value=Mock()),
+            ),
+            patch(
+                "tracecat.workflow.executions.service.WorkflowExecutionEventCompact.from_source_event",
+                AsyncMock(side_effect=RuntimeError("metadata parser crashed")),
+            ),
+            patch(
+                "tracecat.workflow.executions.service.get_stored_result",
+                AsyncMock(),
+            ) as mock_get_stored_result,
+        ):
+            with pytest.raises(RuntimeError, match="metadata parser crashed"):
+                await workflow_executions_service.get_external_action_result(
+                    workflow_exec_id,
+                    3,
+                )
+
+        mock_get_stored_result.assert_not_awaited()
+
     async def test_resolve_completed_event_missing_raises_not_found_error(
         self,
         workflow_executions_service: WorkflowExecutionsService,
