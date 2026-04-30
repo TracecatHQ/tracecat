@@ -38,10 +38,38 @@ harnesses:
         display_value: skill
         icon_key: sparkles
         description: claude_skill
-      agent:
-        display_value: agent
+      subagent:
+        display_value: subagent
         icon_key: bot
-        description: claude_agent
+        description: claude_subagent
+      command:
+        display_value: command
+        icon_key: terminal
+        description: claude_command
+      lsp_server:
+        display_value: lsp_server
+        icon_key: braces
+        description: claude_lsp_server
+      monitor:
+        display_value: monitor
+        icon_key: activity
+        description: claude_monitor
+      binary:
+        display_value: binary
+        icon_key: binary
+        description: claude_binary
+      plugin_settings:
+        display_value: plugin_settings
+        icon_key: file_cog
+        description: plugin_settings
+      output_style:
+        display_value: output_style
+        icon_key: palette
+        description: claude_output_style
+      theme:
+        display_value: theme
+        icon_key: swatch_book
+        description: claude_theme
     source_types:
       settings_json:
         display_value: settings_json
@@ -88,15 +116,50 @@ harnesses:
         icon_key: sparkles
         description: skill_frontmatter
         kind: frontmatter
-      agent_frontmatter:
-        display_value: agent_frontmatter
+      subagent_frontmatter:
+        display_value: subagent_frontmatter
         icon_key: bot
-        description: agent_frontmatter
+        description: subagent_frontmatter
         kind: frontmatter
       plugin_manifest:
         display_value: plugin_manifest
         icon_key: puzzle
         description: plugin_manifest
+        kind: file
+      command_file:
+        display_value: command_file
+        icon_key: terminal
+        description: command_file
+        kind: file
+      lsp_json:
+        display_value: lsp_json
+        icon_key: braces
+        description: lsp_json
+        kind: file
+      monitors_json:
+        display_value: monitors_json
+        icon_key: activity
+        description: monitors_json
+        kind: file
+      binary_file:
+        display_value: binary_file
+        icon_key: binary
+        description: binary_file
+        kind: file
+      plugin_settings_json:
+        display_value: plugin_settings_json
+        icon_key: file_cog
+        description: plugin_settings_json
+        kind: file
+      output_style_file:
+        display_value: output_style_file
+        icon_key: palette
+        description: output_style_file
+        kind: file
+      theme_file:
+        display_value: theme_file
+        icon_key: swatch_book
+        description: theme_file
         kind: file
       directory:
         display_value: directory
@@ -134,10 +197,29 @@ harnesses:
       - item_type: skill
         source_types: [settings_json, settings_local_json, claude_json, skill_frontmatter]
         enforcement: enforceable
-      - item_type: agent
-        source_types: [settings_json, settings_local_json, claude_json, agent_frontmatter]
+      - item_type: subagent
+        source_types: [settings_json, settings_local_json, claude_json, subagent_frontmatter]
+        enforcement: inventory_only
+      - item_type: command
+        source_types: [command_file]
+        enforcement: inventory_only
+      - item_type: lsp_server
+        source_types: [lsp_json]
+        enforcement: inventory_only
+      - item_type: monitor
+        source_types: [monitors_json]
+        enforcement: inventory_only
+      - item_type: binary
+        source_types: [binary_file]
+        enforcement: inventory_only
+      - item_type: plugin_settings
+        source_types: [plugin_settings_json]
+        enforcement: inventory_only
+      - item_type: output_style
+        source_types: [output_style_file]
+        enforcement: inventory_only
+      - item_type: theme
+        source_types: [theme_file]
         enforcement: inventory_only
     relationship_types:
-      - contains
       - defines
-      - imports

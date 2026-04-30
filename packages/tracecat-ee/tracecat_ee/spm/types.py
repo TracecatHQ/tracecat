@@ -38,7 +38,14 @@ class SpmInventoryItemType(StrEnum):
     TRUSTED_DIRECTORY = "trusted_directory"
     ADDITIONAL_DIRECTORY = "additional_directory"
     SKILL = "skill"
-    AGENT = "agent"
+    SUBAGENT = "subagent"
+    COMMAND = "command"
+    LSP_SERVER = "lsp_server"
+    MONITOR = "monitor"
+    BINARY = "binary"
+    PLUGIN_SETTINGS = "plugin_settings"
+    OUTPUT_STYLE = "output_style"
+    THEME = "theme"
 
 
 class SpmInventorySourceType(StrEnum):
@@ -53,17 +60,22 @@ class SpmInventorySourceType(StrEnum):
     CLAUDE_LOCAL_MD = "claude_local_md"
     AGENTS_MD = "agents_md"
     SKILL_FRONTMATTER = "skill_frontmatter"
-    AGENT_FRONTMATTER = "agent_frontmatter"
+    SUBAGENT_FRONTMATTER = "subagent_frontmatter"
     PLUGIN_MANIFEST = "plugin_manifest"
+    COMMAND_FILE = "command_file"
+    LSP_JSON = "lsp_json"
+    MONITORS_JSON = "monitors_json"
+    BINARY_FILE = "binary_file"
+    PLUGIN_SETTINGS_JSON = "plugin_settings_json"
+    OUTPUT_STYLE_FILE = "output_style_file"
+    THEME_FILE = "theme_file"
     DIRECTORY = "directory"
 
 
 class SpmInventoryRelationshipType(StrEnum):
     """Endpoint-observed relationship between inventory items."""
 
-    CONTAINS = "contains"
     DEFINES = "defines"
-    IMPORTS = "imports"
 
 
 class SpmSeverity(StrEnum):

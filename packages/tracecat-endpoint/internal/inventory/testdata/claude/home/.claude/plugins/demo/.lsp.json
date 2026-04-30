@@ -1,0 +1,8 @@
+{
+  "languageServers": {
+    "demo-lsp": {
+      "command": "demo-lsp",
+      "args": ["--stdio"]
+    }
+  }
+}

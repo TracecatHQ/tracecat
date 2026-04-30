@@ -24,15 +24,20 @@ _SOURCE_LOCATION_BASENAMES: dict[SpmInventorySourceType, str] = {
     SpmInventorySourceType.CLAUDE_JSON: ".claude.json",
     SpmInventorySourceType.HOOKS_JSON: "hooks.json",
     SpmInventorySourceType.MCP_JSON: ".mcp.json",
+    SpmInventorySourceType.LSP_JSON: ".lsp.json",
+    SpmInventorySourceType.MONITORS_JSON: "monitors.json",
+    SpmInventorySourceType.PLUGIN_SETTINGS_JSON: "settings.json",
     SpmInventorySourceType.CLAUDE_MD: "CLAUDE.md",
     SpmInventorySourceType.CLAUDE_LOCAL_MD: "CLAUDE.local.md",
     SpmInventorySourceType.AGENTS_MD: "AGENTS.md",
     SpmInventorySourceType.PLUGIN_MANIFEST: "plugin.json",
 }
-_FRONTMATTER_SOURCE_TYPES = frozenset(
+_MARKDOWN_SOURCE_TYPES = frozenset(
     {
         SpmInventorySourceType.SKILL_FRONTMATTER,
-        SpmInventorySourceType.AGENT_FRONTMATTER,
+        SpmInventorySourceType.SUBAGENT_FRONTMATTER,
+        SpmInventorySourceType.COMMAND_FILE,
+        SpmInventorySourceType.OUTPUT_STYLE_FILE,
     }
 )
 
@@ -358,7 +363,7 @@ def _validate_source_location(
                 "Invalid SPM inventory source location for "
                 f"{source_type.value}: expected basename {expected_name!r}"
             )
-    elif source_type in _FRONTMATTER_SOURCE_TYPES:
+    elif source_type in _MARKDOWN_SOURCE_TYPES:
         if Path(source_location).suffix.lower() != ".md":
             raise ValueError(
                 "Invalid SPM inventory source location for "

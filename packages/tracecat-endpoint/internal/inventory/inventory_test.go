@@ -114,7 +114,129 @@ func TestClaudeProviderCollectsClaudeSurfaces(t *testing.T) {
 
 	findItemByDisplayName(t, items, itemTypeHook, "PreToolUse .* echo audit")
 	findItemByDisplayName(t, items, itemTypeSkill, "registry-review")
-	findItemByDisplayName(t, items, itemTypeAgent, "investigator")
+	findItemByDisplayName(t, items, itemTypeSubagent, "investigator")
+}
+
+func TestClaudeProviderCollectsPluginBOM(t *testing.T) {
+	t.Parallel()
+
+	homeDir := copyFixture(t, "claude")
+	pluginRoot := filepath.Join(homeDir, ".claude", "plugins", "demo")
+	binaryPath := filepath.Join(pluginRoot, "bin", "helper")
+	if err := os.Chmod(binaryPath, 0o755); err != nil {
+		t.Fatalf("chmod helper binary: %v", err)
+	}
+
+	provider := NewClaudeProvider(homeDir)
+	snapshot, err := provider.Collect(context.Background())
+	if err != nil {
+		t.Fatalf("Collect() error = %v", err)
+	}
+	items := snapshot.InventoryItems
+	pluginManifestPath := filepath.Join(pluginRoot, ".claude-plugin", "plugin.json")
+	plugin := findItem(t, items, itemTypePlugin, sourceTypePluginManifest, pluginManifestPath)
+	if plugin.ItemLocation != pluginRoot {
+		t.Fatalf("expected plugin item location %q, got %q", pluginRoot, plugin.ItemLocation)
+	}
+
+	expectedChildren := []spmapi.SyncInventoryItem{
+		findItemByDisplayName(t, items, itemTypeSkill, "review"),
+		findItemByDisplayName(t, items, itemTypeSubagent, "plugin-investigator"),
+		findItemByDisplayName(t, items, itemTypeCommand, "deploy"),
+		findItemByDisplayName(t, items, itemTypeHook, "PostToolUse Write demo audit"),
+		findItemByDisplayName(t, items, itemTypeMCPServer, "demo-mcp"),
+		findItemByDisplayName(t, items, itemTypeLSPServer, "demo-lsp"),
+		findItemByDisplayName(t, items, itemTypeMonitor, "demo-monitor"),
+		findItemByDisplayName(t, items, itemTypeBinary, "helper"),
+		findItemByDisplayName(t, items, itemTypePluginSettings, "settings.json"),
+		findItemByDisplayName(t, items, itemTypeOutputStyle, "terse-review"),
+		findItemByDisplayName(t, items, itemTypeTheme, "dark"),
+	}
+
+	childIdentities := map[string]string{}
+	for _, child := range expectedChildren {
+		childIdentities[child.IdentityKey] = child.ItemType
+	}
+	seenChildren := map[string]struct{}{}
+	for _, relationship := range snapshot.Relationships {
+		if relationship.RelationshipType != relationshipTypeDefines {
+			t.Fatalf("expected defines relationship, got %q", relationship.RelationshipType)
+		}
+		if relationship.FromIdentityKey != plugin.IdentityKey {
+			continue
+		}
+		itemType, ok := childIdentities[relationship.ToIdentityKey]
+		if !ok {
+			t.Fatalf("unexpected plugin child relationship to %q", relationship.ToIdentityKey)
+		}
+		if itemType == itemTypeTrustedDirectory || itemType == itemTypeAdditionalDirectory {
+			t.Fatalf("plugin child relationship points to directory item %q", relationship.ToIdentityKey)
+		}
+		seenChildren[relationship.ToIdentityKey] = struct{}{}
+	}
+	if len(seenChildren) != len(expectedChildren) {
+		t.Fatalf("expected %d plugin child relationships, got %d", len(expectedChildren), len(seenChildren))
+	}
+}
+
+func TestClaudeProviderEmitsPluginParseErrorItems(t *testing.T) {
+	t.Parallel()
+
+	homeDir := copyFixture(t, "claude")
+	pluginRoot := filepath.Join(homeDir, ".claude", "plugins", "demo")
+	invalidPaths := []string{
+		filepath.Join(pluginRoot, ".claude-plugin", "plugin.json"),
+		filepath.Join(pluginRoot, ".lsp.json"),
+		filepath.Join(pluginRoot, "monitors", "monitors.json"),
+		filepath.Join(pluginRoot, "settings.json"),
+	}
+	for _, path := range invalidPaths {
+		if err := os.WriteFile(path, []byte(`{"invalid":`), 0o600); err != nil {
+			t.Fatalf("write invalid fixture %s: %v", path, err)
+		}
+	}
+
+	provider := NewClaudeProvider(homeDir)
+	snapshot, err := provider.Collect(context.Background())
+	if err != nil {
+		t.Fatalf("Collect() error = %v", err)
+	}
+	items := snapshot.InventoryItems
+
+	plugin := findItemBySuffix(t, items, itemTypePlugin, sourceTypePluginManifest, filepath.Join(".claude-plugin", "plugin.json"))
+	if plugin.Metadata["parse_status"] != parseStatusInvalid {
+		t.Fatalf("unexpected plugin parse status %v", plugin.Metadata["parse_status"])
+	}
+	lsp := findItemBySuffix(t, items, itemTypeLSPServer, sourceTypeLSPJSON, ".lsp.json#parse_error#lsp_server")
+	if lsp.Metadata["parse_status"] != parseStatusInvalid {
+		t.Fatalf("unexpected lsp parse status %v", lsp.Metadata["parse_status"])
+	}
+	monitor := findItemBySuffix(t, items, itemTypeMonitor, sourceTypeMonitorsJSON, filepath.Join("monitors", "monitors.json")+"#parse_error#monitor")
+	if monitor.Metadata["parse_status"] != parseStatusInvalid {
+		t.Fatalf("unexpected monitor parse status %v", monitor.Metadata["parse_status"])
+	}
+	settings := findItemBySuffix(t, items, itemTypePluginSettings, sourceTypePluginSettingsJSON, "settings.json#plugin_settings")
+	if settings.Metadata["parse_status"] != parseStatusInvalid {
+		t.Fatalf("unexpected settings parse status %v", settings.Metadata["parse_status"])
+	}
+	for _, child := range []spmapi.SyncInventoryItem{lsp, monitor, settings} {
+		assertRelationshipExists(t, snapshot.Relationships, plugin.IdentityKey, child.IdentityKey)
+	}
+}
+
+func TestInventoryCollectorRejectsLegacyRelationshipTypes(t *testing.T) {
+	t.Parallel()
+
+	collector := newInventoryCollector()
+	collector.addRelationship(spmapi.SyncInventoryRelationship{
+		RelationshipType: "contains",
+		FromIdentityKey:  "plugin",
+		ToIdentityKey:    "skill",
+	})
+
+	if _, err := collector.snapshot(); err == nil {
+		t.Fatal("expected legacy relationship type to be rejected")
+	}
 }
 
 func TestClaudeProviderEmitsParseErrorItemsWithoutFailingSync(t *testing.T) {
@@ -394,6 +516,23 @@ func assertDisplayNameMissing(
 			t.Fatalf("unexpected item %s with display name %s", itemType, displayName)
 		}
 	}
+}
+
+func assertRelationshipExists(
+	t *testing.T,
+	relationships []spmapi.SyncInventoryRelationship,
+	fromIdentity string,
+	toIdentity string,
+) {
+	t.Helper()
+	for _, relationship := range relationships {
+		if relationship.RelationshipType == relationshipTypeDefines &&
+			relationship.FromIdentityKey == fromIdentity &&
+			relationship.ToIdentityKey == toIdentity {
+			return
+		}
+	}
+	t.Fatalf("defines relationship %s -> %s not found", fromIdentity, toIdentity)
 }
 
 func sourceTypeFromPath(path string) string {

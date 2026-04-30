@@ -147,7 +147,14 @@ export const ITEM_TYPE_OPTIONS: Array<
       "trusted_directory",
       "additional_directory",
       "skill",
-      "agent",
+      "subagent",
+      "command",
+      "lsp_server",
+      "monitor",
+      "binary",
+      "plugin_settings",
+      "output_style",
+      "theme",
     ] satisfies SpmInventoryItemType[]
   ).map((itemType) => ({
     value: itemType,
@@ -171,8 +178,15 @@ export const SOURCE_TYPE_OPTIONS: Array<
       "claude_local_md",
       "agents_md",
       "skill_frontmatter",
-      "agent_frontmatter",
+      "subagent_frontmatter",
       "plugin_manifest",
+      "command_file",
+      "lsp_json",
+      "monitors_json",
+      "binary_file",
+      "plugin_settings_json",
+      "output_style_file",
+      "theme_file",
       "directory",
     ] satisfies SpmInventorySourceType[]
   ).map((sourceType) => ({

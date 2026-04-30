@@ -388,7 +388,7 @@ async def test_sync_endpoint_persists_inventory_relationships(
                 ],
                 relationships=[
                     SpmSyncInventoryRelationshipUpsert(
-                        relationship_type=SpmInventoryRelationshipType.CONTAINS,
+                        relationship_type=SpmInventoryRelationshipType.DEFINES,
                         from_identity_key=plugin_identity,
                         to_identity_key=skill_identity,
                         evidence={"source_location": skill_identity},
@@ -404,9 +404,20 @@ async def test_sync_endpoint_persists_inventory_relationships(
         for item in (await session.scalars(select(SpmInventoryItem))).all()
     }
     assert relationship.endpoint_id == created.endpoint.id
-    assert relationship.relationship_type == SpmInventoryRelationshipType.CONTAINS.value
+    assert relationship.relationship_type == SpmInventoryRelationshipType.DEFINES.value
     assert relationship.from_inventory_item_id == items[plugin_identity].id
     assert relationship.to_inventory_item_id == items[skill_identity].id
+
+
+def test_sync_inventory_relationship_rejects_legacy_relationship_types() -> None:
+    with pytest.raises(ValidationError):
+        SpmSyncInventoryRelationshipUpsert.model_validate(
+            {
+                "relationship_type": "contains",
+                "from_identity_key": "plugin",
+                "to_identity_key": "skill",
+            }
+        )
 
 
 def test_sync_inventory_item_rejects_invalid_taxonomy_binding() -> None:

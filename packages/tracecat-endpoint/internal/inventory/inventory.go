@@ -29,29 +29,41 @@ const (
 	itemTypeSkill               = "skill"
 	itemTypeHook                = "hook"
 	itemTypeInstructionFile     = "instruction_file"
-	itemTypeAgent               = "agent"
+	itemTypeSubagent            = "subagent"
 	itemTypePlugin              = "plugin"
+	itemTypeCommand             = "command"
+	itemTypeLSPServer           = "lsp_server"
+	itemTypeMonitor             = "monitor"
+	itemTypeBinary              = "binary"
+	itemTypePluginSettings      = "plugin_settings"
+	itemTypeOutputStyle         = "output_style"
+	itemTypeTheme               = "theme"
 
-	sourceTypeSettingsJSON      = "settings_json"
-	sourceTypeSettingsLocalJSON = "settings_local_json"
-	sourceTypeClaudeJSON        = "claude_json"
-	sourceTypeHooksJSON         = "hooks_json"
-	sourceTypeMCPJSON           = "mcp_json"
-	sourceTypeClaudeMD          = "claude_md"
-	sourceTypeClaudeLocalMD     = "claude_local_md"
-	sourceTypeAgentsMD          = "agents_md"
-	sourceTypeSkillFrontmatter  = "skill_frontmatter"
-	sourceTypeAgentFrontmatter  = "agent_frontmatter"
-	sourceTypePluginManifest    = "plugin_manifest"
-	sourceTypeDirectory         = "directory"
+	sourceTypeSettingsJSON        = "settings_json"
+	sourceTypeSettingsLocalJSON   = "settings_local_json"
+	sourceTypeClaudeJSON          = "claude_json"
+	sourceTypeHooksJSON           = "hooks_json"
+	sourceTypeMCPJSON             = "mcp_json"
+	sourceTypeLSPJSON             = "lsp_json"
+	sourceTypeMonitorsJSON        = "monitors_json"
+	sourceTypePluginSettingsJSON  = "plugin_settings_json"
+	sourceTypeClaudeMD            = "claude_md"
+	sourceTypeClaudeLocalMD       = "claude_local_md"
+	sourceTypeAgentsMD            = "agents_md"
+	sourceTypeSkillFrontmatter    = "skill_frontmatter"
+	sourceTypeSubagentFrontmatter = "subagent_frontmatter"
+	sourceTypePluginManifest      = "plugin_manifest"
+	sourceTypeCommandFile         = "command_file"
+	sourceTypeBinaryFile          = "binary_file"
+	sourceTypeOutputStyleFile     = "output_style_file"
+	sourceTypeThemeFile           = "theme_file"
+	sourceTypeDirectory           = "directory"
 
 	parseStatusOK         = "ok"
 	parseStatusInvalid    = "invalid"
 	parseStatusUnreadable = "unreadable"
 
-	relationshipTypeContains = "contains"
-	relationshipTypeDefines  = "defines"
-	relationshipTypeImports  = "imports"
+	relationshipTypeDefines = "defines"
 )
 
 var (
@@ -78,6 +90,9 @@ var allowedInventoryBindings = map[string]map[string]struct{}{
 		sourceTypeSettingsLocalJSON: {},
 		sourceTypeClaudeJSON:        {},
 		sourceTypeMCPJSON:           {},
+	},
+	itemTypeLSPServer: {
+		sourceTypeLSPJSON: {},
 	},
 	itemTypeInstructionFile: {
 		sourceTypeClaudeMD:      {},
@@ -106,11 +121,29 @@ var allowedInventoryBindings = map[string]map[string]struct{}{
 		sourceTypeClaudeJSON:        {},
 		sourceTypeSkillFrontmatter:  {},
 	},
-	itemTypeAgent: {
-		sourceTypeSettingsJSON:      {},
-		sourceTypeSettingsLocalJSON: {},
-		sourceTypeClaudeJSON:        {},
-		sourceTypeAgentFrontmatter:  {},
+	itemTypeSubagent: {
+		sourceTypeSettingsJSON:        {},
+		sourceTypeSettingsLocalJSON:   {},
+		sourceTypeClaudeJSON:          {},
+		sourceTypeSubagentFrontmatter: {},
+	},
+	itemTypeCommand: {
+		sourceTypeCommandFile: {},
+	},
+	itemTypeMonitor: {
+		sourceTypeMonitorsJSON: {},
+	},
+	itemTypeBinary: {
+		sourceTypeBinaryFile: {},
+	},
+	itemTypePluginSettings: {
+		sourceTypePluginSettingsJSON: {},
+	},
+	itemTypeOutputStyle: {
+		sourceTypeOutputStyleFile: {},
+	},
+	itemTypeTheme: {
+		sourceTypeThemeFile: {},
 	},
 }
 
@@ -279,6 +312,10 @@ func (c *inventoryCollector) add(item spmapi.SyncInventoryItem) {
 
 func (c *inventoryCollector) addRelationship(relationship spmapi.SyncInventoryRelationship) {
 	if relationship.FromIdentityKey == "" || relationship.ToIdentityKey == "" {
+		return
+	}
+	if relationship.RelationshipType != relationshipTypeDefines {
+		c.err = fmt.Errorf("unsupported inventory relationship type %q", relationship.RelationshipType)
 		return
 	}
 	key := relationship.RelationshipType + "|" + relationship.FromIdentityKey + "|" + relationship.ToIdentityKey
@@ -463,7 +500,8 @@ func collectJSONSurface(
 			return nil
 		}
 		for _, surface := range cfg.EmitParseOnError {
-			collector.addSyntheticParseError(cfg, surface, parseStatusUnreadable, err)
+			item := collector.addSyntheticParseError(cfg, surface, parseStatusUnreadable, err)
+			collector.addParentRelationship(cfg.ParentIdentityKey, cfg.ParentRelation, item)
 		}
 		return nil
 	}
@@ -471,7 +509,8 @@ func collectJSONSurface(
 	var doc map[string]any
 	if err := json.Unmarshal(data, &doc); err != nil {
 		for _, surface := range cfg.EmitParseOnError {
-			collector.addSyntheticParseError(cfg, surface, parseStatusInvalid, err)
+			item := collector.addSyntheticParseError(cfg, surface, parseStatusInvalid, err)
+			collector.addParentRelationship(cfg.ParentIdentityKey, cfg.ParentRelation, item)
 		}
 		return nil
 	}
@@ -517,9 +556,9 @@ func (c *inventoryCollector) addSyntheticParseError(
 	surface parseErrorSurface,
 	parseStatus string,
 	err error,
-) {
+) spmapi.SyncInventoryItem {
 	identity := cfg.Path + "#parse_error#" + surface.ItemType
-	c.add(spmapi.SyncInventoryItem{
+	item := spmapi.SyncInventoryItem{
 		Harness:        claudeHarness,
 		ItemType:       surface.ItemType,
 		SourceType:     cfg.SourceType,
@@ -541,7 +580,9 @@ func (c *inventoryCollector) addSyntheticParseError(
 		ObservedState: map[string]any{
 			"enabled": false,
 		},
-	})
+	}
+	c.add(item)
+	return item
 }
 
 func (c *inventoryCollector) addConfigItem(
@@ -689,11 +730,11 @@ func collectComponentSurfaces(
 		return collectMarkdownComponent(collector, markdownComponentConfig{
 			Path:              path,
 			ProjectRoot:       projectRoot,
-			SourceSurface:     sourcePrefix + "_agent_frontmatter",
-			ItemType:          itemTypeAgent,
-			SourceType:        sourceTypeAgentFrontmatter,
+			SourceSurface:     sourcePrefix + "_subagent_frontmatter",
+			ItemType:          itemTypeSubagent,
+			SourceType:        sourceTypeSubagentFrontmatter,
 			Name:              name,
-			EvidenceKey:       "agent",
+			EvidenceKey:       "subagent",
 			ParentIdentityKey: parentIdentityKey,
 		})
 	}); err != nil && !os.IsNotExist(err) {
@@ -712,10 +753,11 @@ func collectPluginSurfaces(collector *inventoryCollector, homeDir string) error 
 			return nil
 		}
 		pluginRoot := filepath.Dir(filepath.Dir(path))
-		pluginIdentityKey, err := collectPluginManifest(collector, pluginRoot, path)
+		manifest, err := collectPluginManifest(collector, pluginRoot, path)
 		if err != nil {
 			return err
 		}
+		pluginIdentityKey := manifest.IdentityKey
 		if err := collectJSONSurface(collector, jsonSurfaceConfig{
 			Path:              filepath.Join(pluginRoot, "hooks", "hooks.json"),
 			SourceType:        sourceTypeHooksJSON,
@@ -744,13 +786,43 @@ func collectPluginSurfaces(collector *inventoryCollector, homeDir string) error 
 		}, nil); err != nil {
 			return err
 		}
-		return collectComponentSurfaces(
-			collector,
-			pluginRoot,
-			"",
-			"plugin",
-			pluginIdentityKey,
-		)
+		if err := collectPluginNamedJSONComponents(collector, pluginNamedJSONConfig{
+			Path:              filepath.Join(pluginRoot, ".lsp.json"),
+			PluginRoot:        pluginRoot,
+			SourceType:        sourceTypeLSPJSON,
+			SourceSurface:     "plugin_lsp_json",
+			ItemType:          itemTypeLSPServer,
+			DisplaySuffix:     "lsp",
+			EntryKeys:         []string{"lspServers", "languageServers", "servers"},
+			ParentIdentityKey: pluginIdentityKey,
+		}); err != nil {
+			return err
+		}
+		if err := collectPluginNamedJSONComponents(collector, pluginNamedJSONConfig{
+			Path:              filepath.Join(pluginRoot, "monitors", "monitors.json"),
+			PluginRoot:        pluginRoot,
+			SourceType:        sourceTypeMonitorsJSON,
+			SourceSurface:     "plugin_monitors_json",
+			ItemType:          itemTypeMonitor,
+			DisplaySuffix:     "monitors",
+			EntryKeys:         []string{"monitors"},
+			ParentIdentityKey: pluginIdentityKey,
+		}); err != nil {
+			return err
+		}
+		if err := collectPluginSettings(collector, pluginRoot, pluginIdentityKey); err != nil {
+			return err
+		}
+		if err := collectPluginMarkdownComponents(collector, pluginRoot, pluginIdentityKey); err != nil {
+			return err
+		}
+		if err := collectPluginBinaries(collector, pluginRoot, pluginIdentityKey); err != nil {
+			return err
+		}
+		if err := collectPluginOutputStyles(collector, pluginRoot, manifest.Manifest, pluginIdentityKey); err != nil {
+			return err
+		}
+		return collectPluginThemes(collector, pluginRoot, pluginIdentityKey)
 	})
 	if err != nil && !os.IsNotExist(err) {
 		return err
@@ -760,6 +832,7 @@ func collectPluginSurfaces(collector *inventoryCollector, homeDir string) error 
 
 type markdownComponentConfig struct {
 	Path              string
+	ItemLocation      string
 	ProjectRoot       string
 	SourceSurface     string
 	ItemType          string
@@ -782,6 +855,9 @@ func collectMarkdownComponent(collector *inventoryCollector, cfg markdownCompone
 	if name, ok := stringValue(frontmatter["name"]); ok && name != "" {
 		cfg.Name = name
 	}
+	if cfg.ItemLocation == "" {
+		cfg.ItemLocation = cfg.Name
+	}
 	fingerprint := hashString(cfg.Path + "|" + text)
 	component := map[string]any{
 		"name":        cfg.Name,
@@ -792,6 +868,7 @@ func collectMarkdownComponent(collector *inventoryCollector, cfg markdownCompone
 		Harness:        claudeHarness,
 		ItemType:       cfg.ItemType,
 		SourceType:     cfg.SourceType,
+		ItemLocation:   cfg.ItemLocation,
 		SourceLocation: cfg.Path,
 		IdentityKey:    cfg.Path,
 		DisplayName:    cfg.Name,
@@ -817,19 +894,24 @@ func collectMarkdownComponent(collector *inventoryCollector, cfg markdownCompone
 	collector.add(item)
 	collector.addParentRelationship(
 		cfg.ParentIdentityKey,
-		relationshipTypeContains,
+		relationshipTypeDefines,
 		item,
 	)
 	return nil
 }
 
-func collectPluginManifest(collector *inventoryCollector, pluginRoot string, manifestPath string) (string, error) {
+type pluginManifestResult struct {
+	IdentityKey string
+	Manifest    map[string]any
+}
+
+func collectPluginManifest(collector *inventoryCollector, pluginRoot string, manifestPath string) (pluginManifestResult, error) {
 	data, err := os.ReadFile(manifestPath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return "", nil
+			return pluginManifestResult{}, nil
 		}
-		return "", err
+		return pluginManifestResult{}, err
 	}
 	var manifest map[string]any
 	parseStatus := parseStatusOK
@@ -846,6 +928,7 @@ func collectPluginManifest(collector *inventoryCollector, pluginRoot string, man
 		Harness:        claudeHarness,
 		ItemType:       itemTypePlugin,
 		SourceType:     sourceTypePluginManifest,
+		ItemLocation:   pluginRoot,
 		SourceLocation: manifestPath,
 		IdentityKey:    manifestPath,
 		DisplayName:    name,
@@ -867,7 +950,411 @@ func collectPluginManifest(collector *inventoryCollector, pluginRoot string, man
 		},
 	}
 	collector.add(item)
-	return item.IdentityKey, nil
+	return pluginManifestResult{IdentityKey: item.IdentityKey, Manifest: manifest}, nil
+}
+
+type pluginNamedJSONConfig struct {
+	Path              string
+	PluginRoot        string
+	SourceType        string
+	SourceSurface     string
+	ItemType          string
+	DisplaySuffix     string
+	EntryKeys         []string
+	ParentIdentityKey string
+}
+
+func collectPluginNamedJSONComponents(collector *inventoryCollector, cfg pluginNamedJSONConfig) error {
+	data, err := os.ReadFile(cfg.Path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		item := collector.addSyntheticParseError(cfg.jsonSurfaceConfig(), parseErrorSurface{
+			ItemType:      cfg.ItemType,
+			DisplaySuffix: cfg.DisplaySuffix,
+		}, parseStatusUnreadable, err)
+		collector.addParentRelationship(cfg.ParentIdentityKey, relationshipTypeDefines, item)
+		return nil
+	}
+
+	var doc any
+	if err := json.Unmarshal(data, &doc); err != nil {
+		item := collector.addSyntheticParseError(cfg.jsonSurfaceConfig(), parseErrorSurface{
+			ItemType:      cfg.ItemType,
+			DisplaySuffix: cfg.DisplaySuffix,
+		}, parseStatusInvalid, err)
+		collector.addParentRelationship(cfg.ParentIdentityKey, relationshipTypeDefines, item)
+		return nil
+	}
+
+	rawEntries := doc
+	if object, ok := doc.(map[string]any); ok {
+		for _, key := range cfg.EntryKeys {
+			if raw, ok := object[key]; ok {
+				rawEntries = raw
+				break
+			}
+		}
+	}
+
+	for _, entry := range normalizeNamedEntries(rawEntries) {
+		contentHash, normalized := hashValue(entry.Raw)
+		item := spmapi.SyncInventoryItem{
+			Harness:        claudeHarness,
+			ItemType:       cfg.ItemType,
+			SourceType:     cfg.SourceType,
+			ItemLocation:   entry.Name,
+			SourceLocation: cfg.Path,
+			IdentityKey:    cfg.Path + "#" + cfg.ItemType + ":" + entry.Fingerprint,
+			DisplayName:    entry.Name,
+			ContentHash:    contentHash,
+			Metadata: map[string]any{
+				"file_path":      cfg.Path,
+				"plugin_root":    cfg.PluginRoot,
+				"source_surface": cfg.SourceSurface,
+				"parse_status":   parseStatusOK,
+				"fingerprint":    entry.Fingerprint,
+				"name":           entry.Name,
+			},
+			Evidence: map[string]any{
+				"file_path":      cfg.Path,
+				"source_surface": cfg.SourceSurface,
+				"config":         normalized,
+			},
+			ObservedState: map[string]any{
+				"enabled": true,
+			},
+		}
+		collector.add(item)
+		collector.addParentRelationship(cfg.ParentIdentityKey, relationshipTypeDefines, item)
+	}
+	return nil
+}
+
+func (cfg pluginNamedJSONConfig) jsonSurfaceConfig() jsonSurfaceConfig {
+	return jsonSurfaceConfig{
+		Path:          cfg.Path,
+		SourceType:    cfg.SourceType,
+		SourceSurface: cfg.SourceSurface,
+		ProjectRoot:   "",
+		Writable:      false,
+	}
+}
+
+func collectPluginSettings(collector *inventoryCollector, pluginRoot string, parentIdentityKey string) error {
+	path := filepath.Join(pluginRoot, "settings.json")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		item := collector.addPluginSettingsItem(pluginRoot, path, parseStatusUnreadable, nil, err)
+		collector.addParentRelationship(parentIdentityKey, relationshipTypeDefines, item)
+		return nil
+	}
+
+	var settings map[string]any
+	parseStatus := parseStatusOK
+	var parseErr error
+	if err := json.Unmarshal(data, &settings); err != nil {
+		parseStatus = parseStatusInvalid
+		parseErr = err
+		settings = map[string]any{"parse_error": err.Error()}
+	}
+	item := collector.addPluginSettingsItem(pluginRoot, path, parseStatus, settings, parseErr)
+	collector.addParentRelationship(parentIdentityKey, relationshipTypeDefines, item)
+	return nil
+}
+
+func (c *inventoryCollector) addPluginSettingsItem(
+	pluginRoot string,
+	path string,
+	parseStatus string,
+	settings map[string]any,
+	err error,
+) spmapi.SyncInventoryItem {
+	if settings == nil {
+		settings = map[string]any{}
+	}
+	contentHash, normalized := hashValue(settings)
+	evidence := map[string]any{
+		"file_path":      path,
+		"source_surface": "plugin_settings_json",
+		"settings":       normalized,
+	}
+	if err != nil {
+		evidence["parse_error"] = err.Error()
+		evidence["parse_status"] = parseStatus
+	}
+	item := spmapi.SyncInventoryItem{
+		Harness:        claudeHarness,
+		ItemType:       itemTypePluginSettings,
+		SourceType:     sourceTypePluginSettingsJSON,
+		ItemLocation:   pluginRelativePath(pluginRoot, path),
+		SourceLocation: path,
+		IdentityKey:    path + "#" + itemTypePluginSettings,
+		DisplayName:    "settings.json",
+		ContentHash:    contentHash,
+		Metadata: map[string]any{
+			"file_path":      path,
+			"plugin_root":    pluginRoot,
+			"source_surface": "plugin_settings_json",
+			"parse_status":   parseStatus,
+		},
+		Evidence: evidence,
+		ObservedState: map[string]any{
+			"enabled": parseStatus == parseStatusOK,
+			"value":   normalized,
+		},
+	}
+	c.add(item)
+	return item
+}
+
+func collectPluginMarkdownComponents(collector *inventoryCollector, pluginRoot string, parentIdentityKey string) error {
+	componentSets := []struct {
+		Root          string
+		SourceSurface string
+		ItemType      string
+		SourceType    string
+		EvidenceKey   string
+	}{
+		{Root: filepath.Join(pluginRoot, "skills"), SourceSurface: "plugin_skill_frontmatter", ItemType: itemTypeSkill, SourceType: sourceTypeSkillFrontmatter, EvidenceKey: "skill"},
+		{Root: filepath.Join(pluginRoot, "agents"), SourceSurface: "plugin_subagent_frontmatter", ItemType: itemTypeSubagent, SourceType: sourceTypeSubagentFrontmatter, EvidenceKey: "subagent"},
+		{Root: filepath.Join(pluginRoot, "commands"), SourceSurface: "plugin_command_file", ItemType: itemTypeCommand, SourceType: sourceTypeCommandFile, EvidenceKey: "command"},
+	}
+	for _, set := range componentSets {
+		if err := filepath.WalkDir(set.Root, func(path string, entry os.DirEntry, err error) error {
+			if err != nil || entry.IsDir() || filepath.Ext(entry.Name()) != ".md" {
+				return nil
+			}
+			rel := pluginRelativePath(pluginRoot, path)
+			name := defaultPluginMarkdownName(set.Root, path)
+			return collectMarkdownComponent(collector, markdownComponentConfig{
+				Path:              path,
+				ItemLocation:      rel,
+				ProjectRoot:       "",
+				SourceSurface:     set.SourceSurface,
+				ItemType:          set.ItemType,
+				SourceType:        set.SourceType,
+				Name:              name,
+				EvidenceKey:       set.EvidenceKey,
+				ParentIdentityKey: parentIdentityKey,
+			})
+		}); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+	}
+	return nil
+}
+
+func collectPluginBinaries(collector *inventoryCollector, pluginRoot string, parentIdentityKey string) error {
+	binRoot := filepath.Join(pluginRoot, "bin")
+	entries, err := os.ReadDir(binRoot)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		info, err := entry.Info()
+		if err != nil {
+			continue
+		}
+		if info.Mode()&0o111 == 0 {
+			continue
+		}
+		path := filepath.Join(binRoot, entry.Name())
+		data, err := os.ReadFile(path)
+		if err != nil {
+			continue
+		}
+		item := spmapi.SyncInventoryItem{
+			Harness:        claudeHarness,
+			ItemType:       itemTypeBinary,
+			SourceType:     sourceTypeBinaryFile,
+			ItemLocation:   path,
+			SourceLocation: path,
+			IdentityKey:    path,
+			DisplayName:    entry.Name(),
+			ContentHash:    hashBytes(data),
+			Metadata: map[string]any{
+				"file_path":      path,
+				"plugin_root":    pluginRoot,
+				"source_surface": "plugin_binary_file",
+				"parse_status":   parseStatusOK,
+				"mode":           info.Mode().String(),
+				"size":           info.Size(),
+			},
+			Evidence: map[string]any{
+				"file_path": path,
+				"sha256":    hashBytes(data),
+				"size":      info.Size(),
+			},
+			ObservedState: map[string]any{
+				"enabled":    true,
+				"executable": true,
+			},
+		}
+		collector.add(item)
+		collector.addParentRelationship(parentIdentityKey, relationshipTypeDefines, item)
+	}
+	return nil
+}
+
+func collectPluginOutputStyles(collector *inventoryCollector, pluginRoot string, manifest map[string]any, parentIdentityKey string) error {
+	paths := map[string]struct{}{}
+	outputStylesRoot := filepath.Join(pluginRoot, "output-styles")
+	if err := filepath.WalkDir(outputStylesRoot, func(path string, entry os.DirEntry, err error) error {
+		if err != nil || entry.IsDir() || filepath.Ext(entry.Name()) != ".md" {
+			return nil
+		}
+		paths[path] = struct{}{}
+		return nil
+	}); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	for _, manifestPath := range manifestOutputStylePaths(manifest) {
+		path := manifestPath
+		if !filepath.IsAbs(path) {
+			path = filepath.Join(pluginRoot, path)
+		}
+		path = filepath.Clean(path)
+		if filepath.Ext(path) == ".md" {
+			paths[path] = struct{}{}
+		}
+	}
+
+	sortedPaths := make([]string, 0, len(paths))
+	for path := range paths {
+		sortedPaths = append(sortedPaths, path)
+	}
+	sort.Strings(sortedPaths)
+	for _, path := range sortedPaths {
+		if _, err := os.Stat(path); err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+			return err
+		}
+		rel := pluginRelativePath(pluginRoot, path)
+		if err := collectMarkdownComponent(collector, markdownComponentConfig{
+			Path:              path,
+			ItemLocation:      rel,
+			ProjectRoot:       "",
+			SourceSurface:     "plugin_output_style_file",
+			ItemType:          itemTypeOutputStyle,
+			SourceType:        sourceTypeOutputStyleFile,
+			Name:              strings.TrimSuffix(filepath.Base(path), filepath.Ext(path)),
+			EvidenceKey:       "output_style",
+			ParentIdentityKey: parentIdentityKey,
+		}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func collectPluginThemes(collector *inventoryCollector, pluginRoot string, parentIdentityKey string) error {
+	themesRoot := filepath.Join(pluginRoot, "themes")
+	err := filepath.WalkDir(themesRoot, func(path string, entry os.DirEntry, err error) error {
+		if err != nil || entry.IsDir() {
+			return nil
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return nil
+		}
+		rel := pluginRelativePath(pluginRoot, path)
+		item := spmapi.SyncInventoryItem{
+			Harness:        claudeHarness,
+			ItemType:       itemTypeTheme,
+			SourceType:     sourceTypeThemeFile,
+			ItemLocation:   rel,
+			SourceLocation: path,
+			IdentityKey:    path,
+			DisplayName:    strings.TrimSuffix(filepath.Base(path), filepath.Ext(path)),
+			ContentHash:    hashBytes(data),
+			Metadata: map[string]any{
+				"file_path":      path,
+				"plugin_root":    pluginRoot,
+				"source_surface": "plugin_theme_file",
+				"parse_status":   parseStatusOK,
+			},
+			Evidence: map[string]any{
+				"file_path":       path,
+				"content_preview": previewText(string(data)),
+			},
+			ObservedState: map[string]any{
+				"enabled": true,
+			},
+		}
+		collector.add(item)
+		collector.addParentRelationship(parentIdentityKey, relationshipTypeDefines, item)
+		return nil
+	})
+	if err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return nil
+}
+
+func pluginRelativePath(pluginRoot string, path string) string {
+	rel, err := filepath.Rel(pluginRoot, path)
+	if err != nil {
+		return path
+	}
+	return filepath.ToSlash(rel)
+}
+
+func defaultPluginMarkdownName(root string, path string) string {
+	name := strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))
+	if name == "SKILL" {
+		return filepath.Base(filepath.Dir(path))
+	}
+	rel, err := filepath.Rel(root, path)
+	if err != nil {
+		return name
+	}
+	return strings.TrimSuffix(filepath.ToSlash(rel), filepath.Ext(rel))
+}
+
+func manifestOutputStylePaths(manifest map[string]any) []string {
+	if manifest == nil {
+		return nil
+	}
+	paths := []string{}
+	for _, key := range []string{"outputStyles", "output_styles", "outputStyle", "output_style"} {
+		if raw, ok := manifest[key]; ok {
+			paths = appendManifestPaths(paths, raw)
+		}
+	}
+	return uniqueStrings(paths)
+}
+
+func appendManifestPaths(paths []string, raw any) []string {
+	switch value := raw.(type) {
+	case string:
+		if strings.TrimSpace(value) != "" {
+			paths = append(paths, strings.TrimSpace(value))
+		}
+	case []any:
+		for _, item := range value {
+			paths = appendManifestPaths(paths, item)
+		}
+	case map[string]any:
+		for _, key := range []string{"path", "file", "source"} {
+			if rawPath, ok := value[key]; ok {
+				paths = appendManifestPaths(paths, rawPath)
+			}
+		}
+	}
+	return paths
 }
 
 func parseSimpleFrontmatter(text string) map[string]any {
@@ -1205,10 +1692,10 @@ func extractSubagents(doc map[string]any, cfg jsonSurfaceConfig) []spmapi.SyncIn
 		contentHash, normalized := hashValue(item.Raw)
 		items = append(items, spmapi.SyncInventoryItem{
 			Harness:        claudeHarness,
-			ItemType:       itemTypeAgent,
+			ItemType:       itemTypeSubagent,
 			SourceType:     cfg.SourceType,
 			SourceLocation: cfg.Path,
-			IdentityKey:    cfg.Path + "#agent:" + item.Fingerprint,
+			IdentityKey:    cfg.Path + "#subagent:" + item.Fingerprint,
 			DisplayName:    item.Name,
 			ContentHash:    contentHash,
 			Metadata: map[string]any{

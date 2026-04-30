@@ -1,0 +1,8 @@
+{
+  "PostToolUse": [
+    {
+      "matcher": "Write",
+      "command": "demo audit"
+    }
+  ]
+}

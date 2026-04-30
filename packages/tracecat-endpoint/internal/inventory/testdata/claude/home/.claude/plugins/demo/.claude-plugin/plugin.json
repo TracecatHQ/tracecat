@@ -1,0 +1,9 @@
+{
+  "name": "demo",
+  "version": "1.0.0",
+  "outputStyles": [
+    {
+      "path": "output-styles/review.md"
+    }
+  ]
+}

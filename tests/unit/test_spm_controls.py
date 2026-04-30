@@ -41,6 +41,23 @@ def test_inventory_taxonomy_covers_supported_claude_enums() -> None:
     )
 
 
+def test_inventory_taxonomy_includes_claude_plugin_bom_components() -> None:
+    taxonomy = get_inventory_taxonomy()
+    claude_taxonomy = taxonomy.harnesses[SpmHarness.CLAUDE_CODE]
+
+    assert {
+        SpmInventoryItemType.COMMAND,
+        SpmInventoryItemType.LSP_SERVER,
+        SpmInventoryItemType.MONITOR,
+        SpmInventoryItemType.BINARY,
+        SpmInventoryItemType.PLUGIN_SETTINGS,
+        SpmInventoryItemType.OUTPUT_STYLE,
+        SpmInventoryItemType.THEME,
+        SpmInventoryItemType.SUBAGENT,
+    }.issubset(claude_taxonomy.item_types)
+    assert claude_taxonomy.relationship_types == {SpmInventoryRelationshipType.DEFINES}
+
+
 def test_builtin_spm_control_catalog_contains_required_v1_controls() -> None:
     control_keys = {control.key for control in get_control_catalog()}
 

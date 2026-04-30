@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "demo-mcp": {
+      "command": "npx",
+      "args": ["demo-mcp", "--stdio"]
+    }
+  }
+}

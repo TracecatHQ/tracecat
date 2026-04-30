@@ -1,7 +1,10 @@
 "use client"
 
 import {
+  ActivityIcon,
+  BinaryIcon,
   BotIcon,
+  BracesIcon,
   FileCogIcon,
   FileJsonIcon,
   FileTextIcon,
@@ -10,10 +13,13 @@ import {
   FolderPlusIcon,
   KeyRoundIcon,
   type LucideIcon,
+  PaletteIcon,
   PuzzleIcon,
   ServerIcon,
   ShieldIcon,
   SparklesIcon,
+  SwatchBookIcon,
+  TerminalIcon,
   WebhookIcon,
 } from "lucide-react"
 import type { SpmInventoryItemType, SpmInventorySourceType } from "@/client"
@@ -28,7 +34,14 @@ export const ITEM_TYPE_ICONS: Record<SpmInventoryItemType, LucideIcon> = {
   trusted_directory: FolderCheckIcon,
   additional_directory: FolderPlusIcon,
   skill: SparklesIcon,
-  agent: BotIcon,
+  subagent: BotIcon,
+  command: TerminalIcon,
+  lsp_server: BracesIcon,
+  monitor: ActivityIcon,
+  binary: BinaryIcon,
+  plugin_settings: FileCogIcon,
+  output_style: PaletteIcon,
+  theme: SwatchBookIcon,
 }
 
 export const SOURCE_TYPE_ICONS: Record<SpmInventorySourceType, LucideIcon> = {
@@ -41,8 +54,15 @@ export const SOURCE_TYPE_ICONS: Record<SpmInventorySourceType, LucideIcon> = {
   claude_local_md: FileTextIcon,
   agents_md: FileTextIcon,
   skill_frontmatter: SparklesIcon,
-  agent_frontmatter: BotIcon,
+  subagent_frontmatter: BotIcon,
   plugin_manifest: PuzzleIcon,
+  command_file: TerminalIcon,
+  lsp_json: BracesIcon,
+  monitors_json: ActivityIcon,
+  binary_file: BinaryIcon,
+  plugin_settings_json: FileCogIcon,
+  output_style_file: PaletteIcon,
+  theme_file: SwatchBookIcon,
   directory: FolderIcon,
 }
 

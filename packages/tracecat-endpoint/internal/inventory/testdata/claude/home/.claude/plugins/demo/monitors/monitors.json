@@ -1,0 +1,8 @@
+{
+  "monitors": [
+    {
+      "name": "demo-monitor",
+      "path": "logs/demo.log"
+    }
+  ]
+}
