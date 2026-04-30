@@ -147,6 +147,34 @@ class TestBuildAgentArgsActivity:
         assert result.base_url == "https://llm.example.com/v1"
 
     @pytest.mark.anyio
+    async def test_model_selection_overrides_deprecated_model_fields(self, role: Role):
+        """When both model shapes are present, the new model selection wins."""
+        catalog_id = uuid.uuid4()
+        args = {
+            "user_prompt": "Hello",
+            "model": {
+                "model_name": "claude-sonnet-4-5-20250929",
+                "model_provider": "anthropic",
+                "catalog_id": str(catalog_id),
+            },
+            "model_name": "gpt-4o-mini",
+            "model_provider": "openai",
+        }
+        input = BuildAgentArgsActivityInput(
+            args=args,
+            operand=_make_context(),
+            role=role,
+            task_environment=None,
+            default_environment="default",
+        )
+
+        result = await DSLActivities.build_agent_args_activity(input)
+
+        assert result.model_name == "claude-sonnet-4-5-20250929"
+        assert result.model_provider == "anthropic"
+        assert result.catalog_id == catalog_id
+
+    @pytest.mark.anyio
     async def test_vars_with_action_context(self, role: Role):
         """VARS should work alongside ACTIONS context references."""
         args = {

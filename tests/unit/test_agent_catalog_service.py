@@ -72,6 +72,40 @@ async def test_list_catalog_filters_by_provider(
 
 
 @pytest.mark.anyio
+async def test_list_platform_catalog_excludes_org_rows(
+    session: AsyncSession,
+    svc_organization: Organization,
+) -> None:
+    service = AgentCatalogService(session=session)
+    session.add_all(
+        [
+            AgentCatalog(
+                organization_id=None,
+                custom_provider_id=None,
+                model_provider="openai",
+                model_name="platform-model",
+                model_metadata={},
+            ),
+            AgentCatalog(
+                organization_id=svc_organization.id,
+                custom_provider_id=None,
+                model_provider="openai",
+                model_name="org-model",
+                model_metadata={},
+            ),
+        ]
+    )
+    await session.commit()
+
+    items, next_cursor = await service.list_platform_catalog(
+        cursor_params=CursorPaginationParams(limit=10),
+    )
+
+    assert next_cursor is None
+    assert {item.model_name for item in items} == {"platform-model"}
+
+
+@pytest.mark.anyio
 async def test_upsert_catalog_entry_platform_row(session: AsyncSession) -> None:
     service = AgentCatalogService(session=session)
     result = await service.upsert_catalog_entry(

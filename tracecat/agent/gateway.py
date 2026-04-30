@@ -85,18 +85,14 @@ def _credential_cache_key(
     organization_id: OrganizationID,
     provider: str,
     catalog_id: uuid.UUID | None,
-    use_workspace_credentials: bool,
 ) -> str:
     # When a catalog_id is set the credentials belong to that specific
-    # catalog row (cloud or custom provider in v2). Without it, we fall back
-    # to legacy org/workspace provider secrets depending on the migration-era
-    # token scope claim.
+    # catalog row (cloud or custom provider in v2). Without it, legacy action
+    # executions use workspace-scoped provider credentials.
     if catalog_id is not None:
         scope = str(catalog_id)
-    elif use_workspace_credentials:
-        scope = "workspace"
     else:
-        scope = "org"
+        scope = "workspace"
     return f"creds:{workspace_id}:{organization_id}:{provider}:{scope}"
 
 
@@ -209,16 +205,15 @@ async def get_provider_credentials(
 
     When ``catalog_id`` is set (v2 path), credentials are loaded from
     ``AgentManagementService.get_catalog_credentials``. When it's ``None``
-    (legacy-replay tokens or direct-provider platform rows), falls back to
-    org- or workspace-scoped provider secrets depending on the legacy
-    ``use_workspace_credentials`` claim.
+    (legacy-replay tokens or direct-provider platform rows), use workspace-
+    scoped provider secrets.
     """
+    del use_workspace_credentials  # Kept for old token metadata/callers.
     cache_key = _credential_cache_key(
         workspace_id,
         organization_id,
         provider,
         catalog_id,
-        use_workspace_credentials,
     )
 
     cached = await _credential_cache.get(key=cache_key)
@@ -237,22 +232,13 @@ async def get_provider_credentials(
         try:
             if catalog_id is not None:
                 creds = await service.get_catalog_credentials(catalog_id)
-            elif use_workspace_credentials:
+            else:
                 creds = await service.get_workspace_provider_credentials(provider)
                 if creds is not None:
                     creds = await service._augment_runtime_provider_credentials(
                         provider,
                         creds,
                     )
-            else:
-                creds = await service.get_runtime_provider_credentials(provider)
-                if creds is None and provider == "custom-model-provider":
-                    creds = await service.get_workspace_provider_credentials(provider)
-                    if creds is not None:
-                        creds = await service._augment_runtime_provider_credentials(
-                            provider,
-                            creds,
-                        )
         except ValueError as exc:
             raise ProxyException(
                 message=str(exc),

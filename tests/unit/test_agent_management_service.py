@@ -182,7 +182,8 @@ async def test_get_catalog_credentials_respects_workspace_override_access(
         role=_db_role(svc_organization, svc_workspace),
     )
 
-    assert await service.get_catalog_credentials(inherited_catalog.id) is None
+    with pytest.raises(agent_service.TracecatAuthorizationError):
+        await service.get_catalog_credentials(inherited_catalog.id)
     credentials = await service.get_catalog_credentials(workspace_catalog.id)
     assert credentials == {"ANTHROPIC_API_KEY": "live-anthropic"}
 
@@ -425,13 +426,11 @@ async def test_load_custom_model_provider_creds_requires_catalog_access(
         role=_db_role(svc_organization, svc_workspace),
     )
 
-    assert (
+    with pytest.raises(agent_service.TracecatAuthorizationError):
         await _load_custom_model_provider_creds(
             service,
             catalog_id=catalog.id,
         )
-        is None
-    )
 
     await _grant_access(
         session,
@@ -589,8 +588,11 @@ async def test_with_preset_config_sets_registry_and_env_context(role: Role) -> N
             )
         ),
     )
-    service.get_runtime_provider_credentials = AsyncMock(
+    service.get_workspace_provider_credentials = AsyncMock(
         return_value={"ANTHROPIC_API_KEY": "workspace-key"}
+    )
+    service.get_runtime_provider_credentials = AsyncMock(
+        return_value={"ANTHROPIC_API_KEY": "org-key"}
     )
 
     assert registry_secrets.get_or_default("ANTHROPIC_API_KEY") is None
@@ -602,6 +604,72 @@ async def test_with_preset_config_sets_registry_and_env_context(role: Role) -> N
 
     assert registry_secrets.get_or_default("ANTHROPIC_API_KEY") is None
     assert secrets_manager.get("ANTHROPIC_API_KEY") is None
+    service.get_runtime_provider_credentials.assert_not_awaited()
+
+
+@pytest.mark.anyio
+async def test_with_preset_config_catalog_falls_back_to_workspace_credentials(
+    role: Role,
+) -> None:
+    service = AgentManagementService(AsyncMock(), role=role)
+    catalog_id = uuid.uuid4()
+    service.presets = cast(
+        AgentPresetService,
+        SimpleNamespace(
+            resolve_agent_preset_config=AsyncMock(
+                return_value=AgentConfig(
+                    model_name="legacy-claude",
+                    model_provider="anthropic",
+                    catalog_id=catalog_id,
+                )
+            )
+        ),
+    )
+    service.get_catalog_credentials = AsyncMock(return_value=None)
+    service.get_workspace_provider_credentials = AsyncMock(
+        return_value={"ANTHROPIC_API_KEY": "workspace-key"}
+    )
+    service.get_runtime_provider_credentials = AsyncMock(
+        return_value={"ANTHROPIC_API_KEY": "org-key"}
+    )
+
+    async with service.with_preset_config(preset_id=uuid.uuid4()) as config:
+        assert config.catalog_id is None
+        assert config.model_name == "legacy-claude"
+        assert config.model_provider == "anthropic"
+        assert registry_secrets.get("ANTHROPIC_API_KEY") == "workspace-key"
+        assert secrets_manager.get("ANTHROPIC_API_KEY") == "workspace-key"
+
+    service.get_catalog_credentials.assert_awaited_once_with(catalog_id)
+    service.get_runtime_provider_credentials.assert_not_awaited()
+
+
+@pytest.mark.anyio
+async def test_with_preset_config_legacy_path_falls_back_to_org_credentials(
+    role: Role,
+) -> None:
+    service = AgentManagementService(AsyncMock(), role=role)
+    service.presets = cast(
+        AgentPresetService,
+        SimpleNamespace(
+            resolve_agent_preset_config=AsyncMock(
+                return_value=AgentConfig(
+                    model_name="claude-opus-4-5-20251101",
+                    model_provider="anthropic",
+                )
+            )
+        ),
+    )
+    service.get_workspace_provider_credentials = AsyncMock(return_value=None)
+    service.get_runtime_provider_credentials = AsyncMock(
+        return_value={"ANTHROPIC_API_KEY": "org-key"}
+    )
+
+    async with service.with_preset_config(preset_id=uuid.uuid4()):
+        assert registry_secrets.get("ANTHROPIC_API_KEY") == "org-key"
+        assert secrets_manager.get("ANTHROPIC_API_KEY") == "org-key"
+
+    service.get_runtime_provider_credentials.assert_awaited_once_with("anthropic")
 
 
 @pytest.mark.anyio
@@ -621,7 +689,7 @@ async def test_with_preset_config_loads_custom_passthrough_base_url_from_workspa
             )
         ),
     )
-    service.get_runtime_provider_credentials = AsyncMock(
+    service.get_workspace_provider_credentials = AsyncMock(
         return_value={
             "CUSTOM_MODEL_PROVIDER_BASE_URL": "https://litellm.customer.example",
             "CUSTOM_MODEL_PROVIDER_MODEL_NAME": "customer-routed-model",
@@ -635,7 +703,7 @@ async def test_with_preset_config_loads_custom_passthrough_base_url_from_workspa
         assert config.model_name == "customer-routed-model"
         assert config.passthrough is True
 
-    service.get_runtime_provider_credentials.assert_awaited_once_with(
+    service.get_workspace_provider_credentials.assert_awaited_once_with(
         "custom-model-provider"
     )
 

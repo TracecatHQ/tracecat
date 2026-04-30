@@ -2,6 +2,7 @@
 
 from typing import Annotated, Any
 
+from pydantic import Field
 from typing_extensions import Doc
 
 from tracecat_registry import (
@@ -208,6 +209,12 @@ PYDANTIC_AI_REGISTRY_SECRETS: list[RegistrySecretType] = [
     litellm_secret,
 ]
 
+LEGACY_MODEL_FIELD_DEPRECATION_MESSAGE = "Use `model` instead."
+"""Deprecation message for raw model selection fields."""
+LEGACY_MODEL_FIELD_SCHEMA_EXTRA: dict[str, Any] = {
+    "x-tracecat-deprecation-message": LEGACY_MODEL_FIELD_DEPRECATION_MESSAGE
+}
+
 
 @registry.register(
     default_title="AI agent",
@@ -224,10 +231,26 @@ async def agent(
         TextArea(),
     ],
     model: Annotated[
-        ModelSelection,
+        ModelSelection | None,
         Doc("Model to use. Pick from the list of models enabled for this workspace."),
         AgentModel(),
-    ],
+    ] = None,
+    model_name: Annotated[
+        str | None,
+        Doc("Deprecated model name. Use `model` instead."),
+        Field(
+            deprecated=True,
+            json_schema_extra=LEGACY_MODEL_FIELD_SCHEMA_EXTRA,
+        ),
+    ] = None,
+    model_provider: Annotated[
+        str | None,
+        Doc("Deprecated model provider. Use `model` instead."),
+        Field(
+            deprecated=True,
+            json_schema_extra=LEGACY_MODEL_FIELD_SCHEMA_EXTRA,
+        ),
+    ] = None,
     actions: Annotated[
         list[str] | None,
         Doc("Actions (e.g. 'tools.slack.post_message') to include in the agent."),
@@ -337,10 +360,26 @@ async def action(
         TextArea(),
     ],
     model: Annotated[
-        ModelSelection,
+        ModelSelection | None,
         Doc("Model to use. Pick from the list of models enabled for this workspace."),
         AgentModel(),
-    ],
+    ] = None,
+    model_name: Annotated[
+        str | None,
+        Doc("Deprecated model name. Use `model` instead."),
+        Field(
+            deprecated=True,
+            json_schema_extra=LEGACY_MODEL_FIELD_SCHEMA_EXTRA,
+        ),
+    ] = None,
+    model_provider: Annotated[
+        str | None,
+        Doc("Deprecated model provider. Use `model` instead."),
+        Field(
+            deprecated=True,
+            json_schema_extra=LEGACY_MODEL_FIELD_SCHEMA_EXTRA,
+        ),
+    ] = None,
     instructions: Annotated[
         str | None, Doc("Instructions for the agent."), TextArea()
     ] = None,

@@ -18,6 +18,7 @@ import {
   type AdminRegistryListRegistryVersionsResponse,
   type AdminUserCreate,
   type AdminUserRead,
+  type AgentCatalogListResponse,
   type AgentCatalogRead,
   adminCreateOrganization,
   adminCreateOrganizationDomain,
@@ -55,7 +56,7 @@ import {
   adminUpdateOrgTier,
   adminUpdateRegistrySettings,
   adminUpdateTier,
-  listCatalog,
+  OpenAPI,
   type OrganizationTierRead,
   type OrganizationTierUpdate,
   type OrgCreate,
@@ -69,6 +70,7 @@ import {
   type TierRead,
   type TierUpdate,
 } from "@/client"
+import { request as apiRequest } from "@/client/core/request"
 import { retryHandler, type TracecatApiError } from "@/lib/errors"
 
 export interface AdminPlatformCatalogEntry {
@@ -81,11 +83,27 @@ export interface AdminPlatformCatalogEntry {
 }
 
 export interface AdminPlatformCatalogRead {
-  discovery_status: string
-  last_refreshed_at: string | null
-  last_error: string | null
-  next_cursor: string | null
   models: AdminPlatformCatalogEntry[]
+}
+
+function adminListPlatformCatalog({
+  cursor,
+  limit,
+}: {
+  cursor?: string
+  limit?: number
+} = {}) {
+  return apiRequest<AgentCatalogListResponse>(OpenAPI, {
+    method: "GET",
+    url: "/admin/agent/catalog",
+    query: {
+      cursor,
+      limit,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
 }
 
 /* ── ORGANIZATIONS ─────────────────────────────────────────────────────────── */
@@ -785,8 +803,7 @@ export function useAdminRegistrySettings() {
 }
 
 /**
- * Read platform-scoped catalog rows through the current organization catalog
- * surface.
+ * Read platform-scoped catalog rows through the admin catalog surface.
  */
 export function useAdminPlatformCatalog({
   query = "",
@@ -805,7 +822,7 @@ export function useAdminPlatformCatalog({
       let cursor: string | undefined
 
       do {
-        const response = await listCatalog({
+        const response = await adminListPlatformCatalog({
           cursor,
           limit: 100,
         })
@@ -824,7 +841,6 @@ export function useAdminPlatformCatalog({
 
     const normalizedQuery = query.trim().toLowerCase()
     const models = catalogItems
-      .filter((item) => item.organization_id === null)
       .filter((item) => {
         if (!normalizedQuery) {
           return true
@@ -856,10 +872,6 @@ export function useAdminPlatformCatalog({
       }))
 
     return {
-      discovery_status: models.length ? "loaded" : "unknown",
-      last_refreshed_at: null,
-      last_error: null,
-      next_cursor: null,
       models,
     }
   }, [catalogItems, query])

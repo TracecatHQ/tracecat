@@ -458,7 +458,43 @@ class TestAgentPresetService:
         assert preset.model_name == catalog.model_name
         assert preset.model_provider == catalog.model_provider
 
-    async def test_resolve_agent_preset_config_uses_catalog_model_fields(
+    async def test_build_version_read_includes_catalog_id(
+        self,
+        session: AsyncSession,
+        svc_organization: Organization,
+        agent_preset_service: AgentPresetService,
+        agent_preset_create_params: AgentPresetCreate,
+    ) -> None:
+        catalog = AgentCatalog(
+            organization_id=None,
+            custom_provider_id=None,
+            model_provider="openai",
+            model_name="gpt-4.1",
+            model_metadata={},
+        )
+        session.add(catalog)
+        await session.flush()
+        session.add(
+            AgentModelAccess(
+                organization_id=svc_organization.id,
+                workspace_id=None,
+                catalog_id=catalog.id,
+            )
+        )
+        await session.commit()
+
+        preset = await agent_preset_service.create_preset(
+            agent_preset_create_params.model_copy(update={"catalog_id": catalog.id})
+        )
+        version = await agent_preset_service.get_current_version_for_preset(preset)
+
+        assert version.catalog_id == catalog.id
+
+        version_read = await agent_preset_service.build_version_read(version)
+
+        assert version_read.catalog_id == catalog.id
+
+    async def test_resolve_agent_preset_config_preserves_version_model_fields(
         self,
         session: AsyncSession,
         svc_organization: Organization,
@@ -504,8 +540,8 @@ class TestAgentPresetService:
         )
 
         assert config.catalog_id == catalog.id
-        assert config.model_name == catalog.model_name
-        assert config.model_provider == catalog.model_provider
+        assert config.model_name == "claude-sonnet-4-5"
+        assert config.model_provider == "anthropic"
 
     async def test_update_preset_rejects_catalog_id_excluded_by_workspace_override(
         self,

@@ -615,6 +615,9 @@ function AgentPresetChatPane({
         : null,
     [effectiveModelConfig, enabledModelOptions]
   )
+  const hasLegacyModelConfig = Boolean(
+    effectiveModelConfig?.model_provider && effectiveModelConfig.model_name
+  )
 
   const modelInfo: ModelInfo | null = useMemo(() => {
     if (!effectiveModelConfig) {
@@ -635,7 +638,7 @@ function AgentPresetChatPane({
   const canStartChat = Boolean(
     preset &&
       effectiveModelConfig &&
-      (!enabledModelsLoaded || selectedModel !== null)
+      (!enabledModelsLoaded || selectedModel !== null || hasLegacyModelConfig)
   )
   const shouldAutoCreateChat =
     canStartChat && !activeChatId && !chatsLoading && !createChatPending
@@ -713,7 +716,7 @@ function AgentPresetChatPane({
       )
     }
 
-    if (enabledModelsLoaded && !selectedModel) {
+    if (enabledModelsLoaded && !selectedModel && !hasLegacyModelConfig) {
       return (
         <div className="flex h-full flex-col items-center justify-center px-4">
           <div className="flex max-w-xs flex-col items-center gap-2 text-center text-xs text-muted-foreground">
@@ -1207,6 +1210,15 @@ function AgentPresetForm({
       syncFormModelSelection(form, selectedModel, false)
       return
     }
+    if (preset) {
+      if (form.getValues("source_id")) {
+        form.setValue("source_id", "", { shouldDirty: false })
+      }
+      if (form.getValues("catalog_id")) {
+        form.setValue("catalog_id", "", { shouldDirty: false })
+      }
+      return
+    }
     if (
       form.getValues("source_id") ||
       form.getValues("model_provider") ||
@@ -1218,7 +1230,7 @@ function AgentPresetForm({
       form.setValue("model_name", "", { shouldDirty: false })
       form.setValue("base_url", "", { shouldDirty: false })
     }
-  }, [enabledModelsLoaded, form, selectedModel])
+  }, [enabledModelsLoaded, form, preset, selectedModel])
 
   const effectiveTab =
     !channelsEnabled && activeTab === "channels" ? "live-chat" : activeTab
@@ -1754,6 +1766,10 @@ function AgentPresetConfigurationPanel({
   )
   const hasMissingEnabledModel =
     enabledModelsLoaded && !selectedModel && Boolean(modelProvider || modelName)
+  const legacyModelLabel =
+    hasMissingEnabledModel && modelProvider && modelName
+      ? `${modelProvider} / ${modelName}`
+      : null
   const [isModelPickerOpen, setIsModelPickerOpen] = useState(false)
 
   return (
@@ -1770,12 +1786,6 @@ function AgentPresetConfigurationPanel({
                   <FormDescription>
                     Choose from the models available in this workspace.
                   </FormDescription>
-                  {hasMissingEnabledModel ? (
-                    <p className="text-xs text-amber-600">
-                      This preset&apos;s current model is no longer enabled.
-                      Choose a new enabled model before saving.
-                    </p>
-                  ) : null}
                   <Popover
                     open={isModelPickerOpen}
                     onOpenChange={setIsModelPickerOpen}
@@ -1805,6 +1815,19 @@ function AgentPresetConfigurationPanel({
                               </span>
                               <span className="shrink-0 text-muted-foreground">
                                 {selectedModel.sourceName}
+                              </span>
+                            </span>
+                          ) : legacyModelLabel ? (
+                            <span className="flex min-w-0 items-center gap-2">
+                              <ProviderIcon
+                                providerId={getProviderIconId(modelProvider)}
+                                className="size-4 shrink-0 rounded-none bg-transparent p-0"
+                              />
+                              <span className="truncate">
+                                {legacyModelLabel}
+                              </span>
+                              <span className="shrink-0 text-muted-foreground">
+                                Legacy
                               </span>
                             </span>
                           ) : enabledModelOptions.length ? (
