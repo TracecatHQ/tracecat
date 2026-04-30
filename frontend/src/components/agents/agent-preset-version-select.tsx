@@ -14,6 +14,12 @@ import { cn } from "@/lib/utils"
 
 const CURRENT_VERSION_VALUE = "__current__"
 
+export function getAgentPresetVersionIdFromSelectValue(
+  selectValue: string
+): string | null {
+  return selectValue === CURRENT_VERSION_VALUE ? null : selectValue
+}
+
 export function getAgentPresetVersionNumber(
   versions: AgentPresetVersionReadMinimal[] | undefined,
   versionId: string | null | undefined
@@ -114,7 +120,6 @@ export function AgentPresetVersionSelect({
   triggerClassName,
   allowCurrent = true,
 }: AgentPresetVersionSelectProps) {
-  const latestVersionId = versions?.[0]?.id ?? null
   const value =
     selectedVersionId ?? (allowCurrent ? CURRENT_VERSION_VALUE : undefined)
   const currentVersionNumber = getAgentPresetVersionNumber(
@@ -129,15 +134,9 @@ export function AgentPresetVersionSelect({
   return (
     <Select
       value={value}
-      onValueChange={(nextValue) => {
-        if (nextValue === CURRENT_VERSION_VALUE) {
-          if (latestVersionId) {
-            void onSelect(latestVersionId)
-          }
-          return
-        }
-        void onSelect(nextValue)
-      }}
+      onValueChange={(nextValue) =>
+        void onSelect(getAgentPresetVersionIdFromSelectValue(nextValue))
+      }
       disabled={disabled}
     >
       <SelectTrigger
@@ -188,12 +187,9 @@ export function AgentPresetVersionSelect({
             Failed to load versions
           </SelectItem>
         ) : null}
-        {!versionsIsLoading &&
-        !versionsError &&
-        allowCurrent &&
-        latestVersionId ? (
+        {!versionsIsLoading && !versionsError && allowCurrent ? (
           <SelectItem value={CURRENT_VERSION_VALUE}>
-            <VersionLabel label="Use latest" />
+            <VersionLabel label="Use current" />
           </SelectItem>
         ) : null}
         {!versionsIsLoading &&
