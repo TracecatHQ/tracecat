@@ -465,7 +465,7 @@ class EventGroup[T: EventInput](BaseModel):
                     memo = await ChildWorkflowMemo.from_temporal(attrs.memo)
                 except Exception as e:
                     logger.error("Error parsing child workflow memo", error=e)
-                    raise e
+                    raise
                 input = await extract_first(attrs.input)
                 if is_unreadable_temporal_payload(input):
                     child_group = EventGroup(
@@ -511,7 +511,7 @@ class EventGroup[T: EventInput](BaseModel):
                     memo = await AgentActionMemo.from_temporal(attrs.memo)
                 except Exception as e:
                     logger.error("Error parsing agent action memo", error=e)
-                    raise e
+                    raise
                 input = await extract_first(attrs.input)
                 namespace, name = PlatformAction.AI_AGENT.value.split(".", 1)
                 if is_unreadable_temporal_payload(input):
@@ -915,7 +915,7 @@ class WorkflowExecutionEventCompact[TInput: Any, TResult: Any, TSessionEvent: An
                     memo = await ChildWorkflowMemo.from_temporal(attrs.memo)
                 except Exception as e:
                     logger.error("Error parsing child workflow memo", error=e)
-                    raise e
+                    raise
 
                 if (
                     attrs.parent_close_policy
@@ -972,7 +972,7 @@ class WorkflowExecutionEventCompact[TInput: Any, TResult: Any, TSessionEvent: An
                     memo = await AgentActionMemo.from_temporal(attrs.memo)
                 except Exception as e:
                     logger.error("Error parsing agent action memo", error=e)
-                    raise e
+                    raise
 
                 input_data = await extract_first(attrs.input)
                 if is_unreadable_temporal_payload(input_data):
