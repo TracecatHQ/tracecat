@@ -7,6 +7,7 @@ from typing import Any, cast
 
 import sqlalchemy as sa
 import yaml
+from fastapi import HTTPException, status
 from pydantic import ValidationError
 from sqlalchemy import and_, or_, select
 from sqlalchemy.orm import selectinload
@@ -59,10 +60,17 @@ from tracecat.validation.service import validate_dsl
 from tracecat.workflow.actions.schemas import ActionControlFlow, ActionEdge
 from tracecat.workflow.case_triggers.service import CaseTriggersService
 from tracecat.workflow.executions.enums import ExecutionType
+from tracecat.workflow.graph.service import WorkflowGraphService
 from tracecat.workflow.management.definitions import WorkflowDefinitionsService
+from tracecat.workflow.management.layout import (
+    WorkflowActionLayoutInput,
+    auto_generate_layout,
+)
 from tracecat.workflow.management.schemas import (
     ExternalWorkflowDefinition,
     GetErrorHandlerWorkflowIDActivityInputs,
+    GraphOperation,
+    GraphOperationType,
     ResolveWorkflowAliasActivityInputs,
     WorkflowCreate,
     WorkflowDSLCreateResponse,
@@ -664,11 +672,38 @@ class WorkflowsManagementService(BaseWorkspaceService):
                            If False, resolve from draft Workflow aliases (for draft executions).
         """
         if use_committed:
-            # For published executions: resolve from the latest committed definition with this alias
+            # For published executions: resolve from the current committed definition.
             statement = (
                 select(WorkflowDefinition.workflow_id)
+                .join(
+                    Workflow,
+                    and_(
+                        Workflow.id == WorkflowDefinition.workflow_id,
+                        Workflow.version == WorkflowDefinition.version,
+                    ),
+                )
                 .where(
                     WorkflowDefinition.workspace_id == self.workspace_id,
+                    WorkflowDefinition.alias == alias,
+                )
+                .order_by(
+                    WorkflowDefinition.created_at.desc(),
+                    WorkflowDefinition.workflow_id.desc(),
+                )
+                .limit(1)
+            )
+            result = await self.session.execute(statement)
+            if res := result.scalar_one_or_none():
+                return WorkflowUUID.new(res)
+
+            # Legacy fallback for workflows without a current version pointer.
+            statement = (
+                select(WorkflowDefinition.workflow_id)
+                .join(Workflow, Workflow.id == WorkflowDefinition.workflow_id)
+                .where(
+                    WorkflowDefinition.workspace_id == self.workspace_id,
+                    Workflow.workspace_id == self.workspace_id,
+                    Workflow.version.is_(None),
                     WorkflowDefinition.alias == alias,
                 )
                 .order_by(WorkflowDefinition.version.desc())
@@ -868,6 +903,102 @@ class WorkflowsManagementService(BaseWorkspaceService):
             returns=workflow.returns,
             error_handler=workflow.error_handler,
         )
+
+    @require_scope("workflow:update")
+    async def restore_workflow_definition(
+        self, workflow: Workflow, definition: WorkflowDefinition
+    ) -> Workflow:
+        """Restore a workflow definition as the current mutable draft."""
+        if definition.workflow_id != workflow.id:
+            raise TracecatValidationError(
+                "Workflow definition does not belong to the selected workflow"
+            )
+
+        # Re-read the row under FOR UPDATE so concurrent graph mutations
+        # cannot race the action rewrite below. The expected `graph_version`
+        # is whatever the caller observed; if the DB has moved on, abort.
+        expected_graph_version = workflow.graph_version
+        locked = await self.session.execute(
+            select(Workflow.graph_version)
+            .where(
+                Workflow.workspace_id == self.workspace_id,
+                Workflow.id == workflow.id,
+            )
+            .with_for_update()
+        )
+        current_graph_version = locked.scalar_one_or_none()
+        if current_graph_version is None:
+            raise TracecatValidationError("Workflow no longer exists")
+        if current_graph_version != expected_graph_version:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail={
+                    "message": "This workflow has been edited since you opened it. Refresh to see the latest version before restoring.",
+                    "current_version": current_graph_version,
+                },
+            )
+
+        dsl = DSLInput.model_validate(definition.content)
+        workflow.title = dsl.title
+        workflow.description = dsl.description
+        workflow.expects = dsl.entrypoint.expects or {}
+        workflow.returns = dsl.returns
+        workflow.config = dsl.config.model_dump()
+        workflow.error_handler = dsl.error_handler
+        workflow.alias = definition.alias
+        workflow.version = definition.version
+        workflow.registry_lock = definition.registry_lock
+        workflow.graph_version += 1
+
+        await self.session.execute(
+            sa.delete(Action).where(
+                Action.workspace_id == self.workspace_id,
+                Action.workflow_id == workflow.id,
+            )
+        )
+        await self.create_actions_from_dsl(dsl, workflow.id)
+        await self.session.flush()
+        await self.session.refresh(workflow, ["actions"])
+
+        layout = auto_generate_layout(
+            [
+                WorkflowActionLayoutInput(
+                    ref=action.ref, depends_on=list(action.depends_on)
+                )
+                for action in dsl.actions
+            ]
+        )
+        ref_to_action_id = {action.ref: str(action.id) for action in workflow.actions}
+        positions = [
+            {
+                "action_id": ref_to_action_id[item["ref"]],
+                "x": item["x"],
+                "y": item["y"],
+            }
+            for item in layout["actions"]
+            if item["ref"] in ref_to_action_id
+        ]
+        graph_service = WorkflowGraphService(self.session, role=self.role)
+        await graph_service.apply_operations(
+            workflow_id=WorkflowUUID.new(workflow.id),
+            base_version=workflow.graph_version,
+            operations=[
+                GraphOperation(
+                    type=GraphOperationType.MOVE_NODES,
+                    payload={"positions": positions},
+                ),
+                GraphOperation(
+                    type=GraphOperationType.UPDATE_TRIGGER_POSITION,
+                    payload={
+                        "x": layout["trigger"]["x"],
+                        "y": layout["trigger"]["y"],
+                    },
+                ),
+            ],
+        )
+        await self.session.refresh(workflow)
+        await self.session.refresh(workflow, ["actions", "webhook", "schedules"])
+        return workflow
 
     @require_scope("workflow:create")
     async def create_workflow_from_external_definition(

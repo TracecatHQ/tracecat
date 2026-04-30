@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from sqlalchemy import select
+from sqlalchemy import case, select
 from sqlalchemy.orm import selectinload
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
@@ -40,11 +40,21 @@ class WorkflowDefinitionsService(BaseWorkspaceService):
                 )
             )
         )
-        if version:
+        if version is not None:
             statement = statement.where(WorkflowDefinition.version == version)
         else:
-            # Get the latest version
-            statement = statement.order_by(WorkflowDefinition.version.desc())
+            current_version_sq = (
+                select(Workflow.version)
+                .where(
+                    Workflow.workspace_id == self.workspace_id,
+                    Workflow.id == workflow_id,
+                )
+                .scalar_subquery()
+            )
+            statement = statement.order_by(
+                case((WorkflowDefinition.version == current_version_sq, 0), else_=1),
+                WorkflowDefinition.version.desc(),
+            ).limit(1)
 
         result = await self.session.execute(statement)
         return result.scalars().first()

@@ -18,16 +18,7 @@ from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from io import StringIO
 from pathlib import PurePosixPath
-from typing import (
-    Annotated,
-    Any,
-    Literal,
-    NotRequired,
-    Protocol,
-    TypedDict,
-    cast,
-    get_args,
-)
+from typing import Annotated, Any, Literal, Protocol, TypedDict, cast, get_args
 
 import orjson
 import sqlalchemy as sa
@@ -238,6 +229,10 @@ from tracecat.workflow.case_triggers.service import CaseTriggersService
 from tracecat.workflow.executions.service import WorkflowExecutionsService
 from tracecat.workflow.management.definitions import WorkflowDefinitionsService
 from tracecat.workflow.management.folders.service import WorkflowFolderService
+from tracecat.workflow.management.layout import (
+    WorkflowActionLayoutInput,
+    auto_generate_layout,
+)
 from tracecat.workflow.management.management import WorkflowsManagementService
 from tracecat.workflow.management.schemas import WorkflowCreate, WorkflowUpdate
 from tracecat.workflow.schedules.schemas import (
@@ -733,33 +728,6 @@ class ActionSecretRequirementPayload(TypedDict):
     required_keys: list[str]
     optional_keys: list[str]
     optional: bool
-
-
-class WorkflowActionLayoutInput(TypedDict):
-    """Minimal action shape needed to auto-generate workflow layout."""
-
-    ref: str
-    depends_on: NotRequired[list[str]]
-
-
-class GeneratedLayoutPoint(TypedDict):
-    """Generated x/y layout coordinates."""
-
-    x: float
-    y: float
-
-
-class GeneratedLayoutAction(GeneratedLayoutPoint):
-    """Generated action layout coordinates."""
-
-    ref: str
-
-
-class GeneratedWorkflowLayout(TypedDict):
-    """Generated workflow layout payload."""
-
-    trigger: GeneratedLayoutPoint
-    actions: list[GeneratedLayoutAction]
 
 
 class WorkflowSummaryResponse(BaseModel):
@@ -2540,86 +2508,6 @@ def _ensure_inline_workflow_yaml_size(definition_yaml: str) -> None:
         )
 
 
-def _auto_generate_layout(
-    actions: Sequence[WorkflowActionLayoutInput],
-) -> GeneratedWorkflowLayout:
-    """Generate a top-down layout for workflow actions when none is provided.
-
-    Walks the dependency graph to assign each action a depth (row), then
-    spreads siblings horizontally. The trigger node sits at the top.
-    """
-    NODE_HEIGHT = 300  # vertical spacing between rows
-    NODE_WIDTH = 300  # horizontal spacing between columns
-
-    # Build dependency graph
-    dependents: dict[str, list[str]] = {a["ref"]: [] for a in actions}
-    deps: dict[str, list[str]] = {}
-    for a in actions:
-        deps[a["ref"]] = a.get("depends_on", []) or []
-        for dep in deps[a["ref"]]:
-            if dep in dependents:
-                dependents[dep].append(a["ref"])
-
-    # Assign depth via BFS from roots
-    depth: dict[str, int] = {}
-    roots = [ref for ref, d in deps.items() if not d]
-    # If no roots found (cycle?), just use insertion order
-    if not roots:
-        for i, a in enumerate(actions):
-            depth[a["ref"]] = i
-    else:
-        queue = deque(roots)
-        max_depth = max(len(actions) - 1, 0)
-        for r in roots:
-            depth[r] = 0
-        while queue:
-            ref = queue.popleft()
-            for child in dependents.get(ref, []):
-                new_depth = depth[ref] + 1
-                if new_depth > max_depth:
-                    continue
-                if child not in depth or new_depth > depth[child]:
-                    depth[child] = new_depth
-                    queue.append(child)
-    if len(depth) < len(actions):
-        next_depth = max(depth.values(), default=-1) + 1
-        for action in actions:
-            ref = action["ref"]
-            if ref not in depth:
-                depth[ref] = next_depth
-                next_depth += 1
-
-    # Group actions by depth
-    rows: dict[int, list[str]] = {}
-    for ref, d in depth.items():
-        rows.setdefault(d, []).append(ref)
-
-    # Sort refs within each row for deterministic output
-    for d in rows:
-        rows[d].sort()
-
-    # Position: trigger at top, then each row below
-    layout: GeneratedWorkflowLayout = {
-        "trigger": {"x": 0, "y": 0},
-        "actions": [],
-    }
-    for d in sorted(rows.keys()):
-        refs_in_row = rows[d]
-        total_width = (len(refs_in_row) - 1) * NODE_WIDTH
-        start_x = -total_width / 2
-        y = (d + 1) * NODE_HEIGHT  # +1 to leave room for trigger
-        for i, ref in enumerate(refs_in_row):
-            layout["actions"].append(
-                {
-                    "ref": ref,
-                    "x": start_x + i * NODE_WIDTH,
-                    "y": y,
-                }
-            )
-
-    return layout
-
-
 async def _replace_workflow_definition_from_dsl(
     service: WorkflowsManagementService,
     workflow: Workflow,
@@ -2849,7 +2737,7 @@ def _build_import_data_from_workflow_yaml(
     if not layout:
         actions = definition.get("actions", [])
         if actions:
-            normalized["layout"] = _auto_generate_layout(
+            normalized["layout"] = auto_generate_layout(
                 cast(Sequence[WorkflowActionLayoutInput], actions)
             )
     return normalized
@@ -2900,7 +2788,7 @@ async def _apply_workflow_yaml_update(
         defn_raw = raw.get("definition", raw) if isinstance(raw, dict) else {}
         actions_raw = defn_raw.get("actions", [])
         if actions_raw:
-            auto_layout = _auto_generate_layout(
+            auto_layout = auto_generate_layout(
                 cast(Sequence[WorkflowActionLayoutInput], actions_raw)
             )
             yaml_payload.layout = WorkflowLayout.model_validate(auto_layout)

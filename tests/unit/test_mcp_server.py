@@ -40,6 +40,7 @@ from tracecat.validation.schemas import (
     ValidationResult,
     ValidationResultType,
 )
+from tracecat.workflow.management import layout as layout_module
 
 _original_create_mcp_auth = mcp_auth.create_mcp_auth
 try:
@@ -466,13 +467,13 @@ async def test_validate_template_action_remote_rejects_client_mismatch(monkeypat
 
 
 def test_auto_generate_layout_handles_cycles():
-    actions: list[mcp_server.WorkflowActionLayoutInput] = [
+    actions: list[layout_module.WorkflowActionLayoutInput] = [
         {"ref": "start", "depends_on": []},
         {"ref": "middle", "depends_on": ["start", "end"]},
         {"ref": "end", "depends_on": ["middle"]},
     ]
 
-    layout = mcp_server._auto_generate_layout(actions)
+    layout = layout_module.auto_generate_layout(actions)
     refs = {item["ref"] for item in layout["actions"]}
 
     assert refs == {"start", "middle", "end"}
@@ -525,11 +526,11 @@ def test_extract_layout_positions_nested_position_shape():
 
 def test_auto_generate_layout_round_trips_through_extract():
     """Auto-generated layout can be extracted into position tuples."""
-    actions: list[mcp_server.WorkflowActionLayoutInput] = [
+    actions: list[layout_module.WorkflowActionLayoutInput] = [
         {"ref": "step1", "depends_on": []},
         {"ref": "step2", "depends_on": ["step1"]},
     ]
-    layout_data = mcp_server._auto_generate_layout(actions)
+    layout_data = layout_module.auto_generate_layout(actions)
     trigger, viewport, action_positions = mcp_server._extract_layout_positions(
         layout_data
     )

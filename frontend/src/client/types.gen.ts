@@ -8836,6 +8836,14 @@ export type WorkflowsListWorkflowDefinitionsData = {
 export type WorkflowsListWorkflowDefinitionsResponse =
   Array<WorkflowDefinitionRead>
 
+export type WorkflowsRestoreWorkflowDefinitionData = {
+  version: number
+  workflowId: string
+  workspaceId: string
+}
+
+export type WorkflowsRestoreWorkflowDefinitionResponse = WorkflowRead
+
 export type WorkflowsGetWorkflowDefinitionData = {
   version?: number | null
   workflowId: string
@@ -12356,6 +12364,21 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: Array<WorkflowDefinitionRead>
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workflows/{workflow_id}/definitions/{version}/restore": {
+    post: {
+      req: WorkflowsRestoreWorkflowDefinitionData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: WorkflowRead
         /**
          * Validation Error
          */
