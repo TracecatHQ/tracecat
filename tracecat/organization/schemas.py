@@ -51,6 +51,7 @@ class OrgMemberDetail(BaseModel):
 class OrgRead(BaseModel):
     id: UUID
     name: str
+    disable_github_workflow_pulls: bool
 
 
 class OrgDomainRead(BaseModel):

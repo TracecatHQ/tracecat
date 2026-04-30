@@ -1,9 +1,11 @@
 from fastapi import APIRouter, HTTPException, Query, status
+from sqlalchemy import select
 
 from tracecat import config
 from tracecat.auth.dependencies import WorkspaceActorRole
 from tracecat.authz.controls import require_scope
 from tracecat.db.dependencies import AsyncDBSession
+from tracecat.db.models import Organization
 from tracecat.dsl.common import DSLInput
 from tracecat.exceptions import (
     TracecatCredentialsNotFoundError,
@@ -263,6 +265,22 @@ async def pull_workflows(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Workspace ID is required",
+        )
+    if not role.organization_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Organization context is required",
+        )
+
+    org_result = await session.execute(
+        select(Organization.disable_github_workflow_pulls).where(
+            Organization.id == role.organization_id
+        )
+    )
+    if org_result.scalar_one_or_none():
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Workflow pulls are disabled by your organization administrator",
         )
 
     repository_url = None  # Initialize to avoid UnboundLocalError in exception handlers

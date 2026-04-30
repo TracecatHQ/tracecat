@@ -39,6 +39,7 @@ const formSchema = z.object({
       "Slug must contain only lowercase letters, numbers, and hyphens"
     ),
   is_active: z.boolean(),
+  disable_github_workflow_pulls: z.boolean(),
 })
 
 type FormValues = z.infer<typeof formSchema>
@@ -74,6 +75,7 @@ export function AdminOrganizationEditDialog({
       name: "",
       slug: "",
       is_active: true,
+      disable_github_workflow_pulls: false,
     },
   })
 
@@ -83,6 +85,8 @@ export function AdminOrganizationEditDialog({
         name: organization.name,
         slug: organization.slug,
         is_active: organization.is_active,
+        disable_github_workflow_pulls:
+          organization.disable_github_workflow_pulls,
       })
     }
   }, [organization, form, dialogOpen])
@@ -173,6 +177,27 @@ export function AdminOrganizationEditDialog({
                     <FormLabel className="font-normal">Active</FormLabel>
                     <FormDescription className="ml-4">
                       Inactive organizations cannot be accessed by users.
+                    </FormDescription>
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name="disable_github_workflow_pulls"
+                render={({ field }) => (
+                  <FormItem className="flex items-center gap-2 space-y-0">
+                    <FormControl>
+                      <Checkbox
+                        checked={field.value}
+                        onCheckedChange={field.onChange}
+                      />
+                    </FormControl>
+                    <FormLabel className="font-normal">
+                      Disable GitHub Workflow pulls
+                    </FormLabel>
+                    <FormDescription className="ml-4">
+                      Hide the pull workflows UI in workspaces and reject Git
+                      pull requests from this organization.
                     </FormDescription>
                   </FormItem>
                 )}

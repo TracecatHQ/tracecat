@@ -23,13 +23,18 @@ from tracecat.invitations.enums import InvitationStatus
 from tracecat.pagination import CursorPaginatedResponse, CursorPaginationParams
 
 
-def _org_read(org_id: uuid.UUID | None = None) -> OrgRead:
+def _org_read(
+    org_id: uuid.UUID | None = None,
+    *,
+    disable_github_workflow_pulls: bool = False,
+) -> OrgRead:
     now = datetime(2024, 1, 1, tzinfo=UTC)
     return OrgRead(
         id=org_id or uuid.uuid4(),
         name="Test Org",
         slug="test-org",
         is_active=True,
+        disable_github_workflow_pulls=disable_github_workflow_pulls,
         created_at=now,
         updated_at=now,
     )
@@ -153,6 +158,30 @@ async def test_update_organization_conflict(
         )
 
     assert response.status_code == status.HTTP_409_CONFLICT
+
+
+@pytest.mark.anyio
+async def test_update_organization_disable_github_workflow_pulls(
+    client: TestClient, test_admin_role: Role
+) -> None:
+    org_id = uuid.uuid4()
+    updated = _org_read(org_id, disable_github_workflow_pulls=True)
+
+    with patch.object(organizations_router, "AdminOrgService") as MockService:
+        mock_svc = AsyncMock()
+        mock_svc.update_organization.return_value = updated
+        MockService.return_value = mock_svc
+
+        response = client.patch(
+            f"/admin/organizations/{org_id}",
+            json={"disable_github_workflow_pulls": True},
+        )
+
+    assert response.status_code == status.HTTP_200_OK
+    assert response.json()["disable_github_workflow_pulls"] is True
+    args = mock_svc.update_organization.await_args.args
+    assert args[0] == org_id
+    assert args[1].disable_github_workflow_pulls is True
 
 
 @pytest.mark.anyio
