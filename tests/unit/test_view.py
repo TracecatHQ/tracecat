@@ -1790,6 +1790,7 @@ def test_build_action_statements_simple_sequence():
         type="udf",
         title="Action A",
         ref="action_a",
+        control_flow={"mask_output": True},
         upstream_edges=[
             {"source_id": trigger_id, "source_type": "trigger"},
         ],
@@ -1831,6 +1832,8 @@ def test_build_action_statements_simple_sequence():
     assert stmts_by_ref["action_a"].depends_on == []  # A is entrypoint
     assert stmts_by_ref["action_b"].depends_on == ["action_a"]  # B depends on A
     assert stmts_by_ref["action_c"].depends_on == ["action_b"]  # C depends on B
+    assert stmts_by_ref["action_a"].mask_output is True
+    assert stmts_by_ref["action_b"].mask_output is False
 
 
 def test_build_action_statements_diamond():
