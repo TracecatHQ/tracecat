@@ -59,10 +59,17 @@ from tracecat.validation.service import validate_dsl
 from tracecat.workflow.actions.schemas import ActionControlFlow, ActionEdge
 from tracecat.workflow.case_triggers.service import CaseTriggersService
 from tracecat.workflow.executions.enums import ExecutionType
+from tracecat.workflow.graph.service import WorkflowGraphService
 from tracecat.workflow.management.definitions import WorkflowDefinitionsService
+from tracecat.workflow.management.layout import (
+    WorkflowActionLayoutInput,
+    auto_generate_layout,
+)
 from tracecat.workflow.management.schemas import (
     ExternalWorkflowDefinition,
     GetErrorHandlerWorkflowIDActivityInputs,
+    GraphOperation,
+    GraphOperationType,
     ResolveWorkflowAliasActivityInputs,
     WorkflowCreate,
     WorkflowDSLCreateResponse,
@@ -925,6 +932,44 @@ class WorkflowsManagementService(BaseWorkspaceService):
         await self.session.commit()
         await self.session.refresh(workflow)
         await self.session.refresh(workflow, ["actions", "webhook", "schedules"])
+
+        layout = auto_generate_layout(
+            [
+                WorkflowActionLayoutInput(
+                    ref=action.ref, depends_on=list(action.depends_on)
+                )
+                for action in dsl.actions
+            ]
+        )
+        ref_to_action_id = {action.ref: str(action.id) for action in workflow.actions}
+        positions = [
+            {
+                "action_id": ref_to_action_id[item["ref"]],
+                "x": item["x"],
+                "y": item["y"],
+            }
+            for item in layout["actions"]
+            if item["ref"] in ref_to_action_id
+        ]
+        graph_service = WorkflowGraphService(self.session, role=self.role)
+        await graph_service.apply_operations(
+            workflow_id=WorkflowUUID.new(workflow.id),
+            base_version=workflow.graph_version,
+            operations=[
+                GraphOperation(
+                    type=GraphOperationType.MOVE_NODES,
+                    payload={"positions": positions},
+                ),
+                GraphOperation(
+                    type=GraphOperationType.UPDATE_TRIGGER_POSITION,
+                    payload={
+                        "x": layout["trigger"]["x"],
+                        "y": layout["trigger"]["y"],
+                    },
+                ),
+            ],
+        )
+        await self.session.refresh(workflow, ["actions"])
         return workflow
 
     @require_scope("workflow:create")

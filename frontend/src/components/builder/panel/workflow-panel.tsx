@@ -313,11 +313,14 @@ function WorkflowVersionsHistory({
     )
   }
 
+  const latestVersion = definitions[0]?.version ?? null
+
   return (
     <TooltipProvider>
       <div className="flex flex-col">
         {definitions.map((definition, index) => {
           const isCurrent = definition.version === currentVersion
+          const isLatest = definition.version === latestVersion
           return (
             <div key={definition.id}>
               <div className="flex items-center gap-3 px-4 py-3">
@@ -327,6 +330,7 @@ function WorkflowVersionsHistory({
                     {isCurrent ? (
                       <Badge variant="secondary">Current</Badge>
                     ) : null}
+                    {isLatest ? <Badge variant="outline">Latest</Badge> : null}
                   </div>
                   <div className="mt-1 text-xs text-muted-foreground">
                     {getRelativeTime(new Date(definition.created_at))}
