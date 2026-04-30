@@ -929,9 +929,8 @@ class WorkflowsManagementService(BaseWorkspaceService):
             )
         )
         await self.create_actions_from_dsl(dsl, workflow.id)
-        await self.session.commit()
-        await self.session.refresh(workflow)
-        await self.session.refresh(workflow, ["actions", "webhook", "schedules"])
+        await self.session.flush()
+        await self.session.refresh(workflow, ["actions"])
 
         layout = auto_generate_layout(
             [
@@ -969,7 +968,8 @@ class WorkflowsManagementService(BaseWorkspaceService):
                 ),
             ],
         )
-        await self.session.refresh(workflow, ["actions"])
+        await self.session.refresh(workflow)
+        await self.session.refresh(workflow, ["actions", "webhook", "schedules"])
         return workflow
 
     @require_scope("workflow:create")

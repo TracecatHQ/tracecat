@@ -51,8 +51,9 @@ def auto_generate_layout(
     for a in actions:
         deps[a["ref"]] = a.get("depends_on", []) or []
         for dep in deps[a["ref"]]:
-            if dep in dependents:
-                dependents[dep].append(a["ref"])
+            src = dep.split(".", 1)[0]
+            if src in dependents:
+                dependents[src].append(a["ref"])
 
     depth: dict[str, int] = {}
     roots = [ref for ref, d in deps.items() if not d]
