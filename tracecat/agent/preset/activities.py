@@ -84,7 +84,7 @@ class CustomModelProviderConfigResult(BaseModel):
 
 @activity.defn
 async def resolve_custom_model_provider_config_activity(
-    role: Role,
+    role: Role | dict[str, object],
     catalog_id: uuid.UUID | None = None,
     use_workspace_credentials: bool = False,  # noqa: ARG001 - signature compatibility
 ) -> CustomModelProviderConfigResult:
@@ -97,13 +97,8 @@ async def resolve_custom_model_provider_config_activity(
        catalog credential loader. That keeps org/workspace model-access checks
        and provider config decryption centralized.
     2. **Legacy.** When ``catalog_id`` is ``None`` (pre-v2 workflow history
-       replay or DSL AI actions that don't carry a catalog_id yet), fall
-       back to resolving from
-       ``agent-custom-model-provider-credentials`` via
-       ``get_runtime_provider_credentials``. This path still works on orgs
-       whose legacy secret wasn't migrated; on migrated orgs it returns
-       ``None`` and we error out with a clear message so the caller knows
-       to configure a v2 catalog row.
+       replay or DSL AI actions that don't carry a catalog_id yet), resolve
+       workspace-scoped ``agent-custom-model-provider-credentials``.
 
     ``catalog_id`` remains nullable for legacy no-catalog executions.
     ``use_workspace_credentials`` is retained for activity signature
@@ -113,6 +108,7 @@ async def resolve_custom_model_provider_config_activity(
     """
     activity.logger.info("Resolving custom model provider config")
 
+    role = role if isinstance(role, Role) else Role.model_validate(role)
     async with AgentManagementService.with_session(role) as svc:
         creds = await _load_custom_model_provider_creds(
             svc,
@@ -168,15 +164,9 @@ async def _load_custom_model_provider_creds(
     then delegate to ``get_catalog_credentials`` so model-access checks and
     credential projection stay centralized.
 
-    Legacy path: delegate to ``get_runtime_provider_credentials`` which
-    reads the legacy ``agent-custom-model-provider-credentials`` secret.
+    Legacy path: no catalog id means workspace-scoped provider credentials.
     """
     if catalog_id is None:
-        credentials = await svc.get_runtime_provider_credentials(
-            "custom-model-provider"
-        )
-        if credentials is not None:
-            return credentials
         return await svc.get_workspace_provider_credentials("custom-model-provider")
 
     catalog_row = (

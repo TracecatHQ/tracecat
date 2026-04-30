@@ -29,12 +29,18 @@ class AgentActionArgs(BaseModel):
         Registry templates now take one ``model`` kwarg bundling
         ``model_name`` / ``model_provider`` / ``catalog_id``. The DSL action
         args still store the three flat fields, so flatten the nested object
-        here if it's present.
+        here if it's present. The new ``model`` field wins over deprecated
+        flat fields when both are provided.
         """
-        if isinstance(values, dict) and isinstance(values.get("model"), dict):
-            nested = values.pop("model")
+        if isinstance(values, dict):
+            values = dict(values)
+            nested = values.get("model")
+            if isinstance(nested, BaseModel):
+                nested = nested.model_dump(mode="python")
+            if not isinstance(nested, dict):
+                return values
             for key in ("model_name", "model_provider", "catalog_id"):
-                if key in nested and key not in values:
+                if key in nested:
                     values[key] = nested[key]
         return values
 

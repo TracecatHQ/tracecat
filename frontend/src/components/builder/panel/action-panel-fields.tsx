@@ -108,10 +108,12 @@ export function formatInlineCode(text: string) {
 export function FormLabelComponent({
   label,
   description,
+  deprecated,
   type = "any",
 }: {
   label?: string
   description?: string
+  deprecated?: boolean
   type?: string
 }) {
   return (
@@ -119,6 +121,11 @@ export function FormLabelComponent({
       <FormLabel className="flex flex-col gap-1 text-xs font-medium">
         <div className="group flex items-center gap-2">
           {label && <span className="font-semibold capitalize">{label}</span>}
+          {deprecated && (
+            <span className="rounded border px-1.5 py-0.5 text-[10px] font-medium uppercase leading-none text-muted-foreground">
+              Deprecated
+            </span>
+          )}
           {type && (
             <span className="font-mono tracking-tighter text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100">
               {type}
@@ -146,6 +153,7 @@ export function ControlledYamlField({
   type,
   info,
   hideType,
+  deprecated,
 }: {
   fieldName: string
   label?: string
@@ -153,6 +161,7 @@ export function ControlledYamlField({
   type?: string
   info?: string
   hideType?: boolean
+  deprecated?: boolean
 }) {
   const methods = useFormContext()
   const forEach = methods.watch("for_each")
@@ -168,6 +177,7 @@ export function ControlledYamlField({
             <FormLabelComponent
               label={label}
               description={description}
+              deprecated={deprecated}
               type={hideType ? undefined : type}
             />
           )}
@@ -207,6 +217,7 @@ export function PolymorphicField({
 }: FormComponentProps) {
   const methods = useFormContext()
   const { description } = fieldDefn
+  const deprecated = fieldDefn.deprecated === true
   const formattedDescription = description?.endsWith(".")
     ? description
     : `${description}.`
@@ -237,6 +248,7 @@ export function PolymorphicField({
         fieldName={fieldName}
         description={formattedDescription}
         type={type}
+        deprecated={deprecated}
       />
     )
   }
@@ -255,6 +267,7 @@ export function PolymorphicField({
                 <FormLabelComponent
                   label={label}
                   description={formattedDescription}
+                  deprecated={deprecated}
                   type={type}
                 />
                 <FormMessage className="whitespace-pre-line" />
@@ -277,6 +290,7 @@ export function PolymorphicField({
                 <FormLabelComponent
                   label={label}
                   description={formattedDescription}
+                  deprecated={deprecated}
                   type={type}
                 />
                 <FormMessage className="whitespace-pre-line" />
@@ -297,6 +311,7 @@ export function PolymorphicField({
             fieldName={fieldName}
             description={formattedDescription}
             type={type}
+            deprecated={deprecated}
           />
         )
       case "action-type":
@@ -309,6 +324,7 @@ export function PolymorphicField({
                 <FormLabelComponent
                   label={label}
                   description={formattedDescription}
+                  deprecated={deprecated}
                   type={type}
                 />
                 <FormMessage className="whitespace-pre-line" />
@@ -407,6 +423,7 @@ export function PolymorphicField({
         fieldName={fieldName}
         description={description}
         type={type}
+        deprecated={deprecated}
       />
     )
   }
@@ -420,6 +437,7 @@ export function PolymorphicField({
           <FormLabelComponent
             label={label}
             description={description}
+            deprecated={deprecated}
             type={type}
           />
           <FormMessage className="whitespace-pre-line" />

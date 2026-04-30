@@ -2134,6 +2134,9 @@ export function OrgSettingsAgentForm() {
     void queryClient.invalidateQueries({
       queryKey: ["agent-default-model"],
     })
+    void queryClient.invalidateQueries({
+      queryKey: ["organization", "agent-model-access"],
+    })
   }
 
   const credentialDeleteMutation = useMutation({
@@ -2383,47 +2386,14 @@ export function OrgSettingsAgentForm() {
     }
   }
 
-  async function handleProviderCredentialsSaved() {
+  function handleProviderCredentialsSaved() {
     invalidateBuiltInAgentQueries()
-
-    if (!credentialsProvider || selectedCredentialsConfigured) {
-      return
-    }
-
-    const provider = builtInProvidersById.get(credentialsProvider)
-    if (!provider) {
-      return
-    }
-
-    const catalogIdsToEnable = provider.discovered_models
-      .filter((model) => !model.enabled)
-      .map((model) => model.id)
-
-    if (!catalogIdsToEnable.length) {
-      return
-    }
-
-    try {
-      await bulkCatalogAccessMutation.mutateAsync({
-        accessIdsToDisable: [],
-        catalogIdsToEnable,
-      })
-      toast({
-        title: "Provider connected",
-        description:
-          catalogIdsToEnable.length === 1
-            ? `Enabled the ${provider.label} model by default.`
-            : `Enabled all ${provider.label} models by default.`,
-      })
-    } catch (error) {
-      toast({
-        title: "Credentials saved, but model enablement failed",
-        description:
-          getApiErrorDetail(error) ??
-          "The provider credentials were saved, but its models were not enabled automatically.",
-        variant: "destructive",
-      })
-    }
+    toast({
+      title: selectedCredentialsConfigured
+        ? "Credentials updated"
+        : "Provider connected",
+      description: "Provider credentials were saved.",
+    })
   }
 
   function handleOpenAddCatalogModel(providerSlug: string) {

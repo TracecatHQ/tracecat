@@ -114,7 +114,11 @@ import { ValidationErrorView } from "@/components/validation-errors"
 import type { RequestValidationError, TracecatApiError } from "@/lib/errors"
 import { useAction, useGetRegistryAction, useOrgAppSettings } from "@/lib/hooks"
 import { PERMITTED_INTERACTION_ACTIONS } from "@/lib/interactions"
-import { isTracecatJsonSchema, type TracecatJsonSchema } from "@/lib/schema"
+import {
+  getTracecatComponents,
+  isTracecatJsonSchema,
+  type TracecatJsonSchema,
+} from "@/lib/schema"
 import { cn, slugifyActionRef } from "@/lib/utils"
 import { useWorkflowBuilder } from "@/providers/builder"
 import { useWorkflow } from "@/providers/workflow"
@@ -268,6 +272,19 @@ const reconstructYamlFromForm = (
 }
 
 type InputMode = "form" | "yaml"
+
+function shouldShowOptionalFieldByDefault(
+  fieldName: string,
+  fieldDefn: unknown
+): boolean {
+  return (
+    fieldName === "model" &&
+    isTracecatJsonSchema(fieldDefn) &&
+    getTracecatComponents(fieldDefn).some(
+      (component) => component.component_id === "agent-model"
+    )
+  )
+}
 
 export type ActionPanelTabs =
   | "inputs"
@@ -486,8 +503,11 @@ function ActionPanelContent({
     const currentInputs =
       (watchedValues as ActionFormSchema | undefined)?.inputs ?? {}
     if (optionalFields.length > 0 && currentInputs) {
-      optionalFields.forEach(([fieldName]) => {
+      optionalFields.forEach(([fieldName, fieldDefn]) => {
         if (currentInputs[fieldName] !== undefined) {
+          fieldsWithValues.add(fieldName)
+        }
+        if (shouldShowOptionalFieldByDefault(fieldName, fieldDefn)) {
           fieldsWithValues.add(fieldName)
         }
       })
@@ -1117,6 +1137,11 @@ function ActionPanelContent({
                                       )
                                         ? fieldDefn.description
                                         : null
+                                      const deprecated = isTracecatJsonSchema(
+                                        fieldDefn
+                                      )
+                                        ? fieldDefn.deprecated === true
+                                        : false
                                       return (
                                         <DropdownMenuCheckboxItem
                                           key={fieldName}
@@ -1166,9 +1191,19 @@ function ActionPanelContent({
                                           }}
                                         >
                                           <div className="flex flex-col gap-1">
-                                            <span className="font-medium">
-                                              {label}
-                                            </span>
+                                            <div className="flex items-center gap-2">
+                                              <span className="font-medium">
+                                                {label}
+                                              </span>
+                                              {deprecated && (
+                                                <Badge
+                                                  variant="outline"
+                                                  className="h-5 px-1.5 text-[10px] uppercase text-muted-foreground"
+                                                >
+                                                  Deprecated
+                                                </Badge>
+                                              )}
+                                            </div>
                                             {description && (
                                               <span className="text-xs text-muted-foreground">
                                                 {description.endsWith(".")
