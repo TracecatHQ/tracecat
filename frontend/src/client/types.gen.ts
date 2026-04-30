@@ -10549,6 +10549,15 @@ export type AdminDemoteFromSuperuserData = {
 
 export type AdminDemoteFromSuperuserResponse = AdminUserRead
 
+export type AdminAgentListPlatformCatalogData = {
+  cursor?: string | null
+  limit?: number
+  modelName?: string | null
+  provider?: string | null
+}
+
+export type AdminAgentListPlatformCatalogResponse = AgentCatalogListResponse
+
 export type AdminRegistryListPlatformRepositoriesResponse =
   Array<RegistryRepositoryReadMinimal>
 
@@ -15497,6 +15506,21 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: AdminUserRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/admin/agent/catalog": {
+    get: {
+      req: AdminAgentListPlatformCatalogData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: AgentCatalogListResponse
         /**
          * Validation Error
          */

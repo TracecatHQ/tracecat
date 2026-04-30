@@ -504,6 +504,15 @@ class AgentManagementService(BaseOrgService):
             return None
         return await self._augment_runtime_provider_credentials(provider, credentials)
 
+    async def get_workspace_runtime_provider_credentials(
+        self, provider: str
+    ) -> dict[str, str] | None:
+        """Get workspace-scoped provider credentials augmented for runtime consumers."""
+        credentials = await self.get_workspace_provider_credentials(provider)
+        if credentials is None:
+            return None
+        return await self._augment_runtime_provider_credentials(provider, credentials)
+
     def _catalog_target_credentials(self, row: AgentCatalog) -> dict[str, str]:
         """Project cloud catalog target metadata into runtime credential keys."""
         if not _is_cloud_provider(row.model_provider):
@@ -586,13 +595,6 @@ class AgentManagementService(BaseOrgService):
           back to ``get_runtime_provider_credentials(provider)`` so direct
           providers (OpenAI / Anthropic / Gemini) keep working.
         """
-        access_svc = AgentModelAccessService(session=self.session, role=self.role)
-        if not await access_svc.is_catalog_enabled(
-            catalog_id,
-            workspace_id=self.role.workspace_id,
-        ):
-            return None
-
         stmt = select(AgentCatalog).where(
             AgentCatalog.id == catalog_id,
             sa.or_(
@@ -603,6 +605,15 @@ class AgentManagementService(BaseOrgService):
         row = (await self.session.execute(stmt)).scalar_one_or_none()
         if row is None:
             return None
+
+        access_svc = AgentModelAccessService(session=self.session, role=self.role)
+        if not await access_svc.is_catalog_enabled(
+            catalog_id,
+            workspace_id=self.role.workspace_id,
+        ):
+            raise TracecatAuthorizationError(
+                f"Catalog row {catalog_id!s} is not enabled for this workspace"
+            )
 
         if row.custom_provider_id is not None:
             provider_row = (
@@ -1051,10 +1062,10 @@ class AgentManagementService(BaseOrgService):
     ) -> AsyncIterator[AgentConfig]:
         """Yield an agent preset configuration with provider credentials loaded.
 
-        Prefers the v2 catalog-backed path via ``preset_config.catalog_id``;
-        falls back to the legacy ``agent-{provider}-credentials`` secret when
-        the preset hasn't been linked to a catalog row yet (e.g. pre-migration
-        rows whose ``catalog_id`` backfill failed).
+        Prefers the v2 catalog-backed path via ``preset_config.catalog_id``.
+        If the preset is not catalog-linked, or the linked catalog row is no
+        longer usable, falls back to legacy workspace-scoped provider
+        credentials while keeping the preset's stored model fields.
 
         Args:
             preset_id: Agent preset ID to load
@@ -1074,21 +1085,46 @@ class AgentManagementService(BaseOrgService):
             preset_version=preset_version,
         )
 
-        if preset_config.catalog_id is not None:
-            credentials = await self.get_catalog_credentials(preset_config.catalog_id)
+        credentials: dict[str, str] | None = None
+        workspace_credentials_checked = False
+        if catalog_id := preset_config.catalog_id:
+            credentials = await self.get_catalog_credentials(catalog_id)
             logger.info(
                 "with_preset_config: catalog path",
-                catalog_id=str(preset_config.catalog_id),
+                catalog_id=str(catalog_id),
                 model_provider=preset_config.model_provider,
                 resolved=bool(credentials),
                 cred_keys=sorted(credentials.keys()) if credentials else None,
             )
-        else:
+            if credentials is None:
+                credentials = await self.get_workspace_runtime_provider_credentials(
+                    preset_config.model_provider,
+                )
+                workspace_credentials_checked = True
+                if credentials is not None:
+                    preset_config = replace(preset_config, catalog_id=None)
+                logger.info(
+                    "with_preset_config: workspace fallback for catalog preset",
+                    catalog_id=str(catalog_id),
+                    model_provider=preset_config.model_provider,
+                    resolved=bool(credentials),
+                )
+
+        if credentials is None and not workspace_credentials_checked:
+            credentials = await self.get_workspace_runtime_provider_credentials(
+                preset_config.model_provider,
+            )
+            logger.info(
+                "with_preset_config: legacy workspace path",
+                model_provider=preset_config.model_provider,
+                resolved=bool(credentials),
+            )
+        if credentials is None:
             credentials = await self.get_runtime_provider_credentials(
                 preset_config.model_provider,
             )
             logger.info(
-                "with_preset_config: legacy path (no catalog_id on preset)",
+                "with_preset_config: legacy organization path",
                 model_provider=preset_config.model_provider,
                 resolved=bool(credentials),
             )

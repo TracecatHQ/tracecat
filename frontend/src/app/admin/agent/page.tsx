@@ -67,14 +67,6 @@ function getMetadataNumber(metadata: unknown, key: string): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null
 }
 
-function getMetadataString(metadata: unknown, key: string): string | null {
-  if (!metadata || typeof metadata !== "object") {
-    return null
-  }
-  const value = (metadata as Record<string, unknown>)[key]
-  return typeof value === "string" && value.trim() ? value : null
-}
-
 function formatTokenCount(value: number | null): string {
   if (value == null) {
     return "n/a"
@@ -94,28 +86,6 @@ function getModelOutputLabel(model: { metadata?: unknown | null }): string {
     getMetadataNumber(model.metadata, "max_output_tokens") ??
       getMetadataNumber(model.metadata, "max_tokens")
   )
-}
-
-function getModelModeLabel(model: { metadata?: unknown | null }): string {
-  return getMetadataString(model.metadata, "mode") ?? "n/a"
-}
-
-function formatDateTime(value?: string | null): string {
-  if (!value) {
-    return "Never"
-  }
-  return new Date(value).toLocaleString()
-}
-
-function formatStatus(value?: string | null): string {
-  if (!value) {
-    return "Unknown"
-  }
-  return value
-    .split(/[_\s]+/)
-    .filter(Boolean)
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(" ")
 }
 
 export default function AdminAgentPage() {
@@ -186,37 +156,6 @@ export default function AdminAgentPage() {
           </div>
         </div>
 
-        <div className="grid gap-4 sm:grid-cols-3">
-          <div className="rounded-md border p-4">
-            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-              Status
-            </p>
-            <p className="mt-2 text-sm">
-              {formatStatus(catalog?.discovery_status)}
-            </p>
-          </div>
-          <div className="rounded-md border p-4">
-            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-              Last refreshed
-            </p>
-            <p className="mt-2 text-sm">
-              {formatDateTime(catalog?.last_refreshed_at)}
-            </p>
-          </div>
-          <div className="rounded-md border p-4">
-            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-              Models loaded
-            </p>
-            <p className="mt-2 text-sm">{loadedModelCount}</p>
-          </div>
-        </div>
-
-        {catalog?.last_error ? (
-          <div className="rounded-md border border-destructive/40 p-4 text-sm text-destructive">
-            {catalog.last_error}
-          </div>
-        ) : null}
-
         <section className="space-y-4">
           <div className="space-y-2">
             <h3 className="text-lg font-semibold tracking-tight">
@@ -228,8 +167,8 @@ export default function AdminAgentPage() {
               placeholder="Search models or providers"
             />
             <p className="text-xs text-muted-foreground">
-              Showing all {loadedModelCount} platform models, grouped by
-              provider and sorted by model name.
+              Showing {loadedModelCount} platform models, grouped by provider
+              and sorted by model name.
             </p>
           </div>
 
@@ -260,16 +199,15 @@ export default function AdminAgentPage() {
                     </AccordionTrigger>
                     <AccordionContent className="pt-0">
                       <div className="pb-4">
-                        <div className="hidden grid-cols-[minmax(0,1fr)_88px_88px_72px] gap-4 px-3 py-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground sm:grid">
+                        <div className="hidden grid-cols-[minmax(0,1fr)_88px_88px] gap-4 px-3 py-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground sm:grid">
                           <span>Model</span>
                           <span className="text-right">Context</span>
                           <span className="text-right">Output</span>
-                          <span className="text-right">Mode</span>
                         </div>
                         {section.models.map((model) => (
                           <div
                             key={model.id}
-                            className="grid min-w-0 grid-cols-1 gap-2 rounded-md px-3 py-2 transition-colors hover:bg-muted/30 sm:grid-cols-[minmax(0,1fr)_88px_88px_72px] sm:items-center sm:gap-4"
+                            className="grid min-w-0 grid-cols-1 gap-2 rounded-md px-3 py-2 transition-colors hover:bg-muted/30 sm:grid-cols-[minmax(0,1fr)_88px_88px] sm:items-center sm:gap-4"
                           >
                             <div className="min-w-0">
                               <p className="truncate text-sm font-medium">
@@ -277,8 +215,7 @@ export default function AdminAgentPage() {
                               </p>
                               <p className="text-xs text-muted-foreground sm:hidden">
                                 {getModelContextLabel(model)} ctx {"·"}{" "}
-                                {getModelOutputLabel(model)} out {"·"}{" "}
-                                {getModelModeLabel(model)}
+                                {getModelOutputLabel(model)} out
                               </p>
                             </div>
                             <p className="hidden text-right text-xs text-muted-foreground sm:block">
@@ -286,9 +223,6 @@ export default function AdminAgentPage() {
                             </p>
                             <p className="hidden text-right text-xs text-muted-foreground sm:block">
                               {getModelOutputLabel(model)}
-                            </p>
-                            <p className="hidden text-right text-xs capitalize text-muted-foreground sm:block">
-                              {getModelModeLabel(model)}
                             </p>
                           </div>
                         ))}

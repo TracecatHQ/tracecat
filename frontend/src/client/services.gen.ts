@@ -16,6 +16,8 @@ import type {
   ActionsListActionsResponse,
   ActionsUpdateActionData,
   ActionsUpdateActionResponse,
+  AdminAgentListPlatformCatalogData,
+  AdminAgentListPlatformCatalogResponse,
   AdminCreateOrganizationData,
   AdminCreateOrganizationDomainData,
   AdminCreateOrganizationDomainResponse,
@@ -7167,6 +7169,35 @@ export const adminDemoteFromSuperuser = (
     url: "/admin/users/{user_id}/demote",
     path: {
       user_id: data.userId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List Platform Catalog
+ * List platform-owned agent catalog entries.
+ * @param data The data for the request.
+ * @param data.provider
+ * @param data.modelName
+ * @param data.cursor
+ * @param data.limit
+ * @returns AgentCatalogListResponse Successful Response
+ * @throws ApiError
+ */
+export const adminAgentListPlatformCatalog = (
+  data: AdminAgentListPlatformCatalogData = {}
+): CancelablePromise<AdminAgentListPlatformCatalogResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/admin/agent/catalog",
+    query: {
+      provider: data.provider,
+      model_name: data.modelName,
+      cursor: data.cursor,
+      limit: data.limit,
     },
     errors: {
       422: "Validation Error",

@@ -209,6 +209,7 @@ class AgentPresetService(BaseWorkspaceService):
             instructions=version.instructions,
             model_name=version.model_name,
             model_provider=version.model_provider,
+            catalog_id=version.catalog_id,
             base_url=version.base_url,
             output_type=cast(OutputType | None, version.output_type),
             actions=version.actions,
@@ -1428,22 +1429,9 @@ class AgentPresetService(BaseWorkspaceService):
         # Only disable parallel tool calls if tools will be present
         if version.actions or mcp_servers:
             model_settings["parallel_tool_calls"] = False
-        model_name = version.model_name
-        model_provider = version.model_provider
-        if version.catalog_id is not None:
-            stmt = select(AgentCatalog.model_provider, AgentCatalog.model_name).where(
-                AgentCatalog.id == version.catalog_id,
-                sa.or_(
-                    AgentCatalog.organization_id.is_(None),
-                    AgentCatalog.organization_id == self.organization_id,
-                ),
-            )
-            row = (await self.session.execute(stmt)).one_or_none()
-            if row is not None:
-                model_provider, model_name = row
         return AgentConfig(
-            model_name=model_name,
-            model_provider=model_provider,
+            model_name=version.model_name,
+            model_provider=version.model_provider,
             catalog_id=version.catalog_id,
             base_url=version.base_url,
             instructions=version.instructions,

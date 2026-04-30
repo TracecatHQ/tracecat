@@ -77,7 +77,7 @@ async def test_resolve_custom_model_provider_config_activity_returns_base_url(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     service = SimpleNamespace(
-        get_runtime_provider_credentials=AsyncMock(
+        get_workspace_provider_credentials=AsyncMock(
             return_value={
                 "CUSTOM_MODEL_PROVIDER_BASE_URL": "https://customer.example",
                 "CUSTOM_MODEL_PROVIDER_MODEL_NAME": "provider/custom-model",
@@ -99,7 +99,7 @@ async def test_resolve_custom_model_provider_config_activity_returns_base_url(
 
     result = await resolve_custom_model_provider_config_activity(role)
 
-    service.get_runtime_provider_credentials.assert_awaited_once_with(
+    service.get_workspace_provider_credentials.assert_awaited_once_with(
         "custom-model-provider",
     )
     assert result.base_url == "https://customer.example"

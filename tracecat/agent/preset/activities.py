@@ -51,14 +51,14 @@ class AgentPresetVersionRef(BaseModel):
 async def resolve_agent_preset_config_activity(
     args: ResolveAgentPresetConfigActivityInput,
 ) -> AgentConfigPayload:
-    async with AgentPresetService.with_session(role=args.role) as service:
-        config = await service.resolve_agent_preset_config(
+    async with AgentManagementService.with_session(role=args.role) as service:
+        async with service.with_preset_config(
             preset_id=args.preset_id,
             slug=args.preset_slug,
             preset_version_id=args.preset_version_id,
             preset_version=args.preset_version,
-        )
-        return agent_config_to_payload(config)
+        ) as config:
+            return agent_config_to_payload(config)
 
 
 @activity.defn
