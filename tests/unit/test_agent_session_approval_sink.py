@@ -12,6 +12,7 @@ from tracecat.agent.approvals.enums import ApprovalStatus
 from tracecat.agent.session.service import AgentSessionService
 from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.agent.types import AgentConfig
+from tracecat.agent.types import ToolApproved
 from tracecat.auth.types import Role
 from tracecat.chat.enums import MessageKind
 from tracecat.chat.schemas import ApprovalDecision, BasicChatRequest, ContinueRunRequest
@@ -239,6 +240,73 @@ async def test_run_turn_continue_with_inbox_source_for_non_external_session(
     assert result is None
     get_workflow_handle_for.assert_called_once()
     fake_handle.execute_update.assert_awaited_once()
+
+
+@pytest.mark.anyio
+async def test_run_turn_continue_override_maps_to_tool_approved(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    agent_session = AgentSession(
+        id=uuid.uuid4(),
+        title="Preset chat",
+        workspace_id=svc_role.workspace_id,
+        entity_type=AgentSessionEntity.AGENT_PRESET.value,
+        entity_id=uuid.uuid4(),
+        curr_run_id=uuid.uuid4(),
+    )
+    session.add(agent_session)
+    session.add(
+        Approval(
+            workspace_id=svc_role.workspace_id,
+            session_id=agent_session.id,
+            tool_call_id="tool_call_123",
+            tool_name="core.http_request",
+            tool_call_args={"url": "https://example.com"},
+            status=ApprovalStatus.PENDING,
+        )
+    )
+    await session.commit()
+    await session.refresh(agent_session)
+
+    service = AgentSessionService(session=session, role=svc_role)
+    continuation = ContinueRunRequest(
+        decisions=[
+            ApprovalDecision(
+                tool_call_id="tool_call_123",
+                action="override",
+                override_args={"url": "https://modified.example.com"},
+            )
+        ],
+        source="inbox",
+    )
+
+    fake_handle = SimpleNamespace(execute_update=AsyncMock(return_value=None))
+    get_workflow_handle_for = Mock(return_value=fake_handle)
+    fake_client = SimpleNamespace(get_workflow_handle_for=get_workflow_handle_for)
+    fake_redis = SimpleNamespace(
+        set_if_not_exists=AsyncMock(return_value=True),
+        xadd=AsyncMock(return_value="1-0"),
+        delete=AsyncMock(return_value=1),
+    )
+    with (
+        patch(
+            "tracecat.agent.session.service.get_temporal_client",
+            AsyncMock(return_value=fake_client),
+        ),
+        patch(
+            "tracecat.agent.session.service.get_redis_client",
+            AsyncMock(return_value=fake_redis),
+        ),
+    ):
+        result = await service.run_turn(agent_session.id, continuation)
+
+    assert result is None
+    fake_handle.execute_update.assert_awaited_once()
+    submission = fake_handle.execute_update.await_args.args[1]
+    decision = submission.approvals["tool_call_123"]
+    assert isinstance(decision, ToolApproved)
+    assert decision.override_args == {"url": "https://modified.example.com"}
 
 
 @pytest.mark.anyio
