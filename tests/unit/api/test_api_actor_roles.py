@@ -12,9 +12,7 @@ from fastapi.testclient import TestClient
 
 from tracecat.agent import router as agent_router
 from tracecat.auth.dependencies import (
-    WorkspaceActorRole,
     WorkspaceActorRouteRole,
-    WorkspaceUserRole,
     WorkspaceUserRouteRole,
 )
 from tracecat.auth.types import Role
@@ -431,9 +429,9 @@ def test_integration_route_role_boundaries_are_explicit() -> None:
         integrations_router.test_connection, include_extras=True
     )["role"]
 
-    assert list_integrations_role == WorkspaceUserRole
-    assert list_providers_role == WorkspaceActorRole
-    assert test_connection_role == WorkspaceActorRole
+    assert list_integrations_role == WorkspaceUserRouteRole
+    assert list_providers_role == WorkspaceActorRouteRole
+    assert test_connection_role == WorkspaceActorRouteRole
 
 
 def test_cases_route_role_boundary_accepts_workspace_actors() -> None:
@@ -492,7 +490,7 @@ def test_org_agent_routes_remain_user_only() -> None:
     workspace_status_role = get_type_hints(
         agent_router.get_workspace_providers_status, include_extras=True
     )["role"]
-    assert workspace_status_role == WorkspaceActorRole
+    assert workspace_status_role == WorkspaceActorRouteRole
 
 
 def test_github_manifest_flow_routes_remain_user_only() -> None:
@@ -519,7 +517,7 @@ def test_draft_workflow_execution_route_remains_user_only() -> None:
     )["role"]
 
     assert draft_role == WorkspaceActorRouteRole
-    assert draft_execution_role == WorkspaceUserRole
+    assert draft_execution_role == WorkspaceUserRouteRole
 
 
 def test_workflow_detail_route_remains_user_only() -> None:

@@ -1,6 +1,6 @@
 import csv
 from io import StringIO
-from typing import Annotated, Any, Literal, cast
+from typing import Any, Literal, cast
 from uuid import UUID
 
 import orjson
@@ -18,8 +18,7 @@ from fastapi import (
 from sqlalchemy.exc import DBAPIError, ProgrammingError
 
 from tracecat import config
-from tracecat.auth.credentials import RoleACL
-from tracecat.auth.types import Role
+from tracecat.auth.dependencies import WorkspaceUserRouteRole
 from tracecat.authz.controls import require_scope
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.exceptions import TracecatImportError, TracecatNotFoundError
@@ -52,22 +51,8 @@ from tracecat.tables.service import TablesService
 
 router = APIRouter(prefix="/tables", tags=["tables"])
 
-WorkspaceUser = Annotated[
-    Role,
-    RoleACL(
-        allow_user=True,
-        allow_service=False,
-        require_workspace="yes",
-    ),
-]
-WorkspaceEditorUser = Annotated[
-    Role,
-    RoleACL(
-        allow_user=True,
-        allow_service=False,
-        require_workspace="yes",
-    ),
-]
+WorkspaceUser = WorkspaceUserRouteRole
+WorkspaceEditorUser = WorkspaceUserRouteRole
 
 
 async def _read_csv_upload_with_limit(file: UploadFile, *, max_size: int) -> bytes:

@@ -10,7 +10,12 @@ from sqlalchemy import delete
 
 from tracecat import config
 from tracecat.auth.credentials import RoleACL
-from tracecat.auth.dependencies import WorkspaceActorRole, WorkspaceUserRole
+from tracecat.auth.dependencies import (
+    WorkspaceActorRouteRole as WorkspaceActorRole,
+)
+from tracecat.auth.dependencies import (
+    WorkspaceUserRouteRole as WorkspaceUserRole,
+)
 from tracecat.auth.types import Role
 from tracecat.authz.controls import require_scope
 from tracecat.contexts import ctx_role
@@ -55,6 +60,9 @@ from tracecat.logger import logger
 integrations_router = APIRouter(prefix="/integrations", tags=["integrations"])
 """Routes for managing dynamic integration states."""
 
+oauth_router = APIRouter(prefix="/integrations", tags=["integrations"])
+"""Routes for integration OAuth callbacks that resolve workspace context from state."""
+
 providers_router = APIRouter(prefix="/providers", tags=["providers"])
 """Routes for managing static provider metadata."""
 
@@ -62,7 +70,7 @@ mcp_router = APIRouter(prefix="/mcp-integrations", tags=["mcp-integrations"])
 """Routes for managing MCP integrations."""
 
 
-@integrations_router.get("/callback")
+@oauth_router.get("/callback")
 async def oauth_callback(
     *,
     session: AsyncDBSession,

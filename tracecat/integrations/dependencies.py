@@ -5,7 +5,7 @@ from typing import Annotated
 from fastapi import Depends, HTTPException, Path, Query, status
 from pydantic import BaseModel
 
-from tracecat.auth.dependencies import WorkspaceActorRole
+from tracecat.auth.dependencies import WorkspaceActorRouteRole as WorkspaceActorRole
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.integrations.enums import OAuthGrantType
 from tracecat.integrations.providers.base import (

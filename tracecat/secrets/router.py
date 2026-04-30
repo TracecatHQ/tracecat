@@ -5,7 +5,8 @@ from fastapi import APIRouter, HTTPException, Query, status
 from pydantic import ValidationError
 from sqlalchemy.exc import IntegrityError
 
-from tracecat.auth.dependencies import OrgActorRole, WorkspaceActorRole
+from tracecat.auth.dependencies import OrgActorRole
+from tracecat.auth.dependencies import WorkspaceActorRouteRole as WorkspaceActorRole
 from tracecat.authz.controls import require_scope
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.exceptions import TracecatNotFoundError

@@ -7,7 +7,7 @@ from lark import Lark, LarkError, Token, Tree
 from lark.visitors import Interpreter
 from pydantic import BaseModel
 
-from tracecat.auth.dependencies import WorkspaceActorRole
+from tracecat.auth.dependencies import WorkspaceActorRouteRole as WorkspaceActorRole
 from tracecat.authz.controls import require_scope
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.editor.schemas import (

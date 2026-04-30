@@ -1,5 +1,4 @@
 import uuid
-from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, Query
 from starlette.status import (
@@ -10,8 +9,7 @@ from starlette.status import (
 )
 
 from tracecat import config
-from tracecat.auth.credentials import RoleACL
-from tracecat.auth.types import Role
+from tracecat.auth.dependencies import WorkspaceUserRouteRole as WorkspaceUser
 from tracecat.authz.controls import require_scope
 from tracecat.cases.rows.schemas import (
     CaseTableRowInsertCreate,
@@ -24,15 +22,6 @@ from tracecat.exceptions import TracecatNotFoundError
 from tracecat.pagination import CursorPaginatedResponse
 
 router = APIRouter(prefix="/cases", tags=["cases"])
-
-WorkspaceUser = Annotated[
-    Role,
-    RoleACL(
-        allow_user=True,
-        allow_service=False,
-        require_workspace="yes",
-    ),
-]
 
 
 @router.get("/{case_id}/rows")

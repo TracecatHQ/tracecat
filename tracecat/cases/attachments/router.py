@@ -2,13 +2,11 @@
 
 import hashlib
 import uuid
-from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, Query, Request, UploadFile, status
 
 from tracecat import config
-from tracecat.auth.credentials import RoleACL
-from tracecat.auth.types import Role
+from tracecat.auth.dependencies import WorkspaceUserRouteRole as WorkspaceUser
 from tracecat.authz.controls import require_scope
 from tracecat.cases.attachments.schemas import (
     CaseAttachmentCreate,
@@ -28,15 +26,6 @@ from tracecat.storage.exceptions import (
 )
 
 router = APIRouter(tags=["case-attachments"], prefix="/cases/{case_id}/attachments")
-
-WorkspaceUser = Annotated[
-    Role,
-    RoleACL(
-        allow_user=True,
-        allow_service=False,
-        require_workspace="yes",
-    ),
-]
 
 
 @router.get("")
