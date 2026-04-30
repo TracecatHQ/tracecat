@@ -13,7 +13,6 @@ from tracecat.auth.credentials import RoleACL
 from tracecat.auth.types import Role
 from tracecat.contexts import ctx_role
 from tracecat.db.engine import get_async_session
-from tracecat.service_accounts.constants import API_KEY_HEADER_NAME
 
 
 @pytest.fixture
@@ -112,7 +111,7 @@ def test_role_acl_threads_tracecat_api_key_and_workspace_query(
     response = TestClient(role_acl_app).get(
         "/api-key",
         params={"workspace_id": str(workspace_id)},
-        headers={API_KEY_HEADER_NAME: "managed-api-key"},
+        headers={"Authorization": "Bearer tc_ws_sk_managed-api-key_secret"},
     )
 
     assert response.status_code == 200
@@ -121,9 +120,35 @@ def test_role_acl_threads_tracecat_api_key_and_workspace_query(
         "workspace_id": str(workspace_id),
     }
     authenticate_api_key.assert_awaited_once_with(
-        api_key="managed-api-key",
+        api_key="tc_ws_sk_managed-api-key_secret",
         workspace_id=workspace_id,
     )
+
+
+def test_role_acl_rejects_legacy_tracecat_api_key_header(
+    role_acl_app: FastAPI,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    authenticate_api_key = AsyncMock()
+    monkeypatch.setattr(credentials, "_authenticate_api_key", authenticate_api_key)
+
+    @role_acl_app.get("/api-key-legacy")
+    async def api_key_legacy_route(  # pyright: ignore[reportUnusedFunction] - route handler
+        role: Role = RoleACL(
+            allow_user=False,
+            allow_api_key=True,
+            require_workspace="no",
+        ),
+    ) -> dict[str, str]:
+        return {"role_type": role.type}
+
+    response = TestClient(role_acl_app).get(
+        "/api-key-legacy",
+        headers={"x-tracecat-api-key": "tc_ws_sk_managed-api-key_secret"},
+    )
+
+    assert response.status_code == 403
+    authenticate_api_key.assert_not_awaited()
 
 
 def test_role_acl_combined_service_and_api_key_route_uses_service_key_fallback(
@@ -198,7 +223,7 @@ def test_role_acl_prefers_tracecat_api_key_when_both_headers_are_present(
     response = TestClient(role_acl_app).get(
         "/either-priority",
         headers={
-            API_KEY_HEADER_NAME: "managed-api-key",
+            "Authorization": "Bearer tc_org_sk_managed-api-key_secret",
             "x-tracecat-service-key": "service-secret",
             "x-tracecat-role-service-id": "tracecat-service",
         },
@@ -210,7 +235,7 @@ def test_role_acl_prefers_tracecat_api_key_when_both_headers_are_present(
         "service_id": "tracecat-api",
     }
     authenticate_api_key.assert_awaited_once_with(
-        api_key="managed-api-key",
+        api_key="tc_org_sk_managed-api-key_secret",
         workspace_id=None,
     )
     authenticate_service.assert_not_awaited()
