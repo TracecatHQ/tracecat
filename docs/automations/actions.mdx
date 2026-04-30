@@ -54,6 +54,21 @@ You can configure how an action runs from the "Control flow" tab in the action p
 
 ![Action control flow](/img/automations/actions/control-flow.png)
 
+### Mask output
+
+Use `mask_output` to hide an action's result in workflow execution views and execution API responses. Tracecat keeps the object and array shape, but replaces each individual value with `[REDACTED]`.
+
+You can still copy JSONPath references from the displayed structure. `mask_output` only affects display; downstream actions can still use the original result with expressions such as `${{ ACTIONS.lookup_user.result.id }}`.
+
+```yaml
+- ref: lookup_user
+  action: core.http_request
+  mask_output: true
+  args:
+    url: "https://api.example.com/users/${{ TRIGGER.user_id }}"
+    method: GET
+```
+
 ### Run if
 
 Use `run_if` to execute an action only when a condition evaluates to a truthy value. If the condition is falsy, Tracecat skips the action.
