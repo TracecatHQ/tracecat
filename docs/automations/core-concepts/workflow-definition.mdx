@@ -143,6 +143,10 @@ Join behavior for downstream actions. Use `all` to wait for all upstream branche
 Per-action override for the secrets environment.
 </ResponseField>
 
+<ResponseField name="mask_output" type="boolean">
+Redacts this action's result in workflow execution views and execution API responses. Tracecat keeps object and array structure but replaces each individual value, so JSONPath references remain visible. Downstream actions still receive the original result.
+</ResponseField>
+
 <ResponseField name="interaction" type="object">
 Marks an action as interactive. `interaction` cannot be combined with `for_each`.
 </ResponseField>

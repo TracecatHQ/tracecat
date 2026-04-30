@@ -202,6 +202,8 @@ The copy icon copies the value of the action result itself.
 
 ![Copy action result](/img/automations/workflows/copy-action-result.png)
 
+When an action uses `mask_output`, the workflow execution UI keeps object and array structure but shows `[REDACTED]` for each individual value. You can still copy JSONPath references from the displayed shape, and downstream actions still receive the original result.
+
 ## Workflow definition
 
 All workflows are stored, exported, and versioned as YAML-based workflow definitions.

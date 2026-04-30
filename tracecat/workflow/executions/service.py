@@ -13,7 +13,7 @@ from typing import Any, cast
 
 import orjson
 import temporalio.api.enums.v1
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 from temporalio.api.common.v1 import message_pb2
 from temporalio.api.enums.v1 import EventType, PendingActivityState, ResetReapplyType
 from temporalio.api.history.v1 import HistoryEvent
@@ -109,8 +109,25 @@ class WorkflowExecutionResultNotFoundError(ValueError):
     """Raised when no matching completed event exists for a given event ID."""
 
 
+class WorkflowExecutionResultMaskedError(PermissionError):
+    """Raised when a masked action result is requested through object APIs."""
+
+
 class WorkflowExecutionNotFoundError(ValueError):
     """Raised when a workflow execution is not visible in the current workspace."""
+
+
+@dataclass(frozen=True)
+class WorkflowExecutionResolvedEvent:
+    event: HistoryEvent
+    should_mask_output: bool
+
+
+@dataclass(frozen=True)
+class WorkflowExecutionStoredResult:
+    event: HistoryEvent
+    stored: StoredObject
+    should_mask_output: bool
 
 
 @dataclass(frozen=True)
@@ -153,6 +170,29 @@ def _extract_while_metadata(
         should_continue = payload.get("continue")
         return None, (should_continue if isinstance(should_continue, bool) else None)
     return None, None
+
+
+REDACTED_ACTION_RESULT = "[REDACTED]"
+
+
+def _redact_leaf_values(value: Any) -> Any:
+    """Preserve result structure while redacting displayable values."""
+    if isinstance(value, BaseModel):
+        return _redact_leaf_values(value.model_dump(mode="python"))
+    if isinstance(value, dict):
+        return {key: _redact_leaf_values(child) for key, child in value.items()}
+    if isinstance(value, list):
+        return [_redact_leaf_values(item) for item in value]
+    if isinstance(value, tuple):
+        return tuple(_redact_leaf_values(item) for item in value)
+    return REDACTED_ACTION_RESULT
+
+
+def _sanitize_action_result(mask_output: bool, action_result: Any) -> Any:
+    """Redact action output for API consumers when the statement opts in."""
+    if mask_output:
+        return _redact_leaf_values(action_result)
+    return action_result
 
 
 async def _resolve_trigger_context(trigger_inputs: StoredObject | None) -> Any | None:
@@ -693,13 +733,14 @@ class WorkflowExecutionsService:
                     source.start_time = event.event_time.ToDatetime(datetime.UTC)
                 if is_close_event(event):
                     source.close_time = event.event_time.ToDatetime(datetime.UTC)
-                    source.action_result = await get_result(event)
+                    raw_result = await get_result(event)
+                    source.action_result = _sanitize_action_result(
+                        source.should_mask_output, raw_result
+                    )
                     (
                         source.while_iteration,
                         source.while_continue,
-                    ) = _extract_while_metadata(
-                        source.action_name, source.action_result
-                    )
+                    ) = _extract_while_metadata(source.action_name, raw_result)
                 if is_error_event(event):
                     source.action_error = await EventFailure.from_history_event(event)
 
@@ -791,17 +832,19 @@ class WorkflowExecutionsService:
         - the completed event ID (e.g. ACTIVITY_TASK_COMPLETED), or
         - the source scheduled event ID used by compact event payloads.
         """
-        source_match, stored = await self._get_stored_result_for_event(
+        stored_result = await self._get_stored_result_for_event(
             wf_exec_id=wf_exec_id,
             event_id=event_id,
         )
+        self._raise_if_result_masked(stored_result)
 
-        match stored:
+        match stored_result.stored:
             case ExternalObject() as external:
                 return external
             case _:
                 raise TypeError(
-                    f"Event {source_match.event_id} result is not external (got {stored.type})"
+                    f"Event {stored_result.event.event_id} result is not external "
+                    f"(got {stored_result.stored.type})"
                 )
 
     async def get_collection_action_result(
@@ -810,16 +853,19 @@ class WorkflowExecutionsService:
         event_id: int,
     ) -> CollectionObject:
         """Get a CollectionObject result for an event/source event ID."""
-        source_match, stored = await self._get_stored_result_for_event(
+        stored_result = await self._get_stored_result_for_event(
             wf_exec_id=wf_exec_id,
             event_id=event_id,
         )
-        match stored:
+        self._raise_if_result_masked(stored_result)
+
+        match stored_result.stored:
             case CollectionObject() as collection:
                 return collection
             case _:
                 raise TypeError(
-                    f"Event {source_match.event_id} result is not a collection (got {stored.type})"
+                    f"Event {stored_result.event.event_id} result is not a "
+                    f"collection (got {stored_result.stored.type})"
                 )
 
     async def get_collection_page(
@@ -875,18 +921,57 @@ class WorkflowExecutionsService:
         event_id: int,
     ) -> HistoryEvent:
         """Resolve a completed Temporal event by event ID or source event ID."""
+        resolved = await self._resolve_completed_event_with_metadata(
+            wf_exec_id,
+            event_id,
+        )
+        return resolved.event
+
+    async def _resolve_completed_event_with_metadata(
+        self,
+        wf_exec_id: WorkflowExecutionID,
+        event_id: int,
+    ) -> WorkflowExecutionResolvedEvent:
+        """Resolve a completed Temporal event with source-event display metadata."""
         await self.require_execution(wf_exec_id)
         handle = self.handle(wf_exec_id)
-        source_match: HistoryEvent | None = None
+        source_masks: dict[int, bool] = {}
+        source_match: WorkflowExecutionResolvedEvent | None = None
 
         async for event in handle.fetch_history_events():
+            if is_scheduled_event(event):
+                try:
+                    source = await WorkflowExecutionEventCompact.from_source_event(
+                        event
+                    )
+                except (TypeError, ValueError, ValidationError) as e:
+                    self.logger.warning(
+                        "Failed to parse source event mask metadata; treating result as masked",
+                        event_id=event.event_id,
+                        error=e,
+                    )
+                    source_masks[event.event_id] = True
+                else:
+                    if source is None:
+                        continue
+                    source_masks[event.event_id] = source.should_mask_output
+
             if not is_close_event(event):
                 continue
+            source_event_id = get_source_event_id(event)
+            should_mask_output = (
+                source_masks.get(source_event_id, False)
+                if source_event_id is not None
+                else False
+            )
+            resolved = WorkflowExecutionResolvedEvent(
+                event=event,
+                should_mask_output=should_mask_output,
+            )
             if event.event_id == event_id:
-                source_match = event
-                break
-            if get_source_event_id(event) == event_id:
-                source_match = event
+                return resolved
+            if source_event_id == event_id:
+                source_match = resolved
 
         if source_match is None:
             raise WorkflowExecutionResultNotFoundError(
@@ -899,18 +984,30 @@ class WorkflowExecutionsService:
         *,
         wf_exec_id: WorkflowExecutionID,
         event_id: int,
-    ) -> tuple[HistoryEvent, StoredObject]:
+    ) -> WorkflowExecutionStoredResult:
         """Get a StoredObject from a completed event or its source event ID."""
-        source_match = await self._resolve_completed_event(
+        source_match = await self._resolve_completed_event_with_metadata(
             wf_exec_id=wf_exec_id,
             event_id=event_id,
         )
-        stored = await get_stored_result(source_match)
+        stored = await get_stored_result(source_match.event)
         if stored is None:
             raise TypeError(
-                f"Event {source_match.event_id} result is not a StoredObject"
+                f"Event {source_match.event.event_id} result is not a StoredObject"
             )
-        return source_match, stored
+        return WorkflowExecutionStoredResult(
+            event=source_match.event,
+            stored=stored,
+            should_mask_output=source_match.should_mask_output,
+        )
+
+    @staticmethod
+    def _raise_if_result_masked(stored_result: WorkflowExecutionStoredResult) -> None:
+        if stored_result.should_mask_output:
+            raise WorkflowExecutionResultMaskedError(
+                "Action result is masked by `mask_output` and cannot be retrieved "
+                "through object APIs."
+            )
 
     async def list_workflow_execution_events(
         self,
@@ -961,11 +1058,15 @@ class WorkflowExecutionsService:
                         )
                     )
                 case EventType.EVENT_TYPE_CHILD_WORKFLOW_EXECUTION_COMPLETED:
-                    result = await extract_first(
+                    raw_result = await extract_first(
                         event.child_workflow_execution_completed_event_attributes.result
                     )
                     initiator_event_id = event.child_workflow_execution_completed_event_attributes.initiated_event_id
                     group = event_group_names.get(initiator_event_id)
+                    result = _sanitize_action_result(
+                        group.should_mask_output if group else False,
+                        raw_result,
+                    )
                     events.append(
                         WorkflowExecutionEvent(
                             event_id=event.event_id,
@@ -1114,8 +1215,12 @@ class WorkflowExecutionsService:
                     if not (group := event_group_names.get(gparent_event_id)):
                         continue
                     event_group_names[event.event_id] = group
-                    result = await extract_first(
+                    raw_result = await extract_first(
                         event.activity_task_completed_event_attributes.result
+                    )
+                    result = _sanitize_action_result(
+                        group.should_mask_output,
+                        raw_result,
                     )
                     events.append(
                         WorkflowExecutionEvent(

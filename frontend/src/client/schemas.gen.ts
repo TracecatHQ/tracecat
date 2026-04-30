@@ -607,6 +607,13 @@ export const $ActionStatement = {
       description:
         "Override environment for this action's execution. Can be a template expression.",
     },
+    mask_output: {
+      type: "boolean",
+      title: "Mask Output",
+      description:
+        "If true, redact this action's result in workflow execution API responses while preserving internal workflow data flow between actions.",
+      default: false,
+    },
   },
   type: "object",
   required: ["ref", "action"],

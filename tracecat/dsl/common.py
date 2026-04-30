@@ -1076,6 +1076,10 @@ class AgentActionMemo(BaseModel):
         default=ROOT_STREAM,
         description="The execution stream ID where the agent workflow was spawned.",
     )
+    mask_output: bool = Field(
+        default=False,
+        description="Whether to redact the child workflow result in execution APIs.",
+    )
 
     @classmethod
     async def from_temporal(
@@ -1119,6 +1123,10 @@ class ChildWorkflowMemo(BaseModel):
         default=ROOT_STREAM,
         description="The stream ID of the child workflow.",
     )
+    mask_output: bool = Field(
+        default=False,
+        description="Whether to redact the child workflow result in execution APIs.",
+    )
 
     @staticmethod
     async def from_temporal(memo: temporalio.api.common.v1.Memo) -> ChildWorkflowMemo:
@@ -1161,11 +1169,22 @@ class ChildWorkflowMemo(BaseModel):
         except Exception as e:
             logger.warning("Error parsing child workflow memo stream id", error=e)
             stream_id = ROOT_STREAM
+        try:
+            mask_output_payload = decoded_fields.get("mask_output")
+            mask_output = (
+                bool(orjson.loads(mask_output_payload.data))
+                if mask_output_payload is not None and mask_output_payload.data
+                else False
+            )
+        except Exception as e:
+            logger.warning("Error parsing child workflow memo mask output", error=e)
+            mask_output = False
         return ChildWorkflowMemo(
             action_ref=action_ref,
             loop_index=loop_index,
             wait_strategy=wait_strategy,
             stream_id=stream_id,
+            mask_output=mask_output,
         )
 
 
