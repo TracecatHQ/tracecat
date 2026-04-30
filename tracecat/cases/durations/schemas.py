@@ -78,15 +78,18 @@ class CaseDurationEventAnchor(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     _has_unsupported_filters: bool = PrivateAttr(default=False)
+    _allow_empty_required_filters: bool = PrivateAttr(default=False)
+    _timestamp_path: str = PrivateAttr(default="created_at")
+    _legacy_field_filters: dict[str, Any] = PrivateAttr(default_factory=dict)
 
     @model_validator(mode="after")
     def validate_filters_for_event_type(self) -> CaseDurationEventAnchor:
-        filters = self.filters
-        if filters.is_empty():
-            if self.event_type in _FILTER_REQUIRED_EVENT_TYPES:
-                raise ValueError(f"{self.event_type.value} requires filters")
+        if self._has_unsupported_filters or (
+            self._allow_empty_required_filters and self.filters.is_empty()
+        ):
             return self
 
+        filters = self.filters
         allowed_fields = _allowed_filter_fields_for_event_type(self.event_type)
         active_fields = _active_filter_fields(filters)
         unsupported = active_fields - allowed_fields
@@ -121,11 +124,6 @@ _CATEGORY_FILTER_EVENT_TYPES = frozenset(
 )
 _TAG_FILTER_EVENT_TYPES = frozenset(
     {CaseEventType.TAG_ADDED, CaseEventType.TAG_REMOVED}
-)
-_FILTER_REQUIRED_EVENT_TYPES = (
-    _CATEGORY_FILTER_EVENT_TYPES
-    | _TAG_FILTER_EVENT_TYPES
-    | {CaseEventType.FIELDS_CHANGED, CaseEventType.DROPDOWN_VALUE_CHANGED}
 )
 
 
