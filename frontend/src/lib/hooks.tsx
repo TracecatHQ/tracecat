@@ -12,11 +12,11 @@ import {
   type ActionRead,
   type ActionsDeleteActionData,
   type ActionUpdate,
+  type AgentCatalogRead,
+  type AgentCustomProviderRead,
   type AgentGetProviderCredentialConfigResponse,
   type AgentGetProvidersStatusResponse,
-  type AgentGetWorkspaceProvidersStatusResponse,
-  type AgentListModelsResponse,
-  type AgentListProvidersResponse,
+  type AgentModelAccessRead,
   type AgentSessionsListSessionsData,
   type AgentSessionsListSessionsResponse,
   type AgentSettingsRead,
@@ -30,12 +30,10 @@ import {
   agentCreateProviderCredentials,
   agentDeleteProviderCredentials,
   agentGetDefaultModel,
+  agentGetDefaultModelSelection,
   agentGetProviderCredentialConfig,
   agentGetProvidersStatus,
-  agentGetWorkspaceProvidersStatus,
-  agentListModels,
   agentListProviderCredentialConfigs,
-  agentListProviders,
   agentSessionsListSessions,
   agentSetDefaultModel,
   agentUpdateProviderCredentials,
@@ -107,6 +105,7 @@ import {
   caseTagsDeleteCaseTag,
   caseTagsListCaseTags,
   caseTagsUpdateCaseTag,
+  type DefaultModelSelection,
   type FolderDirectoryItem,
   foldersCreateFolder,
   foldersDeleteFolder,
@@ -124,6 +123,7 @@ import {
   type GroupRoleAssignmentReadWithDetails,
   type GroupRoleAssignmentUpdate,
   type GroupUpdate,
+  getWorkspaceModels,
   graphApplyGraphOperations,
   graphGetGraph,
   type IntegrationRead,
@@ -136,6 +136,9 @@ import {
   integrationsListIntegrations,
   integrationsTestConnection,
   integrationsUpdateIntegration,
+  listCatalog,
+  listCustomProviders,
+  listEnabledModels,
   type MCPIntegrationCreate,
   type MCPIntegrationRead,
   type MCPIntegrationUpdate,
@@ -5076,37 +5079,158 @@ export function useAgentSessions(
   }
 }
 
-export function useAgentModels() {
+const AGENT_MODEL_PAGE_SIZE = 100
+
+async function fetchAllProvidersPaginated(): Promise<
+  AgentCustomProviderRead[]
+> {
+  const items: AgentCustomProviderRead[] = []
+  let cursor: string | undefined
+
+  do {
+    const response = await listCustomProviders({
+      cursor,
+      limit: AGENT_MODEL_PAGE_SIZE,
+    })
+    items.push(...response.items)
+    cursor = response.next_cursor ?? undefined
+  } while (cursor)
+
+  return items
+}
+
+async function fetchAllWorkspaceAgentModels(
+  workspaceId: string
+): Promise<AgentCatalogRead[]> {
+  // The workspace-models endpoint returns the full effective set (no
+  // pagination); org enablement caps the list naturally.
+  const response = await getWorkspaceModels({ workspaceId })
+  return response.items
+}
+
+async function fetchAllOrgCatalogEntries(): Promise<AgentCatalogRead[]> {
+  const items: AgentCatalogRead[] = []
+  let cursor: string | undefined
+
+  do {
+    const response = await listCatalog({
+      cursor,
+      limit: AGENT_MODEL_PAGE_SIZE,
+    })
+    items.push(...response.items)
+    cursor = response.next_cursor ?? undefined
+  } while (cursor)
+
+  return items
+}
+
+async function fetchAllOrgEnabledAccessRows(): Promise<AgentModelAccessRead[]> {
+  const items: AgentModelAccessRead[] = []
+  let cursor: string | undefined
+
+  do {
+    const response = await listEnabledModels({
+      cursor,
+      limit: AGENT_MODEL_PAGE_SIZE,
+    })
+    items.push(...response.items)
+    cursor = response.next_cursor ?? undefined
+  } while (cursor)
+
+  return items
+}
+
+/**
+ * Fetch the AI models that are enabled for the given workspace via
+ * AgentModelAccess. Use this anywhere a workspace-scoped picker should
+ * only show models the workspace is allowed to use.
+ */
+export function useWorkspaceAgentModels(
+  workspaceId: string | null | undefined
+) {
+  const enabled = Boolean(workspaceId)
+
   const {
     data: models,
     isLoading: modelsLoading,
     error: modelsError,
-  } = useQuery<AgentListModelsResponse, ApiError>({
-    queryKey: ["agent-models"],
-    queryFn: async () => await agentListModels(),
+  } = useQuery<AgentCatalogRead[], ApiError>({
+    queryKey: ["workspace", workspaceId, "agent-models"],
+    queryFn: async () => fetchAllWorkspaceAgentModels(workspaceId as string),
+    enabled,
+    retry: retryHandler,
+  })
+
+  const {
+    data: providers,
+    isLoading: providersLoading,
+    error: providersError,
+  } = useQuery<AgentCustomProviderRead[], ApiError>({
+    queryKey: ["organization", "agent-providers"],
+    queryFn: fetchAllProvidersPaginated,
+    enabled,
+    retry: retryHandler,
   })
 
   return {
     models,
-    modelsLoading,
-    modelsError,
+    providers,
+    modelsLoading: modelsLoading || providersLoading,
+    modelsError: modelsError ?? providersError,
   }
 }
 
-export function useModelProviders() {
+/**
+ * Fetch the AI models that are enabled at the organization level (i.e.
+ * AgentModelAccess rows with workspace_id === null), joined against the
+ * full catalog. Use this for org-wide pickers like the default model
+ * setting.
+ */
+export function useOrgAgentModels() {
   const {
-    data: providers,
-    isLoading,
-    error,
-  } = useQuery<AgentListProvidersResponse>({
-    queryKey: ["agent-providers"],
-    queryFn: async () => await agentListProviders(),
+    data: catalogEntries,
+    isLoading: catalogLoading,
+    error: catalogError,
+  } = useQuery<AgentCatalogRead[], ApiError>({
+    queryKey: ["organization", "agent-catalog"],
+    queryFn: fetchAllOrgCatalogEntries,
+    retry: retryHandler,
   })
 
+  const {
+    data: accessRows,
+    isLoading: accessLoading,
+    error: accessError,
+  } = useQuery<AgentModelAccessRead[], ApiError>({
+    queryKey: ["organization", "agent-model-access"],
+    queryFn: fetchAllOrgEnabledAccessRows,
+    retry: retryHandler,
+  })
+
+  const {
+    data: providers,
+    isLoading: providersLoading,
+    error: providersError,
+  } = useQuery<AgentCustomProviderRead[], ApiError>({
+    queryKey: ["organization", "agent-providers"],
+    queryFn: fetchAllProvidersPaginated,
+    retry: retryHandler,
+  })
+
+  const orgEnabledCatalogIds = new Set(
+    (accessRows ?? [])
+      .filter((row) => row.workspace_id === null)
+      .map((row) => row.catalog_id)
+  )
+  const models = (catalogEntries ?? []).filter((entry) =>
+    orgEnabledCatalogIds.has(entry.id)
+  )
+
   return {
+    models,
     providers,
-    isLoading,
-    error,
+    modelsLoading: catalogLoading || accessLoading || providersLoading,
+    modelsError: catalogError ?? accessError ?? providersError,
   }
 }
 
@@ -5129,30 +5253,9 @@ export function useModelProvidersStatus() {
   }
 }
 
-export function useWorkspaceModelProvidersStatus(workspaceId: string) {
-  const {
-    data: providersStatus,
-    isLoading,
-    error,
-    refetch,
-  } = useQuery<AgentGetWorkspaceProvidersStatusResponse>({
-    queryKey: ["workspace-agent-providers-status", workspaceId],
-    queryFn: async () =>
-      await agentGetWorkspaceProvidersStatus({ workspaceId }),
-  })
-
-  return {
-    providersStatus,
-    isLoading,
-    error,
-    refetch,
-  }
-}
-
 export function useAgentDefaultModel() {
   const queryClient = useQueryClient()
 
-  // Get default model
   const {
     data: defaultModel,
     isLoading: defaultModelLoading,
@@ -5162,24 +5265,35 @@ export function useAgentDefaultModel() {
     queryFn: async () => await agentGetDefaultModel(),
   })
 
-  // Update default model
+  const {
+    data: defaultModelSelection,
+    isLoading: defaultModelSelectionLoading,
+  } = useQuery<DefaultModelSelection | null>({
+    queryKey: ["agent-default-model-selection"],
+    queryFn: async () => await agentGetDefaultModelSelection(),
+  })
+
   const {
     mutateAsync: updateDefaultModel,
     isPending: isUpdating,
     error: updateError,
   } = useMutation({
-    mutationFn: async (modelName: string) =>
+    mutationFn: async (catalogId: string) =>
       await agentSetDefaultModel({
-        modelName,
+        requestBody: { catalog_id: catalogId },
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["agent-default-model"] })
+      queryClient.invalidateQueries({
+        queryKey: ["agent-default-model-selection"],
+      })
     },
   })
 
   return {
     defaultModel,
-    defaultModelLoading,
+    defaultModelSelection,
+    defaultModelLoading: defaultModelLoading || defaultModelSelectionLoading,
     defaultModelError,
     updateDefaultModel,
     isUpdating,
@@ -5321,8 +5435,12 @@ export function useDeleteProviderCredentials() {
  * Are we ready to chat?
  * Returns { ready, reason, modelInfo }
  *  ready   – boolean
- *  reason  – "no_model" | "no_credentials" | null
+ *  reason  – "no_model" | null
  *  modelInfo – model info (if any)
+ *
+ * Catalog entries are server-validated, so the frontend does not gate on
+ * provider credentials. Runtime invocation errors surface through the normal
+ * send-error path.
  */
 
 interface ChatReadinessOptions {
@@ -5334,13 +5452,12 @@ interface ChatReadinessOptions {
 }
 
 export function useChatReadiness(options?: ChatReadinessOptions) {
-  const { defaultModel, defaultModelLoading } = useAgentDefaultModel()
-  const { models, modelsLoading } = useAgentModels()
-  const { providersStatus, isLoading: statusLoading } =
-    useModelProvidersStatus()
+  const { defaultModel, defaultModelSelection, defaultModelLoading } =
+    useAgentDefaultModel()
+  const { models, providers, modelsLoading } = useOrgAgentModels()
   const modelOverride = options?.modelOverride
 
-  const loading = defaultModelLoading || modelsLoading || statusLoading
+  const loading = defaultModelLoading || modelsLoading
 
   if (loading) {
     return {
@@ -5355,16 +5472,6 @@ export function useChatReadiness(options?: ChatReadinessOptions) {
       provider: modelOverride.provider,
       baseUrl: modelOverride.baseUrl ?? null,
     }
-    const hasOverrideCreds = providersStatus?.[modelOverride.provider] ?? false
-    if (!hasOverrideCreds) {
-      return {
-        ready: false,
-        loading: false,
-        reason: "no_credentials",
-        modelInfo,
-      }
-    }
-
     return {
       ready: true,
       loading: false,
@@ -5373,7 +5480,7 @@ export function useChatReadiness(options?: ChatReadinessOptions) {
   }
 
   /* no default model set */
-  if (!defaultModel) {
+  if (!defaultModelSelection && !defaultModel) {
     return {
       ready: false,
       loading: false,
@@ -5381,8 +5488,11 @@ export function useChatReadiness(options?: ChatReadinessOptions) {
     }
   }
 
-  /* unknown model name → treat as no model */
-  const modelCfg = models?.[defaultModel]
+  /* unknown model selection -> treat as no model */
+  const modelCfg = defaultModelSelection
+    ? (models?.find((model) => model.id === defaultModelSelection.catalog_id) ??
+      null)
+    : (models?.find((model) => model.model_name === defaultModel) ?? null)
   if (!modelCfg) {
     return {
       ready: false,
@@ -5391,23 +5501,14 @@ export function useChatReadiness(options?: ChatReadinessOptions) {
     }
   }
 
-  /* check provider creds */
-  const providerId = modelCfg.provider
-  const hasCreds = providersStatus?.[providerId] ?? false
+  const baseUrl =
+    providers?.find((provider) => provider.id === modelCfg.custom_provider_id)
+      ?.base_url ?? null
   const modelInfo: ModelInfo = {
-    name: defaultModel,
-    provider: providerId,
-    baseUrl: null,
+    name: modelCfg.model_name,
+    provider: modelCfg.model_provider,
+    baseUrl,
   }
-  if (!hasCreds) {
-    return {
-      ready: false,
-      loading: false,
-      reason: "no_credentials",
-      modelInfo,
-    }
-  }
-
   return {
     ready: true,
     loading: false,

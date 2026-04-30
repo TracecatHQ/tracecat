@@ -7,6 +7,7 @@ import { EntitlementRequiredEmptyState } from "@/components/entitlement-required
 import type { SettingsSection } from "@/components/settings/settings-modal-context"
 import { WorkspaceFilesSettings } from "@/components/settings/workspace-files-settings"
 import { WorkspaceGeneralSettings } from "@/components/settings/workspace-general-settings"
+import { WorkspaceModelSettings } from "@/components/settings/workspace-model-settings"
 import { WorkspaceRuntimeSettings } from "@/components/settings/workspace-runtime-settings"
 import { WorkspaceSyncSettings } from "@/components/settings/workspace-sync-settings"
 import { Button } from "@/components/ui/button"
@@ -52,6 +53,32 @@ export function WorkspaceSettingsContainer({
       return <WorkspaceGeneralSettings workspace={workspace} />
     case "workspace-runtime":
       return <WorkspaceRuntimeSettings workspace={workspace} />
+    case "workspace-models":
+      return hasEntitlement("agent_addons") ? (
+        <WorkspaceModelSettings workspace={workspace} />
+      ) : (
+        <div className="flex flex-1 items-center justify-center py-12">
+          <EntitlementRequiredEmptyState
+            title="Upgrade required"
+            description="Workspace AI model controls are unavailable on your current plan."
+          >
+            <Button
+              variant="link"
+              asChild
+              className="text-muted-foreground"
+              size="sm"
+            >
+              <a
+                href="https://tracecat.com"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                Learn more <ArrowUpRight className="size-4" />
+              </a>
+            </Button>
+          </EntitlementRequiredEmptyState>
+        </div>
+      )
     case "workspace-files":
       return <WorkspaceFilesSettings workspace={workspace} />
     case "workspace-sync":

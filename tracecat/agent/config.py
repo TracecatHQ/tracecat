@@ -210,20 +210,6 @@ PROVIDER_CREDENTIAL_CONFIGS = {
                 required=False,
             ),
             ProviderCredentialField(
-                key="AWS_MODEL_ID",
-                label="Model ID (legacy models only)",
-                type="text",
-                description="Direct model ID for older models that support on-demand throughput (e.g., anthropic.claude-3-haiku-20240307-v1:0). Leave empty if using Inference Profile ID.",
-                required=False,
-            ),
-            ProviderCredentialField(
-                key="AWS_INFERENCE_PROFILE_ID",
-                label="Inference Profile ID",
-                type="text",
-                description="Required for newer models (Claude 4, etc.). Use system profile ID like 'us.anthropic.claude-sonnet-4-20250514-v1:0' or your custom inference profile ARN for cost tracking.",
-                required=False,
-            ),
-            ProviderCredentialField(
                 key="AWS_REGION",
                 label="Region",
                 type="text",
@@ -258,12 +244,6 @@ PROVIDER_CREDENTIAL_CONFIGS = {
                 label="Google Cloud project",
                 type="text",
                 description="Google Cloud project ID used for Vertex AI requests.",
-            ),
-            ProviderCredentialField(
-                key="VERTEX_AI_MODEL",
-                label="Model name",
-                type="text",
-                description="Vertex model name (e.g., gemini-3-flash).",
             ),
             ProviderCredentialField(
                 key="GOOGLE_CLOUD_LOCATION",
@@ -321,12 +301,6 @@ PROVIDER_CREDENTIAL_CONFIGS = {
                 label="API Version",
                 type="text",
                 description="The Azure OpenAI API version (e.g., 2024-02-15-preview).",
-            ),
-            ProviderCredentialField(
-                key="AZURE_DEPLOYMENT_NAME",
-                label="Deployment Name",
-                type="text",
-                description="The name of your Azure OpenAI model deployment.",
             ),
             ProviderCredentialField(
                 key="AZURE_API_KEY",
@@ -416,12 +390,6 @@ PROVIDER_CREDENTIAL_CONFIGS = {
                 type="text",
                 description="Optional Azure AI API version appended as the api-version query parameter.",
                 required=False,
-            ),
-            ProviderCredentialField(
-                key="AZURE_AI_MODEL_NAME",
-                label="Model Name",
-                type="text",
-                description="The model name to use (e.g., claude-sonnet-4-5).",
             ),
         ],
     ),

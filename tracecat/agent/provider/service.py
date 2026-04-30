@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from datetime import UTC, datetime
-from uuid import UUID
+from typing import Any
+from uuid import UUID, uuid4
 
 import httpx
 import orjson
 import sqlalchemy as sa
 from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from tracecat.agent.catalog.service import AgentCatalogService
 from tracecat.agent.provider.schemas import (
@@ -16,24 +19,44 @@ from tracecat.agent.provider.schemas import (
     AgentCustomProviderRead,
     AgentCustomProviderUpdate,
 )
-from tracecat.agent.provider.types import (
-    ResolvedCatalogConfig,
-    ResolvedCustomProviderCredentials,
-)
+from tracecat.agent.provider.types import ResolvedCustomProviderCredentials
 from tracecat.audit.logger import audit_log
 from tracecat.auth.secrets import get_db_encryption_key
 from tracecat.authz.controls import require_scope
 from tracecat.db.models import AgentCatalog, AgentCustomProvider, AgentModelAccess
-from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
+from tracecat.exceptions import TracecatNotFoundError
 from tracecat.pagination import (
     BaseCursorPaginator,
     CursorPaginatedResponse,
     CursorPaginationParams,
 )
-from tracecat.secrets.encryption import decrypt_value, encrypt_value
+from tracecat.secrets.encryption import decrypt_keyvalues, decrypt_value, encrypt_value
 from tracecat.service import BaseOrgService
 
 CUSTOM_MODEL_PROVIDER_SLUG = "custom-model-provider"
+_LEGACY_CUSTOM_PROVIDER_CONFIG_KEYS = {
+    "CUSTOM_MODEL_PROVIDER_API_KEY": "api_key",
+    "CUSTOM_MODEL_PROVIDER_BASE_URL": "base_url",
+    "CUSTOM_MODEL_PROVIDER_MODEL_NAME": "model_name",
+    "CUSTOM_MODEL_PROVIDER_PASSTHROUGH": "passthrough",
+}
+
+
+def _is_legacy_custom_provider_config(payload: Mapping[object, object]) -> bool:
+    """Return true for migrated env-var-shaped custom provider config."""
+    return any(key in payload for key in _LEGACY_CUSTOM_PROVIDER_CONFIG_KEYS)
+
+
+def _normalize_legacy_custom_provider_config(
+    payload: Mapping[object, object],
+) -> dict[str, Any]:
+    """Convert migrated custom-provider config to the CRUD config shape."""
+    config: dict[str, Any] = {}
+    for legacy_key, config_key in _LEGACY_CUSTOM_PROVIDER_CONFIG_KEYS.items():
+        value = payload.get(legacy_key)
+        if isinstance(value, str) and value:
+            config[config_key] = value
+    return config
 
 
 class AgentCustomProviderService(BaseOrgService):
@@ -149,15 +172,8 @@ class AgentCustomProviderService(BaseOrgService):
         provider: AgentCustomProvider,
     ) -> ResolvedCustomProviderCredentials | None:
         """Decrypt the provider's stored execution credentials, if any."""
-        if provider.encrypted_config is None:
-            return None
-
-        decrypted = decrypt_value(
-            provider.encrypted_config,
-            key=get_db_encryption_key(),
-        )
-        raw_config = orjson.loads(decrypted)
-        if not isinstance(raw_config, dict):
+        raw_config = self._decrypt_custom_provider_config(provider)
+        if not raw_config:
             return None
 
         api_key = raw_config.get("api_key")
@@ -175,103 +191,46 @@ class AgentCustomProviderService(BaseOrgService):
             custom_headers=resolved_headers,
         )
 
-    async def resolve_catalog_config(
+    def _decrypt_custom_provider_config(
         self,
-        *,
-        catalog_id: UUID,
-        workspace_id: UUID | None = None,
-    ) -> ResolvedCatalogConfig:
-        """Resolve a catalog selection into an access-validated config."""
-        org_access_exists = (
-            sa.select(sa.literal(1))
-            .select_from(AgentModelAccess)
-            .where(
-                AgentModelAccess.organization_id == self.organization_id,
-                AgentModelAccess.workspace_id.is_(None),
-                AgentModelAccess.catalog_id == AgentCatalog.id,
-            )
-            .exists()
-        )
+        provider: AgentCustomProvider,
+    ) -> dict[str, Any]:
+        """Decode CRUD and migrated custom-provider encrypted config blobs."""
+        if provider.encrypted_config is None:
+            return {}
 
-        effective_enabled_expr: sa.ColumnElement[bool]
-        if workspace_id is None:
-            effective_enabled_expr = org_access_exists
-        else:
-            workspace_override_exists = (
-                sa.select(sa.literal(1))
-                .select_from(AgentModelAccess)
-                .where(
-                    AgentModelAccess.organization_id == self.organization_id,
-                    AgentModelAccess.workspace_id == workspace_id,
-                )
-                .exists()
+        try:
+            decrypted = decrypt_value(
+                provider.encrypted_config,
+                key=get_db_encryption_key(),
             )
-            workspace_access_exists = (
-                sa.select(sa.literal(1))
-                .select_from(AgentModelAccess)
-                .where(
-                    AgentModelAccess.organization_id == self.organization_id,
-                    AgentModelAccess.workspace_id == workspace_id,
-                    AgentModelAccess.catalog_id == AgentCatalog.id,
-                )
-                .exists()
-            )
-            effective_enabled_expr = sa.case(
-                (workspace_override_exists, workspace_access_exists),
-                else_=org_access_exists,
-            )
+            raw_config = orjson.loads(decrypted)
+            if isinstance(raw_config, dict):
+                if _is_legacy_custom_provider_config(raw_config):
+                    return _normalize_legacy_custom_provider_config(raw_config)
+                return raw_config
+        except Exception:
+            pass
 
-        stmt = (
-            sa.select(
-                AgentCatalog,
-                AgentCustomProvider,
-                effective_enabled_expr.label("is_enabled"),
+        try:
+            keyvalues = decrypt_keyvalues(
+                provider.encrypted_config,
+                key=get_db_encryption_key(),
             )
-            .outerjoin(
-                AgentCustomProvider,
-                sa.and_(
-                    AgentCustomProvider.organization_id == AgentCatalog.organization_id,
-                    AgentCustomProvider.id == AgentCatalog.custom_provider_id,
-                ),
-            )
-            .where(
-                AgentCatalog.id == catalog_id,
-                sa.or_(
-                    AgentCatalog.organization_id == self.organization_id,
-                    AgentCatalog.organization_id.is_(None),
-                ),
-            )
-        )
-        row = (await self.session.execute(stmt)).one_or_none()
-        if row is None:
-            raise TracecatNotFoundError(f"Catalog entry {catalog_id} not found")
+        except Exception:
+            return {}
 
-        catalog, provider, is_enabled = row
-        if not is_enabled:
-            scope = (
-                f"workspace {workspace_id}"
-                if workspace_id is not None
-                else "organization"
-            )
-            raise TracecatValidationError(
-                f"Catalog entry {catalog_id} is not enabled for {scope}"
-            )
-
-        return ResolvedCatalogConfig(
-            catalog_id=catalog.id,
-            organization_id=catalog.organization_id,
-            model_provider=catalog.model_provider,
-            model_name=catalog.model_name,
-            custom_provider_id=catalog.custom_provider_id,
-            base_url=provider.base_url if provider is not None else None,
-            passthrough=provider.passthrough if provider is not None else False,
-            api_key_header=provider.api_key_header if provider is not None else None,
-            custom_provider_credentials=(
-                self._decrypt_custom_provider_credentials(provider)
-                if provider is not None
-                else None
-            ),
-        )
+        legacy = {kv.key: kv.value.get_secret_value() for kv in keyvalues}
+        config: dict[str, Any] = {}
+        if api_key := legacy.get("CUSTOM_MODEL_PROVIDER_API_KEY"):
+            config["api_key"] = api_key
+        if base_url := legacy.get("CUSTOM_MODEL_PROVIDER_BASE_URL"):
+            config["base_url"] = base_url
+        if model_name := legacy.get("CUSTOM_MODEL_PROVIDER_MODEL_NAME"):
+            config["model_name"] = model_name
+        if passthrough := legacy.get("CUSTOM_MODEL_PROVIDER_PASSTHROUGH"):
+            config["passthrough"] = passthrough
+        return config
 
     @require_scope("agent:update")
     @audit_log(
@@ -305,15 +264,9 @@ class AgentCustomProviderService(BaseOrgService):
             incoming_secrets["custom_headers"] = update_data.pop("custom_headers")
 
         if incoming_secrets:
-            existing_secrets: dict[str, object] = {}
-            if model.encrypted_config is not None:
-                decrypted = decrypt_value(
-                    model.encrypted_config,
-                    key=get_db_encryption_key(),
-                )
-                raw = orjson.loads(decrypted)
-                if isinstance(raw, dict):
-                    existing_secrets = raw
+            existing_secrets: dict[str, object] = self._decrypt_custom_provider_config(
+                model
+            )
 
             merged_secrets = {**existing_secrets}
             for key, value in incoming_secrets.items():
@@ -378,22 +331,19 @@ class AgentCustomProviderService(BaseOrgService):
                 f"Custom provider {provider_id} not found in organization"
             )
 
-        if not provider.base_url:
+        provider_config = self._decrypt_custom_provider_config(provider)
+        fallback_base_url = provider_config.get("base_url")
+        base_url = provider.base_url or (
+            fallback_base_url if isinstance(fallback_base_url, str) else None
+        )
+        if not base_url:
             raise ValueError("Provider base_url not configured")
 
-        secrets_dict: dict[str, object] = {}
-        if provider.encrypted_config:
-            decrypted = decrypt_value(
-                provider.encrypted_config,
-                key=get_db_encryption_key(),
-            )
-            secrets_dict = orjson.loads(decrypted)
-
-        api_key = secrets_dict.get("api_key")
-        custom_headers = secrets_dict.get("custom_headers", {})
+        api_key = provider_config.get("api_key")
+        custom_headers = provider_config.get("custom_headers")
 
         models = await self._discover_models(
-            provider.base_url,
+            base_url,
             api_key=api_key if isinstance(api_key, str) else None,
             custom_headers=(
                 custom_headers if isinstance(custom_headers, dict) else None
@@ -410,6 +360,52 @@ class AgentCustomProviderService(BaseOrgService):
         )
 
         provider.last_refreshed_at = datetime.now(UTC)
+        await self.session.commit()
+
+        # Auto-grant org-wide access to every catalog row this custom provider
+        # now exposes. Orgs without the ``agent_addons`` entitlement cannot
+        # toggle per-model enablement, so discovering a model has to double as
+        # enabling it; idempotent via the unique index on (org, workspace,
+        # catalog).
+        await self._auto_grant_custom_provider_access(provider_id)
+
+    async def _auto_grant_custom_provider_access(self, provider_id: UUID) -> None:
+        """Grant org-wide access to all catalog rows for a custom provider."""
+        catalog_ids = (
+            (
+                await self.session.execute(
+                    select(AgentCatalog.id).where(
+                        AgentCatalog.organization_id == self.organization_id,
+                        AgentCatalog.custom_provider_id == provider_id,
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        if not catalog_ids:
+            return
+
+        now = datetime.now(UTC)
+        values = [
+            {
+                "id": uuid4(),
+                "organization_id": self.organization_id,
+                "workspace_id": None,
+                "catalog_id": catalog_id,
+                "created_at": now,
+                "updated_at": now,
+            }
+            for catalog_id in catalog_ids
+        ]
+        stmt = (
+            pg_insert(AgentModelAccess)
+            .values(values)
+            .on_conflict_do_nothing(
+                index_elements=["organization_id", "workspace_id", "catalog_id"],
+            )
+        )
+        await self.session.execute(stmt)
         await self.session.commit()
 
     @staticmethod
@@ -439,6 +435,8 @@ class AgentCustomProviderService(BaseOrgService):
         custom_headers: dict[str, str] | None = None,
     ) -> bool:
         """Test provider connectivity."""
+        if not base_url or not base_url.strip():
+            return False
         try:
             response = await self._fetch_models(
                 base_url=base_url,

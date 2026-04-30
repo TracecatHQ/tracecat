@@ -116,6 +116,11 @@ class AgentConfig:
     # Model
     model_name: str
     model_provider: str
+    catalog_id: uuid.UUID | None = None
+    """Catalog row backing this model selection. When set, credentials and
+    (for cloud/custom providers) the invocation target resolve from
+    ``agent_catalog.encrypted_config`` instead of the legacy
+    ``agent-{provider}-credentials`` secret."""
     base_url: str | None = None
     passthrough: bool = False
     # Agent

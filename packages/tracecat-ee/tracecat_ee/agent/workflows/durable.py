@@ -4,7 +4,7 @@ import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from temporalio import workflow
 from temporalio.common import TypedSearchAttributes
 from temporalio.exceptions import ActivityError, ApplicationError
@@ -105,6 +105,11 @@ def _build_approved_tool_run_input(
 
 class AgentWorkflowArgs(BaseModel):
     """Arguments for starting an agent workflow."""
+
+    # Temporal stores the original workflow input in history. Keep stale keys
+    # replayable after workflow args evolve, including the removed legacy
+    # ``use_workspace_credentials`` flag.
+    model_config = ConfigDict(extra="ignore")
 
     role: Role
     agent_args: RunAgentArgs
@@ -283,10 +288,7 @@ class DurableAgentWorkflow:
         if cfg.model_provider == "custom-model-provider":
             result = await workflow.execute_activity(
                 resolve_custom_model_provider_config_activity,
-                args=(
-                    self.role,
-                    args.agent_args.use_workspace_credentials,
-                ),
+                args=(self.role, cfg.catalog_id),
                 start_to_close_timeout=timedelta(seconds=30),
                 retry_policy=RETRY_POLICIES["activity:fail_fast"],
             )
@@ -299,7 +301,6 @@ class DurableAgentWorkflow:
                 passthrough=cfg.passthrough,
                 has_model_name_override=result.model_name is not None,
                 has_base_url=bool(cfg.base_url),
-                use_workspace_credentials=args.agent_args.use_workspace_credentials,
             )
         return cfg
 
@@ -487,9 +488,9 @@ class DurableAgentWorkflow:
             session_id=self.session_id,
             model=cfg.model_name,
             provider=cfg.model_provider,
+            catalog_id=cfg.catalog_id,
             base_url=cfg.base_url,
             model_settings=cfg.model_settings,
-            use_workspace_credentials=args.agent_args.use_workspace_credentials,
         )
 
         # Prepare executor input
@@ -505,7 +506,6 @@ class DurableAgentWorkflow:
             sdk_session_id=self._sdk_session_id,
             sdk_session_data=self._sdk_session_data,
             is_fork=is_fork,
-            use_workspace_credentials=args.agent_args.use_workspace_credentials,
         )
 
         info = workflow.info()
@@ -595,7 +595,6 @@ class DurableAgentWorkflow:
                     sdk_session_id=self._sdk_session_id,
                     sdk_session_data=self._sdk_session_data,
                     is_approval_continuation=True,
-                    use_workspace_credentials=args.agent_args.use_workspace_credentials,
                 )
                 self._turn += 1
                 continue

@@ -156,32 +156,32 @@ async def get_default_model(
     return await service.get_default_model()
 
 
-@router.put("/default-model")
+@router.put("/default-model", response_model=DefaultModelSelection)
 @require_scope("agent:update")
 async def set_default_model(
     *,
-    model_name: str,
+    params: DefaultModelSelectionUpdate,
     role: OrgUserRole,
     session: AsyncDBSession,
-) -> dict[str, str]:
-    """Set the organization's default AI model."""
+) -> DefaultModelSelection:
+    """Set the organization's default AI model by catalog id.
+
+    Names aren't unique once an org enables the same ``model_name`` under
+    multiple providers (e.g. ``openai/gpt-4o`` + ``azure_openai/gpt-4o``),
+    so the selection is keyed by catalog row. Rejects catalog ids that
+    aren't enabled for this org with a 404.
+    """
     service = AgentManagementService(session, role=role)
     try:
-        await service.set_default_model(model_name)
-        return {"message": f"Default model set to {model_name}"}
+        return await service.set_default_model(params.catalog_id)
     except TracecatNotFoundError as e:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Model {model_name} not found",
-        ) from e
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Failed to set default model: {str(e)}",
+            detail=str(e),
         ) from e
 
 
-@router.get("/default-model-selection")
+@router.get("/default-model-selection", response_model=DefaultModelSelection | None)
 @require_scope("agent:read")
 async def get_default_model_selection(
     *,
@@ -204,7 +204,7 @@ async def set_default_model_selection(
     """Set the organization's canonical default model selection."""
     service = AgentManagementService(session, role=role)
     try:
-        return await service.set_default_model_selection(params)
+        return await service.set_default_model(params.catalog_id)
     except TracecatNotFoundError as e:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

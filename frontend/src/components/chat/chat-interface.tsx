@@ -446,7 +446,6 @@ function ChatBody({
   const {
     ready: chatReady,
     loading: chatReadyLoading,
-    reason: chatReason,
     modelInfo,
   } = useChatReadiness(
     selectedPreset
@@ -506,14 +505,10 @@ function ChatBody({
             <div className="flex items-center gap-3">
               <div className="flex-1">
                 <h4 className="mb-1 text-sm font-medium text-foreground">
-                  {chatReason === "no_model" && "No default model"}
-                  {chatReason === "no_credentials" && "Missing credentials"}
+                  No default model
                 </h4>
                 <p className="text-xs text-muted-foreground">
-                  {chatReason === "no_model" &&
-                    "Select a default model in agent settings to enable chat."}
-                  {chatReason === "no_credentials" &&
-                    `Configure ${modelInfo?.provider || "model provider"} credentials in agent settings to enable chat.`}
+                  Select a default model in agent settings to enable chat.
                 </p>
               </div>
               <ChevronDown className="size-4 rotate-[-90deg] text-muted-foreground" />

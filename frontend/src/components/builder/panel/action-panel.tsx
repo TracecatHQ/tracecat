@@ -617,8 +617,6 @@ function ActionPanelContent({
             console.error("Validation errors", valErrs)
             valErrs.forEach(({ loc, msg }) => {
               const key: string = loc.slice(1).join(".")
-              // Skip the old combined field mapping since we now have individual fields
-              // Combine errors if they have the same key
               if (errors[key]) {
                 errors[key].message += `\n${msg}`
               } else {

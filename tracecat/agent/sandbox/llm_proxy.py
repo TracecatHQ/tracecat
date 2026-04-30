@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import os
 import time
+import uuid
 from collections.abc import AsyncIterable, Callable
 from pathlib import Path
 from typing import Any, TypedDict
@@ -157,8 +158,8 @@ class LLMSocketProxy:
         on_error: Callable[[str], None] | None = None,
         passthrough: bool = False,
         role: Role | None = None,
-        use_workspace_credentials: bool = False,
         model_provider: str | None = None,
+        catalog_id: uuid.UUID | None = None,
     ):
         """Initialize the LLM socket proxy.
 
@@ -169,9 +170,12 @@ class LLMSocketProxy:
             passthrough: When True, strip managed auth headers before forwarding
                 directly to the configured upstream.
             role: Role used to fetch the custom provider API key in passthrough mode.
-            use_workspace_credentials: Credential scope for the passthrough key fetch.
             model_provider: Selected model provider. Used to decide whether to strip
                 Anthropic-only request fields from outbound payloads.
+            catalog_id: Optional v2 catalog row backing this workflow. When
+                set, passthrough credential resolution reads the matching
+                ``AgentCustomProvider`` row's ``encrypted_config`` instead of
+                the legacy ``agent-custom-model-provider-credentials`` secret.
         """
         self.socket_path = socket_path
         self.upstream_url = (
@@ -185,35 +189,43 @@ class LLMSocketProxy:
         self._error_emitted = False  # Only call callback once
         self._is_passthrough = passthrough
         self._role = role
-        self._use_workspace_credentials = use_workspace_credentials
         self._upstream_api_key: str | None = None
         self._model_provider = model_provider
+        self._catalog_id = catalog_id
 
     async def _resolve_passthrough_api_key(self) -> None:
         """Fetch the custom provider API key for passthrough mode.
 
-        The key is cached on the instance and never logged. If credentials or
-        the key are missing, the proxy forwards without an Authorization header
-        and the upstream will respond with its normal auth error.
+        Prefers the v2 catalog-backed path when ``catalog_id`` is set (reads
+        the row's ``AgentCustomProvider.encrypted_config``); otherwise falls
+        back to the legacy ``agent-custom-model-provider-credentials``
+        secret so in-flight workflows without a catalog_id keep working.
+
+        The key is cached on the instance and never logged. If credentials
+        or the key are missing, the proxy forwards without an Authorization
+        header and the upstream will respond with its normal auth error.
         """
         if not self._is_passthrough or self._role is None:
             return
         async with AgentManagementService.with_session(self._role) as svc:
-            creds = await svc.get_runtime_provider_credentials(
-                "custom-model-provider",
-                use_workspace_credentials=self._use_workspace_credentials,
-            )
+            if self._catalog_id is not None:
+                creds = await svc.get_catalog_credentials(self._catalog_id)
+            else:
+                creds = await svc.get_runtime_provider_credentials(
+                    "custom-model-provider",
+                )
+                if creds is None:
+                    creds = await svc.get_workspace_provider_credentials(
+                        "custom-model-provider",
+                    )
         if creds is None:
-            logger.warning(
-                "Passthrough credentials not found",
-                use_workspace_credentials=self._use_workspace_credentials,
-            )
+            logger.warning("Passthrough credentials not found")
             return
         self._upstream_api_key = creds.get("CUSTOM_MODEL_PROVIDER_API_KEY") or None
         logger.info(
             "Resolved passthrough upstream credentials",
             has_upstream_api_key=bool(self._upstream_api_key),
-            use_workspace_credentials=self._use_workspace_credentials,
+            catalog_id=str(self._catalog_id) if self._catalog_id else None,
         )
 
     async def start(self) -> None:

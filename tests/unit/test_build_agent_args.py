@@ -126,6 +126,7 @@ class TestBuildAgentArgsActivity:
             "user_prompt": "Hello",
             "model_name": "claude-sonnet-4-5-20250929",
             "model_provider": "anthropic",
+            "base_url": "https://llm.example.com/v1",
         }
         input = BuildAgentArgsActivityInput(
             args=args,
@@ -143,6 +144,7 @@ class TestBuildAgentArgsActivity:
 
         mock_get_vars.assert_not_called()
         assert result.model_name == "claude-sonnet-4-5-20250929"
+        assert result.base_url == "https://llm.example.com/v1"
 
     @pytest.mark.anyio
     async def test_vars_with_action_context(self, role: Role):

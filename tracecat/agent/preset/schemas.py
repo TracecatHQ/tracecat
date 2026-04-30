@@ -62,6 +62,7 @@ class AgentPresetExecutionConfig(Schema):
     instructions: str | None = Field(default=None)
     model_name: PresetModelField
     model_provider: PresetModelField
+    catalog_id: uuid.UUID | None = Field(default=None)
     base_url: str | None = Field(default=None, max_length=500)
     output_type: OutputType | None = Field(default=None)
     actions: list[str] | None = Field(default=None)
@@ -79,6 +80,7 @@ class AgentPresetExecutionConfigWrite(Schema):
     instructions: str | None = Field(default=None)
     model_name: PresetModelWriteField
     model_provider: PresetModelWriteField
+    catalog_id: uuid.UUID | None = Field(default=None)
     base_url: str | None = Field(default=None, max_length=500)
     output_type: OutputType | None = Field(default=None)
     actions: list[str] | None = Field(default=None)
@@ -113,6 +115,7 @@ class AgentPresetUpdate(BaseModel):
     instructions: str | None = Field(default=None)
     model_name: PresetModelWriteField | None = None
     model_provider: PresetModelWriteField | None = None
+    catalog_id: uuid.UUID | None = None
     base_url: str | None = Field(default=None, max_length=500)
     output_type: OutputType | None = Field(default=None)
     actions: list[str] | None = Field(default=None)
@@ -159,6 +162,7 @@ class AgentPresetRead(AgentPresetExecutionConfig):
         return AgentConfig(
             model_name=self.model_name,
             model_provider=self.model_provider,
+            catalog_id=self.catalog_id,
             base_url=self.base_url,
             instructions=self.instructions,
             output_type=self.output_type,

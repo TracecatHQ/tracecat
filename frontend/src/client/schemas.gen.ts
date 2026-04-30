@@ -1212,6 +1212,98 @@ export const $AdminUserRead = {
   description: "Admin view of a user.",
 } as const
 
+export const $AgentCatalogListResponse = {
+  properties: {
+    items: {
+      items: {
+        $ref: "#/components/schemas/AgentCatalogRead",
+      },
+      type: "array",
+      title: "Items",
+    },
+    next_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Next Cursor",
+    },
+  },
+  type: "object",
+  required: ["items"],
+  title: "AgentCatalogListResponse",
+  description: "List catalog entries with pagination.",
+} as const
+
+export const $AgentCatalogRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    custom_provider_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Custom Provider Id",
+    },
+    organization_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Organization Id",
+    },
+    model_provider: {
+      type: "string",
+      title: "Model Provider",
+    },
+    model_name: {
+      type: "string",
+      title: "Model Name",
+    },
+    model_metadata: {
+      anyOf: [
+        {
+          additionalProperties: true,
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Model Metadata",
+    },
+  },
+  type: "object",
+  required: [
+    "id",
+    "custom_provider_id",
+    "organization_id",
+    "model_provider",
+    "model_name",
+    "model_metadata",
+  ],
+  title: "AgentCatalogRead",
+  description: "Single catalog model entry.",
+} as const
+
 export const $AgentChannelTokenCreate = {
   properties: {
     agent_preset_id: {
@@ -1335,6 +1427,352 @@ export const $AgentChannelTokenUpdate = {
   description: "Request schema for updating an external channel token.",
 } as const
 
+export const $AgentCustomProviderCreate = {
+  properties: {
+    display_name: {
+      type: "string",
+      maxLength: 200,
+      title: "Display Name",
+    },
+    base_url: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 500,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Base Url",
+    },
+    passthrough: {
+      type: "boolean",
+      title: "Passthrough",
+      default: false,
+    },
+    api_key_header: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 120,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Api Key Header",
+    },
+    api_key: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Api Key",
+    },
+    custom_headers: {
+      anyOf: [
+        {
+          additionalProperties: {
+            type: "string",
+          },
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Custom Headers",
+    },
+  },
+  type: "object",
+  required: ["display_name"],
+  title: "AgentCustomProviderCreate",
+  description: "Create custom LLM provider.",
+} as const
+
+export const $AgentCustomProviderListResponse = {
+  properties: {
+    items: {
+      items: {
+        $ref: "#/components/schemas/AgentCustomProviderRead",
+      },
+      type: "array",
+      title: "Items",
+    },
+    next_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Next Cursor",
+    },
+  },
+  type: "object",
+  required: ["items"],
+  title: "AgentCustomProviderListResponse",
+  description: "List response with pagination.",
+} as const
+
+export const $AgentCustomProviderRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    organization_id: {
+      type: "string",
+      format: "uuid",
+      title: "Organization Id",
+    },
+    display_name: {
+      type: "string",
+      title: "Display Name",
+    },
+    base_url: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Base Url",
+    },
+    passthrough: {
+      type: "boolean",
+      title: "Passthrough",
+    },
+    api_key_header: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Api Key Header",
+    },
+    last_refreshed_at: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Last Refreshed At",
+    },
+  },
+  type: "object",
+  required: [
+    "id",
+    "organization_id",
+    "display_name",
+    "base_url",
+    "passthrough",
+    "api_key_header",
+    "last_refreshed_at",
+  ],
+  title: "AgentCustomProviderRead",
+  description: "Read custom provider.",
+} as const
+
+export const $AgentCustomProviderUpdate = {
+  properties: {
+    display_name: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 200,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Display Name",
+    },
+    base_url: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 500,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Base Url",
+    },
+    passthrough: {
+      anyOf: [
+        {
+          type: "boolean",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Passthrough",
+    },
+    api_key_header: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 120,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Api Key Header",
+    },
+    api_key: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Api Key",
+    },
+    custom_headers: {
+      anyOf: [
+        {
+          additionalProperties: {
+            type: "string",
+          },
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Custom Headers",
+    },
+  },
+  type: "object",
+  title: "AgentCustomProviderUpdate",
+  description: "Update custom provider.",
+} as const
+
+export const $AgentModel = {
+  properties: {
+    component_id: {
+      type: "string",
+      const: "agent-model",
+      title: "Component Id",
+      default: "agent-model",
+    },
+  },
+  type: "object",
+  title: "AgentModel",
+} as const
+
+export const $AgentModelAccessCreate = {
+  properties: {
+    catalog_id: {
+      type: "string",
+      format: "uuid",
+      title: "Catalog Id",
+    },
+    workspace_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Workspace Id",
+    },
+  },
+  type: "object",
+  required: ["catalog_id"],
+  title: "AgentModelAccessCreate",
+  description: "Enable a model for org or workspace.",
+} as const
+
+export const $AgentModelAccessListResponse = {
+  properties: {
+    items: {
+      items: {
+        $ref: "#/components/schemas/AgentModelAccessRead",
+      },
+      type: "array",
+      title: "Items",
+    },
+    next_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Next Cursor",
+    },
+  },
+  type: "object",
+  required: ["items"],
+  title: "AgentModelAccessListResponse",
+  description: "List accessible models with pagination.",
+} as const
+
+export const $AgentModelAccessRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    organization_id: {
+      type: "string",
+      format: "uuid",
+      title: "Organization Id",
+    },
+    workspace_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Workspace Id",
+    },
+    catalog_id: {
+      type: "string",
+      format: "uuid",
+      title: "Catalog Id",
+    },
+  },
+  type: "object",
+  required: ["id", "organization_id", "workspace_id", "catalog_id"],
+  title: "AgentModelAccessRead",
+  description: "Model access entry.",
+} as const
+
 export const $AgentOutput = {
   properties: {
     output: {
@@ -1416,6 +1854,18 @@ export const $AgentPresetCreate = {
       maxLength: 120,
       minLength: 1,
       title: "Model Provider",
+    },
+    catalog_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Catalog Id",
     },
     base_url: {
       anyOf: [
@@ -1585,6 +2035,18 @@ export const $AgentPresetRead = {
       type: "string",
       maxLength: 120,
       title: "Model Provider",
+    },
+    catalog_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Catalog Id",
     },
     base_url: {
       anyOf: [
@@ -2010,6 +2472,18 @@ export const $AgentPresetUpdate = {
       ],
       title: "Model Provider",
     },
+    catalog_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Catalog Id",
+    },
     base_url: {
       anyOf: [
         {
@@ -2256,6 +2730,18 @@ export const $AgentPresetVersionRead = {
       type: "string",
       maxLength: 120,
       title: "Model Provider",
+    },
+    catalog_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Catalog Id",
     },
     base_url: {
       anyOf: [
@@ -4181,6 +4667,140 @@ export const $AwsAssumeRoleAccessRead = {
     "Workspace-scoped AWS AssumeRole details shown in the credentials UI.",
 } as const
 
+export const $AzureAICatalogCreate = {
+  properties: {
+    display_name: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Display Name",
+    },
+    model_provider: {
+      type: "string",
+      const: "azure_ai",
+      title: "Model Provider",
+    },
+    model_name: {
+      type: "string",
+      maxLength: 500,
+      minLength: 1,
+      title: "Model Name",
+    },
+    azure_ai_model_name: {
+      type: "string",
+      minLength: 1,
+      title: "Azure Ai Model Name",
+    },
+  },
+  additionalProperties: false,
+  type: "object",
+  required: ["model_provider", "model_name", "azure_ai_model_name"],
+  title: "AzureAICatalogCreate",
+  description: "Azure AI catalog entry.",
+} as const
+
+export const $AzureAICatalogUpdate = {
+  properties: {
+    display_name: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Display Name",
+    },
+    model_provider: {
+      type: "string",
+      const: "azure_ai",
+      title: "Model Provider",
+    },
+    azure_ai_model_name: {
+      type: "string",
+      minLength: 1,
+      title: "Azure Ai Model Name",
+    },
+  },
+  additionalProperties: false,
+  type: "object",
+  required: ["model_provider", "azure_ai_model_name"],
+  title: "AzureAICatalogUpdate",
+} as const
+
+export const $AzureOpenAICatalogCreate = {
+  properties: {
+    display_name: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Display Name",
+    },
+    model_provider: {
+      type: "string",
+      const: "azure_openai",
+      title: "Model Provider",
+    },
+    model_name: {
+      type: "string",
+      maxLength: 500,
+      minLength: 1,
+      title: "Model Name",
+    },
+    deployment_name: {
+      type: "string",
+      minLength: 1,
+      title: "Deployment Name",
+    },
+  },
+  additionalProperties: false,
+  type: "object",
+  required: ["model_provider", "model_name", "deployment_name"],
+  title: "AzureOpenAICatalogCreate",
+  description: "Azure OpenAI catalog entry.",
+} as const
+
+export const $AzureOpenAICatalogUpdate = {
+  properties: {
+    display_name: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Display Name",
+    },
+    model_provider: {
+      type: "string",
+      const: "azure_openai",
+      title: "Model Provider",
+    },
+    deployment_name: {
+      type: "string",
+      minLength: 1,
+      title: "Deployment Name",
+    },
+  },
+  additionalProperties: false,
+  type: "object",
+  required: ["model_provider", "deployment_name"],
+  title: "AzureOpenAICatalogUpdate",
+} as const
+
 export const $BatchPositionUpdate = {
   properties: {
     actions: {
@@ -4204,6 +4824,112 @@ export const $BatchPositionUpdate = {
   type: "object",
   title: "BatchPositionUpdate",
   description: "Batch update for action and trigger positions.",
+} as const
+
+export const $BedrockCatalogCreate = {
+  properties: {
+    display_name: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Display Name",
+    },
+    model_provider: {
+      type: "string",
+      const: "bedrock",
+      title: "Model Provider",
+    },
+    model_name: {
+      type: "string",
+      maxLength: 500,
+      minLength: 1,
+      title: "Model Name",
+    },
+    inference_profile_id: {
+      anyOf: [
+        {
+          type: "string",
+          minLength: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Inference Profile Id",
+    },
+    model_id: {
+      anyOf: [
+        {
+          type: "string",
+          minLength: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Model Id",
+    },
+  },
+  additionalProperties: false,
+  type: "object",
+  required: ["model_provider", "model_name"],
+  title: "BedrockCatalogCreate",
+  description:
+    "Bedrock catalog entry. Requires exactly one of inference_profile_id or model_id.",
+} as const
+
+export const $BedrockCatalogUpdate = {
+  properties: {
+    display_name: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Display Name",
+    },
+    model_provider: {
+      type: "string",
+      const: "bedrock",
+      title: "Model Provider",
+    },
+    inference_profile_id: {
+      anyOf: [
+        {
+          type: "string",
+          minLength: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Inference Profile Id",
+    },
+    model_id: {
+      anyOf: [
+        {
+          type: "string",
+          minLength: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Model Id",
+    },
+  },
+  additionalProperties: false,
+  type: "object",
+  required: ["model_provider"],
+  title: "BedrockCatalogUpdate",
 } as const
 
 export const $BinaryContent = {
@@ -10280,12 +11006,16 @@ export const $EditorComponent = {
     {
       $ref: "#/components/schemas/AgentPreset",
     },
+    {
+      $ref: "#/components/schemas/AgentModel",
+    },
   ],
   title: "EditorComponent",
   discriminator: {
     propertyName: "component_id",
     mapping: {
       "action-type": "#/components/schemas/ActionType",
+      "agent-model": "#/components/schemas/AgentModel",
       "agent-preset": "#/components/schemas/AgentPreset",
       code: "#/components/schemas/Code",
       float: "#/components/schemas/Float",
@@ -13543,6 +14273,20 @@ export const $ModelConfig = {
       title: "Provider",
       description:
         "The provider of the model. This is used to determine which organization secret to use for this model.",
+    },
+    catalog_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Catalog Id",
+      description:
+        "Optional catalog row backing this model selection. Populated for v2 org-scoped cloud/custom catalog rows; left ``None`` for platform (built-in) models that resolve credentials via ``agent-{provider}-credentials``.",
     },
     org_secret_name: {
       type: "string",
@@ -23848,6 +24592,73 @@ export const $VersionDiff = {
   ],
   title: "VersionDiff",
   description: "Result of comparing two registry versions.",
+} as const
+
+export const $VertexAICatalogCreate = {
+  properties: {
+    display_name: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Display Name",
+    },
+    model_provider: {
+      type: "string",
+      const: "vertex_ai",
+      title: "Model Provider",
+    },
+    model_name: {
+      type: "string",
+      maxLength: 500,
+      minLength: 1,
+      title: "Model Name",
+    },
+    vertex_model: {
+      type: "string",
+      minLength: 1,
+      title: "Vertex Model",
+    },
+  },
+  additionalProperties: false,
+  type: "object",
+  required: ["model_provider", "model_name", "vertex_model"],
+  title: "VertexAICatalogCreate",
+  description: "Vertex AI catalog entry.",
+} as const
+
+export const $VertexAICatalogUpdate = {
+  properties: {
+    display_name: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Display Name",
+    },
+    model_provider: {
+      type: "string",
+      const: "vertex_ai",
+      title: "Model Provider",
+    },
+    vertex_model: {
+      type: "string",
+      minLength: 1,
+      title: "Vertex Model",
+    },
+  },
+  additionalProperties: false,
+  type: "object",
+  required: ["model_provider", "vertex_model"],
+  title: "VertexAICatalogUpdate",
 } as const
 
 export const $VideoUrl = {

@@ -278,6 +278,16 @@ async def test_forward_request_strips_authorization_for_passthrough_upstream(
     assert response_text.startswith("HTTP/1.1 200 OK")
 
 
+def test_passthrough_upstream_url_preserves_version_suffix(tmp_path: Path) -> None:
+    socket_proxy = LLMSocketProxy(
+        socket_path=tmp_path / "llm.sock",
+        upstream_url="https://customer-litellm.example/v1/",
+        passthrough=True,
+    )
+
+    assert socket_proxy.upstream_url == "https://customer-litellm.example/v1"
+
+
 @pytest.mark.anyio
 async def test_forward_request_preserves_anthropic_fields_for_anthropic_upstream(
     tmp_path: Path,
