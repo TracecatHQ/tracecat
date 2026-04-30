@@ -1717,13 +1717,15 @@ export const workflowsListWorkflows = (
 ): CancelablePromise<WorkflowsListWorkflowsResponse> => {
   return __request(OpenAPI, {
     method: "GET",
-    url: "/workflows",
+    url: "/workspaces/{workspace_id}/workflows",
+    path: {
+      workspace_id: data.workspaceId,
+    },
     query: {
       tag: data.tag,
       limit: data.limit,
       cursor: data.cursor,
       reverse: data.reverse,
-      workspace_id: data.workspaceId,
     },
     errors: {
       422: "Validation Error",
@@ -1748,8 +1750,8 @@ export const workflowsCreateWorkflow = (
 ): CancelablePromise<WorkflowsCreateWorkflowResponse> => {
   return __request(OpenAPI, {
     method: "POST",
-    url: "/workflows",
-    query: {
+    url: "/workspaces/{workspace_id}/workflows",
+    path: {
       workspace_id: data.workspaceId,
     },
     formData: data.formData,
@@ -1774,8 +1776,8 @@ export const workflowsValidateWorkflowEntrypoint = (
 ): CancelablePromise<WorkflowsValidateWorkflowEntrypointResponse> => {
   return __request(OpenAPI, {
     method: "POST",
-    url: "/workflows/validate-entrypoint",
-    query: {
+    url: "/workspaces/{workspace_id}/workflows/validate-entrypoint",
+    path: {
       workspace_id: data.workspaceId,
     },
     body: data.requestBody,
@@ -1790,8 +1792,8 @@ export const workflowsValidateWorkflowEntrypoint = (
  * Get Workflow
  * Return Workflow as title, description, list of Action JSONs, adjacency list of Action IDs.
  * @param data The data for the request.
- * @param data.workflowId
  * @param data.workspaceId
+ * @param data.workflowId
  * @returns WorkflowRead Successful Response
  * @throws ApiError
  */
@@ -1800,12 +1802,10 @@ export const workflowsGetWorkflow = (
 ): CancelablePromise<WorkflowsGetWorkflowResponse> => {
   return __request(OpenAPI, {
     method: "GET",
-    url: "/workflows/{workflow_id}",
+    url: "/workspaces/{workspace_id}/workflows/{workflow_id}",
     path: {
-      workflow_id: data.workflowId,
-    },
-    query: {
       workspace_id: data.workspaceId,
+      workflow_id: data.workflowId,
     },
     errors: {
       422: "Validation Error",
@@ -1817,8 +1817,8 @@ export const workflowsGetWorkflow = (
  * Update Workflow
  * Update a workflow.
  * @param data The data for the request.
- * @param data.workflowId
  * @param data.workspaceId
+ * @param data.workflowId
  * @param data.requestBody
  * @returns void Successful Response
  * @throws ApiError
@@ -1828,12 +1828,10 @@ export const workflowsUpdateWorkflow = (
 ): CancelablePromise<WorkflowsUpdateWorkflowResponse> => {
   return __request(OpenAPI, {
     method: "PATCH",
-    url: "/workflows/{workflow_id}",
+    url: "/workspaces/{workspace_id}/workflows/{workflow_id}",
     path: {
-      workflow_id: data.workflowId,
-    },
-    query: {
       workspace_id: data.workspaceId,
+      workflow_id: data.workflowId,
     },
     body: data.requestBody,
     mediaType: "application/json",
@@ -1847,8 +1845,8 @@ export const workflowsUpdateWorkflow = (
  * Delete Workflow
  * Delete a workflow.
  * @param data The data for the request.
- * @param data.workflowId
  * @param data.workspaceId
+ * @param data.workflowId
  * @returns void Successful Response
  * @throws ApiError
  */
@@ -1857,12 +1855,10 @@ export const workflowsDeleteWorkflow = (
 ): CancelablePromise<WorkflowsDeleteWorkflowResponse> => {
   return __request(OpenAPI, {
     method: "DELETE",
-    url: "/workflows/{workflow_id}",
+    url: "/workspaces/{workspace_id}/workflows/{workflow_id}",
     path: {
-      workflow_id: data.workflowId,
-    },
-    query: {
       workspace_id: data.workspaceId,
+      workflow_id: data.workflowId,
     },
     errors: {
       422: "Validation Error",
@@ -1876,8 +1872,8 @@ export const workflowsDeleteWorkflow = (
  *
  * This deploys the workflow and updates its version. If a YAML file is provided, it will override the workflow in the database.
  * @param data The data for the request.
- * @param data.workflowId
  * @param data.workspaceId
+ * @param data.workflowId
  * @returns WorkflowCommitResponse Successful Response
  * @throws ApiError
  */
@@ -1886,12 +1882,10 @@ export const workflowsCommitWorkflow = (
 ): CancelablePromise<WorkflowsCommitWorkflowResponse> => {
   return __request(OpenAPI, {
     method: "POST",
-    url: "/workflows/{workflow_id}/commit",
+    url: "/workspaces/{workspace_id}/workflows/{workflow_id}/commit",
     path: {
-      workflow_id: data.workflowId,
-    },
-    query: {
       workspace_id: data.workspaceId,
+      workflow_id: data.workflowId,
     },
     errors: {
       422: "Validation Error",
@@ -1909,8 +1903,8 @@ export const workflowsCommitWorkflow = (
  * without requiring a saved definition. When `draft=False` (default), exports
  * from a saved workflow definition version.
  * @param data The data for the request.
- * @param data.workflowId
  * @param data.workspaceId
+ * @param data.workflowId
  * @param data.format Export format: 'json' or 'yaml'
  * @param data.version Workflow definition version. If not provided, the latest version is exported.
  * @param data.draft Export current draft state instead of saved definition.
@@ -1922,15 +1916,15 @@ export const workflowsExportWorkflow = (
 ): CancelablePromise<WorkflowsExportWorkflowResponse> => {
   return __request(OpenAPI, {
     method: "GET",
-    url: "/workflows/{workflow_id}/export",
+    url: "/workspaces/{workspace_id}/workflows/{workflow_id}/export",
     path: {
+      workspace_id: data.workspaceId,
       workflow_id: data.workflowId,
     },
     query: {
       format: data.format,
       version: data.version,
       draft: data.draft,
-      workspace_id: data.workspaceId,
     },
     errors: {
       422: "Validation Error",
@@ -1942,8 +1936,8 @@ export const workflowsExportWorkflow = (
  * List Workflow Definitions
  * List all workflow definitions for a Workflow.
  * @param data The data for the request.
- * @param data.workflowId
  * @param data.workspaceId
+ * @param data.workflowId
  * @returns WorkflowDefinitionRead Successful Response
  * @throws ApiError
  */
@@ -1952,12 +1946,10 @@ export const workflowsListWorkflowDefinitions = (
 ): CancelablePromise<WorkflowsListWorkflowDefinitionsResponse> => {
   return __request(OpenAPI, {
     method: "GET",
-    url: "/workflows/{workflow_id}/definitions",
+    url: "/workspaces/{workspace_id}/workflows/{workflow_id}/definitions",
     path: {
-      workflow_id: data.workflowId,
-    },
-    query: {
       workspace_id: data.workspaceId,
+      workflow_id: data.workflowId,
     },
     errors: {
       422: "Validation Error",
@@ -1970,8 +1962,8 @@ export const workflowsListWorkflowDefinitions = (
  * Restore a saved workflow definition as the current published version.
  * @param data The data for the request.
  * @param data.version
- * @param data.workflowId
  * @param data.workspaceId
+ * @param data.workflowId
  * @returns WorkflowRead Successful Response
  * @throws ApiError
  */
@@ -1980,13 +1972,11 @@ export const workflowsRestoreWorkflowDefinition = (
 ): CancelablePromise<WorkflowsRestoreWorkflowDefinitionResponse> => {
   return __request(OpenAPI, {
     method: "POST",
-    url: "/workflows/{workflow_id}/definitions/{version}/restore",
+    url: "/workspaces/{workspace_id}/workflows/{workflow_id}/definitions/{version}/restore",
     path: {
       version: data.version,
-      workflow_id: data.workflowId,
-    },
-    query: {
       workspace_id: data.workspaceId,
+      workflow_id: data.workflowId,
     },
     errors: {
       422: "Validation Error",
@@ -1998,8 +1988,8 @@ export const workflowsRestoreWorkflowDefinition = (
  * Get Workflow Definition
  * Get the latest version of a workflow definition.
  * @param data The data for the request.
- * @param data.workflowId
  * @param data.workspaceId
+ * @param data.workflowId
  * @param data.version
  * @returns WorkflowDefinitionRead Successful Response
  * @throws ApiError
@@ -2009,13 +1999,13 @@ export const workflowsGetWorkflowDefinition = (
 ): CancelablePromise<WorkflowsGetWorkflowDefinitionResponse> => {
   return __request(OpenAPI, {
     method: "GET",
-    url: "/workflows/{workflow_id}/definition",
+    url: "/workspaces/{workspace_id}/workflows/{workflow_id}/definition",
     path: {
+      workspace_id: data.workspaceId,
       workflow_id: data.workflowId,
     },
     query: {
       version: data.version,
-      workspace_id: data.workspaceId,
     },
     errors: {
       422: "Validation Error",
@@ -2027,8 +2017,8 @@ export const workflowsGetWorkflowDefinition = (
  * Create Workflow Definition
  * Get the latest version of a workflow definition.
  * @param data The data for the request.
- * @param data.workflowId
  * @param data.workspaceId
+ * @param data.workflowId
  * @returns WorkflowDefinitionRead Successful Response
  * @throws ApiError
  */
@@ -2037,12 +2027,10 @@ export const workflowsCreateWorkflowDefinition = (
 ): CancelablePromise<WorkflowsCreateWorkflowDefinitionResponse> => {
   return __request(OpenAPI, {
     method: "POST",
-    url: "/workflows/{workflow_id}/definition",
+    url: "/workspaces/{workspace_id}/workflows/{workflow_id}/definition",
     path: {
-      workflow_id: data.workflowId,
-    },
-    query: {
       workspace_id: data.workspaceId,
+      workflow_id: data.workflowId,
     },
     errors: {
       422: "Validation Error",
@@ -2054,8 +2042,8 @@ export const workflowsCreateWorkflowDefinition = (
  * Create Webhook
  * Create a webhook for a workflow.
  * @param data The data for the request.
- * @param data.workflowId
  * @param data.workspaceId
+ * @param data.workflowId
  * @param data.requestBody
  * @returns unknown Successful Response
  * @throws ApiError
@@ -2065,12 +2053,10 @@ export const triggersCreateWebhook = (
 ): CancelablePromise<TriggersCreateWebhookResponse> => {
   return __request(OpenAPI, {
     method: "POST",
-    url: "/workflows/{workflow_id}/webhook",
+    url: "/workspaces/{workspace_id}/workflows/{workflow_id}/webhook",
     path: {
-      workflow_id: data.workflowId,
-    },
-    query: {
       workspace_id: data.workspaceId,
+      workflow_id: data.workflowId,
     },
     body: data.requestBody,
     mediaType: "application/json",
@@ -2084,8 +2070,8 @@ export const triggersCreateWebhook = (
  * Get Webhook
  * Get the webhook from a workflow.
  * @param data The data for the request.
- * @param data.workflowId
  * @param data.workspaceId
+ * @param data.workflowId
  * @returns WebhookRead Successful Response
  * @throws ApiError
  */
@@ -2094,12 +2080,10 @@ export const triggersGetWebhook = (
 ): CancelablePromise<TriggersGetWebhookResponse> => {
   return __request(OpenAPI, {
     method: "GET",
-    url: "/workflows/{workflow_id}/webhook",
+    url: "/workspaces/{workspace_id}/workflows/{workflow_id}/webhook",
     path: {
-      workflow_id: data.workflowId,
-    },
-    query: {
       workspace_id: data.workspaceId,
+      workflow_id: data.workflowId,
     },
     errors: {
       422: "Validation Error",
@@ -2111,8 +2095,8 @@ export const triggersGetWebhook = (
  * Update Webhook
  * Update the webhook for a workflow. We currently supprt only one webhook per workflow.
  * @param data The data for the request.
- * @param data.workflowId
  * @param data.workspaceId
+ * @param data.workflowId
  * @param data.requestBody
  * @returns void Successful Response
  * @throws ApiError
@@ -2122,12 +2106,10 @@ export const triggersUpdateWebhook = (
 ): CancelablePromise<TriggersUpdateWebhookResponse> => {
   return __request(OpenAPI, {
     method: "PATCH",
-    url: "/workflows/{workflow_id}/webhook",
+    url: "/workspaces/{workspace_id}/workflows/{workflow_id}/webhook",
     path: {
-      workflow_id: data.workflowId,
-    },
-    query: {
       workspace_id: data.workspaceId,
+      workflow_id: data.workflowId,
     },
     body: data.requestBody,
     mediaType: "application/json",
@@ -2141,8 +2123,8 @@ export const triggersUpdateWebhook = (
  * Create Case Trigger
  * Create or replace the case trigger configuration for a workflow.
  * @param data The data for the request.
- * @param data.workflowId
  * @param data.workspaceId
+ * @param data.workflowId
  * @param data.requestBody
  * @returns CaseTriggerRead Successful Response
  * @throws ApiError
@@ -2152,12 +2134,10 @@ export const triggersCreateCaseTrigger = (
 ): CancelablePromise<TriggersCreateCaseTriggerResponse> => {
   return __request(OpenAPI, {
     method: "POST",
-    url: "/workflows/{workflow_id}/case-trigger",
+    url: "/workspaces/{workspace_id}/workflows/{workflow_id}/case-trigger",
     path: {
-      workflow_id: data.workflowId,
-    },
-    query: {
       workspace_id: data.workspaceId,
+      workflow_id: data.workflowId,
     },
     body: data.requestBody,
     mediaType: "application/json",
@@ -2171,8 +2151,8 @@ export const triggersCreateCaseTrigger = (
  * Get Case Trigger
  * Get the case trigger configuration for a workflow.
  * @param data The data for the request.
- * @param data.workflowId
  * @param data.workspaceId
+ * @param data.workflowId
  * @returns CaseTriggerRead Successful Response
  * @throws ApiError
  */
@@ -2181,12 +2161,10 @@ export const triggersGetCaseTrigger = (
 ): CancelablePromise<TriggersGetCaseTriggerResponse> => {
   return __request(OpenAPI, {
     method: "GET",
-    url: "/workflows/{workflow_id}/case-trigger",
+    url: "/workspaces/{workspace_id}/workflows/{workflow_id}/case-trigger",
     path: {
-      workflow_id: data.workflowId,
-    },
-    query: {
       workspace_id: data.workspaceId,
+      workflow_id: data.workflowId,
     },
     errors: {
       422: "Validation Error",
@@ -2198,8 +2176,8 @@ export const triggersGetCaseTrigger = (
  * Update Case Trigger
  * Update the case trigger configuration for a workflow.
  * @param data The data for the request.
- * @param data.workflowId
  * @param data.workspaceId
+ * @param data.workflowId
  * @param data.requestBody
  * @returns void Successful Response
  * @throws ApiError
@@ -2209,12 +2187,10 @@ export const triggersUpdateCaseTrigger = (
 ): CancelablePromise<TriggersUpdateCaseTriggerResponse> => {
   return __request(OpenAPI, {
     method: "PATCH",
-    url: "/workflows/{workflow_id}/case-trigger",
+    url: "/workspaces/{workspace_id}/workflows/{workflow_id}/case-trigger",
     path: {
-      workflow_id: data.workflowId,
-    },
-    query: {
       workspace_id: data.workspaceId,
+      workflow_id: data.workflowId,
     },
     body: data.requestBody,
     mediaType: "application/json",
@@ -2228,8 +2204,8 @@ export const triggersUpdateCaseTrigger = (
  * Generate Webhook Api Key
  * Create or rotate the API key for a webhook.
  * @param data The data for the request.
- * @param data.workflowId
  * @param data.workspaceId
+ * @param data.workflowId
  * @returns WebhookApiKeyGenerateResponse Successful Response
  * @throws ApiError
  */
@@ -2238,12 +2214,10 @@ export const triggersGenerateWebhookApiKey = (
 ): CancelablePromise<TriggersGenerateWebhookApiKeyResponse> => {
   return __request(OpenAPI, {
     method: "POST",
-    url: "/workflows/{workflow_id}/webhook/api-key",
+    url: "/workspaces/{workspace_id}/workflows/{workflow_id}/webhook/api-key",
     path: {
-      workflow_id: data.workflowId,
-    },
-    query: {
       workspace_id: data.workspaceId,
+      workflow_id: data.workflowId,
     },
     errors: {
       422: "Validation Error",
@@ -2255,8 +2229,8 @@ export const triggersGenerateWebhookApiKey = (
  * Delete Webhook Api Key
  * Delete the current API key for a webhook.
  * @param data The data for the request.
- * @param data.workflowId
  * @param data.workspaceId
+ * @param data.workflowId
  * @returns void Successful Response
  * @throws ApiError
  */
@@ -2265,12 +2239,10 @@ export const triggersDeleteWebhookApiKey = (
 ): CancelablePromise<TriggersDeleteWebhookApiKeyResponse> => {
   return __request(OpenAPI, {
     method: "DELETE",
-    url: "/workflows/{workflow_id}/webhook/api-key",
+    url: "/workspaces/{workspace_id}/workflows/{workflow_id}/webhook/api-key",
     path: {
-      workflow_id: data.workflowId,
-    },
-    query: {
       workspace_id: data.workspaceId,
+      workflow_id: data.workflowId,
     },
     errors: {
       422: "Validation Error",
@@ -2282,8 +2254,8 @@ export const triggersDeleteWebhookApiKey = (
  * Revoke Webhook Api Key
  * Revoke the current API key for a webhook.
  * @param data The data for the request.
- * @param data.workflowId
  * @param data.workspaceId
+ * @param data.workflowId
  * @returns void Successful Response
  * @throws ApiError
  */
@@ -2292,12 +2264,10 @@ export const triggersRevokeWebhookApiKey = (
 ): CancelablePromise<TriggersRevokeWebhookApiKeyResponse> => {
   return __request(OpenAPI, {
     method: "POST",
-    url: "/workflows/{workflow_id}/webhook/api-key/revoke",
+    url: "/workspaces/{workspace_id}/workflows/{workflow_id}/webhook/api-key/revoke",
     path: {
-      workflow_id: data.workflowId,
-    },
-    query: {
       workspace_id: data.workspaceId,
+      workflow_id: data.workflowId,
     },
     errors: {
       422: "Validation Error",
@@ -2311,8 +2281,8 @@ export const triggersRevokeWebhookApiKey = (
  *
  * If folder_id is null, the workflow will be moved to the root (no folder).
  * @param data The data for the request.
- * @param data.workflowId
  * @param data.workspaceId
+ * @param data.workflowId
  * @param data.requestBody
  * @returns void Successful Response
  * @throws ApiError
@@ -2322,12 +2292,10 @@ export const workflowsMoveWorkflowToFolder = (
 ): CancelablePromise<WorkflowsMoveWorkflowToFolderResponse> => {
   return __request(OpenAPI, {
     method: "POST",
-    url: "/workflows/{workflow_id}/move",
+    url: "/workspaces/{workspace_id}/workflows/{workflow_id}/move",
     path: {
-      workflow_id: data.workflowId,
-    },
-    query: {
       workspace_id: data.workspaceId,
+      workflow_id: data.workflowId,
     },
     body: data.requestBody,
     mediaType: "application/json",

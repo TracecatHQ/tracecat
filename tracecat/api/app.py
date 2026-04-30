@@ -46,6 +46,7 @@ from tracecat.api.common import (
 from tracecat.auth.credentials import authenticated_user_only
 from tracecat.auth.dependencies import (
     require_any_auth_type_enabled,
+    require_workspace_id_path,
 )
 from tracecat.auth.discovery import router as auth_discovery_router
 from tracecat.auth.enums import AuthType
@@ -471,7 +472,12 @@ def create_app(**kwargs) -> FastAPI:
     app.include_router(agent_channels_router)
     app.include_router(workspaces_router)
     app.include_router(workspace_service_accounts_router)
-    app.include_router(workflow_management_router)
+    app.include_router(workflow_management_router, include_in_schema=False)
+    app.include_router(
+        workflow_management_router,
+        prefix="/workspaces/{workspace_id}",
+        dependencies=[Depends(require_workspace_id_path)],
+    )
     app.include_router(workflow_graph_router)
     app.include_router(workflow_executions_router)
     app.include_router(workflow_actions_router)
