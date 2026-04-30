@@ -7425,6 +7425,7 @@ export type WatchtowerAgentToolCallRead = {
 export type WatchtowerAgentType =
   | "claude_code"
   | "codex"
+  | "gemini"
   | "cursor"
   | "windsurf"
   | "opencode"
