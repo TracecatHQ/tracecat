@@ -138,6 +138,18 @@ describe("ChatSessionPane", () => {
     jest.clearAllMocks()
   })
 
+  function mockUseVercelChatStatus(status: "ready" | "submitted") {
+    mockUseVercelChat.mockReturnValue({
+      sendMessage: jest.fn(),
+      regenerate: jest.fn(),
+      messages: [],
+      status,
+      lastError: null,
+      clearError: jest.fn(),
+      // biome-ignore lint/suspicious/noExplicitAny: mock return type needs flexibility for testing
+    } as any)
+  }
+
   it("logs and recovers when sendMessage throws", async () => {
     const sendMessage = jest.fn(() => {
       throw new Error("network down")
@@ -211,6 +223,125 @@ describe("ChatSessionPane", () => {
     )
 
     expect(screen.getByTestId("dots-loader")).toBeInTheDocument()
+  })
+
+  it("does not refocus after response if the textarea was not focused before disabling", async () => {
+    mockUseVercelChatStatus("ready")
+
+    const renderSubject = () => (
+      <QueryClientProvider client={queryClient}>
+        <TooltipProvider>
+          <ChatSessionPane
+            chat={createChatFixture()}
+            workspaceId="workspace-1"
+            entityType="case"
+            entityId="case-1"
+            modelInfo={{ name: "gpt-4o-mini", provider: "openai" }}
+          />
+        </TooltipProvider>
+      </QueryClientProvider>
+    )
+
+    const { rerender } = render(renderSubject())
+    const textarea = screen.getByRole("textbox") as HTMLTextAreaElement
+    const focusSpy = jest.spyOn(textarea, "focus")
+
+    mockUseVercelChatStatus("submitted")
+    rerender(renderSubject())
+    expect(textarea).toBeDisabled()
+
+    mockUseVercelChatStatus("ready")
+    rerender(renderSubject())
+
+    await waitFor(() => {
+      expect(textarea).toBeEnabled()
+      expect(focusSpy).not.toHaveBeenCalled()
+    })
+    expect(textarea).not.toHaveFocus()
+  })
+
+  it("does not refocus after response if focus moves outside while waiting", async () => {
+    mockUseVercelChatStatus("ready")
+
+    const renderSubject = () => (
+      <>
+        <button type="button">Outside target</button>
+        <QueryClientProvider client={queryClient}>
+          <TooltipProvider>
+            <ChatSessionPane
+              chat={createChatFixture()}
+              workspaceId="workspace-1"
+              entityType="case"
+              entityId="case-1"
+              modelInfo={{ name: "gpt-4o-mini", provider: "openai" }}
+            />
+          </TooltipProvider>
+        </QueryClientProvider>
+      </>
+    )
+
+    const { rerender } = render(renderSubject())
+    const textarea = screen.getByRole("textbox") as HTMLTextAreaElement
+    textarea.focus()
+    fireEvent.focus(textarea)
+    expect(textarea).toHaveFocus()
+    const focusSpy = jest.spyOn(textarea, "focus")
+
+    mockUseVercelChatStatus("submitted")
+    rerender(renderSubject())
+    expect(textarea).toBeDisabled()
+
+    const outsideTarget = screen.getByRole("button", { name: "Outside target" })
+    fireEvent.pointerDown(outsideTarget)
+    outsideTarget.focus()
+    expect(outsideTarget).toHaveFocus()
+
+    mockUseVercelChatStatus("ready")
+    rerender(renderSubject())
+
+    await waitFor(() => {
+      expect(textarea).toBeEnabled()
+      expect(focusSpy).not.toHaveBeenCalled()
+    })
+    expect(outsideTarget).toHaveFocus()
+  })
+
+  it("refocuses after response if the textarea had focus before disabling", async () => {
+    mockUseVercelChatStatus("ready")
+
+    const renderSubject = () => (
+      <QueryClientProvider client={queryClient}>
+        <TooltipProvider>
+          <ChatSessionPane
+            chat={createChatFixture()}
+            workspaceId="workspace-1"
+            entityType="case"
+            entityId="case-1"
+            modelInfo={{ name: "gpt-4o-mini", provider: "openai" }}
+          />
+        </TooltipProvider>
+      </QueryClientProvider>
+    )
+
+    const { rerender } = render(renderSubject())
+    const textarea = screen.getByRole("textbox") as HTMLTextAreaElement
+    textarea.focus()
+    fireEvent.focus(textarea)
+    expect(textarea).toHaveFocus()
+    const focusSpy = jest.spyOn(textarea, "focus")
+
+    mockUseVercelChatStatus("submitted")
+    rerender(renderSubject())
+    expect(textarea).toBeDisabled()
+
+    mockUseVercelChatStatus("ready")
+    rerender(renderSubject())
+
+    await waitFor(() => {
+      expect(textarea).toBeEnabled()
+      expect(focusSpy).toHaveBeenCalledTimes(1)
+    })
+    expect(textarea).toHaveFocus()
   })
 
   it("submits approval decisions with continue payload", async () => {

@@ -22,6 +22,7 @@ import {
 import { motion } from "motion/react"
 import {
   type ChangeEvent,
+  type FocusEvent,
   type KeyboardEvent,
   memo,
   useCallback,
@@ -249,6 +250,8 @@ export function ChatSessionPane({
 }: ChatSessionPaneProps) {
   const queryClient = useQueryClient()
   const promptInputContainerRef = useRef<HTMLDivElement>(null)
+  const promptTextareaFocusedRef = useRef(false)
+  const shouldRestoreInputFocusRef = useRef(false)
   const processedMessageRef = useRef<
     | {
         messageId: string
@@ -339,21 +342,63 @@ export function ChatSessionPane({
   }, [status, messages])
 
   const isInputDisabled = isReadonly || inputDisabled || !canSubmit
+  const isInputDisabledRef = useRef(isInputDisabled)
+  isInputDisabledRef.current = isInputDisabled
   const wasInputDisabledRef = useRef(isInputDisabled)
 
   useEffect(() => {
     const wasInputDisabled = wasInputDisabledRef.current
     wasInputDisabledRef.current = isInputDisabled
 
+    if (!wasInputDisabled && isInputDisabled) {
+      shouldRestoreInputFocusRef.current = promptTextareaFocusedRef.current
+      return
+    }
+
     if (!wasInputDisabled || isInputDisabled) {
       return
     }
+
+    if (!shouldRestoreInputFocusRef.current) {
+      return
+    }
+    shouldRestoreInputFocusRef.current = false
 
     const textarea =
       promptInputContainerRef.current?.querySelector<HTMLTextAreaElement>(
         'textarea[name="message"]'
       )
     textarea?.focus()
+  }, [isInputDisabled])
+
+  useEffect(() => {
+    if (!isInputDisabled) {
+      return
+    }
+
+    function cancelPendingFocusRestore(event: Event) {
+      const target = event.target
+      if (!(target instanceof Node)) {
+        return
+      }
+      if (promptInputContainerRef.current?.contains(target)) {
+        return
+      }
+      shouldRestoreInputFocusRef.current = false
+      promptTextareaFocusedRef.current = false
+    }
+
+    document.addEventListener("pointerdown", cancelPendingFocusRestore, true)
+    document.addEventListener("focusin", cancelPendingFocusRestore, true)
+
+    return () => {
+      document.removeEventListener(
+        "pointerdown",
+        cancelPendingFocusRestore,
+        true
+      )
+      document.removeEventListener("focusin", cancelPendingFocusRestore, true)
+    }
   }, [isInputDisabled])
 
   const handleSubmitApprovals = useCallback(
@@ -680,6 +725,30 @@ export function ChatSessionPane({
     [filteredToolSuggestions, handleSelectMentionTool, toolMention]
   )
 
+  const handleInputFocus = useCallback(() => {
+    promptTextareaFocusedRef.current = true
+  }, [])
+
+  const handleInputBlur = useCallback(
+    (event: FocusEvent<HTMLTextAreaElement>) => {
+      setToolMention(undefined)
+
+      const nextFocusedElement = event.relatedTarget
+      if (
+        nextFocusedElement instanceof Node &&
+        promptInputContainerRef.current?.contains(nextFocusedElement)
+      ) {
+        return
+      }
+
+      if (!isInputDisabledRef.current) {
+        promptTextareaFocusedRef.current = false
+        shouldRestoreInputFocusRef.current = false
+      }
+    },
+    []
+  )
+
   const selectedToolBadges = useMemo(
     () =>
       selectedTools.map((toolName) => {
@@ -972,7 +1041,8 @@ export function ChatSessionPane({
             <PromptInputTextarea
               onChange={handleInputChange}
               onKeyDown={handleInputKeyDown}
-              onBlur={() => setToolMention(undefined)}
+              onFocus={handleInputFocus}
+              onBlur={handleInputBlur}
               placeholder={
                 isReadonly
                   ? "This is a legacy session (read-only)"
