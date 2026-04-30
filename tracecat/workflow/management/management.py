@@ -7,6 +7,7 @@ from typing import Any, cast
 
 import sqlalchemy as sa
 import yaml
+from fastapi import HTTPException, status
 from pydantic import ValidationError
 from sqlalchemy import and_, or_, select
 from sqlalchemy.orm import selectinload
@@ -908,6 +909,30 @@ class WorkflowsManagementService(BaseWorkspaceService):
         if definition.workflow_id != workflow.id:
             raise TracecatValidationError(
                 "Workflow definition does not belong to the selected workflow"
+            )
+
+        # Re-read the row under FOR UPDATE so concurrent graph mutations
+        # cannot race the action rewrite below. The expected `graph_version`
+        # is whatever the caller observed; if the DB has moved on, abort.
+        expected_graph_version = workflow.graph_version
+        locked = await self.session.execute(
+            select(Workflow.graph_version)
+            .where(
+                Workflow.workspace_id == self.workspace_id,
+                Workflow.id == workflow.id,
+            )
+            .with_for_update()
+        )
+        current_graph_version = locked.scalar_one_or_none()
+        if current_graph_version is None:
+            raise TracecatValidationError("Workflow no longer exists")
+        if current_graph_version != expected_graph_version:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail={
+                    "message": "This workflow has been edited since you opened it. Refresh to see the latest version before restoring.",
+                    "current_version": current_graph_version,
+                },
             )
 
         dsl = DSLInput.model_validate(definition.content)
