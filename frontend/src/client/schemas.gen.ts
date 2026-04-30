@@ -10369,6 +10369,12 @@ export const $EffectiveEntitlements = {
         "Whether RBAC add-ons are enabled (custom roles, groups, and assignments)",
       default: false,
     },
+    service_accounts: {
+      type: "boolean",
+      title: "Service Accounts",
+      description: "Whether service accounts for API key access are enabled",
+      default: false,
+    },
     watchtower: {
       type: "boolean",
       title: "Watchtower",
@@ -10413,6 +10419,11 @@ export const $EntitlementsDict = {
       title: "Rbac Addons",
       description:
         "Whether RBAC add-ons are enabled (custom roles, groups, and assignments)",
+    },
+    service_accounts: {
+      type: "boolean",
+      title: "Service Accounts",
+      description: "Whether service accounts for API key access are enabled",
     },
     watchtower: {
       type: "boolean",

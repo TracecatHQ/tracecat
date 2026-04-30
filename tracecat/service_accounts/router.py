@@ -43,24 +43,6 @@ from tracecat.service_accounts.service import (
 from tracecat.tiers.entitlements import check_entitlement
 from tracecat.tiers.enums import Entitlement
 
-
-async def _require_service_accounts_entitlement(
-    *, role: Role, session: AsyncDBSession
-) -> None:
-    await check_entitlement(session, role, Entitlement.SERVICE_ACCOUNTS)
-
-
-org_router = APIRouter(
-    prefix="/organization/service-accounts",
-    tags=["service_accounts"],
-    dependencies=[Depends(_require_service_accounts_entitlement)],
-)
-workspace_router = APIRouter(
-    prefix="/workspaces/{workspace_id}/service-accounts",
-    tags=["service_accounts"],
-    dependencies=[Depends(_require_service_accounts_entitlement)],
-)
-
 WorkspaceUserOnlyInPath = Annotated[
     Role,
     RoleACL(
@@ -71,6 +53,30 @@ WorkspaceUserOnlyInPath = Annotated[
         workspace_id_in_path=True,
     ),
 ]
+
+
+async def _require_org_service_accounts_entitlement(
+    *, role: OrgUserOnlyRole, session: AsyncDBSession
+) -> None:
+    await check_entitlement(session, role, Entitlement.SERVICE_ACCOUNTS)
+
+
+async def _require_workspace_service_accounts_entitlement(
+    *, role: WorkspaceUserOnlyInPath, session: AsyncDBSession
+) -> None:
+    await check_entitlement(session, role, Entitlement.SERVICE_ACCOUNTS)
+
+
+org_router = APIRouter(
+    prefix="/organization/service-accounts",
+    tags=["service_accounts"],
+    dependencies=[Depends(_require_org_service_accounts_entitlement)],
+)
+workspace_router = APIRouter(
+    prefix="/workspaces/{workspace_id}/service-accounts",
+    tags=["service_accounts"],
+    dependencies=[Depends(_require_workspace_service_accounts_entitlement)],
+)
 
 
 def _translate_error(exc: Exception) -> HTTPException:

@@ -41,9 +41,7 @@ class EntitlementsDict(TypedDict, total=False):
     ]
     service_accounts: Annotated[
         bool,
-        Field(
-            description="Whether service accounts for API key access are enabled"
-        ),
+        Field(description="Whether service accounts for API key access are enabled"),
     ]
     watchtower: Annotated[
         bool,

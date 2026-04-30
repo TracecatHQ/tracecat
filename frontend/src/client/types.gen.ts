@@ -3124,6 +3124,10 @@ export type EffectiveEntitlements = {
    */
   rbac_addons?: boolean
   /**
+   * Whether service accounts for API key access are enabled
+   */
+  service_accounts?: boolean
+  /**
    * Whether Watchtower agent monitoring is enabled (agent sessions, tool-call telemetry, and controls)
    */
   watchtower?: boolean
@@ -3155,6 +3159,10 @@ export type EntitlementsDict = {
    * Whether RBAC add-ons are enabled (custom roles, groups, and assignments)
    */
   rbac_addons?: boolean
+  /**
+   * Whether service accounts for API key access are enabled
+   */
+  service_accounts?: boolean
   /**
    * Whether Watchtower agent monitoring is enabled (agent sessions, tool-call telemetry, and controls)
    */
