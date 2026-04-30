@@ -1375,6 +1375,39 @@ class TestWorkflowExecutionEvents:
         assert event.action_ref == "masked_agent"
         assert event.should_mask_output is True
 
+    async def test_compact_agent_workflow_defaults_masked_when_memo_parse_fails(
+        self,
+    ) -> None:
+        """Malformed agent memo metadata should fail closed for results."""
+        initiated = create_mock_child_workflow_initiated_event(
+            event_id=1,
+            workflow_type_name="DurableAgentWorkflow",
+            workflow_id=cast(WorkflowExecutionID, f"agent/{uuid.uuid4()}"),
+        )
+        unreadable = UnreadableTemporalPayload(
+            error_type="decode_error",
+            encoding="json/plain",
+            payload_size_bytes=0,
+        )
+
+        with (
+            patch(
+                "tracecat.workflow.executions.schemas.AgentActionMemo.from_temporal",
+                AsyncMock(side_effect=ValueError("bad memo")),
+            ),
+            patch(
+                "tracecat.workflow.executions.schemas.extract_first",
+                AsyncMock(return_value=unreadable),
+            ),
+        ):
+            event = await WorkflowExecutionEventCompact.from_initiated_child_workflow(
+                initiated
+            )
+
+        assert event is not None
+        assert event.action_ref == "unknown_agent_action"
+        assert event.should_mask_output is True
+
     async def test_compact_masked_action_result_redacts_leaf_values(
         self,
         workflow_executions_service: WorkflowExecutionsService,
@@ -1671,6 +1704,61 @@ class TestWorkflowExecutionEvents:
             patch(
                 "tracecat.workflow.executions.service.extract_first",
                 AsyncMock(return_value={"secret": "child-output"}),
+            ),
+        ):
+            events = await workflow_executions_service.list_workflow_execution_events(
+                workflow_exec_id
+            )
+
+        completed_event = next(
+            event
+            for event in events
+            if event.event_type == WorkflowEventType.CHILD_WORKFLOW_EXECUTION_COMPLETED
+        )
+        assert completed_event.result == {"secret": "[REDACTED]"}
+        assert completed_event.event_group is not None
+
+    async def test_list_events_defaults_masked_when_agent_memo_parse_fails(
+        self,
+        workflow_executions_service: WorkflowExecutionsService,
+        workflow_exec_id: WorkflowExecutionID,
+    ) -> None:
+        """Malformed agent memo metadata should fail closed for results."""
+        initiated = create_mock_child_workflow_initiated_event(
+            event_id=1,
+            workflow_type_name="DurableAgentWorkflow",
+            workflow_id=cast(WorkflowExecutionID, f"agent/{uuid.uuid4()}"),
+        )
+        completed = create_mock_child_workflow_completed_event(
+            event_id=2,
+            initiated_event_id=1,
+        )
+        unreadable = UnreadableTemporalPayload(
+            error_type="decode_error",
+            encoding="json/plain",
+            payload_size_bytes=0,
+        )
+        mock_handle = Mock(spec=WorkflowHandle)
+        mock_handle.fetch_history = AsyncMock(
+            return_value=Mock(events=[initiated, completed])
+        )
+        mock_handle.describe = AsyncMock(return_value=Mock())
+        workflow_executions_service._client.get_workflow_handle_for = Mock(
+            return_value=mock_handle
+        )
+
+        with (
+            patch(
+                "tracecat.workflow.executions.schemas.AgentActionMemo.from_temporal",
+                AsyncMock(side_effect=ValueError("bad memo")),
+            ),
+            patch(
+                "tracecat.workflow.executions.schemas.extract_first",
+                AsyncMock(return_value=unreadable),
+            ),
+            patch(
+                "tracecat.workflow.executions.service.extract_first",
+                AsyncMock(return_value={"secret": "agent-output"}),
             ),
         ):
             events = await workflow_executions_service.list_workflow_execution_events(

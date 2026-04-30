@@ -119,7 +119,10 @@ async def _agent_action_memo_from_temporal_or_default(
         return await AgentActionMemo.from_temporal(memo)
     except Exception as e:
         logger.warning("Error parsing agent action memo", error=e)
-        return AgentActionMemo(action_ref=DEFAULT_AGENT_ACTION_REF)
+        return AgentActionMemo(
+            action_ref=DEFAULT_AGENT_ACTION_REF,
+            mask_output=True,
+        )
 
 
 class WorkflowExecutionBase(BaseModel):
