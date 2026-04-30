@@ -28,20 +28,28 @@ from temporalio.worker import Worker
 from tracecat_ee.agent.activities import AgentActivities
 from tracecat_ee.agent.approvals.service import ApprovalManager
 from tracecat_ee.agent.types import AgentWorkflowID
-from tracecat_ee.agent.workflows.durable import AgentWorkflowArgs, DurableAgentWorkflow
+from tracecat_ee.agent.workflows.durable import (
+    AgentWorkflowArgs,
+    DurableAgentWorkflow,
+    WorkflowApprovalSubmission,
+)
 
 from tests.conftest import AGENT_TASK_QUEUE
 from tracecat import config
+from tracecat.agent.common.stream_types import ToolCallContent
 from tracecat.agent.executor.activity import (
     AgentExecutorInput,
     AgentExecutorResult,
 )
+from tracecat.agent.executor.schemas import ToolExecutionResult
 from tracecat.agent.schemas import RunAgentArgs
 from tracecat.agent.session.activities import (
     CreateSessionInput,
     CreateSessionResult,
     LoadSessionInput,
     LoadSessionResult,
+    ReconcileToolResultsInput,
+    ReconcileToolResultsResult,
     get_session_activities,
 )
 from tracecat.agent.session.types import AgentSessionEntity
@@ -50,6 +58,7 @@ from tracecat.auth.types import Role
 from tracecat.dsl.common import RETRY_POLICIES
 from tracecat.dsl.worker import new_sandbox_runner
 from tracecat.redis.client import get_redis_client
+from tracecat.storage.object import InlineObject
 
 # Use worker-specific queue from conftest for pytest-xdist isolation
 TEST_AGENT_QUEUE = AGENT_TASK_QUEUE
@@ -388,6 +397,168 @@ class TestAgentWorkerSingleTenant:
 
             # The error message is in the cause chain
             assert "Simulated agent error" in str(exc_info.value.cause)
+
+    @pytest.mark.anyio
+    @pytest.mark.integration
+    async def test_approval_continuation_sends_tool_result_as_next_input(
+        self,
+        svc_role: Role,
+        temporal_client: Client,
+        agent_worker_factory: Callable[..., Worker],
+    ) -> None:
+        """Approval continuation should resume before tool_result and pass it separately."""
+        session_id = uuid.uuid4()
+        queue = TEST_AGENT_QUEUE
+        approval_request_recorded = asyncio.Event()
+        captured_inputs: list[AgentExecutorInput] = []
+        sdk_history_without_tool_result = (
+            '{"type":"user","message":{"content":"Run approved tool"}}\n'
+            '{"type":"assistant","message":{"content":[{"type":"tool_use",'
+            '"id":"call_123","name":"core__http_request","input":{"url":'
+            '"https://example.com","method":"GET"}}]}}\n'
+        )
+
+        @activity.defn(name="create_session_activity")
+        async def mock_create_session_activity(
+            input: CreateSessionInput,
+        ) -> CreateSessionResult:
+            return CreateSessionResult(session_id=input.session_id, success=True)
+
+        load_session_call_count = 0
+
+        @activity.defn(name="load_session_activity")
+        async def mock_load_session_activity(
+            input: LoadSessionInput,
+        ) -> LoadSessionResult:
+            del input
+            nonlocal load_session_call_count
+            load_session_call_count += 1
+            if load_session_call_count == 1:
+                return LoadSessionResult(found=False)
+            return LoadSessionResult(
+                found=True,
+                sdk_session_id="sdk-session",
+                sdk_session_data=sdk_history_without_tool_result,
+            )
+
+        @activity.defn(name="record_approval_requests")
+        async def mock_record_approval_requests(input: Any) -> None:
+            del input
+            approval_request_recorded.set()
+
+        @activity.defn(name="apply_approval_decisions")
+        async def mock_apply_approval_decisions(input: Any) -> None:
+            del input
+
+        @activity.defn(name="execute_action_activity")
+        async def mock_execute_action_activity(
+            input: Any,
+            role: Role,
+        ) -> InlineObject[dict[str, str]]:
+            del input, role
+            return InlineObject(data={"status": "success"})
+
+        @activity.defn(name="reconcile_tool_results_activity")
+        async def mock_reconcile_tool_results_activity(
+            input: ReconcileToolResultsInput,
+        ) -> ReconcileToolResultsResult:
+            results = [
+                ToolExecutionResult(
+                    tool_call_id=pending.tool_call_id,
+                    tool_name=pending.tool_name,
+                    result=getattr(pending.stored_result, "data", pending.raw_result),
+                    is_error=pending.is_error,
+                )
+                for pending in input.pending_results
+            ]
+            return ReconcileToolResultsResult(results=results)
+
+        def mock_executor(input: AgentExecutorInput) -> AgentExecutorResult:
+            captured_inputs.append(input)
+            if len(captured_inputs) == 1:
+                return AgentExecutorResult(
+                    success=True,
+                    approval_requested=True,
+                    approval_items=[
+                        ToolCallContent(
+                            id="call_123",
+                            name="core__http_request",
+                            input={"url": "https://example.com", "method": "GET"},
+                        )
+                    ],
+                )
+
+            assert input.is_approval_continuation is True
+            assert input.sdk_session_id == "sdk-session"
+            assert input.sdk_session_data == sdk_history_without_tool_result
+            assert '"type":"tool_result"' not in input.sdk_session_data
+            assert "Continue." not in input.sdk_session_data
+            assert len(input.approval_tool_results) == 1
+            [tool_result] = input.approval_tool_results
+            assert tool_result.tool_call_id == "call_123"
+            assert tool_result.is_error is False
+            return AgentExecutorResult(
+                success=True,
+                approval_requested=False,
+                output={"status": "continued"},
+            )
+
+        agent_activities = AgentActivities()
+        activities: list[Callable[..., Any]] = [
+            *agent_activities.get_activities(),
+            mock_create_session_activity,
+            mock_load_session_activity,
+            mock_record_approval_requests,
+            mock_apply_approval_decisions,
+            mock_execute_action_activity,
+            mock_reconcile_tool_results_activity,
+            create_mock_run_agent_activity(mock_executor),
+        ]
+
+        workflow_args = AgentWorkflowArgs(
+            role=svc_role,
+            agent_args=RunAgentArgs(
+                session_id=session_id,
+                user_prompt="Run approved tool",
+                config=AgentConfig(
+                    model_name="claude-3-5-sonnet-20241022",
+                    model_provider="anthropic",
+                    actions=["core.http_request"],
+                    tool_approvals={"core.http_request": True},
+                ),
+            ),
+            entity_type=AgentSessionEntity.WORKFLOW,
+            entity_id=uuid.uuid4(),
+        )
+
+        async with agent_worker_factory(
+            temporal_client, task_queue=queue, custom_activities=activities
+        ):
+            wf_handle = await temporal_client.start_workflow(
+                DurableAgentWorkflow.run,
+                workflow_args,
+                id=AgentWorkflowID(session_id),
+                task_queue=queue,
+                retry_policy=RETRY_POLICIES["workflow:fail_fast"],
+                execution_timeout=timedelta(seconds=30),
+            )
+
+            await asyncio.wait_for(approval_request_recorded.wait(), timeout=10)
+            await wf_handle.execute_update(
+                DurableAgentWorkflow.set_approvals,
+                WorkflowApprovalSubmission(
+                    approvals={"call_123": True},
+                    approved_by=svc_role.user_id,
+                ),
+            )
+
+            result = await wf_handle.result()
+
+        assert result.output == {"status": "continued"}
+        assert [input.is_approval_continuation for input in captured_inputs] == [
+            False,
+            True,
+        ]
 
 
 class TestAgentWorkerMultiTenant:

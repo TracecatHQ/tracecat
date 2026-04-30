@@ -669,6 +669,14 @@ async def test_agent_workflow_routes_approved_tools_to_executor_and_reconciles_h
         assert input.is_approval_continuation is True
         assert input.sdk_session_id == "sdk-session"
         assert input.sdk_session_data is not None
+        assert len(input.approval_tool_results) == 1
+        [tool_result] = input.approval_tool_results
+        assert tool_result.tool_call_id == "call_123"
+        assert tool_result.is_error is False
+        assert tool_result.result == {
+            "status": "success",
+            "executor_queue": executor_queue,
+        }
 
         session_lines = [
             orjson.loads(line)
@@ -681,10 +689,8 @@ async def test_agent_workflow_routes_approved_tools_to_executor_and_reconciles_h
             for block in entry.get("message", {}).get("content", [])
             if isinstance(block, dict) and block.get("type") == "tool_result"
         ]
-        assert any(
-            block.get("tool_use_id") == "call_123" and block.get("is_error") is False
-            for block in tool_result_blocks
-        )
+        assert tool_result_blocks == []
+
         resumed_after_approval.set()
         run_agent_call_count += 1
         return AgentExecutorResult(
@@ -805,21 +811,9 @@ async def test_agent_workflow_routes_approved_tools_to_executor_and_reconciles_h
         for block in entry.content.get("message", {}).get("content", [])
         if isinstance(block, dict) and block.get("type") == "tool_result"
     ]
-    assert any(
-        block.get("tool_use_id") == "call_123" and block.get("is_error") is False
-        for block in tool_result_blocks
-    )
     assert not any(
-        block.get("tool_use_id") == "call_123" and block.get("is_error") is True
-        for block in tool_result_blocks
+        block.get("tool_use_id") == "call_123" for block in tool_result_blocks
     )
-    inserted_block = next(
-        block for block in tool_result_blocks if block.get("tool_use_id") == "call_123"
-    )
-    assert orjson.loads(inserted_block["content"]) == {
-        "status": "success",
-        "executor_queue": executor_queue,
-    }
 
 
 @pytest.mark.anyio
@@ -856,10 +850,9 @@ async def test_agent_workflow_plumbs_forked_session_through_approval_continuatio
         '{"type":"user","message":{"content":"parent prompt"}}\n'
         '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"call_safe",'
         '"name":"core__http_request","input":{"url":"https://safe.example.com",'
-        '"method":"GET"}}]}}\n'
-        '{"type":"user","message":{"content":[{"type":"tool_result",'
-        '"tool_use_id":"call_safe","content":"{\\"status\\":\\"success\\"}",'
-        '"is_error":false}]}}\n'
+        '"method":"GET"}},{"type":"tool_use","id":"call_risky",'
+        '"name":"core__http_request","input":{"url":"https://risky.example.com",'
+        '"method":"DELETE"}}]}}\n'
     )
 
     @activity.defn(name="create_session_activity")
@@ -956,6 +949,13 @@ async def test_agent_workflow_plumbs_forked_session_through_approval_continuatio
         assert input.sdk_session_data == continuation_sdk_session_data
         assert input.is_fork is False
         assert input.is_approval_continuation is True
+        assert '"type":"tool_result"' not in input.sdk_session_data
+        assert [result.tool_call_id for result in input.approval_tool_results] == [
+            "call_safe",
+            "call_risky",
+        ]
+        assert input.approval_tool_results[0].is_error is False
+        assert input.approval_tool_results[1].is_error is True
         continuation_seen.set()
         return AgentExecutorResult(
             success=True,
@@ -1279,6 +1279,11 @@ async def test_agent_workflow_does_not_retry_approved_tool_failures(
         assert input.is_approval_continuation is True
         assert input.sdk_session_id == "sdk-session"
         assert input.sdk_session_data is not None
+        assert len(input.approval_tool_results) == 1
+        [tool_result] = input.approval_tool_results
+        assert tool_result.tool_call_id == "call_123"
+        assert tool_result.is_error is True
+        assert "transient tool failure" in str(tool_result.result)
 
         session_lines = [
             orjson.loads(line)
@@ -1291,10 +1296,8 @@ async def test_agent_workflow_does_not_retry_approved_tool_failures(
             for block in entry.get("message", {}).get("content", [])
             if isinstance(block, dict) and block.get("type") == "tool_result"
         ]
-        assert any(
-            block.get("tool_use_id") == "call_123" and block.get("is_error") is True
-            for block in tool_result_blocks
-        )
+        assert tool_result_blocks == []
+
         resumed_after_approval.set()
         run_agent_call_count += 1
         return AgentExecutorResult(
@@ -1399,11 +1402,9 @@ async def test_agent_workflow_does_not_retry_approved_tool_failures(
         for block in entry.content.get("message", {}).get("content", [])
         if isinstance(block, dict) and block.get("type") == "tool_result"
     ]
-    inserted_block = next(
-        block for block in tool_result_blocks if block.get("tool_use_id") == "call_123"
+    assert not any(
+        block.get("tool_use_id") == "call_123" for block in tool_result_blocks
     )
-    assert inserted_block["is_error"] is True
-    assert "Tool execution failed:" in inserted_block["content"]
 
 
 # =============================================================================

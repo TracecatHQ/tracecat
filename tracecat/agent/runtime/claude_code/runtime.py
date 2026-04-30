@@ -15,7 +15,7 @@ import asyncio
 import os
 import tempfile
 import uuid
-from collections.abc import Callable
+from collections.abc import AsyncIterator, Callable
 from pathlib import Path
 from time import perf_counter
 from typing import Any, Literal, Protocol, cast
@@ -43,7 +43,7 @@ from claude_agent_sdk.types import (
 from tracecat.agent.common.config import TRACECAT__DISABLE_NSJAIL
 from tracecat.agent.common.exceptions import AgentSandboxValidationError
 from tracecat.agent.common.output_format import build_sdk_output_format
-from tracecat.agent.common.protocol import RuntimeInitPayload
+from tracecat.agent.common.protocol import RuntimeInitPayload, RuntimeToolResult
 from tracecat.agent.common.stream_types import (
     StreamEventType,
     ToolCallContent,
@@ -99,6 +99,8 @@ _LITELLM_ROUTE_PREFIXES: dict[str, str] = {
     "azure_openai": "azure",
     "azure_ai": "azure_ai",
 }
+
+APPROVAL_CONTINUATION_PROMPT = "Continue."
 
 
 def get_litellm_route_model(
@@ -220,8 +222,9 @@ class ClaudeAgentRuntime:
         # For incremental JSONL line tracking
         self._sdk_session_id: str | None = None
         self._last_seen_line_index: int = 0
-        # Flag to mark continuation prompt as internal (consumed after first use)
-        self._is_continuation: bool = False
+        # True while an approval continuation turn is running. Claude Code emits
+        # resume metadata plus our neutral query; both are control-plane state.
+        self._approval_continuation_active: bool = False
         # Adapter for converting Claude SDK events - must be reused to track state
         self._stream_adapter = ClaudeSDKAdapter()
         # Working directory for session file path resolution
@@ -389,6 +392,67 @@ class ClaudeAgentRuntime:
         )
         return any(marker in text for marker in compact_markers)
 
+    @staticmethod
+    def _message_text_content(line_data: dict[str, Any]) -> str | None:
+        """Extract simple text content from a Claude session line."""
+        message = line_data.get("message", {})
+        if not isinstance(message, dict):
+            return None
+
+        content = message.get("content")
+        if isinstance(content, str):
+            return content
+
+        if isinstance(content, list) and len(content) == 1:
+            [part] = content
+            if isinstance(part, dict) and part.get("type") == "text":
+                text = part.get("text")
+                return text if isinstance(text, str) else None
+
+        return None
+
+    @staticmethod
+    async def _tool_result_input_stream(
+        tool_results: list[RuntimeToolResult],
+    ) -> AsyncIterator[dict[str, Any]]:
+        """Yield the Claude SDK stream-json user message for tool results."""
+        yield {
+            "type": "user",
+            "message": {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": result.tool_call_id,
+                        "content": result.content,
+                        "is_error": result.is_error or False,
+                    }
+                    for result in tool_results
+                ],
+            },
+            "parent_tool_use_id": None,
+            "session_id": "default",
+        }
+
+    @staticmethod
+    def _is_thinking_only_assistant_line(line_data: dict[str, Any]) -> bool:
+        """Return True for assistant JSONL rows that only contain thinking."""
+        if line_data.get("type") != "assistant":
+            return False
+
+        message = line_data.get("message", {})
+        if not isinstance(message, dict):
+            return False
+
+        content = message.get("content")
+        if not isinstance(content, list) or not content:
+            return False
+
+        return all(
+            isinstance(part, dict) and part.get("type") == "thinking"
+            for part in content
+        )
+
     def _is_internal_session_line(self, line_data: dict[str, Any]) -> bool:
         """Determine if a session line is internal (not shown in UI timeline).
 
@@ -534,10 +598,18 @@ class ClaudeAgentRuntime:
 
                 internal = self._is_internal_session_line(line_data)
 
-                # On continuation, mark the continuation prompt (first user message) as internal
-                if self._is_continuation and line_data.get("type") == "user":
-                    internal = True
-                    self._is_continuation = False
+                if self._approval_continuation_active:
+                    # Claude Code emits an isMeta "Continue from where you left off."
+                    # row before the actual SDK query. Hide both that metadata and
+                    # our neutral query, plus the reasoning-only block they induce.
+                    if line_data.get("type") == "user" and (
+                        line_data.get("isMeta") is True
+                        or self._message_text_content(line_data)
+                        == APPROVAL_CONTINUATION_PROMPT
+                    ):
+                        internal = True
+                    elif self._is_thinking_only_assistant_line(line_data):
+                        internal = True
 
                 await self._event_writer.send_session_line(
                     self._sdk_session_id, line, internal=internal
@@ -701,9 +773,9 @@ class ClaudeAgentRuntime:
         This is the main entry point for sandboxed execution.
         Called after receiving init payload from orchestrator via socket.
 
-        On resume after approval, the session history already contains the proper
-        tool_result entry (inserted by execute_approved_tools_activity), so we just
-        resume the session normally and the agent will continue from there.
+        On resume after approval, session history ends at the assistant tool_use.
+        The runtime sends approved or denied tool_result blocks as the next SDK
+        input.
         """
         run_started_at = perf_counter()
 
@@ -878,27 +950,43 @@ class ClaudeAgentRuntime:
                 log_benchmark_phase("runtime_client_connected")
                 stderr_task = asyncio.create_task(drain_stderr())
                 try:
-                    # On approval continuation, send hidden continuation prompt
-                    # On normal turn (fresh or resume), send the user's prompt
-                    if payload.is_approval_continuation:
-                        query_prompt = "[INTERNAL] End of Tool Call"
-                        self._is_continuation = True
+                    if payload.approval_tool_results:
+                        query_input = self._tool_result_input_stream(
+                            payload.approval_tool_results
+                        )
+                        self._pending_approval_tool_ids.update(
+                            result.tool_call_id
+                            for result in payload.approval_tool_results
+                        )
+                        query_log_extra = {
+                            "tool_result_count": len(payload.approval_tool_results)
+                        }
+                        logger.debug("Approval continuation with tool_result input")
+                    # Legacy fallback for old callers that only pre-seed tool_result
+                    # history and need a neutral query to advance the resumed session.
+                    elif payload.is_approval_continuation:
+                        query_input = APPROVAL_CONTINUATION_PROMPT
+                        self._approval_continuation_active = True
+                        query_log_extra = {"prompt_length": len(query_input)}
                         logger.debug("Approval continuation with hidden prompt")
                     else:
-                        query_prompt = payload.user_prompt
+                        query_input = payload.user_prompt
+                        query_log_extra = {"prompt_length": len(query_input)}
                         logger.debug("Normal turn with user prompt")
 
                     await self._event_writer.send_log(
                         "info",
                         "Sending query to Claude SDK",
-                        prompt_length=len(query_prompt),
                         is_continuation=payload.is_approval_continuation,
+                        **query_log_extra,
                     )
-                    if self._is_manual_compaction_prompt(query_prompt):
+                    if isinstance(
+                        query_input, str
+                    ) and self._is_manual_compaction_prompt(query_input):
                         await self._event_writer.send_stream_event(
                             self._build_compaction_status_event(phase="started")
                         )
-                    await client.query(query_prompt)
+                    await client.query(query_input)
                     log_benchmark_phase("runtime_query_sent")
 
                     await self._event_writer.send_log(
@@ -947,7 +1035,16 @@ class ClaudeAgentRuntime:
 
                             # Partial streaming delta - forward to UI
                             unified = self._stream_adapter.to_unified_event(message)
-                            await self._event_writer.send_stream_event(unified)
+                            if not (
+                                self._approval_continuation_active
+                                and unified.type
+                                in {
+                                    StreamEventType.THINKING_START,
+                                    StreamEventType.THINKING_DELTA,
+                                    StreamEventType.THINKING_STOP,
+                                }
+                            ):
+                                await self._event_writer.send_stream_event(unified)
 
                         elif isinstance(message, ResultMessage):
                             # Final result - emit any remaining lines
@@ -975,6 +1072,7 @@ class ClaudeAgentRuntime:
                                 duration_ms=message.duration_ms,
                                 output=result_output,
                             )
+                            self._approval_continuation_active = False
 
                         elif isinstance(message, SystemMessage):
                             await self._emit_new_session_lines()

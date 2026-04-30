@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any, cast
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import orjson
 import pytest
 from claude_agent_sdk.types import (
     HookContext,
@@ -24,7 +25,7 @@ from claude_agent_sdk.types import (
 )
 
 import tracecat.agent.runtime.claude_code.runtime as runtime_module
-from tracecat.agent.common.protocol import RuntimeInitPayload
+from tracecat.agent.common.protocol import RuntimeInitPayload, RuntimeToolResult
 from tracecat.agent.common.socket_io import SocketStreamWriter
 from tracecat.agent.common.stream_types import StreamEventType, UnifiedStreamEvent
 from tracecat.agent.common.types import (
@@ -632,7 +633,7 @@ class TestClaudeAgentRuntimeRun:
         ],
     )
     @pytest.mark.anyio
-    async def test_approval_continuation_uses_hidden_prompt_in_each_sandbox_mode(
+    async def test_approval_continuation_sends_tool_result_input_in_each_sandbox_mode(
         self,
         monkeypatch: pytest.MonkeyPatch,
         mock_socket_writer: MagicMock,
@@ -641,7 +642,7 @@ class TestClaudeAgentRuntimeRun:
         tmp_path: Path,
         disable_nsjail: bool,
     ) -> None:
-        """Approval continuations must resume with Tracecat's hidden prompt."""
+        """Approval continuations send tool_result blocks as SDK input."""
         monkeypatch.setattr(runtime_module, "TRACECAT__DISABLE_NSJAIL", disable_nsjail)
         captured_options: list[Any] = []
 
@@ -652,8 +653,18 @@ class TestClaudeAgentRuntimeRun:
         continued_payload = replace(
             sample_init_payload,
             sdk_session_id="eed8297f-26fb-4e00-905f-a10f0cf20704",
-            sdk_session_data='{"type":"user","message":{"content":"tool result"}}\n',
+            sdk_session_data=(
+                '{"type":"assistant","message":{"content":[{"type":"tool_use",'
+                '"id":"call_123","name":"core__http_request","input":{}}]}}\n'
+            ),
             is_approval_continuation=True,
+            approval_tool_results=[
+                RuntimeToolResult(
+                    tool_call_id="call_123",
+                    content='{"status":"success"}',
+                    is_error=False,
+                )
+            ],
         )
 
         with (
@@ -679,9 +690,28 @@ class TestClaudeAgentRuntimeRun:
         assert captured_options[0].resume == continued_payload.sdk_session_id
         assert captured_options[0].fork_session is False
         assert captured_options[0].sandbox["enabled"] is disable_nsjail
-        mock_claude_sdk_client.query.assert_awaited_once_with(
-            "[INTERNAL] End of Tool Call"
-        )
+        mock_claude_sdk_client.query.assert_awaited_once()
+        query_input = mock_claude_sdk_client.query.await_args.args[0]
+        assert not isinstance(query_input, str)
+        messages = [message async for message in query_input]
+        assert messages == [
+            {
+                "type": "user",
+                "message": {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "tool_result",
+                            "tool_use_id": "call_123",
+                            "content": '{"status":"success"}',
+                            "is_error": False,
+                        }
+                    ],
+                },
+                "parent_tool_use_id": None,
+                "session_id": "default",
+            }
+        ]
 
     @pytest.mark.parametrize(
         "disable_nsjail",
@@ -1201,3 +1231,117 @@ class TestClaudeAgentRuntimeInternalSessionLines:
         }
 
         assert runtime._is_internal_session_line(line_data) is True
+
+    @pytest.mark.anyio
+    async def test_approval_continuation_hides_sdk_meta_prompt_and_reasoning(
+        self,
+        mock_socket_writer: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """Approval continuation control rows should not show in chat or traces."""
+        runtime = ClaudeAgentRuntime(
+            mock_socket_writer,
+            transport_factory=lambda _: MagicMock(),
+            session_home_dir=tmp_path / "claude-home",
+            cwd=tmp_path / "claude-project",
+        )
+        sdk_session_id = "eed8297f-26fb-4e00-905f-a10f0cf20704"
+        runtime._sdk_session_id = sdk_session_id
+        runtime._approval_continuation_active = True
+
+        tool_result_uuid = "tool-result-uuid"
+        meta_uuid = "meta-uuid"
+        synthetic_uuid = "synthetic-uuid"
+        prompt_uuid = "prompt-uuid"
+        thinking_uuid = "thinking-uuid"
+        answer_uuid = "answer-uuid"
+        lines = [
+            {
+                "type": "user",
+                "uuid": tool_result_uuid,
+                "message": {
+                    "role": "user",
+                    "content": [{"type": "tool_result", "tool_use_id": "call_123"}],
+                },
+            },
+            {
+                "type": "user",
+                "uuid": meta_uuid,
+                "isMeta": True,
+                "parentUuid": tool_result_uuid,
+                "message": {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": "Continue from where you left off.",
+                        }
+                    ],
+                },
+            },
+            {
+                "type": "assistant",
+                "uuid": synthetic_uuid,
+                "parentUuid": meta_uuid,
+                "message": {"model": "<synthetic>", "content": []},
+            },
+            {
+                "type": "user",
+                "uuid": prompt_uuid,
+                "parentUuid": synthetic_uuid,
+                "message": {
+                    "role": "user",
+                    "content": runtime_module.APPROVAL_CONTINUATION_PROMPT,
+                },
+            },
+            {
+                "type": "assistant",
+                "uuid": thinking_uuid,
+                "parentUuid": prompt_uuid,
+                "message": {
+                    "content": [
+                        {
+                            "type": "thinking",
+                            "thinking": "Saw hidden continuation prompts.",
+                        }
+                    ]
+                },
+            },
+            {
+                "type": "assistant",
+                "uuid": answer_uuid,
+                "parentUuid": thinking_uuid,
+                "message": {
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": "There are no cases.",
+                        }
+                    ]
+                },
+            },
+        ]
+
+        session_file = runtime._get_session_file_path(sdk_session_id)
+        session_file.parent.mkdir(parents=True, exist_ok=True)
+        session_file.write_text(
+            "\n".join(orjson.dumps(line).decode("utf-8") for line in lines) + "\n"
+        )
+
+        await runtime._emit_new_session_lines()
+
+        persisted = [
+            (orjson.loads(call.args[1]), call.kwargs["internal"])
+            for call in mock_socket_writer.send_session_line.await_args_list
+        ]
+        internal_by_uuid = {
+            line["uuid"]: internal
+            for line, internal in persisted
+            if isinstance(line.get("uuid"), str)
+        }
+        assert internal_by_uuid[tool_result_uuid] is False
+        assert internal_by_uuid[meta_uuid] is True
+        assert internal_by_uuid[synthetic_uuid] is True
+        assert internal_by_uuid[prompt_uuid] is True
+        assert internal_by_uuid[thinking_uuid] is True
+        assert internal_by_uuid[answer_uuid] is False

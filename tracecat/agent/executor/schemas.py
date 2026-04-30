@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
+import orjson
 from pydantic import BaseModel, Field
 
 from tracecat.storage.object import StoredObject
@@ -30,6 +31,16 @@ class ToolExecutionResult(BaseModel):
     tool_name: str
     result: Any
     is_error: bool = False
+
+
+def serialize_tool_result_content(result: Any) -> str:
+    """Serialize a tool result to the string content Claude SDK expects."""
+    if isinstance(result, str):
+        return result
+    try:
+        return orjson.dumps(result).decode("utf-8")
+    except (TypeError, ValueError):
+        return str(result)
 
 
 class ToolExecutionResultHandle(BaseModel):

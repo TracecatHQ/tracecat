@@ -7,7 +7,7 @@ import hashlib
 import uuid
 from collections.abc import AsyncIterator, Sequence
 from dataclasses import dataclass, replace
-from datetime import UTC, datetime, timedelta
+from datetime import timedelta
 from typing import TYPE_CHECKING, Any, Literal
 
 import orjson
@@ -64,7 +64,8 @@ from tracecat.identifiers import UserID
 from tracecat.logger import logger
 from tracecat.redis.client import get_redis_client
 from tracecat.service import BaseWorkspaceService
-from tracecat.tiers.entitlements import Entitlement, check_entitlement
+from tracecat.tiers.entitlements import check_entitlement
+from tracecat.tiers.enums import Entitlement
 from tracecat.workflow.executions.correlation import build_agent_session_correlation_id
 from tracecat.workflow.executions.enums import (
     ExecutionType,
@@ -78,6 +79,7 @@ if TYPE_CHECKING:
 
 AUTO_TITLE_SERVICE_ID = "tracecat-api"
 APPROVAL_CONTINUATION_DEDUP_TTL_SECONDS = 5 * 60
+APPROVAL_CONTINUATION_PROMPT = "Continue."
 
 
 @dataclass
@@ -528,6 +530,75 @@ class AgentSessionService(BaseWorkspaceService):
     # Session History Management (for Claude SDK session persistence)
     # =========================================================================
 
+    @staticmethod
+    def _session_line_uuid(content: dict[str, Any]) -> str | None:
+        line_uuid = content.get("uuid")
+        return line_uuid if isinstance(line_uuid, str) else None
+
+    @staticmethod
+    def _message_text_content(content: dict[str, Any]) -> str | None:
+        message = content.get("message")
+        if not isinstance(message, dict):
+            return None
+
+        message_content = message.get("content")
+        if isinstance(message_content, str):
+            return message_content
+
+        if isinstance(message_content, list) and len(message_content) == 1:
+            [part] = message_content
+            if isinstance(part, dict) and part.get("type") == "text":
+                text = part.get("text")
+                return text if isinstance(text, str) else None
+
+        return None
+
+    @staticmethod
+    def _is_thinking_only_assistant_content(content: dict[str, Any]) -> bool:
+        if content.get("type") != "assistant":
+            return False
+
+        message = content.get("message")
+        if not isinstance(message, dict):
+            return False
+
+        message_content = message.get("content")
+        if not isinstance(message_content, list) or not message_content:
+            return False
+
+        return all(
+            isinstance(part, dict) and part.get("type") == "thinking"
+            for part in message_content
+        )
+
+    @classmethod
+    def _is_continuation_control_artifact(
+        cls,
+        content: dict[str, Any],
+        internal_uuids: set[str],
+    ) -> bool:
+        """Return True for Claude Code continuation artifacts, even if mis-kind-ed."""
+        parent_uuid = content.get("parentUuid")
+        parent_is_internal = (
+            isinstance(parent_uuid, str) and parent_uuid in internal_uuids
+        )
+
+        if content.get("isMeta") is True:
+            return True
+
+        message = content.get("message")
+        if isinstance(message, dict) and message.get("model") == "<synthetic>":
+            return True
+
+        if (
+            content.get("type") == "user"
+            and parent_is_internal
+            and cls._message_text_content(content) == APPROVAL_CONTINUATION_PROMPT
+        ):
+            return True
+
+        return parent_is_internal and cls._is_thinking_only_assistant_content(content)
+
     async def load_session_history(
         self,
         session_id: uuid.UUID,
@@ -605,11 +676,51 @@ class AgentSessionService(BaseWorkspaceService):
             )
             return None
 
-        # Reconstruct JSONL from history entries (content stored pristine)
+        # Reconstruct JSONL from model-visible history entries. Internal rows are
+        # stored for debugging/UI filtering but should not be fed back into Claude
+        # on later resumes.
         lines = []
+        included_uuids: set[str] = set()
+        internal_uuids: set[str] = set()
+        last_visible_uuid: str | None = None
         for entry in history_entries:
-            line = orjson.dumps(entry.content).decode("utf-8")
+            content = orjson.loads(orjson.dumps(entry.content))
+            if not isinstance(content, dict):
+                continue
+
+            line_uuid = self._session_line_uuid(content)
+            if entry.kind == MessageKind.INTERNAL.value:
+                if line_uuid is not None:
+                    internal_uuids.add(line_uuid)
+                continue
+
+            if self._is_continuation_control_artifact(content, internal_uuids):
+                if line_uuid is not None:
+                    internal_uuids.add(line_uuid)
+                continue
+
+            parent_uuid = content.get("parentUuid")
+            if (
+                isinstance(parent_uuid, str)
+                and parent_uuid not in included_uuids
+                and last_visible_uuid is not None
+            ):
+                content["parentUuid"] = last_visible_uuid
+
+            if line_uuid is not None:
+                included_uuids.add(line_uuid)
+                last_visible_uuid = line_uuid
+
+            line = orjson.dumps(content).decode("utf-8")
             lines.append(line)
+
+        if not lines:
+            logger.warning(
+                "sdk_session_id set but no model-visible history entries",
+                session_id=source_session_id,
+                sdk_session_id=sdk_session_id,
+            )
+            return None
 
         sdk_session_data = "\n".join(lines)
 
@@ -1489,6 +1600,7 @@ class AgentSessionService(BaseWorkspaceService):
         # Process both chat-message and internal entries in order
         # Internal entries contain tool results that the adapter will extract
         messages: list[ChatMessage] = []
+        internal_uuids: set[str] = set()
         for entry in all_entries:
             content = entry.content
             if not content:
@@ -1496,6 +1608,13 @@ class AgentSessionService(BaseWorkspaceService):
 
             # Skip internal entries (e.g., continuation prompts)
             if entry.kind == MessageKind.INTERNAL.value:
+                if line_uuid := self._session_line_uuid(content):
+                    internal_uuids.add(line_uuid)
+                continue
+
+            if self._is_continuation_control_artifact(content, internal_uuids):
+                if line_uuid := self._session_line_uuid(content):
+                    internal_uuids.add(line_uuid)
                 continue
 
             # Handle compaction entries: these are badges showing when compaction happened
@@ -1594,22 +1713,24 @@ class AgentSessionService(BaseWorkspaceService):
         ]
 
     # =========================================================================
-    # Approval Flow: Replace Interrupt Entries
+    # Approval Flow: Remove Interrupt Entries
     # =========================================================================
 
-    async def replace_interrupt_with_tool_results(
+    async def remove_interrupt_entries_for_tool_results(
         self,
         session_id: uuid.UUID,
         tool_results: Sequence[ToolExecutionResult],
     ) -> None:
-        """Replace interrupt entries with proper tool_result entry.
+        """Remove interrupted approval artifacts before tool_result continuation.
 
         After approval execution, the session history contains SDK-generated
         interrupt entries (error tool_result, interrupt text, synthetic message).
         This method:
-        1. Finds the assistant message with tool_use blocks (for parentUuid)
+        1. Finds the assistant message with tool_use blocks
         2. Deletes the interrupt entries
-        3. Inserts a proper tool_result JSONL entry
+
+        The runtime sends the approved/denied tool_result blocks as the next SDK
+        input so Claude Code writes the canonical user tool_result row itself.
 
         Args:
             session_id: The session UUID.
@@ -1626,9 +1747,10 @@ class AgentSessionService(BaseWorkspaceService):
 
         tool_call_ids = {tr.tool_call_id for tr in tool_results}
 
-        # Find the assistant message containing these tool_uses (for parentUuid)
+        # Find the assistant message containing these tool_uses so we only delete
+        # interrupt artifacts that follow the pending tool call.
         history = await self.get_session_history(session_id)
-        assistant_uuid = None
+        assistant_entry: AgentSessionHistory | None = None
         assistant_surrogate_id = None
 
         for entry in reversed(history):
@@ -1637,69 +1759,29 @@ class AgentSessionService(BaseWorkspaceService):
                     entry.content.get("message", {})
                 )
                 if any(tu.get("id") in tool_call_ids for tu in tool_uses):
-                    assistant_uuid = entry.content.get("uuid")
+                    assistant_entry = entry
                     assistant_surrogate_id = entry.surrogate_id
                     break
 
-        if assistant_uuid is None:
+        if assistant_entry is None or assistant_surrogate_id is None:
             logger.warning(
-                "Could not find assistant message with tool_use for replacement",
+                "Could not find assistant message with tool_use for continuation",
                 session_id=session_id,
                 tool_call_ids=tool_call_ids,
             )
             return
-        if assistant_surrogate_id is None:
-            logger.warning(
-                "Could not find assistant message with tool_use for replacement",
-                session_id=session_id,
-                tool_call_ids=tool_call_ids,
-            )
-            return
+
         # Delete interrupt entries that follow the assistant message
         await self._delete_interrupt_entries_for_tool_calls(
             session_id, assistant_surrogate_id, tool_call_ids
         )
 
-        # Build and insert proper tool_result entry
-        entry_content = {
-            "uuid": str(uuid.uuid4()),
-            "parentUuid": assistant_uuid,
-            "sessionId": session.sdk_session_id,
-            "type": "user",
-            "timestamp": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
-            "cwd": "/home/agent",
-            "version": "2.0.72",
-            "userType": "external",
-            "gitBranch": "",
-            "isSidechain": False,
-            "message": {
-                "role": "user",
-                "content": [
-                    {
-                        "type": "tool_result",
-                        "tool_use_id": tr.tool_call_id,
-                        "content": self._serialize_tool_result(tr.result),
-                        "is_error": tr.is_error,
-                    }
-                    for tr in tool_results
-                ],
-            },
-        }
-
-        history_entry = AgentSessionHistory(
-            session_id=session_id,
-            workspace_id=self.workspace_id,
-            content=entry_content,
-            kind="chat-message",
-        )
-        self.session.add(history_entry)
         await self.session.commit()
 
         logger.info(
-            "Replaced interrupt entries with proper tool_result",
+            "Removed interrupt entries before tool_result continuation",
             session_id=session_id,
             tool_call_ids=list(tool_call_ids),
-            parent_uuid=assistant_uuid,
         )
 
     async def _delete_interrupt_entries_for_tool_calls(
@@ -1781,16 +1863,6 @@ class AgentSessionService(BaseWorkspaceService):
                 deleted_count=len(entries_to_delete),
                 deleted_ids=[str(id) for id in ids_to_delete],
             )
-
-    @staticmethod
-    def _serialize_tool_result(result: Any) -> str:
-        """Serialize a tool result to string for Claude SDK format."""
-        if isinstance(result, str):
-            return result
-        try:
-            return orjson.dumps(result).decode("utf-8")
-        except (TypeError, ValueError):
-            return str(result)
 
     # =========================================================================
     # Session Forking (for post-decision agent interactions)

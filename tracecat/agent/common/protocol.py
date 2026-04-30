@@ -9,11 +9,40 @@ Uses pure dataclasses with orjson for minimal import footprint.
 from __future__ import annotations
 
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Literal
 
 from tracecat.agent.common.stream_types import UnifiedStreamEvent
 from tracecat.agent.common.types import MCPToolDefinition, SandboxAgentConfig
+
+
+@dataclass(kw_only=True, slots=True)
+class RuntimeToolResult:
+    """Tool result block to send as the next Claude SDK input."""
+
+    tool_call_id: str
+    content: str | list[dict[str, Any]] | None = None
+    is_error: bool | None = None
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> RuntimeToolResult:
+        """Construct from dict (orjson parsed)."""
+        return cls(
+            tool_call_id=data["tool_call_id"],
+            content=data.get("content"),
+            is_error=data.get("is_error"),
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to dict for orjson serialization."""
+        result: dict[str, Any] = {
+            "tool_call_id": self.tool_call_id,
+        }
+        if self.content is not None:
+            result["content"] = self.content
+        if self.is_error is not None:
+            result["is_error"] = self.is_error
+        return result
 
 
 @dataclass(kw_only=True, slots=True)
@@ -23,9 +52,8 @@ class RuntimeInitPayload:
     The orchestrator sends this after the runtime connects to the control socket.
     Contains everything the runtime needs to execute an agent turn.
 
-    On resume after approval, the sdk_session_data contains the proper tool_result
-    entry (inserted by execute_approved_tools_activity before reload), so the
-    runtime just resumes normally.
+    On resume after approval, sdk_session_data ends at the assistant tool_use.
+    The approved or denied tool results are sent as the next Claude SDK input.
     """
 
     # Runtime selection
@@ -44,6 +72,7 @@ class RuntimeInitPayload:
     sdk_session_id: str | None = None
     sdk_session_data: str | None = None  # JSONL content for resume
     is_approval_continuation: bool = False  # True when resuming after approval decision
+    approval_tool_results: list[RuntimeToolResult] = field(default_factory=list)
     is_fork: bool = False
 
     @classmethod
@@ -76,6 +105,10 @@ class RuntimeInitPayload:
             sdk_session_id=data.get("sdk_session_id"),
             sdk_session_data=data.get("sdk_session_data"),
             is_approval_continuation=data.get("is_approval_continuation", False),
+            approval_tool_results=[
+                RuntimeToolResult.from_dict(result)
+                for result in data.get("approval_tool_results", [])
+            ],
             is_fork=data.get("is_fork", False),
         )
 
@@ -99,6 +132,10 @@ class RuntimeInitPayload:
             result["sdk_session_id"] = self.sdk_session_id
         if self.sdk_session_data is not None:
             result["sdk_session_data"] = self.sdk_session_data
+        if self.approval_tool_results:
+            result["approval_tool_results"] = [
+                tool_result.to_dict() for tool_result in self.approval_tool_results
+            ]
         return result
 
 

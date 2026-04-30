@@ -23,7 +23,7 @@ from tracecat.agent.common.config import (
     TRACECAT__DISABLE_NSJAIL,
 )
 from tracecat.agent.common.exceptions import AgentSandboxExecutionError
-from tracecat.agent.common.protocol import RuntimeInitPayload
+from tracecat.agent.common.protocol import RuntimeInitPayload, RuntimeToolResult
 from tracecat.agent.common.stream_types import ToolCallContent
 from tracecat.agent.common.types import MCPToolDefinition, SandboxAgentConfig
 from tracecat.agent.executor.loopback import (
@@ -50,15 +50,19 @@ from tracecat.logger import logger
 from tracecat.registry.lock.types import RegistryLock
 from tracecat.storage import blob
 
-from .schemas import ApprovedToolCall, DeniedToolCall, ToolExecutionResult
+from .schemas import (
+    ApprovedToolCall,
+    DeniedToolCall,
+    ToolExecutionResult,
+    serialize_tool_result_content,
+)
 
 
 class AgentExecutorInput(BaseModel):
     """Input for the agent executor activity.
 
-    On resume after approval, the sdk_session_data contains the proper tool_result
-    entry (inserted by the approval reconciliation activity before reload), so the
-    runtime just resumes normally.
+    On resume after approval, sdk_session_data ends at the assistant tool_use
+    and approval_tool_results carries the user tool_result input.
     """
 
     # ``extra="ignore"`` keeps Temporal activity replay working after the
@@ -80,11 +84,13 @@ class AgentExecutorInput(BaseModel):
     )
     # Resolved tool definitions
     allowed_actions: dict[str, MCPToolDefinition] | None = None
-    # Session resume data (from previous run, includes tool_result for approval flow)
+    # Session resume data from previous runs
     sdk_session_id: str | None = None
     sdk_session_data: str | None = None
-    # True when resuming after approval decision (continuation prompt should be internal)
+    # True when resuming after an approval decision.
     is_approval_continuation: bool = False
+    # Approved or denied tool results to send as the next Claude SDK input.
+    approval_tool_results: list[ToolExecutionResult] = Field(default_factory=list)
     # True when forking from parent session (SDK should use fork_session=True)
     is_fork: bool = False
 
@@ -211,6 +217,14 @@ class SandboxedAgentExecutor:
             sdk_session_id=self.input.sdk_session_id,
             sdk_session_data=self.input.sdk_session_data,
             is_approval_continuation=self.input.is_approval_continuation,
+            approval_tool_results=[
+                RuntimeToolResult(
+                    tool_call_id=result.tool_call_id,
+                    content=serialize_tool_result_content(result.result),
+                    is_error=result.is_error,
+                )
+                for result in self.input.approval_tool_results
+            ],
             is_fork=self.input.is_fork,
         )
 
