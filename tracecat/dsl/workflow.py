@@ -975,6 +975,7 @@ class DSLWorkflow:
                             action_ref=task.ref,
                             action_title=task.title,
                             stream_id=stream_id or ROOT_STREAM,
+                            mask_output=task.mask_output,
                         ).model_dump(),
                     )
                 case PlatformAction.AI_ACTION:
@@ -1039,6 +1040,7 @@ class DSLWorkflow:
                             action_ref=task.ref,
                             action_title=task.title,
                             stream_id=stream_id or ROOT_STREAM,
+                            mask_output=task.mask_output,
                         ).model_dump(),
                     )
                 case PlatformAction.AI_PRESET_AGENT:
@@ -1119,6 +1121,7 @@ class DSLWorkflow:
                             action_ref=task.ref,
                             action_title=task.title,
                             stream_id=stream_id or ROOT_STREAM,
+                            mask_output=task.mask_output,
                         ).model_dump(),
                     )
                 case _:
@@ -1785,6 +1788,7 @@ class DSLWorkflow:
             loop_index=loop_index,
             wait_strategy=wait_strategy,
             stream_id=stream_id,
+            mask_output=task.mask_output,
         ).model_dump()
         self.logger.debug(
             "Dispatching child workflow",

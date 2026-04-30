@@ -19,7 +19,7 @@ from unittest.mock import AsyncMock, Mock, patch
 
 import orjson
 import pytest
-from temporalio.api.enums.v1 import EventType, PendingActivityState
+from temporalio.api.enums.v1 import EventType, ParentClosePolicy, PendingActivityState
 from temporalio.api.failure.v1 import Failure
 from temporalio.api.history.v1 import HistoryEvent
 from temporalio.client import Client, WorkflowHandle
@@ -28,7 +28,7 @@ from temporalio.converter import DefaultPayloadConverter
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.db.models import Workspace
-from tracecat.dsl.common import DSLInput
+from tracecat.dsl.common import AgentActionMemo, ChildWorkflowMemo, DSLInput
 from tracecat.dsl.schemas import ActionStatement, RunActionInput, RunContext, StreamID
 from tracecat.identifiers.workflow import (
     ExecutionUUID,
@@ -125,13 +125,10 @@ def create_mock_history_event(
     event = Mock()
     event.event_id = event_id
     event.event_type = event_type
+    event.task_id = attributes.get("task_id", event_id)
 
     # Mock timestamp
-    mock_timestamp = Mock()
-    mock_timestamp.ToDatetime.return_value = datetime.datetime.fromtimestamp(
-        event_time_seconds, tz=datetime.UTC
-    )
-    event.event_time = mock_timestamp
+    event.event_time = create_mock_timestamp(event_time_seconds)
 
     # Add attributes based on event type
     if event_type == EventType.EVENT_TYPE_WORKFLOW_EXECUTION_FAILED:
@@ -174,6 +171,63 @@ def create_mock_history_event(
         started_attrs.input = attributes.get("workflow_input", Mock())
         event.workflow_execution_started_event_attributes = started_attrs
 
+    return event
+
+
+def create_mock_timestamp(event_time_seconds: int = 1640995200) -> Mock:
+    """Create a mock Temporal timestamp."""
+    mock_timestamp = Mock()
+    mock_timestamp.ToDatetime.return_value = datetime.datetime.fromtimestamp(
+        event_time_seconds, tz=datetime.UTC
+    )
+    return mock_timestamp
+
+
+def create_mock_child_workflow_initiated_event(
+    event_id: int,
+    *,
+    workflow_type_name: str = "DSLWorkflow",
+    workflow_id: WorkflowExecutionID | None = None,
+) -> Mock:
+    """Create a mock child workflow initiated event."""
+    if workflow_id is None:
+        wf_id = WorkflowUUID.new_uuid4()
+        exec_id = ExecutionUUID.new_uuid4()
+        workflow_id = cast(WorkflowExecutionID, f"{wf_id.short()}/{exec_id.short()}")
+
+    event = Mock()
+    event.event_id = event_id
+    event.event_type = EventType.EVENT_TYPE_START_CHILD_WORKFLOW_EXECUTION_INITIATED
+    event.task_id = event_id
+    event.event_time = create_mock_timestamp()
+
+    attrs = Mock()
+    attrs.workflow_id = workflow_id
+    attrs.workflow_type = Mock()
+    attrs.workflow_type.name = workflow_type_name
+    attrs.parent_close_policy = ParentClosePolicy.PARENT_CLOSE_POLICY_TERMINATE
+    attrs.memo = Mock()
+    attrs.input = Mock()
+    event.start_child_workflow_execution_initiated_event_attributes = attrs
+    return event
+
+
+def create_mock_child_workflow_completed_event(
+    event_id: int,
+    *,
+    initiated_event_id: int,
+) -> Mock:
+    """Create a mock child workflow completed event."""
+    event = Mock()
+    event.event_id = event_id
+    event.event_type = EventType.EVENT_TYPE_CHILD_WORKFLOW_EXECUTION_COMPLETED
+    event.task_id = event_id
+    event.event_time = create_mock_timestamp()
+
+    attrs = Mock()
+    attrs.initiated_event_id = initiated_event_id
+    attrs.result = Mock()
+    event.child_workflow_execution_completed_event_attributes = attrs
     return event
 
 
@@ -1211,6 +1265,79 @@ class TestWorkflowExecutionEvents:
 
         assert event is not None
         assert event.action_input == {"value": "visible-input"}
+        assert event.should_mask_output is True
+
+    async def test_compact_child_workflow_preserves_mask_output_metadata(
+        self,
+    ) -> None:
+        """Child workflow compact events restore redaction metadata from memo."""
+        initiated = create_mock_child_workflow_initiated_event(event_id=1)
+        unreadable = UnreadableTemporalPayload(
+            error_type="decode_error",
+            encoding="json/plain",
+            payload_size_bytes=0,
+        )
+
+        with (
+            patch(
+                "tracecat.workflow.executions.schemas.ChildWorkflowMemo.from_temporal",
+                new_callable=AsyncMock,
+            ) as mock_memo,
+            patch(
+                "tracecat.workflow.executions.schemas.extract_first",
+                new_callable=AsyncMock,
+            ) as mock_extract_first,
+        ):
+            mock_memo.return_value = ChildWorkflowMemo(
+                action_ref="masked_child",
+                mask_output=True,
+            )
+            mock_extract_first.return_value = unreadable
+
+            event = await WorkflowExecutionEventCompact.from_initiated_child_workflow(
+                initiated
+            )
+
+        assert event is not None
+        assert event.action_ref == "masked_child"
+        assert event.should_mask_output is True
+
+    async def test_compact_agent_workflow_preserves_mask_output_metadata(
+        self,
+    ) -> None:
+        """Agent compact events restore redaction metadata from memo."""
+        initiated = create_mock_child_workflow_initiated_event(
+            event_id=1,
+            workflow_type_name="DurableAgentWorkflow",
+        )
+        unreadable = UnreadableTemporalPayload(
+            error_type="decode_error",
+            encoding="json/plain",
+            payload_size_bytes=0,
+        )
+
+        with (
+            patch(
+                "tracecat.workflow.executions.schemas.AgentActionMemo.from_temporal",
+                new_callable=AsyncMock,
+            ) as mock_memo,
+            patch(
+                "tracecat.workflow.executions.schemas.extract_first",
+                new_callable=AsyncMock,
+            ) as mock_extract_first,
+        ):
+            mock_memo.return_value = AgentActionMemo(
+                action_ref="masked_agent",
+                mask_output=True,
+            )
+            mock_extract_first.return_value = unreadable
+
+            event = await WorkflowExecutionEventCompact.from_initiated_child_workflow(
+                initiated
+            )
+
+        assert event is not None
+        assert event.action_ref == "masked_agent"
         assert event.should_mask_output is True
 
     async def test_compact_masked_action_result_redacts_leaf_values(

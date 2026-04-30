@@ -905,7 +905,7 @@ class WorkflowExecutionEventCompact[TInput: Any, TResult: Any, TSessionEvent: An
 
                 input_data = await extract_first(attrs.input)
                 if is_unreadable_temporal_payload(input_data):
-                    return WorkflowExecutionEventCompact(
+                    compact_event = WorkflowExecutionEventCompact(
                         source_event_id=event.event_id,
                         schedule_time=event.event_time.ToDatetime(UTC),
                         curr_event_type=HISTORY_TO_WF_EVENT_TYPE[event.event_type],
@@ -918,10 +918,12 @@ class WorkflowExecutionEventCompact[TInput: Any, TResult: Any, TSessionEvent: An
                         child_wf_wait_strategy=memo.wait_strategy,
                         stream_id=memo.stream_id,
                     )
+                    compact_event.set_mask_output(memo.mask_output)
+                    return compact_event
 
                 dsl_run_args = DSLRunArgs(**input_data)
 
-                return WorkflowExecutionEventCompact(
+                compact_event = WorkflowExecutionEventCompact(
                     source_event_id=event.event_id,
                     schedule_time=event.event_time.ToDatetime(UTC),
                     curr_event_type=HISTORY_TO_WF_EVENT_TYPE[event.event_type],
@@ -934,6 +936,8 @@ class WorkflowExecutionEventCompact[TInput: Any, TResult: Any, TSessionEvent: An
                     child_wf_wait_strategy=memo.wait_strategy,
                     stream_id=memo.stream_id,
                 )
+                compact_event.set_mask_output(memo.mask_output)
+                return compact_event
             case "DurableAgentWorkflow":
                 try:
                     memo = await AgentActionMemo.from_temporal(attrs.memo)
@@ -943,7 +947,7 @@ class WorkflowExecutionEventCompact[TInput: Any, TResult: Any, TSessionEvent: An
 
                 input_data = await extract_first(attrs.input)
                 if is_unreadable_temporal_payload(input_data):
-                    return WorkflowExecutionEventCompact(
+                    compact_event = WorkflowExecutionEventCompact(
                         source_event_id=event.event_id,
                         schedule_time=event.event_time.ToDatetime(UTC),
                         curr_event_type=HISTORY_TO_WF_EVENT_TYPE[event.event_type],
@@ -956,13 +960,15 @@ class WorkflowExecutionEventCompact[TInput: Any, TResult: Any, TSessionEvent: An
                         stream_id=memo.stream_id,
                         session=None,
                     )
+                    compact_event.set_mask_output(memo.mask_output)
+                    return compact_event
 
                 agent_run_args = AgentWorkflowArgs(**input_data)
                 session = None
                 session_id = agent_run_args.agent_args.session_id
                 if session_id is not None:
                     session = Session(id=session_id)
-                return WorkflowExecutionEventCompact(
+                compact_event = WorkflowExecutionEventCompact(
                     source_event_id=event.event_id,
                     schedule_time=event.event_time.ToDatetime(UTC),
                     curr_event_type=HISTORY_TO_WF_EVENT_TYPE[event.event_type],
@@ -975,6 +981,8 @@ class WorkflowExecutionEventCompact[TInput: Any, TResult: Any, TSessionEvent: An
                     stream_id=memo.stream_id,
                     session=session,
                 )
+                compact_event.set_mask_output(memo.mask_output)
+                return compact_event
             case _:
                 raise ValueError(
                     f"Unexpected child workflow type: {attrs.workflow_type.name}"
