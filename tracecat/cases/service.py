@@ -928,13 +928,9 @@ class CasesService(BaseWorkspaceService):
                     missing_fields.append(name)
 
         # --- Dropdown definitions ---
-        stmt = (
-            select(CaseDropdownDefinition)
-            .where(
-                CaseDropdownDefinition.workspace_id == self.workspace_id,
-                CaseDropdownDefinition.required_on_closure.is_(True),
-            )
-            .options(selectinload(CaseDropdownDefinition.options))
+        stmt = select(CaseDropdownDefinition).where(
+            CaseDropdownDefinition.workspace_id == self.workspace_id,
+            CaseDropdownDefinition.required_on_closure.is_(True),
         )
         result = await self.session.execute(stmt)
         required_defs = result.scalars().all()
@@ -956,7 +952,15 @@ class CasesService(BaseWorkspaceService):
                                 def_id = rd.id
                                 break
                     if def_id is not None:
-                        current_dropdown_map[def_id] = validated.option_id
+                        option_id = validated.option_id
+                        if option_id is None and validated.option_ref is not None:
+                            option_id = await self.session.scalar(
+                                select(CaseDropdownOption.id).where(
+                                    CaseDropdownOption.definition_id == def_id,
+                                    CaseDropdownOption.ref == validated.option_ref,
+                                )
+                            )
+                        current_dropdown_map[def_id] = option_id
 
             for defn in required_defs:
                 if not current_dropdown_map.get(defn.id):

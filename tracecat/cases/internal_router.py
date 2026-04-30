@@ -1299,6 +1299,11 @@ async def update_case_simple(
             status_code=HTTP_400_BAD_REQUEST,
             detail=str(e),
         ) from e
+    except TracecatValidationError as e:
+        raise HTTPException(
+            status_code=HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        ) from e
     except ValueError as e:
         raise HTTPException(
             status_code=HTTP_400_BAD_REQUEST,
