@@ -27,6 +27,16 @@ import { ControlledYamlField } from "@/components/builder/panel/action-panel-fie
 import { CopyButton } from "@/components/copy-button"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { SimpleEditor } from "@/components/tiptap-templates/simple/simple-editor"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -234,8 +244,18 @@ function WorkflowVersionsPanel({
     useWorkflowDefinitions(workspaceId, workflowId)
   const { restoreWorkflowDefinition, restoreWorkflowDefinitionIsPending } =
     useRestoreWorkflowDefinition(workspaceId, workflowId)
+  const [confirmVersion, setConfirmVersion] = useState<number | null>(null)
 
-  async function handleRestore(version: number) {
+  function handleRestore(version: number) {
+    setConfirmVersion(version)
+  }
+
+  async function handleConfirmRestore() {
+    if (confirmVersion === null) {
+      return
+    }
+    const version = confirmVersion
+    setConfirmVersion(null)
     await restoreWorkflowDefinition({ version })
   }
 
@@ -260,6 +280,31 @@ function WorkflowVersionsPanel({
           onRestore={handleRestore}
         />
       </ScrollArea>
+      <AlertDialog
+        open={confirmVersion !== null}
+        onOpenChange={(open) => {
+          if (!open) {
+            setConfirmVersion(null)
+          }
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Restore workflow version?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {confirmVersion !== null
+                ? `Restoring v${confirmVersion} will overwrite your current draft. Any uncommitted changes will be discarded.`
+                : null}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={() => void handleConfirmRestore()}>
+              Restore
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }
@@ -277,7 +322,7 @@ function WorkflowVersionsHistory({
   definitionsError: unknown
   currentVersion: number | null
   restorePending: boolean
-  onRestore: (version: number) => Promise<void>
+  onRestore: (version: number) => void
 }): React.JSX.Element {
   if (definitionsIsLoading) {
     return (
@@ -345,7 +390,7 @@ function WorkflowVersionsHistory({
                         size="icon"
                         className="size-8"
                         disabled={restorePending}
-                        onClick={() => void onRestore(definition.version)}
+                        onClick={() => onRestore(definition.version)}
                         aria-label={`Restore v${definition.version}`}
                       >
                         <RotateCcw className="size-3.5" />
