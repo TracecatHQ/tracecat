@@ -942,38 +942,44 @@ class ClaudeAgentRuntime:
                 mcp_servers=list(mcp_servers.keys()),
             )
             _configure_claude_sdk_process_env()
+            if payload.approval_tool_results:
+                query_input = self._tool_result_input_stream(
+                    payload.approval_tool_results
+                )
+                self._pending_approval_tool_ids.update(
+                    result.tool_call_id for result in payload.approval_tool_results
+                )
+                query_log_extra = {
+                    "tool_result_count": len(payload.approval_tool_results)
+                }
+                connect_prompt = query_input
+                send_query_after_connect = False
+                logger.debug("Approval continuation with tool_result input")
+            # Legacy fallback for old callers that only pre-seed tool_result
+            # history and need a neutral query to advance the resumed session.
+            elif payload.is_approval_continuation:
+                query_input = APPROVAL_CONTINUATION_PROMPT
+                self._approval_continuation_active = True
+                query_log_extra = {"prompt_length": len(query_input)}
+                connect_prompt = None
+                send_query_after_connect = True
+                logger.debug("Approval continuation with hidden prompt")
+            else:
+                query_input = payload.user_prompt
+                query_log_extra = {"prompt_length": len(query_input)}
+                connect_prompt = None
+                send_query_after_connect = True
+                logger.debug("Normal turn with user prompt")
+
             transport = self._transport_factory(options)
             client = ClaudeSDKClient(options=options, transport=transport)
-            logger.debug("Client created, entering context")
-            async with client:
+            logger.debug("Client created, connecting")
+            await client.connect(connect_prompt)
+            try:
                 self.client = client
                 log_benchmark_phase("runtime_client_connected")
                 stderr_task = asyncio.create_task(drain_stderr())
                 try:
-                    if payload.approval_tool_results:
-                        query_input = self._tool_result_input_stream(
-                            payload.approval_tool_results
-                        )
-                        self._pending_approval_tool_ids.update(
-                            result.tool_call_id
-                            for result in payload.approval_tool_results
-                        )
-                        query_log_extra = {
-                            "tool_result_count": len(payload.approval_tool_results)
-                        }
-                        logger.debug("Approval continuation with tool_result input")
-                    # Legacy fallback for old callers that only pre-seed tool_result
-                    # history and need a neutral query to advance the resumed session.
-                    elif payload.is_approval_continuation:
-                        query_input = APPROVAL_CONTINUATION_PROMPT
-                        self._approval_continuation_active = True
-                        query_log_extra = {"prompt_length": len(query_input)}
-                        logger.debug("Approval continuation with hidden prompt")
-                    else:
-                        query_input = payload.user_prompt
-                        query_log_extra = {"prompt_length": len(query_input)}
-                        logger.debug("Normal turn with user prompt")
-
                     await self._event_writer.send_log(
                         "info",
                         "Sending query to Claude SDK",
@@ -986,7 +992,8 @@ class ClaudeAgentRuntime:
                         await self._event_writer.send_stream_event(
                             self._build_compaction_status_event(phase="started")
                         )
-                    await client.query(query_input)
+                    if send_query_after_connect:
+                        await client.query(query_input)
                     log_benchmark_phase("runtime_query_sent")
 
                     await self._event_writer.send_log(
@@ -1122,6 +1129,8 @@ class ClaudeAgentRuntime:
                         await stderr_task
                     except asyncio.CancelledError:
                         pass
+            finally:
+                await client.disconnect()
 
             # CLI has exited — session file is fully flushed.
             await self._emit_new_session_lines()

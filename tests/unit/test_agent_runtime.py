@@ -135,6 +135,8 @@ def mock_claude_sdk_client() -> MagicMock:
     mock_client = MagicMock()
     mock_client.__aenter__ = AsyncMock(return_value=mock_client)
     mock_client.__aexit__ = AsyncMock(return_value=None)
+    mock_client.connect = AsyncMock()
+    mock_client.disconnect = AsyncMock()
     mock_client.query = AsyncMock()
     mock_client.interrupt = AsyncMock()
 
@@ -304,12 +306,13 @@ class TestClaudeAgentRuntimeRun:
         monkeypatch.delenv("CLAUDE_AGENT_SDK_SKIP_VERSION_CHECK", raising=False)
         mock_client = MagicMock()
 
-        async def enter_client() -> MagicMock:
+        async def connect_client(_prompt: Any = None) -> None:
             assert os.environ["CLAUDE_AGENT_SDK_SKIP_VERSION_CHECK"] == "1"
-            return mock_client
 
-        mock_client.__aenter__ = AsyncMock(side_effect=enter_client)
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
         mock_client.__aexit__ = AsyncMock(return_value=None)
+        mock_client.connect = AsyncMock(side_effect=connect_client)
+        mock_client.disconnect = AsyncMock()
         mock_client.query = AsyncMock()
         mock_client.interrupt = AsyncMock()
 
@@ -347,12 +350,13 @@ class TestClaudeAgentRuntimeRun:
         monkeypatch.setenv("CLAUDE_AGENT_SDK_SKIP_VERSION_CHECK", "existing")
         mock_client = MagicMock()
 
-        async def enter_client() -> MagicMock:
+        async def connect_client(_prompt: Any = None) -> None:
             assert os.environ["CLAUDE_AGENT_SDK_SKIP_VERSION_CHECK"] == "existing"
-            return mock_client
 
-        mock_client.__aenter__ = AsyncMock(side_effect=enter_client)
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
         mock_client.__aexit__ = AsyncMock(return_value=None)
+        mock_client.connect = AsyncMock(side_effect=connect_client)
+        mock_client.disconnect = AsyncMock()
         mock_client.query = AsyncMock()
         mock_client.interrupt = AsyncMock()
 
@@ -543,6 +547,8 @@ class TestClaudeAgentRuntimeRun:
         class ApprovalHookClient:
             def __init__(self, options: Any) -> None:
                 self.options = options
+                self.connect = AsyncMock()
+                self.disconnect = AsyncMock()
                 self.query = AsyncMock(side_effect=self._query)
                 self.interrupt = AsyncMock()
 
@@ -690,8 +696,9 @@ class TestClaudeAgentRuntimeRun:
         assert captured_options[0].resume == continued_payload.sdk_session_id
         assert captured_options[0].fork_session is False
         assert captured_options[0].sandbox["enabled"] is disable_nsjail
-        mock_claude_sdk_client.query.assert_awaited_once()
-        query_input = mock_claude_sdk_client.query.await_args.args[0]
+        mock_claude_sdk_client.connect.assert_awaited_once()
+        mock_claude_sdk_client.query.assert_not_awaited()
+        query_input = mock_claude_sdk_client.connect.await_args.args[0]
         assert not isinstance(query_input, str)
         messages = [message async for message in query_input]
         assert messages == [
