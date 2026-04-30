@@ -19,7 +19,12 @@ from fastapi import (
     Security,
     status,
 )
-from fastapi.security import APIKeyHeader, OAuth2PasswordBearer
+from fastapi.security import (
+    APIKeyHeader,
+    HTTPAuthorizationCredentials,
+    HTTPBearer,
+    OAuth2PasswordBearer,
+)
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -64,7 +69,6 @@ from tracecat.db.rls import set_rls_context, set_rls_context_from_role
 from tracecat.identifiers import InternalServiceID
 from tracecat.logger import logger
 from tracecat.organization.management import get_default_organization_id
-from tracecat.service_accounts.constants import API_KEY_HEADER_NAME
 from tracecat.tiers.access import is_org_entitled
 from tracecat.tiers.enums import Entitlement
 
@@ -72,8 +76,9 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token", auto_error=False)
 internal_service_key_header_scheme = APIKeyHeader(
     name="x-tracecat-service-key", auto_error=False
 )
-tracecat_api_key_header_scheme = APIKeyHeader(
-    name=API_KEY_HEADER_NAME,
+service_account_api_key_bearer_scheme = HTTPBearer(
+    scheme_name="ServiceAccountApiKeyBearer",
+    description="Tracecat service account API key.",
     auto_error=False,
 )
 
@@ -243,9 +248,27 @@ def _get_bearer_token(request: Request) -> str | None:
     if not auth_header:
         return None
     scheme, _, token = auth_header.partition(" ")
+    token = token.strip()
     if scheme.lower() != "bearer" or not token:
         return None
     return token
+
+
+ServiceAccountApiKeyBearerCredentialsDep = Annotated[
+    HTTPAuthorizationCredentials | None,
+    Security(service_account_api_key_bearer_scheme),
+]
+
+
+def _get_service_account_api_key_from_bearer(
+    credentials: ServiceAccountApiKeyBearerCredentialsDep,
+) -> str | None:
+    if credentials is None:
+        return None
+    token = credentials.credentials.strip()
+    if token.startswith((ORG_API_KEY_PREFIX, WORKSPACE_API_KEY_PREFIX)):
+        return token
+    return None
 
 
 async def _authenticate_service(
@@ -446,7 +469,7 @@ OptionalInternalServiceKeyDep = Annotated[
     str | None, Security(internal_service_key_header_scheme)
 ]
 OptionalTracecatApiKeyDep = Annotated[
-    str | None, Security(tracecat_api_key_header_scheme)
+    str | None, Depends(_get_service_account_api_key_from_bearer)
 ]
 
 
