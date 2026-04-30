@@ -344,6 +344,49 @@ describe("ChatSessionPane", () => {
     expect(textarea).toHaveFocus()
   })
 
+  it("preserves refocus when submit button blur omits related target", async () => {
+    mockUseVercelChatStatus("ready")
+
+    const renderSubject = () => (
+      <QueryClientProvider client={queryClient}>
+        <TooltipProvider>
+          <ChatSessionPane
+            chat={createChatFixture()}
+            workspaceId="workspace-1"
+            entityType="case"
+            entityId="case-1"
+            modelInfo={{ name: "gpt-4o-mini", provider: "openai" }}
+          />
+        </TooltipProvider>
+      </QueryClientProvider>
+    )
+
+    const { rerender } = render(renderSubject())
+    const textarea = screen.getByRole("textbox") as HTMLTextAreaElement
+    textarea.focus()
+    fireEvent.focus(textarea)
+    fireEvent.change(textarea, { target: { value: "Hello" } })
+    const focusSpy = jest.spyOn(textarea, "focus")
+
+    const submitButton = screen.getByRole("button", { name: "Submit" })
+    expect(submitButton).toBeEnabled()
+    fireEvent.pointerDown(submitButton)
+    fireEvent.blur(textarea, { relatedTarget: null })
+
+    mockUseVercelChatStatus("submitted")
+    rerender(renderSubject())
+    expect(textarea).toBeDisabled()
+
+    mockUseVercelChatStatus("ready")
+    rerender(renderSubject())
+
+    await waitFor(() => {
+      expect(textarea).toBeEnabled()
+      expect(focusSpy).toHaveBeenCalledTimes(1)
+    })
+    expect(textarea).toHaveFocus()
+  })
+
   it("submits approval decisions with continue payload", async () => {
     const sendMessage = jest.fn().mockResolvedValue(undefined)
     const clearError = jest.fn()

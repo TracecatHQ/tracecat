@@ -252,6 +252,8 @@ export function ChatSessionPane({
   const promptInputContainerRef = useRef<HTMLDivElement>(null)
   const promptTextareaFocusedRef = useRef(false)
   const shouldRestoreInputFocusRef = useRef(false)
+  const promptPointerDownInsideRef = useRef(false)
+  const promptPointerDownResetTimerRef = useRef<number>()
   const processedMessageRef = useRef<
     | {
         messageId: string
@@ -729,6 +731,17 @@ export function ChatSessionPane({
     promptTextareaFocusedRef.current = true
   }, [])
 
+  const handlePromptPointerDownCapture = useCallback(() => {
+    promptPointerDownInsideRef.current = true
+    if (promptPointerDownResetTimerRef.current !== undefined) {
+      window.clearTimeout(promptPointerDownResetTimerRef.current)
+    }
+    promptPointerDownResetTimerRef.current = window.setTimeout(() => {
+      promptPointerDownInsideRef.current = false
+      promptPointerDownResetTimerRef.current = undefined
+    }, 0)
+  }, [])
+
   const handleInputBlur = useCallback(
     (event: FocusEvent<HTMLTextAreaElement>) => {
       setToolMention(undefined)
@@ -741,6 +754,10 @@ export function ChatSessionPane({
         return
       }
 
+      if (nextFocusedElement === null && promptPointerDownInsideRef.current) {
+        return
+      }
+
       if (!isInputDisabledRef.current) {
         promptTextareaFocusedRef.current = false
         shouldRestoreInputFocusRef.current = false
@@ -748,6 +765,14 @@ export function ChatSessionPane({
     },
     []
   )
+
+  useEffect(() => {
+    return () => {
+      if (promptPointerDownResetTimerRef.current !== undefined) {
+        window.clearTimeout(promptPointerDownResetTimerRef.current)
+      }
+    }
+  }, [])
 
   const selectedToolBadges = useMemo(
     () =>
@@ -947,7 +972,11 @@ export function ChatSessionPane({
           <ConversationScrollButton />
         </Conversation>
       </div>
-      <div className="relative px-3 pb-3" ref={promptInputContainerRef}>
+      <div
+        className="relative px-3 pb-3"
+        onPointerDownCapture={handlePromptPointerDownCapture}
+        ref={promptInputContainerRef}
+      >
         {mentionEnabled && toolMention && (
           <div className="absolute inset-x-3 bottom-full z-30 mb-2">
             <div className="overflow-hidden rounded-md border bg-popover shadow-md">
