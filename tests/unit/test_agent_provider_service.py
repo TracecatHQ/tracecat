@@ -251,6 +251,38 @@ async def test_validate_provider_success(
     assert result is True
 
 
+@pytest.mark.anyio
+async def test_validate_provider_defaults_to_bearer_authorization(
+    session: AsyncSession,
+    svc_organization: Organization,
+) -> None:
+    service = AgentCustomProviderService(session=session, role=_role(svc_organization))
+
+    class _Response:
+        status_code = 200
+
+    class _Client:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def get(self, url: str, headers: dict[str, str]):
+            assert headers == {"Authorization": "Bearer secret"}
+            return _Response()
+
+    with patch.object(
+        provider_service_module.httpx, "AsyncClient", return_value=_Client()
+    ):
+        result = await service.validate_provider(
+            base_url="https://api.example.com",
+            api_key="secret",
+        )
+
+    assert result is True
+
+
 async def _load_raw_provider(
     session: AsyncSession, provider_id: uuid.UUID
 ) -> AgentCustomProvider:

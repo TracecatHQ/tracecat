@@ -419,8 +419,11 @@ class AgentCustomProviderService(BaseOrgService):
     ) -> httpx.Response:
         """Make a GET /models request against a provider base URL."""
         headers = custom_headers.copy() if custom_headers else {}
-        if api_key and api_key_header:
-            headers[api_key_header] = api_key
+        if api_key:
+            if not api_key_header:
+                headers["Authorization"] = f"Bearer {api_key}"
+            else:
+                headers[api_key_header] = api_key
         async with httpx.AsyncClient(timeout=timeout) as client:
             return await client.get(
                 f"{base_url.rstrip('/')}/models",
