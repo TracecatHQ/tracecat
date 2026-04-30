@@ -37,7 +37,12 @@ from tracecat.identifiers.workflow import (
 )
 from tracecat.pagination import CursorPaginationParams
 from tracecat.registry.lock.types import RegistryLock
-from tracecat.storage.object import ExternalObject, InlineObject, ObjectRef
+from tracecat.storage.object import (
+    CollectionObject,
+    ExternalObject,
+    InlineObject,
+    ObjectRef,
+)
 from tracecat.workflow.executions.common import UnreadableTemporalPayload
 from tracecat.workflow.executions.enums import (
     TriggerType,
@@ -53,6 +58,7 @@ from tracecat.workflow.executions.service import (
     WF_FAILURE_REF,
     WF_TRIGGER_REF,
     WorkflowExecutionsService,
+    _sanitize_action_result,
 )
 from tracecat.workspaces.service import WorkspaceService
 
@@ -1455,6 +1461,42 @@ class TestWorkflowExecutionEvents:
                         ],
                     },
                 }
+
+    async def test_masked_object_backed_results_preserve_object_shape(self) -> None:
+        """Masked StoredObject handles stay structured for API consumers."""
+        external = ExternalObject(
+            ref=ObjectRef(
+                bucket="test-bucket",
+                key="wf/test/result.json",
+                size_bytes=128,
+                sha256="abc123",
+                content_type="application/json",
+            ),
+        )
+        collection = CollectionObject(
+            manifest_ref=ObjectRef(
+                bucket="test-bucket",
+                key="wf/test/manifest.json",
+                size_bytes=256,
+                sha256="def456",
+            ),
+            count=3,
+            chunk_size=256,
+            element_kind="stored_object",
+        )
+
+        redacted = _sanitize_action_result(
+            True,
+            {
+                "external": external,
+                "collection": collection,
+            },
+        )
+
+        assert set(redacted["external"]) == set(external.model_dump(mode="json"))
+        assert redacted["external"]["ref"]["bucket"] == "[REDACTED]"
+        assert set(redacted["collection"]) == set(collection.model_dump(mode="json"))
+        assert redacted["collection"]["manifest_ref"]["key"] == "[REDACTED]"
 
     async def test_non_compact_masked_activity_result_redacts_leaf_values(
         self,

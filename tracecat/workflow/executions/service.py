@@ -13,7 +13,7 @@ from typing import Any, cast
 
 import orjson
 import temporalio.api.enums.v1
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 from temporalio.api.common.v1 import message_pb2
 from temporalio.api.enums.v1 import EventType, PendingActivityState, ResetReapplyType
 from temporalio.api.history.v1 import HistoryEvent
@@ -177,6 +177,8 @@ REDACTED_ACTION_RESULT = "[REDACTED]"
 
 def _redact_leaf_values(value: Any) -> Any:
     """Preserve result structure while redacting displayable values."""
+    if isinstance(value, BaseModel):
+        return _redact_leaf_values(value.model_dump(mode="json"))
     if isinstance(value, dict):
         return {key: _redact_leaf_values(child) for key, child in value.items()}
     if isinstance(value, list):
