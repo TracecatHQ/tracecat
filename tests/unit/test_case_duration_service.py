@@ -1015,6 +1015,41 @@ def test_duration_anchor_rejects_custom_timestamp_paths() -> None:
         )
 
 
+@pytest.mark.parametrize(
+    "event_type",
+    [
+        CaseEventType.PRIORITY_CHANGED,
+        CaseEventType.SEVERITY_CHANGED,
+        CaseEventType.STATUS_CHANGED,
+        CaseEventType.TAG_ADDED,
+        CaseEventType.TAG_REMOVED,
+        CaseEventType.FIELDS_CHANGED,
+        CaseEventType.DROPDOWN_VALUE_CHANGED,
+    ],
+)
+def test_duration_anchor_rejects_empty_required_filters(
+    event_type: CaseEventType,
+) -> None:
+    with pytest.raises(ValidationError):
+        CaseDurationEventAnchor(event_type=event_type)
+
+
+@pytest.mark.parametrize(
+    "event_type",
+    [
+        CaseEventType.CASE_CREATED,
+        CaseEventType.CASE_CLOSED,
+        CaseEventType.CASE_REOPENED,
+    ],
+)
+def test_duration_anchor_allows_empty_filters_for_unfiltered_events(
+    event_type: CaseEventType,
+) -> None:
+    anchor = CaseDurationEventAnchor(event_type=event_type)
+
+    assert anchor.filters == CaseDurationEventFilters()
+
+
 @pytest.mark.anyio
 async def test_duration_storage_maps_known_legacy_ui_filters(
     session: AsyncSession, svc_role
@@ -1066,8 +1101,9 @@ async def test_duration_storage_allows_empty_legacy_filters(
 
     anchor = definition_service._anchor_from_entity(entity, "start")
 
-    assert not anchor._has_unsupported_filters
+    assert anchor._has_unsupported_filters
     assert anchor.filters == CaseDurationEventFilters()
+    assert anchor._legacy_field_filters == {}
 
 
 @pytest.mark.anyio

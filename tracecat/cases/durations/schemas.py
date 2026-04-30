@@ -83,10 +83,10 @@ class CaseDurationEventAnchor(BaseModel):
 
     @model_validator(mode="after")
     def validate_filters_for_event_type(self) -> CaseDurationEventAnchor:
-        filters = self.filters
-        if filters.is_empty():
+        if self._has_unsupported_filters:
             return self
 
+        filters = self.filters
         allowed_fields = _allowed_filter_fields_for_event_type(self.event_type)
         active_fields = _active_filter_fields(filters)
         unsupported = active_fields - allowed_fields
