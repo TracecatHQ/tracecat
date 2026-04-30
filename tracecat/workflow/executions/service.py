@@ -983,11 +983,15 @@ class WorkflowExecutionsService:
                         )
                     )
                 case EventType.EVENT_TYPE_CHILD_WORKFLOW_EXECUTION_COMPLETED:
-                    result = await extract_first(
+                    raw_result = await extract_first(
                         event.child_workflow_execution_completed_event_attributes.result
                     )
                     initiator_event_id = event.child_workflow_execution_completed_event_attributes.initiated_event_id
                     group = event_group_names.get(initiator_event_id)
+                    result = _sanitize_action_result(
+                        group.should_mask_output if group else False,
+                        raw_result,
+                    )
                     events.append(
                         WorkflowExecutionEvent(
                             event_id=event.event_id,
@@ -1136,8 +1140,12 @@ class WorkflowExecutionsService:
                     if not (group := event_group_names.get(gparent_event_id)):
                         continue
                     event_group_names[event.event_id] = group
-                    result = await extract_first(
+                    raw_result = await extract_first(
                         event.activity_task_completed_event_attributes.result
+                    )
+                    result = _sanitize_action_result(
+                        group.should_mask_output,
+                        raw_result,
                     )
                     events.append(
                         WorkflowExecutionEvent(

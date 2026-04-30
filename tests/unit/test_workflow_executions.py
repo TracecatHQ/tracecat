@@ -1427,6 +1427,142 @@ class TestWorkflowExecutionEvents:
                     },
                 }
 
+    async def test_non_compact_masked_activity_result_redacts_leaf_values(
+        self,
+        workflow_executions_service: WorkflowExecutionsService,
+        workflow_exec_id: WorkflowExecutionID,
+    ) -> None:
+        """Masked activity outputs are redacted in the standard execution view."""
+        scheduled = create_mock_history_event(
+            event_id=1,
+            event_type=EventType.EVENT_TYPE_ACTIVITY_TASK_SCHEDULED,  # type: ignore
+            activity_id="masked-action",
+            activity_name="execute_action_activity",
+        )
+        completed = create_mock_history_event(
+            event_id=11,
+            event_type=EventType.EVENT_TYPE_ACTIVITY_TASK_COMPLETED,  # type: ignore
+            scheduled_event_id=1,
+        )
+        mock_handle = Mock(spec=WorkflowHandle)
+        mock_handle.fetch_history = AsyncMock(
+            return_value=Mock(events=[scheduled, completed])
+        )
+        mock_handle.describe = AsyncMock(return_value=Mock())
+        workflow_executions_service._client.get_workflow_handle_for = Mock(
+            return_value=mock_handle
+        )
+        action_name = "core.transform.reshape"
+        wf_id = WorkflowUUID.new_uuid4()
+        exec_id = ExecutionUUID.new_uuid4()
+        run_input = RunActionInput(
+            task=ActionStatement(
+                action=action_name,
+                args={"value": "visible-input"},
+                ref="masked_action",
+                mask_output=True,
+            ),
+            exec_context={"ACTIONS": {}, "TRIGGER": None},
+            run_context=RunContext(
+                wf_id=wf_id,
+                wf_exec_id=f"{wf_id.short()}/{exec_id.short()}",
+                wf_run_id=uuid.uuid4(),
+                environment="test",
+                logical_time=datetime.datetime.now(datetime.UTC),
+            ),
+            registry_lock=RegistryLock(
+                origins={"tracecat_registry": "test-version"},
+                actions={action_name: "tracecat_registry"},
+            ),
+        )
+
+        with (
+            patch(
+                "tracecat.workflow.executions.schemas.extract_first",
+                new_callable=AsyncMock,
+            ) as mock_source_extract_first,
+            patch(
+                "tracecat.workflow.executions.service.extract_first",
+                new_callable=AsyncMock,
+            ) as mock_result_extract_first,
+        ):
+            mock_source_extract_first.return_value = run_input.model_dump(mode="json")
+            mock_result_extract_first.return_value = {
+                "secret": "hidden-output",
+                "nested": {"token": "secret-token"},
+            }
+
+            events = await workflow_executions_service.list_workflow_execution_events(
+                workflow_exec_id
+            )
+
+        completed_event = next(
+            event
+            for event in events
+            if event.event_type == WorkflowEventType.ACTIVITY_TASK_COMPLETED
+        )
+        assert completed_event.result == {
+            "secret": "[REDACTED]",
+            "nested": {"token": "[REDACTED]"},
+        }
+
+    async def test_non_compact_masked_child_workflow_result_redacts_leaf_values(
+        self,
+        workflow_executions_service: WorkflowExecutionsService,
+        workflow_exec_id: WorkflowExecutionID,
+    ) -> None:
+        """Masked child workflow outputs are redacted in the standard execution view."""
+        initiated = create_mock_child_workflow_initiated_event(event_id=1)
+        completed = create_mock_child_workflow_completed_event(
+            event_id=11,
+            initiated_event_id=1,
+        )
+        unreadable = UnreadableTemporalPayload(
+            error_type="decode_error",
+            encoding="json/plain",
+            payload_size_bytes=0,
+        )
+        mock_handle = Mock(spec=WorkflowHandle)
+        mock_handle.fetch_history = AsyncMock(
+            return_value=Mock(events=[initiated, completed])
+        )
+        mock_handle.describe = AsyncMock(return_value=Mock())
+        workflow_executions_service._client.get_workflow_handle_for = Mock(
+            return_value=mock_handle
+        )
+
+        with (
+            patch(
+                "tracecat.workflow.executions.schemas.ChildWorkflowMemo.from_temporal",
+                new_callable=AsyncMock,
+            ) as mock_memo,
+            patch(
+                "tracecat.workflow.executions.schemas.extract_first",
+                new_callable=AsyncMock,
+            ) as mock_source_extract_first,
+            patch(
+                "tracecat.workflow.executions.service.extract_first",
+                new_callable=AsyncMock,
+            ) as mock_result_extract_first,
+        ):
+            mock_memo.return_value = ChildWorkflowMemo(
+                action_ref="masked_child",
+                mask_output=True,
+            )
+            mock_source_extract_first.return_value = unreadable
+            mock_result_extract_first.return_value = {"secret": "child-output"}
+
+            events = await workflow_executions_service.list_workflow_execution_events(
+                workflow_exec_id
+            )
+
+        completed_event = next(
+            event
+            for event in events
+            if event.event_type == WorkflowEventType.CHILD_WORKFLOW_EXECUTION_COMPLETED
+        )
+        assert completed_event.result == {"secret": "[REDACTED]"}
+
     async def test_compact_duplicate_actions_latest_failure_wins(
         self,
         workflow_executions_service: WorkflowExecutionsService,
