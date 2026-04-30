@@ -54,6 +54,7 @@ def resolve_oss_default_entitlements(
             agent_addons=False,
             case_addons=False,
             rbac_addons=False,
+            service_accounts=False,
             watchtower=False,
         )
 
@@ -85,6 +86,7 @@ def resolve_oss_default_entitlements(
         agent_addons=agent_addons_enabled,
         case_addons=case_addons_enabled,
         rbac_addons=rbac_enabled,
+        service_accounts=False,
         watchtower=False,
     )
 

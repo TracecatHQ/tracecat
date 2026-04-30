@@ -19,8 +19,20 @@ from tracecat.db.engine import get_async_session_bypass_rls_context_manager
 from tracecat.db.models import Scope, ServiceAccount, ServiceAccountApiKey, Workspace
 from tracecat.service_accounts.constants import API_KEY_HEADER_NAME
 from tracecat.service_accounts.router import WorkspaceUserOnlyInPath
+from tracecat.tiers import defaults as tier_defaults
 
 pytestmark = pytest.mark.usefixtures("db")
+
+
+@pytest.fixture(autouse=True)
+def enable_service_accounts_entitlement(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        tier_defaults,
+        "DEFAULT_ENTITLEMENTS",
+        tier_defaults.DEFAULT_ENTITLEMENTS.model_copy(
+            update={"service_accounts": True}
+        ),
+    )
 
 
 def _dependency_for_role(role_type: Any) -> Callable[..., Any]:

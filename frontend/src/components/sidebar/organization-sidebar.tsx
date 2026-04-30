@@ -38,6 +38,7 @@ export function OrganizationSidebar({
   const { hasEntitlement } = useEntitlements()
   const customRegistryEnabled = hasEntitlement("custom_registry")
   const gitSyncEnabled = hasEntitlement("git_sync")
+  const serviceAccountsEnabled = hasEntitlement("service_accounts")
 
   // Scope checks for org sidebar items
   const canViewSettings = useScopeCheck("org:settings:read")
@@ -140,7 +141,7 @@ export function OrganizationSidebar({
       url: "/organization/settings/service-accounts",
       icon: KeyRoundIcon,
       isActive: pathname?.includes("/organization/settings/service-accounts"),
-      visible: canViewServiceAccounts === true,
+      visible: canViewServiceAccounts === true && serviceAccountsEnabled,
     },
   ]
 

@@ -55,7 +55,11 @@ function workspaceServiceAccountApiKeysQueryKey(
   ] as const
 }
 
-export function useOrganizationServiceAccounts() {
+export function useOrganizationServiceAccounts({
+  enabled = true,
+}: {
+  enabled?: boolean
+} = {}) {
   const queryClient = useQueryClient()
 
   const {
@@ -66,6 +70,7 @@ export function useOrganizationServiceAccounts() {
     queryKey: organizationServiceAccountsQueryKey(),
     queryFn: async () =>
       await serviceAccountsListOrganizationServiceAccounts({ limit: 100 }),
+    enabled,
   })
 
   function invalidate() {
@@ -199,7 +204,11 @@ export function useOrganizationServiceAccountApiKeys(
   }
 }
 
-export function useOrganizationServiceAccountScopes() {
+export function useOrganizationServiceAccountScopes({
+  enabled = true,
+}: {
+  enabled?: boolean
+} = {}) {
   const {
     data: response,
     isLoading,
@@ -208,6 +217,7 @@ export function useOrganizationServiceAccountScopes() {
     queryKey: ["organization-service-account-scopes"],
     queryFn: async () =>
       await serviceAccountsListOrganizationServiceAccountScopes(),
+    enabled,
   })
 
   return {
@@ -217,7 +227,10 @@ export function useOrganizationServiceAccountScopes() {
   }
 }
 
-export function useWorkspaceServiceAccounts(workspaceId: string) {
+export function useWorkspaceServiceAccounts(
+  workspaceId: string,
+  { enabled = true }: { enabled?: boolean } = {}
+) {
   const queryClient = useQueryClient()
 
   const {
@@ -231,7 +244,7 @@ export function useWorkspaceServiceAccounts(workspaceId: string) {
         workspaceId,
         limit: 100,
       }),
-    enabled: Boolean(workspaceId),
+    enabled: enabled && Boolean(workspaceId),
   })
 
   function invalidate() {
@@ -384,7 +397,10 @@ export function useWorkspaceServiceAccountApiKeys(
   }
 }
 
-export function useWorkspaceServiceAccountScopes(workspaceId: string) {
+export function useWorkspaceServiceAccountScopes(
+  workspaceId: string,
+  { enabled = true }: { enabled?: boolean } = {}
+) {
   const {
     data: response,
     isLoading,
@@ -393,7 +409,7 @@ export function useWorkspaceServiceAccountScopes(workspaceId: string) {
     queryKey: ["workspace-service-account-scopes", workspaceId],
     queryFn: async () =>
       await serviceAccountsListWorkspaceServiceAccountScopes({ workspaceId }),
-    enabled: Boolean(workspaceId),
+    enabled: enabled && Boolean(workspaceId),
   })
 
   return {

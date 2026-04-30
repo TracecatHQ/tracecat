@@ -4,8 +4,10 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import { useCallback } from "react"
 import { serviceAccountsListOrganizationServiceAccountApiKeys } from "@/client"
 import { useScopeCheck } from "@/components/auth/scope-guard"
+import { EntitlementRequiredEmptyState } from "@/components/entitlement-required-empty-state"
 import { AlertNotification } from "@/components/notifications"
 import { ServiceAccountsManager } from "@/components/organization/service-accounts-manager"
+import { useEntitlements } from "@/hooks/use-entitlements"
 import {
   useOrganizationServiceAccountScopes,
   useOrganizationServiceAccounts,
@@ -20,11 +22,15 @@ export function OrgSettingsServiceAccounts() {
   const canCreate = useScopeCheck("org:service_account:create")
   const canUpdate = useScopeCheck("org:service_account:update")
   const canDisable = useScopeCheck("org:service_account:disable")
+  const { hasEntitlement, isLoading: entitlementsLoading } = useEntitlements()
+  const serviceAccountsEnabled = hasEntitlement("service_accounts")
   const {
     scopes,
     isLoading: scopesLoading,
     error: scopesError,
-  } = useOrganizationServiceAccountScopes()
+  } = useOrganizationServiceAccountScopes({
+    enabled: serviceAccountsEnabled,
+  })
   const {
     serviceAccounts,
     nextCursor,
@@ -42,7 +48,9 @@ export function OrgSettingsServiceAccounts() {
     issueApiKeyPending,
     revokeApiKey,
     revokeApiKeyPending,
-  } = useOrganizationServiceAccounts()
+  } = useOrganizationServiceAccounts({
+    enabled: serviceAccountsEnabled,
+  })
 
   const handleCreateSignalConsumed = useCallback(() => {
     if (!pathname || !searchParams?.get(CREATE_SERVICE_ACCOUNT_PARAM)) {
@@ -59,6 +67,17 @@ export function OrgSettingsServiceAccounts() {
       <AlertNotification
         level="error"
         message={`Error loading scopes: ${scopesError.message}`}
+      />
+    )
+  }
+  if (entitlementsLoading) {
+    return null
+  }
+  if (!serviceAccountsEnabled) {
+    return (
+      <EntitlementRequiredEmptyState
+        title="Service accounts unavailable"
+        description="Service account access is not enabled for this organization."
       />
     )
   }

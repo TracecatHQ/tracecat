@@ -118,13 +118,15 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const canViewMembers = useScopeCheck("workspace:member:read")
   const canViewServiceAccounts = useScopeCheck("workspace:service_account:read")
   const canViewCases = useScopeCheck("case:read")
-  const shouldLoadAgentEntitlements = canViewAgents === true
+  const shouldLoadEntitlements =
+    canViewAgents === true || canViewServiceAccounts === true
   const shouldLoadAgentsSection =
-    shouldLoadAgentEntitlements && (agentsSectionOpen || isAgentsRoute)
+    canViewAgents === true && (agentsSectionOpen || isAgentsRoute)
   const { hasEntitlement, isLoading: entitlementsIsLoading } = useEntitlements({
-    enabled: shouldLoadAgentEntitlements,
+    enabled: shouldLoadEntitlements,
   })
   const agentAddonsEnabled = hasEntitlement("agent_addons")
+  const serviceAccountsEnabled = hasEntitlement("service_accounts")
   const { presets, presetsIsLoading } = useAgentPresets(workspaceId, {
     enabled: shouldLoadAgentsSection && agentAddonsEnabled,
   })
@@ -453,7 +455,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                   isActive: pathname?.startsWith(`${basePath}/members`),
                 }
               : null,
-            canViewServiceAccounts === true
+            canViewServiceAccounts === true && serviceAccountsEnabled
               ? {
                   title: "Service accounts",
                   href: `${basePath}/service-accounts`,

@@ -17,10 +17,22 @@ from tracecat.service_accounts.service import (
     OrganizationServiceAccountService,
     WorkspaceServiceAccountService,
 )
+from tracecat.tiers import defaults as tier_defaults
 
 type ServiceAccountServiceClass = (
     type[OrganizationServiceAccountService] | type[WorkspaceServiceAccountService]
 )
+
+
+@pytest.fixture(autouse=True)
+def enable_service_accounts_entitlement(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        tier_defaults,
+        "DEFAULT_ENTITLEMENTS",
+        tier_defaults.DEFAULT_ENTITLEMENTS.model_copy(
+            update={"service_accounts": True}
+        ),
+    )
 
 
 def test_issued_service_account_api_key_result_exposes_api_key_id() -> None:
