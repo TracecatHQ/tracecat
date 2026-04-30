@@ -9808,14 +9808,6 @@ export type AgentSetDefaultModelSelectionData = {
 
 export type AgentSetDefaultModelSelectionResponse = DefaultModelSelection
 
-export type AgentGetWorkspaceProvidersStatusData = {
-  workspaceId: string
-}
-
-export type AgentGetWorkspaceProvidersStatusResponse = {
-  [key: string]: boolean
-}
-
 export type ListCatalogData = {
   cursor?: string | null
   limit?: number
@@ -9927,6 +9919,14 @@ export type ValidateCustomProviderConnectionData = {
 }
 
 export type ValidateCustomProviderConnectionResponse = {
+  [key: string]: boolean
+}
+
+export type AgentGetWorkspaceProvidersStatusData = {
+  workspaceId: string
+}
+
+export type AgentGetWorkspaceProvidersStatusResponse = {
   [key: string]: boolean
 }
 
@@ -10642,6 +10642,10 @@ export type EditorValidateExpressionData = {
 }
 
 export type EditorValidateExpressionResponse = ExpressionValidationResponse
+
+export type EditorFieldSchemaData = {
+  workspaceId: string
+}
 
 export type EditorFieldSchemaResponse = EditorComponent
 
@@ -12855,7 +12859,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/workflows/{workflow_id}/graph": {
+  "/workspaces/{workspace_id}/workflows/{workflow_id}/graph": {
     get: {
       req: GraphGetGraphData
       res: {
@@ -12883,7 +12887,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/workflow-executions": {
+  "/workspaces/{workspace_id}/workflow-executions": {
     get: {
       req: WorkflowExecutionsListWorkflowExecutionsData
       res: {
@@ -12911,7 +12915,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/workflow-executions/search": {
+  "/workspaces/{workspace_id}/workflow-executions/search": {
     get: {
       req: WorkflowExecutionsSearchWorkflowExecutionsData
       res: {
@@ -12926,7 +12930,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/workflow-executions/{execution_id}/reset-points": {
+  "/workspaces/{workspace_id}/workflow-executions/{execution_id}/reset-points": {
     get: {
       req: WorkflowExecutionsListWorkflowExecutionResetPointsData
       res: {
@@ -12941,7 +12945,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/workflow-executions/{execution_id}/reset": {
+  "/workspaces/{workspace_id}/workflow-executions/{execution_id}/reset": {
     post: {
       req: WorkflowExecutionsResetWorkflowExecutionData
       res: {
@@ -12956,7 +12960,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/workflow-executions/reset/bulk": {
+  "/workspaces/{workspace_id}/workflow-executions/reset/bulk": {
     post: {
       req: WorkflowExecutionsBulkResetWorkflowExecutionsData
       res: {
@@ -12971,7 +12975,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/workflow-executions/{execution_id}": {
+  "/workspaces/{workspace_id}/workflow-executions/{execution_id}": {
     get: {
       req: WorkflowExecutionsGetWorkflowExecutionData
       res: {
@@ -12986,7 +12990,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/workflow-executions/{execution_id}/compact": {
+  "/workspaces/{workspace_id}/workflow-executions/{execution_id}/compact": {
     get: {
       req: WorkflowExecutionsGetWorkflowExecutionCompactData
       res: {
@@ -13001,7 +13005,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/workflow-executions/{execution_id}/objects/download": {
+  "/workspaces/{workspace_id}/workflow-executions/{execution_id}/objects/download": {
     post: {
       req: WorkflowExecutionsGetWorkflowExecutionObjectDownloadData
       res: {
@@ -13016,7 +13020,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/workflow-executions/{execution_id}/objects/preview": {
+  "/workspaces/{workspace_id}/workflow-executions/{execution_id}/objects/preview": {
     post: {
       req: WorkflowExecutionsGetWorkflowExecutionObjectPreviewData
       res: {
@@ -13031,7 +13035,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/workflow-executions/{execution_id}/objects/collection/page": {
+  "/workspaces/{workspace_id}/workflow-executions/{execution_id}/objects/collection/page": {
     post: {
       req: WorkflowExecutionsGetWorkflowExecutionCollectionPageData
       res: {
@@ -13046,7 +13050,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/workflow-executions/draft": {
+  "/workspaces/{workspace_id}/workflow-executions/draft": {
     post: {
       req: WorkflowExecutionsCreateDraftWorkflowExecutionData
       res: {
@@ -13061,7 +13065,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/workflow-executions/{execution_id}/cancel": {
+  "/workspaces/{workspace_id}/workflow-executions/{execution_id}/cancel": {
     post: {
       req: WorkflowExecutionsCancelWorkflowExecutionData
       res: {
@@ -13076,7 +13080,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/workflow-executions/{execution_id}/terminate": {
+  "/workspaces/{workspace_id}/workflow-executions/{execution_id}/terminate": {
     post: {
       req: WorkflowExecutionsTerminateWorkflowExecutionData
       res: {
@@ -13091,7 +13095,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/actions/batch-positions": {
+  "/workspaces/{workspace_id}/actions/batch-positions": {
     post: {
       req: ActionsBatchUpdatePositionsData
       res: {
@@ -13106,7 +13110,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/actions": {
+  "/workspaces/{workspace_id}/actions": {
     get: {
       req: ActionsListActionsData
       res: {
@@ -13134,7 +13138,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/actions/{action_id}": {
+  "/workspaces/{workspace_id}/actions/{action_id}": {
     get: {
       req: ActionsGetActionData
       res: {
@@ -13175,7 +13179,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/workflows/{workflow_id}/tags": {
+  "/workspaces/{workspace_id}/workflows/{workflow_id}/tags": {
     get: {
       req: WorkflowsListTagsData
       res: {
@@ -13203,7 +13207,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/workflows/{workflow_id}/tags/{tag_id}": {
+  "/workspaces/{workspace_id}/workflows/{workflow_id}/tags/{tag_id}": {
     delete: {
       req: WorkflowsRemoveTagData
       res: {
@@ -13218,7 +13222,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/workflows/{workflow_id}/publish": {
+  "/workspaces/{workspace_id}/workflows/{workflow_id}/publish": {
     post: {
       req: WorkflowsPublishWorkflowData
       res: {
@@ -13233,7 +13237,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/workflows/sync/commits": {
+  "/workspaces/{workspace_id}/workflows/sync/commits": {
     get: {
       req: WorkflowsListWorkflowCommitsData
       res: {
@@ -13248,7 +13252,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/workflows/sync/branches": {
+  "/workspaces/{workspace_id}/workflows/sync/branches": {
     get: {
       req: WorkflowsListWorkflowBranchesData
       res: {
@@ -13263,7 +13267,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/workflows/sync/pull": {
+  "/workspaces/{workspace_id}/workflows/sync/pull": {
     post: {
       req: WorkflowsPullWorkflowsData
       res: {
@@ -13278,7 +13282,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/secrets/search": {
+  "/workspaces/{workspace_id}/secrets/search": {
     get: {
       req: SecretsSearchSecretsData
       res: {
@@ -13293,7 +13297,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/secrets": {
+  "/workspaces/{workspace_id}/secrets": {
     get: {
       req: SecretsListSecretsData
       res: {
@@ -13321,7 +13325,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/secrets/definitions": {
+  "/workspaces/{workspace_id}/secrets/definitions": {
     get: {
       req: SecretsListSecretDefinitionsData
       res: {
@@ -13336,7 +13340,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/secrets/aws-assume-role": {
+  "/workspaces/{workspace_id}/secrets/aws-assume-role": {
     get: {
       req: SecretsGetAwsAssumeRoleAccessData
       res: {
@@ -13351,7 +13355,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/secrets/{secret_name}": {
+  "/workspaces/{workspace_id}/secrets/{secret_name}": {
     get: {
       req: SecretsGetSecretByNameData
       res: {
@@ -13366,7 +13370,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/secrets/{secret_id}": {
+  "/workspaces/{workspace_id}/secrets/{secret_id}": {
     post: {
       req: SecretsUpdateSecretByIdData
       res: {
@@ -13394,7 +13398,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/variables/search": {
+  "/workspaces/{workspace_id}/variables/search": {
     get: {
       req: VariablesSearchVariablesData
       res: {
@@ -13409,7 +13413,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/variables": {
+  "/workspaces/{workspace_id}/variables": {
     get: {
       req: VariablesListVariablesData
       res: {
@@ -13437,7 +13441,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/variables/{variable_name}": {
+  "/workspaces/{workspace_id}/variables/{variable_name}": {
     get: {
       req: VariablesGetVariableByNameData
       res: {
@@ -13452,7 +13456,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/variables/{variable_id}": {
+  "/workspaces/{workspace_id}/variables/{variable_id}": {
     post: {
       req: VariablesUpdateVariableByIdData
       res: {
@@ -13480,7 +13484,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/schedules": {
+  "/workspaces/{workspace_id}/schedules": {
     get: {
       req: SchedulesListSchedulesData
       res: {
@@ -13508,7 +13512,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/schedules/{schedule_id}": {
+  "/workspaces/{workspace_id}/schedules/{schedule_id}": {
     get: {
       req: SchedulesGetScheduleData
       res: {
@@ -13549,7 +13553,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/schedules/search": {
+  "/workspaces/{workspace_id}/schedules/search": {
     get: {
       req: SchedulesSearchSchedulesData
       res: {
@@ -13564,7 +13568,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/tags": {
+  "/workspaces/{workspace_id}/tags": {
     get: {
       req: TagsListTagsData
       res: {
@@ -13592,7 +13596,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/tags/{tag_id}": {
+  "/workspaces/{workspace_id}/tags/{tag_id}": {
     get: {
       req: TagsGetTagData
       res: {
@@ -14159,23 +14163,6 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/agent/workspace/providers/status": {
-    get: {
-      req: AgentGetWorkspaceProvidersStatusData
-      res: {
-        /**
-         * Successful Response
-         */
-        200: {
-          [key: string]: boolean
-        }
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-  }
   "/organization/agent-catalog": {
     get: {
       req: ListCatalogData
@@ -14404,7 +14391,24 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/agent/channels/tokens": {
+  "/workspaces/{workspace_id}/agent/workspace/providers/status": {
+    get: {
+      req: AgentGetWorkspaceProvidersStatusData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: {
+          [key: string]: boolean
+        }
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/agent/channels/tokens": {
     post: {
       req: AgentChannelsCreateChannelTokenData
       res: {
@@ -14432,7 +14436,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/agent/channels/tokens/{token_id}": {
+  "/workspaces/{workspace_id}/agent/channels/tokens/{token_id}": {
     patch: {
       req: AgentChannelsUpdateChannelTokenData
       res: {
@@ -14460,7 +14464,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/agent/channels/tokens/{token_id}/rotate": {
+  "/workspaces/{workspace_id}/agent/channels/tokens/{token_id}/rotate": {
     post: {
       req: AgentChannelsRotateChannelTokenData
       res: {
@@ -14475,7 +14479,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/agent/channels/tokens/slack/oauth/start": {
+  "/workspaces/{workspace_id}/agent/channels/tokens/slack/oauth/start": {
     post: {
       req: AgentChannelsStartSlackOauthData
       res: {
@@ -14490,7 +14494,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/agent/presets": {
+  "/workspaces/{workspace_id}/agent/presets": {
     get: {
       req: AgentPresetsListAgentPresetsData
       res: {
@@ -14518,7 +14522,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/agent/presets/{preset_id}": {
+  "/workspaces/{workspace_id}/agent/presets/{preset_id}": {
     get: {
       req: AgentPresetsGetAgentPresetData
       res: {
@@ -14559,7 +14563,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/agent/presets/by-slug/{slug}": {
+  "/workspaces/{workspace_id}/agent/presets/by-slug/{slug}": {
     get: {
       req: AgentPresetsGetAgentPresetBySlugData
       res: {
@@ -14574,7 +14578,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/agent/presets/{preset_id}/versions": {
+  "/workspaces/{workspace_id}/agent/presets/{preset_id}/versions": {
     get: {
       req: AgentPresetsListAgentPresetVersionsData
       res: {
@@ -14589,7 +14593,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/agent/presets/{preset_id}/versions/{version_id}": {
+  "/workspaces/{workspace_id}/agent/presets/{preset_id}/versions/{version_id}": {
     get: {
       req: AgentPresetsGetAgentPresetVersionData
       res: {
@@ -14604,7 +14608,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/agent/presets/{preset_id}/versions/{version_id}/compare": {
+  "/workspaces/{workspace_id}/agent/presets/{preset_id}/versions/{version_id}/compare": {
     get: {
       req: AgentPresetsCompareAgentPresetVersionsData
       res: {
@@ -14619,7 +14623,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/agent/presets/{preset_id}/versions/{version_id}/restore": {
+  "/workspaces/{workspace_id}/agent/presets/{preset_id}/versions/{version_id}/restore": {
     post: {
       req: AgentPresetsRestoreAgentPresetVersionData
       res: {
@@ -14634,7 +14638,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/agent/skills": {
+  "/workspaces/{workspace_id}/agent/skills": {
     get: {
       req: AgentSkillsListSkillsData
       res: {
@@ -14662,7 +14666,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/agent/skills:upload": {
+  "/workspaces/{workspace_id}/agent/skills:upload": {
     post: {
       req: AgentSkillsUploadSkillData
       res: {
@@ -14677,7 +14681,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/agent/skills/{skill_id}": {
+  "/workspaces/{workspace_id}/agent/skills/{skill_id}": {
     get: {
       req: AgentSkillsGetSkillData
       res: {
@@ -14705,7 +14709,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/agent/skills/{skill_id}/draft": {
+  "/workspaces/{workspace_id}/agent/skills/{skill_id}/draft": {
     get: {
       req: AgentSkillsGetSkillDraftData
       res: {
@@ -14733,7 +14737,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/agent/skills/{skill_id}/draft/file": {
+  "/workspaces/{workspace_id}/agent/skills/{skill_id}/draft/file": {
     get: {
       req: AgentSkillsGetSkillDraftFileData
       res: {
@@ -14748,7 +14752,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/agent/skills/{skill_id}/draft/uploads": {
+  "/workspaces/{workspace_id}/agent/skills/{skill_id}/draft/uploads": {
     post: {
       req: AgentSkillsCreateSkillDraftUploadData
       res: {
@@ -14763,7 +14767,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/agent/skills/{skill_id}/publish": {
+  "/workspaces/{workspace_id}/agent/skills/{skill_id}/publish": {
     post: {
       req: AgentSkillsPublishSkillData
       res: {
@@ -14778,7 +14782,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/agent/skills/{skill_id}/versions": {
+  "/workspaces/{workspace_id}/agent/skills/{skill_id}/versions": {
     get: {
       req: AgentSkillsListSkillVersionsData
       res: {
@@ -14793,7 +14797,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/agent/skills/{skill_id}/versions/{version_id}": {
+  "/workspaces/{workspace_id}/agent/skills/{skill_id}/versions/{version_id}": {
     get: {
       req: AgentSkillsGetSkillVersionData
       res: {
@@ -14808,7 +14812,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/agent/skills/{skill_id}/versions/{version_id}/file": {
+  "/workspaces/{workspace_id}/agent/skills/{skill_id}/versions/{version_id}/file": {
     get: {
       req: AgentSkillsGetSkillVersionFileData
       res: {
@@ -14823,7 +14827,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/agent/skills/{skill_id}/versions/{version_id}/restore": {
+  "/workspaces/{workspace_id}/agent/skills/{skill_id}/versions/{version_id}/restore": {
     post: {
       req: AgentSkillsRestoreSkillVersionData
       res: {
@@ -14838,7 +14842,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/agent/sessions": {
+  "/workspaces/{workspace_id}/agent/sessions": {
     post: {
       req: AgentSessionsCreateSessionData
       res: {
@@ -14866,7 +14870,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/agent/sessions/{session_id}": {
+  "/workspaces/{workspace_id}/agent/sessions/{session_id}": {
     get: {
       req: AgentSessionsGetSessionData
       res: {
@@ -14907,7 +14911,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/agent/sessions/{session_id}/vercel": {
+  "/workspaces/{workspace_id}/agent/sessions/{session_id}/vercel": {
     get: {
       req: AgentSessionsGetSessionVercelData
       res: {
@@ -14922,7 +14926,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/agent/sessions/{session_id}/messages": {
+  "/workspaces/{workspace_id}/agent/sessions/{session_id}/messages": {
     post: {
       req: AgentSessionsSendMessageData
       res: {
@@ -14937,7 +14941,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/agent/sessions/{session_id}/stream": {
+  "/workspaces/{workspace_id}/agent/sessions/{session_id}/stream": {
     get: {
       req: AgentSessionsStreamSessionEventsData
       res: {
@@ -14952,7 +14956,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/agent/sessions/{session_id}/fork": {
+  "/workspaces/{workspace_id}/agent/sessions/{session_id}/fork": {
     post: {
       req: AgentSessionsForkSessionData
       res: {
@@ -14967,7 +14971,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/approvals/{session_id}": {
+  "/workspaces/{workspace_id}/approvals/{session_id}": {
     post: {
       req: ApprovalsSubmitApprovalsData
       res: {
@@ -15623,7 +15627,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/inbox/items": {
+  "/workspaces/{workspace_id}/inbox/items": {
     get: {
       req: InboxListItemsData
       res: {
@@ -15638,7 +15642,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/editor/functions": {
+  "/workspaces/{workspace_id}/editor/functions": {
     get: {
       req: EditorListFunctionsData
       res: {
@@ -15653,7 +15657,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/editor/actions": {
+  "/workspaces/{workspace_id}/editor/actions": {
     get: {
       req: EditorListActionsData
       res: {
@@ -15668,7 +15672,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/editor/expressions/validate": {
+  "/workspaces/{workspace_id}/editor/expressions/validate": {
     post: {
       req: EditorValidateExpressionData
       res: {
@@ -15683,13 +15687,18 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/editor/field-schema": {
+  "/workspaces/{workspace_id}/editor/field-schema": {
     get: {
+      req: EditorFieldSchemaData
       res: {
         /**
          * Successful Response
          */
         200: EditorComponent
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
       }
     }
   }
@@ -16086,7 +16095,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/tables": {
+  "/workspaces/{workspace_id}/tables": {
     get: {
       req: TablesListTablesData
       res: {
@@ -16114,7 +16123,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/tables/{table_id}": {
+  "/workspaces/{workspace_id}/tables/{table_id}": {
     get: {
       req: TablesGetTableData
       res: {
@@ -16155,7 +16164,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/tables/{table_id}/columns": {
+  "/workspaces/{workspace_id}/tables/{table_id}/columns": {
     post: {
       req: TablesCreateColumnData
       res: {
@@ -16170,7 +16179,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/tables/{table_id}/columns/{column_id}": {
+  "/workspaces/{workspace_id}/tables/{table_id}/columns/{column_id}": {
     patch: {
       req: TablesUpdateColumnData
       res: {
@@ -16198,7 +16207,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/tables/{table_id}/rows": {
+  "/workspaces/{workspace_id}/tables/{table_id}/rows": {
     get: {
       req: TablesListRowsData
       res: {
@@ -16226,7 +16235,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/tables/{table_id}/rows/{row_id}": {
+  "/workspaces/{workspace_id}/tables/{table_id}/rows/{row_id}": {
     get: {
       req: TablesGetRowData
       res: {
@@ -16267,7 +16276,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/tables/{table_id}/rows/batch": {
+  "/workspaces/{workspace_id}/tables/{table_id}/rows/batch": {
     post: {
       req: TablesBatchInsertRowsData
       res: {
@@ -16282,7 +16291,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/tables/{table_id}/rows/batch-delete": {
+  "/workspaces/{workspace_id}/tables/{table_id}/rows/batch-delete": {
     post: {
       req: TablesBatchDeleteRowsData
       res: {
@@ -16297,7 +16306,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/tables/{table_id}/rows/batch-update": {
+  "/workspaces/{workspace_id}/tables/{table_id}/rows/batch-update": {
     post: {
       req: TablesBatchUpdateRowsData
       res: {
@@ -16312,7 +16321,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/tables/import": {
+  "/workspaces/{workspace_id}/tables/import": {
     post: {
       req: TablesImportTableFromCsvData
       res: {
@@ -16327,7 +16336,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/tables/{table_id}/import": {
+  "/workspaces/{workspace_id}/tables/{table_id}/import": {
     post: {
       req: TablesImportCsvData
       res: {
@@ -16342,7 +16351,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/cases": {
+  "/workspaces/{workspace_id}/cases": {
     get: {
       req: CasesListCasesData
       res: {
@@ -16370,7 +16379,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/cases/search": {
+  "/workspaces/{workspace_id}/cases/search": {
     get: {
       req: CasesSearchCasesData
       res: {
@@ -16385,7 +16394,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/cases/search/aggregate": {
+  "/workspaces/{workspace_id}/cases/search/aggregate": {
     get: {
       req: CasesSearchCaseAggregatesData
       res: {
@@ -16400,7 +16409,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/cases/{case_id}": {
+  "/workspaces/{workspace_id}/cases/{case_id}": {
     get: {
       req: CasesGetCaseData
       res: {
@@ -16441,7 +16450,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/cases/{case_id}/comments": {
+  "/workspaces/{workspace_id}/cases/{case_id}/comments": {
     get: {
       req: CasesListCommentsData
       res: {
@@ -16469,7 +16478,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/cases/{case_id}/comments/threads": {
+  "/workspaces/{workspace_id}/cases/{case_id}/comments/threads": {
     get: {
       req: CasesListCommentThreadsData
       res: {
@@ -16484,7 +16493,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/cases/{case_id}/comments/{comment_id}": {
+  "/workspaces/{workspace_id}/cases/{case_id}/comments/{comment_id}": {
     patch: {
       req: CasesUpdateCommentData
       res: {
@@ -16512,7 +16521,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/cases/{case_id}/events": {
+  "/workspaces/{workspace_id}/cases/{case_id}/events": {
     get: {
       req: CasesListEventsWithUsersData
       res: {
@@ -16527,7 +16536,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/cases/{case_id}/tasks": {
+  "/workspaces/{workspace_id}/cases/{case_id}/tasks": {
     get: {
       req: CasesListTasksData
       res: {
@@ -16555,7 +16564,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/cases/{case_id}/tasks/{task_id}": {
+  "/workspaces/{workspace_id}/cases/{case_id}/tasks/{task_id}": {
     patch: {
       req: CasesUpdateTaskData
       res: {
@@ -16583,7 +16592,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/cases/{case_id}/rows": {
+  "/workspaces/{workspace_id}/cases/{case_id}/rows": {
     get: {
       req: CasesListCaseRowsData
       res: {
@@ -16611,7 +16620,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/cases/{case_id}/rows/insert": {
+  "/workspaces/{workspace_id}/cases/{case_id}/rows/insert": {
     post: {
       req: CasesInsertCaseRowData
       res: {
@@ -16626,7 +16635,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/cases/{case_id}/rows/{table_id}/{row_id}": {
+  "/workspaces/{workspace_id}/cases/{case_id}/rows/{table_id}/{row_id}": {
     delete: {
       req: CasesUnlinkCaseRowData
       res: {
@@ -16641,7 +16650,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/case-fields": {
+  "/workspaces/{workspace_id}/case-fields": {
     get: {
       req: CasesListFieldsData
       res: {
@@ -16669,7 +16678,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/case-fields/{field_id}": {
+  "/workspaces/{workspace_id}/case-fields/{field_id}": {
     patch: {
       req: CasesUpdateFieldData
       res: {
@@ -16697,7 +16706,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/cases/{case_id}/tags": {
+  "/workspaces/{workspace_id}/cases/{case_id}/tags": {
     get: {
       req: CasesListTagsData
       res: {
@@ -16725,7 +16734,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/cases/{case_id}/tags/{tag_identifier}": {
+  "/workspaces/{workspace_id}/cases/{case_id}/tags/{tag_identifier}": {
     delete: {
       req: CasesRemoveTagData
       res: {
@@ -16740,7 +16749,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/case-tags": {
+  "/workspaces/{workspace_id}/case-tags": {
     get: {
       req: CaseTagsListCaseTagsData
       res: {
@@ -16768,7 +16777,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/case-tags/{tag_id}": {
+  "/workspaces/{workspace_id}/case-tags/{tag_id}": {
     get: {
       req: CaseTagsGetCaseTagData
       res: {
@@ -16809,7 +16818,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/cases/{case_id}/attachments": {
+  "/workspaces/{workspace_id}/cases/{case_id}/attachments": {
     get: {
       req: CaseAttachmentsListAttachmentsData
       res: {
@@ -16837,7 +16846,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/cases/{case_id}/attachments/{attachment_id}": {
+  "/workspaces/{workspace_id}/cases/{case_id}/attachments/{attachment_id}": {
     get: {
       req: CaseAttachmentsDownloadAttachmentData
       res: {
@@ -16865,7 +16874,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/case-dropdowns": {
+  "/workspaces/{workspace_id}/case-dropdowns": {
     get: {
       req: CaseDropdownsListDropdownDefinitionsData
       res: {
@@ -16893,7 +16902,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/case-dropdowns/{definition_id}": {
+  "/workspaces/{workspace_id}/case-dropdowns/{definition_id}": {
     get: {
       req: CaseDropdownsGetDropdownDefinitionData
       res: {
@@ -16934,7 +16943,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/case-dropdowns/{definition_id}/options": {
+  "/workspaces/{workspace_id}/case-dropdowns/{definition_id}/options": {
     post: {
       req: CaseDropdownsAddDropdownOptionData
       res: {
@@ -16949,7 +16958,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/case-dropdowns/{definition_id}/options/{option_id}": {
+  "/workspaces/{workspace_id}/case-dropdowns/{definition_id}/options/{option_id}": {
     patch: {
       req: CaseDropdownsUpdateDropdownOptionData
       res: {
@@ -16977,7 +16986,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/case-dropdowns/{definition_id}/options/reorder": {
+  "/workspaces/{workspace_id}/case-dropdowns/{definition_id}/options/reorder": {
     put: {
       req: CaseDropdownsReorderDropdownOptionsData
       res: {
@@ -16992,7 +17001,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/cases/{case_id}/dropdowns": {
+  "/workspaces/{workspace_id}/cases/{case_id}/dropdowns": {
     get: {
       req: CasesListCaseDropdownValuesData
       res: {
@@ -17007,7 +17016,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/cases/{case_id}/dropdowns/{definition_id}": {
+  "/workspaces/{workspace_id}/cases/{case_id}/dropdowns/{definition_id}": {
     put: {
       req: CasesSetCaseDropdownValueData
       res: {
@@ -17022,7 +17031,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/case-durations": {
+  "/workspaces/{workspace_id}/case-durations": {
     get: {
       req: CaseDurationsListCaseDurationDefinitionsData
       res: {
@@ -17050,7 +17059,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/case-durations/{duration_id}": {
+  "/workspaces/{workspace_id}/case-durations/{duration_id}": {
     get: {
       req: CaseDurationsGetCaseDurationDefinitionData
       res: {
@@ -17091,7 +17100,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/cases/{case_id}/durations": {
+  "/workspaces/{workspace_id}/cases/{case_id}/durations": {
     get: {
       req: CaseDurationsListCaseDurationsData
       res: {
@@ -17119,7 +17128,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/cases/{case_id}/durations/{duration_id}": {
+  "/workspaces/{workspace_id}/cases/{case_id}/durations/{duration_id}": {
     get: {
       req: CaseDurationsGetCaseDurationData
       res: {
@@ -17160,7 +17169,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/folders/directory": {
+  "/workspaces/{workspace_id}/folders/directory": {
     get: {
       req: FoldersGetDirectoryData
       res: {
@@ -17175,7 +17184,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/folders": {
+  "/workspaces/{workspace_id}/folders": {
     get: {
       req: FoldersListFoldersData
       res: {
@@ -17203,7 +17212,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/folders/{folder_id}": {
+  "/workspaces/{workspace_id}/folders/{folder_id}": {
     get: {
       req: FoldersGetFolderData
       res: {
@@ -17244,7 +17253,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/folders/{folder_id}/move": {
+  "/workspaces/{workspace_id}/folders/{folder_id}/move": {
     post: {
       req: FoldersMoveFolderData
       res: {
@@ -17274,7 +17283,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/integrations": {
+  "/workspaces/{workspace_id}/integrations": {
     get: {
       req: IntegrationsListIntegrationsData
       res: {
@@ -17289,7 +17298,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/integrations/{provider_id}": {
+  "/workspaces/{workspace_id}/integrations/{provider_id}": {
     get: {
       req: IntegrationsGetIntegrationData
       res: {
@@ -17330,7 +17339,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/integrations/{provider_id}/connect": {
+  "/workspaces/{workspace_id}/integrations/{provider_id}/connect": {
     post: {
       req: IntegrationsConnectProviderData
       res: {
@@ -17345,7 +17354,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/integrations/{provider_id}/disconnect": {
+  "/workspaces/{workspace_id}/integrations/{provider_id}/disconnect": {
     post: {
       req: IntegrationsDisconnectIntegrationData
       res: {
@@ -17360,7 +17369,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/integrations/{provider_id}/test": {
+  "/workspaces/{workspace_id}/integrations/{provider_id}/test": {
     post: {
       req: IntegrationsTestConnectionData
       res: {
@@ -17375,7 +17384,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/providers": {
+  "/workspaces/{workspace_id}/providers": {
     post: {
       req: ProvidersCreateCustomProviderData
       res: {
@@ -17403,7 +17412,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/providers/{provider_id}": {
+  "/workspaces/{workspace_id}/providers/{provider_id}": {
     get: {
       req: ProvidersGetProviderData
       res: {
@@ -17418,7 +17427,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/mcp-integrations": {
+  "/workspaces/{workspace_id}/mcp-integrations": {
     post: {
       req: McpIntegrationsCreateMcpIntegrationData
       res: {
@@ -17446,7 +17455,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/mcp-integrations/{mcp_integration_id}": {
+  "/workspaces/{workspace_id}/mcp-integrations/{mcp_integration_id}": {
     get: {
       req: McpIntegrationsGetMcpIntegrationData
       res: {

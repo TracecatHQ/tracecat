@@ -1,7 +1,7 @@
 from fastapi import APIRouter, HTTPException, status
 from sqlalchemy import select
 
-from tracecat.auth.dependencies import WorkspaceActorRole
+from tracecat.auth.dependencies import WorkspaceActorRouteRole as WorkspaceActorRole
 from tracecat.authz.controls import require_scope
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.db.models import Schedule

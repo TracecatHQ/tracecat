@@ -1,12 +1,11 @@
 """Inbox API router."""
 
-from typing import Annotated, Literal
+from typing import Literal
 
 from fastapi import APIRouter, HTTPException, Query, status
 
 from tracecat import config
-from tracecat.auth.credentials import RoleACL
-from tracecat.auth.types import Role
+from tracecat.auth.dependencies import WorkspaceUserRouteRole as WorkspaceUser
 from tracecat.authz.controls import require_scope
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.inbox.dependencies import get_inbox_providers
@@ -16,15 +15,6 @@ from tracecat.logger import logger
 from tracecat.pagination import CursorPaginatedResponse
 
 router = APIRouter(prefix="/inbox", tags=["inbox"])
-
-WorkspaceUser = Annotated[
-    Role,
-    RoleACL(
-        allow_user=True,
-        allow_service=False,
-        require_workspace="yes",
-    ),
-]
 
 
 @router.get("/items")

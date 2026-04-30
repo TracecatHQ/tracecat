@@ -3,7 +3,7 @@ from typing import Annotated
 
 from fastapi import Depends, HTTPException, Query, status
 
-from tracecat.auth.dependencies import WorkspaceActorRole
+from tracecat.auth.dependencies import WorkspaceActorRouteRole as WorkspaceActorRole
 from tracecat.auth.enums import SpecialUserID
 from tracecat.identifiers import UserID
 from tracecat.identifiers.workflow import WorkflowExecutionID

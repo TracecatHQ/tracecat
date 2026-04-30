@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime
-from typing import Annotated, Literal, NoReturn, TypedDict
+from typing import Literal, NoReturn, TypedDict
 
 from asyncpg import DuplicateColumnError
 from fastapi import APIRouter, HTTPException, Query
@@ -18,9 +18,8 @@ from starlette.status import (
 )
 
 from tracecat import config
-from tracecat.auth.credentials import RoleACL
+from tracecat.auth.dependencies import WorkspaceActorRouteRole as WorkspaceActor
 from tracecat.auth.schemas import UserRead
-from tracecat.auth.types import Role
 from tracecat.auth.users import search_users
 from tracecat.authz.controls import require_scope
 from tracecat.cases.dropdowns.service import CaseDropdownValuesService
@@ -73,17 +72,6 @@ from tracecat.tiers.enums import Entitlement
 
 cases_router = APIRouter(prefix="/cases", tags=["cases"])
 case_fields_router = APIRouter(prefix="/case-fields", tags=["cases"])
-
-
-WorkspaceActor = Annotated[
-    Role,
-    RoleACL(
-        allow_user=True,
-        allow_service=False,
-        allow_api_key=True,
-        require_workspace="yes",
-    ),
-]
 
 
 class ParsedCaseSearchFilters(TypedDict):
