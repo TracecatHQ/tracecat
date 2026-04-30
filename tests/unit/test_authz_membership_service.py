@@ -19,6 +19,7 @@ from tracecat.db.models import (
     Workspace,
 )
 from tracecat.db.models import Role as DBRole
+from tracecat.exceptions import TracecatValidationError
 from tracecat.workspaces.schemas import WorkspaceMembershipCreate
 
 pytestmark = [pytest.mark.anyio, pytest.mark.usefixtures("db")]
@@ -99,6 +100,24 @@ async def workspace_editor_role(
         name="Workspace Editor",
         slug="workspace-editor",
         description="Default editor role",
+        organization_id=organization.id,
+    )
+    session.add(role)
+    await session.commit()
+    await session.refresh(role)
+    return role
+
+
+@pytest.fixture
+async def workspace_admin_role(
+    session: AsyncSession, organization: Organization
+) -> DBRole:
+    """Create a workspace-admin role for custom role assignment tests."""
+    role = DBRole(
+        id=uuid.uuid4(),
+        name="Workspace Admin",
+        slug="workspace-admin",
+        description="Admin role",
         organization_id=organization.id,
     )
     session.add(role)
@@ -283,4 +302,76 @@ async def test_create_membership_duplicate_raises_integrity_error(
         await membership_service.create_membership(
             workspace_id=workspace.id,
             params=WorkspaceMembershipCreate(user_id=member_user.id),
+        )
+
+
+async def test_create_membership_with_explicit_role_id(
+    session: AsyncSession,
+    membership_service: MembershipService,
+    organization: Organization,
+    workspace: Workspace,
+    member_user: User,
+    actor_user: User,
+    workspace_editor_role: DBRole,
+    workspace_admin_role: DBRole,
+) -> None:
+    """Create should assign the explicitly requested workspace role."""
+    assert workspace_editor_role.slug == "workspace-editor"
+
+    await membership_service.create_membership(
+        workspace_id=workspace.id,
+        params=WorkspaceMembershipCreate(
+            user_id=member_user.id,
+            role_id=str(workspace_admin_role.id),
+        ),
+    )
+
+    assignment = await session.scalar(
+        select(UserRoleAssignment).where(
+            UserRoleAssignment.workspace_id == workspace.id,
+            UserRoleAssignment.user_id == member_user.id,
+        )
+    )
+
+    assert assignment is not None
+    assert assignment.organization_id == organization.id
+    assert assignment.role_id == workspace_admin_role.id
+    assert assignment.assigned_by == actor_user.id
+
+
+async def test_create_membership_rejects_role_outside_organization(
+    session: AsyncSession,
+    membership_service: MembershipService,
+    workspace: Workspace,
+    member_user: User,
+    workspace_editor_role: DBRole,
+) -> None:
+    """Create should reject role IDs that do not belong to the workspace org."""
+    assert workspace_editor_role.slug == "workspace-editor"
+
+    other_org = Organization(
+        id=uuid.uuid4(),
+        name="Other Org",
+        slug=f"other-org-{uuid.uuid4().hex[:8]}",
+        is_active=True,
+    )
+    other_role = DBRole(
+        id=uuid.uuid4(),
+        name="Other Workspace Admin",
+        slug="workspace-admin",
+        description="Other org admin",
+        organization_id=other_org.id,
+    )
+    session.add_all([other_org, other_role])
+    await session.commit()
+
+    with pytest.raises(
+        TracecatValidationError, match="Role not found for organization"
+    ):
+        await membership_service.create_membership(
+            workspace_id=workspace.id,
+            params=WorkspaceMembershipCreate(
+                user_id=member_user.id,
+                role_id=str(other_role.id),
+            ),
         )

@@ -7645,6 +7645,7 @@ export type WorkspaceMember = {
 
 export type WorkspaceMembershipCreate = {
   user_id: string
+  role_id?: string | null
 }
 
 export type WorkspaceMembershipRead = {

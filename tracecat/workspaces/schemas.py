@@ -133,6 +133,7 @@ WorkspaceSettingsUpdate.model_rebuild()
 # === Membership === #
 class WorkspaceMembershipCreate(Schema):
     user_id: UserID
+    role_id: str | None = None
 
 
 class WorkspaceMembershipRead(Schema):

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import uuid
 from collections.abc import Sequence
 from dataclasses import dataclass
 
@@ -139,22 +140,33 @@ class MembershipService(BaseService):
         Note: The authorization cache is request-scoped, so changes will be
         reflected in subsequent requests automatically.
         """
-        # Resolve workspace org + default role in one DB read.
-        org_role_stmt = (
-            select(Workspace.organization_id, DBRole.id)
-            .join(
-                DBRole,
-                and_(
-                    DBRole.organization_id == Workspace.organization_id,
-                    DBRole.slug == "workspace-editor",
-                ),
-            )
-            .where(Workspace.id == workspace_id)
+        org_id_stmt = select(Workspace.organization_id).where(
+            Workspace.id == workspace_id
         )
-        org_role_row = (await self.session.execute(org_role_stmt)).first()
-        if org_role_row is None:
-            raise TracecatValidationError("Workspace or default role not found")
-        organization_id, role_id = org_role_row
+        organization_id = await self.session.scalar(org_id_stmt)
+        if organization_id is None:
+            raise TracecatValidationError("Workspace not found")
+
+        if params.role_id:
+            try:
+                selected_role_id = uuid.UUID(params.role_id)
+            except ValueError as e:
+                raise TracecatValidationError("Invalid role ID format") from e
+            role_stmt = select(DBRole.id).where(
+                DBRole.id == selected_role_id,
+                DBRole.organization_id == organization_id,
+            )
+            role_id = await self.session.scalar(role_stmt)
+            if role_id is None:
+                raise TracecatValidationError("Role not found for organization")
+        else:
+            default_role_stmt = select(DBRole.id).where(
+                DBRole.organization_id == organization_id,
+                DBRole.slug == "workspace-editor",
+            )
+            role_id = await self.session.scalar(default_role_stmt)
+            if role_id is None:
+                raise TracecatValidationError("Workspace default role not found")
 
         # Heal stale direct assignments left behind by prior failed remove flows.
         await self.session.execute(

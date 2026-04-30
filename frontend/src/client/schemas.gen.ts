@@ -25074,6 +25074,17 @@ export const $WorkspaceMembershipCreate = {
       format: "uuid",
       title: "User Id",
     },
+    role_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Role Id",
+    },
   },
   type: "object",
   required: ["user_id"],

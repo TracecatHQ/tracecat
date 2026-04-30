@@ -40,7 +40,7 @@ import { useRbacRoles } from "@/lib/hooks"
 
 const addUserSchema = z.object({
   email: z.string().email(),
-  role: z.string(), // legacy role for membership creation
+  roleId: z.string().uuid("Please select a role"),
 })
 type AddUser = z.infer<typeof addUserSchema>
 
@@ -62,7 +62,7 @@ export function AddWorkspaceMember({
     resolver: zodResolver(addUserSchema),
     defaultValues: {
       email: "",
-      role: "editor",
+      roleId: "",
     },
   })
 
@@ -95,9 +95,11 @@ export function AddWorkspaceMember({
         workspaceId: workspace.id,
         requestBody: {
           user_id: userToAdd.id,
+          role_id: values.roleId,
         },
       })
       setShowDialog(false)
+      form.reset({ email: "", roleId: "" })
     } catch (e) {
       console.error("Error adding user to workspace", e)
       form.setError("email", {
@@ -150,16 +152,13 @@ export function AddWorkspaceMember({
               )}
             />
             <FormField
-              key="role"
+              key="roleId"
               control={form.control}
-              name="role"
+              name="roleId"
               render={({ field }) => (
                 <FormItem>
                   <FormLabel className="text-sm">Role</FormLabel>
-                  <Select
-                    onValueChange={field.onChange}
-                    defaultValue={field.value}
-                  >
+                  <Select onValueChange={field.onChange} value={field.value}>
                     <FormControl>
                       <SelectTrigger>
                         <SelectValue placeholder="Select a role" />
@@ -167,7 +166,7 @@ export function AddWorkspaceMember({
                     </FormControl>
                     <SelectContent>
                       {workspaceRoles.map((role) => (
-                        <SelectItem key={role.id} value={role.slug ?? role.id}>
+                        <SelectItem key={role.id} value={role.id}>
                           {role.name}
                         </SelectItem>
                       ))}
