@@ -109,8 +109,25 @@ class WorkflowExecutionResultNotFoundError(ValueError):
     """Raised when no matching completed event exists for a given event ID."""
 
 
+class WorkflowExecutionResultMaskedError(PermissionError):
+    """Raised when a masked action result is requested through object APIs."""
+
+
 class WorkflowExecutionNotFoundError(ValueError):
     """Raised when a workflow execution is not visible in the current workspace."""
+
+
+@dataclass(frozen=True)
+class WorkflowExecutionResolvedEvent:
+    event: HistoryEvent
+    should_mask_output: bool
+
+
+@dataclass(frozen=True)
+class WorkflowExecutionStoredResult:
+    event: HistoryEvent
+    stored: StoredObject
+    should_mask_output: bool
 
 
 @dataclass(frozen=True)
@@ -813,17 +830,19 @@ class WorkflowExecutionsService:
         - the completed event ID (e.g. ACTIVITY_TASK_COMPLETED), or
         - the source scheduled event ID used by compact event payloads.
         """
-        source_match, stored = await self._get_stored_result_for_event(
+        stored_result = await self._get_stored_result_for_event(
             wf_exec_id=wf_exec_id,
             event_id=event_id,
         )
+        self._raise_if_result_masked(stored_result)
 
-        match stored:
+        match stored_result.stored:
             case ExternalObject() as external:
                 return external
             case _:
                 raise TypeError(
-                    f"Event {source_match.event_id} result is not external (got {stored.type})"
+                    f"Event {stored_result.event.event_id} result is not external "
+                    f"(got {stored_result.stored.type})"
                 )
 
     async def get_collection_action_result(
@@ -832,16 +851,19 @@ class WorkflowExecutionsService:
         event_id: int,
     ) -> CollectionObject:
         """Get a CollectionObject result for an event/source event ID."""
-        source_match, stored = await self._get_stored_result_for_event(
+        stored_result = await self._get_stored_result_for_event(
             wf_exec_id=wf_exec_id,
             event_id=event_id,
         )
-        match stored:
+        self._raise_if_result_masked(stored_result)
+
+        match stored_result.stored:
             case CollectionObject() as collection:
                 return collection
             case _:
                 raise TypeError(
-                    f"Event {source_match.event_id} result is not a collection (got {stored.type})"
+                    f"Event {stored_result.event.event_id} result is not a "
+                    f"collection (got {stored_result.stored.type})"
                 )
 
     async def get_collection_page(
@@ -897,18 +919,46 @@ class WorkflowExecutionsService:
         event_id: int,
     ) -> HistoryEvent:
         """Resolve a completed Temporal event by event ID or source event ID."""
+        resolved = await self._resolve_completed_event_with_metadata(
+            wf_exec_id,
+            event_id,
+        )
+        return resolved.event
+
+    async def _resolve_completed_event_with_metadata(
+        self,
+        wf_exec_id: WorkflowExecutionID,
+        event_id: int,
+    ) -> WorkflowExecutionResolvedEvent:
+        """Resolve a completed Temporal event with source-event display metadata."""
         await self.require_execution(wf_exec_id)
         handle = self.handle(wf_exec_id)
-        source_match: HistoryEvent | None = None
+        source_masks: dict[int, bool] = {}
+        source_match: WorkflowExecutionResolvedEvent | None = None
 
         async for event in handle.fetch_history_events():
+            if is_scheduled_event(event):
+                if source := await WorkflowExecutionEventCompact.from_source_event(
+                    event
+                ):
+                    source_masks[event.event_id] = source.should_mask_output
+
             if not is_close_event(event):
                 continue
+            source_event_id = get_source_event_id(event)
+            should_mask_output = (
+                source_masks.get(source_event_id, False)
+                if source_event_id is not None
+                else False
+            )
+            resolved = WorkflowExecutionResolvedEvent(
+                event=event,
+                should_mask_output=should_mask_output,
+            )
             if event.event_id == event_id:
-                source_match = event
-                break
-            if get_source_event_id(event) == event_id:
-                source_match = event
+                return resolved
+            if source_event_id == event_id:
+                source_match = resolved
 
         if source_match is None:
             raise WorkflowExecutionResultNotFoundError(
@@ -921,18 +971,30 @@ class WorkflowExecutionsService:
         *,
         wf_exec_id: WorkflowExecutionID,
         event_id: int,
-    ) -> tuple[HistoryEvent, StoredObject]:
+    ) -> WorkflowExecutionStoredResult:
         """Get a StoredObject from a completed event or its source event ID."""
-        source_match = await self._resolve_completed_event(
+        source_match = await self._resolve_completed_event_with_metadata(
             wf_exec_id=wf_exec_id,
             event_id=event_id,
         )
-        stored = await get_stored_result(source_match)
+        stored = await get_stored_result(source_match.event)
         if stored is None:
             raise TypeError(
-                f"Event {source_match.event_id} result is not a StoredObject"
+                f"Event {source_match.event.event_id} result is not a StoredObject"
             )
-        return source_match, stored
+        return WorkflowExecutionStoredResult(
+            event=source_match.event,
+            stored=stored,
+            should_mask_output=source_match.should_mask_output,
+        )
+
+    @staticmethod
+    def _raise_if_result_masked(stored_result: WorkflowExecutionStoredResult) -> None:
+        if stored_result.should_mask_output:
+            raise WorkflowExecutionResultMaskedError(
+                "Action result is masked by `mask_output` and cannot be retrieved "
+                "through object APIs."
+            )
 
     async def list_workflow_execution_events(
         self,
