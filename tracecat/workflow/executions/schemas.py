@@ -12,6 +12,7 @@ from typing import (
     cast,
 )
 
+import temporalio.api.common.v1
 import temporalio.api.enums.v1
 import temporalio.api.history.v1
 from google.protobuf.json_format import MessageToDict
@@ -93,6 +94,29 @@ _SENSITIVE_ERROR_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
         r"\1[REDACTED]@",
     ),
 )
+
+DEFAULT_CHILD_WORKFLOW_ACTION_REF = "Unknown Child Workflow"
+DEFAULT_AGENT_ACTION_REF = "unknown_agent_action"
+
+
+async def _child_workflow_memo_from_temporal_or_default(
+    memo: temporalio.api.common.v1.Memo,
+) -> ChildWorkflowMemo:
+    try:
+        return await ChildWorkflowMemo.from_temporal(memo)
+    except Exception as e:
+        logger.warning("Error parsing child workflow memo", error=e)
+        return ChildWorkflowMemo(action_ref=DEFAULT_CHILD_WORKFLOW_ACTION_REF)
+
+
+async def _agent_action_memo_from_temporal_or_default(
+    memo: temporalio.api.common.v1.Memo,
+) -> AgentActionMemo:
+    try:
+        return await AgentActionMemo.from_temporal(memo)
+    except Exception as e:
+        logger.warning("Error parsing agent action memo", error=e)
+        return AgentActionMemo(action_ref=DEFAULT_AGENT_ACTION_REF)
 
 
 class WorkflowExecutionBase(BaseModel):
@@ -461,11 +485,7 @@ class EventGroup[T: EventInput](BaseModel):
         match attrs.workflow_type.name:
             case "DSLWorkflow":
                 wf_exec_id: WorkflowExecutionID = attrs.workflow_id
-                try:
-                    memo = await ChildWorkflowMemo.from_temporal(attrs.memo)
-                except Exception as e:
-                    logger.error("Error parsing child workflow memo", error=e)
-                    raise
+                memo = await _child_workflow_memo_from_temporal_or_default(attrs.memo)
                 input = await extract_first(attrs.input)
                 if is_unreadable_temporal_payload(input):
                     child_group = EventGroup(
@@ -507,11 +527,7 @@ class EventGroup[T: EventInput](BaseModel):
                 return child_group
             case "DurableAgentWorkflow":
                 agent_wf_id = AgentWorkflowID.from_workflow_id(attrs.workflow_id)
-                try:
-                    memo = await AgentActionMemo.from_temporal(attrs.memo)
-                except Exception as e:
-                    logger.error("Error parsing agent action memo", error=e)
-                    raise
+                memo = await _agent_action_memo_from_temporal_or_default(attrs.memo)
                 input = await extract_first(attrs.input)
                 namespace, name = PlatformAction.AI_AGENT.value.split(".", 1)
                 if is_unreadable_temporal_payload(input):
@@ -911,11 +927,7 @@ class WorkflowExecutionEventCompact[TInput: Any, TResult: Any, TSessionEvent: An
         wf_exec_id: WorkflowExecutionID = attrs.workflow_id
         match attrs.workflow_type.name:
             case "DSLWorkflow":
-                try:
-                    memo = await ChildWorkflowMemo.from_temporal(attrs.memo)
-                except Exception as e:
-                    logger.error("Error parsing child workflow memo", error=e)
-                    raise
+                memo = await _child_workflow_memo_from_temporal_or_default(attrs.memo)
 
                 if (
                     attrs.parent_close_policy
@@ -968,11 +980,7 @@ class WorkflowExecutionEventCompact[TInput: Any, TResult: Any, TSessionEvent: An
                 compact_event.set_mask_output(memo.mask_output)
                 return compact_event
             case "DurableAgentWorkflow":
-                try:
-                    memo = await AgentActionMemo.from_temporal(attrs.memo)
-                except Exception as e:
-                    logger.error("Error parsing agent action memo", error=e)
-                    raise
+                memo = await _agent_action_memo_from_temporal_or_default(attrs.memo)
 
                 input_data = await extract_first(attrs.input)
                 if is_unreadable_temporal_payload(input_data):

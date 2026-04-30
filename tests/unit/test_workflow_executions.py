@@ -1302,6 +1302,35 @@ class TestWorkflowExecutionEvents:
         assert event.action_ref == "masked_child"
         assert event.should_mask_output is True
 
+    async def test_compact_child_workflow_defaults_when_memo_parse_fails(
+        self,
+    ) -> None:
+        """Malformed child workflow memo metadata should not break history views."""
+        initiated = create_mock_child_workflow_initiated_event(event_id=1)
+        unreadable = UnreadableTemporalPayload(
+            error_type="decode_error",
+            encoding="json/plain",
+            payload_size_bytes=0,
+        )
+
+        with (
+            patch(
+                "tracecat.workflow.executions.schemas.ChildWorkflowMemo.from_temporal",
+                AsyncMock(side_effect=ValueError("bad memo")),
+            ),
+            patch(
+                "tracecat.workflow.executions.schemas.extract_first",
+                AsyncMock(return_value=unreadable),
+            ),
+        ):
+            event = await WorkflowExecutionEventCompact.from_initiated_child_workflow(
+                initiated
+            )
+
+        assert event is not None
+        assert event.action_ref == "Unknown Child Workflow"
+        assert event.should_mask_output is False
+
     async def test_compact_agent_workflow_preserves_mask_output_metadata(
         self,
     ) -> None:
@@ -1562,6 +1591,58 @@ class TestWorkflowExecutionEvents:
             if event.event_type == WorkflowEventType.CHILD_WORKFLOW_EXECUTION_COMPLETED
         )
         assert completed_event.result == {"secret": "[REDACTED]"}
+
+    async def test_list_events_defaults_unmasked_when_child_memo_parse_fails(
+        self,
+        workflow_executions_service: WorkflowExecutionsService,
+        workflow_exec_id: WorkflowExecutionID,
+    ) -> None:
+        """Malformed child workflow memo metadata should not fail history responses."""
+        initiated = create_mock_child_workflow_initiated_event(event_id=1)
+        completed = create_mock_child_workflow_completed_event(
+            event_id=2,
+            initiated_event_id=1,
+        )
+        unreadable = UnreadableTemporalPayload(
+            error_type="decode_error",
+            encoding="json/plain",
+            payload_size_bytes=0,
+        )
+        mock_handle = Mock(spec=WorkflowHandle)
+        mock_handle.fetch_history = AsyncMock(
+            return_value=Mock(events=[initiated, completed])
+        )
+        mock_handle.describe = AsyncMock(return_value=Mock())
+        workflow_executions_service._client.get_workflow_handle_for = Mock(
+            return_value=mock_handle
+        )
+
+        with (
+            patch(
+                "tracecat.workflow.executions.schemas.ChildWorkflowMemo.from_temporal",
+                AsyncMock(side_effect=ValueError("bad memo")),
+            ),
+            patch(
+                "tracecat.workflow.executions.schemas.extract_first",
+                AsyncMock(return_value=unreadable),
+            ),
+            patch(
+                "tracecat.workflow.executions.service.extract_first",
+                AsyncMock(return_value={"secret": "child-output"}),
+            ),
+        ):
+            events = await workflow_executions_service.list_workflow_execution_events(
+                workflow_exec_id
+            )
+
+        completed_event = next(
+            event
+            for event in events
+            if event.event_type == WorkflowEventType.CHILD_WORKFLOW_EXECUTION_COMPLETED
+        )
+        assert completed_event.result == {"secret": "child-output"}
+        assert completed_event.event_group is not None
+        assert completed_event.event_group.should_mask_output is False
 
     async def test_compact_duplicate_actions_latest_failure_wins(
         self,
