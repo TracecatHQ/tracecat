@@ -11,7 +11,12 @@ from fastapi import status
 from fastapi.testclient import TestClient
 
 from tracecat.agent import router as agent_router
-from tracecat.auth.dependencies import WorkspaceActorRole, WorkspaceUserRole
+from tracecat.auth.dependencies import (
+    WorkspaceActorRole,
+    WorkspaceActorRouteRole,
+    WorkspaceUserRole,
+    WorkspaceUserRouteRole,
+)
 from tracecat.auth.types import Role
 from tracecat.cases import router as cases_router
 from tracecat.contexts import ctx_role
@@ -513,7 +518,7 @@ def test_draft_workflow_execution_route_remains_user_only() -> None:
         include_extras=True,
     )["role"]
 
-    assert draft_role == WorkspaceActorRole
+    assert draft_role == WorkspaceActorRouteRole
     assert draft_execution_role == WorkspaceUserRole
 
 
@@ -522,7 +527,7 @@ def test_workflow_detail_route_remains_user_only() -> None:
         workflow_management_router.get_workflow, include_extras=True
     )["role"]
 
-    assert workflow_detail_role == WorkspaceUserRole
+    assert workflow_detail_role == WorkspaceUserRouteRole
 
 
 def test_webhook_api_key_revocation_route_remains_user_only() -> None:
@@ -536,6 +541,6 @@ def test_webhook_api_key_revocation_route_remains_user_only() -> None:
         workflow_management_router.delete_webhook_api_key, include_extras=True
     )["role"]
 
-    assert get_webhook_role == WorkspaceUserRole
-    assert revoke_role == WorkspaceUserRole
-    assert delete_role == WorkspaceUserRole
+    assert get_webhook_role == WorkspaceUserRouteRole
+    assert revoke_role == WorkspaceUserRouteRole
+    assert delete_role == WorkspaceUserRouteRole

@@ -893,6 +893,37 @@ async def _role_dependency(
     return role
 
 
+def _resolve_workspace_id_from_path_or_query(
+    request: Request,
+    workspace_id_query: uuid.UUID | None,
+) -> uuid.UUID | None:
+    path_value = request.path_params.get("workspace_id")
+    path_workspace_id: uuid.UUID | None = None
+    if path_value is not None:
+        try:
+            path_workspace_id = (
+                path_value
+                if isinstance(path_value, uuid.UUID)
+                else uuid.UUID(str(path_value))
+            )
+        except ValueError as e:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Invalid workspace_id path parameter",
+            ) from e
+
+    if (
+        path_workspace_id is not None
+        and workspace_id_query is not None
+        and path_workspace_id != workspace_id_query
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Path and query workspace_id values must match",
+        )
+    return path_workspace_id or workspace_id_query
+
+
 def RoleACL(
     *,
     allow_user: bool = True,
@@ -900,7 +931,7 @@ def RoleACL(
     allow_api_key: bool = False,
     allow_executor: bool = False,
     require_workspace: Literal["yes", "no", "optional"] = "yes",
-    workspace_id_in_path: bool = False,
+    workspace_id_in_path: bool | Literal["auto"] = False,
 ) -> Any:
     """
     Factory for FastAPI dependency that enforces role-based access control.
@@ -920,7 +951,9 @@ def RoleACL(
             - "no": Workspace ID is not required.
             - "optional": Workspace ID may be omitted.
             Defaults to "yes".
-        workspace_id_in_path (bool, optional): Whether to extract `workspace_id` from the path rather than the query string.
+        workspace_id_in_path: Whether to extract `workspace_id` from the path
+            rather than the query string. When set to `"auto"`, resolves path
+            `workspace_id` first and falls back to the legacy query parameter.
             Defaults to False.
     Returns:
         Any: A FastAPI dependency that yields a `Role` instance upon successful
@@ -965,6 +998,133 @@ def RoleACL(
         return Depends(role_dependency_executor_only)
 
     if require_workspace == "yes":
+        if workspace_id_in_path == "auto":
+            if allow_service and allow_api_key:
+
+                async def role_dependency_req_ws_auto(
+                    request: Request,
+                    session: AsyncDBSession,
+                    workspace_id_query: uuid.UUID | None = Query(
+                        default=None,
+                        alias="workspace_id",
+                        include_in_schema=False,
+                    ),
+                    user: OptionalUserDep = None,
+                    internal_service_key: OptionalInternalServiceKeyDep = None,
+                    tracecat_api_key: OptionalTracecatApiKeyDep = None,
+                ) -> Role:
+                    workspace_id = _resolve_workspace_id_from_path_or_query(
+                        request, workspace_id_query
+                    )
+                    return await _role_dependency(
+                        request=request,
+                        session=session,
+                        workspace_id=workspace_id,
+                        user=user,
+                        internal_service_key=internal_service_key,
+                        tracecat_api_key=tracecat_api_key,
+                        allow_user=allow_user,
+                        allow_service=allow_service,
+                        allow_api_key=allow_api_key,
+                        allow_executor=allow_executor,
+                        require_workspace=require_workspace,
+                    )
+
+                return Depends(role_dependency_req_ws_auto)
+
+            if allow_service:
+
+                async def role_dependency_req_ws_auto_service(
+                    request: Request,
+                    session: AsyncDBSession,
+                    workspace_id_query: uuid.UUID | None = Query(
+                        default=None,
+                        alias="workspace_id",
+                        include_in_schema=False,
+                    ),
+                    user: OptionalUserDep = None,
+                    internal_service_key: OptionalInternalServiceKeyDep = None,
+                ) -> Role:
+                    workspace_id = _resolve_workspace_id_from_path_or_query(
+                        request, workspace_id_query
+                    )
+                    return await _role_dependency(
+                        request=request,
+                        session=session,
+                        workspace_id=workspace_id,
+                        user=user,
+                        internal_service_key=internal_service_key,
+                        tracecat_api_key=None,
+                        allow_user=allow_user,
+                        allow_service=allow_service,
+                        allow_api_key=allow_api_key,
+                        allow_executor=allow_executor,
+                        require_workspace=require_workspace,
+                    )
+
+                return Depends(role_dependency_req_ws_auto_service)
+
+            if allow_api_key:
+
+                async def role_dependency_req_ws_auto_api_key(
+                    request: Request,
+                    session: AsyncDBSession,
+                    workspace_id_query: uuid.UUID | None = Query(
+                        default=None,
+                        alias="workspace_id",
+                        include_in_schema=False,
+                    ),
+                    user: OptionalUserDep = None,
+                    tracecat_api_key: OptionalTracecatApiKeyDep = None,
+                ) -> Role:
+                    workspace_id = _resolve_workspace_id_from_path_or_query(
+                        request, workspace_id_query
+                    )
+                    return await _role_dependency(
+                        request=request,
+                        session=session,
+                        workspace_id=workspace_id,
+                        user=user,
+                        internal_service_key=None,
+                        tracecat_api_key=tracecat_api_key,
+                        allow_user=allow_user,
+                        allow_service=allow_service,
+                        allow_api_key=allow_api_key,
+                        allow_executor=allow_executor,
+                        require_workspace=require_workspace,
+                    )
+
+                return Depends(role_dependency_req_ws_auto_api_key)
+
+            async def role_dependency_req_ws_auto_user(
+                request: Request,
+                session: AsyncDBSession,
+                workspace_id_query: uuid.UUID | None = Query(
+                    default=None,
+                    alias="workspace_id",
+                    include_in_schema=False,
+                ),
+                user: OptionalUserDep = None,
+            ) -> Role:
+                workspace_id = _resolve_workspace_id_from_path_or_query(
+                    request, workspace_id_query
+                )
+                return await _role_dependency(
+                    request=request,
+                    session=session,
+                    workspace_id=workspace_id,
+                    user=user,
+                    internal_service_key=None,
+                    tracecat_api_key=None,
+                    allow_user=allow_user,
+                    allow_service=allow_service,
+                    allow_api_key=allow_api_key,
+                    allow_executor=allow_executor,
+                    require_workspace=require_workspace,
+                )
+
+            return Depends(role_dependency_req_ws_auto_user)
+
         GetWsDep = Path if workspace_id_in_path else Query
 
         if allow_service and allow_api_key:

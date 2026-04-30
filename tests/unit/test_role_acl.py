@@ -151,6 +151,85 @@ def test_role_acl_rejects_legacy_tracecat_api_key_header(
     authenticate_api_key.assert_not_awaited()
 
 
+def test_role_acl_auto_workspace_uses_path_context(
+    role_acl_app: FastAPI,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace_id = uuid.uuid4()
+    service_account_role = Role(
+        type="service_account",
+        service_id="tracecat-api",
+        organization_id=uuid.uuid4(),
+        workspace_id=workspace_id,
+        bound_workspace_id=workspace_id,
+        service_account_id=uuid.uuid4(),
+        scopes=frozenset({"workflow:read"}),
+    )
+    authenticate_api_key = AsyncMock(return_value=service_account_role)
+    monkeypatch.setattr(credentials, "_authenticate_api_key", authenticate_api_key)
+
+    @role_acl_app.get("/workspaces/{workspace_id}/api-key")
+    async def api_key_path_route(  # pyright: ignore[reportUnusedFunction] - route handler
+        role: Role = RoleACL(
+            allow_user=False,
+            allow_api_key=True,
+            require_workspace="yes",
+            workspace_id_in_path="auto",
+        ),
+    ) -> dict[str, str]:
+        assert role.workspace_id is not None
+        return {
+            "role_type": role.type,
+            "workspace_id": str(role.workspace_id),
+        }
+
+    response = TestClient(role_acl_app).get(
+        f"/workspaces/{workspace_id}/api-key",
+        headers={"Authorization": "Bearer tc_ws_sk_managed-api-key_secret"},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "role_type": "service_account",
+        "workspace_id": str(workspace_id),
+    }
+    authenticate_api_key.assert_awaited_once_with(
+        api_key="tc_ws_sk_managed-api-key_secret",
+        workspace_id=workspace_id,
+    )
+
+
+def test_role_acl_auto_workspace_rejects_path_query_conflict(
+    role_acl_app: FastAPI,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    path_workspace_id = uuid.uuid4()
+    query_workspace_id = uuid.uuid4()
+    authenticate_api_key = AsyncMock()
+    monkeypatch.setattr(credentials, "_authenticate_api_key", authenticate_api_key)
+
+    @role_acl_app.get("/workspaces/{workspace_id}/api-key-conflict")
+    async def api_key_conflict_route(  # pyright: ignore[reportUnusedFunction] - route handler
+        role: Role = RoleACL(
+            allow_user=False,
+            allow_api_key=True,
+            require_workspace="yes",
+            workspace_id_in_path="auto",
+        ),
+    ) -> dict[str, str]:
+        return {"role_type": role.type}
+
+    response = TestClient(role_acl_app).get(
+        f"/workspaces/{path_workspace_id}/api-key-conflict",
+        params={"workspace_id": str(query_workspace_id)},
+        headers={"Authorization": "Bearer tc_ws_sk_managed-api-key_secret"},
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "Path and query workspace_id values must match"
+    authenticate_api_key.assert_not_awaited()
+
+
 def test_role_acl_combined_service_and_api_key_route_uses_service_key_fallback(
     role_acl_app: FastAPI,
     monkeypatch: pytest.MonkeyPatch,

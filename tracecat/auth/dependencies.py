@@ -1,7 +1,8 @@
+import uuid
 from collections.abc import Sequence
 from typing import Annotated, Any
 
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Path, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat import config
@@ -38,6 +39,36 @@ WorkspaceActorRole = Annotated[
     ),
 ]
 """Dependency for a user or service-account role for a workspace."""
+
+WorkspaceActorRouteRole = Annotated[
+    Role,
+    RoleACL(
+        allow_user=True,
+        allow_service=False,
+        allow_api_key=True,
+        require_workspace="yes",
+        workspace_id_in_path="auto",
+    ),
+]
+"""Dependency for workspace routes that accept path-scoped canonical routes and legacy query-scoped routes."""
+
+WorkspaceUserRouteRole = Annotated[
+    Role,
+    RoleACL(
+        allow_user=True,
+        allow_service=False,
+        allow_api_key=False,
+        require_workspace="yes",
+        workspace_id_in_path="auto",
+    ),
+]
+"""Dependency for user-only workspace routes that accept path or legacy query workspace context."""
+
+
+async def require_workspace_id_path(workspace_id: uuid.UUID = Path(...)) -> uuid.UUID:
+    """Validate and document canonical workspace-scoped route prefixes."""
+    return workspace_id
+
 
 WorkspaceServiceAccountRole = Annotated[
     Role,

@@ -24,7 +24,12 @@ from sqlalchemy.exc import IntegrityError, NoResultFound
 
 from tracecat import config
 from tracecat.auth.api_keys import generate_api_key
-from tracecat.auth.dependencies import WorkspaceActorRole, WorkspaceUserRole
+from tracecat.auth.dependencies import (
+    WorkspaceActorRouteRole as WorkspaceActorRole,
+)
+from tracecat.auth.dependencies import (
+    WorkspaceUserRouteRole as WorkspaceUserRole,
+)
 from tracecat.authz.controls import require_scope
 from tracecat.db.common import DBConstraints
 from tracecat.db.dependencies import AsyncDBSession

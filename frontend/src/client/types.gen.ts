@@ -12543,7 +12543,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/workflows": {
+  "/workspaces/{workspace_id}/workflows": {
     get: {
       req: WorkflowsListWorkflowsData
       res: {
@@ -12571,7 +12571,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/workflows/validate-entrypoint": {
+  "/workspaces/{workspace_id}/workflows/validate-entrypoint": {
     post: {
       req: WorkflowsValidateWorkflowEntrypointData
       res: {
@@ -12586,7 +12586,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/workflows/{workflow_id}": {
+  "/workspaces/{workspace_id}/workflows/{workflow_id}": {
     get: {
       req: WorkflowsGetWorkflowData
       res: {
@@ -12627,7 +12627,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/workflows/{workflow_id}/commit": {
+  "/workspaces/{workspace_id}/workflows/{workflow_id}/commit": {
     post: {
       req: WorkflowsCommitWorkflowData
       res: {
@@ -12642,7 +12642,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/workflows/{workflow_id}/export": {
+  "/workspaces/{workspace_id}/workflows/{workflow_id}/export": {
     get: {
       req: WorkflowsExportWorkflowData
       res: {
@@ -12657,7 +12657,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/workflows/{workflow_id}/definitions": {
+  "/workspaces/{workspace_id}/workflows/{workflow_id}/definitions": {
     get: {
       req: WorkflowsListWorkflowDefinitionsData
       res: {
@@ -12672,7 +12672,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/workflows/{workflow_id}/definitions/{version}/restore": {
+  "/workspaces/{workspace_id}/workflows/{workflow_id}/definitions/{version}/restore": {
     post: {
       req: WorkflowsRestoreWorkflowDefinitionData
       res: {
@@ -12687,7 +12687,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/workflows/{workflow_id}/definition": {
+  "/workspaces/{workspace_id}/workflows/{workflow_id}/definition": {
     get: {
       req: WorkflowsGetWorkflowDefinitionData
       res: {
@@ -12715,7 +12715,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/workflows/{workflow_id}/webhook": {
+  "/workspaces/{workspace_id}/workflows/{workflow_id}/webhook": {
     post: {
       req: TriggersCreateWebhookData
       res: {
@@ -12756,7 +12756,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/workflows/{workflow_id}/case-trigger": {
+  "/workspaces/{workspace_id}/workflows/{workflow_id}/case-trigger": {
     post: {
       req: TriggersCreateCaseTriggerData
       res: {
@@ -12797,7 +12797,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/workflows/{workflow_id}/webhook/api-key": {
+  "/workspaces/{workspace_id}/workflows/{workflow_id}/webhook/api-key": {
     post: {
       req: TriggersGenerateWebhookApiKeyData
       res: {
@@ -12825,7 +12825,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/workflows/{workflow_id}/webhook/api-key/revoke": {
+  "/workspaces/{workspace_id}/workflows/{workflow_id}/webhook/api-key/revoke": {
     post: {
       req: TriggersRevokeWebhookApiKeyData
       res: {
@@ -12840,7 +12840,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/workflows/{workflow_id}/move": {
+  "/workspaces/{workspace_id}/workflows/{workflow_id}/move": {
     post: {
       req: WorkflowsMoveWorkflowToFolderData
       res: {
