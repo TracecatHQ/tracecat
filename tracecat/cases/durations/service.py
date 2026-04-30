@@ -728,13 +728,13 @@ class CaseDurationService(BaseWorkspaceService):
             return {}
 
         events_by_case = await self._list_case_events_for_cases(case_ids)
-        return {
-            case_id: self._compute_durations_from_events(
+        results_by_case: dict[uuid.UUID, list[CaseDurationComputation]] = {}
+        async for case_id in cooperative_every(case_ids, every=8):
+            results_by_case[case_id] = await self._compute_durations_from_events(
                 events_by_case.get(case_id, []),
                 definitions,
             )
-            for case_id in case_ids
-        }
+        return results_by_case
 
     async def _list_case_events_for_cases(
         self, case_ids: Sequence[uuid.UUID]
@@ -759,15 +759,18 @@ class CaseDurationService(BaseWorkspaceService):
             events_by_case[event.case_id].append(event)
         return events_by_case
 
-    def _compute_durations_from_events(
+    async def _compute_durations_from_events(
         self,
         events: Sequence[CaseEvent],
         definitions: Sequence[CaseDurationDefinitionRead],
     ) -> list[CaseDurationComputation]:
         results: list[CaseDurationComputation] = []
-        for definition in definitions:
-            start_match = self._find_matching_event(events, definition.start_anchor)
-            end_match = self._find_matching_event(
+        async for definition in cooperative_every(definitions, every=32):
+            start_match = await self._find_matching_event(
+                events,
+                definition.start_anchor,
+            )
+            end_match = await self._find_matching_event(
                 events,
                 definition.end_anchor,
                 earliest_after=start_match[1] if start_match else None,
@@ -795,7 +798,7 @@ class CaseDurationService(BaseWorkspaceService):
 
         return results
 
-    def _find_matching_event(
+    async def _find_matching_event(
         self,
         events: Sequence[CaseEvent],
         anchor: CaseDurationEventAnchor,
@@ -803,7 +806,7 @@ class CaseDurationService(BaseWorkspaceService):
         earliest_after: datetime | None = None,
     ) -> tuple[CaseEvent, datetime] | None:
         candidates: list[tuple[CaseEvent, datetime]] = []
-        for event in events:
+        async for event in cooperative_every(events, every=128):
             if anchor.event_type is CaseEventType.STATUS_CHANGED:
                 if event.type not in (
                     CaseEventType.STATUS_CHANGED,
