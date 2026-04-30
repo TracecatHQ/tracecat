@@ -78,12 +78,15 @@ class CaseDurationEventAnchor(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     _has_unsupported_filters: bool = PrivateAttr(default=False)
+    _allow_empty_required_filters: bool = PrivateAttr(default=False)
     _timestamp_path: str = PrivateAttr(default="created_at")
     _legacy_field_filters: dict[str, Any] = PrivateAttr(default_factory=dict)
 
     @model_validator(mode="after")
     def validate_filters_for_event_type(self) -> CaseDurationEventAnchor:
-        if self._has_unsupported_filters:
+        if self._has_unsupported_filters or (
+            self._allow_empty_required_filters and self.filters.is_empty()
+        ):
             return self
 
         filters = self.filters

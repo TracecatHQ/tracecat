@@ -203,6 +203,7 @@ class CaseDurationDefinitionService(BaseWorkspaceService):
         filters, has_unsupported_filters = self._filters_from_storage(
             event_type, raw_filters
         )
+        allow_empty_required_filters = False
         if has_unsupported_filters:
             anchor = CaseDurationEventAnchor.model_construct(
                 event_type=event_type,
@@ -217,13 +218,17 @@ class CaseDurationDefinitionService(BaseWorkspaceService):
                     selection=selection,
                 )
             except ValueError:
-                has_unsupported_filters = True
+                if not raw_filters and filters.is_empty():
+                    allow_empty_required_filters = True
+                else:
+                    has_unsupported_filters = True
                 anchor = CaseDurationEventAnchor.model_construct(
                     event_type=event_type,
                     filters=filters,
                     selection=selection,
                 )
         anchor._has_unsupported_filters = has_unsupported_filters
+        anchor._allow_empty_required_filters = allow_empty_required_filters
         anchor._timestamp_path = timestamp_path
         anchor._legacy_field_filters = raw_filters
         return anchor
@@ -805,8 +810,16 @@ class CaseDurationService(BaseWorkspaceService):
         *,
         earliest_after: datetime | None = None,
     ) -> tuple[CaseEvent, datetime] | None:
-        candidates: list[tuple[CaseEvent, datetime]] = []
-        async for event in cooperative_every(events, every=128):
+        best_match: tuple[CaseEvent, datetime] | None = None
+        created_at_ordered = anchor._timestamp_path == "created_at"
+        reverse_scan = (
+            created_at_ordered and anchor.selection is CaseDurationAnchorSelection.LAST
+        )
+        event_iter = reversed(events) if reverse_scan else events
+
+        async for event in cooperative_every(event_iter, every=128):
+            if reverse_scan and earliest_after and event.created_at < earliest_after:
+                break
             if anchor.event_type is CaseEventType.STATUS_CHANGED:
                 if event.type not in (
                     CaseEventType.STATUS_CHANGED,
@@ -823,14 +836,23 @@ class CaseDurationService(BaseWorkspaceService):
                 continue
             if earliest_after and timestamp < earliest_after:
                 continue
-            candidates.append((event, timestamp))
+            if created_at_ordered:
+                return event, timestamp
 
-        if not candidates:
-            return None
-        candidates.sort(key=lambda item: item[1])
-        if anchor.selection is CaseDurationAnchorSelection.LAST:
-            return candidates[-1]
-        return candidates[0]
+            if (
+                best_match is None
+                or (
+                    anchor.selection is CaseDurationAnchorSelection.FIRST
+                    and timestamp < best_match[1]
+                )
+                or (
+                    anchor.selection is CaseDurationAnchorSelection.LAST
+                    and timestamp >= best_match[1]
+                )
+            ):
+                best_match = (event, timestamp)
+
+        return best_match
 
     def _matches_anchor_filters(
         self, event: CaseEvent, anchor: CaseDurationEventAnchor

@@ -1085,6 +1085,7 @@ async def test_duration_storage_allows_empty_legacy_filters(
     session: AsyncSession, svc_role
 ) -> None:
     definition_service = CaseDurationDefinitionService(session=session, role=svc_role)
+    duration_service = CaseDurationService(session=session, role=svc_role)
     assert svc_role.workspace_id is not None
     entity = CaseDurationDefinitionDB(
         workspace_id=svc_role.workspace_id,
@@ -1101,9 +1102,11 @@ async def test_duration_storage_allows_empty_legacy_filters(
 
     anchor = definition_service._anchor_from_entity(entity, "start")
 
-    assert anchor._has_unsupported_filters
+    assert not anchor._has_unsupported_filters
+    assert anchor._allow_empty_required_filters
     assert anchor.filters == CaseDurationEventFilters()
     assert anchor._legacy_field_filters == {}
+    assert not duration_service._anchor_requires_event_scan(anchor)
 
 
 @pytest.mark.anyio
@@ -1200,19 +1203,31 @@ async def test_legacy_custom_timestamp_path_uses_event_scan_fallback(
         )
     )
     created_event = case_created_result.scalar_one()
-    custom_end = created_event.created_at + timedelta(hours=2)
-    status_event = CaseEvent(
+    first_custom_end = created_event.created_at + timedelta(hours=1)
+    later_custom_end = created_event.created_at + timedelta(hours=2)
+    later_created_event = CaseEvent(
         workspace_id=case.workspace_id,
         case_id=case.id,
         type=CaseEventType.STATUS_CHANGED,
         data={
             "old": CaseStatus.NEW.value,
             "new": CaseStatus.RESOLVED.value,
-            "resolved_at": custom_end.isoformat(),
+            "resolved_at": later_custom_end.isoformat(),
         },
         created_at=created_event.created_at + timedelta(seconds=1),
     )
-    session.add(status_event)
+    first_custom_event = CaseEvent(
+        workspace_id=case.workspace_id,
+        case_id=case.id,
+        type=CaseEventType.STATUS_CHANGED,
+        data={
+            "old": CaseStatus.IN_PROGRESS.value,
+            "new": CaseStatus.RESOLVED.value,
+            "resolved_at": first_custom_end.isoformat(),
+        },
+        created_at=created_event.created_at + timedelta(seconds=2),
+    )
+    session.add_all([later_created_event, first_custom_event])
 
     assert svc_role.workspace_id is not None
     definition = CaseDurationDefinitionDB(
@@ -1234,6 +1249,6 @@ async def test_legacy_custom_timestamp_path_uses_event_scan_fallback(
 
     assert len(values) == 1
     value = values[0]
-    assert value.end_event_id == status_event.id
-    assert value.ended_at == custom_end
-    assert value.duration == custom_end - created_event.created_at
+    assert value.end_event_id == first_custom_event.id
+    assert value.ended_at == first_custom_end
+    assert value.duration == first_custom_end - created_event.created_at
