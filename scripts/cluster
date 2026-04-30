@@ -631,8 +631,11 @@ fi
 if [[ "$COMMAND" == "open" ]]; then
     calculate_ports "$CLUSTER_NUM"
     if portless_enabled; then
-        portless_register "$CLUSTER_NUM" "$PUBLIC_APP_PORT" >/dev/null || true
-        target_url="$(portless_url "$CLUSTER_NUM")"
+        if portless_register "$CLUSTER_NUM" "$PUBLIC_APP_PORT" >/dev/null; then
+            target_url="$(portless_url "$CLUSTER_NUM")"
+        else
+            target_url="http://localhost:${PUBLIC_APP_PORT}"
+        fi
     else
         target_url="http://localhost:${PUBLIC_APP_PORT}"
         portless_install_tip
