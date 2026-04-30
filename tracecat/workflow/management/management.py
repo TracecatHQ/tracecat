@@ -699,8 +699,11 @@ class WorkflowsManagementService(BaseWorkspaceService):
             # Legacy fallback for workflows without a current version pointer.
             statement = (
                 select(WorkflowDefinition.workflow_id)
+                .join(Workflow, Workflow.id == WorkflowDefinition.workflow_id)
                 .where(
                     WorkflowDefinition.workspace_id == self.workspace_id,
+                    Workflow.workspace_id == self.workspace_id,
+                    Workflow.version.is_(None),
                     WorkflowDefinition.alias == alias,
                 )
                 .order_by(WorkflowDefinition.version.desc())
