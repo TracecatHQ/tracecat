@@ -58,6 +58,13 @@ class ActionControlFlow(Schema):
         default=None,
         description="Override environment for this action's execution",
     )
+    mask_output: bool = Field(
+        default=False,
+        description=(
+            "If true, redact this action's result in workflow execution API "
+            "responses while preserving internal workflow data flow between actions."
+        ),
+    )
 
     @field_validator("wait_until", mode="before")
     def validate_wait_until(cls, v: str | None) -> str | None:

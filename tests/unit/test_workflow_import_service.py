@@ -58,6 +58,7 @@ def sample_dsl() -> DSLInput:
                 action="core.transform.transform",
                 args={"value": "test_value", "format": "json"},
                 description="Transforms test data",
+                mask_output=True,
             ),
             ActionStatement(
                 ref="second_action",
@@ -519,6 +520,7 @@ class TestWorkflowImportService:
             else action1.control_flow
         )
         assert isinstance(control_flow1, dict)
+        assert control_flow1["mask_output"] is True
 
         # Verify second action
         action2 = actions[1]

@@ -1330,6 +1330,7 @@ def build_action_statements_from_actions(
             join_strategy=control_flow.join_strategy,
             interaction=interaction,
             environment=control_flow.environment,
+            mask_output=control_flow.mask_output,
         )
         statements.append(action_stmt)
     return statements

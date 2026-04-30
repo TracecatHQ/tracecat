@@ -29,6 +29,10 @@ export type ActionControlFlow = {
    * Override environment for this action's execution
    */
   environment?: string | null
+  /**
+   * If true, redact this action's result in workflow execution API responses while preserving internal workflow data flow between actions.
+   */
+  mask_output?: boolean
 }
 
 export type ActionCreate = {
