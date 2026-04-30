@@ -178,7 +178,7 @@ REDACTED_ACTION_RESULT = "[REDACTED]"
 def _redact_leaf_values(value: Any) -> Any:
     """Preserve result structure while redacting displayable values."""
     if isinstance(value, BaseModel):
-        return _redact_leaf_values(value.model_dump(mode="json"))
+        return _redact_leaf_values(value.model_dump(mode="python"))
     if isinstance(value, dict):
         return {key: _redact_leaf_values(child) for key, child in value.items()}
     if isinstance(value, list):

@@ -19,6 +19,7 @@ from unittest.mock import AsyncMock, Mock, patch
 
 import orjson
 import pytest
+from pydantic import BaseModel
 from temporalio.api.enums.v1 import EventType, ParentClosePolicy, PendingActivityState
 from temporalio.api.failure.v1 import Failure
 from temporalio.api.history.v1 import HistoryEvent
@@ -1530,6 +1531,26 @@ class TestWorkflowExecutionEvents:
         assert redacted["external"]["ref"]["bucket"] == "[REDACTED]"
         assert set(redacted["collection"]) == set(collection.model_dump(mode="json"))
         assert redacted["collection"]["manifest_ref"]["key"] == "[REDACTED]"
+
+    async def test_masked_model_results_preserve_python_container_shape(self) -> None:
+        """Pydantic model fields should be redacted before JSON conversion."""
+
+        class ModelResult(BaseModel):
+            values: tuple[str, int]
+            nested: dict[str, tuple[str, str]]
+
+        redacted = _sanitize_action_result(
+            True,
+            ModelResult(
+                values=("secret", 123),
+                nested={"tokens": ("first", "second")},
+            ),
+        )
+
+        assert redacted == {
+            "values": ("[REDACTED]", "[REDACTED]"),
+            "nested": {"tokens": ("[REDACTED]", "[REDACTED]")},
+        }
 
     async def test_non_compact_masked_activity_result_redacts_leaf_values(
         self,
