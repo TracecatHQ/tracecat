@@ -896,6 +896,9 @@ class CaseDurationService(BaseWorkspaceService):
                         return False
                 elif actual_normalized not in expected_normalized:
                     return False
+            elif isinstance(actual_normalized, list):
+                if expected_normalized not in actual_normalized:
+                    return False
             elif actual_normalized != expected_normalized:
                 return False
         return True

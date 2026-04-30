@@ -1189,6 +1189,60 @@ async def test_legacy_empty_field_filters_match_any_field_change(
 
 
 @pytest.mark.anyio
+async def test_legacy_scalar_filter_matches_value_collected_from_list(
+    session: AsyncSession, svc_role
+) -> None:
+    cases_service = CasesService(session=session, role=svc_role)
+    duration_service = CaseDurationService(session=session, role=svc_role)
+
+    case = await cases_service.create_case(make_case_create())
+    case_created_result = await session.execute(
+        select(CaseEvent).where(
+            CaseEvent.case_id == case.id,
+            CaseEvent.type == CaseEventType.CASE_CREATED,
+        )
+    )
+    created_event = case_created_result.scalar_one()
+    nonmatching_event = CaseEvent(
+        workspace_id=case.workspace_id,
+        case_id=case.id,
+        type=CaseEventType.STATUS_CHANGED,
+        data={"items": [{"name": "bar"}]},
+        created_at=created_event.created_at + timedelta(seconds=1),
+    )
+    matching_event = CaseEvent(
+        workspace_id=case.workspace_id,
+        case_id=case.id,
+        type=CaseEventType.STATUS_CHANGED,
+        data={"items": [{"name": "foo"}]},
+        created_at=created_event.created_at + timedelta(seconds=2),
+    )
+    session.add_all([nonmatching_event, matching_event])
+
+    assert svc_role.workspace_id is not None
+    definition = CaseDurationDefinitionDB(
+        workspace_id=svc_role.workspace_id,
+        name="Legacy scalar filter duration",
+        start_event_type=CaseEventType.CASE_CREATED,
+        start_timestamp_path="created_at",
+        start_field_filters={},
+        start_selection=CaseDurationAnchorSelection.FIRST,
+        end_event_type=CaseEventType.STATUS_CHANGED,
+        end_timestamp_path="created_at",
+        end_field_filters={"data.items.name": "foo"},
+        end_selection=CaseDurationAnchorSelection.FIRST,
+    )
+    session.add(definition)
+    await session.flush()
+
+    values = await duration_service.compute_duration(case)
+
+    assert len(values) == 1
+    assert values[0].end_event_id == matching_event.id
+    assert values[0].duration == matching_event.created_at - created_event.created_at
+
+
+@pytest.mark.anyio
 async def test_legacy_custom_timestamp_path_uses_event_scan_fallback(
     session: AsyncSession, svc_role
 ) -> None:
