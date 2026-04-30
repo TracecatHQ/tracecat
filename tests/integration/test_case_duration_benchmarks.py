@@ -425,6 +425,7 @@ async def test_case_duration_update_burst_health_latency(
         assert len(update_latencies) + update_errors == attempted_updates
         assert update_latencies
         assert health_latencies["baseline"]
-        assert health_latencies["burst"] or health_errors["burst"] > 0
+        assert health_errors["burst"] == 0
+        assert health_latencies["burst"]
     finally:
         await async_engine.dispose()

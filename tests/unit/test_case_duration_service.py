@@ -1015,6 +1015,41 @@ def test_duration_anchor_rejects_custom_timestamp_paths() -> None:
         )
 
 
+@pytest.mark.parametrize(
+    "event_type",
+    [
+        CaseEventType.PRIORITY_CHANGED,
+        CaseEventType.SEVERITY_CHANGED,
+        CaseEventType.STATUS_CHANGED,
+        CaseEventType.TAG_ADDED,
+        CaseEventType.TAG_REMOVED,
+        CaseEventType.FIELDS_CHANGED,
+        CaseEventType.DROPDOWN_VALUE_CHANGED,
+    ],
+)
+def test_duration_anchor_rejects_empty_required_filters(
+    event_type: CaseEventType,
+) -> None:
+    with pytest.raises(ValidationError):
+        CaseDurationEventAnchor(event_type=event_type)
+
+
+@pytest.mark.parametrize(
+    "event_type",
+    [
+        CaseEventType.CASE_CREATED,
+        CaseEventType.CASE_CLOSED,
+        CaseEventType.CASE_REOPENED,
+    ],
+)
+def test_duration_anchor_allows_empty_filters_for_unfiltered_events(
+    event_type: CaseEventType,
+) -> None:
+    anchor = CaseDurationEventAnchor(event_type=event_type)
+
+    assert anchor.filters == CaseDurationEventFilters()
+
+
 @pytest.mark.anyio
 async def test_duration_storage_maps_known_legacy_ui_filters(
     session: AsyncSession, svc_role
@@ -1046,10 +1081,11 @@ async def test_duration_storage_marks_arbitrary_legacy_filters_unsupported(
 
 
 @pytest.mark.anyio
-async def test_duration_storage_marks_invalid_legacy_anchor_unsupported(
+async def test_duration_storage_allows_empty_legacy_filters(
     session: AsyncSession, svc_role
 ) -> None:
     definition_service = CaseDurationDefinitionService(session=session, role=svc_role)
+    duration_service = CaseDurationService(session=session, role=svc_role)
     assert svc_role.workspace_id is not None
     entity = CaseDurationDefinitionDB(
         workspace_id=svc_role.workspace_id,
@@ -1066,5 +1102,207 @@ async def test_duration_storage_marks_invalid_legacy_anchor_unsupported(
 
     anchor = definition_service._anchor_from_entity(entity, "start")
 
-    assert anchor._has_unsupported_filters
+    assert not anchor._has_unsupported_filters
+    assert anchor._allow_empty_required_filters
     assert anchor.filters == CaseDurationEventFilters()
+    assert anchor._legacy_field_filters == {}
+    assert not duration_service._anchor_requires_event_scan(anchor)
+
+
+@pytest.mark.anyio
+async def test_legacy_empty_status_filters_match_any_status_change(
+    session: AsyncSession, svc_role
+) -> None:
+    cases_service = CasesService(session=session, role=svc_role)
+    duration_service = CaseDurationService(session=session, role=svc_role)
+
+    assert svc_role.workspace_id is not None
+    definition = CaseDurationDefinitionDB(
+        workspace_id=svc_role.workspace_id,
+        name="Any status duration",
+        start_event_type=CaseEventType.CASE_CREATED,
+        start_timestamp_path="created_at",
+        start_field_filters={},
+        start_selection=CaseDurationAnchorSelection.FIRST,
+        end_event_type=CaseEventType.STATUS_CHANGED,
+        end_timestamp_path="created_at",
+        end_field_filters={},
+        end_selection=CaseDurationAnchorSelection.FIRST,
+    )
+    session.add(definition)
+    await session.flush()
+
+    case = await cases_service.create_case(make_case_create())
+    case = await cases_service.update_case(
+        case,
+        CaseUpdate(status=CaseStatus.IN_PROGRESS),
+    )
+
+    values = await duration_service.compute_duration(case)
+
+    assert len(values) == 1
+    assert values[0].end_event_id is not None
+    assert values[0].ended_at is not None
+    assert values[0].duration is not None
+
+
+@pytest.mark.anyio
+async def test_legacy_empty_field_filters_match_any_field_change(
+    session: AsyncSession, svc_role
+) -> None:
+    cases_service = CasesService(session=session, role=svc_role)
+    duration_service = CaseDurationService(session=session, role=svc_role)
+
+    assert svc_role.workspace_id is not None
+    definition = CaseDurationDefinitionDB(
+        workspace_id=svc_role.workspace_id,
+        name="Any field duration",
+        start_event_type=CaseEventType.CASE_CREATED,
+        start_timestamp_path="created_at",
+        start_field_filters={},
+        start_selection=CaseDurationAnchorSelection.FIRST,
+        end_event_type=CaseEventType.FIELDS_CHANGED,
+        end_timestamp_path="created_at",
+        end_field_filters={},
+        end_selection=CaseDurationAnchorSelection.FIRST,
+    )
+    session.add(definition)
+    await session.flush()
+
+    case = await cases_service.create_case(make_case_create())
+    field_event = CaseEvent(
+        workspace_id=case.workspace_id,
+        case_id=case.id,
+        type=CaseEventType.FIELDS_CHANGED,
+        data={"changes": [{"field": "legacy_field", "old": None, "new": "value"}]},
+        created_at=datetime.now(UTC) + timedelta(seconds=1),
+    )
+    session.add(field_event)
+    await session.flush()
+
+    values = await duration_service.compute_duration(case)
+
+    assert len(values) == 1
+    assert values[0].end_event_id == field_event.id
+    assert values[0].ended_at == field_event.created_at
+    assert values[0].duration is not None
+
+
+@pytest.mark.anyio
+async def test_legacy_scalar_filter_matches_value_collected_from_list(
+    session: AsyncSession, svc_role
+) -> None:
+    cases_service = CasesService(session=session, role=svc_role)
+    duration_service = CaseDurationService(session=session, role=svc_role)
+
+    case = await cases_service.create_case(make_case_create())
+    case_created_result = await session.execute(
+        select(CaseEvent).where(
+            CaseEvent.case_id == case.id,
+            CaseEvent.type == CaseEventType.CASE_CREATED,
+        )
+    )
+    created_event = case_created_result.scalar_one()
+    nonmatching_event = CaseEvent(
+        workspace_id=case.workspace_id,
+        case_id=case.id,
+        type=CaseEventType.STATUS_CHANGED,
+        data={"items": [{"name": "bar"}]},
+        created_at=created_event.created_at + timedelta(seconds=1),
+    )
+    matching_event = CaseEvent(
+        workspace_id=case.workspace_id,
+        case_id=case.id,
+        type=CaseEventType.STATUS_CHANGED,
+        data={"items": [{"name": "foo"}]},
+        created_at=created_event.created_at + timedelta(seconds=2),
+    )
+    session.add_all([nonmatching_event, matching_event])
+
+    assert svc_role.workspace_id is not None
+    definition = CaseDurationDefinitionDB(
+        workspace_id=svc_role.workspace_id,
+        name="Legacy scalar filter duration",
+        start_event_type=CaseEventType.CASE_CREATED,
+        start_timestamp_path="created_at",
+        start_field_filters={},
+        start_selection=CaseDurationAnchorSelection.FIRST,
+        end_event_type=CaseEventType.STATUS_CHANGED,
+        end_timestamp_path="created_at",
+        end_field_filters={"data.items.name": "foo"},
+        end_selection=CaseDurationAnchorSelection.FIRST,
+    )
+    session.add(definition)
+    await session.flush()
+
+    values = await duration_service.compute_duration(case)
+
+    assert len(values) == 1
+    assert values[0].end_event_id == matching_event.id
+    assert values[0].duration == matching_event.created_at - created_event.created_at
+
+
+@pytest.mark.anyio
+async def test_legacy_custom_timestamp_path_uses_event_scan_fallback(
+    session: AsyncSession, svc_role
+) -> None:
+    cases_service = CasesService(session=session, role=svc_role)
+    duration_service = CaseDurationService(session=session, role=svc_role)
+
+    case = await cases_service.create_case(make_case_create())
+    case_created_result = await session.execute(
+        select(CaseEvent).where(
+            CaseEvent.case_id == case.id,
+            CaseEvent.type == CaseEventType.CASE_CREATED,
+        )
+    )
+    created_event = case_created_result.scalar_one()
+    first_custom_end = created_event.created_at + timedelta(hours=1)
+    later_custom_end = created_event.created_at + timedelta(hours=2)
+    later_created_event = CaseEvent(
+        workspace_id=case.workspace_id,
+        case_id=case.id,
+        type=CaseEventType.STATUS_CHANGED,
+        data={
+            "old": CaseStatus.NEW.value,
+            "new": CaseStatus.RESOLVED.value,
+            "resolved_at": later_custom_end.isoformat(),
+        },
+        created_at=created_event.created_at + timedelta(seconds=1),
+    )
+    first_custom_event = CaseEvent(
+        workspace_id=case.workspace_id,
+        case_id=case.id,
+        type=CaseEventType.STATUS_CHANGED,
+        data={
+            "old": CaseStatus.IN_PROGRESS.value,
+            "new": CaseStatus.RESOLVED.value,
+            "resolved_at": first_custom_end.isoformat(),
+        },
+        created_at=created_event.created_at + timedelta(seconds=2),
+    )
+    session.add_all([later_created_event, first_custom_event])
+
+    assert svc_role.workspace_id is not None
+    definition = CaseDurationDefinitionDB(
+        workspace_id=svc_role.workspace_id,
+        name="Legacy custom timestamp duration",
+        start_event_type=CaseEventType.CASE_CREATED,
+        start_timestamp_path="created_at",
+        start_field_filters={},
+        start_selection=CaseDurationAnchorSelection.FIRST,
+        end_event_type=CaseEventType.STATUS_CHANGED,
+        end_timestamp_path="data.resolved_at",
+        end_field_filters={"data.new": CaseStatus.RESOLVED.value},
+        end_selection=CaseDurationAnchorSelection.FIRST,
+    )
+    session.add(definition)
+    await session.flush()
+
+    values = await duration_service.compute_duration(case)
+
+    assert len(values) == 1
+    value = values[0]
+    assert value.end_event_id == first_custom_event.id
+    assert value.ended_at == first_custom_end
+    assert value.duration == first_custom_end - created_event.created_at
