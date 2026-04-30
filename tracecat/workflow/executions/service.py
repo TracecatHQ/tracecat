@@ -938,9 +938,20 @@ class WorkflowExecutionsService:
 
         async for event in handle.fetch_history_events():
             if is_scheduled_event(event):
-                if source := await WorkflowExecutionEventCompact.from_source_event(
-                    event
-                ):
+                try:
+                    source = await WorkflowExecutionEventCompact.from_source_event(
+                        event
+                    )
+                except Exception as e:
+                    self.logger.warning(
+                        "Failed to parse source event mask metadata; treating result as masked",
+                        event_id=event.event_id,
+                        error=e,
+                    )
+                    source_masks[event.event_id] = True
+                else:
+                    if source is None:
+                        continue
                     source_masks[event.event_id] = source.should_mask_output
 
             if not is_close_event(event):
