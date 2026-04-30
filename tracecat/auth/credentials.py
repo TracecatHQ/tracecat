@@ -65,6 +65,8 @@ from tracecat.identifiers import InternalServiceID
 from tracecat.logger import logger
 from tracecat.organization.management import get_default_organization_id
 from tracecat.service_accounts.constants import API_KEY_HEADER_NAME
+from tracecat.tiers.access import is_org_entitled
+from tracecat.tiers.enums import Entitlement
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token", auto_error=False)
 internal_service_key_header_scheme = APIKeyHeader(
@@ -358,6 +360,10 @@ async def _authenticate_api_key(
             raise UNAUTHORIZED_EXCEPTION
         service_account = record.service_account
         if service_account.disabled_at is not None:
+            raise UNAUTHORIZED_EXCEPTION
+        if not await is_org_entitled(
+            session, service_account.organization_id, Entitlement.SERVICE_ACCOUNTS
+        ):
             raise UNAUTHORIZED_EXCEPTION
 
         # `workspace_id` is the effective request context. `bound_workspace_id`

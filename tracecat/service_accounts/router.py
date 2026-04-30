@@ -4,7 +4,7 @@ from collections.abc import Sequence
 from typing import Annotated, Any, cast
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
 
 from tracecat.auth.credentials import RoleACL
@@ -40,12 +40,25 @@ from tracecat.service_accounts.service import (
     get_service_account_api_key_counts,
     get_service_account_last_used_at,
 )
+from tracecat.tiers.entitlements import check_entitlement
+from tracecat.tiers.enums import Entitlement
+
+
+async def _require_service_accounts_entitlement(
+    *, role: Role, session: AsyncDBSession
+) -> None:
+    await check_entitlement(session, role, Entitlement.SERVICE_ACCOUNTS)
+
 
 org_router = APIRouter(
-    prefix="/organization/service-accounts", tags=["service_accounts"]
+    prefix="/organization/service-accounts",
+    tags=["service_accounts"],
+    dependencies=[Depends(_require_service_accounts_entitlement)],
 )
 workspace_router = APIRouter(
-    prefix="/workspaces/{workspace_id}/service-accounts", tags=["service_accounts"]
+    prefix="/workspaces/{workspace_id}/service-accounts",
+    tags=["service_accounts"],
+    dependencies=[Depends(_require_service_accounts_entitlement)],
 )
 
 WorkspaceUserOnlyInPath = Annotated[

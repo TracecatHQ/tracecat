@@ -125,6 +125,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
     enabled: shouldLoadAgentEntitlements,
   })
   const agentAddonsEnabled = hasEntitlement("agent_addons")
+  const serviceAccountsEnabled = hasEntitlement("service_accounts")
   const { presets, presetsIsLoading } = useAgentPresets(workspaceId, {
     enabled: shouldLoadAgentsSection && agentAddonsEnabled,
   })
@@ -453,7 +454,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                   isActive: pathname?.startsWith(`${basePath}/members`),
                 }
               : null,
-            canViewServiceAccounts === true
+            canViewServiceAccounts === true && serviceAccountsEnabled
               ? {
                   title: "Service accounts",
                   href: `${basePath}/service-accounts`,

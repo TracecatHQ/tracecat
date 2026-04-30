@@ -39,6 +39,12 @@ class EntitlementsDict(TypedDict, total=False):
             " (custom roles, groups, and assignments)"
         ),
     ]
+    service_accounts: Annotated[
+        bool,
+        Field(
+            description="Whether service accounts for API key access are enabled"
+        ),
+    ]
     watchtower: Annotated[
         bool,
         Field(
