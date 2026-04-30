@@ -106,7 +106,10 @@ async def _child_workflow_memo_from_temporal_or_default(
         return await ChildWorkflowMemo.from_temporal(memo)
     except Exception as e:
         logger.warning("Error parsing child workflow memo", error=e)
-        return ChildWorkflowMemo(action_ref=DEFAULT_CHILD_WORKFLOW_ACTION_REF)
+        return ChildWorkflowMemo(
+            action_ref=DEFAULT_CHILD_WORKFLOW_ACTION_REF,
+            mask_output=True,
+        )
 
 
 async def _agent_action_memo_from_temporal_or_default(
