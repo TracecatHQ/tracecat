@@ -34,6 +34,8 @@ import type {
   AdminDeleteOrganizationResponse,
   AdminDeleteTierData,
   AdminDeleteTierResponse,
+  AdminDeleteUserData,
+  AdminDeleteUserResponse,
   AdminDemoteFromSuperuserData,
   AdminDemoteFromSuperuserResponse,
   AdminGetOrganizationData,
@@ -7120,6 +7122,29 @@ export const adminGetUser = (
 ): CancelablePromise<AdminGetUserResponse> => {
   return __request(OpenAPI, {
     method: "GET",
+    url: "/admin/users/{user_id}",
+    path: {
+      user_id: data.userId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Delete User
+ * Delete a platform user.
+ * @param data The data for the request.
+ * @param data.userId
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const adminDeleteUser = (
+  data: AdminDeleteUserData
+): CancelablePromise<AdminDeleteUserResponse> => {
+  return __request(OpenAPI, {
+    method: "DELETE",
     url: "/admin/users/{user_id}",
     path: {
       user_id: data.userId,

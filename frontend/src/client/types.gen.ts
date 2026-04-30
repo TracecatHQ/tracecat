@@ -10537,6 +10537,12 @@ export type AdminGetUserData = {
 
 export type AdminGetUserResponse = AdminUserRead
 
+export type AdminDeleteUserData = {
+  userId: string
+}
+
+export type AdminDeleteUserResponse = void
+
 export type AdminPromoteToSuperuserData = {
   userId: string
 }
@@ -15476,6 +15482,19 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: AdminUserRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    delete: {
+      req: AdminDeleteUserData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
         /**
          * Validation Error
          */
