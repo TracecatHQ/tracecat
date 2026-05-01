@@ -1125,13 +1125,21 @@ class AgentSessionService(BaseWorkspaceService):
         decision_metadata: dict[str, dict[str, Any]] = {}
         for decision in request.decisions:
             if decision.action == "approve":
-                if decision.override_args:
-                    approval_map[decision.tool_call_id] = ToolApproved(
-                        override_args=decision.override_args
-                    )
-                else:
-                    approval_map[decision.tool_call_id] = True
+                approval_map[decision.tool_call_id] = True
+            elif decision.action == "override":
+                approval_map[decision.tool_call_id] = ToolApproved(
+                    override_args=decision.override_args or {}
+                )
+            elif decision.action == "deny":
+                approval_map[decision.tool_call_id] = ToolDenied(
+                    message=decision.reason or "Tool denied by user"
+                )
             else:
+                logger.warning(
+                    "Unknown approval decision action; defaulting to deny",
+                    action=decision.action,
+                    tool_call_id=decision.tool_call_id,
+                )
                 approval_map[decision.tool_call_id] = ToolDenied(
                     message=decision.reason or "Tool denied by user"
                 )
