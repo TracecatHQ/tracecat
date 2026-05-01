@@ -7,7 +7,7 @@ import hashlib
 import uuid
 from collections.abc import AsyncIterator, Sequence
 from dataclasses import dataclass, replace
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any, Literal
 
 import orjson
@@ -1713,24 +1713,26 @@ class AgentSessionService(BaseWorkspaceService):
         ]
 
     # =========================================================================
-    # Approval Flow: Remove Interrupt Entries
+    # Approval Flow: Replace Interrupt Entries
     # =========================================================================
 
-    async def remove_interrupt_entries_for_tool_results(
+    async def replace_interrupt_with_tool_results(
         self,
         session_id: uuid.UUID,
         tool_results: Sequence[ToolExecutionResult],
     ) -> None:
-        """Remove interrupted approval artifacts before tool_result continuation.
+        """Replace interrupted approval artifacts with a real tool_result entry.
 
         After approval execution, the session history contains SDK-generated
         interrupt entries (error tool_result, interrupt text, synthetic message).
         This method:
         1. Finds the assistant message with tool_use blocks
         2. Deletes the interrupt entries
+        3. Inserts the approved/denied tool_result as the next user entry
 
-        The runtime sends the approved/denied tool_result blocks as the next SDK
-        input so Claude Code writes the canonical user tool_result row itself.
+        Claude Code must see tool_result immediately after the assistant tool_use
+        when it loads the resumed session. If we stream tool_result after the CLI
+        starts, the CLI may first append a synthetic no-op assistant entry.
 
         Args:
             session_id: The session UUID.
@@ -1751,7 +1753,6 @@ class AgentSessionService(BaseWorkspaceService):
         # interrupt artifacts that follow the pending tool call.
         history = await self.get_session_history(session_id)
         assistant_entry: AgentSessionHistory | None = None
-        assistant_surrogate_id = None
 
         for entry in reversed(history):
             if entry.content.get("type") == "assistant":
@@ -1760,10 +1761,9 @@ class AgentSessionService(BaseWorkspaceService):
                 )
                 if any(tu.get("id") in tool_call_ids for tu in tool_uses):
                     assistant_entry = entry
-                    assistant_surrogate_id = entry.surrogate_id
                     break
 
-        if assistant_entry is None or assistant_surrogate_id is None:
+        if assistant_entry is None:
             logger.warning(
                 "Could not find assistant message with tool_use for continuation",
                 session_id=session_id,
@@ -1773,16 +1773,110 @@ class AgentSessionService(BaseWorkspaceService):
 
         # Delete interrupt entries that follow the assistant message
         await self._delete_interrupt_entries_for_tool_calls(
-            session_id, assistant_surrogate_id, tool_call_ids
+            session_id, assistant_entry.surrogate_id, tool_call_ids
         )
 
+        # Avoid duplicate tool_result rows if the activity is retried after the
+        # replacement has already been committed.
+        if await self._has_tool_result_entry_after(
+            session_id, assistant_entry.surrogate_id, tool_call_ids
+        ):
+            await self.session.commit()
+            logger.info(
+                "Tool_result entry already exists for approval continuation",
+                session_id=session_id,
+                tool_call_ids=list(tool_call_ids),
+            )
+            return
+
+        assistant_content = assistant_entry.content
+        assistant_uuid = assistant_content.get("uuid")
+        if not isinstance(assistant_uuid, str):
+            logger.warning(
+                "Assistant tool_use entry is missing uuid for continuation",
+                session_id=session_id,
+                tool_call_ids=tool_call_ids,
+            )
+            await self.session.commit()
+            return
+
+        entry_content: dict[str, Any] = {
+            "uuid": str(uuid.uuid4()),
+            "parentUuid": assistant_uuid,
+            "sessionId": session.sdk_session_id,
+            "type": "user",
+            "timestamp": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
+            "cwd": assistant_content.get("cwd") or "/home/agent",
+            "version": assistant_content.get("version") or "2.1.85",
+            "userType": assistant_content.get("userType") or "external",
+            "gitBranch": assistant_content.get("gitBranch") or "",
+            "entrypoint": assistant_content.get("entrypoint") or "sdk-py",
+            "isSidechain": False,
+            "permissionMode": "default",
+            "promptId": str(uuid.uuid4()),
+            "message": {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": result.tool_call_id,
+                        "content": self._serialize_tool_result(result.result),
+                        "is_error": result.is_error,
+                    }
+                    for result in tool_results
+                ],
+            },
+        }
+
+        self.session.add(
+            AgentSessionHistory(
+                session_id=session_id,
+                workspace_id=self.workspace_id,
+                content=entry_content,
+                kind=MessageKind.CHAT_MESSAGE.value,
+            )
+        )
         await self.session.commit()
 
         logger.info(
-            "Removed interrupt entries before tool_result continuation",
+            "Replaced interrupt entries with tool_result",
             session_id=session_id,
             tool_call_ids=list(tool_call_ids),
+            parent_uuid=assistant_uuid,
         )
+
+    async def _has_tool_result_entry_after(
+        self,
+        session_id: uuid.UUID,
+        assistant_surrogate_id: int,
+        tool_call_ids: set[str],
+    ) -> bool:
+        stmt = (
+            select(AgentSessionHistory.content)
+            .where(
+                AgentSessionHistory.session_id == session_id,
+                AgentSessionHistory.surrogate_id > assistant_surrogate_id,
+            )
+            .order_by(AgentSessionHistory.surrogate_id)
+        )
+        result = await self.session.execute(stmt)
+        for content in result.scalars().all():
+            if content.get("type") != "user":
+                continue
+            message = content.get("message", {})
+            if not isinstance(message, dict):
+                continue
+            msg_content = message.get("content", [])
+            if not isinstance(msg_content, list):
+                continue
+            result_ids = {
+                block.get("tool_use_id")
+                for block in msg_content
+                if isinstance(block, dict) and block.get("type") == "tool_result"
+            }
+            if tool_call_ids.issubset(result_ids):
+                return True
+        return False
 
     async def _delete_interrupt_entries_for_tool_calls(
         self,
@@ -1835,6 +1929,8 @@ class AgentSessionService(BaseWorkspaceService):
                         block.get("type") == "tool_result"
                         and block.get("is_error") is True
                         and block.get("tool_use_id") in tool_call_ids
+                        and "doesn't want to take this action"
+                        in str(block.get("content", ""))
                     ):
                         entries_to_delete.append(entry)
                         break
@@ -1863,6 +1959,16 @@ class AgentSessionService(BaseWorkspaceService):
                 deleted_count=len(entries_to_delete),
                 deleted_ids=[str(id) for id in ids_to_delete],
             )
+
+    @staticmethod
+    def _serialize_tool_result(result: Any) -> str:
+        """Serialize a tool result to Claude's string tool_result content."""
+        if isinstance(result, str):
+            return result
+        try:
+            return orjson.dumps(result).decode("utf-8")
+        except (TypeError, ValueError):
+            return str(result)
 
     # =========================================================================
     # Session Forking (for post-decision agent interactions)

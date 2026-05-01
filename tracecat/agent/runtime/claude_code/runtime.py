@@ -435,6 +435,17 @@ class ClaudeAgentRuntime:
         }
 
     @staticmethod
+    async def _meta_text_input_stream(text: str) -> AsyncIterator[dict[str, Any]]:
+        """Yield a hidden Claude SDK stream-json user message."""
+        yield {
+            "type": "user",
+            "message": {"role": "user", "content": text},
+            "parent_tool_use_id": None,
+            "session_id": "default",
+            "isMeta": True,
+        }
+
+    @staticmethod
     def _is_thinking_only_assistant_line(line_data: dict[str, Any]) -> bool:
         """Return True for assistant JSONL rows that only contain thinking."""
         if line_data.get("type") != "assistant":
@@ -773,9 +784,9 @@ class ClaudeAgentRuntime:
         This is the main entry point for sandboxed execution.
         Called after receiving init payload from orchestrator via socket.
 
-        On resume after approval, session history ends at the assistant tool_use.
-        The runtime sends approved or denied tool_result blocks as the next SDK
-        input.
+        On resume after approval, session history already contains the
+        approved or denied tool_result. The runtime sends a hidden meta tick so
+        Claude Code consumes the completed history.
         """
         run_started_at = perf_counter()
 
@@ -942,28 +953,17 @@ class ClaudeAgentRuntime:
                 mcp_servers=list(mcp_servers.keys()),
             )
             _configure_claude_sdk_process_env()
-            if payload.approval_tool_results:
-                query_input = self._tool_result_input_stream(
-                    payload.approval_tool_results
-                )
-                self._pending_approval_tool_ids.update(
-                    result.tool_call_id for result in payload.approval_tool_results
-                )
-                query_log_extra = {
-                    "tool_result_count": len(payload.approval_tool_results)
-                }
-                connect_prompt = query_input
-                send_query_after_connect = False
-                logger.debug("Approval continuation with tool_result input")
-            # Legacy fallback for old callers that only pre-seed tool_result
-            # history and need a neutral query to advance the resumed session.
-            elif payload.is_approval_continuation:
-                query_input = APPROVAL_CONTINUATION_PROMPT
+            if payload.is_approval_continuation:
+                query_input = self._meta_text_input_stream(APPROVAL_CONTINUATION_PROMPT)
                 self._approval_continuation_active = True
-                query_log_extra = {"prompt_length": len(query_input)}
+                query_log_extra = {
+                    "prompt_length": len(APPROVAL_CONTINUATION_PROMPT),
+                    "preseeded_tool_result_count": len(payload.approval_tool_results),
+                    "is_meta": True,
+                }
                 connect_prompt = None
                 send_query_after_connect = True
-                logger.debug("Approval continuation with hidden prompt")
+                logger.debug("Approval continuation with meta prompt")
             else:
                 query_input = payload.user_prompt
                 query_log_extra = {"prompt_length": len(query_input)}

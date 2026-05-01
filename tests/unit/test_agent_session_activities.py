@@ -105,7 +105,7 @@ async def test_reconcile_tool_results_removes_interrupts_and_returns_tool_result
     assert result.results[0].tool_call_id == "toolu_123"
     assert result.results[0].result == {"status": "ok"}
     stream.append.assert_awaited_once()
-    service.remove_interrupt_entries_for_tool_results.assert_awaited_once_with(
+    service.replace_interrupt_with_tool_results.assert_awaited_once_with(
         input.session_id,
         result.results,
     )

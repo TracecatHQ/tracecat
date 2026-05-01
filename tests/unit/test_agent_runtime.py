@@ -639,7 +639,7 @@ class TestClaudeAgentRuntimeRun:
         ],
     )
     @pytest.mark.anyio
-    async def test_approval_continuation_sends_tool_result_input_in_each_sandbox_mode(
+    async def test_approval_continuation_sends_meta_prompt_in_each_sandbox_mode(
         self,
         monkeypatch: pytest.MonkeyPatch,
         mock_socket_writer: MagicMock,
@@ -648,7 +648,7 @@ class TestClaudeAgentRuntimeRun:
         tmp_path: Path,
         disable_nsjail: bool,
     ) -> None:
-        """Approval continuations send tool_result blocks as SDK input."""
+        """Approval continuations send a hidden tick after tool_result is seeded."""
         monkeypatch.setattr(runtime_module, "TRACECAT__DISABLE_NSJAIL", disable_nsjail)
         captured_options: list[Any] = []
 
@@ -696,27 +696,18 @@ class TestClaudeAgentRuntimeRun:
         assert captured_options[0].resume == continued_payload.sdk_session_id
         assert captured_options[0].fork_session is False
         assert captured_options[0].sandbox["enabled"] is disable_nsjail
-        mock_claude_sdk_client.connect.assert_awaited_once()
-        mock_claude_sdk_client.query.assert_not_awaited()
-        query_input = mock_claude_sdk_client.connect.await_args.args[0]
+        mock_claude_sdk_client.connect.assert_awaited_once_with(None)
+        mock_claude_sdk_client.query.assert_awaited_once()
+        query_input = mock_claude_sdk_client.query.await_args.args[0]
         assert not isinstance(query_input, str)
         messages = [message async for message in query_input]
         assert messages == [
             {
                 "type": "user",
-                "message": {
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "tool_result",
-                            "tool_use_id": "call_123",
-                            "content": '{"status":"success"}',
-                            "is_error": False,
-                        }
-                    ],
-                },
+                "message": {"role": "user", "content": "Continue."},
                 "parent_tool_use_id": None,
                 "session_id": "default",
+                "isMeta": True,
             }
         ]
 

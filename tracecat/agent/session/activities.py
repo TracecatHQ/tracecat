@@ -257,7 +257,7 @@ async def reconcile_tool_results_activity(
 
     if results:
         async with AgentSessionService.with_session(role=input.role) as service:
-            await service.remove_interrupt_entries_for_tool_results(
+            await service.replace_interrupt_with_tool_results(
                 input.session_id,
                 results,
             )

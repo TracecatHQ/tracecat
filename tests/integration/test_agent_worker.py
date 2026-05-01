@@ -400,13 +400,13 @@ class TestAgentWorkerSingleTenant:
 
     @pytest.mark.anyio
     @pytest.mark.integration
-    async def test_approval_continuation_sends_tool_result_as_next_input(
+    async def test_approval_continuation_resumes_with_seeded_tool_result(
         self,
         svc_role: Role,
         temporal_client: Client,
         agent_worker_factory: Callable[..., Worker],
     ) -> None:
-        """Approval continuation should resume before tool_result and pass it separately."""
+        """Approval continuation should resume after the reconciled tool_result row."""
         session_id = uuid.uuid4()
         queue = TEST_AGENT_QUEUE
         approval_request_recorded = asyncio.Event()
@@ -416,6 +416,12 @@ class TestAgentWorkerSingleTenant:
             '{"type":"assistant","message":{"content":[{"type":"tool_use",'
             '"id":"call_123","name":"core__http_request","input":{"url":'
             '"https://example.com","method":"GET"}}]}}\n'
+        )
+        sdk_history_with_tool_result = (
+            sdk_history_without_tool_result
+            + '{"type":"user","message":{"content":[{"type":"tool_result",'
+            '"tool_use_id":"call_123","content":"{\\"status\\":\\"success\\"}",'
+            '"is_error":false}]}}\n'
         )
 
         @activity.defn(name="create_session_activity")
@@ -438,7 +444,7 @@ class TestAgentWorkerSingleTenant:
             return LoadSessionResult(
                 found=True,
                 sdk_session_id="sdk-session",
-                sdk_session_data=sdk_history_without_tool_result,
+                sdk_session_data=sdk_history_with_tool_result,
             )
 
         @activity.defn(name="record_approval_requests")
@@ -490,8 +496,8 @@ class TestAgentWorkerSingleTenant:
 
             assert input.is_approval_continuation is True
             assert input.sdk_session_id == "sdk-session"
-            assert input.sdk_session_data == sdk_history_without_tool_result
-            assert '"type":"tool_result"' not in input.sdk_session_data
+            assert input.sdk_session_data == sdk_history_with_tool_result
+            assert '"type":"tool_result"' in input.sdk_session_data
             assert "Continue." not in input.sdk_session_data
             assert len(input.approval_tool_results) == 1
             [tool_result] = input.approval_tool_results

@@ -52,8 +52,9 @@ class RuntimeInitPayload:
     The orchestrator sends this after the runtime connects to the control socket.
     Contains everything the runtime needs to execute an agent turn.
 
-    On resume after approval, sdk_session_data ends at the assistant tool_use.
-    The approved or denied tool results are sent as the next Claude SDK input.
+    On resume after approval, sdk_session_data already includes the approved or
+    denied tool_result entry. approval_tool_results is runtime metadata, not a
+    second SDK input.
     """
 
     # Runtime selection

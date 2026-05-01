@@ -583,8 +583,9 @@ class DurableAgentWorkflow:
                         sdk_session_id=self._sdk_session_id,
                     )
 
-                # Update executor input for resume. Reconcile has removed the
-                # interrupt artifacts; the runtime sends tool_result as SDK input.
+                # Update executor input for resume. Reconcile has replaced the
+                # interrupt artifacts with the real tool_result entry; the
+                # runtime only sends a hidden continuation tick.
                 executor_input = AgentExecutorInput(
                     session_id=self.session_id,
                     workspace_id=self.workspace_id,
@@ -598,7 +599,6 @@ class DurableAgentWorkflow:
                     sdk_session_data=self._sdk_session_data,
                     is_approval_continuation=True,
                     approval_tool_results=tool_results,
-                    use_workspace_credentials=args.agent_args.use_workspace_credentials,
                 )
                 self._turn += 1
                 continue
