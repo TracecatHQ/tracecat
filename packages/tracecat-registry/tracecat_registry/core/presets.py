@@ -79,6 +79,12 @@ async def create_preset(
             "List of action identifiers that the agent can use as tools. Format: 'namespace.action' (e.g., ['core.cases.create_case', 'core.cases.update_case']). These actions become available to the agent during execution."
         ),
     ] = None,
+    skills: Annotated[
+        list[dict[str, str]] | None,
+        Doc(
+            "List of skill bindings to attach to the preset. Each entry must include 'skill_id' and 'skill_version_id' UUID strings for a published skill version."
+        ),
+    ] = None,
 ) -> dict[str, Any]:
     # Build kwargs, only including non-None values
     kwargs: dict[str, Any] = {
@@ -98,6 +104,8 @@ async def create_preset(
         kwargs["output_type"] = output_type
     if actions is not None:
         kwargs["actions"] = actions
+    if skills is not None:
+        kwargs["skills"] = skills
 
     return await get_context().agents.create_preset(**kwargs)
 
@@ -189,6 +197,12 @@ async def update_preset(
             "The updated list of action identifiers that the agent can use as tools. Format: 'namespace.action' (e.g., ['core.cases.create_case'])."
         ),
     ] = None,
+    skills: Annotated[
+        list[dict[str, str]] | None,
+        Doc(
+            "The updated skill bindings for the preset. Each entry must include 'skill_id' and 'skill_version_id' UUID strings for a published skill version."
+        ),
+    ] = None,
 ) -> dict[str, Any]:
     # Build kwargs, only including non-None values
     kwargs: dict[str, Any] = {}
@@ -210,6 +224,8 @@ async def update_preset(
         kwargs["output_type"] = output_type
     if actions is not None:
         kwargs["actions"] = actions
+    if skills is not None:
+        kwargs["skills"] = skills
 
     return await get_context().agents.update_preset(slug, **kwargs)
 

@@ -47,6 +47,13 @@ class MCPServerConfig(TypedDict):
     """Optional: Transport type. Defaults to 'http'."""
 
 
+class AgentPresetSkillBinding(TypedDict):
+    """Skill binding for attaching a published skill version to an agent preset."""
+
+    skill_id: str
+    skill_version_id: str
+
+
 class RankableItem(TypedDict):
     id: str | int
     text: str
@@ -465,6 +472,7 @@ class AgentsClient:
         base_url: str | Unset = UNSET,
         output_type: str | dict[str, Any] | Unset = UNSET,
         actions: list[str] | Unset = UNSET,
+        skills: list[AgentPresetSkillBinding] | Unset = UNSET,
     ) -> dict[str, Any]:
         """Create a new agent preset.
 
@@ -499,6 +507,8 @@ class AgentsClient:
             data["output_type"] = output_type
         if is_set(actions):
             data["actions"] = actions
+        if is_set(skills):
+            data["skills"] = skills
         return await self._client.post("/agent/presets", json=data)
 
     async def get_preset(self, slug: str) -> dict[str, Any]:
@@ -528,6 +538,7 @@ class AgentsClient:
         base_url: str | Unset = UNSET,
         output_type: str | dict[str, Any] | Unset = UNSET,
         actions: list[str] | Unset = UNSET,
+        skills: list[AgentPresetSkillBinding] | Unset = UNSET,
     ) -> dict[str, Any]:
         """Update an existing agent preset.
 
@@ -568,6 +579,8 @@ class AgentsClient:
             data["output_type"] = output_type
         if is_set(actions):
             data["actions"] = actions
+        if is_set(skills):
+            data["skills"] = skills
         return await self._client.patch(f"/agent/presets/by-slug/{slug}", json=data)
 
     async def delete_preset(self, slug: str) -> None:
@@ -587,6 +600,7 @@ __all__ = [
     "AgentOutput",
     "AgentsClient",
     "MCPServerConfig",
+    "AgentPresetSkillBinding",
     "OutputType",
     "RankableItem",
     "rank_items",
