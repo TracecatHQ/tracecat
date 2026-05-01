@@ -182,7 +182,7 @@ def test_bedrock_rejects_ambient_credential_fallback() -> None:
     assert "resolved before request dispatch" in exc_info.value.message
 
 
-def test_litellm_config_routes_provider_placeholders_before_openai_catch_all() -> None:
+def test_litellm_config_routes_provider_placeholders_before_catch_all() -> None:
     config_path = (
         Path(__file__).resolve().parents[2]
         / "tracecat"
@@ -206,8 +206,9 @@ def test_litellm_config_routes_provider_placeholders_before_openai_catch_all() -
     assert resolved_model("vertex_ai/*") == "vertex_ai/*"
     assert resolved_model("azure/*") == "azure/*"
     assert resolved_model("azure_ai/*") == "azure_ai/*"
-    # Unqualified names fall through to the OpenAI catch-all
-    assert resolved_model("custom") == "openai/custom"
+    # Unqualified names fall through to the hosted_vllm catch-all so custom
+    # providers bridge to Chat Completions instead of the Responses API.
+    assert resolved_model("custom") == "hosted_vllm/custom"
 
 
 def _make_request(
