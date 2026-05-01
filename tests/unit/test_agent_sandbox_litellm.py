@@ -1551,6 +1551,43 @@ async def test_executor_starts_llm_socket_proxy_for_isolated_passthrough_runs(
 
 
 @pytest.mark.anyio
+async def test_executor_enables_runtime_internet_when_subagent_requires_it(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    subagent = SandboxSubagentConfig(
+        alias="web",
+        description="Use for internet research.",
+        prompt="Research the user's request.",
+        config=SandboxAgentConfig(
+            model_name="gpt-5-mini",
+            model_provider="openai",
+            enable_internet_access=True,
+        ),
+        mcp_auth_token="child-mcp-token",
+    )
+    executor_input = _make_executor_input(enable_internet_access=False).model_copy(
+        update={"subagents": [subagent]}
+    )
+
+    (
+        result,
+        _created_socket_paths,
+        _fake_proxy,
+        fake_broker,
+    ) = await _run_executor_with_fake_broker(
+        executor_input=executor_input,
+        monkeypatch=monkeypatch,
+        tmp_path=tmp_path,
+    )
+
+    assert result.success is True
+    assert len(fake_broker.requests) == 1
+    assert fake_broker.requests[0].init_payload.config.enable_internet_access is False
+    assert fake_broker.requests[0].enable_internet_access is True
+
+
+@pytest.mark.anyio
 async def test_executor_starts_llm_socket_proxy_for_passthrough_provider_with_internet_enabled(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

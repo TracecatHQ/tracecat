@@ -60,6 +60,7 @@ from tracecat.agent.common.types import (
     MCPServerConfig,
     MCPStdioServerConfig,
     MCPToolDefinition,
+    sandbox_requires_internet_access,
 )
 from tracecat.agent.llm_routing import get_litellm_route_model
 from tracecat.agent.mcp.metadata import (
@@ -1004,6 +1005,10 @@ class ClaudeAgentRuntime:
                 for subagent in payload.subagents
             },
         }
+        runtime_internet_access = sandbox_requires_internet_access(
+            payload.config,
+            payload.subagents,
+        )
 
         # Stable per-session working directory for the Claude Code CLI.
         # IMPORTANT: Must be deterministic per session_id. The CLI indexes
@@ -1056,7 +1061,8 @@ class ClaudeAgentRuntime:
 
             # Build disallowed tools list based on environment and config
             # - Always blocked: interactive/planning tools (DISALLOWED_TOOLS)
-            # - Internet tools: blocked unless enable_internet_access is True
+            # - Internet tools: blocked only when no scope can use them. The
+            #   hook below enforces root/subagent-specific access.
             # Filesystem tools (Bash, Read, Write, etc.) are always allowed:
             # - nsjail mode: sandbox provides OS-level isolation
             # - direct mode: SandboxSettings + stable cwd scopes file access
@@ -1066,7 +1072,7 @@ class ClaudeAgentRuntime:
                 for tool in DISALLOWED_TOOLS
                 if not (self._agents_enabled and tool in AGENT_TOOL_NAMES)
             ]
-            if not payload.config.enable_internet_access:
+            if not runtime_internet_access:
                 disallowed_tools.extend(INTERNET_TOOLS)
             allowed_tools = self._allowed_tools_for_mcp_scope(
                 registry_server_name=REGISTRY_MCP_SERVER_NAME,

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal, NotRequired, TypedDict
 
@@ -177,3 +178,13 @@ class SandboxSubagentConfig(BaseModel):
     mcp_auth_token: str
     max_turns: int | None = None
     allowed_actions: dict[str, MCPToolDefinition] | None = None
+
+
+def sandbox_requires_internet_access(
+    config: SandboxAgentConfig,
+    subagents: Iterable[SandboxSubagentConfig],
+) -> bool:
+    """Return whether the sandbox process needs network access."""
+    return config.enable_internet_access or any(
+        subagent.config.enable_internet_access for subagent in subagents
+    )

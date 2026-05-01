@@ -183,6 +183,15 @@ def get_hook_output(result: SyncHookJSONOutput) -> dict[str, Any]:
     return cast(dict[str, Any], result.get("hookSpecificOutput", {}))
 
 
+def test_pre_tool_use_hook_input_declares_subagent_context_fields() -> None:
+    """SDK PreToolUse input must expose subagent attribution fields."""
+    annotations = set(PreToolUseHookInput.__annotations__)
+    optional_keys = set(getattr(PreToolUseHookInput, "__optional_keys__", frozenset()))
+
+    assert {"agent_id", "agent_type"} <= annotations
+    assert {"agent_id", "agent_type"} <= optional_keys
+
+
 @pytest.mark.parametrize(
     ("provider", "model_name", "passthrough", "expected"),
     [
@@ -793,6 +802,95 @@ class TestClaudeAgentRuntimeRun:
             "WebSearch",
         }
 
+    @pytest.mark.anyio
+    async def test_subagent_internet_access_keeps_sdk_tools_available_with_root_policy_deny(
+        self,
+        mock_socket_writer: MagicMock,
+        mock_claude_sdk_client: MagicMock,
+        sample_init_payload: RuntimeInitPayload,
+    ) -> None:
+        captured_options: list[Any] = []
+        child = SandboxSubagentConfig(
+            alias="web",
+            description="Use for internet research.",
+            prompt="Research the user's request.",
+            config=sample_init_payload.config.model_copy(
+                update={
+                    "model_name": "gpt-5-mini",
+                    "model_provider": "openai",
+                    "enable_internet_access": True,
+                }
+            ),
+            mcp_auth_token="child-mcp-token",
+        )
+        payload = replace(
+            sample_init_payload,
+            config=sample_init_payload.config.model_copy(
+                update={
+                    "enable_internet_access": False,
+                    "agents": AgentsConfig.model_validate(
+                        {
+                            "enabled": True,
+                            "subagents": [{"preset": "web"}],
+                        }
+                    ),
+                }
+            ),
+            subagents=[child],
+        )
+
+        def _mock_client_ctor(*_args: Any, **kwargs: Any) -> MagicMock:
+            captured_options.append(kwargs["options"])
+            return mock_claude_sdk_client
+
+        with (
+            patch(
+                "tracecat.agent.runtime.claude_code.runtime.ClaudeSDKClient",
+                side_effect=_mock_client_ctor,
+            ),
+        ):
+            runtime = ClaudeAgentRuntime(
+                mock_socket_writer, transport_factory=lambda _: MagicMock()
+            )
+            await runtime.run(payload)
+
+        assert captured_options
+        options = captured_options[0]
+        internet_tools = set(runtime_module.INTERNET_TOOLS)
+        assert internet_tools.isdisjoint(options.disallowed_tools)
+        assert options.agents is not None
+        child_disallowed_tools = options.agents["web"].disallowedTools or []
+        assert internet_tools.isdisjoint(child_disallowed_tools)
+
+        root_result = await runtime._pre_tool_use_hook(
+            input_data=make_hook_input(
+                tool_name="WebSearch",
+                tool_input={"query": "tracecat"},
+                tool_use_id="call-root-web-search",
+            ),
+            tool_use_id="call-root-web-search",
+            context=make_hook_context(),
+        )
+        root_hook_output = get_hook_output(root_result)
+        assert root_hook_output.get("permissionDecision") == "deny"
+        assert "root" in (root_hook_output.get("permissionDecisionReason") or "")
+
+        child_result = await runtime._pre_tool_use_hook(
+            input_data=make_hook_input(
+                tool_name="WebSearch",
+                tool_input={"query": "tracecat"},
+                tool_use_id="call-child-web-search",
+                agent_id="agent-123",
+                agent_type="web",
+            ),
+            tool_use_id="call-child-web-search",
+            context=make_hook_context(),
+        )
+        assert get_hook_output(child_result) == {
+            "hookEventName": "PreToolUse",
+            "permissionDecision": "allow",
+        }
+
     @pytest.mark.parametrize(
         ("provider", "model_name", "passthrough", "expected"),
         [
@@ -1207,6 +1305,35 @@ class TestClaudeAgentRuntimePreToolUseHook:
     3. Deny with reason if requires_approval is True
     4. Deny without reason otherwise (tool not allowed)
     """
+
+    @pytest.mark.anyio
+    async def test_subagent_internet_access_requires_agent_type_attribution(
+        self,
+        mock_socket_writer: MagicMock,
+    ) -> None:
+        runtime = ClaudeAgentRuntime(
+            mock_socket_writer, transport_factory=lambda _: MagicMock()
+        )
+        runtime._explicit_subagent_aliases = {"web"}
+        runtime._scope_internet_access = {
+            "root": False,
+            "web": True,
+        }
+
+        result = await runtime._pre_tool_use_hook(
+            input_data=make_hook_input(
+                tool_name="WebSearch",
+                tool_input={"query": "tracecat"},
+                tool_use_id="call-child-web-search",
+                agent_id="agent-123",
+            ),
+            tool_use_id="call-child-web-search",
+            context=make_hook_context(),
+        )
+
+        hook_output = get_hook_output(result)
+        assert hook_output.get("permissionDecision") == "deny"
+        assert "root" in (hook_output.get("permissionDecisionReason") or "")
 
     @pytest.mark.anyio
     async def test_auto_approve_user_mcp_tools(

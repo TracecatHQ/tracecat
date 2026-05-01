@@ -29,6 +29,7 @@ from tracecat.agent.common.types import (
     MCPToolDefinition,
     SandboxAgentConfig,
     SandboxSubagentConfig,
+    sandbox_requires_internet_access,
 )
 from tracecat.agent.executor.loopback import (
     LoopbackHandler,
@@ -311,7 +312,10 @@ class SandboxedAgentExecutor:
             job_dir=self._job_dir,
             socket_dir=socket_dir,
             llm_socket_path=llm_socket_path,
-            enable_internet_access=init_payload.config.enable_internet_access,
+            enable_internet_access=sandbox_requires_internet_access(
+                init_payload.config,
+                init_payload.subagents,
+            ),
             skills_dir=self._skills_dir(),
         )
         broker_task = asyncio.create_task(broker.run_turn(request, handler))
