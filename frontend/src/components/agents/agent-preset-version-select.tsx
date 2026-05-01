@@ -14,6 +14,12 @@ import { cn } from "@/lib/utils"
 
 const CURRENT_VERSION_VALUE = "__current__"
 
+export function getAgentPresetVersionIdFromSelectValue(
+  selectValue: string
+): string | null {
+  return selectValue === CURRENT_VERSION_VALUE ? null : selectValue
+}
+
 export function getAgentPresetVersionNumber(
   versions: AgentPresetVersionReadMinimal[] | undefined,
   versionId: string | null | undefined
@@ -129,7 +135,7 @@ export function AgentPresetVersionSelect({
     <Select
       value={value}
       onValueChange={(nextValue) =>
-        void onSelect(nextValue === CURRENT_VERSION_VALUE ? null : nextValue)
+        void onSelect(getAgentPresetVersionIdFromSelectValue(nextValue))
       }
       disabled={disabled}
     >
@@ -183,7 +189,7 @@ export function AgentPresetVersionSelect({
         ) : null}
         {!versionsIsLoading && !versionsError && allowCurrent ? (
           <SelectItem value={CURRENT_VERSION_VALUE}>
-            <VersionLabel label="Use latest" />
+            <VersionLabel label="Use current" />
           </SelectItem>
         ) : null}
         {!versionsIsLoading &&
