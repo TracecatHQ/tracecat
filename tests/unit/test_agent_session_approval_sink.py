@@ -6,13 +6,13 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
+from pydantic_ai.tools import ToolApproved
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.agent.approvals.enums import ApprovalStatus
 from tracecat.agent.session.service import AgentSessionService
 from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.agent.types import AgentConfig
-from tracecat.agent.types import ToolApproved
 from tracecat.auth.types import Role
 from tracecat.chat.enums import MessageKind
 from tracecat.chat.schemas import ApprovalDecision, BasicChatRequest, ContinueRunRequest
