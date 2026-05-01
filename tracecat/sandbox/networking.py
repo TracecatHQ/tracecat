@@ -3,12 +3,24 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from ipaddress import ip_address
 from pathlib import Path
 
 PASTA_GUEST_IP = "10.255.255.2"
 PASTA_GATEWAY_IP = "10.255.255.1"
 PASTA_GUEST_IP6 = "fc00::2"
 PASTA_GATEWAY_IP6 = "fc00::1"
+
+
+def _is_loopback_nameserver(line: str) -> bool:
+    parts = line.split()
+    if len(parts) < 2:
+        return False
+    address = parts[1].split("%", maxsplit=1)[0]
+    try:
+        return ip_address(address).is_loopback
+    except ValueError:
+        return False
 
 
 @dataclass(frozen=True)
@@ -39,8 +51,14 @@ def pasta_user_net_config_lines() -> list[str]:
 def build_pasta_resolv_conf(
     host_resolv_path: Path = Path("/etc/resolv.conf"),
 ) -> str:
-    """Build resolv.conf for pasta DNS while preserving resolver search options."""
-    lines = [f"nameserver {PASTA_GATEWAY_IP}"]
+    """Build resolv.conf for a pasta-backed jail.
+
+    Preserve the host resolver so Kubernetes service discovery keeps working
+    inside the sandbox. Fall back to pasta's gateway resolver only when the
+    host does not expose nameservers.
+    """
+    nameservers: list[str] = []
+    options: list[str] = []
     try:
         host_resolv = host_resolv_path.read_text()
     except OSError:
@@ -48,8 +66,12 @@ def build_pasta_resolv_conf(
 
     for line in host_resolv.splitlines():
         stripped = line.strip()
-        if stripped.startswith("search ") or stripped.startswith("options "):
-            lines.append(stripped)
+        if stripped.startswith("nameserver ") and not _is_loopback_nameserver(stripped):
+            nameservers.append(stripped)
+        elif stripped.startswith("search ") or stripped.startswith("options "):
+            options.append(stripped)
+    lines = nameservers or [f"nameserver {PASTA_GATEWAY_IP}"]
+    lines.extend(options)
     return "\n".join(lines) + "\n"
 
 
