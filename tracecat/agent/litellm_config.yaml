@@ -32,10 +32,10 @@ model_list:
     litellm_params:
       model: openai/*
 
-  # Catch-all: unqualified model names are routed to OpenAI.
+  # Catch-all: unqualified model names are routed to OpenAI's Chat Completions API.
   - model_name: "*"
     litellm_params:
-      model: openai/*
+      model: hosted_vllm/*
 
 general_settings:
   custom_auth: tracecat.agent.gateway.user_api_key_auth
