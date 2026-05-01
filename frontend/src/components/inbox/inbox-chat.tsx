@@ -15,6 +15,7 @@ export function InboxChat({ session }: InboxChatProps) {
 
   // Track the forked session ID and pending message
   const [forkedState, setForkedState] = useState<{
+    parentSessionId: string
     sessionId: string
     pendingMessage?: string
   } | null>(null)
@@ -38,7 +39,10 @@ export function InboxChat({ session }: InboxChatProps) {
         if (!isCurrent) return
 
         if (childSessions.length > 0) {
-          setForkedState({ sessionId: childSessions[0].id })
+          setForkedState({
+            parentSessionId: session.id,
+            sessionId: childSessions[0].id,
+          })
         } else {
           setForkedState(null)
         }
@@ -58,10 +62,16 @@ export function InboxChat({ session }: InboxChatProps) {
     }
   }, [session?.id, workspaceId])
 
-  const activeSessionId = forkedState?.sessionId ?? session.id
+  const activeForkedState =
+    forkedState?.parentSessionId === session.id ? forkedState : null
+  const activeSessionId = activeForkedState?.sessionId ?? session.id
 
   const handleForked = (forkedId: string, pendingMessage: string) => {
-    setForkedState({ sessionId: forkedId, pendingMessage })
+    setForkedState({
+      parentSessionId: session.id,
+      sessionId: forkedId,
+      pendingMessage,
+    })
   }
 
   const handlePendingMessageSent = () => {
@@ -77,7 +87,7 @@ export function InboxChat({ session }: InboxChatProps) {
       parentSessionId={session.id}
       session={session}
       onForked={handleForked}
-      pendingMessage={forkedState?.pendingMessage}
+      pendingMessage={activeForkedState?.pendingMessage}
       onPendingMessageSent={handlePendingMessageSent}
     />
   )
