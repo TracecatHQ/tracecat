@@ -41,7 +41,7 @@ class SandboxedCLITransport(Transport):
     """Claude SDK transport that runs the Claude CLI inside the sandbox shim."""
 
     JAILED_SITE_PACKAGES_ROOT = Path("/site-packages")
-    _MAX_BUFFER_SIZE = 1024 * 1024
+    _MAX_BUFFER_SIZE = 5 * 1024 * 1024
 
     def __init__(
         self,
