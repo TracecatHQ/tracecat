@@ -711,6 +711,102 @@ class TestClaudeAgentRuntimeRun:
             }
         ]
 
+    @pytest.mark.anyio
+    async def test_approval_continuation_forwards_live_thinking_events(
+        self,
+        mock_socket_writer: MagicMock,
+        mock_claude_sdk_client: MagicMock,
+        sample_init_payload: RuntimeInitPayload,
+        tmp_path: Path,
+    ) -> None:
+        """Real resumed-turn thinking should stream during approval continuation."""
+        sdk_session_id = "eed8297f-26fb-4e00-905f-a10f0cf20704"
+        continued_payload = replace(
+            sample_init_payload,
+            sdk_session_id=sdk_session_id,
+            sdk_session_data=(
+                '{"type":"assistant","message":{"content":[{"type":"tool_use",'
+                '"id":"call_123","name":"core__http_request","input":{}}]}}\n'
+            ),
+            is_approval_continuation=True,
+            approval_tool_results=[
+                RuntimeToolResult(
+                    tool_call_id="call_123",
+                    content='{"status":"success"}',
+                    is_error=False,
+                )
+            ],
+        )
+
+        async def mock_receive() -> Any:
+            yield StreamEvent(
+                uuid="thinking-start",
+                session_id=sdk_session_id,
+                event={
+                    "type": "content_block_start",
+                    "index": 0,
+                    "content_block": {"type": "thinking", "thinking": ""},
+                },
+            )
+            yield StreamEvent(
+                uuid="thinking-delta",
+                session_id=sdk_session_id,
+                event={
+                    "type": "content_block_delta",
+                    "index": 0,
+                    "delta": {
+                        "type": "thinking_delta",
+                        "thinking": "Using the approved tool result.",
+                    },
+                },
+            )
+            yield StreamEvent(
+                uuid="thinking-stop",
+                session_id=sdk_session_id,
+                event={"type": "content_block_stop", "index": 0},
+            )
+            yield ResultMessage(
+                subtype="success",
+                duration_ms=1,
+                duration_api_ms=1,
+                is_error=False,
+                num_turns=1,
+                session_id=sdk_session_id,
+                usage={},
+                result="done",
+            )
+
+        mock_claude_sdk_client.receive_response = mock_receive
+
+        with (
+            patch(
+                "tracecat.agent.runtime.claude_code.runtime.ClaudeSDKClient",
+                return_value=mock_claude_sdk_client,
+            ),
+            patch(
+                "tracecat.agent.runtime.claude_code.runtime.create_proxy_mcp_server",
+                AsyncMock(return_value={}),
+            ),
+        ):
+            runtime = ClaudeAgentRuntime(
+                mock_socket_writer,
+                transport_factory=lambda _options: MagicMock(),
+                session_home_dir=tmp_path / "claude-home",
+                cwd=tmp_path / "claude-project",
+                cwd_setup_path=tmp_path / "claude-project",
+            )
+            await runtime.run(continued_payload)
+
+        event_types = [
+            call.args[0].type
+            for call in mock_socket_writer.send_stream_event.await_args_list
+        ]
+        assert event_types == [
+            StreamEventType.THINKING_START,
+            StreamEventType.THINKING_DELTA,
+            StreamEventType.THINKING_STOP,
+        ]
+
     @pytest.mark.parametrize(
         "disable_nsjail",
         [
@@ -1231,12 +1327,12 @@ class TestClaudeAgentRuntimeInternalSessionLines:
         assert runtime._is_internal_session_line(line_data) is True
 
     @pytest.mark.anyio
-    async def test_approval_continuation_hides_sdk_meta_prompt_and_reasoning(
+    async def test_approval_continuation_hides_sdk_meta_prompt_only(
         self,
         mock_socket_writer: MagicMock,
         tmp_path: Path,
     ) -> None:
-        """Approval continuation control rows should not show in chat or traces."""
+        """Approval continuation control rows should not hide assistant output."""
         runtime = ClaudeAgentRuntime(
             mock_socket_writer,
             transport_factory=lambda _: MagicMock(),
@@ -1245,7 +1341,7 @@ class TestClaudeAgentRuntimeInternalSessionLines:
         )
         sdk_session_id = "eed8297f-26fb-4e00-905f-a10f0cf20704"
         runtime._sdk_session_id = sdk_session_id
-        runtime._approval_continuation_active = True
+        runtime._hide_next_approval_continuation_prompt = True
 
         tool_result_uuid = "tool-result-uuid"
         meta_uuid = "meta-uuid"
@@ -1341,5 +1437,5 @@ class TestClaudeAgentRuntimeInternalSessionLines:
         assert internal_by_uuid[meta_uuid] is True
         assert internal_by_uuid[synthetic_uuid] is True
         assert internal_by_uuid[prompt_uuid] is True
-        assert internal_by_uuid[thinking_uuid] is True
+        assert internal_by_uuid[thinking_uuid] is False
         assert internal_by_uuid[answer_uuid] is False

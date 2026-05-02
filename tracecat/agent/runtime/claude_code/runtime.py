@@ -222,9 +222,9 @@ class ClaudeAgentRuntime:
         # For incremental JSONL line tracking
         self._sdk_session_id: str | None = None
         self._last_seen_line_index: int = 0
-        # True while an approval continuation turn is running. Claude Code emits
-        # resume metadata plus our neutral query; both are control-plane state.
-        self._approval_continuation_active: bool = False
+        # One-shot guard for hiding our neutral approval-continuation prompt.
+        # Other SDK metadata rows are hidden structurally by `_is_internal_session_line`.
+        self._hide_next_approval_continuation_prompt: bool = False
         # Adapter for converting Claude SDK events - must be reused to track state
         self._stream_adapter = ClaudeSDKAdapter()
         # Working directory for session file path resolution
@@ -445,25 +445,6 @@ class ClaudeAgentRuntime:
             "isMeta": True,
         }
 
-    @staticmethod
-    def _is_thinking_only_assistant_line(line_data: dict[str, Any]) -> bool:
-        """Return True for assistant JSONL rows that only contain thinking."""
-        if line_data.get("type") != "assistant":
-            return False
-
-        message = line_data.get("message", {})
-        if not isinstance(message, dict):
-            return False
-
-        content = message.get("content")
-        if not isinstance(content, list) or not content:
-            return False
-
-        return all(
-            isinstance(part, dict) and part.get("type") == "thinking"
-            for part in content
-        )
-
     def _is_internal_session_line(self, line_data: dict[str, Any]) -> bool:
         """Determine if a session line is internal (not shown in UI timeline).
 
@@ -609,18 +590,14 @@ class ClaudeAgentRuntime:
 
                 internal = self._is_internal_session_line(line_data)
 
-                if self._approval_continuation_active:
-                    # Claude Code emits an isMeta "Continue from where you left off."
-                    # row before the actual SDK query. Hide both that metadata and
-                    # our neutral query, plus the reasoning-only block they induce.
-                    if line_data.get("type") == "user" and (
-                        line_data.get("isMeta") is True
-                        or self._message_text_content(line_data)
-                        == APPROVAL_CONTINUATION_PROMPT
-                    ):
-                        internal = True
-                    elif self._is_thinking_only_assistant_line(line_data):
-                        internal = True
+                if (
+                    self._hide_next_approval_continuation_prompt
+                    and line_data.get("type") == "user"
+                    and self._message_text_content(line_data)
+                    == APPROVAL_CONTINUATION_PROMPT
+                ):
+                    internal = True
+                    self._hide_next_approval_continuation_prompt = False
 
                 await self._event_writer.send_session_line(
                     self._sdk_session_id, line, internal=internal
@@ -955,7 +932,7 @@ class ClaudeAgentRuntime:
             _configure_claude_sdk_process_env()
             if payload.is_approval_continuation:
                 query_input = self._meta_text_input_stream(APPROVAL_CONTINUATION_PROMPT)
-                self._approval_continuation_active = True
+                self._hide_next_approval_continuation_prompt = True
                 query_log_extra = {
                     "prompt_length": len(APPROVAL_CONTINUATION_PROMPT),
                     "preseeded_tool_result_count": len(payload.approval_tool_results),
@@ -1042,16 +1019,7 @@ class ClaudeAgentRuntime:
 
                             # Partial streaming delta - forward to UI
                             unified = self._stream_adapter.to_unified_event(message)
-                            if not (
-                                self._approval_continuation_active
-                                and unified.type
-                                in {
-                                    StreamEventType.THINKING_START,
-                                    StreamEventType.THINKING_DELTA,
-                                    StreamEventType.THINKING_STOP,
-                                }
-                            ):
-                                await self._event_writer.send_stream_event(unified)
+                            await self._event_writer.send_stream_event(unified)
 
                         elif isinstance(message, ResultMessage):
                             # Final result - emit any remaining lines
@@ -1079,7 +1047,7 @@ class ClaudeAgentRuntime:
                                 duration_ms=message.duration_ms,
                                 output=result_output,
                             )
-                            self._approval_continuation_active = False
+                            self._hide_next_approval_continuation_prompt = False
 
                         elif isinstance(message, SystemMessage):
                             await self._emit_new_session_lines()
