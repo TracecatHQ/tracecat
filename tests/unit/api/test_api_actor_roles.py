@@ -9,9 +9,13 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from fastapi import status
 from fastapi.testclient import TestClient
+from temporalio.client import WorkflowExecutionStatus
 
 from tracecat.agent import router as agent_router
-from tracecat.auth.dependencies import WorkspaceActorRole, WorkspaceUserRole
+from tracecat.auth.dependencies import (
+    WorkspaceActorRouteRole,
+    WorkspaceUserRouteRole,
+)
 from tracecat.auth.types import Role
 from tracecat.cases import router as cases_router
 from tracecat.contexts import ctx_role
@@ -340,6 +344,60 @@ async def test_service_account_can_search_workflow_executions_without_user_filte
 
 
 @pytest.mark.anyio
+async def test_service_account_can_get_workflow_execution_by_workflow_route(
+    client: TestClient,
+    workspace_targeted_service_account_role: Role,
+) -> None:
+    workflow_id = "wf_4itKqkgCZrLhgYiq5L211X"
+    execution_id = "exec_def"
+    wf_exec_id = f"{workflow_id}/{execution_id}"
+    mock_execution = SimpleNamespace(
+        id=wf_exec_id,
+        run_id="run_123",
+        start_time=datetime(2024, 1, 1, tzinfo=UTC),
+        execution_time=None,
+        close_time=None,
+        status=WorkflowExecutionStatus.RUNNING,
+        workflow_type="DSLWorkflow",
+        task_queue="tracecat-task-queue",
+        history_length=0,
+        typed_search_attributes={},
+    )
+    mock_service = AsyncMock()
+    mock_service.get_execution.return_value = mock_execution
+    mock_service.list_workflow_execution_events.return_value = []
+
+    with (
+        patch.object(
+            WorkflowExecutionsService, "connect", new_callable=AsyncMock
+        ) as mock_connect,
+        patch.object(
+            workflow_executions_router,
+            "_list_interactions",
+            new_callable=AsyncMock,
+        ) as mock_list_interactions,
+    ):
+        mock_connect.return_value = mock_service
+        mock_list_interactions.return_value = []
+
+        token = ctx_role.set(workspace_targeted_service_account_role)
+        try:
+            response = client.get(
+                "/workspaces/"
+                f"{workspace_targeted_service_account_role.workspace_id}"
+                f"/workflows/{workflow_id}/executions/{execution_id}",
+            )
+        finally:
+            ctx_role.reset(token)
+
+    assert response.status_code == status.HTTP_200_OK
+    assert response.json()["id"] == wf_exec_id
+    mock_service.get_execution.assert_awaited_once_with(wf_exec_id)
+    mock_service.list_workflow_execution_events.assert_awaited_once_with(wf_exec_id)
+    mock_list_interactions.assert_awaited_once()
+
+
+@pytest.mark.anyio
 @pytest.mark.parametrize(
     "path", ["/workflow-executions", "/workflow-executions/search"]
 )
@@ -426,9 +484,9 @@ def test_integration_route_role_boundaries_are_explicit() -> None:
         integrations_router.test_connection, include_extras=True
     )["role"]
 
-    assert list_integrations_role == WorkspaceUserRole
-    assert list_providers_role == WorkspaceActorRole
-    assert test_connection_role == WorkspaceActorRole
+    assert list_integrations_role == WorkspaceUserRouteRole
+    assert list_providers_role == WorkspaceActorRouteRole
+    assert test_connection_role == WorkspaceActorRouteRole
 
 
 def test_cases_route_role_boundary_accepts_workspace_actors() -> None:
@@ -487,7 +545,7 @@ def test_org_agent_routes_remain_user_only() -> None:
     workspace_status_role = get_type_hints(
         agent_router.get_workspace_providers_status, include_extras=True
     )["role"]
-    assert workspace_status_role == WorkspaceActorRole
+    assert workspace_status_role == WorkspaceActorRouteRole
 
 
 def test_github_manifest_flow_routes_remain_user_only() -> None:
@@ -513,8 +571,8 @@ def test_draft_workflow_execution_route_remains_user_only() -> None:
         include_extras=True,
     )["role"]
 
-    assert draft_role == WorkspaceActorRole
-    assert draft_execution_role == WorkspaceUserRole
+    assert draft_role == WorkspaceActorRouteRole
+    assert draft_execution_role == WorkspaceUserRouteRole
 
 
 def test_workflow_detail_route_remains_user_only() -> None:
@@ -522,7 +580,7 @@ def test_workflow_detail_route_remains_user_only() -> None:
         workflow_management_router.get_workflow, include_extras=True
     )["role"]
 
-    assert workflow_detail_role == WorkspaceUserRole
+    assert workflow_detail_role == WorkspaceUserRouteRole
 
 
 def test_webhook_api_key_revocation_route_remains_user_only() -> None:
@@ -536,6 +594,6 @@ def test_webhook_api_key_revocation_route_remains_user_only() -> None:
         workflow_management_router.delete_webhook_api_key, include_extras=True
     )["role"]
 
-    assert get_webhook_role == WorkspaceUserRole
-    assert revoke_role == WorkspaceUserRole
-    assert delete_role == WorkspaceUserRole
+    assert get_webhook_role == WorkspaceUserRouteRole
+    assert revoke_role == WorkspaceUserRouteRole
+    assert delete_role == WorkspaceUserRouteRole

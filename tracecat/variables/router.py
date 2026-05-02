@@ -1,10 +1,9 @@
-from typing import Annotated, Any
+from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query, status
 from sqlalchemy.exc import IntegrityError
 
-from tracecat.auth.credentials import RoleACL
-from tracecat.auth.types import Role
+from tracecat.auth.dependencies import WorkspaceUserRouteRole as WorkspaceUser
 from tracecat.authz.controls import require_scope
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.exceptions import TracecatNotFoundError
@@ -20,15 +19,6 @@ from tracecat.variables.schemas import (
 from tracecat.variables.service import VariablesService
 
 router = APIRouter(prefix="/variables", tags=["variables"])
-
-WorkspaceUser = Annotated[
-    Role,
-    RoleACL(
-        allow_user=True,
-        allow_service=False,
-        require_workspace="yes",
-    ),
-]
 
 
 @router.get("/search", response_model=list[VariableRead])

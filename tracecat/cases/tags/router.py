@@ -2,7 +2,7 @@ from fastapi import APIRouter, HTTPException, status
 from pydantic import UUID4
 from sqlalchemy.exc import IntegrityError, NoResultFound
 
-from tracecat.auth.dependencies import WorkspaceActorRole
+from tracecat.auth.dependencies import WorkspaceActorRouteRole as WorkspaceActorRole
 from tracecat.authz.controls import require_scope
 from tracecat.cases.tags.schemas import CaseTagCreate, CaseTagRead
 from tracecat.cases.tags.service import CaseTagsService

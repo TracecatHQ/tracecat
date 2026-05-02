@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import uuid
-from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
@@ -17,8 +16,7 @@ from tracecat.agent.channels.schemas import (
     SlackOAuthStartResponse,
 )
 from tracecat.agent.channels.service import PENDING_SLACK_BOT_TOKEN, AgentChannelService
-from tracecat.auth.credentials import RoleACL
-from tracecat.auth.types import Role
+from tracecat.auth.dependencies import WorkspaceUserRouteRole as WorkspaceEditorRole
 from tracecat.authz.controls import require_scope
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
@@ -39,15 +37,6 @@ router = APIRouter(
     tags=["agent-channels"],
     dependencies=[Depends(_require_agent_channels_enabled)],
 )
-
-WorkspaceEditorRole = Annotated[
-    Role,
-    RoleACL(
-        allow_user=True,
-        allow_service=False,
-        require_workspace="yes",
-    ),
-]
 
 
 @router.post(

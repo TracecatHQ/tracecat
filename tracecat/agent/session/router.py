@@ -4,7 +4,6 @@ This router consolidates chat and session endpoints into a unified /agent/sessio
 """
 
 import uuid
-from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, Query, Request, status
 from fastapi.responses import StreamingResponse
@@ -24,8 +23,7 @@ from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.agent.stream.connector import AgentStream
 from tracecat.agent.stream.events import StreamFormat
 from tracecat.agent.types import StreamKey
-from tracecat.auth.credentials import RoleACL
-from tracecat.auth.types import Role
+from tracecat.auth.dependencies import WorkspaceUserRouteRole as WorkspaceUser
 from tracecat.authz.controls import require_scope
 from tracecat.chat.schemas import (
     ChatRead,
@@ -39,15 +37,6 @@ from tracecat.exceptions import TracecatNotFoundError
 from tracecat.logger import logger
 
 router = APIRouter(prefix="/agent/sessions", tags=["agent-sessions"])
-
-WorkspaceUser = Annotated[
-    Role,
-    RoleACL(
-        allow_user=True,
-        allow_service=False,
-        require_workspace="yes",
-    ),
-]
 
 
 @router.post("")

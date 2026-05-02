@@ -3,7 +3,7 @@ from typing import cast
 from fastapi import APIRouter, HTTPException, status
 from pydantic import ValidationError
 
-from tracecat.auth.dependencies import WorkspaceActorRole
+from tracecat.auth.dependencies import WorkspaceActorRouteRole as WorkspaceActorRole
 from tracecat.authz.controls import require_scope
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.exceptions import TracecatValidationError

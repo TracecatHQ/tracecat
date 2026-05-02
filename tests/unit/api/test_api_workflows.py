@@ -131,6 +131,33 @@ async def test_list_workflows_success(
 
 
 @pytest.mark.anyio
+async def test_list_workflows_accepts_workspace_scoped_path(
+    client: TestClient,
+    test_admin_role: Role,
+    mock_workflow: Workflow,
+) -> None:
+    """Test GET /workspaces/{workspace_id}/workflows resolves workspace context from the path."""
+    with patch.object(
+        workflow_management_router, "WorkflowsManagementService"
+    ) as MockService:
+        mock_svc = AsyncMock()
+        mock_response = CursorPaginatedResponse(
+            items=[(mock_workflow, None)],
+            next_cursor=None,
+            prev_cursor=None,
+            has_more=False,
+            has_previous=False,
+        )
+        mock_svc.list_workflows.return_value = mock_response
+        MockService.return_value = mock_svc
+
+        response = client.get(f"/workspaces/{test_admin_role.workspace_id}/workflows")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["items"][0]["title"] == "Test Workflow"
+
+
+@pytest.mark.anyio
 async def test_list_workflows_with_pagination(
     client: TestClient,
     test_admin_role: Role,

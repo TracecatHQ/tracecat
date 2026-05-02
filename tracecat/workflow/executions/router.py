@@ -14,7 +14,12 @@ import tracecat.agent.adapter.vercel
 from tracecat import config
 from tracecat.agent.schemas import AgentOutput
 from tracecat.agent.types import ClaudeSDKMessageTA
-from tracecat.auth.dependencies import WorkspaceActorRole, WorkspaceUserRole
+from tracecat.auth.dependencies import (
+    WorkspaceActorRouteRole as WorkspaceActorRole,
+)
+from tracecat.auth.dependencies import (
+    WorkspaceUserRouteRole as WorkspaceUserRole,
+)
 from tracecat.auth.types import Role
 from tracecat.authz.controls import require_scope
 from tracecat.db.dependencies import AsyncDBSession
@@ -29,7 +34,10 @@ from tracecat.ee.interactions.service import InteractionService
 from tracecat.exceptions import TracecatValidationError
 from tracecat.identifiers import UserID
 from tracecat.identifiers.workflow import (
+    AnyWorkflowIDPath,
     OptionalAnyWorkflowIDQuery,
+    WorkflowExecutionID,
+    WorkflowExecutionSuffixID,
     WorkflowIDShort,
     WorkflowUUID,
     exec_id_to_parts,
@@ -90,6 +98,7 @@ from tracecat.workflow.executions.service import (
 from tracecat.workflow.management.management import WorkflowsManagementService
 
 router = APIRouter(prefix="/workflow-executions", tags=["workflow-executions"])
+workflow_router = APIRouter(prefix="/workflows", tags=["workflow-executions"])
 PREVIEW_MAX_BYTES = 256 * 1024  # 256 KB
 COLLECTION_PAGE_PREVIEW_MAX_BYTES = 4 * 1024  # 4 KB per item preview in page responses
 
@@ -595,14 +604,11 @@ async def bulk_reset_workflow_executions(
     return WorkflowExecutionBulkResetResponse(results=results)
 
 
-@router.get("/{execution_id}")
-@require_scope("workflow:read")
-async def get_workflow_execution(
+async def _get_workflow_execution_response(
     role: WorkspaceActorRole,
-    execution_id: UnquotedExecutionID,
+    execution_id: WorkflowExecutionID,
     session: AsyncDBSession,
 ) -> WorkflowExecutionRead:
-    """Get a workflow execution."""
     logger.debug("Getting workflow execution", execution_id=execution_id)
     service = await WorkflowExecutionsService.connect(role=role)
     execution = await service.get_execution(execution_id)
@@ -632,6 +638,38 @@ async def get_workflow_execution(
         execution_type=get_execution_type_from_search_attr(
             execution.typed_search_attributes
         ),
+    )
+
+
+@workflow_router.get("/{workflow_id}/executions/{execution_id}")
+@require_scope("workflow:read")
+async def get_workflow_execution_by_workflow_id(
+    role: WorkspaceActorRole,
+    workflow_id: AnyWorkflowIDPath,
+    execution_id: WorkflowExecutionSuffixID,
+    session: AsyncDBSession,
+) -> WorkflowExecutionRead:
+    """Get a workflow execution by workflow ID and execution suffix."""
+    full_execution_id: WorkflowExecutionID = f"{workflow_id.short()}/{execution_id}"
+    return await _get_workflow_execution_response(
+        role=role,
+        execution_id=full_execution_id,
+        session=session,
+    )
+
+
+@router.get("/{execution_id}")
+@require_scope("workflow:read")
+async def get_workflow_execution(
+    role: WorkspaceActorRole,
+    execution_id: UnquotedExecutionID,
+    session: AsyncDBSession,
+) -> WorkflowExecutionRead:
+    """Get a workflow execution."""
+    return await _get_workflow_execution_response(
+        role=role,
+        execution_id=execution_id,
+        session=session,
     )
 
 

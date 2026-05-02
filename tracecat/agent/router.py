@@ -9,12 +9,14 @@ from tracecat.agent.schemas import (
     ProviderCredentialConfig,
 )
 from tracecat.agent.service import AgentManagementService
-from tracecat.auth.dependencies import OrgUserRole, WorkspaceActorRole
+from tracecat.auth.dependencies import OrgUserRole
+from tracecat.auth.dependencies import WorkspaceActorRouteRole as WorkspaceActorRole
 from tracecat.authz.controls import require_scope
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.exceptions import TracecatNotFoundError
 
 router = APIRouter(prefix="/agent", tags=["agent"])
+workspace_router = APIRouter(prefix="/agent", tags=["agent"])
 
 
 @router.get("/models")
@@ -212,7 +214,7 @@ async def set_default_model_selection(
         ) from e
 
 
-@router.get("/workspace/providers/status")
+@workspace_router.get("/workspace/providers/status")
 @require_scope("agent:read")
 async def get_workspace_providers_status(
     *,

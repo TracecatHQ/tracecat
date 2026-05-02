@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.agent.session.service import AgentSessionService
 from tracecat.agent.types import ToolApproved, ToolDenied
-from tracecat.auth.dependencies import WorkspaceUserRole
+from tracecat.auth.dependencies import WorkspaceUserRouteRole as WorkspaceUserRole
 from tracecat.chat.schemas import ApprovalDecision, ContinueRunRequest
 from tracecat.db.engine import get_async_session
 from tracecat.exceptions import TracecatNotFoundError
