@@ -15,7 +15,7 @@ import asyncio
 import os
 import tempfile
 import uuid
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncIterator, Callable, Mapping
 from pathlib import Path
 from time import perf_counter
 from typing import Any, Literal, Protocol, cast
@@ -393,23 +393,15 @@ class ClaudeAgentRuntime:
         return any(marker in text for marker in compact_markers)
 
     @staticmethod
-    def _message_text_content(line_data: dict[str, Any]) -> str | None:
+    def _message_text_content(line_data: Mapping[str, object]) -> str | None:
         """Extract simple text content from a Claude session line."""
-        message = line_data.get("message", {})
-        if not isinstance(message, dict):
-            return None
-
-        content = message.get("content")
-        if isinstance(content, str):
-            return content
-
-        if isinstance(content, list) and len(content) == 1:
-            [part] = content
-            if isinstance(part, dict) and part.get("type") == "text":
-                text = part.get("text")
-                return text if isinstance(text, str) else None
-
-        return None
+        match line_data:
+            case {"message": {"content": str(text)}}:
+                return text
+            case {"message": {"content": [{"type": "text", "text": str(text)}]}}:
+                return text
+            case _:
+                return None
 
     @staticmethod
     async def _tool_result_input_stream(
@@ -938,21 +930,16 @@ class ClaudeAgentRuntime:
                     "preseeded_tool_result_count": len(payload.approval_tool_results),
                     "is_meta": True,
                 }
-                connect_prompt = None
-                send_query_after_connect = True
                 logger.debug("Approval continuation with meta prompt")
             else:
                 query_input = payload.user_prompt
                 query_log_extra = {"prompt_length": len(query_input)}
-                connect_prompt = None
-                send_query_after_connect = True
                 logger.debug("Normal turn with user prompt")
 
             transport = self._transport_factory(options)
             client = ClaudeSDKClient(options=options, transport=transport)
-            logger.debug("Client created, connecting")
-            await client.connect(connect_prompt)
-            try:
+            logger.debug("Client created, entering context")
+            async with client:
                 self.client = client
                 log_benchmark_phase("runtime_client_connected")
                 stderr_task = asyncio.create_task(drain_stderr())
@@ -969,8 +956,7 @@ class ClaudeAgentRuntime:
                         await self._event_writer.send_stream_event(
                             self._build_compaction_status_event(phase="started")
                         )
-                    if send_query_after_connect:
-                        await client.query(query_input)
+                    await client.query(query_input)
                     log_benchmark_phase("runtime_query_sent")
 
                     await self._event_writer.send_log(
@@ -1097,8 +1083,6 @@ class ClaudeAgentRuntime:
                         await stderr_task
                     except asyncio.CancelledError:
                         pass
-            finally:
-                await client.disconnect()
 
             # CLI has exited — session file is fully flushed.
             await self._emit_new_session_lines()

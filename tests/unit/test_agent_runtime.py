@@ -133,12 +133,20 @@ def mock_socket_writer() -> MagicMock:
 def mock_claude_sdk_client() -> MagicMock:
     """Create a mock ClaudeSDKClient."""
     mock_client = MagicMock()
-    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-    mock_client.__aexit__ = AsyncMock(return_value=None)
     mock_client.connect = AsyncMock()
     mock_client.disconnect = AsyncMock()
     mock_client.query = AsyncMock()
     mock_client.interrupt = AsyncMock()
+
+    async def enter_client() -> MagicMock:
+        await mock_client.connect()
+        return mock_client
+
+    async def exit_client(*_args: Any) -> None:
+        await mock_client.disconnect()
+
+    mock_client.__aenter__ = AsyncMock(side_effect=enter_client)
+    mock_client.__aexit__ = AsyncMock(side_effect=exit_client)
 
     # Default: return empty response
     async def empty_response() -> Any:
@@ -696,7 +704,7 @@ class TestClaudeAgentRuntimeRun:
         assert captured_options[0].resume == continued_payload.sdk_session_id
         assert captured_options[0].fork_session is False
         assert captured_options[0].sandbox["enabled"] is disable_nsjail
-        mock_claude_sdk_client.connect.assert_awaited_once_with(None)
+        mock_claude_sdk_client.connect.assert_awaited_once_with()
         mock_claude_sdk_client.query.assert_awaited_once()
         query_input = mock_claude_sdk_client.query.await_args.args[0]
         assert not isinstance(query_input, str)
