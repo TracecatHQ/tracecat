@@ -166,7 +166,12 @@ from tracecat.workflow.actions.router import router as workflow_actions_router
 from tracecat.workflow.executions.internal_router import (
     router as internal_workflows_router,
 )
-from tracecat.workflow.executions.router import router as workflow_executions_router
+from tracecat.workflow.executions.router import (
+    router as workflow_executions_router,
+)
+from tracecat.workflow.executions.router import (
+    workflow_router as workflow_executions_workflow_router,
+)
 from tracecat.workflow.graph.router import router as workflow_graph_router
 from tracecat.workflow.management.folders.router import (
     router as workflow_folders_router,
@@ -494,6 +499,7 @@ def create_app(**kwargs) -> FastAPI:
     app.include_router(workspaces_router)
     app.include_router(workspace_service_accounts_router)
     _include_workspace_scoped_router(app, workflow_management_router)
+    _include_workspace_scoped_router(app, workflow_executions_workflow_router)
     _include_workspace_scoped_router(app, workflow_graph_router)
     _include_workspace_scoped_router(app, workflow_executions_router)
     _include_workspace_scoped_router(app, workflow_actions_router)

@@ -9115,6 +9115,15 @@ export type WorkflowsMoveWorkflowToFolderData = {
 
 export type WorkflowsMoveWorkflowToFolderResponse = void
 
+export type WorkflowExecutionsGetWorkflowExecutionByWorkflowIdData = {
+  executionId: string
+  workflowId: string
+  workspaceId: string
+}
+
+export type WorkflowExecutionsGetWorkflowExecutionByWorkflowIdResponse =
+  WorkflowExecutionRead
+
 export type GraphGetGraphData = {
   workflowId: string
   workspaceId: string
@@ -12852,6 +12861,21 @@ export type $OpenApiTs = {
          * Successful Response
          */
         204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/workflows/{workflow_id}/executions/{execution_id}": {
+    get: {
+      req: WorkflowExecutionsGetWorkflowExecutionByWorkflowIdData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: WorkflowExecutionRead
         /**
          * Validation Error
          */
