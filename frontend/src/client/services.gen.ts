@@ -752,6 +752,8 @@ import type {
   WorkflowExecutionsCreateDraftWorkflowExecutionResponse,
   WorkflowExecutionsCreateWorkflowExecutionData,
   WorkflowExecutionsCreateWorkflowExecutionResponse,
+  WorkflowExecutionsGetWorkflowExecutionByWorkflowIdData,
+  WorkflowExecutionsGetWorkflowExecutionByWorkflowIdResponse,
   WorkflowExecutionsGetWorkflowExecutionCollectionPageData,
   WorkflowExecutionsGetWorkflowExecutionCollectionPageResponse,
   WorkflowExecutionsGetWorkflowExecutionCompactData,
@@ -2300,6 +2302,33 @@ export const workflowsMoveWorkflowToFolder = (
     },
     body: data.requestBody,
     mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Get Workflow Execution By Workflow Id
+ * Get a workflow execution by workflow ID and execution suffix.
+ * @param data The data for the request.
+ * @param data.executionId
+ * @param data.workspaceId
+ * @param data.workflowId
+ * @returns WorkflowExecutionRead Successful Response
+ * @throws ApiError
+ */
+export const workflowExecutionsGetWorkflowExecutionByWorkflowId = (
+  data: WorkflowExecutionsGetWorkflowExecutionByWorkflowIdData
+): CancelablePromise<WorkflowExecutionsGetWorkflowExecutionByWorkflowIdResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/workspaces/{workspace_id}/workflows/{workflow_id}/executions/{execution_id}",
+    path: {
+      execution_id: data.executionId,
+      workspace_id: data.workspaceId,
+      workflow_id: data.workflowId,
+    },
     errors: {
       422: "Validation Error",
     },

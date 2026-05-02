@@ -9,6 +9,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from fastapi import status
 from fastapi.testclient import TestClient
+from temporalio.client import WorkflowExecutionStatus
 
 from tracecat.agent import router as agent_router
 from tracecat.auth.dependencies import (
@@ -340,6 +341,60 @@ async def test_service_account_can_search_workflow_executions_without_user_filte
 
     assert response.status_code == status.HTTP_200_OK
     assert response.json()["items"] == []
+
+
+@pytest.mark.anyio
+async def test_service_account_can_get_workflow_execution_by_workflow_route(
+    client: TestClient,
+    workspace_targeted_service_account_role: Role,
+) -> None:
+    workflow_id = "wf_4itKqkgCZrLhgYiq5L211X"
+    execution_id = "exec_def"
+    wf_exec_id = f"{workflow_id}/{execution_id}"
+    mock_execution = SimpleNamespace(
+        id=wf_exec_id,
+        run_id="run_123",
+        start_time=datetime(2024, 1, 1, tzinfo=UTC),
+        execution_time=None,
+        close_time=None,
+        status=WorkflowExecutionStatus.RUNNING,
+        workflow_type="DSLWorkflow",
+        task_queue="tracecat-task-queue",
+        history_length=0,
+        typed_search_attributes={},
+    )
+    mock_service = AsyncMock()
+    mock_service.get_execution.return_value = mock_execution
+    mock_service.list_workflow_execution_events.return_value = []
+
+    with (
+        patch.object(
+            WorkflowExecutionsService, "connect", new_callable=AsyncMock
+        ) as mock_connect,
+        patch.object(
+            workflow_executions_router,
+            "_list_interactions",
+            new_callable=AsyncMock,
+        ) as mock_list_interactions,
+    ):
+        mock_connect.return_value = mock_service
+        mock_list_interactions.return_value = []
+
+        token = ctx_role.set(workspace_targeted_service_account_role)
+        try:
+            response = client.get(
+                "/workspaces/"
+                f"{workspace_targeted_service_account_role.workspace_id}"
+                f"/workflows/{workflow_id}/executions/{execution_id}",
+            )
+        finally:
+            ctx_role.reset(token)
+
+    assert response.status_code == status.HTTP_200_OK
+    assert response.json()["id"] == wf_exec_id
+    mock_service.get_execution.assert_awaited_once_with(wf_exec_id)
+    mock_service.list_workflow_execution_events.assert_awaited_once_with(wf_exec_id)
+    mock_list_interactions.assert_awaited_once()
 
 
 @pytest.mark.anyio
