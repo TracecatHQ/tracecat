@@ -29,6 +29,7 @@ from tracecat.agent.preset.internal_router import (
 from tracecat.agent.preset.router import router as agent_preset_router
 from tracecat.agent.router import router as agent_router
 from tracecat.agent.session.router import router as agent_session_router
+from tracecat.agent.skill.internal_router import router as internal_agent_skill_router
 from tracecat.agent.skill.router import router as agent_skill_router
 from tracecat.api.common import (
     add_temporal_search_attributes,
@@ -514,6 +515,7 @@ def create_app(**kwargs) -> FastAPI:
     # Internal routers
     app.include_router(internal_agent_router)
     app.include_router(internal_agent_preset_router)
+    app.include_router(internal_agent_skill_router)
     app.include_router(internal_case_attachments_router)
     app.include_router(internal_cases_router)
     app.include_router(internal_deduplicate_router)

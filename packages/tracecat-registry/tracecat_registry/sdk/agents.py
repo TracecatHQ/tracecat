@@ -47,6 +47,12 @@ class MCPServerConfig(TypedDict):
     """Optional: Transport type. Defaults to 'http'."""
 
 
+class CursorPage(TypedDict):
+    items: list[dict[str, Any]]
+    next_cursor: str | None
+    has_more: bool
+
+
 class AgentPresetSkillBinding(TypedDict):
     """Skill binding for attaching a published skill version to an agent preset."""
 
@@ -450,6 +456,44 @@ class AgentsClient:
 
         return await self._client.post("/agent/rank-pairwise", json=data)
 
+    # --- Skill methods ---
+
+    async def list_skills(
+        self, *, limit: int = 20, cursor: str | None = None, reverse: bool = False
+    ) -> CursorPage:
+        params: dict[str, Any] = {"limit": limit, "reverse": reverse}
+        if cursor is not None:
+            params["cursor"] = cursor
+        return await self._client.get("/agent/skills", params=params)
+
+    async def create_skill(
+        self, *, name: str, description: str | None = None
+    ) -> dict[str, Any]:
+        data: dict[str, Any] = {"name": name}
+        if description is not None:
+            data["description"] = description
+        return await self._client.post("/agent/skills", json=data)
+
+    async def get_skill(self, skill_id: str) -> dict[str, Any]:
+        return await self._client.get(f"/agent/skills/{skill_id}")
+
+    async def get_skill_draft(self, skill_id: str) -> dict[str, Any]:
+        return await self._client.get(f"/agent/skills/{skill_id}/draft")
+
+    async def patch_skill_draft(
+        self, *, skill_id: str, base_revision: int, operations: list[dict[str, Any]]
+    ) -> dict[str, Any]:
+        return await self._client.patch(
+            f"/agent/skills/{skill_id}/draft",
+            json={"base_revision": base_revision, "operations": operations},
+        )
+
+    async def publish_skill(self, skill_id: str) -> dict[str, Any]:
+        return await self._client.post(f"/agent/skills/{skill_id}/publish")
+
+    async def archive_skill(self, skill_id: str) -> None:
+        await self._client.delete(f"/agent/skills/{skill_id}")
+
     # --- Preset methods ---
 
     async def list_presets(self) -> list[dict[str, Any]]:
@@ -601,6 +645,7 @@ __all__ = [
     "AgentsClient",
     "MCPServerConfig",
     "AgentPresetSkillBinding",
+    "CursorPage",
     "OutputType",
     "RankableItem",
     "rank_items",
