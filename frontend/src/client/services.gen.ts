@@ -1944,7 +1944,7 @@ export const workflowsExportWorkflow = (
  * @param data The data for the request.
  * @param data.workflowId
  * @param data.workspaceId
- * @returns WorkflowDefinitionRead Successful Response
+ * @returns WorkflowDefinitionReadMinimal Successful Response
  * @throws ApiError
  */
 export const workflowsListWorkflowDefinitions = (

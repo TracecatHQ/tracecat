@@ -2,6 +2,7 @@
 
 import { zodResolver } from "@hookform/resolvers/zod"
 import { useQuery } from "@tanstack/react-query"
+import { format } from "date-fns"
 import {
   AlertTriangleIcon,
   ChevronDownIcon,
@@ -24,9 +25,14 @@ import type {
   GitBranchInfo,
   ValidationDetail,
   ValidationResult,
+  WorkflowDefinitionReadMinimal,
   WorkflowDslPublish,
 } from "@/client"
-import { ApiError, workflowsListWorkflowBranches } from "@/client"
+import {
+  ApiError,
+  workflowsListWorkflowBranches,
+  workflowsListWorkflowDefinitions,
+} from "@/client"
 import { ExportMenuItem } from "@/components/export-workflow-dropdown-item"
 import { Spinner } from "@/components/loading/spinner"
 import {
@@ -53,7 +59,11 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
   DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import {
@@ -919,6 +929,25 @@ function BuilderNavOptions({
     listEnabled: false,
   })
   const enabledExport = appSettings?.app_workflow_export_enabled
+  const [versionSubMenuOpen, setVersionSubMenuOpen] = React.useState(false)
+  const {
+    data: workflowDefinitions,
+    isLoading: definitionsLoading,
+    isError: definitionsError,
+  } = useQuery<WorkflowDefinitionReadMinimal[]>({
+    queryKey: ["workflow-definitions", workflowId],
+    queryFn: async () =>
+      workflowsListWorkflowDefinitions({
+        workspaceId,
+        workflowId,
+      }),
+    enabled: Boolean(enabledExport) && versionSubMenuOpen,
+  })
+  const olderWorkflowDefinitions =
+    workflowDefinitions
+      ?.filter((definition) => definition.version > 0)
+      .sort((left, right) => right.version - left.version)
+      .slice(1) ?? []
 
   const handleDelete = async () => {
     await deleteWorkflow(workflowId)
@@ -953,6 +982,49 @@ function BuilderNavOptions({
             label="Export saved"
             icon={<DownloadIcon className="mr-2 size-3.5" />}
           />
+          <DropdownMenuSub
+            open={versionSubMenuOpen}
+            onOpenChange={setVersionSubMenuOpen}
+          >
+            <DropdownMenuSubTrigger disabled={!enabledExport}>
+              <DownloadIcon className="mr-2 size-3.5" />
+              Export version
+            </DropdownMenuSubTrigger>
+            <DropdownMenuSubContent className="max-h-80 overflow-y-auto overscroll-none p-0">
+              <div className="sticky top-0 z-10 bg-popover pt-1">
+                <DropdownMenuLabel>Select version</DropdownMenuLabel>
+                <DropdownMenuSeparator />
+              </div>
+              <div className="p-1 pt-0">
+                {definitionsLoading ? (
+                  <DropdownMenuItem disabled>
+                    Loading versions...
+                  </DropdownMenuItem>
+                ) : definitionsError ? (
+                  <DropdownMenuItem disabled>
+                    Failed to load versions
+                  </DropdownMenuItem>
+                ) : olderWorkflowDefinitions.length > 0 ? (
+                  olderWorkflowDefinitions.map((definition) => (
+                    <ExportMenuItem
+                      key={definition.id}
+                      enabledExport={enabledExport}
+                      format="yaml"
+                      workspaceId={workspaceId}
+                      workflowId={workflowId}
+                      version={definition.version}
+                      label={`v${definition.version} · ${format(new Date(definition.created_at), "MMM d, yyyy h:mm a")}`}
+                      icon={<DownloadIcon className="mr-2 size-3.5" />}
+                    />
+                  ))
+                ) : (
+                  <DropdownMenuItem disabled>
+                    No older versions found
+                  </DropdownMenuItem>
+                )}
+              </div>
+            </DropdownMenuSubContent>
+          </DropdownMenuSub>
           <DropdownMenuItem
             onClick={() =>
               copyToClipboard({

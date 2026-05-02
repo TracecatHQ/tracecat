@@ -9014,7 +9014,7 @@ export type WorkflowsListWorkflowDefinitionsData = {
 }
 
 export type WorkflowsListWorkflowDefinitionsResponse =
-  Array<WorkflowDefinitionRead>
+  Array<WorkflowDefinitionReadMinimal>
 
 export type WorkflowsRestoreWorkflowDefinitionData = {
   version: number
@@ -12664,7 +12664,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        200: Array<WorkflowDefinitionRead>
+        200: Array<WorkflowDefinitionReadMinimal>
         /**
          * Validation Error
          */

@@ -705,11 +705,11 @@ async def list_workflow_definitions(
     role: WorkspaceActorRole,
     session: AsyncDBSession,
     workflow_id: AnyWorkflowIDPath,
-) -> list[WorkflowDefinitionRead]:
+) -> list[WorkflowDefinitionReadMinimal]:
     """List all workflow definitions for a Workflow."""
     service = WorkflowDefinitionsService(session, role=role)
     defns = await service.list_workflow_defitinions(workflow_id=workflow_id)
-    return WorkflowDefinitionRead.list_adapter().validate_python(defns)
+    return WorkflowDefinitionReadMinimal.list_adapter().validate_python(defns)
 
 
 @router.post(
