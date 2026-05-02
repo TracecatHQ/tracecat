@@ -17,7 +17,18 @@ from pydantic_ai.messages import (
     UserPromptPart,
 )
 from pydantic_ai.tools import ToolApproved, ToolDenied
-from sqlalchemy import delete, select, update
+from sqlalchemy import (
+    and_,
+    case,
+    column,
+    delete,
+    func,
+    literal,
+    or_,
+    select,
+    update,
+)
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.exc import SQLAlchemyError
 from temporalio.common import TypedSearchAttributes
 from tracecat_registry._internal.exceptions import SecretNotFoundError
@@ -1851,34 +1862,56 @@ class AgentSessionService(BaseWorkspaceService):
         assistant_surrogate_id: int,
         tool_call_ids: set[str],
     ) -> bool:
-        stmt = (
-            select(AgentSessionHistory.content)
+        if not tool_call_ids:
+            return False
+
+        message_content = AgentSessionHistory.content["message"]["content"]
+        message_content_array = case(
+            (func.jsonb_typeof(message_content) == "array", message_content),
+            else_=literal([], type_=JSONB),
+        )
+        content_blocks = (
+            func.jsonb_array_elements(message_content_array)
+            .table_valued(column("value", JSONB))
+            .alias("content_block")
+        )
+        block = content_blocks.c.value
+        block_text = func.lower(func.btrim(block["content"].astext))
+        is_approval_interrupt = and_(
+            block["is_error"].astext == "true",
+            or_(
+                block_text == "interrupted",
+                block_text.contains("doesn't want to take this action"),
+                block_text.contains("stop what you are doing and wait for the user"),
+                block_text.contains("request interrupted by user"),
+                block_text.contains("[request interrupted"),
+            ),
+        )
+        matching_tool_result_count = (
+            select(func.count(func.distinct(block["tool_use_id"].astext)))
+            .select_from(content_blocks)
             .where(
+                block["type"].astext == "tool_result",
+                block["tool_use_id"].astext.in_(tool_call_ids),
+                ~is_approval_interrupt,
+            )
+            .correlate(AgentSessionHistory)
+            .scalar_subquery()
+        )
+
+        stmt = (
+            select(literal(True))
+            .where(
+                AgentSessionHistory.workspace_id == self.workspace_id,
                 AgentSessionHistory.session_id == session_id,
                 AgentSessionHistory.surrogate_id > assistant_surrogate_id,
+                AgentSessionHistory.content["type"].astext == "user",
+                matching_tool_result_count == len(tool_call_ids),
             )
-            .order_by(AgentSessionHistory.surrogate_id)
+            .limit(1)
         )
         result = await self.session.execute(stmt)
-        for content in result.scalars().all():
-            if content.get("type") != "user":
-                continue
-            message = content.get("message", {})
-            if not isinstance(message, dict):
-                continue
-            msg_content = message.get("content", [])
-            if not isinstance(msg_content, list):
-                continue
-            result_ids = {
-                block.get("tool_use_id")
-                for block in msg_content
-                if isinstance(block, dict)
-                and block.get("type") == "tool_result"
-                and not self._is_approval_interrupt_tool_result(block, tool_call_ids)
-            }
-            if tool_call_ids.issubset(result_ids):
-                return True
-        return False
+        return result.scalar_one_or_none() is True
 
     @staticmethod
     def _is_approval_interrupt_tool_result(
