@@ -813,7 +813,21 @@ async def test_agent_workflow_routes_approved_tools_to_executor_and_reconciles_h
         for block in entry.content.get("message", {}).get("content", [])
         if isinstance(block, dict) and block.get("type") == "tool_result"
     ]
-    assert any(block.get("tool_use_id") == "call_123" for block in tool_result_blocks)
+    assert any(
+        block.get("tool_use_id") == "call_123" and block.get("is_error") is False
+        for block in tool_result_blocks
+    )
+    assert not any(
+        block.get("tool_use_id") == "call_123" and block.get("is_error") is True
+        for block in tool_result_blocks
+    )
+    inserted_block = next(
+        block for block in tool_result_blocks if block.get("tool_use_id") == "call_123"
+    )
+    assert orjson.loads(inserted_block["content"]) == {
+        "status": "success",
+        "executor_queue": executor_queue,
+    }
 
 
 @pytest.mark.anyio
@@ -1408,7 +1422,11 @@ async def test_agent_workflow_does_not_retry_approved_tool_failures(
         for block in entry.content.get("message", {}).get("content", [])
         if isinstance(block, dict) and block.get("type") == "tool_result"
     ]
-    assert any(block.get("tool_use_id") == "call_123" for block in tool_result_blocks)
+    inserted_block = next(
+        block for block in tool_result_blocks if block.get("tool_use_id") == "call_123"
+    )
+    assert inserted_block["is_error"] is True
+    assert "Tool execution failed:" in inserted_block["content"]
 
 
 # =============================================================================
