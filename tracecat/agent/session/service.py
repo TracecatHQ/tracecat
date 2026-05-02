@@ -1872,11 +1872,38 @@ class AgentSessionService(BaseWorkspaceService):
             result_ids = {
                 block.get("tool_use_id")
                 for block in msg_content
-                if isinstance(block, dict) and block.get("type") == "tool_result"
+                if isinstance(block, dict)
+                and block.get("type") == "tool_result"
+                and not self._is_approval_interrupt_tool_result(block, tool_call_ids)
             }
             if tool_call_ids.issubset(result_ids):
                 return True
         return False
+
+    @staticmethod
+    def _is_approval_interrupt_tool_result(
+        block: dict[str, Any],
+        tool_call_ids: set[str],
+    ) -> bool:
+        """Return True for SDK approval-interrupt placeholder tool results."""
+        if (
+            block.get("type") != "tool_result"
+            or block.get("is_error") is not True
+            or block.get("tool_use_id") not in tool_call_ids
+        ):
+            return False
+
+        content = str(block.get("content", "")).strip().lower()
+        if content == "interrupted":
+            return True
+
+        markers = (
+            "doesn't want to take this action",
+            "stop what you are doing and wait for the user",
+            "request interrupted by user",
+            "[request interrupted",
+        )
+        return any(marker in content for marker in markers)
 
     async def _delete_interrupt_entries_for_tool_calls(
         self,
@@ -1925,13 +1952,7 @@ class AgentSessionService(BaseWorkspaceService):
                     if not isinstance(block, dict):
                         continue
                     # Check for error tool_result matching our tool_call_ids
-                    if (
-                        block.get("type") == "tool_result"
-                        and block.get("is_error") is True
-                        and block.get("tool_use_id") in tool_call_ids
-                        and "doesn't want to take this action"
-                        in str(block.get("content", ""))
-                    ):
+                    if self._is_approval_interrupt_tool_result(block, tool_call_ids):
                         entries_to_delete.append(entry)
                         break
                     # Check for interrupt text

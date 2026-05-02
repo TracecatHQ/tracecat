@@ -5,11 +5,13 @@ import uuid
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock, patch
 
+import orjson
 import pytest
 from pydantic_ai.tools import ToolApproved
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.agent.approvals.enums import ApprovalStatus
+from tracecat.agent.executor.schemas import ToolExecutionResult
 from tracecat.agent.session.service import AgentSessionService
 from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.agent.types import AgentConfig
@@ -179,6 +181,104 @@ async def test_list_messages_preserves_compaction_metadata(
         "phase": "completed",
         "pre_tokens": 128000,
     }
+
+
+@pytest.mark.anyio
+async def test_replace_interrupt_with_tool_results_replaces_legacy_interrupted_row(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    agent_session = AgentSession(
+        id=uuid.uuid4(),
+        title="Approval chat",
+        workspace_id=svc_role.workspace_id,
+        entity_type=AgentSessionEntity.AGENT_PRESET.value,
+        entity_id=uuid.uuid4(),
+        sdk_session_id="sdk-session",
+    )
+    assistant_uuid = str(uuid.uuid4())
+    session.add(agent_session)
+    session.add(
+        AgentSessionHistory(
+            session_id=agent_session.id,
+            workspace_id=svc_role.workspace_id,
+            kind=MessageKind.CHAT_MESSAGE.value,
+            content={
+                "uuid": assistant_uuid,
+                "sessionId": "sdk-session",
+                "type": "assistant",
+                "timestamp": "2026-03-18T00:00:00Z",
+                "cwd": "/home/agent",
+                "version": "2.0.72",
+                "message": {
+                    "role": "assistant",
+                    "content": [
+                        {
+                            "type": "tool_use",
+                            "id": "call_123",
+                            "name": "core__http_request",
+                            "input": {"url": "https://example.com"},
+                        }
+                    ],
+                },
+            },
+        )
+    )
+    session.add(
+        AgentSessionHistory(
+            session_id=agent_session.id,
+            workspace_id=svc_role.workspace_id,
+            kind=MessageKind.CHAT_MESSAGE.value,
+            content={
+                "uuid": str(uuid.uuid4()),
+                "parentUuid": assistant_uuid,
+                "sessionId": "sdk-session",
+                "type": "user",
+                "timestamp": "2026-03-18T00:00:01Z",
+                "cwd": "/home/agent",
+                "version": "2.0.72",
+                "message": {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "tool_result",
+                            "tool_use_id": "call_123",
+                            "content": "interrupted",
+                            "is_error": True,
+                        }
+                    ],
+                },
+            },
+        )
+    )
+    await session.commit()
+
+    service = AgentSessionService(session=session, role=svc_role)
+    await service.replace_interrupt_with_tool_results(
+        agent_session.id,
+        [
+            ToolExecutionResult(
+                tool_call_id="call_123",
+                tool_name="core.http_request",
+                result={"status": "success"},
+                is_error=False,
+            )
+        ],
+    )
+
+    history = await service.get_session_history(agent_session.id)
+    tool_result_blocks = [
+        block
+        for entry in history
+        for block in entry.content.get("message", {}).get("content", [])
+        if isinstance(block, dict) and block.get("type") == "tool_result"
+    ]
+
+    assert len(tool_result_blocks) == 1
+    [tool_result] = tool_result_blocks
+    assert tool_result["tool_use_id"] == "call_123"
+    assert tool_result["is_error"] is False
+    assert orjson.loads(tool_result["content"]) == {"status": "success"}
 
 
 @pytest.mark.anyio

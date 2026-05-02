@@ -643,7 +643,7 @@ async def test_agent_workflow_routes_approved_tools_to_executor_and_reconciles_h
                                     {
                                         "type": "tool_result",
                                         "tool_use_id": "call_123",
-                                        "content": "The user doesn't want to take this action right now.",
+                                        "content": "interrupted",
                                         "is_error": True,
                                     }
                                 ],
@@ -1257,7 +1257,7 @@ async def test_agent_workflow_does_not_retry_approved_tool_failures(
                                     {
                                         "type": "tool_result",
                                         "tool_use_id": "call_123",
-                                        "content": "The user doesn't want to take this action right now.",
+                                        "content": "interrupted",
                                         "is_error": True,
                                     }
                                 ],
