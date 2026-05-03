@@ -5,6 +5,13 @@ from __future__ import annotations
 from collections.abc import Mapping
 
 APPROVAL_CONTINUATION_PROMPT = "Continue."
+APPROVAL_INTERRUPT_CONTENT_EXACT = "interrupted"
+APPROVAL_INTERRUPT_CONTENT_MARKERS = (
+    "doesn't want to take this action",
+    "stop what you are doing and wait for the user",
+    "request interrupted by user",
+    "[request interrupted",
+)
 
 
 def session_line_uuid(line_data: Mapping[str, object]) -> str | None:
@@ -79,3 +86,36 @@ def is_continuation_control_artifact(
             )
         case _:
             return False
+
+
+def is_approval_interrupt_tool_result(
+    block: Mapping[str, object],
+    tool_call_ids: set[str],
+) -> bool:
+    """Return True for SDK approval-interrupt placeholder tool results."""
+    if not is_error_tool_result_for_tool_calls(block, tool_call_ids):
+        return False
+
+    return is_approval_interrupt_content(block.get("content", ""))
+
+
+def is_error_tool_result_for_tool_calls(
+    block: Mapping[str, object],
+    tool_call_ids: set[str],
+) -> bool:
+    match block:
+        case {
+            "type": "tool_result",
+            "is_error": True,
+            "tool_use_id": str(tool_call_id),
+        }:
+            return tool_call_id in tool_call_ids
+        case _:
+            return False
+
+
+def is_approval_interrupt_content(content: object) -> bool:
+    content_text = str(content).strip().lower()
+    return content_text == APPROVAL_INTERRUPT_CONTENT_EXACT or any(
+        marker in content_text for marker in APPROVAL_INTERRUPT_CONTENT_MARKERS
+    )

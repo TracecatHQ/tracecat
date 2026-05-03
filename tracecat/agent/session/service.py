@@ -40,6 +40,9 @@ from tracecat.agent.mcp.metadata import sanitize_message_tool_inputs
 from tracecat.agent.preset.prompts import AgentPresetBuilderPrompt
 from tracecat.agent.preset.service import AgentPresetService
 from tracecat.agent.runtime.claude_code.session_lines import (
+    APPROVAL_INTERRUPT_CONTENT_EXACT,
+    APPROVAL_INTERRUPT_CONTENT_MARKERS,
+    is_approval_interrupt_tool_result,
     is_continuation_control_artifact,
     session_line_uuid,
 )
@@ -88,14 +91,6 @@ from tracecat.workflow.executions.enums import (
     TriggerType,
 )
 from tracecat.workspaces.prompts import WorkspaceCopilotPrompts
-
-APPROVAL_INTERRUPT_CONTENT_EXACT = "interrupted"
-APPROVAL_INTERRUPT_CONTENT_MARKERS = (
-    "doesn't want to take this action",
-    "stop what you are doing and wait for the user",
-    "request interrupted by user",
-    "[request interrupted",
-)
 
 if TYPE_CHECKING:
     from tracecat.agent.executor.activity import ToolExecutionResult
@@ -1871,40 +1866,6 @@ class AgentSessionService(BaseWorkspaceService):
         result = await self.session.execute(stmt)
         return result.scalar_one_or_none() is True
 
-    @classmethod
-    def _is_approval_interrupt_tool_result(
-        cls,
-        block: dict[str, Any],
-        tool_call_ids: set[str],
-    ) -> bool:
-        """Return True for SDK approval-interrupt placeholder tool results."""
-        if not cls._is_error_tool_result_for_tool_calls(block, tool_call_ids):
-            return False
-
-        return cls._is_approval_interrupt_content(block.get("content", ""))
-
-    @staticmethod
-    def _is_error_tool_result_for_tool_calls(
-        block: dict[str, Any],
-        tool_call_ids: set[str],
-    ) -> bool:
-        match block:
-            case {
-                "type": "tool_result",
-                "is_error": True,
-                "tool_use_id": str(tool_call_id),
-            }:
-                return tool_call_id in tool_call_ids
-            case _:
-                return False
-
-    @staticmethod
-    def _is_approval_interrupt_content(content: object) -> bool:
-        content_text = str(content).strip().lower()
-        return content_text == APPROVAL_INTERRUPT_CONTENT_EXACT or any(
-            marker in content_text for marker in APPROVAL_INTERRUPT_CONTENT_MARKERS
-        )
-
     async def _delete_interrupt_entries_for_tool_calls(
         self,
         session_id: uuid.UUID,
@@ -1952,7 +1913,7 @@ class AgentSessionService(BaseWorkspaceService):
                     if not isinstance(block, dict):
                         continue
                     # Check for error tool_result matching our tool_call_ids
-                    if self._is_approval_interrupt_tool_result(block, tool_call_ids):
+                    if is_approval_interrupt_tool_result(block, tool_call_ids):
                         entries_to_delete.append(entry)
                         break
                     # Check for interrupt text
