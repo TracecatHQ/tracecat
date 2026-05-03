@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import Mapping
 from typing import Annotated, Self
 
 from pydantic import (
@@ -100,3 +101,13 @@ def validate_subagent_alias(alias: str) -> None:
     """Reject aliases reserved by Claude or Tracecat runtime semantics."""
     if alias in RESERVED_SUBAGENT_ALIASES:
         raise ValueError(f"Subagent alias '{alias}' is reserved")
+
+
+def has_manual_tool_approvals(
+    tool_approvals: Mapping[str, bool] | None,
+) -> bool:
+    """Return whether a preset has tools that require manual approval."""
+    return any(
+        requires_approval is True
+        for requires_approval in (tool_approvals or {}).values()
+    )

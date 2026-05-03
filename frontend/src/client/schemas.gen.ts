@@ -2266,6 +2266,11 @@ export const $AgentPresetReadMinimal = {
       ],
       title: "Current Version Id",
     },
+    has_tool_approvals: {
+      type: "boolean",
+      title: "Has Tool Approvals",
+      default: false,
+    },
     created_at: {
       type: "string",
       format: "date-time",

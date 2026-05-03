@@ -1,7 +1,38 @@
-import type { AgentPresetCreate, AgentPresetRead } from "@/client"
+import type {
+  AgentPresetCreate,
+  AgentPresetRead,
+  AgentPresetReadMinimal,
+} from "@/client"
 import { slugify } from "@/lib/utils"
 
 export type AgentPresetFormMode = "create" | "edit"
+
+export const SUBAGENT_APPROVAL_UNAVAILABLE_MESSAGE =
+  "Subagents with manual approvals are not supported yet. Remove approval requirements from this preset before attaching it as a subagent."
+
+export function agentPresetHasManualApprovals(
+  preset: Pick<AgentPresetReadMinimal, "has_tool_approvals">
+): boolean {
+  return preset.has_tool_approvals === true
+}
+
+export function getSubagentPresetUnavailableReason(
+  preset: Pick<AgentPresetReadMinimal, "has_tool_approvals">
+): string | null {
+  return agentPresetHasManualApprovals(preset)
+    ? SUBAGENT_APPROVAL_UNAVAILABLE_MESSAGE
+    : null
+}
+
+export function getUnavailableSubagentPresetSlugs(
+  presets: Pick<AgentPresetReadMinimal, "slug" | "has_tool_approvals">[]
+): Set<string> {
+  return new Set(
+    presets
+      .filter((preset) => agentPresetHasManualApprovals(preset))
+      .map((preset) => preset.slug)
+  )
+}
 
 export function getDuplicateItemName(name: string, fallback: string): string {
   const trimmedName = name.trim()

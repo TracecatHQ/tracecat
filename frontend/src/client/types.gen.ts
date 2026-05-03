@@ -551,6 +551,7 @@ export type AgentPresetReadMinimal = {
   slug: string
   description: string | null
   current_version_id?: string | null
+  has_tool_approvals?: boolean
   created_at: string
   updated_at: string
 }

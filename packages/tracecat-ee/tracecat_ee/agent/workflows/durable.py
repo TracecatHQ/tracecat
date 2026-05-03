@@ -52,6 +52,7 @@ with workflow.unsafe.imports_passed_through():
         reconcile_tool_results_activity,
     )
     from tracecat.agent.session.types import AgentSessionEntity
+    from tracecat.agent.subagents import has_manual_tool_approvals
     from tracecat.agent.tokens import (
         InternalToolContext,
         LLMRouteClaim,
@@ -404,6 +405,12 @@ class DurableAgentWorkflow:
         prepared_subagents: list[tuple[ResolvedSubagentConfig, AgentConfig]] = []
         for subagent in subagents:
             child_cfg = agent_config_from_payload(subagent.config)
+            if has_manual_tool_approvals(child_cfg.tool_approvals):
+                raise ApplicationError(
+                    f"Subagent preset '{subagent.binding.preset}' uses manual approvals, "
+                    "which are not supported for subagents yet.",
+                    non_retryable=True,
+                )
             await self._apply_custom_model_provider_config(child_cfg)
             prepared_subagents.append((subagent, child_cfg))
             scope_args.append(

@@ -9,14 +9,17 @@ import pytest
 
 from tracecat.agent.preset.activities import (
     ResolveAgentPresetVersionRefActivityInput,
+    ResolveAgentsConfigActivityInput,
     ResolveAgentsConfigActivityResult,
     ResolvedSubagentConfig,
     resolve_agent_preset_version_ref_activity,
+    resolve_agents_config_activity,
     resolve_custom_model_provider_config_activity,
 )
-from tracecat.agent.subagents import ResolvedAttachedSubagentRef
+from tracecat.agent.subagents import AgentsConfig, ResolvedAttachedSubagentRef
 from tracecat.agent.workflow_schemas import AgentConfigPayload
 from tracecat.auth.types import Role
+from tracecat.exceptions import TracecatValidationError
 
 
 class _AsyncContext:
@@ -107,6 +110,52 @@ def test_resolve_agents_config_result_derives_session_binding() -> None:
     agents_binding = result.to_agents_binding()
     assert agents_binding.enabled is True
     assert agents_binding.subagents == [binding]
+
+
+@pytest.mark.anyio
+async def test_resolve_agents_config_rejects_subagent_with_tool_approvals(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    version = SimpleNamespace(
+        id=uuid.uuid4(),
+        preset_id=uuid.uuid4(),
+        version=1,
+        agents={"enabled": False},
+        tool_approvals={"core.http_request": True},
+    )
+    service = SimpleNamespace(
+        resolve_agent_preset_version=AsyncMock(return_value=version),
+    )
+    role = Role(
+        type="service",
+        service_id="tracecat-api",
+        workspace_id=uuid.uuid4(),
+        organization_id=uuid.uuid4(),
+    )
+
+    monkeypatch.setattr(
+        "tracecat.agent.preset.activities.AgentPresetService.with_session",
+        lambda **_: _AsyncContext(service),
+    )
+
+    with pytest.raises(
+        TracecatValidationError,
+        match=(
+            "Subagent preset 'approval-child' uses manual approvals, "
+            "which are not supported for subagents yet."
+        ),
+    ):
+        await resolve_agents_config_activity(
+            ResolveAgentsConfigActivityInput(
+                role=role,
+                agents=AgentsConfig.model_validate(
+                    {
+                        "enabled": True,
+                        "subagents": [{"preset": "approval-child"}],
+                    }
+                ),
+            )
+        )
 
 
 @pytest.mark.anyio

@@ -8,7 +8,7 @@ from typing import Annotated, Any
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
-from tracecat.agent.subagents import AgentsConfig
+from tracecat.agent.subagents import AgentsConfig, has_manual_tool_approvals
 from tracecat.agent.types import AgentConfig, OutputType
 from tracecat.core.schemas import Schema
 from tracecat.identifiers import WorkspaceID
@@ -141,8 +141,21 @@ class AgentPresetReadMinimal(Schema):
     slug: str
     description: str | None
     current_version_id: uuid.UUID | None = None
+    has_tool_approvals: bool = Field(default=False)
     created_at: datetime
     updated_at: datetime
+
+
+def build_agent_preset_read_minimal(preset: Any) -> AgentPresetReadMinimal:
+    """Build a minimal preset response without exposing approval rule details."""
+    read = AgentPresetReadMinimal.model_validate(preset)
+    return read.model_copy(
+        update={
+            "has_tool_approvals": has_manual_tool_approvals(
+                getattr(preset, "tool_approvals", None)
+            )
+        }
+    )
 
 
 class AgentPresetRead(AgentPresetExecutionConfig):

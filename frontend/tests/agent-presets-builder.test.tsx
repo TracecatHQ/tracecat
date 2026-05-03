@@ -1,7 +1,11 @@
 import {
+  agentPresetHasManualApprovals,
   buildDuplicateAgentPresetPayload,
   buildDuplicateAgentSlug,
   canSubmitAgentPresetForm,
+  getSubagentPresetUnavailableReason,
+  getUnavailableSubagentPresetSlugs,
+  SUBAGENT_APPROVAL_UNAVAILABLE_MESSAGE,
 } from "@/lib/agent-presets"
 
 describe("canSubmitAgentPresetForm", () => {
@@ -98,5 +102,25 @@ describe("canSubmitAgentPresetForm", () => {
     expect(duplicated.instructions).toBe("Investigate alerts")
     expect(duplicated.actions).toEqual(["core.http_request"])
     expect(duplicated.enable_internet_access).toBe(true)
+  })
+
+  it("marks approval-gated presets unavailable as subagents", () => {
+    const preset = {
+      slug: "approval-child",
+      has_tool_approvals: true,
+    }
+    const availablePreset = {
+      slug: "auto-child",
+      has_tool_approvals: false,
+    }
+
+    expect(agentPresetHasManualApprovals(preset)).toBe(true)
+    expect(getSubagentPresetUnavailableReason(preset)).toBe(
+      SUBAGENT_APPROVAL_UNAVAILABLE_MESSAGE
+    )
+    expect(getSubagentPresetUnavailableReason(availablePreset)).toBeNull()
+    expect(
+      getUnavailableSubagentPresetSlugs([preset, availablePreset])
+    ).toEqual(new Set(["approval-child"]))
   })
 })

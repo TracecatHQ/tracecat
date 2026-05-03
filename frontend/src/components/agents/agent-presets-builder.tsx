@@ -146,6 +146,9 @@ import { useSkills, useSkillVersions } from "@/hooks/use-skills"
 import {
   type AgentPresetFormMode,
   buildDuplicateAgentPresetPayload,
+  getSubagentPresetUnavailableReason,
+  getUnavailableSubagentPresetSlugs,
+  SUBAGENT_APPROVAL_UNAVAILABLE_MESSAGE,
 } from "@/lib/agent-presets"
 import type { ModelInfo } from "@/lib/chat"
 import { getApiErrorDetail } from "@/lib/errors"
@@ -1233,6 +1236,10 @@ function AgentPresetForm({
   const [activeTab, setActiveTab] = useState<AgentPresetSideTab>("live-chat")
   const { isFeatureEnabled: isFeatureEnabledFlag } = useFeatureFlag()
   const channelsEnabled = isFeatureEnabledFlag("agent-channels")
+  const unavailableSubagentPresetSlugs = useMemo(
+    () => getUnavailableSubagentPresetSlugs(agentPresets),
+    [agentPresets]
+  )
 
   const form = useForm<AgentPresetFormValues>({
     resolver: zodResolver(agentPresetSchema),
@@ -1341,6 +1348,20 @@ function AgentPresetForm({
 
   const handleSubmit = form.handleSubmit(
     async (values) => {
+      if (values.agentsEnabled) {
+        const unavailableIndex = values.subagents.findIndex((subagent) =>
+          unavailableSubagentPresetSlugs.has(subagent.preset.trim())
+        )
+        if (unavailableIndex >= 0) {
+          form.setError(`subagents.${unavailableIndex}.preset`, {
+            type: "manual",
+            message: SUBAGENT_APPROVAL_UNAVAILABLE_MESSAGE,
+          })
+          setActiveTab("subagents")
+          return
+        }
+      }
+
       const payload = formValuesToPayload(values)
       if (mode === "edit" && preset) {
         const updated = await onUpdate(preset.id, payload)
@@ -2480,11 +2501,10 @@ function AgentPresetSubagentsPanel({
                                       {selectedPreset} unavailable
                                     </SelectItem>
                                   ) : null}
-                                  {presetOptions.map((preset) => (
-                                    <SelectItem
-                                      key={preset.id}
-                                      value={preset.slug}
-                                    >
+                                  {presetOptions.map((preset) => {
+                                    const unavailableReason =
+                                      getSubagentPresetUnavailableReason(preset)
+                                    const optionLabel = (
                                       <span className="flex min-w-0 items-center gap-2">
                                         <span className="min-w-0 truncate">
                                           {preset.name}
@@ -2492,9 +2512,45 @@ function AgentPresetSubagentsPanel({
                                         <span className="min-w-0 truncate text-xs text-muted-foreground">
                                           {preset.slug}
                                         </span>
+                                        {unavailableReason ? (
+                                          <span className="ml-auto shrink-0 rounded border border-border px-1.5 py-0.5 text-[10px] uppercase text-muted-foreground">
+                                            Approvals
+                                          </span>
+                                        ) : null}
                                       </span>
-                                    </SelectItem>
-                                  ))}
+                                    )
+
+                                    if (unavailableReason) {
+                                      return (
+                                        <Tooltip key={preset.id}>
+                                          <TooltipTrigger asChild>
+                                            <SelectItem
+                                              value={preset.slug}
+                                              disabled
+                                              className="data-[disabled]:pointer-events-auto data-[disabled]:opacity-60"
+                                            >
+                                              {optionLabel}
+                                            </SelectItem>
+                                          </TooltipTrigger>
+                                          <TooltipContent
+                                            side="right"
+                                            className="max-w-xs"
+                                          >
+                                            {unavailableReason}
+                                          </TooltipContent>
+                                        </Tooltip>
+                                      )
+                                    }
+
+                                    return (
+                                      <SelectItem
+                                        key={preset.id}
+                                        value={preset.slug}
+                                      >
+                                        {optionLabel}
+                                      </SelectItem>
+                                    )
+                                  })}
                                 </SelectContent>
                               </Select>
                               <FormDescription>

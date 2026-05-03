@@ -14,6 +14,7 @@ from tracecat.agent.subagents import (
     AgentsConfig,
     ResolvedAgentsConfig,
     ResolvedAttachedSubagentRef,
+    has_manual_tool_approvals,
     validate_subagent_alias,
 )
 from tracecat.agent.workflow_config import agent_config_to_payload
@@ -154,6 +155,11 @@ async def resolve_agents_config_activity(
             if child_agents.enabled:
                 raise TracecatValidationError(
                     f"Subagent preset '{ref.preset}' cannot define its own agents in v1"
+                )
+            if has_manual_tool_approvals(version.tool_approvals):
+                raise TracecatValidationError(
+                    f"Subagent preset '{ref.preset}' uses manual approvals, "
+                    "which are not supported for subagents yet."
                 )
 
             preset = await service.get_preset(version.preset_id)
