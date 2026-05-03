@@ -392,22 +392,24 @@ class AgentSessionService(BaseWorkspaceService):
         session_result = await self.session.execute(session_stmt)
         sessions = list(session_result.scalars().all())
 
-        # Query legacy Chat table
-        # Note: exclude_entity_types is not applied here because legacy Chat records
-        # predate entity types like WORKFLOW and APPROVAL that are typically excluded.
-        # Legacy chats only have entity types like "case" or "agent_preset".
-        chat_stmt = select(Chat).where(Chat.workspace_id == self.workspace_id)
-        if created_by is not None:
-            chat_stmt = chat_stmt.where(Chat.user_id == created_by)
-        if entity_type is not None:
-            chat_stmt = chat_stmt.where(Chat.entity_type == entity_type.value)
-        if entity_id is not None:
-            chat_stmt = chat_stmt.where(Chat.entity_id == entity_id)
-        # Bound query cost at the database layer; we still merge+sort below.
-        chat_stmt = chat_stmt.order_by(Chat.created_at.desc()).limit(limit)
+        legacy_chats: list[Chat] = []
+        if parent_session_id is None:
+            # Query legacy Chat table
+            # Note: exclude_entity_types is not applied here because legacy Chat records
+            # predate entity types like WORKFLOW and APPROVAL that are typically excluded.
+            # Legacy chats only have entity types like "case" or "agent_preset".
+            chat_stmt = select(Chat).where(Chat.workspace_id == self.workspace_id)
+            if created_by is not None:
+                chat_stmt = chat_stmt.where(Chat.user_id == created_by)
+            if entity_type is not None:
+                chat_stmt = chat_stmt.where(Chat.entity_type == entity_type.value)
+            if entity_id is not None:
+                chat_stmt = chat_stmt.where(Chat.entity_id == entity_id)
+            # Bound query cost at the database layer; we still merge+sort below.
+            chat_stmt = chat_stmt.order_by(Chat.created_at.desc()).limit(limit)
 
-        chat_result = await self.session.execute(chat_stmt)
-        legacy_chats = list(chat_result.scalars().all())
+            chat_result = await self.session.execute(chat_stmt)
+            legacy_chats = list(chat_result.scalars().all())
 
         # Convert and merge
         items: list[AgentSessionRead | ChatReadMinimal] = []
