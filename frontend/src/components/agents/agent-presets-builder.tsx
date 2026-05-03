@@ -2485,11 +2485,11 @@ function AgentPresetSubagentsPanel({
                                       key={preset.id}
                                       value={preset.slug}
                                     >
-                                      <span className="flex min-w-0 flex-col">
-                                        <span className="truncate">
+                                      <span className="flex min-w-0 items-center gap-2">
+                                        <span className="min-w-0 truncate">
                                           {preset.name}
                                         </span>
-                                        <span className="truncate text-xs text-muted-foreground">
+                                        <span className="min-w-0 truncate text-xs text-muted-foreground">
                                           {preset.slug}
                                         </span>
                                       </span>
