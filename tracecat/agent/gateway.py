@@ -326,7 +326,7 @@ async def user_api_key_auth(request: Request, api_key: str | None) -> UserAPIKey
                 model_settings=route.model_settings,
                 use_workspace_credentials=route.use_workspace_credentials,
             )
-            for key, route in claims.routes.items()
+            for key, route in getattr(claims, "routes", {}).items()
         },
     }
     return UserAPIKeyAuth(
