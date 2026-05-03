@@ -23,7 +23,7 @@ from tracecat.agent.common.config import (
     TRACECAT__DISABLE_NSJAIL,
 )
 from tracecat.agent.common.exceptions import AgentSandboxExecutionError
-from tracecat.agent.common.protocol import RuntimeInitPayload, RuntimeToolResult
+from tracecat.agent.common.protocol import RuntimeInitPayload
 from tracecat.agent.common.stream_types import ToolCallContent
 from tracecat.agent.common.types import MCPToolDefinition, SandboxAgentConfig
 from tracecat.agent.executor.loopback import (
@@ -54,7 +54,6 @@ from .schemas import (
     ApprovedToolCall,
     DeniedToolCall,
     ToolExecutionResult,
-    serialize_tool_result_content,
 )
 
 
@@ -62,8 +61,8 @@ class AgentExecutorInput(BaseModel):
     """Input for the agent executor activity.
 
     On resume after approval, sdk_session_data already includes the reconciled
-    user tool_result entry. approval_tool_results is metadata for the runtime
-    turn, not input to stream back into Claude.
+    user tool_result entry. approval_tool_results remains on the executor input
+    as workflow-level reconciliation metadata, not runtime input.
     """
 
     # ``extra="ignore"`` keeps Temporal activity replay working after the
@@ -218,14 +217,6 @@ class SandboxedAgentExecutor:
             sdk_session_id=self.input.sdk_session_id,
             sdk_session_data=self.input.sdk_session_data,
             is_approval_continuation=self.input.is_approval_continuation,
-            approval_tool_results=[
-                RuntimeToolResult(
-                    tool_call_id=result.tool_call_id,
-                    content=serialize_tool_result_content(result.result),
-                    is_error=result.is_error,
-                )
-                for result in self.input.approval_tool_results
-            ],
             is_fork=self.input.is_fork,
         )
 

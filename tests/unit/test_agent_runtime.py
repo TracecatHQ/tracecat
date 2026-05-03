@@ -25,7 +25,7 @@ from claude_agent_sdk.types import (
 )
 
 import tracecat.agent.runtime.claude_code.runtime as runtime_module
-from tracecat.agent.common.protocol import RuntimeInitPayload, RuntimeToolResult
+from tracecat.agent.common.protocol import RuntimeInitPayload
 from tracecat.agent.common.socket_io import SocketStreamWriter
 from tracecat.agent.common.stream_types import StreamEventType, UnifiedStreamEvent
 from tracecat.agent.common.types import (
@@ -672,13 +672,6 @@ class TestClaudeAgentRuntimeRun:
                 '"id":"call_123","name":"core__http_request","input":{}}]}}\n'
             ),
             is_approval_continuation=True,
-            approval_tool_results=[
-                RuntimeToolResult(
-                    tool_call_id="call_123",
-                    content='{"status":"success"}',
-                    is_error=False,
-                )
-            ],
         )
 
         with (
@@ -737,13 +730,6 @@ class TestClaudeAgentRuntimeRun:
                 '"id":"call_123","name":"core__http_request","input":{}}]}}\n'
             ),
             is_approval_continuation=True,
-            approval_tool_results=[
-                RuntimeToolResult(
-                    tool_call_id="call_123",
-                    content='{"status":"success"}',
-                    is_error=False,
-                )
-            ],
         )
 
         async def mock_receive() -> Any:

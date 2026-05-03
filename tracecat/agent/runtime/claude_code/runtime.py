@@ -43,7 +43,7 @@ from claude_agent_sdk.types import (
 from tracecat.agent.common.config import TRACECAT__DISABLE_NSJAIL
 from tracecat.agent.common.exceptions import AgentSandboxValidationError
 from tracecat.agent.common.output_format import build_sdk_output_format
-from tracecat.agent.common.protocol import RuntimeInitPayload, RuntimeToolResult
+from tracecat.agent.common.protocol import RuntimeInitPayload
 from tracecat.agent.common.stream_types import (
     StreamEventType,
     ToolCallContent,
@@ -395,29 +395,6 @@ class ClaudeAgentRuntime:
             "<local-command-stdout>Compacted ",
         )
         return any(marker in text for marker in compact_markers)
-
-    @staticmethod
-    async def _tool_result_input_stream(
-        tool_results: list[RuntimeToolResult],
-    ) -> AsyncIterator[dict[str, Any]]:
-        """Yield the Claude SDK stream-json user message for tool results."""
-        yield {
-            "type": "user",
-            "message": {
-                "role": "user",
-                "content": [
-                    {
-                        "type": "tool_result",
-                        "tool_use_id": result.tool_call_id,
-                        "content": result.content,
-                        "is_error": result.is_error or False,
-                    }
-                    for result in tool_results
-                ],
-            },
-            "parent_tool_use_id": None,
-            "session_id": "default",
-        }
 
     @staticmethod
     async def _meta_text_input_stream(text: str) -> AsyncIterator[dict[str, Any]]:
@@ -918,7 +895,6 @@ class ClaudeAgentRuntime:
                 self._hide_next_approval_continuation_prompt = True
                 query_log_extra = {
                     "prompt_length": len(APPROVAL_CONTINUATION_PROMPT),
-                    "preseeded_tool_result_count": len(payload.approval_tool_results),
                     "is_meta": True,
                 }
                 logger.debug("Approval continuation with meta prompt")
