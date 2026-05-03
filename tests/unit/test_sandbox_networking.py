@@ -12,7 +12,9 @@ from tracecat.sandbox.networking import (
 from tracecat.sandbox.types import SandboxConfig
 
 
-def test_build_pasta_resolv_conf_preserves_search_and_options(tmp_path: Path) -> None:
+def test_build_pasta_resolv_conf_preserves_host_resolver(
+    tmp_path: Path,
+) -> None:
     host_resolv = tmp_path / "host-resolv.conf"
     host_resolv.write_text(
         "\n".join(
@@ -29,10 +31,36 @@ def test_build_pasta_resolv_conf_preserves_search_and_options(tmp_path: Path) ->
     resolv_conf = build_pasta_resolv_conf(host_resolv)
 
     assert resolv_conf == (
-        f"nameserver {PASTA_GATEWAY_IP}\n"
+        "nameserver 10.0.0.10\n"
         "search default.svc.cluster.local svc.cluster.local\n"
         "options ndots:5 timeout:2 attempts:3\n"
     )
+
+
+def test_build_pasta_resolv_conf_falls_back_to_pasta_dns(
+    tmp_path: Path,
+) -> None:
+    host_resolv = tmp_path / "host-resolv.conf"
+    host_resolv.write_text("search svc.cluster.local\noptions ndots:5\n")
+
+    resolv_conf = build_pasta_resolv_conf(host_resolv)
+
+    assert resolv_conf == (
+        f"nameserver {PASTA_GATEWAY_IP}\nsearch svc.cluster.local\noptions ndots:5\n"
+    )
+
+
+def test_build_pasta_resolv_conf_ignores_loopback_nameservers(
+    tmp_path: Path,
+) -> None:
+    host_resolv = tmp_path / "host-resolv.conf"
+    host_resolv.write_text(
+        "nameserver 127.0.0.11\nnameserver ::1\nsearch svc.cluster.local\n"
+    )
+
+    resolv_conf = build_pasta_resolv_conf(host_resolv)
+
+    assert resolv_conf == f"nameserver {PASTA_GATEWAY_IP}\nsearch svc.cluster.local\n"
 
 
 def test_write_pasta_network_files_writes_hostname_resolution_files(
@@ -40,9 +68,7 @@ def test_write_pasta_network_files_writes_hostname_resolution_files(
 ) -> None:
     network_files = write_pasta_network_files(tmp_path)
 
-    assert network_files.resolv_conf.read_text().startswith(
-        f"nameserver {PASTA_GATEWAY_IP}\n"
-    )
+    assert "nameserver " in network_files.resolv_conf.read_text()
     assert "127.0.0.1\tlocalhost" in network_files.hosts.read_text()
     assert "hosts:          files dns" in network_files.nsswitch_conf.read_text()
 

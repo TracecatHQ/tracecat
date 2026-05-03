@@ -19,6 +19,18 @@ from tracecat.service_accounts.schemas import (
     ServiceAccountApiKeyRead,
     ServiceAccountScopeRead,
 )
+from tracecat.tiers import defaults as tier_defaults
+
+
+@pytest.fixture(autouse=True)
+def enable_service_accounts_entitlement(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        tier_defaults,
+        "DEFAULT_ENTITLEMENTS",
+        tier_defaults.DEFAULT_ENTITLEMENTS.model_copy(
+            update={"service_accounts": True}
+        ),
+    )
 
 
 def _scope_read(name: str, *, action: str = "read") -> ServiceAccountScopeRead:

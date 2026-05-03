@@ -56,6 +56,7 @@ from tracecat.logger import logger
 BROKER_SHIM_SCRIPT_NAME = Path(JAILED_SHIM_ENTRYPOINT_PATH).name
 SESSION_HOME_ENV_VAR = "TRACECAT__AGENT_SESSION_HOME_DIR"
 SESSION_PROJECT_ENV_VAR = "TRACECAT__AGENT_SESSION_PROJECT_DIR"
+CLAUDE_SHIM_STDIO_LIMIT_BYTES = 5 * 1024 * 1024
 
 
 @dataclass(frozen=True)
@@ -335,6 +336,7 @@ async def _spawn_direct_runtime(
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
         env=env,
+        limit=CLAUDE_SHIM_STDIO_LIMIT_BYTES,
     )
 
     return SpawnedRuntime(process=process, job_dir=None)
@@ -466,6 +468,7 @@ async def _spawn_nsjail_runtime(
             stderr=asyncio.subprocess.PIPE,
             cwd=str(job_dir),
             env=env_map,
+            limit=CLAUDE_SHIM_STDIO_LIMIT_BYTES,
         )
 
         # Return result with job_dir for caller to clean up after process completes

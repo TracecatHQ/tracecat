@@ -27,9 +27,8 @@ class RuntimeInitPayload:
     The orchestrator sends this after the runtime connects to the control socket.
     Contains everything the runtime needs to execute an agent turn.
 
-    On resume after approval, the sdk_session_data contains the proper tool_result
-    entry (inserted by execute_approved_tools_activity before reload), so the
-    runtime just resumes normally.
+    On resume after approval, sdk_session_data already includes the approved or
+    denied tool_result entry.
     """
 
     # Runtime selection

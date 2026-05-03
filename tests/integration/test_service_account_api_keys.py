@@ -17,10 +17,21 @@ from tracecat.authz.seeding import seed_system_scopes
 from tracecat.contexts import ctx_role
 from tracecat.db.engine import get_async_session_bypass_rls_context_manager
 from tracecat.db.models import Scope, ServiceAccount, ServiceAccountApiKey, Workspace
-from tracecat.service_accounts.constants import API_KEY_HEADER_NAME
 from tracecat.service_accounts.router import WorkspaceUserOnlyInPath
+from tracecat.tiers import defaults as tier_defaults
 
 pytestmark = pytest.mark.usefixtures("db")
+
+
+@pytest.fixture(autouse=True)
+def enable_service_accounts_entitlement(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        tier_defaults,
+        "DEFAULT_ENTITLEMENTS",
+        tier_defaults.DEFAULT_ENTITLEMENTS.model_copy(
+            update={"service_accounts": True}
+        ),
+    )
 
 
 def _dependency_for_role(role_type: Any) -> Callable[..., Any]:
@@ -110,7 +121,7 @@ async def _request_with_service_account_key(
                 method,
                 path,
                 params=params,
-                headers={API_KEY_HEADER_NAME: raw_key},
+                headers={"Authorization": f"Bearer {raw_key}"},
             )
     finally:
         ctx_role.reset(token)
@@ -202,7 +213,7 @@ async def test_service_account_key_created_over_http_authenticates_separate_clie
                     method,
                     path,
                     params=params,
-                    headers={API_KEY_HEADER_NAME: raw_key},
+                    headers={"Authorization": f"Bearer {raw_key}"},
                 )
                 assert response.status_code == status.HTTP_200_OK
 
@@ -211,7 +222,7 @@ async def test_service_account_key_created_over_http_authenticates_separate_clie
                 denied_method,
                 denied_path,
                 params=denied_params,
-                headers={API_KEY_HEADER_NAME: raw_key},
+                headers={"Authorization": f"Bearer {raw_key}"},
             )
             assert denied_response.status_code == status.HTTP_403_FORBIDDEN
 
@@ -231,7 +242,7 @@ async def test_service_account_key_created_over_http_authenticates_separate_clie
                 allowed_requests[0][0],
                 allowed_requests[0][1],
                 params=allowed_requests[0][2],
-                headers={API_KEY_HEADER_NAME: raw_key},
+                headers={"Authorization": f"Bearer {raw_key}"},
             )
 
         assert after_disable_response.status_code == status.HTTP_401_UNAUTHORIZED

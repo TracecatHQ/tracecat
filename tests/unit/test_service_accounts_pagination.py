@@ -17,6 +17,18 @@ from tracecat.service_accounts.service import (
     _paginate_service_account_api_keys,
     _paginate_service_accounts,
 )
+from tracecat.tiers import defaults as tier_defaults
+
+
+@pytest.fixture(autouse=True)
+def enable_service_accounts_entitlement(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        tier_defaults,
+        "DEFAULT_ENTITLEMENTS",
+        tier_defaults.DEFAULT_ENTITLEMENTS.model_copy(
+            update={"service_accounts": True}
+        ),
+    )
 
 
 class _ScalarResult:

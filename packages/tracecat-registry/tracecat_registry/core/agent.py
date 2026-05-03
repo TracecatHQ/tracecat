@@ -2,6 +2,7 @@
 
 from typing import Annotated, Any
 
+from pydantic import Field
 from typing_extensions import Doc
 
 from tracecat_registry import (
@@ -10,7 +11,13 @@ from tracecat_registry import (
     registry,
 )
 from tracecat_registry._internal.exceptions import ActionIsInterfaceError
-from tracecat_registry.fields import ActionType, AgentPreset, TextArea
+from tracecat_registry.fields import (
+    ActionType,
+    AgentModel,
+    AgentPreset,
+    ModelSelection,
+    TextArea,
+)
 from tracecat_registry.sdk.agents import AgentsConfig, OutputType
 
 anthropic_secret = RegistrySecret(
@@ -75,13 +82,11 @@ bedrock_secret = RegistrySecret(
         - `AWS_BEARER_TOKEN_BEDROCK`
     Optional role settings:
         - `AWS_ROLE_SESSION_NAME`: Audit session name for AssumeRole requests.
-    Model configuration (one of):
-        - `AWS_INFERENCE_PROFILE_ID`: Required for newer models (Claude 4, etc.).
-          Use system profile ID like 'us.anthropic.claude-sonnet-4-20250514-v1:0'
-          or custom inference profile ARN for cost tracking.
-        - `AWS_MODEL_ID`: Direct model ID for older models that support on-demand throughput.
     Region:
         - `AWS_REGION`: AWS region (e.g., us-east-1)
+
+Model selection (inference profile ID or direct model ID) is configured per
+catalog entry under Organization settings → Models, not via these credentials.
 
 Tracecat automatically injects the workspace-scoped external ID required for
 cross-account AssumeRole requests.
@@ -141,12 +146,14 @@ azure_openai_secret = RegistrySecret(
 - optional_keys:
     - `AZURE_API_BASE`: Azure OpenAI endpoint (e.g., https://<resource>.openai.azure.com).
     - `AZURE_API_VERSION`: Azure OpenAI API version.
-    - `AZURE_DEPLOYMENT_NAME`: Azure OpenAI deployment name.
     - `AZURE_API_KEY`: Azure OpenAI API key. Required if not using Entra authentication.
     - `AZURE_AD_TOKEN`: Azure Entra (AD) token. Required if not using API key or client credentials.
     - `AZURE_TENANT_ID`: Azure Entra tenant ID for client-credential auth.
     - `AZURE_CLIENT_ID`: Azure Entra application client ID for client-credential auth.
     - `AZURE_CLIENT_SECRET`: Azure Entra application client secret for client-credential auth.
+
+The deployment name is configured per catalog entry under Organization settings →
+Models, not via these credentials.
 """
 
 azure_ai_secret = RegistrySecret(
@@ -174,7 +181,9 @@ azure_ai_secret = RegistrySecret(
     - `AZURE_CLIENT_ID`: Azure Entra application client ID for client-credential auth.
     - `AZURE_CLIENT_SECRET`: Azure Entra application client secret for client-credential auth.
     - `AZURE_API_VERSION`: Optional Azure AI API version appended as the api-version query parameter.
-    - `AZURE_AI_MODEL_NAME`: Model name to use (e.g., claude-sonnet-4-5).
+
+The Azure AI model name is configured per catalog entry under Organization
+settings → Models, not via these credentials.
 """
 
 litellm_secret = RegistrySecret(
@@ -200,6 +209,12 @@ PYDANTIC_AI_REGISTRY_SECRETS: list[RegistrySecretType] = [
     litellm_secret,
 ]
 
+LEGACY_MODEL_FIELD_DEPRECATION_MESSAGE = "Use `model` instead."
+"""Deprecation message for raw model selection fields."""
+LEGACY_MODEL_FIELD_SCHEMA_EXTRA: dict[str, Any] = {
+    "x-tracecat-deprecation-message": LEGACY_MODEL_FIELD_DEPRECATION_MESSAGE
+}
+
 
 @registry.register(
     default_title="AI agent",
@@ -215,8 +230,27 @@ async def agent(
         Doc("User prompt to the agent."),
         TextArea(),
     ],
-    model_name: Annotated[str, Doc("Name of the model to use.")],
-    model_provider: Annotated[str, Doc("Provider of the model to use.")],
+    model: Annotated[
+        ModelSelection | None,
+        Doc("Model to use. Pick from the list of models enabled for this workspace."),
+        AgentModel(),
+    ] = None,
+    model_name: Annotated[
+        str | None,
+        Doc("Deprecated model name. Use `model` instead."),
+        Field(
+            deprecated=True,
+            json_schema_extra=LEGACY_MODEL_FIELD_SCHEMA_EXTRA,
+        ),
+    ] = None,
+    model_provider: Annotated[
+        str | None,
+        Doc("Deprecated model provider. Use `model` instead."),
+        Field(
+            deprecated=True,
+            json_schema_extra=LEGACY_MODEL_FIELD_SCHEMA_EXTRA,
+        ),
+    ] = None,
     actions: Annotated[
         list[str] | None,
         Doc("Actions (e.g. 'tools.slack.post_message') to include in the agent."),
@@ -249,7 +283,6 @@ async def agent(
         bool,
         Doc("Whether to enable high thinking for agent runs."),
     ] = True,
-    base_url: Annotated[str | None, Doc("Base URL of the model to use.")] = None,
     # Paid feature
     tool_approvals: Annotated[
         dict[str, bool] | None,
@@ -332,8 +365,27 @@ async def action(
         Doc("User prompt to the agent."),
         TextArea(),
     ],
-    model_name: Annotated[str, Doc("Name of the model to use.")],
-    model_provider: Annotated[str, Doc("Provider of the model to use.")],
+    model: Annotated[
+        ModelSelection | None,
+        Doc("Model to use. Pick from the list of models enabled for this workspace."),
+        AgentModel(),
+    ] = None,
+    model_name: Annotated[
+        str | None,
+        Doc("Deprecated model name. Use `model` instead."),
+        Field(
+            deprecated=True,
+            json_schema_extra=LEGACY_MODEL_FIELD_SCHEMA_EXTRA,
+        ),
+    ] = None,
+    model_provider: Annotated[
+        str | None,
+        Doc("Deprecated model provider. Use `model` instead."),
+        Field(
+            deprecated=True,
+            json_schema_extra=LEGACY_MODEL_FIELD_SCHEMA_EXTRA,
+        ),
+    ] = None,
     instructions: Annotated[
         str | None, Doc("Instructions for the agent."), TextArea()
     ] = None,
@@ -352,7 +404,6 @@ async def action(
         bool,
         Doc("Whether to enable high thinking for agent runs."),
     ] = True,
-    base_url: Annotated[str | None, Doc("Base URL of the model to use.")] = None,
 ) -> dict[str, Any]:
     """Call an LLM with a given prompt and model (no tools)."""
     raise ActionIsInterfaceError()

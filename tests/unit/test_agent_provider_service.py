@@ -8,6 +8,7 @@ from unittest.mock import patch
 import orjson
 import pytest
 from cryptography.fernet import Fernet
+from pydantic import SecretStr
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -22,13 +23,12 @@ from tracecat.auth.types import Role
 from tracecat.db.models import (
     AgentCatalog,
     AgentCustomProvider,
-    AgentModelAccess,
     Organization,
-    Workspace,
 )
-from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
+from tracecat.exceptions import TracecatNotFoundError
 from tracecat.pagination import CursorPaginationParams
-from tracecat.secrets.encryption import decrypt_value
+from tracecat.secrets.encryption import decrypt_value, encrypt_keyvalues
+from tracecat.secrets.schemas import SecretKeyValue
 
 pytestmark = pytest.mark.usefixtures("db")
 
@@ -47,17 +47,6 @@ def _role(org: Organization) -> Role:
         type="user",
         user_id=uuid.uuid4(),
         organization_id=org.id,
-        service_id="tracecat-api",
-        scopes=frozenset({"*"}),
-    )
-
-
-def _workspace_role(org: Organization, workspace: Workspace) -> Role:
-    return Role(
-        type="user",
-        user_id=uuid.uuid4(),
-        organization_id=org.id,
-        workspace_id=workspace.id,
         service_id="tracecat-api",
         scopes=frozenset({"*"}),
     )
@@ -185,6 +174,50 @@ async def test_refresh_provider_catalog_upserts_models(
 
 
 @pytest.mark.anyio
+async def test_refresh_provider_catalog_uses_migrated_encrypted_base_url_fallback(
+    session: AsyncSession,
+    svc_organization: Organization,
+) -> None:
+    service = AgentCustomProviderService(session=session, role=_role(svc_organization))
+    encrypted_config = encrypt_keyvalues(
+        [
+            SecretKeyValue(
+                key="CUSTOM_MODEL_PROVIDER_BASE_URL",
+                value=SecretStr("https://migrated.example.com/v1"),
+            ),
+            SecretKeyValue(
+                key="CUSTOM_MODEL_PROVIDER_API_KEY",
+                value=SecretStr("sk-migrated"),
+            ),
+        ],
+        key=tracecat_config.TRACECAT__DB_ENCRYPTION_KEY or "",
+    )
+    provider = AgentCustomProvider(
+        organization_id=svc_organization.id,
+        display_name="Migrated",
+        base_url=None,
+        encrypted_config=encrypted_config,
+        api_key_header="Authorization",
+    )
+    session.add(provider)
+    await session.commit()
+
+    with patch.object(
+        service,
+        "_discover_models",
+        return_value=[{"id": "migrated-model"}],
+    ) as discover:
+        await service.refresh_provider_catalog(provider.id)
+
+    discover.assert_awaited_once_with(
+        "https://migrated.example.com/v1",
+        api_key="sk-migrated",
+        custom_headers=None,
+        api_key_header="Authorization",
+    )
+
+
+@pytest.mark.anyio
 async def test_validate_provider_success(
     session: AsyncSession,
     svc_organization: Organization,
@@ -219,138 +252,35 @@ async def test_validate_provider_success(
 
 
 @pytest.mark.anyio
-async def test_resolve_catalog_config_custom_provider(
+async def test_validate_provider_defaults_to_bearer_authorization(
     session: AsyncSession,
     svc_organization: Organization,
 ) -> None:
     service = AgentCustomProviderService(session=session, role=_role(svc_organization))
-    provider = await service.create_provider(
-        AgentCustomProviderCreate(
-            display_name="Custom Source",
-            base_url="https://gateway.example.com",
-            passthrough=True,
-            api_key_header="X-API-Key",
+
+    class _Response:
+        status_code = 200
+
+    class _Client:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def get(self, url: str, headers: dict[str, str]):
+            assert headers == {"Authorization": "Bearer secret"}
+            return _Response()
+
+    with patch.object(
+        provider_service_module.httpx, "AsyncClient", return_value=_Client()
+    ):
+        result = await service.validate_provider(
+            base_url="https://api.example.com",
             api_key="secret",
-            custom_headers={"X-Tenant": "tracecat"},
-        )
-    )
-    catalog = AgentCatalog(
-        organization_id=svc_organization.id,
-        custom_provider_id=provider.id,
-        model_provider="custom-model-provider",
-        model_name="customer-model",
-        model_metadata={},
-    )
-    session.add(catalog)
-    await session.flush()
-    session.add(
-        AgentModelAccess(
-            organization_id=svc_organization.id,
-            workspace_id=None,
-            catalog_id=catalog.id,
-        )
-    )
-    await session.commit()
-
-    target = await service.resolve_catalog_config(catalog_id=catalog.id)
-
-    assert target.catalog_id == catalog.id
-    assert target.custom_provider_id == provider.id
-    assert target.model_provider == "custom-model-provider"
-    assert target.model_name == "customer-model"
-    assert target.base_url == "https://gateway.example.com"
-    assert target.passthrough is True
-    assert target.api_key_header == "X-API-Key"
-    assert target.custom_provider_credentials is not None
-    assert target.custom_provider_credentials.api_key == "secret"
-    assert target.custom_provider_credentials.custom_headers == {"X-Tenant": "tracecat"}
-
-
-@pytest.mark.anyio
-async def test_resolve_catalog_config_missing_catalog_entry(
-    session: AsyncSession,
-    svc_organization: Organization,
-) -> None:
-    service = AgentCustomProviderService(session=session, role=_role(svc_organization))
-
-    with pytest.raises(TracecatNotFoundError):
-        await service.resolve_catalog_config(catalog_id=uuid.uuid4())
-
-
-@pytest.mark.anyio
-async def test_resolve_catalog_config_rejects_revoked_access(
-    session: AsyncSession,
-    svc_organization: Organization,
-) -> None:
-    service = AgentCustomProviderService(session=session, role=_role(svc_organization))
-    catalog = AgentCatalog(
-        organization_id=None,
-        custom_provider_id=None,
-        model_provider="openai",
-        model_name="gpt-4.1",
-        model_metadata={},
-    )
-    session.add(catalog)
-    await session.commit()
-
-    with pytest.raises(TracecatValidationError):
-        await service.resolve_catalog_config(catalog_id=catalog.id)
-
-
-@pytest.mark.anyio
-async def test_resolve_catalog_config_uses_effective_workspace_access(
-    session: AsyncSession,
-    svc_organization: Organization,
-    svc_workspace: Workspace,
-) -> None:
-    service = AgentCustomProviderService(
-        session=session,
-        role=_workspace_role(svc_organization, svc_workspace),
-    )
-    inherited_catalog = AgentCatalog(
-        organization_id=None,
-        custom_provider_id=None,
-        model_provider="openai",
-        model_name="gpt-4.1",
-        model_metadata={},
-    )
-    workspace_catalog = AgentCatalog(
-        organization_id=None,
-        custom_provider_id=None,
-        model_provider="anthropic",
-        model_name="claude-sonnet-4-5",
-        model_metadata={},
-    )
-    session.add_all([inherited_catalog, workspace_catalog])
-    await session.flush()
-    session.add_all(
-        [
-            AgentModelAccess(
-                organization_id=svc_organization.id,
-                workspace_id=None,
-                catalog_id=inherited_catalog.id,
-            ),
-            AgentModelAccess(
-                organization_id=svc_organization.id,
-                workspace_id=svc_workspace.id,
-                catalog_id=workspace_catalog.id,
-            ),
-        ]
-    )
-    await session.commit()
-
-    with pytest.raises(TracecatValidationError):
-        await service.resolve_catalog_config(
-            catalog_id=inherited_catalog.id,
-            workspace_id=svc_workspace.id,
         )
 
-    target = await service.resolve_catalog_config(
-        catalog_id=workspace_catalog.id,
-        workspace_id=svc_workspace.id,
-    )
-    assert target.catalog_id == workspace_catalog.id
-    assert target.model_provider == "anthropic"
+    assert result is True
 
 
 async def _load_raw_provider(

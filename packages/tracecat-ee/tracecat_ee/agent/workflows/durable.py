@@ -4,7 +4,7 @@ import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from temporalio import workflow
 from temporalio.common import TypedSearchAttributes
 from temporalio.exceptions import ActivityError, ApplicationError
@@ -22,6 +22,7 @@ with workflow.unsafe.imports_passed_through():
         DeniedToolCall,
         run_agent_activity,
     )
+    from tracecat.agent.executor.schemas import ToolExecutionResult
     from tracecat.agent.llm_routing import get_litellm_route_model
     from tracecat.agent.mcp.executor import (
         AGENT_TOOL_PRIORITY,
@@ -140,6 +141,7 @@ def _llm_route_for_config(
     return route_model, LLMRouteClaim(
         model=cfg.model_name,
         provider=cfg.model_provider,
+        catalog_id=cfg.catalog_id,
         base_url=cfg.base_url,
         model_settings=cfg.model_settings or {},
         use_workspace_credentials=use_workspace_credentials,
@@ -148,6 +150,11 @@ def _llm_route_for_config(
 
 class AgentWorkflowArgs(BaseModel):
     """Arguments for starting an agent workflow."""
+
+    # Temporal stores the original workflow input in history. Keep stale keys
+    # replayable after workflow args evolve, including the removed legacy
+    # ``use_workspace_credentials`` flag.
+    model_config = ConfigDict(extra="ignore")
 
     role: Role
     agent_args: RunAgentArgs
@@ -279,17 +286,12 @@ class DurableAgentWorkflow:
     async def _apply_custom_model_provider_config(
         self,
         cfg: AgentConfig,
-        *,
-        use_workspace_credentials: bool,
     ) -> None:
         if cfg.model_provider != "custom-model-provider":
             return
         result = await workflow.execute_activity(
             resolve_custom_model_provider_config_activity,
-            args=(
-                self.role,
-                use_workspace_credentials,
-            ),
+            args=(self.role, cfg.catalog_id),
             start_to_close_timeout=timedelta(seconds=30),
             retry_policy=RETRY_POLICIES["activity:fail_fast"],
         )
@@ -302,7 +304,6 @@ class DurableAgentWorkflow:
             passthrough=cfg.passthrough,
             has_model_name_override=result.model_name is not None,
             has_base_url=bool(cfg.base_url),
-            use_workspace_credentials=use_workspace_credentials,
         )
 
     async def _build_config(self, args: AgentWorkflowArgs) -> AgentConfig:
@@ -352,10 +353,7 @@ class DurableAgentWorkflow:
                 )
             cfg = args.agent_args.config
 
-        await self._apply_custom_model_provider_config(
-            cfg,
-            use_workspace_credentials=args.agent_args.use_workspace_credentials,
-        )
+        await self._apply_custom_model_provider_config(cfg)
         return cfg
 
     async def _resolve_agents_config(
@@ -406,10 +404,7 @@ class DurableAgentWorkflow:
         prepared_subagents: list[tuple[ResolvedSubagentConfig, AgentConfig]] = []
         for subagent in subagents:
             child_cfg = agent_config_from_payload(subagent.config)
-            await self._apply_custom_model_provider_config(
-                child_cfg,
-                use_workspace_credentials=use_workspace_credentials,
-            )
+            await self._apply_custom_model_provider_config(child_cfg)
             prepared_subagents.append((subagent, child_cfg))
             scope_args.append(
                 BuildAgentScopeToolDefsArgs(
@@ -618,7 +613,7 @@ class DurableAgentWorkflow:
             cfg=cfg,
             subagents=agents_result.subagents,
             internal_tool_context=internal_tool_context,
-            use_workspace_credentials=args.agent_args.use_workspace_credentials,
+            use_workspace_credentials=False,
         )
         allowed_actions = build_result.tool_definitions
         user_mcp_claims = build_result.user_mcp_claims
@@ -667,7 +662,7 @@ class DurableAgentWorkflow:
         )
         root_route_model, _ = _llm_route_for_config(
             cfg,
-            use_workspace_credentials=args.agent_args.use_workspace_credentials,
+            use_workspace_credentials=False,
         )
         llm_routes = {
             route_model: route_claim
@@ -681,9 +676,10 @@ class DurableAgentWorkflow:
             session_id=self.session_id,
             model=cfg.model_name,
             provider=cfg.model_provider,
+            catalog_id=cfg.catalog_id,
             base_url=cfg.base_url,
             model_settings=cfg.model_settings,
-            use_workspace_credentials=args.agent_args.use_workspace_credentials,
+            use_workspace_credentials=False,
             routes=llm_routes,
         )
 
@@ -701,7 +697,6 @@ class DurableAgentWorkflow:
             sdk_session_id=self._sdk_session_id,
             sdk_session_data=self._sdk_session_data,
             is_fork=is_fork,
-            use_workspace_credentials=args.agent_args.use_workspace_credentials,
         )
 
         info = workflow.info()
@@ -754,12 +749,12 @@ class DurableAgentWorkflow:
                 # Persist approval decisions to DB (atomic with chat messages)
                 await self.approvals.handle_decisions()
 
-                # Execute approved tools and collect results
+                # Execute approved tools and reconcile the SDK transcript.
                 approved_tools, denied_tools = self._build_tool_lists_from_approvals(
                     result.approval_items or []
                 )
 
-                tool_results = None
+                tool_results: list[ToolExecutionResult] = []
                 if approved_tools or denied_tools:
                     tool_results = await self._execute_and_reconcile_approved_tools(
                         approved_tools=approved_tools,
@@ -786,7 +781,9 @@ class DurableAgentWorkflow:
                         sdk_session_id=self._sdk_session_id,
                     )
 
-                # Update executor input for resume (history now has proper tool_result)
+                # Update executor input for resume. Reconcile has replaced the
+                # interrupt artifacts with the real tool_result entry; the
+                # runtime only sends a hidden continuation tick.
                 executor_input = AgentExecutorInput(
                     session_id=self.session_id,
                     workspace_id=self.workspace_id,
@@ -800,7 +797,6 @@ class DurableAgentWorkflow:
                     sdk_session_id=self._sdk_session_id,
                     sdk_session_data=self._sdk_session_data,
                     is_approval_continuation=True,
-                    use_workspace_credentials=args.agent_args.use_workspace_credentials,
                 )
                 self._turn += 1
                 continue

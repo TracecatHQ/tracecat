@@ -56,6 +56,27 @@ def _update_map(updates: list[Any]) -> dict[str, str]:
     return {update.key.name: update.value for update in updates}
 
 
+def test_agent_workflow_args_ignores_legacy_workspace_credentials() -> None:
+    role = Role(
+        type="user",
+        service_id="tracecat-api",
+        workspace_id=uuid.uuid4(),
+        organization_id=uuid.uuid4(),
+        user_id=uuid.uuid4(),
+        scopes=frozenset({"agent:execute", "secret:read"}),
+    )
+    payload = _build_workflow_args(role).model_dump(mode="python")
+    payload["use_workspace_credentials"] = True
+    payload["agent_args"]["use_workspace_credentials"] = True
+
+    workflow_args = AgentWorkflowArgs.model_validate(payload)
+
+    assert workflow_args.role == role
+    assert workflow_args.agent_args.session_id == payload["agent_args"]["session_id"]
+    assert not hasattr(workflow_args, "use_workspace_credentials")
+    assert not hasattr(workflow_args.agent_args, "use_workspace_credentials")
+
+
 @pytest.mark.anyio
 async def test_upsert_tracecat_search_attributes_fills_missing_keys() -> None:
     role = Role(

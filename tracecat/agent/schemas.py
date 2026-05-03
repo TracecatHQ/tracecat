@@ -44,6 +44,12 @@ class DefaultModelSelectionUpdate(BaseModel):
 
 
 class RunAgentArgs(BaseModel):
+    # extra="ignore" keeps in-flight workflow history replayable after the
+    # legacy ``use_workspace_credentials`` field was removed: Temporal
+    # stores the old shape in history and Pydantic will silently drop the
+    # stale key during deserialization.
+    model_config = ConfigDict(extra="ignore")
+
     user_prompt: str
     """User prompt for the agent."""
     session_id: uuid.UUID
@@ -62,8 +68,6 @@ class RunAgentArgs(BaseModel):
     """Results for deferred tool calls from a previous run (CE handshake)."""
     is_continuation: bool = False
     """If True, do not emit a new user message; continue prior run with deferred results."""
-    use_workspace_credentials: bool = True
-    """Credential scope for LLM gateway."""
 
     @model_validator(mode="after")
     def validate_config_or_preset(self) -> RunAgentArgs:
@@ -89,6 +93,15 @@ class ModelConfig(BaseModel):
         "organization secret to use for this model.",
         min_length=1,
         max_length=100,
+    )
+    catalog_id: uuid.UUID | None = Field(
+        default=None,
+        description=(
+            "Optional catalog row backing this model selection. Populated "
+            "for v2 org-scoped cloud/custom catalog rows; left ``None`` for "
+            "platform (built-in) models that resolve credentials via "
+            "``agent-{provider}-credentials``."
+        ),
     )
     org_secret_name: str = Field(
         ...,
@@ -264,6 +277,7 @@ class AgentConfigSchema(BaseModel):
 
     model_name: str
     model_provider: str
+    catalog_id: uuid.UUID | None = None
     base_url: str | None = None
     instructions: str | None = None
     output_type: Any | None = None
@@ -311,6 +325,7 @@ class InternalRankItemsRequest(BaseModel):
     criteria_prompt: str
     model_name: str
     model_provider: str
+    catalog_id: uuid.UUID | None = None
     model_settings: dict[str, Any] | None = None
     max_requests: int = 5
     retries: int = 3
@@ -326,6 +341,7 @@ class InternalRankItemsPairwiseRequest(BaseModel):
     criteria_prompt: str
     model_name: str
     model_provider: str
+    catalog_id: uuid.UUID | None = None
     id_field: str = "id"
     batch_size: int = 10
     num_passes: int = 10

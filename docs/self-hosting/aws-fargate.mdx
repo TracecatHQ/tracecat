@@ -65,7 +65,7 @@ export TF_VAR_tracecat_signing_secret_arn=<secret-arn>
 export TF_VAR_user_auth_secret_arn=<secret-arn>
 
 # Optional but recommended
-export TF_VAR_tracecat_image_tag=1.0.0-beta.42
+export TF_VAR_tracecat_image_tag=1.0.0-beta.46
 
 terraform apply
 ```
@@ -92,7 +92,7 @@ cd tracecat/deployments/fargate
 git pull origin main
 
 # Set variables as before, then update the image tag
-export TF_VAR_tracecat_image_tag=1.0.0-beta.42
+export TF_VAR_tracecat_image_tag=1.0.0-beta.46
 
 terraform apply
 ```

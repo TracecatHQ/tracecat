@@ -30,11 +30,12 @@ from tracecat.pagination import (
     CursorPaginatedResponse,
     CursorPaginationParams,
 )
-from tracecat.service import BaseOrgService, BaseWorkspaceService
+from tracecat.service import BaseOrgService, BaseWorkspaceService, requires_entitlement
 from tracecat.service_accounts.constants import (
     is_org_service_account_assignable_scope,
     is_workspace_service_account_assignable_scope,
 )
+from tracecat.tiers.enums import Entitlement
 
 ServiceAccountScopeValidator = Callable[..., bool]
 
@@ -604,6 +605,7 @@ class OrganizationServiceAccountService(BaseOrgService, BaseServiceAccountServic
     scope_validator = staticmethod(is_org_service_account_assignable_scope)
 
     @require_scope("org:service_account:read")
+    @requires_entitlement(Entitlement.SERVICE_ACCOUNTS)
     async def list_service_accounts(
         self,
         params: CursorPaginationParams,
@@ -611,6 +613,7 @@ class OrganizationServiceAccountService(BaseOrgService, BaseServiceAccountServic
         return await self._list_service_accounts(params)
 
     @require_scope("org:service_account:read")
+    @requires_entitlement(Entitlement.SERVICE_ACCOUNTS)
     async def list_service_account_api_keys(
         self,
         service_account_id: uuid.UUID,
@@ -619,6 +622,7 @@ class OrganizationServiceAccountService(BaseOrgService, BaseServiceAccountServic
         return await self._list_service_account_api_keys(service_account_id, params)
 
     @require_scope("org:service_account:create")
+    @requires_entitlement(Entitlement.SERVICE_ACCOUNTS)
     @audit_log(
         resource_type="service_account",
         action="create",
@@ -640,6 +644,7 @@ class OrganizationServiceAccountService(BaseOrgService, BaseServiceAccountServic
         )
 
     @require_scope("org:service_account:update")
+    @requires_entitlement(Entitlement.SERVICE_ACCOUNTS)
     @audit_log(
         resource_type="service_account",
         action="update",
@@ -663,6 +668,7 @@ class OrganizationServiceAccountService(BaseOrgService, BaseServiceAccountServic
         )
 
     @require_scope("org:service_account:disable")
+    @requires_entitlement(Entitlement.SERVICE_ACCOUNTS)
     @audit_log(
         resource_type="service_account",
         action="update",
@@ -672,6 +678,7 @@ class OrganizationServiceAccountService(BaseOrgService, BaseServiceAccountServic
         await self._set_service_account_disabled(service_account_id, disabled=True)
 
     @require_scope("org:service_account:disable")
+    @requires_entitlement(Entitlement.SERVICE_ACCOUNTS)
     @audit_log(
         resource_type="service_account",
         action="update",
@@ -681,6 +688,7 @@ class OrganizationServiceAccountService(BaseOrgService, BaseServiceAccountServic
         await self._set_service_account_disabled(service_account_id, disabled=False)
 
     @require_scope("org:service_account:update")
+    @requires_entitlement(Entitlement.SERVICE_ACCOUNTS)
     @audit_log(
         resource_type="service_account_api_key",
         action="create",
@@ -695,6 +703,7 @@ class OrganizationServiceAccountService(BaseOrgService, BaseServiceAccountServic
         return await self._issue_api_key(service_account_id, name=name)
 
     @require_scope("org:service_account:update")
+    @requires_entitlement(Entitlement.SERVICE_ACCOUNTS)
     @audit_log(
         resource_type="service_account_api_key",
         action="revoke",
@@ -716,6 +725,7 @@ class WorkspaceServiceAccountService(BaseWorkspaceService, BaseServiceAccountSer
     scope_validator = staticmethod(is_workspace_service_account_assignable_scope)
 
     @require_scope("workspace:service_account:read")
+    @requires_entitlement(Entitlement.SERVICE_ACCOUNTS)
     async def list_service_accounts(
         self,
         params: CursorPaginationParams,
@@ -723,6 +733,7 @@ class WorkspaceServiceAccountService(BaseWorkspaceService, BaseServiceAccountSer
         return await self._list_service_accounts(params)
 
     @require_scope("workspace:service_account:read")
+    @requires_entitlement(Entitlement.SERVICE_ACCOUNTS)
     async def list_service_account_api_keys(
         self,
         service_account_id: uuid.UUID,
@@ -731,6 +742,7 @@ class WorkspaceServiceAccountService(BaseWorkspaceService, BaseServiceAccountSer
         return await self._list_service_account_api_keys(service_account_id, params)
 
     @require_scope("workspace:service_account:create")
+    @requires_entitlement(Entitlement.SERVICE_ACCOUNTS)
     @audit_log(
         resource_type="service_account",
         action="create",
@@ -752,6 +764,7 @@ class WorkspaceServiceAccountService(BaseWorkspaceService, BaseServiceAccountSer
         )
 
     @require_scope("workspace:service_account:update")
+    @requires_entitlement(Entitlement.SERVICE_ACCOUNTS)
     @audit_log(
         resource_type="service_account",
         action="update",
@@ -775,6 +788,7 @@ class WorkspaceServiceAccountService(BaseWorkspaceService, BaseServiceAccountSer
         )
 
     @require_scope("workspace:service_account:disable")
+    @requires_entitlement(Entitlement.SERVICE_ACCOUNTS)
     @audit_log(
         resource_type="service_account",
         action="update",
@@ -784,6 +798,7 @@ class WorkspaceServiceAccountService(BaseWorkspaceService, BaseServiceAccountSer
         await self._set_service_account_disabled(service_account_id, disabled=True)
 
     @require_scope("workspace:service_account:disable")
+    @requires_entitlement(Entitlement.SERVICE_ACCOUNTS)
     @audit_log(
         resource_type="service_account",
         action="update",
@@ -793,6 +808,7 @@ class WorkspaceServiceAccountService(BaseWorkspaceService, BaseServiceAccountSer
         await self._set_service_account_disabled(service_account_id, disabled=False)
 
     @require_scope("workspace:service_account:update")
+    @requires_entitlement(Entitlement.SERVICE_ACCOUNTS)
     @audit_log(
         resource_type="service_account_api_key",
         action="create",
@@ -807,6 +823,7 @@ class WorkspaceServiceAccountService(BaseWorkspaceService, BaseServiceAccountSer
         return await self._issue_api_key(service_account_id, name=name)
 
     @require_scope("workspace:service_account:update")
+    @requires_entitlement(Entitlement.SERVICE_ACCOUNTS)
     @audit_log(
         resource_type="service_account_api_key",
         action="revoke",

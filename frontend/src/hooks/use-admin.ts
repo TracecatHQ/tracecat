@@ -18,6 +18,8 @@ import {
   type AdminRegistryListRegistryVersionsResponse,
   type AdminUserCreate,
   type AdminUserRead,
+  type AgentCatalogListResponse,
+  type AgentCatalogRead,
   adminCreateOrganization,
   adminCreateOrganizationDomain,
   adminCreateOrganizationInvitation,
@@ -54,6 +56,7 @@ import {
   adminUpdateOrgTier,
   adminUpdateRegistrySettings,
   adminUpdateTier,
+  OpenAPI,
   type OrganizationTierRead,
   type OrganizationTierUpdate,
   type OrgCreate,
@@ -67,6 +70,41 @@ import {
   type TierRead,
   type TierUpdate,
 } from "@/client"
+import { request as apiRequest } from "@/client/core/request"
+import { retryHandler, type TracecatApiError } from "@/lib/errors"
+
+export interface AdminPlatformCatalogEntry {
+  id: string
+  model_provider: string
+  model_name: string
+  model_id: string
+  display_name: string
+  metadata?: Record<string, unknown> | null
+}
+
+export interface AdminPlatformCatalogRead {
+  models: AdminPlatformCatalogEntry[]
+}
+
+function adminListPlatformCatalog({
+  cursor,
+  limit,
+}: {
+  cursor?: string
+  limit?: number
+} = {}) {
+  return apiRequest<AgentCatalogListResponse>(OpenAPI, {
+    method: "GET",
+    url: "/admin/agent/catalog",
+    query: {
+      cursor,
+      limit,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
 
 /* ── ORGANIZATIONS ─────────────────────────────────────────────────────────── */
 
@@ -761,5 +799,87 @@ export function useAdminRegistrySettings() {
     error,
     updateSettings,
     updatePending,
+  }
+}
+
+/**
+ * Read platform-scoped catalog rows through the admin catalog surface.
+ */
+export function useAdminPlatformCatalog({
+  query = "",
+}: {
+  query?: string
+} = {}) {
+  const {
+    data: catalogItems,
+    isLoading,
+    error,
+    refetch,
+  } = useQuery<AgentCatalogRead[], TracecatApiError>({
+    queryKey: ["admin", "agent-platform-catalog"],
+    queryFn: async () => {
+      const items: AgentCatalogRead[] = []
+      let cursor: string | undefined
+
+      do {
+        const response = await adminListPlatformCatalog({
+          cursor,
+          limit: 100,
+        })
+        items.push(...response.items)
+        cursor = response.next_cursor ?? undefined
+      } while (cursor)
+
+      return items
+    },
+    retry: retryHandler,
+  })
+  const catalog = useMemo<AdminPlatformCatalogRead | undefined>(() => {
+    if (!catalogItems) {
+      return undefined
+    }
+
+    const normalizedQuery = query.trim().toLowerCase()
+    const models = catalogItems
+      .filter((item) => {
+        if (!normalizedQuery) {
+          return true
+        }
+        return (
+          item.model_name.toLowerCase().includes(normalizedQuery) ||
+          item.model_provider.toLowerCase().includes(normalizedQuery)
+        )
+      })
+      .sort((left, right) => {
+        const providerComparison = left.model_provider.localeCompare(
+          right.model_provider
+        )
+        if (providerComparison !== 0) {
+          return providerComparison
+        }
+        return left.model_name.localeCompare(right.model_name)
+      })
+      .map((item) => ({
+        id: item.id,
+        model_provider: item.model_provider,
+        model_name: item.model_name,
+        model_id: item.model_name,
+        display_name:
+          (item.model_metadata?.display_name as string | undefined) ??
+          item.model_name,
+        metadata:
+          (item.model_metadata as Record<string, unknown> | null) ?? null,
+      }))
+
+    return {
+      models,
+    }
+  }, [catalogItems, query])
+
+  return {
+    catalog,
+    isLoading,
+    error,
+    refetch,
   }
 }

@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import os
 import time
+import uuid
 from collections.abc import AsyncIterable, Callable
 from pathlib import Path
 from typing import Any, TypedDict
@@ -53,6 +54,7 @@ _ERROR_MESSAGES = {
     504: "LLM provider request timed out",
     529: "LLM provider is overloaded - please try again shortly",
 }
+_ERROR_BODY_PREVIEW_BYTES = 2048
 _proxy_load_tracker = get_load_tracker("llm_socket_proxy")
 _TRACE_REQUEST_ID_HEADER = "x-request-id"
 
@@ -82,6 +84,66 @@ def _get_or_create_trace_request_id(headers: dict[str, str]) -> str:
     return str(uuid4())
 
 
+def _is_non_critical_path(path: str) -> bool:
+    return path.split("?", 1)[0] in _NON_CRITICAL_PATHS
+
+
+def _coerce_error_detail(value: object) -> str | None:
+    if isinstance(value, str):
+        detail = value.strip()
+        return detail or None
+    if isinstance(value, dict):
+        for key in ("message", "detail", "error"):
+            if detail := _coerce_error_detail(value.get(key)):
+                return detail
+        return orjson.dumps(value).decode("utf-8")
+    if isinstance(value, list):
+        return orjson.dumps(value).decode("utf-8")
+    return None
+
+
+def _extract_error_detail(body: bytes) -> str | None:
+    if not body:
+        return None
+
+    if len(body) <= _ERROR_BODY_PREVIEW_BYTES:
+        try:
+            parsed = orjson.loads(body)
+        except orjson.JSONDecodeError:
+            parsed = None
+        if isinstance(parsed, dict):
+            for key in ("error", "detail", "message"):
+                if detail := _coerce_error_detail(parsed.get(key)):
+                    return detail
+
+    preview = body[:_ERROR_BODY_PREVIEW_BYTES].decode("utf-8", errors="replace")
+    detail = preview.strip()
+    if not detail:
+        return None
+    if len(body) > _ERROR_BODY_PREVIEW_BYTES:
+        return f"{detail}..."
+    return detail
+
+
+def _format_litellm_http_error(
+    *,
+    status_code: int,
+    reason_phrase: str,
+    body: bytes,
+    trace_request_id: str,
+) -> str:
+    reason = reason_phrase or "Unknown"
+    message = _ERROR_MESSAGES.get(status_code)
+    detail = _extract_error_detail(body)
+    parts = [f"LiteLLM request failed ({status_code} {reason})"]
+    if message:
+        parts.append(message)
+    if detail and detail != message:
+        parts.append(detail)
+    parts.append(f"request_id={trace_request_id}")
+    return ": ".join(parts)
+
+
 class LLMSocketProxy:
     """Unix socket proxy that forwards HTTP traffic to the LLM gateway.
 
@@ -96,8 +158,8 @@ class LLMSocketProxy:
         on_error: Callable[[str], None] | None = None,
         passthrough: bool = False,
         role: Role | None = None,
-        use_workspace_credentials: bool = False,
         model_provider: str | None = None,
+        catalog_id: uuid.UUID | None = None,
     ):
         """Initialize the LLM socket proxy.
 
@@ -108,9 +170,12 @@ class LLMSocketProxy:
             passthrough: When True, strip managed auth headers before forwarding
                 directly to the configured upstream.
             role: Role used to fetch the custom provider API key in passthrough mode.
-            use_workspace_credentials: Credential scope for the passthrough key fetch.
             model_provider: Selected model provider. Used to decide whether to strip
                 Anthropic-only request fields from outbound payloads.
+            catalog_id: Optional v2 catalog row backing this workflow. When
+                set, passthrough credential resolution reads the matching
+                ``AgentCustomProvider`` row's ``encrypted_config`` instead of
+                the legacy ``agent-custom-model-provider-credentials`` secret.
         """
         self.socket_path = socket_path
         self.upstream_url = (
@@ -124,35 +189,43 @@ class LLMSocketProxy:
         self._error_emitted = False  # Only call callback once
         self._is_passthrough = passthrough
         self._role = role
-        self._use_workspace_credentials = use_workspace_credentials
         self._upstream_api_key: str | None = None
         self._model_provider = model_provider
+        self._catalog_id = catalog_id
 
     async def _resolve_passthrough_api_key(self) -> None:
         """Fetch the custom provider API key for passthrough mode.
 
-        The key is cached on the instance and never logged. If credentials or
-        the key are missing, the proxy forwards without an Authorization header
-        and the upstream will respond with its normal auth error.
+        Prefers the v2 catalog-backed path when ``catalog_id`` is set (reads
+        the row's ``AgentCustomProvider.encrypted_config``); otherwise falls
+        back to the legacy ``agent-custom-model-provider-credentials``
+        secret so in-flight workflows without a catalog_id keep working.
+
+        The key is cached on the instance and never logged. If credentials
+        or the key are missing, the proxy forwards without an Authorization
+        header and the upstream will respond with its normal auth error.
         """
         if not self._is_passthrough or self._role is None:
             return
         async with AgentManagementService.with_session(self._role) as svc:
-            creds = await svc.get_runtime_provider_credentials(
-                "custom-model-provider",
-                use_workspace_credentials=self._use_workspace_credentials,
-            )
+            if self._catalog_id is not None:
+                creds = await svc.get_catalog_credentials(self._catalog_id)
+            else:
+                creds = await svc.get_runtime_provider_credentials(
+                    "custom-model-provider",
+                )
+                if creds is None:
+                    creds = await svc.get_workspace_provider_credentials(
+                        "custom-model-provider",
+                    )
         if creds is None:
-            logger.warning(
-                "Passthrough credentials not found",
-                use_workspace_credentials=self._use_workspace_credentials,
-            )
+            logger.warning("Passthrough credentials not found")
             return
         self._upstream_api_key = creds.get("CUSTOM_MODEL_PROVIDER_API_KEY") or None
         logger.info(
             "Resolved passthrough upstream credentials",
             has_upstream_api_key=bool(self._upstream_api_key),
-            use_workspace_credentials=self._use_workspace_credentials,
+            catalog_id=str(self._catalog_id) if self._catalog_id else None,
         )
 
     async def start(self) -> None:
@@ -485,12 +558,27 @@ class LLMSocketProxy:
                 headers=forward_headers,
                 content=body if body else None,
             ) as response:
+                body_chunks: AsyncIterable[bytes] | list[bytes]
+                if response.status_code >= 400 and not _is_non_critical_path(path):
+                    error_body = await response.aread()
+                    self._emit_error(
+                        _format_litellm_http_error(
+                            status_code=response.status_code,
+                            reason_phrase=response.reason_phrase,
+                            body=error_body,
+                            trace_request_id=trace_request_id,
+                        )
+                    )
+                    body_chunks = [error_body]
+                else:
+                    body_chunks = response.aiter_bytes()
+
                 await self._write_response(
                     writer,
                     status_code=response.status_code,
                     reason_phrase=response.reason_phrase,
                     headers=dict(response.headers),
-                    body_chunks=response.aiter_bytes(),
+                    body_chunks=body_chunks,
                     trace_request_id=trace_request_id,
                     started_at=started_at,
                     request_counter=request_counter,
@@ -505,7 +593,7 @@ class LLMSocketProxy:
                 request_counter=request_counter,
                 trace_request_id=trace_request_id,
             )
-            if path.split("?", 1)[0] not in _NON_CRITICAL_PATHS:
+            if not _is_non_critical_path(path):
                 self._emit_error(f"LiteLLM unavailable: {exc}")
         except httpx.TimeoutException as exc:
             await self._write_error_response(
@@ -515,7 +603,7 @@ class LLMSocketProxy:
                 request_counter=request_counter,
                 trace_request_id=trace_request_id,
             )
-            if path.split("?", 1)[0] not in _NON_CRITICAL_PATHS:
+            if not _is_non_critical_path(path):
                 self._emit_error(f"Gateway timeout ({type(exc).__name__}): {exc}")
 
     async def _write_response(
@@ -605,6 +693,8 @@ class LLMSocketProxy:
                     detail=detail,
                     trace_request_id=trace_request_id,
                 )
+                if path is not None and not _is_non_critical_path(path):
+                    self._emit_error(f"LiteLLM stream failed: {detail}")
                 error_payload = orjson.dumps(
                     {
                         "type": "error",

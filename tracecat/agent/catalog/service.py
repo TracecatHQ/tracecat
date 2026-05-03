@@ -125,7 +125,6 @@ class AgentCatalogService(BaseService):
         cursor_params: CursorPaginationParams | None = None,
     ) -> tuple[list[AgentCatalogRead], str | None]:
         """List catalog entries with filtering and cursor pagination."""
-        params = cursor_params or CursorPaginationParams(limit=50)
         conditions: list[Any] = []
         if org_id is not None:
             conditions.append(
@@ -134,6 +133,36 @@ class AgentCatalogService(BaseService):
                     AgentCatalog.organization_id.is_(None),
                 )
             )
+        return await self._list_catalog(
+            conditions=conditions,
+            provider_filter=provider_filter,
+            model_name_filter=model_name_filter,
+            cursor_params=cursor_params,
+        )
+
+    async def list_platform_catalog(
+        self,
+        provider_filter: str | None = None,
+        model_name_filter: str | None = None,
+        cursor_params: CursorPaginationParams | None = None,
+    ) -> tuple[list[AgentCatalogRead], str | None]:
+        """List platform-owned catalog entries."""
+        return await self._list_catalog(
+            conditions=[AgentCatalog.organization_id.is_(None)],
+            provider_filter=provider_filter,
+            model_name_filter=model_name_filter,
+            cursor_params=cursor_params,
+        )
+
+    async def _list_catalog(
+        self,
+        *,
+        conditions: list[Any],
+        provider_filter: str | None,
+        model_name_filter: str | None,
+        cursor_params: CursorPaginationParams | None,
+    ) -> tuple[list[AgentCatalogRead], str | None]:
+        params = cursor_params or CursorPaginationParams(limit=50)
         if provider_filter:
             conditions.append(AgentCatalog.model_provider == provider_filter)
         if model_name_filter:

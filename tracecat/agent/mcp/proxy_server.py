@@ -10,7 +10,6 @@ Handles two types of tools:
 
 from __future__ import annotations
 
-import json
 from collections.abc import Callable, Coroutine
 from typing import Any
 
@@ -117,33 +116,34 @@ def _make_tool_handler(
                 first_block = call_result.content[0]
                 result_text = getattr(first_block, "text", str(first_block))
 
-            # Check if the tool call returned an error
-            # Return structured JSON so frontend can detect errors
             if call_result.is_error:
                 logger.error(
                     "Tool call returned error", error=result_text, **log_context
                 )
-                error_response = json.dumps(
-                    {
-                        "success": False,
-                        "error": result_text or "Tool execution failed",
-                    }
-                )
-                return {"content": [{"type": "text", "text": error_response}]}
+                return {
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": result_text or "Tool execution failed",
+                        }
+                    ],
+                    "is_error": True,
+                }
 
             return {"content": [{"type": "text", "text": result_text}]}
 
         except Exception as e:
-            # Unexpected exceptions - return structured error response
             error_msg = str(e)
             logger.error("Proxy request failed", error=error_msg, **log_context)
-            error_response = json.dumps(
-                {
-                    "success": False,
-                    "error": error_msg or "Tool execution failed",
-                }
-            )
-            return {"content": [{"type": "text", "text": error_response}]}
+            return {
+                "content": [
+                    {
+                        "type": "text",
+                        "text": error_msg or "Tool execution failed",
+                    }
+                ],
+                "is_error": True,
+            }
 
     return _handler
 

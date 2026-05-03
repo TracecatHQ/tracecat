@@ -8,6 +8,7 @@ for integration with Tracecat's agent infrastructure.
 import asyncio
 import random
 import textwrap
+import uuid
 from typing import Any, TypedDict
 
 from pydantic_ai import Agent
@@ -124,6 +125,7 @@ async def _build_ranking_agent(
     criteria_prompt: str,
     model_name: str,
     model_provider: str,
+    catalog_id: uuid.UUID | None = None,
     model_settings: dict[str, Any] | None = None,
     retries: int = 3,
     base_url: str | None = None,
@@ -157,6 +159,7 @@ async def _build_ranking_agent(
             instructions=instructions,
             model_name=model_name,
             model_provider=model_provider,
+            catalog_id=catalog_id,
             model_settings=model_settings,
             retries=retries,
             base_url=base_url,
@@ -188,6 +191,7 @@ async def rank_items(
     criteria_prompt: str,
     model_name: str,
     model_provider: str,
+    catalog_id: uuid.UUID | None = None,
     model_settings: dict[str, Any] | None = None,
     max_requests: int = 5,
     retries: int = 3,
@@ -225,6 +229,7 @@ async def rank_items(
         criteria_prompt=criteria_prompt,
         model_name=model_name,
         model_provider=model_provider,
+        catalog_id=catalog_id,
         model_settings=model_settings,
         retries=retries,
         base_url=base_url,
@@ -366,6 +371,7 @@ async def rank_items_pairwise(
     criteria_prompt: str,
     model_name: str,
     model_provider: str,
+    catalog_id: uuid.UUID | None = None,
     id_field: str = "id",
     batch_size: int = 10,
     num_passes: int = 10,
@@ -442,6 +448,7 @@ async def rank_items_pairwise(
         criteria_prompt=criteria_prompt,
         model_name=model_name,
         model_provider=model_provider,
+        catalog_id=catalog_id,
         model_settings=model_settings,
         retries=retries,
         base_url=base_url,

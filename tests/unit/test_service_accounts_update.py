@@ -15,6 +15,18 @@ from tracecat.authz.enums import ScopeSource
 from tracecat.db.models import Scope
 from tracecat.exceptions import TracecatAuthorizationError
 from tracecat.service_accounts.service import OrganizationServiceAccountService
+from tracecat.tiers import defaults as tier_defaults
+
+
+@pytest.fixture(autouse=True)
+def enable_service_accounts_entitlement(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        tier_defaults,
+        "DEFAULT_ENTITLEMENTS",
+        tier_defaults.DEFAULT_ENTITLEMENTS.model_copy(
+            update={"service_accounts": True}
+        ),
+    )
 
 
 class _NoopSession:

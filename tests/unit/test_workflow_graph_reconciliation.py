@@ -350,6 +350,39 @@ async def test_get_workflow_backfills_missing_webhook_and_case_trigger(
 
 
 @pytest.mark.anyio
+async def test_get_workflow_for_update_avoids_commits_while_locked(
+    session: AsyncSession,
+    svc_role: Role,
+    workflow_with_actions: tuple[Workflow, list[Action]],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """for_update reads should reconcile legacy state without committing."""
+    workflow, actions = workflow_with_actions
+    workflow_id = WorkflowUUID.new(workflow.id)
+
+    await session.delete(actions[0])
+    await session.commit()
+    session.expire_all()
+
+    service = WorkflowsManagementService(session, role=svc_role)
+
+    async def _fail_commit() -> None:
+        raise AssertionError(
+            "get_workflow(for_update=True) should not commit while holding a lock"
+        )
+
+    with monkeypatch.context() as m:
+        m.setattr(session, "commit", _fail_commit)
+        fetched_workflow = await service.get_workflow(workflow_id, for_update=True)
+
+    assert fetched_workflow is not None
+    assert fetched_workflow.webhook is not None
+    assert fetched_workflow.case_trigger is not None
+    assert len(fetched_workflow.actions) == 1
+    assert fetched_workflow.actions[0].upstream_edges == []
+
+
+@pytest.mark.anyio
 async def test_reconcile_preserves_viewport(
     session: AsyncSession,
     svc_role: Role,

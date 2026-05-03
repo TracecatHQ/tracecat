@@ -114,7 +114,11 @@ import { ValidationErrorView } from "@/components/validation-errors"
 import type { RequestValidationError, TracecatApiError } from "@/lib/errors"
 import { useAction, useGetRegistryAction, useOrgAppSettings } from "@/lib/hooks"
 import { PERMITTED_INTERACTION_ACTIONS } from "@/lib/interactions"
-import { isTracecatJsonSchema, type TracecatJsonSchema } from "@/lib/schema"
+import {
+  getTracecatComponents,
+  isTracecatJsonSchema,
+  type TracecatJsonSchema,
+} from "@/lib/schema"
 import { cn, slugifyActionRef } from "@/lib/utils"
 import { useWorkflowBuilder } from "@/providers/builder"
 import { useWorkflow } from "@/providers/workflow"
@@ -189,6 +193,7 @@ const actionFormSchema = z.object({
     .max(1000, "Environment must be less than 1000 characters")
     .transform((val) => normalizeOptionalExpression(val))
     .optional(),
+  mask_output: z.boolean().default(false),
   is_interactive: z.boolean().default(false),
   interaction: z
     .discriminatedUnion("type", [
@@ -268,6 +273,19 @@ const reconstructYamlFromForm = (
 
 type InputMode = "form" | "yaml"
 
+function shouldShowOptionalFieldByDefault(
+  fieldName: string,
+  fieldDefn: unknown
+): boolean {
+  return (
+    fieldName === "model" &&
+    isTracecatJsonSchema(fieldDefn) &&
+    getTracecatComponents(fieldDefn).some(
+      (component) => component.component_id === "agent-model"
+    )
+  )
+}
+
 export type ActionPanelTabs =
   | "inputs"
   | "schema"
@@ -327,6 +345,7 @@ function ActionPanelContent({
       join_strategy: actionControlFlow?.join_strategy,
       wait_until: actionControlFlow?.wait_until || undefined,
       environment: actionControlFlow?.environment || undefined,
+      mask_output: actionControlFlow?.mask_output ?? false,
       is_interactive: action?.is_interactive ?? false,
       interaction: action?.interaction ?? undefined,
     }),
@@ -345,6 +364,7 @@ function ActionPanelContent({
       actionControlFlow?.join_strategy,
       actionControlFlow?.wait_until,
       actionControlFlow?.environment,
+      actionControlFlow?.mask_output,
     ]
   )
 
@@ -483,8 +503,11 @@ function ActionPanelContent({
     const currentInputs =
       (watchedValues as ActionFormSchema | undefined)?.inputs ?? {}
     if (optionalFields.length > 0 && currentInputs) {
-      optionalFields.forEach(([fieldName]) => {
+      optionalFields.forEach(([fieldName, fieldDefn]) => {
         if (currentInputs[fieldName] !== undefined) {
+          fieldsWithValues.add(fieldName)
+        }
+        if (shouldShowOptionalFieldByDefault(fieldName, fieldDefn)) {
           fieldsWithValues.add(fieldName)
         }
       })
@@ -589,6 +612,7 @@ function ActionPanelContent({
             join_strategy: values.join_strategy,
             wait_until: values.wait_until,
             environment: values.environment,
+            mask_output: values.mask_output ?? false,
           },
           is_interactive: values.is_interactive,
           interaction: values.interaction,
@@ -613,8 +637,6 @@ function ActionPanelContent({
             console.error("Validation errors", valErrs)
             valErrs.forEach(({ loc, msg }) => {
               const key: string = loc.slice(1).join(".")
-              // Skip the old combined field mapping since we now have individual fields
-              // Combine errors if they have the same key
               if (errors[key]) {
                 errors[key].message += `\n${msg}`
               } else {
@@ -1115,6 +1137,11 @@ function ActionPanelContent({
                                       )
                                         ? fieldDefn.description
                                         : null
+                                      const deprecated = isTracecatJsonSchema(
+                                        fieldDefn
+                                      )
+                                        ? fieldDefn.deprecated === true
+                                        : false
                                       return (
                                         <DropdownMenuCheckboxItem
                                           key={fieldName}
@@ -1164,9 +1191,19 @@ function ActionPanelContent({
                                           }}
                                         >
                                           <div className="flex flex-col gap-1">
-                                            <span className="font-medium">
-                                              {label}
-                                            </span>
+                                            <div className="flex items-center gap-2">
+                                              <span className="font-medium">
+                                                {label}
+                                              </span>
+                                              {deprecated && (
+                                                <Badge
+                                                  variant="outline"
+                                                  className="h-5 px-1.5 text-[10px] uppercase text-muted-foreground"
+                                                >
+                                                  Deprecated
+                                                </Badge>
+                                              )}
+                                            </div>
                                             {description && (
                                               <span className="text-xs text-muted-foreground">
                                                 {description.endsWith(".")
@@ -1460,6 +1497,32 @@ function ActionPanelContent({
                                   placeholder="Type @ to begin an expression..."
                                 />
                               </FormControl>
+                            </FormItem>
+                          )}
+                        />
+                      </ControlFlowField>
+
+                      <ControlFlowField
+                        label="Mask output"
+                        description="Redact this action's result in workflow execution API responses while keeping downstream workflow data unchanged."
+                      >
+                        <FormField
+                          name="mask_output"
+                          control={methods.control}
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormMessage className="whitespace-pre-line" />
+                              <div className="flex items-center gap-2">
+                                <FormControl>
+                                  <Switch
+                                    checked={field.value ?? false}
+                                    onCheckedChange={field.onChange}
+                                  />
+                                </FormControl>
+                                <span className="text-xs text-muted-foreground">
+                                  {field.value ? "Enabled" : "Disabled"}
+                                </span>
+                              </div>
                             </FormItem>
                           )}
                         />

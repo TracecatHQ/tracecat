@@ -17,7 +17,11 @@ from tracecat_ee.watchtower.router import router as watchtower_router
 
 from tracecat import __version__ as APP_VERSION
 from tracecat import config
+from tracecat.admin.agent.router import router as admin_agent_router
 from tracecat.admin.registry.router import router as admin_registry_router
+from tracecat.agent.access.router import router as agent_model_access_router
+from tracecat.agent.catalog.loader import load_platform_catalog_on_startup
+from tracecat.agent.catalog.router import router as agent_catalog_router
 from tracecat.agent.channels.management_router import (
     router as agent_channels_management_router,
 )
@@ -27,6 +31,7 @@ from tracecat.agent.preset.internal_router import (
     router as internal_agent_preset_router,
 )
 from tracecat.agent.preset.router import router as agent_preset_router
+from tracecat.agent.provider.router import router as agent_custom_provider_router
 from tracecat.agent.router import router as agent_router
 from tracecat.agent.session.router import router as agent_session_router
 from tracecat.agent.skill.router import router as agent_skill_router
@@ -200,6 +205,12 @@ async def lifespan(app: FastAPI):
     )
     logger.debug("Spawned background task for platform registry sync")
 
+    platform_catalog_task = asyncio.create_task(
+        load_platform_catalog_on_startup(),
+        name="platform_catalog_load",
+    )
+    logger.debug("Spawned background task for platform catalog load")
+
     case_trigger_task = None
     if config.TRACECAT__CASE_TRIGGERS_ENABLED:
         case_trigger_task = asyncio.create_task(
@@ -245,6 +256,29 @@ async def lifespan(app: FastAPI):
             logger.warning(
                 "Platform registry sync task failed before shutdown", error=e
             )
+
+    if not platform_catalog_task.done():
+        logger.info("Waiting for platform catalog load task to complete...")
+        try:
+            await asyncio.wait_for(platform_catalog_task, timeout=10.0)
+            logger.info("Platform catalog load task completed")
+        except TimeoutError:
+            logger.warning(
+                "Platform catalog load task did not complete in time, cancelling"
+            )
+            platform_catalog_task.cancel()
+            try:
+                await platform_catalog_task
+            except asyncio.CancelledError:
+                logger.debug("Platform catalog load task cancelled")
+        except Exception as e:
+            logger.warning("Platform catalog load task failed during shutdown", error=e)
+    else:
+        try:
+            platform_catalog_task.result()
+            logger.debug("Platform catalog load task had already completed")
+        except Exception as e:
+            logger.warning("Platform catalog load task failed before shutdown", error=e)
 
     if case_trigger_task is not None:
         case_trigger_task.cancel()
@@ -451,6 +485,9 @@ def create_app(**kwargs) -> FastAPI:
     app.include_router(org_router)
     app.include_router(org_service_accounts_router)
     app.include_router(agent_router)
+    app.include_router(agent_catalog_router)
+    app.include_router(agent_model_access_router)
+    app.include_router(agent_custom_provider_router)
     app.include_router(agent_channels_management_router)
     app.include_router(agent_preset_router)
     app.include_router(agent_skill_router)
@@ -458,6 +495,7 @@ def create_app(**kwargs) -> FastAPI:
     app.include_router(approvals_router)
     app.include_router(watchtower_router)
     app.include_router(admin_router)
+    app.include_router(admin_agent_router, prefix="/admin")
     app.include_router(admin_registry_router, prefix="/admin")
     app.include_router(inbox_router)
     app.include_router(editor_router)

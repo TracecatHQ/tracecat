@@ -101,6 +101,28 @@ async def test_agent_action_memo_logging_omits_raw_payload(
 
 
 @pytest.mark.anyio
+async def test_agent_action_memo_decodes_mask_output() -> None:
+    """Agent child workflow memos preserve output redaction metadata."""
+    memo = temporalio.api.common.v1.Memo(
+        fields={
+            "action_ref": Payload(
+                metadata={"encoding": b"json/plain"},
+                data=b'"masked_agent"',
+            ),
+            "mask_output": Payload(
+                metadata={"encoding": b"json/plain"},
+                data=b"true",
+            ),
+        }
+    )
+
+    agent_memo = await AgentActionMemo.from_temporal(memo)
+
+    assert agent_memo.action_ref == "masked_agent"
+    assert agent_memo.mask_output is True
+
+
+@pytest.mark.anyio
 async def test_child_workflow_memo_decode_failure_keeps_best_effort_defaults(
     monkeypatch,
 ) -> None:
@@ -134,6 +156,10 @@ async def test_child_workflow_memo_decode_failure_keeps_best_effort_defaults(
                 metadata={"encoding": b"json/plain"},
                 data=b'"child-stream"',
             ),
+            "mask_output": Payload(
+                metadata={"encoding": b"json/plain"},
+                data=b"true",
+            ),
         }
     )
 
@@ -143,6 +169,7 @@ async def test_child_workflow_memo_decode_failure_keeps_best_effort_defaults(
     assert child_memo.loop_index == 3
     assert child_memo.wait_strategy == WaitStrategy.DETACH
     assert child_memo.stream_id == "child-stream"
+    assert child_memo.mask_output is True
     assert any(
         warning["message"] == "Error decoding child workflow memo field"
         and warning["key"] == "action_ref"

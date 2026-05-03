@@ -4,6 +4,7 @@ import asyncio
 import base64
 import inspect
 import json
+import re
 import sys
 import uuid
 from collections.abc import Callable, Coroutine
@@ -18,6 +19,7 @@ from fastmcp.exceptions import ToolError
 from fastmcp.server.middleware.middleware import MiddlewareContext
 from fastmcp.tools import ToolResult
 from mcp.types import CallToolRequestParams
+from pydantic import ValidationError
 from tracecat_registry import RegistrySecret
 
 import tracecat.mcp.auth as mcp_auth
@@ -38,6 +40,7 @@ from tracecat.validation.schemas import (
     ValidationResult,
     ValidationResultType,
 )
+from tracecat.workflow.management import layout as layout_module
 
 _original_create_mcp_auth = mcp_auth.create_mcp_auth
 try:
@@ -109,6 +112,84 @@ def _fake_ctx(
     transport: str = "streamable-http",
 ) -> Any:
     return SimpleNamespace(session_id=session_id, transport=transport)
+
+
+def _workflow_stub(**overrides: Any) -> SimpleNamespace:
+    data: dict[str, Any] = {
+        "id": uuid.uuid4(),
+        "title": "Example workflow",
+        "description": "Example description",
+        "status": "offline",
+        "version": None,
+        "alias": None,
+        "entrypoint": None,
+        "error_handler": None,
+        "expects": {},
+        "returns": None,
+        "config": {},
+        "actions": [],
+        "schedules": [],
+        "case_trigger": None,
+        "trigger_position_x": 0.0,
+        "trigger_position_y": 0.0,
+        "viewport_x": 0.0,
+        "viewport_y": 0.0,
+        "viewport_zoom": 1.0,
+    }
+    data.update(overrides)
+    return SimpleNamespace(**data)
+
+
+def _schedule_stub(**overrides: Any) -> SimpleNamespace:
+    data: dict[str, Any] = {
+        "id": uuid.uuid4(),
+        "workspace_id": uuid.uuid4(),
+        "workflow_id": uuid.uuid4(),
+        "created_at": datetime.now(UTC),
+        "updated_at": datetime.now(UTC),
+        "inputs": {},
+        "cron": "0 * * * *",
+        "every": None,
+        "offset": None,
+        "start_at": None,
+        "end_at": None,
+        "timeout": 0.0,
+        "status": "offline",
+    }
+    data.update(overrides)
+    return SimpleNamespace(**data)
+
+
+def _case_trigger_stub(**overrides: Any) -> SimpleNamespace:
+    data: dict[str, Any] = {
+        "id": uuid.uuid4(),
+        "workflow_id": uuid.uuid4(),
+        "status": "online",
+        "event_types": ["case_created"],
+        "tag_filters": [],
+    }
+    data.update(overrides)
+    return SimpleNamespace(**data)
+
+
+def _action_stub(**overrides: Any) -> SimpleNamespace:
+    data: dict[str, Any] = {
+        "id": uuid.uuid4(),
+        "ref": "step_a",
+        "type": "core.noop",
+        "title": "Step A",
+        "description": "",
+        "status": "offline",
+        "inputs": "{}",
+        "control_flow": {},
+        "is_interactive": False,
+        "interaction": None,
+        "upstream_edges": [],
+        "position_x": 0.0,
+        "position_y": 0.0,
+    }
+    data.update(overrides)
+    return SimpleNamespace(**data)
 
 
 @pytest.mark.anyio
@@ -386,13 +467,13 @@ async def test_validate_template_action_remote_rejects_client_mismatch(monkeypat
 
 
 def test_auto_generate_layout_handles_cycles():
-    actions: list[mcp_server.WorkflowActionLayoutInput] = [
+    actions: list[layout_module.WorkflowActionLayoutInput] = [
         {"ref": "start", "depends_on": []},
         {"ref": "middle", "depends_on": ["start", "end"]},
         {"ref": "end", "depends_on": ["middle"]},
     ]
 
-    layout = mcp_server._auto_generate_layout(actions)
+    layout = layout_module.auto_generate_layout(actions)
     refs = {item["ref"] for item in layout["actions"]}
 
     assert refs == {"start", "middle", "end"}
@@ -445,11 +526,11 @@ def test_extract_layout_positions_nested_position_shape():
 
 def test_auto_generate_layout_round_trips_through_extract():
     """Auto-generated layout can be extracted into position tuples."""
-    actions: list[mcp_server.WorkflowActionLayoutInput] = [
+    actions: list[layout_module.WorkflowActionLayoutInput] = [
         {"ref": "step1", "depends_on": []},
         {"ref": "step2", "depends_on": ["step1"]},
     ]
-    layout_data = mcp_server._auto_generate_layout(actions)
+    layout_data = layout_module.auto_generate_layout(actions)
     trigger, viewport, action_positions = mcp_server._extract_layout_positions(
         layout_data
     )
@@ -494,8 +575,10 @@ async def test_update_workflow_metadata_only_omits_unset_fields(monkeypatch):
     class _WorkflowService:
         def __init__(self) -> None:
             self.session = _FakeSession()
+            self.for_update_calls: list[bool] = []
 
-        async def get_workflow(self, _wf_id):
+        async def get_workflow(self, _wf_id, *, for_update: bool = False):
+            self.for_update_calls.append(for_update)
             return fake_workflow
 
     class _FakeSession:
@@ -508,11 +591,13 @@ async def test_update_workflow_metadata_only_omits_unset_fields(monkeypatch):
         async def refresh(self, obj, attrs=None):
             pass
 
+    workflow_service = _WorkflowService()
+
     monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
     monkeypatch.setattr(
         mcp_server.WorkflowsManagementService,
         "with_session",
-        lambda role: _AsyncContext(_WorkflowService()),
+        lambda role: _AsyncContext(workflow_service),
     )
 
     result = await _tool(mcp_server.update_workflow)(
@@ -527,6 +612,7 @@ async def test_update_workflow_metadata_only_omits_unset_fields(monkeypatch):
     assert "title" not in setattr_calls
     assert "description" not in setattr_calls
     assert "status" not in setattr_calls
+    assert workflow_service.for_update_calls == [True]
 
 
 @pytest.mark.anyio
@@ -551,9 +637,13 @@ async def test_update_workflow_definition_yaml_uses_shared_yaml_update(monkeypat
     class _WorkflowService:
         def __init__(self) -> None:
             self.session = _FakeSession()
+            self.for_update_calls: list[bool] = []
 
-        async def get_workflow(self, _wf_id):
+        async def get_workflow(self, _wf_id, *, for_update: bool = False):
+            self.for_update_calls.append(for_update)
             return workflow
+
+    workflow_service = _WorkflowService()
 
     async def _apply_yaml_update(**kwargs):
         captured.update(kwargs)
@@ -562,7 +652,7 @@ async def test_update_workflow_definition_yaml_uses_shared_yaml_update(monkeypat
     monkeypatch.setattr(
         mcp_server.WorkflowsManagementService,
         "with_session",
-        lambda role: _AsyncContext(_WorkflowService()),
+        lambda role: _AsyncContext(workflow_service),
     )
     monkeypatch.setattr(
         mcp_server,
@@ -586,6 +676,7 @@ async def test_update_workflow_definition_yaml_uses_shared_yaml_update(monkeypat
         "definition_yaml": "definition:\n  title: Example\n"
     }
     assert captured["update_mode"] == "replace"
+    assert workflow_service.for_update_calls == [True]
 
 
 @pytest.mark.anyio
@@ -618,7 +709,7 @@ async def test_apply_workflow_yaml_update_validates_definition(monkeypatch):
         _replace_workflow_definition_from_dsl,
     )
 
-    payload = mcp_server.MCPWorkflowYamlPayload(
+    payload = mcp_server.WorkflowYamlPayload(
         definition=mcp_server.DSLInput.model_validate(
             {
                 "title": "Example",
@@ -662,15 +753,7 @@ async def test_get_workflow_returns_metadata_only(monkeypatch):
         return uuid.uuid4(), SimpleNamespace()
 
     workflow_id = uuid.uuid4()
-    workflow = SimpleNamespace(
-        id=workflow_id,
-        title="Example workflow",
-        description="Example description",
-        status="offline",
-        version=None,
-        alias=None,
-        entrypoint=None,
-    )
+    workflow = _workflow_stub(id=workflow_id)
 
     class _WorkflowService:
         def __init__(self) -> None:
@@ -693,11 +776,206 @@ async def test_get_workflow_returns_metadata_only(monkeypatch):
         )
     )
     assert payload["id"] == str(workflow_id)
+    assert payload["draft_revision"]
+    assert payload["draft_document"]["metadata"]["title"] == "Example workflow"
     assert "definition_yaml" not in payload
 
 
+def test_build_workflow_edit_document_normalizes_null_schedule_timeout() -> None:
+    workflow = _workflow_stub(schedules=[_schedule_stub(timeout=None)])
+
+    document = mcp_server._build_workflow_edit_document(
+        cast(mcp_server._WorkflowEditDocumentSource, workflow)
+    )
+
+    assert document.schedules is not None
+    assert len(document.schedules) == 1
+    assert document.schedules[0].timeout == 0
+
+
+def test_build_workflow_edit_document_sorts_schedules_by_canonical_content() -> None:
+    schedule_a = _schedule_stub(
+        id=uuid.UUID("ffffffff-ffff-ffff-ffff-ffffffffffff"),
+        cron="30 * * * *",
+        status="offline",
+        timeout=30.0,
+    )
+    schedule_b = _schedule_stub(
+        id=uuid.UUID("00000000-0000-0000-0000-000000000001"),
+        cron="0 * * * *",
+        status="online",
+        timeout=0.0,
+    )
+    workflow_one = _workflow_stub(schedules=[schedule_a, schedule_b])
+    workflow_two = _workflow_stub(
+        schedules=[
+            _schedule_stub(
+                id=uuid.UUID("00000000-0000-0000-0000-000000000002"),
+                cron="30 * * * *",
+                status="offline",
+                timeout=30.0,
+            ),
+            _schedule_stub(
+                id=uuid.UUID("ffffffff-ffff-ffff-ffff-fffffffffffe"),
+                cron="0 * * * *",
+                status="online",
+                timeout=0.0,
+            ),
+        ]
+    )
+
+    document_one = mcp_server._build_workflow_edit_document(
+        cast(mcp_server._WorkflowEditDocumentSource, workflow_one)
+    )
+    document_two = mcp_server._build_workflow_edit_document(
+        cast(mcp_server._WorkflowEditDocumentSource, workflow_two)
+    )
+
+    assert [schedule.cron for schedule in document_one.schedules] == [
+        "0 * * * *",
+        "30 * * * *",
+    ]
+    assert [
+        schedule.model_dump(mode="json") for schedule in document_one.schedules
+    ] == [schedule.model_dump(mode="json") for schedule in document_two.schedules]
+
+
+def test_build_workflow_edit_document_omits_invalid_online_case_trigger() -> None:
+    workflow = _workflow_stub(
+        case_trigger=SimpleNamespace(
+            id=uuid.uuid4(),
+            workflow_id=uuid.uuid4(),
+            status="online",
+            event_types=[],
+            tag_filters=[],
+        )
+    )
+
+    document = mcp_server._build_workflow_edit_document(
+        cast(mcp_server._WorkflowEditDocumentSource, workflow)
+    )
+
+    assert document.case_trigger is None
+
+
+def test_compute_workflow_edit_revision_normalizes_layout_position_aliases() -> None:
+    workflow = _workflow_stub(
+        trigger_position_x=10.0,
+        trigger_position_y=20.0,
+        actions=[_action_stub(position_x=30.0, position_y=40.0)],
+    )
+    document = mcp_server._build_workflow_edit_document(
+        cast(mcp_server._WorkflowEditDocumentSource, workflow)
+    )
+    alias_payload = json.loads(
+        json.dumps(mcp_server._workflow_edit_document_payload(document))
+    )
+    alias_payload["layout"]["trigger"] = {"position": {"x": 10.0, "y": 20.0}}
+    alias_payload["layout"]["actions"][0] = {
+        "ref": "step_a",
+        "position": {"x": 30.0, "y": 40.0},
+    }
+    alias_document = mcp_server.WorkflowEditDocument.model_validate(alias_payload)
+
+    assert alias_document.layout.trigger is not None
+    assert alias_document.layout.trigger.x == 10.0
+    assert alias_document.layout.trigger.y == 20.0
+    assert alias_document.layout.trigger.position is None
+    assert alias_document.layout.actions[0].position is None
+    assert mcp_server._compute_workflow_edit_revision(
+        alias_document
+    ) == mcp_server._compute_workflow_edit_revision(document)
+
+
+def test_workflow_edit_document_rejects_null_layout_actions() -> None:
+    workflow = _workflow_stub(actions=[_action_stub()])
+    payload = mcp_server._workflow_edit_document_payload(
+        mcp_server._build_workflow_edit_document(
+            cast(mcp_server._WorkflowEditDocumentSource, workflow)
+        )
+    )
+    payload["layout"]["actions"] = None
+
+    with pytest.raises(ValidationError, match="Input should be a valid list"):
+        mcp_server.WorkflowEditDocument.model_validate(payload)
+
+
 @pytest.mark.anyio
-async def test_get_workflow_returns_inline_definition_when_requested(monkeypatch):
+async def test_replace_workflow_definition_from_dsl_uses_existing_workflow() -> None:
+    workflow_id = uuid.uuid4()
+    workflow = _workflow_stub(
+        id=workflow_id,
+        title="Original workflow",
+        description="Original description",
+        entrypoint="start",
+        expects={},
+        config={},
+        returns=None,
+        actions=[],
+    )
+    updated_payload = mcp_server._workflow_edit_document_payload(
+        mcp_server._build_workflow_edit_document(
+            cast(mcp_server._WorkflowEditDocumentSource, workflow)
+        )
+    )
+    updated_payload["metadata"]["title"] = "Updated workflow"
+    updated_payload["definition"]["entrypoint"]["ref"] = "trigger"
+    updated_payload["definition"]["actions"] = [
+        {
+            "ref": "step_a",
+            "action": "core.noop",
+            "args": {},
+            "depends_on": [],
+            "description": "",
+        }
+    ]
+    updated_document = mcp_server.WorkflowEditDocument.model_validate(updated_payload)
+    dsl = mcp_server._workflow_edit_document_to_dsl(updated_document)
+
+    captured: dict[str, Any] = {}
+
+    class _FakeSession:
+        def add(self, obj: Any) -> None:
+            _ = obj
+
+        async def execute(self, stmt: Any) -> None:
+            _ = stmt
+
+        async def flush(self) -> None:
+            return None
+
+        async def refresh(self, obj: Any, attrs: list[str] | None = None) -> None:
+            _ = obj, attrs
+
+    async def _create_actions_from_dsl(
+        dsl_arg: Any,
+        wf_id: Any,
+        action_positions: dict[str, tuple[float, float]] | None = None,
+    ) -> None:
+        captured["dsl"] = dsl_arg
+        captured["workflow_id"] = wf_id
+        captured["action_positions"] = action_positions
+
+    service = SimpleNamespace(
+        session=_FakeSession(),
+        workspace_id=uuid.uuid4(),
+        create_actions_from_dsl=_create_actions_from_dsl,
+    )
+    await mcp_server._replace_workflow_definition_from_dsl(
+        service=cast(Any, service),
+        workflow=cast(Any, workflow),
+        dsl=dsl,
+        action_positions={"step_a": (10.0, 20.0)},
+    )
+
+    assert workflow.title == "Updated workflow"
+    assert workflow.entrypoint == "trigger"
+    assert captured["workflow_id"] == workflow_id
+    assert captured["action_positions"] == {"step_a": (10.0, 20.0)}
+
+
+@pytest.mark.anyio
+async def test_edit_workflow_updates_metadata(monkeypatch):
     async def _resolve(_workspace_id):
         return uuid.uuid4(), SimpleNamespace()
 
@@ -710,7 +988,1553 @@ async def test_get_workflow_returns_inline_definition_when_requested(monkeypatch
         version=None,
         alias=None,
         entrypoint=None,
+        error_handler=None,
+        expects={},
+        returns=None,
+        config={},
+        actions=[],
+        schedules=[],
+        case_trigger=None,
+        trigger_position_x=0.0,
+        trigger_position_y=0.0,
+        viewport_x=0.0,
+        viewport_y=0.0,
+        viewport_zoom=1.0,
     )
+
+    class _FakeSession:
+        def add(self, obj):
+            pass
+
+        async def commit(self):
+            pass
+
+        async def refresh(self, obj, attrs=None):
+            pass
+
+    class _WorkflowService:
+        def __init__(self) -> None:
+            self.session = _FakeSession()
+            self.for_update_calls: list[bool] = []
+
+        async def get_workflow(self, _wf_id, *, for_update: bool = False):
+            self.for_update_calls.append(for_update)
+            return workflow
+
+    workflow_service = _WorkflowService()
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server.WorkflowsManagementService,
+        "with_session",
+        lambda role: _AsyncContext(workflow_service),
+    )
+
+    base_revision = mcp_server._compute_workflow_edit_revision(
+        mcp_server._build_workflow_edit_document(
+            cast(mcp_server._WorkflowEditDocumentSource, workflow)
+        )
+    )
+    payload = _payload(
+        await _tool(mcp_server.edit_workflow)(
+            workspace_id=str(uuid.uuid4()),
+            workflow_id=str(workflow_id),
+            base_revision=base_revision,
+            patch_ops=[
+                {"op": "replace", "path": "/metadata/title", "value": "Updated flow"}
+            ],
+        )
+    )
+
+    assert payload["message"] == f"Workflow {workflow_id} updated successfully"
+    assert payload["draft_revision"]
+    assert workflow.title == "Updated flow"
+    assert workflow_service.for_update_calls == [True]
+
+
+@pytest.mark.anyio
+async def test_edit_workflow_refreshes_related_state_before_response_revision(
+    monkeypatch,
+):
+    async def _resolve(_workspace_id):
+        return uuid.uuid4(), SimpleNamespace()
+
+    workflow_id = uuid.uuid4()
+    workflow = _workflow_stub(id=workflow_id)
+
+    class _FakeSession:
+        def __init__(self) -> None:
+            self.refresh_calls: list[list[str] | None] = []
+
+        def add(self, obj):
+            _ = obj
+
+        async def commit(self):
+            return None
+
+        async def refresh(self, obj, attrs=None):
+            _ = obj
+            self.refresh_calls.append(list(attrs) if attrs is not None else None)
+
+    class _WorkflowService:
+        def __init__(self) -> None:
+            self.session = _FakeSession()
+
+        async def get_workflow(self, _wf_id, *, for_update: bool = False):
+            _ = for_update
+            return workflow
+
+    workflow_service = _WorkflowService()
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server.WorkflowsManagementService,
+        "with_session",
+        lambda role: _AsyncContext(workflow_service),
+    )
+
+    base_revision = mcp_server._compute_workflow_edit_revision(
+        mcp_server._build_workflow_edit_document(
+            cast(mcp_server._WorkflowEditDocumentSource, workflow)
+        )
+    )
+    payload = _payload(
+        await _tool(mcp_server.edit_workflow)(
+            workspace_id=str(uuid.uuid4()),
+            workflow_id=str(workflow_id),
+            base_revision=base_revision,
+            patch_ops=[
+                {
+                    "op": "replace",
+                    "path": "/metadata/title",
+                    "value": "Updated flow",
+                }
+            ],
+        )
+    )
+
+    assert payload["message"] == f"Workflow {workflow_id} updated successfully"
+    assert [
+        "actions",
+        "schedules",
+        "case_trigger",
+    ] in workflow_service.session.refresh_calls
+
+
+@pytest.mark.anyio
+async def test_edit_workflow_validate_only_does_not_persist(monkeypatch):
+    async def _resolve(_workspace_id):
+        return uuid.uuid4(), SimpleNamespace()
+
+    workflow_id = uuid.uuid4()
+    workflow = SimpleNamespace(
+        id=workflow_id,
+        title="Example workflow",
+        description="Example description",
+        status="offline",
+        version=None,
+        alias=None,
+        entrypoint=None,
+        error_handler=None,
+        expects={},
+        returns=None,
+        config={},
+        actions=[],
+        schedules=[],
+        case_trigger=None,
+        trigger_position_x=0.0,
+        trigger_position_y=0.0,
+        viewport_x=0.0,
+        viewport_y=0.0,
+        viewport_zoom=1.0,
+    )
+
+    class _WorkflowService:
+        def __init__(self) -> None:
+            self.session = object()
+
+        async def get_workflow(self, _wf_id, *, for_update: bool = False):
+            _ = for_update
+            return workflow
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server.WorkflowsManagementService,
+        "with_session",
+        lambda role: _AsyncContext(_WorkflowService()),
+    )
+
+    base_revision = mcp_server._compute_workflow_edit_revision(
+        mcp_server._build_workflow_edit_document(
+            cast(mcp_server._WorkflowEditDocumentSource, workflow)
+        )
+    )
+    payload = _payload(
+        await _tool(mcp_server.edit_workflow)(
+            workspace_id=str(uuid.uuid4()),
+            workflow_id=str(workflow_id),
+            base_revision=base_revision,
+            patch_ops=[
+                {
+                    "op": "replace",
+                    "path": "/metadata/title",
+                    "value": "Validated flow",
+                }
+            ],
+            validate_only=True,
+        )
+    )
+
+    assert payload["valid"] is True
+    assert payload["validate_only"] is True
+    assert workflow.title == "Example workflow"
+
+
+@pytest.mark.anyio
+async def test_edit_workflow_validate_only_rejects_invalid_schedule(monkeypatch):
+    async def _resolve(_workspace_id):
+        return uuid.uuid4(), SimpleNamespace()
+
+    workflow_id = uuid.uuid4()
+    workflow = _workflow_stub(id=workflow_id)
+
+    class _WorkflowService:
+        def __init__(self) -> None:
+            self.session = object()
+
+        async def get_workflow(self, _wf_id, *, for_update: bool = False):
+            _ = for_update
+            return workflow
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server.WorkflowsManagementService,
+        "with_session",
+        lambda role: _AsyncContext(_WorkflowService()),
+    )
+
+    base_revision = mcp_server._compute_workflow_edit_revision(
+        mcp_server._build_workflow_edit_document(
+            cast(mcp_server._WorkflowEditDocumentSource, workflow)
+        )
+    )
+
+    with pytest.raises(ToolError, match="Invalid workflow schedule"):
+        await _tool(mcp_server.edit_workflow)(
+            workspace_id=str(uuid.uuid4()),
+            workflow_id=str(workflow_id),
+            base_revision=base_revision,
+            patch_ops=[
+                {
+                    "op": "replace",
+                    "path": "/schedules",
+                    "value": [{"cron": "not a cron", "status": "online"}],
+                }
+            ],
+            validate_only=True,
+        )
+
+
+@pytest.mark.anyio
+async def test_edit_workflow_validate_only_runs_full_definition_validation(monkeypatch):
+    async def _resolve(_workspace_id):
+        return uuid.uuid4(), SimpleNamespace()
+
+    validation_error = ValidationResult.new(
+        type=ValidationResultType.DSL,
+        status="error",
+        msg="invalid workflow definition",
+        detail=[
+            ValidationDetail(
+                type="action.input",
+                msg="bad action args",
+                loc=("actions", "step_a", "args"),
+            )
+        ],
+    )
+    validation_calls: list[Any] = []
+
+    async def _validate_dsl(*_args, **kwargs):
+        validation_calls.append(kwargs)
+        return {validation_error}
+
+    workflow_id = uuid.uuid4()
+    workflow = _workflow_stub(id=workflow_id)
+
+    class _WorkflowService:
+        def __init__(self) -> None:
+            self.session = object()
+
+        async def get_workflow(self, _wf_id, *, for_update: bool = False):
+            _ = for_update
+            return workflow
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(mcp_server, "validate_dsl", _validate_dsl)
+    monkeypatch.setattr(
+        mcp_server.WorkflowsManagementService,
+        "with_session",
+        lambda role: _AsyncContext(_WorkflowService()),
+    )
+
+    draft_document = mcp_server._build_workflow_edit_document(
+        cast(mcp_server._WorkflowEditDocumentSource, workflow)
+    )
+    base_revision = mcp_server._compute_workflow_edit_revision(draft_document)
+
+    with pytest.raises(ToolError) as exc_info:
+        await _tool(mcp_server.edit_workflow)(
+            workspace_id=str(uuid.uuid4()),
+            workflow_id=str(workflow_id),
+            base_revision=base_revision,
+            patch_ops=[
+                {
+                    "op": "replace",
+                    "path": "/definition/actions",
+                    "value": [
+                        {
+                            "ref": "step_a",
+                            "action": "core.transform.reshape",
+                            "args": {},
+                            "depends_on": [],
+                        }
+                    ],
+                }
+            ],
+            validate_only=True,
+        )
+
+    payload = json.loads(cast(str, exc_info.value.args[0]))
+    assert payload["type"] == "validation_error"
+    assert payload["errors"][0]["message"] == "invalid workflow definition"
+    assert validation_calls
+
+
+@pytest.mark.anyio
+async def test_edit_workflow_updates_metadata_with_disconnected_layout_actions(
+    monkeypatch,
+):
+    async def _resolve(_workspace_id):
+        return uuid.uuid4(), SimpleNamespace()
+
+    workflow_id = uuid.uuid4()
+    trigger_id = f"trigger-{workflow_id}"
+    connected_action = _action_stub(
+        ref="step_a",
+        upstream_edges=[{"source_id": trigger_id, "source_type": "trigger"}],
+        position_x=10.0,
+        position_y=20.0,
+    )
+    disconnected_action = _action_stub(
+        ref="step_orphan",
+        position_x=30.0,
+        position_y=40.0,
+    )
+    workflow = _workflow_stub(
+        id=workflow_id,
+        actions=[disconnected_action, connected_action],
+    )
+
+    class _FakeSession:
+        def add(self, obj):
+            _ = obj
+
+        async def commit(self):
+            return None
+
+        async def refresh(self, obj, attrs=None):
+            _ = obj, attrs
+
+    class _WorkflowService:
+        def __init__(self) -> None:
+            self.session = _FakeSession()
+
+        async def get_workflow(self, _wf_id, *, for_update: bool = False):
+            _ = for_update
+            return workflow
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server.WorkflowsManagementService,
+        "with_session",
+        lambda role: _AsyncContext(_WorkflowService()),
+    )
+
+    base_revision = mcp_server._compute_workflow_edit_revision(
+        mcp_server._build_workflow_edit_document(
+            cast(mcp_server._WorkflowEditDocumentSource, workflow)
+        )
+    )
+    payload = _payload(
+        await _tool(mcp_server.edit_workflow)(
+            workspace_id=str(uuid.uuid4()),
+            workflow_id=str(workflow_id),
+            base_revision=base_revision,
+            patch_ops=[
+                {
+                    "op": "replace",
+                    "path": "/metadata/title",
+                    "value": "Updated disconnected flow",
+                }
+            ],
+        )
+    )
+
+    assert payload["message"] == f"Workflow {workflow_id} updated successfully"
+    assert workflow.title == "Updated disconnected flow"
+
+
+@pytest.mark.anyio
+async def test_persist_workflow_edit_document_ignores_stale_layout_refs_after_definition_change(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workflow_id = uuid.uuid4()
+    trigger_id = f"trigger-{workflow_id}"
+    connected_action = _action_stub(
+        ref="step_a",
+        upstream_edges=[{"source_id": trigger_id, "source_type": "trigger"}],
+        position_x=10.0,
+        position_y=20.0,
+    )
+    orphan_action = _action_stub(
+        ref="step_orphan",
+        position_x=30.0,
+        position_y=40.0,
+    )
+    workflow = _workflow_stub(
+        id=workflow_id,
+        trigger_position_x=1.0,
+        trigger_position_y=2.0,
+        actions=[orphan_action, connected_action],
+    )
+    original_document = mcp_server._build_workflow_edit_document(
+        cast(mcp_server._WorkflowEditDocumentSource, workflow)
+    )
+    updated_payload = mcp_server._workflow_edit_document_payload(original_document)
+    updated_payload["definition"]["returns"] = {"status": "ok"}
+    updated_payload["layout"]["trigger"]["x"] = 99.0
+    updated_document = mcp_server.WorkflowEditDocument.model_validate(updated_payload)
+
+    class _FakeSession:
+        def add(self, obj: Any) -> None:
+            _ = obj
+
+        async def refresh(self, obj: Any, attrs: list[str] | None = None) -> None:
+            _ = obj, attrs
+
+        async def commit(self) -> None:
+            return None
+
+    async def _replace_definition_from_dsl(**kwargs: Any) -> None:
+        kwargs["workflow"].actions = [connected_action]
+
+    monkeypatch.setattr(
+        mcp_server,
+        "_replace_workflow_definition_from_dsl",
+        _replace_definition_from_dsl,
+    )
+
+    service = SimpleNamespace(session=_FakeSession(), workspace_id=uuid.uuid4())
+    await mcp_server._persist_workflow_edit_document(
+        role=SimpleNamespace(),
+        service=cast(Any, service),
+        workflow=cast(Any, workflow),
+        original_document=original_document,
+        updated_document=updated_document,
+    )
+
+    assert workflow.trigger_position_x == 99.0
+    assert workflow.actions == [connected_action]
+
+
+@pytest.mark.anyio
+async def test_persist_workflow_edit_document_skips_reorder_only_changes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workflow_id = uuid.uuid4()
+    trigger_id = f"trigger-{workflow_id}"
+    action_a = _action_stub(
+        ref="step_a",
+        upstream_edges=[{"source_id": trigger_id, "source_type": "trigger"}],
+        position_x=10.0,
+        position_y=20.0,
+    )
+    action_b = _action_stub(
+        ref="step_b",
+        upstream_edges=[
+            {
+                "source_id": str(action_a.id),
+                "source_type": "udf",
+                "source_handle": "success",
+            }
+        ],
+        position_x=30.0,
+        position_y=40.0,
+    )
+    workflow = _workflow_stub(
+        id=workflow_id,
+        actions=[action_b, action_a],
+        schedules=[
+            _schedule_stub(cron="30 * * * *", timeout=30.0),
+            _schedule_stub(cron="0 * * * *", timeout=0.0),
+        ],
+    )
+    original_document = mcp_server._build_workflow_edit_document(
+        cast(mcp_server._WorkflowEditDocumentSource, workflow)
+    )
+    updated_payload = mcp_server._workflow_edit_document_payload(original_document)
+    updated_payload["definition"]["actions"] = list(
+        reversed(updated_payload["definition"]["actions"])
+    )
+    updated_payload["layout"]["actions"] = list(
+        reversed(updated_payload["layout"]["actions"])
+    )
+    updated_payload["schedules"] = list(reversed(updated_payload["schedules"]))
+    updated_document = mcp_server.WorkflowEditDocument.model_validate(updated_payload)
+
+    class _FakeSession:
+        def add(self, obj: Any) -> None:
+            raise AssertionError(f"unexpected add({obj!r})")
+
+        async def execute(self, stmt: Any) -> None:
+            raise AssertionError(f"unexpected execute({stmt!r})")
+
+        async def refresh(self, obj: Any, attrs: list[str] | None = None) -> None:
+            raise AssertionError(f"unexpected refresh({obj!r}, {attrs!r})")
+
+        async def commit(self) -> None:
+            raise AssertionError("unexpected commit()")
+
+    async def _replace_definition_from_dsl(**kwargs: Any) -> None:
+        raise AssertionError(f"unexpected definition replacement: {kwargs!r}")
+
+    monkeypatch.setattr(
+        mcp_server,
+        "_replace_workflow_definition_from_dsl",
+        _replace_definition_from_dsl,
+    )
+
+    service = SimpleNamespace(session=_FakeSession(), workspace_id=uuid.uuid4())
+    await mcp_server._persist_workflow_edit_document(
+        role=SimpleNamespace(),
+        service=cast(Any, service),
+        workflow=cast(Any, workflow),
+        original_document=original_document,
+        updated_document=updated_document,
+    )
+
+
+@pytest.mark.anyio
+async def test_edit_workflow_validate_only_canonicalizes_draft_revision(monkeypatch):
+    async def _resolve(_workspace_id):
+        return uuid.uuid4(), SimpleNamespace()
+
+    workflow_id = uuid.uuid4()
+    trigger_id = f"trigger-{workflow_id}"
+    action_a = _action_stub(
+        ref="step_a",
+        upstream_edges=[{"source_id": trigger_id, "source_type": "trigger"}],
+        position_x=10.0,
+        position_y=20.0,
+    )
+    action_b = _action_stub(
+        ref="step_b",
+        upstream_edges=[
+            {
+                "source_id": str(action_a.id),
+                "source_type": "udf",
+                "source_handle": "success",
+            }
+        ],
+        position_x=30.0,
+        position_y=40.0,
+    )
+    workflow = _workflow_stub(
+        id=workflow_id,
+        actions=[action_b, action_a],
+        schedules=[
+            _schedule_stub(cron="30 * * * *", timeout=30.0),
+            _schedule_stub(cron="0 * * * *", timeout=0.0),
+        ],
+    )
+
+    class _WorkflowService:
+        def __init__(self) -> None:
+            self.session = object()
+
+        async def get_workflow(self, _wf_id, *, for_update: bool = False):
+            _ = for_update
+            return workflow
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server.WorkflowsManagementService,
+        "with_session",
+        lambda role: _AsyncContext(_WorkflowService()),
+    )
+
+    draft_document = mcp_server._build_workflow_edit_document(
+        cast(mcp_server._WorkflowEditDocumentSource, workflow)
+    )
+    base_revision = mcp_server._compute_workflow_edit_revision(draft_document)
+    reversed_definition_actions = list(
+        reversed(draft_document.definition.model_dump(mode="json")["actions"])
+    )
+    reversed_layout_actions = list(
+        reversed(draft_document.layout.model_dump(mode="json")["actions"])
+    )
+    reversed_schedules = list(
+        reversed(
+            [schedule.model_dump(mode="json") for schedule in draft_document.schedules]
+        )
+    )
+
+    payload = _payload(
+        await _tool(mcp_server.edit_workflow)(
+            workspace_id=str(uuid.uuid4()),
+            workflow_id=str(workflow_id),
+            base_revision=base_revision,
+            patch_ops=[
+                {
+                    "op": "replace",
+                    "path": "/definition/actions",
+                    "value": reversed_definition_actions,
+                },
+                {
+                    "op": "replace",
+                    "path": "/layout/actions",
+                    "value": reversed_layout_actions,
+                },
+                {
+                    "op": "replace",
+                    "path": "/schedules",
+                    "value": reversed_schedules,
+                },
+            ],
+            validate_only=True,
+        )
+    )
+
+    assert payload["valid"] is True
+    assert payload["validate_only"] is True
+    assert payload["draft_revision"] == base_revision
+
+
+@pytest.mark.anyio
+async def test_edit_workflow_validate_only_revision_drops_removed_action_layout(
+    monkeypatch,
+):
+    async def _resolve(_workspace_id):
+        return uuid.uuid4(), SimpleNamespace()
+
+    async def _validate_dsl(*_args, **_kwargs):
+        return set()
+
+    workflow_id = uuid.uuid4()
+    trigger_id = f"trigger-{workflow_id}"
+    action_a = _action_stub(
+        ref="step_a",
+        upstream_edges=[{"source_id": trigger_id, "source_type": "trigger"}],
+        position_x=10.0,
+        position_y=20.0,
+    )
+    action_b = _action_stub(
+        ref="step_b",
+        upstream_edges=[
+            {
+                "source_id": str(action_a.id),
+                "source_type": "udf",
+                "source_handle": "success",
+            }
+        ],
+        position_x=30.0,
+        position_y=40.0,
+    )
+    workflow = _workflow_stub(id=workflow_id, actions=[action_a, action_b])
+
+    class _WorkflowService:
+        def __init__(self) -> None:
+            self.session = object()
+
+        async def get_workflow(self, _wf_id, *, for_update: bool = False):
+            _ = for_update
+            return workflow
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(mcp_server, "validate_dsl", _validate_dsl)
+    monkeypatch.setattr(
+        mcp_server.WorkflowsManagementService,
+        "with_session",
+        lambda role: _AsyncContext(_WorkflowService()),
+    )
+
+    draft_document = mcp_server._build_workflow_edit_document(
+        cast(mcp_server._WorkflowEditDocumentSource, workflow)
+    )
+    base_revision = mcp_server._compute_workflow_edit_revision(draft_document)
+    updated_payload = mcp_server._workflow_edit_document_payload(draft_document)
+    updated_payload["definition"]["actions"] = [
+        action
+        for action in updated_payload["definition"]["actions"]
+        if action["ref"] == "step_a"
+    ]
+    expected_payload = json.loads(json.dumps(updated_payload))
+    expected_payload["layout"]["actions"] = [
+        action_layout
+        for action_layout in expected_payload["layout"]["actions"]
+        if action_layout["ref"] == "step_a"
+    ]
+    expected_revision = mcp_server._compute_workflow_edit_revision(
+        mcp_server.WorkflowEditDocument.model_validate(expected_payload)
+    )
+
+    payload = _payload(
+        await _tool(mcp_server.edit_workflow)(
+            workspace_id=str(uuid.uuid4()),
+            workflow_id=str(workflow_id),
+            base_revision=base_revision,
+            patch_ops=[
+                {
+                    "op": "replace",
+                    "path": "/definition/actions",
+                    "value": updated_payload["definition"]["actions"],
+                }
+            ],
+            validate_only=True,
+        )
+    )
+
+    assert payload["valid"] is True
+    assert payload["validate_only"] is True
+    assert payload["draft_revision"] == expected_revision
+    assert payload["draft_revision"] != mcp_server._compute_workflow_edit_revision(
+        mcp_server.WorkflowEditDocument.model_validate(updated_payload)
+    )
+
+
+@pytest.mark.anyio
+async def test_edit_workflow_validate_only_revision_drops_inert_case_trigger(
+    monkeypatch,
+):
+    async def _resolve(_workspace_id):
+        return uuid.uuid4(), SimpleNamespace()
+
+    workflow_id = uuid.uuid4()
+    workflow = _workflow_stub(id=workflow_id)
+
+    class _WorkflowService:
+        def __init__(self) -> None:
+            self.session = object()
+
+        async def get_workflow(self, _wf_id, *, for_update: bool = False):
+            _ = for_update
+            return workflow
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server.WorkflowsManagementService,
+        "with_session",
+        lambda role: _AsyncContext(_WorkflowService()),
+    )
+
+    draft_document = mcp_server._build_workflow_edit_document(
+        cast(mcp_server._WorkflowEditDocumentSource, workflow)
+    )
+    base_revision = mcp_server._compute_workflow_edit_revision(draft_document)
+
+    payload = _payload(
+        await _tool(mcp_server.edit_workflow)(
+            workspace_id=str(uuid.uuid4()),
+            workflow_id=str(workflow_id),
+            base_revision=base_revision,
+            patch_ops=[
+                {
+                    "op": "add",
+                    "path": "/case_trigger",
+                    "value": {
+                        "status": "offline",
+                        "event_types": [],
+                        "tag_filters": [],
+                    },
+                }
+            ],
+            validate_only=True,
+        )
+    )
+
+    assert payload["valid"] is True
+    assert payload["validate_only"] is True
+    assert payload["draft_revision"] == base_revision
+
+
+@pytest.mark.anyio
+async def test_edit_workflow_rejects_stale_revision(monkeypatch):
+    async def _resolve(_workspace_id):
+        return uuid.uuid4(), SimpleNamespace()
+
+    workflow_id = uuid.uuid4()
+    workflow = SimpleNamespace(
+        id=workflow_id,
+        title="Example workflow",
+        description="Example description",
+        status="offline",
+        version=None,
+        alias=None,
+        entrypoint=None,
+        error_handler=None,
+        expects={},
+        returns=None,
+        config={},
+        actions=[],
+        schedules=[],
+        case_trigger=None,
+        trigger_position_x=0.0,
+        trigger_position_y=0.0,
+        viewport_x=0.0,
+        viewport_y=0.0,
+        viewport_zoom=1.0,
+    )
+
+    class _WorkflowService:
+        def __init__(self) -> None:
+            self.session = object()
+
+        async def get_workflow(self, _wf_id, *, for_update: bool = False):
+            _ = for_update
+            return workflow
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server.WorkflowsManagementService,
+        "with_session",
+        lambda role: _AsyncContext(_WorkflowService()),
+    )
+
+    with pytest.raises(ToolError) as exc_info:
+        await _tool(mcp_server.edit_workflow)(
+            workspace_id=str(uuid.uuid4()),
+            workflow_id=str(workflow_id),
+            base_revision="stale-revision",
+            patch_ops=[
+                {"op": "replace", "path": "/metadata/title", "value": "Updated flow"}
+            ],
+        )
+
+    payload = cast(dict[str, Any], exc_info.value.args[0])
+    assert payload["status"] == "conflict"
+    assert payload["current_revision"]
+
+
+@pytest.mark.parametrize(
+    ("path", "value"),
+    [
+        ("/version", 2),
+        ("/definition/config/scheduler", "static"),
+        ("/definition/actions/0/id", "00000000-0000-0000-0000-000000000000"),
+    ],
+)
+def test_parse_workflow_edit_request_rejects_forbidden_paths(path, value):
+    with pytest.raises(ToolError, match="not editable via edit_workflow"):
+        mcp_server._parse_workflow_edit_request(
+            base_revision="revision",
+            patch_ops=[{"op": "add", "path": path, "value": value}],
+            validate_only=False,
+        )
+
+
+@pytest.mark.parametrize(
+    ("patch_ops", "expected_path"),
+    [
+        (
+            [{"op": "remove", "path": "/schedules/0/status"}],
+            "/schedules/0/status",
+        ),
+        (
+            [
+                {
+                    "op": "move",
+                    "from": "/schedules/0/status",
+                    "path": "/metadata/title",
+                }
+            ],
+            "/schedules/0/status",
+        ),
+    ],
+)
+def test_parse_workflow_edit_request_rejects_removing_schedule_status(
+    patch_ops,
+    expected_path,
+):
+    with pytest.raises(
+        ToolError,
+        match=re.escape(f"Patch path '{expected_path}' cannot be removed"),
+    ):
+        mcp_server._parse_workflow_edit_request(
+            base_revision="revision",
+            patch_ops=patch_ops,
+            validate_only=False,
+        )
+
+
+@pytest.mark.parametrize(
+    ("patch_ops", "expected_path"),
+    [
+        (
+            [{"op": "remove", "path": "/case_trigger/status"}],
+            "/case_trigger/status",
+        ),
+        (
+            [
+                {
+                    "op": "move",
+                    "from": "/case_trigger/status",
+                    "path": "/metadata/title",
+                }
+            ],
+            "/case_trigger/status",
+        ),
+    ],
+)
+def test_parse_workflow_edit_request_rejects_removing_case_trigger_status(
+    patch_ops,
+    expected_path,
+):
+    with pytest.raises(
+        ToolError,
+        match=re.escape(f"Patch path '{expected_path}' cannot be removed"),
+    ):
+        mcp_server._parse_workflow_edit_request(
+            base_revision="revision",
+            patch_ops=patch_ops,
+            validate_only=False,
+        )
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("patch_path", ["/schedules/0", "/schedules"])
+async def test_edit_workflow_rejects_schedule_parent_replace_that_omits_status(
+    monkeypatch,
+    patch_path,
+):
+    async def _resolve(_workspace_id):
+        return uuid.uuid4(), SimpleNamespace()
+
+    workflow_id = uuid.uuid4()
+    workflow = _workflow_stub(
+        id=workflow_id,
+        schedules=[_schedule_stub(workflow_id=workflow_id, status="offline")],
+    )
+
+    class _WorkflowService:
+        def __init__(self) -> None:
+            self.session = object()
+
+        async def get_workflow(self, _wf_id, *, for_update: bool = False):
+            _ = for_update
+            return workflow
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server.WorkflowsManagementService,
+        "with_session",
+        lambda role: _AsyncContext(_WorkflowService()),
+    )
+
+    draft_document = mcp_server._build_workflow_edit_document(
+        cast(mcp_server._WorkflowEditDocumentSource, workflow)
+    )
+    base_revision = mcp_server._compute_workflow_edit_revision(draft_document)
+    schedule_payload = mcp_server._workflow_edit_document_payload(draft_document)[
+        "schedules"
+    ][0]
+    del schedule_payload["status"]
+
+    with pytest.raises(
+        ToolError,
+        match=re.escape("Patch path '/schedules/0/status' cannot be removed"),
+    ):
+        await _tool(mcp_server.edit_workflow)(
+            workspace_id=str(uuid.uuid4()),
+            workflow_id=str(workflow_id),
+            base_revision=base_revision,
+            patch_ops=[
+                {
+                    "op": "replace",
+                    "path": patch_path,
+                    "value": [schedule_payload]
+                    if patch_path == "/schedules"
+                    else schedule_payload,
+                }
+            ],
+            validate_only=True,
+        )
+
+
+@pytest.mark.anyio
+async def test_edit_workflow_rejects_case_trigger_parent_replace_that_omits_status(
+    monkeypatch,
+):
+    async def _resolve(_workspace_id):
+        return uuid.uuid4(), SimpleNamespace()
+
+    workflow_id = uuid.uuid4()
+    workflow = _workflow_stub(
+        id=workflow_id,
+        case_trigger=_case_trigger_stub(workflow_id=workflow_id, status="online"),
+    )
+
+    class _WorkflowService:
+        def __init__(self) -> None:
+            self.session = object()
+
+        async def get_workflow(self, _wf_id, *, for_update: bool = False):
+            _ = for_update
+            return workflow
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server.WorkflowsManagementService,
+        "with_session",
+        lambda role: _AsyncContext(_WorkflowService()),
+    )
+
+    draft_document = mcp_server._build_workflow_edit_document(
+        cast(mcp_server._WorkflowEditDocumentSource, workflow)
+    )
+    base_revision = mcp_server._compute_workflow_edit_revision(draft_document)
+    case_trigger_payload = mcp_server._workflow_edit_document_payload(draft_document)[
+        "case_trigger"
+    ]
+    del case_trigger_payload["status"]
+
+    with pytest.raises(
+        ToolError,
+        match=re.escape("Patch path '/case_trigger/status' cannot be removed"),
+    ):
+        await _tool(mcp_server.edit_workflow)(
+            workspace_id=str(uuid.uuid4()),
+            workflow_id=str(workflow_id),
+            base_revision=base_revision,
+            patch_ops=[
+                {
+                    "op": "replace",
+                    "path": "/case_trigger",
+                    "value": case_trigger_payload,
+                }
+            ],
+            validate_only=True,
+        )
+
+
+@pytest.mark.anyio
+async def test_edit_workflow_rejects_unknown_nested_fields(monkeypatch):
+    async def _resolve(_workspace_id):
+        return uuid.uuid4(), SimpleNamespace()
+
+    workflow_id = uuid.uuid4()
+    workflow = SimpleNamespace(
+        id=workflow_id,
+        title="Example workflow",
+        description="Example description",
+        status="offline",
+        version=None,
+        alias=None,
+        entrypoint=None,
+        error_handler=None,
+        expects={},
+        returns=None,
+        config={},
+        actions=[],
+        schedules=[],
+        case_trigger=None,
+        trigger_position_x=0.0,
+        trigger_position_y=0.0,
+        viewport_x=0.0,
+        viewport_y=0.0,
+        viewport_zoom=1.0,
+    )
+
+    class _WorkflowService:
+        def __init__(self) -> None:
+            self.session = object()
+
+        async def get_workflow(self, _wf_id, *, for_update: bool = False):
+            _ = for_update
+            return workflow
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server.WorkflowsManagementService,
+        "with_session",
+        lambda role: _AsyncContext(_WorkflowService()),
+    )
+
+    base_revision = mcp_server._compute_workflow_edit_revision(
+        mcp_server._build_workflow_edit_document(
+            cast(mcp_server._WorkflowEditDocumentSource, workflow)
+        )
+    )
+
+    with pytest.raises(ToolError, match="Extra inputs are not permitted"):
+        await _tool(mcp_server.edit_workflow)(
+            workspace_id=str(uuid.uuid4()),
+            workflow_id=str(workflow_id),
+            base_revision=base_revision,
+            patch_ops=[{"op": "add", "path": "/definition/config/foo", "value": "bar"}],
+            validate_only=True,
+        )
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("patch_ops", "expected_path"),
+    [
+        (
+            [
+                {
+                    "op": "replace",
+                    "path": "/definition/config",
+                    "value": {"scheduler": "static"},
+                }
+            ],
+            "/definition/config/scheduler",
+        ),
+        (
+            [
+                {
+                    "op": "replace",
+                    "path": "/definition/actions",
+                    "value": [
+                        {
+                            "id": "00000000-0000-0000-0000-000000000000",
+                            "ref": "step_a",
+                            "action": "core.noop",
+                            "args": {},
+                            "depends_on": [],
+                        }
+                    ],
+                }
+            ],
+            "/definition/actions/0/id",
+        ),
+    ],
+)
+async def test_edit_workflow_rejects_excluded_nested_fields_in_parent_replace(
+    monkeypatch,
+    patch_ops,
+    expected_path,
+):
+    async def _resolve(_workspace_id):
+        return uuid.uuid4(), SimpleNamespace()
+
+    workflow_id = uuid.uuid4()
+    workflow = _workflow_stub(id=workflow_id)
+
+    class _WorkflowService:
+        def __init__(self) -> None:
+            self.session = object()
+
+        async def get_workflow(self, _wf_id, *, for_update: bool = False):
+            _ = for_update
+            return workflow
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server.WorkflowsManagementService,
+        "with_session",
+        lambda role: _AsyncContext(_WorkflowService()),
+    )
+
+    base_revision = mcp_server._compute_workflow_edit_revision(
+        mcp_server._build_workflow_edit_document(
+            cast(mcp_server._WorkflowEditDocumentSource, workflow)
+        )
+    )
+
+    with pytest.raises(
+        ToolError,
+        match=re.escape(
+            f"Patch path '{expected_path}' is not editable via edit_workflow"
+        ),
+    ):
+        await _tool(mcp_server.edit_workflow)(
+            workspace_id=str(uuid.uuid4()),
+            workflow_id=str(workflow_id),
+            base_revision=base_revision,
+            patch_ops=patch_ops,
+            validate_only=True,
+        )
+
+
+@pytest.mark.anyio
+async def test_persist_workflow_edit_document_applies_metadata_with_definition_changes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workflow = _workflow_stub(status="offline", alias=None)
+    original_document = mcp_server._build_workflow_edit_document(
+        cast(mcp_server._WorkflowEditDocumentSource, workflow)
+    )
+    updated_payload = mcp_server._workflow_edit_document_payload(original_document)
+    updated_payload["metadata"]["status"] = "online"
+    updated_payload["metadata"]["alias"] = "new-alias"
+    updated_payload["definition"]["actions"] = [
+        {
+            "ref": "step_a",
+            "action": "core.noop",
+            "args": {},
+            "depends_on": [],
+            "description": "",
+        }
+    ]
+    updated_document = mcp_server.WorkflowEditDocument.model_validate(updated_payload)
+
+    class _FakeSession:
+        def add(self, obj: Any) -> None:
+            _ = obj
+
+        async def execute(self, stmt: Any) -> None:
+            _ = stmt
+
+        async def flush(self) -> None:
+            return None
+
+        async def refresh(self, obj: Any, attrs: list[str] | None = None) -> None:
+            _ = obj, attrs
+
+        async def commit(self) -> None:
+            return None
+
+    captured: dict[str, Any] = {}
+
+    async def _replace_definition_from_dsl(**kwargs: Any) -> None:
+        captured.update(kwargs)
+
+    monkeypatch.setattr(
+        mcp_server,
+        "_replace_workflow_definition_from_dsl",
+        _replace_definition_from_dsl,
+    )
+
+    service = SimpleNamespace(session=_FakeSession(), workspace_id=uuid.uuid4())
+    await mcp_server._persist_workflow_edit_document(
+        role=SimpleNamespace(),
+        service=cast(Any, service),
+        workflow=cast(Any, workflow),
+        original_document=original_document,
+        updated_document=updated_document,
+    )
+
+    assert captured["workflow"] is workflow
+    assert workflow.status == "online"
+    assert workflow.alias == "new-alias"
+
+
+@pytest.mark.anyio
+async def test_persist_workflow_edit_document_preserves_offline_schedule_status_inline(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workflow = _workflow_stub()
+    original_document = mcp_server._build_workflow_edit_document(
+        cast(mcp_server._WorkflowEditDocumentSource, workflow)
+    )
+    updated_payload = mcp_server._workflow_edit_document_payload(original_document)
+    updated_payload["schedules"] = [
+        {
+            "cron": "0 * * * *",
+            "status": "offline",
+            "inputs": {},
+            "timeout": 0,
+        }
+    ]
+    updated_document = mcp_server.WorkflowEditDocument.model_validate(updated_payload)
+
+    class _FakeSession:
+        def add(self, obj: Any) -> None:
+            _ = obj
+
+        async def refresh(self, obj: Any, attrs: list[str] | None = None) -> None:
+            _ = obj, attrs
+
+        async def commit(self) -> None:
+            return None
+
+    updated_schedules: list[tuple[uuid.UUID, Any]] = []
+    replace_schedules_called = False
+
+    async def _replace_schedules(**kwargs: Any) -> None:
+        nonlocal replace_schedules_called
+        _ = kwargs
+        replace_schedules_called = True
+
+    class _FakeWorkflowSchedulesService:
+        def __init__(self, session: Any, role: Any) -> None:
+            _ = session, role
+
+        async def update_schedule(self, schedule_id: uuid.UUID, params: Any) -> None:
+            updated_schedules.append((schedule_id, params))
+
+    monkeypatch.setattr(mcp_server, "_replace_workflow_schedules", _replace_schedules)
+    monkeypatch.setattr(
+        mcp_server,
+        "WorkflowSchedulesService",
+        _FakeWorkflowSchedulesService,
+    )
+
+    service = SimpleNamespace(session=_FakeSession(), workspace_id=uuid.uuid4())
+    await mcp_server._persist_workflow_edit_document(
+        role=SimpleNamespace(),
+        service=cast(Any, service),
+        workflow=cast(Any, workflow),
+        original_document=original_document,
+        updated_document=updated_document,
+    )
+
+    assert replace_schedules_called is True
+    assert updated_schedules == []
+
+
+@pytest.mark.anyio
+async def test_replace_workflow_schedules_creates_schedules_with_payload_status() -> (
+    None
+):
+    workflow_id = uuid.uuid4()
+    existing_schedule_id = uuid.uuid4()
+    created_params: list[Any] = []
+    deleted_ids: list[uuid.UUID] = []
+
+    class _FakeWorkflowSchedulesService:
+        async def list_schedules(self, workflow_id: uuid.UUID) -> list[Any]:
+            _ = workflow_id
+            return [SimpleNamespace(id=existing_schedule_id)]
+
+        async def delete_schedule(
+            self, schedule_id: uuid.UUID, commit: bool = True
+        ) -> None:
+            _ = commit
+            deleted_ids.append(schedule_id)
+
+        async def create_schedule(self, params: Any, commit: bool = True) -> Any:
+            _ = commit
+            created_params.append(params)
+            return SimpleNamespace(id=uuid.uuid4())
+
+    await mcp_server._replace_workflow_schedules(
+        service=cast(Any, _FakeWorkflowSchedulesService()),
+        workflow_id=cast(Any, workflow_id),
+        schedules=[
+            mcp_server.WorkflowSchedule(
+                cron="0 * * * *",
+                status="offline",
+                inputs={},
+                timeout=0,
+            ),
+            mcp_server.WorkflowSchedule(
+                cron="30 * * * *",
+                status="online",
+                inputs={},
+                timeout=0,
+            ),
+        ],
+    )
+
+    assert deleted_ids == [existing_schedule_id]
+    assert [params.status for params in created_params] == ["offline", "online"]
+
+
+@pytest.mark.anyio
+async def test_persist_workflow_edit_document_resets_removed_layout_fields() -> None:
+    action = SimpleNamespace(
+        id=uuid.uuid4(),
+        ref="step_a",
+        type="core.noop",
+        title="Step A",
+        description="",
+        status="offline",
+        inputs="{}",
+        control_flow={},
+        is_interactive=False,
+        interaction=None,
+        upstream_edges=[],
+        position_x=40.0,
+        position_y=50.0,
+    )
+    workflow = _workflow_stub(
+        trigger_position_x=10.0,
+        trigger_position_y=20.0,
+        viewport_x=30.0,
+        viewport_y=40.0,
+        viewport_zoom=1.5,
+        actions=[action],
+    )
+    original_document = mcp_server._build_workflow_edit_document(
+        cast(mcp_server._WorkflowEditDocumentSource, workflow)
+    )
+    updated_payload = mcp_server._workflow_edit_document_payload(original_document)
+    del updated_payload["layout"]["trigger"]["x"]
+    del updated_payload["layout"]["viewport"]["x"]
+    del updated_payload["layout"]["actions"][0]["x"]
+    updated_document = mcp_server.WorkflowEditDocument.model_validate(updated_payload)
+
+    class _FakeSession:
+        def add(self, obj: Any) -> None:
+            _ = obj
+
+        async def refresh(self, obj: Any, attrs: list[str] | None = None) -> None:
+            _ = obj, attrs
+
+        async def commit(self) -> None:
+            return None
+
+    service = SimpleNamespace(session=_FakeSession(), workspace_id=uuid.uuid4())
+    await mcp_server._persist_workflow_edit_document(
+        role=SimpleNamespace(),
+        service=cast(Any, service),
+        workflow=cast(Any, workflow),
+        original_document=original_document,
+        updated_document=updated_document,
+    )
+
+    assert workflow.trigger_position_x == 0.0
+    assert workflow.trigger_position_y == 20.0
+    assert workflow.viewport_x == 0.0
+    assert workflow.viewport_y == 40.0
+    assert workflow.viewport_zoom == 1.5
+    assert action.position_x == 0.0
+    assert action.position_y == 50.0
+
+
+@pytest.mark.anyio
+async def test_persist_workflow_edit_document_resets_removed_layout_actions() -> None:
+    action_a = SimpleNamespace(
+        id=uuid.uuid4(),
+        ref="step_a",
+        type="core.noop",
+        title="Step A",
+        description="",
+        status="offline",
+        inputs="{}",
+        control_flow={},
+        is_interactive=False,
+        interaction=None,
+        upstream_edges=[],
+        position_x=40.0,
+        position_y=50.0,
+    )
+    action_b = SimpleNamespace(
+        id=uuid.uuid4(),
+        ref="step_b",
+        type="core.noop",
+        title="Step B",
+        description="",
+        status="offline",
+        inputs="{}",
+        control_flow={},
+        is_interactive=False,
+        interaction=None,
+        upstream_edges=[],
+        position_x=60.0,
+        position_y=70.0,
+    )
+    workflow = _workflow_stub(actions=[action_a, action_b])
+    original_document = mcp_server._build_workflow_edit_document(
+        cast(mcp_server._WorkflowEditDocumentSource, workflow)
+    )
+    updated_payload = mcp_server._workflow_edit_document_payload(original_document)
+    updated_payload["layout"]["actions"] = [updated_payload["layout"]["actions"][1]]
+    updated_document = mcp_server.WorkflowEditDocument.model_validate(updated_payload)
+
+    class _FakeSession:
+        def add(self, obj: Any) -> None:
+            _ = obj
+
+        async def refresh(self, obj: Any, attrs: list[str] | None = None) -> None:
+            _ = obj, attrs
+
+        async def commit(self) -> None:
+            return None
+
+    service = SimpleNamespace(session=_FakeSession(), workspace_id=uuid.uuid4())
+    await mcp_server._persist_workflow_edit_document(
+        role=SimpleNamespace(),
+        service=cast(Any, service),
+        workflow=cast(Any, workflow),
+        original_document=original_document,
+        updated_document=updated_document,
+    )
+
+    assert action_a.position_x == 0.0
+    assert action_a.position_y == 0.0
+    assert action_b.position_x == 60.0
+    assert action_b.position_y == 70.0
+
+
+@pytest.mark.anyio
+async def test_persist_workflow_edit_document_resets_removed_layout_object() -> None:
+    action = SimpleNamespace(
+        id=uuid.uuid4(),
+        ref="step_a",
+        type="core.noop",
+        title="Step A",
+        description="",
+        status="offline",
+        inputs="{}",
+        control_flow={},
+        is_interactive=False,
+        interaction=None,
+        upstream_edges=[],
+        position_x=40.0,
+        position_y=50.0,
+    )
+    workflow = _workflow_stub(
+        trigger_position_x=10.0,
+        trigger_position_y=20.0,
+        viewport_x=30.0,
+        viewport_y=40.0,
+        viewport_zoom=1.5,
+        actions=[action],
+    )
+    original_document = mcp_server._build_workflow_edit_document(
+        cast(mcp_server._WorkflowEditDocumentSource, workflow)
+    )
+    updated_payload = mcp_server._workflow_edit_document_payload(original_document)
+    del updated_payload["layout"]
+    updated_document = mcp_server.WorkflowEditDocument.model_validate(updated_payload)
+
+    class _FakeSession:
+        def add(self, obj: Any) -> None:
+            _ = obj
+
+        async def refresh(self, obj: Any, attrs: list[str] | None = None) -> None:
+            _ = obj, attrs
+
+        async def commit(self) -> None:
+            return None
+
+    service = SimpleNamespace(session=_FakeSession(), workspace_id=uuid.uuid4())
+    await mcp_server._persist_workflow_edit_document(
+        role=SimpleNamespace(),
+        service=cast(Any, service),
+        workflow=cast(Any, workflow),
+        original_document=original_document,
+        updated_document=updated_document,
+    )
+
+    assert workflow.trigger_position_x == 0.0
+    assert workflow.trigger_position_y == 0.0
+    assert workflow.viewport_x == 0.0
+    assert workflow.viewport_y == 0.0
+    assert workflow.viewport_zoom == 1.0
+    assert action.position_x == 0.0
+    assert action.position_y == 0.0
+
+
+@pytest.mark.anyio
+async def test_get_workflow_returns_inline_definition_when_requested(monkeypatch):
+    async def _resolve(_workspace_id):
+        return uuid.uuid4(), SimpleNamespace()
+
+    workflow_id = uuid.uuid4()
+    workflow = _workflow_stub(id=workflow_id)
 
     class _WorkflowService:
         def __init__(self) -> None:
@@ -759,15 +2583,7 @@ async def test_get_workflow_returns_staged_metadata_when_inline_is_too_large(
         return uuid.uuid4(), SimpleNamespace()
 
     workflow_id = uuid.uuid4()
-    workflow = SimpleNamespace(
-        id=workflow_id,
-        title="Example workflow",
-        description="Example description",
-        status="offline",
-        version=None,
-        alias=None,
-        entrypoint=None,
-    )
+    workflow = _workflow_stub(id=workflow_id)
 
     class _WorkflowService:
         def __init__(self) -> None:
@@ -1527,10 +3343,14 @@ async def test_update_workflow_from_uploaded_file_updates_and_rejects_replay(
     class _WorkflowService:
         def __init__(self) -> None:
             self.session = object()
+            self.for_update_calls: list[bool] = []
 
-        async def get_workflow(self, wf_id):
+        async def get_workflow(self, wf_id, *, for_update: bool = False):
             assert wf_id == mcp_server.WorkflowUUID.new(workflow_id)
+            self.for_update_calls.append(for_update)
             return workflow
+
+    workflow_service = _WorkflowService()
 
     async def _download_file(_key: str, _bucket: str) -> bytes:
         return (
@@ -1568,7 +3388,7 @@ async def test_update_workflow_from_uploaded_file_updates_and_rejects_replay(
     monkeypatch.setattr(
         mcp_server.WorkflowsManagementService,
         "with_session",
-        lambda role: _AsyncContext(_WorkflowService()),
+        lambda role: _AsyncContext(workflow_service),
     )
     await mcp_server._store_workflow_file_artifact(artifact)
 
@@ -1584,6 +3404,7 @@ async def test_update_workflow_from_uploaded_file_updates_and_rejects_replay(
     assert captured["folder_path"] == "/detections/critical/"
     assert captured["workflow_id"] == mcp_server.WorkflowUUID.new(workflow_id)
     assert captured["update"]["update_mode"] == "replace"
+    assert workflow_service.for_update_calls == [True]
 
     with pytest.raises(ToolError, match="already been consumed"):
         await _tool(mcp_server.update_workflow_from_uploaded_file)(
@@ -5326,7 +7147,7 @@ async def test_list_agent_presets_returns_lightweight_metadata(
         )
     ]
 
-    class _PresetService:
+    class _PresetService(_PresetReadBuilder):
         async def list_presets(self) -> list[SimpleNamespace]:
             return presets
 
@@ -5427,7 +7248,7 @@ async def test_run_agent_preset_uses_session_stream_cursor(
     async def _resolve(_workspace_id: str) -> tuple[uuid.UUID, SimpleNamespace]:
         return workspace_id, role
 
-    class _PresetService:
+    class _PresetService(_PresetReadBuilder):
         async def get_preset_by_slug(self, _preset_slug: str) -> SimpleNamespace:
             return preset
 
@@ -5754,6 +7575,7 @@ async def test_create_agent_preset_uses_default_model_and_passes_optional_fields
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     workspace_id = uuid.uuid4()
+    catalog_id = uuid.uuid4()
     role = SimpleNamespace(workspace_id=workspace_id)
     created: dict[str, Any] = {}
 
@@ -5761,15 +7583,18 @@ async def test_create_agent_preset_uses_default_model_and_passes_optional_fields
         return workspace_id, role
 
     class _AgentManagementService:
-        async def get_default_model(self) -> str | None:
-            return "gpt-4o-mini"
+        async def get_default_model_selection(self) -> SimpleNamespace:
+            return SimpleNamespace(
+                catalog_id=catalog_id,
+                model_name="gpt-4o-mini",
+                model_provider="openai",
+            )
 
-        async def get_model_config(self, model_name: str) -> SimpleNamespace:
-            assert model_name == "gpt-4o-mini"
-            return SimpleNamespace(name="gpt-4o-mini", provider="openai")
-
-        async def check_workspace_provider_credentials(self, provider: str) -> bool:
-            assert provider == "openai"
+    class _AccessService:
+        async def is_catalog_enabled(
+            self, requested_catalog_id: uuid.UUID, *, workspace_id: uuid.UUID
+        ) -> bool:
+            assert requested_catalog_id == catalog_id
             return True
 
     class _PresetService(_PresetReadBuilder):
@@ -5785,6 +7610,7 @@ async def test_create_agent_preset_uses_default_model_and_passes_optional_fields
                 instructions=params.instructions,
                 model_name=params.model_name,
                 model_provider=params.model_provider,
+                catalog_id=params.catalog_id,
                 base_url=params.base_url,
                 output_type=params.output_type,
                 actions=params.actions,
@@ -5804,6 +7630,11 @@ async def test_create_agent_preset_uses_default_model_and_passes_optional_fields
         mcp_server.AgentManagementService,
         "with_session",
         lambda role: _AsyncContext(_AgentManagementService()),
+    )
+    monkeypatch.setattr(
+        mcp_server.AgentModelAccessService,
+        "with_session",
+        lambda role: _AsyncContext(_AccessService()),
     )
     monkeypatch.setattr(
         mcp_server.AgentPresetService,
@@ -5830,12 +7661,98 @@ async def test_create_agent_preset_uses_default_model_and_passes_optional_fields
     params = created["params"]
     assert params.model_name == "gpt-4o-mini"
     assert params.model_provider == "openai"
+    assert params.catalog_id == catalog_id
     assert params.mcp_integrations is not None
     assert params.enable_thinking is False
     assert params.enable_internet_access is True
     assert payload["model_name"] == "gpt-4o-mini"
     assert payload["output_type"]["type"] == "object"
     assert payload["enable_thinking"] is False
+
+
+@pytest.mark.anyio
+async def test_create_agent_preset_uses_default_model_selection_catalog_id(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace_id = uuid.uuid4()
+    catalog_id = uuid.uuid4()
+    role = SimpleNamespace(workspace_id=workspace_id)
+    created: dict[str, Any] = {}
+
+    async def _resolve(_workspace_id: str) -> tuple[uuid.UUID, SimpleNamespace]:
+        return workspace_id, role
+
+    class _AgentManagementService:
+        async def get_default_model_selection(self) -> SimpleNamespace:
+            return SimpleNamespace(
+                catalog_id=catalog_id,
+                model_name="customer-deployment",
+                model_provider="azure_openai",
+            )
+
+    class _AccessService:
+        async def is_catalog_enabled(
+            self, requested_catalog_id: uuid.UUID, *, workspace_id: uuid.UUID
+        ) -> bool:
+            assert requested_catalog_id == catalog_id
+            return True
+
+    class _PresetService(_PresetReadBuilder):
+        async def create_preset(self, params: Any) -> SimpleNamespace:
+            created["params"] = params
+            now = datetime.now(UTC)
+            return SimpleNamespace(
+                id=uuid.uuid4(),
+                workspace_id=workspace_id,
+                name=params.name,
+                slug=params.slug or "security-triage",
+                description=params.description,
+                instructions=params.instructions,
+                model_name=params.model_name,
+                model_provider=params.model_provider,
+                catalog_id=params.catalog_id,
+                base_url=params.base_url,
+                output_type=params.output_type,
+                actions=params.actions,
+                namespaces=params.namespaces,
+                tool_approvals=params.tool_approvals,
+                mcp_integrations=params.mcp_integrations,
+                retries=params.retries,
+                enable_thinking=params.enable_thinking,
+                enable_internet_access=params.enable_internet_access,
+                current_version_id=None,
+                created_at=now,
+                updated_at=now,
+            )
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server.AgentManagementService,
+        "with_session",
+        lambda role: _AsyncContext(_AgentManagementService()),
+    )
+    monkeypatch.setattr(
+        mcp_server.AgentModelAccessService,
+        "with_session",
+        lambda role: _AsyncContext(_AccessService()),
+    )
+    monkeypatch.setattr(
+        mcp_server.AgentPresetService,
+        "with_session",
+        lambda role: _AsyncContext(_PresetService()),
+    )
+
+    result = await _tool(mcp_server.create_agent_preset)(
+        workspace_id=str(workspace_id),
+        name="Security triage",
+    )
+
+    params = created["params"]
+    payload = _payload(result)
+    assert params.model_name == "customer-deployment"
+    assert params.model_provider == "azure_openai"
+    assert params.catalog_id == catalog_id
+    assert payload["catalog_id"] == str(catalog_id)
 
 
 @pytest.mark.anyio
@@ -5968,11 +7885,11 @@ async def test_update_agent_preset_resolves_explicit_model(
         *,
         model_name: str | None,
         model_provider: str | None,
-    ) -> tuple[str, str]:
+    ) -> tuple[str, str, uuid.UUID | None]:
         assert resolved_role is role
         assert model_name == "gpt-5-mini"
         assert model_provider == "openai"
-        return "gpt-5-mini", "openai"
+        return "gpt-5-mini", "openai", None
 
     class _PresetService(_PresetReadBuilder):
         async def get_preset_by_slug(self, preset_slug: str) -> SimpleNamespace:
@@ -6056,11 +7973,8 @@ async def test_create_agent_preset_requires_default_model_when_model_not_provide
         return workspace_id, role
 
     class _AgentManagementService:
-        async def get_default_model(self) -> str | None:
+        async def get_default_model_selection(self) -> None:
             return None
-
-        async def check_workspace_provider_credentials(self, provider: str) -> bool:
-            return True
 
     monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
     monkeypatch.setattr(
@@ -6069,7 +7983,7 @@ async def test_create_agent_preset_requires_default_model_when_model_not_provide
         lambda role: _AsyncContext(_AgentManagementService()),
     )
 
-    with pytest.raises(ToolError, match="No default model configured"):
+    with pytest.raises(ToolError, match="No default model is enabled"):
         await _tool(mcp_server.create_agent_preset)(
             workspace_id=str(workspace_id),
             name="Security triage",
@@ -6081,6 +7995,7 @@ async def test_create_agent_preset_omitted_retry_fields_use_schema_defaults(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     workspace_id = uuid.uuid4()
+    catalog_id = uuid.uuid4()
     role = SimpleNamespace(workspace_id=workspace_id)
     created: dict[str, Any] = {}
 
@@ -6088,15 +8003,18 @@ async def test_create_agent_preset_omitted_retry_fields_use_schema_defaults(
         return workspace_id, role
 
     class _AgentManagementService:
-        async def get_default_model(self) -> str | None:
-            return "gpt-4o-mini"
+        async def get_default_model_selection(self) -> SimpleNamespace:
+            return SimpleNamespace(
+                catalog_id=catalog_id,
+                model_name="gpt-4o-mini",
+                model_provider="openai",
+            )
 
-        async def get_model_config(self, model_name: str) -> SimpleNamespace:
-            assert model_name == "gpt-4o-mini"
-            return SimpleNamespace(name="gpt-4o-mini", provider="openai")
-
-        async def check_workspace_provider_credentials(self, provider: str) -> bool:
-            assert provider == "openai"
+    class _AccessService:
+        async def is_catalog_enabled(
+            self, requested_catalog_id: uuid.UUID, *, workspace_id: uuid.UUID
+        ) -> bool:
+            assert requested_catalog_id == catalog_id
             return True
 
     class _PresetService(_PresetReadBuilder):
@@ -6112,6 +8030,7 @@ async def test_create_agent_preset_omitted_retry_fields_use_schema_defaults(
                 instructions=params.instructions,
                 model_name=params.model_name,
                 model_provider=params.model_provider,
+                catalog_id=params.catalog_id,
                 base_url=params.base_url,
                 output_type=params.output_type,
                 actions=params.actions,
@@ -6131,6 +8050,11 @@ async def test_create_agent_preset_omitted_retry_fields_use_schema_defaults(
         mcp_server.AgentManagementService,
         "with_session",
         lambda role: _AsyncContext(_AgentManagementService()),
+    )
+    monkeypatch.setattr(
+        mcp_server.AgentModelAccessService,
+        "with_session",
+        lambda role: _AsyncContext(_AccessService()),
     )
     monkeypatch.setattr(
         mcp_server.AgentPresetService,
@@ -6154,7 +8078,7 @@ async def test_create_agent_preset_omitted_retry_fields_use_schema_defaults(
 
 
 @pytest.mark.anyio
-async def test_create_agent_preset_validates_explicit_model_provider_pair(
+async def test_create_agent_preset_rejects_unenabled_explicit_model(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     workspace_id = uuid.uuid4()
@@ -6163,23 +8087,27 @@ async def test_create_agent_preset_validates_explicit_model_provider_pair(
     async def _resolve(_workspace_id: str) -> tuple[uuid.UUID, SimpleNamespace]:
         return workspace_id, role
 
-    class _AgentManagementService:
-        async def get_model_config(self, model_name: str) -> SimpleNamespace:
-            assert model_name == "gpt-4o-mini"
-            return SimpleNamespace(name="gpt-4o-mini", provider="openai")
-
-        async def check_workspace_provider_credentials(self, provider: str) -> bool:
-            assert provider == "openai"
-            return True
+    class _AccessService:
+        async def get_workspace_models(
+            self, _workspace_id: uuid.UUID
+        ) -> list[SimpleNamespace]:
+            return [
+                SimpleNamespace(
+                    id=uuid.uuid4(),
+                    custom_provider_id=None,
+                    model_name="gpt-4o-mini",
+                    model_provider="openai",
+                )
+            ]
 
     monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
     monkeypatch.setattr(
-        mcp_server.AgentManagementService,
+        mcp_server.AgentModelAccessService,
         "with_session",
-        lambda role: _AsyncContext(_AgentManagementService()),
+        lambda role: _AsyncContext(_AccessService()),
     )
 
-    with pytest.raises(ToolError, match="belongs to provider 'openai', not 'opneai'"):
+    with pytest.raises(ToolError, match="not enabled for this workspace"):
         await _tool(mcp_server.create_agent_preset)(
             workspace_id=str(workspace_id),
             name="Security triage",
@@ -6189,26 +8117,31 @@ async def test_create_agent_preset_validates_explicit_model_provider_pair(
 
 
 @pytest.mark.anyio
-async def test_create_agent_preset_allows_custom_model_provider(
+async def test_create_agent_preset_resolves_catalog_id_for_custom_provider(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     workspace_id = uuid.uuid4()
+    catalog_id = uuid.uuid4()
+    custom_provider_id = uuid.uuid4()
     role = SimpleNamespace(workspace_id=workspace_id)
     created: dict[str, Any] = {}
 
     async def _resolve(_workspace_id: str) -> tuple[uuid.UUID, SimpleNamespace]:
         return workspace_id, role
 
-    async def _resolve_model(
-        role: object,
-        *,
-        model_name: str | None,
-        model_provider: str | None,
-    ) -> tuple[str, str]:
-        assert role is not None
-        assert model_name == "customer-alias"
-        assert model_provider == "custom-model-provider"
-        return "customer-alias", "custom-model-provider"
+    class _AccessService:
+        async def get_workspace_models(
+            self, requested_workspace_id: uuid.UUID
+        ) -> list[SimpleNamespace]:
+            assert requested_workspace_id == workspace_id
+            return [
+                SimpleNamespace(
+                    id=catalog_id,
+                    custom_provider_id=custom_provider_id,
+                    model_name="customer-alias",
+                    model_provider="custom-model-provider",
+                )
+            ]
 
     class _PresetService(_PresetReadBuilder):
         async def create_preset(self, params: Any) -> SimpleNamespace:
@@ -6223,6 +8156,7 @@ async def test_create_agent_preset_allows_custom_model_provider(
                 instructions=params.instructions,
                 model_name=params.model_name,
                 model_provider=params.model_provider,
+                catalog_id=params.catalog_id,
                 base_url=params.base_url,
                 output_type=params.output_type,
                 actions=params.actions,
@@ -6238,7 +8172,11 @@ async def test_create_agent_preset_allows_custom_model_provider(
             )
 
     monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
-    monkeypatch.setattr(mcp_server, "_resolve_agent_preset_model", _resolve_model)
+    monkeypatch.setattr(
+        mcp_server.AgentModelAccessService,
+        "with_session",
+        lambda role: _AsyncContext(_AccessService()),
+    )
     monkeypatch.setattr(
         mcp_server.AgentPresetService,
         "with_session",
@@ -6256,47 +8194,8 @@ async def test_create_agent_preset_allows_custom_model_provider(
     params = created["params"]
     assert params.model_name == "customer-alias"
     assert params.model_provider == "custom-model-provider"
-    assert params.base_url is None
+    assert params.catalog_id == catalog_id
     assert payload["model_provider"] == "custom-model-provider"
-
-
-@pytest.mark.anyio
-async def test_create_agent_preset_requires_workspace_credentials_for_default_model(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    workspace_id = uuid.uuid4()
-    role = SimpleNamespace(workspace_id=workspace_id)
-
-    async def _resolve(_workspace_id: str) -> tuple[uuid.UUID, SimpleNamespace]:
-        return workspace_id, role
-
-    class _AgentManagementService:
-        async def get_default_model(self) -> str | None:
-            return "gpt-4o-mini"
-
-        async def get_model_config(self, model_name: str) -> SimpleNamespace:
-            assert model_name == "gpt-4o-mini"
-            return SimpleNamespace(name="gpt-4o-mini", provider="openai")
-
-        async def check_workspace_provider_credentials(self, provider: str) -> bool:
-            assert provider == "openai"
-            return False
-
-    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
-    monkeypatch.setattr(
-        mcp_server.AgentManagementService,
-        "with_session",
-        lambda role: _AsyncContext(_AgentManagementService()),
-    )
-
-    with pytest.raises(
-        ToolError,
-        match="Workspace credentials for provider 'openai' are not configured",
-    ):
-        await _tool(mcp_server.create_agent_preset)(
-            workspace_id=str(workspace_id),
-            name="Security triage",
-        )
 
 
 @pytest.mark.anyio

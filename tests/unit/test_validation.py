@@ -1004,8 +1004,10 @@ async def test_agent_tool_approvals_requires_entitlement(
                 action="ai.agent",
                 args={
                     "user_prompt": "Hello",
-                    "model_name": "gpt-4o-mini",
-                    "model_provider": "openai",
+                    "model": {
+                        "model_name": "gpt-4o-mini",
+                        "model_provider": "openai",
+                    },
                     "actions": ["tools.slack.post_message"],
                     "tool_approvals": {"tools.slack.post_message": True},
                 },
@@ -1069,8 +1071,10 @@ async def test_agent_tool_approvals_passes_with_entitlement(
                 action="ai.agent",
                 args={
                     "user_prompt": "Hello",
-                    "model_name": "gpt-4o-mini",
-                    "model_provider": "openai",
+                    "model": {
+                        "model_name": "gpt-4o-mini",
+                        "model_provider": "openai",
+                    },
                     "actions": ["tools.slack.post_message"],
                     "tool_approvals": {"tools.slack.post_message": True},
                 },

@@ -2,8 +2,6 @@ from __future__ import annotations
 
 from tracecat.authz.enums import ScopeSource
 
-API_KEY_HEADER_NAME = "x-tracecat-api-key"
-
 WORKSPACE_SERVICE_ACCOUNT_ASSIGNABLE_SCOPES: frozenset[str] = frozenset(
     {
         "agent:read",

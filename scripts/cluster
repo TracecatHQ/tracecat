@@ -64,6 +64,114 @@ get_worktree_id() {
 
 WORKTREE_ID=$(get_worktree_id)
 
+# === Portless integration (optional) ===
+# If portless (https://github.com/vercel-labs/portless) is installed and its
+# proxy is reachable, register a stable .localhost alias for the cluster's
+# UI/API port. You then reach the cluster at e.g.
+#   $(portless get "${WORKTREE_ID}.tracecat" --no-worktree)
+# instead of remembering the rotating localhost:80/180/280/... port.
+#
+# Set TRACECAT__USE_PORTLESS=0 or PORTLESS=0 to disable even when installed.
+
+portless_enabled() {
+    [[ "${TRACECAT__USE_PORTLESS:-1}" != "0" ]] \
+        && [[ "${PORTLESS:-1}" != "0" ]] \
+        && [[ "${PORTLESS:-}" != "skip" ]] \
+        && command -v portless >/dev/null 2>&1
+}
+
+portless_install_tip() {
+    if [[ "${TRACECAT__USE_PORTLESS:-1}" == "0" ]] || [[ "${PORTLESS:-}" == "0" ]] || [[ "${PORTLESS:-}" == "skip" ]]; then
+        return
+    fi
+
+    if command -v portless >/dev/null 2>&1; then
+        return
+    fi
+
+    cat <<EOF
+
+Tip:
+  Install portless for stable per-worktree cluster URLs:
+    pnpm add -g portless
+  Project: https://github.com/vercel-labs/portless
+EOF
+}
+
+# Alias name for a cluster. Cluster 1 gets the bare worktree name; higher
+# numbered clusters get a c{N} prefix so they can coexist.
+portless_alias_name() {
+    local cluster_num=$1
+    local worktree_id=${2:-$WORKTREE_ID}
+
+    if [[ "$cluster_num" == "1" ]]; then
+        echo "${worktree_id}.tracecat"
+    else
+        echo "c${cluster_num}.${worktree_id}.tracecat"
+    fi
+}
+
+portless_url() {
+    local cluster_num=$1
+    local worktree_id=${2:-$WORKTREE_ID}
+    local name
+    name=$(portless_alias_name "$cluster_num" "$worktree_id")
+
+    # Ask portless for the URL so custom proxy ports, TLS mode, LAN mode, and
+    # custom TLD settings are reflected exactly.
+    if command -v portless >/dev/null 2>&1; then
+        local url
+        if url=$(portless get "$name" --no-worktree 2>/dev/null); then
+            echo "$url"
+            return
+        fi
+    fi
+
+    local scheme="https"
+    local tld="${PORTLESS_TLD:-localhost}"
+    local proxy_port="${PORTLESS_PORT:-}"
+    [[ "${PORTLESS_HTTPS:-1}" == "0" ]] && scheme="http"
+    url="${scheme}://${name}.${tld}"
+    if [[ -n "$proxy_port" && "$proxy_port" != "80" && "$proxy_port" != "443" ]]; then
+        url="${url}:${proxy_port}"
+    fi
+    echo "$url"
+}
+
+portless_start_proxy() {
+    if ! portless proxy start; then
+        echo "[portless] Could not start proxy. Set TRACECAT__USE_PORTLESS=0 to disable portless integration." >&2
+        return 1
+    fi
+}
+
+# Register the alias and ensure the proxy is running. Returns 0 on success;
+# caller decides whether to surface the URL override.
+portless_register() {
+    local cluster_num=$1
+    local port=$2
+    local name
+    name=$(portless_alias_name "$cluster_num")
+
+    if ! portless_start_proxy; then
+        return 1
+    fi
+
+    if ! portless alias "$name" "$port" --force >/dev/null 2>&1; then
+        echo "[portless] Could not register alias '${name}'." >&2
+        echo "[portless] Retry, or set TRACECAT__USE_PORTLESS=0 to disable portless integration." >&2
+        return 1
+    fi
+    echo "[portless] $(portless_url "$cluster_num") -> localhost:${port}"
+}
+
+portless_unregister() {
+    local cluster_num=$1
+    local name
+    name=$(portless_alias_name "$cluster_num")
+    portless alias --remove "$name" >/dev/null 2>&1 || true
+}
+
 # Get list of running cluster numbers for this worktree (used for auto-selection)
 get_running_clusters() {
     local prefix="tracecat-${WORKTREE_ID}-"
@@ -371,11 +479,16 @@ list_clusters() {
         # Match any tracecat cluster: tracecat-{worktree}-{num}
         if [[ "$project" =~ ^tracecat-(.+)-([0-9]+)$ ]]; then
             found=true
+            local project_worktree="${BASH_REMATCH[1]}"
             local cluster_num="${BASH_REMATCH[2]}"
             calculate_ports "$cluster_num"
             local marker=""
             [[ "$project" == "${current_worktree_prefix}${cluster_num}" ]] && marker=" (this worktree)"
-            echo "  ${project}: http://localhost:${PUBLIC_APP_PORT}${marker}"
+            local portless_suffix=""
+            if portless_enabled; then
+                portless_suffix="  |  $(portless_url "$cluster_num" "$project_worktree")"
+            fi
+            echo "  ${project}: http://localhost:${PUBLIC_APP_PORT}${portless_suffix}${marker}"
         fi
     done
 
@@ -392,6 +505,7 @@ fi
 # Handle 'list' command specially
 if [[ "$1" == "list" ]]; then
     list_clusters
+    portless_install_tip
     exit 0
 fi
 
@@ -505,15 +619,29 @@ COMPOSE_FILE=$(get_compose_file "$PROFILE")
 # Handle 'ports' command
 if [[ "$COMMAND" == "ports" ]]; then
     show_ports "$CLUSTER_NUM"
+    if portless_enabled; then
+        echo "  Portless URL:    $(portless_url "$CLUSTER_NUM")"
+    else
+        portless_install_tip
+    fi
     exit 0
 fi
 
 # Handle 'open' command - open cluster URL in default browser
 if [[ "$COMMAND" == "open" ]]; then
     calculate_ports "$CLUSTER_NUM"
-    local_url="http://localhost:${PUBLIC_APP_PORT}"
-    echo "Opening ${local_url} ..."
-    open "$local_url"
+    if portless_enabled; then
+        if portless_register "$CLUSTER_NUM" "$PUBLIC_APP_PORT" >/dev/null; then
+            target_url="$(portless_url "$CLUSTER_NUM")"
+        else
+            target_url="http://localhost:${PUBLIC_APP_PORT}"
+        fi
+    else
+        target_url="http://localhost:${PUBLIC_APP_PORT}"
+        portless_install_tip
+    fi
+    echo "Opening ${target_url} ..."
+    open "$target_url"
     exit 0
 fi
 
@@ -566,7 +694,15 @@ fi
 # Handle 'rm' command - down + remove volumes
 if [[ "$COMMAND" == "rm" ]]; then
     build_env "$CLUSTER_NUM"
+    portless_enabled && portless_unregister "$CLUSTER_NUM"
     exec docker compose -f "$COMPOSE_FILE" -p "tracecat-${WORKTREE_ID}-${CLUSTER_NUM}" down --volumes --remove-orphans "$@"
+fi
+
+# Handle 'down' command - stop containers and remove the stale portless alias.
+if [[ "$COMMAND" == "down" ]]; then
+    build_env "$CLUSTER_NUM"
+    portless_enabled && portless_unregister "$CLUSTER_NUM"
+    exec docker compose -f "$COMPOSE_FILE" -p "tracecat-${WORKTREE_ID}-${CLUSTER_NUM}" down "$@"
 fi
 
 # Handle 'nuke' command - destroy cluster and optionally volumes/images
@@ -673,6 +809,7 @@ if [[ "$COMMAND" == "nuke" ]]; then
 
     echo ""
     echo "Stopping containers..."
+    portless_enabled && portless_unregister "$CLUSTER_NUM"
     docker compose -f "$COMPOSE_FILE" -p "$PROJECT_NAME" down --remove-orphans
 
     echo ""
@@ -697,6 +834,22 @@ if [[ "$COMMAND" == "nuke" ]]; then
     echo ""
     echo "=== NUKE COMPLETE ==="
     exit 0
+fi
+
+# If portless is available and the user is bringing the cluster up, register a
+# stable .localhost alias and steer the app's PUBLIC_APP_URL through it. Must
+# happen before build_env so the override flows into TRACECAT__PUBLIC_APP_URL,
+# NEXT_PUBLIC_APP_URL, etc.
+if [[ "$COMMAND" == "up" ]] && portless_enabled && [[ -z "${CLUSTER_PUBLIC_APP_URL_OVERRIDE:-}" ]]; then
+    calculate_ports "$CLUSTER_NUM"
+    if portless_register "$CLUSTER_NUM" "$PUBLIC_APP_PORT"; then
+        CLUSTER_PUBLIC_APP_URL_OVERRIDE="$(portless_url "$CLUSTER_NUM")"
+        export CLUSTER_PUBLIC_APP_URL_OVERRIDE
+    fi
+fi
+
+if [[ "$COMMAND" == "up" ]]; then
+    portless_install_tip
 fi
 
 # Build environment and run docker compose

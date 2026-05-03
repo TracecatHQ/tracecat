@@ -108,6 +108,7 @@ def agent_config_to_payload(config: AgentConfig) -> AgentConfigPayload:
     return AgentConfigPayload(
         model_name=config.model_name,
         model_provider=config.model_provider,
+        catalog_id=config.catalog_id,
         base_url=config.base_url,
         passthrough=config.passthrough,
         instructions=config.instructions,
@@ -138,6 +139,7 @@ def agent_config_from_payload(payload: AgentConfigPayload) -> AgentConfig:
     return AgentConfig(
         model_name=payload.model_name,
         model_provider=payload.model_provider,
+        catalog_id=payload.catalog_id,
         base_url=payload.base_url,
         passthrough=payload.passthrough,
         instructions=payload.instructions,

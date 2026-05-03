@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import cast
 
@@ -110,6 +111,8 @@ async def test_forward_request_streams_litellm_response(
 async def test_forward_request_returns_upstream_error_response(
     tmp_path: Path,
 ) -> None:
+    errors: list[str] = []
+
     async def handler(request: httpx.Request) -> httpx.Response:
         assert str(request.url) == "http://litellm:4000/v1/messages/count_tokens"
         return httpx.Response(
@@ -121,6 +124,7 @@ async def test_forward_request_returns_upstream_error_response(
     socket_proxy = LLMSocketProxy(
         socket_path=tmp_path / "llm.sock",
         upstream_url="http://litellm:4000",
+        on_error=errors.append,
     )
     socket_proxy._client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
     writer = _FakeWriter()
@@ -146,6 +150,90 @@ async def test_forward_request_returns_upstream_error_response(
     assert response_text.startswith("HTTP/1.1 400 Bad Request")
     assert "X-Request-ID:" in response_text
     assert "bad request" in response_text
+    assert errors == []
+
+
+@pytest.mark.anyio
+async def test_forward_request_emits_error_for_critical_upstream_http_error(
+    tmp_path: Path,
+) -> None:
+    errors: list[str] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        assert str(request.url) == "http://litellm:4000/v1/messages"
+        return httpx.Response(
+            429,
+            headers={"Content-Type": "application/json"},
+            json={"error": {"message": "provider quota exhausted"}},
+        )
+
+    socket_proxy = LLMSocketProxy(
+        socket_path=tmp_path / "llm.sock",
+        upstream_url="http://litellm:4000",
+        on_error=errors.append,
+    )
+    socket_proxy._client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    writer = _FakeWriter()
+
+    try:
+        await socket_proxy._forward_request(
+            {
+                "method": "POST",
+                "path": "/v1/messages",
+                "headers": {
+                    "Content-Type": "application/json",
+                    "Authorization": "Bearer llm-token",
+                    "X-Request-ID": "trace-test-123",
+                },
+                "body": b'{"messages":[{"role":"user","content":"hello"}]}',
+            },
+            cast(asyncio.StreamWriter, writer),
+        )
+    finally:
+        if socket_proxy._client is not None:
+            await socket_proxy._client.aclose()
+
+    response_text = writer.buffer.decode("utf-8")
+    assert response_text.startswith("HTTP/1.1 429 Too Many Requests")
+    assert "provider quota exhausted" in response_text
+    assert len(errors) == 1
+    assert "LiteLLM request failed (429 Too Many Requests)" in errors[0]
+    assert "Rate limit exceeded" in errors[0]
+    assert "provider quota exhausted" in errors[0]
+    assert "request_id=trace-test-123" in errors[0]
+
+
+@pytest.mark.anyio
+async def test_write_stream_response_emits_error_after_headers_sent(
+    tmp_path: Path,
+) -> None:
+    errors: list[str] = []
+    socket_proxy = LLMSocketProxy(
+        socket_path=tmp_path / "llm.sock",
+        upstream_url="http://litellm:4000",
+        on_error=errors.append,
+    )
+    writer = _FakeWriter()
+
+    async def broken_stream() -> AsyncIterator[bytes]:
+        yield b'event: message_start\ndata: {"type":"message_start"}\n\n'
+        raise RuntimeError("provider stream disconnected")
+
+    await socket_proxy._write_response(
+        cast(asyncio.StreamWriter, writer),
+        status_code=200,
+        reason_phrase="OK",
+        headers={"Content-Type": "text/event-stream"},
+        body_chunks=broken_stream(),
+        trace_request_id="trace-test-456",
+        path="/v1/messages",
+    )
+
+    response_text = writer.buffer.decode("utf-8")
+    assert response_text.startswith("HTTP/1.1 200 OK")
+    assert "event: error" in response_text
+    assert "provider stream disconnected" in response_text
+    assert errors == ["LiteLLM stream failed: provider stream disconnected"]
 
 
 @pytest.mark.anyio
@@ -188,6 +276,16 @@ async def test_forward_request_strips_authorization_for_passthrough_upstream(
 
     response_text = writer.buffer.decode("utf-8")
     assert response_text.startswith("HTTP/1.1 200 OK")
+
+
+def test_passthrough_upstream_url_preserves_version_suffix(tmp_path: Path) -> None:
+    socket_proxy = LLMSocketProxy(
+        socket_path=tmp_path / "llm.sock",
+        upstream_url="https://customer-litellm.example/v1/",
+        passthrough=True,
+    )
+
+    assert socket_proxy.upstream_url == "https://customer-litellm.example/v1"
 
 
 @pytest.mark.anyio

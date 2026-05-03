@@ -12,6 +12,7 @@ import os
 import re
 import uuid
 from collections.abc import AsyncGenerator, Callable, Mapping
+from copy import deepcopy
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -26,6 +27,7 @@ pytestmark = [
     pytest.mark.usefixtures("registry_version_with_manifest"),
 ]
 from pydantic import SecretStr, TypeAdapter, ValidationError
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from temporalio.api.enums.v1 import EventType
 from temporalio.client import Client, WorkflowExecutionStatus, WorkflowFailureError
@@ -40,7 +42,13 @@ from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.concurrency import GatheringTaskGroup
 from tracecat.contexts import ctx_role
 from tracecat.db.engine import get_async_session_context_manager
-from tracecat.db.models import Schedule, Workflow
+from tracecat.db.models import (
+    PlatformRegistryRepository,
+    PlatformRegistryVersion,
+    Schedule,
+    Workflow,
+    WorkflowDefinition,
+)
 from tracecat.dsl.client import get_temporal_client
 from tracecat.dsl.common import (
     RETRY_POLICIES,
@@ -75,6 +83,9 @@ from tracecat.identifiers.workflow import (
 )
 from tracecat.logger import logger
 from tracecat.pagination import CursorPaginationParams
+from tracecat.registry.constants import DEFAULT_REGISTRY_ORIGIN
+from tracecat.registry.lock.service import RegistryLockService
+from tracecat.registry.lock.types import RegistryLock
 from tracecat.secrets.schemas import SecretCreate, SecretKeyValue
 from tracecat.secrets.service import SecretsService
 from tracecat.storage.object import (
@@ -2163,6 +2174,256 @@ async def test_pull_based_workflow_fetches_latest_version(
         f"{wf_exec_id}:second", run_args, worker, executor_worker
     )
     assert await to_data(result) == "__EXPECTED_SECOND_RESULT__"
+
+
+async def _clone_builtin_registry_version(
+    session: AsyncSession, version: str
+) -> tuple[PlatformRegistryVersion, RegistryLock]:
+    repo = await session.scalar(
+        select(PlatformRegistryRepository).where(
+            PlatformRegistryRepository.origin == DEFAULT_REGISTRY_ORIGIN
+        )
+    )
+    if repo is None or repo.current_version_id is None:
+        return pytest.fail("Builtin platform registry was not seeded")
+
+    current = await session.scalar(
+        select(PlatformRegistryVersion).where(
+            PlatformRegistryVersion.id == repo.current_version_id
+        )
+    )
+    if current is None:
+        return pytest.fail("Builtin platform registry current version was not found")
+
+    cloned = PlatformRegistryVersion(
+        repository_id=repo.id,
+        version=version,
+        manifest=deepcopy(current.manifest),
+        tarball_uri=current.tarball_uri,
+    )
+    session.add(cloned)
+    await session.flush()
+    return cloned, RegistryLock(
+        origins={DEFAULT_REGISTRY_ORIGIN: version},
+        actions={"core.transform.reshape": DEFAULT_REGISTRY_ORIGIN},
+    )
+
+
+def _restore_version_dsl(*, title: str, value: str) -> DSLInput:
+    return DSLInput(
+        title=title,
+        description="Restore version regression workflow",
+        entrypoint=DSLEntrypoint(ref="a", expects={}),
+        actions=[
+            ActionStatement(
+                ref="a",
+                action="core.transform.reshape",
+                args={"value": value},
+                depends_on=[],
+            )
+        ],
+        returns="${{ ACTIONS.a.result }}",
+        triggers=[],
+    )
+
+
+async def _run_child_by_alias(
+    *,
+    temporal_client: Client,
+    test_worker_factory: WorkerFactory,
+    test_executor_worker_factory: WorkerFactory,
+    test_role: Role,
+    alias: str,
+    wf_exec_id: str,
+) -> Any:
+    parent_dsl = DSLInput(
+        title="Restore parent",
+        description="Runs restored child by alias",
+        entrypoint=DSLEntrypoint(ref="run_child", expects={}),
+        actions=[
+            ActionStatement(
+                ref="run_child",
+                action="core.workflow.execute",
+                args={
+                    "workflow_alias": alias,
+                    "wait_strategy": WaitStrategy.WAIT.value,
+                },
+                depends_on=[],
+            )
+        ],
+        returns="${{ ACTIONS.run_child.result }}",
+        triggers=[],
+    )
+    run_args = DSLRunArgs(
+        dsl=parent_dsl,
+        role=test_role,
+        wf_id=WorkflowUUID.new("wf-00000000000000000000000000000002"),
+    )
+    worker = test_worker_factory(temporal_client)
+    executor_worker = test_executor_worker_factory(temporal_client)
+    return await _run_workflow(wf_exec_id, run_args, worker, executor_worker)
+
+
+@pytest.mark.anyio
+async def test_restored_workflow_definition_is_current_and_next_save_appends(
+    temporal_client: Client,
+    test_role: Role,
+    test_worker_factory: WorkerFactory,
+    test_executor_worker_factory: WorkerFactory,
+) -> None:
+    """Restoring v2 from v7 must not overwrite v3-v7, and next save creates v8."""
+    test_name = (
+        test_restored_workflow_definition_is_current_and_next_save_appends.__name__
+    )
+    alias = f"restore_child_{uuid.uuid4().hex}"
+    wf_exec_id = generate_test_exec_id(test_name)
+    definition_snapshots: dict[int, tuple[dict[str, Any], dict[str, Any] | None]] = {}
+
+    async with get_async_session_context_manager() as session:
+        mgmt_service = WorkflowsManagementService(session, role=test_role)
+        defn_service = WorkflowDefinitionsService(session, role=test_role)
+
+        lock_rows = {}
+        locks = {}
+        for version in range(1, 9):
+            lock_rows[version], locks[version] = await _clone_builtin_registry_version(
+                session, f"{test_name}-{version}-{uuid.uuid4().hex}"
+            )
+
+        first_dsl = _restore_version_dsl(title=f"{test_name}:v1", value="one")
+        res = await mgmt_service.create_workflow_from_dsl(
+            first_dsl.model_dump(), skip_secret_validation=True
+        )
+        workflow = res.workflow
+        if workflow is None:
+            return pytest.fail("Workflow wasn't created")
+        workflow_id = WorkflowUUID.new(workflow.id)
+        await mgmt_service.update_workflow(workflow_id, WorkflowUpdate(alias=alias))
+        await session.refresh(workflow)
+
+        definitions = []
+        for version in range(1, 8):
+            dsl = _restore_version_dsl(
+                title=f"{test_name}:v{version}", value=f"value-{version}"
+            )
+            defn = await defn_service.create_workflow_definition(
+                workflow_id=workflow_id,
+                dsl=dsl,
+                alias=alias,
+                registry_lock=locks[version],
+                commit=False,
+            )
+            definitions.append(defn)
+            definition_snapshots[version] = (
+                deepcopy(defn.content),
+                deepcopy(defn.registry_lock),
+            )
+
+        workflow.version = 7
+        workflow.registry_lock = definitions[6].registry_lock
+        session.add(workflow)
+        await session.commit()
+
+    result = await _run_child_by_alias(
+        temporal_client=temporal_client,
+        test_worker_factory=test_worker_factory,
+        test_executor_worker_factory=test_executor_worker_factory,
+        test_role=test_role,
+        alias=alias,
+        wf_exec_id=f"{wf_exec_id}:v7",
+    )
+    assert await to_data(result) == "value-7"
+
+    async with get_async_session_context_manager() as session:
+        mgmt_service = WorkflowsManagementService(session, role=test_role)
+        defn_service = WorkflowDefinitionsService(session, role=test_role)
+
+        workflow = await mgmt_service.get_workflow(workflow_id)
+        if workflow is None:
+            return pytest.fail("Workflow wasn't found")
+        version_two = await defn_service.get_definition_by_workflow_id(
+            workflow_id, version=2
+        )
+        if version_two is None:
+            return pytest.fail("Workflow definition v2 wasn't found")
+
+        restored = await mgmt_service.restore_workflow_definition(workflow, version_two)
+        assert restored.version == 2
+        assert restored.registry_lock == definition_snapshots[2][1]
+        assert restored.graph_version == 2
+
+        rows = (
+            await session.execute(
+                select(WorkflowDefinition).where(
+                    WorkflowDefinition.workflow_id == workflow_id
+                )
+            )
+        ).scalars()
+        by_version = {row.version: row for row in rows}
+        assert set(by_version) == set(range(1, 8))
+        for version in range(3, 8):
+            assert by_version[version].content == definition_snapshots[version][0]
+            assert by_version[version].registry_lock == definition_snapshots[version][1]
+
+    result = await _run_child_by_alias(
+        temporal_client=temporal_client,
+        test_worker_factory=test_worker_factory,
+        test_executor_worker_factory=test_executor_worker_factory,
+        test_role=test_role,
+        alias=alias,
+        wf_exec_id=f"{wf_exec_id}:restored-v2",
+    )
+    assert await to_data(result) == "value-2"
+
+    async with get_async_session_context_manager() as session:
+        repo = await session.scalar(
+            select(PlatformRegistryRepository).where(
+                PlatformRegistryRepository.origin == DEFAULT_REGISTRY_ORIGIN
+            )
+        )
+        if repo is None:
+            return pytest.fail("Builtin platform registry was not found")
+        repo.current_version_id = lock_rows[8].id
+        session.add(repo)
+        await session.commit()
+
+        mgmt_service = WorkflowsManagementService(session, role=test_role)
+        workflow = await mgmt_service.get_workflow(workflow_id)
+        if workflow is None:
+            return pytest.fail("Workflow wasn't found")
+        restored_dsl = await mgmt_service.build_dsl_from_workflow(workflow)
+        fresh_lock = await RegistryLockService(
+            session, role=test_role
+        ).resolve_lock_with_bindings({"core.transform.reshape"})
+        new_defn = await WorkflowDefinitionsService(
+            session, role=test_role
+        ).create_workflow_definition(
+            workflow_id=workflow_id,
+            dsl=restored_dsl,
+            alias=alias,
+            registry_lock=fresh_lock,
+            commit=False,
+        )
+        workflow.version = new_defn.version
+        workflow.registry_lock = new_defn.registry_lock
+        session.add(workflow)
+        await session.commit()
+
+        assert new_defn.version == 8
+        assert new_defn.content["actions"][0]["args"]["value"] == "value-2"
+        assert new_defn.registry_lock != definition_snapshots[2][1]
+        rows = (
+            await session.execute(
+                select(WorkflowDefinition).where(
+                    WorkflowDefinition.workflow_id == workflow_id
+                )
+            )
+        ).scalars()
+        by_version = {row.version: row for row in rows}
+        assert set(by_version) == set(range(1, 9))
+        for version in range(3, 8):
+            assert by_version[version].content == definition_snapshots[version][0]
+            assert by_version[version].registry_lock == definition_snapshots[version][1]
 
 
 @pytest.mark.anyio

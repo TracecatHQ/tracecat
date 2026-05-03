@@ -29,6 +29,10 @@ export type ActionControlFlow = {
    * Override environment for this action's execution
    */
   environment?: string | null
+  /**
+   * If true, redact this action's result in workflow execution API responses while preserving internal workflow data flow between actions.
+   */
+  mask_output?: boolean
 }
 
 export type ActionCreate = {
@@ -177,6 +181,10 @@ export type ActionStatement = {
    * Override environment for this action's execution. Can be a template expression.
    */
   environment?: string | null
+  /**
+   * If true, redact this action's result in workflow execution API responses while preserving internal workflow data flow between actions.
+   */
+  mask_output?: boolean
 }
 
 export type ActionStep = {
@@ -312,6 +320,28 @@ export type AdminUserRead = {
 }
 
 /**
+ * List catalog entries with pagination.
+ */
+export type AgentCatalogListResponse = {
+  items: Array<AgentCatalogRead>
+  next_cursor?: string | null
+}
+
+/**
+ * Single catalog model entry.
+ */
+export type AgentCatalogRead = {
+  id: string
+  custom_provider_id: string | null
+  organization_id: string | null
+  model_provider: string
+  model_name: string
+  model_metadata: {
+    [key: string]: unknown
+  } | null
+}
+
+/**
  * Request schema for creating an external channel token.
  */
 export type AgentChannelTokenCreate = {
@@ -363,6 +393,85 @@ export type AgentChannelTokenUpdate = {
   is_active?: boolean | null
 }
 
+/**
+ * Create custom LLM provider.
+ */
+export type AgentCustomProviderCreate = {
+  display_name: string
+  base_url?: string | null
+  passthrough?: boolean
+  api_key_header?: string | null
+  api_key?: string | null
+  custom_headers?: {
+    [key: string]: string
+  } | null
+}
+
+/**
+ * List response with pagination.
+ */
+export type AgentCustomProviderListResponse = {
+  items: Array<AgentCustomProviderRead>
+  next_cursor?: string | null
+}
+
+/**
+ * Read custom provider.
+ */
+export type AgentCustomProviderRead = {
+  id: string
+  organization_id: string
+  display_name: string
+  base_url: string | null
+  passthrough: boolean
+  api_key_header: string | null
+  last_refreshed_at: string | null
+}
+
+/**
+ * Update custom provider.
+ */
+export type AgentCustomProviderUpdate = {
+  display_name?: string | null
+  base_url?: string | null
+  passthrough?: boolean | null
+  api_key_header?: string | null
+  api_key?: string | null
+  custom_headers?: {
+    [key: string]: string
+  } | null
+}
+
+export type AgentModel = {
+  component_id?: "agent-model"
+}
+
+/**
+ * Enable a model for org or workspace.
+ */
+export type AgentModelAccessCreate = {
+  catalog_id: string
+  workspace_id?: string | null
+}
+
+/**
+ * List accessible models with pagination.
+ */
+export type AgentModelAccessListResponse = {
+  items: Array<AgentModelAccessRead>
+  next_cursor?: string | null
+}
+
+/**
+ * Model access entry.
+ */
+export type AgentModelAccessRead = {
+  id: string
+  organization_id: string
+  workspace_id: string | null
+  catalog_id: string
+}
+
 export type AgentOutput = {
   output: unknown
   message_history?: Array<ChatMessage> | null
@@ -382,6 +491,7 @@ export type AgentPresetCreate = {
   instructions?: string | null
   model_name: string
   model_provider: string
+  catalog_id?: string | null
   base_url?: string | null
   output_type?: OutputType | null
   actions?: Array<string> | null
@@ -407,6 +517,7 @@ export type AgentPresetRead = {
   instructions?: string | null
   model_name: string
   model_provider: string
+  catalog_id?: string | null
   base_url?: string | null
   output_type?: OutputType | null
   actions?: Array<string> | null
@@ -484,6 +595,7 @@ export type AgentPresetUpdate = {
   instructions?: string | null
   model_name?: string | null
   model_provider?: string | null
+  catalog_id?: string | null
   base_url?: string | null
   output_type?: OutputType | null
   actions?: Array<string> | null
@@ -524,6 +636,7 @@ export type AgentPresetVersionRead = {
   instructions?: string | null
   model_name: string
   model_provider: string
+  catalog_id?: string | null
   base_url?: string | null
   output_type?: OutputType | null
   actions?: Array<string> | null
@@ -1126,11 +1239,61 @@ export type AwsAssumeRoleAccessRead = {
 }
 
 /**
+ * Azure AI catalog entry.
+ */
+export type AzureAICatalogCreate = {
+  display_name?: string | null
+  model_provider: "azure_ai"
+  model_name: string
+  azure_ai_model_name: string
+}
+
+export type AzureAICatalogUpdate = {
+  display_name?: string | null
+  model_provider: "azure_ai"
+  azure_ai_model_name: string
+}
+
+/**
+ * Azure OpenAI catalog entry.
+ */
+export type AzureOpenAICatalogCreate = {
+  display_name?: string | null
+  model_provider: "azure_openai"
+  model_name: string
+  deployment_name: string
+}
+
+export type AzureOpenAICatalogUpdate = {
+  display_name?: string | null
+  model_provider: "azure_openai"
+  deployment_name: string
+}
+
+/**
  * Batch update for action and trigger positions.
  */
 export type BatchPositionUpdate = {
   actions?: Array<ActionPositionUpdate>
   trigger_position?: Position | null
+}
+
+/**
+ * Bedrock catalog entry. Requires exactly one of inference_profile_id or model_id.
+ */
+export type BedrockCatalogCreate = {
+  display_name?: string | null
+  model_provider: "bedrock"
+  model_name: string
+  inference_profile_id?: string | null
+  model_id?: string | null
+}
+
+export type BedrockCatalogUpdate = {
+  display_name?: string | null
+  model_provider: "bedrock"
+  inference_profile_id?: string | null
+  model_id?: string | null
 }
 
 /**
@@ -3129,6 +3292,7 @@ export type EditorComponent =
   | ActionType
   | WorkflowAlias
   | AgentPreset
+  | AgentModel
 
 export type EditorFunctionRead = {
   name: string
@@ -3170,6 +3334,10 @@ export type EffectiveEntitlements = {
    */
   rbac_addons?: boolean
   /**
+   * Whether service accounts for API key access are enabled
+   */
+  service_accounts?: boolean
+  /**
    * Whether Watchtower agent monitoring is enabled (agent sessions, tool-call telemetry, and controls)
    */
   watchtower?: boolean
@@ -3201,6 +3369,10 @@ export type EntitlementsDict = {
    * Whether RBAC add-ons are enabled (custom roles, groups, and assignments)
    */
   rbac_addons?: boolean
+  /**
+   * Whether service accounts for API key access are enabled
+   */
+  service_accounts?: boolean
   /**
    * Whether Watchtower agent monitoring is enabled (agent sessions, tool-call telemetry, and controls)
    */
@@ -4310,6 +4482,10 @@ export type ModelConfig = {
    * The provider of the model. This is used to determine which organization secret to use for this model.
    */
   provider: string
+  /**
+   * Optional catalog row backing this model selection. Populated for v2 org-scoped cloud/custom catalog rows; left ``None`` for platform (built-in) models that resolve credentials via ``agent-{provider}-credentials``.
+   */
+  catalog_id?: string | null
   /**
    * The name of the organization secret to use for this model. This secret must be configured in the organization settings.
    */
@@ -7328,6 +7504,22 @@ export type VersionDiff = {
 }
 
 /**
+ * Vertex AI catalog entry.
+ */
+export type VertexAICatalogCreate = {
+  display_name?: string | null
+  model_provider: "vertex_ai"
+  model_name: string
+  vertex_model: string
+}
+
+export type VertexAICatalogUpdate = {
+  display_name?: string | null
+  model_provider: "vertex_ai"
+  vertex_model: string
+}
+
+/**
  * A URL to a video.
  */
 export type VideoUrl = {
@@ -8891,6 +9083,14 @@ export type WorkflowsListWorkflowDefinitionsData = {
 export type WorkflowsListWorkflowDefinitionsResponse =
   Array<WorkflowDefinitionRead>
 
+export type WorkflowsRestoreWorkflowDefinitionData = {
+  version: number
+  workflowId: string
+  workspaceId: string
+}
+
+export type WorkflowsRestoreWorkflowDefinitionResponse = WorkflowRead
+
 export type WorkflowsGetWorkflowDefinitionData = {
   version?: number | null
   workflowId: string
@@ -9662,12 +9862,10 @@ export type AgentDeleteProviderCredentialsResponse = {
 export type AgentGetDefaultModelResponse = string | null
 
 export type AgentSetDefaultModelData = {
-  modelName: string
+  requestBody: DefaultModelSelectionUpdate
 }
 
-export type AgentSetDefaultModelResponse = {
-  [key: string]: string
-}
+export type AgentSetDefaultModelResponse = DefaultModelSelection
 
 export type AgentGetDefaultModelSelectionResponse = DefaultModelSelection | null
 
@@ -9682,6 +9880,120 @@ export type AgentGetWorkspaceProvidersStatusData = {
 }
 
 export type AgentGetWorkspaceProvidersStatusResponse = {
+  [key: string]: boolean
+}
+
+export type ListCatalogData = {
+  cursor?: string | null
+  limit?: number
+  modelName?: string | null
+  provider?: string | null
+}
+
+export type ListCatalogResponse = AgentCatalogListResponse
+
+export type CreateCatalogEntryData = {
+  requestBody:
+    | BedrockCatalogCreate
+    | AzureOpenAICatalogCreate
+    | AzureAICatalogCreate
+    | VertexAICatalogCreate
+}
+
+export type CreateCatalogEntryResponse = AgentCatalogRead
+
+export type GetCatalogEntryData = {
+  catalogId: string
+}
+
+export type GetCatalogEntryResponse = AgentCatalogRead
+
+export type UpdateCatalogEntryData = {
+  catalogId: string
+  requestBody:
+    | BedrockCatalogUpdate
+    | AzureOpenAICatalogUpdate
+    | AzureAICatalogUpdate
+    | VertexAICatalogUpdate
+}
+
+export type UpdateCatalogEntryResponse = AgentCatalogRead
+
+export type DeleteCatalogEntryData = {
+  catalogId: string
+}
+
+export type DeleteCatalogEntryResponse = void
+
+export type GetWorkspaceModelsData = {
+  workspaceId: string
+}
+
+export type GetWorkspaceModelsResponse = AgentCatalogListResponse
+
+export type EnableModelData = {
+  requestBody: AgentModelAccessCreate
+}
+
+export type EnableModelResponse = AgentModelAccessRead
+
+export type ListEnabledModelsData = {
+  cursor?: string | null
+  limit?: number
+  workspaceId?: string | null
+}
+
+export type ListEnabledModelsResponse = AgentModelAccessListResponse
+
+export type DisableModelData = {
+  accessId: string
+}
+
+export type DisableModelResponse = void
+
+export type CreateCustomProviderData = {
+  requestBody: AgentCustomProviderCreate
+}
+
+export type CreateCustomProviderResponse = AgentCustomProviderRead
+
+export type ListCustomProvidersData = {
+  cursor?: string | null
+  limit?: number
+}
+
+export type ListCustomProvidersResponse = AgentCustomProviderListResponse
+
+export type GetCustomProviderData = {
+  providerId: string
+}
+
+export type GetCustomProviderResponse = AgentCustomProviderRead
+
+export type UpdateCustomProviderData = {
+  providerId: string
+  requestBody: AgentCustomProviderUpdate
+}
+
+export type UpdateCustomProviderResponse = AgentCustomProviderRead
+
+export type DeleteCustomProviderData = {
+  providerId: string
+}
+
+export type DeleteCustomProviderResponse = void
+
+export type RefreshCustomProviderCatalogData = {
+  providerId: string
+}
+
+export type RefreshCustomProviderCatalogResponse = unknown
+
+export type ValidateCustomProviderConnectionData = {
+  requestBody: AgentCustomProviderCreate
+}
+
+export type ValidateCustomProviderConnectionResponse = {
   [key: string]: boolean
 }
 
@@ -10303,6 +10615,15 @@ export type AdminDemoteFromSuperuserData = {
 }
 
 export type AdminDemoteFromSuperuserResponse = AdminUserRead
+
+export type AdminAgentListPlatformCatalogData = {
+  cursor?: string | null
+  limit?: number
+  modelName?: string | null
+  provider?: string | null
+}
+
+export type AdminAgentListPlatformCatalogResponse = AgentCatalogListResponse
 
 export type AdminRegistryListPlatformRepositoriesResponse =
   Array<RegistryRepositoryReadMinimal>
@@ -12418,6 +12739,21 @@ export type $OpenApiTs = {
       }
     }
   }
+  "/workflows/{workflow_id}/definitions/{version}/restore": {
+    post: {
+      req: WorkflowsRestoreWorkflowDefinitionData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: WorkflowRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
   "/workflows/{workflow_id}/definition": {
     get: {
       req: WorkflowsGetWorkflowDefinitionData
@@ -13859,9 +14195,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        200: {
-          [key: string]: string
-        }
+        200: DefaultModelSelection
         /**
          * Validation Error
          */
@@ -13895,6 +14229,234 @@ export type $OpenApiTs = {
   "/agent/workspace/providers/status": {
     get: {
       req: AgentGetWorkspaceProvidersStatusData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: {
+          [key: string]: boolean
+        }
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/organization/agent-catalog": {
+    get: {
+      req: ListCatalogData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: AgentCatalogListResponse
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    post: {
+      req: CreateCatalogEntryData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: AgentCatalogRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/organization/agent-catalog/{catalog_id}": {
+    get: {
+      req: GetCatalogEntryData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: AgentCatalogRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    patch: {
+      req: UpdateCatalogEntryData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: AgentCatalogRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    delete: {
+      req: DeleteCatalogEntryData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/agent-models": {
+    get: {
+      req: GetWorkspaceModelsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: AgentCatalogListResponse
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/organization/agent-model-access": {
+    post: {
+      req: EnableModelData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: AgentModelAccessRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    get: {
+      req: ListEnabledModelsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: AgentModelAccessListResponse
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/organization/agent-model-access/{access_id}": {
+    delete: {
+      req: DisableModelData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/organization/agent-custom-providers": {
+    post: {
+      req: CreateCustomProviderData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: AgentCustomProviderRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    get: {
+      req: ListCustomProvidersData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: AgentCustomProviderListResponse
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/organization/agent-custom-providers/{provider_id}": {
+    get: {
+      req: GetCustomProviderData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: AgentCustomProviderRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    patch: {
+      req: UpdateCustomProviderData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: AgentCustomProviderRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    delete: {
+      req: DeleteCustomProviderData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/organization/agent-custom-providers/{provider_id}/refresh": {
+    post: {
+      req: RefreshCustomProviderCatalogData
+      res: {
+        /**
+         * Successful Response
+         */
+        202: unknown
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/organization/agent-custom-providers/validate": {
+    post: {
+      req: ValidateCustomProviderConnectionData
       res: {
         /**
          * Successful Response
@@ -15011,6 +15573,21 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: AdminUserRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/admin/agent/catalog": {
+    get: {
+      req: AdminAgentListPlatformCatalogData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: AgentCatalogListResponse
         /**
          * Validation Error
          */

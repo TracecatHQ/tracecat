@@ -943,6 +943,7 @@ class DSLWorkflow:
                             config=AgentConfig(
                                 model_name=action_args.model_name,
                                 model_provider=action_args.model_provider,
+                                catalog_id=action_args.catalog_id,
                                 instructions=action_args.instructions,
                                 output_type=action_args.output_type,
                                 model_settings=action_args.model_settings,
@@ -955,7 +956,6 @@ class DSLWorkflow:
                             ),
                             max_requests=action_args.max_requests,
                             max_tool_calls=action_args.max_tool_calls,
-                            use_workspace_credentials=action_args.use_workspace_credentials,
                         ),
                         title=self.dsl.title,
                         entity_type=AgentSessionEntity.WORKFLOW,
@@ -976,6 +976,7 @@ class DSLWorkflow:
                             action_ref=task.ref,
                             action_title=task.title,
                             stream_id=stream_id or ROOT_STREAM,
+                            mask_output=task.mask_output,
                         ).model_dump(),
                     )
                 case PlatformAction.AI_ACTION:
@@ -1007,12 +1008,15 @@ class DSLWorkflow:
                             config=AgentConfig(
                                 model_name=action_args.model_name,
                                 model_provider=action_args.model_provider,
+                                catalog_id=action_args.catalog_id,
                                 instructions=action_args.instructions,
                                 output_type=action_args.output_type,
                                 model_settings=action_args.model_settings,
                                 retries=action_args.retries,
                                 enable_thinking=action_args.enable_thinking,
-                                base_url=action_args.base_url,
+                                base_url=action_args.base_url
+                                if action_args.catalog_id is None
+                                else None,
                                 # AI action has no tools
                                 actions=None,
                                 tool_approvals=None,
@@ -1020,7 +1024,6 @@ class DSLWorkflow:
                             max_requests=action_args.max_requests,
                             # No tool calls for AI action
                             max_tool_calls=0,
-                            use_workspace_credentials=action_args.use_workspace_credentials,
                         ),
                         title=self.dsl.title,
                         entity_type=AgentSessionEntity.WORKFLOW,
@@ -1040,6 +1043,7 @@ class DSLWorkflow:
                             action_ref=task.ref,
                             action_title=task.title,
                             stream_id=stream_id or ROOT_STREAM,
+                            mask_output=task.mask_output,
                         ).model_dump(),
                     )
                 case PlatformAction.AI_PRESET_AGENT:
@@ -1096,7 +1100,6 @@ class DSLWorkflow:
                             config=override_config,
                             max_requests=preset_action_args.max_requests,
                             max_tool_calls=preset_action_args.max_tool_calls,
-                            use_workspace_credentials=preset_action_args.use_workspace_credentials,
                         ),
                         title=self.dsl.title,
                         entity_type=AgentSessionEntity.WORKFLOW,
@@ -1120,6 +1123,7 @@ class DSLWorkflow:
                             action_ref=task.ref,
                             action_title=task.title,
                             stream_id=stream_id or ROOT_STREAM,
+                            mask_output=task.mask_output,
                         ).model_dump(),
                     )
                 case _:
@@ -1786,6 +1790,7 @@ class DSLWorkflow:
             loop_index=loop_index,
             wait_strategy=wait_strategy,
             stream_id=stream_id,
+            mask_output=task.mask_output,
         ).model_dump()
         self.logger.debug(
             "Dispatching child workflow",

@@ -50,7 +50,6 @@ WorkspaceServiceAccountRole = Annotated[
 ]
 """Dependency for a service-account role for a workspace."""
 
-
 WorkspaceUserPathRole = Annotated[
     Role,
     RoleACL(

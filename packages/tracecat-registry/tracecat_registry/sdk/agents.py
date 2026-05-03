@@ -88,6 +88,7 @@ class AgentConfig:
     # Model
     model_name: str
     model_provider: str
+    catalog_id: uuid.UUID | None = None
     base_url: str | None = None
     # Agent
     instructions: str | None = None
@@ -118,6 +119,7 @@ async def run_agent(
     user_prompt: str,
     model_name: str,
     model_provider: str,
+    catalog_id: uuid.UUID | None = None,
     actions: list[str] | None = None,
     namespaces: list[str] | None = None,
     tool_approvals: dict[str, bool] | None = None,
@@ -183,6 +185,7 @@ async def run_agent(
         config=AgentConfig(
             model_name=model_name,
             model_provider=model_provider,
+            catalog_id=catalog_id,
             actions=actions,
             namespaces=namespaces,
             tool_approvals=tool_approvals,
@@ -213,6 +216,7 @@ async def rank_items(
     criteria_prompt: str,
     model_name: str,
     model_provider: str,
+    catalog_id: uuid.UUID | None = None,
     model_settings: dict[str, object] | None = None,
     max_requests: int = 5,
     retries: int = 3,
@@ -248,6 +252,7 @@ async def rank_items(
         criteria_prompt=criteria_prompt,
         model_name=model_name,
         model_provider=model_provider,
+        catalog_id=catalog_id,
         model_settings=model_settings,
         max_requests=max_requests,
         retries=retries,
@@ -262,6 +267,7 @@ async def rank_items_pairwise(
     criteria_prompt: str,
     model_name: str,
     model_provider: str,
+    catalog_id: uuid.UUID | None = None,
     id_field: str = "id",
     batch_size: int = 10,
     num_passes: int = 10,
@@ -305,6 +311,7 @@ async def rank_items_pairwise(
         criteria_prompt=criteria_prompt,
         model_name=model_name,
         model_provider=model_provider,
+        catalog_id=catalog_id,
         id_field=id_field,
         batch_size=batch_size,
         num_passes=num_passes,
@@ -356,7 +363,10 @@ class AgentsClient:
             "max_requests": max_requests,
         }
         if config is not None:
-            data["config"] = asdict(config)
+            config_data = asdict(config)
+            if config.catalog_id is not None:
+                config_data["catalog_id"] = str(config.catalog_id)
+            data["config"] = config_data
         if preset_slug is not None:
             data["preset_slug"] = preset_slug
         if preset_version is not None:
@@ -373,6 +383,7 @@ class AgentsClient:
         criteria_prompt: str,
         model_name: str,
         model_provider: str,
+        catalog_id: uuid.UUID | None = None,
         model_settings: dict[str, object] | None = None,
         max_requests: int = 5,
         retries: int = 3,
@@ -405,6 +416,8 @@ class AgentsClient:
             "max_requests": max_requests,
             "retries": retries,
         }
+        if catalog_id is not None:
+            data["catalog_id"] = str(catalog_id)
         if model_settings is not None:
             data["model_settings"] = model_settings
         if base_url is not None:
@@ -423,6 +436,7 @@ class AgentsClient:
         criteria_prompt: str,
         model_name: str,
         model_provider: str,
+        catalog_id: uuid.UUID | None = None,
         id_field: str = "id",
         batch_size: int = 10,
         num_passes: int = 10,
@@ -467,6 +481,8 @@ class AgentsClient:
             "max_requests": max_requests,
             "retries": retries,
         }
+        if catalog_id is not None:
+            data["catalog_id"] = str(catalog_id)
         if model_settings is not None:
             data["model_settings"] = model_settings
         if base_url is not None:

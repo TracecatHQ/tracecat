@@ -83,6 +83,7 @@ from tracecat.workflow.executions.schemas import (
 )
 from tracecat.workflow.executions.service import (
     WorkflowExecutionNotFoundError,
+    WorkflowExecutionResultMaskedError,
     WorkflowExecutionResultNotFoundError,
     WorkflowExecutionsService,
 )
@@ -766,6 +767,11 @@ async def get_workflow_execution_object_download(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=str(e),
         ) from e
+    except WorkflowExecutionResultMaskedError as e:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=str(e),
+        ) from e
     except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -832,6 +838,11 @@ async def get_workflow_execution_object_preview(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=str(e),
         ) from e
+    except WorkflowExecutionResultMaskedError as e:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=str(e),
+        ) from e
     except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -881,6 +892,11 @@ async def get_workflow_execution_collection_page(
     except WorkflowExecutionResultNotFoundError as e:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        ) from e
+    except WorkflowExecutionResultMaskedError as e:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
             detail=str(e),
         ) from e
     except ValueError as e:

@@ -182,7 +182,7 @@ def test_bedrock_rejects_ambient_credential_fallback() -> None:
     assert "resolved before request dispatch" in exc_info.value.message
 
 
-def test_litellm_config_routes_provider_placeholders_before_openai_catch_all() -> None:
+def test_litellm_config_routes_provider_placeholders_before_catch_all() -> None:
     config_path = (
         Path(__file__).resolve().parents[2]
         / "tracecat"
@@ -206,8 +206,9 @@ def test_litellm_config_routes_provider_placeholders_before_openai_catch_all() -
     assert resolved_model("vertex_ai/*") == "vertex_ai/*"
     assert resolved_model("azure/*") == "azure/*"
     assert resolved_model("azure_ai/*") == "azure_ai/*"
-    # Unqualified names fall through to the OpenAI catch-all
-    assert resolved_model("custom") == "openai/custom"
+    # Unqualified names fall through to the hosted_vllm catch-all so custom
+    # providers bridge to Chat Completions instead of the Responses API.
+    assert resolved_model("custom") == "hosted_vllm/custom"
 
 
 def _make_request(
@@ -271,7 +272,8 @@ async def test_user_api_key_auth_strips_anthropic_beta_metadata_for_non_anthropi
             workspace_id="00000000-0000-0000-0000-000000000001",
             organization_id="00000000-0000-0000-0000-000000000002",
             session_id="00000000-0000-0000-0000-000000000003",
-            use_workspace_credentials=True,
+            catalog_id=None,
+            use_workspace_credentials=False,
             model="bedrock",
             provider="bedrock",
             base_url=None,
@@ -301,7 +303,8 @@ async def test_user_api_key_auth_preserves_anthropic_beta_metadata_for_anthropic
             workspace_id="00000000-0000-0000-0000-000000000001",
             organization_id="00000000-0000-0000-0000-000000000002",
             session_id="00000000-0000-0000-0000-000000000003",
-            use_workspace_credentials=True,
+            catalog_id=None,
+            use_workspace_credentials=False,
             model="claude-sonnet-4",
             provider="anthropic",
             base_url=None,
@@ -322,10 +325,40 @@ async def test_user_api_key_auth_preserves_anthropic_beta_metadata_for_anthropic
 
 
 @pytest.mark.anyio
+async def test_user_api_key_auth_preserves_legacy_workspace_credentials_claim(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "tracecat.agent.gateway.verify_llm_token",
+        lambda _: SimpleNamespace(
+            workspace_id="00000000-0000-0000-0000-000000000001",
+            organization_id="00000000-0000-0000-0000-000000000002",
+            session_id="00000000-0000-0000-0000-000000000003",
+            catalog_id=None,
+            use_workspace_credentials=True,
+            model="gpt-5",
+            provider="openai",
+            base_url=None,
+            model_settings={},
+        ),
+    )
+
+    auth = await user_api_key_auth(
+        request=_make_request("/v1/chat/completions"),
+        api_key="valid-token",
+    )
+
+    assert auth.metadata["use_workspace_credentials"] is True
+
+
+@pytest.mark.anyio
 async def test_pre_call_hook_filters_model_settings(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    async def mock_get_provider_credentials(**_: object) -> dict[str, str]:
+    captured_kwargs: dict[str, object] = {}
+
+    async def mock_get_provider_credentials(**kwargs: object) -> dict[str, str]:
+        captured_kwargs.update(kwargs)
         return {"OPENAI_API_KEY": "test-openai-key"}
 
     monkeypatch.setattr(
@@ -362,6 +395,7 @@ async def test_pre_call_hook_filters_model_settings(
     assert result["seed"] == 7
     assert "metadata" not in result
     assert result["api_key"] == "test-openai-key"
+    assert captured_kwargs["use_workspace_credentials"] is True
 
 
 @pytest.mark.anyio
@@ -411,7 +445,7 @@ async def test_pre_call_hook_uses_request_model_route_claim(
     assert result["model"] == "openai/gpt-5-mini"
     assert result["temperature"] == 0.2
     assert result["api_key"] == "test-openai-key"
-    assert credential_requests[0]["use_workspace_creds"] is False
+    assert credential_requests[0]["use_workspace_credentials"] is False
 
 
 @pytest.mark.anyio
