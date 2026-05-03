@@ -50,15 +50,18 @@ from tracecat.logger import logger
 from tracecat.registry.lock.types import RegistryLock
 from tracecat.storage import blob
 
-from .schemas import ApprovedToolCall, DeniedToolCall, ToolExecutionResult
+from .schemas import (
+    ApprovedToolCall,
+    DeniedToolCall,
+    ToolExecutionResult,
+)
 
 
 class AgentExecutorInput(BaseModel):
     """Input for the agent executor activity.
 
-    On resume after approval, the sdk_session_data contains the proper tool_result
-    entry (inserted by the approval reconciliation activity before reload), so the
-    runtime just resumes normally.
+    On resume after approval, sdk_session_data already includes the reconciled
+    user tool_result entry.
     """
 
     # ``extra="ignore"`` keeps Temporal activity replay working after the
@@ -80,10 +83,10 @@ class AgentExecutorInput(BaseModel):
     )
     # Resolved tool definitions
     allowed_actions: dict[str, MCPToolDefinition] | None = None
-    # Session resume data (from previous run, includes tool_result for approval flow)
+    # Session resume data from previous runs
     sdk_session_id: str | None = None
     sdk_session_data: str | None = None
-    # True when resuming after approval decision (continuation prompt should be internal)
+    # True when resuming after an approval decision.
     is_approval_continuation: bool = False
     # True when forking from parent session (SDK should use fork_session=True)
     is_fork: bool = False

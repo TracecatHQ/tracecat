@@ -21,6 +21,7 @@ with workflow.unsafe.imports_passed_through():
         DeniedToolCall,
         run_agent_activity,
     )
+    from tracecat.agent.executor.schemas import ToolExecutionResult
     from tracecat.agent.mcp.executor import (
         AGENT_TOOL_PRIORITY,
         build_run_input,
@@ -550,12 +551,12 @@ class DurableAgentWorkflow:
                 # Persist approval decisions to DB (atomic with chat messages)
                 await self.approvals.handle_decisions()
 
-                # Execute approved tools and collect results
+                # Execute approved tools and reconcile the SDK transcript.
                 approved_tools, denied_tools = self._build_tool_lists_from_approvals(
                     result.approval_items or []
                 )
 
-                tool_results = None
+                tool_results: list[ToolExecutionResult] = []
                 if approved_tools or denied_tools:
                     tool_results = await self._execute_and_reconcile_approved_tools(
                         approved_tools=approved_tools,
@@ -582,7 +583,9 @@ class DurableAgentWorkflow:
                         sdk_session_id=self._sdk_session_id,
                     )
 
-                # Update executor input for resume (history now has proper tool_result)
+                # Update executor input for resume. Reconcile has replaced the
+                # interrupt artifacts with the real tool_result entry; the
+                # runtime only sends a hidden continuation tick.
                 executor_input = AgentExecutorInput(
                     session_id=self.session_id,
                     workspace_id=self.workspace_id,

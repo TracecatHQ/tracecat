@@ -57,6 +57,8 @@ class TestRuntimeSocketCommunication:
         mock_client = MagicMock()
         mock_client.__aenter__ = AsyncMock(return_value=mock_client)
         mock_client.__aexit__ = AsyncMock(return_value=None)
+        mock_client.connect = AsyncMock()
+        mock_client.disconnect = AsyncMock()
         mock_client.query = AsyncMock()
         mock_client.interrupt = AsyncMock()
 
