@@ -34,6 +34,7 @@ from pathlib import Path
 
 from tracecat.agent.common.config import (
     CONTROL_SOCKET_NAME,
+    TRACECAT__AGENT_MCP_SOCKET_PATH,
     TRACECAT__DISABLE_NSJAIL,
 )
 from tracecat.agent.common.exceptions import (
@@ -122,6 +123,7 @@ async def spawn_jailed_runtime(
     socket_dir: Path,
     init_payload_path: Path,
     llm_socket_path: Path | None = None,
+    mcp_socket_path: Path | None = None,
     config: AgentSandboxConfig | None = None,
     nsjail_path: str = TRACECAT__SANDBOX_NSJAIL_PATH,
     rootfs_path: str = TRACECAT__SANDBOX_ROOTFS_PATH,
@@ -151,6 +153,7 @@ async def spawn_jailed_runtime(
         socket_dir: Directory containing the per-job control socket (control.sock).
         llm_socket_path: Optional path to the LLM socket for proxied LLM gateway
             access.
+        mcp_socket_path: Optional path to the trusted MCP socket.
         init_payload_path: Path to the per-job runtime init payload file.
         config: Optional sandbox configuration. Defaults to standard agent config.
         nsjail_path: Path to the nsjail binary.
@@ -196,6 +199,7 @@ async def spawn_jailed_runtime(
         return await _spawn_direct_runtime(
             socket_dir=socket_dir,
             llm_socket_path=llm_socket_path,
+            mcp_socket_path=mcp_socket_path,
             init_payload_path=init_payload_path,
             control_socket_required=control_socket_required,
             pipe_stdin=pipe_stdin,
@@ -214,6 +218,7 @@ async def spawn_jailed_runtime(
     return await _spawn_nsjail_runtime(
         socket_dir=socket_dir,
         llm_socket_path=llm_socket_path,
+        mcp_socket_path=mcp_socket_path,
         init_payload_path=init_payload_path,
         config=config,
         nsjail_path=nsjail_path,
@@ -254,6 +259,7 @@ async def _spawn_direct_runtime(
     *,
     socket_dir: Path,
     llm_socket_path: Path | None,
+    mcp_socket_path: Path | None,
     init_payload_path: Path,
     control_socket_required: bool,
     pipe_stdin: bool,
@@ -270,7 +276,6 @@ async def _spawn_direct_runtime(
     leaking into the subprocess. Only passes socket paths and essential
     Python configuration.
     """
-    from tracecat.agent.common.config import TRUSTED_MCP_SOCKET_PATH
     from tracecat.agent.sandbox.config import (
         AGENT_SANDBOX_BASE_ENV,
         JAILED_CONTROL_SOCKET_PATH,
@@ -289,7 +294,7 @@ async def _spawn_direct_runtime(
     logger.info(
         "Spawning agent runtime (direct subprocess - DEVELOPMENT MODE)",
         control_socket_path=str(JAILED_CONTROL_SOCKET_PATH),
-        mcp_socket_path=str(TRUSTED_MCP_SOCKET_PATH),
+        mcp_socket_path=str(mcp_socket_path or TRACECAT__AGENT_MCP_SOCKET_PATH),
     )
 
     # Use minimal base environment instead of inheriting full host env
@@ -307,6 +312,9 @@ async def _spawn_direct_runtime(
         # If the runtime uses LLMBridge (internet access disabled), it must connect
         # to the orchestrator-side LLM socket.
         env["TRACECAT__AGENT_LLM_SOCKET_PATH"] = str(llm_socket_path)
+    env["TRACECAT__AGENT_MCP_SOCKET_PATH"] = str(
+        mcp_socket_path or TRACECAT__AGENT_MCP_SOCKET_PATH
+    )
     for key in ("TRACECAT__LITELLM_BASE_URL",):
         if value := os.environ.get(key):
             env[key] = value
@@ -337,6 +345,7 @@ async def _spawn_direct_runtime(
 async def _spawn_nsjail_runtime(
     socket_dir: Path,
     llm_socket_path: Path | None,
+    mcp_socket_path: Path | None,
     init_payload_path: Path,
     config: AgentSandboxConfig,
     nsjail_path: str,
@@ -365,6 +374,10 @@ async def _spawn_nsjail_runtime(
         raise AgentSandboxExecutionError(f"nsjail binary not found: {nsjail}")
     if llm_socket_path is not None and not llm_socket_path.exists():
         raise AgentSandboxExecutionError(f"LLM socket not found: {llm_socket_path}")
+    if mcp_socket_path is None:
+        mcp_socket_path = TRACECAT__AGENT_MCP_SOCKET_PATH
+    if not mcp_socket_path.exists():
+        raise AgentSandboxExecutionError(f"MCP socket not found: {mcp_socket_path}")
 
     # Get site-packages and tracecat package directories
     site_packages_dir = _get_site_packages_dir()
@@ -404,6 +417,7 @@ async def _spawn_nsjail_runtime(
             config=config,
             site_packages_dir=site_packages_dir,
             llm_socket_path=llm_socket_path,
+            mcp_socket_path=mcp_socket_path,
             mount_control_socket=control_socket_required,
             control_socket_path=socket_dir / CONTROL_SOCKET_NAME
             if control_socket_required

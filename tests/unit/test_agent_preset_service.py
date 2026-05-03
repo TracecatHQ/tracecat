@@ -27,6 +27,7 @@ from tracecat.agent.skill.schemas import (
     SkillDraftUpsertTextFileOp,
 )
 from tracecat.agent.skill.service import SkillService
+from tracecat.agent.subagents import AgentsConfig
 from tracecat.agent.types import AgentConfig
 from tracecat.auth.types import Role
 from tracecat.db.models import (
@@ -2218,6 +2219,86 @@ class TestAgentPresetService:
 
         preset = await agent_preset_service.create_preset(agent_preset_create_params)
         assert preset.tool_approvals == {"tools.test.test_action": True}
+
+    async def test_create_parent_rejects_subagent_with_tool_approvals(
+        self,
+        agent_preset_service: AgentPresetService,
+        agent_preset_create_params: AgentPresetCreate,
+        registry_actions: list[RegistryAction],
+    ) -> None:
+        """Preset-backed subagents cannot require manual approval in v1."""
+        child_params = agent_preset_create_params.model_copy(
+            update={
+                "name": "Approval Child",
+                "slug": "approval-child",
+                "actions": ["tools.test.test_action"],
+                "tool_approvals": {"tools.test.test_action": True},
+            }
+        )
+        child = await agent_preset_service.create_preset(child_params)
+
+        parent_params = agent_preset_create_params.model_copy(
+            update={
+                "name": "Parent Agent",
+                "slug": "parent-agent",
+                "agents": AgentsConfig.model_validate(
+                    {
+                        "enabled": True,
+                        "subagents": [{"preset": child.slug}],
+                    }
+                ),
+            }
+        )
+
+        with pytest.raises(
+            TracecatValidationError,
+            match=(
+                "Subagent preset 'approval-child' uses manual approvals, "
+                "which are not supported for subagents yet."
+            ),
+        ):
+            await agent_preset_service.create_preset(parent_params)
+
+    async def test_update_parent_rejects_subagent_with_tool_approvals(
+        self,
+        agent_preset_service: AgentPresetService,
+        agent_preset_create_params: AgentPresetCreate,
+        registry_actions: list[RegistryAction],
+    ) -> None:
+        """Existing parent presets cannot attach approval-gated subagents."""
+        child_params = agent_preset_create_params.model_copy(
+            update={
+                "name": "Approval Child",
+                "slug": "approval-child",
+                "actions": ["tools.test.test_action"],
+                "tool_approvals": {"tools.test.test_action": True},
+            }
+        )
+        child = await agent_preset_service.create_preset(child_params)
+        parent = await agent_preset_service.create_preset(
+            agent_preset_create_params.model_copy(
+                update={"name": "Parent Agent", "slug": "parent-agent"}
+            )
+        )
+
+        with pytest.raises(
+            TracecatValidationError,
+            match=(
+                "Subagent preset 'approval-child' uses manual approvals, "
+                "which are not supported for subagents yet."
+            ),
+        ):
+            await agent_preset_service.update_preset(
+                parent,
+                AgentPresetUpdate(
+                    agents=AgentsConfig.model_validate(
+                        {
+                            "enabled": True,
+                            "subagents": [{"preset": child.slug}],
+                        }
+                    )
+                ),
+            )
 
     async def test_update_preset_tool_approvals(
         self,

@@ -2752,6 +2752,11 @@ class AgentSession(WorkspaceModel):
         nullable=True,
         doc="Pinned agent preset version used for this session (if any)",
     )
+    agents_binding: Mapped[dict[str, Any] | None] = mapped_column(
+        JSONB,
+        nullable=True,
+        doc="Normalized subagent bindings for this session",
+    )
     # Agent harness fields
     harness_type: Mapped[str | None] = mapped_column(
         String(50),
@@ -3337,6 +3342,13 @@ class AgentPreset(WorkspaceModel):
         nullable=True,
         doc="MCP integrations to use",
     )
+    agents: Mapped[dict[str, Any]] = mapped_column(
+        JSONB,
+        default=lambda: {"enabled": False},
+        server_default=text("'{\"enabled\": false}'::jsonb"),
+        nullable=False,
+        doc="Subagent configuration for this preset",
+    )
     retries: Mapped[int] = mapped_column(
         Integer, default=3, nullable=False, doc="Maximum retry attempts per run"
     )
@@ -3453,6 +3465,13 @@ class AgentPresetVersion(WorkspaceModel):
         JSONB,
         nullable=True,
         doc="MCP integrations to use",
+    )
+    agents: Mapped[dict[str, Any]] = mapped_column(
+        JSONB,
+        default=lambda: {"enabled": False},
+        server_default=text("'{\"enabled\": false}'::jsonb"),
+        nullable=False,
+        doc="Subagent configuration for this preset version",
     )
     retries: Mapped[int] = mapped_column(
         Integer, default=3, nullable=False, doc="Maximum retry attempts per run"

@@ -15,6 +15,7 @@ with workflow.unsafe.imports_passed_through():
 
     from tracecat import config
     from tracecat.agent.common.stream_types import HarnessType
+    from tracecat.agent.common.types import SandboxAgentConfig, SandboxSubagentConfig
     from tracecat.agent.executor.activity import (
         AgentExecutorInput,
         ApprovedToolCall,
@@ -22,6 +23,7 @@ with workflow.unsafe.imports_passed_through():
         run_agent_activity,
     )
     from tracecat.agent.executor.schemas import ToolExecutionResult
+    from tracecat.agent.llm_routing import get_litellm_route_model
     from tracecat.agent.mcp.executor import (
         AGENT_TOOL_PRIORITY,
         build_run_input,
@@ -32,7 +34,11 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.agent.parsers import try_parse_json
     from tracecat.agent.preset.activities import (
         ResolveAgentPresetConfigActivityInput,
+        ResolveAgentsConfigActivityInput,
+        ResolveAgentsConfigActivityResult,
+        ResolvedSubagentConfig,
         resolve_agent_preset_config_activity,
+        resolve_agents_config_activity,
         resolve_custom_model_provider_config_activity,
     )
     from tracecat.agent.schemas import AgentOutput, RunAgentArgs, RunUsage, ToolFilters
@@ -46,8 +52,10 @@ with workflow.unsafe.imports_passed_through():
         reconcile_tool_results_activity,
     )
     from tracecat.agent.session.types import AgentSessionEntity
+    from tracecat.agent.subagents import has_manual_tool_approvals
     from tracecat.agent.tokens import (
         InternalToolContext,
+        LLMRouteClaim,
         mint_llm_token,
         mint_mcp_token,
     )
@@ -69,7 +77,9 @@ with workflow.unsafe.imports_passed_through():
     )
     from tracecat_ee.agent.activities import (
         AgentActivities,
-        BuildToolDefsArgs,
+        BuildAgentScopeToolDefsArgs,
+        BuildAgentToolDefsArgs,
+        BuildToolDefsResult,
     )
     from tracecat_ee.agent.approvals.service import ApprovalManager, ApprovalMap
     from tracecat_ee.agent.context import AgentContext
@@ -101,6 +111,41 @@ def _build_approved_tool_run_input(
         run_id=run_id,
         execution_id=execution_id,
         logical_time=logical_time,
+    )
+
+
+def _merge_registry_locks(*locks: RegistryLock) -> RegistryLock:
+    origins: dict[str, str] = {}
+    actions: dict[str, str] = {}
+    for lock in locks:
+        for origin, version in lock.origins.items():
+            if origin in origins and origins[origin] != version:
+                raise ApplicationError(
+                    f"Conflicting registry lock versions for origin '{origin}'",
+                    non_retryable=True,
+                )
+            origins[origin] = version
+        actions.update(lock.actions)
+    return RegistryLock(origins=origins, actions=actions)
+
+
+def _llm_route_for_config(
+    cfg: AgentConfig,
+    *,
+    use_workspace_credentials: bool,
+) -> tuple[str, LLMRouteClaim]:
+    route_model = get_litellm_route_model(
+        model_provider=cfg.model_provider,
+        model_name=cfg.model_name,
+        passthrough=cfg.passthrough,
+    )
+    return route_model, LLMRouteClaim(
+        model=cfg.model_name,
+        provider=cfg.model_provider,
+        catalog_id=cfg.catalog_id,
+        base_url=cfg.base_url,
+        model_settings=cfg.model_settings or {},
+        use_workspace_credentials=use_workspace_credentials,
     )
 
 
@@ -186,7 +231,7 @@ class DurableAgentWorkflow:
         # Session state for Claude SDK resume
         self._sdk_session_id: str | None = None
         self._sdk_session_data: str | None = None
-        # Registry lock for action resolution (set after build_tool_definitions)
+        # Registry lock for action resolution (set after tool compilation)
         self._registry_lock: RegistryLock | None = None
 
     def _upsert_tracecat_search_attributes(self) -> None:
@@ -239,6 +284,29 @@ class DurableAgentWorkflow:
         if updates:
             workflow.upsert_search_attributes(updates)
 
+    async def _apply_custom_model_provider_config(
+        self,
+        cfg: AgentConfig,
+    ) -> None:
+        if cfg.model_provider != "custom-model-provider":
+            return
+        result = await workflow.execute_activity(
+            resolve_custom_model_provider_config_activity,
+            args=(self.role, cfg.catalog_id),
+            start_to_close_timeout=timedelta(seconds=30),
+            retry_policy=RETRY_POLICIES["activity:fail_fast"],
+        )
+        cfg.base_url = result.base_url
+        cfg.passthrough = result.passthrough
+        if result.model_name:
+            cfg.model_name = result.model_name
+        logger.info(
+            "Applied custom model provider runtime config",
+            passthrough=cfg.passthrough,
+            has_model_name_override=result.model_name is not None,
+            has_base_url=bool(cfg.base_url),
+        )
+
     async def _build_config(self, args: AgentWorkflowArgs) -> AgentConfig:
         if args.agent_args.preset_slug:
             activity_input = (
@@ -286,24 +354,148 @@ class DurableAgentWorkflow:
                 )
             cfg = args.agent_args.config
 
-        if cfg.model_provider == "custom-model-provider":
-            result = await workflow.execute_activity(
-                resolve_custom_model_provider_config_activity,
-                args=(self.role, cfg.catalog_id),
-                start_to_close_timeout=timedelta(seconds=30),
+        await self._apply_custom_model_provider_config(cfg)
+        return cfg
+
+    async def _resolve_agents_config(
+        self,
+        args: AgentWorkflowArgs,
+        cfg: AgentConfig,
+    ) -> ResolveAgentsConfigActivityResult:
+        if not cfg.agents.enabled:
+            return ResolveAgentsConfigActivityResult()
+        if not cfg.agents.subagents:
+            return ResolveAgentsConfigActivityResult(enabled=True)
+        return await workflow.execute_activity(
+            resolve_agents_config_activity,
+            ResolveAgentsConfigActivityInput(
+                role=self.role,
+                agents=cfg.agents,
+                parent_preset_id=args.agent_preset_id,
+            ),
+            start_to_close_timeout=timedelta(seconds=30),
+            retry_policy=RETRY_POLICIES["activity:fail_fast"],
+        )
+
+    async def _compile_agent_scopes(
+        self,
+        *,
+        cfg: AgentConfig,
+        subagents: list[ResolvedSubagentConfig],
+        internal_tool_context: InternalToolContext | None,
+        use_workspace_credentials: bool,
+    ) -> tuple[
+        BuildToolDefsResult,
+        RegistryLock,
+        list[SandboxSubagentConfig],
+        dict[str, LLMRouteClaim],
+    ]:
+        scope_args = [
+            BuildAgentScopeToolDefsArgs(
+                scope="root",
+                tool_filters=ToolFilters(
+                    namespaces=cfg.namespaces,
+                    actions=cfg.actions,
+                ),
+                tool_approvals=cfg.tool_approvals,
+                mcp_servers=cfg.mcp_servers,
+                internal_tool_context=internal_tool_context,
+            )
+        ]
+        prepared_subagents: list[tuple[ResolvedSubagentConfig, AgentConfig]] = []
+        for subagent in subagents:
+            child_cfg = agent_config_from_payload(subagent.config)
+            if has_manual_tool_approvals(child_cfg.tool_approvals):
+                raise ApplicationError(
+                    f"Subagent preset '{subagent.binding.preset}' uses manual approvals, "
+                    "which are not supported for subagents yet.",
+                    non_retryable=True,
+                )
+            await self._apply_custom_model_provider_config(child_cfg)
+            prepared_subagents.append((subagent, child_cfg))
+            scope_args.append(
+                BuildAgentScopeToolDefsArgs(
+                    scope=subagent.alias,
+                    tool_filters=ToolFilters(
+                        namespaces=child_cfg.namespaces,
+                        actions=child_cfg.actions,
+                    ),
+                    tool_approvals=child_cfg.tool_approvals,
+                    mcp_servers=child_cfg.mcp_servers,
+                    fail_on_mcp_discovery_error=True,
+                )
+            )
+
+        try:
+            build_result = await workflow.execute_activity_method(
+                AgentActivities.build_agent_tool_definitions,
+                arg=BuildAgentToolDefsArgs(
+                    role=self.role,
+                    scopes=scope_args,
+                ),
+                start_to_close_timeout=timedelta(seconds=120 * max(1, len(scope_args))),
                 retry_policy=RETRY_POLICIES["activity:fail_fast"],
             )
-            cfg.base_url = result.base_url
-            cfg.passthrough = result.passthrough
-            if result.model_name:
-                cfg.model_name = result.model_name
-            logger.info(
-                "Applied custom model provider runtime config",
-                passthrough=cfg.passthrough,
-                has_model_name_override=result.model_name is not None,
-                has_base_url=bool(cfg.base_url),
+        except ActivityError as e:
+            if isinstance(e.cause, ApplicationError):
+                raise e.cause from e
+            raise
+
+        root_build_result = build_result.scopes.get("root")
+        if root_build_result is None:
+            raise ApplicationError(
+                "Batched agent tool compilation did not return the root scope",
+                non_retryable=True,
             )
-        return cfg
+
+        compiled: list[SandboxSubagentConfig] = []
+        registry_locks = [root_build_result.registry_lock]
+        llm_routes: dict[str, LLMRouteClaim] = {}
+
+        info = workflow.info()
+        for subagent, child_cfg in prepared_subagents:
+            child_build_result = build_result.scopes.get(subagent.alias)
+            if child_build_result is None:
+                raise ApplicationError(
+                    f"Batched agent tool compilation did not return scope '{subagent.alias}'",
+                    non_retryable=True,
+                )
+            route_model, route_claim = _llm_route_for_config(
+                child_cfg,
+                use_workspace_credentials=use_workspace_credentials,
+            )
+            llm_routes[route_model] = route_claim
+
+            mcp_auth_token = mint_mcp_token(
+                workspace_id=self.workspace_id,
+                organization_id=self.organization_id,
+                user_id=self.role.user_id,
+                allowed_actions=list(child_build_result.tool_definitions.keys()),
+                session_id=self.session_id,
+                parent_agent_workflow_id=info.workflow_id,
+                parent_agent_run_id=info.run_id,
+                user_mcp_servers=child_build_result.user_mcp_claims,
+                allowed_internal_tools=child_build_result.allowed_internal_tools,
+            )
+            compiled.append(
+                SandboxSubagentConfig(
+                    alias=subagent.alias,
+                    description=subagent.description,
+                    prompt=subagent.prompt,
+                    max_turns=subagent.max_turns,
+                    config=SandboxAgentConfig.from_agent_config(child_cfg),
+                    mcp_auth_token=mcp_auth_token,
+                    allowed_actions=child_build_result.tool_definitions,
+                )
+            )
+            registry_locks.append(child_build_result.registry_lock)
+
+        return (
+            root_build_result,
+            _merge_registry_locks(*registry_locks),
+            compiled,
+            llm_routes,
+        )
 
     @workflow.run
     async def run(self, args: AgentWorkflowArgs) -> AgentOutput:
@@ -378,6 +570,7 @@ class DurableAgentWorkflow:
         curr_run_id = AgentWorkflowID.from_workflow_id(
             workflow.info().workflow_id
         ).session_id
+        agents_result = await self._resolve_agents_config(args, cfg)
 
         # Create or get the AgentSession - idempotent, safe to call on resume
         # Persist the active workflow token as curr_run_id for approval lookups.
@@ -394,6 +587,7 @@ class DurableAgentWorkflow:
                 tools=args.tools,
                 agent_preset_id=args.agent_preset_id,
                 agent_preset_version_id=args.agent_preset_version_id,
+                agents_binding=agents_result.to_agents_binding(),
                 harness_type=HarnessType(self.harness_type),
                 curr_run_id=curr_run_id,
                 initial_user_prompt=args.agent_args.user_prompt,
@@ -415,30 +609,20 @@ class DurableAgentWorkflow:
                 entity_type="agent_preset_builder",
             )
 
-        # Resolve tool definitions and registry lock from registry
-        # Also discovers user MCP tools if configured
-        try:
-            build_result = await workflow.execute_activity_method(
-                AgentActivities.build_tool_definitions,
-                arg=BuildToolDefsArgs(
-                    role=self.role,
-                    tool_filters=ToolFilters(
-                        namespaces=cfg.namespaces,
-                        actions=cfg.actions,
-                    ),
-                    tool_approvals=cfg.tool_approvals,
-                    mcp_servers=cfg.mcp_servers,
-                    internal_tool_context=internal_tool_context,
-                ),
-                start_to_close_timeout=timedelta(seconds=120),
-                retry_policy=RETRY_POLICIES["activity:fail_fast"],
-            )
-        except ActivityError as e:
-            if isinstance(e.cause, ApplicationError):
-                raise e.cause from e
-            raise
+        # Resolve root and subagent tool definitions in one activity, while
+        # preserving partitioned outputs for scope-specific tokens and locks.
+        (
+            build_result,
+            self._registry_lock,
+            compiled_subagents,
+            subagent_llm_routes,
+        ) = await self._compile_agent_scopes(
+            cfg=cfg,
+            subagents=agents_result.subagents,
+            internal_tool_context=internal_tool_context,
+            use_workspace_credentials=False,
+        )
         allowed_actions = build_result.tool_definitions
-        self._registry_lock = build_result.registry_lock
         user_mcp_claims = build_result.user_mcp_claims
         allowed_internal_tools = build_result.allowed_internal_tools
 
@@ -483,6 +667,16 @@ class DurableAgentWorkflow:
             allowed_internal_tools=allowed_internal_tools,
             internal_tool_context=internal_tool_context,
         )
+        root_route_model, _ = _llm_route_for_config(
+            cfg,
+            use_workspace_credentials=False,
+        )
+        llm_routes = {
+            route_model: route_claim
+            for route_model, route_claim in subagent_llm_routes.items()
+            if route_model != root_route_model
+        }
+
         llm_gateway_auth_token = mint_llm_token(
             workspace_id=self.workspace_id,
             organization_id=self.organization_id,
@@ -492,6 +686,8 @@ class DurableAgentWorkflow:
             catalog_id=cfg.catalog_id,
             base_url=cfg.base_url,
             model_settings=cfg.model_settings,
+            use_workspace_credentials=False,
+            routes=llm_routes,
         )
 
         # Prepare executor input
@@ -504,6 +700,7 @@ class DurableAgentWorkflow:
             mcp_auth_token=mcp_auth_token,
             llm_gateway_auth_token=llm_gateway_auth_token,
             allowed_actions=allowed_actions,
+            subagents=compiled_subagents,
             sdk_session_id=self._sdk_session_id,
             sdk_session_data=self._sdk_session_data,
             is_fork=is_fork,
@@ -544,8 +741,16 @@ class DurableAgentWorkflow:
                         )
                         for item in result.approval_items
                     ]
+                    request_metadata = {
+                        item.id: item.metadata
+                        for item in result.approval_items
+                        if item.metadata
+                    }
                     # Persist approval requests to DB (atomic with chat messages)
-                    await self.approvals.prepare(tool_call_parts)
+                    await self.approvals.prepare(
+                        tool_call_parts,
+                        request_metadata=request_metadata,
+                    )
                 # Wait for approval signal
                 await self.approvals.wait()
                 # Persist approval decisions to DB (atomic with chat messages)
@@ -595,6 +800,7 @@ class DurableAgentWorkflow:
                     mcp_auth_token=mcp_auth_token,
                     llm_gateway_auth_token=llm_gateway_auth_token,
                     allowed_actions=allowed_actions,
+                    subagents=compiled_subagents,
                     sdk_session_id=self._sdk_session_id,
                     sdk_session_data=self._sdk_session_data,
                     is_approval_continuation=True,

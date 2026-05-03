@@ -55,6 +55,9 @@ from tracecat.agent.session.schemas import (
 )
 from tracecat.agent.session.title_generator import generate_session_title
 from tracecat.agent.session.types import AgentSessionEntity
+from tracecat.agent.subagents import (
+    ResolvedAgentsConfig,
+)
 from tracecat.agent.types import AgentConfig, ClaudeSDKMessageTA, StreamKey
 from tracecat.audit.logger import audit_log
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
@@ -178,6 +181,11 @@ class AgentSessionService(BaseWorkspaceService):
             tools=tools,
             agent_preset_id=logical_preset_id,
             agent_preset_version_id=pinned_preset_version_id,
+            agents_binding=(
+                args.agents_binding.model_dump(mode="json")
+                if args.agents_binding is not None
+                else None
+            ),
             # Harness
             harness_type=args.harness_type,
         )
@@ -261,6 +269,21 @@ class AgentSessionService(BaseWorkspaceService):
         self.session.add(agent_session)
         await self.session.commit()
         return version.id
+
+    async def _resolve_agents_binding_for_preset_version_id(
+        self, preset_version_id: uuid.UUID | None
+    ) -> dict[str, Any] | None:
+        """Resolve the normalized subagent binding for a pinned preset version."""
+        if preset_version_id is None:
+            return None
+
+        preset_service = AgentPresetService(self.session, self.role)
+        version = await preset_service.resolve_agent_preset_version(
+            preset_version_id=preset_version_id
+        )
+        return ResolvedAgentsConfig.model_validate(version.agents).model_dump(
+            mode="json"
+        )
 
     async def get_session(
         self,
@@ -440,6 +463,12 @@ class AgentSessionService(BaseWorkspaceService):
             The updated AgentSession.
         """
         set_fields = params.model_dump(exclude_unset=True)
+        if "agents_binding" in set_fields:
+            set_fields["agents_binding"] = (
+                params.agents_binding.model_dump(mode="json")
+                if params.agents_binding is not None
+                else None
+            )
         preset_id_updated = "agent_preset_id" in set_fields
         version_id_updated = "agent_preset_version_id" in set_fields
         requested_preset_id = set_fields.pop(
@@ -500,6 +529,11 @@ class AgentSessionService(BaseWorkspaceService):
                     resolved_version_id = requested_version_id
                 agent_session.agent_preset_id = logical_preset_id
                 agent_session.agent_preset_version_id = resolved_version_id
+                agent_session.agents_binding = (
+                    await self._resolve_agents_binding_for_preset_version_id(
+                        resolved_version_id
+                    )
+                )
 
         # Update remaining fields if provided
         for field, value in set_fields.items():

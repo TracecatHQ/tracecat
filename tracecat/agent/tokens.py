@@ -230,6 +230,17 @@ LLM_REQUIRED_CLAIMS = (
 )
 
 
+class LLMRouteClaim(BaseModel):
+    """Immutable model route authorized by an LLM token."""
+
+    model: str
+    provider: str
+    catalog_id: uuid.UUID | None = None
+    base_url: str | None = None
+    model_settings: dict[str, Any] = Field(default_factory=dict)
+    use_workspace_credentials: bool = False
+
+
 class LLMTokenClaims(BaseModel):
     """Claims extracted from a verified LLM token.
 
@@ -283,6 +294,9 @@ class LLMTokenClaims(BaseModel):
         description="Model-specific settings passed through to the LLM provider",
     )
 
+    routes: dict[str, LLMRouteClaim] = Field(default_factory=dict)
+    """Optional request-model keyed route map for subagent model isolation."""
+
 
 def mint_llm_token(
     *,
@@ -295,6 +309,7 @@ def mint_llm_token(
     base_url: str | None = None,
     model_settings: dict[str, Any] | None = None,
     use_workspace_credentials: bool = False,
+    routes: dict[str, LLMRouteClaim] | None = None,
     ttl_seconds: int | None = None,
 ) -> str:
     """Create a signed LLM JWT for jailed agent runtime.
@@ -343,6 +358,10 @@ def mint_llm_token(
         "model_settings": model_settings or {},
         "use_workspace_credentials": use_workspace_credentials,
     }
+    if routes:
+        payload["routes"] = {
+            key: route.model_dump(mode="json") for key, route in routes.items()
+        }
 
     return jwt.encode(payload, get_service_key(), algorithm="HS256")
 

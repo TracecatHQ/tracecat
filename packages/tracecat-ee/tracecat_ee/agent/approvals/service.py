@@ -468,7 +468,12 @@ class ApprovalManager:
     async def wait(self) -> None:
         await workflow.wait_condition(lambda: self.is_ready())
 
-    async def prepare(self, approvals: list[ToolCallPart]) -> None:
+    async def prepare(
+        self,
+        approvals: list[ToolCallPart],
+        *,
+        request_metadata: dict[str, dict[str, Any]] | None = None,
+    ) -> None:
         self._approvals.clear()
         self._decision_metadata_by_tool_call_id.clear()
         self._status = ApprovalManagerStatus.IDLE
@@ -482,6 +487,7 @@ class ApprovalManager:
                 tool_call_id=approval.tool_call_id,
                 tool_name=approval.tool_name,
                 args=approval.args,
+                metadata=(request_metadata or {}).get(approval.tool_call_id),
             )
             for approval in approvals
         ]
@@ -731,6 +737,9 @@ class ApprovalManager:
                         except (json.JSONDecodeError, ValueError):
                             # Store as-is if not valid JSON
                             approval_args = {"raw_args": payload.args}
+                if payload.metadata:
+                    approval_args = approval_args or {}
+                    approval_args["_tracecat"] = payload.metadata
 
                 if existing:
                     # TODO: Do we need this path?

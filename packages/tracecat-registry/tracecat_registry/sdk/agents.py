@@ -47,6 +47,35 @@ class MCPServerConfig(TypedDict):
     """Optional: Transport type. Defaults to 'http'."""
 
 
+class SubAgentConfig(TypedDict, total=False):
+    """Preset-backed subagent exposed to an agent run."""
+
+    preset: str
+    """Required: slug of the preset to expose as a subagent."""
+
+    preset_version: int | None
+    """Optional preset version to pin."""
+
+    name: str | None
+    """Optional Agent tool alias for this subagent."""
+
+    description: str | None
+    """Optional task-selection description for this subagent."""
+
+    max_turns: int | None
+    """Optional per-invocation turn limit."""
+
+
+class AgentsConfig(TypedDict, total=False):
+    """Subagent configuration for an agent run."""
+
+    enabled: bool
+    """Whether to expose the Agent tool."""
+
+    subagents: list[SubAgentConfig]
+    """Optional preset-backed subagents callable by alias."""
+
+
 class RankableItem(TypedDict):
     id: str | int
     text: str
@@ -71,6 +100,8 @@ class AgentConfig:
     # MCP
     model_settings: dict[str, object] | None = None
     mcp_servers: list[MCPServerConfig] | None = None
+    # Subagents
+    agents: AgentsConfig | None = None
     retries: int = config.TRACECAT__AGENT_MAX_RETRIES
     deps_type: type[object] | None = None
     custom_tools: list[object] | None = None
@@ -102,6 +133,7 @@ async def run_agent(
     max_requests: int = config.TRACECAT__AGENT_MAX_REQUESTS,
     retries: int = config.TRACECAT__AGENT_MAX_RETRIES,
     base_url: str | None = None,
+    agents: AgentsConfig | None = None,
     deferred_tool_results: object | None = None,
 ) -> AgentOutput:
     """Run an AI agent with specified configuration and actions.
@@ -125,6 +157,8 @@ async def run_agent(
         max_requests: Maximum number of LLM requests per agent run.
         retries: Maximum number of retry attempts.
         base_url: Optional custom base URL for the model provider's API.
+        agents: Optional subagent configuration. Set enabled=true to expose
+            dynamic Agent calls and optionally attach preset-backed subagents.
         deferred_tool_results: Results from deferred tool calls (for continuations).
 
     Returns:
@@ -161,6 +195,7 @@ async def run_agent(
             model_settings=model_settings,
             retries=retries,
             base_url=base_url,
+            agents=agents,
         ),
         max_requests=max_requests,
         max_tool_calls=max_tool_calls,

@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import asyncio
 import os
+import socket
 from collections.abc import AsyncIterator
+from dataclasses import replace
 from pathlib import Path
 from time import perf_counter
-from typing import Any, TypedDict
+from typing import Any, TypedDict, cast
 
 import claude_agent_sdk
 import orjson
@@ -19,7 +21,9 @@ from claude_agent_sdk._errors import (
 from claude_agent_sdk._errors import CLIJSONDecodeError as SDKJSONDecodeError
 from claude_agent_sdk._internal.transport.subprocess_cli import SubprocessCLITransport
 from claude_agent_sdk._version import __version__
+from claude_agent_sdk.types import AgentDefinition, McpHttpServerConfig, McpServerConfig
 
+from tracecat.agent.common.config import TRACECAT__AGENT_MCP_BRIDGE_PORT
 from tracecat.agent.runtime.claude_code.session_paths import ClaudeSandboxPathMapping
 from tracecat.agent.sandbox.nsjail import (
     SpawnedRuntime,
@@ -28,6 +32,8 @@ from tracecat.agent.sandbox.nsjail import (
 )
 from tracecat.logger import logger
 
+_TRUSTED_MCP_BRIDGE_PATH = "/mcp"
+
 
 class ClaudeShimInitPayload(TypedDict):
     """Init payload consumed by the sandbox shim process."""
@@ -35,6 +41,7 @@ class ClaudeShimInitPayload(TypedDict):
     command: list[str]
     env: dict[str, str]
     cwd: str
+    mcp_bridge_port: int
 
 
 class SandboxedCLITransport(Transport):
@@ -97,11 +104,20 @@ class SandboxedCLITransport(Transport):
         self._connect_started_at = perf_counter()
         self._logged_first_message = False
         self._log_benchmark_phase("broker_transport_connect_start")
-        command = await self._build_claude_command()
+        mcp_bridge_port = self._mcp_bridge_port_for_runtime()
+        runtime_options = self._options_for_mcp_bridge_port(mcp_bridge_port)
+        original_options = self._options
+        try:
+            self._options = runtime_options
+            command = await self._build_claude_command()
+            env = self._build_claude_env_overlay()
+        finally:
+            self._options = original_options
         init_payload: ClaudeShimInitPayload = {
             "command": command,
-            "env": self._build_claude_env_overlay(),
+            "env": env,
             "cwd": str(self._path_mapping.runtime_cwd),
+            "mcp_bridge_port": mcp_bridge_port,
         }
         init_payload_path = self._job_dir / "claude-shim-init.json"
         await asyncio.to_thread(
@@ -259,6 +275,133 @@ class SandboxedCLITransport(Transport):
             command,
             use_jailed_paths=self._use_jailed_paths,
         )
+
+    def _mcp_bridge_port_for_runtime(self) -> int:
+        """Return the MCP bridge port for this runtime process.
+
+        Jailed runtimes have a private loopback namespace, so the configured fixed
+        port is safe there. Direct mode shares the host namespace and needs an
+        available port to avoid concurrent local runs colliding.
+        """
+        if self._use_jailed_paths:
+            return TRACECAT__AGENT_MCP_BRIDGE_PORT
+        return self._available_localhost_port()
+
+    @staticmethod
+    def _available_localhost_port() -> int:
+        """Ask the OS for an available localhost port."""
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+            sock.bind(("127.0.0.1", 0))
+            return int(sock.getsockname()[1])
+
+    @staticmethod
+    def _trusted_mcp_bridge_url(port: int) -> str:
+        return f"http://127.0.0.1:{port}{_TRUSTED_MCP_BRIDGE_PATH}"
+
+    @classmethod
+    def _is_trusted_mcp_bridge_config(cls, config: object) -> bool:
+        if not isinstance(config, dict) or config.get("type") != "http":
+            return False
+        url = config.get("url")
+        if not isinstance(url, str):
+            return False
+        headers = config.get("headers")
+        if not isinstance(headers, dict):
+            return False
+        authorization = headers.get("Authorization")
+        return (
+            isinstance(authorization, str)
+            and authorization.startswith("Bearer ")
+            and url == cls._trusted_mcp_bridge_url(TRACECAT__AGENT_MCP_BRIDGE_PORT)
+        )
+
+    @classmethod
+    def _rewrite_trusted_mcp_bridge_config(
+        cls, config: McpServerConfig, port: int
+    ) -> McpServerConfig:
+        if not cls._is_trusted_mcp_bridge_config(config):
+            return config
+        rewritten = cast(McpHttpServerConfig, dict(config))
+        rewritten["url"] = cls._trusted_mcp_bridge_url(port)
+        return rewritten
+
+    @classmethod
+    def _rewrite_mcp_servers_for_bridge_port(
+        cls,
+        mcp_servers: dict[str, McpServerConfig] | str | Path,
+        port: int,
+    ) -> dict[str, McpServerConfig] | str | Path:
+        if not isinstance(mcp_servers, dict):
+            return mcp_servers
+
+        rewritten: dict[str, McpServerConfig] = {}
+        changed = False
+        for name, config in mcp_servers.items():
+            new_config = cls._rewrite_trusted_mcp_bridge_config(config, port)
+            rewritten[name] = new_config
+            changed = changed or new_config is not config
+        return rewritten if changed else mcp_servers
+
+    @classmethod
+    def _rewrite_agent_mcp_servers_for_bridge_port(
+        cls,
+        agents: dict[str, AgentDefinition] | None,
+        port: int,
+    ) -> dict[str, AgentDefinition] | None:
+        if agents is None:
+            return agents
+
+        rewritten_agents: dict[str, AgentDefinition] = {}
+        changed = False
+        for alias, agent in agents.items():
+            mcp_servers = agent.mcpServers
+            if mcp_servers is None:
+                rewritten_agents[alias] = agent
+                continue
+
+            rewritten_entries: list[str | dict[str, Any]] = []
+            entries_changed = False
+            for entry in mcp_servers:
+                if not isinstance(entry, dict):
+                    rewritten_entries.append(entry)
+                    continue
+
+                rewritten_entry: dict[str, Any] = {}
+                entry_changed = False
+                for name, config in entry.items():
+                    new_config = cls._rewrite_trusted_mcp_bridge_config(
+                        cast(McpServerConfig, config),
+                        port,
+                    )
+                    rewritten_entry[name] = new_config
+                    entry_changed = entry_changed or new_config is not config
+                rewritten_entries.append(rewritten_entry if entry_changed else entry)
+                entries_changed = entries_changed or entry_changed
+
+            if entries_changed:
+                rewritten_agents[alias] = replace(agent, mcpServers=rewritten_entries)
+                changed = True
+            else:
+                rewritten_agents[alias] = agent
+
+        return rewritten_agents if changed else agents
+
+    def _options_for_mcp_bridge_port(
+        self,
+        mcp_bridge_port: int,
+    ) -> ClaudeAgentOptions:
+        """Return SDK options whose trusted MCP URLs use the selected bridge port."""
+        mcp_servers = self._rewrite_mcp_servers_for_bridge_port(
+            self._options.mcp_servers,
+            mcp_bridge_port,
+        )
+        agents = self._rewrite_agent_mcp_servers_for_bridge_port(
+            self._options.agents,
+            mcp_bridge_port,
+        )
+        if mcp_servers is self._options.mcp_servers and agents is self._options.agents:
+            return self._options
+        return replace(self._options, mcp_servers=mcp_servers, agents=agents)
 
     @classmethod
     def _prepare_command_for_runtime(

@@ -17,7 +17,12 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from temporalio.exceptions import ApplicationError
 from tracecat_ee.agent import activities as agent_activities
-from tracecat_ee.agent.activities import AgentActivities, BuildToolDefsArgs
+from tracecat_ee.agent.activities import (
+    AgentActivities,
+    BuildAgentScopeToolDefsArgs,
+    BuildAgentToolDefsArgs,
+    BuildToolDefsArgs,
+)
 
 from tracecat.agent.common.protocol import RuntimeInitPayload
 from tracecat.agent.common.stream_types import HarnessType
@@ -39,12 +44,14 @@ from tracecat.agent.session.activities import (
 )
 from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.agent.skill.types import ResolvedSkillRef
+from tracecat.agent.subagents import ResolvedAgentsConfig
 from tracecat.agent.tools import BuildToolsResult
-from tracecat.agent.types import AgentConfig
+from tracecat.agent.types import AgentConfig, Tool
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.exceptions import BuiltinRegistryHasNoSelectionError
 from tracecat.registry.lock.service import RegistryLockService
+from tracecat.registry.lock.types import RegistryLock
 
 
 @pytest.fixture
@@ -146,6 +153,78 @@ class TestBuildToolDefinitionsActivity:
         assert app_error.non_retryable is False
         assert app_error.details[0] == {"origin": "tracecat_registry"}
 
+    @pytest.mark.anyio
+    async def test_build_agent_tool_definitions_returns_partitioned_scopes(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        mock_role: Role,
+    ) -> None:
+        build_calls: list[list[str] | None] = []
+
+        async def mock_build_agent_tools(**kwargs: Any) -> BuildToolsResult:
+            actions = kwargs.get("actions")
+            build_calls.append(actions)
+            action_name = actions[0] if actions else "core.default"
+            return BuildToolsResult(
+                tools=[
+                    Tool(
+                        name=action_name,
+                        description=f"{action_name} tool",
+                        parameters_json_schema={"type": "object"},
+                    )
+                ],
+                collected_secrets=set(),
+            )
+
+        class _LockService:
+            async def resolve_lock_with_bindings(
+                self,
+                actions: set[str],
+            ) -> RegistryLock:
+                return RegistryLock(
+                    origins={"tracecat_registry": "test-version"},
+                    actions=dict.fromkeys(actions, "tracecat_registry"),
+                )
+
+        class _AsyncContext:
+            async def __aenter__(self) -> _LockService:
+                return _LockService()
+
+            async def __aexit__(
+                self, exc_type: object, exc: object, tb: object
+            ) -> None:
+                return None
+
+        monkeypatch.setattr(
+            agent_activities, "build_agent_tools", mock_build_agent_tools
+        )
+        monkeypatch.setattr(
+            RegistryLockService,
+            "with_session",
+            lambda: _AsyncContext(),
+        )
+
+        result = await AgentActivities().build_agent_tool_definitions(
+            BuildAgentToolDefsArgs(
+                role=mock_role,
+                scopes=[
+                    BuildAgentScopeToolDefsArgs(
+                        scope="root",
+                        tool_filters=ToolFilters(actions=["core.root"]),
+                    ),
+                    BuildAgentScopeToolDefsArgs(
+                        scope="analyst",
+                        tool_filters=ToolFilters(actions=["core.child"]),
+                    ),
+                ],
+            )
+        )
+
+        assert set(result.scopes) == {"root", "analyst"}
+        assert set(result.scopes["root"].tool_definitions) == {"core.root"}
+        assert set(result.scopes["analyst"].tool_definitions) == {"core.child"}
+        assert build_calls == [["core.root"], ["core.child"]]
+
 
 class TestCreateSessionActivity:
     """Tests for create_session_activity."""
@@ -206,6 +285,112 @@ class TestCreateSessionActivity:
 
         assert result.success is True
         assert result.session_id == mock_session_id
+
+    @pytest.mark.anyio
+    @patch("tracecat.agent.session.activities.AgentSessionService.with_session")
+    async def test_backfills_missing_agents_binding_for_existing_session(
+        self, mock_with_session, mock_role: Role, mock_session_id: uuid.UUID
+    ):
+        """Existing UI-created sessions adopt the resolved binding on first run."""
+        agents_binding = ResolvedAgentsConfig.model_validate(
+            {"enabled": True, "subagents": []}
+        )
+        input = CreateSessionInput(
+            role=mock_role,
+            session_id=mock_session_id,
+            entity_type=AgentSessionEntity.AGENT_PRESET,
+            entity_id=uuid.uuid4(),
+            agents_binding=agents_binding,
+        )
+
+        mock_agent_session = MagicMock()
+        mock_agent_session.agents_binding = None
+        mock_service = AsyncMock()
+        mock_service.get_or_create_session.return_value = (
+            mock_agent_session,
+            False,
+        )
+        mock_service.session = MagicMock()
+        mock_service.session.commit = AsyncMock()
+
+        mock_ctx = AsyncMock()
+        mock_ctx.__aenter__.return_value = mock_service
+        mock_with_session.return_value = mock_ctx
+
+        result = await create_session_activity(input)
+
+        assert result.success is True
+        assert mock_agent_session.agents_binding == agents_binding.model_dump(
+            mode="json"
+        )
+        mock_service.session.add.assert_called_once_with(mock_agent_session)
+        mock_service.session.commit.assert_awaited_once()
+
+    @pytest.mark.anyio
+    @patch("tracecat.agent.session.activities.AgentSessionService.with_session")
+    async def test_accepts_existing_session_with_equivalent_agents_binding(
+        self, mock_with_session, mock_role: Role, mock_session_id: uuid.UUID
+    ):
+        """Persisted JSONB may omit default fields while matching the request."""
+        input = CreateSessionInput(
+            role=mock_role,
+            session_id=mock_session_id,
+            entity_type=AgentSessionEntity.AGENT_PRESET,
+            entity_id=uuid.uuid4(),
+            agents_binding=ResolvedAgentsConfig(),
+        )
+
+        mock_agent_session = MagicMock()
+        mock_agent_session.agents_binding = {"enabled": False}
+        mock_service = AsyncMock()
+        mock_service.get_or_create_session.return_value = (
+            mock_agent_session,
+            False,
+        )
+
+        mock_ctx = AsyncMock()
+        mock_ctx.__aenter__.return_value = mock_service
+        mock_with_session.return_value = mock_ctx
+
+        result = await create_session_activity(input)
+
+        assert result.success is True
+        assert result.error is None
+
+    @pytest.mark.anyio
+    @patch("tracecat.agent.session.activities.AgentSessionService.with_session")
+    async def test_rejects_existing_session_with_different_agents_binding(
+        self, mock_with_session, mock_role: Role, mock_session_id: uuid.UUID
+    ):
+        """An explicit persisted binding cannot silently change between runs."""
+        input = CreateSessionInput(
+            role=mock_role,
+            session_id=mock_session_id,
+            entity_type=AgentSessionEntity.AGENT_PRESET,
+            entity_id=uuid.uuid4(),
+            agents_binding=ResolvedAgentsConfig.model_validate(
+                {"enabled": True, "subagents": []}
+            ),
+        )
+
+        mock_agent_session = MagicMock()
+        mock_agent_session.agents_binding = {"enabled": False}
+        mock_service = AsyncMock()
+        mock_service.get_or_create_session.return_value = (
+            mock_agent_session,
+            False,
+        )
+
+        mock_ctx = AsyncMock()
+        mock_ctx.__aenter__.return_value = mock_service
+        mock_with_session.return_value = mock_ctx
+
+        result = await create_session_activity(input)
+
+        assert result.success is False
+        assert (
+            result.error == "Agent session was created with a different agents binding"
+        )
 
     @pytest.mark.anyio
     @patch("tracecat.agent.session.activities.AgentSessionService.with_session")

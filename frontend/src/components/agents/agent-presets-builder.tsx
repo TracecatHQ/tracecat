@@ -3,6 +3,7 @@
 import { zodResolver } from "@hookform/resolvers/zod"
 import {
   AlertCircle,
+  Bot,
   Box,
   Braces,
   Brackets,
@@ -43,7 +44,9 @@ import type {
   AgentCustomProviderRead,
   AgentPresetCreate,
   AgentPresetRead,
+  AgentPresetReadMinimal,
   AgentPresetUpdate,
+  AttachedSubagentRef,
   SkillReadMinimal,
   SkillVersionRead,
 } from "@/client"
@@ -143,6 +146,9 @@ import { useSkills, useSkillVersions } from "@/hooks/use-skills"
 import {
   type AgentPresetFormMode,
   buildDuplicateAgentPresetPayload,
+  getSubagentPresetUnavailableReason,
+  getUnavailableSubagentPresetSlugs,
+  SUBAGENT_APPROVAL_UNAVAILABLE_MESSAGE,
 } from "@/lib/agent-presets"
 import type { ModelInfo } from "@/lib/chat"
 import { getApiErrorDetail } from "@/lib/errors"
@@ -168,6 +174,15 @@ const DATA_TYPE_OUTPUT_TYPES = [
 
 const NEW_PRESET_ID = "new"
 const DEFAULT_RETRIES = 3
+const SUBAGENT_ALIAS_REGEX = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/
+const POSITIVE_INTEGER_REGEX = /^[1-9]\d*$/
+const RESERVED_SUBAGENT_ALIASES = new Set([
+  "agent",
+  "general-purpose",
+  "root",
+  "task",
+])
+
 /**
  * Maps MCP integration slugs to provider IDs for icon lookup.
  * This handles both built-in MCP providers and custom integrations.
@@ -233,6 +248,18 @@ const agentPresetSchema = z
     actions: z.array(z.string()).default([]),
     namespaces: z.array(z.string()).default([]),
     mcpIntegrations: z.array(z.string()).default([]),
+    agentsEnabled: z.boolean().default(false),
+    subagents: z
+      .array(
+        z.object({
+          preset: z.string().default(""),
+          name: z.string().default(""),
+          description: z.string().max(1000).default(""),
+          presetVersion: z.string().default(""),
+          maxTurns: z.string().default(""),
+        })
+      )
+      .default([]),
     skills: z
       .array(
         z.object({
@@ -294,6 +321,68 @@ const agentPresetSchema = z
         }
       }
     }
+
+    if (data.agentsEnabled) {
+      const aliases = new Set<string>()
+      data.subagents.forEach((subagent, index) => {
+        const preset = subagent.preset.trim()
+        const alias = subagent.name.trim()
+        const effectiveAlias = alias || preset
+
+        if (!preset) {
+          ctx.addIssue({
+            path: ["subagents", index, "preset"],
+            code: z.ZodIssueCode.custom,
+            message: "Select a preset",
+          })
+        }
+        if (alias && !SUBAGENT_ALIAS_REGEX.test(alias)) {
+          ctx.addIssue({
+            path: ["subagents", index, "name"],
+            code: z.ZodIssueCode.custom,
+            message:
+              "Use lowercase letters, numbers, and hyphens; start and end with a letter or number",
+          })
+        }
+        if (effectiveAlias && RESERVED_SUBAGENT_ALIASES.has(effectiveAlias)) {
+          ctx.addIssue({
+            path: ["subagents", index, alias ? "name" : "preset"],
+            code: z.ZodIssueCode.custom,
+            message: "This alias is reserved",
+          })
+        }
+        if (effectiveAlias && aliases.has(effectiveAlias)) {
+          ctx.addIssue({
+            path: ["subagents", index, alias ? "name" : "preset"],
+            code: z.ZodIssueCode.custom,
+            message: "Subagent aliases must be unique",
+          })
+        }
+        if (effectiveAlias) {
+          aliases.add(effectiveAlias)
+        }
+        if (
+          subagent.presetVersion.trim() &&
+          !POSITIVE_INTEGER_REGEX.test(subagent.presetVersion.trim())
+        ) {
+          ctx.addIssue({
+            path: ["subagents", index, "presetVersion"],
+            code: z.ZodIssueCode.custom,
+            message: "Use a positive version number",
+          })
+        }
+        if (
+          subagent.maxTurns.trim() &&
+          !POSITIVE_INTEGER_REGEX.test(subagent.maxTurns.trim())
+        ) {
+          ctx.addIssue({
+            path: ["subagents", index, "maxTurns"],
+            code: z.ZodIssueCode.custom,
+            message: "Use a positive turn limit",
+          })
+        }
+      })
+    }
   })
 
 type AgentPresetFormValues = z.infer<typeof agentPresetSchema>
@@ -316,6 +405,8 @@ const DEFAULT_FORM_VALUES: AgentPresetFormValues = {
   actions: [],
   namespaces: [],
   mcpIntegrations: [],
+  agentsEnabled: false,
+  subagents: [],
   skills: [],
   toolApprovals: [],
   retries: DEFAULT_RETRIES,
@@ -483,6 +574,7 @@ export function AgentPresetsBuilder({
         preset={selectedPreset ?? null}
         mode={selectedPreset ? "edit" : "create"}
         workspaceId={workspaceId}
+        agentPresets={presets ?? []}
         actionSuggestions={actionSuggestions}
         namespaceSuggestions={namespaceSuggestions}
         enabledModelOptions={enabledModelOptions}
@@ -882,6 +974,7 @@ type AgentPresetSideTab =
   | "live-chat"
   | "assistant"
   | "configuration"
+  | "subagents"
   | "skills"
   | "channels"
   | "structured-output"
@@ -900,6 +993,10 @@ function getAgentPresetErrorTab(
 
   if (errors.skills) {
     return "skills"
+  }
+
+  if (errors.agentsEnabled || errors.subagents) {
+    return "subagents"
   }
 
   if (
@@ -1095,6 +1192,7 @@ type AgentPresetFormProps = {
   preset: AgentPresetRead | null
   mode: AgentPresetFormMode
   workspaceId: string
+  agentPresets: AgentPresetReadMinimal[]
   builderPrompt?: string
   onCreate: (payload: AgentPresetCreate) => Promise<AgentPresetRead>
   onUpdate: (
@@ -1117,6 +1215,7 @@ function AgentPresetForm({
   preset,
   mode,
   workspaceId,
+  agentPresets,
   builderPrompt,
   onCreate,
   onUpdate,
@@ -1137,6 +1236,10 @@ function AgentPresetForm({
   const [activeTab, setActiveTab] = useState<AgentPresetSideTab>("live-chat")
   const { isFeatureEnabled: isFeatureEnabledFlag } = useFeatureFlag()
   const channelsEnabled = isFeatureEnabledFlag("agent-channels")
+  const unavailableSubagentPresetSlugs = useMemo(
+    () => getUnavailableSubagentPresetSlugs(agentPresets),
+    [agentPresets]
+  )
 
   const form = useForm<AgentPresetFormValues>({
     resolver: zodResolver(agentPresetSchema),
@@ -1172,6 +1275,14 @@ function AgentPresetForm({
   } = useFieldArray({
     control: form.control,
     name: "toolApprovals",
+  })
+  const {
+    fields: subagentFields,
+    append: appendSubagent,
+    remove: removeSubagent,
+  } = useFieldArray({
+    control: form.control,
+    name: "subagents",
   })
 
   useEffect(() => {
@@ -1237,6 +1348,20 @@ function AgentPresetForm({
 
   const handleSubmit = form.handleSubmit(
     async (values) => {
+      if (values.agentsEnabled) {
+        const unavailableIndex = values.subagents.findIndex((subagent) =>
+          unavailableSubagentPresetSlugs.has(subagent.preset.trim())
+        )
+        if (unavailableIndex >= 0) {
+          form.setError(`subagents.${unavailableIndex}.preset`, {
+            type: "manual",
+            message: SUBAGENT_APPROVAL_UNAVAILABLE_MESSAGE,
+          })
+          setActiveTab("subagents")
+          return
+        }
+      }
+
       const payload = formValuesToPayload(values)
       if (mode === "edit" && preset) {
         const updated = await onUpdate(preset.id, payload)
@@ -1300,6 +1425,16 @@ function AgentPresetForm({
     })
   }, [appendToolApproval])
 
+  const handleAddSubagent = useCallback(() => {
+    appendSubagent({
+      preset: "",
+      name: "",
+      description: "",
+      presetVersion: "",
+      maxTurns: "",
+    })
+  }, [appendSubagent])
+
   const handleAddSkillBinding = useCallback(
     (binding: SkillBindingFormValue) => {
       appendSkillBinding(binding)
@@ -1347,6 +1482,7 @@ function AgentPresetForm({
               channelsEnabled={channelsEnabled}
               preset={preset}
               workspaceId={workspaceId}
+              agentPresets={agentPresets}
               builderPrompt={builderPrompt}
               form={form}
               isSaving={isSaving}
@@ -1362,6 +1498,9 @@ function AgentPresetForm({
               toolApprovalFields={toolApprovalFields}
               onAddToolApproval={handleAddToolApproval}
               onRemoveToolApproval={removeToolApproval}
+              subagentFields={subagentFields}
+              onAddSubagent={handleAddSubagent}
+              onRemoveSubagent={removeSubagent}
             />
           </ResizablePanel>
         </ResizablePanelGroup>
@@ -1553,6 +1692,7 @@ function AgentPresetRightPanel({
   channelsEnabled,
   preset,
   workspaceId,
+  agentPresets,
   builderPrompt,
   form,
   isSaving,
@@ -1568,12 +1708,16 @@ function AgentPresetRightPanel({
   toolApprovalFields,
   onAddToolApproval,
   onRemoveToolApproval,
+  subagentFields,
+  onAddSubagent,
+  onRemoveSubagent,
 }: {
   activeTab: AgentPresetSideTab
   onTabChange: (tab: AgentPresetSideTab) => void
   channelsEnabled: boolean
   preset: AgentPresetRead | null
   workspaceId: string
+  agentPresets: AgentPresetReadMinimal[]
   builderPrompt?: string
   form: UseFormReturn<AgentPresetFormValues>
   isSaving: boolean
@@ -1589,6 +1733,9 @@ function AgentPresetRightPanel({
   toolApprovalFields: Array<{ id: string }>
   onAddToolApproval: () => void
   onRemoveToolApproval: (index: number) => void
+  subagentFields: Array<{ id: string }>
+  onAddSubagent: () => void
+  onRemoveSubagent: (index: number) => void
 }) {
   return (
     <div className="flex h-full flex-col overflow-hidden">
@@ -1620,6 +1767,13 @@ function AgentPresetRightPanel({
               >
                 <SlidersHorizontal className="mr-2 size-4" />
                 <span>Tools</span>
+              </TabsTrigger>
+              <TabsTrigger
+                className="flex h-full min-w-20 items-center justify-center rounded-none px-3 text-xs data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+                value="subagents"
+              >
+                <Bot className="mr-2 size-4" />
+                <span>Subagents</span>
               </TabsTrigger>
               <TabsTrigger
                 className="flex h-full min-w-20 items-center justify-center rounded-none px-3 text-xs data-[state=active]:bg-transparent data-[state=active]:shadow-none"
@@ -1687,6 +1841,18 @@ function AgentPresetRightPanel({
               toolApprovalFields={toolApprovalFields}
               onAddToolApproval={onAddToolApproval}
               onRemoveToolApproval={onRemoveToolApproval}
+            />
+          </TabsContent>
+
+          <TabsContent value="subagents" className="mt-0 h-full">
+            <AgentPresetSubagentsPanel
+              form={form}
+              isSaving={isSaving}
+              parentPreset={preset}
+              agentPresets={agentPresets}
+              subagentFields={subagentFields}
+              onAddSubagent={onAddSubagent}
+              onRemoveSubagent={onRemoveSubagent}
             />
           </TabsContent>
 
@@ -2188,6 +2354,318 @@ function AgentPresetConfigurationPanel({
                   )
                 })}
               </div>
+            </div>
+          )}
+        </section>
+      </div>
+    </ScrollArea>
+  )
+}
+
+function AgentPresetSubagentsPanel({
+  form,
+  isSaving,
+  parentPreset,
+  agentPresets,
+  subagentFields,
+  onAddSubagent,
+  onRemoveSubagent,
+}: {
+  form: UseFormReturn<AgentPresetFormValues>
+  isSaving: boolean
+  parentPreset: AgentPresetRead | null
+  agentPresets: AgentPresetReadMinimal[]
+  subagentFields: Array<{ id: string }>
+  onAddSubagent: () => void
+  onRemoveSubagent: (index: number) => void
+}) {
+  const agentsEnabled = form.watch("agentsEnabled")
+  const presetOptions = useMemo(
+    () =>
+      agentPresets
+        .filter((preset) => preset.id !== parentPreset?.id)
+        .sort((a, b) => a.name.localeCompare(b.name)),
+    [agentPresets, parentPreset?.id]
+  )
+
+  return (
+    <ScrollArea className="h-full">
+      <div className="flex flex-col gap-8 px-6 py-6 pb-20 text-sm">
+        <section className="space-y-4">
+          <div className="overflow-hidden rounded-lg border">
+            <div className="flex items-start justify-between gap-4 px-4 py-3">
+              <div className="space-y-1">
+                <label
+                  htmlFor="enable-subagents"
+                  className="text-sm font-medium leading-none"
+                >
+                  Agent tool
+                </label>
+                <p className="text-xs text-muted-foreground">
+                  Adds Claude's Agent tool. Dynamic subagents are enabled by
+                  default and inherit this agent's tools, MCP integrations,
+                  approvals, and sandbox policy.
+                </p>
+              </div>
+              <Switch
+                id="enable-subagents"
+                checked={agentsEnabled}
+                onCheckedChange={(checked) =>
+                  form.setValue("agentsEnabled", checked, {
+                    shouldDirty: true,
+                    shouldValidate: true,
+                  })
+                }
+                disabled={isSaving}
+              />
+            </div>
+          </div>
+        </section>
+
+        <Separator />
+
+        <section className="space-y-4">
+          <div className="flex items-center justify-between gap-4">
+            <div className="space-y-1">
+              <p className="text-sm font-medium">Preset subagents</p>
+              <p className="text-xs text-muted-foreground">
+                Attach named preset agents that the parent can invoke with
+                explicit descriptions and turn limits.
+              </p>
+            </div>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={onAddSubagent}
+              disabled={
+                isSaving || !agentsEnabled || presetOptions.length === 0
+              }
+            >
+              <Plus className="mr-2 size-4" />
+              Add preset
+            </Button>
+          </div>
+
+          {!agentsEnabled ? (
+            <p className="rounded-md border border-dashed px-3 py-4 text-xs text-muted-foreground">
+              Enable the Agent tool to allow dynamic subagents or attach preset
+              subagents.
+            </p>
+          ) : presetOptions.length === 0 ? (
+            <p className="rounded-md border border-dashed px-3 py-4 text-xs text-muted-foreground">
+              Create another agent preset first, then attach it here. Dynamic
+              subagents are already available while the Agent tool is enabled.
+            </p>
+          ) : subagentFields.length === 0 ? (
+            <p className="rounded-md border border-dashed px-3 py-4 text-xs text-muted-foreground">
+              No preset subagents attached. Dynamic subagents can still run and
+              inherit this agent's current scopes.
+            </p>
+          ) : (
+            <div className="space-y-4">
+              {subagentFields.map((item, index) => {
+                const selectedPreset = form.watch(`subagents.${index}.preset`)
+                const selectedPresetIsMissing =
+                  selectedPreset.length > 0 &&
+                  !presetOptions.some(
+                    (preset) => preset.slug === selectedPreset
+                  )
+
+                return (
+                  <div
+                    key={item.id}
+                    className="space-y-4 rounded-lg border px-4 py-4"
+                  >
+                    <div className="flex items-start justify-between gap-4">
+                      <div className="min-w-0 flex-1 space-y-4">
+                        <FormField
+                          control={form.control}
+                          name={`subagents.${index}.preset`}
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>Preset</FormLabel>
+                              <Select
+                                value={field.value}
+                                onValueChange={field.onChange}
+                                disabled={isSaving || !agentsEnabled}
+                              >
+                                <FormControl>
+                                  <SelectTrigger>
+                                    <SelectValue placeholder="Select preset" />
+                                  </SelectTrigger>
+                                </FormControl>
+                                <SelectContent>
+                                  {selectedPresetIsMissing ? (
+                                    <SelectItem value={selectedPreset}>
+                                      {selectedPreset} unavailable
+                                    </SelectItem>
+                                  ) : null}
+                                  {presetOptions.map((preset) => {
+                                    const unavailableReason =
+                                      getSubagentPresetUnavailableReason(preset)
+                                    const optionLabel = (
+                                      <span className="flex min-w-0 items-center gap-2">
+                                        <span className="min-w-0 truncate">
+                                          {preset.name}
+                                        </span>
+                                        <span className="min-w-0 truncate text-xs text-muted-foreground">
+                                          {preset.slug}
+                                        </span>
+                                        {unavailableReason ? (
+                                          <span className="ml-auto shrink-0 rounded border border-border px-1.5 py-0.5 text-[10px] uppercase text-muted-foreground">
+                                            Approvals
+                                          </span>
+                                        ) : null}
+                                      </span>
+                                    )
+
+                                    if (unavailableReason) {
+                                      return (
+                                        <Tooltip key={preset.id}>
+                                          <TooltipTrigger asChild>
+                                            <SelectItem
+                                              value={preset.slug}
+                                              disabled
+                                              className="data-[disabled]:pointer-events-auto data-[disabled]:opacity-60"
+                                            >
+                                              {optionLabel}
+                                            </SelectItem>
+                                          </TooltipTrigger>
+                                          <TooltipContent
+                                            side="right"
+                                            className="max-w-xs"
+                                          >
+                                            {unavailableReason}
+                                          </TooltipContent>
+                                        </Tooltip>
+                                      )
+                                    }
+
+                                    return (
+                                      <SelectItem
+                                        key={preset.id}
+                                        value={preset.slug}
+                                      >
+                                        {optionLabel}
+                                      </SelectItem>
+                                    )
+                                  })}
+                                </SelectContent>
+                              </Select>
+                              <FormDescription>
+                                The preset slug is stored in the agent binding.
+                              </FormDescription>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+
+                        <div className="grid gap-4 md:grid-cols-2">
+                          <FormField
+                            control={form.control}
+                            name={`subagents.${index}.name`}
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormLabel>Alias</FormLabel>
+                                <FormControl>
+                                  <Input
+                                    placeholder="triage-analyst"
+                                    value={field.value ?? ""}
+                                    onChange={field.onChange}
+                                    disabled={isSaving || !agentsEnabled}
+                                  />
+                                </FormControl>
+                                <FormDescription>
+                                  Optional. Defaults to the preset slug.
+                                </FormDescription>
+                                <FormMessage />
+                              </FormItem>
+                            )}
+                          />
+                          <FormField
+                            control={form.control}
+                            name={`subagents.${index}.presetVersion`}
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormLabel>Version</FormLabel>
+                                <FormControl>
+                                  <Input
+                                    type="number"
+                                    min={1}
+                                    placeholder="Current"
+                                    value={field.value ?? ""}
+                                    onChange={field.onChange}
+                                    disabled={isSaving || !agentsEnabled}
+                                  />
+                                </FormControl>
+                                <FormDescription>
+                                  Optional. Blank uses the current version.
+                                </FormDescription>
+                                <FormMessage />
+                              </FormItem>
+                            )}
+                          />
+                        </div>
+
+                        <FormField
+                          control={form.control}
+                          name={`subagents.${index}.description`}
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>Description</FormLabel>
+                              <FormControl>
+                                <Textarea
+                                  placeholder="When should the parent delegate to this subagent?"
+                                  value={field.value ?? ""}
+                                  onChange={field.onChange}
+                                  disabled={isSaving || !agentsEnabled}
+                                />
+                              </FormControl>
+                              <FormDescription>
+                                Used to decide when to call the subagent.
+                              </FormDescription>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+
+                        <FormField
+                          control={form.control}
+                          name={`subagents.${index}.maxTurns`}
+                          render={({ field }) => (
+                            <FormItem className="max-w-[220px]">
+                              <FormLabel>Max turns</FormLabel>
+                              <FormControl>
+                                <Input
+                                  type="number"
+                                  min={1}
+                                  placeholder="No limit"
+                                  value={field.value ?? ""}
+                                  onChange={field.onChange}
+                                  disabled={isSaving || !agentsEnabled}
+                                />
+                              </FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                      </div>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="shrink-0 text-muted-foreground"
+                        onClick={() => onRemoveSubagent(index)}
+                        disabled={isSaving}
+                        aria-label="Remove subagent"
+                      >
+                        <Trash2 className="size-4" />
+                      </Button>
+                    </div>
+                  </div>
+                )
+              })}
             </div>
           )}
         </section>
@@ -2893,6 +3371,24 @@ function presetToFormValues(preset: AgentPresetRead): AgentPresetFormValues {
     preset.output_type === null || preset.output_type === undefined
       ? null
       : preset.output_type
+  const agents = preset.agents
+  const agentsEnabled = agents?.enabled === true
+  const subagents = agentsEnabled
+    ? (agents.subagents ?? []).map((subagent) => ({
+        preset: subagent.preset,
+        name: subagent.name ?? "",
+        description: subagent.description ?? "",
+        presetVersion:
+          subagent.preset_version === null ||
+          subagent.preset_version === undefined
+            ? ""
+            : String(subagent.preset_version),
+        maxTurns:
+          subagent.max_turns === null || subagent.max_turns === undefined
+            ? ""
+            : String(subagent.max_turns),
+      }))
+    : []
 
   return {
     name: preset.name,
@@ -2925,6 +3421,8 @@ function presetToFormValues(preset: AgentPresetRead): AgentPresetFormValues {
         )
       : [],
     mcpIntegrations: preset.mcp_integrations ?? [],
+    agentsEnabled,
+    subagents,
     skills:
       preset.skills?.map(
         (binding): SkillBindingFormValue => ({
@@ -2965,6 +3463,7 @@ function formValuesToPayload(values: AgentPresetFormValues): AgentPresetCreate {
     namespaces: values.namespaces.length > 0 ? values.namespaces : null,
     mcp_integrations:
       values.mcpIntegrations.length > 0 ? values.mcpIntegrations : null,
+    agents: formValuesToAgentsPayload(values),
     skills: values.skills.map((binding) => ({
       skill_id: binding.skillId,
       skill_version_id: binding.skillVersionId,
@@ -2973,6 +3472,49 @@ function formValuesToPayload(values: AgentPresetFormValues): AgentPresetCreate {
     retries: values.retries,
     enable_thinking: values.enableThinking,
     enable_internet_access: values.enableInternetAccess,
+  }
+}
+
+function formValuesToAgentsPayload(
+  values: AgentPresetFormValues
+): AgentPresetCreate["agents"] {
+  if (!values.agentsEnabled) {
+    return { enabled: false }
+  }
+
+  const subagents = values.subagents
+    .map((subagent): AttachedSubagentRef | null => {
+      const preset = subagent.preset.trim()
+      if (!preset) {
+        return null
+      }
+
+      const payload: AttachedSubagentRef = { preset }
+      const name = normalizeOptional(subagent.name)
+      const description = normalizeOptional(subagent.description)
+      const presetVersion = parseOptionalPositiveInteger(subagent.presetVersion)
+      const maxTurns = parseOptionalPositiveInteger(subagent.maxTurns)
+
+      if (name !== null) {
+        payload.name = name
+      }
+      if (description !== null) {
+        payload.description = description
+      }
+      if (presetVersion !== null) {
+        payload.preset_version = presetVersion
+      }
+      if (maxTurns !== null) {
+        payload.max_turns = maxTurns
+      }
+
+      return payload
+    })
+    .filter((subagent): subagent is AttachedSubagentRef => subagent !== null)
+
+  return {
+    enabled: true,
+    subagents,
   }
 }
 
@@ -2987,6 +3529,14 @@ function normalizeOptional(value: string | null | undefined) {
   }
   const trimmed = value.trim()
   return trimmed.length > 0 ? trimmed : null
+}
+
+function parseOptionalPositiveInteger(value: string | null | undefined) {
+  const trimmed = value?.trim()
+  if (!trimmed) {
+    return null
+  }
+  return Number.parseInt(trimmed, 10)
 }
 
 function toToolApprovalMap(

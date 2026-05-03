@@ -10,7 +10,6 @@ Handles two types of tools:
 
 from __future__ import annotations
 
-import copy
 from collections.abc import Callable, Coroutine
 from typing import Any
 
@@ -22,8 +21,7 @@ from fastmcp.client.transports import StreamableHttpTransport
 from tracecat.agent.common.config import TRUSTED_MCP_SOCKET_PATH
 from tracecat.agent.common.types import MCPToolDefinition
 from tracecat.agent.mcp.metadata import (
-    PROXY_TOOL_CALL_ID_KEY,
-    PROXY_TOOL_METADATA_KEY,
+    build_registry_tool_schema,
     extract_proxy_tool_call_id,
 )
 from tracecat.agent.mcp.user_client import UserMCPClient
@@ -68,48 +66,11 @@ def _create_uds_transport(socket_path: str) -> StreamableHttpTransport:
     )
 
 
-def _build_proxy_tool_metadata_schema() -> dict[str, Any]:
-    """Build the optional internal metadata schema for registry proxy tools."""
-    return {
-        "type": "object",
-        "properties": {
-            PROXY_TOOL_CALL_ID_KEY: {
-                "type": "string",
-                "description": "Internal Tracecat correlation identifier.",
-            }
-        },
-        "required": [PROXY_TOOL_CALL_ID_KEY],
-        "additionalProperties": False,
-    }
-
-
 def build_registry_proxy_tool_schema(
     parameters_json_schema: dict[str, Any],
 ) -> dict[str, Any]:
     """Augment a registry tool schema with optional internal Tracecat metadata."""
-    schema: dict[str, Any] = copy.deepcopy(parameters_json_schema)
-    if not schema:
-        schema = {"type": "object"}
-
-    schema_type = schema.get("type")
-    if schema_type not in (None, "object"):
-        raise ValueError(
-            "Registry proxy tools require object-shaped schemas, "
-            f"got type={schema_type!r}"
-        )
-
-    raw_properties = schema.get("properties")
-    if raw_properties is None:
-        properties: dict[str, Any] = {}
-        schema["properties"] = properties
-    elif isinstance(raw_properties, dict):
-        properties = raw_properties
-    else:
-        raise ValueError("Registry proxy tool schema properties must be an object")
-
-    schema.setdefault("type", "object")
-    properties[PROXY_TOOL_METADATA_KEY] = _build_proxy_tool_metadata_schema()
-    return schema
+    return build_registry_tool_schema(parameters_json_schema)
 
 
 def _make_tool_handler(
@@ -190,6 +151,7 @@ def _make_tool_handler(
 async def create_proxy_mcp_server(
     allowed_actions: dict[str, MCPToolDefinition],
     auth_token: str,
+    server_name: str = "tracecat-registry",
 ) -> McpSdkServerConfig:
     """Create proxy MCP server from pre-provided tool definitions.
 
@@ -206,6 +168,7 @@ async def create_proxy_mcp_server(
             User MCP tools use the format mcp__{server_name}__{tool_name}.
             Internal tools use the format internal.{category}.{tool_name}.
         auth_token: JWT token for authenticating with trusted server.
+        server_name: Claude MCP server name for this scoped proxy.
 
     Returns:
         McpSdkServerConfig ready for use with Claude agent.
@@ -270,10 +233,11 @@ async def create_proxy_mcp_server(
     logger.info(
         "Created proxy MCP server",
         tool_count=len(tools),
+        server_name=server_name,
     )
 
     return create_sdk_mcp_server(
-        name="tracecat-registry",
+        name=server_name,
         version="1.0.0",
         tools=tools,
     )

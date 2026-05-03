@@ -57,6 +57,23 @@ def test_build_agent_nsjail_config_can_skip_control_socket_mount() -> None:
     assert 'dst: "/var/run/tracecat/control.sock"' not in config_text
 
 
+def test_build_agent_nsjail_config_mounts_trusted_mcp_socket() -> None:
+    config_text = build_agent_nsjail_config(
+        rootfs=Path("/var/lib/tracecat/sandbox-rootfs"),
+        job_dir=Path("/tmp/agent-job"),
+        socket_dir=Path("/tmp/agent-job/sockets"),
+        config=AgentSandboxConfig(),
+        site_packages_dir=Path("/app/.venv/lib/python3.12/site-packages"),
+        llm_socket_path=Path("/tmp/agent-job/sockets/llm.sock"),
+        mcp_socket_path=Path("/tmp/agent-job/sockets/mcp.sock"),
+    )
+
+    assert (
+        'src: "/tmp/agent-job/sockets/mcp.sock" dst: "/var/run/tracecat/mcp.sock" '
+        "is_bind: true rw: false"
+    ) in config_text
+
+
 def test_build_agent_nsjail_config_uses_reduced_broker_shim_mounts() -> None:
     config_text = build_agent_nsjail_config(
         rootfs=Path("/var/lib/tracecat/sandbox-rootfs"),

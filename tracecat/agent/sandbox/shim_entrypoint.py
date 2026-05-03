@@ -20,7 +20,9 @@ LOGGER = logging.getLogger(__name__)
 
 INIT_PAYLOAD_ENV_VAR = "TRACECAT__AGENT_INIT_PAYLOAD_PATH"
 LLM_SOCKET_ENV_VAR = "TRACECAT__AGENT_LLM_SOCKET_PATH"
+MCP_SOCKET_ENV_VAR = "TRACECAT__AGENT_MCP_SOCKET_PATH"
 DEFAULT_LLM_SOCKET_PATH = "/var/run/tracecat/llm.sock"
+DEFAULT_MCP_SOCKET_PATH = "/var/run/tracecat/mcp.sock"
 LLM_BRIDGE_HOST = "127.0.0.1"
 MAX_BODY_SIZE = 10 * 1024 * 1024
 
@@ -31,6 +33,7 @@ class ClaudeShimInitPayload(TypedDict):
     command: list[str]
     env: dict[str, str]
     cwd: str
+    mcp_bridge_port: int
 
 
 class LLMBridge:
@@ -214,6 +217,7 @@ class LLMBridge:
 async def run_sandboxed_claude_shim() -> None:
     """Read shim config, start the LLM bridge, and proxy Claude stdio."""
     llm_bridge: LLMBridge | None = None
+    mcp_bridge: LLMBridge | None = None
     process: asyncio.subprocess.Process | None = None
     stdout_task: asyncio.Task[None] | None = None
     stderr_task: asyncio.Task[None] | None = None
@@ -223,9 +227,16 @@ async def run_sandboxed_claude_shim() -> None:
         llm_bridge = LLMBridge(socket_path=_resolve_llm_socket_path(), port=0)
         bridge_port = await llm_bridge.start()
         LOGGER.info("LLM bridge started for shim on port %s", bridge_port)
+        mcp_bridge = LLMBridge(
+            socket_path=_resolve_mcp_socket_path(),
+            port=init_payload["mcp_bridge_port"],
+        )
+        mcp_bridge_port = await mcp_bridge.start()
+        LOGGER.info("MCP bridge started for shim on port %s", mcp_bridge_port)
 
         child_env = {**os.environ, **init_payload["env"]}
         child_env["TRACECAT__LLM_BRIDGE_PORT"] = str(bridge_port)
+        child_env["TRACECAT__MCP_BRIDGE_PORT"] = str(mcp_bridge_port)
         child_env["ANTHROPIC_BASE_URL"] = f"http://127.0.0.1:{bridge_port}"
         process = await asyncio.create_subprocess_exec(
             *init_payload["command"],
@@ -266,6 +277,8 @@ async def run_sandboxed_claude_shim() -> None:
                 await process.wait()
         if llm_bridge is not None:
             await llm_bridge.stop()
+        if mcp_bridge is not None:
+            await mcp_bridge.stop()
 
 
 async def _read_init_payload(init_path: Path) -> ClaudeShimInitPayload:
@@ -282,6 +295,7 @@ async def _read_init_payload(init_path: Path) -> ClaudeShimInitPayload:
     command = data.get("command")
     env = data.get("env")
     cwd = data.get("cwd")
+    mcp_bridge_port = data.get("mcp_bridge_port")
 
     if not isinstance(command, list) or not all(
         isinstance(item, str) for item in command
@@ -293,8 +307,15 @@ async def _read_init_payload(init_path: Path) -> ClaudeShimInitPayload:
         raise ValueError("Shim payload env must be a dict[str, str]")
     if not isinstance(cwd, str):
         raise ValueError("Shim payload cwd must be a string")
+    if not isinstance(mcp_bridge_port, int) or mcp_bridge_port <= 0:
+        raise ValueError("Shim payload mcp_bridge_port must be a positive integer")
 
-    return {"command": command, "env": env, "cwd": cwd}
+    return {
+        "command": command,
+        "env": env,
+        "cwd": cwd,
+        "mcp_bridge_port": mcp_bridge_port,
+    }
 
 
 def _resolve_init_payload_path() -> Path:
@@ -307,6 +328,11 @@ def _resolve_init_payload_path() -> Path:
 def _resolve_llm_socket_path() -> Path:
     """Resolve the mounted LLM socket path."""
     return Path(os.environ.get(LLM_SOCKET_ENV_VAR) or DEFAULT_LLM_SOCKET_PATH)
+
+
+def _resolve_mcp_socket_path() -> Path:
+    """Resolve the mounted trusted MCP socket path."""
+    return Path(os.environ.get(MCP_SOCKET_ENV_VAR) or DEFAULT_MCP_SOCKET_PATH)
 
 
 async def _wait_for_process_with_stdin(

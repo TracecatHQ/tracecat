@@ -23,6 +23,7 @@ from tracecat.agent.session.service import AgentSessionService
 from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.agent.stream.connector import AgentStream
 from tracecat.agent.stream.events import StreamFormat
+from tracecat.agent.subagents import ResolvedAgentsConfig
 from tracecat.agent.types import StreamKey
 from tracecat.auth.credentials import RoleACL
 from tracecat.auth.types import Role
@@ -136,6 +137,11 @@ async def get_session(
             tools=agent_session.tools,
             agent_preset_id=agent_session.agent_preset_id,
             agent_preset_version_id=agent_session.agent_preset_version_id,
+            agents_binding=(
+                ResolvedAgentsConfig.model_validate(agent_session.agents_binding)
+                if agent_session.agents_binding is not None
+                else None
+            ),
             harness_type=agent_session.harness_type,
             created_at=agent_session.created_at,
             updated_at=agent_session.updated_at,
@@ -200,6 +206,11 @@ async def get_session_vercel(
             tools=agent_session.tools,
             agent_preset_id=agent_session.agent_preset_id,
             agent_preset_version_id=agent_session.agent_preset_version_id,
+            agents_binding=(
+                ResolvedAgentsConfig.model_validate(agent_session.agents_binding)
+                if agent_session.agents_binding is not None
+                else None
+            ),
             harness_type=agent_session.harness_type,
             created_at=agent_session.created_at,
             updated_at=agent_session.updated_at,

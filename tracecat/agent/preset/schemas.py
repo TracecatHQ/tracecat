@@ -8,6 +8,7 @@ from typing import Annotated, Any
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
+from tracecat.agent.subagents import AgentsConfig, has_manual_tool_approvals
 from tracecat.agent.types import AgentConfig, OutputType
 from tracecat.core.schemas import Schema
 from tracecat.identifiers import WorkspaceID
@@ -69,6 +70,7 @@ class AgentPresetExecutionConfig(Schema):
     namespaces: list[str] | None = Field(default=None)
     tool_approvals: dict[str, bool] | None = Field(default=None)
     mcp_integrations: list[str] | None = Field(default=None)
+    agents: AgentsConfig = Field(default_factory=AgentsConfig)
     retries: int = Field(default=3, ge=0)
     enable_thinking: bool = Field(default=True)
     enable_internet_access: bool = Field(default=False)
@@ -87,6 +89,7 @@ class AgentPresetExecutionConfigWrite(Schema):
     namespaces: list[str] | None = Field(default=None)
     tool_approvals: dict[str, bool] | None = Field(default=None)
     mcp_integrations: list[str] | None = Field(default=None)
+    agents: AgentsConfig = Field(default_factory=AgentsConfig)
     retries: int = Field(default=3, ge=0)
     enable_thinking: bool = Field(default=True)
     enable_internet_access: bool = Field(default=False)
@@ -122,6 +125,7 @@ class AgentPresetUpdate(BaseModel):
     namespaces: list[str] | None = Field(default=None)
     tool_approvals: dict[str, bool] | None = Field(default=None)
     mcp_integrations: list[str] | None = Field(default=None)
+    agents: AgentsConfig | None = Field(default=None)
     retries: int | None = Field(default=None, ge=0)
     enable_thinking: bool | None = Field(default=None)
     enable_internet_access: bool | None = Field(default=None)
@@ -137,8 +141,21 @@ class AgentPresetReadMinimal(Schema):
     slug: str
     description: str | None
     current_version_id: uuid.UUID | None = None
+    has_tool_approvals: bool = Field(default=False)
     created_at: datetime
     updated_at: datetime
+
+
+def build_agent_preset_read_minimal(preset: Any) -> AgentPresetReadMinimal:
+    """Build a minimal preset response without exposing approval rule details."""
+    read = AgentPresetReadMinimal.model_validate(preset)
+    return read.model_copy(
+        update={
+            "has_tool_approvals": has_manual_tool_approvals(
+                getattr(preset, "tool_approvals", None)
+            )
+        }
+    )
 
 
 class AgentPresetRead(AgentPresetExecutionConfig):
@@ -169,6 +186,7 @@ class AgentPresetRead(AgentPresetExecutionConfig):
             actions=self.actions,
             namespaces=self.namespaces,
             tool_approvals=self.tool_approvals,
+            agents=self.agents,
             retries=self.retries,
             enable_thinking=self.enable_thinking,
             enable_internet_access=self.enable_internet_access,

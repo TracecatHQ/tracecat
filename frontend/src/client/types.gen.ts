@@ -500,6 +500,7 @@ export type AgentPresetCreate = {
     [key: string]: boolean
   } | null
   mcp_integrations?: Array<string> | null
+  agents?: AgentsConfig_Input
   retries?: number
   enable_thinking?: boolean
   enable_internet_access?: boolean
@@ -525,6 +526,7 @@ export type AgentPresetRead = {
     [key: string]: boolean
   } | null
   mcp_integrations?: Array<string> | null
+  agents?: AgentsConfig_Output
   retries?: number
   enable_thinking?: boolean
   enable_internet_access?: boolean
@@ -549,6 +551,7 @@ export type AgentPresetReadMinimal = {
   slug: string
   description: string | null
   current_version_id?: string | null
+  has_tool_approvals?: boolean
   created_at: string
   updated_at: string
 }
@@ -602,6 +605,7 @@ export type AgentPresetUpdate = {
     [key: string]: boolean
   } | null
   mcp_integrations?: Array<string> | null
+  agents?: AgentsConfig_Input | null
   retries?: number | null
   enable_thinking?: boolean | null
   enable_internet_access?: boolean | null
@@ -642,6 +646,7 @@ export type AgentPresetVersionRead = {
     [key: string]: boolean
   } | null
   mcp_integrations?: Array<string> | null
+  agents?: AgentsConfig_Output
   retries?: number
   enable_thinking?: boolean
   enable_internet_access?: boolean
@@ -703,6 +708,10 @@ export type AgentSessionCreate = {
    */
   agent_preset_version_id?: string | null
   /**
+   * Normalized subagent bindings for this session
+   */
+  agents_binding?: ResolvedAgentsConfig | null
+  /**
    * Agent harness type
    */
   harness_type?: HarnessType
@@ -755,6 +764,7 @@ export type AgentSessionRead = {
   tools: Array<string> | null
   agent_preset_id: string | null
   agent_preset_version_id: string | null
+  agents_binding: ResolvedAgentsConfig | null
   harness_type: string | null
   last_stream_id?: string | null
   parent_session_id?: string | null
@@ -778,6 +788,7 @@ export type AgentSessionReadVercel = {
   tools: Array<string> | null
   agent_preset_id: string | null
   agent_preset_version_id: string | null
+  agents_binding: ResolvedAgentsConfig | null
   harness_type: string | null
   last_stream_id?: string | null
   parent_session_id?: string | null
@@ -805,6 +816,7 @@ export type AgentSessionReadWithMessages = {
   tools: Array<string> | null
   agent_preset_id: string | null
   agent_preset_version_id: string | null
+  agents_binding: ResolvedAgentsConfig | null
   harness_type: string | null
   last_stream_id?: string | null
   parent_session_id?: string | null
@@ -837,6 +849,10 @@ export type AgentSessionUpdate = {
    */
   agent_preset_version_id?: string | null
   /**
+   * Normalized subagent bindings for this session
+   */
+  agents_binding?: ResolvedAgentsConfig | null
+  /**
    * Agent harness type
    */
   harness_type?: HarnessType | null
@@ -867,6 +883,26 @@ export type AgentSettingsUpdate = {
    */
   agent_case_chat_inject_content?: boolean
 }
+
+/**
+ * User-facing agents toggle and optional preset-backed subagents.
+ */
+export type AgentsConfig_Input = {
+  enabled?: boolean
+  subagents?: Array<AnyAttachedSubagentRef>
+}
+
+/**
+ * User-facing agents toggle and optional preset-backed subagents.
+ */
+export type AgentsConfig_Output = {
+  enabled?: boolean
+  subagents?: Array<AnyAttachedSubagentRef>
+}
+
+export type AnyAttachedSubagentRef =
+  | ResolvedAttachedSubagentRef
+  | AttachedSubagentRef
 
 /**
  * Settings for the app.
@@ -1036,6 +1072,17 @@ export type AssistantMessage = {
   stop_reason?: string | null
   session_id?: string | null
   uuid?: string | null
+}
+
+/**
+ * User-facing reference to a preset-backed subagent.
+ */
+export type AttachedSubagentRef = {
+  preset: string
+  preset_version?: number | null
+  name?: string | null
+  description?: string | null
+  max_turns?: number | null
 }
 
 /**
@@ -5400,6 +5447,27 @@ export type RepositorySyncResult = {
   error?: string | null
   version?: string | null
   actions_count?: number | null
+}
+
+/**
+ * Persisted agents toggle with immutable resolved child refs.
+ */
+export type ResolvedAgentsConfig = {
+  enabled?: boolean
+  subagents?: Array<ResolvedAttachedSubagentRef>
+}
+
+/**
+ * Persisted subagent ref with immutable preset/version identifiers.
+ */
+export type ResolvedAttachedSubagentRef = {
+  preset: string
+  preset_version?: number | null
+  name?: string | null
+  description?: string | null
+  max_turns?: number | null
+  preset_id: string
+  preset_version_id: string
 }
 
 /**

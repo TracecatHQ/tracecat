@@ -33,6 +33,11 @@ from tracecat.agent.common.stream_types import (
     ToolCallContent,
     UnifiedStreamEvent,
 )
+from tracecat.agent.common.types import (
+    MCPToolDefinition,
+    SandboxAgentConfig,
+    SandboxSubagentConfig,
+)
 from tracecat.agent.executor.activity import (
     AgentExecutorInput,
     AgentExecutorResult,
@@ -527,6 +532,7 @@ async def _run_full_claude_harness_runtime_case(
         del self
         socket_dir = job_dir / "sockets"
         socket_dir.mkdir(parents=True)
+        (socket_dir / "mcp.sock").touch()
         return job_dir
 
     async def fake_initialize_stream_sink(self: LoopbackHandler) -> _InMemoryStreamSink:
@@ -544,6 +550,11 @@ async def _run_full_claude_harness_runtime_case(
         persisted_session_lines.append((sdk_session_id, session_line, internal))
 
     monkeypatch.setattr(executor_activity, "LLMSocketProxy", _FakeLLMSocketProxy)
+    monkeypatch.setattr(
+        nsjail_module,
+        "TRACECAT__AGENT_MCP_SOCKET_PATH",
+        job_dir / "sockets" / "mcp.sock",
+    )
     monkeypatch.setattr(
         SandboxedAgentExecutor,
         "_create_job_directory",
@@ -1089,6 +1100,95 @@ async def test_run_agent_activity_with_fake_runtime_plumbs_resume_flags_to_loopb
         assert runtimes[0].cwd_setup_path.is_relative_to(tmp_path / "sessions")
 
 
+@pytest.mark.parametrize(
+    "disable_nsjail",
+    [
+        pytest.param(True, id="direct"),
+        pytest.param(False, id="nsjail"),
+    ],
+)
+@pytest.mark.anyio
+async def test_run_agent_activity_plumbs_subagents_to_runtime_in_each_sandbox_mode(
+    disable_nsjail: bool,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _set_disable_nsjail_mode(monkeypatch, disable_nsjail)
+    child_actions = {
+        "core.lookup_ip": MCPToolDefinition(
+            name="core.lookup_ip",
+            description="Lookup IP",
+            parameters_json_schema={"type": "object"},
+        )
+    }
+    child_config = AgentConfig(
+        model_name="gpt-5-mini",
+        model_provider="openai",
+        enable_internet_access=False,
+        tool_approvals={"core.lookup_ip": True},
+    )
+    executor_input = _make_executor_input(enable_internet_access=False).model_copy(
+        update={
+            "config": AgentConfig(
+                model_name="gpt-5",
+                model_provider="openai",
+                agents=cast(
+                    Any,
+                    {"enabled": True, "subagents": [{"preset": "analyst"}]},
+                ),
+            ),
+            "subagents": [
+                SandboxSubagentConfig(
+                    alias="analyst",
+                    description="Use for enrichment analysis.",
+                    prompt="Analyze enrichment data.",
+                    config=SandboxAgentConfig.from_agent_config(child_config),
+                    mcp_auth_token="child-mcp-token",
+                    allowed_actions=child_actions,
+                )
+            ],
+        }
+    )
+
+    async def subagent_script(
+        handler: LoopbackHandler,
+        payload: RuntimeInitPayload,
+    ) -> None:
+        assert payload.config.agents.enabled is True
+        assert payload.config.agents.subagents[0].preset == "analyst"
+        [subagent] = payload.subagents
+        assert subagent.alias == "analyst"
+        assert subagent.mcp_auth_token == "child-mcp-token"
+        assert subagent.config.model_name == "gpt-5-mini"
+        assert subagent.config.model_provider == "openai"
+        assert subagent.allowed_actions == child_actions
+        await handler.send_result(output="subagents-ready")
+        await handler.send_done()
+
+    (
+        result,
+        _stream_sink,
+        _persisted_session_lines,
+        _fake_proxy,
+        payloads,
+        runtimes,
+    ) = await _run_activity_with_fake_loopback_runtime(
+        executor_input=executor_input,
+        monkeypatch=monkeypatch,
+        tmp_path=tmp_path,
+        script=subagent_script,
+    )
+
+    assert result.success is True
+    assert result.output == "subagents-ready"
+    assert len(payloads) == 1
+    assert len(runtimes) == 1
+    if disable_nsjail:
+        assert runtimes[0].cwd == runtimes[0].cwd_setup_path
+    else:
+        assert runtimes[0].cwd == Path("/work/claude-project")
+
+
 @pytest.mark.anyio
 async def test_run_agent_activity_with_fake_litellm_provider_spawns_runtime_in_each_sandbox_mode(
     disable_nsjail_mode: bool,
@@ -1234,6 +1334,19 @@ async def _run_attached_skills_visible_case(
         )
         return [python_bin, "-c", code]
 
+    original_create_job_directory = SandboxedAgentExecutor._create_job_directory
+
+    async def fake_create_job_directory(self: SandboxedAgentExecutor) -> Path:
+        job_dir = await original_create_job_directory(self)
+        mcp_socket_path = job_dir / "sockets" / "mcp.sock"
+        mcp_socket_path.touch()
+        monkeypatch.setattr(
+            nsjail_module,
+            "TRACECAT__AGENT_MCP_SOCKET_PATH",
+            mcp_socket_path,
+        )
+        return job_dir
+
     base_input = _make_passthrough_executor_input(enable_internet_access=False)
     executor_input = base_input.model_copy(
         update={
@@ -1253,6 +1366,11 @@ async def _run_attached_skills_visible_case(
 
     monkeypatch.setattr(executor_activity, "LoopbackHandler", _FakeLoopbackHandler)
     monkeypatch.setattr(executor_activity, "LLMSocketProxy", _FakeLLMSocketProxy)
+    monkeypatch.setattr(
+        SandboxedAgentExecutor,
+        "_create_job_directory",
+        fake_create_job_directory,
+    )
     monkeypatch.setattr(
         executor_activity.SkillService,
         "with_session",
@@ -1433,6 +1551,43 @@ async def test_executor_starts_llm_socket_proxy_for_isolated_passthrough_runs(
 
 
 @pytest.mark.anyio
+async def test_executor_enables_runtime_internet_when_subagent_requires_it(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    subagent = SandboxSubagentConfig(
+        alias="web",
+        description="Use for internet research.",
+        prompt="Research the user's request.",
+        config=SandboxAgentConfig(
+            model_name="gpt-5-mini",
+            model_provider="openai",
+            enable_internet_access=True,
+        ),
+        mcp_auth_token="child-mcp-token",
+    )
+    executor_input = _make_executor_input(enable_internet_access=False).model_copy(
+        update={"subagents": [subagent]}
+    )
+
+    (
+        result,
+        _created_socket_paths,
+        _fake_proxy,
+        fake_broker,
+    ) = await _run_executor_with_fake_broker(
+        executor_input=executor_input,
+        monkeypatch=monkeypatch,
+        tmp_path=tmp_path,
+    )
+
+    assert result.success is True
+    assert len(fake_broker.requests) == 1
+    assert fake_broker.requests[0].init_payload.config.enable_internet_access is False
+    assert fake_broker.requests[0].enable_internet_access is True
+
+
+@pytest.mark.anyio
 async def test_executor_starts_llm_socket_proxy_for_passthrough_provider_with_internet_enabled(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -1471,7 +1626,7 @@ class _DummyBridge:
 
     async def start(self) -> int:
         self.started = True
-        return 4312
+        return self.port if self.port else 4312
 
     async def stop(self) -> None:
         self.stopped = True
@@ -1505,6 +1660,7 @@ async def test_sandbox_shim_starts_bridge_and_sets_child_base_url(
                 "command": ["claude", "--print"],
                 "env": {"ANTHROPIC_AUTH_TOKEN": "llm-token"},
                 "cwd": str(tmp_path),
+                "mcp_bridge_port": 4313,
             }
         )
     )
@@ -1512,6 +1668,10 @@ async def test_sandbox_shim_starts_bridge_and_sets_child_base_url(
     monkeypatch.setenv(
         shim_entrypoint.LLM_SOCKET_ENV_VAR,
         str(tmp_path / "llm.sock"),
+    )
+    monkeypatch.setenv(
+        shim_entrypoint.MCP_SOCKET_ENV_VAR,
+        str(tmp_path / "mcp.sock"),
     )
 
     async def fake_create_subprocess_exec(*args: str, **kwargs: object) -> _FakeProcess:
@@ -1541,9 +1701,16 @@ async def test_sandbox_shim_starts_bridge_and_sets_child_base_url(
 
     await shim_entrypoint.run_sandboxed_claude_shim()
 
-    assert len(_DummyBridge.instances) == 1
-    assert _DummyBridge.instances[0].started is True
-    assert _DummyBridge.instances[0].stopped is True
+    assert len(_DummyBridge.instances) == 2
+    llm_bridge, mcp_bridge = _DummyBridge.instances
+    assert llm_bridge.socket_path == tmp_path / "llm.sock"
+    assert llm_bridge.port == 0
+    assert llm_bridge.started is True
+    assert llm_bridge.stopped is True
+    assert mcp_bridge.socket_path == tmp_path / "mcp.sock"
+    assert mcp_bridge.port == 4313
+    assert mcp_bridge.started is True
+    assert mcp_bridge.stopped is True
     assert captured["args"] == ("claude", "--print")
     kwargs = captured["kwargs"]
     assert isinstance(kwargs, dict)
@@ -1551,6 +1718,7 @@ async def test_sandbox_shim_starts_bridge_and_sets_child_base_url(
     assert isinstance(child_env, dict)
     assert child_env["ANTHROPIC_AUTH_TOKEN"] == "llm-token"
     assert child_env["TRACECAT__LLM_BRIDGE_PORT"] == "4312"
+    assert child_env["TRACECAT__MCP_BRIDGE_PORT"] == "4313"
     assert child_env["ANTHROPIC_BASE_URL"] == "http://127.0.0.1:4312"
 
 

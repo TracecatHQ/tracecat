@@ -127,10 +127,6 @@ class TestRuntimeSocketCommunication:
                         "tracecat.agent.runtime.claude_code.runtime.ClaudeSDKClient",
                         return_value=mock_claude_sdk_client,
                     ),
-                    patch(
-                        "tracecat.agent.runtime.claude_code.runtime.create_proxy_mcp_server",
-                        AsyncMock(return_value={}),
-                    ),
                 ):
                     runtime = ClaudeAgentRuntime(
                         socket_writer, transport_factory=lambda _: MagicMock()
@@ -219,10 +215,6 @@ class TestRuntimeSocketCommunication:
                         return_value=mock_claude_sdk_client,
                     ),
                     patch(
-                        "tracecat.agent.runtime.claude_code.runtime.create_proxy_mcp_server",
-                        AsyncMock(return_value={}),
-                    ),
-                    patch(
                         "tracecat.agent.runtime.claude_code.runtime.ClaudeSDKAdapter",
                         return_value=mock_adapter,
                     ),
@@ -299,10 +291,6 @@ class TestRuntimeSocketCommunication:
                     patch(
                         "tracecat.agent.runtime.claude_code.runtime.ClaudeSDKClient",
                         return_value=mock_claude_sdk_client,
-                    ),
-                    patch(
-                        "tracecat.agent.runtime.claude_code.runtime.create_proxy_mcp_server",
-                        AsyncMock(return_value={}),
                     ),
                     pytest.raises(ValueError, match="SDK connection failed"),
                 ):

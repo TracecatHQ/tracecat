@@ -49,7 +49,9 @@ async def test_update_session_resolves_current_version_when_preset_changes() -> 
         agent_preset_version_id=old_version_id,
     )
     resolve_mock = AsyncMock(return_value=resolved_version_id)
+    agents_binding_mock = AsyncMock(return_value={"enabled": True, "subagents": []})
     service._resolve_preset_version_for_assignment = resolve_mock
+    service._resolve_agents_binding_for_preset_version_id = agents_binding_mock
 
     updated = await service.update_session(
         agent_session,
@@ -64,6 +66,8 @@ async def test_update_session_resolves_current_version_when_preset_changes() -> 
     )
     assert updated.agent_preset_id == new_preset_id
     assert updated.agent_preset_version_id == resolved_version_id
+    assert updated.agents_binding == {"enabled": True, "subagents": []}
+    agents_binding_mock.assert_awaited_once_with(resolved_version_id)
     session.commit.assert_awaited_once()
     session.refresh.assert_awaited_once_with(agent_session)
 
@@ -121,7 +125,9 @@ async def test_update_session_allows_version_only_repin_for_preset_sessions() ->
         agent_preset_version_id=uuid.uuid4(),
     )
     resolve_mock = AsyncMock(return_value=new_version_id)
+    agents_binding_mock = AsyncMock(return_value={"enabled": True, "subagents": []})
     service._resolve_preset_version_for_assignment = resolve_mock
+    service._resolve_agents_binding_for_preset_version_id = agents_binding_mock
 
     updated = await service.update_session(
         agent_session,
@@ -136,6 +142,8 @@ async def test_update_session_allows_version_only_repin_for_preset_sessions() ->
     )
     assert updated.agent_preset_id == preset_id
     assert updated.agent_preset_version_id == new_version_id
+    assert updated.agents_binding == {"enabled": True, "subagents": []}
+    agents_binding_mock.assert_awaited_once_with(new_version_id)
     session.commit.assert_awaited_once()
     session.refresh.assert_awaited_once_with(agent_session)
 
@@ -158,7 +166,9 @@ async def test_update_session_ignores_mismatched_preset_id_for_preset_sessions()
         agent_preset_version_id=uuid.uuid4(),
     )
     resolve_mock = AsyncMock(return_value=new_version_id)
+    agents_binding_mock = AsyncMock(return_value={"enabled": True, "subagents": []})
     service._resolve_preset_version_for_assignment = resolve_mock
+    service._resolve_agents_binding_for_preset_version_id = agents_binding_mock
 
     updated = await service.update_session(
         agent_session,
@@ -176,6 +186,8 @@ async def test_update_session_ignores_mismatched_preset_id_for_preset_sessions()
     )
     assert updated.agent_preset_id == preset_id
     assert updated.agent_preset_version_id == new_version_id
+    assert updated.agents_binding == {"enabled": True, "subagents": []}
+    agents_binding_mock.assert_awaited_once_with(new_version_id)
     session.commit.assert_awaited_once()
     session.refresh.assert_awaited_once_with(agent_session)
 

@@ -20,6 +20,7 @@ from tracecat.agent.session.schemas import AgentSessionCreate
 from tracecat.agent.session.service import AgentSessionService
 from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.agent.stream.connector import AgentStream
+from tracecat.agent.subagents import ResolvedAgentsConfig
 from tracecat.auth.types import Role
 from tracecat.contexts import ctx_role
 from tracecat.logger import logger
@@ -41,6 +42,7 @@ class CreateSessionInput(BaseModel):
     tools: list[str] | None = None
     agent_preset_id: uuid.UUID | None = None
     agent_preset_version_id: uuid.UUID | None = None
+    agents_binding: ResolvedAgentsConfig | None = None
     harness_type: HarnessType = HarnessType.CLAUDE_CODE
     # Workflow run tracking (for approval lookups)
     curr_run_id: uuid.UUID | None = None
@@ -132,9 +134,32 @@ async def create_session_activity(input: CreateSessionInput) -> CreateSessionRes
                         tools=input.tools,
                         agent_preset_id=input.agent_preset_id,
                         agent_preset_version_id=input.agent_preset_version_id,
+                        agents_binding=input.agents_binding,
                         harness_type=input.harness_type,
                     )
                 )
+
+            # Reconcile agents_binding for pre-existing sessions: backfill if
+            # missing (sessions created before binding was persisted), or fail
+            # fast if the caller is trying to swap bindings mid-session, which
+            # would invalidate the SDK history we resume from.
+            if not created and input.agents_binding is not None:
+                if agent_session.agents_binding is None:
+                    agent_session.agents_binding = input.agents_binding.model_dump(
+                        mode="json"
+                    )
+                    service.session.add(agent_session)
+                    await service.session.commit()
+                elif (
+                    ResolvedAgentsConfig(**agent_session.agents_binding)
+                    != input.agents_binding
+                ):
+                    # Non-retryable: retrying with the same mismatched input
+                    # will deterministically fail; surface to the caller.
+                    raise ApplicationError(
+                        "Agent session was created with a different agents binding",
+                        non_retryable=True,
+                    )
 
             # Set curr_run_id if provided (for workflow-initiated sessions)
             if input.curr_run_id is not None:

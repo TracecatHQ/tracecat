@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import uuid
-from typing import Any
+from typing import Any, TypedDict, cast
 from urllib.parse import parse_qsl, urlencode
 
 import boto3
@@ -35,6 +35,32 @@ _UNAUTHENTICATED_HEALTH_ROUTES = frozenset(
         "/health/readiness",
     }
 )
+
+
+class LLMRouteMetadata(TypedDict):
+    """Serialized LLMRouteClaim entry stored in UserAPIKeyAuth.metadata."""
+
+    model: str
+    provider: str
+    catalog_id: str | None
+    base_url: str | None
+    model_settings: dict[str, Any]
+    use_workspace_credentials: bool
+
+
+class LLMTokenAuthMetadata(TypedDict):
+    """Metadata payload attached to a verified LLM-token UserAPIKeyAuth."""
+
+    workspace_id: str
+    organization_id: str
+    session_id: str
+    use_workspace_credentials: bool
+    model: str
+    provider: str
+    catalog_id: str | None
+    base_url: str | None
+    model_settings: dict[str, Any]
+    routes: dict[str, LLMRouteMetadata]
 
 
 def _strip_non_anthropic_beta_request_metadata(request: Request) -> None:
@@ -281,19 +307,31 @@ async def user_api_key_auth(request: Request, api_key: str | None) -> UserAPIKey
     if claims.provider != "anthropic":
         _strip_non_anthropic_beta_request_metadata(request)
 
+    metadata: LLMTokenAuthMetadata = {
+        "workspace_id": str(claims.workspace_id),
+        "organization_id": str(claims.organization_id),
+        "session_id": str(claims.session_id),
+        "use_workspace_credentials": claims.use_workspace_credentials,
+        "model": claims.model,
+        "provider": claims.provider,
+        "catalog_id": str(claims.catalog_id) if claims.catalog_id else None,
+        "base_url": claims.base_url,
+        "model_settings": claims.model_settings,
+        "routes": {
+            key: LLMRouteMetadata(
+                model=route.model,
+                provider=route.provider,
+                catalog_id=str(route.catalog_id) if route.catalog_id else None,
+                base_url=route.base_url,
+                model_settings=route.model_settings,
+                use_workspace_credentials=route.use_workspace_credentials,
+            )
+            for key, route in getattr(claims, "routes", {}).items()
+        },
+    }
     return UserAPIKeyAuth(
         api_key="llm-token",
-        metadata={
-            "workspace_id": str(claims.workspace_id),
-            "organization_id": str(claims.organization_id),
-            "session_id": str(claims.session_id),
-            "catalog_id": str(claims.catalog_id) if claims.catalog_id else "",
-            "use_workspace_credentials": claims.use_workspace_credentials,
-            "model": claims.model,
-            "provider": claims.provider,
-            "base_url": claims.base_url,
-            "model_settings": claims.model_settings,
-        },
+        metadata=cast(dict[str, Any], metadata),
     )
 
 
@@ -308,14 +346,23 @@ class TracecatCallbackHandler(CustomLogger):
         call_type: CallTypesLiteral,
     ):
         del cache, call_type
-        workspace_id = WorkspaceID(user_api_key_dict.metadata.get("workspace_id", ""))
-        organization_id = OrganizationID(
-            user_api_key_dict.metadata.get("organization_id", "")
+        metadata = cast(LLMTokenAuthMetadata, user_api_key_dict.metadata)
+
+        workspace_id = WorkspaceID(metadata["workspace_id"])
+        organization_id = OrganizationID(metadata["organization_id"])
+
+        incoming_model = data.get("model")
+        routes = metadata.get("routes", {})
+        selected_route = (
+            routes.get(incoming_model) if isinstance(incoming_model, str) else None
         )
-        model = user_api_key_dict.metadata.get("model")
-        provider = user_api_key_dict.metadata.get("provider")
+        # Per-model route overrides win; otherwise fall back to top-level metadata.
+        # Both TypedDicts share these route keys with identical value types.
+        source: LLMRouteMetadata | LLMTokenAuthMetadata = selected_route or metadata
+        model = source.get("model")
+        provider = source.get("provider")
         catalog_id: uuid.UUID | None = None
-        raw_catalog_id = user_api_key_dict.metadata.get("catalog_id")
+        raw_catalog_id = source.get("catalog_id")
         if raw_catalog_id:
             try:
                 catalog_id = uuid.UUID(raw_catalog_id)
@@ -329,10 +376,10 @@ class TracecatCallbackHandler(CustomLogger):
         use_workspace_credentials = (
             False
             if catalog_id is not None
-            else _metadata_bool(
-                user_api_key_dict.metadata.get("use_workspace_credentials")
-            )
+            else _metadata_bool(source.get("use_workspace_credentials"))
         )
+        base_url = source.get("base_url")
+        model_settings_source = source.get("model_settings", {})
         if not model or not provider:
             raise ProxyException(
                 message="Model not specified. Please select a model in the chat settings.",
@@ -359,16 +406,18 @@ class TracecatCallbackHandler(CustomLogger):
 
         _inject_provider_credentials(data, provider, creds)
 
-        if (
-            model_base_url := user_api_key_dict.metadata.get("base_url")
-        ) and provider in {"openai", "anthropic", "custom-model-provider"}:
-            data["api_base"] = model_base_url
+        if base_url and provider in {
+            "openai",
+            "anthropic",
+            "custom-model-provider",
+        }:
+            data["api_base"] = base_url
 
         if provider != "anthropic":
             _strip_non_anthropic_beta_payload_fields(data)
 
         model_settings = _filter_allowed_model_settings(
-            user_api_key_dict.metadata.get("model_settings", {}),
+            model_settings_source,
             provider=provider,
         )
         data.update(model_settings)

@@ -1,9 +1,10 @@
 import uuid
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from tracecat import config
+from tracecat.agent.subagents import AgentsConfig
 from tracecat.agent.types import OutputType
 
 # ``extra="ignore"`` keeps Temporal activity replay working after the legacy
@@ -65,6 +66,12 @@ class AgentActionArgs(BaseModel):
     enable_thinking: bool = True
     base_url: str | None = None
     tool_approvals: dict[str, bool] | None = None
+    agents: AgentsConfig = Field(default_factory=AgentsConfig)
+
+    @field_validator("agents", mode="before")
+    @classmethod
+    def default_null_agents(cls, value: object) -> object:
+        return {} if value is None else value
 
 
 class PresetAgentActionArgs(BaseModel):

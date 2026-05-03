@@ -952,6 +952,7 @@ class DSLWorkflow:
                                 base_url=action_args.base_url,
                                 actions=action_args.actions,
                                 tool_approvals=action_args.tool_approvals,
+                                agents=action_args.agents,
                             ),
                             max_requests=action_args.max_requests,
                             max_tool_calls=action_args.max_tool_calls,

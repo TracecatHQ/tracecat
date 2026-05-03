@@ -1,5 +1,7 @@
 """Validation tests for agent preset request schemas."""
 
+from types import SimpleNamespace
+
 import pytest
 from pydantic import BaseModel, ValidationError
 
@@ -12,6 +14,7 @@ from tracecat.agent.preset.schemas import (
     AgentPresetRead,
     AgentPresetUpdate,
     AgentPresetVersionReadMinimal,
+    build_agent_preset_read_minimal,
 )
 
 
@@ -104,6 +107,29 @@ def test_agent_preset_read_schema_accepts_legacy_whitespace_model_fields() -> No
     assert payload.model_name == "   "
     assert payload.model_provider == "   "
     assert payload.enable_thinking is True
+
+
+def test_agent_preset_read_minimal_exposes_approval_boolean_only() -> None:
+    payload = build_agent_preset_read_minimal(
+        SimpleNamespace(
+            id="522b4d28-ae2b-4705-bb53-c3aa9071fe16",
+            workspace_id="6b2bb4d8-8461-486d-b4ca-e10a5a19d2f2",
+            name="Approval preset",
+            slug="approval-preset",
+            description=None,
+            current_version_id=None,
+            tool_approvals={
+                "core.http_request": False,
+                "core.cases.create_case": True,
+            },
+            created_at="2026-03-09T00:00:00Z",
+            updated_at="2026-03-09T00:00:00Z",
+        )
+    )
+
+    dumped = payload.model_dump(mode="json")
+    assert dumped["has_tool_approvals"] is True
+    assert "tool_approvals" not in dumped
 
 
 def test_agent_preset_version_read_schema_accepts_legacy_whitespace_model_fields() -> (
