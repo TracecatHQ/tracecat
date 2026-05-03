@@ -382,6 +382,97 @@ async def test_replace_interrupt_with_tool_results_does_not_duplicate_existing_r
 
 
 @pytest.mark.anyio
+async def test_replace_interrupt_with_tool_results_preserves_interrupt_without_assistant_uuid(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    agent_session = AgentSession(
+        id=uuid.uuid4(),
+        title="Approval chat",
+        workspace_id=svc_role.workspace_id,
+        entity_type=AgentSessionEntity.AGENT_PRESET.value,
+        entity_id=uuid.uuid4(),
+        sdk_session_id="sdk-session",
+    )
+    session.add(agent_session)
+    session.add(
+        AgentSessionHistory(
+            session_id=agent_session.id,
+            workspace_id=svc_role.workspace_id,
+            kind=MessageKind.CHAT_MESSAGE.value,
+            content={
+                "sessionId": "sdk-session",
+                "type": "assistant",
+                "timestamp": "2026-03-18T00:00:00Z",
+                "message": {
+                    "role": "assistant",
+                    "content": [
+                        {
+                            "type": "tool_use",
+                            "id": "call_123",
+                            "name": "core__http_request",
+                            "input": {"url": "https://example.com"},
+                        }
+                    ],
+                },
+            },
+        )
+    )
+    session.add(
+        AgentSessionHistory(
+            session_id=agent_session.id,
+            workspace_id=svc_role.workspace_id,
+            kind=MessageKind.CHAT_MESSAGE.value,
+            content={
+                "uuid": str(uuid.uuid4()),
+                "sessionId": "sdk-session",
+                "type": "user",
+                "timestamp": "2026-03-18T00:00:01Z",
+                "message": {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "tool_result",
+                            "tool_use_id": "call_123",
+                            "content": "interrupted",
+                            "is_error": True,
+                        }
+                    ],
+                },
+            },
+        )
+    )
+    await session.commit()
+
+    service = AgentSessionService(session=session, role=svc_role)
+    await service.replace_interrupt_with_tool_results(
+        agent_session.id,
+        [
+            ToolExecutionResult(
+                tool_call_id="call_123",
+                tool_name="core.http_request",
+                result={"status": "success"},
+                is_error=False,
+            )
+        ],
+    )
+
+    history = await service.get_session_history(agent_session.id)
+    tool_result_blocks = [
+        block
+        for entry in history
+        for block in entry.content.get("message", {}).get("content", [])
+        if isinstance(block, dict) and block.get("type") == "tool_result"
+    ]
+
+    assert len(tool_result_blocks) == 1
+    [tool_result] = tool_result_blocks
+    assert tool_result["tool_use_id"] == "call_123"
+    assert tool_result["content"] == "interrupted"
+    assert tool_result["is_error"] is True
+
+
+@pytest.mark.anyio
 async def test_replace_interrupt_with_tool_results_ignores_existing_interrupt_result(
     session: AsyncSession,
     svc_role: Role,

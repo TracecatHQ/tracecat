@@ -1719,6 +1719,16 @@ class AgentSessionService(BaseWorkspaceService):
             )
             return
 
+        assistant_content = assistant_entry.content
+        assistant_uuid = assistant_content.get("uuid")
+        if not isinstance(assistant_uuid, str):
+            logger.warning(
+                "Assistant tool_use entry is missing uuid for continuation",
+                session_id=session_id,
+                tool_call_ids=tool_call_ids,
+            )
+            return
+
         # Delete interrupt entries that follow the assistant message
         await self._delete_interrupt_entries_for_tool_calls(
             session_id, assistant_entry.surrogate_id, tool_call_ids
@@ -1735,17 +1745,6 @@ class AgentSessionService(BaseWorkspaceService):
                 session_id=session_id,
                 tool_call_ids=list(tool_call_ids),
             )
-            return
-
-        assistant_content = assistant_entry.content
-        assistant_uuid = assistant_content.get("uuid")
-        if not isinstance(assistant_uuid, str):
-            logger.warning(
-                "Assistant tool_use entry is missing uuid for continuation",
-                session_id=session_id,
-                tool_call_ids=tool_call_ids,
-            )
-            await self.session.commit()
             return
 
         entry_content: dict[str, Any] = {
