@@ -2567,8 +2567,7 @@ function AgentPresetSubagentsPanel({
                                 />
                               </FormControl>
                               <FormDescription>
-                                Claude uses this to decide when to call the
-                                subagent.
+                                Used to decide when to call the subagent.
                               </FormDescription>
                               <FormMessage />
                             </FormItem>
