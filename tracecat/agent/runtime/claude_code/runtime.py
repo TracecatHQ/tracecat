@@ -393,15 +393,20 @@ class ClaudeAgentRuntime:
         return any(marker in text for marker in compact_markers)
 
     @staticmethod
-    def _message_text_content(line_data: Mapping[str, object]) -> str | None:
-        """Extract simple text content from a Claude session line."""
+    def _is_approval_continuation_prompt_line(
+        line_data: Mapping[str, object],
+    ) -> bool:
+        """Return True for the hidden approval continuation prompt JSONL row."""
         match line_data:
-            case {"message": {"content": str(text)}}:
-                return text
-            case {"message": {"content": [{"type": "text", "text": str(text)}]}}:
-                return text
+            case {"type": "user", "message": {"content": str(text)}}:
+                return text == APPROVAL_CONTINUATION_PROMPT
+            case {
+                "type": "user",
+                "message": {"content": [{"type": "text", "text": str(text)}]},
+            }:
+                return text == APPROVAL_CONTINUATION_PROMPT
             case _:
-                return None
+                return False
 
     @staticmethod
     async def _tool_result_input_stream(
@@ -584,9 +589,7 @@ class ClaudeAgentRuntime:
 
                 if (
                     self._hide_next_approval_continuation_prompt
-                    and line_data.get("type") == "user"
-                    and self._message_text_content(line_data)
-                    == APPROVAL_CONTINUATION_PROMPT
+                    and self._is_approval_continuation_prompt_line(line_data)
                 ):
                     internal = True
                     self._hide_next_approval_continuation_prompt = False
