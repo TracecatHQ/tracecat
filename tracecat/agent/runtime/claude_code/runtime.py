@@ -15,7 +15,7 @@ import asyncio
 import os
 import tempfile
 import uuid
-from collections.abc import AsyncIterator, Callable, Mapping
+from collections.abc import AsyncIterator, Callable
 from pathlib import Path
 from time import perf_counter
 from typing import Any, Literal, Protocol, cast
@@ -57,6 +57,12 @@ from tracecat.agent.mcp.proxy_server import (
 )
 from tracecat.agent.mcp.utils import normalize_mcp_tool_name
 from tracecat.agent.runtime.claude_code.adapter import ClaudeSDKAdapter
+from tracecat.agent.runtime.claude_code.session_lines import (
+    APPROVAL_CONTINUATION_PROMPT,
+    is_approval_continuation_prompt_line,
+    is_meta_session_line,
+    is_synthetic_session_line,
+)
 from tracecat.logger import logger
 
 
@@ -99,8 +105,6 @@ _LITELLM_ROUTE_PREFIXES: dict[str, str] = {
     "azure_openai": "azure",
     "azure_ai": "azure_ai",
 }
-
-APPROVAL_CONTINUATION_PROMPT = "Continue."
 
 
 def get_litellm_route_model(
@@ -393,22 +397,6 @@ class ClaudeAgentRuntime:
         return any(marker in text for marker in compact_markers)
 
     @staticmethod
-    def _is_approval_continuation_prompt_line(
-        line_data: Mapping[str, object],
-    ) -> bool:
-        """Return True for the hidden approval continuation prompt JSONL row."""
-        match line_data:
-            case {"type": "user", "message": {"content": str(text)}}:
-                return text == APPROVAL_CONTINUATION_PROMPT
-            case {
-                "type": "user",
-                "message": {"content": [{"type": "text", "text": str(text)}]},
-            }:
-                return text == APPROVAL_CONTINUATION_PROMPT
-            case _:
-                return False
-
-    @staticmethod
     async def _tool_result_input_stream(
         tool_results: list[RuntimeToolResult],
     ) -> AsyncIterator[dict[str, Any]]:
@@ -467,7 +455,7 @@ class ClaudeAgentRuntime:
         # SDK compaction artifacts marked with structural flags
         # isCompactSummary messages are persisted as kind='compaction' for badge rendering
         # isMeta messages (like caveats) are internal
-        if line_data.get("isMeta") is True or line_data.get("isCompactSummary"):
+        if is_meta_session_line(line_data) or line_data.get("isCompactSummary"):
             return True
 
         msg_type = line_data.get("type", "")
@@ -483,7 +471,7 @@ class ClaudeAgentRuntime:
         message = line_data.get("message", {})
 
         # Synthetic messages are internal (placeholders during approval flow)
-        if message.get("model") == "<synthetic>":
+        if is_synthetic_session_line(line_data):
             return True
 
         # "(no content)" placeholder assistant message from the SDK's
@@ -589,7 +577,7 @@ class ClaudeAgentRuntime:
 
                 if (
                     self._hide_next_approval_continuation_prompt
-                    and self._is_approval_continuation_prompt_line(line_data)
+                    and is_approval_continuation_prompt_line(line_data)
                 ):
                     internal = True
                     self._hide_next_approval_continuation_prompt = False

@@ -39,6 +39,10 @@ from tracecat.agent.approvals.enums import ApprovalStatus
 from tracecat.agent.mcp.metadata import sanitize_message_tool_inputs
 from tracecat.agent.preset.prompts import AgentPresetBuilderPrompt
 from tracecat.agent.preset.service import AgentPresetService
+from tracecat.agent.runtime.claude_code.session_lines import (
+    is_continuation_control_artifact,
+    session_line_uuid,
+)
 from tracecat.agent.schemas import RunAgentArgs
 from tracecat.agent.service import AgentManagementService
 from tracecat.agent.session.schemas import (
@@ -98,7 +102,6 @@ if TYPE_CHECKING:
 
 AUTO_TITLE_SERVICE_ID = "tracecat-api"
 APPROVAL_CONTINUATION_DEDUP_TTL_SECONDS = 5 * 60
-APPROVAL_CONTINUATION_PROMPT = "Continue."
 
 
 @dataclass
@@ -549,75 +552,6 @@ class AgentSessionService(BaseWorkspaceService):
     # Session History Management (for Claude SDK session persistence)
     # =========================================================================
 
-    @staticmethod
-    def _session_line_uuid(content: dict[str, Any]) -> str | None:
-        line_uuid = content.get("uuid")
-        return line_uuid if isinstance(line_uuid, str) else None
-
-    @staticmethod
-    def _message_text_content(content: dict[str, Any]) -> str | None:
-        message = content.get("message")
-        if not isinstance(message, dict):
-            return None
-
-        message_content = message.get("content")
-        if isinstance(message_content, str):
-            return message_content
-
-        if isinstance(message_content, list) and len(message_content) == 1:
-            [part] = message_content
-            if isinstance(part, dict) and part.get("type") == "text":
-                text = part.get("text")
-                return text if isinstance(text, str) else None
-
-        return None
-
-    @staticmethod
-    def _is_thinking_only_assistant_content(content: dict[str, Any]) -> bool:
-        if content.get("type") != "assistant":
-            return False
-
-        message = content.get("message")
-        if not isinstance(message, dict):
-            return False
-
-        message_content = message.get("content")
-        if not isinstance(message_content, list) or not message_content:
-            return False
-
-        return all(
-            isinstance(part, dict) and part.get("type") == "thinking"
-            for part in message_content
-        )
-
-    @classmethod
-    def _is_continuation_control_artifact(
-        cls,
-        content: dict[str, Any],
-        internal_uuids: set[str],
-    ) -> bool:
-        """Return True for Claude Code continuation artifacts, even if mis-kind-ed."""
-        parent_uuid = content.get("parentUuid")
-        parent_is_internal = (
-            isinstance(parent_uuid, str) and parent_uuid in internal_uuids
-        )
-
-        if content.get("isMeta") is True:
-            return True
-
-        message = content.get("message")
-        if isinstance(message, dict) and message.get("model") == "<synthetic>":
-            return True
-
-        if (
-            content.get("type") == "user"
-            and parent_is_internal
-            and cls._message_text_content(content) == APPROVAL_CONTINUATION_PROMPT
-        ):
-            return True
-
-        return parent_is_internal and cls._is_thinking_only_assistant_content(content)
-
     async def load_session_history(
         self,
         session_id: uuid.UUID,
@@ -707,13 +641,13 @@ class AgentSessionService(BaseWorkspaceService):
             if not isinstance(content, dict):
                 continue
 
-            line_uuid = self._session_line_uuid(content)
+            line_uuid = session_line_uuid(content)
             if entry.kind == MessageKind.INTERNAL.value:
                 if line_uuid is not None:
                     internal_uuids.add(line_uuid)
                 continue
 
-            if self._is_continuation_control_artifact(content, internal_uuids):
+            if is_continuation_control_artifact(content, internal_uuids):
                 if line_uuid is not None:
                     internal_uuids.add(line_uuid)
                 continue
@@ -1627,12 +1561,12 @@ class AgentSessionService(BaseWorkspaceService):
 
             # Skip internal entries (e.g., continuation prompts)
             if entry.kind == MessageKind.INTERNAL.value:
-                if line_uuid := self._session_line_uuid(content):
+                if line_uuid := session_line_uuid(content):
                     internal_uuids.add(line_uuid)
                 continue
 
-            if self._is_continuation_control_artifact(content, internal_uuids):
-                if line_uuid := self._session_line_uuid(content):
+            if is_continuation_control_artifact(content, internal_uuids):
+                if line_uuid := session_line_uuid(content):
                     internal_uuids.add(line_uuid)
                 continue
 
