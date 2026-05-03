@@ -107,7 +107,19 @@ jobs:
         env:
           COMPOSE_BAKE: "true"
           TRACECAT__UNSAFE_DISABLE_SM_MASKING: "true"
-        run: docker compose -f docker-compose.dev.yml up -d temporal api postgres_db caddy minio
+        run: |
+          compose_files=(-f docker-compose.dev.yml)
+
+          if [ "${{ matrix.test_group }}" = "temporal" ]; then
+            cat > /tmp/tracecat-ci-postgres.yml <<'YAML'
+          services:
+            postgres_db:
+              command: ["postgres", "-c", "max_connections=500"]
+          YAML
+            compose_files+=(-f /tmp/tracecat-ci-postgres.yml)
+          fi
+
+          docker compose "${compose_files[@]}" up -d temporal api postgres_db caddy minio
 
       - name: Install dependencies
         run: uv sync --frozen
