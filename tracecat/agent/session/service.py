@@ -85,6 +85,14 @@ from tracecat.workflow.executions.enums import (
 )
 from tracecat.workspaces.prompts import WorkspaceCopilotPrompts
 
+APPROVAL_INTERRUPT_CONTENT_EXACT = "interrupted"
+APPROVAL_INTERRUPT_CONTENT_MARKERS = (
+    "doesn't want to take this action",
+    "stop what you are doing and wait for the user",
+    "request interrupted by user",
+    "[request interrupted",
+)
+
 if TYPE_CHECKING:
     from tracecat.agent.executor.activity import ToolExecutionResult
 
@@ -1862,9 +1870,19 @@ class AgentSessionService(BaseWorkspaceService):
         assistant_surrogate_id: int,
         tool_call_ids: set[str],
     ) -> bool:
+        """Return True when all approval tool calls already have real results.
+
+        This is the idempotency guard for approval reconciliation retries. SDK
+        approval interrupts also write error `tool_result` blocks, so those
+        placeholder rows must be ignored here; otherwise a retry could mistake
+        stale interrupt state for the approved/denied tool execution result.
+        """
         if not tool_call_ids:
             return False
 
+        # Only user messages with list content can contain Anthropic
+        # `tool_result` blocks. Treat other content shapes as empty so malformed
+        # or text-only rows cannot satisfy the idempotency check.
         message_content = AgentSessionHistory.content["message"]["content"]
         message_content_array = case(
             (func.jsonb_typeof(message_content) == "array", message_content),
@@ -1876,17 +1894,23 @@ class AgentSessionService(BaseWorkspaceService):
             .alias("content_block")
         )
         block = content_blocks.c.value
+
+        # The SDK writes approval-interrupt placeholders as error tool_results
+        # for the same tool_use IDs. Those rows should be deleted/replaced, not
+        # treated as the real reconciled tool result.
         block_text = func.lower(func.btrim(block["content"].astext))
         is_approval_interrupt = and_(
             block["is_error"].astext == "true",
             or_(
-                block_text == "interrupted",
-                block_text.contains("doesn't want to take this action"),
-                block_text.contains("stop what you are doing and wait for the user"),
-                block_text.contains("request interrupted by user"),
-                block_text.contains("[request interrupted"),
+                block_text == APPROVAL_INTERRUPT_CONTENT_EXACT,
+                *(
+                    block_text.contains(marker)
+                    for marker in APPROVAL_INTERRUPT_CONTENT_MARKERS
+                ),
             ),
         )
+        # A multi-tool approval continuation is only reconciled once every
+        # pending tool_use has a non-placeholder result after the assistant row.
         matching_tool_result_count = (
             select(func.count(func.distinct(block["tool_use_id"].astext)))
             .select_from(content_blocks)
@@ -1913,30 +1937,39 @@ class AgentSessionService(BaseWorkspaceService):
         result = await self.session.execute(stmt)
         return result.scalar_one_or_none() is True
 
-    @staticmethod
+    @classmethod
     def _is_approval_interrupt_tool_result(
+        cls,
         block: dict[str, Any],
         tool_call_ids: set[str],
     ) -> bool:
         """Return True for SDK approval-interrupt placeholder tool results."""
-        if (
-            block.get("type") != "tool_result"
-            or block.get("is_error") is not True
-            or block.get("tool_use_id") not in tool_call_ids
-        ):
+        if not cls._is_error_tool_result_for_tool_calls(block, tool_call_ids):
             return False
 
-        content = str(block.get("content", "")).strip().lower()
-        if content == "interrupted":
-            return True
+        return cls._is_approval_interrupt_content(block.get("content", ""))
 
-        markers = (
-            "doesn't want to take this action",
-            "stop what you are doing and wait for the user",
-            "request interrupted by user",
-            "[request interrupted",
+    @staticmethod
+    def _is_error_tool_result_for_tool_calls(
+        block: dict[str, Any],
+        tool_call_ids: set[str],
+    ) -> bool:
+        match block:
+            case {
+                "type": "tool_result",
+                "is_error": True,
+                "tool_use_id": str(tool_call_id),
+            }:
+                return tool_call_id in tool_call_ids
+            case _:
+                return False
+
+    @staticmethod
+    def _is_approval_interrupt_content(content: object) -> bool:
+        content_text = str(content).strip().lower()
+        return content_text == APPROVAL_INTERRUPT_CONTENT_EXACT or any(
+            marker in content_text for marker in APPROVAL_INTERRUPT_CONTENT_MARKERS
         )
-        return any(marker in content for marker in markers)
 
     async def _delete_interrupt_entries_for_tool_calls(
         self,
