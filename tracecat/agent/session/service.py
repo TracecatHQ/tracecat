@@ -1741,7 +1741,12 @@ class AgentSessionService(BaseWorkspaceService):
                 tool_uses = self._extract_tool_uses_from_message(
                     entry.content.get("message", {})
                 )
-                if any(tu.get("id") in tool_call_ids for tu in tool_uses):
+                assistant_tool_call_ids = {
+                    tool_use_id
+                    for tool_use in tool_uses
+                    if isinstance(tool_use_id := tool_use.get("id"), str)
+                }
+                if tool_call_ids.issubset(assistant_tool_call_ids):
                     assistant_entry = entry
                     break
 

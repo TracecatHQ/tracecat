@@ -575,6 +575,158 @@ async def test_replace_interrupt_with_tool_results_ignores_existing_interrupt_re
 
 
 @pytest.mark.anyio
+async def test_replace_interrupt_with_tool_results_requires_same_assistant_turn(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    agent_session = AgentSession(
+        id=uuid.uuid4(),
+        title="Approval chat",
+        workspace_id=svc_role.workspace_id,
+        entity_type=AgentSessionEntity.AGENT_PRESET.value,
+        entity_id=uuid.uuid4(),
+        sdk_session_id="sdk-session",
+    )
+    older_assistant_uuid = str(uuid.uuid4())
+    newer_assistant_uuid = str(uuid.uuid4())
+    session.add(agent_session)
+    session.add(
+        AgentSessionHistory(
+            session_id=agent_session.id,
+            workspace_id=svc_role.workspace_id,
+            kind=MessageKind.CHAT_MESSAGE.value,
+            content={
+                "uuid": older_assistant_uuid,
+                "sessionId": "sdk-session",
+                "type": "assistant",
+                "timestamp": "2026-03-18T00:00:00Z",
+                "message": {
+                    "role": "assistant",
+                    "content": [
+                        {
+                            "type": "tool_use",
+                            "id": "call_old",
+                            "name": "core__http_request",
+                            "input": {"url": "https://old.example.com"},
+                        }
+                    ],
+                },
+            },
+        )
+    )
+    session.add(
+        AgentSessionHistory(
+            session_id=agent_session.id,
+            workspace_id=svc_role.workspace_id,
+            kind=MessageKind.CHAT_MESSAGE.value,
+            content={
+                "uuid": str(uuid.uuid4()),
+                "parentUuid": older_assistant_uuid,
+                "sessionId": "sdk-session",
+                "type": "user",
+                "timestamp": "2026-03-18T00:00:01Z",
+                "message": {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "tool_result",
+                            "tool_use_id": "call_old",
+                            "content": "interrupted",
+                            "is_error": True,
+                        }
+                    ],
+                },
+            },
+        )
+    )
+    session.add(
+        AgentSessionHistory(
+            session_id=agent_session.id,
+            workspace_id=svc_role.workspace_id,
+            kind=MessageKind.CHAT_MESSAGE.value,
+            content={
+                "uuid": newer_assistant_uuid,
+                "sessionId": "sdk-session",
+                "type": "assistant",
+                "timestamp": "2026-03-18T00:00:02Z",
+                "message": {
+                    "role": "assistant",
+                    "content": [
+                        {
+                            "type": "tool_use",
+                            "id": "call_new",
+                            "name": "core__http_request",
+                            "input": {"url": "https://new.example.com"},
+                        }
+                    ],
+                },
+            },
+        )
+    )
+    session.add(
+        AgentSessionHistory(
+            session_id=agent_session.id,
+            workspace_id=svc_role.workspace_id,
+            kind=MessageKind.CHAT_MESSAGE.value,
+            content={
+                "uuid": str(uuid.uuid4()),
+                "parentUuid": newer_assistant_uuid,
+                "sessionId": "sdk-session",
+                "type": "user",
+                "timestamp": "2026-03-18T00:00:03Z",
+                "message": {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "tool_result",
+                            "tool_use_id": "call_new",
+                            "content": "interrupted",
+                            "is_error": True,
+                        }
+                    ],
+                },
+            },
+        )
+    )
+    await session.commit()
+
+    service = AgentSessionService(session=session, role=svc_role)
+    await service.replace_interrupt_with_tool_results(
+        agent_session.id,
+        [
+            ToolExecutionResult(
+                tool_call_id="call_old",
+                tool_name="core.http_request",
+                result={"status": "old"},
+                is_error=False,
+            ),
+            ToolExecutionResult(
+                tool_call_id="call_new",
+                tool_name="core.http_request",
+                result={"status": "new"},
+                is_error=False,
+            ),
+        ],
+    )
+
+    history = await service.get_session_history(agent_session.id)
+    tool_result_blocks = [
+        block
+        for entry in history
+        for block in entry.content.get("message", {}).get("content", [])
+        if isinstance(block, dict) and block.get("type") == "tool_result"
+    ]
+
+    assert len(tool_result_blocks) == 2
+    assert {block["tool_use_id"] for block in tool_result_blocks} == {
+        "call_old",
+        "call_new",
+    }
+    assert all(block["content"] == "interrupted" for block in tool_result_blocks)
+    assert all(block["is_error"] is True for block in tool_result_blocks)
+
+
+@pytest.mark.anyio
 async def test_run_turn_continue_with_inbox_source_for_non_external_session(
     session: AsyncSession,
     svc_role: Role,
