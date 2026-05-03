@@ -598,7 +598,6 @@ class DurableAgentWorkflow:
                     sdk_session_id=self._sdk_session_id,
                     sdk_session_data=self._sdk_session_data,
                     is_approval_continuation=True,
-                    approval_tool_results=tool_results,
                 )
                 self._turn += 1
                 continue

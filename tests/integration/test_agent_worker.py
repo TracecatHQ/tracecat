@@ -499,10 +499,6 @@ class TestAgentWorkerSingleTenant:
             assert input.sdk_session_data == sdk_history_with_tool_result
             assert '"type":"tool_result"' in input.sdk_session_data
             assert "Continue." not in input.sdk_session_data
-            assert len(input.approval_tool_results) == 1
-            [tool_result] = input.approval_tool_results
-            assert tool_result.tool_call_id == "call_123"
-            assert tool_result.is_error is False
             return AgentExecutorResult(
                 success=True,
                 approval_requested=False,

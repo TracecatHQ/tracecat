@@ -61,8 +61,7 @@ class AgentExecutorInput(BaseModel):
     """Input for the agent executor activity.
 
     On resume after approval, sdk_session_data already includes the reconciled
-    user tool_result entry. approval_tool_results remains on the executor input
-    as workflow-level reconciliation metadata, not runtime input.
+    user tool_result entry.
     """
 
     # ``extra="ignore"`` keeps Temporal activity replay working after the
@@ -89,8 +88,6 @@ class AgentExecutorInput(BaseModel):
     sdk_session_data: str | None = None
     # True when resuming after an approval decision.
     is_approval_continuation: bool = False
-    # Approved or denied tool results reconciled into sdk_session_data.
-    approval_tool_results: list[ToolExecutionResult] = Field(default_factory=list)
     # True when forking from parent session (SDK should use fork_session=True)
     is_fork: bool = False
 
