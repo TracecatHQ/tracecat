@@ -5,8 +5,7 @@ from fastapi import APIRouter, HTTPException, Query, status
 from pydantic import ValidationError
 from sqlalchemy.exc import IntegrityError
 
-from tracecat.auth.dependencies import OrgActorRole
-from tracecat.auth.dependencies import WorkspaceActorRouteRole as WorkspaceActorRole
+from tracecat.auth.dependencies import OrgActorRole, WorkspaceActor
 from tracecat.authz.controls import require_scope
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.exceptions import TracecatNotFoundError
@@ -70,7 +69,7 @@ def _serialize_secret_read_minimal(
 @require_scope("secret:read")
 async def search_secrets(
     *,
-    role: WorkspaceActorRole,
+    role: WorkspaceActor,
     session: AsyncDBSession,
     environment: str = Query(...),
     names: set[str] | None = Query(
@@ -103,7 +102,7 @@ async def search_secrets(
 @require_scope("secret:read")
 async def list_secrets(
     *,
-    role: WorkspaceActorRole,
+    role: WorkspaceActor,
     session: AsyncDBSession,
     types: set[SecretType] | None = Query(
         None, alias="type", description="Filter by secret type"
@@ -122,7 +121,7 @@ async def list_secrets(
 @require_scope("secret:read")
 async def list_secret_definitions(
     *,
-    role: WorkspaceActorRole,
+    role: WorkspaceActor,
     session: AsyncDBSession,
 ) -> list[SecretDefinition]:
     """List aggregated secret definitions from the registry."""
@@ -138,7 +137,7 @@ async def list_secret_definitions(
 @require_scope("secret:read")
 async def get_aws_assume_role_access(
     *,
-    role: WorkspaceActorRole,
+    role: WorkspaceActor,
 ) -> AwsAssumeRoleAccessRead:
     """Get workspace-scoped AWS AssumeRole details for credential setup."""
     workspace_id = role.workspace_id
@@ -165,7 +164,7 @@ async def get_aws_assume_role_access(
 @require_scope("secret:read")
 async def get_secret_by_name(
     *,
-    role: WorkspaceActorRole,
+    role: WorkspaceActor,
     session: AsyncDBSession,
     secret_name: str,
 ) -> SecretRead:
@@ -185,7 +184,7 @@ async def get_secret_by_name(
 @require_scope("secret:create")
 async def create_secret(
     *,
-    role: WorkspaceActorRole,
+    role: WorkspaceActor,
     session: AsyncDBSession,
     params: SecretCreate,
 ) -> None:
@@ -209,7 +208,7 @@ async def create_secret(
 @require_scope("secret:update")
 async def update_secret_by_id(
     *,
-    role: WorkspaceActorRole,
+    role: WorkspaceActor,
     session: AsyncDBSession,
     secret_id: AnySecretIDPath,
     params: SecretUpdate,
@@ -239,7 +238,7 @@ async def update_secret_by_id(
 @require_scope("secret:delete")
 async def delete_secret_by_id(
     *,
-    role: WorkspaceActorRole,
+    role: WorkspaceActor,
     session: AsyncDBSession,
     secret_id: AnySecretIDPath,
 ) -> None:

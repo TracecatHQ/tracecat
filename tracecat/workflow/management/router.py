@@ -25,10 +25,8 @@ from sqlalchemy.exc import IntegrityError, NoResultFound
 from tracecat import config
 from tracecat.auth.api_keys import generate_api_key
 from tracecat.auth.dependencies import (
-    WorkspaceActorRouteRole as WorkspaceActorRole,
-)
-from tracecat.auth.dependencies import (
-    WorkspaceUserRouteRole as WorkspaceUserRole,
+    WorkspaceActor,
+    WorkspaceUser,
 )
 from tracecat.authz.controls import require_scope
 from tracecat.db.common import DBConstraints
@@ -100,7 +98,7 @@ router = APIRouter(prefix="/workflows")
 @router.get("", tags=["workflows"])
 @require_scope("workflow:read")
 async def list_workflows(
-    role: WorkspaceActorRole,
+    role: WorkspaceActor,
     session: AsyncDBSession,
     filter_tags: list[str] | None = Query(
         default=None,
@@ -154,7 +152,7 @@ async def list_workflows(
 @router.post("/validate-entrypoint", tags=["workflows"])
 @require_scope("workflow:read")
 async def validate_workflow_entrypoint(
-    _role: WorkspaceActorRole,
+    _role: WorkspaceActor,
     payload: WorkflowEntrypointValidationRequest,
 ) -> WorkflowEntrypointValidationResponse:
     """Validate a workflow entrypoint expects definition."""
@@ -221,7 +219,7 @@ def wfs_and_defns_to_response(
 @router.post("", status_code=status.HTTP_201_CREATED, tags=["workflows"])
 @require_scope("workflow:create")
 async def create_workflow(
-    role: WorkspaceActorRole,
+    role: WorkspaceActor,
     session: AsyncDBSession,
     title: str | None = Form(default=None, min_length=1, max_length=100),
     description: str | None = Form(default=None, max_length=1000),
@@ -337,7 +335,7 @@ async def create_workflow(
 @router.get("/{workflow_id}", tags=["workflows"])
 @require_scope("workflow:read")
 async def get_workflow(
-    role: WorkspaceUserRole,
+    role: WorkspaceUser,
     session: AsyncDBSession,
     workflow_id: AnyWorkflowIDPath,
 ) -> WorkflowRead:
@@ -394,7 +392,7 @@ async def get_workflow(
 )
 @require_scope("workflow:update")
 async def update_workflow(
-    role: WorkspaceActorRole,
+    role: WorkspaceActor,
     session: AsyncDBSession,
     workflow_id: AnyWorkflowIDPath,
     params: WorkflowUpdate,
@@ -431,7 +429,7 @@ async def update_workflow(
 )
 @require_scope("workflow:delete")
 async def delete_workflow(
-    role: WorkspaceActorRole,
+    role: WorkspaceActor,
     session: AsyncDBSession,
     workflow_id: AnyWorkflowIDPath,
 ) -> None:
@@ -449,7 +447,7 @@ async def delete_workflow(
 @router.post("/{workflow_id}/commit", tags=["workflows"])
 @require_scope("workflow:update")
 async def commit_workflow(
-    role: WorkspaceActorRole,
+    role: WorkspaceActor,
     session: AsyncDBSession,
     workflow_id: AnyWorkflowIDPath,
 ) -> WorkflowCommitResponse:
@@ -586,7 +584,7 @@ async def commit_workflow(
 @router.get("/{workflow_id}/export", tags=["workflows"])
 @require_scope("workflow:read")
 async def export_workflow(
-    role: WorkspaceActorRole,
+    role: WorkspaceActor,
     session: AsyncDBSession,
     workflow_id: AnyWorkflowIDPath,
     format: Literal["json", "yaml"] = Query(
@@ -707,7 +705,7 @@ async def export_workflow(
 @router.get("/{workflow_id}/definitions", tags=["workflows"])
 @require_scope("workflow:read")
 async def list_workflow_definitions(
-    role: WorkspaceActorRole,
+    role: WorkspaceActor,
     session: AsyncDBSession,
     workflow_id: AnyWorkflowIDPath,
 ) -> list[WorkflowDefinitionRead]:
@@ -724,7 +722,7 @@ async def list_workflow_definitions(
 )
 @require_scope("workflow:update")
 async def restore_workflow_definition(
-    role: WorkspaceActorRole,
+    role: WorkspaceActor,
     session: AsyncDBSession,
     workflow_id: AnyWorkflowIDPath,
     version: int = Path(..., ge=1),
@@ -776,7 +774,7 @@ async def restore_workflow_definition(
 @router.get("/{workflow_id}/definition", tags=["workflows"])
 @require_scope("workflow:read")
 async def get_workflow_definition(
-    role: WorkspaceActorRole,
+    role: WorkspaceActor,
     session: AsyncDBSession,
     workflow_id: AnyWorkflowIDPath,
     version: int | None = None,
@@ -796,7 +794,7 @@ async def get_workflow_definition(
 @router.post("/{workflow_id}/definition", tags=["workflows"])
 @require_scope("workflow:create")
 async def create_workflow_definition(
-    role: WorkspaceActorRole,
+    role: WorkspaceActor,
     session: AsyncDBSession,
     workflow_id: AnyWorkflowIDPath,
 ) -> WorkflowDefinitionRead:
@@ -814,7 +812,7 @@ async def create_workflow_definition(
 )
 @require_scope("workflow:update")
 async def create_webhook(
-    role: WorkspaceActorRole,
+    role: WorkspaceActor,
     session: AsyncDBSession,
     workflow_id: AnyWorkflowIDPath,
     params: WebhookCreate,
@@ -843,7 +841,7 @@ async def create_webhook(
 )
 @require_scope("workflow:read")
 async def get_webhook(
-    role: WorkspaceUserRole,
+    role: WorkspaceUser,
     session: AsyncDBSession,
     workflow_id: AnyWorkflowIDPath,
 ) -> WebhookRead:
@@ -871,7 +869,7 @@ async def get_webhook(
 )
 @require_scope("workflow:update")
 async def update_webhook(
-    role: WorkspaceActorRole,
+    role: WorkspaceActor,
     session: AsyncDBSession,
     workflow_id: AnyWorkflowIDPath,
     params: WebhookUpdate,
@@ -912,7 +910,7 @@ async def update_webhook(
 )
 @require_scope("workflow:create")
 async def create_case_trigger(
-    role: WorkspaceActorRole,
+    role: WorkspaceActor,
     session: AsyncDBSession,
     workflow_id: AnyWorkflowIDPath,
     params: CaseTriggerCreate,
@@ -937,7 +935,7 @@ async def create_case_trigger(
 )
 @require_scope("workflow:read")
 async def get_case_trigger(
-    role: WorkspaceActorRole,
+    role: WorkspaceActor,
     session: AsyncDBSession,
     workflow_id: AnyWorkflowIDPath,
 ) -> CaseTriggerRead:
@@ -957,7 +955,7 @@ async def get_case_trigger(
 )
 @require_scope("workflow:update")
 async def update_case_trigger(
-    role: WorkspaceActorRole,
+    role: WorkspaceActor,
     session: AsyncDBSession,
     workflow_id: AnyWorkflowIDPath,
     params: CaseTriggerUpdate,
@@ -981,7 +979,7 @@ async def update_case_trigger(
 )
 @require_scope("workflow:update")
 async def generate_webhook_api_key(
-    role: WorkspaceActorRole,
+    role: WorkspaceActor,
     session: AsyncDBSession,
     workflow_id: AnyWorkflowIDPath,
 ) -> WebhookApiKeyGenerateResponse:
@@ -1035,7 +1033,7 @@ async def generate_webhook_api_key(
 )
 @require_scope("workflow:update")
 async def revoke_webhook_api_key(
-    role: WorkspaceUserRole,
+    role: WorkspaceUser,
     session: AsyncDBSession,
     workflow_id: AnyWorkflowIDPath,
 ) -> None:
@@ -1071,7 +1069,7 @@ async def revoke_webhook_api_key(
 )
 @require_scope("workflow:delete")
 async def delete_webhook_api_key(
-    role: WorkspaceUserRole,
+    role: WorkspaceUser,
     session: AsyncDBSession,
     workflow_id: AnyWorkflowIDPath,
 ) -> None:
@@ -1100,7 +1098,7 @@ async def delete_webhook_api_key(
 )
 @require_scope("workflow:update")
 async def move_workflow_to_folder(
-    role: WorkspaceActorRole,
+    role: WorkspaceActor,
     session: AsyncDBSession,
     workflow_id: AnyWorkflowIDPath,
     params: WorkflowMoveToFolder,

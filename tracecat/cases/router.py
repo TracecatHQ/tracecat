@@ -18,7 +18,7 @@ from starlette.status import (
 )
 
 from tracecat import config
-from tracecat.auth.dependencies import WorkspaceActorRouteRole as WorkspaceActor
+from tracecat.auth.dependencies import WorkspaceActor
 from tracecat.auth.schemas import UserRead
 from tracecat.auth.users import search_users
 from tracecat.authz.controls import require_scope

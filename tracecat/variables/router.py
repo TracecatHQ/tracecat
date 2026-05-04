@@ -3,7 +3,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Query, status
 from sqlalchemy.exc import IntegrityError
 
-from tracecat.auth.dependencies import WorkspaceUserRouteRole as WorkspaceUser
+from tracecat.auth.dependencies import WorkspaceUser
 from tracecat.authz.controls import require_scope
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.exceptions import TracecatNotFoundError

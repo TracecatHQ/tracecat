@@ -18,7 +18,7 @@ from fastapi import (
 from sqlalchemy.exc import DBAPIError, ProgrammingError
 
 from tracecat import config
-from tracecat.auth.dependencies import WorkspaceUserRouteRole
+from tracecat.auth.dependencies import WorkspaceUser
 from tracecat.authz.controls import require_scope
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.exceptions import TracecatImportError, TracecatNotFoundError
@@ -50,9 +50,6 @@ from tracecat.tables.schemas import (
 from tracecat.tables.service import TablesService
 
 router = APIRouter(prefix="/tables", tags=["tables"])
-
-WorkspaceUser = WorkspaceUserRouteRole
-WorkspaceEditorUser = WorkspaceUserRouteRole
 
 
 async def _read_csv_upload_with_limit(file: UploadFile, *, max_size: int) -> bytes:
@@ -109,7 +106,7 @@ async def list_tables(
 @router.post("", status_code=status.HTTP_201_CREATED)
 @require_scope("table:create")
 async def create_table(
-    role: WorkspaceEditorUser,
+    role: WorkspaceUser,
     session: AsyncDBSession,
     params: TableCreate,
 ) -> None:
@@ -187,7 +184,7 @@ async def get_table(
 @router.patch("/{table_id}", status_code=status.HTTP_204_NO_CONTENT)
 @require_scope("table:update")
 async def update_table(
-    role: WorkspaceEditorUser,
+    role: WorkspaceUser,
     session: AsyncDBSession,
     table_id: TableID,
     params: TableUpdate,
@@ -221,7 +218,7 @@ async def update_table(
 @router.delete("/{table_id}", status_code=status.HTTP_204_NO_CONTENT)
 @require_scope("table:delete")
 async def delete_table(
-    role: WorkspaceEditorUser,
+    role: WorkspaceUser,
     session: AsyncDBSession,
     table_id: TableID,
 ) -> None:
@@ -240,7 +237,7 @@ async def delete_table(
 @router.post("/{table_id}/columns", status_code=status.HTTP_201_CREATED)
 @require_scope("table:create")
 async def create_column(
-    role: WorkspaceEditorUser,
+    role: WorkspaceUser,
     session: AsyncDBSession,
     table_id: TableID,
     params: TableColumnCreate,
@@ -283,7 +280,7 @@ async def create_column(
 )
 @require_scope("table:update")
 async def update_column(
-    role: WorkspaceEditorUser,
+    role: WorkspaceUser,
     session: AsyncDBSession,
     table_id: TableID,
     column_id: TableColumnID,
@@ -326,7 +323,7 @@ async def update_column(
 )
 @require_scope("table:delete")
 async def delete_column(
-    role: WorkspaceEditorUser,
+    role: WorkspaceUser,
     session: AsyncDBSession,
     table_id: TableID,
     column_id: TableColumnID,
@@ -460,7 +457,7 @@ async def insert_row(
 @router.delete("/{table_id}/rows/{row_id}", status_code=status.HTTP_204_NO_CONTENT)
 @require_scope("table:delete")
 async def delete_row(
-    role: WorkspaceEditorUser,
+    role: WorkspaceUser,
     session: AsyncDBSession,
     table_id: TableID,
     row_id: UUID,
@@ -480,7 +477,7 @@ async def delete_row(
 @router.patch("/{table_id}/rows/{row_id}")
 @require_scope("table:update")
 async def update_row(
-    role: WorkspaceEditorUser,
+    role: WorkspaceUser,
     session: AsyncDBSession,
     table_id: TableID,
     row_id: UUID,
@@ -556,7 +553,7 @@ async def batch_insert_rows(
 
 @router.post("/{table_id}/rows/batch-delete")
 async def batch_delete_rows(
-    role: WorkspaceEditorUser,
+    role: WorkspaceUser,
     session: AsyncDBSession,
     table_id: TableID,
     params: TableRowBatchDelete,
@@ -589,7 +586,7 @@ async def batch_delete_rows(
 
 @router.post("/{table_id}/rows/batch-update")
 async def batch_update_rows(
-    role: WorkspaceEditorUser,
+    role: WorkspaceUser,
     session: AsyncDBSession,
     table_id: TableID,
     params: TableRowBatchUpdate,
@@ -633,7 +630,7 @@ async def get_column_mapping(column_mapping: str = Form(...)) -> dict[str, str]:
 @router.post("/import", status_code=status.HTTP_201_CREATED)
 @require_scope("table:create")
 async def import_table_from_csv(
-    role: WorkspaceEditorUser,
+    role: WorkspaceUser,
     session: AsyncDBSession,
     file: UploadFile = File(...),
     table_name: str | None = Form(default=None),

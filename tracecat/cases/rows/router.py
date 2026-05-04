@@ -9,7 +9,7 @@ from starlette.status import (
 )
 
 from tracecat import config
-from tracecat.auth.dependencies import WorkspaceUserRouteRole as WorkspaceUser
+from tracecat.auth.dependencies import WorkspaceUser
 from tracecat.authz.controls import require_scope
 from tracecat.cases.rows.schemas import (
     CaseTableRowInsertCreate,

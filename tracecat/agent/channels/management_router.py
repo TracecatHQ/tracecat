@@ -16,7 +16,7 @@ from tracecat.agent.channels.schemas import (
     SlackOAuthStartResponse,
 )
 from tracecat.agent.channels.service import PENDING_SLACK_BOT_TOKEN, AgentChannelService
-from tracecat.auth.dependencies import WorkspaceUserRouteRole as WorkspaceEditorRole
+from tracecat.auth.dependencies import WorkspaceUser
 from tracecat.authz.controls import require_scope
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
@@ -46,7 +46,7 @@ router = APIRouter(
 async def create_channel_token(
     *,
     params: AgentChannelTokenCreate,
-    role: WorkspaceEditorRole,
+    role: WorkspaceUser,
     session: AsyncDBSession,
 ) -> AgentChannelTokenRead:
     service = AgentChannelService(session, role=role)
@@ -69,7 +69,7 @@ async def create_channel_token(
 @require_scope("agent:read")
 async def list_channel_tokens(
     *,
-    role: WorkspaceEditorRole,
+    role: WorkspaceUser,
     session: AsyncDBSession,
     agent_preset_id: uuid.UUID | None = Query(
         default=None, description="Filter by agent preset"
@@ -92,7 +92,7 @@ async def update_channel_token(
     *,
     token_id: uuid.UUID,
     params: AgentChannelTokenUpdate,
-    role: WorkspaceEditorRole,
+    role: WorkspaceUser,
     session: AsyncDBSession,
 ) -> AgentChannelTokenRead:
     service = AgentChannelService(session, role=role)
@@ -117,7 +117,7 @@ async def update_channel_token(
 async def rotate_channel_token(
     *,
     token_id: uuid.UUID,
-    role: WorkspaceEditorRole,
+    role: WorkspaceUser,
     session: AsyncDBSession,
 ) -> AgentChannelTokenRead:
     service = AgentChannelService(session, role=role)
@@ -136,7 +136,7 @@ async def rotate_channel_token(
 async def delete_channel_token(
     *,
     token_id: uuid.UUID,
-    role: WorkspaceEditorRole,
+    role: WorkspaceUser,
     session: AsyncDBSession,
 ) -> None:
     service = AgentChannelService(session, role=role)
@@ -154,7 +154,7 @@ async def delete_channel_token(
 async def start_slack_oauth(
     *,
     params: SlackOAuthStartRequest,
-    role: WorkspaceEditorRole,
+    role: WorkspaceUser,
     session: AsyncDBSession,
 ) -> SlackOAuthStartResponse:
     if role.workspace_id is None:

@@ -6,7 +6,7 @@ import uuid
 from fastapi import APIRouter, HTTPException, Query, Request, UploadFile, status
 
 from tracecat import config
-from tracecat.auth.dependencies import WorkspaceUserRouteRole as WorkspaceUser
+from tracecat.auth.dependencies import WorkspaceUser
 from tracecat.authz.controls import require_scope
 from tracecat.cases.attachments.schemas import (
     CaseAttachmentCreate,

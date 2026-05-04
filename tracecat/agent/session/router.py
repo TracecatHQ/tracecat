@@ -23,7 +23,7 @@ from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.agent.stream.connector import AgentStream
 from tracecat.agent.stream.events import StreamFormat
 from tracecat.agent.types import StreamKey
-from tracecat.auth.dependencies import WorkspaceUserRouteRole as WorkspaceUser
+from tracecat.auth.dependencies import WorkspaceUser
 from tracecat.authz.controls import require_scope
 from tracecat.chat.schemas import (
     ChatRead,
