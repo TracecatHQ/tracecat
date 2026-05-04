@@ -21,13 +21,14 @@ pytestmark = [pytest.mark.temporal, pytest.mark.usefixtures("db")]
 
 from pydantic_ai.tools import ToolApproved, ToolDenied
 from temporalio import activity
-from temporalio.client import Client
+from temporalio.client import Client, WorkflowFailureError
 from temporalio.exceptions import ApplicationError
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 from tracecat_ee.agent.activities import (
     ApplyApprovalResultsActivityInputs,
     BuildToolDefsArgs,
     BuildToolDefsResult,
+    EmitSessionErrorInputs,
     PersistApprovalsActivityInputs,
 )
 from tracecat_ee.agent.approvals.service import (
@@ -398,6 +399,58 @@ async def agent_worker_factory(threadpool, monkeypatch: pytest.MonkeyPatch):
 # =============================================================================
 # Tests: Basic Workflow Execution
 # =============================================================================
+
+
+@pytest.mark.anyio
+@pytest.mark.integration
+async def test_agent_workflow_streams_tool_definition_error(
+    temporal_client: Client,
+    agent_worker_factory,
+    agent_workflow_args: AgentWorkflowArgs,
+    mock_session_id: uuid.UUID,
+) -> None:
+    queue = f"test-agent-queue-{mock_session_id}"
+    emitted_errors: list[EmitSessionErrorInputs] = []
+
+    @activity.defn(name="build_tool_definitions")
+    async def mock_build_tool_definitions(
+        args: BuildToolDefsArgs,
+    ) -> BuildToolDefsResult:
+        del args
+        raise ApplicationError(
+            "Cannot request more than 100 tools",
+            type="AgentToolDefinitionError",
+            non_retryable=True,
+        )
+
+    @activity.defn(name="emit_session_error")
+    async def mock_emit_session_error(args: EmitSessionErrorInputs) -> None:
+        emitted_errors.append(args)
+
+    activities = [
+        create_mock_create_session_activity(),
+        mock_build_tool_definitions,
+        mock_emit_session_error,
+    ]
+
+    async with agent_worker_factory(
+        temporal_client, task_queue=queue, custom_activities=activities
+    ):
+        with pytest.raises(WorkflowFailureError) as exc_info:
+            await temporal_client.execute_workflow(
+                DurableAgentWorkflow.run,
+                agent_workflow_args,
+                id=AgentWorkflowID(mock_session_id),
+                task_queue=queue,
+                retry_policy=RETRY_POLICIES["workflow:fail_fast"],
+                execution_timeout=timedelta(seconds=30),
+            )
+
+    assert isinstance(exc_info.value.cause, ApplicationError)
+    assert "Cannot request more than 100 tools" in str(exc_info.value.cause)
+    assert len(emitted_errors) == 1
+    assert emitted_errors[0].session_id == mock_session_id
+    assert emitted_errors[0].message == "Cannot request more than 100 tools"
 
 
 @pytest.mark.anyio

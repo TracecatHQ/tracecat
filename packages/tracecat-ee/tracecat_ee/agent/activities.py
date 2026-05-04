@@ -133,11 +133,18 @@ class AgentActivities:
                 if action not in actions_to_build:
                     actions_to_build.append(action)
 
-        result = await build_agent_tools(
-            namespaces=args.tool_filters.namespaces,
-            actions=actions_to_build if actions_to_build else None,
-            tool_approvals=args.tool_approvals,
-        )
+        try:
+            result = await build_agent_tools(
+                namespaces=args.tool_filters.namespaces,
+                actions=actions_to_build if actions_to_build else None,
+                tool_approvals=args.tool_approvals,
+            )
+        except ValueError as e:
+            raise ApplicationError(
+                str(e),
+                type="AgentToolDefinitionError",
+                non_retryable=True,
+            ) from e
         # Convert to dict[str, MCPToolDefinition] keyed by canonical action name
         # Tools already have canonical names (with dots, e.g., "core.cases.list_cases")
         defs: dict[str, MCPToolDefinition] = {}
