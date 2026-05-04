@@ -62,6 +62,8 @@ export function CreateSkillDialog({
               onChange={(event) =>
                 onNameChange(
                   event.target.value
+                    .normalize("NFKD")
+                    .replace(/[\u0300-\u036f]/g, "")
                     .toLowerCase()
                     .replace(/_/g, "-")
                     .replace(/[^a-z0-9-\s]/g, "")
