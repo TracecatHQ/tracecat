@@ -94,6 +94,7 @@ POST_RLS_ORG_OPTIONAL_WORKSPACE_SCOPED_TABLES = (
     "watchtower_agent_session",
     "watchtower_agent_tool_call",
     "service_account",
+    "mcp_personal_access_token",
     "agent_model_access",
 )
 
