@@ -40,7 +40,7 @@ WorkspaceActorRole = Annotated[
 ]
 """Dependency for a user or service-account role for a workspace."""
 
-WorkspaceActor = Annotated[
+WorkspaceActorRouteRole = Annotated[
     Role,
     RoleACL(
         allow_user=True,
@@ -52,7 +52,7 @@ WorkspaceActor = Annotated[
 ]
 """Dependency for workspace routes that accept path-scoped canonical routes and legacy query-scoped routes."""
 
-WorkspaceUser = Annotated[
+WorkspaceUserRouteRole = Annotated[
     Role,
     RoleACL(
         allow_user=True,
@@ -63,12 +63,6 @@ WorkspaceUser = Annotated[
     ),
 ]
 """Dependency for user-only workspace routes that accept path or legacy query workspace context."""
-
-WorkspaceActorRouteRole = WorkspaceActor
-"""Compatibility alias for the route-aware workspace actor dependency."""
-
-WorkspaceUserRouteRole = WorkspaceUser
-"""Compatibility alias for the route-aware workspace user dependency."""
 
 
 async def require_workspace_id_path(workspace_id: uuid.UUID = Path(...)) -> uuid.UUID:

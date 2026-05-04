@@ -17,11 +17,11 @@ from tracecat.auth.dependencies import (
     OrganizationServiceAccountRole,
     OrgUserOnlyRole,
     OrgUserRole,
-    WorkspaceActor,
     WorkspaceActorRole,
+    WorkspaceActorRouteRole,
     WorkspaceServiceAccountRole,
-    WorkspaceUser,
     WorkspaceUserRole,
+    WorkspaceUserRouteRole,
 )
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import (
@@ -81,9 +81,9 @@ def client(request: FixtureRequest) -> Generator[TestClient, None, None]:
     # List of Annotated role dependencies to override
     role_dependencies = [
         WorkspaceUserRole,
-        WorkspaceUser,
+        WorkspaceUserRouteRole,
         WorkspaceActorRole,
-        WorkspaceActor,
+        WorkspaceActorRouteRole,
         WorkspaceServiceAccountRole,
         ExecutorWorkspaceRole,
         SuperuserRole,

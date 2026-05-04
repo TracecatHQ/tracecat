@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.agent.session.service import AgentSessionService
 from tracecat.agent.types import ToolApproved, ToolDenied
-from tracecat.auth.dependencies import WorkspaceUser
+from tracecat.auth.dependencies import WorkspaceUserRouteRole
 from tracecat.chat.schemas import ApprovalDecision, ContinueRunRequest
 from tracecat.db.engine import get_async_session
 from tracecat.exceptions import TracecatNotFoundError
@@ -72,7 +72,7 @@ def _to_approval_decisions(approvals: ApprovalMap) -> list[ApprovalDecision]:
 @router.post("/{session_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def submit_approvals(
     *,
-    role: WorkspaceUser,
+    role: WorkspaceUserRouteRole,
     session_id: uuid.UUID,
     payload: ApprovalSubmission,
     session: AsyncSession = Depends(get_async_session),

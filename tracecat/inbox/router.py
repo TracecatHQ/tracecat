@@ -5,7 +5,7 @@ from typing import Literal
 from fastapi import APIRouter, HTTPException, Query, status
 
 from tracecat import config
-from tracecat.auth.dependencies import WorkspaceUser
+from tracecat.auth.dependencies import WorkspaceUserRouteRole
 from tracecat.authz.controls import require_scope
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.inbox.dependencies import get_inbox_providers
@@ -20,7 +20,7 @@ router = APIRouter(prefix="/inbox", tags=["inbox"])
 @router.get("/items")
 @require_scope("inbox:read")
 async def list_items(
-    role: WorkspaceUser,
+    role: WorkspaceUserRouteRole,
     session: AsyncDBSession,
     limit: int = Query(
         default=config.TRACECAT__LIMIT_DEFAULT,

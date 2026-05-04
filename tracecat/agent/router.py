@@ -9,7 +9,7 @@ from tracecat.agent.schemas import (
     ProviderCredentialConfig,
 )
 from tracecat.agent.service import AgentManagementService
-from tracecat.auth.dependencies import OrgUserRole, WorkspaceActor
+from tracecat.auth.dependencies import OrgUserRole, WorkspaceActorRouteRole
 from tracecat.authz.controls import require_scope
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.exceptions import TracecatNotFoundError
@@ -217,7 +217,7 @@ async def set_default_model_selection(
 @require_scope("agent:read")
 async def get_workspace_providers_status(
     *,
-    role: WorkspaceActor,
+    role: WorkspaceActorRouteRole,
     session: AsyncDBSession,
 ) -> dict[str, bool]:
     """Get workspace credential status for all providers."""

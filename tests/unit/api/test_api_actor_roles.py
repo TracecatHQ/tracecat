@@ -13,8 +13,8 @@ from temporalio.client import WorkflowExecutionStatus
 
 from tracecat.agent import router as agent_router
 from tracecat.auth.dependencies import (
-    WorkspaceActor,
-    WorkspaceUser,
+    WorkspaceActorRouteRole,
+    WorkspaceUserRouteRole,
 )
 from tracecat.auth.types import Role
 from tracecat.cases import router as cases_router
@@ -484,9 +484,9 @@ def test_integration_route_role_boundaries_are_explicit() -> None:
         integrations_router.test_connection, include_extras=True
     )["role"]
 
-    assert list_integrations_role == WorkspaceUser
-    assert list_providers_role == WorkspaceActor
-    assert test_connection_role == WorkspaceActor
+    assert list_integrations_role == WorkspaceUserRouteRole
+    assert list_providers_role == WorkspaceActorRouteRole
+    assert test_connection_role == WorkspaceActorRouteRole
 
 
 def test_cases_route_role_boundary_accepts_workspace_actors() -> None:
@@ -494,7 +494,7 @@ def test_cases_route_role_boundary_accepts_workspace_actors() -> None:
         "role"
     ]
 
-    assert list_cases_role == WorkspaceActor
+    assert list_cases_role == WorkspaceActorRouteRole
 
 
 def test_delete_organization_route_remains_user_only() -> None:
@@ -545,7 +545,7 @@ def test_org_agent_routes_remain_user_only() -> None:
     workspace_status_role = get_type_hints(
         agent_router.get_workspace_providers_status, include_extras=True
     )["role"]
-    assert workspace_status_role == WorkspaceActor
+    assert workspace_status_role == WorkspaceActorRouteRole
 
 
 def test_github_manifest_flow_routes_remain_user_only() -> None:
@@ -571,8 +571,8 @@ def test_draft_workflow_execution_route_remains_user_only() -> None:
         include_extras=True,
     )["role"]
 
-    assert draft_role == WorkspaceActor
-    assert draft_execution_role == WorkspaceUser
+    assert draft_role == WorkspaceActorRouteRole
+    assert draft_execution_role == WorkspaceUserRouteRole
 
 
 def test_workflow_detail_route_remains_user_only() -> None:
@@ -580,7 +580,7 @@ def test_workflow_detail_route_remains_user_only() -> None:
         workflow_management_router.get_workflow, include_extras=True
     )["role"]
 
-    assert workflow_detail_role == WorkspaceUser
+    assert workflow_detail_role == WorkspaceUserRouteRole
 
 
 def test_webhook_api_key_revocation_route_remains_user_only() -> None:
@@ -594,6 +594,6 @@ def test_webhook_api_key_revocation_route_remains_user_only() -> None:
         workflow_management_router.delete_webhook_api_key, include_extras=True
     )["role"]
 
-    assert get_webhook_role == WorkspaceUser
-    assert revoke_role == WorkspaceUser
-    assert delete_role == WorkspaceUser
+    assert get_webhook_role == WorkspaceUserRouteRole
+    assert revoke_role == WorkspaceUserRouteRole
+    assert delete_role == WorkspaceUserRouteRole

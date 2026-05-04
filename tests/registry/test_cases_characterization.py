@@ -64,7 +64,7 @@ from tracecat.auth.dependencies import (
     ExecutorWorkspaceRole,
     OrgUserRole,
     ServiceRole,
-    WorkspaceActor,
+    WorkspaceActorRouteRole,
     WorkspaceUserRole,
 )
 from tracecat.auth.executor_tokens import mint_executor_token
@@ -168,7 +168,7 @@ async def cases_ctx(
     role_dependencies = [
         ExecutorWorkspaceRole,
         WorkspaceUserRole,
-        WorkspaceActor,
+        WorkspaceActorRouteRole,
         ServiceRole,
         OrgUserRole,
     ]

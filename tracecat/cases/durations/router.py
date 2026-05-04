@@ -6,7 +6,7 @@ import uuid
 
 from fastapi import APIRouter, HTTPException, status
 
-from tracecat.auth.dependencies import WorkspaceActor
+from tracecat.auth.dependencies import WorkspaceActorRouteRole
 from tracecat.authz.controls import require_scope
 from tracecat.cases.durations.schemas import (
     CaseDurationCreate,
@@ -38,7 +38,7 @@ durations_router = APIRouter(
 @require_scope("case:read")
 async def list_case_duration_definitions(
     *,
-    role: WorkspaceActor,
+    role: WorkspaceActorRouteRole,
     session: AsyncDBSession,
 ) -> list[CaseDurationDefinitionRead]:
     """List all case duration definitions for the active workspace."""
@@ -50,7 +50,7 @@ async def list_case_duration_definitions(
 @require_scope("case:read")
 async def get_case_duration_definition(
     *,
-    role: WorkspaceActor,
+    role: WorkspaceActorRouteRole,
     session: AsyncDBSession,
     duration_id: uuid.UUID,
 ) -> CaseDurationDefinitionRead:
@@ -78,7 +78,7 @@ async def get_case_duration_definition(
 @require_scope("case:create")
 async def create_case_duration_definition(
     *,
-    role: WorkspaceActor,
+    role: WorkspaceActorRouteRole,
     session: AsyncDBSession,
     params: CaseDurationDefinitionCreate,
 ) -> CaseDurationDefinitionRead:
@@ -113,7 +113,7 @@ async def create_case_duration_definition(
 @require_scope("case:update")
 async def update_case_duration_definition(
     *,
-    role: WorkspaceActor,
+    role: WorkspaceActorRouteRole,
     session: AsyncDBSession,
     duration_id: uuid.UUID,
     params: CaseDurationDefinitionUpdate,
@@ -163,7 +163,7 @@ async def update_case_duration_definition(
 @require_scope("case:delete")
 async def delete_case_duration_definition(
     *,
-    role: WorkspaceActor,
+    role: WorkspaceActorRouteRole,
     session: AsyncDBSession,
     duration_id: uuid.UUID,
 ) -> None:
@@ -187,7 +187,7 @@ async def delete_case_duration_definition(
 @require_scope("case:read")
 async def list_case_durations(
     *,
-    role: WorkspaceActor,
+    role: WorkspaceActorRouteRole,
     session: AsyncDBSession,
     case_id: uuid.UUID,
 ) -> list[CaseDurationRead]:
@@ -215,7 +215,7 @@ async def list_case_durations(
 @require_scope("case:read")
 async def get_case_duration(
     *,
-    role: WorkspaceActor,
+    role: WorkspaceActorRouteRole,
     session: AsyncDBSession,
     case_id: uuid.UUID,
     duration_id: uuid.UUID,
@@ -243,7 +243,7 @@ async def get_case_duration(
 @require_scope("case:create")
 async def create_case_duration(
     *,
-    role: WorkspaceActor,
+    role: WorkspaceActorRouteRole,
     session: AsyncDBSession,
     case_id: uuid.UUID,
     params: CaseDurationCreate,
@@ -280,7 +280,7 @@ async def create_case_duration(
 @require_scope("case:update")
 async def update_case_duration(
     *,
-    role: WorkspaceActor,
+    role: WorkspaceActorRouteRole,
     session: AsyncDBSession,
     case_id: uuid.UUID,
     duration_id: uuid.UUID,
@@ -321,7 +321,7 @@ async def update_case_duration(
 @require_scope("case:delete")
 async def delete_case_duration(
     *,
-    role: WorkspaceActor,
+    role: WorkspaceActorRouteRole,
     session: AsyncDBSession,
     case_id: uuid.UUID,
     duration_id: uuid.UUID,

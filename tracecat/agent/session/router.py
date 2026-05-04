@@ -23,7 +23,7 @@ from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.agent.stream.connector import AgentStream
 from tracecat.agent.stream.events import StreamFormat
 from tracecat.agent.types import StreamKey
-from tracecat.auth.dependencies import WorkspaceUser
+from tracecat.auth.dependencies import WorkspaceUserRouteRole
 from tracecat.authz.controls import require_scope
 from tracecat.chat.schemas import (
     ChatRead,
@@ -43,7 +43,7 @@ router = APIRouter(prefix="/agent/sessions", tags=["agent-sessions"])
 @require_scope("agent:execute")
 async def create_session(
     request: AgentSessionCreate,
-    role: WorkspaceUser,
+    role: WorkspaceUserRouteRole,
     session: AsyncDBSession,
 ) -> AgentSessionRead:
     """Create a new agent session associated with an entity."""
@@ -55,7 +55,7 @@ async def create_session(
 @router.get("")
 @require_scope("agent:read")
 async def list_sessions(
-    role: WorkspaceUser,
+    role: WorkspaceUserRouteRole,
     session: AsyncDBSession,
     entity_type: AgentSessionEntity | None = Query(
         None, description="Filter by entity type"
@@ -100,7 +100,7 @@ async def list_sessions(
 @require_scope("agent:read")
 async def get_session(
     session_id: uuid.UUID,
-    role: WorkspaceUser,
+    role: WorkspaceUserRouteRole,
     session: AsyncDBSession,
 ) -> AgentSessionReadWithMessages | ChatRead:
     """Get an agent session or legacy chat with its message history.
@@ -164,7 +164,7 @@ async def get_session(
 @require_scope("agent:read")
 async def get_session_vercel(
     session_id: uuid.UUID,
-    role: WorkspaceUser,
+    role: WorkspaceUserRouteRole,
     session: AsyncDBSession,
 ) -> AgentSessionReadVercel | ChatReadVercel:
     """Get an agent session or legacy chat with message history in Vercel format.
@@ -227,7 +227,7 @@ async def get_session_vercel(
 async def update_session(
     session_id: uuid.UUID,
     params: AgentSessionUpdate,
-    role: WorkspaceUser,
+    role: WorkspaceUserRouteRole,
     session: AsyncDBSession,
 ) -> AgentSessionRead:
     """Update session properties."""
@@ -255,7 +255,7 @@ async def update_session(
 @require_scope("agent:execute")
 async def delete_session(
     session_id: uuid.UUID,
-    role: WorkspaceUser,
+    role: WorkspaceUserRouteRole,
     session: AsyncDBSession,
 ) -> None:
     """Delete an agent session."""
@@ -283,7 +283,7 @@ async def delete_session(
 async def send_message(
     session_id: uuid.UUID,
     request: ChatRequest,
-    role: WorkspaceUser,
+    role: WorkspaceUserRouteRole,
     http_request: Request,
 ) -> StreamingResponse:
     """Send a message to the agent session with streaming response.
@@ -378,7 +378,7 @@ async def send_message(
 @router.get("/{session_id}/stream")
 @require_scope("agent:read")
 async def stream_session_events(
-    role: WorkspaceUser,
+    role: WorkspaceUserRouteRole,
     request: Request,
     session_id: uuid.UUID,
     format: StreamFormat = Query(
@@ -436,7 +436,7 @@ async def stream_session_events(
 @require_scope("agent:execute")
 async def fork_session(
     session_id: uuid.UUID,
-    role: WorkspaceUser,
+    role: WorkspaceUserRouteRole,
     session: AsyncDBSession,
     request: AgentSessionForkRequest | None = None,
 ) -> AgentSessionRead:

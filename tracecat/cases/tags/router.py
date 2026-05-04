@@ -2,7 +2,7 @@ from fastapi import APIRouter, HTTPException, status
 from pydantic import UUID4
 from sqlalchemy.exc import IntegrityError, NoResultFound
 
-from tracecat.auth.dependencies import WorkspaceActor
+from tracecat.auth.dependencies import WorkspaceActorRouteRole
 from tracecat.authz.controls import require_scope
 from tracecat.cases.tags.schemas import CaseTagCreate, CaseTagRead
 from tracecat.cases.tags.service import CaseTagsService
@@ -15,7 +15,7 @@ router = APIRouter(prefix="/cases", tags=["cases"])
 @router.get("/{case_id}/tags", response_model=list[CaseTagRead])
 @require_scope("case:read")
 async def list_tags(
-    role: WorkspaceActor,
+    role: WorkspaceActorRouteRole,
     session: AsyncDBSession,
     case_id: UUID4,
 ) -> list[CaseTagRead]:
@@ -33,7 +33,7 @@ async def list_tags(
 )
 @require_scope("case:update")
 async def add_tag(
-    role: WorkspaceActor,
+    role: WorkspaceActorRouteRole,
     session: AsyncDBSession,
     case_id: UUID4,
     params: CaseTagCreate,
@@ -62,7 +62,7 @@ async def add_tag(
 )
 @require_scope("case:update")
 async def remove_tag(
-    role: WorkspaceActor,
+    role: WorkspaceActorRouteRole,
     session: AsyncDBSession,
     case_id: UUID4,
     tag_identifier: str,  # Can be UUID or ref

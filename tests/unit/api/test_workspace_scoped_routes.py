@@ -4,8 +4,8 @@ from fastapi.routing import APIRoute
 
 from tracecat.api.app import app
 from tracecat.auth.dependencies import (
-    WorkspaceActor,
-    WorkspaceUser,
+    WorkspaceActorRouteRole,
+    WorkspaceUserRouteRole,
     require_workspace_id_path,
 )
 
@@ -37,7 +37,7 @@ WORKSPACE_ROUTE_PREFIXES = [
     "/workflows",
 ]
 
-WORKSPACE_ROUTE_ROLE_TYPES = (WorkspaceActor, WorkspaceUser)
+WORKSPACE_ROUTE_ROLE_TYPES = (WorkspaceActorRouteRole, WorkspaceUserRouteRole)
 WORKSPACE_ROUTE_AUTH_EXEMPTIONS = {
     ("/workspaces/{workspace_id}/editor/field-schema", frozenset({"GET"})),
 }

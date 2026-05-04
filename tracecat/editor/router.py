@@ -7,7 +7,7 @@ from lark import Lark, LarkError, Token, Tree
 from lark.visitors import Interpreter
 from pydantic import BaseModel
 
-from tracecat.auth.dependencies import WorkspaceActor
+from tracecat.auth.dependencies import WorkspaceActorRouteRole
 from tracecat.authz.controls import require_scope
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.editor.schemas import (
@@ -141,7 +141,7 @@ def format_type(type_hint: Any) -> str:
 @router.get("/functions", response_model=list[EditorFunctionRead])
 @require_scope("workflow:read")
 async def list_functions(
-    _role: WorkspaceActor,
+    _role: WorkspaceActorRouteRole,
 ):
     functions = []
 
@@ -188,7 +188,7 @@ async def list_functions(
 @require_scope("workflow:read")
 async def list_actions(
     *,
-    role: WorkspaceActor,
+    role: WorkspaceActorRouteRole,
     session: AsyncDBSession,
     workflow_id: AnyWorkflowIDQuery,
 ):
@@ -220,7 +220,7 @@ async def list_actions(
 @require_scope("workflow:read")
 async def validate_expression(
     request: ExpressionValidationRequest,
-    _role: WorkspaceActor,
+    _role: WorkspaceActorRouteRole,
 ):
     """
     LSP endpoint for validating template expressions using the Lark grammar.

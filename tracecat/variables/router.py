@@ -3,7 +3,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Query, status
 from sqlalchemy.exc import IntegrityError
 
-from tracecat.auth.dependencies import WorkspaceUser
+from tracecat.auth.dependencies import WorkspaceUserRouteRole
 from tracecat.authz.controls import require_scope
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.exceptions import TracecatNotFoundError
@@ -25,7 +25,7 @@ router = APIRouter(prefix="/variables", tags=["variables"])
 @require_scope("variable:read")
 async def search_variables(
     *,
-    role: WorkspaceUser,
+    role: WorkspaceUserRouteRole,
     session: AsyncDBSession,
     environment: str | None = Query(None),
     names: set[str] | None = Query(
@@ -51,7 +51,7 @@ async def search_variables(
 @require_scope("variable:read")
 async def list_variables(
     *,
-    role: WorkspaceUser,
+    role: WorkspaceUserRouteRole,
     session: AsyncDBSession,
     environment: str | None = Query(None),
 ) -> list[VariableReadMinimal]:
@@ -73,7 +73,7 @@ async def list_variables(
 @require_scope("variable:read")
 async def get_variable_by_name(
     *,
-    role: WorkspaceUser,
+    role: WorkspaceUserRouteRole,
     session: AsyncDBSession,
     variable_name: str,
     environment: str | None = Query(None),
@@ -94,7 +94,7 @@ async def get_variable_by_name(
 @require_scope("variable:create")
 async def create_variable(
     *,
-    role: WorkspaceUser,
+    role: WorkspaceUserRouteRole,
     session: AsyncDBSession,
     params: VariableCreate,
 ) -> VariableRead:
@@ -114,7 +114,7 @@ async def create_variable(
 @require_scope("variable:update")
 async def update_variable_by_id(
     *,
-    role: WorkspaceUser,
+    role: WorkspaceUserRouteRole,
     session: AsyncDBSession,
     variable_id: VariableID,
     params: VariableUpdate,
@@ -140,7 +140,7 @@ async def update_variable_by_id(
 @require_scope("variable:delete")
 async def delete_variable_by_id(
     *,
-    role: WorkspaceUser,
+    role: WorkspaceUserRouteRole,
     session: AsyncDBSession,
     variable_id: VariableID,
 ) -> None:
