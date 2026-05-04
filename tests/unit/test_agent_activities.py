@@ -101,6 +101,31 @@ class TestSessionActivities:
 
 class TestBuildToolDefinitionsActivity:
     @pytest.mark.anyio
+    async def test_maps_tool_definition_errors_to_application_error(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        async def mock_build_agent_tools(**_kwargs: Any) -> BuildToolsResult:
+            raise ValueError("Cannot request more than 100 tools")
+
+        monkeypatch.setattr(
+            agent_activities, "build_agent_tools", mock_build_agent_tools
+        )
+
+        args = BuildToolDefsArgs(
+            role=Role(type="service", service_id="tracecat-api"),
+            tool_filters=ToolFilters(actions=["core.http_request"]),
+        )
+
+        with pytest.raises(ApplicationError) as exc_info:
+            await AgentActivities().build_tool_definitions(args)
+
+        app_error = exc_info.value
+        assert app_error.type == "AgentToolDefinitionError"
+        assert app_error.non_retryable is True
+        assert app_error.message == "Cannot request more than 100 tools"
+
+    @pytest.mark.anyio
     async def test_maps_builtin_sync_pending_to_application_error(
         self,
         monkeypatch: pytest.MonkeyPatch,

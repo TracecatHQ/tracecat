@@ -1004,22 +1004,43 @@ class ClaudeAgentRuntime:
 
                         elif isinstance(message, SystemMessage):
                             await self._emit_new_session_lines()
-                            if message.subtype != "compact_boundary":
-                                continue
 
-                            pre_tokens: int | None = None
-                            compact_metadata = message.data.get("compact_metadata")
-                            if isinstance(compact_metadata, dict):
-                                pre_tokens_value = compact_metadata.get("pre_tokens")
-                                if isinstance(pre_tokens_value, int):
-                                    pre_tokens = pre_tokens_value
+                            # init: emitted once at session start; surfaces MCP
+                            # server connection results so we can flag failures.
+                            if message.subtype == "init":
+                                mcp_servers = message.data.get("mcp_servers")
+                                if isinstance(mcp_servers, list):
+                                    for server in mcp_servers:
+                                        if (
+                                            isinstance(server, dict)
+                                            and server.get("status") == "failed"
+                                        ):
+                                            await self._event_writer.send_log(
+                                                "error",
+                                                "MCP server failed to connect",
+                                                server_name=server.get(
+                                                    "name", "<unknown>"
+                                                ),
+                                            )
 
-                            await self._event_writer.send_stream_event(
-                                self._build_compaction_status_event(
-                                    phase="completed",
-                                    pre_tokens=pre_tokens,
+                            # compact_boundary: emitted after auto-compaction,
+                            # carries pre-compaction token count for UI feedback.
+                            elif message.subtype == "compact_boundary":
+                                pre_tokens: int | None = None
+                                compact_metadata = message.data.get("compact_metadata")
+                                if isinstance(compact_metadata, dict):
+                                    pre_tokens_value = compact_metadata.get(
+                                        "pre_tokens"
+                                    )
+                                    if isinstance(pre_tokens_value, int):
+                                        pre_tokens = pre_tokens_value
+
+                                await self._event_writer.send_stream_event(
+                                    self._build_compaction_status_event(
+                                        phase="completed",
+                                        pre_tokens=pre_tokens,
+                                    )
                                 )
-                            )
 
                         else:
                             # AssistantMessage, UserMessage, etc.
