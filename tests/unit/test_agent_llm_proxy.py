@@ -278,75 +278,14 @@ async def test_forward_request_strips_authorization_for_passthrough_upstream(
     assert response_text.startswith("HTTP/1.1 200 OK")
 
 
-def test_passthrough_upstream_url_strips_version_suffix(tmp_path: Path) -> None:
-    """Passthrough strips a trailing /vN from the stored base_url so it does
-    not collide with the /v1/... path the SDK clients emit."""
+def test_passthrough_upstream_url_preserves_version_suffix(tmp_path: Path) -> None:
     socket_proxy = LLMSocketProxy(
         socket_path=tmp_path / "llm.sock",
         upstream_url="https://customer-litellm.example/v1/",
         passthrough=True,
     )
 
-    assert socket_proxy.upstream_url == "https://customer-litellm.example"
-
-
-def test_non_passthrough_upstream_url_preserves_path(tmp_path: Path) -> None:
-    """Non-passthrough talks to internal LiteLLM at a known host root and must
-    not have any path segment trimmed."""
-    socket_proxy = LLMSocketProxy(
-        socket_path=tmp_path / "llm.sock",
-        upstream_url="http://litellm:4000/v1",
-        passthrough=False,
-    )
-
-    assert socket_proxy.upstream_url == "http://litellm:4000/v1"
-
-
-@pytest.mark.anyio
-async def test_passthrough_does_not_double_prefix_version_in_request_url(
-    tmp_path: Path,
-) -> None:
-    """Customer base_url ending in /v1 + client path /v1/messages must not
-    produce /v1/v1/messages, which the upstream rejects with 404."""
-    received_urls: list[str] = []
-
-    async def handler(request: httpx.Request) -> httpx.Response:
-        received_urls.append(str(request.url))
-        return httpx.Response(
-            200,
-            headers={"Content-Type": "application/json"},
-            json={"ok": True},
-        )
-
-    socket_proxy = LLMSocketProxy(
-        socket_path=tmp_path / "llm.sock",
-        upstream_url="https://customer-litellm.example/v1",
-        passthrough=True,
-    )
-    socket_proxy._client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
-    writer = _FakeWriter()
-
-    try:
-        await socket_proxy._forward_request(
-            {
-                "method": "POST",
-                "path": "/v1/messages",
-                "headers": {
-                    "Content-Type": "application/json",
-                    "Authorization": "Bearer llm-token",
-                },
-                "body": b'{"messages":[{"role":"user","content":"hello"}]}',
-            },
-            cast(asyncio.StreamWriter, writer),
-        )
-    finally:
-        if socket_proxy._client is not None:
-            await socket_proxy._client.aclose()
-
-    assert received_urls == ["https://customer-litellm.example/v1/messages"], (
-        f"expected single /v1 prefix, got {received_urls[0]!r} — "
-        "double-prefix causes upstream 404 'model not found'"
-    )
+    assert socket_proxy.upstream_url == "https://customer-litellm.example/v1"
 
 
 @pytest.mark.anyio

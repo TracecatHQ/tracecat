@@ -22,6 +22,7 @@ from tracecat.agent.mcp.internal_tools import (
     get_builder_internal_tool_definitions,
 )
 from tracecat.agent.schemas import ToolFilters
+from tracecat.agent.stream.connector import AgentStream
 from tracecat.agent.tokens import InternalToolContext, UserMCPServerClaim
 from tracecat.agent.tools import build_agent_tools
 from tracecat.auth.types import Role
@@ -79,6 +80,12 @@ class ApplyApprovalResultsActivityInputs(BaseModel):
     role: Role
     session_id: uuid.UUID
     decisions: list[ApprovalDecisionPayload]
+
+
+class EmitSessionErrorInputs(BaseModel):
+    session_id: uuid.UUID
+    workspace_id: uuid.UUID
+    message: str
 
 
 class AgentActivities:
@@ -223,3 +230,16 @@ class AgentActivities:
             user_mcp_claims=user_mcp_claims,
             allowed_internal_tools=allowed_internal_tools,
         )
+
+    @activity.defn
+    async def emit_session_error(self, args: EmitSessionErrorInputs) -> None:
+        """Push a terminal error onto the session's SSE stream.
+
+        Used by workflow outer-scope handlers to surface pre-runtime failures
+        to the chat UI, since those happen before the loopback is wired up.
+        """
+        stream = await AgentStream.new(
+            session_id=args.session_id, workspace_id=args.workspace_id
+        )
+        await stream.error(args.message)
+        await stream.done()

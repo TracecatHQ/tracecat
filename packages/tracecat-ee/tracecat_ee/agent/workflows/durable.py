@@ -69,6 +69,7 @@ with workflow.unsafe.imports_passed_through():
     from tracecat_ee.agent.activities import (
         AgentActivities,
         BuildToolDefsArgs,
+        EmitSessionErrorInputs,
     )
     from tracecat_ee.agent.approvals.service import ApprovalManager, ApprovalMap
     from tracecat_ee.agent.context import AgentContext
@@ -318,10 +319,23 @@ class DurableAgentWorkflow:
         else:
             logger.debug("Starting agent", prompt=args.agent_args.user_prompt)
 
-        cfg = await self._build_config(args)
-
-        # Run through the agent executor (only supported harness currently)
-        return await self._run_with_agent_executor(args, cfg)
+        try:
+            cfg = await self._build_config(args)
+            return await self._run_with_agent_executor(args, cfg)
+        except ActivityError as e:
+            # Surface pre-runtime activity failures (e.g. tool-cap exceeded,
+            # missing actions, entitlement denied) to the chat UI.
+            await workflow.execute_activity_method(
+                AgentActivities.emit_session_error,
+                EmitSessionErrorInputs(
+                    session_id=self.session_id,
+                    workspace_id=self.workspace_id,
+                    message=_activity_error_message(e),
+                ),
+                start_to_close_timeout=timedelta(seconds=10),
+                retry_policy=RETRY_POLICIES["activity:fail_fast"],
+            )
+            raise
 
     @workflow.update
     def set_approvals(self, submission: WorkflowApprovalSubmission) -> None:

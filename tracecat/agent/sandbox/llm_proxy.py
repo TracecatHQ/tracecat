@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import asyncio
 import os
-import re
 import time
 import uuid
 from collections.abc import AsyncIterable, Callable
@@ -27,16 +26,6 @@ from tracecat.agent.observability import get_load_tracker
 from tracecat.agent.service import AgentManagementService
 from tracecat.auth.types import Role
 from tracecat.logger import logger
-
-# Strip a trailing "/vN" segment (with optional trailing slash) from a
-# passthrough upstream URL. The contract for stored ``base_url`` is the
-# OpenAI-compatible "/v1" form (so catalog discovery can hit
-# ``{base_url}/models`` → ``/v1/models``). In passthrough mode the SDK
-# clients (Claude Code SDK, pydantic-ai) emit fully-qualified paths like
-# ``/v1/messages``, so we strip the version suffix from ``upstream_url``
-# to avoid producing ``/v1/v1/messages``, which the upstream rejects with
-# a 404 "model not found".
-_PASSTHROUGH_VERSION_SUFFIX_RE = re.compile(r"/v\d+/?$")
 
 # Socket filename (created in job's socket directory)
 LLM_SOCKET_NAME = "llm.sock"
@@ -189,13 +178,11 @@ class LLMSocketProxy:
                 the legacy ``agent-custom-model-provider-credentials`` secret.
         """
         self.socket_path = socket_path
-        if upstream_url is not None:
-            trimmed = upstream_url.rstrip("/")
-            if passthrough:
-                trimmed = _PASSTHROUGH_VERSION_SUFFIX_RE.sub("", trimmed)
-            self.upstream_url = trimmed
-        else:
-            self.upstream_url = app_config.TRACECAT__LITELLM_BASE_URL.rstrip("/")
+        self.upstream_url = (
+            upstream_url.rstrip("/")
+            if upstream_url is not None
+            else app_config.TRACECAT__LITELLM_BASE_URL.rstrip("/")
+        )
         self._server: asyncio.Server | None = None
         self._client: httpx.AsyncClient | None = None
         self._on_error = on_error
