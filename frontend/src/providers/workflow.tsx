@@ -106,6 +106,9 @@ export function WorkflowProvider({
     onSuccess: (response) => {
       if (response.status === "success") {
         queryClient.invalidateQueries({ queryKey: ["workflow", workflowId] })
+        queryClient.invalidateQueries({
+          queryKey: ["workflow-definitions", workflowId],
+        })
         toast({
           title: "Saved changes to workflow",
           description: "New workflow version saved successfully.",
@@ -172,6 +175,9 @@ export function WorkflowProvider({
         ) : undefined,
       })
       queryClient.invalidateQueries({ queryKey: ["workflow", workflowId] })
+      queryClient.invalidateQueries({
+        queryKey: ["workflow-definitions", workflowId],
+      })
     },
     onError: (error: ApiError) => {
       console.warn("Failed to publish workflow:", error)

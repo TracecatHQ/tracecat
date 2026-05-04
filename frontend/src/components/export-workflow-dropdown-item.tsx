@@ -7,6 +7,7 @@ export function ExportMenuItem({
   format,
   workspaceId,
   workflowId,
+  version,
   icon,
   draft = false,
   label,
@@ -15,6 +16,7 @@ export function ExportMenuItem({
   format: "json" | "yaml"
   workspaceId: string
   workflowId: string
+  version?: number
   icon?: React.ReactNode
   draft?: boolean
   label?: string
@@ -30,6 +32,7 @@ export function ExportMenuItem({
             workspaceId,
             workflowId,
             format,
+            version,
             draft,
           })
         } catch (error) {
