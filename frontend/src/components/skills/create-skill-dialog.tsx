@@ -12,7 +12,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { validateSkillName } from "@/lib/skills-studio"
-import { cn, slugify } from "@/lib/utils"
+import { cn } from "@/lib/utils"
 
 type CreateSkillDialogProps = {
   open: boolean
@@ -60,7 +60,16 @@ export function CreateSkillDialog({
               id="new-skill-name"
               value={name}
               onChange={(event) =>
-                onNameChange(slugify(event.target.value, "-"))
+                onNameChange(
+                  event.target.value
+                    .normalize("NFKD")
+                    .replace(/[\u0300-\u036f]/g, "")
+                    .toLowerCase()
+                    .replace(/_/g, "-")
+                    .replace(/[^a-z0-9-\s]/g, "")
+                    .replace(/[\s-]+/g, "-")
+                    .replace(/^-+|-+$/g, "")
+                )
               }
               placeholder="threat-intel"
               aria-invalid={showNameError || undefined}
