@@ -442,6 +442,43 @@ export type AgentCustomProviderUpdate = {
   } | null
 }
 
+export type AgentFolderCreate = {
+  name: string
+  parent_path?: string
+}
+
+export type AgentFolderDelete = {
+  recursive?: boolean
+}
+
+export type AgentFolderDirectoryItem = {
+  id: string
+  name: string
+  path: string
+  workspace_id: string
+  created_at: string
+  updated_at: string
+  type: "folder"
+  num_items: number
+}
+
+export type AgentFolderMove = {
+  new_parent_path?: string | null
+}
+
+export type AgentFolderRead = {
+  id: string
+  name: string
+  path: string
+  workspace_id: string
+  created_at: string
+  updated_at: string
+}
+
+export type AgentFolderUpdate = {
+  name?: string | null
+}
+
 export type AgentModel = {
   component_id?: "agent-model"
 }
@@ -507,6 +544,20 @@ export type AgentPresetCreate = {
   skills?: Array<AgentPresetSkillBindingBase> | null
   name: string
   slug?: string | null
+}
+
+export type AgentPresetDirectoryItem = {
+  type: "preset"
+  id: string
+  name: string
+  slug: string
+  description?: string | null
+  model_provider: string
+  model_name: string
+  folder_id?: string | null
+  tags?: Array<TagRead>
+  created_at: string
+  updated_at: string
 }
 
 /**
@@ -581,6 +632,13 @@ export type AgentPresetSkillBindingRead = {
   skill_version_id: string
   skill_name: string
   skill_version: number
+}
+
+/**
+ * Payload for attaching a tag to a preset.
+ */
+export type AgentPresetTagCreate = {
+  tag_id: string
 }
 
 /**
@@ -10289,6 +10347,124 @@ export type AgentSessionsForkSessionData = {
 
 export type AgentSessionsForkSessionResponse = AgentSessionRead
 
+export type AgentFoldersGetDirectoryData = {
+  /**
+   * Folder path
+   */
+  path?: string
+  workspaceId: string
+}
+
+export type AgentFoldersGetDirectoryResponse = Array<
+  AgentFolderDirectoryItem | AgentPresetDirectoryItem
+>
+
+export type AgentFoldersListFoldersData = {
+  /**
+   * Parent folder path
+   */
+  parentPath?: string
+  workspaceId: string
+}
+
+export type AgentFoldersListFoldersResponse = Array<AgentFolderRead>
+
+export type AgentFoldersCreateFolderData = {
+  requestBody: AgentFolderCreate
+  workspaceId: string
+}
+
+export type AgentFoldersCreateFolderResponse = AgentFolderRead
+
+export type AgentFoldersGetFolderData = {
+  folderId: string
+  workspaceId: string
+}
+
+export type AgentFoldersGetFolderResponse = AgentFolderRead
+
+export type AgentFoldersUpdateFolderData = {
+  folderId: string
+  requestBody: AgentFolderUpdate
+  workspaceId: string
+}
+
+export type AgentFoldersUpdateFolderResponse = AgentFolderRead
+
+export type AgentFoldersDeleteFolderData = {
+  folderId: string
+  requestBody: AgentFolderDelete
+  workspaceId: string
+}
+
+export type AgentFoldersDeleteFolderResponse = void
+
+export type AgentFoldersMoveFolderData = {
+  folderId: string
+  requestBody: AgentFolderMove
+  workspaceId: string
+}
+
+export type AgentFoldersMoveFolderResponse = AgentFolderRead
+
+export type AgentTagsListTagsData = {
+  workspaceId: string
+}
+
+export type AgentTagsListTagsResponse = Array<TagRead>
+
+export type AgentTagsCreateTagData = {
+  requestBody: TagCreate
+  workspaceId: string
+}
+
+export type AgentTagsCreateTagResponse = TagRead
+
+export type AgentTagsGetTagData = {
+  tagId: string
+  workspaceId: string
+}
+
+export type AgentTagsGetTagResponse = TagRead
+
+export type AgentTagsUpdateTagData = {
+  requestBody: TagUpdate
+  tagId: string
+  workspaceId: string
+}
+
+export type AgentTagsUpdateTagResponse = TagRead
+
+export type AgentTagsDeleteTagData = {
+  tagId: string
+  workspaceId: string
+}
+
+export type AgentTagsDeleteTagResponse = void
+
+export type AgentPresetsListPresetTagsData = {
+  presetId: string
+  workspaceId: string
+}
+
+export type AgentPresetsListPresetTagsResponse = Array<TagRead>
+
+export type AgentPresetsAddPresetTagData = {
+  presetId: string
+  requestBody: AgentPresetTagCreate
+  workspaceId: string
+}
+
+export type AgentPresetsAddPresetTagResponse = unknown
+
+export type AgentPresetsRemovePresetTagData = {
+  presetId: string
+  tagId: string
+  workspaceId: string
+}
+
+export type AgentPresetsRemovePresetTagResponse = void
+
 export type ApprovalsSubmitApprovalsData = {
   requestBody: ApprovalSubmission
   sessionId: string
@@ -14998,6 +15174,217 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: AgentSessionRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/agent/folders/directory": {
+    get: {
+      req: AgentFoldersGetDirectoryData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<AgentFolderDirectoryItem | AgentPresetDirectoryItem>
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/agent/folders": {
+    get: {
+      req: AgentFoldersListFoldersData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<AgentFolderRead>
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    post: {
+      req: AgentFoldersCreateFolderData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: AgentFolderRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/agent/folders/{folder_id}": {
+    get: {
+      req: AgentFoldersGetFolderData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: AgentFolderRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    patch: {
+      req: AgentFoldersUpdateFolderData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: AgentFolderRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    delete: {
+      req: AgentFoldersDeleteFolderData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/agent/folders/{folder_id}/move": {
+    post: {
+      req: AgentFoldersMoveFolderData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: AgentFolderRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/agent/tags": {
+    get: {
+      req: AgentTagsListTagsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<TagRead>
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    post: {
+      req: AgentTagsCreateTagData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: TagRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/agent/tags/{tag_id}": {
+    get: {
+      req: AgentTagsGetTagData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: TagRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    patch: {
+      req: AgentTagsUpdateTagData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: TagRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    delete: {
+      req: AgentTagsDeleteTagData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/agent/presets/{preset_id}/tags": {
+    get: {
+      req: AgentPresetsListPresetTagsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<TagRead>
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    post: {
+      req: AgentPresetsAddPresetTagData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: unknown
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/agent/presets/{preset_id}/tags/{tag_id}": {
+    delete: {
+      req: AgentPresetsRemovePresetTagData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
         /**
          * Validation Error
          */

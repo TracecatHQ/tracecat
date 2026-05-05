@@ -1671,6 +1671,165 @@ export const $AgentCustomProviderUpdate = {
   description: "Update custom provider.",
 } as const
 
+export const $AgentFolderCreate = {
+  properties: {
+    name: {
+      type: "string",
+      maxLength: 120,
+      minLength: 1,
+      title: "Name",
+    },
+    parent_path: {
+      type: "string",
+      title: "Parent Path",
+      default: "/",
+    },
+  },
+  type: "object",
+  required: ["name"],
+  title: "AgentFolderCreate",
+} as const
+
+export const $AgentFolderDelete = {
+  properties: {
+    recursive: {
+      type: "boolean",
+      title: "Recursive",
+      default: false,
+    },
+  },
+  type: "object",
+  title: "AgentFolderDelete",
+} as const
+
+export const $AgentFolderDirectoryItem = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    name: {
+      type: "string",
+      title: "Name",
+    },
+    path: {
+      type: "string",
+      title: "Path",
+    },
+    workspace_id: {
+      type: "string",
+      format: "uuid",
+      title: "Workspace Id",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+    updated_at: {
+      type: "string",
+      format: "date-time",
+      title: "Updated At",
+    },
+    type: {
+      type: "string",
+      const: "folder",
+      title: "Type",
+    },
+    num_items: {
+      type: "integer",
+      title: "Num Items",
+    },
+  },
+  type: "object",
+  required: [
+    "id",
+    "name",
+    "path",
+    "workspace_id",
+    "created_at",
+    "updated_at",
+    "type",
+    "num_items",
+  ],
+  title: "AgentFolderDirectoryItem",
+} as const
+
+export const $AgentFolderMove = {
+  properties: {
+    new_parent_path: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "New Parent Path",
+    },
+  },
+  type: "object",
+  title: "AgentFolderMove",
+} as const
+
+export const $AgentFolderRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    name: {
+      type: "string",
+      title: "Name",
+    },
+    path: {
+      type: "string",
+      title: "Path",
+    },
+    workspace_id: {
+      type: "string",
+      format: "uuid",
+      title: "Workspace Id",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+    updated_at: {
+      type: "string",
+      format: "date-time",
+      title: "Updated At",
+    },
+  },
+  type: "object",
+  required: ["id", "name", "path", "workspace_id", "created_at", "updated_at"],
+  title: "AgentFolderRead",
+} as const
+
+export const $AgentFolderUpdate = {
+  properties: {
+    name: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 120,
+          minLength: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Name",
+    },
+  },
+  type: "object",
+  title: "AgentFolderUpdate",
+} as const
+
 export const $AgentModel = {
   properties: {
     component_id: {
@@ -2011,6 +2170,89 @@ export const $AgentPresetCreate = {
   required: ["model_name", "model_provider", "name"],
   title: "AgentPresetCreate",
   description: "Payload for creating a new agent preset.",
+} as const
+
+export const $AgentPresetDirectoryItem = {
+  properties: {
+    type: {
+      type: "string",
+      const: "preset",
+      title: "Type",
+    },
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    name: {
+      type: "string",
+      title: "Name",
+    },
+    slug: {
+      type: "string",
+      title: "Slug",
+    },
+    description: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Description",
+    },
+    model_provider: {
+      type: "string",
+      title: "Model Provider",
+    },
+    model_name: {
+      type: "string",
+      title: "Model Name",
+    },
+    folder_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Folder Id",
+    },
+    tags: {
+      items: {
+        $ref: "#/components/schemas/TagRead",
+      },
+      type: "array",
+      title: "Tags",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+    updated_at: {
+      type: "string",
+      format: "date-time",
+      title: "Updated At",
+    },
+  },
+  type: "object",
+  required: [
+    "type",
+    "id",
+    "name",
+    "slug",
+    "model_provider",
+    "model_name",
+    "created_at",
+    "updated_at",
+  ],
+  title: "AgentPresetDirectoryItem",
 } as const
 
 export const $AgentPresetRead = {
@@ -2393,6 +2635,20 @@ export const $AgentPresetSkillBindingRead = {
   required: ["skill_id", "skill_version_id", "skill_name", "skill_version"],
   title: "AgentPresetSkillBindingRead",
   description: "Resolved preset skill binding with metadata.",
+} as const
+
+export const $AgentPresetTagCreate = {
+  properties: {
+    tag_id: {
+      type: "string",
+      format: "uuid",
+      title: "Tag Id",
+    },
+  },
+  type: "object",
+  required: ["tag_id"],
+  title: "AgentPresetTagCreate",
+  description: "Payload for attaching a tag to a preset.",
 } as const
 
 export const $AgentPresetUpdate = {
