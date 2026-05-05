@@ -11,14 +11,11 @@ from enum import StrEnum, auto
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from starlette.requests import Request
 
-from tracecat import config
 from tracecat.db.engine import get_async_session_bypass_rls_context_manager
 from tracecat.db.models import OrganizationMembership, User
 from tracecat.identifiers import OrganizationID
 from tracecat.logger import logger
-from tracecat.organization.management import get_default_organization_id
 
 
 class NeedsAction(StrEnum):
@@ -44,13 +41,11 @@ class SessionNeedsAction:
 
 
 async def resolve_authorize_session(
-    request: Request,
     user: User | None,
 ) -> SessionResult | SessionNeedsAction:
     """Resolve a Tracecat user and their single organization from the session.
 
     Args:
-        request: The incoming HTTP request (for cookie access).
         user: The ``optional_current_active_user`` dependency result.
 
     Returns:
@@ -61,34 +56,7 @@ async def resolve_authorize_session(
         return SessionNeedsAction(action=NeedsAction.LOGIN)
 
     async with get_async_session_bypass_rls_context_manager() as session:
-        if user.is_superuser:
-            return await _resolve_superuser_org(request, session, user)
         return await _resolve_regular_user_org(session, user)
-
-
-async def _resolve_superuser_org(
-    request: Request,
-    session: AsyncSession,
-    user: User,
-) -> SessionResult:
-    """Resolve org for a platform superadmin.
-
-    In single-tenant mode, uses the default org.
-    In multi-tenant mode, platform superusers cannot authorize tenant MCP
-    sessions because they are not tenant users.
-    """
-    if not config.TRACECAT__EE_MULTI_TENANT:
-        org_id = await get_default_organization_id(session)
-        logger.debug(
-            "MCP OIDC: superuser resolved to default org (single-tenant)",
-            user_id=str(user.id),
-            organization_id=str(org_id),
-        )
-        return SessionResult(user=user, organization_id=org_id)
-
-    raise ValueError(
-        "Platform superusers cannot authorize tenant MCP sessions in multi-tenant mode"
-    )
 
 
 async def _resolve_regular_user_org(

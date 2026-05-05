@@ -39,7 +39,7 @@ class Role(BaseModel):
     service_id: InternalServiceID = Field(frozen=True)
     """The service's role name, or None if the role is a user."""
     is_platform_superuser: bool = Field(default=False, frozen=True)
-    """Whether this role belongs to a platform superuser (User.is_superuser=True)."""
+    """Whether this role is currently executing platform-superuser privileges."""
     scopes: frozenset[str] | None = Field(default=None, frozen=True)
     """Effective scopes for this role. None means unresolved/unset."""
 
@@ -70,7 +70,7 @@ class Role(BaseModel):
     def is_privileged(self) -> bool:
         """Check if this role has elevated privileges (platform admin).
 
-        Platform superusers and organization owners/admins are considered
+        Explicit platform-superuser roles and organization owners/admins are considered
         privileged for organization-level operations.
         All other authorization is scope-based via RBAC.
         """

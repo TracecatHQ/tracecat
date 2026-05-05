@@ -3874,7 +3874,7 @@ export const organizationGetOrganization =
  * Delete Organization
  * Delete the current organization.
  *
- * Restricted to organization owners and platform superusers.
+ * Restricted to organization owners/admins through tenant RBAC.
  * @param data The data for the request.
  * @param data.confirm Must exactly match the organization name.
  * @returns void Successful Response

@@ -152,7 +152,7 @@ async def delete_organization(
 ) -> None:
     """Delete the current organization.
 
-    Restricted to organization owners and platform superusers.
+    Restricted to organization owners/admins through tenant RBAC.
     """
     service = OrgService(session, role=role)
     try:

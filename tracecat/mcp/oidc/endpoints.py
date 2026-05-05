@@ -310,7 +310,7 @@ async def _handle_authorize(
 
     # --- Session resolution ---
     try:
-        session_result = await resolve_authorize_session(request, user)
+        session_result = await resolve_authorize_session(user)
     except ValueError as exc:
         # The OAuth client callback has already been validated at this point.
         logger.warning(
@@ -368,7 +368,7 @@ async def _handle_authorize(
         user_id=resolved_user.id,
         email=resolved_user.email,
         organization_id=org_id,
-        is_platform_superuser=resolved_user.is_superuser,
+        is_platform_superuser=False,
         client_id=client_id,
         redirect_uri=redirect_uri,
         code_challenge=code_challenge,
