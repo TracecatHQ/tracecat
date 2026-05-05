@@ -1,9 +1,9 @@
 "use client"
 
-import { History, Loader2, Save, Send, Trash2 } from "lucide-react"
+import { History, LayersPlus, Loader2, Save } from "lucide-react"
 import Link from "next/link"
 import { useEffect, useMemo, useState } from "react"
-import type { SkillDraftRead, SkillRead, SkillVersionRead } from "@/client"
+import type { SkillVersionRead } from "@/client"
 import { CodeEditor } from "@/components/editor/codemirror/code-editor"
 import { SkillFileTree } from "@/components/skills/file-tree"
 import { SimpleEditor } from "@/components/tiptap-templates/simple/simple-editor"
@@ -17,7 +17,6 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
-import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
@@ -29,6 +28,11 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { ScrollArea } from "@/components/ui/scroll-area"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
 import { useSkillVersion, useSkillVersionFile } from "@/hooks/use-skills"
 import { splitMarkdownFrontmatter } from "@/lib/markdown-frontmatter"
 import {
@@ -36,68 +40,49 @@ import {
   describeVersion,
   getLanguageForPath,
   isMarkdownPath,
-  renderValidationState,
 } from "@/lib/skills-studio"
-
-type WorkingCopyBarProps = {
-  workspaceId: string
-  skill?: SkillRead
-  draft?: SkillDraftRead
-  versions?: SkillVersionRead[]
-  versionsLoading: boolean
-  restoreSkillVersionPending: boolean
-  hasUnsavedChanges: boolean
-  canPublish: boolean
-  saveWorkingCopyPending: boolean
-  patchSkillDraftPending: boolean
-  createSkillDraftUploadPending: boolean
-  publishSkillPending: boolean
-  deleteSkillPending: boolean
-  onRestore: (versionId: string) => Promise<void>
-  onSaveWorkingCopy: () => Promise<void>
-  onPublish: () => Promise<void>
-  onDelete: () => void
-}
+import { useSkillsStudioContext } from "@/providers/skills-studio"
 
 /**
- * Compact top bar for working-copy state and primary authoring actions.
+ * Icon-only action group rendered inside the global controls header for the
+ * skill detail page: Versions dropdown, Save, Publish version. Pulls state
+ * from `SkillsStudioProvider` so it stays in sync with the editor.
  *
- * @param props Current skill state and action handlers.
- * @returns Rendered working-copy status bar.
- *
- * @example
- * <WorkingCopyBar
- *   skill={skill}
- *   draft={draft}
- *   hasUnsavedChanges={false}
- *   canPublish
- *   saveWorkingCopyPending={false}
- *   patchSkillDraftPending={false}
- *   createSkillDraftUploadPending={false}
- *   publishSkillPending={false}
- *   onSaveWorkingCopy={handleSave}
- *   onPublish={handlePublish}
- * />
+ * @returns The header actions, or null if no studio context is mounted.
  */
-export function WorkingCopyBar({
-  workspaceId,
-  skill,
-  draft,
-  versions,
-  versionsLoading,
-  restoreSkillVersionPending,
-  hasUnsavedChanges,
-  canPublish,
-  saveWorkingCopyPending,
-  patchSkillDraftPending,
-  createSkillDraftUploadPending,
-  publishSkillPending,
-  deleteSkillPending,
-  onRestore,
-  onSaveWorkingCopy,
-  onPublish,
-  onDelete,
-}: WorkingCopyBarProps) {
+export function SkillsDetailActions() {
+  const studio = useSkillsStudioContext()
+  if (!studio) {
+    return null
+  }
+  return <SkillsDetailActionsContent />
+}
+
+function SkillsDetailActionsContent() {
+  const studio = useSkillsStudioContext()
+  if (!studio) {
+    return null
+  }
+
+  const {
+    workspaceId,
+    skillId,
+    skill,
+    draft,
+    versions,
+    versionsLoading,
+    restoreSkillVersionPending,
+    hasUnsavedChanges,
+    canPublish,
+    saveWorkingCopyPending,
+    patchSkillDraftPending,
+    createSkillDraftUploadPending,
+    publishSkillPending,
+    onRestore,
+    onSaveWorkingCopy,
+    onPublish,
+  } = studio
+
   const [versionToRestore, setVersionToRestore] =
     useState<SkillVersionRead | null>(null)
   const [selectedVersionPath, setSelectedVersionPath] = useState<string | null>(
@@ -114,6 +99,7 @@ export function WorkingCopyBar({
     versionToRestore?.id ?? null,
     selectedVersionPath
   )
+
   const versionFileTree = useMemo(() => {
     if (!selectedVersionDetail?.files?.length) {
       return []
@@ -128,6 +114,7 @@ export function WorkingCopyBar({
       }))
     )
   }, [selectedVersionDetail])
+
   const selectedVersionMarkdownPreview = useMemo(() => {
     if (
       versionFile?.kind !== "inline" ||
@@ -136,7 +123,6 @@ export function WorkingCopyBar({
     ) {
       return null
     }
-
     return splitMarkdownFrontmatter(versionFile.text_content)
   }, [versionFile])
 
@@ -164,132 +150,122 @@ export function WorkingCopyBar({
     try {
       await onRestore(versionToRestore.id)
     } catch {
-      // The mutation hook reports restore failures; keep the dialog open.
       return
     }
     setVersionToRestore(null)
   }
 
+  const saveDisabled =
+    !hasUnsavedChanges ||
+    saveWorkingCopyPending ||
+    patchSkillDraftPending ||
+    createSkillDraftUploadPending ||
+    !draft
+  const saveBusy =
+    saveWorkingCopyPending ||
+    patchSkillDraftPending ||
+    createSkillDraftUploadPending
+
+  // Avoid an unused `skillId` lint when the dialog is closed.
+  void skillId
+
   return (
     <>
-      <div className="flex items-center justify-between gap-4 border-b px-4 py-3">
-        <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center gap-2">
-            <h2 className="truncate text-sm font-semibold">
-              {skill?.name ?? "Working copy"}
-            </h2>
-            {renderValidationState(
-              draft?.is_publishable,
-              draft?.validation_errors?.length ?? 0
-            )}
-            {hasUnsavedChanges ? (
-              <Badge variant="secondary">Unsaved changes</Badge>
-            ) : (
-              <Badge variant="outline">Saved</Badge>
-            )}
-          </div>
-        </div>
-        <div className="flex shrink-0 items-center gap-2">
-          <DropdownMenu>
+      <DropdownMenu>
+        <Tooltip>
+          <TooltipTrigger asChild>
             <DropdownMenuTrigger asChild>
-              <Button size="sm" variant="ghost">
-                <History className="mr-2 size-4" />
-                Versions
+              <Button size="icon" variant="ghost" className="size-7">
+                <History className="size-4" />
+                <span className="sr-only">Versions</span>
               </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-80 p-0">
-              <div className="flex flex-col">
-                <DropdownMenuLabel className="flex flex-col gap-1 px-3 py-2">
-                  <div className="text-xs font-medium">Published versions</div>
-                  <div className="text-xs text-muted-foreground">
-                    Select which published version is currently active.
-                  </div>
-                </DropdownMenuLabel>
-                <DropdownMenuSeparator className="mx-0 my-0" />
-                {versionsLoading ? (
-                  <div className="flex items-center gap-2 px-3 py-3 text-sm text-muted-foreground">
-                    <Loader2 className="size-4 animate-spin" />
-                    Loading versions…
-                  </div>
-                ) : !versions || versions.length === 0 ? (
-                  <div className="px-3 py-3 text-sm text-muted-foreground">
-                    No published versions yet.
-                  </div>
-                ) : (
-                  <ScrollArea className="max-h-80">
-                    <DropdownMenuGroup className="flex flex-col p-1">
-                      {versions.map((version) => (
-                        <DropdownMenuItem
-                          key={version.id}
-                          className="items-start px-3 py-2"
-                          disabled={restoreSkillVersionPending}
-                          onSelect={() => setVersionToRestore(version)}
-                        >
-                          <div className="flex min-w-0 flex-col gap-0.5">
-                            <div className="font-medium">
-                              {describeVersion(version)}
-                            </div>
-                            <div className="text-muted-foreground">
-                              {new Date(version.created_at).toLocaleString()}
-                            </div>
-                          </div>
-                        </DropdownMenuItem>
-                      ))}
-                    </DropdownMenuGroup>
-                  </ScrollArea>
-                )}
+          </TooltipTrigger>
+          <TooltipContent>Versions</TooltipContent>
+        </Tooltip>
+        <DropdownMenuContent align="end" className="w-80 p-0">
+          <div className="flex flex-col">
+            <DropdownMenuLabel className="flex flex-col gap-1 px-3 py-2">
+              <div className="text-xs font-medium">Published versions</div>
+              <div className="text-xs text-muted-foreground">
+                Select which published version is currently active.
               </div>
-            </DropdownMenuContent>
-          </DropdownMenu>
-          <Button
-            size="sm"
-            onClick={() => void onSaveWorkingCopy()}
-            disabled={
-              !hasUnsavedChanges ||
-              saveWorkingCopyPending ||
-              patchSkillDraftPending ||
-              createSkillDraftUploadPending ||
-              !draft
-            }
-          >
-            {saveWorkingCopyPending ||
-            patchSkillDraftPending ||
-            createSkillDraftUploadPending ? (
-              <Loader2 className="mr-2 size-4 animate-spin" />
+            </DropdownMenuLabel>
+            <DropdownMenuSeparator className="mx-0 my-0" />
+            {versionsLoading ? (
+              <div className="flex items-center gap-2 px-3 py-3 text-sm text-muted-foreground">
+                <Loader2 className="size-4 animate-spin" />
+                Loading versions…
+              </div>
+            ) : !versions || versions.length === 0 ? (
+              <div className="px-3 py-3 text-sm text-muted-foreground">
+                No published versions yet.
+              </div>
             ) : (
-              <Save className="mr-2 size-4" />
+              <ScrollArea className="max-h-80">
+                <DropdownMenuGroup className="flex flex-col p-1">
+                  {versions.map((version) => (
+                    <DropdownMenuItem
+                      key={version.id}
+                      className="items-start px-3 py-2"
+                      disabled={restoreSkillVersionPending}
+                      onSelect={() => setVersionToRestore(version)}
+                    >
+                      <div className="flex min-w-0 flex-col gap-0.5">
+                        <div className="font-medium">
+                          {describeVersion(version)}
+                        </div>
+                        <div className="text-muted-foreground">
+                          {new Date(version.created_at).toLocaleString()}
+                        </div>
+                      </div>
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuGroup>
+              </ScrollArea>
             )}
-            Save
-          </Button>
+          </div>
+        </DropdownMenuContent>
+      </DropdownMenu>
+      <Tooltip>
+        <TooltipTrigger asChild>
           <Button
-            size="sm"
-            variant="outline"
+            size="icon"
+            variant="ghost"
+            className="size-7"
+            onClick={() => void onSaveWorkingCopy()}
+            disabled={saveDisabled}
+          >
+            {saveBusy ? (
+              <Loader2 className="size-4 animate-spin" />
+            ) : (
+              <Save className="size-4" />
+            )}
+            <span className="sr-only">Save</span>
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent>Save</TooltipContent>
+      </Tooltip>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            size="icon"
+            variant="ghost"
+            className="size-7"
             onClick={() => void onPublish()}
             disabled={!canPublish || publishSkillPending}
           >
             {publishSkillPending ? (
-              <Loader2 className="mr-2 size-4 animate-spin" />
-            ) : (
-              <Send className="mr-2 size-4" />
-            )}
-            Publish version
-          </Button>
-          <Button
-            size="sm"
-            variant="ghost"
-            onClick={onDelete}
-            disabled={deleteSkillPending}
-            className="text-muted-foreground hover:text-destructive"
-          >
-            {deleteSkillPending ? (
               <Loader2 className="size-4 animate-spin" />
             ) : (
-              <Trash2 className="size-4" />
+              <LayersPlus className="size-4" />
             )}
-            <span className="sr-only">Delete skill</span>
+            <span className="sr-only">Publish version</span>
           </Button>
-        </div>
-      </div>
+        </TooltipTrigger>
+        <TooltipContent>Publish version</TooltipContent>
+      </Tooltip>
+
       <AlertDialog
         open={versionToRestore !== null}
         onOpenChange={(open) => {
@@ -330,11 +306,6 @@ export function WorkingCopyBar({
                     <div className="border-b px-3 py-2">
                       <div className="truncate text-xs font-medium">
                         {selectedVersionPath ?? "Select a file"}
-                      </div>
-                      <div className="text-xs text-muted-foreground">
-                        {versionFile
-                          ? `${versionFile.content_type} · ${versionFile.size_bytes} bytes`
-                          : "Read-only preview"}
                       </div>
                     </div>
                     <div className="min-h-0 min-w-0 flex-1 overflow-auto">
@@ -456,7 +427,7 @@ export function WorkingCopyBar({
                   Updating...
                 </>
               ) : (
-                "Set active version"
+                "Restore version"
               )}
             </AlertDialogAction>
           </AlertDialogFooter>

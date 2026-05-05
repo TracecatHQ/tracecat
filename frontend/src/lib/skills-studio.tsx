@@ -3,6 +3,8 @@ import type { DragEvent, ReactNode } from "react"
 
 import { Badge } from "@/components/ui/badge"
 
+export const SKILL_MD_PATH = "SKILL.md"
+
 const EDITABLE_EXTENSIONS = [
   ".md",
   ".py",
@@ -425,6 +427,12 @@ function sortTreeChildren(nodes: SkillFileTreeNode[]): SkillFileTreeNode[] {
       return node
     })
     .sort((left, right) => {
+      if (left.kind === "file" && left.path === SKILL_MD_PATH) {
+        return -1
+      }
+      if (right.kind === "file" && right.path === SKILL_MD_PATH) {
+        return 1
+      }
       if (left.kind !== right.kind) {
         return left.kind === "folder" ? -1 : 1
       }

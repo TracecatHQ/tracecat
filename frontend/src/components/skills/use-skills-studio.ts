@@ -3,7 +3,6 @@
 import { useRouter } from "next/navigation"
 import {
   type ChangeEvent,
-  type DragEvent,
   useCallback,
   useEffect,
   useMemo,
@@ -14,16 +13,15 @@ import type {
   SkillDraftAttachUploadedBlobOp,
   SkillDraftDeleteFileOp,
   SkillDraftFileRead,
+  SkillDraftMoveFileOp,
   SkillDraftRead,
   SkillDraftUpsertTextFileOp,
   SkillRead,
   SkillReadMinimal,
-  SkillUpload,
   SkillVersionRead,
 } from "@/client"
 import { toast } from "@/components/ui/use-toast"
 import {
-  useCreateSkill,
   useCreateSkillDraftUpload,
   useDeleteSkill,
   usePatchSkillDraft,
@@ -32,45 +30,39 @@ import {
   useSkill,
   useSkillDraft,
   useSkillDraftFile,
-  useSkills,
   useSkillVersions,
-  useUploadSkill,
 } from "@/hooks/use-skills"
-import type { TracecatApiError } from "@/lib/errors"
-import { getApiErrorDetail } from "@/lib/errors"
+import { getApiErrorCode, getApiErrorDetail } from "@/lib/errors"
 import {
   buildVisibleFiles,
   comparePaths,
   computeFileSha256,
   type DraftChange,
-  extractDroppedFiles,
-  fileToUploadEntry,
   getTextContentType,
-  getUploadRootName,
   isEditablePath,
   isMarkdownPath,
+  SKILL_MD_PATH,
   uploadFileToSession,
   type VisibleFileEntry,
   validateSkillDraftPath,
 } from "@/lib/skills-studio"
-import { slugify } from "@/lib/utils"
 
-/** All state, data, and handlers for the skills studio. */
+type MoveSource = {
+  fromPath: string
+  isFolder: boolean
+}
+
+type RenameTarget = {
+  fromPath: string
+  isFolder: boolean
+}
+
+/** State and handlers backing the single-skill editor surface. */
 type UseSkillsStudioReturn = {
-  // Navigation / selection
+  // Identity
   workspaceId: string
-  selectedSkillId: string | null
+  skillId: string
   selectedPath: string | null
-
-  // Skill list panel
-  search: string
-  onSearchChange: (value: string) => void
-  visibleSkills: SkillReadMinimal[]
-  skillsLoading: boolean
-  skillsError: TracecatApiError | null
-  onSelectSkill: (skillId: string) => void
-  onOpenNewSkillDialog: () => void
-  onOpenUploadSkillDialog: () => void
 
   // Delete skill
   showDeleteSkillDialog: boolean
@@ -79,22 +71,6 @@ type UseSkillsStudioReturn = {
   onOpenDeleteSkillDialog: (skill: SkillReadMinimal) => void
   onDeleteSkillDialogChange: (open: boolean) => void
   onConfirmDeleteSkill: () => Promise<void>
-
-  // Upload skill dialog
-  showUploadSkillDialog: boolean
-  onUploadSkillDialogChange: (open: boolean) => void
-  isDragOver: boolean
-  onDragOver: (event: DragEvent<HTMLDivElement>) => void
-  onDragLeave: () => void
-  onDrop: (event: DragEvent<HTMLDivElement>) => void
-  onDirectoryInput: (event: ChangeEvent<HTMLInputElement>) => void
-  uploadSkillPending: boolean
-
-  // Upload confirmation dialog
-  showUploadConfirmDialog: boolean
-  pendingUploadFiles: Array<{ file: File; path: string }>
-  onConfirmUpload: () => Promise<void>
-  onCancelUpload: () => void
 
   // Editor panel
   skill?: SkillRead
@@ -109,13 +85,33 @@ type UseSkillsStudioReturn = {
   markdownEditorActivatedRef: React.MutableRefObject<boolean>
   onSelectPath: (path: string) => void
   onEditorChange: (nextValue: string) => void
-  onDeleteSelectedFile: () => void
   onUndoSelectedFileChange: () => void
-  onReplaceFile: (event: ChangeEvent<HTMLInputElement>) => void
   onSaveWorkingCopy: () => Promise<void>
-  onOpenNewFileDialog: () => void
+  onDeleteSelectedFile: () => void
+  onReplaceSelectedFile: (event: ChangeEvent<HTMLInputElement>) => void
 
-  // Inspector panel
+  // Inline create
+  pendingCreate: boolean
+  pendingCreateError: string | null
+  onBeginCreate: () => void
+  onSubmitCreate: (path: string) => void
+  onCancelCreate: () => void
+  onChangeCreatePath: (value: string) => void
+
+  // Move
+  moveSource: MoveSource | null
+  onBeginMove: (path: string, isFolder: boolean) => void
+  onCancelMove: () => void
+  onCommitMove: (toFolderPath: string | null) => Promise<void>
+
+  // Rename
+  renameTarget: RenameTarget | null
+  renameError: string | null
+  onBeginRename: (path: string, isFolder: boolean) => void
+  onCancelRename: () => void
+  onSubmitRename: (newPath: string) => Promise<void>
+
+  // Inspector / working copy
   hasUnsavedChanges: boolean
   canPublish: boolean
   saveWorkingCopyPending: boolean
@@ -127,75 +123,81 @@ type UseSkillsStudioReturn = {
   versionsLoading: boolean
   restoreSkillVersionPending: boolean
   onRestore: (versionId: string) => Promise<void>
-
-  // Create skill dialog
-  showNewSkillDialog: boolean
-  onNewSkillDialogChange: (open: boolean) => void
-  newSkillName: string
-  onNewSkillNameChange: (value: string) => void
-  newSkillDescription: string
-  onNewSkillDescriptionChange: (value: string) => void
-  createSkillPending: boolean
-  onCreateSkill: () => Promise<void>
-
-  // Add file dialog
-  showNewFileDialog: boolean
-  onNewFileDialogChange: (open: boolean) => void
-  newFilePath: string
-  onNewFilePathChange: (value: string) => void
-  onCreateNewFile: () => void
 }
 
 type DraftChangesForSkill = Record<string, DraftChange>
-type DraftChangesBySkillId = Record<string, DraftChangesForSkill>
 
 const EMPTY_DRAFT_CHANGES: DraftChangesForSkill = {}
 
+function remapDraftChangesAfterMove(
+  changes: DraftChangesForSkill,
+  ops: ReadonlyArray<SkillDraftMoveFileOp>
+): DraftChangesForSkill {
+  if (ops.length === 0) {
+    return changes
+  }
+  const map = new Map<string, string>()
+  for (const op of ops) {
+    map.set(op.from_path, op.to_path)
+  }
+  let mutated = false
+  const next: DraftChangesForSkill = {}
+  for (const [path, change] of Object.entries(changes)) {
+    const moved = map.get(path)
+    if (moved && moved !== path) {
+      next[moved] = change
+      mutated = true
+    } else {
+      next[path] = change
+    }
+  }
+  return mutated ? next : changes
+}
+
+function describeMoveError(error: unknown): string {
+  switch (getApiErrorCode(error)) {
+    case "move_target_exists":
+      return "A file already exists at that path."
+    case "move_source_not_found":
+      return "The original file no longer exists."
+    case "skill_md_immovable":
+      return "SKILL.md must stay at the root of the skill."
+    case "invalid_move":
+      return "Source and destination must differ."
+    default:
+      return getApiErrorDetail(error) ?? "Failed to move file."
+  }
+}
+
 /**
- * Encapsulates all state, data-fetching, and handlers for the skills studio.
+ * Encapsulates state, data-fetching, and handlers for the skills studio
+ * editor pane scoped to a single skill.
  *
  * @param params.workspaceId Current workspace identifier.
- * @param params.initialSkillId Optional skill to select on mount.
- * @returns Everything the studio panels need to render and interact.
+ * @param params.skillId Active skill identifier.
+ * @returns Everything the editor needs to render and interact.
  */
 export function useSkillsStudio(params: {
   workspaceId: string
-  initialSkillId?: string
+  skillId: string
 }): UseSkillsStudioReturn {
-  const { workspaceId, initialSkillId } = params
+  const { workspaceId, skillId } = params
   const router = useRouter()
   const markdownEditorActivatedRef = useRef(false)
 
   // ── State ──────────────────────────────────────────────────────────
-  const [search, setSearch] = useState("")
-  const [selectedSkillId, setSelectedSkillId] = useState<string | null>(
-    initialSkillId ?? null
-  )
   const [selectedPath, setSelectedPath] = useState<string | null>(null)
-  const [draftChangesBySkillId, setDraftChangesBySkillId] =
-    useState<DraftChangesBySkillId>({})
-  const [showNewSkillDialog, setShowNewSkillDialog] = useState(false)
-  const [showUploadSkillDialog, setShowUploadSkillDialog] = useState(false)
-  const [showNewFileDialog, setShowNewFileDialog] = useState(false)
-  const [newSkillName, setNewSkillName] = useState("")
-  const [newSkillDescription, setNewSkillDescription] = useState("")
-  const [newFilePath, setNewFilePath] = useState("")
-  const [isDragOver, setIsDragOver] = useState(false)
+  const [draftChanges, setDraftChanges] =
+    useState<DraftChangesForSkill>(EMPTY_DRAFT_CHANGES)
+  const [pendingCreate, setPendingCreate] = useState(false)
+  const [pendingCreateError, setPendingCreateError] = useState<string | null>(
+    null
+  )
+  const [moveSource, setMoveSource] = useState<MoveSource | null>(null)
+  const [renameTarget, setRenameTarget] = useState<RenameTarget | null>(null)
+  const [renameError, setRenameError] = useState<string | null>(null)
   const [saveWorkingCopyPending, setSaveWorkingCopyPending] = useState(false)
   const saveWorkingCopyPendingRef = useRef(false)
-  const [showUploadConfirmDialog, setShowUploadConfirmDialog] = useState(false)
-  const [uploadConfirmPending, setUploadConfirmPending] = useState(false)
-  const uploadConfirmPendingRef = useRef(false)
-  const [pendingUploadFiles, setPendingUploadFiles] = useState<
-    Array<{ file: File; path: string }>
-  >([])
-
-  const draftChanges = useMemo(() => {
-    if (!selectedSkillId) {
-      return EMPTY_DRAFT_CHANGES
-    }
-    return draftChangesBySkillId[selectedSkillId] ?? EMPTY_DRAFT_CHANGES
-  }, [draftChangesBySkillId, selectedSkillId])
 
   const updateDraftChanges = useCallback(
     (
@@ -203,42 +205,18 @@ export function useSkillsStudio(params: {
         | DraftChangesForSkill
         | ((current: DraftChangesForSkill) => DraftChangesForSkill)
     ) => {
-      if (!selectedSkillId) {
-        return
-      }
-
-      setDraftChangesBySkillId((current) => {
-        const currentForSkill = current[selectedSkillId] ?? EMPTY_DRAFT_CHANGES
-        const nextForSkill =
-          typeof updater === "function" ? updater(currentForSkill) : updater
-
-        if (Object.keys(nextForSkill).length === 0) {
-          if (!(selectedSkillId in current)) {
-            return current
-          }
-
-          const { [selectedSkillId]: _removed, ...rest } = current
-          return rest
-        }
-
-        return {
-          ...current,
-          [selectedSkillId]: nextForSkill,
-        }
+      setDraftChanges((current) => {
+        const next = typeof updater === "function" ? updater(current) : updater
+        return next
       })
     },
-    [selectedSkillId]
+    []
   )
 
   // ── Data fetching ──────────────────────────────────────────────────
-  const { skills, skillsLoading, skillsError } = useSkills(workspaceId)
-
-  const { skill, skillLoading } = useSkill(workspaceId, selectedSkillId)
-  const { draft, draftLoading } = useSkillDraft(workspaceId, selectedSkillId)
-  const { versions, versionsLoading } = useSkillVersions(
-    workspaceId,
-    selectedSkillId
-  )
+  const { skill, skillLoading } = useSkill(workspaceId, skillId)
+  const { draft, draftLoading } = useSkillDraft(workspaceId, skillId)
+  const { versions, versionsLoading } = useSkillVersions(workspaceId, skillId)
 
   const visibleFiles = useMemo(
     () => buildVisibleFiles(draft?.files, draftChanges),
@@ -259,12 +237,10 @@ export function useSkillsStudio(params: {
 
   const { draftFile, draftFileLoading } = useSkillDraftFile(
     workspaceId,
-    selectedSkillId,
+    skillId,
     selectedFileQueryPath
   )
 
-  const { createSkill, createSkillPending } = useCreateSkill(workspaceId)
-  const { uploadSkill, uploadSkillPending } = useUploadSkill(workspaceId)
   const { patchSkillDraft, patchSkillDraftPending } =
     usePatchSkillDraft(workspaceId)
   const { createSkillDraftUpload, createSkillDraftUploadPending } =
@@ -273,7 +249,6 @@ export function useSkillsStudio(params: {
   const { restoreSkillVersion, restoreSkillVersionPending } =
     useRestoreSkillVersion(workspaceId)
   const { deleteSkill, deleteSkillPending } = useDeleteSkill(workspaceId)
-  const uploadPending = uploadSkillPending || uploadConfirmPending
 
   // Delete skill dialog state
   const [showDeleteSkillDialog, setShowDeleteSkillDialog] = useState(false)
@@ -281,19 +256,6 @@ export function useSkillsStudio(params: {
     useState<SkillReadMinimal | null>(null)
 
   // ── Derived ────────────────────────────────────────────────────────
-  const visibleSkills = useMemo(() => {
-    const query = search.trim().toLowerCase()
-    if (!query) {
-      return skills ?? []
-    }
-    return (skills ?? []).filter((s) => {
-      return (
-        s.name.toLowerCase().includes(query) ||
-        (s.description ?? "").toLowerCase().includes(query)
-      )
-    })
-  }, [search, skills])
-
   const hasUnsavedChanges = useMemo(
     () => Object.keys(draftChanges).length > 0,
     [draftChanges]
@@ -322,13 +284,15 @@ export function useSkillsStudio(params: {
 
   // ── Effects ────────────────────────────────────────────────────────
   useEffect(() => {
-    setSelectedSkillId(initialSkillId ?? null)
-  }, [initialSkillId])
-
-  useEffect(() => {
     setSelectedPath(null)
+    setDraftChanges(EMPTY_DRAFT_CHANGES)
+    setPendingCreate(false)
+    setPendingCreateError(null)
+    setMoveSource(null)
+    setRenameTarget(null)
+    setRenameError(null)
     markdownEditorActivatedRef.current = false
-  }, [selectedSkillId])
+  }, [skillId])
 
   useEffect(() => {
     markdownEditorActivatedRef.current = false
@@ -348,143 +312,27 @@ export function useSkillsStudio(params: {
   }, [selectedPath, visibleFiles])
 
   // ── Stable callbacks ────────────────────────────────────────────────
-  const handleDragOver = useCallback((event: DragEvent<HTMLDivElement>) => {
-    event.preventDefault()
-    setIsDragOver(true)
+  const handleBeginCreate = useCallback(() => {
+    setMoveSource(null)
+    setPendingCreateError(null)
+    setPendingCreate(true)
   }, [])
-  const handleDragLeave = useCallback(() => setIsDragOver(false), [])
-  const handleOpenNewSkillDialog = useCallback(
-    () => setShowNewSkillDialog(true),
-    []
-  )
-  const handleOpenUploadSkillDialog = useCallback(
-    () => setShowUploadSkillDialog(true),
-    []
-  )
-  const handleOpenNewFileDialog = useCallback(
-    () => setShowNewFileDialog(true),
-    []
-  )
-  const handleOpenDeleteSkillDialog = useCallback((skill: SkillReadMinimal) => {
-    setDeleteSkillTarget(skill)
-    setShowDeleteSkillDialog(true)
+  const handleCancelCreate = useCallback(() => {
+    setPendingCreate(false)
+    setPendingCreateError(null)
   }, [])
+  const handleChangeCreatePath = useCallback(() => {
+    setPendingCreateError(null)
+  }, [])
+  const handleOpenDeleteSkillDialog = useCallback(
+    (target: SkillReadMinimal) => {
+      setDeleteSkillTarget(target)
+      setShowDeleteSkillDialog(true)
+    },
+    []
+  )
 
   // ── Handlers ───────────────────────────────────────────────────────
-  const handleSelectSkill = (skillId: string) => {
-    setSelectedSkillId(skillId)
-    router.push(`/workspaces/${workspaceId}/skills/${skillId}`)
-  }
-
-  const handleCreateSkill = async () => {
-    const name = slugify(newSkillName.trim(), "-") || "skill"
-    const created = await createSkill({
-      name,
-      description: newSkillDescription.trim() || null,
-    })
-    setShowNewSkillDialog(false)
-    setNewSkillName("")
-    setNewSkillDescription("")
-    router.push(`/workspaces/${workspaceId}/skills/${created.id}`)
-  }
-
-  const handleUploadPayload = async (payload: SkillUpload) => {
-    const created = await uploadSkill(payload)
-    router.push(`/workspaces/${workspaceId}/skills/${created.id}`)
-  }
-
-  const handleUploadFiles = async (
-    files: Array<{ file: File; path: string }>
-  ) => {
-    if (files.length === 0) {
-      return
-    }
-
-    const paths = files.map(({ path }) => path.replace(/^\/+/, ""))
-    const rootName = getUploadRootName(paths)
-    const normalizedFiles = await Promise.all(
-      files.map(async ({ file, path }) => {
-        const normalizedPath = path.replace(/^\/+/, "")
-        const relativePath = rootName
-          ? normalizedPath.slice(rootName.length + 1)
-          : normalizedPath
-        return await fileToUploadEntry(file, relativePath || file.name)
-      })
-    )
-    const name = slugify(
-      rootName ?? files[0]?.file.name.replace(/\.[^.]+$/, ""),
-      "-"
-    )
-    await handleUploadPayload({
-      name: name || "skill",
-      files: normalizedFiles,
-    })
-  }
-
-  const handleDirectoryInput = (event: ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(event.target.files ?? [])
-    if (files.length === 0) {
-      return
-    }
-    const mapped = files.map((file) => ({
-      file,
-      path: file.webkitRelativePath || file.name,
-    }))
-    setPendingUploadFiles(mapped)
-    setShowUploadSkillDialog(false)
-    setShowUploadConfirmDialog(true)
-    event.target.value = ""
-  }
-
-  const handleDrop = async (event: DragEvent<HTMLDivElement>) => {
-    event.preventDefault()
-    setIsDragOver(false)
-    try {
-      const droppedFiles = await extractDroppedFiles(event)
-      setPendingUploadFiles(droppedFiles)
-      setShowUploadSkillDialog(false)
-      setShowUploadConfirmDialog(true)
-    } catch (error) {
-      toast({
-        title: "Drop upload failed",
-        description:
-          getApiErrorDetail(error) ?? "Failed to read dropped files.",
-        variant: "destructive",
-      })
-    }
-  }
-
-  const handleConfirmUpload = async () => {
-    if (
-      pendingUploadFiles.length === 0 ||
-      uploadSkillPending ||
-      uploadConfirmPendingRef.current
-    ) {
-      return
-    }
-    uploadConfirmPendingRef.current = true
-    setUploadConfirmPending(true)
-    try {
-      await handleUploadFiles(pendingUploadFiles)
-      setShowUploadConfirmDialog(false)
-      setPendingUploadFiles([])
-    } catch (error) {
-      toast({
-        title: "Upload failed",
-        description: getApiErrorDetail(error) ?? "Failed to upload skill.",
-        variant: "destructive",
-      })
-    } finally {
-      uploadConfirmPendingRef.current = false
-      setUploadConfirmPending(false)
-    }
-  }
-
-  const handleCancelUpload = () => {
-    setShowUploadConfirmDialog(false)
-    setPendingUploadFiles([])
-  }
-
   const handleEditorChange = (nextValue: string) => {
     if (!selectedFile) {
       return
@@ -521,24 +369,6 @@ export function useSkillsStudio(params: {
     })
   }
 
-  const handleDeleteSelectedFile = () => {
-    if (!selectedFile) {
-      return
-    }
-    updateDraftChanges((current) => {
-      if (selectedFile.isNew) {
-        const next = { ...current }
-        delete next[selectedFile.path]
-        return next
-      }
-
-      return {
-        ...current,
-        [selectedFile.path]: { kind: "delete" },
-      }
-    })
-  }
-
   const handleUndoSelectedFileChange = () => {
     if (!selectedFile) {
       return
@@ -550,53 +380,27 @@ export function useSkillsStudio(params: {
     })
   }
 
-  const handleCreateNewFile = () => {
-    const path = newFilePath.trim()
-    if (!path) {
+  const handleDeleteSelectedFile = () => {
+    if (!selectedFile) {
       return
     }
-    const pathError = validateSkillDraftPath(path)
-    if (pathError) {
-      toast({
-        title: "Invalid file path",
-        description: pathError,
-        variant: "destructive",
-      })
-      return
-    }
-    if (visibleFiles.some((file) => file.path === path)) {
-      toast({
-        title: "File already exists",
-        description: "Choose a new path instead of replacing an existing file.",
-        variant: "destructive",
-      })
-      return
-    }
-    if (!isEditablePath(path)) {
-      toast({
-        title: "Unsupported file type",
-        description:
-          "Only text-editable file types can be created inline (for example .md, .py, .ts, .json, and .yaml).",
-        variant: "destructive",
-      })
-      return
-    }
-    updateDraftChanges((current) => ({
-      ...current,
-      [path]: {
-        kind: "text",
-        content: "",
-        contentType: getTextContentType(path),
-      },
-    }))
-    setSelectedPath(path)
-    setNewFilePath("")
-    setShowNewFileDialog(false)
+    updateDraftChanges((current) => {
+      if (selectedFile.isNew) {
+        const next = { ...current }
+        delete next[selectedFile.path]
+        return next
+      }
+      return {
+        ...current,
+        [selectedFile.path]: { kind: "delete" },
+      }
+    })
   }
 
-  const handleReplaceFile = async (event: ChangeEvent<HTMLInputElement>) => {
+  const handleReplaceSelectedFile = (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]
     if (!selectedFile || !file) {
+      event.target.value = ""
       return
     }
     updateDraftChanges((current) => ({
@@ -610,8 +414,259 @@ export function useSkillsStudio(params: {
     event.target.value = ""
   }
 
+  const handleSubmitCreate = (rawPath: string) => {
+    const path = rawPath.trim()
+    if (!path) {
+      setPendingCreate(false)
+      setPendingCreateError(null)
+      return
+    }
+    const pathError = validateSkillDraftPath(path)
+    if (pathError) {
+      setPendingCreateError(pathError)
+      return
+    }
+    if (visibleFiles.some((file) => file.path === path)) {
+      setPendingCreateError("A file at that path already exists.")
+      return
+    }
+    if (!isEditablePath(path)) {
+      setPendingCreateError(
+        "Only text file types (.md, .py, .ts, .json, .yaml, …) can be created inline."
+      )
+      return
+    }
+    updateDraftChanges((current) => ({
+      ...current,
+      [path]: {
+        kind: "text",
+        content: "",
+        contentType: getTextContentType(path),
+      },
+    }))
+    setSelectedPath(path)
+    setPendingCreate(false)
+    setPendingCreateError(null)
+  }
+
+  const handleBeginMove = useCallback((path: string, isFolder: boolean) => {
+    if (!isFolder && path === SKILL_MD_PATH) {
+      return
+    }
+    setPendingCreate(false)
+    setPendingCreateError(null)
+    setMoveSource({ fromPath: path, isFolder })
+  }, [])
+
+  const handleCancelMove = useCallback(() => {
+    setMoveSource(null)
+  }, [])
+
+  const handleCommitMove = async (toFolderPath: string | null) => {
+    if (!moveSource || !draft) {
+      return
+    }
+    const targetPrefix = toFolderPath ? `${toFolderPath}/` : ""
+    const operations: SkillDraftMoveFileOp[] = []
+
+    if (moveSource.isFolder) {
+      const sourcePrefix = `${moveSource.fromPath}/`
+      if (toFolderPath !== null && toFolderPath === moveSource.fromPath) {
+        toast({
+          title: "Move skipped",
+          description: "Source and destination are the same.",
+        })
+        setMoveSource(null)
+        return
+      }
+      if (
+        toFolderPath !== null &&
+        (toFolderPath === moveSource.fromPath ||
+          toFolderPath.startsWith(sourcePrefix))
+      ) {
+        toast({
+          title: "Invalid move",
+          description: "Cannot move a folder into itself.",
+          variant: "destructive",
+        })
+        return
+      }
+      const folderName = moveSource.fromPath.split("/").filter(Boolean).pop()
+      if (!folderName) {
+        setMoveSource(null)
+        return
+      }
+      const movedFiles = visibleFiles.filter(
+        (file) =>
+          file.path === moveSource.fromPath ||
+          file.path.startsWith(sourcePrefix)
+      )
+      for (const file of movedFiles) {
+        const remainder = file.path.slice(sourcePrefix.length)
+        const toPath = `${targetPrefix}${folderName}${remainder ? `/${remainder}` : ""}`
+        if (toPath === file.path) {
+          continue
+        }
+        operations.push({
+          op: "move_file",
+          from_path: file.path,
+          to_path: toPath,
+        })
+      }
+    } else {
+      const fileName =
+        moveSource.fromPath.split("/").pop() ?? moveSource.fromPath
+      const toPath = `${targetPrefix}${fileName}`
+      if (toPath === moveSource.fromPath) {
+        setMoveSource(null)
+        return
+      }
+      operations.push({
+        op: "move_file",
+        from_path: moveSource.fromPath,
+        to_path: toPath,
+      })
+    }
+
+    if (operations.length === 0) {
+      setMoveSource(null)
+      return
+    }
+
+    try {
+      await patchSkillDraft({
+        skillId,
+        requestBody: {
+          base_revision: draft.draft_revision,
+          operations,
+        },
+      })
+      updateDraftChanges((current) =>
+        remapDraftChangesAfterMove(current, operations)
+      )
+      const movedSelection = operations.find(
+        (op) => op.from_path === selectedPath
+      )
+      if (movedSelection) {
+        setSelectedPath(movedSelection.to_path)
+      }
+      setMoveSource(null)
+    } catch (error) {
+      toast({
+        title: "Move failed",
+        description: describeMoveError(error),
+      })
+    }
+  }
+
+  const handleBeginRename = useCallback((path: string, isFolder: boolean) => {
+    if (!isFolder && path === SKILL_MD_PATH) {
+      return
+    }
+    setMoveSource(null)
+    setPendingCreate(false)
+    setRenameError(null)
+    setRenameTarget({ fromPath: path, isFolder })
+  }, [])
+
+  const handleCancelRename = useCallback(() => {
+    setRenameTarget(null)
+    setRenameError(null)
+  }, [])
+
+  const handleSubmitRename = async (rawNewPath: string) => {
+    if (!renameTarget || !draft) {
+      return
+    }
+    const newPath = rawNewPath.trim()
+    if (!newPath || newPath === renameTarget.fromPath) {
+      setRenameTarget(null)
+      setRenameError(null)
+      return
+    }
+    const pathError = validateSkillDraftPath(newPath)
+    if (pathError) {
+      setRenameError(pathError)
+      return
+    }
+    if (renameTarget.isFolder && newPath === SKILL_MD_PATH) {
+      setRenameError("That path is reserved for the root SKILL.md file.")
+      return
+    }
+
+    const operations: SkillDraftMoveFileOp[] = []
+    if (renameTarget.isFolder) {
+      const sourcePrefix = `${renameTarget.fromPath}/`
+      if (
+        newPath === renameTarget.fromPath ||
+        newPath.startsWith(sourcePrefix)
+      ) {
+        setRenameError("Cannot rename a folder into itself.")
+        return
+      }
+      const movedFiles = visibleFiles.filter(
+        (file) =>
+          file.path === renameTarget.fromPath ||
+          file.path.startsWith(sourcePrefix)
+      )
+      for (const file of movedFiles) {
+        const remainder = file.path.slice(renameTarget.fromPath.length + 1)
+        const toPath = remainder ? `${newPath}/${remainder}` : newPath
+        if (toPath === file.path) {
+          continue
+        }
+        operations.push({
+          op: "move_file",
+          from_path: file.path,
+          to_path: toPath,
+        })
+      }
+    } else {
+      if (!isEditablePath(newPath)) {
+        setRenameError(
+          "File extension must remain compatible (for example .md, .py, .ts, .json)."
+        )
+        return
+      }
+      operations.push({
+        op: "move_file",
+        from_path: renameTarget.fromPath,
+        to_path: newPath,
+      })
+    }
+
+    if (operations.length === 0) {
+      setRenameTarget(null)
+      setRenameError(null)
+      return
+    }
+
+    try {
+      await patchSkillDraft({
+        skillId,
+        requestBody: {
+          base_revision: draft.draft_revision,
+          operations,
+        },
+      })
+      updateDraftChanges((current) =>
+        remapDraftChangesAfterMove(current, operations)
+      )
+      const movedSelection = operations.find(
+        (op) => op.from_path === selectedPath
+      )
+      if (movedSelection) {
+        setSelectedPath(movedSelection.to_path)
+      }
+      setRenameTarget(null)
+      setRenameError(null)
+    } catch (error) {
+      setRenameError(describeMoveError(error))
+    }
+  }
+
   const handleSaveWorkingCopy = async () => {
-    if (!draft || !selectedSkillId || saveWorkingCopyPendingRef.current) {
+    if (!draft || saveWorkingCopyPendingRef.current) {
       return
     }
 
@@ -650,7 +705,7 @@ export function useSkillsStudio(params: {
 
         const sha256 = await computeFileSha256(change.file)
         const uploadSession = await createSkillDraftUpload({
-          skillId: selectedSkillId,
+          skillId,
           requestBody: {
             sha256,
             size_bytes: change.file.size,
@@ -671,7 +726,7 @@ export function useSkillsStudio(params: {
       }
 
       await patchSkillDraft({
-        skillId: selectedSkillId,
+        skillId,
         requestBody: {
           base_revision: draft.draft_revision,
           operations,
@@ -699,11 +754,8 @@ export function useSkillsStudio(params: {
   }
 
   const handlePublish = async () => {
-    if (!selectedSkillId) {
-      return
-    }
     try {
-      await publishSkill({ skillId: selectedSkillId })
+      await publishSkill({ skillId })
     } catch (error) {
       toast({
         title: "Publish failed",
@@ -714,10 +766,7 @@ export function useSkillsStudio(params: {
   }
 
   const handleRestore = async (versionId: string) => {
-    if (!selectedSkillId) {
-      return
-    }
-    await restoreSkillVersion({ skillId: selectedSkillId, versionId })
+    await restoreSkillVersion({ skillId, versionId })
   }
 
   const handleConfirmDeleteSkill = async () => {
@@ -728,10 +777,7 @@ export function useSkillsStudio(params: {
       await deleteSkill({ skillId: deleteSkillTarget.id })
       setShowDeleteSkillDialog(false)
       setDeleteSkillTarget(null)
-      if (selectedSkillId === deleteSkillTarget.id) {
-        setSelectedSkillId(null)
-        router.push(`/workspaces/${workspaceId}/skills`)
-      }
+      router.push(`/workspaces/${workspaceId}/skills`)
     } catch {
       // The mutation hook already reports delete failures to the user.
     }
@@ -740,17 +786,8 @@ export function useSkillsStudio(params: {
   // ── Return ─────────────────────────────────────────────────────────
   return {
     workspaceId,
-    selectedSkillId,
+    skillId,
     selectedPath,
-
-    search,
-    onSearchChange: setSearch,
-    visibleSkills,
-    skillsLoading,
-    skillsError: skillsError ?? null,
-    onSelectSkill: handleSelectSkill,
-    onOpenNewSkillDialog: handleOpenNewSkillDialog,
-    onOpenUploadSkillDialog: handleOpenUploadSkillDialog,
 
     showDeleteSkillDialog,
     deleteSkillTarget,
@@ -758,20 +795,6 @@ export function useSkillsStudio(params: {
     onOpenDeleteSkillDialog: handleOpenDeleteSkillDialog,
     onDeleteSkillDialogChange: setShowDeleteSkillDialog,
     onConfirmDeleteSkill: handleConfirmDeleteSkill,
-
-    showUploadSkillDialog,
-    onUploadSkillDialogChange: setShowUploadSkillDialog,
-    isDragOver,
-    onDragOver: handleDragOver,
-    onDragLeave: handleDragLeave,
-    onDrop: handleDrop,
-    onDirectoryInput: handleDirectoryInput,
-    uploadSkillPending: uploadPending,
-
-    showUploadConfirmDialog,
-    pendingUploadFiles,
-    onConfirmUpload: handleConfirmUpload,
-    onCancelUpload: handleCancelUpload,
 
     skill,
     skillLoading,
@@ -785,11 +808,28 @@ export function useSkillsStudio(params: {
     markdownEditorActivatedRef,
     onSelectPath: setSelectedPath,
     onEditorChange: handleEditorChange,
-    onDeleteSelectedFile: handleDeleteSelectedFile,
     onUndoSelectedFileChange: handleUndoSelectedFileChange,
-    onReplaceFile: handleReplaceFile,
+    onDeleteSelectedFile: handleDeleteSelectedFile,
+    onReplaceSelectedFile: handleReplaceSelectedFile,
     onSaveWorkingCopy: handleSaveWorkingCopy,
-    onOpenNewFileDialog: handleOpenNewFileDialog,
+
+    pendingCreate,
+    pendingCreateError,
+    onBeginCreate: handleBeginCreate,
+    onSubmitCreate: handleSubmitCreate,
+    onCancelCreate: handleCancelCreate,
+    onChangeCreatePath: handleChangeCreatePath,
+
+    moveSource,
+    onBeginMove: handleBeginMove,
+    onCancelMove: handleCancelMove,
+    onCommitMove: handleCommitMove,
+
+    renameTarget,
+    renameError,
+    onBeginRename: handleBeginRename,
+    onCancelRename: handleCancelRename,
+    onSubmitRename: handleSubmitRename,
 
     hasUnsavedChanges,
     canPublish,
@@ -802,20 +842,5 @@ export function useSkillsStudio(params: {
     versionsLoading,
     restoreSkillVersionPending,
     onRestore: handleRestore,
-
-    showNewSkillDialog,
-    onNewSkillDialogChange: setShowNewSkillDialog,
-    newSkillName,
-    onNewSkillNameChange: setNewSkillName,
-    newSkillDescription,
-    onNewSkillDescriptionChange: setNewSkillDescription,
-    createSkillPending,
-    onCreateSkill: handleCreateSkill,
-
-    showNewFileDialog,
-    onNewFileDialogChange: setShowNewFileDialog,
-    newFilePath,
-    onNewFilePathChange: setNewFilePath,
-    onCreateNewFile: handleCreateNewFile,
   }
 }

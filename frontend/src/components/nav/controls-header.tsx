@@ -76,6 +76,8 @@ import {
 import { CreateGroupButton } from "@/components/rbac/create-group-button"
 import { CreateRoleButton } from "@/components/rbac/create-role-button"
 import { RegistryActionsControls } from "@/components/registry/workspace-actions-controls"
+import { CreateSkillButton } from "@/components/skills/create-skill-button"
+import { SkillsDetailActions } from "@/components/skills/skills-detail-actions"
 import { TableSelectionActionsBar } from "@/components/tables/ag-grid-bulk-actions"
 import { CreateTableDialog } from "@/components/tables/table-create-dialog"
 import { TableImportTableDialog } from "@/components/tables/table-import-table-dialog"
@@ -144,6 +146,7 @@ import {
 import { CreateCredentialDialog } from "@/components/workspaces/create-credential-dialog"
 import { useAgentPreset } from "@/hooks/use-agent-presets"
 import { useEntitlements } from "@/hooks/use-entitlements"
+import { useSkill } from "@/hooks/use-skills"
 import { useWorkspaceDetails, useWorkspaceMembers } from "@/hooks/use-workspace"
 import {
   useCaseDropdownDefinitions,
@@ -381,6 +384,40 @@ function IntegrationsActions() {
         hideTrigger
       />
     </>
+  )
+}
+
+function SkillsActions() {
+  return <CreateSkillButton />
+}
+
+function SkillsBreadcrumb({
+  workspaceId,
+  skillId,
+}: {
+  workspaceId: string
+  skillId: string
+}) {
+  const { skill } = useSkill(workspaceId, skillId)
+
+  return (
+    <Breadcrumb>
+      <BreadcrumbList className="relative z-10 flex items-center gap-2 text-sm flex-nowrap overflow-hidden whitespace-nowrap min-w-0 bg-transparent pr-1">
+        <BreadcrumbItem>
+          <BreadcrumbLink asChild className="font-semibold hover:no-underline">
+            <Link href={`/workspaces/${workspaceId}/skills`}>Skills</Link>
+          </BreadcrumbLink>
+        </BreadcrumbItem>
+        <BreadcrumbSeparator className="shrink-0">
+          <span className="text-muted-foreground">/</span>
+        </BreadcrumbSeparator>
+        <BreadcrumbItem>
+          <BreadcrumbPage className="font-semibold">
+            {skill?.name || skillId}
+          </BreadcrumbPage>
+        </BreadcrumbItem>
+      </BreadcrumbList>
+    </Breadcrumb>
   )
 }
 
@@ -1722,6 +1759,22 @@ function getPageConfig(
     return {
       title: "Actions",
       actions: <RegistryActionsControls />,
+    }
+  }
+
+  if (pagePath.startsWith("/skills")) {
+    const skillMatch = pagePath.match(/^\/skills\/([^/]+)$/)
+    if (skillMatch) {
+      return {
+        title: (
+          <SkillsBreadcrumb workspaceId={workspaceId} skillId={skillMatch[1]} />
+        ),
+        actions: <SkillsDetailActions />,
+      }
+    }
+    return {
+      title: "Skills",
+      actions: <SkillsActions />,
     }
   }
 
