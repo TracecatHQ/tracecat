@@ -100,23 +100,56 @@ type EnforcementTask struct {
 	UpdatedAt         time.Time             `json:"updated_at"`
 }
 
+type ResponseActionPreview struct {
+	ID                string            `json:"id"`
+	OrganizationID    string            `json:"organization_id"`
+	EndpointID        string            `json:"endpoint_id"`
+	FindingID         string            `json:"finding_id,omitempty"`
+	Action            EnforcementAction `json:"action"`
+	Payload           map[string]any    `json:"payload,omitempty"`
+	Status            string            `json:"status"`
+	RequestedByUserID string            `json:"requested_by_user_id,omitempty"`
+	TargetPath        string            `json:"target_path,omitempty"`
+	BeforeContent     string            `json:"before_content,omitempty"`
+	AfterContent      string            `json:"after_content,omitempty"`
+	Result            map[string]any    `json:"result,omitempty"`
+	Error             string            `json:"error,omitempty"`
+	CompletedAt       *time.Time        `json:"completed_at,omitempty"`
+	ExpiresAt         time.Time         `json:"expires_at"`
+	CreatedAt         time.Time         `json:"created_at"`
+	UpdatedAt         time.Time         `json:"updated_at"`
+}
+
+type ResponseActionPreviewResult struct {
+	PreviewID     string         `json:"preview_id"`
+	Status        string         `json:"status"`
+	TargetPath    string         `json:"target_path,omitempty"`
+	BeforeContent string         `json:"before_content,omitempty"`
+	AfterContent  string         `json:"after_content,omitempty"`
+	Result        map[string]any `json:"result,omitempty"`
+	Error         string         `json:"error,omitempty"`
+	CompletedAt   time.Time      `json:"completed_at"`
+}
+
 type SyncRequest struct {
-	Name            string                      `json:"name,omitempty"`
-	EndpointVersion string                      `json:"endpoint_version,omitempty"`
-	Hostname        string                      `json:"hostname,omitempty"`
-	OSUser          string                      `json:"os_user,omitempty"`
-	HomePath        string                      `json:"home_path,omitempty"`
-	Status          EndpointStatus              `json:"status"`
-	ClientMetadata  map[string]any              `json:"client_metadata,omitempty"`
-	InventoryItems  []SyncInventoryItem         `json:"inventory_items"`
-	Relationships   []SyncInventoryRelationship `json:"relationships,omitempty"`
-	TaskResults     []SyncTaskResult            `json:"task_results"`
+	Name                 string                        `json:"name,omitempty"`
+	EndpointVersion      string                        `json:"endpoint_version,omitempty"`
+	Hostname             string                        `json:"hostname,omitempty"`
+	OSUser               string                        `json:"os_user,omitempty"`
+	HomePath             string                        `json:"home_path,omitempty"`
+	Status               EndpointStatus                `json:"status"`
+	ClientMetadata       map[string]any                `json:"client_metadata,omitempty"`
+	InventoryItems       []SyncInventoryItem           `json:"inventory_items"`
+	Relationships        []SyncInventoryRelationship   `json:"relationships,omitempty"`
+	TaskResults          []SyncTaskResult              `json:"task_results"`
+	ActionPreviewResults []ResponseActionPreviewResult `json:"action_preview_results,omitempty"`
 }
 
 type SyncResponse struct {
-	Endpoint       Endpoint          `json:"endpoint"`
-	EndpointSecret string            `json:"endpoint_secret,omitempty"`
-	Tasks          []EnforcementTask `json:"tasks"`
+	Endpoint       Endpoint                `json:"endpoint"`
+	EndpointSecret string                  `json:"endpoint_secret,omitempty"`
+	Tasks          []EnforcementTask       `json:"tasks"`
+	ActionPreviews []ResponseActionPreview `json:"action_previews,omitempty"`
 }
 
 type Client struct {
@@ -179,6 +212,9 @@ func (c *Client) SyncEndpoint(
 	}
 	if result.Tasks == nil {
 		result.Tasks = []EnforcementTask{}
+	}
+	if result.ActionPreviews == nil {
+		result.ActionPreviews = []ResponseActionPreview{}
 	}
 	return &result, nil
 }

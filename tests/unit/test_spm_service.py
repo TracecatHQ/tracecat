@@ -20,12 +20,15 @@ from tracecat_ee.spm.schemas import (
     SpmFindingDecisionCreate,
     SpmFindingQueryParams,
     SpmInventoryQueryParams,
+    SpmResponseActionPreviewCreate,
     SpmSyncInventoryItemUpsert,
     SpmSyncInventoryRelationshipUpsert,
+    SpmSyncResponseActionPreviewResult,
     SpmSyncTaskResult,
 )
 from tracecat_ee.spm.service import SpmService, SpmSyncService
 from tracecat_ee.spm.types import (
+    SpmEndpointComplianceStatus,
     SpmEndpointPlatform,
     SpmEnforcementTaskStatus,
     SpmFindingDecisionType,
@@ -34,6 +37,7 @@ from tracecat_ee.spm.types import (
     SpmInventoryItemType,
     SpmInventoryRelationshipType,
     SpmInventorySourceType,
+    SpmResponseActionPreviewStatus,
     SpmSyncTaskResultStatus,
 )
 
@@ -45,6 +49,7 @@ from tracecat.db.models import (
     SpmInventoryItem,
     SpmInventoryObservation,
     SpmInventoryRelationship,
+    SpmResponseActionPreview,
     User,
 )
 from tracecat.pagination import CursorPaginationParams
@@ -331,6 +336,135 @@ async def test_list_findings_supports_endpoint_and_control_filters(
     assert {finding.control_key for finding in control_findings.items} == {
         "claude.mcp_server.approved"
     }
+
+
+@pytest.mark.anyio
+async def test_endpoint_compliance_statuses_are_computed_from_inventory_and_findings(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    service = SpmService(session, role=svc_role)
+    sync_service = SpmSyncService(
+        session,
+        threat_intel_provider=NoopSpmThreatIntelProvider(),
+    )
+    pending = await service.create_endpoint(
+        SpmEndpointCreate(
+            name="Pending MacBook",
+            harness=SpmHarness.CLAUDE_CODE,
+            platform=SpmEndpointPlatform.MACOS,
+        )
+    )
+    clean = await service.create_endpoint(
+        SpmEndpointCreate(
+            name="Clean MacBook",
+            harness=SpmHarness.CLAUDE_CODE,
+            platform=SpmEndpointPlatform.MACOS,
+        )
+    )
+    attention = await service.create_endpoint(
+        SpmEndpointCreate(
+            name="Attention MacBook",
+            harness=SpmHarness.CLAUDE_CODE,
+            platform=SpmEndpointPlatform.MACOS,
+        )
+    )
+
+    with patch(
+        "tracecat_ee.spm.service.is_org_entitled",
+        new=AsyncMock(return_value=True),
+    ):
+        clean_response = await sync_service.sync_endpoint(
+            endpoint_id=clean.endpoint.id,
+            bearer_token=clean.enrollment_token,
+            params=SpmEndpointSyncRequest(
+                name="Clean MacBook",
+                inventory_items=[
+                    SpmSyncInventoryItemUpsert(
+                        harness=SpmHarness.CLAUDE_CODE,
+                        item_type=SpmInventoryItemType.PLUGIN,
+                        source_type=SpmInventorySourceType.PLUGIN_MANIFEST,
+                        item_location="/Users/chris/.claude/plugins/demo/.claude-plugin/plugin.json",
+                        source_location="/Users/chris/.claude/plugins/demo/.claude-plugin/plugin.json",
+                        identity_key="/Users/chris/.claude/plugins/demo/.claude-plugin/plugin.json",
+                        display_name="demo",
+                        metadata={"parse_status": "ok"},
+                        observed_state={"enabled": True},
+                    )
+                ],
+            ),
+        )
+        attention_response = await sync_service.sync_endpoint(
+            endpoint_id=attention.endpoint.id,
+            bearer_token=attention.enrollment_token,
+            params=SpmEndpointSyncRequest(
+                name="Attention MacBook",
+                client_metadata={
+                    "spm_policy": {
+                        "approved_mcp_servers": [
+                            {
+                                "server_name": "approved",
+                                "resolved_identity": "https://allowed.example/mcp",
+                            }
+                        ]
+                    }
+                },
+                inventory_items=[
+                    _mcp_item(
+                        server_name="github",
+                        resolved_identity="https://api.github.com/mcp",
+                    )
+                ],
+            ),
+        )
+
+    assert (
+        clean_response.endpoint.compliance_status
+        == SpmEndpointComplianceStatus.COMPLIANT
+    )
+    assert (
+        attention_response.endpoint.compliance_status
+        == SpmEndpointComplianceStatus.NEEDS_ATTENTION
+    )
+
+    endpoints_by_id = {
+        endpoint.id: endpoint
+        for endpoint in (
+            await service.list_endpoints(CursorPaginationParams(limit=50))
+        ).items
+    }
+    assert (
+        endpoints_by_id[pending.endpoint.id].compliance_status
+        == SpmEndpointComplianceStatus.NOT_ASSESSED
+    )
+    assert (
+        endpoints_by_id[clean.endpoint.id].compliance_status
+        == SpmEndpointComplianceStatus.COMPLIANT
+    )
+    assert (
+        endpoints_by_id[attention.endpoint.id].compliance_status
+        == SpmEndpointComplianceStatus.NEEDS_ATTENTION
+    )
+
+    finding = (
+        await session.scalars(
+            select(SpmFinding).where(
+                SpmFinding.endpoint_id == attention.endpoint.id,
+                SpmFinding.control_key == "claude.mcp_server.approved",
+            )
+        )
+    ).one()
+    await _ensure_spm_user(session, svc_role)
+    await service.create_finding_decision(
+        finding.id,
+        SpmFindingDecisionCreate(decision=SpmFindingDecisionType.ENFORCE),
+    )
+
+    attention_read = await service.get_endpoint(attention.endpoint.id)
+    assert (
+        attention_read.compliance_status
+        == SpmEndpointComplianceStatus.ENFORCEMENT_QUEUED
+    )
 
 
 @pytest.mark.anyio
@@ -821,6 +955,128 @@ async def test_sync_endpoint_task_results_reconcile_task_and_finding_state(
         assert finding.closed_at is None
     else:
         assert finding.closed_at is not None
+
+
+@pytest.mark.anyio
+async def test_response_action_preview_sync_lifecycle(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    service = SpmService(session, role=svc_role)
+    sync_service = SpmSyncService(
+        session,
+        threat_intel_provider=NoopSpmThreatIntelProvider(),
+    )
+    created = await service.create_endpoint(
+        SpmEndpointCreate(
+            name="Chris MacBook",
+            harness=SpmHarness.CLAUDE_CODE,
+            platform=SpmEndpointPlatform.MACOS,
+        )
+    )
+
+    with patch(
+        "tracecat_ee.spm.service.is_org_entitled",
+        new=AsyncMock(return_value=True),
+    ):
+        first_response = await sync_service.sync_endpoint(
+            endpoint_id=created.endpoint.id,
+            bearer_token=created.enrollment_token,
+            params=SpmEndpointSyncRequest(
+                name="Chris MacBook",
+                client_metadata={
+                    "spm_policy": {
+                        "approved_mcp_servers": [
+                            {
+                                "server_name": "approved",
+                                "resolved_identity": "https://allowed.example/mcp",
+                            }
+                        ]
+                    }
+                },
+                inventory_items=[
+                    _mcp_item(
+                        server_name="github",
+                        resolved_identity="https://api.github.com/mcp",
+                    )
+                ],
+            ),
+        )
+
+    finding = (
+        await session.scalars(
+            select(SpmFinding).where(
+                SpmFinding.endpoint_id == created.endpoint.id,
+                SpmFinding.control_key == "claude.mcp_server.approved",
+            )
+        )
+    ).one()
+
+    await _ensure_spm_user(session, svc_role)
+    preview = await service.create_response_action_preview(
+        finding.id,
+        SpmResponseActionPreviewCreate(),
+    )
+
+    with patch(
+        "tracecat_ee.spm.service.is_org_entitled",
+        new=AsyncMock(return_value=True),
+    ):
+        sync_with_preview = await sync_service.sync_endpoint(
+            endpoint_id=created.endpoint.id,
+            bearer_token=first_response.endpoint_secret or created.enrollment_token,
+            params=SpmEndpointSyncRequest(
+                name="Chris MacBook",
+                inventory_items=[
+                    _mcp_item(
+                        server_name="github",
+                        resolved_identity="https://api.github.com/mcp",
+                    )
+                ],
+            ),
+        )
+
+    assert [item.id for item in sync_with_preview.action_previews] == [preview.id]
+
+    with patch(
+        "tracecat_ee.spm.service.is_org_entitled",
+        new=AsyncMock(return_value=True),
+    ):
+        await sync_service.sync_endpoint(
+            endpoint_id=created.endpoint.id,
+            bearer_token=first_response.endpoint_secret or created.enrollment_token,
+            params=SpmEndpointSyncRequest(
+                name="Chris MacBook",
+                inventory_items=[
+                    _mcp_item(
+                        server_name="github",
+                        resolved_identity="https://api.github.com/mcp",
+                    )
+                ],
+                action_preview_results=[
+                    SpmSyncResponseActionPreviewResult(
+                        preview_id=preview.id,
+                        status=SpmResponseActionPreviewStatus.READY,
+                        target_path="/Users/chris/.claude.json",
+                        before_content="{}\n",
+                        after_content='{"mcpServers":[]}\n',
+                        result={"task_status": "applied"},
+                    )
+                ],
+            ),
+        )
+
+    row = (
+        await session.scalars(
+            select(SpmResponseActionPreview).where(
+                SpmResponseActionPreview.id == preview.id
+            )
+        )
+    ).one()
+    assert row.status == SpmResponseActionPreviewStatus.READY.value
+    assert row.target_path == "/Users/chris/.claude.json"
+    assert row.before_content == "{}\n"
+    assert row.after_content == '{"mcpServers":[]}\n'
 
 
 @pytest.mark.anyio

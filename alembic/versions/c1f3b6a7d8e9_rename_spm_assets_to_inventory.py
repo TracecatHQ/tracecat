@@ -54,7 +54,47 @@ def _rename_index(old: str, new: str) -> None:
     op.execute(f'ALTER INDEX IF EXISTS "{old}" RENAME TO "{new}"')
 
 
+def _table_exists(table_name: str) -> bool:
+    inspector = sa.inspect(op.get_bind())
+    return inspector.has_table(table_name)
+
+
+def _table_row_count(table_name: str) -> int:
+    return (
+        op.get_bind()
+        .execute(sa.text(f'SELECT COUNT(*) FROM "{table_name}"'))
+        .scalar_one()
+    )
+
+
+def _drop_empty_precreated_inventory_tables() -> None:
+    """Remove empty tables created by model sync before this rename migration."""
+    if not _table_exists("spm_asset"):
+        return
+
+    precreated_tables = [
+        "spm_inventory_relationship",
+        "spm_inventory_observation",
+        "spm_inventory_item",
+    ]
+    existing_tables = [table for table in precreated_tables if _table_exists(table)]
+    nonempty_tables = [
+        table for table in existing_tables if _table_row_count(table) > 0
+    ]
+    if nonempty_tables:
+        raise RuntimeError(
+            "Cannot apply SPM inventory rename migration because pre-created "
+            f"inventory tables contain rows: {', '.join(nonempty_tables)}. "
+            "Resolve the duplicate schema manually before running migrations."
+        )
+
+    for table in existing_tables:
+        op.drop_table(table)
+
+
 def upgrade() -> None:
+    _drop_empty_precreated_inventory_tables()
+
     op.execute(disable_org_table_rls("spm_asset"))
     op.execute(disable_org_optional_workspace_table_rls("spm_asset_sighting"))
 

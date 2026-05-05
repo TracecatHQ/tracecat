@@ -43,9 +43,13 @@ from tracecat_ee.spm.schemas import (
     SpmInventoryListResponse,
     SpmInventoryQueryParams,
     SpmInventoryTaxonomyRead,
+    SpmResponseActionPreviewCreate,
+    SpmResponseActionPreviewRead,
+    SpmResponseActionRead,
 )
 from tracecat_ee.spm.service import SpmService, SpmSyncService
 from tracecat_ee.spm.types import (
+    SpmEnforcementAction,
     SpmHarness,
     SpmInventoryItemType,
     SpmInventorySourceType,
@@ -172,6 +176,40 @@ def _parse_bearer_token(authorization: str | None) -> str:
             code="spm_authorization_invalid",
         )
     return token
+
+
+@router.get(
+    "/actions",
+    response_model=list[SpmResponseActionRead],
+    dependencies=[Depends(_require_spm_entitlement)],
+)
+@require_scope("org:read")
+async def list_spm_response_actions(
+    *,
+    role: OrgUserRole,
+    session: AsyncDBSession,
+) -> list[SpmResponseActionRead]:
+    service = SpmService(session, role=role)
+    return await service.list_response_actions()
+
+
+@router.get(
+    "/actions/{action}",
+    response_model=SpmResponseActionRead,
+    dependencies=[Depends(_require_spm_entitlement)],
+)
+@require_scope("org:read")
+async def get_spm_response_action(
+    *,
+    role: OrgUserRole,
+    session: AsyncDBSession,
+    action: SpmEnforcementAction,
+) -> SpmResponseActionRead:
+    service = SpmService(session, role=role)
+    try:
+        return await service.get_response_action(action.value)
+    except (SpmError, TracecatNotFoundError) as exc:
+        raise _spm_http_exception(exc) from exc
 
 
 @router.get(
@@ -401,6 +439,46 @@ async def create_spm_finding_decision(
     service = SpmService(session, role=role)
     try:
         return await service.create_finding_decision(finding_id, params)
+    except (SpmError, TracecatNotFoundError) as exc:
+        raise _spm_http_exception(exc) from exc
+
+
+@router.post(
+    "/findings/{finding_id}/action-preview",
+    response_model=SpmResponseActionPreviewRead,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(_require_spm_entitlement)],
+)
+@require_scope("org:update")
+async def create_spm_response_action_preview(
+    *,
+    role: OrgUserRole,
+    session: AsyncDBSession,
+    finding_id: uuid.UUID,
+    params: SpmResponseActionPreviewCreate,
+) -> SpmResponseActionPreviewRead:
+    service = SpmService(session, role=role)
+    try:
+        return await service.create_response_action_preview(finding_id, params)
+    except (SpmError, TracecatNotFoundError) as exc:
+        raise _spm_http_exception(exc) from exc
+
+
+@router.get(
+    "/action-previews/{preview_id}",
+    response_model=SpmResponseActionPreviewRead,
+    dependencies=[Depends(_require_spm_entitlement)],
+)
+@require_scope("org:read")
+async def get_spm_response_action_preview(
+    *,
+    role: OrgUserRole,
+    session: AsyncDBSession,
+    preview_id: uuid.UUID,
+) -> SpmResponseActionPreviewRead:
+    service = SpmService(session, role=role)
+    try:
+        return await service.get_response_action_preview(preview_id)
     except (SpmError, TracecatNotFoundError) as exc:
         raise _spm_http_exception(exc) from exc
 

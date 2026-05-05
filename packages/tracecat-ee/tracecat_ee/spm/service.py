@@ -9,7 +9,7 @@ import sys
 import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from functools import lru_cache
 from pathlib import Path
 from typing import Any, cast
@@ -29,6 +29,7 @@ from tracecat.db.models import (
     SpmInventoryItem,
     SpmInventoryObservation,
     SpmInventoryRelationship,
+    SpmResponseActionPreview,
 )
 from tracecat.exceptions import EntitlementRequired
 from tracecat.pagination import (
@@ -74,9 +75,13 @@ from tracecat_ee.spm.schemas import (
     SpmInventoryQueryParams,
     SpmInventoryTaxonomyRead,
     SpmMcpServerControlData,
+    SpmResponseActionPreviewCreate,
+    SpmResponseActionPreviewRead,
+    SpmResponseActionRead,
     SpmSkillControlData,
     SpmSyncInventoryItemUpsert,
     SpmSyncInventoryRelationshipUpsert,
+    SpmSyncResponseActionPreviewResult,
     SpmSyncTaskResult,
 )
 from tracecat_ee.spm.taxonomy import (
@@ -84,10 +89,14 @@ from tracecat_ee.spm.taxonomy import (
     validate_control_target,
 )
 from tracecat_ee.spm.types import (
+    SpmEndpointComplianceStatus,
+    SpmEnforcementAction,
     SpmEnforcementTaskStatus,
     SpmFindingDecisionType,
     SpmFindingStatus,
+    SpmHarness,
     SpmInventoryItemType,
+    SpmResponseActionPreviewStatus,
     SpmSyncTaskResultStatus,
 )
 
@@ -156,6 +165,129 @@ class SpmControlDefinition:
     check: SpmControlCheckFn
     metadata_path: Path
     check_path: Path
+
+
+_RESPONSE_ACTION_CATALOG: tuple[SpmResponseActionRead, ...] = (
+    SpmResponseActionRead(
+        key=SpmEnforcementAction.DISABLE_MCP_SERVER,
+        title="Disable MCP server",
+        description=(
+            "Disable a configured Claude MCP server on a writable local settings "
+            "surface. Project .mcp.json entries are shadowed through "
+            "disabledMcpjsonServers instead of rewriting .mcp.json."
+        ),
+        harness=SpmHarness.CLAUDE_CODE,
+        item_types=[SpmInventoryItemType.MCP_SERVER],
+        execution_mode="endpoint_sync",
+        preview_supported=True,
+        target_surface="claude_json_or_project_local_settings",
+        payload_fields=[
+            "server_name",
+            "resolved_identity",
+            "source_path",
+            "project_root",
+        ],
+        disruptive=True,
+    ),
+    SpmResponseActionRead(
+        key=SpmEnforcementAction.EXCLUDE_INSTRUCTION_FILE,
+        title="Exclude instruction file",
+        description=(
+            "Exclude a Claude instruction file by adding its path to "
+            "claudeMdExcludes on a writable user or project-local settings file."
+        ),
+        harness=SpmHarness.CLAUDE_CODE,
+        item_types=[SpmInventoryItemType.INSTRUCTION_FILE],
+        execution_mode="endpoint_sync",
+        preview_supported=True,
+        target_surface="settings_json_or_project_local_settings",
+        payload_fields=["file_path", "project_root", "target_path"],
+        disruptive=True,
+    ),
+    SpmResponseActionRead(
+        key=SpmEnforcementAction.REVOKE_TRUSTED_DIRECTORY,
+        title="Revoke trusted directory",
+        description="Remove a trusted directory entry from Claude user state.",
+        harness=SpmHarness.CLAUDE_CODE,
+        item_types=[SpmInventoryItemType.TRUSTED_DIRECTORY],
+        execution_mode="endpoint_sync",
+        preview_supported=True,
+        target_surface="claude_json",
+        payload_fields=["directory_path", "target_path"],
+        disruptive=True,
+    ),
+    SpmResponseActionRead(
+        key=SpmEnforcementAction.REVOKE_ADDITIONAL_DIRECTORY,
+        title="Revoke additional directory",
+        description="Remove an additional directory entry from Claude user state.",
+        harness=SpmHarness.CLAUDE_CODE,
+        item_types=[SpmInventoryItemType.ADDITIONAL_DIRECTORY],
+        execution_mode="endpoint_sync",
+        preview_supported=True,
+        target_surface="claude_json",
+        payload_fields=["directory_path", "target_path"],
+        disruptive=True,
+    ),
+    SpmResponseActionRead(
+        key=SpmEnforcementAction.RECONCILE_PERMISSION_CONFIG,
+        title="Reconcile permission config",
+        description="Replace the Claude permissions value with the approved policy value.",
+        harness=SpmHarness.CLAUDE_CODE,
+        item_types=[SpmInventoryItemType.PERMISSION_CONFIG],
+        execution_mode="endpoint_sync",
+        preview_supported=True,
+        target_surface="writable_claude_settings",
+        payload_fields=["target_path", "value"],
+        disruptive=True,
+    ),
+    SpmResponseActionRead(
+        key=SpmEnforcementAction.RECONCILE_SANDBOX_CONFIG,
+        title="Reconcile sandbox config",
+        description="Replace the Claude sandbox value with the approved policy value.",
+        harness=SpmHarness.CLAUDE_CODE,
+        item_types=[SpmInventoryItemType.SANDBOX_CONFIG],
+        execution_mode="endpoint_sync",
+        preview_supported=True,
+        target_surface="writable_claude_settings",
+        payload_fields=["target_path", "value"],
+        disruptive=True,
+    ),
+    SpmResponseActionRead(
+        key=SpmEnforcementAction.DISABLE_HOOK,
+        title="Disable hook",
+        description="Remove a matching Claude hook entry from writable settings.",
+        harness=SpmHarness.CLAUDE_CODE,
+        item_types=[SpmInventoryItemType.HOOK],
+        execution_mode="endpoint_sync",
+        preview_supported=True,
+        target_surface="writable_claude_settings",
+        payload_fields=["fingerprint", "target_path"],
+        disruptive=True,
+    ),
+    SpmResponseActionRead(
+        key=SpmEnforcementAction.DISABLE_SKILL,
+        title="Disable skill",
+        description="Remove a matching Claude skill entry from writable settings.",
+        harness=SpmHarness.CLAUDE_CODE,
+        item_types=[SpmInventoryItemType.SKILL],
+        execution_mode="endpoint_sync",
+        preview_supported=True,
+        target_surface="writable_claude_settings",
+        payload_fields=["fingerprint", "name", "target_path"],
+        disruptive=True,
+    ),
+)
+
+
+def get_response_action(
+    action: str | SpmEnforcementAction,
+) -> SpmResponseActionRead | None:
+    """Fetch a static response action catalog entry by key."""
+    ref = action.value if isinstance(action, SpmEnforcementAction) else action
+    for entry in _RESPONSE_ACTION_CATALOG:
+        if entry.key.value == ref:
+            return entry
+    return None
 
 
 def load_control_catalog_from_directory(
@@ -496,10 +628,140 @@ def _string_list(raw: Any) -> list[str]:
     return [item for item in raw if isinstance(item, str)]
 
 
+def _endpoint_compliance_status(
+    endpoint: SpmEndpoint,
+    *,
+    observation_count: int,
+    open_finding_count: int,
+    pending_finding_count: int,
+) -> SpmEndpointComplianceStatus:
+    if endpoint.last_sync_at is None or observation_count == 0:
+        return SpmEndpointComplianceStatus.NOT_ASSESSED
+    if open_finding_count > 0:
+        return SpmEndpointComplianceStatus.NEEDS_ATTENTION
+    if pending_finding_count > 0:
+        return SpmEndpointComplianceStatus.ENFORCEMENT_QUEUED
+    return SpmEndpointComplianceStatus.COMPLIANT
+
+
+async def _endpoint_compliance_by_id(
+    session: AsyncSession,
+    *,
+    organization_id: uuid.UUID,
+    endpoints: list[SpmEndpoint],
+) -> dict[uuid.UUID, SpmEndpointComplianceStatus]:
+    endpoint_ids = [endpoint.id for endpoint in endpoints]
+    if not endpoint_ids:
+        return {}
+
+    observation_counts = dict.fromkeys(endpoint_ids, 0)
+    observation_stmt = (
+        select(
+            SpmInventoryObservation.endpoint_id,
+            sa.func.count(SpmInventoryObservation.id),
+        )
+        .where(
+            SpmInventoryObservation.organization_id == organization_id,
+            SpmInventoryObservation.endpoint_id.in_(endpoint_ids),
+        )
+        .group_by(SpmInventoryObservation.endpoint_id)
+    )
+    for endpoint_id, count in (await session.execute(observation_stmt)).all():
+        observation_counts[endpoint_id] = count
+
+    finding_counts = {
+        endpoint_id: {
+            SpmFindingStatus.OPEN.value: 0,
+            SpmFindingStatus.ENFORCEMENT_PENDING.value: 0,
+        }
+        for endpoint_id in endpoint_ids
+    }
+    finding_stmt = (
+        select(
+            SpmFinding.endpoint_id,
+            SpmFinding.status,
+            sa.func.count(SpmFinding.id),
+        )
+        .where(
+            SpmFinding.organization_id == organization_id,
+            SpmFinding.endpoint_id.in_(endpoint_ids),
+            SpmFinding.status.in_(
+                [
+                    SpmFindingStatus.OPEN.value,
+                    SpmFindingStatus.ENFORCEMENT_PENDING.value,
+                ]
+            ),
+        )
+        .group_by(SpmFinding.endpoint_id, SpmFinding.status)
+    )
+    for endpoint_id, status, count in (await session.execute(finding_stmt)).all():
+        finding_counts[endpoint_id][status] = count
+
+    return {
+        endpoint.id: _endpoint_compliance_status(
+            endpoint,
+            observation_count=observation_counts[endpoint.id],
+            open_finding_count=finding_counts[endpoint.id][SpmFindingStatus.OPEN.value],
+            pending_finding_count=finding_counts[endpoint.id][
+                SpmFindingStatus.ENFORCEMENT_PENDING.value
+            ],
+        )
+        for endpoint in endpoints
+    }
+
+
+def _endpoint_read(
+    endpoint: SpmEndpoint,
+    compliance_status: SpmEndpointComplianceStatus,
+) -> SpmEndpointRead:
+    data = {
+        field_name: getattr(endpoint, field_name)
+        for field_name in SpmEndpointRead.model_fields
+        if field_name != "compliance_status"
+    }
+    data["compliance_status"] = compliance_status
+    return SpmEndpointRead.model_validate(data)
+
+
+async def _endpoint_reads(
+    session: AsyncSession,
+    *,
+    organization_id: uuid.UUID,
+    endpoints: list[SpmEndpoint],
+) -> list[SpmEndpointRead]:
+    compliance_by_id = await _endpoint_compliance_by_id(
+        session,
+        organization_id=organization_id,
+        endpoints=endpoints,
+    )
+    return [
+        _endpoint_read(
+            endpoint,
+            compliance_by_id.get(
+                endpoint.id,
+                SpmEndpointComplianceStatus.NOT_ASSESSED,
+            ),
+        )
+        for endpoint in endpoints
+    ]
+
+
 class SpmService(BaseOrgService):
     """Org-scoped service for SPM operator APIs."""
 
     service_name = "spm"
+
+    async def list_response_actions(self) -> list[SpmResponseActionRead]:
+        return list(_RESPONSE_ACTION_CATALOG)
+
+    async def get_response_action(self, action: str) -> SpmResponseActionRead:
+        if entry := get_response_action(action):
+            return entry
+        raise SpmNotFoundError(
+            "SPM response action not found.",
+            code="spm_response_action_not_found",
+            action=action,
+        )
 
     async def list_controls(self) -> list[SpmControlRead]:
         return list(get_control_catalog())
@@ -547,7 +809,11 @@ class SpmService(BaseOrgService):
             )
 
         return CursorPaginatedResponse[SpmEndpointRead](
-            items=SpmEndpointRead.list_adapter().validate_python(rows),
+            items=await _endpoint_reads(
+                self.session,
+                organization_id=self.organization_id,
+                endpoints=rows,
+            ),
             next_cursor=next_cursor,
             has_more=has_more,
         )
@@ -575,13 +841,19 @@ class SpmService(BaseOrgService):
         await self.session.commit()
         await self.session.refresh(row)
         return SpmEndpointCreateResponse(
-            endpoint=SpmEndpointRead.model_validate(row),
+            endpoint=_endpoint_read(row, SpmEndpointComplianceStatus.NOT_ASSESSED),
             enrollment_token=enrollment_token,
         )
 
     async def get_endpoint(self, endpoint_id: uuid.UUID) -> SpmEndpointRead:
         row = await self._get_endpoint_row(endpoint_id)
-        return SpmEndpointRead.model_validate(row)
+        return (
+            await _endpoint_reads(
+                self.session,
+                organization_id=self.organization_id,
+                endpoints=[row],
+            )
+        )[0]
 
     async def delete_pending_endpoint(self, endpoint_id: uuid.UUID) -> None:
         row = await self._get_endpoint_row(endpoint_id)
@@ -833,6 +1105,59 @@ class SpmService(BaseOrgService):
         await self.session.refresh(decision_row)
         return SpmFindingDecisionRead.model_validate(decision_row)
 
+    async def create_response_action_preview(
+        self,
+        finding_id: uuid.UUID,
+        params: SpmResponseActionPreviewCreate,
+    ) -> SpmResponseActionPreviewRead:
+        finding = await self._get_finding_row(finding_id)
+        action = params.action or (
+            SpmEnforcementAction(finding.recommended_action)
+            if finding.recommended_action is not None
+            else None
+        )
+        if action is None:
+            raise SpmConflictError(
+                "Finding has no response action to preview.",
+                code="spm_finding_preview_not_supported",
+                finding_id=finding_id,
+            )
+        if get_response_action(action) is None:
+            raise SpmConflictError(
+                "Response action does not support previews.",
+                code="spm_response_action_preview_not_supported",
+                action=action.value,
+                finding_id=finding_id,
+            )
+
+        payload = {**(finding.recommended_payload or {}), **params.payload}
+        now = datetime.now(UTC)
+        row = SpmResponseActionPreview(
+            id=uuid.uuid4(),
+            organization_id=self.organization_id,
+            endpoint_id=finding.endpoint_id,
+            finding_id=finding.id,
+            action=action.value,
+            payload=payload,
+            status=SpmResponseActionPreviewStatus.PENDING.value,
+            requested_by_user_id=self.role.user_id,
+            expires_at=now + timedelta(minutes=15),
+        )
+        self.session.add(row)
+        await self.session.commit()
+        await self.session.refresh(row)
+        return SpmResponseActionPreviewRead.model_validate(row)
+
+    async def get_response_action_preview(
+        self,
+        preview_id: uuid.UUID,
+    ) -> SpmResponseActionPreviewRead:
+        row = await self._get_response_action_preview_row(preview_id)
+        self._expire_preview_if_needed(row)
+        await self.session.commit()
+        await self.session.refresh(row)
+        return SpmResponseActionPreviewRead.model_validate(row)
+
     async def _get_endpoint_row(self, endpoint_id: uuid.UUID) -> SpmEndpoint:
         stmt = select(SpmEndpoint).where(
             SpmEndpoint.id == endpoint_id,
@@ -860,6 +1185,30 @@ class SpmService(BaseOrgService):
                 finding_id=finding_id,
             )
         return row
+
+    async def _get_response_action_preview_row(
+        self,
+        preview_id: uuid.UUID,
+    ) -> SpmResponseActionPreview:
+        stmt = select(SpmResponseActionPreview).where(
+            SpmResponseActionPreview.id == preview_id,
+            SpmResponseActionPreview.organization_id == self.organization_id,
+        )
+        row = (await self.session.scalars(stmt)).one_or_none()
+        if row is None:
+            raise SpmNotFoundError(
+                "SPM response action preview not found.",
+                code="spm_response_action_preview_not_found",
+                preview_id=preview_id,
+            )
+        return row
+
+    @staticmethod
+    def _expire_preview_if_needed(row: SpmResponseActionPreview) -> None:
+        if row.status != SpmResponseActionPreviewStatus.PENDING.value:
+            return
+        if row.expires_at <= datetime.now(UTC):
+            row.status = SpmResponseActionPreviewStatus.EXPIRED.value
 
     @staticmethod
     def _can_delete_pending_endpoint(endpoint: SpmEndpoint) -> bool:
@@ -929,6 +1278,11 @@ class SpmSyncService:
             )
         for task_result in params.task_results:
             await self._apply_task_result(endpoint=endpoint, task_result=task_result)
+        for preview_result in params.action_preview_results:
+            await self._apply_action_preview_result(
+                endpoint=endpoint,
+                preview_result=preview_result,
+            )
 
         await self.session.flush()
         threat_intel_provider = self.threat_intel_provider
@@ -944,10 +1298,25 @@ class SpmSyncService:
         await self.session.commit()
         await self.session.refresh(endpoint)
         tasks = await self._pending_tasks(endpoint.id, endpoint.organization_id)
+        action_previews = await self._pending_action_previews(
+            endpoint.id,
+            endpoint.organization_id,
+        )
+        endpoint_read = (
+            await _endpoint_reads(
+                self.session,
+                organization_id=endpoint.organization_id,
+                endpoints=[endpoint],
+            )
+        )[0]
         return SpmEndpointSyncResponse(
-            endpoint=SpmEndpointRead.model_validate(endpoint),
+            endpoint=endpoint_read,
             endpoint_secret=issued_secret,
             tasks=[SpmEnforcementTaskRead.model_validate(task) for task in tasks],
+            action_previews=[
+                SpmResponseActionPreviewRead.model_validate(preview)
+                for preview in action_previews
+            ],
         )
 
     async def _analyze_endpoint(
@@ -1321,6 +1690,33 @@ class SpmSyncService:
                     finding.status = SpmFindingStatus.OPEN.value
                     finding.closed_at = None
 
+    async def _apply_action_preview_result(
+        self,
+        *,
+        endpoint: SpmEndpoint,
+        preview_result: SpmSyncResponseActionPreviewResult,
+    ) -> None:
+        stmt = select(SpmResponseActionPreview).where(
+            SpmResponseActionPreview.id == preview_result.preview_id,
+            SpmResponseActionPreview.organization_id == endpoint.organization_id,
+            SpmResponseActionPreview.endpoint_id == endpoint.id,
+        )
+        preview = (await self.session.scalars(stmt)).one_or_none()
+        if preview is None:
+            raise SpmNotFoundError(
+                "SPM response action preview not found.",
+                code="spm_response_action_preview_not_found",
+                endpoint_id=endpoint.id,
+                preview_id=preview_result.preview_id,
+            )
+        preview.status = preview_result.status.value
+        preview.target_path = preview_result.target_path
+        preview.before_content = preview_result.before_content
+        preview.after_content = preview_result.after_content
+        preview.result = preview_result.result
+        preview.error = preview_result.error
+        preview.completed_at = preview_result.completed_at
+
     async def _pending_tasks(
         self,
         endpoint_id: uuid.UUID,
@@ -1334,5 +1730,40 @@ class SpmSyncService:
                 SpmEnforcementTask.status == SpmEnforcementTaskStatus.PENDING.value,
             )
             .order_by(SpmEnforcementTask.created_at.asc(), SpmEnforcementTask.id.asc())
+        )
+        return list((await self.session.scalars(stmt)).all())
+
+    async def _pending_action_previews(
+        self,
+        endpoint_id: uuid.UUID,
+        organization_id: uuid.UUID,
+    ) -> list[SpmResponseActionPreview]:
+        now = datetime.now(UTC)
+        expired_stmt = (
+            sa.update(SpmResponseActionPreview)
+            .where(
+                SpmResponseActionPreview.organization_id == organization_id,
+                SpmResponseActionPreview.endpoint_id == endpoint_id,
+                SpmResponseActionPreview.status
+                == SpmResponseActionPreviewStatus.PENDING.value,
+                SpmResponseActionPreview.expires_at <= now,
+            )
+            .values(status=SpmResponseActionPreviewStatus.EXPIRED.value)
+        )
+        await self.session.execute(expired_stmt)
+
+        stmt = (
+            select(SpmResponseActionPreview)
+            .where(
+                SpmResponseActionPreview.organization_id == organization_id,
+                SpmResponseActionPreview.endpoint_id == endpoint_id,
+                SpmResponseActionPreview.status
+                == SpmResponseActionPreviewStatus.PENDING.value,
+                SpmResponseActionPreview.expires_at > now,
+            )
+            .order_by(
+                SpmResponseActionPreview.created_at.asc(),
+                SpmResponseActionPreview.id.asc(),
+            )
         )
         return list((await self.session.scalars(stmt)).all())

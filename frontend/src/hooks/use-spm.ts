@@ -9,19 +9,24 @@ import {
 import {
   type SpmCreateSpmEndpointData,
   type SpmCreateSpmFindingDecisionData,
+  type SpmCreateSpmResponseActionPreviewData,
   type SpmDeleteSpmEndpointData,
+  type SpmGetSpmResponseActionPreviewData,
   type SpmListSpmEndpointInventoryData,
   type SpmListSpmFindingsData,
   type SpmListSpmInventoryData,
   spmCreateSpmEndpoint,
   spmCreateSpmFindingDecision,
+  spmCreateSpmResponseActionPreview,
   spmDeleteSpmEndpoint,
   spmGetSpmInventoryTaxonomy,
+  spmGetSpmResponseActionPreview,
   spmListSpmControls,
   spmListSpmEndpointInventory,
   spmListSpmEndpoints,
   spmListSpmFindings,
   spmListSpmInventory,
+  spmListSpmResponseActions,
 } from "@/client"
 
 export const SPM_REFRESH_MS = 10_000
@@ -147,6 +152,40 @@ export function useSpmControls() {
 }
 
 /**
+ * Fetch the static SPM response action catalog.
+ */
+export function useSpmResponseActions() {
+  return useQuery({
+    queryKey: ["spm", "response-actions"],
+    queryFn: () => spmListSpmResponseActions(),
+    staleTime: 60_000,
+  })
+}
+
+/**
+ * Fetch a response action preview while it is pending.
+ */
+export function useSpmResponseActionPreview(params: {
+  enabled?: boolean
+  previewId?: SpmGetSpmResponseActionPreviewData["previewId"]
+}) {
+  const { enabled = true, previewId } = params
+  return useQuery({
+    queryKey: ["spm", "response-action-preview", previewId],
+    queryFn: () => {
+      if (!previewId) {
+        throw new Error("previewId is required")
+      }
+      return spmGetSpmResponseActionPreview({ previewId })
+    },
+    enabled: enabled && Boolean(previewId),
+    refetchInterval: (query) =>
+      query.state.data?.status === "pending" ? 2_000 : false,
+    staleTime: 0,
+  })
+}
+
+/**
  * Mutations used across SPM operator pages.
  */
 export function useSpmActions() {
@@ -174,7 +213,14 @@ export function useSpmActions() {
     onSuccess: invalidate,
   })
 
+  const createResponseActionPreview = useMutation({
+    mutationFn: (params: SpmCreateSpmResponseActionPreviewData) =>
+      spmCreateSpmResponseActionPreview(params),
+    onSuccess: invalidate,
+  })
+
   return {
+    createResponseActionPreview,
     createEndpoint,
     deleteEndpoint,
     decideFinding,

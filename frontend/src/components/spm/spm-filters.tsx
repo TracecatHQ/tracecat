@@ -7,14 +7,19 @@ import {
   CircleHelpIcon,
   CirclePauseIcon,
   ClockArrowUpIcon,
+  FlagTriangleRightIcon,
   HourglassIcon,
   type LucideIcon,
   ShieldAlertIcon,
   ShieldCheckIcon,
+  SignalHighIcon,
+  SignalIcon,
+  SignalMediumIcon,
   XCircleIcon,
 } from "lucide-react"
 import type { ComponentType } from "react"
 import type {
+  SpmEndpointComplianceStatus,
   SpmEndpointRead,
   SpmEndpointStatus,
   SpmFindingStatus,
@@ -44,6 +49,12 @@ import {
   SOURCE_TYPE_ICONS,
   sourceTypeLabel,
 } from "./spm-icons"
+
+function humanizeFilterLabel(value: string): string {
+  const spaced = value.replace(/_/g, " ")
+  if (spaced.length === 0) return spaced
+  return spaced.charAt(0).toUpperCase() + spaced.slice(1)
+}
 
 export type FilterOption<TValue extends string = string> = {
   value: TValue
@@ -86,11 +97,7 @@ export const endpointStatusStyles: Record<SpmEndpointStatus, StatusStyle> = {
   },
 }
 
-export type EndpointComplianceKey =
-  | "compliant"
-  | "needs_attention"
-  | "enforcement_queued"
-  | "unknown"
+export type EndpointComplianceKey = SpmEndpointComplianceStatus
 
 export const endpointComplianceStyles: Record<
   EndpointComplianceKey,
@@ -114,11 +121,98 @@ export const endpointComplianceStyles: Record<
     iconClassName: "text-blue-600",
     badgeClassName: "bg-blue-500/10 text-blue-700",
   },
-  unknown: {
-    label: "unknown",
+  not_assessed: {
+    label: "not_assessed",
     icon: CircleHelpIcon,
     iconClassName: "text-slate-500",
     badgeClassName: "bg-slate-500/10 text-slate-700",
+  },
+}
+
+export const severityStyles: Record<
+  SpmSeverity,
+  {
+    badgeClassName: string
+    icon: LucideIcon
+    iconClassName: string
+    label: string
+  }
+> = {
+  critical: {
+    label: "critical",
+    icon: AlertTriangleIcon,
+    iconClassName: "text-fuchsia-600",
+    badgeClassName: "bg-fuchsia-500/10 text-fuchsia-700",
+  },
+  high: {
+    label: "high",
+    icon: SignalIcon,
+    iconClassName: "text-red-600",
+    badgeClassName: "bg-red-500/10 text-red-700",
+  },
+  medium: {
+    label: "medium",
+    icon: SignalHighIcon,
+    iconClassName: "text-orange-600",
+    badgeClassName: "bg-orange-500/10 text-orange-700",
+  },
+  low: {
+    label: "low",
+    icon: SignalMediumIcon,
+    iconClassName: "text-yellow-600",
+    badgeClassName: "bg-yellow-500/10 text-yellow-700",
+  },
+}
+
+export const findingStatusStyles: Record<
+  SpmFindingStatus,
+  {
+    badgeClassName: string
+    icon: LucideIcon
+    iconClassName: string
+    label: string
+    triggerClassName: string
+  }
+> = {
+  open: {
+    label: "open",
+    icon: FlagTriangleRightIcon,
+    iconClassName: "text-yellow-600",
+    badgeClassName: "bg-yellow-500/10 text-yellow-700",
+    triggerClassName:
+      "data-[state=open]:border-l-yellow-600 data-[state=open]:bg-yellow-600/[0.03] dark:data-[state=open]:bg-yellow-600/[0.08]",
+  },
+  enforcement_pending: {
+    label: "enforcement_pending",
+    icon: ClockArrowUpIcon,
+    iconClassName: "text-blue-600",
+    badgeClassName: "bg-blue-500/10 text-blue-700",
+    triggerClassName:
+      "data-[state=open]:border-l-blue-600 data-[state=open]:bg-blue-600/[0.03] dark:data-[state=open]:bg-blue-600/[0.08]",
+  },
+  enforced: {
+    label: "enforced",
+    icon: CheckCircleIcon,
+    iconClassName: "text-green-600",
+    badgeClassName: "bg-green-500/10 text-green-700",
+    triggerClassName:
+      "data-[state=open]:border-l-green-600 data-[state=open]:bg-green-600/[0.03] dark:data-[state=open]:bg-green-600/[0.08]",
+  },
+  resolved: {
+    label: "resolved",
+    icon: CheckCircleIcon,
+    iconClassName: "text-violet-600",
+    badgeClassName: "bg-violet-500/10 text-violet-700",
+    triggerClassName:
+      "data-[state=open]:border-l-violet-600 data-[state=open]:bg-violet-600/[0.03] dark:data-[state=open]:bg-violet-600/[0.08]",
+  },
+  dismissed: {
+    label: "dismissed",
+    icon: CirclePauseIcon,
+    iconClassName: "text-orange-600",
+    badgeClassName: "bg-orange-500/10 text-orange-700",
+    triggerClassName:
+      "data-[state=open]:border-l-orange-600 data-[state=open]:bg-orange-600/[0.03] dark:data-[state=open]:bg-orange-600/[0.08]",
   },
 }
 
@@ -126,10 +220,14 @@ export const SEVERITY_OPTIONS: Array<
   FilterOption<SpmSeverity | typeof ALL_VALUE>
 > = [
   { value: ALL_VALUE, label: "all_severities" },
-  { value: "critical", label: "critical" },
-  { value: "high", label: "high" },
-  { value: "medium", label: "medium" },
-  { value: "low", label: "low" },
+  ...(["critical", "high", "medium", "low"] satisfies SpmSeverity[]).map(
+    (severity) => ({
+      value: severity,
+      label: humanizeFilterLabel(severityStyles[severity].label),
+      icon: severityStyles[severity].icon,
+      iconClassName: severityStyles[severity].iconClassName,
+    })
+  ),
 ]
 
 export const ITEM_TYPE_OPTIONS: Array<
@@ -256,11 +354,20 @@ export const FINDING_STATUS_OPTIONS: Array<
   FilterOption<SpmFindingStatus | typeof ALL_VALUE>
 > = [
   { value: ALL_VALUE, label: "all_statuses" },
-  { value: "open", label: "open" },
-  { value: "enforcement_pending", label: "enforcement_pending" },
-  { value: "enforced", label: "enforced" },
-  { value: "resolved", label: "resolved" },
-  { value: "dismissed", label: "dismissed" },
+  ...(
+    [
+      "open",
+      "enforcement_pending",
+      "enforced",
+      "resolved",
+      "dismissed",
+    ] satisfies SpmFindingStatus[]
+  ).map((status) => ({
+    value: status,
+    label: humanizeFilterLabel(findingStatusStyles[status].label),
+    icon: findingStatusStyles[status].icon,
+    iconClassName: findingStatusStyles[status].iconClassName,
+  })),
 ]
 
 export const COMPLIANCE_OPTIONS: Array<
@@ -272,7 +379,7 @@ export const COMPLIANCE_OPTIONS: Array<
       "needs_attention",
       "enforcement_queued",
       "compliant",
-      "unknown",
+      "not_assessed",
     ] satisfies EndpointComplianceKey[]
   ).map((key) => ({
     value: key,

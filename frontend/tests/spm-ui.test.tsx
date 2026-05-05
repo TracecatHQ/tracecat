@@ -12,6 +12,7 @@ import type {
   SpmInventoryItemRead,
   SpmInventoryItemType,
   SpmInventorySourceType,
+  SpmResponseActionRead,
 } from "@/client"
 import {
   SpmControlsView,
@@ -19,10 +20,12 @@ import {
   SpmFindingsView,
   SpmInstallDrawer,
   SpmInventoryView,
+  SpmResponseActionsView,
 } from "@/components/spm/spm-ui"
 
 const mockToast = jest.fn()
 const mockCreateEndpoint = jest.fn()
+const mockCreateResponseActionPreview = jest.fn()
 const mockDeleteEndpoint = jest.fn()
 const mockDecideFinding = jest.fn()
 const mockUseEntitlements = jest.fn()
@@ -33,6 +36,32 @@ const mockUseSpmEndpointInventoryForEndpoints = jest.fn()
 const mockUseSpmEndpoints = jest.fn()
 const mockUseSpmFindings = jest.fn()
 const mockUseSpmInventoryTaxonomy = jest.fn()
+const mockUseSpmResponseActionPreview = jest.fn()
+const mockUseSpmResponseActions = jest.fn()
+
+jest.mock("react-diff-viewer-continued", () => {
+  function MockReactDiffViewer({
+    newValue,
+    oldValue,
+  }: {
+    newValue: string
+    oldValue: string
+  }) {
+    return (
+      <div data-testid="mock-react-diff-viewer">
+        <pre>{oldValue}</pre>
+        <pre>{newValue}</pre>
+      </div>
+    )
+  }
+  return {
+    __esModule: true,
+    default: MockReactDiffViewer,
+    DiffMethod: {
+      WORDS_WITH_SPACE: "WORDS_WITH_SPACE",
+    },
+  }
+})
 
 jest.mock("@/components/ui/sheet", () => ({
   Sheet: ({ children }: { children: ReactNode }) => <div>{children}</div>,
@@ -113,6 +142,9 @@ jest.mock("@/hooks/use-spm", () => ({
   useSpmEndpoints: () => mockUseSpmEndpoints(),
   useSpmFindings: (params?: unknown) => mockUseSpmFindings(params),
   useSpmInventoryTaxonomy: () => mockUseSpmInventoryTaxonomy(),
+  useSpmResponseActionPreview: (params?: unknown) =>
+    mockUseSpmResponseActionPreview(params),
+  useSpmResponseActions: () => mockUseSpmResponseActions(),
 }))
 
 function paginated<T>(items: T[]) {
@@ -126,9 +158,14 @@ function paginated<T>(items: T[]) {
   }
 }
 
-function endpoint(id: string, name: string): SpmEndpointRead {
+function endpoint(
+  id: string,
+  name: string,
+  overrides: Partial<SpmEndpointRead> = {}
+): SpmEndpointRead {
   return {
     client_metadata: {},
+    compliance_status: "compliant",
     created_at: "2026-04-22T00:00:00Z",
     endpoint_version: "0.1.0",
     enrolled_at: "2026-04-22T00:00:00Z",
@@ -145,12 +182,14 @@ function endpoint(id: string, name: string): SpmEndpointRead {
     platform: "macos",
     status: "active",
     updated_at: "2026-04-22T00:00:00Z",
+    ...overrides,
   }
 }
 
 function pendingEndpoint(id: string, name: string): SpmEndpointRead {
   return {
     ...endpoint(id, name),
+    compliance_status: "not_assessed",
     enrolled_at: null,
     last_seen_at: null,
     last_sync_at: null,
@@ -295,6 +334,25 @@ function control(
   }
 }
 
+function responseAction(
+  key: SpmResponseActionRead["key"],
+  title: string,
+  itemTypes: SpmInventoryItemType[]
+): SpmResponseActionRead {
+  return {
+    description: `${title} description`,
+    disruptive: true,
+    execution_mode: "endpoint_sync",
+    harness: "claude_code",
+    item_types: itemTypes,
+    key,
+    payload_fields: ["target_path"],
+    preview_supported: true,
+    target_surface: "writable_claude_settings",
+    title,
+  }
+}
+
 describe("SPM operator UI", () => {
   const endpoints = [
     endpoint("endpoint-1", "Chris MacBook"),
@@ -331,6 +389,10 @@ describe("SPM operator UI", () => {
   beforeEach(() => {
     jest.clearAllMocks()
     mockUseSpmActions.mockReturnValue({
+      createResponseActionPreview: {
+        isPending: false,
+        mutateAsync: mockCreateResponseActionPreview,
+      },
       createEndpoint: {
         isPending: false,
         mutateAsync: mockCreateEndpoint,
@@ -431,6 +493,40 @@ describe("SPM operator UI", () => {
       ],
       isLoading: false,
     })
+    mockUseSpmResponseActions.mockReturnValue({
+      data: [
+        responseAction("disable_mcp_server", "Disable MCP server", [
+          "mcp_server",
+        ]),
+        responseAction("exclude_instruction_file", "Exclude instruction file", [
+          "instruction_file",
+        ]),
+      ],
+      isLoading: false,
+    })
+    mockUseSpmResponseActionPreview.mockReturnValue({
+      data: undefined,
+      isLoading: false,
+    })
+    mockCreateResponseActionPreview.mockResolvedValue({
+      action: "disable_mcp_server",
+      after_content: '{\n  "mcpServers": {}\n}\n',
+      before_content: "{}\n",
+      completed_at: null,
+      created_at: "2026-04-22T00:00:00Z",
+      endpoint_id: "endpoint-1",
+      error: null,
+      expires_at: "2026-04-22T00:15:00Z",
+      finding_id: "finding-1",
+      id: "preview-1",
+      organization_id: "org-1",
+      payload: {},
+      requested_by_user_id: null,
+      result: {},
+      status: "pending",
+      target_path: null,
+      updated_at: "2026-04-22T00:00:00Z",
+    })
     mockUseSpmFindings.mockImplementation(
       (params?: { controlId?: string; endpointId?: string }) => {
         const findings = [
@@ -510,15 +606,6 @@ describe("SPM operator UI", () => {
     expect(screen.getByText("CLAUDE.md should be excluded")).toBeInTheDocument()
   })
 
-  it("shows enforceable and inventory-only finding action states", () => {
-    render(<SpmFindingsView />)
-
-    expect(screen.queryByText("queued")).not.toBeInTheDocument()
-    expect(screen.getAllByRole("button", { name: "Enforce" })[0]).toBeEnabled()
-    expect(screen.getAllByRole("button", { name: "Enforce" })[2]).toBeDisabled()
-    expect(screen.getByText("inventory_only")).toBeInTheDocument()
-  })
-
   it("filters findings by search and resets the feed filters", async () => {
     render(<SpmFindingsView />)
 
@@ -540,6 +627,32 @@ describe("SPM operator UI", () => {
         screen.getByText("Github MCP server is not approved")
       ).toBeInTheDocument()
     })
+  })
+
+  it("opens a finding drawer and requests a response action preview", async () => {
+    render(<SpmFindingsView />)
+
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: /Github MCP server is not approved/i,
+      })
+    )
+
+    await waitFor(() => {
+      expect(mockCreateResponseActionPreview).toHaveBeenCalledWith({
+        findingId: "finding-1",
+        requestBody: {},
+      })
+    })
+    expect(screen.getByText("Disable MCP server")).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "Enforce" })).toBeInTheDocument()
+  })
+
+  it("renders the response actions catalog", () => {
+    render(<SpmResponseActionsView />)
+
+    expect(screen.getByText("Disable MCP server")).toBeInTheDocument()
+    expect(screen.getByText("Exclude instruction file")).toBeInTheDocument()
   })
 
   it("shows install commands after a successful endpoint enrollment", async () => {
@@ -645,7 +758,7 @@ describe("SPM operator UI", () => {
     expect(screen.getByText("CI Mac Mini")).toBeInTheDocument()
   })
 
-  it("keeps endpoint headers visible while findings are loading", () => {
+  it("renders endpoint compliance from the endpoint payload while findings are loading", () => {
     mockUseSpmFindings.mockReturnValue({
       data: undefined,
       isError: false,
@@ -659,10 +772,11 @@ describe("SPM operator UI", () => {
       screen.getByPlaceholderText("Search endpoints...")
     ).toBeInTheDocument()
     expect(screen.getByText("Chris MacBook")).toBeInTheDocument()
-    expect(screen.getAllByText("unknown").length).toBeGreaterThan(0)
+    expect(screen.getAllByText("compliant").length).toBeGreaterThan(0)
+    expect(mockUseSpmFindings).not.toHaveBeenCalled()
   })
 
-  it("keeps endpoint headers visible when findings fail to load", () => {
+  it("does not block endpoints when findings fail to load", () => {
     mockUseSpmFindings.mockReturnValue({
       data: undefined,
       error: Object.assign(new Error("request failed"), {
@@ -679,8 +793,11 @@ describe("SPM operator UI", () => {
       screen.getByPlaceholderText("Search endpoints...")
     ).toBeInTheDocument()
     expect(screen.getByText("Chris MacBook")).toBeInTheDocument()
-    expect(screen.getByText(/Findings are unavailable/)).toBeInTheDocument()
-    expect(screen.getByText(/database unavailable/)).toBeInTheDocument()
+    expect(
+      screen.queryByText(/Findings are unavailable/)
+    ).not.toBeInTheDocument()
+    expect(screen.queryByText(/database unavailable/)).not.toBeInTheDocument()
+    expect(mockUseSpmFindings).not.toHaveBeenCalled()
   })
 
   it("cancels a pending enrollment after confirmation", async () => {

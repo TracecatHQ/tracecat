@@ -27,14 +27,15 @@ const (
 )
 
 type File struct {
-	Schema             string                  `json:"schema"`
-	Version            int                     `json:"version"`
-	ServerURL          string                  `json:"server_url"`
-	EndpointID         string                  `json:"endpoint_id"`
-	TokenKind          TokenKind               `json:"token_kind"`
-	Token              string                  `json:"token"`
-	HomeDir            string                  `json:"home_dir"`
-	PendingTaskResults []spmapi.SyncTaskResult `json:"pending_task_results"`
+	Schema                      string                               `json:"schema"`
+	Version                     int                                  `json:"version"`
+	ServerURL                   string                               `json:"server_url"`
+	EndpointID                  string                               `json:"endpoint_id"`
+	TokenKind                   TokenKind                            `json:"token_kind"`
+	Token                       string                               `json:"token"`
+	HomeDir                     string                               `json:"home_dir"`
+	PendingTaskResults          []spmapi.SyncTaskResult              `json:"pending_task_results"`
+	PendingActionPreviewResults []spmapi.ResponseActionPreviewResult `json:"pending_action_preview_results"`
 }
 
 type BootstrapInput struct {
@@ -162,14 +163,15 @@ func NewBootstrapState(input BootstrapInput) (*File, error) {
 	}
 
 	st := &File{
-		Schema:             SchemaName,
-		Version:            SchemaVersion,
-		ServerURL:          serverURL,
-		EndpointID:         endpointID,
-		TokenKind:          TokenKindEnrollment,
-		Token:              token,
-		HomeDir:            homeDir,
-		PendingTaskResults: []spmapi.SyncTaskResult{},
+		Schema:                      SchemaName,
+		Version:                     SchemaVersion,
+		ServerURL:                   serverURL,
+		EndpointID:                  endpointID,
+		TokenKind:                   TokenKindEnrollment,
+		Token:                       token,
+		HomeDir:                     homeDir,
+		PendingTaskResults:          []spmapi.SyncTaskResult{},
+		PendingActionPreviewResults: []spmapi.ResponseActionPreviewResult{},
 	}
 	return st, st.Validate()
 }
@@ -203,6 +205,9 @@ func (s *File) Validate() error {
 	}
 	if s.PendingTaskResults == nil {
 		s.PendingTaskResults = []spmapi.SyncTaskResult{}
+	}
+	if s.PendingActionPreviewResults == nil {
+		s.PendingActionPreviewResults = []spmapi.ResponseActionPreviewResult{}
 	}
 	return nil
 }

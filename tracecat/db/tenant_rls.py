@@ -94,6 +94,7 @@ POST_RLS_ORG_SCOPED_TABLES = (
     "spm_finding",
     "spm_finding_decision",
     "spm_enforcement_task",
+    "spm_response_action_preview",
 )
 
 POST_RLS_ORG_OPTIONAL_WORKSPACE_SCOPED_TABLES = (

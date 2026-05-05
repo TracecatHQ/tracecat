@@ -1,6 +1,7 @@
 "use client"
 
 import {
+  BoltIcon,
   ChevronLeftIcon,
   ComputerIcon,
   FileSearchIcon,
@@ -46,6 +47,12 @@ export function WatchtowerSidebar({
       url: "/watchtower/controls",
       icon: FileSearchIcon,
       isActive: pathname?.startsWith("/watchtower/controls"),
+    },
+    {
+      title: "Actions",
+      url: "/watchtower/actions",
+      icon: BoltIcon,
+      isActive: pathname?.startsWith("/watchtower/actions"),
     },
     {
       title: "Inventory",

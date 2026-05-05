@@ -18,8 +18,11 @@ from tracecat_ee.spm.schemas import (
     SpmEnforcementTaskRead,
     SpmFindingRead,
     SpmInventoryItemRead,
+    SpmResponseActionPreviewRead,
+    SpmResponseActionRead,
 )
 from tracecat_ee.spm.types import (
+    SpmEndpointComplianceStatus,
     SpmEndpointPlatform,
     SpmEndpointStatus,
     SpmEnforcementAction,
@@ -28,6 +31,7 @@ from tracecat_ee.spm.types import (
     SpmHarness,
     SpmInventoryItemType,
     SpmInventorySourceType,
+    SpmResponseActionPreviewStatus,
     SpmSeverity,
 )
 
@@ -47,6 +51,7 @@ def _endpoint_read() -> SpmEndpointRead:
         harness=SpmHarness.CLAUDE_CODE,
         platform=SpmEndpointPlatform.MACOS,
         status=SpmEndpointStatus.ACTIVE,
+        compliance_status=SpmEndpointComplianceStatus.COMPLIANT,
         hostname="chris-mbp",
         os_user="chris",
         home_path="/Users/chris",
@@ -174,6 +179,44 @@ def _task_read() -> SpmEnforcementTaskRead:
     )
 
 
+def _response_action_read() -> SpmResponseActionRead:
+    return SpmResponseActionRead(
+        key=SpmEnforcementAction.DISABLE_MCP_SERVER,
+        title="Disable MCP server",
+        description="Disable a Claude MCP server on a writable local settings surface.",
+        harness=SpmHarness.CLAUDE_CODE,
+        item_types=[SpmInventoryItemType.MCP_SERVER],
+        execution_mode="endpoint_sync",
+        preview_supported=True,
+        target_surface="claude_json_or_project_local_settings",
+        payload_fields=["server_name", "resolved_identity"],
+        disruptive=True,
+    )
+
+
+def _response_action_preview_read() -> SpmResponseActionPreviewRead:
+    now = datetime(2026, 4, 22, tzinfo=UTC)
+    return SpmResponseActionPreviewRead(
+        id=uuid.UUID("99999999-9999-4999-9999-999999999999"),
+        organization_id=uuid.UUID("11111111-1111-1111-1111-111111111111"),
+        endpoint_id=uuid.UUID("aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa"),
+        finding_id=uuid.UUID("cccccccc-cccc-4ccc-cccc-cccccccccccc"),
+        action=SpmEnforcementAction.DISABLE_MCP_SERVER,
+        payload={"server_name": "github"},
+        status=SpmResponseActionPreviewStatus.READY,
+        requested_by_user_id=uuid.UUID("11111111-1111-1111-1111-111111111111"),
+        target_path="/Users/chris/.claude.json",
+        before_content="{}\n",
+        after_content='{"mcpServers":[]}\n',
+        result={"task_status": "applied"},
+        error=None,
+        completed_at=now,
+        expires_at=now,
+        created_at=now,
+        updated_at=now,
+    )
+
+
 @pytest.mark.anyio
 async def test_list_spm_endpoints_requires_spm_entitlement(
     client: TestClient, test_admin_role: Role
@@ -263,6 +306,53 @@ async def test_get_spm_control_not_found(
 
     assert response.status_code == status.HTTP_404_NOT_FOUND
     assert response.json()["detail"]["code"] == "spm_control_not_found"
+
+
+@pytest.mark.anyio
+async def test_list_spm_response_actions_success(
+    client: TestClient,
+    test_admin_role: Role,
+) -> None:
+    with (
+        patch.object(
+            spm_router_module,
+            "check_entitlement",
+            new_callable=AsyncMock,
+        ),
+        patch.object(spm_router_module, "SpmService") as mock_service_cls,
+    ):
+        mock_service = AsyncMock()
+        mock_service.list_response_actions.return_value = [_response_action_read()]
+        mock_service_cls.return_value = mock_service
+
+        response = client.get("/spm/actions")
+
+    assert response.status_code == status.HTTP_200_OK
+    assert response.json()[0]["key"] == "disable_mcp_server"
+
+
+@pytest.mark.anyio
+async def test_get_spm_response_action_success(
+    client: TestClient,
+    test_admin_role: Role,
+) -> None:
+    with (
+        patch.object(
+            spm_router_module,
+            "check_entitlement",
+            new_callable=AsyncMock,
+        ),
+        patch.object(spm_router_module, "SpmService") as mock_service_cls,
+    ):
+        mock_service = AsyncMock()
+        mock_service.get_response_action.return_value = _response_action_read()
+        mock_service_cls.return_value = mock_service
+
+        response = client.get("/spm/actions/disable_mcp_server")
+
+    assert response.status_code == status.HTTP_200_OK
+    assert response.json()["title"] == "Disable MCP server"
+    mock_service.get_response_action.assert_awaited_once_with("disable_mcp_server")
 
 
 @pytest.mark.anyio
@@ -487,6 +577,62 @@ async def test_list_spm_findings_passes_filters(
     params = mock_service.list_findings.await_args.args[0]
     assert str(params.endpoint_id) == "aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa"
     assert params.control_id == "claude.mcp_server.approved"
+
+
+@pytest.mark.anyio
+async def test_create_spm_response_action_preview_success(
+    client: TestClient,
+    test_admin_role: Role,
+) -> None:
+    with (
+        patch.object(
+            spm_router_module,
+            "check_entitlement",
+            new_callable=AsyncMock,
+        ),
+        patch.object(spm_router_module, "SpmService") as mock_service_cls,
+    ):
+        mock_service = AsyncMock()
+        mock_service.create_response_action_preview.return_value = (
+            _response_action_preview_read()
+        )
+        mock_service_cls.return_value = mock_service
+
+        response = client.post(
+            "/spm/findings/cccccccc-cccc-4ccc-cccc-cccccccccccc/action-preview",
+            json={},
+        )
+
+    assert response.status_code == status.HTTP_201_CREATED
+    assert response.json()["id"] == "99999999-9999-4999-9999-999999999999"
+    mock_service.create_response_action_preview.assert_awaited_once()
+
+
+@pytest.mark.anyio
+async def test_get_spm_response_action_preview_success(
+    client: TestClient,
+    test_admin_role: Role,
+) -> None:
+    with (
+        patch.object(
+            spm_router_module,
+            "check_entitlement",
+            new_callable=AsyncMock,
+        ),
+        patch.object(spm_router_module, "SpmService") as mock_service_cls,
+    ):
+        mock_service = AsyncMock()
+        mock_service.get_response_action_preview.return_value = (
+            _response_action_preview_read()
+        )
+        mock_service_cls.return_value = mock_service
+
+        response = client.get(
+            "/spm/action-previews/99999999-9999-4999-9999-999999999999"
+        )
+
+    assert response.status_code == status.HTTP_200_OK
+    assert response.json()["target_path"] == "/Users/chris/.claude.json"
 
 
 @pytest.mark.anyio

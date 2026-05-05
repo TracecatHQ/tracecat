@@ -13,6 +13,7 @@ from tracecat.core.schemas import Schema
 from tracecat.pagination import CursorPaginatedResponse
 from tracecat_ee.spm.taxonomy import validate_inventory_binding
 from tracecat_ee.spm.types import (
+    SpmEndpointComplianceStatus,
     SpmEndpointPlatform,
     SpmEndpointStatus,
     SpmEnforcementAction,
@@ -23,6 +24,7 @@ from tracecat_ee.spm.types import (
     SpmInventoryItemType,
     SpmInventoryRelationshipType,
     SpmInventorySourceType,
+    SpmResponseActionPreviewStatus,
     SpmSeverity,
     SpmSyncTaskResultStatus,
 )
@@ -42,6 +44,21 @@ class SpmControlRead(Schema):
     source_types: list[SpmInventorySourceType] = Field(default_factory=list)
     severity: SpmSeverity
     action: SpmEnforcementAction
+
+
+class SpmResponseActionRead(Schema):
+    """Static response action catalog entry."""
+
+    key: SpmEnforcementAction
+    title: str
+    description: str
+    harness: SpmHarness
+    item_types: list[SpmInventoryItemType]
+    execution_mode: str
+    preview_supported: bool
+    target_surface: str
+    payload_fields: list[str] = Field(default_factory=list)
+    disruptive: bool = False
 
 
 class SpmControlPolicy(Schema):
@@ -222,6 +239,7 @@ class SpmEndpointRead(Schema):
     harness: SpmHarness
     platform: SpmEndpointPlatform
     status: SpmEndpointStatus
+    compliance_status: SpmEndpointComplianceStatus
     hostname: str | None = None
     os_user: str | None = None
     home_path: str | None = None
@@ -420,6 +438,35 @@ class SpmEnforcementTaskRead(Schema):
     updated_at: datetime
 
 
+class SpmResponseActionPreviewCreate(Schema):
+    """Operator request to create a response action preview for a finding."""
+
+    action: SpmEnforcementAction | None = None
+    payload: dict[str, Any] = Field(default_factory=dict)
+
+
+class SpmResponseActionPreviewRead(Schema):
+    """Endpoint-generated dry-run preview for a response action."""
+
+    id: uuid.UUID
+    organization_id: uuid.UUID
+    endpoint_id: uuid.UUID
+    finding_id: uuid.UUID | None = None
+    action: SpmEnforcementAction
+    payload: dict[str, Any] = Field(default_factory=dict)
+    status: SpmResponseActionPreviewStatus
+    requested_by_user_id: uuid.UUID | None = None
+    target_path: str | None = None
+    before_content: str | None = None
+    after_content: str | None = None
+    result: dict[str, Any] = Field(default_factory=dict)
+    error: str | None = None
+    completed_at: datetime | None = None
+    expires_at: datetime
+    created_at: datetime
+    updated_at: datetime
+
+
 class SpmSyncAuthKind(Schema):
     """Placeholder schema kept for forward compatibility."""
 
@@ -525,6 +572,19 @@ class SpmSyncTaskResult(Schema):
     completed_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 
+class SpmSyncResponseActionPreviewResult(Schema):
+    """Action preview result reported during sync."""
+
+    preview_id: uuid.UUID
+    status: SpmResponseActionPreviewStatus
+    target_path: str | None = Field(default=None, max_length=1024)
+    before_content: str | None = None
+    after_content: str | None = None
+    result: dict[str, Any] = Field(default_factory=dict)
+    error: str | None = Field(default=None, max_length=4000)
+    completed_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+
 class SpmEndpointSyncRequest(Schema):
     """Private endpoint sync payload."""
 
@@ -540,6 +600,9 @@ class SpmEndpointSyncRequest(Schema):
         default_factory=list
     )
     task_results: list[SpmSyncTaskResult] = Field(default_factory=list)
+    action_preview_results: list[SpmSyncResponseActionPreviewResult] = Field(
+        default_factory=list
+    )
 
 
 class SpmEndpointSyncResponse(Schema):
@@ -548,9 +611,13 @@ class SpmEndpointSyncResponse(Schema):
     endpoint: SpmEndpointRead
     endpoint_secret: str | None = None
     tasks: list[SpmEnforcementTaskRead] = Field(default_factory=list)
+    action_previews: list[SpmResponseActionPreviewRead] = Field(default_factory=list)
 
 
 SpmEndpointListResponse = CursorPaginatedResponse[SpmEndpointRead]
 SpmInventoryListResponse = CursorPaginatedResponse[SpmInventoryItemRead]
 SpmEndpointInventoryListResponse = CursorPaginatedResponse[SpmEndpointInventoryItemRead]
 SpmFindingListResponse = CursorPaginatedResponse[SpmFindingRead]
+SpmResponseActionPreviewListResponse = CursorPaginatedResponse[
+    SpmResponseActionPreviewRead
+]

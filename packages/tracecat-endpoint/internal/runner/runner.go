@@ -157,16 +157,17 @@ func (s *Service) runCycle(ctx context.Context) (*state.File, error) {
 		return nil, err
 	}
 	request := spmapi.SyncRequest{
-		Name:            metadata.Name,
-		EndpointVersion: metadata.EndpointVersion,
-		Hostname:        metadata.Hostname,
-		OSUser:          metadata.OSUser,
-		HomePath:        metadata.HomePath,
-		Status:          spmapi.EndpointStatusActive,
-		ClientMetadata:  metadata.ClientMetadata,
-		InventoryItems:  snapshot.InventoryItems,
-		Relationships:   snapshot.Relationships,
-		TaskResults:     cloneTaskResults(st.PendingTaskResults),
+		Name:                 metadata.Name,
+		EndpointVersion:      metadata.EndpointVersion,
+		Hostname:             metadata.Hostname,
+		OSUser:               metadata.OSUser,
+		HomePath:             metadata.HomePath,
+		Status:               spmapi.EndpointStatusActive,
+		ClientMetadata:       metadata.ClientMetadata,
+		InventoryItems:       snapshot.InventoryItems,
+		Relationships:        snapshot.Relationships,
+		TaskResults:          cloneTaskResults(st.PendingTaskResults),
+		ActionPreviewResults: cloneActionPreviewResults(st.PendingActionPreviewResults),
 	}
 
 	firstResponse, err := client.SyncEndpoint(ctx, st.EndpointID, st.Token, request)
@@ -178,6 +179,7 @@ func (s *Service) runCycle(ctx context.Context) (*state.File, error) {
 		st.Token = firstResponse.EndpointSecret
 	}
 	st.PendingTaskResults = []spmapi.SyncTaskResult{}
+	st.PendingActionPreviewResults = []spmapi.ResponseActionPreviewResult{}
 	if err := s.store.Save(st); err != nil {
 		return nil, err
 	}
@@ -186,17 +188,23 @@ func (s *Service) runCycle(ctx context.Context) (*state.File, error) {
 	if err != nil {
 		return nil, fmt.Errorf("execute enforcement tasks: %w", err)
 	}
-	if len(results) == 0 {
+	previewResults, err := s.executor.Preview(ctx, firstResponse.ActionPreviews)
+	if err != nil {
+		return nil, fmt.Errorf("preview response actions: %w", err)
+	}
+	if len(results) == 0 && len(previewResults) == 0 {
 		s.logf(s.stdout, "sync complete for endpoint %s", st.EndpointID)
 		return st, nil
 	}
 
 	st.PendingTaskResults = cloneTaskResults(results)
+	st.PendingActionPreviewResults = cloneActionPreviewResults(previewResults)
 	if err := s.store.Save(st); err != nil {
 		return nil, err
 	}
 
 	request.TaskResults = cloneTaskResults(st.PendingTaskResults)
+	request.ActionPreviewResults = cloneActionPreviewResults(st.PendingActionPreviewResults)
 	secondResponse, err := client.SyncEndpoint(ctx, st.EndpointID, st.Token, request)
 	if err != nil {
 		return nil, err
@@ -206,6 +214,7 @@ func (s *Service) runCycle(ctx context.Context) (*state.File, error) {
 		st.Token = secondResponse.EndpointSecret
 	}
 	st.PendingTaskResults = []spmapi.SyncTaskResult{}
+	st.PendingActionPreviewResults = []spmapi.ResponseActionPreviewResult{}
 	if err := s.store.Save(st); err != nil {
 		return nil, err
 	}
@@ -272,6 +281,15 @@ func cloneTaskResults(results []spmapi.SyncTaskResult) []spmapi.SyncTaskResult {
 		}
 		cloned = append(cloned, item)
 	}
+	return cloned
+}
+
+func cloneActionPreviewResults(results []spmapi.ResponseActionPreviewResult) []spmapi.ResponseActionPreviewResult {
+	if len(results) == 0 {
+		return []spmapi.ResponseActionPreviewResult{}
+	}
+	cloned := make([]spmapi.ResponseActionPreviewResult, len(results))
+	copy(cloned, results)
 	return cloned
 }
 

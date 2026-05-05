@@ -213,8 +213,8 @@ export function getComplianceRollup(
   }
   return {
     detail: "No findings reported yet",
-    key: "unknown",
-    label: "unknown",
+    key: "not_assessed",
+    label: "not_assessed",
     variant: "outline" as BadgeVariant,
   }
 }

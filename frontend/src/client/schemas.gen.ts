@@ -20299,6 +20299,14 @@ export const $SpmControlRead = {
   description: "Static SPM control manifest.",
 } as const
 
+export const $SpmEndpointComplianceStatus = {
+  type: "string",
+  enum: ["not_assessed", "compliant", "needs_attention", "enforcement_queued"],
+  title: "SpmEndpointComplianceStatus",
+  description:
+    "Endpoint compliance state computed from inventory and findings.",
+} as const
+
 export const $SpmEndpointCreate = {
   properties: {
     name: {
@@ -20539,6 +20547,9 @@ export const $SpmEndpointRead = {
     status: {
       $ref: "#/components/schemas/SpmEndpointStatus",
     },
+    compliance_status: {
+      $ref: "#/components/schemas/SpmEndpointComplianceStatus",
+    },
     hostname: {
       anyOf: [
         {
@@ -20654,6 +20665,7 @@ export const $SpmEndpointRead = {
     "harness",
     "platform",
     "status",
+    "compliance_status",
     "created_at",
     "updated_at",
   ],
@@ -20761,6 +20773,13 @@ export const $SpmEndpointSyncRequest = {
       type: "array",
       title: "Task Results",
     },
+    action_preview_results: {
+      items: {
+        $ref: "#/components/schemas/SpmSyncResponseActionPreviewResult",
+      },
+      type: "array",
+      title: "Action Preview Results",
+    },
   },
   type: "object",
   title: "SpmEndpointSyncRequest",
@@ -20789,6 +20808,13 @@ export const $SpmEndpointSyncResponse = {
       },
       type: "array",
       title: "Tasks",
+    },
+    action_previews: {
+      items: {
+        $ref: "#/components/schemas/SpmResponseActionPreviewRead",
+      },
+      type: "array",
+      title: "Action Previews",
     },
   },
   type: "object",
@@ -21513,6 +21539,245 @@ export const $SpmInventoryTaxonomyRead = {
   description: "Agent SPM inventory taxonomy.",
 } as const
 
+export const $SpmResponseActionPreviewCreate = {
+  properties: {
+    action: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/SpmEnforcementAction",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    payload: {
+      additionalProperties: true,
+      type: "object",
+      title: "Payload",
+    },
+  },
+  type: "object",
+  title: "SpmResponseActionPreviewCreate",
+  description:
+    "Operator request to create a response action preview for a finding.",
+} as const
+
+export const $SpmResponseActionPreviewRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    organization_id: {
+      type: "string",
+      format: "uuid",
+      title: "Organization Id",
+    },
+    endpoint_id: {
+      type: "string",
+      format: "uuid",
+      title: "Endpoint Id",
+    },
+    finding_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Finding Id",
+    },
+    action: {
+      $ref: "#/components/schemas/SpmEnforcementAction",
+    },
+    payload: {
+      additionalProperties: true,
+      type: "object",
+      title: "Payload",
+    },
+    status: {
+      $ref: "#/components/schemas/SpmResponseActionPreviewStatus",
+    },
+    requested_by_user_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Requested By User Id",
+    },
+    target_path: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Target Path",
+    },
+    before_content: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Before Content",
+    },
+    after_content: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "After Content",
+    },
+    result: {
+      additionalProperties: true,
+      type: "object",
+      title: "Result",
+    },
+    error: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Error",
+    },
+    completed_at: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Completed At",
+    },
+    expires_at: {
+      type: "string",
+      format: "date-time",
+      title: "Expires At",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+    updated_at: {
+      type: "string",
+      format: "date-time",
+      title: "Updated At",
+    },
+  },
+  type: "object",
+  required: [
+    "id",
+    "organization_id",
+    "endpoint_id",
+    "action",
+    "status",
+    "expires_at",
+    "created_at",
+    "updated_at",
+  ],
+  title: "SpmResponseActionPreviewRead",
+  description: "Endpoint-generated dry-run preview for a response action.",
+} as const
+
+export const $SpmResponseActionPreviewStatus = {
+  type: "string",
+  enum: ["pending", "ready", "failed", "expired"],
+  title: "SpmResponseActionPreviewStatus",
+  description:
+    "Execution state for endpoint-generated response action previews.",
+} as const
+
+export const $SpmResponseActionRead = {
+  properties: {
+    key: {
+      $ref: "#/components/schemas/SpmEnforcementAction",
+    },
+    title: {
+      type: "string",
+      title: "Title",
+    },
+    description: {
+      type: "string",
+      title: "Description",
+    },
+    harness: {
+      $ref: "#/components/schemas/SpmHarness",
+    },
+    item_types: {
+      items: {
+        $ref: "#/components/schemas/SpmInventoryItemType",
+      },
+      type: "array",
+      title: "Item Types",
+    },
+    execution_mode: {
+      type: "string",
+      title: "Execution Mode",
+    },
+    preview_supported: {
+      type: "boolean",
+      title: "Preview Supported",
+    },
+    target_surface: {
+      type: "string",
+      title: "Target Surface",
+    },
+    payload_fields: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Payload Fields",
+    },
+    disruptive: {
+      type: "boolean",
+      title: "Disruptive",
+      default: false,
+    },
+  },
+  type: "object",
+  required: [
+    "key",
+    "title",
+    "description",
+    "harness",
+    "item_types",
+    "execution_mode",
+    "preview_supported",
+    "target_surface",
+  ],
+  title: "SpmResponseActionRead",
+  description: "Static response action catalog entry.",
+} as const
+
 export const $SpmSeverity = {
   type: "string",
   enum: ["low", "medium", "high", "critical"],
@@ -21641,6 +21906,79 @@ export const $SpmSyncInventoryRelationshipUpsert = {
   required: ["relationship_type", "from_identity_key", "to_identity_key"],
   title: "SpmSyncInventoryRelationshipUpsert",
   description: "Endpoint-observed relationship between inventory items.",
+} as const
+
+export const $SpmSyncResponseActionPreviewResult = {
+  properties: {
+    preview_id: {
+      type: "string",
+      format: "uuid",
+      title: "Preview Id",
+    },
+    status: {
+      $ref: "#/components/schemas/SpmResponseActionPreviewStatus",
+    },
+    target_path: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 1024,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Target Path",
+    },
+    before_content: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Before Content",
+    },
+    after_content: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "After Content",
+    },
+    result: {
+      additionalProperties: true,
+      type: "object",
+      title: "Result",
+    },
+    error: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 4000,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Error",
+    },
+    completed_at: {
+      type: "string",
+      format: "date-time",
+      title: "Completed At",
+    },
+  },
+  type: "object",
+  required: ["preview_id", "status"],
+  title: "SpmSyncResponseActionPreviewResult",
+  description: "Action preview result reported during sync.",
 } as const
 
 export const $SpmSyncTaskResult = {

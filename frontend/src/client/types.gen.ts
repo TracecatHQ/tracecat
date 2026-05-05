@@ -6236,6 +6236,15 @@ export type SpmControlRead = {
 }
 
 /**
+ * Endpoint compliance state computed from inventory and findings.
+ */
+export type SpmEndpointComplianceStatus =
+  | "not_assessed"
+  | "compliant"
+  | "needs_attention"
+  | "enforcement_queued"
+
+/**
  * Operator request to create an endpoint enrollment.
  */
 export type SpmEndpointCreate = {
@@ -6304,6 +6313,7 @@ export type SpmEndpointRead = {
   harness: SpmHarness
   platform: SpmEndpointPlatform
   status: SpmEndpointStatus
+  compliance_status: SpmEndpointComplianceStatus
   hostname?: string | null
   os_user?: string | null
   home_path?: string | null
@@ -6340,6 +6350,7 @@ export type SpmEndpointSyncRequest = {
   inventory_items?: Array<SpmSyncInventoryItemUpsert>
   relationships?: Array<SpmSyncInventoryRelationshipUpsert>
   task_results?: Array<SpmSyncTaskResult>
+  action_preview_results?: Array<SpmSyncResponseActionPreviewResult>
 }
 
 /**
@@ -6349,6 +6360,7 @@ export type SpmEndpointSyncResponse = {
   endpoint: SpmEndpointRead
   endpoint_secret?: string | null
   tasks?: Array<SpmEnforcementTaskRead>
+  action_previews?: Array<SpmResponseActionPreviewRead>
 }
 
 /**
@@ -6598,6 +6610,68 @@ export type SpmInventoryTaxonomyRead = {
 }
 
 /**
+ * Operator request to create a response action preview for a finding.
+ */
+export type SpmResponseActionPreviewCreate = {
+  action?: SpmEnforcementAction | null
+  payload?: {
+    [key: string]: unknown
+  }
+}
+
+/**
+ * Endpoint-generated dry-run preview for a response action.
+ */
+export type SpmResponseActionPreviewRead = {
+  id: string
+  organization_id: string
+  endpoint_id: string
+  finding_id?: string | null
+  action: SpmEnforcementAction
+  payload?: {
+    [key: string]: unknown
+  }
+  status: SpmResponseActionPreviewStatus
+  requested_by_user_id?: string | null
+  target_path?: string | null
+  before_content?: string | null
+  after_content?: string | null
+  result?: {
+    [key: string]: unknown
+  }
+  error?: string | null
+  completed_at?: string | null
+  expires_at: string
+  created_at: string
+  updated_at: string
+}
+
+/**
+ * Execution state for endpoint-generated response action previews.
+ */
+export type SpmResponseActionPreviewStatus =
+  | "pending"
+  | "ready"
+  | "failed"
+  | "expired"
+
+/**
+ * Static response action catalog entry.
+ */
+export type SpmResponseActionRead = {
+  key: SpmEnforcementAction
+  title: string
+  description: string
+  harness: SpmHarness
+  item_types: Array<SpmInventoryItemType>
+  execution_mode: string
+  preview_supported: boolean
+  target_surface: string
+  payload_fields?: Array<string>
+  disruptive?: boolean
+}
+
+/**
  * Normalized SPM severity levels.
  */
 export type SpmSeverity = "low" | "medium" | "high" | "critical"
@@ -6639,6 +6713,22 @@ export type SpmSyncInventoryRelationshipUpsert = {
   observed_state?: {
     [key: string]: unknown
   }
+}
+
+/**
+ * Action preview result reported during sync.
+ */
+export type SpmSyncResponseActionPreviewResult = {
+  preview_id: string
+  status: SpmResponseActionPreviewStatus
+  target_path?: string | null
+  before_content?: string | null
+  after_content?: string | null
+  result?: {
+    [key: string]: unknown
+  }
+  error?: string | null
+  completed_at?: string
 }
 
 /**
@@ -10511,6 +10601,14 @@ export type ApprovalsSubmitApprovalsData = {
 
 export type ApprovalsSubmitApprovalsResponse = void
 
+export type SpmListSpmResponseActionsResponse = Array<SpmResponseActionRead>
+
+export type SpmGetSpmResponseActionData = {
+  action: SpmEnforcementAction
+}
+
+export type SpmGetSpmResponseActionResponse = SpmResponseActionRead
+
 export type SpmListSpmControlsResponse = Array<SpmControlRead>
 
 export type SpmGetSpmControlData = {
@@ -10595,6 +10693,21 @@ export type SpmCreateSpmFindingDecisionData = {
 }
 
 export type SpmCreateSpmFindingDecisionResponse = SpmFindingDecisionRead
+
+export type SpmCreateSpmResponseActionPreviewData = {
+  findingId: string
+  requestBody: SpmResponseActionPreviewCreate
+}
+
+export type SpmCreateSpmResponseActionPreviewResponse =
+  SpmResponseActionPreviewRead
+
+export type SpmGetSpmResponseActionPreviewData = {
+  previewId: string
+}
+
+export type SpmGetSpmResponseActionPreviewResponse =
+  SpmResponseActionPreviewRead
 
 export type SpmSyncSpmEndpointData = {
   authorization?: string | null
@@ -15068,6 +15181,31 @@ export type $OpenApiTs = {
       }
     }
   }
+  "/spm/actions": {
+    get: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<SpmResponseActionRead>
+      }
+    }
+  }
+  "/spm/actions/{action}": {
+    get: {
+      req: SpmGetSpmResponseActionData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: SpmResponseActionRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
   "/spm/controls": {
     get: {
       res: {
@@ -15242,6 +15380,36 @@ export type $OpenApiTs = {
          * Successful Response
          */
         201: SpmFindingDecisionRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/spm/findings/{finding_id}/action-preview": {
+    post: {
+      req: SpmCreateSpmResponseActionPreviewData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: SpmResponseActionPreviewRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/spm/action-previews/{preview_id}": {
+    get: {
+      req: SpmGetSpmResponseActionPreviewData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: SpmResponseActionPreviewRead
         /**
          * Validation Error
          */

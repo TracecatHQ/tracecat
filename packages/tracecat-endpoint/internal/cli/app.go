@@ -53,6 +53,7 @@ func (a *App) runCommand(ctx context.Context, args []string) error {
 	homeDir := fs.String("home-dir", "", "user home directory to inventory and manage")
 	endpointID := fs.String("endpoint-id", "", "SPM endpoint ID")
 	enrollmentToken := fs.String("enrollment-token", "", "one-time endpoint enrollment token")
+	interval := fs.Duration("interval", runner.DefaultInterval, "interval between sync cycles")
 	runOnce := fs.Bool("once", false, "run a single sync cycle and exit")
 
 	if err := fs.Parse(args); err != nil {
@@ -65,6 +66,7 @@ func (a *App) runCommand(ctx context.Context, args []string) error {
 		HomeDir:         *homeDir,
 		EndpointID:      *endpointID,
 		EnrollmentToken: *enrollmentToken,
+		Interval:        *interval,
 		Stdout:          a.stdout,
 		Stderr:          a.stderr,
 	})
@@ -87,6 +89,7 @@ func (a *App) installCommand(args []string) error {
 	homeDir := fs.String("home-dir", "", "user home directory to inventory and manage")
 	endpointID := fs.String("endpoint-id", "", "SPM endpoint ID")
 	enrollmentToken := fs.String("enrollment-token", "", "one-time endpoint enrollment token")
+	interval := fs.Duration("interval", runner.DefaultInterval, "interval between sync cycles")
 
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -98,6 +101,7 @@ func (a *App) installCommand(args []string) error {
 		HomeDir:         *homeDir,
 		EndpointID:      *endpointID,
 		EnrollmentToken: *enrollmentToken,
+		Interval:        *interval,
 		Stdout:          a.stdout,
 		Stderr:          a.stderr,
 	})
@@ -144,7 +148,7 @@ func (a *App) uninstallCommand() error {
 
 func (a *App) usage() {
 	_, _ = fmt.Fprintln(a.stderr, "usage: tracecatd <run|install|uninstall> [flags]")
-	_, _ = fmt.Fprintln(a.stderr, "  tracecatd run [--once] [--server-url ... --state-dir ... --home-dir ... --endpoint-id ... --enrollment-token ...]")
-	_, _ = fmt.Fprintln(a.stderr, "  tracecatd install [--server-url ... --state-dir ... --home-dir ... --endpoint-id ... --enrollment-token ...]")
+	_, _ = fmt.Fprintln(a.stderr, "  tracecatd run [--once] [--interval 5m] [--server-url ... --state-dir ... --home-dir ... --endpoint-id ... --enrollment-token ...]")
+	_, _ = fmt.Fprintln(a.stderr, "  tracecatd install [--interval 5m] [--server-url ... --state-dir ... --home-dir ... --endpoint-id ... --enrollment-token ...]")
 	_, _ = fmt.Fprintln(a.stderr, "  tracecatd uninstall")
 }

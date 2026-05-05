@@ -7,14 +7,11 @@ import type {
   SpmFindingRead,
   SpmInventoryItemRead,
 } from "@/client"
-import { Button } from "@/components/ui/button"
 import {
-  type FindingDecision,
   findingStatusVariant,
   formatLabel,
   formatRelativeTimestamp,
   getEndpointName,
-  getFindingEnforcementState,
   getInventoryItemPath,
   getInventoryItemRecord,
   severityVariant,
@@ -22,48 +19,11 @@ import {
 import { sourceTypeIcon, sourceTypeLabel } from "./spm-icons"
 import { FeedRow, SmallBadge } from "./spm-layout"
 
-export function FindingActionButtons(props: {
-  busyDecision: { decision: FindingDecision; findingId: string } | null
-  finding: SpmFindingRead
-  onDecision: (findingId: string, decision: FindingDecision) => Promise<void>
-}) {
-  const isActive = props.busyDecision?.findingId === props.finding.id
-  const canEnforce = props.finding.recommended_action != null
-
-  return (
-    <>
-      <Button
-        variant="outline"
-        size="sm"
-        className="h-7 px-2 text-xs"
-        disabled={props.busyDecision != null}
-        onClick={() => void props.onDecision(props.finding.id, "dismiss")}
-      >
-        {isActive && props.busyDecision?.decision === "dismiss"
-          ? "Dismissing..."
-          : "Dismiss"}
-      </Button>
-      <Button
-        size="sm"
-        className="h-7 px-2 text-xs"
-        disabled={props.busyDecision != null || !canEnforce}
-        onClick={() => void props.onDecision(props.finding.id, "enforce")}
-      >
-        {isActive && props.busyDecision?.decision === "enforce"
-          ? "Enforcing..."
-          : "Enforce"}
-      </Button>
-    </>
-  )
-}
-
 export function FindingRow(props: {
   inventoryItems: SpmInventoryItemRead[]
-  busyDecision: { decision: FindingDecision; findingId: string } | null
   controls?: SpmControlRead[]
   endpoints: SpmEndpointRead[]
   finding: SpmFindingRead
-  onDecision?: (findingId: string, decision: FindingDecision) => Promise<void>
   showEndpoint?: boolean
 }) {
   const showEndpoint = props.showEndpoint ?? true
@@ -71,7 +31,6 @@ export function FindingRow(props: {
     props.finding.inventory_item_id,
     props.inventoryItems
   )
-  const enforcementState = getFindingEnforcementState(props.finding)
   const controlTitle =
     props.controls?.find((control) => control.id === props.finding.control_id)
       ?.title ?? props.finding.control_key
@@ -97,9 +56,6 @@ export function FindingRow(props: {
           <SmallBadge variant={findingStatusVariant(props.finding.status)}>
             {formatLabel(props.finding.status)}
           </SmallBadge>
-          <SmallBadge variant={enforcementState.variant}>
-            {enforcementState.label}
-          </SmallBadge>
         </>
       }
       meta={
@@ -109,15 +65,6 @@ export function FindingRow(props: {
           </SmallBadge>
           <span>{formatRelativeTimestamp(props.finding.updated_at)}</span>
         </>
-      }
-      actions={
-        props.onDecision ? (
-          <FindingActionButtons
-            busyDecision={props.busyDecision}
-            finding={props.finding}
-            onDecision={props.onDecision}
-          />
-        ) : null
       }
     />
   )

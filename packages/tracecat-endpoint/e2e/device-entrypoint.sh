@@ -13,4 +13,5 @@ exec /usr/local/bin/tracecatd run \
   --state-dir /state \
   --home-dir /home/tracecat \
   --endpoint-id "${TRACECAT_ENDPOINT_ID}" \
-  --enrollment-token "${TRACECAT_ENROLLMENT_TOKEN}"
+  --enrollment-token "${TRACECAT_ENROLLMENT_TOKEN}" \
+  --interval "${TRACECAT_SYNC_INTERVAL:-5s}"

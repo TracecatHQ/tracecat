@@ -26,6 +26,15 @@ class SpmEndpointStatus(StrEnum):
     DISABLED = "disabled"
 
 
+class SpmEndpointComplianceStatus(StrEnum):
+    """Endpoint compliance state computed from inventory and findings."""
+
+    NOT_ASSESSED = "not_assessed"
+    COMPLIANT = "compliant"
+    NEEDS_ATTENTION = "needs_attention"
+    ENFORCEMENT_QUEUED = "enforcement_queued"
+
+
 class SpmInventoryItemType(StrEnum):
     """Harness surface bucket. The broad kind of governed inventory item."""
 
@@ -125,6 +134,15 @@ class SpmEnforcementTaskStatus(StrEnum):
     APPLIED = "applied"
     FAILED = "failed"
     SKIPPED = "skipped"
+
+
+class SpmResponseActionPreviewStatus(StrEnum):
+    """Execution state for endpoint-generated response action previews."""
+
+    PENDING = "pending"
+    READY = "ready"
+    FAILED = "failed"
+    EXPIRED = "expired"
 
 
 class SpmSyncTaskResultStatus(StrEnum):

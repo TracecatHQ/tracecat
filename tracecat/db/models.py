@@ -3850,6 +3850,101 @@ class SpmEnforcementTask(OrganizationModel):
     )
 
 
+class SpmResponseActionPreview(OrganizationModel):
+    """Queued endpoint dry-run preview for an SPM response action."""
+
+    __tablename__ = "spm_response_action_preview"
+    __table_args__ = (
+        Index("ix_spm_preview_org_created", "organization_id", "created_at"),
+        Index("ix_spm_preview_org_status", "organization_id", "status"),
+        Index("ix_spm_preview_org_endpoint", "organization_id", "endpoint_id"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        default=uuid.uuid4,
+        nullable=False,
+        unique=True,
+        index=True,
+        doc="Unique SPM response action preview identifier",
+    )
+    endpoint_id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        ForeignKey("spm_endpoint.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+        doc="Endpoint expected to dry-run this preview",
+    )
+    finding_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID,
+        ForeignKey("spm_finding.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+        doc="Finding that created this preview",
+    )
+    action: Mapped[str] = mapped_column(
+        String(64),
+        nullable=False,
+        doc="Response action to preview locally",
+    )
+    payload: Mapped[dict[str, Any]] = mapped_column(
+        JSONB,
+        nullable=False,
+        server_default=text("'{}'::jsonb"),
+        default=dict,
+        doc="Action payload consumed by the endpoint dry-run previewer",
+    )
+    status: Mapped[str] = mapped_column(
+        String(32),
+        nullable=False,
+        default="pending",
+        doc="Preview lifecycle status",
+    )
+    requested_by_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID,
+        ForeignKey("user.id", ondelete="SET NULL"),
+        nullable=True,
+        doc="User who requested the preview",
+    )
+    target_path: Mapped[str | None] = mapped_column(
+        String(1024),
+        nullable=True,
+        doc="Local file path that would be modified by the response action",
+    )
+    before_content: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
+        doc="Endpoint-reported file content before the dry-run change",
+    )
+    after_content: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
+        doc="Endpoint-reported file content after the dry-run change",
+    )
+    result: Mapped[dict[str, Any]] = mapped_column(
+        JSONB,
+        nullable=False,
+        server_default=text("'{}'::jsonb"),
+        default=dict,
+        doc="Endpoint-reported dry-run details",
+    )
+    error: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
+        doc="Last preview error reported by the endpoint",
+    )
+    completed_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True),
+        nullable=True,
+        doc="When the endpoint finished attempting the dry-run preview",
+    )
+    expires_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True),
+        nullable=False,
+        doc="When this preview should no longer be displayed or synced",
+    )
+
+
 class AgentChannelToken(WorkspaceModel):
     """Token-backed external channel configuration for an agent preset."""
 

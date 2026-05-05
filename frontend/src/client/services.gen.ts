@@ -603,6 +603,8 @@ import type {
   SpmCreateSpmEndpointResponse,
   SpmCreateSpmFindingDecisionData,
   SpmCreateSpmFindingDecisionResponse,
+  SpmCreateSpmResponseActionPreviewData,
+  SpmCreateSpmResponseActionPreviewResponse,
   SpmDeleteSpmEndpointData,
   SpmDeleteSpmEndpointResponse,
   SpmGetSpmControlData,
@@ -614,6 +616,10 @@ import type {
   SpmGetSpmInventoryItemData,
   SpmGetSpmInventoryItemResponse,
   SpmGetSpmInventoryTaxonomyResponse,
+  SpmGetSpmResponseActionData,
+  SpmGetSpmResponseActionPreviewData,
+  SpmGetSpmResponseActionPreviewResponse,
+  SpmGetSpmResponseActionResponse,
   SpmListSpmControlsResponse,
   SpmListSpmEndpointInventoryData,
   SpmListSpmEndpointInventoryResponse,
@@ -623,6 +629,7 @@ import type {
   SpmListSpmFindingsResponse,
   SpmListSpmInventoryData,
   SpmListSpmInventoryResponse,
+  SpmListSpmResponseActionsResponse,
   SpmSyncSpmEndpointData,
   SpmSyncSpmEndpointResponse,
   TablesBatchDeleteRowsData,
@@ -5831,6 +5838,41 @@ export const approvalsSubmitApprovals = (
 }
 
 /**
+ * List Spm Response Actions
+ * @returns SpmResponseActionRead Successful Response
+ * @throws ApiError
+ */
+export const spmListSpmResponseActions =
+  (): CancelablePromise<SpmListSpmResponseActionsResponse> => {
+    return __request(OpenAPI, {
+      method: "GET",
+      url: "/spm/actions",
+    })
+  }
+
+/**
+ * Get Spm Response Action
+ * @param data The data for the request.
+ * @param data.action
+ * @returns SpmResponseActionRead Successful Response
+ * @throws ApiError
+ */
+export const spmGetSpmResponseAction = (
+  data: SpmGetSpmResponseActionData
+): CancelablePromise<SpmGetSpmResponseActionResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/spm/actions/{action}",
+    path: {
+      action: data.action,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
  * List Spm Controls
  * @returns SpmControlRead Successful Response
  * @throws ApiError
@@ -6118,6 +6160,53 @@ export const spmCreateSpmFindingDecision = (
     },
     body: data.requestBody,
     mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Create Spm Response Action Preview
+ * @param data The data for the request.
+ * @param data.findingId
+ * @param data.requestBody
+ * @returns SpmResponseActionPreviewRead Successful Response
+ * @throws ApiError
+ */
+export const spmCreateSpmResponseActionPreview = (
+  data: SpmCreateSpmResponseActionPreviewData
+): CancelablePromise<SpmCreateSpmResponseActionPreviewResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/spm/findings/{finding_id}/action-preview",
+    path: {
+      finding_id: data.findingId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Get Spm Response Action Preview
+ * @param data The data for the request.
+ * @param data.previewId
+ * @returns SpmResponseActionPreviewRead Successful Response
+ * @throws ApiError
+ */
+export const spmGetSpmResponseActionPreview = (
+  data: SpmGetSpmResponseActionPreviewData
+): CancelablePromise<SpmGetSpmResponseActionPreviewResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/spm/action-previews/{preview_id}",
+    path: {
+      preview_id: data.previewId,
+    },
     errors: {
       422: "Validation Error",
     },

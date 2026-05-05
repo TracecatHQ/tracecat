@@ -175,6 +175,43 @@ func TestClaudeExecutorExcludesInstructionFileByPathWithoutRewritingSource(t *te
 	}
 }
 
+func TestClaudeExecutorPreviewsInstructionFileExclusionWithoutWriting(t *testing.T) {
+	t.Parallel()
+
+	homeDir := copyInventoryFixture(t, "claude")
+	projectRoot := filepath.Join(homeDir, "workspace-alpha")
+	instructionPath := filepath.Join(projectRoot, "CLAUDE.md")
+	localSettingsPath := filepath.Join(projectRoot, ".claude", "settings.local.json")
+	before := readFile(t, localSettingsPath)
+
+	executor := NewClaudeExecutor(homeDir)
+	results, err := executor.Preview(context.Background(), []spmapi.ResponseActionPreview{
+		{
+			ID:     "preview-instruction",
+			Action: "exclude_instruction_file",
+			Payload: map[string]any{
+				"file_path":    instructionPath,
+				"project_root": projectRoot,
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Preview() error = %v", err)
+	}
+	if results[0].Status != "ready" {
+		t.Fatalf("unexpected preview status %q", results[0].Status)
+	}
+	if results[0].TargetPath != localSettingsPath {
+		t.Fatalf("unexpected target path %q", results[0].TargetPath)
+	}
+	if !strings.Contains(results[0].AfterContent, "claudeMdExcludes") {
+		t.Fatalf("expected preview diff to include claudeMdExcludes, got %s", results[0].AfterContent)
+	}
+	if got := readFile(t, localSettingsPath); got != before {
+		t.Fatal("expected preview to leave local settings unchanged")
+	}
+}
+
 func TestClaudeExecutorManagedShadowedWritesStayInProjectLocalSettings(t *testing.T) {
 	t.Parallel()
 

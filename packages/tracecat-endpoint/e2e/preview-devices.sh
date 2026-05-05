@@ -235,6 +235,17 @@ ensure_session_dir() {
   : > "${COOKIE_JAR}"
 }
 
+has_existing_enrollments() {
+  local scenario scenario_dir
+
+  for scenario in "${SCENARIOS[@]}"; do
+    scenario_dir="${DIST_DIR}/${scenario}"
+    if [[ ! -f "${scenario_dir}/state/state.json" && ! -f "${scenario_dir}/device.env" ]]; then
+      return 1
+    fi
+  done
+}
+
 curl_status() {
   local output_file=$1
   shift
@@ -442,6 +453,7 @@ print_summary() {
 COMMAND=""
 CLUSTER_NUM=""
 SERVER_URL_OVERRIDE=""
+AUTH_BOOTSTRAPPED=false
 declare -a EXTRA_ARGS=()
 EXTRA_ARGS_COUNT=0
 
@@ -486,23 +498,28 @@ case "${COMMAND}" in
     require_tool jq
     require_tool go
 
-    WORKTREE_ID=$(get_worktree_id)
-    CLUSTER_NUM=$(resolve_cluster "${WORKTREE_ID}" "${CLUSTER_NUM}")
-
-    DEFAULT_APP_ORIGIN=$(parse_public_origin "${CLUSTER_NUM}")
-    DEFAULT_API_BASE=$(parse_api_origin "${CLUSTER_NUM}")
-    APP_ORIGIN="${DEFAULT_APP_ORIGIN}"
-    API_BASE="${DEFAULT_API_BASE}"
     if [[ -n "${SERVER_URL_OVERRIDE}" ]]; then
+      CLUSTER_NUM="server-url-override"
       APP_ORIGIN="${SERVER_URL_OVERRIDE}"
       API_BASE="${SERVER_URL_OVERRIDE}"
+    else
+      WORKTREE_ID=$(get_worktree_id)
+      CLUSTER_NUM=$(resolve_cluster "${WORKTREE_ID}" "${CLUSTER_NUM}")
+
+      DEFAULT_APP_ORIGIN=$(parse_public_origin "${CLUSTER_NUM}")
+      DEFAULT_API_BASE=$(parse_api_origin "${CLUSTER_NUM}")
+      APP_ORIGIN="${DEFAULT_APP_ORIGIN}"
+      API_BASE="${DEFAULT_API_BASE}"
     fi
     TRACECAT_CONTAINER_SERVER_URL=$(container_server_url "${API_BASE}")
 
     mkdir -p "${DIST_DIR}"
     ensure_session_dir
     wait_for_api_ready
-    bootstrap_auth
+    if ! has_existing_enrollments; then
+      bootstrap_auth
+      AUTH_BOOTSTRAPPED=true
+    fi
     build_tracecatd
 
     for scenario in "${SCENARIOS[@]}"; do
@@ -522,7 +539,9 @@ case "${COMMAND}" in
     fi
 
     wait_for_containers
-    wait_for_endpoints
+    if [[ "${AUTH_BOOTSTRAPPED}" == "true" ]]; then
+      wait_for_endpoints
+    fi
     ;;
   down)
     if [[ "${EXTRA_ARGS_COUNT}" -gt 0 ]]; then

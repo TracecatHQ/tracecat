@@ -18,6 +18,7 @@ import (
 // Executor applies desired-state tasks returned by the SPM sync API.
 type Executor interface {
 	Execute(context.Context, []spmapi.EnforcementTask) ([]spmapi.SyncTaskResult, error)
+	Preview(context.Context, []spmapi.ResponseActionPreview) ([]spmapi.ResponseActionPreviewResult, error)
 }
 
 // ClaudeExecutor reconciles writable Claude Code settings.
@@ -101,6 +102,46 @@ func (e ClaudeExecutor) Execute(
 	return results, nil
 }
 
+func (e ClaudeExecutor) Preview(
+	ctx context.Context,
+	previews []spmapi.ResponseActionPreview,
+) ([]spmapi.ResponseActionPreviewResult, error) {
+	results := make([]spmapi.ResponseActionPreviewResult, 0, len(previews))
+	for _, preview := range previews {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		results = append(results, e.previewAction(preview))
+	}
+	return results, nil
+}
+
+func (e ClaudeExecutor) previewAction(preview spmapi.ResponseActionPreview) spmapi.ResponseActionPreviewResult {
+	completedAt := time.Now().UTC()
+	result := spmapi.ResponseActionPreviewResult{
+		PreviewID:   preview.ID,
+		CompletedAt: completedAt,
+	}
+
+	status, details, err := e.applyDryRun(spmapi.EnforcementTask{
+		ID:      preview.ID,
+		Action:  preview.Action,
+		Payload: preview.Payload,
+	})
+	if err != nil {
+		result.Status = "failed"
+		result.Error = err.Error()
+		return result
+	}
+	result.Status = "ready"
+	result.Result = details.Result
+	result.Result["task_status"] = string(status)
+	result.TargetPath = details.TargetPath
+	result.BeforeContent = details.BeforeContent
+	result.AfterContent = details.AfterContent
+	return result
+}
+
 func (e ClaudeExecutor) executeTask(task spmapi.EnforcementTask) spmapi.SyncTaskResult {
 	completedAt := time.Now().UTC()
 	result := spmapi.SyncTaskResult{
@@ -142,6 +183,349 @@ func (e ClaudeExecutor) apply(
 	default:
 		return spmapi.TaskResultStatusFailed, nil, fmt.Errorf("unsupported enforcement action %q", task.Action)
 	}
+}
+
+type dryRunDetails struct {
+	TargetPath    string
+	BeforeContent string
+	AfterContent  string
+	Result        map[string]any
+}
+
+func (e ClaudeExecutor) applyDryRun(
+	task spmapi.EnforcementTask,
+) (spmapi.TaskResultStatus, dryRunDetails, error) {
+	switch task.Action {
+	case "disable_mcp_server":
+		return e.disableMCPServerDryRun(task.Payload)
+	case "exclude_instruction_file":
+		return e.excludeInstructionFileDryRun(task.Payload)
+	case "revoke_trusted_directory":
+		return e.revokeDirectoryDryRun(task.Payload, "trustedDirectories", "trusted")
+	case "revoke_additional_directory":
+		return e.revokeDirectoryDryRun(task.Payload, "additionalDirectories", "additional")
+	case "reconcile_permission_config":
+		return e.reconcileConfigDryRun(task.Payload, "permissions")
+	case "reconcile_sandbox_config":
+		return e.reconcileConfigDryRun(task.Payload, "sandbox")
+	case "disable_hook":
+		return e.disableHookDryRun(task.Payload)
+	case "disable_skill":
+		return e.disableNamedEntryDryRun(task.Payload, "skills", writableSurfaceUserSettings, writableSurfaceUserState, writableSurfaceProjectLocal)
+	default:
+		return spmapi.TaskResultStatusFailed, dryRunDetails{}, fmt.Errorf("unsupported enforcement action %q", task.Action)
+	}
+}
+
+func (e ClaudeExecutor) disableMCPServerDryRun(payload map[string]any) (spmapi.TaskResultStatus, dryRunDetails, error) {
+	serverName, err := requireString(payload, "server_name")
+	if err != nil {
+		return spmapi.TaskResultStatusFailed, dryRunDetails{}, err
+	}
+	resolvedIdentity, _ := optionalString(payload, "resolved_identity")
+	sourcePath, _ := optionalString(payload, "source_path")
+	projectRoot, _ := optionalString(payload, "project_root")
+	targetPath, _ := optionalString(payload, "target_path")
+
+	if targetPath == "" {
+		if strings.HasSuffix(sourcePath, string(filepath.Separator)+".mcp.json") || sourcePath == ".mcp.json" || strings.Contains(sourcePath, "/.mcp.json") || projectRoot != "" {
+			if projectRoot == "" && sourcePath != "" {
+				projectRoot = filepath.Dir(sourcePath)
+			}
+			targetPath = filepath.Join(projectRoot, ".claude", "settings.local.json")
+		} else {
+			targetPath = e.userStatePath()
+		}
+	}
+
+	targetPath, surface, err := e.resolveTargetPath(targetPath, "", writableSurfaceUserState, writableSurfaceProjectLocal)
+	if err != nil {
+		return spmapi.TaskResultStatusFailed, dryRunDetails{}, err
+	}
+
+	return previewJSONDocument(targetPath, func(doc map[string]any) (spmapi.TaskResultStatus, map[string]any, bool, error) {
+		if surface == writableSurfaceProjectLocal {
+			list := uniqueStrings(stringSlice(doc["disabledMcpjsonServers"]))
+			if containsString(list, serverName) {
+				return spmapi.TaskResultStatusSkipped, map[string]any{
+					"reason":        "project mcp server already disabled",
+					"target_path":   targetPath,
+					"server_name":   serverName,
+					"applied_value": list,
+				}, false, nil
+			}
+			list = append(list, serverName)
+			sort.Strings(list)
+			doc["disabledMcpjsonServers"] = list
+			return spmapi.TaskResultStatusApplied, map[string]any{
+				"target_path":   targetPath,
+				"server_name":   serverName,
+				"applied_value": list,
+			}, true, nil
+		}
+
+		changed, alreadyDisabled := disableMCPEntry(doc, serverName, resolvedIdentity)
+		if !changed {
+			reason := "mcp server entry not present"
+			if alreadyDisabled {
+				reason = "mcp server already disabled"
+			}
+			return spmapi.TaskResultStatusSkipped, map[string]any{
+				"reason":            reason,
+				"target_path":       targetPath,
+				"server_name":       serverName,
+				"resolved_identity": resolvedIdentity,
+			}, false, nil
+		}
+		return spmapi.TaskResultStatusApplied, map[string]any{
+			"target_path":       targetPath,
+			"server_name":       serverName,
+			"resolved_identity": resolvedIdentity,
+		}, true, nil
+	})
+}
+
+func (e ClaudeExecutor) excludeInstructionFileDryRun(payload map[string]any) (spmapi.TaskResultStatus, dryRunDetails, error) {
+	filePath, err := requireString(payload, "file_path")
+	if err != nil {
+		return spmapi.TaskResultStatusFailed, dryRunDetails{}, err
+	}
+	targetPath, _ := optionalString(payload, "target_path")
+	projectRoot, _ := optionalString(payload, "project_root")
+	if targetPath == "" {
+		if projectRoot != "" {
+			targetPath = filepath.Join(projectRoot, ".claude", "settings.local.json")
+		} else {
+			targetPath = e.userSettingsPath()
+		}
+	}
+	targetPath, _, err = e.resolveTargetPath(targetPath, "", writableSurfaceUserSettings, writableSurfaceProjectLocal)
+	if err != nil {
+		return spmapi.TaskResultStatusFailed, dryRunDetails{}, err
+	}
+	return previewJSONDocument(targetPath, func(doc map[string]any) (spmapi.TaskResultStatus, map[string]any, bool, error) {
+		list := uniqueStrings(stringSlice(doc["claudeMdExcludes"]))
+		if containsString(list, filePath) {
+			return spmapi.TaskResultStatusSkipped, map[string]any{
+				"reason":        "instruction file already excluded",
+				"target_path":   targetPath,
+				"excluded_path": filePath,
+			}, false, nil
+		}
+		list = append(list, filePath)
+		sort.Strings(list)
+		doc["claudeMdExcludes"] = list
+		return spmapi.TaskResultStatusApplied, map[string]any{
+			"target_path":   targetPath,
+			"excluded_path": filePath,
+		}, true, nil
+	})
+}
+
+func (e ClaudeExecutor) revokeDirectoryDryRun(payload map[string]any, arrayKey string, projectField string) (spmapi.TaskResultStatus, dryRunDetails, error) {
+	pathValue, err := requireString(payload, "directory_path")
+	if err != nil {
+		pathValue, err = requireString(payload, "path")
+		if err != nil {
+			return spmapi.TaskResultStatusFailed, dryRunDetails{}, fmt.Errorf("directory path is required")
+		}
+	}
+	targetPath, _ := optionalString(payload, "target_path")
+	if targetPath == "" {
+		targetPath = e.userStatePath()
+	}
+	targetPath, _, err = e.resolveTargetPath(targetPath, "", writableSurfaceUserState)
+	if err != nil {
+		return spmapi.TaskResultStatusFailed, dryRunDetails{}, err
+	}
+	return previewJSONDocument(targetPath, func(doc map[string]any) (spmapi.TaskResultStatus, map[string]any, bool, error) {
+		changed := false
+		list := removeString(stringSlice(doc[arrayKey]), pathValue)
+		if len(list) != len(stringSlice(doc[arrayKey])) {
+			doc[arrayKey] = list
+			changed = true
+		}
+
+		if projects, ok := doc["projects"].(map[string]any); ok {
+			if rawProject, ok := projects[pathValue]; ok {
+				switch project := rawProject.(type) {
+				case map[string]any:
+					if projectField == "trusted" {
+						if _, ok := project["trusted"]; ok {
+							delete(project, "trusted")
+							changed = true
+						}
+						if trustLevel, ok := project["trustLevel"].(string); ok && strings.EqualFold(trustLevel, "trusted") {
+							delete(project, "trustLevel")
+							changed = true
+						}
+					}
+					if projectField == "additional" {
+						if _, ok := project["additional"]; ok {
+							delete(project, "additional")
+							changed = true
+						}
+						if trustLevel, ok := project["trustLevel"].(string); ok && strings.EqualFold(trustLevel, "additional") {
+							delete(project, "trustLevel")
+							changed = true
+						}
+					}
+					if len(project) == 0 {
+						delete(projects, pathValue)
+					} else {
+						projects[pathValue] = project
+					}
+				default:
+					delete(projects, pathValue)
+					changed = true
+				}
+				doc["projects"] = projects
+			}
+		}
+
+		if !changed {
+			return spmapi.TaskResultStatusSkipped, map[string]any{
+				"reason":         "directory already revoked",
+				"target_path":    targetPath,
+				"directory_path": pathValue,
+			}, false, nil
+		}
+		return spmapi.TaskResultStatusApplied, map[string]any{
+			"target_path":    targetPath,
+			"directory_path": pathValue,
+		}, true, nil
+	})
+}
+
+func (e ClaudeExecutor) reconcileConfigDryRun(payload map[string]any, key string) (spmapi.TaskResultStatus, dryRunDetails, error) {
+	targetPath, _ := optionalString(payload, "target_path")
+	if targetPath == "" {
+		targetPath = e.userSettingsPath()
+	}
+	targetPath, _, err := e.resolveTargetPath(targetPath, "", writableSurfaceUserSettings, writableSurfaceUserState, writableSurfaceProjectLocal)
+	if err != nil {
+		return spmapi.TaskResultStatusFailed, dryRunDetails{}, err
+	}
+	value, ok := pickValue(payload, "value", "approved_value", "config")
+	if !ok {
+		return spmapi.TaskResultStatusFailed, dryRunDetails{}, fmt.Errorf("%s value is required", key)
+	}
+	return previewJSONDocument(targetPath, func(doc map[string]any) (spmapi.TaskResultStatus, map[string]any, bool, error) {
+		if reflect.DeepEqual(doc[key], value) {
+			return spmapi.TaskResultStatusSkipped, map[string]any{
+				"reason":      key + " already reconciled",
+				"target_path": targetPath,
+			}, false, nil
+		}
+		doc[key] = value
+		return spmapi.TaskResultStatusApplied, map[string]any{
+			"target_path": targetPath,
+			"key":         key,
+		}, true, nil
+	})
+}
+
+func (e ClaudeExecutor) disableHookDryRun(payload map[string]any) (spmapi.TaskResultStatus, dryRunDetails, error) {
+	fingerprint, err := requireString(payload, "fingerprint")
+	if err != nil {
+		return spmapi.TaskResultStatusFailed, dryRunDetails{}, fmt.Errorf("hooks identifier is required")
+	}
+	targetPath, _ := optionalString(payload, "target_path")
+	if targetPath == "" {
+		targetPath = e.userStatePath()
+	}
+	targetPath, _, err = e.resolveTargetPath(targetPath, "", writableSurfaceUserSettings, writableSurfaceUserState, writableSurfaceProjectLocal)
+	if err != nil {
+		return spmapi.TaskResultStatusFailed, dryRunDetails{}, err
+	}
+	return previewJSONDocument(targetPath, func(doc map[string]any) (spmapi.TaskResultStatus, map[string]any, bool, error) {
+		hooks, ok := doc["hooks"].(map[string]any)
+		if !ok {
+			return spmapi.TaskResultStatusSkipped, map[string]any{
+				"reason":      "hooks entry already disabled",
+				"target_path": targetPath,
+				"fingerprint": fingerprint,
+			}, false, nil
+		}
+		changed := false
+		for eventName, eventValue := range hooks {
+			index := 0
+			filtered, removed := filterHookEntries(eventValue, eventName, fingerprint, &index)
+			if !removed {
+				continue
+			}
+			changed = true
+			if filtered == nil {
+				delete(hooks, eventName)
+				continue
+			}
+			hooks[eventName] = filtered
+		}
+		if !changed {
+			return spmapi.TaskResultStatusSkipped, map[string]any{
+				"reason":      "hooks entry already disabled",
+				"target_path": targetPath,
+				"fingerprint": fingerprint,
+			}, false, nil
+		}
+		doc["hooks"] = hooks
+		return spmapi.TaskResultStatusApplied, map[string]any{
+			"target_path": targetPath,
+			"fingerprint": fingerprint,
+		}, true, nil
+	})
+}
+
+func (e ClaudeExecutor) disableNamedEntryDryRun(payload map[string]any, key string, allowed ...writableSurface) (spmapi.TaskResultStatus, dryRunDetails, error) {
+	fingerprint, err := requireString(payload, "fingerprint")
+	if err != nil {
+		fingerprint, err = requireString(payload, "name")
+		if err != nil {
+			return spmapi.TaskResultStatusFailed, dryRunDetails{}, fmt.Errorf("%s identifier is required", key)
+		}
+	}
+	targetPath, _ := optionalString(payload, "target_path")
+	if targetPath == "" {
+		targetPath = e.userStatePath()
+	}
+	targetPath, _, err = e.resolveTargetPath(targetPath, "", allowed...)
+	if err != nil {
+		return spmapi.TaskResultStatusFailed, dryRunDetails{}, err
+	}
+	return previewJSONDocument(targetPath, func(doc map[string]any) (spmapi.TaskResultStatus, map[string]any, bool, error) {
+		changed := false
+		switch entries := doc[key].(type) {
+		case []any:
+			next := make([]any, 0, len(entries))
+			for _, entry := range entries {
+				if namedEntryFingerprint(entry) == fingerprint {
+					changed = true
+					continue
+				}
+				next = append(next, entry)
+			}
+			doc[key] = next
+		case map[string]any:
+			for name, entry := range entries {
+				if namedEntryFingerprintWithName(name, entry) == fingerprint || name == fingerprint {
+					delete(entries, name)
+					changed = true
+				}
+			}
+			doc[key] = entries
+		}
+		if !changed {
+			return spmapi.TaskResultStatusSkipped, map[string]any{
+				"reason":      key + " entry already disabled",
+				"target_path": targetPath,
+				"fingerprint": fingerprint,
+			}, false, nil
+		}
+		return spmapi.TaskResultStatusApplied, map[string]any{
+			"target_path": targetPath,
+			"fingerprint": fingerprint,
+		}, true, nil
+	})
 }
 
 func (e ClaudeExecutor) disableMCPServer(payload map[string]any) (spmapi.TaskResultStatus, map[string]any, error) {
@@ -660,6 +1044,55 @@ func loadJSONDocument(path string) (map[string]any, error) {
 		return nil, fmt.Errorf("decode %s: %w", path, err)
 	}
 	return doc, nil
+}
+
+func previewJSONDocument(
+	path string,
+	mutate func(map[string]any) (spmapi.TaskResultStatus, map[string]any, bool, error),
+) (spmapi.TaskResultStatus, dryRunDetails, error) {
+	before, exists, err := readRawFile(path)
+	if err != nil {
+		return spmapi.TaskResultStatusFailed, dryRunDetails{}, err
+	}
+	doc := map[string]any{}
+	if exists {
+		if err := json.Unmarshal([]byte(before), &doc); err != nil {
+			return spmapi.TaskResultStatusFailed, dryRunDetails{}, fmt.Errorf("decode %s: %w", path, err)
+		}
+	}
+
+	status, result, changed, err := mutate(doc)
+	if err != nil {
+		return spmapi.TaskResultStatusFailed, dryRunDetails{}, err
+	}
+	after := before
+	if changed {
+		encoded, err := json.MarshalIndent(doc, "", "  ")
+		if err != nil {
+			return spmapi.TaskResultStatusFailed, dryRunDetails{}, fmt.Errorf("encode %s: %w", path, err)
+		}
+		after = string(append(encoded, '\n'))
+	}
+	if result == nil {
+		result = map[string]any{}
+	}
+	return status, dryRunDetails{
+		TargetPath:    path,
+		BeforeContent: before,
+		AfterContent:  after,
+		Result:        result,
+	}, nil
+}
+
+func readRawFile(path string) (string, bool, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return "", false, nil
+		}
+		return "", false, fmt.Errorf("read %s: %w", path, err)
+	}
+	return string(data), true, nil
 }
 
 func writeJSONDocument(path string, doc map[string]any) error {
