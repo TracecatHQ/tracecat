@@ -3331,9 +3331,7 @@ class AgentFolder(WorkspaceModel):
 
     __tablename__ = "agent_folder"
     __table_args__ = (
-        UniqueConstraint(
-            "path", "workspace_id", name="uq_agent_folder_path_workspace"
-        ),
+        UniqueConstraint("path", "workspace_id", name="uq_agent_folder_path_workspace"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
