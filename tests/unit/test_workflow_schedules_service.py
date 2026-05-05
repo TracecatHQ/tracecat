@@ -84,9 +84,10 @@ async def test_update_schedule_updates_existing_schedule(
     _, schedule = await _create_workflow_with_schedule(session, svc_role.workspace_id)
     updated_temporal_schedule_ids = []
 
-    async def _update_schedule(schedule_id, params):
+    async def _update_schedule(schedule_id, params, *, role=None):
         updated_temporal_schedule_ids.append(schedule_id)
         assert params.status == "online"
+        assert role == svc_role
 
     monkeypatch.setattr(bridge, "update_schedule", _update_schedule)
 
