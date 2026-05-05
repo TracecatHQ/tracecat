@@ -8,9 +8,11 @@ import {
   Loader2,
   PencilLine,
   RefreshCcw,
+  Trash2,
+  Upload,
 } from "lucide-react"
 import dynamic from "next/dynamic"
-import { useMemo } from "react"
+import { type ChangeEvent, useMemo, useRef } from "react"
 import type { SkillDraftFileRead, SkillDraftRead, SkillRead } from "@/client"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { SkillFileTree } from "@/components/skills/file-tree"
@@ -69,6 +71,8 @@ type EditorPanelProps = {
   onEditorChange: (nextValue: string) => void
   onUndoSelectedFileChange: () => void
   onSaveWorkingCopy: () => Promise<void>
+  onDeleteSelectedFile: () => void
+  onReplaceSelectedFile: (event: ChangeEvent<HTMLInputElement>) => void
   pendingCreate: boolean
   pendingCreateError: string | null
   onBeginCreate: () => void
@@ -107,6 +111,8 @@ export function EditorPanel({
   onEditorChange,
   onUndoSelectedFileChange,
   onSaveWorkingCopy,
+  onDeleteSelectedFile,
+  onReplaceSelectedFile,
   pendingCreate,
   pendingCreateError,
   onBeginCreate,
@@ -127,6 +133,7 @@ export function EditorPanel({
     () => buildSkillFileTree(visibleFiles),
     [visibleFiles]
   )
+  const replaceInputRef = useRef<HTMLInputElement>(null)
   const splitFrontmatter =
     selectedFile !== null &&
     isMarkdownPath(selectedFile.path) &&
@@ -253,6 +260,34 @@ export function EditorPanel({
                   Reset
                 </Button>
               ) : null}
+              {selectedFile ? (
+                <>
+                  <input
+                    ref={replaceInputRef}
+                    type="file"
+                    className="hidden"
+                    onChange={onReplaceSelectedFile}
+                  />
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-6 px-2 text-xs"
+                    onClick={() => replaceInputRef.current?.click()}
+                  >
+                    <Upload className="mr-2 size-3.5" />
+                    Replace
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-6 px-2 text-xs text-destructive hover:text-destructive"
+                    onClick={onDeleteSelectedFile}
+                  >
+                    <Trash2 className="mr-2 size-3.5" />
+                    Delete
+                  </Button>
+                </>
+              ) : null}
             </div>
           </div>
 
@@ -265,6 +300,28 @@ export function EditorPanel({
               ) : draftFileLoading ? (
                 <div className="flex flex-1 items-center justify-center">
                   <Loader2 className="size-5 animate-spin text-muted-foreground" />
+                </div>
+              ) : selectedFile.change?.kind === "delete" ? (
+                <div className="flex flex-1 items-center justify-center">
+                  <Alert className="max-w-md">
+                    <Trash2 className="size-4" />
+                    <AlertTitle>Marked for deletion</AlertTitle>
+                    <AlertDescription>
+                      Save the working copy to remove this file from the skill,
+                      or click Reset to keep it.
+                    </AlertDescription>
+                  </Alert>
+                </div>
+              ) : selectedFile.change?.kind === "upload" ? (
+                <div className="flex flex-1 items-center justify-center">
+                  <Alert className="max-w-md">
+                    <Upload className="size-4" />
+                    <AlertTitle>Replacement pending</AlertTitle>
+                    <AlertDescription>
+                      Save the working copy to upload and attach the
+                      replacement, or click Reset to keep the current file.
+                    </AlertDescription>
+                  </Alert>
                 </div>
               ) : currentTextValue !== null &&
                 isEditablePath(selectedFile.path) ? (

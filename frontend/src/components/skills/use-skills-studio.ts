@@ -1,7 +1,14 @@
 "use client"
 
 import { useRouter } from "next/navigation"
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import {
+  type ChangeEvent,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react"
 import type {
   SkillDraftAttachUploadedBlobOp,
   SkillDraftDeleteFileOp,
@@ -80,6 +87,8 @@ type UseSkillsStudioReturn = {
   onEditorChange: (nextValue: string) => void
   onUndoSelectedFileChange: () => void
   onSaveWorkingCopy: () => Promise<void>
+  onDeleteSelectedFile: () => void
+  onReplaceSelectedFile: (event: ChangeEvent<HTMLInputElement>) => void
 
   // Inline create
   pendingCreate: boolean
@@ -119,6 +128,31 @@ type UseSkillsStudioReturn = {
 type DraftChangesForSkill = Record<string, DraftChange>
 
 const EMPTY_DRAFT_CHANGES: DraftChangesForSkill = {}
+
+function remapDraftChangesAfterMove(
+  changes: DraftChangesForSkill,
+  ops: ReadonlyArray<SkillDraftMoveFileOp>
+): DraftChangesForSkill {
+  if (ops.length === 0) {
+    return changes
+  }
+  const map = new Map<string, string>()
+  for (const op of ops) {
+    map.set(op.from_path, op.to_path)
+  }
+  let mutated = false
+  const next: DraftChangesForSkill = {}
+  for (const [path, change] of Object.entries(changes)) {
+    const moved = map.get(path)
+    if (moved && moved !== path) {
+      next[moved] = change
+      mutated = true
+    } else {
+      next[path] = change
+    }
+  }
+  return mutated ? next : changes
+}
 
 function describeMoveError(error: unknown): string {
   switch (getApiErrorCode(error)) {
@@ -346,6 +380,40 @@ export function useSkillsStudio(params: {
     })
   }
 
+  const handleDeleteSelectedFile = () => {
+    if (!selectedFile) {
+      return
+    }
+    updateDraftChanges((current) => {
+      if (selectedFile.isNew) {
+        const next = { ...current }
+        delete next[selectedFile.path]
+        return next
+      }
+      return {
+        ...current,
+        [selectedFile.path]: { kind: "delete" },
+      }
+    })
+  }
+
+  const handleReplaceSelectedFile = (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    if (!selectedFile || !file) {
+      event.target.value = ""
+      return
+    }
+    updateDraftChanges((current) => ({
+      ...current,
+      [selectedFile.path]: {
+        kind: "upload",
+        file,
+        contentType: file.type || "application/octet-stream",
+      },
+    }))
+    event.target.value = ""
+  }
+
   const handleSubmitCreate = (rawPath: string) => {
     const path = rawPath.trim()
     if (!path) {
@@ -473,6 +541,9 @@ export function useSkillsStudio(params: {
           operations,
         },
       })
+      updateDraftChanges((current) =>
+        remapDraftChangesAfterMove(current, operations)
+      )
       const movedSelection = operations.find(
         (op) => op.from_path === selectedPath
       )
@@ -578,6 +649,9 @@ export function useSkillsStudio(params: {
           operations,
         },
       })
+      updateDraftChanges((current) =>
+        remapDraftChangesAfterMove(current, operations)
+      )
       const movedSelection = operations.find(
         (op) => op.from_path === selectedPath
       )
@@ -735,6 +809,8 @@ export function useSkillsStudio(params: {
     onSelectPath: setSelectedPath,
     onEditorChange: handleEditorChange,
     onUndoSelectedFileChange: handleUndoSelectedFileChange,
+    onDeleteSelectedFile: handleDeleteSelectedFile,
+    onReplaceSelectedFile: handleReplaceSelectedFile,
     onSaveWorkingCopy: handleSaveWorkingCopy,
 
     pendingCreate,

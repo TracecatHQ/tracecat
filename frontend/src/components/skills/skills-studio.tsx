@@ -31,6 +31,8 @@ function SkillsStudioContent() {
           onEditorChange={studio.onEditorChange}
           onUndoSelectedFileChange={studio.onUndoSelectedFileChange}
           onSaveWorkingCopy={studio.onSaveWorkingCopy}
+          onDeleteSelectedFile={studio.onDeleteSelectedFile}
+          onReplaceSelectedFile={studio.onReplaceSelectedFile}
           pendingCreate={studio.pendingCreate}
           pendingCreateError={studio.pendingCreateError}
           onBeginCreate={studio.onBeginCreate}
