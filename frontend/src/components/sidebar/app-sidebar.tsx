@@ -13,6 +13,7 @@ import {
   Plus,
   Pyramid,
   Table2Icon,
+  TerminalIcon,
   UsersIcon,
   VariableIcon,
   WorkflowIcon,
@@ -117,6 +118,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const canViewInbox = useScopeCheck("inbox:read")
   const canViewMembers = useScopeCheck("workspace:member:read")
   const canViewServiceAccounts = useScopeCheck("workspace:service_account:read")
+  const canViewMcpAccess = useScopeCheck("workspace:read")
   const canViewCases = useScopeCheck("case:read")
   const shouldLoadEntitlements =
     canViewAgents === true || canViewServiceAccounts === true
@@ -463,6 +465,14 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                   isActive: pathname?.startsWith(
                     `${basePath}/service-accounts`
                   ),
+                }
+              : null,
+            canViewMcpAccess === true
+              ? {
+                  title: "MCP access",
+                  href: `${basePath}/mcp`,
+                  icon: TerminalIcon,
+                  isActive: pathname?.startsWith(`${basePath}/mcp`),
                 }
               : null,
           ].filter((item) => item !== null)}

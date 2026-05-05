@@ -1437,6 +1437,35 @@ function ServiceAccountsActions() {
   )
 }
 
+function McpAccessActions() {
+  const canReadWorkspace = useScopeCheck("workspace:read")
+  const pathname = usePathname()
+  const searchParams = useSearchParams()
+  const router = useRouter()
+
+  if (canReadWorkspace !== true || !pathname) {
+    return null
+  }
+
+  return (
+    <Button
+      variant="outline"
+      size="sm"
+      className="h-7 bg-white"
+      onClick={() => {
+        const params = new URLSearchParams(searchParams?.toString())
+        params.set("createMcpToken", Date.now().toString())
+        router.replace(`${pathname}?${params.toString()}`, {
+          scroll: false,
+        })
+      }}
+    >
+      <Plus className="mr-1 h-3.5 w-3.5" />
+      Create token
+    </Button>
+  )
+}
+
 function VariablesActions() {
   return (
     <NewVariableDialog>
@@ -1789,6 +1818,13 @@ function getPageConfig(
     return {
       title: "Service accounts",
       actions: <ServiceAccountsActions />,
+    }
+  }
+
+  if (pagePath.startsWith("/mcp")) {
+    return {
+      title: "MCP access",
+      actions: <McpAccessActions />,
     }
   }
 

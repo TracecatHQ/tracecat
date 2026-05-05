@@ -408,6 +408,12 @@ import type {
   McpIntegrationsListMcpIntegrationsResponse,
   McpIntegrationsUpdateMcpIntegrationData,
   McpIntegrationsUpdateMcpIntegrationResponse,
+  McpPersonalAccessTokensCreateMcpPersonalAccessTokenData,
+  McpPersonalAccessTokensCreateMcpPersonalAccessTokenResponse,
+  McpPersonalAccessTokensListMcpPersonalAccessTokensData,
+  McpPersonalAccessTokensListMcpPersonalAccessTokensResponse,
+  McpPersonalAccessTokensRevokeMcpPersonalAccessTokenData,
+  McpPersonalAccessTokensRevokeMcpPersonalAccessTokenResponse,
   OrganizationAcceptInvitationData,
   OrganizationAcceptInvitationResponse,
   OrganizationCreateInvitationData,
@@ -1695,6 +1701,85 @@ export const serviceAccountsRevokeWorkspaceServiceAccountApiKey = (
     path: {
       service_account_id: data.serviceAccountId,
       api_key_id: data.apiKeyId,
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List Mcp Personal Access Tokens
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.limit
+ * @param data.cursor
+ * @param data.reverse
+ * @returns CursorPaginatedResponse_MCPPersonalAccessTokenRead_ Successful Response
+ * @throws ApiError
+ */
+export const mcpPersonalAccessTokensListMcpPersonalAccessTokens = (
+  data: McpPersonalAccessTokensListMcpPersonalAccessTokensData
+): CancelablePromise<McpPersonalAccessTokensListMcpPersonalAccessTokensResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/workspaces/{workspace_id}/mcp-personal-access-tokens",
+    path: {
+      workspace_id: data.workspaceId,
+    },
+    query: {
+      limit: data.limit,
+      cursor: data.cursor,
+      reverse: data.reverse,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Create Mcp Personal Access Token
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns MCPPersonalAccessTokenIssueResponse Successful Response
+ * @throws ApiError
+ */
+export const mcpPersonalAccessTokensCreateMcpPersonalAccessToken = (
+  data: McpPersonalAccessTokensCreateMcpPersonalAccessTokenData
+): CancelablePromise<McpPersonalAccessTokensCreateMcpPersonalAccessTokenResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/workspaces/{workspace_id}/mcp-personal-access-tokens",
+    path: {
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Revoke Mcp Personal Access Token
+ * @param data The data for the request.
+ * @param data.tokenId
+ * @param data.workspaceId
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const mcpPersonalAccessTokensRevokeMcpPersonalAccessToken = (
+  data: McpPersonalAccessTokensRevokeMcpPersonalAccessTokenData
+): CancelablePromise<McpPersonalAccessTokensRevokeMcpPersonalAccessTokenResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/workspaces/{workspace_id}/mcp-personal-access-tokens/{token_id}/revoke",
+    path: {
+      token_id: data.tokenId,
       workspace_id: data.workspaceId,
     },
     errors: {
