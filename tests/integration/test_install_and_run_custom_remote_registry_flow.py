@@ -19,6 +19,7 @@ from datetime import timedelta
 import pytest
 import requests
 from pydantic import SecretStr, ValidationError
+from sqlalchemy import select
 from temporalio.client import WorkflowFailureError
 from temporalio.common import RetryPolicy
 
@@ -26,6 +27,9 @@ from tests.shared import generate_test_exec_id, to_data
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.contexts import ctx_role
+from tracecat.db.engine import get_async_session_bypass_rls_context_manager
+from tracecat.db.models import OrganizationMembership, User, UserRoleAssignment
+from tracecat.db.models import Role as DBRole
 from tracecat.dsl.client import get_temporal_client
 from tracecat.dsl.common import DSLEntrypoint, DSLInput, DSLRunArgs
 from tracecat.dsl.schemas import ActionStatement
@@ -40,12 +44,68 @@ from tracecat.settings.schemas import GitSettingsUpdate
 GIT_SSH_URL = "git+ssh://git@github.com/TracecatHQ/internal-registry.git"
 KNOWN_GOOD_REMOTE_COMMIT_SHA = "e2bfd94c35c93f8052c2b97ff542961596ddd3f8"
 PLACEHOLDER_TARBALL_URI = "s3://test/test.tar.gz"
+TEST_USER_EMAIL = "test@tracecat.com"
 
 
 def _assert_response_ok(response: requests.Response, action: str) -> None:
     assert response.status_code == 200, (
         f"{action} failed: {response.status_code} - {response.text}"
     )
+
+
+async def _ensure_org_owner_membership(
+    *,
+    email: str,
+    organization_id: uuid.UUID,
+) -> None:
+    async with get_async_session_bypass_rls_context_manager() as db_session:
+        user = await db_session.scalar(
+            select(User).where(User.email == email)  # pyright: ignore[reportArgumentType]
+        )
+        assert user is not None, f"Test user {email} was not found"
+
+        membership = await db_session.scalar(
+            select(OrganizationMembership).where(
+                OrganizationMembership.user_id == user.id,
+                OrganizationMembership.organization_id == organization_id,
+            )
+        )
+        if membership is None:
+            db_session.add(
+                OrganizationMembership(
+                    user_id=user.id,
+                    organization_id=organization_id,
+                )
+            )
+
+        owner_role = await db_session.scalar(
+            select(DBRole).where(
+                DBRole.organization_id == organization_id,
+                DBRole.slug == "organization-owner",
+            )
+        )
+        assert owner_role is not None, "organization-owner role is not seeded"
+
+        assignment = await db_session.scalar(
+            select(UserRoleAssignment).where(
+                UserRoleAssignment.user_id == user.id,
+                UserRoleAssignment.organization_id == organization_id,
+                UserRoleAssignment.workspace_id.is_(None),
+            )
+        )
+        if assignment is None:
+            db_session.add(
+                UserRoleAssignment(
+                    organization_id=organization_id,
+                    user_id=user.id,
+                    workspace_id=None,
+                    role_id=owner_role.id,
+                )
+            )
+        else:
+            assignment.role_id = owner_role.id
+
+        await db_session.commit()
 
 
 def _builtin_versions(
@@ -215,7 +275,7 @@ async def test_remote_custom_registry_repo() -> None:
     # First, try to register the test user (in case it doesn't exist)
     register_response = session.post(
         f"{base_url}/auth/register",
-        json={"email": "test@tracecat.com", "password": "password1234"},
+        json={"email": TEST_USER_EMAIL, "password": "password1234"},
     )
     if register_response.status_code == 201:
         logger.info("Successfully registered test user")
@@ -229,7 +289,7 @@ async def test_remote_custom_registry_repo() -> None:
     # Login with test credentials
     login_response = session.post(
         f"{base_url}/auth/login",
-        data={"username": "test@tracecat.com", "password": "password1234"},
+        data={"username": TEST_USER_EMAIL, "password": "password1234"},
     )
     assert login_response.status_code == 204, f"Login failed: {login_response.text}"
     logger.info("Successfully logged in with test credentials")
@@ -245,6 +305,11 @@ async def test_remote_custom_registry_repo() -> None:
     org_id = orgs_list[0]["id"]
     session.cookies.set("tracecat-org-id", org_id)
     logger.info("Set organization context", organization_id=org_id)
+    await _ensure_org_owner_membership(
+        email=TEST_USER_EMAIL,
+        organization_id=uuid.UUID(org_id),
+    )
+    logger.info("Ensured tenant membership for test user", organization_id=org_id)
 
     logger.info("Ensuring builtin platform registry tarball is synced")
     _sync_builtin_platform_registry(session, base_url)
