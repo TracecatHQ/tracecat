@@ -8,6 +8,7 @@ from typing_extensions import Doc
 
 from tracecat_registry import registry
 from tracecat_registry.context import get_context
+from tracecat_registry.sdk.agents import CursorPage
 
 
 @registry.register(
@@ -23,7 +24,7 @@ async def list_skills(
         str | None, Doc("Optional cursor from a previous response.")
     ] = None,
     reverse: Annotated[bool, Doc("Whether to reverse sort order.")] = False,
-) -> dict[str, Any]:
+) -> CursorPage:
     return await get_context().agents.list_skills(
         limit=limit, cursor=cursor, reverse=reverse
     )
