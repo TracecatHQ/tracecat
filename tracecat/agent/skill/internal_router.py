@@ -206,10 +206,13 @@ async def list_skill_versions(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Skill '{skill_id}' not found",
         )
-    return await service.list_versions(
-        skill_id=skill_id,
-        params=CursorPaginationParams(limit=limit, cursor=cursor, reverse=reverse),
-    )
+    try:
+        return await service.list_versions(
+            skill_id=skill_id,
+            params=CursorPaginationParams(limit=limit, cursor=cursor, reverse=reverse),
+        )
+    except TracecatValidationError as exc:
+        _raise_skill_validation_error(exc)
 
 
 @router.get("/{skill_id}/versions/{version_id}", response_model=SkillVersionRead)
