@@ -115,6 +115,14 @@ class TracecatNotFoundError(TracecatException):
     """Raised when a resource is not found in the Tracecat database."""
 
 
+class TracecatConflictError(TracecatException):
+    """Raised when a request conflicts with current resource state.
+
+    Maps to HTTP 409 at the router layer. Use for unique-constraint-style
+    violations (e.g., duplicate names, paths, or slugs within a workspace).
+    """
+
+
 class TracecatServiceError(TracecatException):
     """Tracecat generic user-facing service error"""
 
