@@ -61,9 +61,12 @@ async def list_skills(
     reverse: bool = Query(default=False),
 ) -> CursorPaginatedResponse[SkillReadMinimal]:
     service = SkillService(session, role=role)
-    return await service.list_skills(
-        CursorPaginationParams(limit=limit, cursor=cursor, reverse=reverse)
-    )
+    try:
+        return await service.list_skills(
+            CursorPaginationParams(limit=limit, cursor=cursor, reverse=reverse)
+        )
+    except TracecatValidationError as exc:
+        _raise_skill_validation_error(exc)
 
 
 @router.post("", response_model=SkillRead, status_code=status.HTTP_201_CREATED)
