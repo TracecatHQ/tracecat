@@ -170,6 +170,18 @@ variable "tracecat_image_tag" {
   default = "1.0.0-beta.47"
 }
 
+variable "tracecat_migrations_image" {
+  type        = string
+  description = "Docker image repository for the Tracecat migrations init container. Defaults to tracecat_image."
+  default     = null
+}
+
+variable "tracecat_migrations_image_tag" {
+  type        = string
+  description = "Docker image tag for the Tracecat migrations init container. Defaults to tracecat_image_tag."
+  default     = null
+}
+
 variable "temporal_server_image" {
   type    = string
   default = "temporalio/auto-setup"

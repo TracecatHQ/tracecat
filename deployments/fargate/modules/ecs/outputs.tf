@@ -3,6 +3,16 @@ output "tracecat_image_tag" {
   value       = local.tracecat_image_tag
 }
 
+output "tracecat_migrations_image" {
+  description = "The Tracecat migrations init container image repository"
+  value       = local.tracecat_migrations_image
+}
+
+output "tracecat_migrations_image_tag" {
+  description = "The Tracecat migrations init container image tag"
+  value       = local.tracecat_migrations_image_tag
+}
+
 output "ecs_cluster_name" {
   description = "ECS cluster name"
   value       = aws_ecs_cluster.tracecat_cluster.name

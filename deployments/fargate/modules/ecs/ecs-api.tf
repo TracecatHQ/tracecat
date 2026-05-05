@@ -16,7 +16,7 @@ resource "aws_ecs_task_definition" "api_task_definition" {
   container_definitions = jsonencode([
     {
       name      = "TracecatApiMigrationsContainer"
-      image     = "${var.tracecat_image}:${local.tracecat_image_tag}"
+      image     = "${local.tracecat_migrations_image}:${local.tracecat_migrations_image_tag}"
       essential = false
       command   = ["python3", "-m", "alembic", "upgrade", "head"]
       logConfiguration = {

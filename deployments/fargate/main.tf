@@ -50,14 +50,16 @@ module "ecs" {
   hosted_zone_id = var.hosted_zone_id
 
   # Tracecat version
-  tracecat_image            = var.tracecat_image
-  tracecat_ui_image         = var.tracecat_ui_image
-  tracecat_image_tag        = var.tracecat_image_tag
-  temporal_server_image     = var.temporal_server_image
-  temporal_server_image_tag = var.temporal_server_image_tag
-  temporal_ui_image         = var.temporal_ui_image
-  temporal_ui_image_tag     = var.temporal_ui_image_tag
-  force_new_deployment      = var.force_new_deployment
+  tracecat_image                = var.tracecat_image
+  tracecat_ui_image             = var.tracecat_ui_image
+  tracecat_image_tag            = var.tracecat_image_tag
+  tracecat_migrations_image     = var.tracecat_migrations_image
+  tracecat_migrations_image_tag = var.tracecat_migrations_image_tag
+  temporal_server_image         = var.temporal_server_image
+  temporal_server_image_tag     = var.temporal_server_image_tag
+  temporal_ui_image             = var.temporal_ui_image
+  temporal_ui_image_tag         = var.temporal_ui_image_tag
+  force_new_deployment          = var.force_new_deployment
 
   # Temporal configuration
   disable_temporal_ui        = var.disable_temporal_ui
