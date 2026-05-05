@@ -20,6 +20,16 @@ output "tracecat_image_tag" {
   value       = module.ecs.tracecat_image_tag
 }
 
+output "tracecat_migrations_image" {
+  description = "The Tracecat migrations init container image repository"
+  value       = module.ecs.tracecat_migrations_image
+}
+
+output "tracecat_migrations_image_tag" {
+  description = "The Tracecat migrations init container image tag"
+  value       = module.ecs.tracecat_migrations_image_tag
+}
+
 output "ecs_cluster_name" {
   description = "ECS cluster name"
   value       = module.ecs.ecs_cluster_name
