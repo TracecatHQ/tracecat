@@ -183,7 +183,7 @@ async def test_create_organization_invitation_rejects_existing_member(
 
 
 @pytest.mark.anyio
-async def test_create_organization_invitation_rejects_existing_superuser(
+async def test_create_organization_invitation_allows_existing_superuser(
     session: AsyncSession,
     org: Organization,
     org_roles: dict[str, DBRole],
@@ -202,24 +202,20 @@ async def test_create_organization_invitation_rejects_existing_superuser(
     await session.commit()
 
     service = AdminOrgService(session, platform_role)
-    with pytest.raises(
-        TracecatValidationError,
-        match="Invitation cannot be created for this email",
-    ):
-        await service.create_organization_invitation(
-            org.id,
-            AdminOrgInvitationCreate(
-                email=superuser.email,
-                role_slug="organization-member",
-            ),
-        )
+    invitation = await service.create_organization_invitation(
+        org.id,
+        AdminOrgInvitationCreate(
+            email=superuser.email,
+            role_slug="organization-member",
+        ),
+    )
 
     invitation_id = await session.scalar(
         select(OrganizationInvitation.id).where(
             OrganizationInvitation.email == superuser.email
         )
     )
-    assert invitation_id is None
+    assert invitation_id == invitation.id
     assert org_roles["organization-member"].organization_id == org.id
 
 

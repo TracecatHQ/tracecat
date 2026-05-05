@@ -69,7 +69,6 @@ from tracecat.mcp.oidc.features import (
     OFFLINE_ACCESS_SCOPE,
     get_supported_scopes,
 )
-from tracecat.organization.management import get_default_organization_id
 
 
 class MCPTokenIdentity(BaseModel):
@@ -1145,14 +1144,6 @@ async def resolve_workspace_membership(
         return WorkspaceRole.EDITOR
 
 
-def _raise_if_multi_tenant_superuser(user: User) -> None:
-    """Block platform superusers from tenant MCP context in multi-tenant mode."""
-    if config.TRACECAT__EE_MULTI_TENANT and user.is_superuser:
-        raise ValueError(
-            "Platform superusers cannot access tenant MCP context in multi-tenant mode"
-        )
-
-
 async def resolve_role(email: str, workspace_id: WorkspaceID) -> Role:
     """Resolve a user's Role for a given workspace from their OAuth email.
 
@@ -1160,10 +1151,8 @@ async def resolve_role(email: str, workspace_id: WorkspaceID) -> Role:
 
     Org admins/owners (users with ``org:workspace:read`` scope) bypass the
     workspace-level membership check, matching the behaviour of the main API.
-    Single-tenant platform superusers also bypass direct membership checks.
     """
     user = await resolve_user_by_email(email)
-    _raise_if_multi_tenant_superuser(user)
 
     org_id = await resolve_workspace_org(workspace_id)
 
@@ -1174,12 +1163,11 @@ async def resolve_role(email: str, workspace_id: WorkspaceID) -> Role:
         workspace_id=workspace_id,
         organization_id=org_id,
         service_id="tracecat-mcp",
-        is_platform_superuser=user.is_superuser,
     )
     scopes = await compute_effective_scopes(role)
 
-    # Platform superusers and org admins/owners can access any workspace.
-    if not user.is_superuser and not has_scope(scopes, "org:workspace:read"):
+    # Org admins/owners can access any workspace in their org.
+    if not has_scope(scopes, "org:workspace:read"):
         await resolve_workspace_membership(user.id, workspace_id)
 
     role = role.model_copy(update={"scopes": scopes})
@@ -1195,13 +1183,11 @@ async def list_user_workspaces(
 ) -> list[dict[str, str]]:
     """List workspaces accessible to the user.
 
-    Users with ``org:workspace:read`` scope (org admins/owners) or platform
-    superusers in single-tenant mode see every workspace in their
-    organization(s). Other users see only workspaces where they have an explicit
-    Membership row.
+    Users with ``org:workspace:read`` scope (org admins/owners) see every
+    workspace in their organization(s). Other users see only workspaces where
+    they have an explicit Membership row.
     """
     user = await resolve_user_by_email(email)
-    _raise_if_multi_tenant_superuser(user)
 
     async with get_async_session_bypass_rls_context_manager() as session:
 
@@ -1222,17 +1208,6 @@ async def list_user_workspaces(
                 member_result.tuples().all(),
                 key=lambda item: (item[1], str(item[0])),
             )
-
-        if user.is_superuser:
-            stmt = select(Workspace.id, Workspace.name)
-            if organization_ids:
-                stmt = stmt.where(Workspace.organization_id.in_(organization_ids))
-            stmt = stmt.order_by(Workspace.name.asc(), Workspace.id.asc())
-            result = await session.execute(stmt)
-            return [
-                {"id": str(workspace_id), "name": workspace_name}
-                for workspace_id, workspace_name in result.tuples().all()
-            ]
 
         # Resolve the user's organization(s)
         org_stmt = select(OrganizationMembership.organization_id).where(
@@ -1260,7 +1235,6 @@ async def list_user_workspaces(
                 organization_id=oid,
                 workspace_id=None,
                 service_id="tracecat-mcp",
-                is_platform_superuser=user.is_superuser,
             )
             scopes = await compute_effective_scopes(role)
             if has_scope(scopes, "org:workspace:read"):
@@ -1319,27 +1293,21 @@ async def resolve_org_role_for_request() -> Role:
     an ``organization_id`` claim or ``org:<uuid>`` scope, that scoping is
     intersected with the user's memberships before the ambiguity check, so a
     single-org-scoped token resolves cleanly even when the user belongs to
-    multiple orgs overall. Single-tenant platform superusers fall back to
-    the default organization (matching ``_resolve_org_for_superuser``) so
-    they can use org-scoped tools without an explicit OrganizationMembership.
+    multiple orgs overall.
     """
     identity = get_token_identity()
     if identity.email is None:
         raise ValueError("Token does not contain an email claim")
 
     user = await resolve_user_by_email(identity.email)
-    _raise_if_multi_tenant_superuser(user)
 
     async with get_async_session_bypass_rls_context_manager() as session:
-        if user.is_superuser and not config.TRACECAT__EE_MULTI_TENANT:
-            org_ids = {await get_default_organization_id(session)}
-        else:
-            result = await session.execute(
-                select(OrganizationMembership.organization_id).where(
-                    OrganizationMembership.user_id == user.id
-                )
+        result = await session.execute(
+            select(OrganizationMembership.organization_id).where(
+                OrganizationMembership.user_id == user.id
             )
-            org_ids = {row[0] for row in result.all()}
+        )
+        org_ids = {row[0] for row in result.all()}
 
     if identity.organization_ids:
         org_ids &= identity.organization_ids
@@ -1365,7 +1333,6 @@ async def resolve_org_role_for_request() -> Role:
         workspace_id=None,
         organization_id=organization_id,
         service_id="tracecat-mcp",
-        is_platform_superuser=user.is_superuser,
     )
     scopes = await compute_effective_scopes(role)
     role = role.model_copy(update={"scopes": scopes})

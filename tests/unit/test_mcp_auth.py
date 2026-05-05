@@ -1001,7 +1001,7 @@ async def test_list_workspaces_for_request_reads_email_from_upstream_claims(
 
 
 @pytest.mark.anyio
-async def test_resolve_role_allows_single_tenant_superuser_without_org_membership(
+async def test_resolve_role_superuser_uses_rbac_for_workspace_access(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     user_id = uuid.uuid4()
@@ -1016,7 +1016,8 @@ async def test_resolve_role_allows_single_tenant_superuser_without_org_membershi
         return organization_id
 
     async def _compute_effective_scopes(_role) -> frozenset[str]:
-        return frozenset({"*"})
+        assert _role.is_platform_superuser is False
+        return frozenset({"org:workspace:read"})
 
     async def _resolve_workspace_membership(
         _user_id: uuid.UUID, _workspace_id: uuid.UUID
@@ -1038,29 +1039,44 @@ async def test_resolve_role_allows_single_tenant_superuser_without_org_membershi
     assert role.user_id == user_id
     assert role.workspace_id == workspace_id
     assert role.organization_id == organization_id
-    assert role.scopes == frozenset({"*"})
+    assert role.is_platform_superuser is False
+    assert role.scopes == frozenset({"org:workspace:read"})
 
 
 @pytest.mark.anyio
-async def test_resolve_role_rejects_multi_tenant_superuser(
+async def test_resolve_role_requires_superuser_workspace_membership_without_org_admin(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     workspace_id = uuid.uuid4()
+    organization_id = uuid.uuid4()
 
     async def _resolve_user_by_email(_email: str) -> SimpleNamespace:
         return SimpleNamespace(id=uuid.uuid4(), is_superuser=True)
 
     async def _resolve_workspace_org(_workspace_id: uuid.UUID) -> uuid.UUID:
-        raise AssertionError("superusers should be blocked before workspace lookup")
+        assert _workspace_id == workspace_id
+        return organization_id
+
+    async def _compute_effective_scopes(_role) -> frozenset[str]:
+        assert _role.is_platform_superuser is False
+        return frozenset()
+
+    async def _resolve_workspace_membership(
+        _user_id: uuid.UUID, _workspace_id: uuid.UUID
+    ) -> None:
+        raise ValueError("no access")
 
     monkeypatch.setattr(mcp_auth, "resolve_user_by_email", _resolve_user_by_email)
     monkeypatch.setattr(mcp_auth, "resolve_workspace_org", _resolve_workspace_org)
+    monkeypatch.setattr(mcp_auth, "compute_effective_scopes", _compute_effective_scopes)
+    monkeypatch.setattr(
+        mcp_auth,
+        "resolve_workspace_membership",
+        _resolve_workspace_membership,
+    )
     monkeypatch.setattr(mcp_auth.config, "TRACECAT__EE_MULTI_TENANT", True)
 
-    with pytest.raises(
-        ValueError,
-        match="Platform superusers cannot access tenant MCP context",
-    ):
+    with pytest.raises(ValueError, match="no access"):
         await mcp_auth.resolve_role("admin@example.com", workspace_id)
 
 
@@ -1180,28 +1196,78 @@ async def test_list_user_workspaces_includes_direct_memberships_without_org_memb
 
 
 @pytest.mark.anyio
-async def test_list_user_workspaces_rejects_multi_tenant_superuser(
+async def test_list_user_workspaces_for_superuser_uses_membership_rows(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    async def _resolve_user_by_email(_email: str) -> SimpleNamespace:
-        return SimpleNamespace(id=uuid.uuid4(), is_superuser=True)
+    user_id = uuid.uuid4()
+    workspace_id = uuid.uuid4()
 
-    def _bypass_session_manager():
-        raise AssertionError("superusers should be blocked before workspace listing")
+    class _ScalarResult:
+        def __init__(self, values: list[uuid.UUID]) -> None:
+            self._values = values
+
+        def all(self) -> list[uuid.UUID]:
+            return self._values
+
+    class _TupleResult:
+        def __init__(self, values: list[tuple[uuid.UUID, str]]) -> None:
+            self._values = values
+
+        def all(self) -> list[tuple[uuid.UUID, str]]:
+            return self._values
+
+    class _Result:
+        def __init__(
+            self,
+            *,
+            scalars: list[uuid.UUID] | None = None,
+            tuples: list[tuple[uuid.UUID, str]] | None = None,
+        ) -> None:
+            self._scalars = scalars or []
+            self._tuples = tuples or []
+
+        def scalars(self) -> _ScalarResult:
+            return _ScalarResult(self._scalars)
+
+        def tuples(self) -> _TupleResult:
+            return _TupleResult(self._tuples)
+
+    class _Session:
+        def __init__(self) -> None:
+            self._calls = 0
+
+        async def execute(self, _stmt):
+            self._calls += 1
+            if self._calls == 1:
+                return _Result(scalars=[])
+            if self._calls == 2:
+                return _Result(tuples=[(workspace_id, "Workspace A")])
+            raise AssertionError("unexpected extra query")
+
+    class _AsyncContext:
+        def __init__(self, session: _Session) -> None:
+            self._session = session
+
+        async def __aenter__(self) -> _Session:
+            return self._session
+
+        async def __aexit__(self, exc_type, exc, tb) -> None:
+            return None
+
+    async def _resolve_user_by_email(_email: str) -> SimpleNamespace:
+        return SimpleNamespace(id=user_id, is_superuser=True)
 
     monkeypatch.setattr(mcp_auth, "resolve_user_by_email", _resolve_user_by_email)
     monkeypatch.setattr(
         mcp_auth,
         "get_async_session_bypass_rls_context_manager",
-        _bypass_session_manager,
+        lambda: _AsyncContext(_Session()),
     )
     monkeypatch.setattr(mcp_auth.config, "TRACECAT__EE_MULTI_TENANT", True)
 
-    with pytest.raises(
-        ValueError,
-        match="Platform superusers cannot access tenant MCP context",
-    ):
-        await mcp_auth.list_user_workspaces("admin@example.com")
+    workspaces = await mcp_auth.list_user_workspaces("admin@example.com")
+
+    assert workspaces == [{"id": str(workspace_id), "name": "Workspace A"}]
 
 
 @pytest.mark.anyio
@@ -1406,26 +1472,19 @@ async def test_resolve_org_role_token_scoped_to_unowned_org_errors(
 
 
 @pytest.mark.anyio
-async def test_resolve_org_role_single_tenant_superuser_uses_default_org(
+async def test_resolve_org_role_superuser_uses_membership_org(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Single-tenant superusers without memberships fall back to default org."""
-    default_org = uuid.uuid4()
+    """Superuser accounts resolve org-scoped MCP roles from memberships."""
+    org_id = uuid.uuid4()
     _patch_resolve_org_role_deps(
         monkeypatch,
         identity_org_ids=frozenset(),
-        membership_org_ids=[],  # superuser with no memberships
+        membership_org_ids=[org_id],
         is_superuser=True,
-    )
-
-    async def _get_default_organization_id(_session) -> uuid.UUID:
-        return default_org
-
-    monkeypatch.setattr(
-        mcp_auth, "get_default_organization_id", _get_default_organization_id
     )
 
     role = await mcp_auth.resolve_org_role_for_request()
 
-    assert role.organization_id == default_org
-    assert role.is_platform_superuser is True
+    assert role.organization_id == org_id
+    assert role.is_platform_superuser is False

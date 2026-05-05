@@ -4,14 +4,14 @@ import {
 } from "@/lib/auth-redirect"
 
 describe("getPostAuthRedirectPath", () => {
-  it("forces multi-tenant superusers into admin", () => {
+  it("keeps multi-tenant superusers on normal app routes", () => {
     expect(
       getPostAuthRedirectPath({
         isSuperuser: true,
         eeMultiTenant: true,
         returnUrl: "/workspaces/tenant-path",
       })
-    ).toBe("/admin")
+    ).toBe("/workspaces/tenant-path")
   })
 
   it("honors MCP OAuth continuation paths for multi-tenant superusers", () => {
@@ -41,7 +41,7 @@ describe("getPostAuthRedirectPath", () => {
         eeMultiTenant: true,
         returnUrl: "/oauth/mcp/continue-later?txn=abc123",
       })
-    ).toBe("/admin")
+    ).toBe("/oauth/mcp/continue-later?txn=abc123")
   })
 
   it("keeps single-tenant superusers on normal app routes", () => {

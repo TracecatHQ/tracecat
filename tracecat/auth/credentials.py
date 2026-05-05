@@ -41,7 +41,6 @@ from tracecat.auth.secrets import get_service_key
 from tracecat.auth.types import PlatformRole, Role
 from tracecat.auth.users import (
     current_active_user,
-    is_unprivileged,
     optional_current_active_user,
 )
 from tracecat.authz.controls import has_scope
@@ -68,7 +67,6 @@ from tracecat.db.models import (
 from tracecat.db.rls import set_rls_context, set_rls_context_from_role
 from tracecat.identifiers import InternalServiceID
 from tracecat.logger import logger
-from tracecat.organization.management import get_default_organization_id
 from tracecat.tiers.access import is_org_entitled
 from tracecat.tiers.enums import Entitlement
 
@@ -125,7 +123,7 @@ async def compute_effective_scopes(role: Role) -> frozenset[str]:
     scopes through Role → RoleScope → Scope.
 
     Scope computation follows this hierarchy:
-    1. Platform superusers get "*" (all scopes)
+    1. Roles explicitly executing with platform-superuser privileges get "*"
     2. Service principals (non-user flows) use static allowlist scopes
     3. Direct user role assignments (org-wide and workspace-specific)
     4. Group role assignments (org-wide and workspace-specific)
@@ -232,6 +230,7 @@ def get_role_from_user(
     organization_id: uuid.UUID,
     workspace_id: uuid.UUID | None = None,
     service_id: InternalServiceID = "tracecat-api",
+    is_platform_superuser: bool = False,
 ) -> Role:
     return Role(
         type="user",
@@ -239,7 +238,7 @@ def get_role_from_user(
         organization_id=organization_id,
         user_id=user.id,
         service_id=service_id,
-        is_platform_superuser=user.is_superuser,
+        is_platform_superuser=is_platform_superuser,
     )
 
 
@@ -581,33 +580,6 @@ async def _get_membership_with_cache(
     return membership_with_org
 
 
-async def _resolve_org_for_superuser(
-    request: Request,
-    session: AsyncSession,
-) -> uuid.UUID:
-    """Resolve organization context for a superuser.
-
-    Multi-tenant superusers are platform-only operators and cannot resolve
-    tenant organization context through RoleACL. Single-tenant deployments keep
-    the historical default organization behavior.
-
-    Raises:
-        HTTPException(403): If a multi-tenant superuser tries to enter tenant context.
-    """
-    if not config.TRACECAT__EE_MULTI_TENANT:
-        default_org_id = await get_default_organization_id(session)
-        logger.debug(
-            "Multi-tenant disabled; using default organization",
-            organization_id=str(default_org_id),
-        )
-        return default_org_id
-
-    raise HTTPException(
-        status_code=status.HTTP_403_FORBIDDEN,
-        detail="Platform superusers cannot access tenant context",
-    )
-
-
 async def _resolve_org_for_regular_user(
     session: AsyncSession,
     user: User,
@@ -666,14 +638,12 @@ async def _authenticate_user(
 
     Handles:
     1. Workspace membership validation (if workspace_id provided)
-    2. Organization context resolution (superuser vs regular user)
+    2. Organization context resolution from tenant memberships
     3. Role construction (authorization is enforced via scopes, not enum roles)
     """
     organization_id: uuid.UUID
 
-    if user.is_superuser:
-        organization_id = await _resolve_org_for_superuser(request, session)
-    elif is_unprivileged(user) and workspace_id is not None:
+    if workspace_id is not None:
         resolved_org_id = await _get_workspace_org_id(workspace_id)
         if resolved_org_id is None:
             raise HTTPException(
@@ -696,7 +666,7 @@ async def _authenticate_user(
                 workspace_id=workspace_id,
             )
         else:
-            # Regular user - validate workspace membership
+            # Workspace member - validate direct workspace membership.
             await _get_membership_with_cache(
                 request=request,
                 session=session,
@@ -1313,12 +1283,13 @@ async def authenticated_user_only(
     - User profile operations that don't require org context
 
     Sets ctx_role for consistency but organization_id will be None.
+    This intentionally does not activate platform-superuser privileges; use
+    SuperuserRole for routes that need platform admin access.
     """
     role = Role(
         type="user",
         user_id=user.id,
         service_id="tracecat-api",
-        is_platform_superuser=user.is_superuser,
         # organization_id intentionally None - user may not belong to any org
     )
     scopes = await compute_effective_scopes(role)

@@ -379,7 +379,8 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
             await self._accept_invitation_atomically(user)
 
         # NOTE: We do NOT add users to any organization/workspace here unless invited.
-        # - Superusers have implicit access to all orgs (via is_platform_superuser)
+        # - Superusers get platform admin eligibility via User.is_superuser
+        # - Tenant access still comes from org/workspace membership and RBAC
         # - Regular users get org membership via invitation acceptance flow
         # - Workspace membership is managed separately by workspace admins
 
@@ -635,11 +636,6 @@ fastapi_users = FastAPIUserWithLogoutRouter[User, uuid.UUID](
 
 current_active_user = fastapi_users.current_user(active=True)
 optional_current_active_user = fastapi_users.current_user(active=True, optional=True)
-
-
-def is_unprivileged(user: User) -> bool:
-    """Check if a user is not privileged (i.e. not a superuser)."""
-    return not user.is_superuser
 
 
 async def get_or_create_user(params: UserCreate, exist_ok: bool = True) -> User:

@@ -934,7 +934,7 @@ class TestOrganizationServiceInvitations:
             )
 
     @pytest.mark.anyio
-    async def test_create_invitation_rejects_existing_superuser_account_in_multi_tenant(
+    async def test_create_invitation_allows_existing_superuser_account_in_multi_tenant(
         self,
         session: AsyncSession,
         org1: Organization,
@@ -942,7 +942,7 @@ class TestOrganizationServiceInvitations:
         org1_member_role: DBRole,
         monkeypatch: pytest.MonkeyPatch,
     ):
-        """Test create_invitation rejects platform superuser targets in multi-tenant mode."""
+        """Test superuser accounts can be invited as regular org members."""
         monkeypatch.setattr(config, "TRACECAT__EE_MULTI_TENANT", True)
         superuser = User(
             id=uuid.uuid4(),
@@ -959,21 +959,17 @@ class TestOrganizationServiceInvitations:
         role = create_admin_role(org1.id, admin_in_org1.id)
         service = OrgService(session, role=role)
 
-        with pytest.raises(
-            TracecatValidationError,
-            match="Invitation cannot be created for this email",
-        ):
-            await service.create_invitation(
-                email=superuser.email,
-                role_id=org1_member_role.id,
-            )
+        invitation = await service.create_invitation(
+            email=superuser.email,
+            role_id=org1_member_role.id,
+        )
 
         invitation_id = await session.scalar(
             select(OrganizationInvitation.id).where(
                 OrganizationInvitation.email == superuser.email
             )
         )
-        assert invitation_id is None
+        assert invitation_id == invitation.id
 
     @pytest.mark.anyio
     async def test_list_invitations_returns_org_invitations(
@@ -1261,7 +1257,7 @@ class TestOrganizationServiceInvitations:
         assert invitation.accepted_at is not None
 
     @pytest.mark.anyio
-    async def test_accept_invitation_rejects_superuser_account_in_multi_tenant(
+    async def test_accept_invitation_allows_superuser_account_in_multi_tenant(
         self,
         session: AsyncSession,
         org1: Organization,
@@ -1270,56 +1266,61 @@ class TestOrganizationServiceInvitations:
         org1_member_role: DBRole,
         monkeypatch: pytest.MonkeyPatch,
     ):
-        """Test multi-tenant superuser accounts cannot accept org invitations."""
+        """Test multi-tenant superuser accounts accept org invitations as users."""
         monkeypatch.setattr(config, "TRACECAT__EE_MULTI_TENANT", True)
-        superuser = User(
+        standalone_superuser = User(
             id=uuid.uuid4(),
-            email=f"superuser-{uuid.uuid4().hex[:8]}@example.com",
+            email=f"standalone-superuser-{uuid.uuid4().hex[:8]}@example.com",
             hashed_password="hashed",
             role=UserRole.ADMIN,
             is_active=True,
             is_superuser=True,
             is_verified=True,
         )
-        session.add(superuser)
-        await session.commit()
-
-        invitation = OrganizationInvitation(
-            organization_id=org1.id,
-            email=superuser.email,
-            role_id=org1_member_role.id,
-            invited_by=admin_in_org1.id,
-            token=secrets.token_urlsafe(32),
-            expires_at=datetime.now(UTC) + timedelta(days=7),
-            status=InvitationStatus.PENDING,
+        service_superuser = User(
+            id=uuid.uuid4(),
+            email=f"service-superuser-{uuid.uuid4().hex[:8]}@example.com",
+            hashed_password="hashed",
+            role=UserRole.ADMIN,
+            is_active=True,
+            is_superuser=True,
+            is_verified=True,
         )
-        session.add(invitation)
+        session.add_all([standalone_superuser, service_superuser])
         await session.commit()
 
-        with pytest.raises(
-            TracecatAuthorizationError,
-            match="Platform superusers cannot accept organization invitations",
-        ):
-            await accept_invitation_for_user(
-                session,
-                user_id=superuser.id,
-                token=invitation.token,
-            )
+        admin_role = create_admin_role(org1.id, admin_in_org1.id)
+        admin_service = OrgService(session, role=admin_role)
+        standalone_invitation = await admin_service.create_invitation(
+            email=standalone_superuser.email,
+            role_id=org1_member_role.id,
+        )
+        service_invitation = await admin_service.create_invitation(
+            email=service_superuser.email,
+            role_id=org1_member_role.id,
+        )
+
+        standalone_membership = await accept_invitation_for_user(
+            session,
+            user_id=standalone_superuser.id,
+            token=standalone_invitation.token,
+        )
+        assert standalone_membership.user_id == standalone_superuser.id
+        assert standalone_membership.organization_id == org1.id
 
         user_role = Role(
             type="user",
-            user_id=superuser.id,
+            user_id=service_superuser.id,
             organization_id=org2.id,
             service_id="tracecat-api",
-            is_platform_superuser=True,
             scopes=ORG_MEMBER_SCOPES,
         )
         user_service = OrgService(session, role=user_role)
-        with pytest.raises(
-            TracecatAuthorizationError,
-            match="Platform superusers cannot accept organization invitations",
-        ):
-            await user_service.accept_invitation(invitation.token)
+        service_membership = await user_service.accept_invitation(
+            service_invitation.token
+        )
+        assert service_membership.user_id == service_superuser.id
+        assert service_membership.organization_id == org1.id
 
     @pytest.mark.anyio
     async def test_accept_invitation_allows_superuser_account_in_single_tenant(
@@ -1378,7 +1379,6 @@ class TestOrganizationServiceInvitations:
             user_id=service_superuser.id,
             organization_id=org2.id,
             service_id="tracecat-api",
-            is_platform_superuser=True,
             scopes=ORG_MEMBER_SCOPES,
         )
         user_service = OrgService(session, role=user_role)

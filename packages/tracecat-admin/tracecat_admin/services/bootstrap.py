@@ -421,7 +421,7 @@ async def create_dev_user(
     """Create local development SU and tenant user accounts.
 
     This bypasses public first-user registration on purpose. It is intended for
-    dev clusters where platform superusers cannot enter tenant context.
+    dev clusters that want separate platform-admin and tenant-user accounts.
     """
     if email.lower() == superuser_email.lower():
         raise ValueError("Dev user email must be different from superuser email")
