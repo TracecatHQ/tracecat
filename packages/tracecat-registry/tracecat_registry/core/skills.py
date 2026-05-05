@@ -56,36 +56,6 @@ async def get_skill(skill_id: Annotated[str, Doc("Skill UUID.")]) -> dict[str, A
 
 
 @registry.register(
-    default_title="Get agent skill draft",
-    display_group="Agent Skills",
-    description="Get the mutable draft manifest for a workspace skill.",
-    namespace="ai.skill",
-    required_entitlements=["agent_addons"],
-)
-async def get_skill_draft(
-    skill_id: Annotated[str, Doc("Skill UUID.")],
-) -> dict[str, Any]:
-    return await get_context().agents.get_skill_draft(skill_id)
-
-
-@registry.register(
-    default_title="Patch agent skill draft",
-    display_group="Agent Skills",
-    description="Apply optimistic-concurrency draft operations to a workspace skill.",
-    namespace="ai.skill",
-    required_entitlements=["agent_addons"],
-)
-async def patch_skill_draft(
-    skill_id: Annotated[str, Doc("Skill UUID.")],
-    base_revision: Annotated[int, Doc("Current draft revision to patch from.")],
-    operations: Annotated[list[dict[str, Any]], Doc("Draft operations list.")],
-) -> dict[str, Any]:
-    return await get_context().agents.patch_skill_draft(
-        skill_id=skill_id, base_revision=base_revision, operations=operations
-    )
-
-
-@registry.register(
     default_title="Publish agent skill",
     display_group="Agent Skills",
     description="Publish the current draft into a new immutable skill version.",
