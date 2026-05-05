@@ -95,9 +95,7 @@ def upgrade() -> None:
             ondelete="CASCADE",
         ),
         sa.PrimaryKeyConstraint("surrogate_id", name=op.f("pk_agent_tag")),
-        sa.UniqueConstraint(
-            "name", "workspace_id", name="uq_agent_tag_name_workspace"
-        ),
+        sa.UniqueConstraint("name", "workspace_id", name="uq_agent_tag_name_workspace"),
         sa.UniqueConstraint("ref", "workspace_id", name="uq_agent_tag_ref_workspace"),
     )
     op.create_index(op.f("ix_agent_tag_id"), "agent_tag", ["id"], unique=True)
@@ -120,9 +118,7 @@ def upgrade() -> None:
             name=op.f("fk_agent_tag_link_tag_id_agent_tag"),
             ondelete="CASCADE",
         ),
-        sa.PrimaryKeyConstraint(
-            "tag_id", "preset_id", name=op.f("pk_agent_tag_link")
-        ),
+        sa.PrimaryKeyConstraint("tag_id", "preset_id", name=op.f("pk_agent_tag_link")),
     )
 
     op.add_column(
