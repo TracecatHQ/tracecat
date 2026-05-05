@@ -6,6 +6,7 @@ import type {
   SkillDraftAttachUploadedBlobOp,
   SkillDraftDeleteFileOp,
   SkillDraftFileRead,
+  SkillDraftMoveFileOp,
   SkillDraftRead,
   SkillDraftUpsertTextFileOp,
   SkillRead,
@@ -24,7 +25,7 @@ import {
   useSkillDraftFile,
   useSkillVersions,
 } from "@/hooks/use-skills"
-import { getApiErrorDetail } from "@/lib/errors"
+import { getApiErrorCode, getApiErrorDetail } from "@/lib/errors"
 import {
   buildVisibleFiles,
   comparePaths,
@@ -33,10 +34,21 @@ import {
   getTextContentType,
   isEditablePath,
   isMarkdownPath,
+  SKILL_MD_PATH,
   uploadFileToSession,
   type VisibleFileEntry,
   validateSkillDraftPath,
 } from "@/lib/skills-studio"
+
+type MoveSource = {
+  fromPath: string
+  isFolder: boolean
+}
+
+type RenameTarget = {
+  fromPath: string
+  isFolder: boolean
+}
 
 /** State and handlers backing the single-skill editor surface. */
 type UseSkillsStudioReturn = {
@@ -68,7 +80,27 @@ type UseSkillsStudioReturn = {
   onEditorChange: (nextValue: string) => void
   onUndoSelectedFileChange: () => void
   onSaveWorkingCopy: () => Promise<void>
-  onOpenNewFileDialog: () => void
+
+  // Inline create
+  pendingCreate: boolean
+  pendingCreateError: string | null
+  onBeginCreate: () => void
+  onSubmitCreate: (path: string) => void
+  onCancelCreate: () => void
+  onChangeCreatePath: (value: string) => void
+
+  // Move
+  moveSource: MoveSource | null
+  onBeginMove: (path: string, isFolder: boolean) => void
+  onCancelMove: () => void
+  onCommitMove: (toFolderPath: string | null) => Promise<void>
+
+  // Rename
+  renameTarget: RenameTarget | null
+  renameError: string | null
+  onBeginRename: (path: string, isFolder: boolean) => void
+  onCancelRename: () => void
+  onSubmitRename: (newPath: string) => Promise<void>
 
   // Inspector / working copy
   hasUnsavedChanges: boolean
@@ -82,18 +114,26 @@ type UseSkillsStudioReturn = {
   versionsLoading: boolean
   restoreSkillVersionPending: boolean
   onRestore: (versionId: string) => Promise<void>
-
-  // Add file dialog
-  showNewFileDialog: boolean
-  onNewFileDialogChange: (open: boolean) => void
-  newFilePath: string
-  onNewFilePathChange: (value: string) => void
-  onCreateNewFile: () => void
 }
 
 type DraftChangesForSkill = Record<string, DraftChange>
 
 const EMPTY_DRAFT_CHANGES: DraftChangesForSkill = {}
+
+function describeMoveError(error: unknown): string {
+  switch (getApiErrorCode(error)) {
+    case "move_target_exists":
+      return "A file already exists at that path."
+    case "move_source_not_found":
+      return "The original file no longer exists."
+    case "skill_md_immovable":
+      return "SKILL.md must stay at the root of the skill."
+    case "invalid_move":
+      return "Source and destination must differ."
+    default:
+      return getApiErrorDetail(error) ?? "Failed to move file."
+  }
+}
 
 /**
  * Encapsulates state, data-fetching, and handlers for the skills studio
@@ -115,8 +155,13 @@ export function useSkillsStudio(params: {
   const [selectedPath, setSelectedPath] = useState<string | null>(null)
   const [draftChanges, setDraftChanges] =
     useState<DraftChangesForSkill>(EMPTY_DRAFT_CHANGES)
-  const [showNewFileDialog, setShowNewFileDialog] = useState(false)
-  const [newFilePath, setNewFilePath] = useState("")
+  const [pendingCreate, setPendingCreate] = useState(false)
+  const [pendingCreateError, setPendingCreateError] = useState<string | null>(
+    null
+  )
+  const [moveSource, setMoveSource] = useState<MoveSource | null>(null)
+  const [renameTarget, setRenameTarget] = useState<RenameTarget | null>(null)
+  const [renameError, setRenameError] = useState<string | null>(null)
   const [saveWorkingCopyPending, setSaveWorkingCopyPending] = useState(false)
   const saveWorkingCopyPendingRef = useRef(false)
 
@@ -207,6 +252,11 @@ export function useSkillsStudio(params: {
   useEffect(() => {
     setSelectedPath(null)
     setDraftChanges(EMPTY_DRAFT_CHANGES)
+    setPendingCreate(false)
+    setPendingCreateError(null)
+    setMoveSource(null)
+    setRenameTarget(null)
+    setRenameError(null)
     markdownEditorActivatedRef.current = false
   }, [skillId])
 
@@ -228,10 +278,18 @@ export function useSkillsStudio(params: {
   }, [selectedPath, visibleFiles])
 
   // ── Stable callbacks ────────────────────────────────────────────────
-  const handleOpenNewFileDialog = useCallback(
-    () => setShowNewFileDialog(true),
-    []
-  )
+  const handleBeginCreate = useCallback(() => {
+    setMoveSource(null)
+    setPendingCreateError(null)
+    setPendingCreate(true)
+  }, [])
+  const handleCancelCreate = useCallback(() => {
+    setPendingCreate(false)
+    setPendingCreateError(null)
+  }, [])
+  const handleChangeCreatePath = useCallback(() => {
+    setPendingCreateError(null)
+  }, [])
   const handleOpenDeleteSkillDialog = useCallback(
     (target: SkillReadMinimal) => {
       setDeleteSkillTarget(target)
@@ -288,35 +346,26 @@ export function useSkillsStudio(params: {
     })
   }
 
-  const handleCreateNewFile = () => {
-    const path = newFilePath.trim()
+  const handleSubmitCreate = (rawPath: string) => {
+    const path = rawPath.trim()
     if (!path) {
+      setPendingCreate(false)
+      setPendingCreateError(null)
       return
     }
     const pathError = validateSkillDraftPath(path)
     if (pathError) {
-      toast({
-        title: "Invalid file path",
-        description: pathError,
-        variant: "destructive",
-      })
+      setPendingCreateError(pathError)
       return
     }
     if (visibleFiles.some((file) => file.path === path)) {
-      toast({
-        title: "File already exists",
-        description: "Choose a new path instead of replacing an existing file.",
-        variant: "destructive",
-      })
+      setPendingCreateError("A file at that path already exists.")
       return
     }
     if (!isEditablePath(path)) {
-      toast({
-        title: "Unsupported file type",
-        description:
-          "Only text-editable file types can be created inline (for example .md, .py, .ts, .json, and .yaml).",
-        variant: "destructive",
-      })
+      setPendingCreateError(
+        "Only text file types (.md, .py, .ts, .json, .yaml, …) can be created inline."
+      )
       return
     }
     updateDraftChanges((current) => ({
@@ -328,8 +377,218 @@ export function useSkillsStudio(params: {
       },
     }))
     setSelectedPath(path)
-    setNewFilePath("")
-    setShowNewFileDialog(false)
+    setPendingCreate(false)
+    setPendingCreateError(null)
+  }
+
+  const handleBeginMove = useCallback((path: string, isFolder: boolean) => {
+    if (!isFolder && path === SKILL_MD_PATH) {
+      return
+    }
+    setPendingCreate(false)
+    setPendingCreateError(null)
+    setMoveSource({ fromPath: path, isFolder })
+  }, [])
+
+  const handleCancelMove = useCallback(() => {
+    setMoveSource(null)
+  }, [])
+
+  const handleCommitMove = async (toFolderPath: string | null) => {
+    if (!moveSource || !draft) {
+      return
+    }
+    const targetPrefix = toFolderPath ? `${toFolderPath}/` : ""
+    const operations: SkillDraftMoveFileOp[] = []
+
+    if (moveSource.isFolder) {
+      const sourcePrefix = `${moveSource.fromPath}/`
+      if (toFolderPath !== null && toFolderPath === moveSource.fromPath) {
+        toast({
+          title: "Move skipped",
+          description: "Source and destination are the same.",
+        })
+        setMoveSource(null)
+        return
+      }
+      if (
+        toFolderPath !== null &&
+        (toFolderPath === moveSource.fromPath ||
+          toFolderPath.startsWith(sourcePrefix))
+      ) {
+        toast({
+          title: "Invalid move",
+          description: "Cannot move a folder into itself.",
+          variant: "destructive",
+        })
+        return
+      }
+      const folderName = moveSource.fromPath.split("/").filter(Boolean).pop()
+      if (!folderName) {
+        setMoveSource(null)
+        return
+      }
+      const movedFiles = visibleFiles.filter(
+        (file) =>
+          file.path === moveSource.fromPath ||
+          file.path.startsWith(sourcePrefix)
+      )
+      for (const file of movedFiles) {
+        const remainder = file.path.slice(sourcePrefix.length)
+        const toPath = `${targetPrefix}${folderName}${remainder ? `/${remainder}` : ""}`
+        if (toPath === file.path) {
+          continue
+        }
+        operations.push({
+          op: "move_file",
+          from_path: file.path,
+          to_path: toPath,
+        })
+      }
+    } else {
+      const fileName =
+        moveSource.fromPath.split("/").pop() ?? moveSource.fromPath
+      const toPath = `${targetPrefix}${fileName}`
+      if (toPath === moveSource.fromPath) {
+        setMoveSource(null)
+        return
+      }
+      operations.push({
+        op: "move_file",
+        from_path: moveSource.fromPath,
+        to_path: toPath,
+      })
+    }
+
+    if (operations.length === 0) {
+      setMoveSource(null)
+      return
+    }
+
+    try {
+      await patchSkillDraft({
+        skillId,
+        requestBody: {
+          base_revision: draft.draft_revision,
+          operations,
+        },
+      })
+      const movedSelection = operations.find(
+        (op) => op.from_path === selectedPath
+      )
+      if (movedSelection) {
+        setSelectedPath(movedSelection.to_path)
+      }
+      setMoveSource(null)
+    } catch (error) {
+      toast({
+        title: "Move failed",
+        description: describeMoveError(error),
+      })
+    }
+  }
+
+  const handleBeginRename = useCallback((path: string, isFolder: boolean) => {
+    if (!isFolder && path === SKILL_MD_PATH) {
+      return
+    }
+    setMoveSource(null)
+    setPendingCreate(false)
+    setRenameError(null)
+    setRenameTarget({ fromPath: path, isFolder })
+  }, [])
+
+  const handleCancelRename = useCallback(() => {
+    setRenameTarget(null)
+    setRenameError(null)
+  }, [])
+
+  const handleSubmitRename = async (rawNewPath: string) => {
+    if (!renameTarget || !draft) {
+      return
+    }
+    const newPath = rawNewPath.trim()
+    if (!newPath || newPath === renameTarget.fromPath) {
+      setRenameTarget(null)
+      setRenameError(null)
+      return
+    }
+    const pathError = validateSkillDraftPath(newPath)
+    if (pathError) {
+      setRenameError(pathError)
+      return
+    }
+    if (renameTarget.isFolder && newPath === SKILL_MD_PATH) {
+      setRenameError("That path is reserved for the root SKILL.md file.")
+      return
+    }
+
+    const operations: SkillDraftMoveFileOp[] = []
+    if (renameTarget.isFolder) {
+      const sourcePrefix = `${renameTarget.fromPath}/`
+      if (
+        newPath === renameTarget.fromPath ||
+        newPath.startsWith(sourcePrefix)
+      ) {
+        setRenameError("Cannot rename a folder into itself.")
+        return
+      }
+      const movedFiles = visibleFiles.filter(
+        (file) =>
+          file.path === renameTarget.fromPath ||
+          file.path.startsWith(sourcePrefix)
+      )
+      for (const file of movedFiles) {
+        const remainder = file.path.slice(renameTarget.fromPath.length + 1)
+        const toPath = remainder ? `${newPath}/${remainder}` : newPath
+        if (toPath === file.path) {
+          continue
+        }
+        operations.push({
+          op: "move_file",
+          from_path: file.path,
+          to_path: toPath,
+        })
+      }
+    } else {
+      if (!isEditablePath(newPath)) {
+        setRenameError(
+          "File extension must remain compatible (for example .md, .py, .ts, .json)."
+        )
+        return
+      }
+      operations.push({
+        op: "move_file",
+        from_path: renameTarget.fromPath,
+        to_path: newPath,
+      })
+    }
+
+    if (operations.length === 0) {
+      setRenameTarget(null)
+      setRenameError(null)
+      return
+    }
+
+    try {
+      await patchSkillDraft({
+        skillId,
+        requestBody: {
+          base_revision: draft.draft_revision,
+          operations,
+        },
+      })
+      const movedSelection = operations.find(
+        (op) => op.from_path === selectedPath
+      )
+      if (movedSelection) {
+        setSelectedPath(movedSelection.to_path)
+      }
+      setRenameTarget(null)
+      setRenameError(null)
+    } catch (error) {
+      setRenameError(describeMoveError(error))
+    }
   }
 
   const handleSaveWorkingCopy = async () => {
@@ -477,7 +736,24 @@ export function useSkillsStudio(params: {
     onEditorChange: handleEditorChange,
     onUndoSelectedFileChange: handleUndoSelectedFileChange,
     onSaveWorkingCopy: handleSaveWorkingCopy,
-    onOpenNewFileDialog: handleOpenNewFileDialog,
+
+    pendingCreate,
+    pendingCreateError,
+    onBeginCreate: handleBeginCreate,
+    onSubmitCreate: handleSubmitCreate,
+    onCancelCreate: handleCancelCreate,
+    onChangeCreatePath: handleChangeCreatePath,
+
+    moveSource,
+    onBeginMove: handleBeginMove,
+    onCancelMove: handleCancelMove,
+    onCommitMove: handleCommitMove,
+
+    renameTarget,
+    renameError,
+    onBeginRename: handleBeginRename,
+    onCancelRename: handleCancelRename,
+    onSubmitRename: handleSubmitRename,
 
     hasUnsavedChanges,
     canPublish,
@@ -490,11 +766,5 @@ export function useSkillsStudio(params: {
     versionsLoading,
     restoreSkillVersionPending,
     onRestore: handleRestore,
-
-    showNewFileDialog,
-    onNewFileDialogChange: setShowNewFileDialog,
-    newFilePath,
-    onNewFilePathChange: setNewFilePath,
-    onCreateNewFile: handleCreateNewFile,
   }
 }

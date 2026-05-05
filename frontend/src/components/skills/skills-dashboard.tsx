@@ -133,7 +133,7 @@ function SkillsListRow({
       <ContextMenuTrigger asChild>
         <div
           className={cn(
-            "group/item flex items-center gap-2 border-b border-border px-4 py-3 transition-colors last:border-b-0 hover:bg-muted/50",
+            "group/item flex items-center gap-2 border-b border-border px-4 py-3 transition-colors hover:bg-muted/50",
             isContextMenuOpen && "bg-muted/70"
           )}
         >

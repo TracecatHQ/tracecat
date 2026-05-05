@@ -285,11 +285,11 @@ describe("useSkillsStudio", () => {
     })
 
     act(() => {
-      result.current.onNewFilePathChange("notes.txt")
+      result.current.onBeginCreate()
     })
 
     act(() => {
-      result.current.onCreateNewFile()
+      result.current.onSubmitCreate("notes.txt")
     })
 
     act(() => {
@@ -322,13 +322,15 @@ describe("useSkillsStudio", () => {
     })
 
     act(() => {
-      result.current.onNewFilePathChange("../notes.md")
+      result.current.onBeginCreate()
     })
 
     act(() => {
-      result.current.onCreateNewFile()
+      result.current.onSubmitCreate("../notes.md")
     })
 
+    expect(result.current.pendingCreate).toBe(true)
+    expect(result.current.pendingCreateError).not.toBeNull()
     expect(result.current.visibleFiles.map((file) => file.path)).toEqual([
       "SKILL.md",
     ])

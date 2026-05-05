@@ -200,10 +200,19 @@ class SkillDraftDeleteFileOp(BaseModel):
     path: SkillPath
 
 
+class SkillDraftMoveFileOp(BaseModel):
+    """Move (rename) a draft file to a new path while preserving its blob."""
+
+    op: Literal["move_file"] = "move_file"
+    from_path: SkillPath
+    to_path: SkillPath
+
+
 type SkillDraftOperation = Annotated[
     SkillDraftUpsertTextFileOp
     | SkillDraftAttachUploadedBlobOp
-    | SkillDraftDeleteFileOp,
+    | SkillDraftDeleteFileOp
+    | SkillDraftMoveFileOp,
     Field(discriminator="op"),
 ]
 

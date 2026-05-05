@@ -19876,6 +19876,34 @@ export const $SkillDraftFileRead = {
   description: "Response model for reading a single skill draft file.",
 } as const
 
+export const $SkillDraftMoveFileOp = {
+  properties: {
+    op: {
+      type: "string",
+      const: "move_file",
+      title: "Op",
+      default: "move_file",
+    },
+    from_path: {
+      type: "string",
+      maxLength: 1024,
+      minLength: 1,
+      title: "From Path",
+    },
+    to_path: {
+      type: "string",
+      maxLength: 1024,
+      minLength: 1,
+      title: "To Path",
+    },
+  },
+  type: "object",
+  required: ["from_path", "to_path"],
+  title: "SkillDraftMoveFileOp",
+  description:
+    "Move (rename) a draft file to a new path while preserving its blob.",
+} as const
+
 export const $SkillDraftOperation = {
   oneOf: [
     {
@@ -19887,6 +19915,9 @@ export const $SkillDraftOperation = {
     {
       $ref: "#/components/schemas/SkillDraftDeleteFileOp",
     },
+    {
+      $ref: "#/components/schemas/SkillDraftMoveFileOp",
+    },
   ],
   discriminator: {
     propertyName: "op",
@@ -19894,6 +19925,7 @@ export const $SkillDraftOperation = {
       attach_uploaded_blob:
         "#/components/schemas/SkillDraftAttachUploadedBlobOp",
       delete_file: "#/components/schemas/SkillDraftDeleteFileOp",
+      move_file: "#/components/schemas/SkillDraftMoveFileOp",
       upsert_text_file: "#/components/schemas/SkillDraftUpsertTextFileOp",
     },
   },

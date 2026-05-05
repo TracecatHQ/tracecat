@@ -27,6 +27,7 @@ from tracecat.agent.skill.schemas import (
     SkillDraftAttachUploadedBlobOp,
     SkillDraftDeleteFileOp,
     SkillDraftFileRead,
+    SkillDraftMoveFileOp,
     SkillDraftPatch,
     SkillDraftRead,
     SkillDraftUpsertTextFileOp,
@@ -121,10 +122,19 @@ class PreparedDraftDeleteFileOp:
     path: str
 
 
+@dataclass(frozen=True, slots=True)
+class PreparedDraftMoveFileOp:
+    """Validated draft file move (path rename, blob unchanged)."""
+
+    from_path: str
+    to_path: str
+
+
 type PreparedDraftPatchOperation = (
     PreparedDraftTextFileOp
     | PreparedDraftAttachUploadedBlobOp
     | PreparedDraftDeleteFileOp
+    | PreparedDraftMoveFileOp
 )
 
 
@@ -1415,6 +1425,7 @@ class SkillService(BaseWorkspaceService):
             SkillDraftUpsertTextFileOp
             | SkillDraftAttachUploadedBlobOp
             | SkillDraftDeleteFileOp
+            | SkillDraftMoveFileOp
         ],
     ) -> list[PreparedDraftPatchOperation]:
         """Validate draft operations before any blob writes begin."""
@@ -1457,6 +1468,40 @@ class SkillService(BaseWorkspaceService):
                     prepared_operations.append(
                         PreparedDraftDeleteFileOp(
                             path=self._normalize_path(operation.path),
+                        )
+                    )
+                case SkillDraftMoveFileOp():
+                    from_path = self._normalize_path(operation.from_path)
+                    to_path = self._normalize_path(operation.to_path)
+                    if from_path == to_path:
+                        raise TracecatValidationError(
+                            "Move source and destination must differ",
+                            detail={
+                                "code": "invalid_move",
+                                "from_path": from_path,
+                                "to_path": to_path,
+                            },
+                        )
+                    if from_path == "SKILL.md":
+                        raise TracecatValidationError(
+                            "Root SKILL.md cannot be moved",
+                            detail={
+                                "code": "skill_md_immovable",
+                                "from_path": from_path,
+                            },
+                        )
+                    if to_path == "SKILL.md":
+                        raise TracecatValidationError(
+                            "Cannot overwrite root SKILL.md via move",
+                            detail={
+                                "code": "skill_md_immovable",
+                                "to_path": to_path,
+                            },
+                        )
+                    prepared_operations.append(
+                        PreparedDraftMoveFileOp(
+                            from_path=from_path,
+                            to_path=to_path,
                         )
                     )
         return prepared_operations
@@ -1521,6 +1566,26 @@ class SkillService(BaseWorkspaceService):
                         )
                 case PreparedDraftDeleteFileOp():
                     path_to_blob.pop(operation.path, None)
+                case PreparedDraftMoveFileOp():
+                    source = path_to_blob.get(operation.from_path)
+                    if source is None:
+                        raise TracecatValidationError(
+                            f"Cannot move missing draft file '{operation.from_path}'",
+                            detail={
+                                "code": "move_source_not_found",
+                                "from_path": operation.from_path,
+                            },
+                        )
+                    if operation.to_path in path_to_blob:
+                        raise TracecatValidationError(
+                            f"Move target '{operation.to_path}' already exists",
+                            detail={
+                                "code": "move_target_exists",
+                                "to_path": operation.to_path,
+                            },
+                        )
+                    path_to_blob[operation.to_path] = source
+                    path_to_blob.pop(operation.from_path, None)
 
         await self._replace_draft_with_blob_map(skill=skill, path_to_blob=path_to_blob)
         validation = await self._validate_manifest_rows(

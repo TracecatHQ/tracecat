@@ -6028,10 +6028,20 @@ export type SkillDraftFileRead = {
 
 export type kind = "inline" | "download"
 
+/**
+ * Move (rename) a draft file to a new path while preserving its blob.
+ */
+export type SkillDraftMoveFileOp = {
+  op?: "move_file"
+  from_path: string
+  to_path: string
+}
+
 export type SkillDraftOperation =
   | SkillDraftUpsertTextFileOp
   | SkillDraftAttachUploadedBlobOp
   | SkillDraftDeleteFileOp
+  | SkillDraftMoveFileOp
 
 /**
  * Optimistic-concurrency draft mutation request.

@@ -2,7 +2,6 @@
 
 import { useRouter } from "next/navigation"
 import { useEffect } from "react"
-import { AddFileDialog } from "@/components/skills/add-file-dialog"
 import { EditorPanel } from "@/components/skills/editor-panel"
 import { useEntitlements } from "@/hooks/use-entitlements"
 import { useSkillsStudioContext } from "@/providers/skills-studio"
@@ -14,38 +13,42 @@ function SkillsStudioContent() {
   }
 
   return (
-    <>
-      <div className="flex h-full min-h-0 flex-col">
-        <div className="min-h-0 flex-1">
-          <EditorPanel
-            skill={studio.skill}
-            skillLoading={studio.skillLoading}
-            draft={studio.draft}
-            draftLoading={studio.draftLoading}
-            visibleFiles={studio.visibleFiles}
-            selectedFile={studio.selectedFile}
-            selectedPath={studio.selectedPath}
-            draftFile={studio.draftFile}
-            draftFileLoading={studio.draftFileLoading}
-            currentTextValue={studio.currentTextValue}
-            markdownEditorActivatedRef={studio.markdownEditorActivatedRef}
-            onSelectPath={studio.onSelectPath}
-            onEditorChange={studio.onEditorChange}
-            onUndoSelectedFileChange={studio.onUndoSelectedFileChange}
-            onSaveWorkingCopy={studio.onSaveWorkingCopy}
-            onOpenNewFileDialog={studio.onOpenNewFileDialog}
-          />
-        </div>
+    <div className="flex h-full min-h-0 flex-col">
+      <div className="min-h-0 flex-1">
+        <EditorPanel
+          skill={studio.skill}
+          skillLoading={studio.skillLoading}
+          draft={studio.draft}
+          draftLoading={studio.draftLoading}
+          visibleFiles={studio.visibleFiles}
+          selectedFile={studio.selectedFile}
+          selectedPath={studio.selectedPath}
+          draftFile={studio.draftFile}
+          draftFileLoading={studio.draftFileLoading}
+          currentTextValue={studio.currentTextValue}
+          markdownEditorActivatedRef={studio.markdownEditorActivatedRef}
+          onSelectPath={studio.onSelectPath}
+          onEditorChange={studio.onEditorChange}
+          onUndoSelectedFileChange={studio.onUndoSelectedFileChange}
+          onSaveWorkingCopy={studio.onSaveWorkingCopy}
+          pendingCreate={studio.pendingCreate}
+          pendingCreateError={studio.pendingCreateError}
+          onBeginCreate={studio.onBeginCreate}
+          onSubmitCreate={studio.onSubmitCreate}
+          onCancelCreate={studio.onCancelCreate}
+          onChangeCreatePath={studio.onChangeCreatePath}
+          moveSource={studio.moveSource}
+          onBeginMove={studio.onBeginMove}
+          onCancelMove={studio.onCancelMove}
+          onCommitMove={studio.onCommitMove}
+          renameTarget={studio.renameTarget}
+          renameError={studio.renameError}
+          onBeginRename={studio.onBeginRename}
+          onCancelRename={studio.onCancelRename}
+          onSubmitRename={studio.onSubmitRename}
+        />
       </div>
-
-      <AddFileDialog
-        open={studio.showNewFileDialog}
-        onOpenChange={studio.onNewFileDialogChange}
-        filePath={studio.newFilePath}
-        onFilePathChange={studio.onNewFilePathChange}
-        onCreateFile={studio.onCreateNewFile}
-      />
-    </>
+    </div>
   )
 }
 
