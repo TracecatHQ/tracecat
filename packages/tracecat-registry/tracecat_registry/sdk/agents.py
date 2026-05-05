@@ -495,17 +495,6 @@ class AgentsClient:
     async def get_skill(self, skill_id: str) -> dict[str, Any]:
         return await self._client.get(f"/agent/skills/{skill_id}")
 
-    async def get_skill_draft(self, skill_id: str) -> dict[str, Any]:
-        return await self._client.get(f"/agent/skills/{skill_id}/draft")
-
-    async def patch_skill_draft(
-        self, *, skill_id: str, base_revision: int, operations: list[dict[str, Any]]
-    ) -> dict[str, Any]:
-        return await self._client.patch(
-            f"/agent/skills/{skill_id}/draft",
-            json={"base_revision": base_revision, "operations": operations},
-        )
-
     async def publish_skill(self, skill_id: str) -> dict[str, Any]:
         return await self._client.post(f"/agent/skills/{skill_id}/publish")
 
