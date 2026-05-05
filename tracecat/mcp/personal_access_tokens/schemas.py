@@ -15,7 +15,7 @@ class MCPPersonalAccessTokenRead(Schema):
     id: UUID
     user_id: UserID
     organization_id: OrganizationID
-    workspace_id: WorkspaceID | None = None
+    workspace_id: WorkspaceID
     name: str
     key_id: str
     preview: str
@@ -30,7 +30,6 @@ class MCPPersonalAccessTokenRead(Schema):
 
 class MCPPersonalAccessTokenCreate(Schema):
     name: str = Field(default=..., min_length=1, max_length=255)
-    workspace_id: WorkspaceID | None = None
     expires_at: datetime | None = None
 
 

@@ -22,7 +22,7 @@ from tracecat.db.models import (
     User,
     Workspace,
 )
-from tracecat.exceptions import TracecatAuthorizationError
+from tracecat.exceptions import TracecatAuthorizationError, TracecatNotFoundError
 from tracecat.mcp.personal_access_tokens.constants import MCP_PAT_PREFIX
 from tracecat.mcp.personal_access_tokens.service import (
     MCPPersonalAccessTokenService,
@@ -75,13 +75,14 @@ async def _create_user_org_workspace(
     return user, organization, workspace
 
 
-def _role_for(user: User, organization: Organization) -> Role:
+def _role_for(user: User, organization: Organization, workspace: Workspace) -> Role:
     return Role(
         type="user",
         user_id=user.id,
+        workspace_id=workspace.id,
         organization_id=organization.id,
         service_id="tracecat-api",
-        scopes=frozenset({"org:read", "org:workspace:read"}),
+        scopes=frozenset({"workspace:read"}),
     )
 
 
@@ -134,12 +135,11 @@ async def test_create_list_and_revoke_mcp_personal_access_token(
     user, organization, workspace = await _create_user_org_workspace(session)
     service = MCPPersonalAccessTokenService(
         session,
-        role=_role_for(user, organization),
+        role=_role_for(user, organization, workspace),
     )
 
     issued = await service.create_token(
         name="Claude Desktop",
-        workspace_id=workspace.id,
         expires_at=None,
     )
 
@@ -147,6 +147,20 @@ async def test_create_list_and_revoke_mcp_personal_access_token(
     assert issued.token.user_id == user.id
     assert issued.token.organization_id == organization.id
     assert issued.token.workspace_id == workspace.id
+
+    other_workspace = Workspace(
+        id=uuid.uuid4(),
+        organization_id=organization.id,
+        name="Other MCP PAT workspace",
+    )
+    session.add(other_workspace)
+    await session.commit()
+    await _store_token(
+        session,
+        user=user,
+        organization=organization,
+        workspace_id=other_workspace.id,
+    )
 
     page = await service.list_tokens(CursorPaginationParams(limit=10))
     assert [token.id for token in page.items] == [issued.token.id]
@@ -166,12 +180,11 @@ async def test_create_mcp_personal_access_token_allows_org_member_without_worksp
     )
     service = MCPPersonalAccessTokenService(
         session,
-        role=_role_for(user, organization),
+        role=_role_for(user, organization, workspace),
     )
 
     issued = await service.create_token(
         name="Claude Desktop",
-        workspace_id=workspace.id,
         expires_at=None,
     )
 
@@ -197,7 +210,7 @@ async def test_create_mcp_personal_access_token_rejects_workspace_in_other_org(
     await session.commit()
     service = MCPPersonalAccessTokenService(
         session,
-        role=_role_for(user, organization),
+        role=_role_for(user, organization, other_workspace),
     )
 
     with pytest.raises(
@@ -205,9 +218,36 @@ async def test_create_mcp_personal_access_token_rejects_workspace_in_other_org(
     ):
         await service.create_token(
             name="Claude Desktop",
-            workspace_id=other_workspace.id,
             expires_at=None,
         )
+
+
+async def test_revoke_mcp_personal_access_token_rejects_other_workspace_token(
+    session: AsyncSession,
+) -> None:
+    user, organization, workspace = await _create_user_org_workspace(session)
+    other_workspace = Workspace(
+        id=uuid.uuid4(),
+        organization_id=organization.id,
+        name="Other MCP PAT workspace",
+    )
+    session.add(other_workspace)
+    await session.commit()
+    token, _raw_token = await _store_token(
+        session,
+        user=user,
+        organization=organization,
+        workspace_id=other_workspace.id,
+    )
+    service = MCPPersonalAccessTokenService(
+        session,
+        role=_role_for(user, organization, workspace),
+    )
+
+    with pytest.raises(
+        TracecatNotFoundError, match="MCP personal access token not found"
+    ):
+        await service.revoke_token(token.id)
 
 
 async def test_verify_mcp_personal_access_token_updates_last_used(
@@ -305,6 +345,23 @@ async def test_verify_mcp_personal_access_token_requires_org_membership(
     )
 
     assert await mcp_pat_service.verify_mcp_personal_access_token(raw_token) is None
+
+
+async def test_verify_mcp_personal_access_token_rejects_missing_workspace(
+    monkeypatch: pytest.MonkeyPatch,
+    session: AsyncSession,
+) -> None:
+    _use_verifier_session(monkeypatch, session)
+    user, organization, _workspace = await _create_user_org_workspace(session)
+    token, raw_token = await _store_token(
+        session,
+        user=user,
+        organization=organization,
+    )
+
+    assert await mcp_pat_service.verify_mcp_personal_access_token(raw_token) is None
+    await session.refresh(token)
+    assert token.last_used_at is None
 
 
 async def test_regular_api_key_auth_ignores_mcp_personal_access_tokens(

@@ -16,5 +16,5 @@ class MCPPATIdentity:
     user_id: UserID
     email: str
     organization_id: OrganizationID
-    workspace_id: WorkspaceID | None
+    workspace_id: WorkspaceID
     expires_at: datetime | None

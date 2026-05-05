@@ -7,8 +7,9 @@ from typing import get_type_hints
 from unittest.mock import AsyncMock, patch
 
 import pytest
+from fastapi.routing import APIRoute
 
-from tracecat.auth.dependencies import OrgUserOnlyRole
+from tracecat.auth.dependencies import WorkspaceUserPathRole
 from tracecat.auth.types import Role
 from tracecat.mcp.personal_access_tokens import router as mcp_pat_router
 from tracecat.mcp.personal_access_tokens.schemas import MCPPersonalAccessTokenCreate
@@ -19,7 +20,7 @@ def _token_read(
     organization_id: uuid.UUID,
     user_id: uuid.UUID,
     *,
-    workspace_id: uuid.UUID | None = None,
+    workspace_id: uuid.UUID,
 ):
     now = datetime(2024, 1, 1, tzinfo=UTC)
     return SimpleNamespace(
@@ -40,9 +41,11 @@ def _token_read(
     )
 
 
-def _with_org_read(role: Role) -> Role:
+def _with_workspace_read(role: Role) -> Role:
     return role.model_copy(
-        update={"scopes": frozenset(set(role.scopes or frozenset()) | {"org:read"})}
+        update={
+            "scopes": frozenset(set(role.scopes or frozenset()) | {"workspace:read"})
+        }
     )
 
 
@@ -50,12 +53,14 @@ def _with_org_read(role: Role) -> Role:
 async def test_list_mcp_personal_access_tokens_success(
     test_admin_role: Role,
 ) -> None:
-    role = _with_org_read(test_admin_role)
+    role = _with_workspace_read(test_admin_role)
     organization_id = role.organization_id
     user_id = role.user_id
+    workspace_id = role.workspace_id
     assert organization_id is not None
     assert user_id is not None
-    token_read = _token_read(organization_id, user_id)
+    assert workspace_id is not None
+    token_read = _token_read(organization_id, user_id, workspace_id=workspace_id)
     page = CursorPaginatedResponse(
         items=[token_read],
         next_cursor=None,
@@ -91,12 +96,13 @@ async def test_list_mcp_personal_access_tokens_success(
 async def test_create_mcp_personal_access_token_success(
     test_admin_role: Role,
 ) -> None:
-    role = _with_org_read(test_admin_role)
+    role = _with_workspace_read(test_admin_role)
     organization_id = role.organization_id
     user_id = role.user_id
     workspace_id = role.workspace_id
     assert organization_id is not None
     assert user_id is not None
+    assert workspace_id is not None
     token_read = _token_read(organization_id, user_id, workspace_id=workspace_id)
 
     with patch.object(
@@ -111,7 +117,6 @@ async def test_create_mcp_personal_access_token_success(
             session=AsyncMock(),
             params=MCPPersonalAccessTokenCreate(
                 name="Claude Desktop",
-                workspace_id=workspace_id,
             ),
         )
 
@@ -120,7 +125,6 @@ async def test_create_mcp_personal_access_token_success(
     assert payload["issued_token"]["token"]["id"] == str(token_read.id)
     mock_svc.create_token.assert_awaited_once_with(
         name="Claude Desktop",
-        workspace_id=workspace_id,
         expires_at=None,
     )
 
@@ -129,7 +133,7 @@ async def test_create_mcp_personal_access_token_success(
 async def test_revoke_mcp_personal_access_token_success(
     test_admin_role: Role,
 ) -> None:
-    role = _with_org_read(test_admin_role)
+    role = _with_workspace_read(test_admin_role)
     token_id = uuid.uuid4()
 
     with patch.object(
@@ -148,7 +152,20 @@ async def test_revoke_mcp_personal_access_token_success(
     mock_svc.revoke_token.assert_awaited_once_with(token_id)
 
 
-def test_mcp_personal_access_token_routes_remain_user_only() -> None:
+def test_mcp_personal_access_token_routes_are_workspace_scoped() -> None:
+    routes = [
+        route for route in mcp_pat_router.router.routes if isinstance(route, APIRoute)
+    ]
+    route_paths = {route.path for route in routes}
+
+    assert route_paths == {
+        "/workspaces/{workspace_id}/mcp-personal-access-tokens",
+        "/workspaces/{workspace_id}/mcp-personal-access-tokens/{token_id}/revoke",
+    }
+    assert all("/organization/" not in route.path for route in routes)
+
+
+def test_mcp_personal_access_token_routes_remain_workspace_user_only() -> None:
     endpoints = [
         mcp_pat_router.list_mcp_personal_access_tokens,
         mcp_pat_router.create_mcp_personal_access_token,
@@ -157,4 +174,4 @@ def test_mcp_personal_access_token_routes_remain_user_only() -> None:
 
     for endpoint in endpoints:
         role = get_type_hints(endpoint, include_extras=True)["role"]
-        assert role == OrgUserOnlyRole
+        assert role == WorkspaceUserPathRole

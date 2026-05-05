@@ -10,6 +10,7 @@ import sqlalchemy as sa
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from tracecat.audit.logger import audit_log
 from tracecat.auth.api_keys import (
     generate_managed_api_key,
     parse_managed_api_key,
@@ -36,12 +37,16 @@ from tracecat.pagination import (
     CursorPaginatedResponse,
     CursorPaginationParams,
 )
-from tracecat.service import BaseOrgService
+from tracecat.service import BaseWorkspaceService
 
 
 class IssuedMCPPersonalAccessTokenResult(NamedTuple):
     token: MCPPersonalAccessToken
     raw_token: str
+
+    @property
+    def token_id(self) -> uuid.UUID:
+        return self.token.id
 
 
 async def _user_can_access_workspace(
@@ -80,10 +85,10 @@ async def _user_can_access_workspace(
     return result.scalar_one_or_none() is not None
 
 
-class MCPPersonalAccessTokenService(BaseOrgService):
+class MCPPersonalAccessTokenService(BaseWorkspaceService):
     service_name = "mcp_personal_access_tokens"
 
-    @require_scope("org:read")
+    @require_scope("workspace:read")
     async def list_tokens(
         self,
         params: CursorPaginationParams,
@@ -92,6 +97,7 @@ class MCPPersonalAccessTokenService(BaseOrgService):
         stmt = select(MCPPersonalAccessToken).where(
             MCPPersonalAccessToken.user_id == self.role.user_id,
             MCPPersonalAccessToken.organization_id == self.organization_id,
+            MCPPersonalAccessToken.workspace_id == self.workspace_id,
         )
 
         if params.cursor:
@@ -147,6 +153,7 @@ class MCPPersonalAccessTokenService(BaseOrgService):
             .where(
                 MCPPersonalAccessToken.user_id == self.role.user_id,
                 MCPPersonalAccessToken.organization_id == self.organization_id,
+                MCPPersonalAccessToken.workspace_id == self.workspace_id,
             )
         )
 
@@ -193,19 +200,23 @@ class MCPPersonalAccessTokenService(BaseOrgService):
             total_estimate=int(await self.session.scalar(count_stmt) or 0),
         )
 
-    @require_scope("org:read")
+    @require_scope("workspace:read")
+    @audit_log(
+        resource_type="mcp_personal_access_token",
+        action="create",
+        resource_id_attr="token_id",
+    )
     async def create_token(
         self,
         *,
         name: str,
-        workspace_id: uuid.UUID | None,
         expires_at: datetime | None,
     ) -> IssuedMCPPersonalAccessTokenResult:
-        if workspace_id is not None and not await _user_can_access_workspace(
+        if not await _user_can_access_workspace(
             self.session,
             user_id=self.role.user_id,
             organization_id=self.organization_id,
-            workspace_id=workspace_id,
+            workspace_id=self.workspace_id,
         ):
             raise TracecatAuthorizationError("User cannot access workspace")
 
@@ -214,7 +225,7 @@ class MCPPersonalAccessTokenService(BaseOrgService):
             id=uuid.uuid4(),
             user_id=self.role.user_id,
             organization_id=self.organization_id,
-            workspace_id=workspace_id,
+            workspace_id=self.workspace_id,
             name=name,
             key_id=generated.key_id,
             hashed=generated.hashed,
@@ -238,6 +249,7 @@ class MCPPersonalAccessTokenService(BaseOrgService):
             MCPPersonalAccessToken.id == token_id,
             MCPPersonalAccessToken.user_id == self.role.user_id,
             MCPPersonalAccessToken.organization_id == self.organization_id,
+            MCPPersonalAccessToken.workspace_id == self.workspace_id,
         )
         if for_update:
             stmt = stmt.with_for_update()
@@ -246,7 +258,12 @@ class MCPPersonalAccessTokenService(BaseOrgService):
             raise TracecatNotFoundError("MCP personal access token not found")
         return token
 
-    @require_scope("org:read")
+    @require_scope("workspace:read")
+    @audit_log(
+        resource_type="mcp_personal_access_token",
+        action="revoke",
+        resource_id_attr="token_id",
+    )
     async def revoke_token(self, token_id: uuid.UUID) -> None:
         token = await self.get_token(token_id, for_update=True)
         if token.revoked_at is not None:
@@ -288,6 +305,8 @@ async def verify_mcp_personal_access_token(raw_token: str) -> MCPPATIdentity | N
             return None
         if not verify_api_key(raw_token, record.salt, record.hashed):
             return None
+        if record.workspace_id is None:
+            return None
         if not user.is_superuser:
             result = await session.execute(
                 select(OrganizationMembership.user_id).where(
@@ -297,7 +316,7 @@ async def verify_mcp_personal_access_token(raw_token: str) -> MCPPATIdentity | N
             )
             if result.scalar_one_or_none() is None:
                 return None
-        if record.workspace_id is not None and not await _user_can_access_workspace(
+        if not await _user_can_access_workspace(
             session,
             user_id=user.id,
             organization_id=record.organization_id,

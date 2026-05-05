@@ -4,7 +4,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Query, status
 
-from tracecat.auth.dependencies import OrgUserOnlyRole
+from tracecat.auth.dependencies import WorkspaceUserPathRole
 from tracecat.authz.controls import require_scope
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.exceptions import (
@@ -22,16 +22,16 @@ from tracecat.mcp.personal_access_tokens.service import MCPPersonalAccessTokenSe
 from tracecat.pagination import CursorPaginatedResponse, CursorPaginationParams
 
 router = APIRouter(
-    prefix="/organization/mcp-personal-access-tokens",
+    prefix="/workspaces/{workspace_id}/mcp-personal-access-tokens",
     tags=["mcp_personal_access_tokens"],
 )
 
 
 @router.get("", response_model=CursorPaginatedResponse[MCPPersonalAccessTokenRead])
-@require_scope("org:read")
+@require_scope("workspace:read")
 async def list_mcp_personal_access_tokens(
     *,
-    role: OrgUserOnlyRole,
+    role: WorkspaceUserPathRole,
     session: AsyncDBSession,
     limit: int = Query(default=20, ge=1, le=100),
     cursor: str | None = Query(default=None),
@@ -69,10 +69,10 @@ async def list_mcp_personal_access_tokens(
     response_model=MCPPersonalAccessTokenIssueResponse,
     status_code=status.HTTP_201_CREATED,
 )
-@require_scope("org:read")
+@require_scope("workspace:read")
 async def create_mcp_personal_access_token(
     *,
-    role: OrgUserOnlyRole,
+    role: WorkspaceUserPathRole,
     session: AsyncDBSession,
     params: MCPPersonalAccessTokenCreate,
 ) -> MCPPersonalAccessTokenIssueResponse:
@@ -80,7 +80,6 @@ async def create_mcp_personal_access_token(
     try:
         token, raw_token = await service.create_token(
             name=params.name,
-            workspace_id=params.workspace_id,
             expires_at=params.expires_at,
         )
     except TracecatAuthorizationError as exc:
@@ -100,10 +99,10 @@ async def create_mcp_personal_access_token(
 
 
 @router.post("/{token_id}/revoke", status_code=status.HTTP_204_NO_CONTENT)
-@require_scope("org:read")
+@require_scope("workspace:read")
 async def revoke_mcp_personal_access_token(
     *,
-    role: OrgUserOnlyRole,
+    role: WorkspaceUserPathRole,
     session: AsyncDBSession,
     token_id: UUID,
 ) -> None:
