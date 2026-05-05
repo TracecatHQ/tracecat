@@ -119,13 +119,21 @@ function SkillsListRow({
 }) {
   const [isContextMenuOpen, setIsContextMenuOpen] = useState(false)
 
-  const handleCopyId = (event: React.SyntheticEvent) => {
+  const handleCopyId = async (event: React.SyntheticEvent) => {
     event.stopPropagation()
-    navigator.clipboard.writeText(skill.id)
-    toast({
-      title: "Copied",
-      description: `Skill ID ${skill.id} copied to clipboard.`,
-    })
+    try {
+      await navigator.clipboard.writeText(skill.id)
+      toast({
+        title: "Copied",
+        description: `Skill ID ${skill.id} copied to clipboard.`,
+      })
+    } catch {
+      toast({
+        title: "Copy failed",
+        description: "Could not copy the skill ID to your clipboard.",
+        variant: "destructive",
+      })
+    }
   }
 
   return (

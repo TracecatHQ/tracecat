@@ -244,7 +244,8 @@ function FolderTreeNode({
         isMoveSource && "opacity-60",
         isSelfDescendant && "pointer-events-none opacity-40"
       )}
-      onClickCapture={inMoveMode ? handleClickAsTarget : undefined}
+      onClick={inMoveMode ? handleClickAsTarget : undefined}
+      disableRowInteraction={inMoveMode}
       actions={renameAction}
     >
       {node.children.map((child) => (

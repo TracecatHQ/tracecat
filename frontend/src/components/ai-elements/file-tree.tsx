@@ -127,12 +127,14 @@ export type FileTreeFolderProps = HTMLAttributes<HTMLDivElement> & {
   path: string
   name: string
   actions?: ReactNode
+  disableRowInteraction?: boolean
 }
 
 export const FileTreeFolder = ({
   path,
   name,
   actions,
+  disableRowInteraction = false,
   className,
   children,
   ...props
@@ -170,21 +172,17 @@ export const FileTreeFolder = ({
   return (
     <FileTreeFolderContext.Provider value={folderContextValue}>
       <Collapsible onOpenChange={handleOpenChange} open={isExpanded}>
-        <div
-          className={cn("", className)}
-          role="treeitem"
-          tabIndex={0}
-          {...props}
-        >
+        <div className={cn("", className)} role="treeitem" {...props}>
           <div
             className={cn(
-              "group flex w-full cursor-pointer items-center gap-1.5 rounded-sm px-1 py-1.5 text-left transition-colors hover:bg-muted/50",
+              "group flex w-full items-center gap-1.5 rounded-sm px-1 py-1.5 text-left transition-colors",
+              !disableRowInteraction && "cursor-pointer hover:bg-muted/50",
               isSelected && "bg-muted"
             )}
-            onClick={handleRowClick}
-            onKeyDown={handleRowKeyDown}
-            role="button"
-            tabIndex={0}
+            onClick={disableRowInteraction ? undefined : handleRowClick}
+            onKeyDown={disableRowInteraction ? undefined : handleRowKeyDown}
+            role={disableRowInteraction ? undefined : "button"}
+            tabIndex={disableRowInteraction ? undefined : 0}
           >
             <ChevronRightIcon
               className={cn(
@@ -247,6 +245,7 @@ export const FileTreeFile = ({
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
       if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault()
         onSelect?.(path)
       }
     },

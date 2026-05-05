@@ -226,7 +226,7 @@ export function useSkillsStudio(params: {
     () => Object.keys(draftChanges).length > 0,
     [draftChanges]
   )
-  const canPublish = hasUnsavedChanges && Boolean(draft?.is_publishable)
+  const canPublish = !hasUnsavedChanges && Boolean(draft?.is_publishable)
 
   const currentTextValue = useMemo(() => {
     if (!selectedFile) {
