@@ -3,7 +3,15 @@ from collections.abc import Callable
 from contextlib import asynccontextmanager
 
 import tracecat_registry
-from fastapi import Depends, FastAPI, HTTPException, Request, Response, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    FastAPI,
+    HTTPException,
+    Request,
+    Response,
+    status,
+)
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import ORJSONResponse
@@ -33,6 +41,7 @@ from tracecat.agent.preset.internal_router import (
 from tracecat.agent.preset.router import router as agent_preset_router
 from tracecat.agent.provider.router import router as agent_custom_provider_router
 from tracecat.agent.router import router as agent_router
+from tracecat.agent.router import workspace_router as agent_workspace_router
 from tracecat.agent.session.router import router as agent_session_router
 from tracecat.agent.skill.router import router as agent_skill_router
 from tracecat.api.common import (
@@ -46,6 +55,7 @@ from tracecat.api.common import (
 from tracecat.auth.credentials import authenticated_user_only
 from tracecat.auth.dependencies import (
     require_any_auth_type_enabled,
+    require_workspace_id_path,
 )
 from tracecat.auth.discovery import router as auth_discovery_router
 from tracecat.auth.enums import AuthType
@@ -114,6 +124,9 @@ from tracecat.integrations.router import (
     mcp_router,
     providers_router,
 )
+from tracecat.integrations.router import (
+    oauth_router as integrations_oauth_router,
+)
 from tracecat.logger import logger
 from tracecat.mcp.oidc import router as mcp_oidc_router
 from tracecat.middleware import (
@@ -153,7 +166,12 @@ from tracecat.workflow.actions.router import router as workflow_actions_router
 from tracecat.workflow.executions.internal_router import (
     router as internal_workflows_router,
 )
-from tracecat.workflow.executions.router import router as workflow_executions_router
+from tracecat.workflow.executions.router import (
+    router as workflow_executions_router,
+)
+from tracecat.workflow.executions.router import (
+    workflow_router as workflow_executions_workflow_router,
+)
 from tracecat.workflow.graph.router import router as workflow_graph_router
 from tracecat.workflow.management.folders.router import (
     router as workflow_folders_router,
@@ -428,6 +446,15 @@ def feature_flag_dep(flag: FlagLike) -> Callable[..., None]:
     return _is_feature_enabled
 
 
+def _include_workspace_scoped_router(app: FastAPI, router: APIRouter) -> None:
+    app.include_router(router, include_in_schema=False)
+    app.include_router(
+        router,
+        prefix="/workspaces/{workspace_id}",
+        dependencies=[Depends(require_workspace_id_path)],
+    )
+
+
 def create_app(**kwargs) -> FastAPI:
     if config.TRACECAT__ALLOW_ORIGINS is not None:
         allow_origins = config.TRACECAT__ALLOW_ORIGINS.split(",")
@@ -471,16 +498,17 @@ def create_app(**kwargs) -> FastAPI:
     app.include_router(agent_channels_router)
     app.include_router(workspaces_router)
     app.include_router(workspace_service_accounts_router)
-    app.include_router(workflow_management_router)
-    app.include_router(workflow_graph_router)
-    app.include_router(workflow_executions_router)
-    app.include_router(workflow_actions_router)
-    app.include_router(workflow_tags_router)
-    app.include_router(workflow_store_router)
-    app.include_router(secrets_router)
-    app.include_router(variables_router)
-    app.include_router(schedules_router)
-    app.include_router(tags_router)
+    _include_workspace_scoped_router(app, workflow_management_router)
+    _include_workspace_scoped_router(app, workflow_executions_workflow_router)
+    _include_workspace_scoped_router(app, workflow_graph_router)
+    _include_workspace_scoped_router(app, workflow_executions_router)
+    _include_workspace_scoped_router(app, workflow_actions_router)
+    _include_workspace_scoped_router(app, workflow_tags_router)
+    _include_workspace_scoped_router(app, workflow_store_router)
+    _include_workspace_scoped_router(app, secrets_router)
+    _include_workspace_scoped_router(app, variables_router)
+    _include_workspace_scoped_router(app, schedules_router)
+    _include_workspace_scoped_router(app, tags_router)
     app.include_router(users_router)
     app.include_router(org_router)
     app.include_router(org_service_accounts_router)
@@ -488,35 +516,37 @@ def create_app(**kwargs) -> FastAPI:
     app.include_router(agent_catalog_router)
     app.include_router(agent_model_access_router)
     app.include_router(agent_custom_provider_router)
-    app.include_router(agent_channels_management_router)
-    app.include_router(agent_preset_router)
-    app.include_router(agent_skill_router)
-    app.include_router(agent_session_router)
-    app.include_router(approvals_router)
+    _include_workspace_scoped_router(app, agent_workspace_router)
+    _include_workspace_scoped_router(app, agent_channels_management_router)
+    _include_workspace_scoped_router(app, agent_preset_router)
+    _include_workspace_scoped_router(app, agent_skill_router)
+    _include_workspace_scoped_router(app, agent_session_router)
+    _include_workspace_scoped_router(app, approvals_router)
     app.include_router(watchtower_router)
     app.include_router(admin_router)
     app.include_router(admin_agent_router, prefix="/admin")
     app.include_router(admin_registry_router, prefix="/admin")
-    app.include_router(inbox_router)
-    app.include_router(editor_router)
+    _include_workspace_scoped_router(app, inbox_router)
+    _include_workspace_scoped_router(app, editor_router)
     app.include_router(registry_repos_router)
     app.include_router(registry_actions_router)
     app.include_router(org_settings_router)
     app.include_router(org_secrets_router)
-    app.include_router(tables_router)
-    app.include_router(cases_router)
-    app.include_router(case_rows_router)
-    app.include_router(case_fields_router)
-    app.include_router(case_tags_router)
-    app.include_router(case_tag_definitions_router)
-    app.include_router(case_attachments_router)
-    app.include_router(case_dropdowns_router)
-    app.include_router(case_dropdown_values_router)
-    app.include_router(case_durations_router)
-    app.include_router(workflow_folders_router)
-    app.include_router(integrations_router)
-    app.include_router(providers_router)
-    app.include_router(mcp_router)
+    _include_workspace_scoped_router(app, tables_router)
+    _include_workspace_scoped_router(app, cases_router)
+    _include_workspace_scoped_router(app, case_rows_router)
+    _include_workspace_scoped_router(app, case_fields_router)
+    _include_workspace_scoped_router(app, case_tags_router)
+    _include_workspace_scoped_router(app, case_tag_definitions_router)
+    _include_workspace_scoped_router(app, case_attachments_router)
+    _include_workspace_scoped_router(app, case_dropdowns_router)
+    _include_workspace_scoped_router(app, case_dropdown_values_router)
+    _include_workspace_scoped_router(app, case_durations_router)
+    _include_workspace_scoped_router(app, workflow_folders_router)
+    app.include_router(integrations_oauth_router)
+    _include_workspace_scoped_router(app, integrations_router)
+    _include_workspace_scoped_router(app, providers_router)
+    _include_workspace_scoped_router(app, mcp_router)
     app.include_router(mcp_oidc_router)
     app.include_router(feature_flags_router)
     app.include_router(vcs_router)

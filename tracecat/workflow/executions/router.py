@@ -14,7 +14,10 @@ import tracecat.agent.adapter.vercel
 from tracecat import config
 from tracecat.agent.schemas import AgentOutput
 from tracecat.agent.types import ClaudeSDKMessageTA
-from tracecat.auth.dependencies import WorkspaceActorRole, WorkspaceUserRole
+from tracecat.auth.dependencies import (
+    WorkspaceActorRouteRole,
+    WorkspaceUserRouteRole,
+)
 from tracecat.auth.types import Role
 from tracecat.authz.controls import require_scope
 from tracecat.db.dependencies import AsyncDBSession
@@ -29,7 +32,10 @@ from tracecat.ee.interactions.service import InteractionService
 from tracecat.exceptions import TracecatValidationError
 from tracecat.identifiers import UserID
 from tracecat.identifiers.workflow import (
+    AnyWorkflowIDPath,
     OptionalAnyWorkflowIDQuery,
+    WorkflowExecutionID,
+    WorkflowExecutionSuffixID,
     WorkflowIDShort,
     WorkflowUUID,
     exec_id_to_parts,
@@ -90,6 +96,7 @@ from tracecat.workflow.executions.service import (
 from tracecat.workflow.management.management import WorkflowsManagementService
 
 router = APIRouter(prefix="/workflow-executions", tags=["workflow-executions"])
+workflow_router = APIRouter(prefix="/workflows", tags=["workflow-executions"])
 PREVIEW_MAX_BYTES = 256 * 1024  # 256 KB
 COLLECTION_PAGE_PREVIEW_MAX_BYTES = 4 * 1024  # 4 KB per item preview in page responses
 
@@ -366,7 +373,7 @@ def _to_workflow_run_read_minimal(
 @router.get("")
 @require_scope("workflow:read")
 async def list_workflow_executions(
-    role: WorkspaceActorRole,
+    role: WorkspaceActorRouteRole,
     # Filters
     workflow_id: OptionalAnyWorkflowIDQuery,
     trigger_types: set[TriggerType] | None = Query(None, alias="trigger"),
@@ -407,7 +414,7 @@ async def list_workflow_executions(
 @router.get("/search")
 @require_scope("workflow:read")
 async def search_workflow_executions(
-    role: WorkspaceActorRole,
+    role: WorkspaceActorRouteRole,
     session: AsyncDBSession,
     workflow_id: OptionalAnyWorkflowIDQuery,
     pagination: CursorPaginationParams = Depends(
@@ -530,7 +537,7 @@ async def search_workflow_executions(
 @router.get("/{execution_id:path}/reset-points")
 @require_scope("workflow:read")
 async def list_workflow_execution_reset_points(
-    role: WorkspaceActorRole,
+    role: WorkspaceActorRouteRole,
     execution_id: UnquotedExecutionID,
     limit: int = Query(default=100, ge=1, le=500),
 ) -> list[WorkflowExecutionResetPointRead]:
@@ -552,7 +559,7 @@ async def list_workflow_execution_reset_points(
 @router.post("/{execution_id:path}/reset")
 @require_scope("workflow:terminate")
 async def reset_workflow_execution(
-    role: WorkspaceActorRole,
+    role: WorkspaceActorRouteRole,
     execution_id: UnquotedExecutionID,
     params: WorkflowExecutionResetRequest,
 ) -> WorkflowExecutionResetResponse:
@@ -582,7 +589,7 @@ async def reset_workflow_execution(
 @router.post("/reset/bulk")
 @require_scope("workflow:terminate")
 async def bulk_reset_workflow_executions(
-    role: WorkspaceActorRole,
+    role: WorkspaceActorRouteRole,
     params: WorkflowExecutionBulkResetRequest,
 ) -> WorkflowExecutionBulkResetResponse:
     service = await WorkflowExecutionsService.connect(role=role)
@@ -595,14 +602,11 @@ async def bulk_reset_workflow_executions(
     return WorkflowExecutionBulkResetResponse(results=results)
 
 
-@router.get("/{execution_id}")
-@require_scope("workflow:read")
-async def get_workflow_execution(
-    role: WorkspaceActorRole,
-    execution_id: UnquotedExecutionID,
+async def _get_workflow_execution_response(
+    role: WorkspaceActorRouteRole,
+    execution_id: WorkflowExecutionID,
     session: AsyncDBSession,
 ) -> WorkflowExecutionRead:
-    """Get a workflow execution."""
     logger.debug("Getting workflow execution", execution_id=execution_id)
     service = await WorkflowExecutionsService.connect(role=role)
     execution = await service.get_execution(execution_id)
@@ -635,10 +639,42 @@ async def get_workflow_execution(
     )
 
 
+@workflow_router.get("/{workflow_id}/executions/{execution_id}")
+@require_scope("workflow:read")
+async def get_workflow_execution_by_workflow_id(
+    role: WorkspaceActorRouteRole,
+    workflow_id: AnyWorkflowIDPath,
+    execution_id: WorkflowExecutionSuffixID,
+    session: AsyncDBSession,
+) -> WorkflowExecutionRead:
+    """Get a workflow execution by workflow ID and execution suffix."""
+    full_execution_id: WorkflowExecutionID = f"{workflow_id.short()}/{execution_id}"
+    return await _get_workflow_execution_response(
+        role=role,
+        execution_id=full_execution_id,
+        session=session,
+    )
+
+
+@router.get("/{execution_id}")
+@require_scope("workflow:read")
+async def get_workflow_execution(
+    role: WorkspaceActorRouteRole,
+    execution_id: UnquotedExecutionID,
+    session: AsyncDBSession,
+) -> WorkflowExecutionRead:
+    """Get a workflow execution."""
+    return await _get_workflow_execution_response(
+        role=role,
+        execution_id=execution_id,
+        session=session,
+    )
+
+
 @router.get("/{execution_id:path}/compact")
 @require_scope("workflow:read")
 async def get_workflow_execution_compact(
-    role: WorkspaceActorRole,
+    role: WorkspaceActorRouteRole,
     execution_id: UnquotedExecutionID,
     session: AsyncDBSession,
 ) -> WorkflowExecutionReadCompact[Any, AgentOutput | Any, Any]:
@@ -707,7 +743,7 @@ async def get_workflow_execution_compact(
 @router.post("/{execution_id:path}/objects/download")
 @require_scope("workflow:read")
 async def get_workflow_execution_object_download(
-    role: WorkspaceActorRole,
+    role: WorkspaceActorRouteRole,
     execution_id: UnquotedExecutionID,
     params: WorkflowExecutionObjectRequest,
 ) -> WorkflowExecutionObjectDownloadResponse:
@@ -792,7 +828,7 @@ async def get_workflow_execution_object_download(
 @router.post("/{execution_id:path}/objects/preview")
 @require_scope("workflow:read")
 async def get_workflow_execution_object_preview(
-    role: WorkspaceActorRole,
+    role: WorkspaceActorRouteRole,
     execution_id: UnquotedExecutionID,
     params: WorkflowExecutionObjectRequest,
 ) -> WorkflowExecutionObjectPreviewResponse:
@@ -863,7 +899,7 @@ async def get_workflow_execution_object_preview(
 @router.post("/{execution_id:path}/objects/collection/page")
 @require_scope("workflow:read")
 async def get_workflow_execution_collection_page(
-    role: WorkspaceActorRole,
+    role: WorkspaceActorRouteRole,
     execution_id: UnquotedExecutionID,
     params: WorkflowExecutionCollectionPageRequest,
 ) -> WorkflowExecutionCollectionPageResponse:
@@ -960,7 +996,7 @@ async def get_workflow_execution_collection_page(
 @router.post("")
 @require_scope("workflow:execute")
 async def create_workflow_execution(
-    role: WorkspaceActorRole,
+    role: WorkspaceActorRouteRole,
     params: WorkflowExecutionCreate,
     session: AsyncDBSession,
 ) -> WorkflowExecutionCreateResponse:
@@ -1012,7 +1048,7 @@ async def create_workflow_execution(
 @router.post("/draft")
 @require_scope("workflow:execute")
 async def create_draft_workflow_execution(
-    role: WorkspaceUserRole,
+    role: WorkspaceUserRouteRole,
     params: WorkflowExecutionCreate,
     session: AsyncDBSession,
 ) -> WorkflowExecutionCreateResponse:
@@ -1090,7 +1126,7 @@ async def create_draft_workflow_execution(
 )
 @require_scope("workflow:terminate")
 async def cancel_workflow_execution(
-    role: WorkspaceActorRole,
+    role: WorkspaceActorRouteRole,
     execution_id: UnquotedExecutionID,
 ) -> None:
     """Get a workflow execution."""
@@ -1118,7 +1154,7 @@ async def cancel_workflow_execution(
 )
 @require_scope("workflow:terminate")
 async def terminate_workflow_execution(
-    role: WorkspaceActorRole,
+    role: WorkspaceActorRouteRole,
     execution_id: UnquotedExecutionID,
     params: WorkflowExecutionTerminate,
 ) -> None:

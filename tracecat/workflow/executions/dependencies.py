@@ -3,7 +3,7 @@ from typing import Annotated
 
 from fastapi import Depends, HTTPException, Query, status
 
-from tracecat.auth.dependencies import WorkspaceActorRole
+from tracecat.auth.dependencies import WorkspaceActorRouteRole
 from tracecat.auth.enums import SpecialUserID
 from tracecat.identifiers import UserID
 from tracecat.identifiers.workflow import WorkflowExecutionID
@@ -18,7 +18,7 @@ UnquotedExecutionID = Annotated[WorkflowExecutionID, Depends(unquote_dep)]
 
 
 def resolve_triggered_by_user_id(
-    role: WorkspaceActorRole,
+    role: WorkspaceActorRouteRole,
     triggered_by_user_id: UserID | SpecialUserID | None = Query(
         default=None,
         alias="user_id",

@@ -18,8 +18,10 @@ from tracecat.auth.dependencies import (
     OrgUserOnlyRole,
     OrgUserRole,
     WorkspaceActorRole,
+    WorkspaceActorRouteRole,
     WorkspaceServiceAccountRole,
     WorkspaceUserRole,
+    WorkspaceUserRouteRole,
 )
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import (
@@ -27,17 +29,10 @@ from tracecat.authz.scopes import (
     ORG_ADMIN_SCOPES,
     SERVICE_PRINCIPAL_SCOPES,
 )
-from tracecat.cases.router import WorkspaceActor
 from tracecat.contexts import ctx_role
 from tracecat.db.engine import get_async_session, get_async_session_bypass_rls
 from tracecat.db.models import Workspace
 from tracecat.service_accounts.router import WorkspaceUserOnlyInPath
-from tracecat.tables.router import (
-    WorkspaceEditorUser as TablesWorkspaceEditorUser,
-)
-from tracecat.tables.router import (
-    WorkspaceUser as TablesWorkspaceUser,
-)
 from tracecat.workspaces.router import (
     WorkspaceUserInPath,
 )
@@ -86,18 +81,17 @@ def client(request: FixtureRequest) -> Generator[TestClient, None, None]:
     # List of Annotated role dependencies to override
     role_dependencies = [
         WorkspaceUserRole,
+        WorkspaceUserRouteRole,
         WorkspaceActorRole,
+        WorkspaceActorRouteRole,
         WorkspaceServiceAccountRole,
         ExecutorWorkspaceRole,
-        WorkspaceActor,
         SuperuserRole,
         AuthenticatedUserOnly,
         OrgActorRole,
         OrganizationServiceAccountRole,
         OrgUserOnlyRole,
         OrgUserRole,
-        TablesWorkspaceUser,
-        TablesWorkspaceEditorUser,
         WorkspaceUserInPath,
         WorkspaceUserOnlyInPath,
     ]

@@ -64,6 +64,7 @@ from tracecat.auth.dependencies import (
     ExecutorWorkspaceRole,
     OrgUserRole,
     ServiceRole,
+    WorkspaceActorRouteRole,
     WorkspaceUserRole,
 )
 from tracecat.auth.executor_tokens import mint_executor_token
@@ -75,7 +76,6 @@ from tracecat.cases.durations.schemas import (
 )
 from tracecat.cases.durations.service import CaseDurationDefinitionService
 from tracecat.cases.enums import CaseEventType
-from tracecat.cases.router import WorkspaceActor
 from tracecat.cases.service import CaseFieldsService
 from tracecat.contexts import ctx_role
 from tracecat.db.dependencies import get_async_session
@@ -168,7 +168,7 @@ async def cases_ctx(
     role_dependencies = [
         ExecutorWorkspaceRole,
         WorkspaceUserRole,
-        WorkspaceActor,
+        WorkspaceActorRouteRole,
         ServiceRole,
         OrgUserRole,
     ]

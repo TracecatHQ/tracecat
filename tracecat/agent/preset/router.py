@@ -1,5 +1,4 @@
 import uuid
-from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, Query, status
 
@@ -14,8 +13,7 @@ from tracecat.agent.preset.schemas import (
     AgentPresetVersionReadMinimal,
 )
 from tracecat.agent.preset.service import AgentPresetService
-from tracecat.auth.credentials import RoleACL
-from tracecat.auth.types import Role
+from tracecat.auth.dependencies import WorkspaceUserRouteRole
 from tracecat.authz.controls import require_scope
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.exceptions import TracecatValidationError
@@ -23,21 +21,12 @@ from tracecat.pagination import CursorPaginatedResponse, CursorPaginationParams
 
 router = APIRouter(prefix="/agent/presets", tags=["agent-presets"])
 
-WorkspaceEditorRole = Annotated[
-    Role,
-    RoleACL(
-        allow_user=True,
-        allow_service=False,
-        require_workspace="yes",
-    ),
-]
-
 
 @router.get("", response_model=list[AgentPresetReadMinimal])
 @require_scope("agent:read")
 async def list_agent_presets(
     *,
-    role: WorkspaceEditorRole,
+    role: WorkspaceUserRouteRole,
     session: AsyncDBSession,
 ) -> list[AgentPresetReadMinimal]:
     """List all agent presets for the current workspace."""
@@ -55,7 +44,7 @@ async def list_agent_presets(
 async def create_agent_preset(
     *,
     params: AgentPresetCreate,
-    role: WorkspaceEditorRole,
+    role: WorkspaceUserRouteRole,
     session: AsyncDBSession,
 ) -> AgentPresetRead:
     """Create a new agent preset."""
@@ -75,7 +64,7 @@ async def create_agent_preset(
 async def get_agent_preset(
     *,
     preset_id: uuid.UUID,
-    role: WorkspaceEditorRole,
+    role: WorkspaceUserRouteRole,
     session: AsyncDBSession,
 ) -> AgentPresetRead:
     """Retrieve an agent preset by ID."""
@@ -93,7 +82,7 @@ async def get_agent_preset(
 async def get_agent_preset_by_slug(
     *,
     slug: str,
-    role: WorkspaceEditorRole,
+    role: WorkspaceUserRouteRole,
     session: AsyncDBSession,
 ) -> AgentPresetRead:
     """Retrieve an agent preset by slug."""
@@ -112,7 +101,7 @@ async def update_agent_preset(
     *,
     preset_id: uuid.UUID,
     params: AgentPresetUpdate,
-    role: WorkspaceEditorRole,
+    role: WorkspaceUserRouteRole,
     session: AsyncDBSession,
 ) -> AgentPresetRead:
     """Update an existing agent preset."""
@@ -131,7 +120,7 @@ async def update_agent_preset(
 async def delete_agent_preset(
     *,
     preset_id: uuid.UUID,
-    role: WorkspaceEditorRole,
+    role: WorkspaceUserRouteRole,
     session: AsyncDBSession,
 ) -> None:
     """Delete an agent preset."""
@@ -152,7 +141,7 @@ async def delete_agent_preset(
 async def list_agent_preset_versions(
     *,
     preset_id: uuid.UUID,
-    role: WorkspaceEditorRole,
+    role: WorkspaceUserRouteRole,
     session: AsyncDBSession,
     limit: int = Query(
         default=config.TRACECAT__LIMIT_DEFAULT,
@@ -182,7 +171,7 @@ async def get_agent_preset_version(
     *,
     preset_id: uuid.UUID,
     version_id: uuid.UUID,
-    role: WorkspaceEditorRole,
+    role: WorkspaceUserRouteRole,
     session: AsyncDBSession,
 ) -> AgentPresetVersionRead:
     """Retrieve an immutable agent preset version."""
@@ -206,7 +195,7 @@ async def compare_agent_preset_versions(
     preset_id: uuid.UUID,
     version_id: uuid.UUID,
     compare_to: uuid.UUID = Query(..., description="Version ID to compare against"),
-    role: WorkspaceEditorRole,
+    role: WorkspaceUserRouteRole,
     session: AsyncDBSession,
 ) -> AgentPresetVersionDiff:
     """Compare two preset versions belonging to the same preset."""
@@ -235,7 +224,7 @@ async def restore_agent_preset_version(
     *,
     preset_id: uuid.UUID,
     version_id: uuid.UUID,
-    role: WorkspaceEditorRole,
+    role: WorkspaceUserRouteRole,
     session: AsyncDBSession,
 ) -> AgentPresetRead:
     """Restore a historical preset version as current."""

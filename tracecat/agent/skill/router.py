@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import uuid
-from typing import Annotated, Never
+from typing import Never
 
 from fastapi import APIRouter, HTTPException, Query, status
 
@@ -22,23 +22,13 @@ from tracecat.agent.skill.schemas import (
     SkillVersionReadMinimal,
 )
 from tracecat.agent.skill.service import SkillService
-from tracecat.auth.credentials import RoleACL
-from tracecat.auth.types import Role
+from tracecat.auth.dependencies import WorkspaceUserRouteRole
 from tracecat.authz.controls import require_scope
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
 from tracecat.pagination import CursorPaginatedResponse, CursorPaginationParams
 
 router = APIRouter(prefix="/agent/skills", tags=["agent-skills"])
-
-WorkspaceEditorRole = Annotated[
-    Role,
-    RoleACL(
-        allow_user=True,
-        allow_service=False,
-        require_workspace="yes",
-    ),
-]
 
 
 def _raise_skill_validation_error(exc: TracecatValidationError) -> Never:
@@ -60,7 +50,7 @@ def _raise_skill_validation_error(exc: TracecatValidationError) -> Never:
 @require_scope("agent:read")
 async def list_skills(
     *,
-    role: WorkspaceEditorRole,
+    role: WorkspaceUserRouteRole,
     session: AsyncDBSession,
     limit: int = Query(
         default=config.TRACECAT__LIMIT_DEFAULT,
@@ -83,7 +73,7 @@ async def list_skills(
 async def create_skill(
     *,
     params: SkillCreate,
-    role: WorkspaceEditorRole,
+    role: WorkspaceUserRouteRole,
     session: AsyncDBSession,
 ) -> SkillRead:
     """Create a new logical skill and seed its draft."""
@@ -100,7 +90,7 @@ async def create_skill(
 async def upload_skill(
     *,
     params: SkillUpload,
-    role: WorkspaceEditorRole,
+    role: WorkspaceUserRouteRole,
     session: AsyncDBSession,
 ) -> SkillRead:
     """Create a new skill by importing a full draft file tree."""
@@ -117,7 +107,7 @@ async def upload_skill(
 async def get_skill(
     *,
     skill_id: uuid.UUID,
-    role: WorkspaceEditorRole,
+    role: WorkspaceUserRouteRole,
     session: AsyncDBSession,
 ) -> SkillRead:
     """Return a skill summary including draft and current version status."""
@@ -136,7 +126,7 @@ async def get_skill(
 async def get_skill_draft(
     *,
     skill_id: uuid.UUID,
-    role: WorkspaceEditorRole,
+    role: WorkspaceUserRouteRole,
     session: AsyncDBSession,
 ) -> SkillDraftRead:
     """Return the mutable draft manifest for a skill."""
@@ -156,7 +146,7 @@ async def get_skill_draft_file(
     *,
     skill_id: uuid.UUID,
     path: str = Query(...),
-    role: WorkspaceEditorRole,
+    role: WorkspaceUserRouteRole,
     session: AsyncDBSession,
 ) -> SkillDraftFileRead:
     """Return one draft file inline or as a presigned download."""
@@ -181,7 +171,7 @@ async def patch_skill_draft(
     *,
     skill_id: uuid.UUID,
     params: SkillDraftPatch,
-    role: WorkspaceEditorRole,
+    role: WorkspaceUserRouteRole,
     session: AsyncDBSession,
 ) -> SkillDraftRead:
     """Apply optimistic-concurrency mutations to a draft."""
@@ -208,7 +198,7 @@ async def create_skill_draft_upload(
     *,
     skill_id: uuid.UUID,
     params: SkillUploadSessionCreate,
-    role: WorkspaceEditorRole,
+    role: WorkspaceUserRouteRole,
     session: AsyncDBSession,
 ) -> SkillUploadSessionRead:
     """Create a staged upload session for a draft file blob."""
@@ -230,7 +220,7 @@ async def create_skill_draft_upload(
 async def publish_skill(
     *,
     skill_id: uuid.UUID,
-    role: WorkspaceEditorRole,
+    role: WorkspaceUserRouteRole,
     session: AsyncDBSession,
 ) -> SkillVersionRead:
     """Publish the current draft into a new immutable version."""
@@ -255,7 +245,7 @@ async def publish_skill(
 async def list_skill_versions(
     *,
     skill_id: uuid.UUID,
-    role: WorkspaceEditorRole,
+    role: WorkspaceUserRouteRole,
     session: AsyncDBSession,
     limit: int = Query(
         default=config.TRACECAT__LIMIT_DEFAULT,
@@ -288,7 +278,7 @@ async def get_skill_version(
     *,
     skill_id: uuid.UUID,
     version_id: uuid.UUID,
-    role: WorkspaceEditorRole,
+    role: WorkspaceUserRouteRole,
     session: AsyncDBSession,
 ) -> SkillVersionRead:
     """Return one immutable skill version manifest."""
@@ -310,7 +300,7 @@ async def get_skill_version_file(
     skill_id: uuid.UUID,
     version_id: uuid.UUID,
     path: str = Query(...),
-    role: WorkspaceEditorRole,
+    role: WorkspaceUserRouteRole,
     session: AsyncDBSession,
 ) -> SkillDraftFileRead:
     """Return one published version file inline or as a presigned download."""
@@ -341,7 +331,7 @@ async def restore_skill_version(
     *,
     skill_id: uuid.UUID,
     version_id: uuid.UUID,
-    role: WorkspaceEditorRole,
+    role: WorkspaceUserRouteRole,
     session: AsyncDBSession,
 ) -> SkillReadMinimal:
     """Restore a historical version as the current selected skill version."""
@@ -361,7 +351,7 @@ async def restore_skill_version(
 async def archive_skill(
     *,
     skill_id: uuid.UUID,
-    role: WorkspaceEditorRole,
+    role: WorkspaceUserRouteRole,
     session: AsyncDBSession,
 ) -> None:
     """Archive a logical skill."""
