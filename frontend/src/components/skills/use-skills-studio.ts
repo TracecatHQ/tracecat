@@ -1,15 +1,7 @@
 "use client"
 
 import { useRouter } from "next/navigation"
-import {
-  type ChangeEvent,
-  type DragEvent,
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import type {
   SkillDraftAttachUploadedBlobOp,
   SkillDraftDeleteFileOp,
@@ -18,12 +10,10 @@ import type {
   SkillDraftUpsertTextFileOp,
   SkillRead,
   SkillReadMinimal,
-  SkillUpload,
   SkillVersionRead,
 } from "@/client"
 import { toast } from "@/components/ui/use-toast"
 import {
-  useCreateSkill,
   useCreateSkillDraftUpload,
   useDeleteSkill,
   usePatchSkillDraft,
@@ -32,45 +22,28 @@ import {
   useSkill,
   useSkillDraft,
   useSkillDraftFile,
-  useSkills,
   useSkillVersions,
-  useUploadSkill,
 } from "@/hooks/use-skills"
-import type { TracecatApiError } from "@/lib/errors"
 import { getApiErrorDetail } from "@/lib/errors"
 import {
   buildVisibleFiles,
   comparePaths,
   computeFileSha256,
   type DraftChange,
-  extractDroppedFiles,
-  fileToUploadEntry,
   getTextContentType,
-  getUploadRootName,
   isEditablePath,
   isMarkdownPath,
   uploadFileToSession,
   type VisibleFileEntry,
   validateSkillDraftPath,
 } from "@/lib/skills-studio"
-import { slugify } from "@/lib/utils"
 
-/** All state, data, and handlers for the skills studio. */
+/** State and handlers backing the single-skill editor surface. */
 type UseSkillsStudioReturn = {
-  // Navigation / selection
+  // Identity
   workspaceId: string
-  selectedSkillId: string | null
+  skillId: string
   selectedPath: string | null
-
-  // Skill list panel
-  search: string
-  onSearchChange: (value: string) => void
-  visibleSkills: SkillReadMinimal[]
-  skillsLoading: boolean
-  skillsError: TracecatApiError | null
-  onSelectSkill: (skillId: string) => void
-  onOpenNewSkillDialog: () => void
-  onOpenUploadSkillDialog: () => void
 
   // Delete skill
   showDeleteSkillDialog: boolean
@@ -79,22 +52,6 @@ type UseSkillsStudioReturn = {
   onOpenDeleteSkillDialog: (skill: SkillReadMinimal) => void
   onDeleteSkillDialogChange: (open: boolean) => void
   onConfirmDeleteSkill: () => Promise<void>
-
-  // Upload skill dialog
-  showUploadSkillDialog: boolean
-  onUploadSkillDialogChange: (open: boolean) => void
-  isDragOver: boolean
-  onDragOver: (event: DragEvent<HTMLDivElement>) => void
-  onDragLeave: () => void
-  onDrop: (event: DragEvent<HTMLDivElement>) => void
-  onDirectoryInput: (event: ChangeEvent<HTMLInputElement>) => void
-  uploadSkillPending: boolean
-
-  // Upload confirmation dialog
-  showUploadConfirmDialog: boolean
-  pendingUploadFiles: Array<{ file: File; path: string }>
-  onConfirmUpload: () => Promise<void>
-  onCancelUpload: () => void
 
   // Editor panel
   skill?: SkillRead
@@ -109,13 +66,11 @@ type UseSkillsStudioReturn = {
   markdownEditorActivatedRef: React.MutableRefObject<boolean>
   onSelectPath: (path: string) => void
   onEditorChange: (nextValue: string) => void
-  onDeleteSelectedFile: () => void
   onUndoSelectedFileChange: () => void
-  onReplaceFile: (event: ChangeEvent<HTMLInputElement>) => void
   onSaveWorkingCopy: () => Promise<void>
   onOpenNewFileDialog: () => void
 
-  // Inspector panel
+  // Inspector / working copy
   hasUnsavedChanges: boolean
   canPublish: boolean
   saveWorkingCopyPending: boolean
@@ -128,16 +83,6 @@ type UseSkillsStudioReturn = {
   restoreSkillVersionPending: boolean
   onRestore: (versionId: string) => Promise<void>
 
-  // Create skill dialog
-  showNewSkillDialog: boolean
-  onNewSkillDialogChange: (open: boolean) => void
-  newSkillName: string
-  onNewSkillNameChange: (value: string) => void
-  newSkillDescription: string
-  onNewSkillDescriptionChange: (value: string) => void
-  createSkillPending: boolean
-  onCreateSkill: () => Promise<void>
-
   // Add file dialog
   showNewFileDialog: boolean
   onNewFileDialogChange: (open: boolean) => void
@@ -147,55 +92,33 @@ type UseSkillsStudioReturn = {
 }
 
 type DraftChangesForSkill = Record<string, DraftChange>
-type DraftChangesBySkillId = Record<string, DraftChangesForSkill>
 
 const EMPTY_DRAFT_CHANGES: DraftChangesForSkill = {}
 
 /**
- * Encapsulates all state, data-fetching, and handlers for the skills studio.
+ * Encapsulates state, data-fetching, and handlers for the skills studio
+ * editor pane scoped to a single skill.
  *
  * @param params.workspaceId Current workspace identifier.
- * @param params.initialSkillId Optional skill to select on mount.
- * @returns Everything the studio panels need to render and interact.
+ * @param params.skillId Active skill identifier.
+ * @returns Everything the editor needs to render and interact.
  */
 export function useSkillsStudio(params: {
   workspaceId: string
-  initialSkillId?: string
+  skillId: string
 }): UseSkillsStudioReturn {
-  const { workspaceId, initialSkillId } = params
+  const { workspaceId, skillId } = params
   const router = useRouter()
   const markdownEditorActivatedRef = useRef(false)
 
   // ── State ──────────────────────────────────────────────────────────
-  const [search, setSearch] = useState("")
-  const [selectedSkillId, setSelectedSkillId] = useState<string | null>(
-    initialSkillId ?? null
-  )
   const [selectedPath, setSelectedPath] = useState<string | null>(null)
-  const [draftChangesBySkillId, setDraftChangesBySkillId] =
-    useState<DraftChangesBySkillId>({})
-  const [showNewSkillDialog, setShowNewSkillDialog] = useState(false)
-  const [showUploadSkillDialog, setShowUploadSkillDialog] = useState(false)
+  const [draftChanges, setDraftChanges] =
+    useState<DraftChangesForSkill>(EMPTY_DRAFT_CHANGES)
   const [showNewFileDialog, setShowNewFileDialog] = useState(false)
-  const [newSkillName, setNewSkillName] = useState("")
-  const [newSkillDescription, setNewSkillDescription] = useState("")
   const [newFilePath, setNewFilePath] = useState("")
-  const [isDragOver, setIsDragOver] = useState(false)
   const [saveWorkingCopyPending, setSaveWorkingCopyPending] = useState(false)
   const saveWorkingCopyPendingRef = useRef(false)
-  const [showUploadConfirmDialog, setShowUploadConfirmDialog] = useState(false)
-  const [uploadConfirmPending, setUploadConfirmPending] = useState(false)
-  const uploadConfirmPendingRef = useRef(false)
-  const [pendingUploadFiles, setPendingUploadFiles] = useState<
-    Array<{ file: File; path: string }>
-  >([])
-
-  const draftChanges = useMemo(() => {
-    if (!selectedSkillId) {
-      return EMPTY_DRAFT_CHANGES
-    }
-    return draftChangesBySkillId[selectedSkillId] ?? EMPTY_DRAFT_CHANGES
-  }, [draftChangesBySkillId, selectedSkillId])
 
   const updateDraftChanges = useCallback(
     (
@@ -203,42 +126,18 @@ export function useSkillsStudio(params: {
         | DraftChangesForSkill
         | ((current: DraftChangesForSkill) => DraftChangesForSkill)
     ) => {
-      if (!selectedSkillId) {
-        return
-      }
-
-      setDraftChangesBySkillId((current) => {
-        const currentForSkill = current[selectedSkillId] ?? EMPTY_DRAFT_CHANGES
-        const nextForSkill =
-          typeof updater === "function" ? updater(currentForSkill) : updater
-
-        if (Object.keys(nextForSkill).length === 0) {
-          if (!(selectedSkillId in current)) {
-            return current
-          }
-
-          const { [selectedSkillId]: _removed, ...rest } = current
-          return rest
-        }
-
-        return {
-          ...current,
-          [selectedSkillId]: nextForSkill,
-        }
+      setDraftChanges((current) => {
+        const next = typeof updater === "function" ? updater(current) : updater
+        return next
       })
     },
-    [selectedSkillId]
+    []
   )
 
   // ── Data fetching ──────────────────────────────────────────────────
-  const { skills, skillsLoading, skillsError } = useSkills(workspaceId)
-
-  const { skill, skillLoading } = useSkill(workspaceId, selectedSkillId)
-  const { draft, draftLoading } = useSkillDraft(workspaceId, selectedSkillId)
-  const { versions, versionsLoading } = useSkillVersions(
-    workspaceId,
-    selectedSkillId
-  )
+  const { skill, skillLoading } = useSkill(workspaceId, skillId)
+  const { draft, draftLoading } = useSkillDraft(workspaceId, skillId)
+  const { versions, versionsLoading } = useSkillVersions(workspaceId, skillId)
 
   const visibleFiles = useMemo(
     () => buildVisibleFiles(draft?.files, draftChanges),
@@ -259,12 +158,10 @@ export function useSkillsStudio(params: {
 
   const { draftFile, draftFileLoading } = useSkillDraftFile(
     workspaceId,
-    selectedSkillId,
+    skillId,
     selectedFileQueryPath
   )
 
-  const { createSkill, createSkillPending } = useCreateSkill(workspaceId)
-  const { uploadSkill, uploadSkillPending } = useUploadSkill(workspaceId)
   const { patchSkillDraft, patchSkillDraftPending } =
     usePatchSkillDraft(workspaceId)
   const { createSkillDraftUpload, createSkillDraftUploadPending } =
@@ -273,7 +170,6 @@ export function useSkillsStudio(params: {
   const { restoreSkillVersion, restoreSkillVersionPending } =
     useRestoreSkillVersion(workspaceId)
   const { deleteSkill, deleteSkillPending } = useDeleteSkill(workspaceId)
-  const uploadPending = uploadSkillPending || uploadConfirmPending
 
   // Delete skill dialog state
   const [showDeleteSkillDialog, setShowDeleteSkillDialog] = useState(false)
@@ -281,24 +177,11 @@ export function useSkillsStudio(params: {
     useState<SkillReadMinimal | null>(null)
 
   // ── Derived ────────────────────────────────────────────────────────
-  const visibleSkills = useMemo(() => {
-    const query = search.trim().toLowerCase()
-    if (!query) {
-      return skills ?? []
-    }
-    return (skills ?? []).filter((s) => {
-      return (
-        s.name.toLowerCase().includes(query) ||
-        (s.description ?? "").toLowerCase().includes(query)
-      )
-    })
-  }, [search, skills])
-
   const hasUnsavedChanges = useMemo(
     () => Object.keys(draftChanges).length > 0,
     [draftChanges]
   )
-  const canPublish = !hasUnsavedChanges && Boolean(draft?.is_publishable)
+  const canPublish = hasUnsavedChanges && Boolean(draft?.is_publishable)
 
   const currentTextValue = useMemo(() => {
     if (!selectedFile) {
@@ -322,13 +205,10 @@ export function useSkillsStudio(params: {
 
   // ── Effects ────────────────────────────────────────────────────────
   useEffect(() => {
-    setSelectedSkillId(initialSkillId ?? null)
-  }, [initialSkillId])
-
-  useEffect(() => {
     setSelectedPath(null)
+    setDraftChanges(EMPTY_DRAFT_CHANGES)
     markdownEditorActivatedRef.current = false
-  }, [selectedSkillId])
+  }, [skillId])
 
   useEffect(() => {
     markdownEditorActivatedRef.current = false
@@ -348,143 +228,19 @@ export function useSkillsStudio(params: {
   }, [selectedPath, visibleFiles])
 
   // ── Stable callbacks ────────────────────────────────────────────────
-  const handleDragOver = useCallback((event: DragEvent<HTMLDivElement>) => {
-    event.preventDefault()
-    setIsDragOver(true)
-  }, [])
-  const handleDragLeave = useCallback(() => setIsDragOver(false), [])
-  const handleOpenNewSkillDialog = useCallback(
-    () => setShowNewSkillDialog(true),
-    []
-  )
-  const handleOpenUploadSkillDialog = useCallback(
-    () => setShowUploadSkillDialog(true),
-    []
-  )
   const handleOpenNewFileDialog = useCallback(
     () => setShowNewFileDialog(true),
     []
   )
-  const handleOpenDeleteSkillDialog = useCallback((skill: SkillReadMinimal) => {
-    setDeleteSkillTarget(skill)
-    setShowDeleteSkillDialog(true)
-  }, [])
+  const handleOpenDeleteSkillDialog = useCallback(
+    (target: SkillReadMinimal) => {
+      setDeleteSkillTarget(target)
+      setShowDeleteSkillDialog(true)
+    },
+    []
+  )
 
   // ── Handlers ───────────────────────────────────────────────────────
-  const handleSelectSkill = (skillId: string) => {
-    setSelectedSkillId(skillId)
-    router.push(`/workspaces/${workspaceId}/skills/${skillId}`)
-  }
-
-  const handleCreateSkill = async () => {
-    const name = slugify(newSkillName.trim(), "-") || "skill"
-    const created = await createSkill({
-      name,
-      description: newSkillDescription.trim() || null,
-    })
-    setShowNewSkillDialog(false)
-    setNewSkillName("")
-    setNewSkillDescription("")
-    router.push(`/workspaces/${workspaceId}/skills/${created.id}`)
-  }
-
-  const handleUploadPayload = async (payload: SkillUpload) => {
-    const created = await uploadSkill(payload)
-    router.push(`/workspaces/${workspaceId}/skills/${created.id}`)
-  }
-
-  const handleUploadFiles = async (
-    files: Array<{ file: File; path: string }>
-  ) => {
-    if (files.length === 0) {
-      return
-    }
-
-    const paths = files.map(({ path }) => path.replace(/^\/+/, ""))
-    const rootName = getUploadRootName(paths)
-    const normalizedFiles = await Promise.all(
-      files.map(async ({ file, path }) => {
-        const normalizedPath = path.replace(/^\/+/, "")
-        const relativePath = rootName
-          ? normalizedPath.slice(rootName.length + 1)
-          : normalizedPath
-        return await fileToUploadEntry(file, relativePath || file.name)
-      })
-    )
-    const name = slugify(
-      rootName ?? files[0]?.file.name.replace(/\.[^.]+$/, ""),
-      "-"
-    )
-    await handleUploadPayload({
-      name: name || "skill",
-      files: normalizedFiles,
-    })
-  }
-
-  const handleDirectoryInput = (event: ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(event.target.files ?? [])
-    if (files.length === 0) {
-      return
-    }
-    const mapped = files.map((file) => ({
-      file,
-      path: file.webkitRelativePath || file.name,
-    }))
-    setPendingUploadFiles(mapped)
-    setShowUploadSkillDialog(false)
-    setShowUploadConfirmDialog(true)
-    event.target.value = ""
-  }
-
-  const handleDrop = async (event: DragEvent<HTMLDivElement>) => {
-    event.preventDefault()
-    setIsDragOver(false)
-    try {
-      const droppedFiles = await extractDroppedFiles(event)
-      setPendingUploadFiles(droppedFiles)
-      setShowUploadSkillDialog(false)
-      setShowUploadConfirmDialog(true)
-    } catch (error) {
-      toast({
-        title: "Drop upload failed",
-        description:
-          getApiErrorDetail(error) ?? "Failed to read dropped files.",
-        variant: "destructive",
-      })
-    }
-  }
-
-  const handleConfirmUpload = async () => {
-    if (
-      pendingUploadFiles.length === 0 ||
-      uploadSkillPending ||
-      uploadConfirmPendingRef.current
-    ) {
-      return
-    }
-    uploadConfirmPendingRef.current = true
-    setUploadConfirmPending(true)
-    try {
-      await handleUploadFiles(pendingUploadFiles)
-      setShowUploadConfirmDialog(false)
-      setPendingUploadFiles([])
-    } catch (error) {
-      toast({
-        title: "Upload failed",
-        description: getApiErrorDetail(error) ?? "Failed to upload skill.",
-        variant: "destructive",
-      })
-    } finally {
-      uploadConfirmPendingRef.current = false
-      setUploadConfirmPending(false)
-    }
-  }
-
-  const handleCancelUpload = () => {
-    setShowUploadConfirmDialog(false)
-    setPendingUploadFiles([])
-  }
-
   const handleEditorChange = (nextValue: string) => {
     if (!selectedFile) {
       return
@@ -517,24 +273,6 @@ export function useSkillsStudio(params: {
           contentType:
             selectedFile.contentType || getTextContentType(selectedFile.path),
         },
-      }
-    })
-  }
-
-  const handleDeleteSelectedFile = () => {
-    if (!selectedFile) {
-      return
-    }
-    updateDraftChanges((current) => {
-      if (selectedFile.isNew) {
-        const next = { ...current }
-        delete next[selectedFile.path]
-        return next
-      }
-
-      return {
-        ...current,
-        [selectedFile.path]: { kind: "delete" },
       }
     })
   }
@@ -594,24 +332,8 @@ export function useSkillsStudio(params: {
     setShowNewFileDialog(false)
   }
 
-  const handleReplaceFile = async (event: ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0]
-    if (!selectedFile || !file) {
-      return
-    }
-    updateDraftChanges((current) => ({
-      ...current,
-      [selectedFile.path]: {
-        kind: "upload",
-        file,
-        contentType: file.type || "application/octet-stream",
-      },
-    }))
-    event.target.value = ""
-  }
-
   const handleSaveWorkingCopy = async () => {
-    if (!draft || !selectedSkillId || saveWorkingCopyPendingRef.current) {
+    if (!draft || saveWorkingCopyPendingRef.current) {
       return
     }
 
@@ -650,7 +372,7 @@ export function useSkillsStudio(params: {
 
         const sha256 = await computeFileSha256(change.file)
         const uploadSession = await createSkillDraftUpload({
-          skillId: selectedSkillId,
+          skillId,
           requestBody: {
             sha256,
             size_bytes: change.file.size,
@@ -671,7 +393,7 @@ export function useSkillsStudio(params: {
       }
 
       await patchSkillDraft({
-        skillId: selectedSkillId,
+        skillId,
         requestBody: {
           base_revision: draft.draft_revision,
           operations,
@@ -699,11 +421,8 @@ export function useSkillsStudio(params: {
   }
 
   const handlePublish = async () => {
-    if (!selectedSkillId) {
-      return
-    }
     try {
-      await publishSkill({ skillId: selectedSkillId })
+      await publishSkill({ skillId })
     } catch (error) {
       toast({
         title: "Publish failed",
@@ -714,10 +433,7 @@ export function useSkillsStudio(params: {
   }
 
   const handleRestore = async (versionId: string) => {
-    if (!selectedSkillId) {
-      return
-    }
-    await restoreSkillVersion({ skillId: selectedSkillId, versionId })
+    await restoreSkillVersion({ skillId, versionId })
   }
 
   const handleConfirmDeleteSkill = async () => {
@@ -728,10 +444,7 @@ export function useSkillsStudio(params: {
       await deleteSkill({ skillId: deleteSkillTarget.id })
       setShowDeleteSkillDialog(false)
       setDeleteSkillTarget(null)
-      if (selectedSkillId === deleteSkillTarget.id) {
-        setSelectedSkillId(null)
-        router.push(`/workspaces/${workspaceId}/skills`)
-      }
+      router.push(`/workspaces/${workspaceId}/skills`)
     } catch {
       // The mutation hook already reports delete failures to the user.
     }
@@ -740,17 +453,8 @@ export function useSkillsStudio(params: {
   // ── Return ─────────────────────────────────────────────────────────
   return {
     workspaceId,
-    selectedSkillId,
+    skillId,
     selectedPath,
-
-    search,
-    onSearchChange: setSearch,
-    visibleSkills,
-    skillsLoading,
-    skillsError: skillsError ?? null,
-    onSelectSkill: handleSelectSkill,
-    onOpenNewSkillDialog: handleOpenNewSkillDialog,
-    onOpenUploadSkillDialog: handleOpenUploadSkillDialog,
 
     showDeleteSkillDialog,
     deleteSkillTarget,
@@ -758,20 +462,6 @@ export function useSkillsStudio(params: {
     onOpenDeleteSkillDialog: handleOpenDeleteSkillDialog,
     onDeleteSkillDialogChange: setShowDeleteSkillDialog,
     onConfirmDeleteSkill: handleConfirmDeleteSkill,
-
-    showUploadSkillDialog,
-    onUploadSkillDialogChange: setShowUploadSkillDialog,
-    isDragOver,
-    onDragOver: handleDragOver,
-    onDragLeave: handleDragLeave,
-    onDrop: handleDrop,
-    onDirectoryInput: handleDirectoryInput,
-    uploadSkillPending: uploadPending,
-
-    showUploadConfirmDialog,
-    pendingUploadFiles,
-    onConfirmUpload: handleConfirmUpload,
-    onCancelUpload: handleCancelUpload,
 
     skill,
     skillLoading,
@@ -785,9 +475,7 @@ export function useSkillsStudio(params: {
     markdownEditorActivatedRef,
     onSelectPath: setSelectedPath,
     onEditorChange: handleEditorChange,
-    onDeleteSelectedFile: handleDeleteSelectedFile,
     onUndoSelectedFileChange: handleUndoSelectedFileChange,
-    onReplaceFile: handleReplaceFile,
     onSaveWorkingCopy: handleSaveWorkingCopy,
     onOpenNewFileDialog: handleOpenNewFileDialog,
 
@@ -802,15 +490,6 @@ export function useSkillsStudio(params: {
     versionsLoading,
     restoreSkillVersionPending,
     onRestore: handleRestore,
-
-    showNewSkillDialog,
-    onNewSkillDialogChange: setShowNewSkillDialog,
-    newSkillName,
-    onNewSkillNameChange: setNewSkillName,
-    newSkillDescription,
-    onNewSkillDescriptionChange: setNewSkillDescription,
-    createSkillPending,
-    onCreateSkill: handleCreateSkill,
 
     showNewFileDialog,
     onNewFileDialogChange: setShowNewFileDialog,

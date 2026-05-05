@@ -23,6 +23,7 @@ import { useAuth, useAuthActions } from "@/hooks/use-auth"
 import { useWorkspaceManager } from "@/lib/hooks"
 import { WorkflowBuilderProvider } from "@/providers/builder"
 import { ScopeProvider } from "@/providers/scopes"
+import { SkillsStudioProvider } from "@/providers/skills-studio"
 import { WorkflowProvider } from "@/providers/workflow"
 import { WorkspaceIdProvider } from "@/providers/workspace-id"
 
@@ -55,9 +56,14 @@ export default function WorkspaceLayout({
     setLastWorkspaceId,
     getLastWorkspaceId,
   } = useWorkspaceManager()
-  const params = useParams<{ workspaceId?: string; workflowId?: string }>()
+  const params = useParams<{
+    workspaceId?: string
+    workflowId?: string
+    skillId?: string
+  }>()
   const workspaceId = params?.workspaceId
   const workflowId = params?.workflowId
+  const skillId = params?.skillId
   const requestedWorkspaceExists = useMemo(() => {
     if (!workspaceId || !workspaces) {
       return false
@@ -170,6 +176,13 @@ export default function WorkspaceLayout({
           >
             <WorkspaceChildren>{children}</WorkspaceChildren>
           </WorkflowView>
+        ) : skillId ? (
+          <SkillsStudioProvider
+            workspaceId={selectedWorkspaceId}
+            skillId={skillId}
+          >
+            <WorkspaceChildren>{children}</WorkspaceChildren>
+          </SkillsStudioProvider>
         ) : (
           <WorkspaceChildren>{children}</WorkspaceChildren>
         )}

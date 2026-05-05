@@ -1,5 +1,4 @@
 import { act, renderHook, waitFor } from "@testing-library/react"
-import type { ChangeEvent } from "react"
 import type { SkillDraftRead, SkillRead } from "@/client"
 import { useSkillsStudio } from "@/components/skills/use-skills-studio"
 import {
@@ -9,7 +8,6 @@ import {
 import {
   fileToUploadEntry,
   getLanguageForPath,
-  uploadFileToSession,
   validateSkillDraftPath,
 } from "@/lib/skills-studio"
 
@@ -28,7 +26,6 @@ jest.mock("@/lib/skills-studio", () => {
     ...actual,
     computeFileSha256: jest.fn(async () => "sha-upload"),
     fileToUploadEntry: jest.fn(),
-    uploadFileToSession: jest.fn(),
   }
 })
 
@@ -209,9 +206,6 @@ jest.mock("@/hooks/use-skills", () => ({
   }),
 }))
 
-const mockUploadFileToSession = uploadFileToSession as jest.MockedFunction<
-  typeof uploadFileToSession
->
 const mockFileToUploadEntry = fileToUploadEntry as jest.MockedFunction<
   typeof fileToUploadEntry
 >
@@ -278,100 +272,11 @@ describe("useSkillsStudio", () => {
     }))
   })
 
-  it("clears staged changes when deleting a new unsaved file", async () => {
-    const { result } = renderHook(() =>
-      useSkillsStudio({
-        workspaceId: "workspace-1",
-        initialSkillId: "skill-1",
-      })
-    )
-
-    await waitFor(() => {
-      expect(result.current.selectedPath).toBe("SKILL.md")
-    })
-
-    act(() => {
-      result.current.onNewFilePathChange("notes.txt")
-    })
-
-    act(() => {
-      result.current.onCreateNewFile()
-    })
-
-    expect(result.current.selectedFile?.path).toBe("notes.txt")
-    expect(result.current.hasUnsavedChanges).toBe(true)
-
-    act(() => {
-      result.current.onDeleteSelectedFile()
-    })
-
-    await waitFor(() => {
-      expect(result.current.selectedPath).toBe("SKILL.md")
-    })
-    expect(result.current.visibleFiles.map((file) => file.path)).toEqual([
-      "SKILL.md",
-    ])
-    expect(result.current.hasUnsavedChanges).toBe(false)
-  })
-
-  it("preserves staged edits per skill when switching selections", async () => {
-    const { result, rerender } = renderHook(
-      ({ initialSkillId }: { initialSkillId: string }) =>
-        useSkillsStudio({
-          workspaceId: "workspace-1",
-          initialSkillId,
-        }),
-      {
-        initialProps: {
-          initialSkillId: "skill-1",
-        },
-      }
-    )
-
-    await waitFor(() => {
-      expect(result.current.selectedPath).toBe("SKILL.md")
-    })
-
-    act(() => {
-      result.current.markdownEditorActivatedRef.current = true
-      result.current.onEditorChange("Updated skill one")
-    })
-
-    expect(result.current.currentTextValue).toBe("Updated skill one")
-    expect(result.current.hasUnsavedChanges).toBe(true)
-
-    act(() => {
-      result.current.onSelectSkill("skill-2")
-    })
-    rerender({ initialSkillId: "skill-2" })
-
-    await waitFor(() => {
-      expect(result.current.selectedSkillId).toBe("skill-2")
-      expect(result.current.selectedPath).toBe("README.md")
-    })
-
-    expect(result.current.currentTextValue).toBe("# Skill 2\n")
-    expect(result.current.hasUnsavedChanges).toBe(false)
-
-    act(() => {
-      result.current.onSelectSkill("skill-1")
-    })
-    rerender({ initialSkillId: "skill-1" })
-
-    await waitFor(() => {
-      expect(result.current.selectedSkillId).toBe("skill-1")
-      expect(result.current.selectedPath).toBe("SKILL.md")
-    })
-
-    expect(result.current.currentTextValue).toBe("Updated skill one")
-    expect(result.current.hasUnsavedChanges).toBe(true)
-  })
-
   it("keeps new files staged when their content is cleared back to empty", async () => {
     const { result } = renderHook(() =>
       useSkillsStudio({
         workspaceId: "workspace-1",
-        initialSkillId: "skill-1",
+        skillId: "skill-1",
       })
     )
 
@@ -408,7 +313,7 @@ describe("useSkillsStudio", () => {
     const { result } = renderHook(() =>
       useSkillsStudio({
         workspaceId: "workspace-1",
-        initialSkillId: "skill-1",
+        skillId: "skill-1",
       })
     )
 
@@ -430,67 +335,11 @@ describe("useSkillsStudio", () => {
     expect(result.current.hasUnsavedChanges).toBe(false)
   })
 
-  it("keeps the full save lifecycle locked while uploads are in flight", async () => {
-    const uploadDeferred = createDeferred<void>()
-    mockCreateSkillDraftUpload.mockResolvedValue({
-      upload_id: "upload-1",
-      upload_url: "https://example.com/upload",
-      method: "PUT",
-      headers: {},
-    })
-    mockUploadFileToSession.mockImplementation(() => uploadDeferred.promise)
-    mockPatchSkillDraft.mockResolvedValue(undefined)
-
-    const { result } = renderHook(() =>
-      useSkillsStudio({
-        workspaceId: "workspace-1",
-        initialSkillId: "skill-1",
-      })
-    )
-
-    await waitFor(() => {
-      expect(result.current.selectedPath).toBe("SKILL.md")
-    })
-
-    const file = new File(["updated"], "SKILL.md", {
-      type: "text/markdown; charset=utf-8",
-    })
-
-    act(() => {
-      result.current.onReplaceFile({
-        target: { files: [file], value: "" },
-      } as unknown as ChangeEvent<HTMLInputElement>)
-    })
-
-    expect(result.current.hasUnsavedChanges).toBe(true)
-
-    let savePromise: Promise<void> | undefined
-    act(() => {
-      savePromise = result.current.onSaveWorkingCopy()
-    })
-
-    await waitFor(() => {
-      expect(result.current.saveWorkingCopyPending).toBe(true)
-    })
-    expect(mockPatchSkillDraft).not.toHaveBeenCalled()
-
-    uploadDeferred.resolve()
-
-    await act(async () => {
-      await savePromise
-    })
-
-    await waitFor(() => {
-      expect(result.current.saveWorkingCopyPending).toBe(false)
-    })
-    expect(mockPatchSkillDraft).toHaveBeenCalledTimes(1)
-  })
-
   it("skips save requests when no draft changes are staged", async () => {
     const { result } = renderHook(() =>
       useSkillsStudio({
         workspaceId: "workspace-1",
-        initialSkillId: "skill-1",
+        skillId: "skill-1",
       })
     )
 
@@ -507,74 +356,6 @@ describe("useSkillsStudio", () => {
     expect(mockPatchSkillDraft).not.toHaveBeenCalled()
   })
 
-  it("guards upload confirmation against double submits", async () => {
-    const entryDeferred = createDeferred<{
-      path: string
-      content_base64: string
-      content_type: string | undefined
-    }>()
-    const uploadDeferred = createDeferred<{ id: string }>()
-    mockFileToUploadEntry.mockImplementation(() => entryDeferred.promise)
-    mockUploadSkill.mockImplementation(() => uploadDeferred.promise)
-
-    const { result } = renderHook(() =>
-      useSkillsStudio({
-        workspaceId: "workspace-1",
-        initialSkillId: "skill-1",
-      })
-    )
-
-    await waitFor(() => {
-      expect(result.current.selectedPath).toBe("SKILL.md")
-    })
-
-    const file = new File(["# Uploaded"], "SKILL.md", {
-      type: "text/markdown; charset=utf-8",
-    })
-
-    act(() => {
-      result.current.onDirectoryInput({
-        target: { files: [file], value: "" },
-      } as unknown as ChangeEvent<HTMLInputElement>)
-    })
-
-    expect(result.current.showUploadConfirmDialog).toBe(true)
-
-    let firstConfirm: Promise<void> | undefined
-    let secondConfirm: Promise<void> | undefined
-    act(() => {
-      firstConfirm = result.current.onConfirmUpload()
-      secondConfirm = result.current.onConfirmUpload()
-    })
-
-    await waitFor(() => {
-      expect(result.current.uploadSkillPending).toBe(true)
-    })
-    await waitFor(() => {
-      expect(mockFileToUploadEntry).toHaveBeenCalledTimes(1)
-    })
-
-    entryDeferred.resolve({
-      path: "SKILL.md",
-      content_base64: "encoded-upload",
-      content_type: "text/markdown; charset=utf-8",
-    })
-
-    await waitFor(() => {
-      expect(mockUploadSkill).toHaveBeenCalledTimes(1)
-    })
-
-    uploadDeferred.resolve({ id: "uploaded-skill" })
-
-    await act(async () => {
-      await Promise.all([firstConfirm, secondConfirm])
-    })
-
-    expect(mockRouterPush).toHaveBeenCalledWith(
-      "/workspaces/workspace-1/skills/uploaded-skill"
-    )
-  })
-
   it("preserves edits made while a save is in flight", async () => {
     const patchDeferred = createDeferred<void>()
     mockPatchSkillDraft.mockImplementation(() => patchDeferred.promise)
@@ -582,7 +363,7 @@ describe("useSkillsStudio", () => {
     const { result } = renderHook(() =>
       useSkillsStudio({
         workspaceId: "workspace-1",
-        initialSkillId: "skill-1",
+        skillId: "skill-1",
       })
     )
 

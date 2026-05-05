@@ -1,10 +1,10 @@
-import { SkillsStudio } from "@/components/skills/skills-studio"
+import { SkillsDashboard } from "@/components/skills/skills-dashboard"
 
 /**
  * Workspace skills index page.
  *
  * @param props Route params.
- * @returns The skills studio with the full list visible.
+ * @returns The skills dashboard list view.
  */
 export default async function SkillsPage({
   params,
@@ -12,5 +12,5 @@ export default async function SkillsPage({
   params: Promise<{ workspaceId: string }>
 }) {
   const { workspaceId } = await params
-  return <SkillsStudio workspaceId={workspaceId} />
+  return <SkillsDashboard workspaceId={workspaceId} />
 }
