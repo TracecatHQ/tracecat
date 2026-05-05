@@ -896,7 +896,7 @@ async def _role_dependency(
 def _resolve_workspace_id_from_path_or_query(
     request: Request,
     workspace_id_query: uuid.UUID | None,
-) -> uuid.UUID | None:
+) -> uuid.UUID:
     path_value = request.path_params.get("workspace_id")
     path_workspace_id: uuid.UUID | None = None
     if path_value is not None:
@@ -921,7 +921,13 @@ def _resolve_workspace_id_from_path_or_query(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Path and query workspace_id values must match",
         )
-    return path_workspace_id or workspace_id_query
+    workspace_id = path_workspace_id or workspace_id_query
+    if workspace_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="workspace_id is required",
+        )
+    return workspace_id
 
 
 def RoleACL(

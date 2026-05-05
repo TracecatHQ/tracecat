@@ -230,6 +230,34 @@ def test_role_acl_auto_workspace_rejects_path_query_conflict(
     authenticate_api_key.assert_not_awaited()
 
 
+def test_role_acl_auto_workspace_requires_workspace_context(
+    role_acl_app: FastAPI,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    authenticate_api_key = AsyncMock()
+    monkeypatch.setattr(credentials, "_authenticate_api_key", authenticate_api_key)
+
+    @role_acl_app.get("/api-key-missing-workspace")
+    async def api_key_missing_workspace_route(  # pyright: ignore[reportUnusedFunction] - route handler
+        role: Role = RoleACL(
+            allow_user=False,
+            allow_api_key=True,
+            require_workspace="yes",
+            workspace_id_in_path="auto",
+        ),
+    ) -> dict[str, str]:
+        return {"role_type": role.type}
+
+    response = TestClient(role_acl_app).get(
+        "/api-key-missing-workspace",
+        headers={"Authorization": "Bearer tc_ws_sk_managed-api-key_secret"},
+    )
+
+    assert response.status_code == 422
+    assert response.json()["detail"] == "workspace_id is required"
+    authenticate_api_key.assert_not_awaited()
+
+
 def test_role_acl_combined_service_and_api_key_route_uses_service_key_fallback(
     role_acl_app: FastAPI,
     monkeypatch: pytest.MonkeyPatch,
