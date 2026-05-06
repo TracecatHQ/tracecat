@@ -138,6 +138,30 @@ portless_url() {
     echo "$url"
 }
 
+portless_url_for_name() {
+    local name=$1
+
+    # Ask portless for the URL so custom proxy ports, TLS mode, LAN mode, and
+    # custom TLD settings are reflected exactly.
+    if command -v portless >/dev/null 2>&1; then
+        local url
+        if url=$(portless get "$name" --no-worktree 2>/dev/null); then
+            echo "$url"
+            return
+        fi
+    fi
+
+    local scheme="https"
+    local tld="${PORTLESS_TLD:-localhost}"
+    local proxy_port="${PORTLESS_PORT:-}"
+    [[ "${PORTLESS_HTTPS:-1}" == "0" ]] && scheme="http"
+    url="${scheme}://${name}.${tld}"
+    if [[ -n "$proxy_port" && "$proxy_port" != "80" && "$proxy_port" != "443" ]]; then
+        url="${url}:${proxy_port}"
+    fi
+    echo "$url"
+}
+
 portless_start_proxy() {
     if ! portless proxy start; then
         echo "[portless] Could not start proxy. Set TRACECAT__USE_PORTLESS=0 to disable portless integration." >&2
@@ -165,11 +189,31 @@ portless_register() {
     echo "[portless] $(portless_url "$cluster_num") -> localhost:${port}"
 }
 
+portless_register_alias() {
+    local name=$1
+    local port=$2
+
+    if ! portless_start_proxy; then
+        return 1
+    fi
+
+    if ! portless alias "$name" "$port" --force >/dev/null 2>&1; then
+        echo "[portless] Could not register alias '${name}'." >&2
+        echo "[portless] Retry, or set TRACECAT__USE_PORTLESS=0 to disable portless integration." >&2
+        return 1
+    fi
+    echo "[portless] $(portless_url_for_name "$name") -> localhost:${port}"
+}
+
 portless_unregister() {
     local cluster_num=$1
     local name
     name=$(portless_alias_name "$cluster_num")
     portless alias --remove "$name" >/dev/null 2>&1 || true
+}
+
+portless_docs_alias_name() {
+    echo "docs.${WORKTREE_ID}.tracecat"
 }
 
 # Get list of running cluster numbers for this worktree (used for auto-selection)
@@ -342,6 +386,7 @@ Commands:
   logs [svc]    Show logs (optionally for specific service)
   attach <svc>  Attach to a running service container (e.g., attach api)
   db            Open lazysql to the cluster's PostgreSQL database
+  docs [args]   Start the Mintlify docs preview from docs/
   open          Open the cluster UI in the default browser
   ports         Show port mappings for the cluster
   list          List all running Tracecat clusters
@@ -368,6 +413,8 @@ Examples:
   ./cluster attach api           Attach shell to api service
   ./cluster open                 Open cluster UI in browser
   ./cluster db                   Open lazysql to the database
+  ./cluster docs                 Start Mintlify docs preview
+  ./cluster docs --no-open       Start docs preview without opening browser
   ./cluster list                 List all clusters
   ./cluster nuke                 Destroy cluster and volumes (interactive)
   ./cluster nuke minio           Remove only minio volume
@@ -544,6 +591,34 @@ fi
 
 COMMAND="$1"
 shift
+
+# Handle 'docs' command before cluster auto-selection. The docs preview is
+# independent of Docker Compose and should not require a running cluster.
+if [[ "$COMMAND" == "docs" ]]; then
+    if ! command -v mint >/dev/null 2>&1; then
+        echo "Error: Mintlify CLI is not installed" >&2
+        echo "Install it with: npm i -g mint" >&2
+        exit 1
+    fi
+
+    echo "Starting Mintlify docs preview from ${REPO_ROOT}/docs ..."
+    cd "${REPO_ROOT}/docs"
+    if portless_enabled; then
+        DOCS_PORTLESS_ALIAS=$(portless_docs_alias_name)
+        trap 'portless alias --remove "$DOCS_PORTLESS_ALIAS" >/dev/null 2>&1 || true' EXIT
+        mint dev "$@" 2>&1 | while IFS= read -r line; do
+            echo "$line"
+            if [[ -z "${DOCS_PORTLESS_REGISTERED:-}" && "$line" =~ localhost:([0-9]+) ]]; then
+                DOCS_PORTLESS_REGISTERED=1
+                portless_register_alias "$DOCS_PORTLESS_ALIAS" "${BASH_REMATCH[1]}" || true
+            fi
+        done
+        exit "${PIPESTATUS[0]}"
+    fi
+
+    portless_install_tip
+    exec mint dev "$@"
+fi
 
 # Parse --new/-n flag from remaining args (only meaningful for 'up')
 FORCE_NEW_CLUSTER=false
