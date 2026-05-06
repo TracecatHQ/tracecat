@@ -98,7 +98,7 @@ export function WorkflowMoveDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>Move Workflow</DialogTitle>
+          <DialogTitle>Move workflow</DialogTitle>
           <DialogDescription>
             Choose a folder to move{" "}
             <span className="font-medium">{selectedWorkflow?.title}</span> to
