@@ -65,3 +65,23 @@ export function getApiErrorDetail(error: unknown): string | null {
   }
   return error.message
 }
+
+/**
+ * Extract a structured `code` field from an API error's detail payload, when
+ * the backend returns `{ "code": "...", ... }` for machine-readable handling.
+ */
+export function getApiErrorCode(error: unknown): string | null {
+  if (!(error instanceof Error)) {
+    return null
+  }
+  const detail = (error as TracecatApiError<unknown>).body?.detail
+  if (
+    typeof detail === "object" &&
+    detail !== null &&
+    "code" in detail &&
+    typeof (detail as { code: unknown }).code === "string"
+  ) {
+    return (detail as { code: string }).code
+  }
+  return null
+}

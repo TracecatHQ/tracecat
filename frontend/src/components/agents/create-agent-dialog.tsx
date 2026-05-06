@@ -32,7 +32,7 @@ import {
 } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
 import { useCreateAgentPreset } from "@/hooks/use-agent-presets"
-import { useAgentModels, useModelProviders } from "@/lib/hooks"
+import { useWorkspaceAgentModels } from "@/lib/hooks"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
 const createAgentSchema = z.object({
@@ -43,6 +43,7 @@ const createAgentSchema = z.object({
     .max(120, "Name cannot be longer than 120 characters"),
   model_provider: z.string().min(1, "Provider is required"),
   model_name: z.string().min(1, "Model is required"),
+  catalog_id: z.string().optional(),
   description: z.string().max(1000).optional(),
 })
 
@@ -59,10 +60,15 @@ export function CreateAgentDialog({
 }: CreateAgentDialogProps) {
   const workspaceId = useWorkspaceId()
   const router = useRouter()
-  const { providers } = useModelProviders()
-  const { models } = useAgentModels()
+  const { models, modelsLoading } = useWorkspaceAgentModels(workspaceId)
   const { createAgentPreset, createAgentPresetIsPending } =
     useCreateAgentPreset(workspaceId)
+
+  const providers = useMemo(() => {
+    return Array.from(
+      new Set((models ?? []).map((model) => model.model_provider))
+    ).sort((a, b) => a.localeCompare(b))
+  }, [models])
 
   const methods = useForm<CreateAgentFormValues>({
     resolver: zodResolver(createAgentSchema),
@@ -70,6 +76,7 @@ export function CreateAgentDialog({
       name: "",
       model_provider: "",
       model_name: "",
+      catalog_id: "",
       description: "",
     },
   })
@@ -78,9 +85,7 @@ export function CreateAgentDialog({
 
   const filteredModels = useMemo(() => {
     if (!models || !selectedProvider) return []
-    return Object.values(models).filter(
-      (model) => model.provider === selectedProvider
-    )
+    return models.filter((model) => model.model_provider === selectedProvider)
   }, [models, selectedProvider])
 
   const handleSubmit = async (values: CreateAgentFormValues) => {
@@ -89,6 +94,7 @@ export function CreateAgentDialog({
         name: values.name,
         model_provider: values.model_provider,
         model_name: values.model_name,
+        catalog_id: values.catalog_id || undefined,
         description: values.description || undefined,
       })
       methods.reset()
@@ -142,6 +148,7 @@ export function CreateAgentDialog({
                         onValueChange={(value) => {
                           field.onChange(value)
                           methods.setValue("model_name", "")
+                          methods.setValue("catalog_id", "")
                         }}
                       >
                         <FormControl>
@@ -150,7 +157,7 @@ export function CreateAgentDialog({
                           </SelectTrigger>
                         </FormControl>
                         <SelectContent>
-                          {providers?.map((provider) => (
+                          {providers.map((provider) => (
                             <SelectItem key={provider} value={provider}>
                               {provider}
                             </SelectItem>
@@ -168,9 +175,21 @@ export function CreateAgentDialog({
                     <FormItem>
                       <FormLabel className="text-sm">Model</FormLabel>
                       <Select
-                        value={field.value}
-                        onValueChange={field.onChange}
-                        disabled={!selectedProvider}
+                        value={methods.watch("catalog_id") || ""}
+                        onValueChange={(catalogId) => {
+                          const selectedModel = filteredModels.find(
+                            (model) => model.id === catalogId
+                          )
+                          methods.setValue("catalog_id", catalogId)
+                          if (selectedModel) {
+                            field.onChange(selectedModel.model_name)
+                            methods.setValue(
+                              "model_provider",
+                              selectedModel.model_provider
+                            )
+                          }
+                        }}
+                        disabled={!selectedProvider || modelsLoading}
                       >
                         <FormControl>
                           <SelectTrigger className="min-w-0 text-sm">
@@ -179,8 +198,8 @@ export function CreateAgentDialog({
                         </FormControl>
                         <SelectContent>
                           {filteredModels.map((model) => (
-                            <SelectItem key={model.name} value={model.name}>
-                              {model.name}
+                            <SelectItem key={model.id} value={model.id}>
+                              {model.model_name}
                             </SelectItem>
                           ))}
                         </SelectContent>
@@ -211,7 +230,10 @@ export function CreateAgentDialog({
                 )}
               />
               <DialogFooter>
-                <Button type="submit" disabled={createAgentPresetIsPending}>
+                <Button
+                  type="submit"
+                  disabled={createAgentPresetIsPending || modelsLoading}
+                >
                   Create agent
                 </Button>
               </DialogFooter>

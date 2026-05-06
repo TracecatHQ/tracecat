@@ -3,7 +3,7 @@ definition:
   title: Get requests
   description: Get Okta Access Request tickets with optional filtering and pagination.
   display_group: Okta
-  doc_url: https://developer.okta.com/docs/api/iga/openapi/governance.requests.admin.v1/tag/Requests/
+  doc_url: https://developer.okta.com/docs/api/iga/openapi/governance-production-requests-admin-v1-reference/requests/
   namespace: tools.okta_oar
   name: get_requests
   secrets:

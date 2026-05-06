@@ -3,7 +3,7 @@ definition:
   title: Create or update watchlist item
   description: Create or update an item in a watchlist in Microsoft Sentinel.
   display_group: Microsoft Sentinel
-  doc_url: https://learn.microsoft.com/en-us/rest/api/securityinsights/watchlist-items/create-or-update
+  doc_url: https://learn.microsoft.com/en-us/rest/api/securityinsights/watchlist-items/create-or-update?view=rest-securityinsights-2025-09-01
   namespace: tools.microsoft_sentinel
   name: create_or_update_watchlist_item
   secrets:

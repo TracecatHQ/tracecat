@@ -3,7 +3,7 @@ definition:
   title: Update view
   description: Update a view. Used to update a pop up modal.
   display_group: Slack
-  doc_url: https://api.slack.com/methods/views.update
+  doc_url: https://docs.slack.dev/reference/methods/views.update/
   namespace: tools.slack
   name: update_view
   expects:
@@ -14,7 +14,7 @@ definition:
       type: dict[str, Any]
       description: >
         Updated view payload for the modal.
-        See: https://docs.slack.dev/reference/views/modal-views
+        See: https://docs.slack.dev/reference/views/modal-views/
   steps:
     - ref: update_view
       action: tools.slack_sdk.call_method

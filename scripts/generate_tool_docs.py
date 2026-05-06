@@ -308,7 +308,10 @@ def _render_action(action: Any) -> list[str]:
 
 def _render_page(namespace: str, actions: list[Any]) -> str:
     title = _namespace_title(namespace, actions)
-    description = f"Reference for {title} actions."
+    description = (
+        f"Reference for the Tracecat {title} integration: registered actions, "
+        f"required secrets, expected inputs, and example workflow usage."
+    )
     lines = [
         "---",
         f'title: "{title}"',

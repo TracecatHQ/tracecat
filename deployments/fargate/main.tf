@@ -12,16 +12,29 @@ locals {
 module "network" {
   source = "./modules/network"
 
-  aws_region     = var.aws_region
-  domain_name    = var.domain_name
-  hosted_zone_id = var.hosted_zone_id
+  aws_region           = var.aws_region
+  name_prefix          = var.name_prefix
+  vpc_cidr             = var.vpc_cidr
+  public_subnet_cidrs  = var.public_subnet_cidrs
+  private_subnet_cidrs = var.private_subnet_cidrs
+  domain_name          = var.domain_name
+  hosted_zone_id       = var.hosted_zone_id
 }
 
 module "ecs" {
   source = "./modules/ecs"
 
   # AWS provider
-  aws_region = var.aws_region
+  aws_region                            = var.aws_region
+  name_prefix                           = var.name_prefix
+  iam_name_prefix                       = var.iam_name_prefix
+  core_db_identifier                    = var.core_db_identifier
+  temporal_db_identifier                = var.temporal_db_identifier
+  temporal_db_parameter_group_name      = var.temporal_db_parameter_group_name
+  redis_default_user_id                 = var.redis_default_user_id
+  waf_attachments_endpoint_pattern_name = var.waf_attachments_endpoint_pattern_name
+  waf_mcp_oauth_endpoints_pattern_name  = var.waf_mcp_oauth_endpoints_pattern_name
+  waf_mcp_public_endpoint_pattern_name  = var.waf_mcp_public_endpoint_pattern_name
 
   # Network configuration from network module
   vpc_id                  = module.network.vpc_id
@@ -37,14 +50,16 @@ module "ecs" {
   hosted_zone_id = var.hosted_zone_id
 
   # Tracecat version
-  tracecat_image            = var.tracecat_image
-  tracecat_ui_image         = var.tracecat_ui_image
-  tracecat_image_tag        = var.tracecat_image_tag
-  temporal_server_image     = var.temporal_server_image
-  temporal_server_image_tag = var.temporal_server_image_tag
-  temporal_ui_image         = var.temporal_ui_image
-  temporal_ui_image_tag     = var.temporal_ui_image_tag
-  force_new_deployment      = var.force_new_deployment
+  tracecat_image                = var.tracecat_image
+  tracecat_ui_image             = var.tracecat_ui_image
+  tracecat_image_tag            = var.tracecat_image_tag
+  tracecat_migrations_image     = var.tracecat_migrations_image
+  tracecat_migrations_image_tag = var.tracecat_migrations_image_tag
+  temporal_server_image         = var.temporal_server_image
+  temporal_server_image_tag     = var.temporal_server_image_tag
+  temporal_ui_image             = var.temporal_ui_image
+  temporal_ui_image_tag         = var.temporal_ui_image_tag
+  force_new_deployment          = var.force_new_deployment
 
   # Temporal configuration
   disable_temporal_ui        = var.disable_temporal_ui
@@ -54,17 +69,20 @@ module "ecs" {
   temporal_namespace         = var.temporal_namespace
 
   # Container environment variables
-  tracecat_app_env                       = var.tracecat_app_env
-  log_level                              = var.log_level
-  temporal_log_level                     = var.temporal_log_level
-  feature_flags                          = var.feature_flags
-  ee_multi_tenant                        = var.ee_multi_tenant
-  context_compression_enabled            = var.context_compression_enabled
-  context_compression_threshold_kb       = var.context_compression_threshold_kb
-  result_externalization_enabled         = var.result_externalization_enabled
-  collection_manifests_enabled           = var.collection_manifests_enabled
-  result_externalization_threshold_bytes = var.result_externalization_threshold_bytes
-  workflow_artifact_retention_days       = var.workflow_artifact_retention_days
+  tracecat_app_env                              = var.tracecat_app_env
+  log_level                                     = var.log_level
+  temporal_log_level                            = var.temporal_log_level
+  feature_flags                                 = var.feature_flags
+  ee_multi_tenant                               = var.ee_multi_tenant
+  context_compression_enabled                   = var.context_compression_enabled
+  context_compression_threshold_kb              = var.context_compression_threshold_kb
+  temporal_payload_encryption_enabled           = var.temporal_payload_encryption_enabled
+  temporal_payload_encryption_cache_ttl_seconds = var.temporal_payload_encryption_cache_ttl_seconds
+  temporal_payload_encryption_cache_max_items   = var.temporal_payload_encryption_cache_max_items
+  result_externalization_enabled                = var.result_externalization_enabled
+  collection_manifests_enabled                  = var.collection_manifests_enabled
+  result_externalization_threshold_bytes        = var.result_externalization_threshold_bytes
+  workflow_artifact_retention_days              = var.workflow_artifact_retention_days
 
   # Database connection pool
   db_max_overflow          = var.db_max_overflow
@@ -83,9 +101,10 @@ module "ecs" {
   temporal_db_snapshot_name        = var.temporal_db_snapshot_name
 
   # Secrets from AWS Secrets Manager
-  tracecat_db_encryption_key_arn = var.tracecat_db_encryption_key_arn
-  tracecat_service_key_arn       = var.tracecat_service_key_arn
-  tracecat_signing_secret_arn    = var.tracecat_signing_secret_arn
+  tracecat_db_encryption_key_arn          = var.tracecat_db_encryption_key_arn
+  tracecat_service_key_arn                = var.tracecat_service_key_arn
+  tracecat_signing_secret_arn             = var.tracecat_signing_secret_arn
+  temporal_payload_encryption_keyring_arn = var.temporal_payload_encryption_keyring_arn
 
   # Authentication
   auth_types               = var.auth_types
@@ -122,28 +141,30 @@ module "ecs" {
   temporal_api_key_arn = var.temporal_api_key_arn
 
   # Compute / memory
-  api_cpu                                     = var.api_cpu
-  api_memory                                  = var.api_memory
-  worker_cpu                                  = var.worker_cpu
-  worker_memory                               = var.worker_memory
-  worker_desired_count                        = var.worker_desired_count
-  agent_worker_cpu                            = var.agent_worker_cpu
-  agent_worker_memory                         = var.agent_worker_memory
-  agent_worker_desired_count                  = var.agent_worker_desired_count
-  agent_queue                                 = var.agent_queue
-  executor_cpu                                = var.executor_cpu
-  executor_memory                             = var.executor_memory
-  executor_desired_count                      = var.executor_desired_count
-  executor_client_timeout                     = var.executor_client_timeout
-  executor_queue                              = var.executor_queue
-  executor_worker_pool_size                   = var.executor_worker_pool_size
-  agent_executor_cpu                          = var.agent_executor_cpu
-  agent_executor_memory                       = var.agent_executor_memory
-  agent_executor_desired_count                = var.agent_executor_desired_count
-  agent_executor_queue                        = var.agent_executor_queue
-  agent_executor_max_concurrent_activities    = var.agent_executor_max_concurrent_activities
-  agent_executor_worker_pool_size             = var.agent_executor_worker_pool_size
-  llm_proxy_read_timeout                      = var.llm_proxy_read_timeout
+  api_cpu                                  = var.api_cpu
+  api_memory                               = var.api_memory
+  api_desired_count                        = var.api_desired_count
+  worker_cpu                               = var.worker_cpu
+  worker_memory                            = var.worker_memory
+  worker_desired_count                     = var.worker_desired_count
+  agent_worker_cpu                         = var.agent_worker_cpu
+  agent_worker_memory                      = var.agent_worker_memory
+  agent_worker_desired_count               = var.agent_worker_desired_count
+  agent_queue                              = var.agent_queue
+  executor_cpu                             = var.executor_cpu
+  executor_memory                          = var.executor_memory
+  executor_desired_count                   = var.executor_desired_count
+  executor_client_timeout                  = var.executor_client_timeout
+  executor_queue                           = var.executor_queue
+  executor_worker_pool_size                = var.executor_worker_pool_size
+  agent_executor_cpu                       = var.agent_executor_cpu
+  agent_executor_memory                    = var.agent_executor_memory
+  agent_executor_desired_count             = var.agent_executor_desired_count
+  agent_executor_queue                     = var.agent_executor_queue
+  agent_executor_max_concurrent_activities = var.agent_executor_max_concurrent_activities
+  agent_executor_worker_pool_size          = var.agent_executor_worker_pool_size
+  llm_proxy_read_timeout                   = var.llm_proxy_read_timeout
+
   llm_gateway_credential_cache_ttl_seconds        = var.llm_gateway_credential_cache_ttl_seconds
   llm_gateway_healthcheck_interval_seconds        = var.llm_gateway_healthcheck_interval_seconds
   llm_gateway_healthcheck_timeout_seconds         = var.llm_gateway_healthcheck_timeout_seconds
@@ -153,21 +174,29 @@ module "ecs" {
   llm_gateway_healthcheck_pool_timeout_seconds    = var.llm_gateway_healthcheck_pool_timeout_seconds
   llm_gateway_healthcheck_failure_threshold       = var.llm_gateway_healthcheck_failure_threshold
   llm_gateway_status_log_interval_seconds         = var.llm_gateway_status_log_interval_seconds
-  ui_cpu                                      = var.ui_cpu
-  ui_memory                                   = var.ui_memory
-  temporal_cpu                                = var.temporal_cpu
-  temporal_memory                             = var.temporal_memory
-  temporal_num_history_shards                 = var.temporal_num_history_shards
-  temporal_db_tls_enabled                     = var.temporal_db_tls_enabled
-  temporal_db_tls_enable_host_verification    = var.temporal_db_tls_enable_host_verification
-  temporal_db_force_ssl                       = var.temporal_db_force_ssl
-  caddy_cpu                                   = var.caddy_cpu
-  caddy_memory                                = var.caddy_memory
-  tracecat_db_instance_class                  = local.tracecat_db_instance_class
-  temporal_db_instance_class                  = local.temporal_db_instance_class
-  tracecat_db_allocated_storage               = local.tracecat_db_allocated_storage
-  temporal_db_allocated_storage               = local.temporal_db_allocated_storage
-  db_engine_version                           = var.db_engine_version
+
+  ui_cpu                                   = var.ui_cpu
+  ui_memory                                = var.ui_memory
+  temporal_cpu                             = var.temporal_cpu
+  temporal_memory                          = var.temporal_memory
+  temporal_num_history_shards              = var.temporal_num_history_shards
+  temporal_db_tls_enabled                  = var.temporal_db_tls_enabled
+  temporal_db_tls_enable_host_verification = var.temporal_db_tls_enable_host_verification
+  temporal_db_force_ssl                    = var.temporal_db_force_ssl
+  caddy_cpu                                = var.caddy_cpu
+  caddy_memory                             = var.caddy_memory
+  tracecat_db_instance_class               = local.tracecat_db_instance_class
+  temporal_db_instance_class               = local.temporal_db_instance_class
+  tracecat_db_allocated_storage            = local.tracecat_db_allocated_storage
+  temporal_db_allocated_storage            = local.temporal_db_allocated_storage
+  db_engine_version                        = var.db_engine_version
+  redis_node_type                          = var.redis_node_type
+
+  # LiteLLM Service
+  litellm_cpu           = var.litellm_cpu
+  litellm_memory        = var.litellm_memory
+  litellm_desired_count = var.litellm_desired_count
+  litellm_num_workers   = var.litellm_num_workers
 
   # MCP Service
   enable_mcp                      = var.enable_mcp

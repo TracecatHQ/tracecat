@@ -43,6 +43,11 @@ export function JSONSchemaTable({ schema }: { schema: TracecatJsonSchema }) {
                 <TableCell className="whitespace-nowrap">
                   {row.parameter}
                   {row.required && " *"}
+                  {row.deprecated && (
+                    <span className="ml-2 rounded border px-1.5 py-0.5 font-sans text-[10px] font-medium uppercase tracking-normal text-muted-foreground">
+                      Deprecated
+                    </span>
+                  )}
                 </TableCell>
                 <TableCell>{row.type}</TableCell>
                 <TableCell>
@@ -71,6 +76,11 @@ export function JSONSchemaTable({ schema }: { schema: TracecatJsonSchema }) {
                       <p className="break-words text-xs text-foreground/70">
                         {row.description}
                       </p>
+                      {row.deprecated && row.deprecationMessage && (
+                        <p className="break-words text-xs text-muted-foreground">
+                          {row.deprecationMessage}
+                        </p>
+                      )}
                     </div>
                     <div className="w-full space-y-1">
                       <span className="text-xs font-semibold text-muted-foreground">

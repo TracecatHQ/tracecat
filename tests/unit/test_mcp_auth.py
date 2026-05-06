@@ -9,17 +9,24 @@ from unittest.mock import MagicMock, patch
 import pytest
 from cryptography.fernet import Fernet
 from fastmcp import FastMCP
-from fastmcp.server.auth import AccessToken
+from fastmcp.server.auth import AccessToken, MultiAuth
 from fastmcp.server.auth.cimd import CIMDDocument
+from fastmcp.server.auth.middleware import RequireAuthMiddleware
 from fastmcp.server.auth.oauth_proxy.models import ProxyDCRClient
 from key_value.aio.stores.memory import MemoryStore
 from mcp.server.auth.provider import AuthorizationParams
 from mcp.shared.auth import OAuthClientInformationFull
 from pydantic import AnyHttpUrl, AnyUrl
 from starlette.applications import Starlette
+from starlette.responses import JSONResponse
+from starlette.routing import Route
 from starlette.testclient import TestClient
+from starlette.types import Receive, Scope, Send
 
+from tracecat.auth.types import Role
 from tracecat.mcp import auth as mcp_auth
+from tracecat.mcp.personal_access_tokens.constants import MCP_PAT_PREFIX
+from tracecat.mcp.personal_access_tokens.types import MCPPATIdentity
 
 type AsyncLookup = Callable[..., Awaitable[object]]
 
@@ -127,6 +134,22 @@ def test_create_mcp_auth_uses_oidc_mode(
 
     assert isinstance(auth, mcp_auth.OIDCProxy)
     assert getattr(auth, "_fallback_access_token_expiry_seconds", None) == 24 * 60 * 60
+
+
+def test_create_mcp_auth_wraps_oidc_with_mcp_pat_verifier(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    oidc_auth = _build_test_auth(monkeypatch)
+    monkeypatch.setattr(mcp_auth, "_create_oidc_auth", lambda: oidc_auth)
+
+    auth = mcp_auth.create_mcp_auth()
+
+    assert isinstance(auth, MultiAuth)
+    assert auth.server is oidc_auth
+    assert any(
+        isinstance(verifier, mcp_auth.MCPPATTokenVerifier)
+        for verifier in auth.verifiers
+    )
 
 
 def test_create_mcp_auth_metadata_advertises_public_client_auth(
@@ -781,6 +804,122 @@ async def test_load_access_token_preserves_fastmcp_upstream_claims(
     assert merged.claims["upstream_claims"] == {"email": " user@example.com "}
 
 
+@pytest.mark.anyio
+async def test_mcp_pat_token_verifier_returns_fastmcp_access_token(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    user_id = uuid.uuid4()
+    organization_id = uuid.uuid4()
+    workspace_id = uuid.uuid4()
+    raw_token = f"{MCP_PAT_PREFIX}raw-secret"
+
+    async def _verify_mcp_personal_access_token(token: str) -> MCPPATIdentity | None:
+        assert token == raw_token
+        return MCPPATIdentity(
+            key_id="pat_key_123",
+            user_id=user_id,
+            email="user@example.com",
+            organization_id=organization_id,
+            workspace_id=workspace_id,
+            expires_at=None,
+        )
+
+    monkeypatch.setattr(
+        mcp_auth,
+        "verify_mcp_personal_access_token",
+        _verify_mcp_personal_access_token,
+    )
+
+    access_token = await mcp_auth.MCPPATTokenVerifier().verify_token(raw_token)
+
+    assert access_token is not None
+    assert access_token.token == raw_token
+    assert access_token.client_id == "mcp_pat:pat_key_123"
+    assert access_token.claims == {
+        "sub": str(user_id),
+        "email": "user@example.com",
+        "organization_id": str(organization_id),
+        "organization_ids": [str(organization_id)],
+        "client_id": "mcp_pat:pat_key_123",
+        "workspace_id": str(workspace_id),
+        "workspace_ids": [str(workspace_id)],
+    }
+
+
+@pytest.mark.anyio
+async def test_mcp_pat_token_verifier_ignores_other_bearer_tokens(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def _verify_mcp_personal_access_token(_token: str) -> MCPPATIdentity | None:
+        raise AssertionError("non-MCP PAT tokens should not hit the PAT verifier")
+
+    monkeypatch.setattr(
+        mcp_auth,
+        "verify_mcp_personal_access_token",
+        _verify_mcp_personal_access_token,
+    )
+
+    assert await mcp_auth.MCPPATTokenVerifier().verify_token("oauth-token") is None
+
+
+@pytest.mark.anyio
+async def test_mcp_pat_bearer_header_reaches_auth_middleware(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    organization_id = uuid.uuid4()
+    workspace_id = uuid.uuid4()
+    raw_token = f"{MCP_PAT_PREFIX}raw-secret"
+
+    async def _verify_mcp_personal_access_token(token: str) -> MCPPATIdentity | None:
+        assert token == raw_token
+        return MCPPATIdentity(
+            key_id="pat_key_123",
+            user_id=uuid.uuid4(),
+            email="user@example.com",
+            organization_id=organization_id,
+            workspace_id=workspace_id,
+            expires_at=None,
+        )
+
+    async def _protected_app(scope: Scope, receive: Receive, send: Send) -> None:
+        access_token = scope["user"].access_token
+        response = JSONResponse(
+            {
+                "client_id": access_token.client_id,
+                "workspace_id": access_token.claims["workspace_id"],
+            }
+        )
+        await response(scope, receive, send)
+
+    monkeypatch.setattr(
+        mcp_auth,
+        "verify_mcp_personal_access_token",
+        _verify_mcp_personal_access_token,
+    )
+    auth = mcp_auth.MCPPATTokenVerifier()
+    app = Starlette(
+        routes=[
+            Route(
+                "/mcp",
+                endpoint=RequireAuthMiddleware(_protected_app, auth.required_scopes),
+                methods=["POST"],
+            )
+        ],
+        middleware=auth.get_middleware(),
+    )
+
+    response = TestClient(app).post(
+        "/mcp",
+        headers={"Authorization": f"Bearer {raw_token}"},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "client_id": "mcp_pat:pat_key_123",
+        "workspace_id": str(workspace_id),
+    }
+
+
 def test_get_token_identity_extracts_ids_from_claims_and_scopes(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1001,7 +1140,90 @@ async def test_list_workspaces_for_request_reads_email_from_upstream_claims(
 
 
 @pytest.mark.anyio
-async def test_resolve_role_allows_superuser_without_org_membership(
+async def test_list_workspaces_for_request_filters_claimed_workspace_ids(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace_id = uuid.uuid4()
+    other_workspace_id = uuid.uuid4()
+    identity = mcp_auth.MCPTokenIdentity(
+        client_id="mcp_pat:pat_key_123",
+        email="user@example.com",
+        workspace_ids=frozenset({workspace_id}),
+    )
+
+    async def _list_user_workspaces(
+        _email: str,
+        organization_ids: frozenset[uuid.UUID] | None = None,
+    ) -> list[dict[str, str]]:
+        assert organization_ids is None
+        return [
+            {"id": str(workspace_id), "name": "Allowed"},
+            {"id": str(other_workspace_id), "name": "Other"},
+        ]
+
+    monkeypatch.setattr(mcp_auth, "get_token_identity", lambda: identity)
+    monkeypatch.setattr(mcp_auth, "list_user_workspaces", _list_user_workspaces)
+
+    assert await mcp_auth.list_workspaces_for_request() == [
+        {"id": str(workspace_id), "name": "Allowed"}
+    ]
+
+
+@pytest.mark.anyio
+async def test_resolve_role_for_request_rejects_unscoped_workspace(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace_id = uuid.uuid4()
+    requested_workspace_id = uuid.uuid4()
+    identity = mcp_auth.MCPTokenIdentity(
+        client_id="mcp_pat:pat_key_123",
+        email="user@example.com",
+        workspace_ids=frozenset({workspace_id}),
+    )
+
+    async def _resolve_role(_email: str, _workspace_id: uuid.UUID) -> Role:
+        raise AssertionError("workspace scope should be checked before role resolution")
+
+    monkeypatch.setattr(mcp_auth, "get_token_identity", lambda: identity)
+    monkeypatch.setattr(mcp_auth, "resolve_role", _resolve_role)
+
+    with pytest.raises(ValueError, match="not scoped to the requested workspace"):
+        await mcp_auth.resolve_role_for_request(requested_workspace_id)
+
+
+@pytest.mark.anyio
+async def test_resolve_role_for_request_allows_claimed_workspace(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace_id = uuid.uuid4()
+    organization_id = uuid.uuid4()
+    user_id = uuid.uuid4()
+    identity = mcp_auth.MCPTokenIdentity(
+        client_id="mcp_pat:pat_key_123",
+        email="user@example.com",
+        workspace_ids=frozenset({workspace_id}),
+    )
+    expected_role = Role(
+        type="user",
+        user_id=user_id,
+        workspace_id=workspace_id,
+        organization_id=organization_id,
+        service_id="tracecat-mcp",
+    )
+
+    async def _resolve_role(email: str, workspace_id_arg: uuid.UUID) -> Role:
+        assert email == "user@example.com"
+        assert workspace_id_arg == workspace_id
+        return expected_role
+
+    monkeypatch.setattr(mcp_auth, "get_token_identity", lambda: identity)
+    monkeypatch.setattr(mcp_auth, "resolve_role", _resolve_role)
+
+    assert await mcp_auth.resolve_role_for_request(workspace_id) == expected_role
+
+
+@pytest.mark.anyio
+async def test_resolve_role_superuser_uses_rbac_for_workspace_access(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     user_id = uuid.uuid4()
@@ -1016,7 +1238,8 @@ async def test_resolve_role_allows_superuser_without_org_membership(
         return organization_id
 
     async def _compute_effective_scopes(_role) -> frozenset[str]:
-        return frozenset({"*"})
+        assert _role.is_platform_superuser is False
+        return frozenset({"org:workspace:read"})
 
     async def _resolve_workspace_membership(
         _user_id: uuid.UUID, _workspace_id: uuid.UUID
@@ -1031,13 +1254,52 @@ async def test_resolve_role_allows_superuser_without_org_membership(
         "resolve_workspace_membership",
         _resolve_workspace_membership,
     )
+    monkeypatch.setattr(mcp_auth.config, "TRACECAT__EE_MULTI_TENANT", False)
 
     role = await mcp_auth.resolve_role("user@example.com", workspace_id)
 
     assert role.user_id == user_id
     assert role.workspace_id == workspace_id
     assert role.organization_id == organization_id
-    assert role.scopes == frozenset({"*"})
+    assert role.is_platform_superuser is False
+    assert role.scopes == frozenset({"org:workspace:read"})
+
+
+@pytest.mark.anyio
+async def test_resolve_role_requires_superuser_workspace_membership_without_org_admin(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace_id = uuid.uuid4()
+    organization_id = uuid.uuid4()
+
+    async def _resolve_user_by_email(_email: str) -> SimpleNamespace:
+        return SimpleNamespace(id=uuid.uuid4(), is_superuser=True)
+
+    async def _resolve_workspace_org(_workspace_id: uuid.UUID) -> uuid.UUID:
+        assert _workspace_id == workspace_id
+        return organization_id
+
+    async def _compute_effective_scopes(_role) -> frozenset[str]:
+        assert _role.is_platform_superuser is False
+        return frozenset()
+
+    async def _resolve_workspace_membership(
+        _user_id: uuid.UUID, _workspace_id: uuid.UUID
+    ) -> None:
+        raise ValueError("no access")
+
+    monkeypatch.setattr(mcp_auth, "resolve_user_by_email", _resolve_user_by_email)
+    monkeypatch.setattr(mcp_auth, "resolve_workspace_org", _resolve_workspace_org)
+    monkeypatch.setattr(mcp_auth, "compute_effective_scopes", _compute_effective_scopes)
+    monkeypatch.setattr(
+        mcp_auth,
+        "resolve_workspace_membership",
+        _resolve_workspace_membership,
+    )
+    monkeypatch.setattr(mcp_auth.config, "TRACECAT__EE_MULTI_TENANT", True)
+
+    with pytest.raises(ValueError, match="no access"):
+        await mcp_auth.resolve_role("admin@example.com", workspace_id)
 
 
 @pytest.mark.anyio
@@ -1156,6 +1418,81 @@ async def test_list_user_workspaces_includes_direct_memberships_without_org_memb
 
 
 @pytest.mark.anyio
+async def test_list_user_workspaces_for_superuser_uses_membership_rows(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    user_id = uuid.uuid4()
+    workspace_id = uuid.uuid4()
+
+    class _ScalarResult:
+        def __init__(self, values: list[uuid.UUID]) -> None:
+            self._values = values
+
+        def all(self) -> list[uuid.UUID]:
+            return self._values
+
+    class _TupleResult:
+        def __init__(self, values: list[tuple[uuid.UUID, str]]) -> None:
+            self._values = values
+
+        def all(self) -> list[tuple[uuid.UUID, str]]:
+            return self._values
+
+    class _Result:
+        def __init__(
+            self,
+            *,
+            scalars: list[uuid.UUID] | None = None,
+            tuples: list[tuple[uuid.UUID, str]] | None = None,
+        ) -> None:
+            self._scalars = scalars or []
+            self._tuples = tuples or []
+
+        def scalars(self) -> _ScalarResult:
+            return _ScalarResult(self._scalars)
+
+        def tuples(self) -> _TupleResult:
+            return _TupleResult(self._tuples)
+
+    class _Session:
+        def __init__(self) -> None:
+            self._calls = 0
+
+        async def execute(self, _stmt):
+            self._calls += 1
+            if self._calls == 1:
+                return _Result(scalars=[])
+            if self._calls == 2:
+                return _Result(tuples=[(workspace_id, "Workspace A")])
+            raise AssertionError("unexpected extra query")
+
+    class _AsyncContext:
+        def __init__(self, session: _Session) -> None:
+            self._session = session
+
+        async def __aenter__(self) -> _Session:
+            return self._session
+
+        async def __aexit__(self, exc_type, exc, tb) -> None:
+            return None
+
+    async def _resolve_user_by_email(_email: str) -> SimpleNamespace:
+        return SimpleNamespace(id=user_id, is_superuser=True)
+
+    monkeypatch.setattr(mcp_auth, "resolve_user_by_email", _resolve_user_by_email)
+    monkeypatch.setattr(
+        mcp_auth,
+        "get_async_session_bypass_rls_context_manager",
+        lambda: _AsyncContext(_Session()),
+    )
+    monkeypatch.setattr(mcp_auth.config, "TRACECAT__EE_MULTI_TENANT", True)
+
+    workspaces = await mcp_auth.list_user_workspaces("admin@example.com")
+
+    assert workspaces == [{"id": str(workspace_id), "name": "Workspace A"}]
+
+
+@pytest.mark.anyio
 async def test_mcp_pre_role_lookups_use_bypass_session_manager(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1230,3 +1567,163 @@ async def test_mcp_pre_role_lookups_use_bypass_session_manager(
                 await fn(*args)
 
         assert call_count == 1
+
+
+def _patch_resolve_org_role_deps(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    identity_org_ids: frozenset[uuid.UUID] = frozenset(),
+    identity_workspace_ids: frozenset[uuid.UUID] = frozenset(),
+    membership_org_ids: list[uuid.UUID],
+    user_id: uuid.UUID | None = None,
+    is_superuser: bool = False,
+) -> None:
+    """Wire token identity, user lookup, and the membership query."""
+
+    user_id = user_id or uuid.uuid4()
+
+    class _Result:
+        def __init__(self, values: list[uuid.UUID]) -> None:
+            self._values = values
+
+        def all(self) -> list[tuple[uuid.UUID]]:
+            return [(v,) for v in self._values]
+
+    class _Session:
+        async def execute(self, _stmt):
+            return _Result(membership_org_ids)
+
+    class _AsyncContext:
+        def __init__(self, session: _Session) -> None:
+            self._session = session
+
+        async def __aenter__(self) -> _Session:
+            return self._session
+
+        async def __aexit__(self, exc_type, exc, tb) -> None:
+            return None
+
+    identity = SimpleNamespace(
+        client_id="tracecat-client",
+        email="user@example.com",
+        organization_ids=identity_org_ids,
+        workspace_ids=identity_workspace_ids,
+    )
+
+    async def _resolve_user_by_email(_email: str) -> SimpleNamespace:
+        return SimpleNamespace(id=user_id, is_superuser=is_superuser)
+
+    async def _compute_effective_scopes(_role) -> frozenset[str]:
+        return frozenset({"org:registry:update"})
+
+    monkeypatch.setattr(mcp_auth, "get_token_identity", lambda: identity)
+    monkeypatch.setattr(mcp_auth, "resolve_user_by_email", _resolve_user_by_email)
+    monkeypatch.setattr(mcp_auth, "compute_effective_scopes", _compute_effective_scopes)
+    monkeypatch.setattr(
+        mcp_auth,
+        "get_async_session_bypass_rls_context_manager",
+        lambda: _AsyncContext(_Session()),
+    )
+    monkeypatch.setattr(mcp_auth.config, "TRACECAT__EE_MULTI_TENANT", False)
+
+
+@pytest.mark.anyio
+async def test_resolve_org_role_intersects_token_scoping_with_memberships(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Scoped token + multi-org user should resolve cleanly to the scoped org."""
+    scoped_org = uuid.uuid4()
+    other_org = uuid.uuid4()
+    _patch_resolve_org_role_deps(
+        monkeypatch,
+        identity_org_ids=frozenset({scoped_org}),
+        membership_org_ids=[scoped_org, other_org],
+    )
+
+    role = await mcp_auth.resolve_org_role_for_request()
+
+    assert role.organization_id == scoped_org
+    assert role.workspace_id is None
+
+
+@pytest.mark.anyio
+async def test_resolve_org_role_rejects_workspace_scoped_token(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace_id = uuid.uuid4()
+    _patch_resolve_org_role_deps(
+        monkeypatch,
+        identity_org_ids=frozenset({uuid.uuid4()}),
+        identity_workspace_ids=frozenset({workspace_id}),
+        membership_org_ids=[uuid.uuid4()],
+    )
+
+    with pytest.raises(ValueError, match="organization-level tools"):
+        await mcp_auth.resolve_org_role_for_request()
+
+
+@pytest.mark.anyio
+async def test_resolve_org_role_unscoped_token_with_single_membership(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Unscoped token + single-org user resolves without scoping."""
+    org = uuid.uuid4()
+    _patch_resolve_org_role_deps(
+        monkeypatch,
+        identity_org_ids=frozenset(),
+        membership_org_ids=[org],
+    )
+
+    role = await mcp_auth.resolve_org_role_for_request()
+
+    assert role.organization_id == org
+
+
+@pytest.mark.anyio
+async def test_resolve_org_role_unscoped_token_with_multi_org_user_errors(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Unscoped token + multi-org user must surface a clear error."""
+    _patch_resolve_org_role_deps(
+        monkeypatch,
+        identity_org_ids=frozenset(),
+        membership_org_ids=[uuid.uuid4(), uuid.uuid4()],
+    )
+
+    with pytest.raises(ValueError, match="single-org token"):
+        await mcp_auth.resolve_org_role_for_request()
+
+
+@pytest.mark.anyio
+async def test_resolve_org_role_token_scoped_to_unowned_org_errors(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Token scoped to an org the user has no membership in must error."""
+    foreign_org = uuid.uuid4()
+    _patch_resolve_org_role_deps(
+        monkeypatch,
+        identity_org_ids=frozenset({foreign_org}),
+        membership_org_ids=[uuid.uuid4()],
+    )
+
+    with pytest.raises(ValueError, match="matching the token's org scope"):
+        await mcp_auth.resolve_org_role_for_request()
+
+
+@pytest.mark.anyio
+async def test_resolve_org_role_superuser_uses_membership_org(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Superuser accounts resolve org-scoped MCP roles from memberships."""
+    org_id = uuid.uuid4()
+    _patch_resolve_org_role_deps(
+        monkeypatch,
+        identity_org_ids=frozenset(),
+        membership_org_ids=[org_id],
+        is_superuser=True,
+    )
+
+    role = await mcp_auth.resolve_org_role_for_request()
+
+    assert role.organization_id == org_id
+    assert role.is_platform_superuser is False

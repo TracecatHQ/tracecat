@@ -3,7 +3,7 @@ definition:
   title: Get research task
   description: Retrieve the current status and results of a research task by its research_id.
   display_group: Exa
-  doc_url: https://docs.exa.ai/reference/research/get-a-task
+  doc_url: https://exa.ai/docs/reference/research/get-a-task
   namespace: tools.exa
   name: get_research
   secrets:

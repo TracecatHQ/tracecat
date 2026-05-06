@@ -928,13 +928,9 @@ class CasesService(BaseWorkspaceService):
                     missing_fields.append(name)
 
         # --- Dropdown definitions ---
-        stmt = (
-            select(CaseDropdownDefinition)
-            .where(
-                CaseDropdownDefinition.workspace_id == self.workspace_id,
-                CaseDropdownDefinition.required_on_closure.is_(True),
-            )
-            .options(selectinload(CaseDropdownDefinition.options))
+        stmt = select(CaseDropdownDefinition).where(
+            CaseDropdownDefinition.workspace_id == self.workspace_id,
+            CaseDropdownDefinition.required_on_closure.is_(True),
         )
         result = await self.session.execute(stmt)
         required_defs = result.scalars().all()
@@ -956,7 +952,15 @@ class CasesService(BaseWorkspaceService):
                                 def_id = rd.id
                                 break
                     if def_id is not None:
-                        current_dropdown_map[def_id] = validated.option_id
+                        option_id = validated.option_id
+                        if option_id is None and validated.option_ref is not None:
+                            option_id = await self.session.scalar(
+                                select(CaseDropdownOption.id).where(
+                                    CaseDropdownOption.definition_id == def_id,
+                                    CaseDropdownOption.ref == validated.option_ref,
+                                )
+                            )
+                        current_dropdown_map[def_id] = option_id
 
             for defn in required_defs:
                 if not current_dropdown_map.get(defn.id):
@@ -2166,7 +2170,7 @@ class CaseCommentsService(BaseWorkspaceService):
         )
 
         try:
-            if comment.user_id != self.role.user_id:
+            if self.role.user_id is None or comment.user_id != self.role.user_id:
                 raise TracecatAuthorizationError("You cannot update this comment")
             if comment.deleted_at is not None:
                 raise TracecatValidationError("Deleted comments cannot be updated")
@@ -2229,7 +2233,7 @@ class CaseCommentsService(BaseWorkspaceService):
             TracecatAuthorizationError: If the user doesn't own the comment
         """
 
-        if comment.user_id != self.role.user_id:
+        if self.role.user_id is None or comment.user_id != self.role.user_id:
             raise TracecatAuthorizationError("You can only delete your own comments")
 
         has_replies = comment.parent_id is None and await self._comment_has_replies(

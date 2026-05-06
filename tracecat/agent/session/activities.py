@@ -214,7 +214,7 @@ async def load_session_activity(input: LoadSessionInput) -> LoadSessionResult:
 async def reconcile_tool_results_activity(
     input: ReconcileToolResultsInput,
 ) -> ReconcileToolResultsResult:
-    """Materialize executor results and persist tool_result continuation state."""
+    """Materialize executor results and clean interrupted approval state."""
     ctx_role.set(input.role)
     results: list[ToolExecutionResult] = []
     stream = await AgentStream.new(

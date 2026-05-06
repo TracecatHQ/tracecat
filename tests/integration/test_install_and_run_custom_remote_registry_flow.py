@@ -19,25 +19,269 @@ from datetime import timedelta
 import pytest
 import requests
 from pydantic import SecretStr, ValidationError
+from sqlalchemy import select
 from temporalio.client import WorkflowFailureError
 from temporalio.common import RetryPolicy
 
 from tests.shared import generate_test_exec_id, to_data
+from tracecat.auth.schemas import UserRole
 from tracecat.auth.types import Role
+from tracecat.auth.users import get_user_db_context, get_user_manager_context
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.contexts import ctx_role
+from tracecat.db.engine import get_async_session_bypass_rls_context_manager
+from tracecat.db.models import (
+    Organization,
+    OrganizationMembership,
+    User,
+    UserRoleAssignment,
+)
+from tracecat.db.models import Role as DBRole
 from tracecat.dsl.client import get_temporal_client
 from tracecat.dsl.common import DSLEntrypoint, DSLInput, DSLRunArgs
 from tracecat.dsl.schemas import ActionStatement
 from tracecat.dsl.workflow import DSLWorkflow
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.logger import logger
+from tracecat.registry.constants import DEFAULT_REGISTRY_ORIGIN
 from tracecat.secrets.enums import SecretType
 from tracecat.secrets.schemas import SecretCreate
 from tracecat.settings.schemas import GitSettingsUpdate
 
 GIT_SSH_URL = "git+ssh://git@github.com/TracecatHQ/internal-registry.git"
 KNOWN_GOOD_REMOTE_COMMIT_SHA = "e2bfd94c35c93f8052c2b97ff542961596ddd3f8"
+PLACEHOLDER_TARBALL_URI = "s3://test/test.tar.gz"
+TEST_USER_EMAIL = "test@tracecat.com"
+TEST_USER_PASSWORD = "password1234"
+
+
+def _assert_response_ok(response: requests.Response, action: str) -> None:
+    assert response.status_code == 200, (
+        f"{action} failed: {response.status_code} - {response.text}"
+    )
+
+
+async def _hash_test_password(*, db_session, password: str) -> str:
+    async with get_user_db_context(db_session) as user_db:
+        async with get_user_manager_context(user_db) as user_manager:
+            return user_manager.password_helper.hash(password)
+
+
+async def _ensure_test_user_access(
+    *,
+    email: str,
+    password: str,
+) -> uuid.UUID:
+    async with get_async_session_bypass_rls_context_manager() as db_session:
+        organization_id = await db_session.scalar(
+            select(Organization.id).order_by(Organization.created_at.asc()).limit(1)
+        )
+        assert organization_id is not None, "Default organization was not seeded"
+
+        user = await db_session.scalar(
+            select(User).where(User.email == email)  # pyright: ignore[reportArgumentType]
+        )
+        assert user is not None, f"Test user {email} was not found"
+        user.hashed_password = await _hash_test_password(
+            db_session=db_session,
+            password=password,
+        )
+        user.role = UserRole.ADMIN
+        user.is_active = True
+        user.is_verified = True
+        user.is_superuser = True
+
+        membership = await db_session.scalar(
+            select(OrganizationMembership).where(
+                OrganizationMembership.user_id == user.id,
+                OrganizationMembership.organization_id == organization_id,
+            )
+        )
+        if membership is None:
+            db_session.add(
+                OrganizationMembership(
+                    user_id=user.id,
+                    organization_id=organization_id,
+                )
+            )
+
+        owner_role = await db_session.scalar(
+            select(DBRole).where(
+                DBRole.organization_id == organization_id,
+                DBRole.slug == "organization-owner",
+            )
+        )
+        assert owner_role is not None, "organization-owner role is not seeded"
+
+        assignment = await db_session.scalar(
+            select(UserRoleAssignment).where(
+                UserRoleAssignment.user_id == user.id,
+                UserRoleAssignment.organization_id == organization_id,
+                UserRoleAssignment.workspace_id.is_(None),
+            )
+        )
+        if assignment is None:
+            db_session.add(
+                UserRoleAssignment(
+                    organization_id=organization_id,
+                    user_id=user.id,
+                    workspace_id=None,
+                    role_id=owner_role.id,
+                )
+            )
+        else:
+            assignment.role_id = owner_role.id
+
+        await db_session.commit()
+        return organization_id
+
+
+def _builtin_versions(
+    session: requests.Session,
+    base_url: str,
+    repository_id: str,
+) -> list[dict]:
+    versions_response = session.get(
+        f"{base_url}/admin/registry/versions",
+        params={"repository_id": repository_id},
+    )
+    _assert_response_ok(versions_response, "List builtin platform registry versions")
+    return versions_response.json()
+
+
+def _current_builtin_version(
+    session: requests.Session,
+    base_url: str,
+    repository_id: str,
+    current_version_id: str | None,
+) -> dict | None:
+    if current_version_id is None:
+        return None
+
+    return next(
+        (
+            version
+            for version in _builtin_versions(session, base_url, repository_id)
+            if version["id"] == current_version_id
+        ),
+        None,
+    )
+
+
+def _has_real_tarball(version: dict | None) -> bool:
+    if version is None:
+        return False
+    tarball_uri = version.get("tarball_uri")
+    return bool(tarball_uri and tarball_uri != PLACEHOLDER_TARBALL_URI)
+
+
+def _sync_builtin_platform_registry(
+    session: requests.Session,
+    base_url: str,
+) -> None:
+    """Ensure tracecat_registry resolves to a downloadable platform tarball.
+
+    The remote custom registry sync only updates the org-scoped custom repo.
+    Workflow lock resolution always includes tracecat_registry as a runtime
+    dependency, so this test must ensure the platform builtin repo is not still
+    pointing at the placeholder fixture tarball.
+    """
+    repos_response = session.get(f"{base_url}/admin/registry/repos")
+    _assert_response_ok(repos_response, "List platform registry repositories")
+
+    builtin_repo = next(
+        (
+            repo
+            for repo in repos_response.json()
+            if repo["origin"] == DEFAULT_REGISTRY_ORIGIN
+        ),
+        None,
+    )
+
+    if builtin_repo is None:
+        sync_response = session.post(f"{base_url}/admin/registry/sync")
+        _assert_response_ok(sync_response, "Sync platform registry repositories")
+        sync_data = sync_response.json()
+        builtin_result = next(
+            (
+                result
+                for result in sync_data["repositories"]
+                if result["repository_name"] == DEFAULT_REGISTRY_ORIGIN
+            ),
+            None,
+        )
+        assert builtin_result is not None, "Builtin platform registry was not synced"
+        assert builtin_result["success"] is True, (
+            f"Builtin platform registry sync failed: {builtin_result}"
+        )
+        return
+
+    repository_id = builtin_repo["id"]
+    current_version = _current_builtin_version(
+        session,
+        base_url,
+        repository_id,
+        builtin_repo.get("current_version_id"),
+    )
+    if _has_real_tarball(current_version):
+        assert current_version is not None
+        logger.info(
+            "Builtin platform registry already has a real tarball",
+            version=current_version["version"],
+            tarball_uri=current_version["tarball_uri"],
+        )
+        return
+
+    sync_response = session.post(
+        f"{base_url}/admin/registry/sync/{repository_id}",
+        params={"force": True},
+    )
+    _assert_response_ok(sync_response, "Sync builtin platform registry")
+    sync_data = sync_response.json()
+    builtin_result = sync_data["repositories"][0]
+    assert builtin_result["success"] is True, (
+        f"Builtin platform registry sync failed: {builtin_result}"
+    )
+
+    repos_response = session.get(f"{base_url}/admin/registry/repos")
+    _assert_response_ok(repos_response, "Reload platform registry repositories")
+    builtin_repo = next(
+        repo
+        for repo in repos_response.json()
+        if repo["origin"] == DEFAULT_REGISTRY_ORIGIN
+    )
+    current_version = _current_builtin_version(
+        session,
+        base_url,
+        repository_id,
+        builtin_repo.get("current_version_id"),
+    )
+    if not _has_real_tarball(current_version):
+        versions = _builtin_versions(session, base_url, repository_id)
+        synced_version = builtin_result.get("version")
+        candidate = next(
+            (
+                version
+                for version in versions
+                if _has_real_tarball(version) and version["version"] == synced_version
+            ),
+            None,
+        ) or next(
+            (version for version in versions if _has_real_tarball(version)),
+            None,
+        )
+        assert candidate is not None, (
+            "Builtin platform registry sync did not create a real tarball version"
+        )
+        promote_response = session.post(
+            f"{base_url}/admin/registry/{repository_id}/versions/{candidate['id']}/promote"
+        )
+        _assert_response_ok(promote_response, "Promote builtin platform registry")
+        current_version = candidate
+
+    assert _has_real_tarball(current_version), (
+        "Builtin platform registry still points to the placeholder tarball"
+    )
 
 
 @pytest.mark.anyio
@@ -59,7 +303,7 @@ async def test_remote_custom_registry_repo() -> None:
     # First, try to register the test user (in case it doesn't exist)
     register_response = session.post(
         f"{base_url}/auth/register",
-        json={"email": "test@tracecat.com", "password": "password1234"},
+        json={"email": TEST_USER_EMAIL, "password": TEST_USER_PASSWORD},
     )
     if register_response.status_code == 201:
         logger.info("Successfully registered test user")
@@ -70,25 +314,30 @@ async def test_remote_custom_registry_repo() -> None:
             f"Registration returned unexpected status: {register_response.status_code} - {register_response.text}"
         )
 
+    org_id = await _ensure_test_user_access(
+        email=TEST_USER_EMAIL,
+        password=TEST_USER_PASSWORD,
+    )
+    logger.info(
+        "Ensured test user has platform and tenant access",
+        organization_id=str(org_id),
+    )
+
     # Login with test credentials
     login_response = session.post(
         f"{base_url}/auth/login",
-        data={"username": "test@tracecat.com", "password": "password1234"},
+        data={"username": TEST_USER_EMAIL, "password": TEST_USER_PASSWORD},
     )
     assert login_response.status_code == 204, f"Login failed: {login_response.text}"
     logger.info("Successfully logged in with test credentials")
 
-    # Set organization context (required for superusers and org-scoped endpoints)
-    # Use the admin endpoint which doesn't require org context
-    orgs_resp = session.get(f"{base_url}/admin/organizations")
-    assert orgs_resp.status_code == 200, (
-        f"Failed to get organizations: {orgs_resp.text}"
-    )
-    orgs_list = orgs_resp.json()
-    assert len(orgs_list) > 0, "No organizations found"
-    org_id = orgs_list[0]["id"]
-    session.cookies.set("tracecat-org-id", org_id)
-    logger.info("Set organization context", organization_id=org_id)
+    # Set organization context for org-scoped endpoints. Superuser only grants
+    # /admin access; tenant access is provided by the explicit owner assignment.
+    session.cookies.set("tracecat-org-id", str(org_id))
+    logger.info("Set organization context", organization_id=str(org_id))
+
+    logger.info("Ensuring builtin platform registry tarball is synced")
+    _sync_builtin_platform_registry(session, base_url)
 
     # ---------------------------------------------------------------------
     # 2.  Get or create a RegistryRepository pointing to the remote Git repo

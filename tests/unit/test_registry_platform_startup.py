@@ -246,6 +246,37 @@ async def test_startup_sync_does_not_promote_existing_non_current_version(
 
 
 @pytest.mark.anyio
+async def test_startup_sync_promotes_existing_target_when_no_current_version(
+    session: AsyncSession,
+) -> None:
+    """Test startup sync repairs an existing target version with no current pointer."""
+    from tracecat.registry.sync.jobs import _sync_as_leader
+
+    repo = await _get_or_create_platform_repo(session)
+    repo.current_version_id = None
+    session.add(repo)
+    await session.flush()
+
+    version = PlatformRegistryVersion(
+        repository_id=repo.id,
+        version="1.0.0",
+        manifest=_make_manifest(["test.action"]),
+        tarball_uri="s3://test/v1.tar.gz",
+    )
+    session.add(version)
+    await session.commit()
+
+    with patch(
+        "tracecat.registry.sync.jobs.PlatformRegistrySyncService"
+    ) as mock_sync_service:
+        await _sync_as_leader(session, "1.0.0")
+        mock_sync_service.assert_not_called()
+
+    await session.refresh(repo)
+    assert repo.current_version_id == version.id
+
+
+@pytest.mark.anyio
 async def test_startup_sync_refuses_downgrade(
     session: AsyncSession,
 ) -> None:

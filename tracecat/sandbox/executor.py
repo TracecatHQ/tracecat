@@ -18,6 +18,11 @@ from tracecat.config import (
 )
 from tracecat.logger import logger
 from tracecat.sandbox.exceptions import SandboxTimeoutError, SandboxValidationError
+from tracecat.sandbox.networking import (
+    pasta_dns_mount_config_lines,
+    pasta_user_net_config_lines,
+    write_pasta_network_files,
+)
 from tracecat.sandbox.seccomp import build_untrusted_seccomp_policy
 from tracecat.sandbox.types import ResourceLimits, SandboxConfig, SandboxResult
 
@@ -62,28 +67,6 @@ SANDBOX_BASE_ENV = {
     "LANG": "C.UTF-8",
     "LC_ALL": "C.UTF-8",
 }
-
-_PASTA_GATEWAY_IP = "10.255.255.1"
-
-
-def build_sandbox_resolv_conf() -> str:
-    """Build sandbox resolv.conf with pasta DNS plus host search/options lines.
-
-    In Kubernetes, short service names rely on search domains like
-    `*.svc.cluster.local` and resolver options from the pod's /etc/resolv.conf.
-    Preserve those lines while forcing nameserver to pasta's DNS gateway.
-    """
-    lines = [f"nameserver {_PASTA_GATEWAY_IP}"]
-    try:
-        host_resolv = Path("/etc/resolv.conf").read_text()
-        for line in host_resolv.splitlines():
-            stripped = line.strip()
-            if stripped.startswith("search ") or stripped.startswith("options "):
-                lines.append(stripped)
-    except OSError:
-        pass
-    return "\n".join(lines) + "\n"
-
 
 _NSJAIL_HINT_PATTERNS: list[tuple[re.Pattern[str], str]] = [
     (
@@ -223,8 +206,9 @@ class NsjailExecutor:
         network_enabled = phase == "install" or config.network_enabled
 
         # Network behavior:
-        # - network enabled: share pod netns (no pasta) for host DNS/routing reliability
-        # - network disabled: isolate netns
+        # - always isolate network namespace for private loopback
+        # - network enabled: add pasta userspace networking for outbound access
+        # - network disabled: no route out of the isolated namespace
         lines = [
             'name: "python_sandbox"',
             "mode: ONCE",
@@ -232,13 +216,16 @@ class NsjailExecutor:
             "keep_env: false",
             "",
             "# Namespace isolation",
-            f"clone_newnet: {'false' if network_enabled else 'true'}",
+            "clone_newnet: true",
             "clone_newuser: true",
             "clone_newns: true",
             "clone_newpid: true",
             "clone_newipc: true",
             "clone_newuts: true",
         ]
+
+        if network_enabled:
+            lines.extend(pasta_user_net_config_lines())
 
         lines.extend(
             [
@@ -272,15 +259,8 @@ class NsjailExecutor:
             )
 
         if network_enabled:
-            lines.extend(
-                [
-                    "",
-                    "# DNS config - use pod resolver files directly",
-                    'mount { src: "/etc/resolv.conf" dst: "/etc/resolv.conf" is_bind: true rw: false }',
-                    'mount { src: "/etc/hosts" dst: "/etc/hosts" is_bind: true rw: false }',
-                    'mount { src: "/etc/nsswitch.conf" dst: "/etc/nsswitch.conf" is_bind: true rw: false }',
-                ]
-            )
+            network_files = write_pasta_network_files(job_dir)
+            lines.extend(pasta_dns_mount_config_lines(network_files))
 
         lines.extend(
             [
@@ -293,7 +273,8 @@ class NsjailExecutor:
                 "",
                 "# Temporary filesystems",
                 'mount { dst: "/tmp" fstype: "tmpfs" rw: true options: "size=256M" }',
-                'mount { src: "/proc" dst: "/proc" is_bind: true rw: false }',
+                "# Fresh procfs requires Docker systempaths=unconfined for nested nsjail.",
+                'mount { dst: "/proc" fstype: "proc" rw: false }',
             ]
         )
 
@@ -659,8 +640,8 @@ class NsjailExecutor:
             'hostname: "sandbox"',
             "keep_env: false",
             "",
-            "# Namespace isolation (share pod network namespace for reliability)",
-            "clone_newnet: false",
+            "# Namespace isolation",
+            "clone_newnet: true",
             "clone_newuser: true",
             "clone_newns: true",
             "clone_newpid: true",
@@ -681,6 +662,8 @@ class NsjailExecutor:
             f'mount {{ src: "{self.rootfs}/etc" dst: "/etc" is_bind: true rw: false }}',
         ]
 
+        lines.extend(pasta_user_net_config_lines())
+
         # Optional mounts - only include if the directories exist in rootfs
         lib64_path = self.rootfs / "lib64"
         if lib64_path.exists():
@@ -694,15 +677,8 @@ class NsjailExecutor:
                 f'mount {{ src: "{sbin_path}" dst: "/sbin" is_bind: true rw: false }}'
             )
 
-        lines.extend(
-            [
-                "",
-                "# DNS config - use pod resolver files directly",
-                'mount { src: "/etc/resolv.conf" dst: "/etc/resolv.conf" is_bind: true rw: false }',
-                'mount { src: "/etc/hosts" dst: "/etc/hosts" is_bind: true rw: false }',
-                'mount { src: "/etc/nsswitch.conf" dst: "/etc/nsswitch.conf" is_bind: true rw: false }',
-            ]
-        )
+        network_files = write_pasta_network_files(job_dir)
+        lines.extend(pasta_dns_mount_config_lines(network_files))
 
         lines.extend(
             [
@@ -715,6 +691,7 @@ class NsjailExecutor:
                 "",
                 "# Temporary filesystems",
                 'mount { dst: "/tmp" fstype: "tmpfs" rw: true options: "size=256M" }',
+                "# Fresh procfs requires Docker systempaths=unconfined for nested nsjail.",
                 'mount { dst: "/proc" fstype: "proc" rw: false }',
                 "",
                 "# Action execution mounts",

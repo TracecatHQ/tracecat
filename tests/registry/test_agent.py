@@ -4,8 +4,10 @@ from typing import Any
 import pytest
 from tracecat_registry import ActionIsInterfaceError
 from tracecat_registry.core.agent import action, agent, bedrock_secret
+from tracecat_registry.fields import ModelSelection
 
 from tracecat.auth.types import Role
+from tracecat.registry.repository import RegisterKwargs, generate_model_from_function
 
 requires_openai_mocks = pytest.mark.usefixtures("mock_openai_secrets")
 
@@ -33,6 +35,12 @@ JSON_SCHEMA_OUTPUT_TYPES = [
 ]
 
 
+def _input_schema_for(fn: Any) -> dict[str, Any]:
+    kwargs = RegisterKwargs.model_validate(getattr(fn, "__tracecat_udf_kwargs"))
+    args_cls, _, _ = generate_model_from_function(fn, kwargs)
+    return args_cls.model_json_schema()
+
+
 def _prompt_for_output_type(output_type: Any, base_prompt: str) -> str:
     """Craft a targeted prompt to help the model satisfy the output_type."""
     if isinstance(output_type, str) and output_type == "list[str]":
@@ -40,6 +48,19 @@ def _prompt_for_output_type(output_type: Any, base_prompt: str) -> str:
     if isinstance(output_type, dict):
         return f"{base_prompt} Respond as a JSON object with keys 'summary' and 'confidence'."
     return base_prompt
+
+
+def test_agent_schema_marks_legacy_model_fields_deprecated() -> None:
+    schema = _input_schema_for(agent)
+    properties = schema["properties"]
+
+    assert "model" not in schema.get("required", [])
+    assert properties["model_name"]["deprecated"] is True
+    assert properties["model_provider"]["deprecated"] is True
+    assert (
+        properties["model_provider"]["x-tracecat-deprecation-message"]
+        == "Use `model` instead."
+    )
 
 
 @pytest.mark.anyio
@@ -66,8 +87,7 @@ async def test_agent_primitives(output_type: Any, test_role: Role) -> None:
     with pytest.raises(ActionIsInterfaceError):
         await agent(
             user_prompt=user_prompt,
-            model_name="gpt-4o-mini",
-            model_provider="openai",
+            model=ModelSelection(model_name="gpt-4o-mini", model_provider="openai"),
             actions=[],
             instructions="Be concise and factual.",
             output_type=output_type,
@@ -102,8 +122,7 @@ async def test_agent_json_schema(output_type: Any, test_role: Role) -> None:
     with pytest.raises(ActionIsInterfaceError):
         await agent(
             user_prompt=user_prompt,
-            model_name="gpt-4o-mini",
-            model_provider="openai",
+            model=ModelSelection(model_name="gpt-4o-mini", model_provider="openai"),
             actions=[],
             instructions="Be concise and factual.",
             output_type=output_type,
@@ -123,8 +142,7 @@ async def test_action_primitives(output_type: Any) -> None:
     with pytest.raises(ActionIsInterfaceError):
         await action(
             user_prompt=user_prompt,
-            model_name="gpt-4o-mini",
-            model_provider="openai",
+            model=ModelSelection(model_name="gpt-4o-mini", model_provider="openai"),
             instructions="Be empathetic and concise.",
             output_type=output_type,
             max_requests=3,
@@ -142,8 +160,7 @@ async def test_action_json_schema(output_type: Any) -> None:
     with pytest.raises(ActionIsInterfaceError):
         await action(
             user_prompt=user_prompt,
-            model_name="gpt-4o-mini",
-            model_provider="openai",
+            model=ModelSelection(model_name="gpt-4o-mini", model_provider="openai"),
             instructions="Be empathetic and concise.",
             output_type=output_type,
             max_requests=3,

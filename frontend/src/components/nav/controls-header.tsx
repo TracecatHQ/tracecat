@@ -27,7 +27,7 @@ import {
 } from "lucide-react"
 import dynamic from "next/dynamic"
 import Link from "next/link"
-import { usePathname, useSearchParams } from "next/navigation"
+import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import {
   Fragment,
   type ReactNode,
@@ -48,6 +48,7 @@ import {
 } from "@/components/agents/agents-catalog-view-toggle"
 import { AgentFolderCreateDialog } from "@/components/agents/agents-dashboard"
 import { CreateAgentDialog } from "@/components/agents/create-agent-dialog"
+import { useScopeCheck } from "@/components/auth/scope-guard"
 import { AddCaseDropdown } from "@/components/cases/add-case-dropdown"
 import { AddCaseDuration } from "@/components/cases/add-case-duration"
 import { AddCaseTag } from "@/components/cases/add-case-tag"
@@ -83,6 +84,8 @@ import {
 import { CreateGroupButton } from "@/components/rbac/create-group-button"
 import { CreateRoleButton } from "@/components/rbac/create-role-button"
 import { RegistryActionsControls } from "@/components/registry/workspace-actions-controls"
+import { CreateSkillButton } from "@/components/skills/create-skill-button"
+import { SkillsDetailActions } from "@/components/skills/skills-detail-actions"
 import { TableSelectionActionsBar } from "@/components/tables/ag-grid-bulk-actions"
 import { CreateTableDialog } from "@/components/tables/table-create-dialog"
 import { TableImportTableDialog } from "@/components/tables/table-import-table-dialog"
@@ -152,6 +155,7 @@ import {
 import { CreateCredentialDialog } from "@/components/workspaces/create-credential-dialog"
 import { useAgentPreset, useAgentTagCatalog } from "@/hooks/use-agent-presets"
 import { useEntitlements } from "@/hooks/use-entitlements"
+import { useSkill } from "@/hooks/use-skills"
 import { useWorkspaceDetails, useWorkspaceMembers } from "@/hooks/use-workspace"
 import {
   useCaseDropdownDefinitions,
@@ -389,6 +393,40 @@ function IntegrationsActions() {
         hideTrigger
       />
     </>
+  )
+}
+
+function SkillsActions() {
+  return <CreateSkillButton />
+}
+
+function SkillsBreadcrumb({
+  workspaceId,
+  skillId,
+}: {
+  workspaceId: string
+  skillId: string
+}) {
+  const { skill } = useSkill(workspaceId, skillId)
+
+  return (
+    <Breadcrumb>
+      <BreadcrumbList className="relative z-10 flex items-center gap-2 text-sm flex-nowrap overflow-hidden whitespace-nowrap min-w-0 bg-transparent pr-1">
+        <BreadcrumbItem>
+          <BreadcrumbLink asChild className="font-semibold hover:no-underline">
+            <Link href={`/workspaces/${workspaceId}/skills`}>Skills</Link>
+          </BreadcrumbLink>
+        </BreadcrumbItem>
+        <BreadcrumbSeparator className="shrink-0">
+          <span className="text-muted-foreground">/</span>
+        </BreadcrumbSeparator>
+        <BreadcrumbItem>
+          <BreadcrumbPage className="font-semibold">
+            {skill?.name || skillId}
+          </BreadcrumbPage>
+        </BreadcrumbItem>
+      </BreadcrumbList>
+    </Breadcrumb>
   )
 }
 
@@ -1484,6 +1522,66 @@ function CredentialsActions() {
   )
 }
 
+function ServiceAccountsActions() {
+  const canCreateServiceAccounts = useScopeCheck(
+    "workspace:service_account:create"
+  )
+  const pathname = usePathname()
+  const searchParams = useSearchParams()
+  const router = useRouter()
+
+  if (canCreateServiceAccounts !== true || !pathname) {
+    return null
+  }
+
+  return (
+    <Button
+      variant="outline"
+      size="sm"
+      className="h-7 bg-white"
+      onClick={() => {
+        const params = new URLSearchParams(searchParams?.toString())
+        params.set("createServiceAccount", Date.now().toString())
+        router.replace(`${pathname}?${params.toString()}`, {
+          scroll: false,
+        })
+      }}
+    >
+      <Plus className="mr-1 h-3.5 w-3.5" />
+      Create service account
+    </Button>
+  )
+}
+
+function McpAccessActions() {
+  const canReadWorkspace = useScopeCheck("workspace:read")
+  const pathname = usePathname()
+  const searchParams = useSearchParams()
+  const router = useRouter()
+
+  if (canReadWorkspace !== true || !pathname) {
+    return null
+  }
+
+  return (
+    <Button
+      variant="outline"
+      size="sm"
+      className="h-7 bg-white"
+      onClick={() => {
+        const params = new URLSearchParams(searchParams?.toString())
+        params.set("createMcpToken", Date.now().toString())
+        router.replace(`${pathname}?${params.toString()}`, {
+          scroll: false,
+        })
+      }}
+    >
+      <Plus className="mr-1 h-3.5 w-3.5" />
+      Create token
+    </Button>
+  )
+}
+
 function VariablesActions() {
   return (
     <NewVariableDialog>
@@ -1810,10 +1908,40 @@ function getPageConfig(
     }
   }
 
+  if (pagePath.startsWith("/skills")) {
+    const skillMatch = pagePath.match(/^\/skills\/([^/]+)$/)
+    if (skillMatch) {
+      return {
+        title: (
+          <SkillsBreadcrumb workspaceId={workspaceId} skillId={skillMatch[1]} />
+        ),
+        actions: <SkillsDetailActions />,
+      }
+    }
+    return {
+      title: "Skills",
+      actions: <SkillsActions />,
+    }
+  }
+
   if (pagePath.startsWith("/credentials")) {
     return {
       title: "Credentials",
       actions: <CredentialsActions />,
+    }
+  }
+
+  if (pagePath.startsWith("/service-accounts")) {
+    return {
+      title: "Service accounts",
+      actions: <ServiceAccountsActions />,
+    }
+  }
+
+  if (pagePath.startsWith("/mcp")) {
+    return {
+      title: "MCP access",
+      actions: <McpAccessActions />,
     }
   }
 

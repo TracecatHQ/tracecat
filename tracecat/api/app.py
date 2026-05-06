@@ -3,7 +3,15 @@ from collections.abc import Callable
 from contextlib import asynccontextmanager
 
 import tracecat_registry
-from fastapi import Depends, FastAPI, HTTPException, Request, Response, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    FastAPI,
+    HTTPException,
+    Request,
+    Response,
+    status,
+)
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import ORJSONResponse
@@ -17,7 +25,11 @@ from tracecat_ee.watchtower.router import router as watchtower_router
 
 from tracecat import __version__ as APP_VERSION
 from tracecat import config
+from tracecat.admin.agent.router import router as admin_agent_router
 from tracecat.admin.registry.router import router as admin_registry_router
+from tracecat.agent.access.router import router as agent_model_access_router
+from tracecat.agent.catalog.loader import load_platform_catalog_on_startup
+from tracecat.agent.catalog.router import router as agent_catalog_router
 from tracecat.agent.channels.management_router import (
     router as agent_channels_management_router,
 )
@@ -28,8 +40,11 @@ from tracecat.agent.preset.internal_router import (
     router as internal_agent_preset_router,
 )
 from tracecat.agent.preset.router import router as agent_preset_router
+from tracecat.agent.provider.router import router as agent_custom_provider_router
 from tracecat.agent.router import router as agent_router
+from tracecat.agent.router import workspace_router as agent_workspace_router
 from tracecat.agent.session.router import router as agent_session_router
+from tracecat.agent.skill.router import router as agent_skill_router
 from tracecat.agent.tags.definitions_router import (
     router as agent_tag_definitions_router,
 )
@@ -39,11 +54,13 @@ from tracecat.api.common import (
     bootstrap_role,
     custom_generate_unique_id,
     generic_exception_handler,
+    http_exception_handler,
     tracecat_exception_handler,
 )
 from tracecat.auth.credentials import authenticated_user_only
 from tracecat.auth.dependencies import (
     require_any_auth_type_enabled,
+    require_workspace_id_path,
 )
 from tracecat.auth.discovery import router as auth_discovery_router
 from tracecat.auth.enums import AuthType
@@ -112,8 +129,14 @@ from tracecat.integrations.router import (
     mcp_router,
     providers_router,
 )
+from tracecat.integrations.router import (
+    oauth_router as integrations_oauth_router,
+)
 from tracecat.logger import logger
 from tracecat.mcp.oidc import router as mcp_oidc_router
+from tracecat.mcp.personal_access_tokens.router import (
+    router as mcp_personal_access_tokens_router,
+)
 from tracecat.middleware import (
     AuthorizationCacheMiddleware,
     RequestLoggingMiddleware,
@@ -131,6 +154,12 @@ from tracecat.registry.repositories.router import router as registry_repos_route
 from tracecat.registry.sync.jobs import sync_platform_registry_on_startup
 from tracecat.secrets.router import org_router as org_secrets_router
 from tracecat.secrets.router import router as secrets_router
+from tracecat.service_accounts.router import (
+    org_router as org_service_accounts_router,
+)
+from tracecat.service_accounts.router import (
+    workspace_router as workspace_service_accounts_router,
+)
 from tracecat.settings.router import router as org_settings_router
 from tracecat.settings.service import SettingsService, get_setting_override
 from tracecat.storage.blob import configure_bucket_lifecycle, ensure_bucket_exists
@@ -145,7 +174,12 @@ from tracecat.workflow.actions.router import router as workflow_actions_router
 from tracecat.workflow.executions.internal_router import (
     router as internal_workflows_router,
 )
-from tracecat.workflow.executions.router import router as workflow_executions_router
+from tracecat.workflow.executions.router import (
+    router as workflow_executions_router,
+)
+from tracecat.workflow.executions.router import (
+    workflow_router as workflow_executions_workflow_router,
+)
 from tracecat.workflow.graph.router import router as workflow_graph_router
 from tracecat.workflow.management.folders.router import (
     router as workflow_folders_router,
@@ -174,6 +208,7 @@ async def lifespan(app: FastAPI):
     # Storage
     await ensure_bucket_exists(config.TRACECAT__BLOB_STORAGE_BUCKET_ATTACHMENTS)
     await ensure_bucket_exists(config.TRACECAT__BLOB_STORAGE_BUCKET_REGISTRY)
+    await ensure_bucket_exists(config.TRACECAT__BLOB_STORAGE_BUCKET_SKILLS)
 
     # Workflow bucket with lifecycle expiration
     await ensure_bucket_exists(config.TRACECAT__BLOB_STORAGE_BUCKET_WORKFLOW)
@@ -195,6 +230,12 @@ async def lifespan(app: FastAPI):
         name="platform_registry_sync",
     )
     logger.debug("Spawned background task for platform registry sync")
+
+    platform_catalog_task = asyncio.create_task(
+        load_platform_catalog_on_startup(),
+        name="platform_catalog_load",
+    )
+    logger.debug("Spawned background task for platform catalog load")
 
     case_trigger_task = None
     if config.TRACECAT__CASE_TRIGGERS_ENABLED:
@@ -241,6 +282,29 @@ async def lifespan(app: FastAPI):
             logger.warning(
                 "Platform registry sync task failed before shutdown", error=e
             )
+
+    if not platform_catalog_task.done():
+        logger.info("Waiting for platform catalog load task to complete...")
+        try:
+            await asyncio.wait_for(platform_catalog_task, timeout=10.0)
+            logger.info("Platform catalog load task completed")
+        except TimeoutError:
+            logger.warning(
+                "Platform catalog load task did not complete in time, cancelling"
+            )
+            platform_catalog_task.cancel()
+            try:
+                await platform_catalog_task
+            except asyncio.CancelledError:
+                logger.debug("Platform catalog load task cancelled")
+        except Exception as e:
+            logger.warning("Platform catalog load task failed during shutdown", error=e)
+    else:
+        try:
+            platform_catalog_task.result()
+            logger.debug("Platform catalog load task had already completed")
+        except Exception as e:
+            logger.warning("Platform catalog load task failed before shutdown", error=e)
 
     if case_trigger_task is not None:
         case_trigger_task.cancel()
@@ -390,6 +454,15 @@ def feature_flag_dep(flag: FlagLike) -> Callable[..., None]:
     return _is_feature_enabled
 
 
+def _include_workspace_scoped_router(app: FastAPI, router: APIRouter) -> None:
+    app.include_router(router, include_in_schema=False)
+    app.include_router(
+        router,
+        prefix="/workspaces/{workspace_id}",
+        dependencies=[Depends(require_workspace_id_path)],
+    )
+
+
 def create_app(**kwargs) -> FastAPI:
     if config.TRACECAT__ALLOW_ORIGINS is not None:
         allow_origins = config.TRACECAT__ALLOW_ORIGINS.split(",")
@@ -432,49 +505,60 @@ def create_app(**kwargs) -> FastAPI:
     app.include_router(webhook_router)
     app.include_router(agent_channels_router)
     app.include_router(workspaces_router)
-    app.include_router(workflow_management_router)
-    app.include_router(workflow_graph_router)
-    app.include_router(workflow_executions_router)
-    app.include_router(workflow_actions_router)
-    app.include_router(workflow_tags_router)
-    app.include_router(workflow_store_router)
-    app.include_router(secrets_router)
-    app.include_router(variables_router)
-    app.include_router(schedules_router)
-    app.include_router(tags_router)
+    app.include_router(workspace_service_accounts_router)
+    app.include_router(mcp_personal_access_tokens_router)
+    _include_workspace_scoped_router(app, workflow_management_router)
+    _include_workspace_scoped_router(app, workflow_executions_workflow_router)
+    _include_workspace_scoped_router(app, workflow_graph_router)
+    _include_workspace_scoped_router(app, workflow_executions_router)
+    _include_workspace_scoped_router(app, workflow_actions_router)
+    _include_workspace_scoped_router(app, workflow_tags_router)
+    _include_workspace_scoped_router(app, workflow_store_router)
+    _include_workspace_scoped_router(app, secrets_router)
+    _include_workspace_scoped_router(app, variables_router)
+    _include_workspace_scoped_router(app, schedules_router)
+    _include_workspace_scoped_router(app, tags_router)
     app.include_router(users_router)
     app.include_router(org_router)
+    app.include_router(org_service_accounts_router)
     app.include_router(agent_router)
-    app.include_router(agent_channels_management_router)
-    app.include_router(agent_preset_router)
-    app.include_router(agent_preset_tags_router)
-    app.include_router(agent_folders_router)
-    app.include_router(agent_tag_definitions_router)
-    app.include_router(agent_session_router)
-    app.include_router(approvals_router)
+    app.include_router(agent_catalog_router)
+    app.include_router(agent_model_access_router)
+    app.include_router(agent_custom_provider_router)
+    _include_workspace_scoped_router(app, agent_workspace_router)
+    _include_workspace_scoped_router(app, agent_channels_management_router)
+    _include_workspace_scoped_router(app, agent_preset_router)
+    _include_workspace_scoped_router(app, agent_preset_tags_router)
+    _include_workspace_scoped_router(app, agent_folders_router)
+    _include_workspace_scoped_router(app, agent_tag_definitions_router)
+    _include_workspace_scoped_router(app, agent_skill_router)
+    _include_workspace_scoped_router(app, agent_session_router)
+    _include_workspace_scoped_router(app, approvals_router)
     app.include_router(watchtower_router)
     app.include_router(admin_router)
+    app.include_router(admin_agent_router, prefix="/admin")
     app.include_router(admin_registry_router, prefix="/admin")
-    app.include_router(inbox_router)
-    app.include_router(editor_router)
+    _include_workspace_scoped_router(app, inbox_router)
+    _include_workspace_scoped_router(app, editor_router)
     app.include_router(registry_repos_router)
     app.include_router(registry_actions_router)
     app.include_router(org_settings_router)
     app.include_router(org_secrets_router)
-    app.include_router(tables_router)
-    app.include_router(cases_router)
-    app.include_router(case_rows_router)
-    app.include_router(case_fields_router)
-    app.include_router(case_tags_router)
-    app.include_router(case_tag_definitions_router)
-    app.include_router(case_attachments_router)
-    app.include_router(case_dropdowns_router)
-    app.include_router(case_dropdown_values_router)
-    app.include_router(case_durations_router)
-    app.include_router(workflow_folders_router)
-    app.include_router(integrations_router)
-    app.include_router(providers_router)
-    app.include_router(mcp_router)
+    _include_workspace_scoped_router(app, tables_router)
+    _include_workspace_scoped_router(app, cases_router)
+    _include_workspace_scoped_router(app, case_rows_router)
+    _include_workspace_scoped_router(app, case_fields_router)
+    _include_workspace_scoped_router(app, case_tags_router)
+    _include_workspace_scoped_router(app, case_tag_definitions_router)
+    _include_workspace_scoped_router(app, case_attachments_router)
+    _include_workspace_scoped_router(app, case_dropdowns_router)
+    _include_workspace_scoped_router(app, case_dropdown_values_router)
+    _include_workspace_scoped_router(app, case_durations_router)
+    _include_workspace_scoped_router(app, workflow_folders_router)
+    app.include_router(integrations_oauth_router)
+    _include_workspace_scoped_router(app, integrations_router)
+    _include_workspace_scoped_router(app, providers_router)
+    _include_workspace_scoped_router(app, mcp_router)
     app.include_router(mcp_oidc_router)
     app.include_router(feature_flags_router)
     app.include_router(vcs_router)
@@ -587,6 +671,7 @@ def create_app(**kwargs) -> FastAPI:
     )
     app.add_exception_handler(EntitlementRequired, entitlement_exception_handler)
     app.add_exception_handler(ScopeDeniedError, scope_denied_exception_handler)
+    app.add_exception_handler(HTTPException, http_exception_handler)
 
     # Middleware
     # Add authorization cache middleware first so it's available for all requests
@@ -674,7 +759,7 @@ async def info(session: AsyncDBSessionBypass) -> AppInfo:
 
 
 @app.get("/health", tags=["public"])
-def check_health() -> HealthResponse:
+async def check_health() -> HealthResponse:
     return HealthResponse(status="ok")
 
 

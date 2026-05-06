@@ -1,5 +1,5 @@
 from datetime import datetime, timedelta
-from typing import Any
+from typing import Any, Literal
 
 import temporalio.client
 from temporalio.api.common.v1 import Payloads
@@ -53,6 +53,7 @@ async def create_schedule(
     start_at: datetime | None = None,
     end_at: datetime | None = None,
     timeout: float | None = None,
+    status: Literal["online", "offline"] = "online",
 ) -> temporalio.client.ScheduleHandle:
     # Importing here to avoid circular imports...
     from tracecat.dsl.workflow import DSLWorkflow
@@ -103,6 +104,7 @@ async def create_schedule(
                 # Allow overlapping workflows to run in parallel
                 overlap=temporalio.client.ScheduleOverlapPolicy.ALLOW_ALL,
             ),
+            state=temporalio.client.ScheduleState(paused=status != "online"),
         ),
     )
 

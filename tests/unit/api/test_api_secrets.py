@@ -162,6 +162,26 @@ async def test_list_secret_definitions_success(
 
 
 @pytest.mark.anyio
+async def test_list_secret_definitions_returns_registry_definitions_without_builtins(
+    client: TestClient,
+    test_admin_role: Role,
+) -> None:
+    """Test GET /secrets/definitions reflects registry definitions only."""
+    with patch.object(secrets_router, "RegistryActionsService") as MockService:
+        mock_svc = AsyncMock()
+        mock_svc.get_aggregated_secrets.return_value = []
+        MockService.return_value = mock_svc
+
+        response = client.get(
+            "/secrets/definitions",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == []
+
+
+@pytest.mark.anyio
 async def test_get_aws_assume_role_access_success(
     client: TestClient,
     test_admin_role: Role,

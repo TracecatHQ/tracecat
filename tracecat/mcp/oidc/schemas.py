@@ -29,7 +29,7 @@ class AuthCodeData(BaseModel):
 
 
 class ResumeTransaction(BaseModel):
-    """Pending authorization request stored in Redis during login/org-selection redirect."""
+    """Pending authorization request stored in Redis during login redirect."""
 
     transaction_id: str
     authorize_params: dict[str, str]

@@ -8,6 +8,7 @@ import pytest
 from tracecat_registry import RegistryOAuthSecret
 
 from tracecat.agent.mcp import internal_tools
+from tracecat.agent.preset.schemas import AgentPresetRead
 from tracecat.agent.tokens import InternalToolContext, MCPTokenClaims
 from tracecat.integrations.enums import OAuthGrantType
 from tracecat.integrations.schemas import ProviderKey
@@ -37,6 +38,12 @@ def _build_claims(preset_id: uuid.UUID) -> MCPTokenClaims:
             entity_type="agent_preset_builder",
         ),
     )
+
+
+def _build_preset_read(preset: dict[str, object]) -> AgentPresetRead:
+    data = dict(preset)
+    data.setdefault("skills", [])
+    return AgentPresetRead.model_validate(data)
 
 
 def test_evaluate_configuration_prefers_workspace_secret_even_when_empty():
@@ -254,6 +261,9 @@ async def test_update_preset_allows_configured_oauth_tool_add(monkeypatch):
     async def _update_preset(_preset, _params):
         return updated_preset
 
+    async def _build_preset(_preset):
+        return _build_preset_read(updated_preset)
+
     async def _get_action_from_index(_action_name):
         return SimpleNamespace(manifest=object())
 
@@ -269,6 +279,7 @@ async def test_update_preset_allows_configured_oauth_tool_add(monkeypatch):
     preset_service = SimpleNamespace(
         get_preset=_get_preset,
         update_preset=_update_preset,
+        build_preset_read=_build_preset,
     )
 
     async def _secret_inventory(_role):

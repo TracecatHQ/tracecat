@@ -7,6 +7,8 @@ const BLOCKED_POST_AUTH_RETURN_URL_PREFIXES = [
   "/sign-in",
   "/sign-up",
 ] as const
+const MCP_AUTH_CONTINUE_PATH = "/oauth/mcp/continue"
+const MCP_AUTH_LEGACY_SELECT_ORG_PATH = "/oauth/mcp/select-org"
 
 function getPostAuthReturnUrlCookieSameSite(secure: boolean): "None" | "Lax" {
   // Cross-site POSTs (SAML ACS) require SameSite=None; browsers require Secure with None.
@@ -20,6 +22,36 @@ function isBlockedPostAuthReturnPath(pathname: string): boolean {
       normalizedPathname === prefix ||
       normalizedPathname.startsWith(`${prefix}/`)
   )
+}
+
+/**
+ * Convert MCP auth return URLs to the current continuation route.
+ */
+export function normalizeMcpAuthReturnUrl(
+  value: string | null | undefined
+): string | null {
+  if (!value) {
+    return null
+  }
+
+  try {
+    const parsed = new URL(value, APP_URL_PLACEHOLDER)
+    if (parsed.origin !== APP_URL_PLACEHOLDER) {
+      return null
+    }
+    if (!parsed.searchParams.get("txn")) {
+      return null
+    }
+    if (parsed.pathname === MCP_AUTH_CONTINUE_PATH) {
+      return `${parsed.pathname}${parsed.search}${parsed.hash}`
+    }
+    if (parsed.pathname === MCP_AUTH_LEGACY_SELECT_ORG_PATH) {
+      return `${MCP_AUTH_CONTINUE_PATH}${parsed.search}${parsed.hash}`
+    }
+    return null
+  } catch {
+    return null
+  }
 }
 
 export function sanitizeReturnUrl(
@@ -42,7 +74,15 @@ export function sanitizeReturnUrl(
     if (isBlockedPostAuthReturnPath(parsed.pathname)) {
       return null
     }
-    return `${parsed.pathname}${parsed.search}${parsed.hash}`
+    const normalizedValue = `${parsed.pathname}${parsed.search}${parsed.hash}`
+    const mcpAuthReturnUrl = normalizeMcpAuthReturnUrl(normalizedValue)
+    if (mcpAuthReturnUrl) {
+      return mcpAuthReturnUrl
+    }
+    if (parsed.pathname === MCP_AUTH_LEGACY_SELECT_ORG_PATH) {
+      return null
+    }
+    return normalizedValue
   } catch {
     return null
   }

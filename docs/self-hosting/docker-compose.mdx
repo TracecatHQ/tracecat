@@ -1,6 +1,6 @@
 ---
 title: Docker Compose
-description: Deploy Tracecat using Docker Compose.
+description: "Deploy self-hosted Tracecat using Docker Compose: bring up the API, executor, worker, frontend, Postgres, and Temporal stack on a single host in minutes."
 ---
 
 <Warning>
@@ -25,10 +25,10 @@ The `env.sh` script (next step) generates these automatically. If you need to ge
 
 ```bash
 # 1. Download the env.sh installation script
-curl -o env.sh https://raw.githubusercontent.com/TracecatHQ/tracecat/1.0.0-beta.39/env.sh
+curl -o env.sh https://raw.githubusercontent.com/TracecatHQ/tracecat/1.0.0-beta.47/env.sh
 
 # 2. Download the .env.example template file (env.sh needs this to generate your .env file)
-curl -o .env.example https://raw.githubusercontent.com/TracecatHQ/tracecat/1.0.0-beta.39/.env.example
+curl -o .env.example https://raw.githubusercontent.com/TracecatHQ/tracecat/1.0.0-beta.47/.env.example
 
 # 3. Make the env.sh script executable and run it
 chmod +x env.sh && ./env.sh
@@ -46,13 +46,13 @@ Tracecat uses Caddy as a reverse proxy.
 You'll need to download the following `Caddyfile` to configure this service.
 
 ```bash
-curl -o Caddyfile https://raw.githubusercontent.com/TracecatHQ/tracecat/1.0.0-beta.39/Caddyfile
+curl -o Caddyfile https://raw.githubusercontent.com/TracecatHQ/tracecat/1.0.0-beta.47/Caddyfile
 ```
 
 ## Download Docker Compose file
 
 ```bash
-curl -o docker-compose.yml https://raw.githubusercontent.com/TracecatHQ/tracecat/1.0.0-beta.39/docker-compose.yml
+curl -o docker-compose.yml https://raw.githubusercontent.com/TracecatHQ/tracecat/1.0.0-beta.47/docker-compose.yml
 ```
 
 ## Start Tracecat
@@ -141,11 +141,11 @@ Docker Swarm lets you scale individual services with resource limits and replica
 | ui | 0.5 | 1 Gi | 2 |
 | mcp | 1 | 1 Gi | 1 |
 | postgres_db | 2 | 4 Gi | 1 |
-| temporal | 2 | 4 Gi | 1 |
-| temporal_postgres_db | 1 | 2 Gi | 1 |
+| temporal | 4 | 8 Gi | 1 |
+| temporal_postgres_db | 2 | 4 Gi | 1 |
 | redis | 0.5 | 1 Gi | 1 |
 | minio | 0.5 | 1 Gi | 1 |
-| Total | ~22 | ~46 Gi | 23 |
+| Total | ~25 | ~52 Gi | 23 |
 
 <Info>
   Stateful services (`postgres_db`, `temporal_postgres_db`, `minio`, `redis`) must remain at 1 replica.
@@ -252,6 +252,15 @@ For an overview of all services and networking, see [Architecture](/self-hosting
     - Verify that `PUBLIC_API_URL` is the same origin plus `/api`.
     - Run `docker compose ps` and check that `api`, `worker`, and `temporal` are healthy.
     - Review `docker compose logs api` for startup, auth, or CORS errors.
+  </Accordion>
+
+  <Accordion title="I'm seeing 'No hosts available' errors from Temporal">
+    Undersized Temporal clusters cause `No hosts available` errors and workflow execution failures.
+    Ensure the Temporal server has at least 4 CPU cores and 8 GB of memory.
+
+    Temporal also requires a well-provisioned PostgreSQL backend for adequate query throughput.
+    The bundled `temporal_postgres_db` container is suitable for development and small deployments only.
+    For production workloads, use a managed PostgreSQL instance (e.g., Amazon Aurora Serverless) for better QPS and reliability.
   </Accordion>
 
   <Accordion title="How do I configure SSL for production?">

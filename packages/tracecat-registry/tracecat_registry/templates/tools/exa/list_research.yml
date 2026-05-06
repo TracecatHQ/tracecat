@@ -3,7 +3,7 @@ definition:
   title: List research tasks
   description: Get a paginated list of research tasks. Use cursor for pagination and limit to control page size.
   display_group: Exa
-  doc_url: https://docs.exa.ai/reference/research/list-tasks
+  doc_url: https://exa.ai/docs/reference/research/list-tasks
   namespace: tools.exa
   name: list_research
   secrets:

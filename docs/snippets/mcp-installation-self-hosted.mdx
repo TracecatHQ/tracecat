@@ -18,6 +18,34 @@ Replace `<your-tracecat-url>` with your `PUBLIC_APP_URL` (e.g. `http://localhost
     ```
   </Tab>
 
+  <Tab title="GitHub Copilot" icon="https://cdn.simpleicons.org/github">
+
+    ```bash
+    copilot
+    /mcp add
+    # Server Name: tracecat
+    # Server Type: HTTP
+    # URL: <your-tracecat-url>/mcp
+    # Tools: *
+    ```
+
+    Follow [GitHub Copilot MCP setup](https://docs.github.com/en/copilot/how-tos/copilot-cli/customize-copilot/add-mcp-servers) for the latest CLI prompts.
+
+    Or add this server to `~/.copilot/mcp-config.json`:
+
+    ```json
+    {
+      "mcpServers": {
+        "tracecat": {
+          "type": "http",
+          "url": "<your-tracecat-url>/mcp",
+          "tools": ["*"]
+        }
+      }
+    }
+    ```
+  </Tab>
+
   <Tab title="Cursor" icon="https://cdn.simpleicons.org/cursor">
 
     Configure in `.cursor/mcp.json`:

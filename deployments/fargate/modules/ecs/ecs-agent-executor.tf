@@ -1,6 +1,6 @@
 # ECS Task Definition for Agent executor service
 resource "aws_ecs_task_definition" "agent_executor_task_definition" {
-  family                   = "TracecatAgentExecutorTaskDefinition"
+  family                   = "${var.iam_name_prefix}AgentExecutorTaskDefinition"
   network_mode             = "awsvpc"
   requires_compatibilities = ["FARGATE"]
   cpu                      = var.agent_executor_cpu

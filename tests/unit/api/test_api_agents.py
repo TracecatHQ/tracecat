@@ -1,5 +1,6 @@
 """HTTP-level tests for agent management API endpoints."""
 
+import uuid
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -8,6 +9,7 @@ from fastapi.testclient import TestClient
 
 from tracecat.agent import router as agent_router
 from tracecat.agent.schemas import (
+    DefaultModelSelection,
     ModelConfig,
     ProviderCredentialConfig,
     ProviderCredentialField,
@@ -359,21 +361,27 @@ async def test_set_default_model_success(
 ) -> None:
     """Test PUT /agent/default-model sets default model."""
     with patch.object(agent_router, "AgentManagementService") as MockService:
+        catalog_id = uuid.uuid4()
         mock_svc = AsyncMock()
-        mock_svc.set_default_model.return_value = None
+        mock_svc.set_default_model.return_value = DefaultModelSelection(
+            catalog_id=catalog_id,
+            model_name="gpt-4",
+            model_provider="openai",
+        )
         MockService.return_value = mock_svc
 
         # Make request
         response = client.put(
             "/agent/default-model",
-            params={"model_name": "gpt-4"},
+            json={"catalog_id": str(catalog_id)},
         )
 
         # Assertions
         assert response.status_code == status.HTTP_200_OK
         data = response.json()
-        assert "message" in data
-        assert "gpt-4" in data["message"]
+        assert data["catalog_id"] == str(catalog_id)
+        assert data["model_name"] == "gpt-4"
+        assert data["model_provider"] == "openai"
 
 
 @pytest.mark.anyio
@@ -392,7 +400,7 @@ async def test_set_default_model_not_found(
         # Make request
         response = client.put(
             "/agent/default-model",
-            params={"model_name": "invalid-model"},
+            json={"catalog_id": str(uuid.uuid4())},
         )
 
         # Should return 404

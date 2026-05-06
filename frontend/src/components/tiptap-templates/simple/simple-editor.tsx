@@ -702,8 +702,7 @@ export function SimpleEditor({
   >(() => {
     const next: React.CSSProperties & Record<string, string | number> = {
       paddingBottom: 0,
-      "--tt-toolbar-bg-color":
-        "color-mix(in srgb, hsl(var(--muted)) 20%, hsl(var(--background)) 80%)",
+      "--tt-toolbar-bg-color": "transparent",
     }
 
     if (isMobile) {
@@ -716,7 +715,11 @@ export function SimpleEditor({
 
   return (
     <div
-      className={cn("simple-editor-wrapper", className)}
+      className={cn(
+        "simple-editor-wrapper",
+        !editable && "simple-editor-wrapper--readonly",
+        className
+      )}
       style={wrapperStyle}
     >
       <EditorContext.Provider value={{ editor }}>
@@ -759,7 +762,10 @@ export function SimpleEditor({
         <EditorContent
           editor={editor}
           role="presentation"
-          className="simple-editor-content"
+          className={cn(
+            "simple-editor-content",
+            !editable && "simple-editor-content--readonly"
+          )}
         />
       </EditorContext.Provider>
     </div>

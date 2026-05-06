@@ -59,6 +59,7 @@ from pydantic_ai.messages import (
 )
 from pydantic_core import to_json
 
+from tracecat.agent.approvals.enums import ApprovalStatus
 from tracecat.agent.common.stream_types import StreamEventType, UnifiedStreamEvent
 from tracecat.agent.mcp.metadata import strip_proxy_tool_metadata
 from tracecat.agent.mcp.utils import normalize_mcp_tool_name
@@ -1529,6 +1530,8 @@ def convert_chat_messages_to_ui(
         # These are inserted by list_messages() when loading session history
         if chat_message.kind == MessageKind.APPROVAL_REQUEST and chat_message.approval:
             approval = chat_message.approval
+            if approval.status != ApprovalStatus.PENDING:
+                continue
             # Create an assistant message with the approval data part
             # Normalize tool name for display
             tool_name = normalize_mcp_tool_name(approval.tool_name)

@@ -3,7 +3,7 @@ definition:
   title: Create incident comment
   description: Create a comment on an incident in Microsoft Sentinel.
   display_group: Microsoft Sentinel
-  doc_url: https://learn.microsoft.com/en-us/rest/api/securityinsights/incident-comments/create-or-update
+  doc_url: https://learn.microsoft.com/en-us/rest/api/securityinsights/incident-comments/create-or-update?view=rest-securityinsights-2025-09-01
   namespace: tools.microsoft_sentinel
   name: create_incident_comment
   secrets:

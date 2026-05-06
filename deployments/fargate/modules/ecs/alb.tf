@@ -3,20 +3,20 @@
 # behaviour for Service Connect SSE traffic must be handled in the downstream
 # proxies (Caddy and the managed Envoy sidecars).
 resource "aws_alb" "this" {
-  name               = "tracecat-alb"
+  name               = "${var.name_prefix}-alb"
   internal           = var.is_internal
   load_balancer_type = "application"
   subnets            = var.public_subnet_ids
   security_groups    = [aws_security_group.alb.id]
 
   tags = {
-    Name = "tracecat-alb"
+    Name = "${var.name_prefix}-alb"
   }
 }
 
 # Target Group for Caddy
 resource "aws_alb_target_group" "caddy" {
-  name        = "tracecat-caddy-tg"
+  name        = "${var.name_prefix}-caddy-tg"
   port        = 80
   protocol    = "HTTP"
   vpc_id      = var.vpc_id
@@ -68,7 +68,7 @@ resource "aws_alb_listener" "http" {
 resource "aws_wafv2_web_acl" "this" {
   count = var.enable_waf ? 1 : 0
 
-  name        = "tracecat-waf-acl"
+  name        = "${var.name_prefix}-waf-acl"
   description = "Default WAF configuration for Tracecat ALB"
   scope       = "REGIONAL"
 
@@ -524,7 +524,7 @@ resource "aws_wafv2_web_acl" "this" {
 
   visibility_config {
     cloudwatch_metrics_enabled = true
-    metric_name                = "tracecat-waf-metric"
+    metric_name                = "${var.name_prefix}-waf-metric"
     sampled_requests_enabled   = true
   }
 }
@@ -533,9 +533,13 @@ resource "aws_wafv2_web_acl" "this" {
 resource "aws_wafv2_regex_pattern_set" "attachments_endpoint" {
   count = var.enable_waf ? 1 : 0
 
-  name        = "attachments-endpoint-pattern"
+  name        = var.waf_attachments_endpoint_pattern_name
   description = "Pattern to match attachments API endpoint"
   scope       = "REGIONAL"
+
+  lifecycle {
+    create_before_destroy = true
+  }
 
   regular_expression {
     regex_string = "^/api/cases/[a-fA-F0-9-]+/attachments(\\?.*)?$"
@@ -545,9 +549,13 @@ resource "aws_wafv2_regex_pattern_set" "attachments_endpoint" {
 resource "aws_wafv2_regex_pattern_set" "mcp_oauth_endpoints" {
   count = var.enable_waf ? 1 : 0
 
-  name        = "mcp-oauth-endpoints-pattern"
+  name        = var.waf_mcp_oauth_endpoints_pattern_name
   description = "Matches MCP OAuth endpoints that carry loopback redirect URIs"
   scope       = "REGIONAL"
+
+  lifecycle {
+    create_before_destroy = true
+  }
 
   regular_expression {
     regex_string = "^/(mcp/)?(register|authorize|consent|token|auth/callback)$"
@@ -559,9 +567,13 @@ resource "aws_wafv2_regex_pattern_set" "mcp_oauth_endpoints" {
 resource "aws_wafv2_regex_pattern_set" "mcp_public_endpoints" {
   count = var.enable_waf ? 1 : 0
 
-  name        = "mcp-public-endpoint-pattern"
+  name        = var.waf_mcp_public_endpoint_pattern_name
   description = "Matches MCP discovery, transport, and OAuth endpoints"
   scope       = "REGIONAL"
+
+  lifecycle {
+    create_before_destroy = true
+  }
 
   regular_expression {
     regex_string = "^/(mcp|\\.well-known/oauth-(protected-resource|authorization-server)(/mcp)?|(mcp/)?(register|authorize|consent|token|auth/callback))/?$"

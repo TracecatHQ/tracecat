@@ -19,7 +19,6 @@ from tracecat.agent.executor.loopback import (
     LoopbackHandler,
     LoopbackInput,
 )
-from tracecat.agent.types import AgentConfig
 
 
 class _FakeStream:
@@ -51,17 +50,10 @@ def _reader_for_envelopes(*envelopes: RuntimeEventEnvelope) -> asyncio.StreamRea
 
 @pytest.fixture
 def loopback_input(tmp_path: Path) -> LoopbackInput:
+    del tmp_path
     return LoopbackInput(
         session_id=uuid.uuid4(),
         workspace_id=uuid.uuid4(),
-        user_prompt="Investigate runtime crash",
-        config=AgentConfig(
-            model_name="claude-3-5-sonnet-20241022",
-            model_provider="anthropic",
-        ),
-        mcp_auth_token="mcp-token",
-        llm_gateway_auth_token="llm-token",
-        socket_dir=tmp_path,
     )
 
 
@@ -167,19 +159,28 @@ async def test_emit_terminal_error_emits_failed_compaction_when_pending(
     fake_stream.done.assert_awaited_once()
 
 
+@pytest.mark.anyio
+async def test_prepare_initializes_stream_sink_once(
+    monkeypatch: pytest.MonkeyPatch, loopback_input: LoopbackInput
+) -> None:
+    handler = LoopbackHandler(input=loopback_input)
+    fake_stream = _FakeStream()
+    initialize_stream_sink = AsyncMock(return_value=fake_stream)
+    monkeypatch.setattr(handler, "_initialize_stream_sink", initialize_stream_sink)
+
+    first = await handler.prepare()
+    second = await handler.prepare()
+
+    assert first is fake_stream
+    assert second is fake_stream
+    initialize_stream_sink.assert_awaited_once()
+
+
 def _make_handler() -> LoopbackHandler:
     return LoopbackHandler(
         input=LoopbackInput(
             session_id=UUID("00000000-0000-0000-0000-000000000001"),
             workspace_id=UUID("00000000-0000-0000-0000-000000000002"),
-            user_prompt="hi",
-            config=AgentConfig(
-                model_name="claude-3-7-sonnet",
-                model_provider="anthropic",
-            ),
-            mcp_auth_token="mcp-token",
-            llm_gateway_auth_token="llm-token",
-            socket_dir=Path("/tmp"),
         )
     )
 
@@ -357,3 +358,18 @@ async def test_process_runtime_events_fails_zero_work_completion() -> None:
     stream.error.assert_awaited_once_with(
         "Runtime completed without assistant output or model usage"
     )
+
+
+@pytest.mark.anyio
+async def test_send_done_preserves_existing_error_state() -> None:
+    handler = _make_handler()
+    stream = _FakeStream()
+    handler._stream_sink = stream
+    handler._result.error = "runtime failed"
+
+    await handler.send_done()
+
+    assert handler._result.success is False
+    assert handler._result.error == "runtime failed"
+    stream.error.assert_not_awaited()
+    stream.done.assert_awaited_once()

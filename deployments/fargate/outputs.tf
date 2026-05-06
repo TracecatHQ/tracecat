@@ -20,6 +20,16 @@ output "tracecat_image_tag" {
   value       = module.ecs.tracecat_image_tag
 }
 
+output "tracecat_migrations_image" {
+  description = "The Tracecat migrations init container image repository"
+  value       = module.ecs.tracecat_migrations_image
+}
+
+output "tracecat_migrations_image_tag" {
+  description = "The Tracecat migrations init container image tag"
+  value       = module.ecs.tracecat_migrations_image_tag
+}
+
 output "ecs_cluster_name" {
   description = "ECS cluster name"
   value       = module.ecs.ecs_cluster_name
@@ -111,6 +121,16 @@ output "s3_registry_bucket_name" {
 output "s3_registry_bucket_arn" {
   description = "The ARN of the S3 bucket used for registry storage"
   value       = module.ecs.s3_registry_bucket_arn
+}
+
+output "s3_skills_bucket_name" {
+  description = "The name of the S3 bucket used for skills storage"
+  value       = module.ecs.s3_skills_bucket_name
+}
+
+output "s3_skills_bucket_arn" {
+  description = "The ARN of the S3 bucket used for skills storage"
+  value       = module.ecs.s3_skills_bucket_arn
 }
 
 output "s3_workflow_bucket_name" {

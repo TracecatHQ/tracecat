@@ -27,6 +27,7 @@ import {
 import { Input } from "@/components/ui/input"
 import { toast } from "@/components/ui/use-toast"
 import { useAdminOrganizations } from "@/hooks/use-admin"
+import { useAppInfo } from "@/lib/hooks"
 
 const formSchema = z.object({
   name: z.string().min(1, "Name is required").max(100, "Name is too long"),
@@ -44,7 +45,12 @@ type FormValues = z.infer<typeof formSchema>
 
 export function CreateOrganizationDialog() {
   const [open, setOpen] = useState(false)
-  const { createOrganization, createPending } = useAdminOrganizations()
+  const { appInfo, appInfoIsLoading } = useAppInfo()
+  const multiTenantEnabled = appInfo?.ee_multi_tenant === true
+  const createDisabled = appInfoIsLoading || !multiTenantEnabled
+  const { createOrganization, createPending } = useAdminOrganizations({
+    enabled: false,
+  })
 
   const form = useForm<FormValues>({
     resolver: zodResolver(formSchema),
@@ -55,6 +61,15 @@ export function CreateOrganizationDialog() {
   })
 
   const onSubmit = async (values: FormValues) => {
+    if (!multiTenantEnabled) {
+      toast({
+        title: "Organization creation is disabled",
+        description: "Enable multi-tenant mode to create new organizations.",
+        variant: "destructive",
+      })
+      return
+    }
+
     try {
       await createOrganization(values)
       toast({
@@ -85,7 +100,15 @@ export function CreateOrganizationDialog() {
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <Button size="sm">
+        <Button
+          size="sm"
+          disabled={createDisabled}
+          title={
+            createDisabled
+              ? "Enable multi-tenant mode to create new organizations."
+              : undefined
+          }
+        >
           <PlusIcon className="mr-2 size-4" />
           New organization
         </Button>
@@ -146,7 +169,7 @@ export function CreateOrganizationDialog() {
               >
                 Cancel
               </Button>
-              <Button type="submit" disabled={createPending}>
+              <Button type="submit" disabled={createPending || createDisabled}>
                 {createPending ? "Creating..." : "Create"}
               </Button>
             </DialogFooter>

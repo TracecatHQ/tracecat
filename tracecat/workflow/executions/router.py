@@ -14,8 +14,11 @@ import tracecat.agent.adapter.vercel
 from tracecat import config
 from tracecat.agent.schemas import AgentOutput
 from tracecat.agent.types import ClaudeSDKMessageTA
-from tracecat.auth.dependencies import WorkspaceUserRole
-from tracecat.auth.enums import SpecialUserID
+from tracecat.auth.dependencies import (
+    WorkspaceActorRouteRole,
+    WorkspaceUserRouteRole,
+)
+from tracecat.auth.types import Role
 from tracecat.authz.controls import require_scope
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.db.models import Workflow, WorkflowDefinition
@@ -29,7 +32,10 @@ from tracecat.ee.interactions.service import InteractionService
 from tracecat.exceptions import TracecatValidationError
 from tracecat.identifiers import UserID
 from tracecat.identifiers.workflow import (
+    AnyWorkflowIDPath,
     OptionalAnyWorkflowIDQuery,
+    WorkflowExecutionID,
+    WorkflowExecutionSuffixID,
     WorkflowIDShort,
     WorkflowUUID,
     exec_id_to_parts,
@@ -47,7 +53,10 @@ from tracecat.storage.object import (
 )
 from tracecat.storage.utils import serialize_object
 from tracecat.validation.service import validate_dsl
-from tracecat.workflow.executions.dependencies import UnquotedExecutionID
+from tracecat.workflow.executions.dependencies import (
+    UnquotedExecutionID,
+    resolve_triggered_by_user_id,
+)
 from tracecat.workflow.executions.enums import (
     WORKFLOW_RUN_EXCLUDED_WORKFLOW_TYPES,
     ExecutionType,
@@ -80,12 +89,14 @@ from tracecat.workflow.executions.schemas import (
 )
 from tracecat.workflow.executions.service import (
     WorkflowExecutionNotFoundError,
+    WorkflowExecutionResultMaskedError,
     WorkflowExecutionResultNotFoundError,
     WorkflowExecutionsService,
 )
 from tracecat.workflow.management.management import WorkflowsManagementService
 
 router = APIRouter(prefix="/workflow-executions", tags=["workflow-executions"])
+workflow_router = APIRouter(prefix="/workflows", tags=["workflow-executions"])
 PREVIEW_MAX_BYTES = 256 * 1024  # 256 KB
 COLLECTION_PAGE_PREVIEW_MAX_BYTES = 4 * 1024  # 4 KB per item preview in page responses
 
@@ -292,7 +303,7 @@ def _normalize_search_term(search_term: str | None) -> str | None:
 async def _resolve_workflow_ids_by_search_term(
     *,
     session: AsyncSession,
-    role: WorkspaceUserRole,
+    role: Role,
     search_term: str,
 ) -> list[WorkflowUUID]:
     if role.workspace_id is None:
@@ -316,7 +327,7 @@ async def _resolve_workflow_ids_by_search_term(
 async def _load_workflow_metadata_map(
     *,
     session: AsyncSession,
-    role: WorkspaceUserRole,
+    role: Role,
     workflow_ids: list[WorkflowUUID],
 ) -> dict[WorkflowIDShort, tuple[str, str | None]]:
     if role.workspace_id is None or not workflow_ids:
@@ -362,11 +373,11 @@ def _to_workflow_run_read_minimal(
 @router.get("")
 @require_scope("workflow:read")
 async def list_workflow_executions(
-    role: WorkspaceUserRole,
+    role: WorkspaceActorRouteRole,
     # Filters
     workflow_id: OptionalAnyWorkflowIDQuery,
     trigger_types: set[TriggerType] | None = Query(None, alias="trigger"),
-    triggered_by_user_id: UserID | SpecialUserID | None = Query(None, alias="user_id"),
+    triggered_by_user_id: UserID | None = Depends(resolve_triggered_by_user_id),
     limit: int | None = Query(
         None,
         ge=config.TRACECAT__LIMIT_MIN,
@@ -375,13 +386,6 @@ async def list_workflow_executions(
 ) -> list[WorkflowExecutionReadMinimal]:
     """List all workflow executions."""
     service = await WorkflowExecutionsService.connect(role=role)
-    if triggered_by_user_id == SpecialUserID.CURRENT:
-        if role.user_id is None:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="User ID is required to filter by user ID",
-            )
-        triggered_by_user_id = role.user_id
     configured_limit = await get_setting("app_executions_query_limit")
     effective_limit = limit if limit is not None else configured_limit
     if effective_limit is None:
@@ -410,17 +414,14 @@ async def list_workflow_executions(
 @router.get("/search")
 @require_scope("workflow:read")
 async def search_workflow_executions(
-    role: WorkspaceUserRole,
+    role: WorkspaceActorRouteRole,
     session: AsyncDBSession,
     workflow_id: OptionalAnyWorkflowIDQuery,
     pagination: CursorPaginationParams = Depends(
         _workflow_execution_search_pagination_params
     ),
     trigger_types: set[TriggerType] | None = Query(default=None, alias="trigger"),
-    triggered_by_user_id: UserID | SpecialUserID | None = Query(
-        default=None,
-        alias="user_id",
-    ),
+    triggered_by_user_id: UserID | None = Depends(resolve_triggered_by_user_id),
     statuses: set[WorkflowExecutionStatusLiteral] | None = Query(
         default=None,
         alias="status",
@@ -442,13 +443,6 @@ async def search_workflow_executions(
         default=WorkflowExecutionRelationFilter.ALL
     ),
 ) -> CursorPaginatedResponse[WorkflowRunReadMinimal]:
-    if triggered_by_user_id == SpecialUserID.CURRENT:
-        if role.user_id is None:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="User ID is required to filter by user ID",
-            )
-        triggered_by_user_id = role.user_id
     if start_time_from and start_time_to and start_time_from > start_time_to:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -543,7 +537,7 @@ async def search_workflow_executions(
 @router.get("/{execution_id:path}/reset-points")
 @require_scope("workflow:read")
 async def list_workflow_execution_reset_points(
-    role: WorkspaceUserRole,
+    role: WorkspaceActorRouteRole,
     execution_id: UnquotedExecutionID,
     limit: int = Query(default=100, ge=1, le=500),
 ) -> list[WorkflowExecutionResetPointRead]:
@@ -565,7 +559,7 @@ async def list_workflow_execution_reset_points(
 @router.post("/{execution_id:path}/reset")
 @require_scope("workflow:terminate")
 async def reset_workflow_execution(
-    role: WorkspaceUserRole,
+    role: WorkspaceActorRouteRole,
     execution_id: UnquotedExecutionID,
     params: WorkflowExecutionResetRequest,
 ) -> WorkflowExecutionResetResponse:
@@ -595,7 +589,7 @@ async def reset_workflow_execution(
 @router.post("/reset/bulk")
 @require_scope("workflow:terminate")
 async def bulk_reset_workflow_executions(
-    role: WorkspaceUserRole,
+    role: WorkspaceActorRouteRole,
     params: WorkflowExecutionBulkResetRequest,
 ) -> WorkflowExecutionBulkResetResponse:
     service = await WorkflowExecutionsService.connect(role=role)
@@ -608,14 +602,11 @@ async def bulk_reset_workflow_executions(
     return WorkflowExecutionBulkResetResponse(results=results)
 
 
-@router.get("/{execution_id}")
-@require_scope("workflow:read")
-async def get_workflow_execution(
-    role: WorkspaceUserRole,
-    execution_id: UnquotedExecutionID,
+async def _get_workflow_execution_response(
+    role: WorkspaceActorRouteRole,
+    execution_id: WorkflowExecutionID,
     session: AsyncDBSession,
 ) -> WorkflowExecutionRead:
-    """Get a workflow execution."""
     logger.debug("Getting workflow execution", execution_id=execution_id)
     service = await WorkflowExecutionsService.connect(role=role)
     execution = await service.get_execution(execution_id)
@@ -648,10 +639,42 @@ async def get_workflow_execution(
     )
 
 
+@workflow_router.get("/{workflow_id}/executions/{execution_id}")
+@require_scope("workflow:read")
+async def get_workflow_execution_by_workflow_id(
+    role: WorkspaceActorRouteRole,
+    workflow_id: AnyWorkflowIDPath,
+    execution_id: WorkflowExecutionSuffixID,
+    session: AsyncDBSession,
+) -> WorkflowExecutionRead:
+    """Get a workflow execution by workflow ID and execution suffix."""
+    full_execution_id: WorkflowExecutionID = f"{workflow_id.short()}/{execution_id}"
+    return await _get_workflow_execution_response(
+        role=role,
+        execution_id=full_execution_id,
+        session=session,
+    )
+
+
+@router.get("/{execution_id}")
+@require_scope("workflow:read")
+async def get_workflow_execution(
+    role: WorkspaceActorRouteRole,
+    execution_id: UnquotedExecutionID,
+    session: AsyncDBSession,
+) -> WorkflowExecutionRead:
+    """Get a workflow execution."""
+    return await _get_workflow_execution_response(
+        role=role,
+        execution_id=execution_id,
+        session=session,
+    )
+
+
 @router.get("/{execution_id:path}/compact")
 @require_scope("workflow:read")
 async def get_workflow_execution_compact(
-    role: WorkspaceUserRole,
+    role: WorkspaceActorRouteRole,
     execution_id: UnquotedExecutionID,
     session: AsyncDBSession,
 ) -> WorkflowExecutionReadCompact[Any, AgentOutput | Any, Any]:
@@ -720,7 +743,7 @@ async def get_workflow_execution_compact(
 @router.post("/{execution_id:path}/objects/download")
 @require_scope("workflow:read")
 async def get_workflow_execution_object_download(
-    role: WorkspaceUserRole,
+    role: WorkspaceActorRouteRole,
     execution_id: UnquotedExecutionID,
     params: WorkflowExecutionObjectRequest,
 ) -> WorkflowExecutionObjectDownloadResponse:
@@ -780,6 +803,11 @@ async def get_workflow_execution_object_download(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=str(e),
         ) from e
+    except WorkflowExecutionResultMaskedError as e:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=str(e),
+        ) from e
     except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -800,7 +828,7 @@ async def get_workflow_execution_object_download(
 @router.post("/{execution_id:path}/objects/preview")
 @require_scope("workflow:read")
 async def get_workflow_execution_object_preview(
-    role: WorkspaceUserRole,
+    role: WorkspaceActorRouteRole,
     execution_id: UnquotedExecutionID,
     params: WorkflowExecutionObjectRequest,
 ) -> WorkflowExecutionObjectPreviewResponse:
@@ -846,6 +874,11 @@ async def get_workflow_execution_object_preview(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=str(e),
         ) from e
+    except WorkflowExecutionResultMaskedError as e:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=str(e),
+        ) from e
     except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -866,7 +899,7 @@ async def get_workflow_execution_object_preview(
 @router.post("/{execution_id:path}/objects/collection/page")
 @require_scope("workflow:read")
 async def get_workflow_execution_collection_page(
-    role: WorkspaceUserRole,
+    role: WorkspaceActorRouteRole,
     execution_id: UnquotedExecutionID,
     params: WorkflowExecutionCollectionPageRequest,
 ) -> WorkflowExecutionCollectionPageResponse:
@@ -895,6 +928,11 @@ async def get_workflow_execution_collection_page(
     except WorkflowExecutionResultNotFoundError as e:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        ) from e
+    except WorkflowExecutionResultMaskedError as e:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
             detail=str(e),
         ) from e
     except ValueError as e:
@@ -958,7 +996,7 @@ async def get_workflow_execution_collection_page(
 @router.post("")
 @require_scope("workflow:execute")
 async def create_workflow_execution(
-    role: WorkspaceUserRole,
+    role: WorkspaceActorRouteRole,
     params: WorkflowExecutionCreate,
     session: AsyncDBSession,
 ) -> WorkflowExecutionCreateResponse:
@@ -1010,7 +1048,7 @@ async def create_workflow_execution(
 @router.post("/draft")
 @require_scope("workflow:execute")
 async def create_draft_workflow_execution(
-    role: WorkspaceUserRole,
+    role: WorkspaceUserRouteRole,
     params: WorkflowExecutionCreate,
     session: AsyncDBSession,
 ) -> WorkflowExecutionCreateResponse:
@@ -1088,7 +1126,7 @@ async def create_draft_workflow_execution(
 )
 @require_scope("workflow:terminate")
 async def cancel_workflow_execution(
-    role: WorkspaceUserRole,
+    role: WorkspaceActorRouteRole,
     execution_id: UnquotedExecutionID,
 ) -> None:
     """Get a workflow execution."""
@@ -1116,7 +1154,7 @@ async def cancel_workflow_execution(
 )
 @require_scope("workflow:terminate")
 async def terminate_workflow_execution(
-    role: WorkspaceUserRole,
+    role: WorkspaceActorRouteRole,
     execution_id: UnquotedExecutionID,
     params: WorkflowExecutionTerminate,
 ) -> None:

@@ -5,6 +5,65 @@ variable "aws_region" {
   description = "AWS region (secrets and hosted zone must be in the same region)"
 }
 
+variable "name_prefix" {
+  type        = string
+  description = "Prefix for same-account/regional AWS resource names."
+  default     = "tracecat"
+
+  validation {
+    condition     = length(var.name_prefix) <= 23 && can(regex("^[a-z0-9]([a-z0-9-]*[a-z0-9])?$", var.name_prefix))
+    error_message = "name_prefix must be 23 characters or fewer, contain only lowercase letters, numbers, and hyphens, and start and end with a letter or number."
+  }
+}
+
+variable "iam_name_prefix" {
+  type        = string
+  description = "Prefix for IAM role and policy names."
+  default     = "Tracecat"
+}
+
+variable "core_db_identifier" {
+  type        = string
+  description = "RDS DB instance identifier for the core Tracecat database."
+  default     = "core-database"
+}
+
+variable "temporal_db_identifier" {
+  type        = string
+  description = "RDS DB instance identifier for the Temporal database."
+  default     = "temporal-database"
+}
+
+variable "temporal_db_parameter_group_name" {
+  type        = string
+  description = "RDS parameter group name for Temporal database compatibility settings."
+  default     = "temporal-db-compatibility"
+}
+
+variable "redis_default_user_id" {
+  type        = string
+  description = "ElastiCache Redis default ACL user ID."
+  default     = "default-user-tracecat"
+}
+
+variable "waf_attachments_endpoint_pattern_name" {
+  type        = string
+  description = "WAF regex pattern set name for attachments endpoint matching."
+  default     = "attachments-endpoint-pattern"
+}
+
+variable "waf_mcp_oauth_endpoints_pattern_name" {
+  type        = string
+  description = "WAF regex pattern set name for MCP OAuth endpoint matching."
+  default     = "mcp-oauth-endpoints-pattern"
+}
+
+variable "waf_mcp_public_endpoint_pattern_name" {
+  type        = string
+  description = "WAF regex pattern set name for MCP public endpoint matching."
+  default     = "mcp-public-endpoint-pattern"
+}
+
 ### Networking
 
 variable "is_internal" {
@@ -108,7 +167,19 @@ variable "tracecat_ui_image" {
 
 variable "tracecat_image_tag" {
   type    = string
-  default = "1.0.0-beta.39"
+  default = "1.0.0-beta.47"
+}
+
+variable "tracecat_migrations_image" {
+  type        = string
+  description = "Docker image repository for the Tracecat migrations init container. Defaults to tracecat_image."
+  default     = null
+}
+
+variable "tracecat_migrations_image_tag" {
+  type        = string
+  description = "Docker image tag for the Tracecat migrations init container. Defaults to tracecat_image_tag."
+  default     = null
 }
 
 variable "temporal_server_image" {
@@ -239,7 +310,7 @@ variable "db_max_overflow" {
 variable "db_pool_size" {
   type        = string
   description = "The size of the database connection pool"
-  default     = "30"
+  default     = "10"
 }
 
 variable "db_pool_timeout" {
@@ -251,13 +322,13 @@ variable "db_pool_timeout" {
 variable "db_pool_recycle" {
   type        = string
   description = "The time in seconds after which pool connections are recycled"
-  default     = "1800"
+  default     = "300"
 }
 
 variable "db_max_overflow_executor" {
   type        = string
   description = "The maximum number of connections to allow in the DB pool"
-  default     = "30"
+  default     = "60"
 }
 
 variable "db_pool_size_executor" {
@@ -280,6 +351,24 @@ variable "context_compression_threshold_kb" {
   default     = 16
 }
 
+variable "temporal_payload_encryption_enabled" {
+  type        = bool
+  description = "Enable application-layer encryption for Temporal payloads"
+  default     = false
+}
+
+variable "temporal_payload_encryption_cache_ttl_seconds" {
+  type        = number
+  description = "In-memory cache TTL in seconds for resolved Temporal encryption keys"
+  default     = 3600
+}
+
+variable "temporal_payload_encryption_cache_max_items" {
+  type        = number
+  description = "Maximum number of cached Temporal encryption keys"
+  default     = 128
+}
+
 ### Secret ARNs
 
 variable "tracecat_db_encryption_key_arn" {
@@ -295,6 +384,12 @@ variable "tracecat_service_key_arn" {
 variable "tracecat_signing_secret_arn" {
   type        = string
   description = "The ARN of the secret containing the Tracecat signing secret"
+}
+
+variable "temporal_payload_encryption_keyring_arn" {
+  type        = string
+  description = "The ARN of the secret containing the Temporal payload encryption keyring"
+  default     = null
 }
 
 variable "oauth_client_id_arn" {
@@ -659,6 +754,28 @@ variable "caddy_memory" {
 
 ### MCP Service
 
+variable "litellm_cpu" {
+  type    = string
+  default = "4096"
+}
+
+variable "litellm_memory" {
+  type    = string
+  default = "8192"
+}
+
+variable "litellm_desired_count" {
+  type        = number
+  description = "Desired number of LiteLLM service instances to run"
+  default     = 2
+}
+
+variable "litellm_num_workers" {
+  type        = string
+  description = "Number of uvicorn workers for the LiteLLM service"
+  default     = "8"
+}
+
 variable "enable_mcp" {
   type        = bool
   description = "Whether to enable the MCP server service in the deployment"
@@ -827,5 +944,5 @@ variable "sentry_dsn" {
 variable "redis_node_type" {
   type        = string
   description = "ElastiCache Redis node type"
-  default     = "cache.t4g.micro"
+  default     = "cache.t4g.small"
 }

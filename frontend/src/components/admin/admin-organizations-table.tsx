@@ -1,10 +1,10 @@
 "use client"
 
 import { DotsHorizontalIcon } from "@radix-ui/react-icons"
-import Cookies from "js-cookie"
 import { useState } from "react"
 import type { tracecat_ee__admin__organizations__schemas__OrgRead as OrgRead } from "@/client"
 import { AdminOrgDomainsDialog } from "@/components/admin/admin-org-domains-dialog"
+import { AdminOrgInvitationsDialog } from "@/components/admin/admin-org-invitations-dialog"
 import { AdminOrgRegistryDialog } from "@/components/admin/admin-org-registry-dialog"
 import { AdminOrgTierDialog } from "@/components/admin/admin-org-tier-dialog"
 import { AdminOrganizationEditDialog } from "@/components/admin/admin-organization-edit-dialog"
@@ -39,6 +39,7 @@ export function AdminOrganizationsTable() {
   const [editOrgId, setEditOrgId] = useState<string | null>(null)
   const [tierOrgId, setTierOrgId] = useState<string | null>(null)
   const [domainsOrgId, setDomainsOrgId] = useState<string | null>(null)
+  const [invitationsOrgId, setInvitationsOrgId] = useState<string | null>(null)
   const [registryOrgId, setRegistryOrgId] = useState<string | null>(null)
   const [selectedOrg, setSelectedOrg] = useState<OrgRead | null>(null)
   const [deleteConfirmation, setDeleteConfirmation] = useState("")
@@ -61,15 +62,6 @@ export function AdminOrganizationsTable() {
         setDeleteConfirmation("")
       }
     }
-  }
-
-  const handleEnterOrganization = (orgId: string) => {
-    // Set the org override cookie
-    Cookies.set("tracecat-org-id", orgId, { path: "/", sameSite: "lax" })
-    // Clear the last-viewed workspace cookie to avoid redirecting to a workspace from another org
-    Cookies.remove("__tracecat:workspaces:last-viewed", { path: "/" })
-    // Force a full page reload to clear React Query cache
-    window.location.href = "/workspaces"
   }
 
   return (
@@ -237,17 +229,14 @@ export function AdminOrganizationsTable() {
                         Manage domains
                       </DropdownMenuItem>
                       <DropdownMenuItem
+                        onSelect={() => setInvitationsOrgId(row.original.id)}
+                      >
+                        Manage invitations
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
                         onSelect={() => setRegistryOrgId(row.original.id)}
                       >
                         Manage registry
-                      </DropdownMenuItem>
-                      <DropdownMenuSeparator />
-                      <DropdownMenuItem
-                        onSelect={() =>
-                          handleEnterOrganization(row.original.id)
-                        }
-                      >
-                        Enter organization
                       </DropdownMenuItem>
                       <DropdownMenuSeparator />
                       <AlertDialogTrigger asChild>
@@ -306,44 +295,35 @@ export function AdminOrganizationsTable() {
         <AdminOrganizationEditDialog
           orgId={editOrgId}
           open
-          onOpenChange={(isOpen) => {
-            if (!isOpen) {
-              setEditOrgId(null)
-            }
-          }}
+          onOpenChange={() => setEditOrgId(null)}
         />
       )}
       {tierOrgId && (
         <AdminOrgTierDialog
           orgId={tierOrgId}
           open
-          onOpenChange={(isOpen) => {
-            if (!isOpen) {
-              setTierOrgId(null)
-            }
-          }}
+          onOpenChange={() => setTierOrgId(null)}
         />
       )}
       {domainsOrgId && (
         <AdminOrgDomainsDialog
           orgId={domainsOrgId}
           open
-          onOpenChange={(isOpen) => {
-            if (!isOpen) {
-              setDomainsOrgId(null)
-            }
-          }}
+          onOpenChange={() => setDomainsOrgId(null)}
+        />
+      )}
+      {invitationsOrgId && (
+        <AdminOrgInvitationsDialog
+          orgId={invitationsOrgId}
+          open
+          onOpenChange={() => setInvitationsOrgId(null)}
         />
       )}
       {registryOrgId && (
         <AdminOrgRegistryDialog
           orgId={registryOrgId}
           open
-          onOpenChange={(isOpen) => {
-            if (!isOpen) {
-              setRegistryOrgId(null)
-            }
-          }}
+          onOpenChange={() => setRegistryOrgId(null)}
         />
       )}
     </>

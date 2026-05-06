@@ -15,6 +15,8 @@ export interface JSONSchemaParam {
   description: string
   constraints: string
   required: boolean
+  deprecated: boolean
+  deprecationMessage: string
 }
 
 export function jsonSchemaToParams(
@@ -34,6 +36,9 @@ export function jsonSchemaToParams(
         description: description ?? "",
         constraints: getConstraints(jsonSchemaValue),
         required: required.includes(key),
+        deprecated: jsonSchemaValue.deprecated === true,
+        deprecationMessage:
+          jsonSchemaValue["x-tracecat-deprecation-message"] ?? "",
       }
     }
   )
@@ -90,6 +95,8 @@ export function getConstraints(value: TracecatJsonSchema): string {
     "default",
     "title",
     "anyOf",
+    "deprecated",
+    "x-tracecat-deprecation-message",
     TRACECAT_COMPONENT_KEY,
   ]
 

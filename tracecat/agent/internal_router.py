@@ -63,9 +63,25 @@ async def _resolve_run_config(
 
 @asynccontextmanager
 async def _provider_secrets_context(
-    agent_svc: AgentManagementService, model_provider: str
+    agent_svc: AgentManagementService,
+    model_provider: str,
+    catalog_id: uuid.UUID | None = None,
 ):
     """Set provider credentials in registry secrets context for this request."""
+    if catalog_id is not None:
+        credentials = await agent_svc.get_catalog_credentials(catalog_id)
+        if not credentials:
+            raise ValueError(
+                f"No credentials found for catalog entry '{catalog_id}'. "
+                "Please configure credentials for this model first."
+            )
+        secrets_token = registry_secrets.set_context(credentials)
+        try:
+            yield
+        finally:
+            registry_secrets.reset_context(secrets_token)
+        return
+
     if model_provider in _PROVIDERS_WITH_OPTIONAL_WORKSPACE_CREDENTIALS:
         secrets_token = registry_secrets.set_context({})
         try:
@@ -125,7 +141,9 @@ async def run_agent_endpoint(
         if config and config.tool_approvals:
             await check_entitlement(session, role, Entitlement.AGENT_ADDONS)
 
-        async with _provider_secrets_context(agent_svc, config.model_provider):
+        async with _provider_secrets_context(
+            agent_svc, config.model_provider, config.catalog_id
+        ):
             result: AgentOutput = await runtime_run_agent(
                 user_prompt=params.user_prompt,
                 model_name=config.model_name,
@@ -169,12 +187,15 @@ async def rank_items_endpoint(
 
     try:
         agent_svc = AgentManagementService(session, role=role)
-        async with _provider_secrets_context(agent_svc, params.model_provider):
+        async with _provider_secrets_context(
+            agent_svc, params.model_provider, params.catalog_id
+        ):
             return await ranker_rank_items(
                 items=params.items,
                 criteria_prompt=params.criteria_prompt,
                 model_name=params.model_name,
                 model_provider=params.model_provider,
+                catalog_id=params.catalog_id,
                 model_settings=params.model_settings,
                 max_requests=params.max_requests,
                 retries=params.retries,
@@ -202,12 +223,15 @@ async def rank_items_pairwise_endpoint(
 
     try:
         agent_svc = AgentManagementService(session, role=role)
-        async with _provider_secrets_context(agent_svc, params.model_provider):
+        async with _provider_secrets_context(
+            agent_svc, params.model_provider, params.catalog_id
+        ):
             return await ranker_rank_items_pairwise(
                 items=params.items,
                 criteria_prompt=params.criteria_prompt,
                 model_name=params.model_name,
                 model_provider=params.model_provider,
+                catalog_id=params.catalog_id,
                 id_field=params.id_field,
                 batch_size=params.batch_size,
                 num_passes=params.num_passes,

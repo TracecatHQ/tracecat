@@ -48,7 +48,7 @@ class TestRuntimeSocketCommunication:
 
     @pytest.fixture(autouse=True)
     def _mock_llm_bridge_port(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Set the LLM bridge port env var so get_llm_proxy_url() succeeds."""
+        """Set the LLM bridge port env var so get_litellm_url() succeeds."""
         monkeypatch.setenv("TRACECAT__LLM_BRIDGE_PORT", "12345")
 
     @pytest.fixture
@@ -57,6 +57,8 @@ class TestRuntimeSocketCommunication:
         mock_client = MagicMock()
         mock_client.__aenter__ = AsyncMock(return_value=mock_client)
         mock_client.__aexit__ = AsyncMock(return_value=None)
+        mock_client.connect = AsyncMock()
+        mock_client.disconnect = AsyncMock()
         mock_client.query = AsyncMock()
         mock_client.interrupt = AsyncMock()
 
@@ -130,7 +132,9 @@ class TestRuntimeSocketCommunication:
                         AsyncMock(return_value={}),
                     ),
                 ):
-                    runtime = ClaudeAgentRuntime(socket_writer)
+                    runtime = ClaudeAgentRuntime(
+                        socket_writer, transport_factory=lambda _: MagicMock()
+                    )
                     payload = make_init_payload()
                     await runtime.run(payload)
 
@@ -227,7 +231,9 @@ class TestRuntimeSocketCommunication:
                         MagicMock,
                     ),
                 ):
-                    runtime = ClaudeAgentRuntime(socket_writer)
+                    runtime = ClaudeAgentRuntime(
+                        socket_writer, transport_factory=lambda _: MagicMock()
+                    )
                     payload = make_init_payload()
                     await runtime.run(payload)
 
@@ -300,7 +306,9 @@ class TestRuntimeSocketCommunication:
                     ),
                     pytest.raises(ValueError, match="SDK connection failed"),
                 ):
-                    runtime = ClaudeAgentRuntime(socket_writer)
+                    runtime = ClaudeAgentRuntime(
+                        socket_writer, transport_factory=lambda _: MagicMock()
+                    )
                     payload = make_init_payload()
                     await runtime.run(payload)
 

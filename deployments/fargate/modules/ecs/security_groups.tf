@@ -121,6 +121,14 @@ resource "aws_security_group" "core" {
     self        = true
   }
 
+  ingress {
+    description = "Allow internal traffic to the LiteLLM gateway on port 4000"
+    from_port   = 4000
+    to_port     = 4000
+    protocol    = "tcp"
+    self        = true
+  }
+
   egress {
     from_port   = 0
     to_port     = 0
@@ -262,6 +270,8 @@ resource "aws_vpc_endpoint" "s3" {
           "${aws_s3_bucket.attachments.arn}/*",
           aws_s3_bucket.registry.arn,
           "${aws_s3_bucket.registry.arn}/*",
+          aws_s3_bucket.skills.arn,
+          "${aws_s3_bucket.skills.arn}/*",
           aws_s3_bucket.workflow.arn,
           "${aws_s3_bucket.workflow.arn}/*",
         ]

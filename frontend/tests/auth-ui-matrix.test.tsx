@@ -3,7 +3,10 @@
  */
 
 import { fireEvent, render, screen, waitFor } from "@testing-library/react"
-import { authDiscoverAuthMethod } from "@/client"
+import HomePage from "@/app/page"
+import SignInPage from "@/app/sign-in/[[...sign-in]]/page"
+import WorkspaceLayout from "@/app/workspaces/layout"
+import { ApiError, authDiscoverAuthMethod } from "@/client"
 import { SignIn } from "@/components/auth/sign-in"
 import { SignUp } from "@/components/auth/sign-up"
 import { startOidcLogin } from "@/lib/auth-login"
@@ -18,12 +21,16 @@ type MockAppInfo = {
 }
 
 const mockRouterPush = jest.fn()
+const mockRouterReplace = jest.fn()
 const mockLogin = jest.fn()
 const mockLogout = jest.fn()
 const mockRegister = jest.fn()
+let mockSearchParams = new URLSearchParams()
+let mockParams: Record<string, string | undefined> = {}
+let mockPathname = "/workspaces"
 
-let mockUser: { email: string } | null = null
-let mockAppInfo: MockAppInfo = {
+let mockUser: { email: string; isSuperuser: boolean } | null = null
+let mockAppInfo: MockAppInfo | undefined = {
   version: "test",
   public_app_url: "http://localhost:3000",
   auth_allowed_types: ["basic"],
@@ -33,9 +40,15 @@ let mockAppInfo: MockAppInfo = {
 }
 let mockAppInfoIsLoading = false
 let mockAppInfoError: Error | null = null
+let mockWorkspaces: { id: string; name: string }[] | undefined = undefined
+let mockWorkspacesLoading = false
+let mockWorkspacesError: Error | null = null
 
 jest.mock("next/navigation", () => ({
-  useRouter: () => ({ push: mockRouterPush }),
+  useRouter: () => ({ push: mockRouterPush, replace: mockRouterReplace }),
+  useSearchParams: () => mockSearchParams,
+  useParams: () => mockParams,
+  usePathname: () => mockPathname,
 }))
 
 jest.mock("next/image", () => ({
@@ -65,6 +78,72 @@ jest.mock("@/lib/hooks", () => ({
     appInfoIsLoading: mockAppInfoIsLoading,
     appInfoError: mockAppInfoError,
   }),
+  useWorkspaceManager: () => ({
+    workspaces: mockWorkspaces,
+    workspacesLoading: mockWorkspacesLoading,
+    workspacesError: mockWorkspacesError,
+    setLastWorkspaceId: jest.fn(),
+    getLastWorkspaceId: jest.fn(),
+    createWorkspace: jest.fn(),
+  }),
+}))
+
+jest.mock("@/components/auth/scope-guard", () => ({
+  useScopeCheck: () => true,
+}))
+
+jest.mock("@/hooks/use-pending-org-invitations", () => ({
+  usePendingOrgInvitations: () => ({
+    pendingInvitations: [],
+    pendingInvitationsIsLoading: false,
+    pendingInvitationsError: null,
+  }),
+}))
+
+jest.mock("@xyflow/react", () => ({
+  ReactFlowProvider: ({ children }: { children: JSX.Element }) => children,
+}))
+
+jest.mock("@/components/cases/case-selection-context", () => ({
+  CaseSelectionProvider: ({ children }: { children: JSX.Element }) => children,
+}))
+
+jest.mock("@/components/nav/controls-header", () => ({
+  ControlsHeader: () => null,
+}))
+
+jest.mock("@/components/nav/dynamic-nav", () => ({
+  DynamicNavbar: () => null,
+}))
+
+jest.mock("@/components/settings/settings-modal", () => ({
+  SettingsModal: () => null,
+}))
+
+jest.mock("@/components/sidebar/app-sidebar", () => ({
+  AppSidebar: () => null,
+}))
+
+jest.mock("@/components/ui/sidebar", () => ({
+  SidebarInset: ({ children }: { children: JSX.Element }) => children,
+  SidebarProvider: ({ children }: { children: JSX.Element }) => children,
+}))
+
+jest.mock("@/providers/builder", () => ({
+  WorkflowBuilderProvider: ({ children }: { children: JSX.Element }) =>
+    children,
+}))
+
+jest.mock("@/providers/scopes", () => ({
+  ScopeProvider: ({ children }: { children: JSX.Element }) => children,
+}))
+
+jest.mock("@/providers/workflow", () => ({
+  WorkflowProvider: ({ children }: { children: JSX.Element }) => children,
+}))
+
+jest.mock("@/providers/workspace-id", () => ({
+  WorkspaceIdProvider: ({ children }: { children: JSX.Element }) => children,
 }))
 
 jest.mock("@/lib/auth-login", () => ({
@@ -74,11 +153,15 @@ jest.mock("@/lib/auth-login", () => ({
 
 jest.mock("@/client", () => {
   class MockApiError extends Error {
-    body: { detail: unknown }
+    body: unknown
 
-    constructor(detail: unknown = "") {
-      super("ApiError")
-      this.body = { detail }
+    constructor(
+      _request: unknown,
+      response: { body?: unknown } = {},
+      message = "ApiError"
+    ) {
+      super(message)
+      this.body = response.body
     }
   }
 
@@ -91,16 +174,37 @@ jest.mock("@/client", () => {
 
 function setAuthTypes(authAllowedTypes: string[]): void {
   mockAppInfo = {
-    ...mockAppInfo,
+    ...(mockAppInfo ?? getDefaultAppInfo()),
     auth_allowed_types: authAllowedTypes,
   }
 }
 
 function setMultiTenant(eeMultiTenant: boolean): void {
   mockAppInfo = {
-    ...mockAppInfo,
+    ...(mockAppInfo ?? getDefaultAppInfo()),
     ee_multi_tenant: eeMultiTenant,
   }
+}
+
+function getDefaultAppInfo(): MockAppInfo {
+  return {
+    version: "test",
+    public_app_url: "http://localhost:3000",
+    auth_allowed_types: ["basic"],
+    saml_enabled: false,
+    saml_enforced: false,
+    ee_multi_tenant: false,
+  }
+}
+
+function getNoOrgMembershipsError(): ApiError {
+  return new ApiError(
+    {} as never,
+    {
+      body: { detail: "User has no organization memberships" },
+    } as never,
+    "ApiError"
+  )
 }
 
 describe("Auth UI matrix", () => {
@@ -116,8 +220,15 @@ describe("Auth UI matrix", () => {
     jest.clearAllMocks()
     consoleErrorSpy = jest.spyOn(console, "error").mockImplementation(() => {})
     mockUser = null
+    mockSearchParams = new URLSearchParams()
+    mockAppInfo = getDefaultAppInfo()
     mockAppInfoIsLoading = false
     mockAppInfoError = null
+    mockParams = {}
+    mockPathname = "/workspaces"
+    mockWorkspaces = undefined
+    mockWorkspacesLoading = false
+    mockWorkspacesError = null
     setAuthTypes(["basic"])
     setMultiTenant(false)
   })
@@ -230,6 +341,32 @@ describe("Auth UI matrix", () => {
     })
   })
 
+  it("defaults unknown tenancy to workspaces for authenticated superusers on sign-in", async () => {
+    mockUser = { email: "admin@example.com", isSuperuser: true }
+    mockAppInfo = undefined
+    mockAppInfoError = new Error("Unable to fetch app info")
+
+    render(<SignInPage />)
+
+    await waitFor(() => {
+      expect(mockRouterReplace).toHaveBeenCalledWith("/workspaces")
+    })
+    expect(mockRouterReplace).not.toHaveBeenCalledWith("/admin")
+  })
+
+  it("defaults unknown tenancy to workspaces for authenticated superusers on home", async () => {
+    mockUser = { email: "admin@example.com", isSuperuser: true }
+    mockAppInfo = undefined
+    mockAppInfoError = new Error("Unable to fetch app info")
+
+    render(<HomePage />)
+
+    await waitFor(() => {
+      expect(mockRouterPush).toHaveBeenCalledWith("/workspaces")
+    })
+    expect(mockRouterPush).not.toHaveBeenCalledWith("/admin")
+  })
+
   it.each([
     { authTypes: ["basic"], eeMultiTenant: false, expectsBasicSignUp: true },
     {
@@ -272,4 +409,58 @@ describe("Auth UI matrix", () => {
       }
     }
   )
+
+  it("redirects authenticated single-tenant superusers to workspaces from sign-up", async () => {
+    setMultiTenant(false)
+    mockUser = { email: "admin@example.com", isSuperuser: true }
+
+    render(<SignUp />)
+
+    await waitFor(() => {
+      expect(mockRouterPush).toHaveBeenCalledWith("/workspaces")
+    })
+  })
+
+  it("redirects authenticated multi-tenant superusers to workspaces from sign-up", async () => {
+    setMultiTenant(true)
+    mockUser = { email: "admin@example.com", isSuperuser: true }
+
+    render(<SignUp />)
+
+    await waitFor(() => {
+      expect(mockRouterPush).toHaveBeenCalledWith("/workspaces")
+    })
+  })
+
+  it("redirects superusers with no organization memberships to admin", async () => {
+    mockUser = { email: "admin@example.com", isSuperuser: true }
+    mockWorkspacesError = getNoOrgMembershipsError()
+
+    render(
+      <WorkspaceLayout>
+        <div>Workspace content</div>
+      </WorkspaceLayout>
+    )
+
+    await waitFor(() => {
+      expect(mockRouterReplace).toHaveBeenCalledWith("/admin")
+    })
+    expect(
+      screen.queryByText("No organization access yet")
+    ).not.toBeInTheDocument()
+  })
+
+  it("keeps regular users with no organization memberships on the help screen", () => {
+    mockUser = { email: "user@example.com", isSuperuser: false }
+    mockWorkspacesError = getNoOrgMembershipsError()
+
+    render(
+      <WorkspaceLayout>
+        <div>Workspace content</div>
+      </WorkspaceLayout>
+    )
+
+    expect(screen.getByText("No organization access yet")).toBeInTheDocument()
+    expect(mockRouterReplace).not.toHaveBeenCalledWith("/admin")
+  })
 })

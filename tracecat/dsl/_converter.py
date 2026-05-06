@@ -7,11 +7,14 @@ from temporalio.api.common.v1 import Payload
 from temporalio.converter import (
     CompositePayloadConverter,
     DataConverter,
+    DefaultFailureConverter,
+    DefaultFailureConverterWithEncodedAttributes,
     DefaultPayloadConverter,
     JSONPlainPayloadConverter,
 )
 
-from tracecat.dsl.compression import get_compression_payload_codec
+from tracecat import config
+from tracecat.temporal.codec import get_payload_codec
 
 
 def _serializer(obj: Any) -> Any:
@@ -98,5 +101,10 @@ def get_data_converter(*, compression_enabled: bool = False) -> DataConverter:
     """Data converter using Pydantic JSON conversion with optional compression."""
     return DataConverter(
         payload_converter_class=PydanticPayloadConverter,
-        payload_codec=get_compression_payload_codec() if compression_enabled else None,
+        payload_codec=get_payload_codec(compression_enabled=compression_enabled),
+        failure_converter_class=(
+            DefaultFailureConverterWithEncodedAttributes
+            if config.TEMPORAL__PAYLOAD_ENCRYPTION_ENABLED
+            else DefaultFailureConverter
+        ),
     )

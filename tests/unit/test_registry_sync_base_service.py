@@ -10,13 +10,17 @@ from temporalio.exceptions import ApplicationError
 
 from tracecat import config
 from tracecat.auth.types import Role
-from tracecat.db.models import Organization
+from tracecat.db.models import Organization, RegistryRepository
+from tracecat.exceptions import TracecatNotFoundError
 from tracecat.registry.actions.schemas import (
     RegistryActionCreate,
     RegistryActionOptions,
     RegistryActionUDFImpl,
 )
-from tracecat.registry.constants import DEFAULT_REGISTRY_ORIGIN
+from tracecat.registry.constants import (
+    DEFAULT_REGISTRY_ORIGIN,
+    REGISTRY_GIT_SSH_KEY_SECRET_NAME,
+)
 from tracecat.registry.repositories.schemas import RegistryRepositoryCreate
 from tracecat.registry.repositories.service import RegistryReposService
 from tracecat.registry.sync.base_service import ArtifactsBuildResult
@@ -211,3 +215,89 @@ async def test_sync_via_temporal_matches_validation_application_error_before_cau
         await sync_service.sync_repository_v2(repo, commit=False)
 
     assert "workflow failed" not in str(exc_info.value).lower()
+
+
+@pytest.mark.anyio
+async def test_sync_via_temporal_git_requires_registry_ssh_key_before_workflow(
+    mock_org_id: uuid.UUID,
+    mocker,
+) -> None:
+    role = Role(
+        type="service",
+        user_id=mock_org_id,
+        organization_id=mock_org_id,
+        workspace_id=uuid.uuid4(),
+        service_id="tracecat-runner",
+    )
+
+    session = mocker.Mock(spec=AsyncSession)
+    repo = RegistryRepository(
+        id=uuid.uuid4(),
+        origin="git+ssh://git@github.com/TracecatHQ/internal-registry.git",
+        organization_id=mock_org_id,
+        current_version_id=None,
+    )
+
+    mock_client = mocker.Mock()
+    mock_client.execute_workflow = mocker.AsyncMock()
+    get_temporal_client = mocker.patch(
+        "tracecat.dsl.client.get_temporal_client",
+        mocker.AsyncMock(return_value=mock_client),
+    )
+    get_org_secret_by_name = mocker.patch(
+        "tracecat.registry.sync.base_service.SecretsService.get_org_secret_by_name",
+        mocker.AsyncMock(side_effect=TracecatNotFoundError("missing")),
+    )
+    get_ssh_key = mocker.patch(
+        "tracecat.registry.sync.base_service.SecretsService.get_ssh_key",
+        mocker.AsyncMock(),
+    )
+
+    sync_service = RegistrySyncService(session, role)
+
+    with pytest.raises(RegistrySyncError, match=REGISTRY_GIT_SSH_KEY_SECRET_NAME):
+        await sync_service._sync_via_temporal_workflow(repo, commit=False)
+
+    get_org_secret_by_name.assert_awaited_once_with(REGISTRY_GIT_SSH_KEY_SECRET_NAME)
+    get_ssh_key.assert_not_awaited()
+    get_temporal_client.assert_not_awaited()
+    mock_client.execute_workflow.assert_not_awaited()
+
+
+@pytest.mark.anyio
+async def test_sync_via_temporal_git_preserves_unexpected_secret_check_error(
+    mock_org_id: uuid.UUID,
+    mocker,
+) -> None:
+    role = Role(
+        type="service",
+        user_id=mock_org_id,
+        organization_id=mock_org_id,
+        workspace_id=uuid.uuid4(),
+        service_id="tracecat-runner",
+    )
+
+    session = mocker.Mock(spec=AsyncSession)
+    repo = RegistryRepository(
+        id=uuid.uuid4(),
+        origin="git+ssh://git@github.com/TracecatHQ/internal-registry.git",
+        organization_id=mock_org_id,
+        current_version_id=None,
+    )
+
+    get_temporal_client = mocker.patch(
+        "tracecat.dsl.client.get_temporal_client",
+        mocker.AsyncMock(),
+    )
+    get_org_secret_by_name = mocker.patch(
+        "tracecat.registry.sync.base_service.SecretsService.get_org_secret_by_name",
+        mocker.AsyncMock(side_effect=RuntimeError("database unavailable")),
+    )
+
+    sync_service = RegistrySyncService(session, role)
+
+    with pytest.raises(RuntimeError, match="database unavailable"):
+        await sync_service._sync_via_temporal_workflow(repo, commit=False)
+
+    get_org_secret_by_name.assert_awaited_once_with(REGISTRY_GIT_SSH_KEY_SECRET_NAME)
+    get_temporal_client.assert_not_awaited()

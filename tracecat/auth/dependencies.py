@@ -1,12 +1,15 @@
+import uuid
 from collections.abc import Sequence
 from typing import Annotated, Any
 
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Path, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat import config
 from tracecat.api.common import bootstrap_role
-from tracecat.auth.credentials import RoleACL
+from tracecat.auth.credentials import (
+    RoleACL,
+)
 from tracecat.auth.enums import AuthType
 from tracecat.auth.types import Role
 from tracecat.settings.constants import AUTH_TYPE_TO_SETTING_KEY
@@ -14,9 +17,80 @@ from tracecat.settings.service import get_setting
 
 WorkspaceUserRole = Annotated[
     Role,
-    RoleACL(allow_user=True, allow_service=False, require_workspace="yes"),
+    RoleACL(
+        allow_user=True,
+        allow_service=False,
+        allow_api_key=False,
+        require_workspace="yes",
+    ),
 ]
 """Dependency for a user role for a workspace.
+
+Sets the `ctx_role` context variable.
+"""
+
+WorkspaceActorRole = Annotated[
+    Role,
+    RoleACL(
+        allow_user=True,
+        allow_service=False,
+        allow_api_key=True,
+        require_workspace="yes",
+    ),
+]
+"""Dependency for a user or service-account role for a workspace."""
+
+WorkspaceActorRouteRole = Annotated[
+    Role,
+    RoleACL(
+        allow_user=True,
+        allow_service=False,
+        allow_api_key=True,
+        require_workspace="yes",
+        workspace_id_in_path="auto",
+    ),
+]
+"""Dependency for workspace routes that accept path-scoped canonical routes and legacy query-scoped routes."""
+
+WorkspaceUserRouteRole = Annotated[
+    Role,
+    RoleACL(
+        allow_user=True,
+        allow_service=False,
+        allow_api_key=False,
+        require_workspace="yes",
+        workspace_id_in_path="auto",
+    ),
+]
+"""Dependency for user-only workspace routes that accept path or legacy query workspace context."""
+
+
+async def require_workspace_id_path(workspace_id: uuid.UUID = Path(...)) -> uuid.UUID:
+    """Validate and document canonical workspace-scoped route prefixes."""
+    return workspace_id
+
+
+WorkspaceServiceAccountRole = Annotated[
+    Role,
+    RoleACL(
+        allow_user=False,
+        allow_service=False,
+        allow_api_key=True,
+        require_workspace="yes",
+    ),
+]
+"""Dependency for a service-account role for a workspace."""
+
+WorkspaceUserPathRole = Annotated[
+    Role,
+    RoleACL(
+        allow_user=True,
+        allow_service=False,
+        require_workspace="yes",
+        workspace_id_in_path=True,
+    ),
+]
+"""Dependency for a user role for a path-scoped workspace.
 
 Sets the `ctx_role` context variable.
 """
@@ -49,6 +123,7 @@ OrgUserRole = Annotated[
     RoleACL(
         allow_user=True,
         allow_service=False,
+        allow_api_key=False,
         require_workspace="no",
     ),
 ]
@@ -56,6 +131,39 @@ OrgUserRole = Annotated[
 
 Sets the `ctx_role` context variable.
 """
+
+
+OrgUserOnlyRole = Annotated[
+    Role,
+    RoleACL(
+        allow_user=True,
+        allow_service=False,
+        allow_api_key=False,
+        require_workspace="no",
+    ),
+]
+"""Dependency for a user-only role at the organization level (no workspace required)."""
+OrgActorRole = Annotated[
+    Role,
+    RoleACL(
+        allow_user=True,
+        allow_service=False,
+        allow_api_key=True,
+        require_workspace="no",
+    ),
+]
+"""Dependency for a user or service-account role at the organization level."""
+
+OrganizationServiceAccountRole = Annotated[
+    Role,
+    RoleACL(
+        allow_user=False,
+        allow_service=False,
+        allow_api_key=True,
+        require_workspace="no",
+    ),
+]
+"""Dependency for a service-account role at the organization level."""
 
 
 async def verify_auth_type(

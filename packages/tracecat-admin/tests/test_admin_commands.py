@@ -4,10 +4,13 @@ from __future__ import annotations
 
 import uuid
 from datetime import UTC, datetime
+from types import SimpleNamespace
+from typing import Any, cast
 
 import pytest
 import respx
 from httpx import Response
+from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat_admin.cli import app
 from typer.testing import CliRunner
 
@@ -231,3 +234,162 @@ class TestDemoteUser:
 
         assert result.exit_code == 1
         assert "not a superuser" in result.stdout
+
+
+class TestCreateDevUser:
+    """Tests for create-dev-user command."""
+
+    def test_create_dev_user_success(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Test successful dev user creation."""
+        captured: dict[str, Any] = {}
+
+        async def fake_create_dev_user(**kwargs: Any) -> SimpleNamespace:
+            captured.update(kwargs)
+            return SimpleNamespace(
+                email=kwargs["email"],
+                superuser_email=kwargs["superuser_email"],
+                superuser_created=True,
+                organization_id=str(uuid.uuid4()),
+                workspace_id=str(uuid.uuid4()),
+                default_tier_id=str(uuid.uuid4()),
+                default_tier_entitlements={
+                    "custom_registry": True,
+                    "case_addons": True,
+                },
+                org_role=kwargs["org_role"],
+                workspace_role=kwargs["workspace_role"],
+                created=True,
+            )
+
+        monkeypatch.setattr(
+            "tracecat_admin.services.bootstrap.create_dev_user",
+            fake_create_dev_user,
+        )
+
+        result = runner.invoke(
+            app,
+            [
+                "admin",
+                "create-dev-user",
+                "--email",
+                "dev@example.com",
+                "--password",
+                "password1234",
+                "--superuser-email",
+                "test@tracecat.com",
+                "--superuser-password",
+                "password1234",
+                "--default-tier-entitlements",
+                "custom_registry,case_addons",
+                "--org-role",
+                "organization-admin",
+                "--workspace-role",
+                "workspace-editor",
+            ],
+        )
+
+        assert result.exit_code == 0
+        assert (
+            "[dev-seed] Created platform superuser 'test@tracecat.com'" in result.stdout
+        )
+        assert "[dev-seed] Created dev user 'dev@example.com'" in result.stdout
+        assert (
+            "[dev-seed] Default tier entitlements: custom_registry, case_addons"
+            in result.stdout
+        )
+        assert captured == {
+            "email": "dev@example.com",
+            "password": "password1234",
+            "superuser_email": "test@tracecat.com",
+            "superuser_password": "password1234",
+            "default_tier_entitlements": "custom_registry,case_addons",
+            "org_role": "organization-admin",
+            "workspace_role": "workspace-editor",
+        }
+
+    def test_create_dev_user_rejects_short_password(self) -> None:
+        """Test password length validation."""
+        result = runner.invoke(
+            app,
+            [
+                "admin",
+                "create-dev-user",
+                "--email",
+                "dev@example.com",
+                "--password",
+                "short",
+            ],
+        )
+
+        assert result.exit_code == 1
+        assert "Password must be at least 12 characters" in result.stdout
+
+    def test_create_dev_user_rejects_short_superuser_password(self) -> None:
+        """Test superuser password length validation."""
+        result = runner.invoke(
+            app,
+            [
+                "admin",
+                "create-dev-user",
+                "--email",
+                "dev@example.com",
+                "--password",
+                "password1234",
+                "--superuser-password",
+                "short",
+            ],
+        )
+
+        assert result.exit_code == 1
+        assert "Superuser password must be at least 12 characters" in result.stdout
+
+    def test_default_tier_entitlement_selection(self) -> None:
+        """Test default tier entitlement selector modes."""
+        from tracecat_admin.services.bootstrap import (
+            ALL_ENTITLEMENTS,
+            resolve_default_tier_entitlements,
+        )
+
+        assert all(resolve_default_tier_entitlements("all").values())
+        assert not any(resolve_default_tier_entitlements("none").values())
+
+        selected = resolve_default_tier_entitlements("custom_registry,case-addons")
+        assert selected["custom_registry"] is True
+        assert selected["case_addons"] is True
+        assert {name for name in ALL_ENTITLEMENTS if not selected[name]} == set(
+            ALL_ENTITLEMENTS
+        ) - {"custom_registry", "case_addons"}
+
+    @pytest.mark.anyio
+    async def test_role_assignment_lookup_is_organization_scoped(self) -> None:
+        """Ensure role assignment upserts never match across organizations."""
+        from tracecat_admin.services.bootstrap import _ensure_role_assignment
+
+        class FakeResult:
+            def scalar_one_or_none(self) -> SimpleNamespace:
+                return SimpleNamespace()
+
+        class FakeSession:
+            statement: Any | None = None
+
+            async def execute(self, statement: Any) -> FakeResult:
+                self.statement = statement
+                return FakeResult()
+
+            def add(self, value: Any) -> None:
+                raise AssertionError("No insert expected")
+
+        session = FakeSession()
+
+        await _ensure_role_assignment(
+            session=cast(AsyncSession, session),
+            user_id=uuid.uuid4(),
+            organization_id=uuid.uuid4(),
+            workspace_id=None,
+            role_id=uuid.uuid4(),
+        )
+
+        assert session.statement is not None
+        assert "user_role_assignment.organization_id =" in str(
+            session.statement.compile()
+        )

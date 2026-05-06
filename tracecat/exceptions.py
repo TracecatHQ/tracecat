@@ -123,6 +123,10 @@ class RegistryError(TracecatException):
     """Generic exception raised when a registry error occurs."""
 
 
+class BuiltinRegistryHasNoSelectionError(RegistryError):
+    """Raised when the builtin platform registry has no selected version yet."""
+
+
 class RegistryActionError(RegistryError):
     """Exception raised when a registry action error occurs."""
 

@@ -1,20 +1,21 @@
 "use client"
 
-import Cookies from "js-cookie"
 import {
   BookOpenIcon,
+  BotIcon,
   BuildingIcon,
   ChevronLeftIcon,
   LayersIcon,
+  LogOutIcon,
   UsersIcon,
 } from "lucide-react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import type * as React from "react"
-import { useEffect } from "react"
 import {
   Sidebar,
   SidebarContent,
+  SidebarFooter,
   SidebarGroup,
   SidebarGroupContent,
   SidebarGroupLabel,
@@ -27,33 +28,24 @@ import {
   SidebarMenuSubItem,
   SidebarRail,
 } from "@/components/ui/sidebar"
-import { useAppInfo } from "@/lib/hooks"
+import { useAuthActions } from "@/hooks/use-auth"
 
 export function AdminSidebar({
   ...props
 }: React.ComponentProps<typeof Sidebar>) {
   const pathname = usePathname()
-  const { appInfo } = useAppInfo()
-  const multiTenantEnabled = appInfo?.ee_multi_tenant ?? true
-
-  useEffect(() => {
-    if (!multiTenantEnabled) {
-      Cookies.remove("tracecat-org-id", { path: "/" })
-      Cookies.remove("__tracecat:workspaces:last-viewed", { path: "/" })
-    }
-  }, [multiTenantEnabled])
+  const { logout } = useAuthActions()
+  const handleLogout = async () => {
+    await logout()
+  }
 
   const navPlatform = [
-    ...(multiTenantEnabled
-      ? [
-          {
-            title: "Organizations",
-            url: "/admin/organizations",
-            icon: BuildingIcon,
-            isActive: pathname?.includes("/admin/organizations"),
-          },
-        ]
-      : []),
+    {
+      title: "Organizations",
+      url: "/admin/organizations",
+      icon: BuildingIcon,
+      isActive: pathname?.includes("/admin/organizations"),
+    },
     {
       title: "Users",
       url: "/admin/users",
@@ -65,6 +57,12 @@ export function AdminSidebar({
       url: "/admin/tiers",
       icon: LayersIcon,
       isActive: pathname?.includes("/admin/tiers"),
+    },
+    {
+      title: "Agent",
+      url: "/admin/agent",
+      icon: BotIcon,
+      isActive: pathname?.includes("/admin/agent"),
     },
   ]
 
@@ -94,7 +92,7 @@ export function AdminSidebar({
             <SidebarMenuButton asChild>
               <Link href="/workspaces" className="text-muted-foreground">
                 <ChevronLeftIcon />
-                <span>Exit admin console</span>
+                <span>Admin console</span>
               </Link>
             </SidebarMenuButton>
           </SidebarMenuItem>
@@ -140,6 +138,16 @@ export function AdminSidebar({
           </SidebarGroupContent>
         </SidebarGroup>
       </SidebarContent>
+      <SidebarFooter>
+        <SidebarMenu>
+          <SidebarMenuItem>
+            <SidebarMenuButton onClick={handleLogout} tooltip="Logout">
+              <LogOutIcon />
+              <span>Logout</span>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+        </SidebarMenu>
+      </SidebarFooter>
       <SidebarRail />
     </Sidebar>
   )

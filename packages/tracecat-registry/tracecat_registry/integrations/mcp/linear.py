@@ -5,6 +5,7 @@ from typing_extensions import Doc
 from tracecat_registry import RegistryOAuthSecret, registry, secrets
 from tracecat_registry.context import get_context
 from tracecat_registry.core.agent import PYDANTIC_AI_REGISTRY_SECRETS
+from tracecat_registry.fields import AgentModel, ModelSelection
 from tracecat_registry.sdk.agents import AgentConfig, MCPServerConfig
 from tracecat_registry.types import AgentOutputRead
 
@@ -31,8 +32,11 @@ linear_mcp_oauth_secret = RegistryOAuthSecret(
 async def mcp(
     user_prompt: Annotated[str, Doc("User prompt to the agent.")],
     instructions: Annotated[str, Doc("Instructions for the agent.")],
-    model_name: Annotated[str, Doc("Name of the model to use.")],
-    model_provider: Annotated[str, Doc("Provider of the model to use.")],
+    model: Annotated[
+        ModelSelection,
+        Doc("Model to use. Pick from the list of models enabled for this workspace."),
+        AgentModel(),
+    ],
 ) -> AgentOutputRead:
     """Use AI to interact with Linear."""
     token = secrets.get(linear_mcp_oauth_secret.token_name)
@@ -40,8 +44,9 @@ async def mcp(
     result = await ctx.agents.run(
         user_prompt=user_prompt,
         config=AgentConfig(
-            model_name=model_name,
-            model_provider=model_provider,
+            model_name=model.model_name,
+            model_provider=model.model_provider,
+            catalog_id=model.catalog_id,
             instructions=instructions,
             mcp_servers=[
                 MCPServerConfig(

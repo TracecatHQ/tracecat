@@ -5,7 +5,7 @@ from sqlalchemy.exc import IntegrityError, NoResultFound
 
 from tracecat.agent.tags.schemas import AgentTagRead
 from tracecat.agent.tags.service import AgentTagsService
-from tracecat.auth.dependencies import WorkspaceUserRole
+from tracecat.auth.dependencies import WorkspaceUserRouteRole
 from tracecat.authz.controls import require_scope
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.identifiers import AgentTagID
@@ -18,7 +18,7 @@ router = APIRouter(prefix="/agent-tags", tags=["agent-tags"])
 @require_scope("agent:read")
 async def list_agent_tags(
     *,
-    role: WorkspaceUserRole,
+    role: WorkspaceUserRouteRole,
     session: AsyncDBSession,
 ) -> list[AgentTagRead]:
     """List all agent tags in the workspace."""
@@ -31,7 +31,7 @@ async def list_agent_tags(
 @require_scope("agent:read")
 async def get_agent_tag(
     *,
-    role: WorkspaceUserRole,
+    role: WorkspaceUserRouteRole,
     session: AsyncDBSession,
     tag_id: AgentTagID,
 ) -> AgentTagRead:
@@ -50,7 +50,7 @@ async def get_agent_tag(
 @router.post("", response_model=AgentTagRead, status_code=status.HTTP_201_CREATED)
 async def create_agent_tag(
     *,
-    role: WorkspaceUserRole,
+    role: WorkspaceUserRouteRole,
     session: AsyncDBSession,
     params: TagCreate,
 ) -> AgentTagRead:
@@ -74,7 +74,7 @@ async def create_agent_tag(
 @router.patch("/{tag_id}", response_model=AgentTagRead)
 async def update_agent_tag(
     *,
-    role: WorkspaceUserRole,
+    role: WorkspaceUserRouteRole,
     session: AsyncDBSession,
     tag_id: AgentTagID,
     params: TagUpdate,
@@ -106,7 +106,7 @@ async def update_agent_tag(
 @router.delete("/{tag_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_agent_tag(
     *,
-    role: WorkspaceUserRole,
+    role: WorkspaceUserRouteRole,
     session: AsyncDBSession,
     tag_id: AgentTagID,
 ) -> None:

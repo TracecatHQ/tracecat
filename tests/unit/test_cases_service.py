@@ -138,6 +138,7 @@ async def _create_dropdown_with_option(
     definition_ref: str,
     option_label: str,
     option_ref: str,
+    required_on_closure: bool = False,
 ):
     definitions_service = CaseDropdownDefinitionsService(
         session=cases_service.session, role=cases_service.role
@@ -148,6 +149,7 @@ async def _create_dropdown_with_option(
             ref=definition_ref,
             is_ordered=False,
             options=[],
+            required_on_closure=required_on_closure,
         )
     )
     option = await definitions_service.add_option(
@@ -890,6 +892,43 @@ class TestCasesService:
         assert len(values) == 1
         assert values[0].definition_id == definition.id
         assert values[0].option_id == target_option.id
+
+    async def test_update_case_close_with_dropdown_refs_satisfies_closure_requirements(
+        self, cases_service: CasesService, case_create_params: CaseCreate
+    ) -> None:
+        """Closing a case while supplying a required dropdown via refs must succeed."""
+        definition, option = await _create_dropdown_with_option(
+            cases_service,
+            definition_name="Classification",
+            definition_ref="classification",
+            option_label="False positive",
+            option_ref="false_positive",
+            required_on_closure=True,
+        )
+
+        created_case = await cases_service.create_case(case_create_params)
+
+        await cases_service.update_case(
+            created_case,
+            CaseUpdate(
+                status=CaseStatus.CLOSED,
+                dropdown_values=[
+                    CaseDropdownValueInput(
+                        definition_ref="classification",
+                        option_ref="false_positive",
+                    )
+                ],
+            ),
+        )
+
+        assert created_case.status == CaseStatus.CLOSED
+        dropdowns_service = CaseDropdownValuesService(
+            session=cases_service.session, role=cases_service.role
+        )
+        values = await dropdowns_service.list_values_for_case(created_case.id)
+        assert len(values) == 1
+        assert values[0].definition_id == definition.id
+        assert values[0].option_id == option.id
 
     async def test_delete_case(
         self, cases_service: CasesService, case_create_params: CaseCreate

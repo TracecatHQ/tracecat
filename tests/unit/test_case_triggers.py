@@ -197,3 +197,42 @@ async def test_get_case_trigger_commit_false_does_not_persist_on_rollback(
     )
 
     assert refreshed.id != first_trigger_id
+
+
+@pytest.mark.anyio
+async def test_update_case_trigger_acquires_workflow_lock(
+    session: AsyncSession, svc_role, monkeypatch
+):
+    workflow = Workflow(
+        title="Case Trigger Lock",
+        description="Test workflow",
+        status="offline",
+        workspace_id=svc_role.workspace_id,
+    )
+    session.add(workflow)
+    await session.flush()
+
+    case_trigger = CaseTrigger(
+        workspace_id=svc_role.workspace_id,
+        workflow_id=workflow.id,
+        status="offline",
+        event_types=[],
+        tag_filters=[],
+    )
+    session.add(case_trigger)
+    await session.commit()
+
+    service = CaseTriggersService(session, role=svc_role)
+    locked_workflow_ids: list[WorkflowUUID] = []
+
+    async def _lock_workflow(workflow_id: WorkflowUUID) -> None:
+        locked_workflow_ids.append(WorkflowUUID.new(workflow_id))
+
+    monkeypatch.setattr(service, "_lock_workflow", _lock_workflow)
+    await service.update_case_trigger(
+        WorkflowUUID.new(workflow.id),
+        CaseTriggerUpdate(status="offline"),
+        commit=False,
+    )
+
+    assert locked_workflow_ids == [WorkflowUUID.new(workflow.id)]

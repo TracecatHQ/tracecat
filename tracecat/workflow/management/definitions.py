@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from sqlalchemy import select
+from sqlalchemy import case, select
 from sqlalchemy.orm import selectinload
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
@@ -8,7 +8,7 @@ from temporalio.exceptions import ApplicationError
 from tracecat.authz.controls import require_scope
 from tracecat.db.models import Workflow, WorkflowDefinition
 from tracecat.dsl.common import DSLInput
-from tracecat.exceptions import EntitlementRequired
+from tracecat.exceptions import BuiltinRegistryHasNoSelectionError, EntitlementRequired
 from tracecat.identifiers.workflow import WorkflowID
 from tracecat.logger import logger
 from tracecat.registry.lock.service import RegistryLockService
@@ -40,11 +40,21 @@ class WorkflowDefinitionsService(BaseWorkspaceService):
                 )
             )
         )
-        if version:
+        if version is not None:
             statement = statement.where(WorkflowDefinition.version == version)
         else:
-            # Get the latest version
-            statement = statement.order_by(WorkflowDefinition.version.desc())
+            current_version_sq = (
+                select(Workflow.version)
+                .where(
+                    Workflow.workspace_id == self.workspace_id,
+                    Workflow.id == workflow_id,
+                )
+                .scalar_subquery()
+            )
+            statement = statement.order_by(
+                case((WorkflowDefinition.version == current_version_sq, 0), else_=1),
+                WorkflowDefinition.version.desc(),
+            ).limit(1)
 
         result = await self.session.execute(statement)
         return result.scalars().first()
@@ -143,6 +153,12 @@ async def resolve_registry_lock_activity(
     try:
         async with RegistryLockService.with_session(role=input.role) as service:
             lock = await service.resolve_lock_with_bindings(input.action_names)
+    except BuiltinRegistryHasNoSelectionError as e:
+        raise ApplicationError(
+            str(e),
+            e.detail,
+            type=e.__class__.__name__,
+        ) from e
     except EntitlementRequired as e:
         raise ApplicationError(
             str(e),

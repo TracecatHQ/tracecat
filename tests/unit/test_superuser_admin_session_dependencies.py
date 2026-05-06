@@ -4,6 +4,7 @@ import ast
 from pathlib import Path
 
 SUPERUSER_ADMIN_ROUTERS = (
+    Path("tracecat/admin/agent/router.py"),
     Path("tracecat/admin/registry/router.py"),
     Path("packages/tracecat-ee/tracecat_ee/admin/organizations/router.py"),
     Path("packages/tracecat-ee/tracecat_ee/admin/users/router.py"),

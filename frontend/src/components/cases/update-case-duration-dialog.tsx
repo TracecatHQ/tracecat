@@ -6,14 +6,18 @@ import type {
   CaseDurationDefinitionUpdate,
 } from "@/client"
 import {
-  buildFieldFilters,
+  buildDurationFilters,
   CaseDurationDialog,
   type CaseDurationFormValues,
   createEmptyCaseDurationFormValues,
-  getFilterFieldKey,
   normalizeFilterValues,
 } from "@/components/cases/case-duration-dialog"
-import { isCaseDropdownEventType } from "@/components/cases/case-duration-options"
+import {
+  isCaseDropdownEventType,
+  isCaseEventFilterType,
+  isCaseFieldEventType,
+  isCaseTagEventType,
+} from "@/components/cases/case-duration-options"
 
 interface UpdateCaseDurationDialogProps {
   open: boolean
@@ -30,10 +34,8 @@ function extractAnchorFormValues(
   anchor: CaseDurationDefinitionRead["start_anchor"]
 ): CaseDurationFormValues["start"] {
   if (isCaseDropdownEventType(anchor.event_type)) {
-    const defId = anchor.field_filters?.["data.definition_id"]
-    const optionIds = normalizeFilterValues(
-      anchor.field_filters?.["data.new_option_id"]
-    )
+    const defId = anchor.filters?.dropdown_definition_id
+    const optionIds = normalizeFilterValues(anchor.filters?.dropdown_option_ids)
     return {
       selection: anchor.selection ?? "first",
       eventType: anchor.event_type,
@@ -43,10 +45,7 @@ function extractAnchorFormValues(
     }
   }
 
-  const fieldKey = getFilterFieldKey(anchor.event_type)
-  const filterValues = normalizeFilterValues(
-    fieldKey ? anchor.field_filters?.[fieldKey] : undefined
-  )
+  const filterValues = normalizeFilterValues(getAnchorFilterValues(anchor))
   return {
     selection: anchor.selection ?? "first",
     eventType: anchor.event_type,
@@ -54,6 +53,21 @@ function extractAnchorFormValues(
     dropdownDefinitionId: undefined,
     dropdownOptionIds: [],
   }
+}
+
+function getAnchorFilterValues(
+  anchor: CaseDurationDefinitionRead["start_anchor"]
+): unknown {
+  if (isCaseEventFilterType(anchor.event_type)) {
+    return anchor.filters?.new_values
+  }
+  if (isCaseTagEventType(anchor.event_type)) {
+    return anchor.filters?.tag_refs
+  }
+  if (isCaseFieldEventType(anchor.event_type)) {
+    return anchor.filters?.field_ids
+  }
+  return undefined
 }
 
 const getInitialValues = (
@@ -89,12 +103,12 @@ export function UpdateCaseDurationDialog({
         return
       }
 
-      const startFieldFilters = buildFieldFilters(
+      const startFilters = buildDurationFilters(
         values.start.eventType,
         values.start.filterValues,
         values.start
       )
-      const endFieldFilters = buildFieldFilters(
+      const endFilters = buildDurationFilters(
         values.end.eventType,
         values.end.filterValues,
         values.end
@@ -106,14 +120,12 @@ export function UpdateCaseDurationDialog({
         start_anchor: {
           event_type: values.start.eventType,
           selection: values.start.selection,
-          timestamp_path: "created_at",
-          ...(startFieldFilters ? { field_filters: startFieldFilters } : {}),
+          ...(startFilters ? { filters: startFilters } : {}),
         },
         end_anchor: {
           event_type: values.end.eventType,
           selection: values.end.selection,
-          timestamp_path: "created_at",
-          ...(endFieldFilters ? { field_filters: endFieldFilters } : {}),
+          ...(endFilters ? { filters: endFilters } : {}),
         },
       }
 

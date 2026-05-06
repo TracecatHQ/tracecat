@@ -2,6 +2,7 @@ import type { Edge, Node } from "@xyflow/react"
 import {
   getLayoutedElements,
   getNodeLayoutDimensions,
+  mergeHydratedEdges,
   mergeHydratedNodes,
 } from "@/components/builder/canvas/graph-layout"
 
@@ -139,5 +140,66 @@ describe("mergeHydratedNodes", () => {
         position: { x: 50, y: 60 },
       }),
     ])
+  })
+
+  it("preserves local ephemeral nodes when requested", () => {
+    const currentNodes = [
+      createNode("trigger-1", "trigger"),
+      createNode("selector-1", "selector", {
+        position: { x: 100, y: 200 },
+      }),
+    ]
+    const hydratedNodes = [createNode("trigger-1", "trigger")]
+
+    expect(
+      mergeHydratedNodes(currentNodes, hydratedNodes, {
+        preserveEphemeral: true,
+        isEphemeralNode: (node) => node.type === "selector",
+      })
+    ).toEqual([
+      createNode("trigger-1", "trigger"),
+      createNode("selector-1", "selector", {
+        position: { x: 100, y: 200 },
+      }),
+    ])
+  })
+})
+
+describe("mergeHydratedEdges", () => {
+  it("preserves local edges connected to preserved ephemeral nodes", () => {
+    const currentEdges = [
+      createEdge("trigger-1", "selector-1"),
+      createEdge("removed-action", "selector-1"),
+    ]
+    const hydratedEdges = [createEdge("trigger-1", "action-1")]
+    const nodes = [
+      createNode("trigger-1", "trigger"),
+      createNode("action-1", "udf"),
+      createNode("selector-1", "selector"),
+    ]
+
+    expect(
+      mergeHydratedEdges(currentEdges, hydratedEdges, nodes, {
+        preserveEphemeral: true,
+        isEphemeralNode: (node) => node.type === "selector",
+      })
+    ).toEqual([
+      createEdge("trigger-1", "action-1"),
+      createEdge("trigger-1", "selector-1"),
+    ])
+  })
+
+  it("uses the hydrated edge list when ephemeral preservation is disabled", () => {
+    const currentEdges = [createEdge("trigger-1", "selector-1")]
+    const hydratedEdges = [createEdge("trigger-1", "action-1")]
+    const nodes = [
+      createNode("trigger-1", "trigger"),
+      createNode("action-1", "udf"),
+      createNode("selector-1", "selector"),
+    ]
+
+    expect(mergeHydratedEdges(currentEdges, hydratedEdges, nodes)).toEqual(
+      hydratedEdges
+    )
   })
 })

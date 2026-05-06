@@ -1,6 +1,6 @@
 # ECS Task Definition for API Service
 resource "aws_ecs_task_definition" "api_task_definition" {
-  family                   = "TracecatApiTaskDefinition"
+  family                   = "${var.iam_name_prefix}ApiTaskDefinition"
   network_mode             = "awsvpc"
   requires_compatibilities = ["FARGATE"]
   cpu                      = var.api_cpu
@@ -16,7 +16,7 @@ resource "aws_ecs_task_definition" "api_task_definition" {
   container_definitions = jsonencode([
     {
       name      = "TracecatApiMigrationsContainer"
-      image     = "${var.tracecat_image}:${local.tracecat_image_tag}"
+      image     = "${local.tracecat_migrations_image}:${local.tracecat_migrations_image_tag}"
       essential = false
       command   = ["python3", "-m", "alembic", "upgrade", "head"]
       logConfiguration = {

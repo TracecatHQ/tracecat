@@ -1,5 +1,4 @@
 import uuid
-from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, Query, status
 
@@ -16,8 +15,7 @@ from tracecat.agent.preset.schemas import (
     AgentPresetVersionReadMinimal,
 )
 from tracecat.agent.preset.service import AgentPresetService
-from tracecat.auth.credentials import RoleACL
-from tracecat.auth.types import Role
+from tracecat.auth.dependencies import WorkspaceUserRouteRole
 from tracecat.authz.controls import require_scope
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
@@ -25,21 +23,12 @@ from tracecat.pagination import CursorPaginatedResponse, CursorPaginationParams
 
 router = APIRouter(prefix="/agent/presets", tags=["agent-presets"])
 
-WorkspaceEditorRole = Annotated[
-    Role,
-    RoleACL(
-        allow_user=True,
-        allow_service=False,
-        require_workspace="yes",
-    ),
-]
-
 
 @router.get("", response_model=list[AgentPresetReadMinimal])
 @require_scope("agent:read")
 async def list_agent_presets(
     *,
-    role: WorkspaceEditorRole,
+    role: WorkspaceUserRouteRole,
     session: AsyncDBSession,
 ) -> list[AgentPresetReadMinimal]:
     """List all agent presets for the current workspace."""
@@ -57,14 +46,14 @@ async def list_agent_presets(
 async def create_agent_preset(
     *,
     params: AgentPresetCreate,
-    role: WorkspaceEditorRole,
+    role: WorkspaceUserRouteRole,
     session: AsyncDBSession,
 ) -> AgentPresetRead:
     """Create a new agent preset."""
     service = AgentPresetService(session, role=role)
     try:
         preset = await service.create_preset(params)
-        return AgentPresetRead.model_validate(preset)
+        return await service.build_preset_read(preset)
     except TracecatValidationError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -77,7 +66,7 @@ async def create_agent_preset(
 async def get_agent_preset(
     *,
     preset_id: uuid.UUID,
-    role: WorkspaceEditorRole,
+    role: WorkspaceUserRouteRole,
     session: AsyncDBSession,
 ) -> AgentPresetRead:
     """Retrieve an agent preset by ID."""
@@ -87,7 +76,7 @@ async def get_agent_preset(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Agent preset with ID '{preset_id}' not found",
         )
-    return AgentPresetRead.model_validate(preset)
+    return await service.build_preset_read(preset)
 
 
 @router.get("/by-slug/{slug}", response_model=AgentPresetRead)
@@ -95,7 +84,7 @@ async def get_agent_preset(
 async def get_agent_preset_by_slug(
     *,
     slug: str,
-    role: WorkspaceEditorRole,
+    role: WorkspaceUserRouteRole,
     session: AsyncDBSession,
 ) -> AgentPresetRead:
     """Retrieve an agent preset by slug."""
@@ -105,7 +94,7 @@ async def get_agent_preset_by_slug(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Agent preset with slug '{slug}' not found",
         )
-    return AgentPresetRead.model_validate(preset)
+    return await service.build_preset_read(preset)
 
 
 @router.patch("/{preset_id}", response_model=AgentPresetRead)
@@ -114,7 +103,7 @@ async def update_agent_preset(
     *,
     preset_id: uuid.UUID,
     params: AgentPresetUpdate,
-    role: WorkspaceEditorRole,
+    role: WorkspaceUserRouteRole,
     session: AsyncDBSession,
 ) -> AgentPresetRead:
     """Update an existing agent preset."""
@@ -125,7 +114,7 @@ async def update_agent_preset(
             detail=f"Agent preset {preset_id} not found",
         )
     preset = await service.update_preset(preset, params)
-    return AgentPresetRead.model_validate(preset)
+    return await service.build_preset_read(preset)
 
 
 @router.delete("/{preset_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -133,7 +122,7 @@ async def update_agent_preset(
 async def delete_agent_preset(
     *,
     preset_id: uuid.UUID,
-    role: WorkspaceEditorRole,
+    role: WorkspaceUserRouteRole,
     session: AsyncDBSession,
 ) -> None:
     """Delete an agent preset."""
@@ -154,7 +143,7 @@ async def delete_agent_preset(
 async def list_agent_preset_versions(
     *,
     preset_id: uuid.UUID,
-    role: WorkspaceEditorRole,
+    role: WorkspaceUserRouteRole,
     session: AsyncDBSession,
     limit: int = Query(
         default=config.TRACECAT__LIMIT_DEFAULT,
@@ -175,17 +164,7 @@ async def list_agent_preset_versions(
         preset_id,
         CursorPaginationParams(limit=limit, cursor=cursor, reverse=reverse),
     )
-    return CursorPaginatedResponse(
-        items=[
-            AgentPresetVersionReadMinimal.model_validate(version)
-            for version in versions.items
-        ],
-        next_cursor=versions.next_cursor,
-        prev_cursor=versions.prev_cursor,
-        has_more=versions.has_more,
-        has_previous=versions.has_previous,
-        total_estimate=versions.total_estimate,
-    )
+    return versions
 
 
 @router.get("/{preset_id}/versions/{version_id}", response_model=AgentPresetVersionRead)
@@ -194,7 +173,7 @@ async def get_agent_preset_version(
     *,
     preset_id: uuid.UUID,
     version_id: uuid.UUID,
-    role: WorkspaceEditorRole,
+    role: WorkspaceUserRouteRole,
     session: AsyncDBSession,
 ) -> AgentPresetVersionRead:
     """Retrieve an immutable agent preset version."""
@@ -205,7 +184,7 @@ async def get_agent_preset_version(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Agent preset version '{version_id}' not found",
         )
-    return AgentPresetVersionRead.model_validate(version)
+    return await service.build_version_read(version)
 
 
 @router.get(
@@ -218,7 +197,7 @@ async def compare_agent_preset_versions(
     preset_id: uuid.UUID,
     version_id: uuid.UUID,
     compare_to: uuid.UUID = Query(..., description="Version ID to compare against"),
-    role: WorkspaceEditorRole,
+    role: WorkspaceUserRouteRole,
     session: AsyncDBSession,
 ) -> AgentPresetVersionDiff:
     """Compare two preset versions belonging to the same preset."""
@@ -247,7 +226,7 @@ async def restore_agent_preset_version(
     *,
     preset_id: uuid.UUID,
     version_id: uuid.UUID,
-    role: WorkspaceEditorRole,
+    role: WorkspaceUserRouteRole,
     session: AsyncDBSession,
 ) -> AgentPresetRead:
     """Restore a historical preset version as current."""
@@ -264,8 +243,14 @@ async def restore_agent_preset_version(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Agent preset version '{version_id}' not found",
         )
-    restored = await service.restore_version(preset, version)
-    return AgentPresetRead.model_validate(restored)
+    try:
+        restored = await service.restore_version(preset, version)
+    except TracecatValidationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+    return await service.build_preset_read(restored)
 
 
 @router.post(
@@ -275,7 +260,8 @@ async def restore_agent_preset_version(
 )
 @require_scope("agent:update")
 async def move_agent_preset_to_folder(
-    role: WorkspaceEditorRole,
+    *,
+    role: WorkspaceUserRouteRole,
     session: AsyncDBSession,
     preset_id: uuid.UUID,
     params: AgentPresetMoveToFolder,

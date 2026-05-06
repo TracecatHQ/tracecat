@@ -3,7 +3,7 @@ definition:
   title: Get incident relation
   description: Get a specific relation for an incident in Microsoft Sentinel.
   display_group: Microsoft Sentinel
-  doc_url: https://learn.microsoft.com/en-us/rest/api/securityinsights/incident-relations/get
+  doc_url: https://learn.microsoft.com/en-us/rest/api/securityinsights/incident-relations/get?view=rest-securityinsights-2025-09-01
   namespace: tools.microsoft_sentinel
   name: get_incident_relation
   secrets:

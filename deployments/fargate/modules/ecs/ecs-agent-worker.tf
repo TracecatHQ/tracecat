@@ -1,6 +1,6 @@
 # ECS Task Definition for Agent worker service
 resource "aws_ecs_task_definition" "agent_worker_task_definition" {
-  family                   = "TracecatAgentWorkerTaskDefinition"
+  family                   = "${var.iam_name_prefix}AgentWorkerTaskDefinition"
   network_mode             = "awsvpc"
   requires_compatibilities = ["FARGATE"]
   cpu                      = var.agent_worker_cpu
@@ -27,7 +27,7 @@ resource "aws_ecs_task_definition" "agent_worker_task_definition" {
         }
       }
       environment = local.agent_worker_env
-      secrets     = local.tracecat_base_secrets
+      secrets     = local.tracecat_temporal_secrets
     }
   ])
 }

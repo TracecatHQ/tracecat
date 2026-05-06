@@ -3,7 +3,7 @@ definition:
   title: Revoke sessions
   description: Revoke all IdP sessions for an Okta user.
   display_group: Okta
-  doc_url: https://developer.okta.com/docs/api/openapi/okta-management/management/tag/UserSessions/#tag/UserSessions/operation/revokeUserSessions
+  doc_url: https://developer.okta.com/docs/api/openapi/okta-management/management/tags/usersessions/#tag/UserSessions/operation/revokeUserSessions
   namespace: tools.okta
   name: revoke_sessions
   secrets:

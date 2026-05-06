@@ -65,6 +65,8 @@ describe("jsonSchemaToParams", () => {
         description: "The destination of the HTTP request",
         constraints: "format: uri\nmaxLength: 100\nminLength: 1",
         required: true,
+        deprecated: false,
+        deprecationMessage: "",
       },
       {
         parameter: "headers",
@@ -73,6 +75,8 @@ describe("jsonSchemaToParams", () => {
         description: "HTTP request headers",
         constraints: "additionalProperties: string",
         required: false,
+        deprecated: false,
+        deprecationMessage: "",
       },
       {
         parameter: "payload",
@@ -81,6 +85,8 @@ describe("jsonSchemaToParams", () => {
         description: "HTTP request payload",
         constraints: "",
         required: false,
+        deprecated: false,
+        deprecationMessage: "",
       },
       {
         parameter: "params",
@@ -89,6 +95,8 @@ describe("jsonSchemaToParams", () => {
         description: "URL query parameters",
         constraints: "",
         required: false,
+        deprecated: false,
+        deprecationMessage: "",
       },
       {
         parameter: "method",
@@ -97,6 +105,8 @@ describe("jsonSchemaToParams", () => {
         description: "HTTP reqest method",
         constraints: 'enum: ["GET", "POST", "PUT", "DELETE"]',
         required: false,
+        deprecated: false,
+        deprecationMessage: "",
       },
     ])
   })
