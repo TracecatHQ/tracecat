@@ -14,8 +14,10 @@ from tracecat.db.tenant_rls import (
     ORG_OPTIONAL_WORKSPACE_POLICY_TABLES,
     ORG_POLICY_TABLES,
     SPECIAL_ORG_POLICY_TABLES,
+    SPECIAL_TENANT_POLICY_TABLES,
     SPECIAL_WORKSPACE_POLICY_TABLES,
     WORKSPACE_POLICY_TABLES,
+    enable_agent_tag_link_table_rls,
 )
 from tracecat.tables.service import TablesService
 
@@ -85,6 +87,24 @@ def test_tenant_rls_registry_contains_only_mapped_tables() -> None:
         "Tenant RLS registry contains tables that are not mapped in SQLAlchemy: "
         f"{sorted(stale_registry_entries)}"
     )
+
+
+def test_agent_tag_link_is_registered_for_tenant_rls() -> None:
+    assert "agent_tag_link" in SPECIAL_TENANT_POLICY_TABLES
+
+
+def test_agent_tag_link_rls_policy_uses_parent_workspace_scopes() -> None:
+    policy_sql = enable_agent_tag_link_table_rls()
+
+    assert 'ALTER TABLE "agent_tag_link" ENABLE ROW LEVEL SECURITY' in policy_sql
+    assert "CREATE POLICY rls_policy_agent_tag_link" in policy_sql
+    assert "FROM agent_tag" in policy_sql
+    assert "agent_tag.id = agent_tag_link.tag_id" in policy_sql
+    assert "agent_tag.workspace_id = NULLIF(current_setting" in policy_sql
+    assert "FROM agent_preset" in policy_sql
+    assert "agent_preset.id = agent_tag_link.preset_id" in policy_sql
+    assert "agent_preset.workspace_id = NULLIF(current_setting" in policy_sql
+    assert "WITH CHECK" in policy_sql
 
 
 def test_dynamic_workspace_rls_targets_workspace_scoped_schemas() -> None:
