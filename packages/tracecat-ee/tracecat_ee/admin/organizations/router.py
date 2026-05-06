@@ -139,7 +139,6 @@ async def delete_organization(
     "/{org_id}/invitations",
     response_model=AdminOrgInvitationCreateResponse,
     status_code=status.HTTP_201_CREATED,
-    dependencies=[Depends(_require_multi_tenant)],
 )
 async def create_organization_invitation(
     role: SuperuserRole,
@@ -163,7 +162,6 @@ async def create_organization_invitation(
 @router.get(
     "/{org_id}/invitations",
     response_model=CursorPaginatedResponse[AdminOrgInvitationRead],
-    dependencies=[Depends(_require_multi_tenant)],
 )
 async def list_organization_invitations(
     role: SuperuserRole,
@@ -201,7 +199,6 @@ async def list_organization_invitations(
 @router.get(
     "/{org_id}/invitations/{invitation_id}/token",
     response_model=AdminOrgInvitationTokenRead,
-    dependencies=[Depends(_require_multi_tenant)],
 )
 async def get_organization_invitation_token(
     role: SuperuserRole,
@@ -223,7 +220,6 @@ async def get_organization_invitation_token(
 @router.delete(
     "/{org_id}/invitations/{invitation_id}",
     status_code=status.HTTP_204_NO_CONTENT,
-    dependencies=[Depends(_require_multi_tenant)],
 )
 async def revoke_organization_invitation(
     role: SuperuserRole,
