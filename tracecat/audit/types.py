@@ -36,6 +36,7 @@ AuditResourceType = Literal[
     "workspace_invitation",
     "service_account",
     "service_account_api_key",
+    "mcp_personal_access_token",
     # RBAC resources
     "rbac_scope",
     "rbac_role",
