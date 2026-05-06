@@ -1,0 +1,89 @@
+---
+title: "Skills"
+description: "Create, publish, and attach Tracecat skills to preset agents so reusable instructions and files are available during agent runs."
+icon: "pyramid"
+---
+
+<Badge icon="lock" color="blue" size="lg" shape="pill">Enterprise Edition</Badge>
+
+Skills let you package reusable agent instructions and supporting files.
+Attach published skill versions to a preset agent when the agent needs the same playbook, reference material, or helper files across runs.
+
+## Create a skill
+
+Open `Skills` from the workspace navigation.
+Click `Create new`, then choose `Skill` to start with an empty working copy or `Upload` to import an existing skill directory.
+
+![Skills list](/img/agents/skills-list.png)
+
+Skill names use lowercase letters, numbers, and single hyphens.
+Tracecat seeds new skills with a root `SKILL.md` file.
+
+## Write SKILL.md
+
+Use `SKILL.md` for the skill metadata and instructions.
+The root file must include frontmatter with `name` and `description`.
+
+```md
+---
+name: threat-intel
+description: Enrich indicators and summarize threat intelligence findings.
+---
+
+# threat-intel
+
+Use this skill when you need to enrich IP addresses, domains, URLs, or file
+hashes during alert triage.
+```
+
+Tracecat uses the frontmatter `name` as the published skill name.
+Keep published skill names unique among skills attached to the same preset agent.
+Write the body as instructions the agent can follow during a run.
+
+![Skill editor](/img/agents/skill-editor.png)
+
+## Add files
+
+Add supporting files when the agent needs more than instructions.
+Use files for examples, checklists, schemas, helper scripts, or reference data.
+
+Editable text files open inline in the skill editor.
+Other file types can be replaced, deleted, or downloaded.
+
+## Publish a version
+
+Save the working copy, then click `Publish version`.
+Publishing creates an immutable version from the current files and makes the skill available to preset agents.
+
+![Published skill version](/img/agents/skill-version.png)
+
+Publishing requires:
+
+- A root `SKILL.md` file.
+- Valid YAML frontmatter in `SKILL.md`.
+- A frontmatter `name` that follows the skill name rules.
+- No duplicate paths or path conflicts.
+
+## Attach skills to a preset agent
+
+Open the preset agent, then use the `Skills` tab to attach published skills.
+Each attachment pins one published skill version.
+
+![Attach skills to a preset agent](/img/agents/agent-preset-skills.png)
+
+Only published skills can be attached.
+When you publish a new skill version, update the preset if you want future runs to use it.
+
+## How agents load skills
+
+When a preset agent runs, Tracecat stages the pinned skill versions into the agent runtime.
+The agent can discover the skill by its `SKILL.md` metadata and use the bundled files during the run.
+
+Use skills for reusable agent behavior.
+Use preset instructions for behavior that belongs only to one preset agent.
+
+## Related pages
+
+- See [AI agent](/agents/ai-agent) for the `ai.agent` and `ai.preset_agent` workflow actions.
+- See [Secrets and variables](/agents/secrets-variables) to pass credentials and configuration to preset agent tool calls.
+- See [MCP integrations](/automations/integrations/mcp-integrations) to attach MCP servers to preset agents.
