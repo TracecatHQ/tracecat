@@ -144,6 +144,8 @@ module "ecs" {
   api_cpu                                  = var.api_cpu
   api_memory                               = var.api_memory
   api_desired_count                        = var.api_desired_count
+  migrations_cpu                           = var.migrations_cpu
+  migrations_memory                        = var.migrations_memory
   worker_cpu                               = var.worker_cpu
   worker_memory                            = var.worker_memory
   worker_desired_count                     = var.worker_desired_count

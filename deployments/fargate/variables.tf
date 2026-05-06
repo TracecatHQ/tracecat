@@ -140,13 +140,13 @@ variable "tracecat_image_tag" {
 
 variable "tracecat_migrations_image" {
   type        = string
-  description = "Docker image repository for the Tracecat migrations init container. Defaults to tracecat_image."
+  description = "Docker image repository for the Tracecat migrations task. Defaults to tracecat_image."
   default     = null
 }
 
 variable "tracecat_migrations_image_tag" {
   type        = string
-  description = "Docker image tag for the Tracecat migrations init container. Defaults to tracecat_image_tag."
+  description = "Docker image tag for the Tracecat migrations task. Defaults to tracecat_image_tag."
   default     = null
 }
 
@@ -509,6 +509,18 @@ variable "api_desired_count" {
   type        = number
   description = "Desired number of API instances to run"
   default     = 2
+}
+
+variable "migrations_cpu" {
+  type        = string
+  description = "CPU units for the one-shot database migrations task"
+  default     = "1024"
+}
+
+variable "migrations_memory" {
+  type        = string
+  description = "Memory for the one-shot database migrations task"
+  default     = "2048"
 }
 
 variable "worker_cpu" {
