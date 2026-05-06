@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event"
 import type { WorkflowExecutionResetPointRead } from "@/client"
 import {
   formatResetPointPrimaryLabel,
+  formatResetPointSecondaryLabel,
   ResetWorkflowRunDialog,
 } from "@/components/workflow-runs/reset-workflow-run-dialog"
 
@@ -39,6 +40,21 @@ beforeAll(() => {
 describe("ResetWorkflowRunDialog", () => {
   it("formats action-aware reset labels", () => {
     expect(formatResetPointPrimaryLabel(RESET_POINTS[1])).toBe("After Action A")
+    expect(formatResetPointSecondaryLabel(RESET_POINTS[1])).toBe("Event 8")
+  })
+
+  it("does not repeat fallback event labels", () => {
+    const fallbackPoint: WorkflowExecutionResetPointRead = {
+      event_id: 12,
+      event_time: "2026-01-01T00:00:04Z",
+      event_type: "WORKFLOW_TASK_COMPLETED",
+      label: "Event 12",
+      is_start: false,
+      is_resettable: true,
+    }
+
+    expect(formatResetPointPrimaryLabel(fallbackPoint)).toBe("Event 12")
+    expect(formatResetPointSecondaryLabel(fallbackPoint)).toBeNull()
   })
 
   it("submits workflow start as an empty event ID", async () => {

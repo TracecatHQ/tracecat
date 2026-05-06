@@ -1889,6 +1889,7 @@ class WorkflowExecutionsService:
         cls,
         point: WorkflowExecutionResetPointRead,
         action_contexts: Sequence[WorkflowResetActionContext],
+        resettable_event_ids: Sequence[int],
     ) -> WorkflowExecutionResetPointRead:
         if point.is_start:
             return point.model_copy(update={"label": "Workflow start"})
@@ -1900,6 +1901,10 @@ class WorkflowExecutionsService:
             for action in action_contexts
             if action.close_event_id is not None
             and action.close_event_id <= point.event_id
+            and cls._first_resettable_after_event(
+                resettable_event_ids, action.close_event_id
+            )
+            == point.event_id
         ]
         if closed_actions:
             action = max(
@@ -1917,6 +1922,13 @@ class WorkflowExecutionsService:
             action
             for action in action_contexts
             if action.source_event_id <= point.event_id
+            and (
+                action.close_event_id is None or action.close_event_id > point.event_id
+            )
+            and cls._first_resettable_after_event(
+                resettable_event_ids, action.source_event_id
+            )
+            == point.event_id
         ]
         if scheduled_actions:
             action = max(scheduled_actions, key=lambda item: item.source_event_id)
@@ -1931,6 +1943,10 @@ class WorkflowExecutionsService:
             action
             for action in action_contexts
             if action.source_event_id > point.event_id
+            and cls._last_resettable_before_event(
+                resettable_event_ids, action.source_event_id
+            )
+            == point.event_id
         ]
         if future_actions:
             action = min(future_actions, key=lambda item: item.source_event_id)
@@ -1941,6 +1957,32 @@ class WorkflowExecutionsService:
                 action_event_id=action.source_event_id,
             )
         return point
+
+    @staticmethod
+    def _first_resettable_after_event(
+        resettable_event_ids: Sequence[int], event_id: int
+    ) -> int | None:
+        return next(
+            (
+                resettable_event_id
+                for resettable_event_id in resettable_event_ids
+                if resettable_event_id > event_id
+            ),
+            None,
+        )
+
+    @staticmethod
+    def _last_resettable_before_event(
+        resettable_event_ids: Sequence[int], event_id: int
+    ) -> int | None:
+        return next(
+            (
+                resettable_event_id
+                for resettable_event_id in reversed(resettable_event_ids)
+                if resettable_event_id < event_id
+            ),
+            None,
+        )
 
     @staticmethod
     async def _build_reset_action_contexts(
@@ -2034,7 +2076,13 @@ class WorkflowExecutionsService:
                 point.is_start = point.event_id == first_resettable_event_id
 
         action_contexts = await self._build_reset_action_contexts(events)
-        return [self._annotate_reset_point(point, action_contexts) for point in points]
+        resettable_event_ids = [
+            point.event_id for point in points if point.is_resettable
+        ]
+        return [
+            self._annotate_reset_point(point, action_contexts, resettable_event_ids)
+            for point in points
+        ]
 
     async def _resolve_reset_event_id(
         self,
