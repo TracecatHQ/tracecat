@@ -89,6 +89,7 @@ from tracecat.workflow.executions.schemas import (
 )
 from tracecat.workflow.executions.service import (
     WorkflowExecutionNotFoundError,
+    WorkflowExecutionResetLineage,
     WorkflowExecutionResultMaskedError,
     WorkflowExecutionResultNotFoundError,
     WorkflowExecutionsService,
@@ -347,6 +348,7 @@ async def _load_workflow_metadata_map(
 def _to_workflow_run_read_minimal(
     execution: WorkflowExecution,
     workflow_metadata: dict[WorkflowIDShort, tuple[str, str | None]],
+    reset_lineage: WorkflowExecutionResetLineage | None = None,
 ) -> WorkflowRunReadMinimal:
     workflow_id: WorkflowIDShort | None = None
     workflow_title: str | None = None
@@ -367,6 +369,11 @@ def _to_workflow_run_read_minimal(
         workflow_id=workflow_id,
         workflow_title=workflow_title,
         workflow_alias=workflow_alias,
+        has_been_reset=reset_lineage.has_been_reset if reset_lineage else False,
+        is_reset_run=reset_lineage.is_reset_run if reset_lineage else False,
+        reset_original_run_id=reset_lineage.original_run_id if reset_lineage else None,
+        reset_run_count=reset_lineage.reset_run_count if reset_lineage else 0,
+        reset_run_index=reset_lineage.reset_run_index if reset_lineage else None,
     )
 
 
@@ -520,8 +527,13 @@ async def search_workflow_executions(
         role=role,
         workflow_ids=page_workflow_ids,
     )
+    reset_lineage_by_run_id = await service.get_reset_lineage_by_run_id(page.items)
     items = [
-        _to_workflow_run_read_minimal(execution, workflow_metadata)
+        _to_workflow_run_read_minimal(
+            execution,
+            workflow_metadata,
+            reset_lineage=reset_lineage_by_run_id.get(execution.run_id),
+        )
         for execution in page.items
     ]
     return CursorPaginatedResponse(

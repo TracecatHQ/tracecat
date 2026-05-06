@@ -147,6 +147,22 @@ class WorkflowExecutionsPage:
     has_previous: bool
 
 
+@dataclass(frozen=True)
+class WorkflowExecutionResetLineage:
+    has_been_reset: bool
+    is_reset_run: bool
+    original_run_id: str | None = None
+    reset_run_count: int = 0
+    reset_run_index: int | None = None
+
+
+@dataclass(frozen=True)
+class _WorkflowRunResetDescription:
+    execution: WorkflowExecution
+    first_run_id: str | None
+    is_reset_run: bool
+
+
 def _unwrap_loop_control_result(value: Any) -> Any:
     """Unwrap loop control result payloads across known envelope shapes."""
     curr = value
@@ -434,6 +450,141 @@ class WorkflowExecutionsService:
         if not clauses:
             return None
         return f"({' OR '.join(clauses)})"
+
+    @staticmethod
+    def _quote_temporal_visibility_value(value: str) -> str:
+        return value.replace("\\", "\\\\").replace("'", "\\'")
+
+    @staticmethod
+    def _build_exact_execution_ids_clause(
+        execution_ids: Sequence[WorkflowExecutionID],
+    ) -> str | None:
+        unique_ids = sorted({str(execution_id) for execution_id in execution_ids})
+        if not unique_ids:
+            return None
+        clauses = [
+            (
+                "WorkflowId = "
+                f"'{WorkflowExecutionsService._quote_temporal_visibility_value(execution_id)}'"
+            )
+            for execution_id in unique_ids
+        ]
+        return f"({' OR '.join(clauses)})"
+
+    async def _describe_reset_lineage_run(
+        self, execution: WorkflowExecution
+    ) -> _WorkflowRunResetDescription:
+        handle = self._client.get_workflow_handle(execution.id, run_id=execution.run_id)
+        description = await handle.describe()
+        raw_description = description.raw_description
+        execution_info = raw_description.workflow_execution_info
+        extended_info = raw_description.workflow_extended_info
+        first_run_id = execution_info.first_run_id or None
+        return _WorkflowRunResetDescription(
+            execution=execution,
+            first_run_id=first_run_id,
+            is_reset_run=extended_info.HasField("last_reset_time"),
+        )
+
+    async def _describe_reset_lineage_runs(
+        self,
+        executions: Sequence[WorkflowExecution],
+        *,
+        concurrency_limit: int = 10,
+    ) -> list[_WorkflowRunResetDescription]:
+        semaphore = asyncio.Semaphore(max(1, concurrency_limit))
+
+        async def describe(
+            execution: WorkflowExecution,
+        ) -> _WorkflowRunResetDescription | None:
+            async with semaphore:
+                try:
+                    return await self._describe_reset_lineage_run(execution)
+                except RPCError as e:
+                    self.logger.warning(
+                        "Could not describe workflow run reset lineage",
+                        wf_exec_id=execution.id,
+                        run_id=execution.run_id,
+                        error=e,
+                    )
+                    return None
+
+        results = await asyncio.gather(
+            *(describe(execution) for execution in executions)
+        )
+        return [result for result in results if result is not None]
+
+    @staticmethod
+    def _build_reset_lineage_from_descriptions(
+        descriptions: Sequence[_WorkflowRunResetDescription],
+    ) -> dict[str, WorkflowExecutionResetLineage]:
+        if not descriptions:
+            return {}
+
+        sorted_descriptions = sorted(
+            descriptions, key=lambda item: item.execution.start_time
+        )
+        reset_descriptions = [
+            description
+            for description in sorted_descriptions
+            if description.is_reset_run
+        ]
+        reset_run_count = len(reset_descriptions)
+        if reset_run_count == 0:
+            return {}
+
+        original_run_id = next(
+            (
+                description.first_run_id
+                for description in sorted_descriptions
+                if description.first_run_id
+            ),
+            sorted_descriptions[0].execution.run_id,
+        )
+        reset_index_by_run_id = {
+            description.execution.run_id: index
+            for index, description in enumerate(reset_descriptions, start=1)
+        }
+        return {
+            description.execution.run_id: WorkflowExecutionResetLineage(
+                has_been_reset=True,
+                is_reset_run=description.is_reset_run,
+                original_run_id=original_run_id,
+                reset_run_count=reset_run_count,
+                reset_run_index=reset_index_by_run_id.get(description.execution.run_id),
+            )
+            for description in sorted_descriptions
+        }
+
+    async def get_reset_lineage_by_run_id(
+        self, executions: Sequence[WorkflowExecution]
+    ) -> dict[str, WorkflowExecutionResetLineage]:
+        """Return reset lineage metadata keyed by Temporal run ID."""
+        execution_ids_clause = self._build_exact_execution_ids_clause(
+            [cast(WorkflowExecutionID, execution.id) for execution in executions]
+        )
+        if execution_ids_clause is None:
+            return {}
+
+        query = (
+            f"{TemporalSearchAttr.WORKSPACE_ID.value} = '{self.workspace_id}' "
+            f"AND {execution_ids_clause}"
+        )
+        runs_by_execution_id: dict[str, list[WorkflowExecution]] = {}
+        async for execution in self._client.list_workflows(query=query):
+            if not self._is_execution_visible_in_workspace(execution):
+                continue
+            runs_by_execution_id.setdefault(execution.id, []).append(execution)
+
+        lineage_by_run_id: dict[str, WorkflowExecutionResetLineage] = {}
+        for runs in runs_by_execution_id.values():
+            if len(runs) <= 1:
+                continue
+            descriptions = await self._describe_reset_lineage_runs(runs)
+            lineage_by_run_id.update(
+                self._build_reset_lineage_from_descriptions(descriptions)
+            )
+        return lineage_by_run_id
 
     async def list_executions_paginated(
         self,

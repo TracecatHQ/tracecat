@@ -8,6 +8,7 @@ import {
   CircleDot,
   CircleHelpIcon,
   FlagTriangleRight,
+  RotateCcw,
 } from "lucide-react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
@@ -70,6 +71,70 @@ function getRelativeDateLabel(dateValue: string): string {
     return "-"
   }
   return formatDistanceToNow(new Date(dateValue), { addSuffix: true })
+}
+
+function getShortRunId(runId: string | null | undefined): string | null {
+  if (!runId) {
+    return null
+  }
+  return runId.slice(0, 8)
+}
+
+function getResetRunCountLabel(count: number | undefined): string {
+  if (!count) {
+    return "reset history"
+  }
+  return `${count} ${count === 1 ? "reset" : "resets"}`
+}
+
+function ResetLineageBadge({ run }: { run: WorkflowRunReadMinimal }) {
+  if (!run.has_been_reset) {
+    return null
+  }
+
+  const originalRunShortId = getShortRunId(run.reset_original_run_id)
+  const resetIndexLabel = run.reset_run_index
+    ? `Reset #${run.reset_run_index}`
+    : "Reset run"
+  const resetCountLabel = getResetRunCountLabel(run.reset_run_count)
+  let label = `Original - ${resetCountLabel}`
+  if (run.is_reset_run) {
+    label = originalRunShortId
+      ? `${resetIndexLabel} from ${originalRunShortId}`
+      : resetIndexLabel
+  }
+
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Badge
+          variant="outline"
+          className="h-5 shrink-0 cursor-default gap-1 px-1.5 text-[10px] font-normal text-muted-foreground"
+        >
+          <RotateCcw className="size-3" />
+          <span className="max-w-[140px] truncate">{label}</span>
+        </Badge>
+      </TooltipTrigger>
+      <TooltipContent className="max-w-80 space-y-1">
+        <div className="font-medium">
+          {run.is_reset_run ? "Reset-created run" : "Original run"}
+        </div>
+        {run.is_reset_run ? (
+          <div>
+            Original run:{" "}
+            <span className="font-mono">
+              {run.reset_original_run_id ?? "Unavailable"}
+            </span>
+          </div>
+        ) : (
+          <div>Reset-created runs: {run.reset_run_count ?? 0}</div>
+        )}
+        <div>
+          Current run: <span className="font-mono">{run.run_id}</span>
+        </div>
+      </TooltipContent>
+    </Tooltip>
+  )
 }
 
 export function WorkflowRunItem({
@@ -148,36 +213,39 @@ export function WorkflowRunItem({
       <div className="flex min-w-0 flex-1 items-center gap-3">
         <div className="flex min-w-0 flex-1 items-center gap-2">
           {statusIcon}
-          {workflowId ? (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <div className="flex min-w-0 items-center gap-2">
-                  <span className="truncate text-xs font-medium">
-                    {run.workflow_title ?? "Unknown workflow"}
-                  </span>
-                  {run.workflow_alias ? (
-                    <span className="truncate text-[10px] text-muted-foreground">
-                      @{run.workflow_alias}
+          <div className="flex min-w-0 flex-1 items-center gap-2">
+            {workflowId ? (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <div className="flex min-w-0 flex-1 items-center gap-2">
+                    <span className="truncate text-xs font-medium">
+                      {run.workflow_title ?? "Unknown workflow"}
                     </span>
-                  ) : null}
-                </div>
-              </TooltipTrigger>
-              <TooltipContent>
-                <span>Workflow ID: {workflowId}</span>
-              </TooltipContent>
-            </Tooltip>
-          ) : (
-            <div className="flex min-w-0 items-center gap-2">
-              <span className="truncate text-xs font-medium">
-                {run.workflow_title ?? "Unknown workflow"}
-              </span>
-              {run.workflow_alias ? (
-                <span className="truncate text-[10px] text-muted-foreground">
-                  @{run.workflow_alias}
+                    {run.workflow_alias ? (
+                      <span className="truncate text-[10px] text-muted-foreground">
+                        @{run.workflow_alias}
+                      </span>
+                    ) : null}
+                  </div>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <span>Workflow ID: {workflowId}</span>
+                </TooltipContent>
+              </Tooltip>
+            ) : (
+              <div className="flex min-w-0 flex-1 items-center gap-2">
+                <span className="truncate text-xs font-medium">
+                  {run.workflow_title ?? "Unknown workflow"}
                 </span>
-              ) : null}
-            </div>
-          )}
+                {run.workflow_alias ? (
+                  <span className="truncate text-[10px] text-muted-foreground">
+                    @{run.workflow_alias}
+                  </span>
+                ) : null}
+              </div>
+            )}
+            <ResetLineageBadge run={run} />
+          </div>
         </div>
 
         <div className="flex shrink-0 items-center gap-1">
