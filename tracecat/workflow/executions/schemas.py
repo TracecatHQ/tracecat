@@ -195,6 +195,28 @@ class WorkflowRunReadMinimal(WorkflowExecutionReadMinimal):
             "Workflow alias from workspace metadata or execution search attributes."
         ),
     )
+    has_been_reset: bool = Field(
+        default=False,
+        description="True when this run belongs to an execution that has reset runs.",
+    )
+    is_reset_run: bool = Field(
+        default=False,
+        description="True when this specific Temporal run was created by reset.",
+    )
+    reset_original_run_id: str | None = Field(
+        default=None,
+        description="Temporal run ID of the original run in this reset lineage.",
+    )
+    reset_run_count: int = Field(
+        default=0,
+        ge=0,
+        description="Number of reset-created runs in this execution lineage.",
+    )
+    reset_run_index: int | None = Field(
+        default=None,
+        ge=1,
+        description="One-based index of this reset-created run in reset order.",
+    )
 
     @staticmethod
     def from_dataclass(
@@ -203,6 +225,11 @@ class WorkflowRunReadMinimal(WorkflowExecutionReadMinimal):
         workflow_id: str | None = None,
         workflow_title: str | None = None,
         workflow_alias: str | None = None,
+        has_been_reset: bool = False,
+        is_reset_run: bool = False,
+        reset_original_run_id: str | None = None,
+        reset_run_count: int = 0,
+        reset_run_index: int | None = None,
     ) -> WorkflowRunReadMinimal:
         base = WorkflowExecutionReadMinimal.from_dataclass(execution)
         return WorkflowRunReadMinimal(
@@ -221,6 +248,11 @@ class WorkflowRunReadMinimal(WorkflowExecutionReadMinimal):
             workflow_id=workflow_id,
             workflow_title=workflow_title,
             workflow_alias=workflow_alias,
+            has_been_reset=has_been_reset,
+            is_reset_run=is_reset_run,
+            reset_original_run_id=reset_original_run_id,
+            reset_run_count=reset_run_count,
+            reset_run_index=reset_run_index,
         )
 
 

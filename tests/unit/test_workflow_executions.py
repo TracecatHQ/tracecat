@@ -14,6 +14,7 @@ Objectives
 import datetime
 import hashlib
 import uuid
+from types import SimpleNamespace
 from typing import Any, cast
 from unittest.mock import AsyncMock, Mock, patch
 
@@ -23,7 +24,7 @@ from pydantic import BaseModel
 from temporalio.api.enums.v1 import EventType, ParentClosePolicy, PendingActivityState
 from temporalio.api.failure.v1 import Failure
 from temporalio.api.history.v1 import HistoryEvent
-from temporalio.client import Client, WorkflowHandle
+from temporalio.client import Client, WorkflowExecution, WorkflowHandle
 from temporalio.converter import DefaultPayloadConverter
 
 from tracecat.auth.types import Role
@@ -60,6 +61,7 @@ from tracecat.workflow.executions.service import (
     WF_TRIGGER_REF,
     WorkflowExecutionsService,
     _sanitize_action_result,
+    _WorkflowRunResetDescription,
 )
 from tracecat.workspaces.service import WorkspaceService
 
@@ -188,6 +190,23 @@ def create_mock_timestamp(event_time_seconds: int = 1640995200) -> Mock:
         event_time_seconds, tz=datetime.UTC
     )
     return mock_timestamp
+
+
+def create_reset_lineage_execution(
+    run_id: str, *, start_offset_seconds: int
+) -> WorkflowExecution:
+    """Create the minimal WorkflowExecution shape needed by reset lineage tests."""
+    return cast(
+        WorkflowExecution,
+        SimpleNamespace(
+            id="wf_test/exec_test",
+            run_id=run_id,
+            start_time=datetime.datetime.fromtimestamp(
+                1640995200 + start_offset_seconds,
+                tz=datetime.UTC,
+            ),
+        ),
+    )
 
 
 def create_mock_child_workflow_initiated_event(
@@ -2820,3 +2839,66 @@ async def test_list_executions_paginated_emits_prev_cursor_history(
     assert rewound_page.has_previous is False
     assert rewound_page.prev_cursor is None
     assert calls == [None, b"page-2", None]
+
+
+def test_build_reset_lineage_marks_original_and_reset_runs() -> None:
+    original = create_reset_lineage_execution("run-original", start_offset_seconds=0)
+    reset_1 = create_reset_lineage_execution("run-reset-1", start_offset_seconds=10)
+    reset_2 = create_reset_lineage_execution("run-reset-2", start_offset_seconds=20)
+
+    lineage = WorkflowExecutionsService._build_reset_lineage_from_descriptions(
+        [
+            _WorkflowRunResetDescription(
+                execution=reset_2,
+                first_run_id="run-original",
+                is_reset_run=True,
+            ),
+            _WorkflowRunResetDescription(
+                execution=original,
+                first_run_id="run-original",
+                is_reset_run=False,
+            ),
+            _WorkflowRunResetDescription(
+                execution=reset_1,
+                first_run_id="run-original",
+                is_reset_run=True,
+            ),
+        ]
+    )
+
+    original_lineage = lineage["run-original"]
+    assert original_lineage.has_been_reset is True
+    assert original_lineage.is_reset_run is False
+    assert original_lineage.original_run_id == "run-original"
+    assert original_lineage.reset_run_count == 2
+    assert original_lineage.reset_run_index is None
+
+    reset_1_lineage = lineage["run-reset-1"]
+    assert reset_1_lineage.has_been_reset is True
+    assert reset_1_lineage.is_reset_run is True
+    assert reset_1_lineage.original_run_id == "run-original"
+    assert reset_1_lineage.reset_run_count == 2
+    assert reset_1_lineage.reset_run_index == 1
+
+    reset_2_lineage = lineage["run-reset-2"]
+    assert reset_2_lineage.has_been_reset is True
+    assert reset_2_lineage.is_reset_run is True
+    assert reset_2_lineage.original_run_id == "run-original"
+    assert reset_2_lineage.reset_run_count == 2
+    assert reset_2_lineage.reset_run_index == 2
+
+
+def test_build_reset_lineage_returns_empty_without_reset_runs() -> None:
+    original = create_reset_lineage_execution("run-original", start_offset_seconds=0)
+
+    lineage = WorkflowExecutionsService._build_reset_lineage_from_descriptions(
+        [
+            _WorkflowRunResetDescription(
+                execution=original,
+                first_run_id="run-original",
+                is_reset_run=False,
+            )
+        ]
+    )
+
+    assert lineage == {}
