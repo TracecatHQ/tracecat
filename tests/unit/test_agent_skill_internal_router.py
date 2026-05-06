@@ -7,7 +7,11 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from fastapi import HTTPException
 
-from tracecat.agent.skill.internal_router import list_skill_versions, list_skills
+from tracecat.agent.skill.internal_router import (
+    list_skill_versions,
+    list_skills,
+    publish_skill_version,
+)
 from tracecat.auth.types import Role
 from tracecat.exceptions import TracecatValidationError
 
@@ -73,3 +77,33 @@ async def test_list_skill_versions_converts_invalid_cursor_to_http_400() -> None
 
     assert exc_info.value.status_code == 400
     assert exc_info.value.detail == "Invalid cursor for skill versions"
+
+
+@pytest.mark.anyio
+async def test_publish_skill_version_converts_version_conflict_to_http_409() -> None:
+    current_version_id = uuid.uuid4()
+    detail = {
+        "code": "skill_version_conflict",
+        "current_version_id": str(current_version_id),
+    }
+    mock_service = AsyncMock()
+    mock_service.publish_skill_version.side_effect = TracecatValidationError(
+        "Skill version conflict",
+        detail=detail,
+    )
+
+    with patch(
+        "tracecat.agent.skill.internal_router.SkillService",
+        return_value=mock_service,
+    ):
+        with pytest.raises(HTTPException) as exc_info:
+            raw_publish_skill_version = cast(Any, publish_skill_version).__wrapped__
+            await raw_publish_skill_version(
+                skill_id=uuid.uuid4(),
+                params=cast(Any, object()),
+                role=_executor_role(),
+                session=AsyncMock(),
+            )
+
+    assert exc_info.value.status_code == 409
+    assert exc_info.value.detail == detail

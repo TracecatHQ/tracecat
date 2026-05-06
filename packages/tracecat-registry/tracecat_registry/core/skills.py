@@ -33,7 +33,7 @@ async def list_skills(
 @registry.register(
     default_title="Create agent skill",
     display_group="Agent Skills",
-    description="Create a new workspace agent skill with an empty draft.",
+    description="Create a workspace agent skill shell before publishing a version.",
     namespace="ai.skill",
     required_entitlements=["agent_addons"],
 )
@@ -56,14 +56,32 @@ async def get_skill(skill_id: Annotated[str, Doc("Skill UUID.")]) -> dict[str, A
 
 
 @registry.register(
-    default_title="Publish agent skill",
+    default_title="Publish agent skill version",
     display_group="Agent Skills",
-    description="Publish the current draft into a new immutable skill version.",
+    description="Publish a complete file set as a new immutable skill version.",
     namespace="ai.skill",
     required_entitlements=["agent_addons"],
 )
-async def publish_skill(skill_id: Annotated[str, Doc("Skill UUID.")]) -> dict[str, Any]:
-    return await get_context().agents.publish_skill(skill_id)
+async def publish_skill_version(
+    skill_id: Annotated[str, Doc("Skill UUID.")],
+    base_version_id: Annotated[
+        str | None,
+        Doc(
+            "Current version UUID observed before publishing. Use null for the first version."
+        ),
+    ],
+    files: Annotated[
+        list[dict[str, Any]],
+        Doc(
+            "Complete version file set. Each file requires path and content_base64, with optional content_type."
+        ),
+    ],
+) -> dict[str, Any]:
+    return await get_context().agents.publish_skill_version(
+        skill_id=skill_id,
+        base_version_id=base_version_id,
+        files=files,
+    )
 
 
 @registry.register(

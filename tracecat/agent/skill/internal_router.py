@@ -16,6 +16,7 @@ from tracecat.agent.skill.schemas import (
     SkillRead,
     SkillReadMinimal,
     SkillUpload,
+    SkillVersionPublish,
     SkillVersionRead,
     SkillVersionReadMinimal,
 )
@@ -37,6 +38,7 @@ def _raise_skill_validation_error(exc: TracecatValidationError) -> Never:
     status_code = status.HTTP_400_BAD_REQUEST
     if isinstance(exc.detail, dict) and exc.detail.get("code") in {
         "draft_revision_conflict",
+        "skill_version_conflict",
         "skill_in_use",
     }:
         status_code = status.HTTP_409_CONFLICT
@@ -141,6 +143,30 @@ async def publish_skill(
     service = SkillService(session, role=role)
     try:
         return await service.publish_skill(skill_id)
+    except TracecatValidationError as exc:
+        _raise_skill_validation_error(exc)
+    except TracecatNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)
+        ) from exc
+
+
+@router.post(
+    "/{skill_id}/versions",
+    response_model=SkillVersionRead,
+    status_code=status.HTTP_201_CREATED,
+)
+@require_scope("agent:update")
+async def publish_skill_version(
+    *,
+    skill_id: uuid.UUID,
+    params: SkillVersionPublish,
+    role: ExecutorWorkspaceRole,
+    session: AsyncDBSession,
+) -> SkillVersionRead:
+    service = SkillService(session, role=role)
+    try:
+        return await service.publish_skill_version(skill_id=skill_id, params=params)
     except TracecatValidationError as exc:
         _raise_skill_validation_error(exc)
     except TracecatNotFoundError as exc:

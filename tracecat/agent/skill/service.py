@@ -36,9 +36,11 @@ from tracecat.agent.skill.schemas import (
     SkillRead,
     SkillReadMinimal,
     SkillUpload,
+    SkillUploadFile,
     SkillUploadSessionCreate,
     SkillUploadSessionRead,
     SkillValidationErrorDetail,
+    SkillVersionPublish,
     SkillVersionRead,
     SkillVersionReadMinimal,
 )
@@ -866,6 +868,99 @@ class SkillService(BaseWorkspaceService):
             )
         return result
 
+    def _prepare_upload_files(
+        self, files: Sequence[SkillUploadFile]
+    ) -> list[PreparedSkillUploadFile]:
+        """Normalize and decode file payloads before validation."""
+
+        prepared_files: list[PreparedSkillUploadFile] = []
+        for file_payload in files:
+            path = self._normalize_path(file_payload.path)
+            try:
+                content = base64.b64decode(file_payload.content_base64, validate=True)
+            except ValueError as exc:
+                raise TracecatValidationError(
+                    f"Invalid base64 content for skill path {path!r}",
+                    detail={"code": "invalid_base64", "path": path},
+                ) from exc
+            content_type = self._normalize_content_type(
+                file_payload.content_type or self._guess_content_type(path)
+            )
+            prepared_files.append(
+                PreparedSkillUploadFile(
+                    path=path,
+                    content=content,
+                    content_type=content_type,
+                )
+            )
+        return prepared_files
+
+    async def _create_version_from_blob_refs(
+        self,
+        *,
+        skill: Skill,
+        file_refs: Sequence[tuple[str, SkillFileBlobRef]],
+        validation: ManifestValidationResult,
+    ) -> SkillVersionRead:
+        """Create a new immutable version from validated skill files."""
+
+        if validation.name is None:
+            self._raise_missing_draft_name(operation="publish")
+        manifest_name = validation.name
+        sorted_file_refs = sorted(file_refs, key=lambda item: item[0])
+        manifest_payload = [
+            {
+                "path": path,
+                "sha256": file_ref.blob.sha256,
+                "size_bytes": file_ref.blob.size_bytes,
+                "content_type": file_ref.content_type,
+            }
+            for path, file_ref in sorted_file_refs
+        ]
+        manifest_sha256 = self._compute_sha256(orjson.dumps(manifest_payload))
+
+        stmt = (
+            select(SkillVersion.version)
+            .where(
+                SkillVersion.workspace_id == self.workspace_id,
+                SkillVersion.skill_id == skill.id,
+            )
+            .order_by(SkillVersion.version.desc())
+            .limit(1)
+        )
+        current_version_number = (await self.session.execute(stmt)).scalar_one_or_none()
+        next_version = (current_version_number or 0) + 1
+        version = SkillVersion(
+            workspace_id=self.workspace_id,
+            skill_id=skill.id,
+            version=next_version,
+            manifest_sha256=manifest_sha256,
+            file_count=len(sorted_file_refs),
+            total_size_bytes=sum(
+                file_ref.blob.size_bytes for _, file_ref in sorted_file_refs
+            ),
+            name=manifest_name,
+            description=validation.description,
+        )
+        self.session.add(version)
+        await self.session.flush()
+        for path, file_ref in sorted_file_refs:
+            self.session.add(
+                SkillVersionFile(
+                    workspace_id=self.workspace_id,
+                    skill_version_id=version.id,
+                    path=path,
+                    blob_id=file_ref.blob.id,
+                    content_type=file_ref.content_type,
+                )
+            )
+        skill.current_version_id = version.id
+        skill.name = manifest_name
+        skill.description = validation.description
+        self.session.add(skill)
+        await self.session.commit()
+        return await self.get_version_read(skill_id=skill.id, version_id=version.id)
+
     async def _build_draft_read(self, skill: Skill) -> SkillDraftRead:
         """Build the current draft response for a skill."""
 
@@ -1131,27 +1226,7 @@ class SkillService(BaseWorkspaceService):
             The created skill summary.
         """
 
-        prepared_files: list[PreparedSkillUploadFile] = []
-        for file_payload in params.files:
-            path = self._normalize_path(file_payload.path)
-            try:
-                content = base64.b64decode(file_payload.content_base64, validate=True)
-            except ValueError as exc:
-                raise TracecatValidationError(
-                    f"Invalid base64 content for skill path {path!r}",
-                    detail={"code": "invalid_base64", "path": path},
-                ) from exc
-            content_type = self._normalize_content_type(
-                file_payload.content_type or self._guess_content_type(path)
-            )
-            prepared_files.append(
-                PreparedSkillUploadFile(
-                    path=path,
-                    content=content,
-                    content_type=content_type,
-                )
-            )
-
+        prepared_files = self._prepare_upload_files(params.files)
         validation = self._validate_prepared_upload_files(prepared_files)
         if validation.errors:
             raise TracecatValidationError(
@@ -1696,60 +1771,71 @@ class SkillService(BaseWorkspaceService):
                     ],
                 },
             )
-        if validation.name is None:
-            self._raise_missing_draft_name(operation="publish")
-        manifest_name = validation.name
-
-        manifest_payload = [
-            {
-                "path": draft_file.path,
-                "sha256": blob_row.sha256,
-                "size_bytes": blob_row.size_bytes,
-                "content_type": draft_file.content_type,
-            }
-            for draft_file, blob_row in rows
-        ]
-        manifest_sha256 = self._compute_sha256(orjson.dumps(manifest_payload))
-
-        stmt = (
-            select(SkillVersion.version)
-            .where(
-                SkillVersion.workspace_id == self.workspace_id,
-                SkillVersion.skill_id == skill.id,
-            )
-            .order_by(SkillVersion.version.desc())
-            .limit(1)
-        )
-        current_version_number = (await self.session.execute(stmt)).scalar_one_or_none()
-        next_version = (current_version_number or 0) + 1
-        version = SkillVersion(
-            workspace_id=self.workspace_id,
-            skill_id=skill.id,
-            version=next_version,
-            manifest_sha256=manifest_sha256,
-            file_count=len(rows),
-            total_size_bytes=sum(blob_row.size_bytes for _, blob_row in rows),
-            name=manifest_name,
-            description=validation.description,
-        )
-        self.session.add(version)
-        await self.session.flush()
-        for draft_file, _blob_row in rows:
-            self.session.add(
-                SkillVersionFile(
-                    workspace_id=self.workspace_id,
-                    skill_version_id=version.id,
-                    path=draft_file.path,
-                    blob_id=draft_file.blob_id,
-                    content_type=draft_file.content_type,
+        return await self._create_version_from_blob_refs(
+            skill=skill,
+            file_refs=[
+                (
+                    draft_file.path,
+                    SkillFileBlobRef(
+                        blob=blob_row,
+                        content_type=draft_file.content_type,
+                    ),
                 )
+                for draft_file, blob_row in rows
+            ],
+            validation=validation,
+        )
+
+    @require_scope("agent:update")
+    @requires_entitlement(Entitlement.AGENT_ADDONS)
+    async def publish_skill_version(
+        self, *, skill_id: uuid.UUID, params: SkillVersionPublish
+    ) -> SkillVersionRead:
+        """Atomically publish a new immutable skill version from a file set."""
+
+        skill = await self._get_skill_for_update(skill_id)
+        if skill is None:
+            raise TracecatNotFoundError(f"Skill '{skill_id}' not found")
+        if skill.current_version_id != params.base_version_id:
+            raise TracecatValidationError(
+                "Skill version conflict",
+                detail={
+                    "code": "skill_version_conflict",
+                    "current_version_id": (
+                        str(skill.current_version_id)
+                        if skill.current_version_id is not None
+                        else None
+                    ),
+                },
             )
-        skill.current_version_id = version.id
-        skill.name = manifest_name
-        skill.description = validation.description
-        self.session.add(skill)
-        await self.session.commit()
-        return await self.get_version_read(skill_id=skill.id, version_id=version.id)
+
+        prepared_files = self._prepare_upload_files(params.files)
+        validation = self._validate_prepared_upload_files(prepared_files)
+        if validation.errors:
+            raise TracecatValidationError(
+                "Skill version failed validation",
+                detail={
+                    "code": "skill_version_validation_failed",
+                    "errors": [
+                        error.model_dump(mode="json") for error in validation.errors
+                    ],
+                },
+            )
+        file_refs = [
+            (
+                file.path,
+                SkillFileBlobRef(
+                    blob=await self._get_or_create_blob(content=file.content),
+                    content_type=file.content_type,
+                ),
+            )
+            for file in prepared_files
+        ]
+        return await self._create_version_from_blob_refs(
+            skill=skill,
+            file_refs=file_refs,
+            validation=validation,
+        )
 
     @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def list_versions(

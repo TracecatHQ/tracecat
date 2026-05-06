@@ -116,6 +116,13 @@ class SkillUpload(Schema):
     files: list[SkillUploadFile] = Field(min_length=1)
 
 
+class SkillVersionPublish(Schema):
+    """Payload for atomically publishing a skill version from files."""
+
+    base_version_id: uuid.UUID | None
+    files: list[SkillUploadFile] = Field(min_length=1)
+
+
 class SkillDraftRead(Schema):
     """Current mutable draft state for a skill."""
 

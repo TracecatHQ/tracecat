@@ -60,6 +60,14 @@ class AgentPresetSkillBinding(TypedDict):
     skill_version_id: str
 
 
+class SkillPublishFile(TypedDict):
+    """File payload for publishing a workspace skill version."""
+
+    path: str
+    content_base64: str
+    content_type: NotRequired[str | None]
+
+
 class RankableItem(TypedDict):
     id: str | int
     text: str
@@ -495,8 +503,17 @@ class AgentsClient:
     async def get_skill(self, skill_id: str) -> dict[str, Any]:
         return await self._client.get(f"/agent/skills/{skill_id}")
 
-    async def publish_skill(self, skill_id: str) -> dict[str, Any]:
-        return await self._client.post(f"/agent/skills/{skill_id}/publish")
+    async def publish_skill_version(
+        self,
+        *,
+        skill_id: str,
+        base_version_id: str | None,
+        files: list[SkillPublishFile] | list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        return await self._client.post(
+            f"/agent/skills/{skill_id}/versions",
+            json={"base_version_id": base_version_id, "files": files},
+        )
 
     async def archive_skill(self, skill_id: str) -> None:
         await self._client.delete(f"/agent/skills/{skill_id}")
