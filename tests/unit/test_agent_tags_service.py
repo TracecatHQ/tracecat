@@ -1,4 +1,5 @@
 from collections.abc import Awaitable, Callable
+from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
 
@@ -7,8 +8,9 @@ from sqlalchemy.exc import NoResultFound
 
 from tracecat.agent.tags.service import AgentTagsService
 from tracecat.auth.types import Role
+from tracecat.db.models import AgentTag
 from tracecat.exceptions import EntitlementRequired, ScopeDeniedError
-from tracecat.pagination import CursorPaginationParams
+from tracecat.pagination import BaseCursorPaginator, CursorPaginationParams
 from tracecat.tags.schemas import TagCreate, TagUpdate
 from tracecat.tiers.enums import Entitlement
 
@@ -21,6 +23,18 @@ def _role_with_scopes(scopes: frozenset[str] | None) -> Role:
         workspace_id=uuid4(),
         service_id="tracecat-api",
         scopes=scopes,
+    )
+
+
+def _agent_tag(name: str, created_at: datetime, workspace_id: object) -> AgentTag:
+    return AgentTag(
+        id=uuid4(),
+        workspace_id=workspace_id,
+        name=name,
+        ref=name,
+        color=None,
+        created_at=created_at,
+        updated_at=created_at,
     )
 
 
@@ -130,6 +144,55 @@ async def test_agent_tag_definition_methods_require_agent_addons_entitlement(
 
     mock_has_entitlement.assert_awaited_once_with(Entitlement.AGENT_ADDONS)
     session.execute.assert_not_awaited()
+
+
+@pytest.mark.anyio
+async def test_list_tags_paginated_reverse_pages_use_canonical_order(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Reverse tag pages should return newest-first items with swapped cursors."""
+    workspace_id = uuid4()
+    base_time = datetime(2026, 1, 1, tzinfo=UTC)
+    raw_reverse_rows = [
+        _agent_tag("older", base_time + timedelta(minutes=1), workspace_id),
+        _agent_tag("middle", base_time + timedelta(minutes=2), workspace_id),
+        _agent_tag("newer", base_time + timedelta(minutes=3), workspace_id),
+    ]
+    result = MagicMock()
+    result.scalars.return_value.all.return_value = raw_reverse_rows
+    session = AsyncMock()
+    session.execute.return_value = result
+    service = AgentTagsService(
+        session=session,
+        role=_role_with_scopes(frozenset({"agent:read"})),
+    )
+    monkeypatch.setattr(service, "has_entitlement", AsyncMock(return_value=True))
+    cursor = BaseCursorPaginator.encode_cursor(
+        uuid4(),
+        sort_column="created_at",
+        sort_value=base_time,
+    )
+
+    page = await service.list_tags_paginated(
+        CursorPaginationParams(limit=2, cursor=cursor, reverse=True)
+    )
+
+    assert [tag.id for tag in page.items] == [
+        raw_reverse_rows[1].id,
+        raw_reverse_rows[0].id,
+    ]
+    assert page.next_cursor == BaseCursorPaginator.encode_cursor(
+        raw_reverse_rows[0].id,
+        sort_column="created_at",
+        sort_value=raw_reverse_rows[0].created_at,
+    )
+    assert page.prev_cursor == BaseCursorPaginator.encode_cursor(
+        raw_reverse_rows[1].id,
+        sort_column="created_at",
+        sort_value=raw_reverse_rows[1].created_at,
+    )
+    assert page.has_more is True
+    assert page.has_previous is True
 
 
 @pytest.mark.anyio

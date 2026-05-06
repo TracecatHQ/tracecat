@@ -113,12 +113,19 @@ class AgentTagsService(BaseWorkspaceService):
                 sort_value=first.created_at,
             )
 
+        if params.reverse:
+            items.reverse()
+            next_cursor, prev_cursor = prev_cursor, next_cursor
+            has_more, has_previous = params.cursor is not None, has_more
+        else:
+            has_previous = params.cursor is not None
+
         return CursorPaginatedResponse(
             items=items,
             next_cursor=next_cursor,
             prev_cursor=prev_cursor,
             has_more=has_more,
-            has_previous=params.cursor is not None,
+            has_previous=has_previous,
         )
 
     @require_scope("agent:read")
