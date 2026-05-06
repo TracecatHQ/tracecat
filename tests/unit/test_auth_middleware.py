@@ -11,7 +11,12 @@ from fastapi.testclient import TestClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat import config
-from tracecat.auth.credentials import RoleACL, _role_dependency, authenticated_user_only
+from tracecat.auth.credentials import (
+    RoleACL,
+    _authenticate_user,
+    _role_dependency,
+    authenticated_user_only,
+)
 from tracecat.auth.org_context import resolve_auth_organization_id
 from tracecat.auth.schemas import UserRole
 from tracecat.auth.types import Role
@@ -26,6 +31,7 @@ from tracecat.db.models import (
     Workspace,
 )
 from tracecat.middleware import AuthorizationCacheMiddleware
+from tracecat.organization.management import SingleTenantUserDefaultsResult
 
 
 @pytest.fixture
@@ -234,6 +240,55 @@ async def test_role_dependency_resolves_multi_tenant_superuser_as_regular_org_us
     assert role.is_platform_superuser is False
     assert role.scopes == scopes
     mock_resolve_org.assert_awaited_once_with(session, user)
+
+
+@pytest.mark.anyio
+async def test_authenticate_user_only_invalidates_scope_cache_when_defaults_change() -> (
+    None
+):
+    request = MagicMock(spec=Request)
+    request.state = MagicMock()
+    request.state.auth_cache = None
+    user = MagicMock(spec=User)
+    user.id = uuid.uuid4()
+    user.is_superuser = False
+    org_id = uuid.uuid4()
+
+    for changed, expected_invalidations in ((False, 0), (True, 1)):
+        session = AsyncMock()
+        with (
+            patch(
+                "tracecat.auth.credentials.ensure_single_tenant_user_defaults_for_session",
+                new=AsyncMock(
+                    return_value=SingleTenantUserDefaultsResult(
+                        organization_id=org_id,
+                        changed=changed,
+                    )
+                ),
+            ),
+            patch(
+                "tracecat.auth.credentials.set_rls_context",
+                new=AsyncMock(),
+            ) as mock_set_rls,
+            patch(
+                "tracecat.auth.credentials._invalidate_user_scope_cache"
+            ) as mock_invalidate,
+        ):
+            role = await _authenticate_user(
+                request=request,
+                session=session,
+                user=user,
+                workspace_id=None,
+            )
+
+        assert role.organization_id == org_id
+        assert mock_invalidate.call_count == expected_invalidations
+        if changed:
+            session.commit.assert_awaited_once()
+            mock_set_rls.assert_awaited_once()
+        else:
+            session.commit.assert_not_awaited()
+            mock_set_rls.assert_not_awaited()
 
 
 @pytest.mark.anyio

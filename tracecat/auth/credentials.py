@@ -26,7 +26,6 @@ from fastapi.security import (
     OAuth2PasswordBearer,
 )
 from sqlalchemy import or_, select
-from sqlalchemy.exc import NoResultFound
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -69,9 +68,7 @@ from tracecat.db.rls import set_rls_context, set_rls_context_from_role
 from tracecat.identifiers import InternalServiceID
 from tracecat.logger import logger
 from tracecat.organization.management import (
-    ensure_default_organization,
-    ensure_single_tenant_user_defaults_in_session,
-    get_default_organization_id,
+    ensure_single_tenant_user_defaults_for_session,
 )
 from tracecat.tiers.access import is_org_entitled
 from tracecat.tiers.enums import Entitlement
@@ -662,20 +659,14 @@ async def _authenticate_user(
     """
     organization_id: uuid.UUID
     single_tenant_org_id: uuid.UUID | None = None
-    if not config.TRACECAT__EE_MULTI_TENANT:
-        try:
-            single_tenant_org_id = await get_default_organization_id(session)
-        except NoResultFound:
-            single_tenant_org_id = await ensure_default_organization()
-        single_tenant_defaults_changed = (
-            await ensure_single_tenant_user_defaults_in_session(
-                session=session,
-                user_id=user.id,
-                organization_id=single_tenant_org_id,
-                is_superuser=user.is_superuser,
-            )
-        )
-        if single_tenant_defaults_changed:
+    single_tenant_defaults = await ensure_single_tenant_user_defaults_for_session(
+        session=session,
+        user_id=user.id,
+        is_superuser=user.is_superuser,
+    )
+    single_tenant_org_id = single_tenant_defaults.organization_id
+    if single_tenant_org_id is not None:
+        if single_tenant_defaults.changed:
             await session.commit()
             await set_rls_context(
                 session,
@@ -684,11 +675,11 @@ async def _authenticate_user(
                 user_id=user.id,
                 bypass=True,
             )
-        _invalidate_user_scope_cache(
-            user_id=user.id,
-            organization_id=single_tenant_org_id,
-            workspace_id=workspace_id,
-        )
+            _invalidate_user_scope_cache(
+                user_id=user.id,
+                organization_id=single_tenant_org_id,
+                workspace_id=workspace_id,
+            )
 
     if workspace_id is not None:
         resolved_org_id = await _get_workspace_org_id(workspace_id)
