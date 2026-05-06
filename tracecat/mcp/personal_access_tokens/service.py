@@ -56,33 +56,33 @@ async def _user_can_access_workspace(
     organization_id: uuid.UUID,
     workspace_id: uuid.UUID,
 ) -> bool:
-    stmt = (
-        select(Workspace.id)
-        .outerjoin(
-            Membership,
-            sa.and_(
-                Membership.workspace_id == Workspace.id,
-                Membership.user_id == user_id,
-            ),
-        )
-        .outerjoin(
-            OrganizationMembership,
-            sa.and_(
-                OrganizationMembership.organization_id == Workspace.organization_id,
-                OrganizationMembership.user_id == user_id,
-            ),
-        )
+    if user_id is None:
+        return False
+
+    membership_exists = (
+        select(1)
         .where(
+            Membership.workspace_id == workspace_id,
+            Membership.user_id == user_id,
+        )
+        .exists()
+    )
+    org_membership_exists = (
+        select(1)
+        .where(
+            OrganizationMembership.organization_id == organization_id,
+            OrganizationMembership.user_id == user_id,
+        )
+        .exists()
+    )
+    stmt = select(
+        sa.exists().where(
             Workspace.id == workspace_id,
             Workspace.organization_id == organization_id,
-            sa.or_(
-                Membership.user_id.is_not(None),
-                OrganizationMembership.user_id.is_not(None),
-            ),
+            sa.or_(membership_exists, org_membership_exists),
         )
     )
-    result = await session.execute(stmt)
-    return result.scalar_one_or_none() is not None
+    return bool(await session.scalar(stmt))
 
 
 class MCPPersonalAccessTokenService(BaseWorkspaceService):

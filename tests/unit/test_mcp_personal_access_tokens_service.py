@@ -278,6 +278,35 @@ async def test_verify_mcp_personal_access_token_updates_last_used(
     assert refreshed.last_used_at is not None
 
 
+async def test_verify_mcp_personal_access_token_allows_org_member_without_workspace_membership(
+    monkeypatch: pytest.MonkeyPatch,
+    session: AsyncSession,
+) -> None:
+    _use_verifier_session(monkeypatch, session)
+    user, organization, workspace = await _create_user_org_workspace(
+        session,
+        workspace_membership=False,
+    )
+    token, raw_token = await _store_token(
+        session,
+        user=user,
+        organization=organization,
+        workspace_id=workspace.id,
+    )
+
+    identity = await mcp_pat_service.verify_mcp_personal_access_token(raw_token)
+
+    assert identity is not None
+    assert identity.user_id == user.id
+    assert identity.workspace_id == workspace.id
+
+    refreshed = await session.scalar(
+        select(MCPPersonalAccessToken).where(MCPPersonalAccessToken.id == token.id)
+    )
+    assert refreshed is not None
+    assert refreshed.last_used_at is not None
+
+
 async def test_verify_mcp_personal_access_token_rejects_revoked_token(
     monkeypatch: pytest.MonkeyPatch,
     session: AsyncSession,
