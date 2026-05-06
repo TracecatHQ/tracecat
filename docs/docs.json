@@ -43,13 +43,6 @@
                 ]
               },
               {
-                "group": "Cheatsheets",
-                "pages": [
-                  "cheatsheets/functions",
-                  "cheatsheets/jsonpath"
-                ]
-              },
-              {
                 "group": "Core actions",
                 "pages": [
                   {
@@ -242,6 +235,19 @@
               "tools/wazuh",
               "tools/wiz",
               "tools/zendesk"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Cheatsheets",
+        "groups": [
+          {
+            "group": "Cheatsheets",
+            "icon": "book-open",
+            "pages": [
+              "cheatsheets/functions",
+              "cheatsheets/jsonpath"
             ]
           }
         ]
