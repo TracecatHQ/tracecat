@@ -252,6 +252,30 @@ async def test_create_organization_invitation_success(
 
 
 @pytest.mark.anyio
+async def test_create_organization_invitation_allowed_without_multi_tenant(
+    client: TestClient,
+    test_admin_role: Role,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    org_id = uuid.uuid4()
+    invitation = _org_invitation_read(org_id, token="raw-token")
+    monkeypatch.setattr(config, "TRACECAT__EE_MULTI_TENANT", False)
+
+    with patch.object(organizations_router, "AdminOrgService") as MockService:
+        mock_svc = AsyncMock()
+        mock_svc.create_organization_invitation.return_value = invitation
+        MockService.return_value = mock_svc
+
+        response = client.post(
+            f"/admin/organizations/{org_id}/invitations",
+            json={"email": "owner@example.com"},
+        )
+
+    assert response.status_code == status.HTTP_201_CREATED
+    assert response.json()["token"] == "raw-token"
+
+
+@pytest.mark.anyio
 async def test_create_organization_invitation_rejects_invalid_role_slug(
     client: TestClient,
     test_admin_role: Role,
@@ -335,6 +359,29 @@ async def test_list_organization_invitations_success(
 
 
 @pytest.mark.anyio
+async def test_list_organization_invitations_allowed_without_multi_tenant(
+    client: TestClient,
+    test_admin_role: Role,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    org_id = uuid.uuid4()
+    invitation = _org_invitation_read(org_id)
+    monkeypatch.setattr(config, "TRACECAT__EE_MULTI_TENANT", False)
+
+    with patch.object(organizations_router, "AdminOrgService") as MockService:
+        mock_svc = AsyncMock()
+        mock_svc.list_organization_invitations.return_value = CursorPaginatedResponse[
+            AdminOrgInvitationRead
+        ](items=[invitation])
+        MockService.return_value = mock_svc
+
+        response = client.get(f"/admin/organizations/{org_id}/invitations")
+
+    assert response.status_code == status.HTTP_200_OK
+    assert response.json()["items"][0]["id"] == str(invitation.id)
+
+
+@pytest.mark.anyio
 async def test_list_organization_invitations_invalid_cursor(
     client: TestClient,
     test_admin_role: Role,
@@ -383,6 +430,31 @@ async def test_get_organization_invitation_token_success(
 
 
 @pytest.mark.anyio
+async def test_get_organization_invitation_token_allowed_without_multi_tenant(
+    client: TestClient,
+    test_admin_role: Role,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    org_id = uuid.uuid4()
+    invitation_id = uuid.uuid4()
+    monkeypatch.setattr(config, "TRACECAT__EE_MULTI_TENANT", False)
+
+    with patch.object(organizations_router, "AdminOrgService") as MockService:
+        mock_svc = AsyncMock()
+        mock_svc.get_organization_invitation_token.return_value = (
+            AdminOrgInvitationTokenRead(token="raw-token")
+        )
+        MockService.return_value = mock_svc
+
+        response = client.get(
+            f"/admin/organizations/{org_id}/invitations/{invitation_id}/token"
+        )
+
+    assert response.status_code == status.HTTP_200_OK
+    assert response.json() == {"token": "raw-token"}
+
+
+@pytest.mark.anyio
 async def test_revoke_organization_invitation_success(
     client: TestClient,
     test_admin_role: Role,
@@ -406,6 +478,28 @@ async def test_revoke_organization_invitation_success(
         org_id,
         invitation_id,
     )
+
+
+@pytest.mark.anyio
+async def test_revoke_organization_invitation_allowed_without_multi_tenant(
+    client: TestClient,
+    test_admin_role: Role,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    org_id = uuid.uuid4()
+    invitation_id = uuid.uuid4()
+    monkeypatch.setattr(config, "TRACECAT__EE_MULTI_TENANT", False)
+
+    with patch.object(organizations_router, "AdminOrgService") as MockService:
+        mock_svc = AsyncMock()
+        mock_svc.revoke_organization_invitation.return_value = None
+        MockService.return_value = mock_svc
+
+        response = client.delete(
+            f"/admin/organizations/{org_id}/invitations/{invitation_id}"
+        )
+
+    assert response.status_code == status.HTTP_204_NO_CONTENT
 
 
 @pytest.mark.anyio
