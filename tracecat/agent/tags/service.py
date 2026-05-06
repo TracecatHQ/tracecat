@@ -141,10 +141,22 @@ class AgentTagsService(BaseWorkspaceService):
         if not is_allowed:
             raise NoResultFound("Agent preset or tag not found")
 
+    async def _require_preset_in_workspace(self, preset_id: uuid.UUID) -> None:
+        preset_exists = exists(
+            select(AgentPreset.id).where(
+                AgentPreset.id == preset_id,
+                AgentPreset.workspace_id == self.workspace_id,
+            )
+        )
+        is_allowed = await self.session.scalar(select(preset_exists))
+        if not is_allowed:
+            raise NoResultFound("Agent preset not found")
+
     @require_scope("agent:read")
     @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def list_tags_for_preset(self, preset_id: uuid.UUID) -> Sequence[AgentTag]:
         """List all tags on a preset."""
+        await self._require_preset_in_workspace(preset_id)
         stmt = (
             select(AgentTag)
             .join(AgentTagLink, AgentTag.id == AgentTagLink.tag_id)

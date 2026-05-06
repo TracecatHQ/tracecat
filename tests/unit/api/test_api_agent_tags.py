@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from fastapi import status
 from fastapi.testclient import TestClient
+from sqlalchemy.exc import NoResultFound
 
 from tracecat.agent.tags import definitions_router as agent_tag_definitions_router
 from tracecat.agent.tags import router as agent_tags_router
@@ -52,6 +53,27 @@ async def test_list_preset_tags_requires_agent_addons_entitlement(
     payload = response.json()
     assert payload["type"] == "EntitlementRequired"
     assert payload["detail"]["entitlement"] == "agent_addons"
+
+
+@pytest.mark.anyio
+async def test_list_preset_tags_missing_preset_returns_404(
+    client: TestClient,
+    test_admin_role: Role,
+) -> None:
+    """Missing presets should not be reported as empty tag lists."""
+    preset_id = uuid.uuid4()
+
+    with patch.object(agent_tags_router, "AgentTagsService") as mock_service_cls:
+        mock_service = _mock_service_with_async_method(
+            "list_tags_for_preset",
+            side_effect=NoResultFound("Agent preset not found"),
+        )
+        mock_service_cls.return_value = mock_service
+
+        response = client.get(f"/agent/presets/{preset_id}/tags")
+
+    assert response.status_code == status.HTTP_404_NOT_FOUND
+    assert response.json()["detail"] == "Agent preset not found"
 
 
 @pytest.mark.anyio

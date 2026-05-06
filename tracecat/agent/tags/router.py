@@ -22,7 +22,13 @@ async def list_preset_tags(
 ) -> list[AgentTagRead]:
     """List all tags for an agent preset."""
     service = AgentTagsService(session, role=role)
-    db_tags = await service.list_tags_for_preset(preset_id)
+    try:
+        db_tags = await service.list_tags_for_preset(preset_id)
+    except NoResultFound as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Agent preset not found",
+        ) from e
     return [AgentTagRead.model_validate(tag, from_attributes=True) for tag in db_tags]
 
 

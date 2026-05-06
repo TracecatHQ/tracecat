@@ -3,6 +3,7 @@ from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
 
 import pytest
+from sqlalchemy.exc import NoResultFound
 
 from tracecat.agent.tags.service import AgentTagsService
 from tracecat.auth.types import Role
@@ -145,3 +146,22 @@ async def test_delete_tag_by_id_allows_delete_scope_without_read(
 
     session.delete.assert_awaited_once_with(tag)
     session.commit.assert_awaited_once()
+
+
+@pytest.mark.anyio
+async def test_list_tags_for_preset_requires_existing_preset(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Preset tag listing should fail when the preset is missing."""
+    session = AsyncMock()
+    session.scalar.return_value = False
+    service = AgentTagsService(
+        session=session,
+        role=_role_with_scopes(frozenset({"agent:read"})),
+    )
+    monkeypatch.setattr(service, "has_entitlement", AsyncMock(return_value=True))
+
+    with pytest.raises(NoResultFound, match="Agent preset not found"):
+        await service.list_tags_for_preset(uuid4())
+
+    session.execute.assert_not_awaited()
