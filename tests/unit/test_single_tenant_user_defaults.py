@@ -1,14 +1,18 @@
 from __future__ import annotations
 
+import asyncio
 import uuid
+from typing import cast
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import Mapped
 
 from tracecat import config
 from tracecat.auth.schemas import UserRole
 from tracecat.authz.seeding import seed_system_roles_for_org
+from tracecat.db.engine import get_async_session_bypass_rls_context_manager
 from tracecat.db.models import (
     Organization,
     OrganizationMembership,
@@ -18,6 +22,7 @@ from tracecat.db.models import (
 from tracecat.db.models import Role as DBRole
 from tracecat.organization.management import (
     ensure_single_tenant_user_defaults,
+    ensure_single_tenant_user_defaults_for_session,
     ensure_single_tenant_user_defaults_in_session,
 )
 
@@ -84,6 +89,47 @@ async def test_single_tenant_defaults_noop_in_multi_tenant(
     )
 
     assert organization_id is None
+
+
+@pytest.mark.anyio
+async def test_single_tenant_defaults_for_session_noop_in_multi_tenant(
+    session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(config, "TRACECAT__EE_MULTI_TENANT", True)
+
+    result = await ensure_single_tenant_user_defaults_for_session(
+        session=session,
+        user_id=uuid.uuid4(),
+        is_superuser=False,
+    )
+
+    assert result.organization_id is None
+    assert result.changed is False
+
+
+@pytest.mark.anyio
+async def test_single_tenant_defaults_for_session_resolves_default_org(
+    session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(config, "TRACECAT__EE_MULTI_TENANT", False)
+    user = await _create_user(session)
+
+    result = await ensure_single_tenant_user_defaults_for_session(
+        session=session,
+        user_id=user.id,
+        is_superuser=False,
+    )
+    await session.flush()
+
+    assert result.organization_id is not None
+    assert result.changed is True
+    membership = await session.get(
+        OrganizationMembership,
+        {"user_id": user.id, "organization_id": result.organization_id},
+    )
+    assert membership is not None
 
 
 @pytest.mark.anyio
@@ -168,6 +214,91 @@ async def test_single_tenant_defaults_are_idempotent(
     )
     assert membership_count is not None
     assert len(assignment_result.scalars().all()) == 1
+
+
+@pytest.mark.anyio
+async def test_single_tenant_defaults_handle_concurrent_repairs() -> None:
+    org_id = uuid.uuid4()
+    user_id = uuid.uuid4()
+    org_slug = f"single-tenant-concurrent-{uuid.uuid4().hex[:8]}"
+
+    async with get_async_session_bypass_rls_context_manager() as setup_session:
+        setup_session.add(
+            Organization(
+                id=org_id,
+                name="Single Tenant Concurrent Test Org",
+                slug=org_slug,
+                is_active=True,
+            )
+        )
+        setup_session.add(
+            User(
+                id=user_id,
+                email=f"concurrent-{uuid.uuid4().hex[:8]}@example.com",
+                hashed_password="hashed",
+                role=UserRole.BASIC,
+                is_active=True,
+                is_superuser=False,
+                is_verified=True,
+            )
+        )
+        await setup_session.flush()
+        await seed_system_roles_for_org(setup_session, org_id)
+        await setup_session.commit()
+
+    async def repair_defaults() -> None:
+        async with get_async_session_bypass_rls_context_manager() as repair_session:
+            await ensure_single_tenant_user_defaults_in_session(
+                session=repair_session,
+                user_id=user_id,
+                organization_id=org_id,
+                is_superuser=False,
+            )
+            await repair_session.commit()
+
+    try:
+        await asyncio.gather(repair_defaults(), repair_defaults())
+
+        async with get_async_session_bypass_rls_context_manager() as verify_session:
+            membership_count = await verify_session.scalar(
+                select(func.count())
+                .select_from(OrganizationMembership)
+                .where(
+                    OrganizationMembership.user_id == user_id,
+                    OrganizationMembership.organization_id == org_id,
+                )
+            )
+            assignment_count = await verify_session.scalar(
+                select(func.count())
+                .select_from(UserRoleAssignment)
+                .where(
+                    UserRoleAssignment.user_id == user_id,
+                    UserRoleAssignment.organization_id == org_id,
+                    UserRoleAssignment.workspace_id.is_(None),
+                )
+            )
+
+        assert membership_count == 1
+        assert assignment_count == 1
+    finally:
+        async with get_async_session_bypass_rls_context_manager() as cleanup_session:
+            await cleanup_session.execute(
+                delete(UserRoleAssignment).where(UserRoleAssignment.user_id == user_id)
+            )
+            await cleanup_session.execute(
+                delete(OrganizationMembership).where(
+                    OrganizationMembership.user_id == user_id
+                )
+            )
+            await cleanup_session.execute(
+                delete(User).where(cast(Mapped[uuid.UUID], User.id) == user_id)
+            )
+            await cleanup_session.execute(
+                delete(Organization).where(
+                    cast(Mapped[uuid.UUID], Organization.id) == org_id
+                )
+            )
+            await cleanup_session.commit()
 
 
 @pytest.mark.anyio
