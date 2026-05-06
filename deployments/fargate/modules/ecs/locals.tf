@@ -187,12 +187,15 @@ locals {
         TRACECAT__LLM_GATEWAY_POOL_TIMEOUT_SECONDS         = var.llm_gateway_healthcheck_pool_timeout_seconds
         TRACECAT__LLM_GATEWAY_FAILURE_THRESHOLD            = var.llm_gateway_healthcheck_failure_threshold
         TRACECAT__LLM_GATEWAY_STATUS_LOG_INTERVAL_SECONDS  = var.llm_gateway_status_log_interval_seconds
-        TRACECAT__LITELLM_BASE_URL                         = "http://litellm-service:4000"
-        TRACECAT__UNSAFE_DISABLE_SM_MASKING                = "false"
-        TRACECAT__DISABLE_NSJAIL                           = "true"
-        TRACECAT__SANDBOX_NSJAIL_PATH                      = "/usr/local/bin/nsjail"
-        TRACECAT__SANDBOX_ROOTFS_PATH                      = "/var/lib/tracecat/sandbox-rootfs"
-        TRACECAT__SANDBOX_CACHE_DIR                        = "/var/lib/tracecat/sandbox-cache"
+        TRACECAT__AGENT_OTEL_PLATFORM_OVERRIDE_ENABLED           = var.agent_otel_platform_override_enabled
+        TRACECAT__AGENT_OTEL_PLATFORM_OVERRIDE_ENV               = var.agent_otel_platform_override_env
+        TRACECAT__AGENT_OTEL_RELAY_TIMEOUT_SECONDS               = var.agent_otel_relay_timeout_seconds
+        TRACECAT__LITELLM_BASE_URL                               = "http://litellm-service:4000"
+        TRACECAT__UNSAFE_DISABLE_SM_MASKING                      = "false"
+        TRACECAT__DISABLE_NSJAIL                                 = "true"
+        TRACECAT__SANDBOX_NSJAIL_PATH                            = "/usr/local/bin/nsjail"
+        TRACECAT__SANDBOX_ROOTFS_PATH                            = "/var/lib/tracecat/sandbox-rootfs"
+        TRACECAT__SANDBOX_CACHE_DIR                              = "/var/lib/tracecat/sandbox-cache"
       }
     ) :
     { name = k, value = tostring(v) } if v != null

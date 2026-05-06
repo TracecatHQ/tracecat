@@ -321,7 +321,17 @@ locals {
     local.temporal_auth_client_secret_secret,
   )
 
-  executor_secrets = local.tracecat_temporal_secrets
+  agent_otel_platform_override_headers_secret = var.agent_otel_platform_override_headers_arn != null ? [
+    {
+      name      = "TRACECAT__AGENT_OTEL_PLATFORM_OVERRIDE_HEADERS"
+      valueFrom = var.agent_otel_platform_override_headers_arn
+    }
+  ] : []
+
+  executor_secrets = concat(
+    local.tracecat_temporal_secrets,
+    local.agent_otel_platform_override_headers_secret,
+  )
 
   litellm_secrets = local.tracecat_base_secrets
 

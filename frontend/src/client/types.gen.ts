@@ -472,6 +472,22 @@ export type AgentModelAccessRead = {
   catalog_id: string
 }
 
+/**
+ * Organization-scoped Claude Code OTel configuration.
+ */
+export type AgentOtelConfig = {
+  /**
+   * Whether Claude Code telemetry is enabled for agent runs.
+   */
+  enabled?: boolean
+  /**
+   * Allowlisted Claude Code OTel environment variables. Headers are configured separately.
+   */
+  env?: {
+    [key: string]: string
+  }
+}
+
 export type AgentOutput = {
   output: unknown
   message_history?: Array<ChatMessage> | null
@@ -847,6 +863,7 @@ export type AgentSettingsRead = {
   agent_fixed_args: string | null
   agent_case_chat_prompt: string
   agent_case_chat_inject_content: boolean
+  agent_otel_config?: AgentOtelConfig
 }
 
 export type AgentSettingsUpdate = {
@@ -866,6 +883,16 @@ export type AgentSettingsUpdate = {
    * Whether to automatically inject case content into agent prompts when a case_id is available.
    */
   agent_case_chat_inject_content?: boolean
+  /**
+   * Claude Code OTel telemetry configuration for agent runs.
+   */
+  agent_otel_config?: AgentOtelConfig
+  /**
+   * Encrypted headers for the Claude Code OTLP exporter. Omitted values leave existing headers unchanged.
+   */
+  agent_otel_headers?: {
+    [key: string]: string
+  } | null
 }
 
 /**

@@ -3,6 +3,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field, ValidationInfo, field_validator
 
+from tracecat.agent.otel_config import AgentOtelConfig
 from tracecat.git.constants import GIT_SSH_URL_REGEX
 
 
@@ -174,6 +175,7 @@ class AgentSettingsRead(BaseSettingsGroup):
     agent_fixed_args: str | None
     agent_case_chat_prompt: str
     agent_case_chat_inject_content: bool
+    agent_otel_config: AgentOtelConfig = Field(default_factory=AgentOtelConfig)
 
 
 class AgentSettingsUpdate(BaseSettingsGroup):
@@ -194,6 +196,17 @@ class AgentSettingsUpdate(BaseSettingsGroup):
     agent_case_chat_inject_content: bool = Field(
         default=False,
         description="Whether to automatically inject case content into agent prompts when a case_id is available.",
+    )
+    agent_otel_config: AgentOtelConfig = Field(
+        default_factory=AgentOtelConfig,
+        description="Claude Code OTel telemetry configuration for agent runs.",
+    )
+    agent_otel_headers: dict[str, str] | None = Field(
+        default=None,
+        description=(
+            "Encrypted headers for the Claude Code OTLP exporter. Omitted values "
+            "leave existing headers unchanged."
+        ),
     )
 
 

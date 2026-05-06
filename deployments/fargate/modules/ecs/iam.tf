@@ -147,6 +147,7 @@ resource "aws_iam_policy" "secrets_access" {
           var.saml_ca_certs_arn,
           var.saml_metadata_cert_arn,
           var.temporal_api_key_arn,
+          var.agent_otel_platform_override_headers_arn,
           aws_secretsmanager_secret.redis_url.arn,
         ])
       }

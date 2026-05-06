@@ -3,9 +3,11 @@ from typing import Any
 import orjson
 import pytest
 from fastapi import HTTPException
+from pydantic_core import to_jsonable_python
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat import config
+from tracecat.agent.otel_config import AgentOtelConfig
 from tracecat.auth.enums import AuthType
 from tracecat.auth.types import Role
 from tracecat.contexts import ctx_role
@@ -17,6 +19,7 @@ from tracecat.settings.router import (
     check_saml_domain_prerequisites,
 )
 from tracecat.settings.schemas import (
+    AgentSettingsUpdate,
     AuditSettingsUpdate,
     GitSettingsUpdate,
     SAMLSettingsUpdate,
@@ -425,6 +428,42 @@ async def test_update_saml_settings(
 
 
 @pytest.mark.anyio
+async def test_update_agent_otel_settings_encrypts_headers(
+    settings_service_with_defaults: SettingsService,
+) -> None:
+    service = settings_service_with_defaults
+    await service.update_agent_settings(
+        AgentSettingsUpdate(
+            agent_otel_config=AgentOtelConfig(
+                enabled=True,
+                env={
+                    "OTEL_LOGS_EXPORTER": "otlp",
+                    "OTEL_EXPORTER_OTLP_ENDPOINT": "https://collector.example.com",
+                },
+            ),
+            agent_otel_headers={"Authorization": "Bearer token"},
+        )
+    )
+
+    settings = await service.list_org_settings(
+        keys={"agent_otel_config", "agent_otel_headers"}
+    )
+    settings_by_key = {setting.key: setting for setting in settings}
+
+    assert service.get_value(settings_by_key["agent_otel_config"]) == {
+        "enabled": True,
+        "env": {
+            "OTEL_LOGS_EXPORTER": "otlp",
+            "OTEL_EXPORTER_OTLP_ENDPOINT": "https://collector.example.com",
+        },
+    }
+    assert settings_by_key["agent_otel_headers"].is_encrypted is True
+    assert service.get_value(settings_by_key["agent_otel_headers"]) == {
+        "Authorization": "Bearer token"
+    }
+
+
+@pytest.mark.anyio
 @pytest.mark.parametrize(
     "setting_key",
     [
@@ -432,6 +471,7 @@ async def test_update_saml_settings(
         "audit_webhook_url",
         "audit_webhook_custom_headers",
         "audit_webhook_custom_payload",
+        "agent_otel_headers",
     ],
 )
 async def test_get_values_with_decryption_fallback_for_invalid_encrypted_settings(
@@ -631,7 +671,7 @@ async def test_init_default_settings(
     defaults = {key: value for cls in settings_service.groups for key, value in cls()}
     for setting in settings:
         value = settings_service.get_value(setting)
-        assert value == defaults[setting.key]
+        assert value == to_jsonable_python(defaults[setting.key])
 
     # Test idempotency - running again shouldn't create duplicates
     await settings_service.init_default_settings()

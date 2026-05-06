@@ -648,6 +648,30 @@ variable "agent_executor_worker_pool_size" {
   default     = null
 }
 
+variable "agent_otel_platform_override_enabled" {
+  type        = string
+  description = "Optional definitive Agent OTel platform override flag. Set true or false to override org-level config."
+  default     = null
+}
+
+variable "agent_otel_platform_override_env" {
+  type        = string
+  description = "JSON object of allowlisted Claude Code OTel env vars for the Agent OTel platform override."
+  default     = null
+}
+
+variable "agent_otel_platform_override_headers_arn" {
+  type        = string
+  description = "AWS Secrets Manager ARN containing Agent OTel platform override headers JSON."
+  default     = null
+}
+
+variable "agent_otel_relay_timeout_seconds" {
+  type        = string
+  description = "Timeout in seconds for the Agent OTel relay to forward telemetry."
+  default     = "10"
+}
+
 variable "llm_proxy_read_timeout" {
   type        = string
   description = "LLM proxy read timeout in seconds (default: 300)"
