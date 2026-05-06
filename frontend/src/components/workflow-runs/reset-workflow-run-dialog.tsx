@@ -19,7 +19,10 @@ import { Label } from "@/components/ui/label"
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
+  SelectLabel,
+  SelectSeparator,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
@@ -43,11 +46,15 @@ function formatResetActionRef(actionRef: string): string {
   return undoSlugify(actionRef, ACTION_REF_DELIMITER)
 }
 
+function hasActionContext(point: WorkflowExecutionResetPointRead): boolean {
+  return Boolean(point.action_ref && point.action_relation)
+}
+
 export function formatResetPointPrimaryLabel(
   point: WorkflowExecutionResetPointRead
 ): string {
   if (!point.action_ref || !point.action_relation) {
-    return point.label
+    return point.is_start ? point.label : "Workflow checkpoint"
   }
 
   const actionLabel = formatResetActionRef(point.action_ref)
@@ -65,6 +72,9 @@ export function formatResetPointSecondaryLabel(
   point: WorkflowExecutionResetPointRead
 ): string | null {
   const eventLabel = `Event ${point.event_id}`
+  if (!hasActionContext(point) && !point.is_start) {
+    return `${eventLabel} · system checkpoint`
+  }
   return formatResetPointPrimaryLabel(point) === eventLabel ? null : eventLabel
 }
 
@@ -100,6 +110,16 @@ export function ResetWorkflowRunDialog({
   const visibleResettablePoints = useMemo(
     () => resettablePoints.filter((point) => !point.is_start),
     [resettablePoints]
+  )
+
+  const recommendedResettablePoints = useMemo(
+    () => visibleResettablePoints.filter(hasActionContext),
+    [visibleResettablePoints]
+  )
+
+  const advancedResettablePoints = useMemo(
+    () => visibleResettablePoints.filter((point) => !hasActionContext(point)),
+    [visibleResettablePoints]
   )
 
   const useResetPointSelect =
@@ -169,26 +189,31 @@ export function ResetWorkflowRunDialog({
                   <SelectItem value="start" textValue="Workflow start">
                     Workflow start
                   </SelectItem>
-                  {visibleResettablePoints.map((point) => {
-                    const primaryLabel = formatResetPointPrimaryLabel(point)
-                    const secondaryLabel = formatResetPointSecondaryLabel(point)
-                    return (
-                      <SelectItem
-                        key={point.event_id}
-                        value={String(point.event_id)}
-                        textValue={primaryLabel}
-                      >
-                        <span className="truncate">
-                          {primaryLabel}
-                          {secondaryLabel ? (
-                            <span className="ml-2 text-muted-foreground">
-                              {secondaryLabel}
-                            </span>
-                          ) : null}
-                        </span>
-                      </SelectItem>
-                    )
-                  })}
+                  {recommendedResettablePoints.length > 0 ? (
+                    <SelectGroup>
+                      <SelectLabel>Recommended reset points</SelectLabel>
+                      {recommendedResettablePoints.map((point) => (
+                        <ResetPointSelectItem
+                          key={point.event_id}
+                          point={point}
+                        />
+                      ))}
+                    </SelectGroup>
+                  ) : null}
+                  {advancedResettablePoints.length > 0 ? (
+                    <>
+                      <SelectSeparator />
+                      <SelectGroup>
+                        <SelectLabel>Advanced checkpoints</SelectLabel>
+                        {advancedResettablePoints.map((point) => (
+                          <ResetPointSelectItem
+                            key={point.event_id}
+                            point={point}
+                          />
+                        ))}
+                      </SelectGroup>
+                    </>
+                  ) : null}
                 </SelectContent>
               </Select>
             ) : (
@@ -250,5 +275,27 @@ export function ResetWorkflowRunDialog({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  )
+}
+
+function ResetPointSelectItem({
+  point,
+}: {
+  point: WorkflowExecutionResetPointRead
+}) {
+  const primaryLabel = formatResetPointPrimaryLabel(point)
+  const secondaryLabel = formatResetPointSecondaryLabel(point)
+  return (
+    <SelectItem
+      value={String(point.event_id)}
+      textValue={`${primaryLabel}${secondaryLabel ? ` ${secondaryLabel}` : ""}`}
+    >
+      <span className="truncate">
+        {primaryLabel}
+        {secondaryLabel ? (
+          <span className="ml-2 text-muted-foreground">{secondaryLabel}</span>
+        ) : null}
+      </span>
+    </SelectItem>
   )
 }

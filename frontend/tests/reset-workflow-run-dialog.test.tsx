@@ -28,6 +28,14 @@ const RESET_POINTS: WorkflowExecutionResetPointRead[] = [
     is_start: false,
     is_resettable: true,
   },
+  {
+    event_id: 12,
+    event_time: "2026-01-01T00:00:04Z",
+    event_type: "WORKFLOW_TASK_COMPLETED",
+    label: "Event 12",
+    is_start: false,
+    is_resettable: true,
+  },
 ]
 
 beforeAll(() => {
@@ -43,7 +51,7 @@ describe("ResetWorkflowRunDialog", () => {
     expect(formatResetPointSecondaryLabel(RESET_POINTS[1])).toBe("Event 8")
   })
 
-  it("does not repeat fallback event labels", () => {
+  it("formats unattributed reset points as advanced checkpoints", () => {
     const fallbackPoint: WorkflowExecutionResetPointRead = {
       event_id: 12,
       event_time: "2026-01-01T00:00:04Z",
@@ -53,8 +61,12 @@ describe("ResetWorkflowRunDialog", () => {
       is_resettable: true,
     }
 
-    expect(formatResetPointPrimaryLabel(fallbackPoint)).toBe("Event 12")
-    expect(formatResetPointSecondaryLabel(fallbackPoint)).toBeNull()
+    expect(formatResetPointPrimaryLabel(fallbackPoint)).toBe(
+      "Workflow checkpoint"
+    )
+    expect(formatResetPointSecondaryLabel(fallbackPoint)).toBe(
+      "Event 12 · system checkpoint"
+    )
   })
 
   it("submits workflow start as an empty event ID", async () => {
@@ -109,5 +121,28 @@ describe("ResetWorkflowRunDialog", () => {
       reason: null,
       reapplyType: "all_eligible",
     })
+  })
+
+  it("groups unattributed reset points under advanced checkpoints", async () => {
+    const user = userEvent.setup()
+
+    render(
+      <ResetWorkflowRunDialog
+        open={true}
+        onOpenChange={() => {}}
+        executionCount={1}
+        resetPoints={RESET_POINTS}
+        resetPointsLoading={false}
+        isSubmitting={false}
+        onSubmit={jest.fn().mockResolvedValue(undefined)}
+      />
+    )
+
+    await user.click(screen.getByRole("combobox", { name: "Reset point" }))
+
+    expect(screen.getByText("Recommended reset points")).toBeInTheDocument()
+    expect(screen.getByText("Advanced checkpoints")).toBeInTheDocument()
+    expect(screen.getByText("Workflow checkpoint")).toBeInTheDocument()
+    expect(screen.getByText("Event 12 · system checkpoint")).toBeInTheDocument()
   })
 })
