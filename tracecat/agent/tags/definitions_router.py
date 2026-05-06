@@ -48,6 +48,7 @@ async def get_agent_tag(
 
 
 @router.post("", response_model=AgentTagRead, status_code=status.HTTP_201_CREATED)
+@require_scope("agent:create")
 async def create_agent_tag(
     *,
     role: WorkspaceUserRouteRole,
@@ -72,6 +73,7 @@ async def create_agent_tag(
 
 
 @router.patch("/{tag_id}", response_model=AgentTagRead)
+@require_scope("agent:update")
 async def update_agent_tag(
     *,
     role: WorkspaceUserRouteRole,
@@ -104,6 +106,7 @@ async def update_agent_tag(
 
 
 @router.delete("/{tag_id}", status_code=status.HTTP_204_NO_CONTENT)
+@require_scope("agent:delete")
 async def delete_agent_tag(
     *,
     role: WorkspaceUserRouteRole,

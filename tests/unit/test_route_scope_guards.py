@@ -186,6 +186,9 @@ async def test_agent_folder_scope_guards(
     [
         (agent_tag_definitions_router.list_agent_tags, "agent:read"),
         (agent_tag_definitions_router.get_agent_tag, "agent:read"),
+        (agent_tag_definitions_router.create_agent_tag, "agent:create"),
+        (agent_tag_definitions_router.update_agent_tag, "agent:update"),
+        (agent_tag_definitions_router.delete_agent_tag, "agent:delete"),
     ],
 )
 async def test_agent_tag_definition_scope_guards(
