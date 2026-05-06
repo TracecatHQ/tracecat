@@ -63,8 +63,9 @@ export function formatResetPointPrimaryLabel(
 
 export function formatResetPointSecondaryLabel(
   point: WorkflowExecutionResetPointRead
-): string {
-  return `Event ${point.event_id}`
+): string | null {
+  const eventLabel = `Event ${point.event_id}`
+  return formatResetPointPrimaryLabel(point) === eventLabel ? null : eventLabel
 }
 
 export function ResetWorkflowRunDialog({
@@ -168,20 +169,26 @@ export function ResetWorkflowRunDialog({
                   <SelectItem value="start" textValue="Workflow start">
                     Workflow start
                   </SelectItem>
-                  {visibleResettablePoints.map((point) => (
-                    <SelectItem
-                      key={point.event_id}
-                      value={String(point.event_id)}
-                      textValue={formatResetPointPrimaryLabel(point)}
-                    >
-                      <span className="truncate">
-                        {formatResetPointPrimaryLabel(point)}
-                        <span className="ml-2 text-muted-foreground">
-                          {formatResetPointSecondaryLabel(point)}
+                  {visibleResettablePoints.map((point) => {
+                    const primaryLabel = formatResetPointPrimaryLabel(point)
+                    const secondaryLabel = formatResetPointSecondaryLabel(point)
+                    return (
+                      <SelectItem
+                        key={point.event_id}
+                        value={String(point.event_id)}
+                        textValue={primaryLabel}
+                      >
+                        <span className="truncate">
+                          {primaryLabel}
+                          {secondaryLabel ? (
+                            <span className="ml-2 text-muted-foreground">
+                              {secondaryLabel}
+                            </span>
+                          ) : null}
                         </span>
-                      </span>
-                    </SelectItem>
-                  ))}
+                      </SelectItem>
+                    )
+                  })}
                 </SelectContent>
               </Select>
             ) : (
