@@ -11,7 +11,12 @@ from fastapi.testclient import TestClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat import config
-from tracecat.auth.credentials import RoleACL, _role_dependency, authenticated_user_only
+from tracecat.auth.credentials import (
+    RoleACL,
+    _authenticate_user,
+    _role_dependency,
+    authenticated_user_only,
+)
 from tracecat.auth.org_context import resolve_auth_organization_id
 from tracecat.auth.schemas import UserRole
 from tracecat.auth.types import Role
@@ -26,6 +31,7 @@ from tracecat.db.models import (
     Workspace,
 )
 from tracecat.middleware import AuthorizationCacheMiddleware
+from tracecat.organization.management import SingleTenantUserDefaultsResult
 
 
 @pytest.fixture
@@ -237,6 +243,55 @@ async def test_role_dependency_resolves_multi_tenant_superuser_as_regular_org_us
 
 
 @pytest.mark.anyio
+async def test_authenticate_user_only_invalidates_scope_cache_when_defaults_change() -> (
+    None
+):
+    request = MagicMock(spec=Request)
+    request.state = MagicMock()
+    request.state.auth_cache = None
+    user = MagicMock(spec=User)
+    user.id = uuid.uuid4()
+    user.is_superuser = False
+    org_id = uuid.uuid4()
+
+    for changed, expected_invalidations in ((False, 0), (True, 1)):
+        session = AsyncMock()
+        with (
+            patch(
+                "tracecat.auth.credentials.ensure_single_tenant_user_defaults_for_session",
+                new=AsyncMock(
+                    return_value=SingleTenantUserDefaultsResult(
+                        organization_id=org_id,
+                        changed=changed,
+                    )
+                ),
+            ),
+            patch(
+                "tracecat.auth.credentials.set_rls_context",
+                new=AsyncMock(),
+            ) as mock_set_rls,
+            patch(
+                "tracecat.auth.credentials._invalidate_user_scope_cache"
+            ) as mock_invalidate,
+        ):
+            role = await _authenticate_user(
+                request=request,
+                session=session,
+                user=user,
+                workspace_id=None,
+            )
+
+        assert role.organization_id == org_id
+        assert mock_invalidate.call_count == expected_invalidations
+        if changed:
+            session.commit.assert_awaited_once()
+            mock_set_rls.assert_awaited_once()
+        else:
+            session.commit.assert_not_awaited()
+            mock_set_rls.assert_not_awaited()
+
+
+@pytest.mark.anyio
 async def test_role_dependency_resolves_superuser_workspace_membership_without_platform_scopes(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -354,9 +409,13 @@ async def test_auth_cache_middleware_initializes_cache():
 
 
 @pytest.mark.anyio
-async def test_auth_cache_reduces_database_queries(mocker):
+async def test_auth_cache_reduces_database_queries(
+    mocker, monkeypatch: pytest.MonkeyPatch
+):
     """Test that the cache reduces database queries for multiple workspace checks."""
     from tracecat.authz.service import MembershipService
+
+    monkeypatch.setattr(config, "TRACECAT__EE_MULTI_TENANT", True)
 
     # Create mock user and memberships with proper UUID4
     mock_user = MagicMock(spec=User)
@@ -602,9 +661,11 @@ async def test_performance_improvement(mocker):
 
 
 @pytest.mark.anyio
-async def test_cache_user_id_validation():
+async def test_cache_user_id_validation(monkeypatch: pytest.MonkeyPatch):
     """Test that cache validates user ID to prevent cross-user data leakage."""
     from tracecat.authz.service import MembershipService
+
+    monkeypatch.setattr(config, "TRACECAT__EE_MULTI_TENANT", True)
 
     # Create two different users
     user1 = MagicMock(spec=User)
@@ -697,9 +758,11 @@ async def test_cache_user_id_validation():
 
 
 @pytest.mark.anyio
-async def test_cache_size_limit():
+async def test_cache_size_limit(monkeypatch: pytest.MonkeyPatch):
     """Test that cache has size limits to prevent memory exhaustion."""
     from tracecat.authz.service import MembershipService
+
+    monkeypatch.setattr(config, "TRACECAT__EE_MULTI_TENANT", True)
 
     # Create user with excessive memberships
     user = MagicMock(spec=User)
@@ -781,8 +844,12 @@ async def test_cache_size_limit():
 
 
 @pytest.mark.anyio
-async def test_organization_id_populated_when_require_workspace_no(mocker):
+async def test_organization_id_populated_when_require_workspace_no(
+    mocker, monkeypatch: pytest.MonkeyPatch
+):
     """Test that organization_id is inferred from OrganizationMembership when require_workspace="no"."""
+
+    monkeypatch.setattr(config, "TRACECAT__EE_MULTI_TENANT", True)
 
     # Create mock user (non-superuser to exercise org membership resolution)
     mock_user = MagicMock(spec=User)
@@ -844,8 +911,10 @@ async def test_organization_id_populated_when_require_workspace_no(mocker):
 @pytest.mark.anyio
 @pytest.mark.usefixtures("db")
 async def test_role_dependency_infers_org_from_single_membership(
-    session: AsyncSession,
+    session: AsyncSession, monkeypatch: pytest.MonkeyPatch
 ):
+    monkeypatch.setattr(config, "TRACECAT__EE_MULTI_TENANT", True)
+
     org_id = uuid.uuid4()
     org = Organization(
         id=org_id,
@@ -906,8 +975,10 @@ async def test_role_dependency_infers_org_from_single_membership(
 @pytest.mark.anyio
 @pytest.mark.usefixtures("db")
 async def test_role_dependency_requires_workspace_for_multi_org(
-    session: AsyncSession,
+    session: AsyncSession, monkeypatch: pytest.MonkeyPatch
 ):
+    monkeypatch.setattr(config, "TRACECAT__EE_MULTI_TENANT", True)
+
     org_a_id = uuid.uuid4()
     org_b_id = uuid.uuid4()
     org_a = Organization(

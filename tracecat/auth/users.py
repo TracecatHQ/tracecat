@@ -60,6 +60,7 @@ from tracecat.exceptions import TracecatAuthorizationError, TracecatNotFoundErro
 from tracecat.identifiers import OrganizationID
 from tracecat.logger import logger
 from tracecat.organization.domains import normalize_domain
+from tracecat.organization.management import ensure_single_tenant_user_defaults
 from tracecat.settings.service import get_setting
 
 
@@ -370,7 +371,7 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
         superadmin_email = config.TRACECAT__AUTH_SUPERADMIN_EMAIL
         if superadmin_email and user.email == superadmin_email:
             update_params = UserUpdate(is_superuser=True)
-            await self.admin_update(user_update=update_params, user=user)
+            user = await self.admin_update(user_update=update_params, user=user)
             self.logger.info("User promoted to superadmin", email=user.email)
 
         # Accept invitation atomically if token was provided during registration
@@ -378,11 +379,10 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
         if self._pending_invitation_token:
             await self._accept_invitation_atomically(user)
 
-        # NOTE: We do NOT add users to any organization/workspace here unless invited.
-        # - Superusers get platform admin eligibility via User.is_superuser
-        # - Tenant access still comes from org/workspace membership and RBAC
-        # - Regular users get org membership via invitation acceptance flow
-        # - Workspace membership is managed separately by workspace admins
+        await ensure_single_tenant_user_defaults(
+            user_id=user.id,
+            is_superuser=user.is_superuser,
+        )
 
     async def _accept_invitation_atomically(self, user: User) -> None:
         """Accept an invitation during registration if a token was provided.

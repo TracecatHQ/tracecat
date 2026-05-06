@@ -67,6 +67,9 @@ from tracecat.db.models import (
 from tracecat.db.rls import set_rls_context, set_rls_context_from_role
 from tracecat.identifiers import InternalServiceID
 from tracecat.logger import logger
+from tracecat.organization.management import (
+    ensure_single_tenant_user_defaults_for_session,
+)
 from tracecat.tiers.access import is_org_entitled
 from tracecat.tiers.enums import Entitlement
 
@@ -608,6 +611,19 @@ async def _resolve_org_for_regular_user(
     )
 
 
+def _invalidate_user_scope_cache(
+    *,
+    user_id: uuid.UUID,
+    organization_id: uuid.UUID,
+    workspace_id: uuid.UUID | None,
+) -> None:
+    _compute_effective_scopes_cached.cache_invalidate(user_id, organization_id, None)
+    if workspace_id is not None:
+        _compute_effective_scopes_cached.cache_invalidate(
+            user_id, organization_id, workspace_id
+        )
+
+
 async def _is_org_admin_via_rbac(
     user_id: uuid.UUID,
     organization_id: uuid.UUID,
@@ -642,6 +658,28 @@ async def _authenticate_user(
     3. Role construction (authorization is enforced via scopes, not enum roles)
     """
     organization_id: uuid.UUID
+    single_tenant_org_id: uuid.UUID | None = None
+    single_tenant_defaults = await ensure_single_tenant_user_defaults_for_session(
+        session=session,
+        user_id=user.id,
+        is_superuser=user.is_superuser,
+    )
+    single_tenant_org_id = single_tenant_defaults.organization_id
+    if single_tenant_org_id is not None:
+        if single_tenant_defaults.changed:
+            await session.commit()
+            await set_rls_context(
+                session,
+                org_id=None,
+                workspace_id=None,
+                user_id=user.id,
+                bypass=True,
+            )
+            _invalidate_user_scope_cache(
+                user_id=user.id,
+                organization_id=single_tenant_org_id,
+                workspace_id=workspace_id,
+            )
 
     if workspace_id is not None:
         resolved_org_id = await _get_workspace_org_id(workspace_id)
@@ -651,6 +689,10 @@ async def _authenticate_user(
                 detail="Workspace not found",
             )
         organization_id = resolved_org_id
+        if single_tenant_org_id is not None and organization_id != single_tenant_org_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden"
+            )
 
         # Check if user is an org owner/admin via RBAC - they can access all workspaces
         is_org_admin = await _is_org_admin_via_rbac(
@@ -674,7 +716,9 @@ async def _authenticate_user(
                 user=user,
             )
     else:
-        organization_id = await _resolve_org_for_regular_user(session, user)
+        organization_id = single_tenant_org_id or await _resolve_org_for_regular_user(
+            session, user
+        )
 
     return get_role_from_user(
         user,
