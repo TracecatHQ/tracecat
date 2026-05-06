@@ -3,7 +3,7 @@ definition:
   title: Assign group to application
   description: Assign a group to an application in Okta.
   display_group: Okta
-  doc_url: https://developer.okta.com/docs/api/openapi/okta-management/management/tag/ApplicationGroups/#tag/ApplicationGroups/operation/updateGroupAssignmentToApplication
+  doc_url: https://developer.okta.com/docs/api/openapi/okta-management/management/tags/applicationgroups/#tag/ApplicationGroups/operation/updateGroupAssignmentToApplication
   namespace: tools.okta
   name: assign_group_to_app
   secrets:

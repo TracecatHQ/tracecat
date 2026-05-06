@@ -25,7 +25,7 @@ notion_mcp_oauth_secret = RegistryOAuthSecret(
     default_title="Notion MCP",
     description="Use AI to interact with Notion.",
     display_group="Notion MCP",
-    doc_url="https://developers.notion.com/docs/mcp",
+    doc_url="https://developers.notion.com/guides/mcp/overview",
     namespace="tools.notion",
     secrets=[notion_mcp_oauth_secret, *PYDANTIC_AI_REGISTRY_SECRETS],
 )

@@ -30,7 +30,7 @@ slack_secret = RegistrySecret(name="slack", keys=["SLACK_BOT_TOKEN"])
     default_title="Call method",
     description="Instantiate a Slack client and call a Slack SDK method.",
     display_group="Slack SDK",
-    doc_url="https://api.slack.com/methods",
+    doc_url="https://docs.slack.dev/reference/methods",
     namespace="tools.slack_sdk",
     secrets=[slack_secret],
 )
@@ -59,7 +59,7 @@ async def call_method(
     default_title="Call paginated method",
     description="Instantiate a Slack client and call a paginated Slack SDK method.",
     display_group="Slack SDK",
-    doc_url="https://api.slack.com/apis/pagination#methods",
+    doc_url="https://docs.slack.dev/apis/web-api/pagination#methods",
     namespace="tools.slack_sdk",
     secrets=[slack_secret],
 )
@@ -113,7 +113,7 @@ async def call_paginated_method(
     default_title="Lookup many users by email",
     description="Lookup users by emails. Returns a list of users found and a list of users not found.",
     display_group="Slack",
-    doc_url="https://api.slack.com/methods/users.lookupByEmail",
+    doc_url="https://docs.slack.dev/reference/methods/users.lookupByEmail/",
     namespace="tools.slack",
     secrets=[slack_secret],
 )
@@ -150,7 +150,7 @@ async def lookup_users_by_email(
     default_title="Post response",
     description="Post messsage back to Slack interaction via `response_url`.",
     display_group="Slack",
-    doc_url="https://api.slack.com/interactivity/handling#message_responses",
+    doc_url="https://docs.slack.dev/interactivity/handling-user-interaction#message_responses",
     namespace="tools.slack_sdk",
 )
 async def post_response(
@@ -213,7 +213,7 @@ slack_oauth_secret = RegistryOAuthSecret(
     default_title="Search messages",
     description="Search for messages matching a query in a Slack workspace.",
     display_group="Slack",
-    doc_url="https://api.slack.com/methods/search.messages",
+    doc_url="https://docs.slack.dev/reference/methods/search.messages/",
     namespace="tools.slack",
     secrets=[slack_oauth_secret],
 )

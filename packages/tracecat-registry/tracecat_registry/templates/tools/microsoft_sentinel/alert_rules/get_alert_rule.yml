@@ -3,7 +3,7 @@ definition:
   title: Get alert rule
   description: Get a specific alert rule by ID from Microsoft Sentinel workspace.
   display_group: Microsoft Sentinel
-  doc_url: https://learn.microsoft.com/en-us/rest/api/securityinsights/alert-rules/get
+  doc_url: https://learn.microsoft.com/en-us/rest/api/securityinsights/alert-rules/get?view=rest-securityinsights-2025-09-01
   namespace: tools.microsoft_sentinel
   name: get_alert_rule
   secrets:

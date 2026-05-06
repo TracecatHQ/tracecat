@@ -3,7 +3,7 @@ definition:
   title: List users
   description: List users in a Slack workspace.
   display_group: Slack
-  doc_url: https://api.slack.com/methods/users.list
+  doc_url: https://docs.slack.dev/reference/methods/users.list/
   namespace: tools.slack
   name: list_users
   expects:

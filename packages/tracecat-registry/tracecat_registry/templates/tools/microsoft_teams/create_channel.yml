@@ -3,7 +3,7 @@ definition:
   title: Create Teams channel
   description: Create a new channel in a Microsoft Teams team. Can create either public (standard) or private channels.
   display_group: Microsoft Teams
-  doc_url: https://learn.microsoft.com/en-us/graph/api/channel-post
+  doc_url: https://learn.microsoft.com/en-us/graph/api/channel-post?view=graph-rest-1.0
   namespace: tools.microsoft_teams
   name: create_channel
   secrets:

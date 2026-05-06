@@ -3,7 +3,7 @@ definition:
   title: Get watchlist item
   description: Get a specific item from a watchlist in Microsoft Sentinel.
   display_group: Microsoft Sentinel
-  doc_url: https://learn.microsoft.com/en-us/rest/api/securityinsights/watchlist-items/get
+  doc_url: https://learn.microsoft.com/en-us/rest/api/securityinsights/watchlist-items/get?view=rest-securityinsights-2025-09-01
   namespace: tools.microsoft_sentinel
   name: get_watchlist_item
   secrets:

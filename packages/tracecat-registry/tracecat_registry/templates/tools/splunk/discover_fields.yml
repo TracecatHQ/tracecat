@@ -3,7 +3,7 @@ definition:
   title: Discover fields
   description: Discover fields in Splunk data using the fieldsummary command with statistics and sample values.
   display_group: Splunk
-  doc_url: https://docs.splunk.com/Documentation/Splunk/9.4.1/SearchReference/Fieldsummary
+  doc_url: https://help.splunk.com/en?resourceId=Splunk_SearchReference_Fieldsummary&version=splunk-9_4
   namespace: tools.splunk
   name: discover_fields
   secrets:

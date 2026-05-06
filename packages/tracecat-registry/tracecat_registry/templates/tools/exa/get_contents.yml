@@ -3,7 +3,7 @@ definition:
   title: Get contents
   description: Get full page contents, summaries, and metadata for a list of URLs.
   display_group: Exa
-  doc_url: https://docs.exa.ai/reference/get-contents
+  doc_url: https://exa.ai/docs/reference/get-contents
   namespace: tools.exa
   name: get_contents
   secrets:
