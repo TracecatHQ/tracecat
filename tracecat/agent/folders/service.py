@@ -134,9 +134,7 @@ class AgentFolderService(BaseWorkspaceService):
         await self.session.refresh(folder)
         return folder
 
-    @requires_entitlement(Entitlement.AGENT_ADDONS)
-    async def get_folder(self, folder_id: uuid.UUID) -> AgentFolder | None:
-        """Get a folder by ID."""
+    async def _get_folder(self, folder_id: uuid.UUID) -> AgentFolder | None:
         statement = select(AgentFolder).where(
             AgentFolder.workspace_id == self.workspace_id,
             AgentFolder.id == folder_id,
@@ -144,9 +142,7 @@ class AgentFolderService(BaseWorkspaceService):
         result = await self.session.execute(statement)
         return result.scalar_one_or_none()
 
-    @requires_entitlement(Entitlement.AGENT_ADDONS)
-    async def get_folder_by_path(self, path: str) -> AgentFolder | None:
-        """Get a folder by its path."""
+    async def _get_folder_by_path(self, path: str) -> AgentFolder | None:
         path = self._normalize_folder_path(path)
 
         statement = select(AgentFolder).where(
@@ -156,6 +152,19 @@ class AgentFolderService(BaseWorkspaceService):
         result = await self.session.execute(statement)
         return result.scalar_one_or_none()
 
+    @require_scope("agent:read")
+    @requires_entitlement(Entitlement.AGENT_ADDONS)
+    async def get_folder(self, folder_id: uuid.UUID) -> AgentFolder | None:
+        """Get a folder by ID."""
+        return await self._get_folder(folder_id)
+
+    @require_scope("agent:read")
+    @requires_entitlement(Entitlement.AGENT_ADDONS)
+    async def get_folder_by_path(self, path: str) -> AgentFolder | None:
+        """Get a folder by its path."""
+        return await self._get_folder_by_path(path)
+
+    @require_scope("agent:read")
     @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def list_folders(self, parent_path: str = "/") -> Sequence[AgentFolder]:
         """List all folders within the specified parent path subtree."""
@@ -297,7 +306,7 @@ class AgentFolderService(BaseWorkspaceService):
         self, folder_id: uuid.UUID, recursive: bool = False
     ) -> None:
         """Delete a folder."""
-        folder = await self.get_folder(folder_id)
+        folder = await self._get_folder(folder_id)
         if not folder:
             raise self._folder_validation_error(
                 f"Folder {folder_id} not found",
@@ -345,6 +354,7 @@ class AgentFolderService(BaseWorkspaceService):
         await self.session.delete(folder)
         await self.session.commit()
 
+    @require_scope("agent:read")
     @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def get_directory_items(
         self, path: str = "/", *, order_by: Literal["asc", "desc"] = "desc"
@@ -463,6 +473,7 @@ class AgentFolderService(BaseWorkspaceService):
 
         return directory_items
 
+    @require_scope("agent:read")
     @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def get_folder_tree(self, root_path: str = "/") -> Sequence[AgentFolder]:
         """Get the full folder tree starting from the given root path."""

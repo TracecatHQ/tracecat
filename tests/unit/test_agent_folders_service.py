@@ -1,4 +1,5 @@
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Awaitable, Callable
+from types import SimpleNamespace
 from unittest.mock import AsyncMock
 from uuid import uuid4
 
@@ -9,7 +10,11 @@ from tracecat.agent.folders.schemas import AgentFolderDirectoryItem
 from tracecat.agent.folders.service import AgentFolderService
 from tracecat.auth.types import Role
 from tracecat.db.models import AgentPreset
-from tracecat.exceptions import EntitlementRequired, TracecatValidationError
+from tracecat.exceptions import (
+    EntitlementRequired,
+    ScopeDeniedError,
+    TracecatValidationError,
+)
 from tracecat.tiers.enums import Entitlement
 
 pytestmark = pytest.mark.usefixtures("db")
@@ -21,6 +26,69 @@ async def folder_service(
 ) -> AsyncGenerator[AgentFolderService, None]:
     """Create an agent folder service instance for testing."""
     yield AgentFolderService(session=session, role=svc_role)
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "invoker",
+    [
+        lambda service: service.get_folder(uuid4()),
+        lambda service: service.get_folder_by_path("/parent/"),
+        lambda service: service.list_folders("/"),
+        lambda service: service.get_directory_items("/"),
+        lambda service: service.get_folder_tree("/"),
+    ],
+)
+async def test_folder_read_methods_require_agent_read_scope(
+    invoker: Callable[[AgentFolderService], Awaitable[object]],
+) -> None:
+    """Folder read methods should reject callers without agent:read before querying."""
+    session = AsyncMock()
+    service = AgentFolderService(
+        session=session,
+        role=Role(
+            type="user",
+            user_id=uuid4(),
+            organization_id=uuid4(),
+            workspace_id=uuid4(),
+            service_id="tracecat-api",
+            scopes=frozenset(),
+        ),
+    )
+
+    with pytest.raises(ScopeDeniedError) as exc_info:
+        await invoker(service)
+
+    assert exc_info.value.missing_scopes == ["agent:read"]
+    session.execute.assert_not_awaited()
+
+
+@pytest.mark.anyio
+async def test_delete_folder_allows_delete_scope_without_read(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Folder deletes should not require agent:read for the internal lookup."""
+    session = AsyncMock()
+    service = AgentFolderService(
+        session=session,
+        role=Role(
+            type="user",
+            user_id=uuid4(),
+            organization_id=uuid4(),
+            workspace_id=uuid4(),
+            service_id="tracecat-api",
+            scopes=frozenset({"agent:delete"}),
+        ),
+    )
+    folder = SimpleNamespace(id=uuid4(), path="/folder/")
+    monkeypatch.setattr(service, "_get_folder", AsyncMock(return_value=folder))
+    monkeypatch.setattr(service, "_has_children", AsyncMock(return_value=False))
+    monkeypatch.setattr(service, "_has_presets", AsyncMock(return_value=False))
+
+    await service.delete_folder(folder.id)
+
+    session.delete.assert_awaited_once_with(folder)
+    session.commit.assert_awaited_once()
 
 
 @pytest.mark.anyio
