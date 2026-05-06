@@ -1,30 +1,56 @@
 """HTTP routes for agent tag definition CRUD."""
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, Query, status
 from sqlalchemy.exc import IntegrityError, NoResultFound
 
+from tracecat import config
 from tracecat.agent.tags.schemas import AgentTagRead
 from tracecat.agent.tags.service import AgentTagsService
 from tracecat.auth.dependencies import WorkspaceUserRouteRole
 from tracecat.authz.controls import require_scope
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.identifiers import AgentTagID
+from tracecat.pagination import CursorPaginatedResponse, CursorPaginationParams
 from tracecat.tags.schemas import TagCreate, TagUpdate
 
 router = APIRouter(prefix="/agent-tags", tags=["agent-tags"])
 
 
-@router.get("", response_model=list[AgentTagRead])
+@router.get("", response_model=CursorPaginatedResponse[AgentTagRead])
 @require_scope("agent:read")
 async def list_agent_tags(
     *,
     role: WorkspaceUserRouteRole,
     session: AsyncDBSession,
-) -> list[AgentTagRead]:
+    limit: int = Query(
+        default=config.TRACECAT__LIMIT_DEFAULT,
+        ge=config.TRACECAT__LIMIT_MIN,
+        le=config.TRACECAT__LIMIT_CURSOR_MAX,
+    ),
+    cursor: str | None = Query(default=None),
+    reverse: bool = Query(default=False),
+) -> CursorPaginatedResponse[AgentTagRead]:
     """List all agent tags in the workspace."""
     service = AgentTagsService(session=session, role=role)
-    tags = await service.list_tags()
-    return [AgentTagRead.model_validate(tag, from_attributes=True) for tag in tags]
+    try:
+        page = await service.list_tags_paginated(
+            CursorPaginationParams(limit=limit, cursor=cursor, reverse=reverse)
+        )
+    except ValueError as err:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(err),
+        ) from err
+    return CursorPaginatedResponse(
+        items=[
+            AgentTagRead.model_validate(tag, from_attributes=True) for tag in page.items
+        ],
+        next_cursor=page.next_cursor,
+        prev_cursor=page.prev_cursor,
+        has_more=page.has_more,
+        has_previous=page.has_previous,
+        total_estimate=page.total_estimate,
+    )
 
 
 @router.get("/{tag_id}", response_model=AgentTagRead)

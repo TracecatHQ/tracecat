@@ -8,6 +8,7 @@ from sqlalchemy.exc import NoResultFound
 from tracecat.agent.tags.service import AgentTagsService
 from tracecat.auth.types import Role
 from tracecat.exceptions import EntitlementRequired, ScopeDeniedError
+from tracecat.pagination import CursorPaginationParams
 from tracecat.tags.schemas import TagCreate, TagUpdate
 from tracecat.tiers.enums import Entitlement
 
@@ -28,6 +29,7 @@ def _role_with_scopes(scopes: frozenset[str] | None) -> Role:
     "invoker",
     [
         lambda service: service.list_tags(),
+        lambda service: service.list_tags_paginated(CursorPaginationParams()),
         lambda service: service.get_tag(uuid4()),
     ],
 )
@@ -90,6 +92,10 @@ async def test_preset_tag_methods_require_agent_addons_entitlement(
     ("invoker", "role_scopes"),
     [
         (lambda service: service.list_tags(), frozenset({"agent:read"})),
+        (
+            lambda service: service.list_tags_paginated(CursorPaginationParams()),
+            frozenset({"agent:read"}),
+        ),
         (lambda service: service.get_tag(uuid4()), frozenset({"agent:read"})),
         (
             lambda service: service.create_tag(

@@ -2,7 +2,9 @@
 
 import uuid
 from collections.abc import Sequence
+from datetime import datetime
 
+import sqlalchemy as sa
 from slugify import slugify
 from sqlalchemy import exists, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -11,6 +13,11 @@ from sqlalchemy.exc import NoResultFound
 from tracecat.authz.controls import require_scope
 from tracecat.db.models import AgentPreset, AgentTag, AgentTagLink
 from tracecat.identifiers import AgentTagID
+from tracecat.pagination import (
+    BaseCursorPaginator,
+    CursorPaginatedResponse,
+    CursorPaginationParams,
+)
 from tracecat.service import BaseWorkspaceService, requires_entitlement
 from tracecat.tags.schemas import TagCreate, TagUpdate
 from tracecat.tiers.enums import Entitlement
@@ -38,6 +45,81 @@ class AgentTagsService(BaseWorkspaceService):
         statement = select(AgentTag).where(AgentTag.workspace_id == self.workspace_id)
         result = await self.session.execute(statement)
         return result.scalars().all()
+
+    @require_scope("agent:read")
+    @requires_entitlement(Entitlement.AGENT_ADDONS)
+    async def list_tags_paginated(
+        self, params: CursorPaginationParams
+    ) -> CursorPaginatedResponse[AgentTag]:
+        """List all agent tags in the workspace with cursor pagination."""
+        paginator = BaseCursorPaginator(self.session)
+        statement = select(AgentTag).where(AgentTag.workspace_id == self.workspace_id)
+
+        if params.cursor:
+            try:
+                cursor_data = paginator.decode_cursor(params.cursor)
+                cursor_id = uuid.UUID(cursor_data.id)
+            except ValueError as err:
+                raise ValueError("Invalid cursor for agent tags") from err
+
+            cursor_created_at = cursor_data.sort_value
+            if not isinstance(cursor_created_at, datetime):
+                raise ValueError("Invalid cursor for agent tags")
+
+            predicate = sa.or_(
+                AgentTag.created_at < cursor_created_at,
+                sa.and_(
+                    AgentTag.created_at == cursor_created_at,
+                    AgentTag.id < cursor_id,
+                ),
+            )
+            if params.reverse:
+                predicate = sa.or_(
+                    AgentTag.created_at > cursor_created_at,
+                    sa.and_(
+                        AgentTag.created_at == cursor_created_at,
+                        AgentTag.id > cursor_id,
+                    ),
+                )
+            statement = statement.where(predicate)
+
+        if params.reverse:
+            statement = statement.order_by(AgentTag.created_at.asc(), AgentTag.id.asc())
+        else:
+            statement = statement.order_by(
+                AgentTag.created_at.desc(), AgentTag.id.desc()
+            )
+        statement = statement.limit(params.limit + 1)
+
+        tags = (await self.session.execute(statement)).scalars().all()
+        has_more = len(tags) > params.limit
+        items = list(tags[: params.limit])
+
+        next_cursor = None
+        if has_more and items:
+            last = items[-1]
+            next_cursor = paginator.encode_cursor(
+                last.id,
+                sort_column="created_at",
+                sort_value=last.created_at,
+            )
+
+        prev_cursor = None
+        if params.cursor and items:
+            first = items[0]
+            prev_cursor = paginator.encode_cursor(
+                first.id,
+                sort_column="created_at",
+                sort_value=first.created_at,
+            )
+
+        return CursorPaginatedResponse(
+            items=items,
+            next_cursor=next_cursor,
+            prev_cursor=prev_cursor,
+            has_more=has_more,
+            has_previous=params.cursor is not None,
+        )
 
     @require_scope("agent:read")
     @requires_entitlement(Entitlement.AGENT_ADDONS)

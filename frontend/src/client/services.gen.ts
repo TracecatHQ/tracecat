@@ -5906,7 +5906,10 @@ export const agentFoldersMoveFolder = (
  * List all agent tags in the workspace.
  * @param data The data for the request.
  * @param data.workspaceId
- * @returns AgentTagRead Successful Response
+ * @param data.limit
+ * @param data.cursor
+ * @param data.reverse
+ * @returns CursorPaginatedResponse_AgentTagRead_ Successful Response
  * @throws ApiError
  */
 export const agentTagsListAgentTags = (
@@ -5917,6 +5920,11 @@ export const agentTagsListAgentTags = (
     url: "/workspaces/{workspace_id}/agent-tags",
     path: {
       workspace_id: data.workspaceId,
+    },
+    query: {
+      limit: data.limit,
+      cursor: data.cursor,
+      reverse: data.reverse,
     },
     errors: {
       422: "Validation Error",

@@ -13,6 +13,7 @@ from tracecat.agent.tags import definitions_router as agent_tag_definitions_rout
 from tracecat.agent.tags import router as agent_tags_router
 from tracecat.auth.types import Role
 from tracecat.exceptions import EntitlementRequired
+from tracecat.pagination import CursorPaginatedResponse
 
 # Fixed UUID for parametrized test IDs — uuid.uuid4() at module level causes
 # pytest-xdist collection mismatches because each worker generates a different value.
@@ -23,11 +24,14 @@ def _mock_service_with_async_method(
     method_name: str,
     *,
     side_effect: Exception | None = None,
+    return_value: object = None,
 ) -> MagicMock:
     service = MagicMock()
     service_method = AsyncMock()
     if side_effect is not None:
         service_method.side_effect = side_effect
+    else:
+        service_method.return_value = return_value
     setattr(service, method_name, service_method)
     return service
 
@@ -128,10 +132,38 @@ async def test_remove_preset_tag_requires_agent_addons_entitlement(
 
 
 @pytest.mark.anyio
+async def test_list_agent_tags_returns_paginated_response(
+    client: TestClient,
+    test_admin_role: Role,
+) -> None:
+    """Agent tag listing should use the cursor-paginated API shape."""
+    with patch.object(
+        agent_tag_definitions_router, "AgentTagsService"
+    ) as mock_service_cls:
+        mock_service = _mock_service_with_async_method(
+            "list_tags_paginated",
+            return_value=CursorPaginatedResponse(items=[]),
+        )
+        mock_service_cls.return_value = mock_service
+
+        response = client.get("/agent-tags")
+
+    assert response.status_code == status.HTTP_200_OK
+    assert response.json() == {
+        "items": [],
+        "next_cursor": None,
+        "prev_cursor": None,
+        "has_more": False,
+        "has_previous": False,
+        "total_estimate": None,
+    }
+
+
+@pytest.mark.anyio
 @pytest.mark.parametrize(
     ("method", "path", "kwargs", "service_method"),
     [
-        ("get", "/agent-tags", {}, "list_tags"),
+        ("get", "/agent-tags", {}, "list_tags_paginated"),
         ("get", f"/agent-tags/{_FIXED_TAG_ID}", {}, "get_tag"),
         (
             "post",
