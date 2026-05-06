@@ -171,3 +171,26 @@ async def test_list_tags_for_preset_requires_existing_preset(
         await service.list_tags_for_preset(uuid4())
 
     session.execute.assert_not_awaited()
+
+
+@pytest.mark.anyio
+async def test_add_preset_tag_rejects_duplicate_assignment(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Duplicate preset-tag assignments should surface as conflicts."""
+    result = MagicMock()
+    result.scalar_one_or_none.return_value = None
+    session = AsyncMock()
+    session.scalar.return_value = True
+    session.execute.return_value = result
+    service = AgentTagsService(
+        session=session,
+        role=_role_with_scopes(frozenset({"agent:update"})),
+    )
+    monkeypatch.setattr(service, "has_entitlement", AsyncMock(return_value=True))
+
+    with pytest.raises(ValueError, match="Agent preset tag already exists"):
+        await service.add_preset_tag(uuid4(), uuid4())
+
+    session.rollback.assert_awaited_once()
+    session.commit.assert_not_awaited()

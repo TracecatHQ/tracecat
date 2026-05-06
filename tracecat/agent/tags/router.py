@@ -44,6 +44,11 @@ async def add_preset_tag(
     service = AgentTagsService(session, role=role)
     try:
         await service.add_preset_tag(preset_id, params.tag_id)
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(e),
+        ) from e
     except NoResultFound as e:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

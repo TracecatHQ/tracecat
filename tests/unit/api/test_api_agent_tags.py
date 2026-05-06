@@ -108,6 +108,31 @@ async def test_add_preset_tag_requires_agent_addons_entitlement(
 
 
 @pytest.mark.anyio
+async def test_add_preset_tag_duplicate_returns_409(
+    client: TestClient,
+    test_admin_role: Role,
+) -> None:
+    """Duplicate preset-tag assignments should return a conflict."""
+    preset_id = uuid.uuid4()
+    tag_id = uuid.uuid4()
+
+    with patch.object(agent_tags_router, "AgentTagsService") as mock_service_cls:
+        mock_service = _mock_service_with_async_method(
+            "add_preset_tag",
+            side_effect=ValueError("Agent preset tag already exists"),
+        )
+        mock_service_cls.return_value = mock_service
+
+        response = client.post(
+            f"/agent/presets/{preset_id}/tags",
+            json={"tag_id": str(tag_id)},
+        )
+
+    assert response.status_code == status.HTTP_409_CONFLICT
+    assert response.json()["detail"] == "Agent preset tag already exists"
+
+
+@pytest.mark.anyio
 async def test_remove_preset_tag_requires_agent_addons_entitlement(
     client: TestClient,
     test_admin_role: Role,
