@@ -8,14 +8,12 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Mapped
 
-from tracecat import config
 from tracecat.audit.service import AuditService
 from tracecat.auth.schemas import UserCreate, UserRole
 from tracecat.auth.users import get_user_db_context, get_user_manager_context
 from tracecat.db.models import User
 from tracecat.organization.management import (
-    ensure_single_tenant_user_defaults_in_session,
-    get_default_organization_id,
+    ensure_single_tenant_user_defaults_for_session,
 )
 from tracecat.service import BasePlatformService
 
@@ -26,17 +24,6 @@ class AdminUserService(BasePlatformService):
     """Platform-level user management."""
 
     service_name = "admin_user"
-
-    async def _ensure_single_tenant_defaults(self, user: User) -> None:
-        if config.TRACECAT__EE_MULTI_TENANT:
-            return
-        organization_id = await get_default_organization_id(self.session)
-        await ensure_single_tenant_user_defaults_in_session(
-            session=self.session,
-            user_id=user.id,
-            organization_id=organization_id,
-            is_superuser=user.is_superuser,
-        )
 
     async def create_user(self, params: AdminUserCreate) -> AdminUserRead:
         """Create a platform-level user."""
@@ -59,7 +46,11 @@ class AdminUserService(BasePlatformService):
         self.session.add(user)
         try:
             await self.session.flush()
-            await self._ensure_single_tenant_defaults(user)
+            await ensure_single_tenant_user_defaults_for_session(
+                session=self.session,
+                user_id=user.id,
+                is_superuser=user.is_superuser,
+            )
             await self.session.commit()
         except IntegrityError as e:
             await self.session.rollback()
@@ -105,7 +96,11 @@ class AdminUserService(BasePlatformService):
             raise ValueError(f"User {user_id} is already a superuser")
 
         user.is_superuser = True
-        await self._ensure_single_tenant_defaults(user)
+        await ensure_single_tenant_user_defaults_for_session(
+            session=self.session,
+            user_id=user.id,
+            is_superuser=user.is_superuser,
+        )
         await self.session.commit()
         await self.session.refresh(user)
         return AdminUserRead.model_validate(user)

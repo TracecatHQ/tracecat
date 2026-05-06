@@ -15,7 +15,6 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from tracecat import config
 from tracecat.auth.schemas import UserCreate, UserRole, UserUpdate
 from tracecat.auth.users import (
     get_or_create_user,
@@ -39,7 +38,7 @@ from tracecat.db.models import (
 from tracecat.db.models import Role as DBRole
 from tracecat.organization.management import (
     ensure_default_organization,
-    ensure_single_tenant_user_defaults_in_session,
+    ensure_single_tenant_user_defaults_for_session,
 )
 from tracecat.tiers import defaults as tier_defaults
 from tracecat.tiers.enums import Entitlement
@@ -142,7 +141,7 @@ async def create_superuser(
                     user_update = UserUpdate(role=UserRole.ADMIN)
                     user = await user_manager.admin_update(user_update, user)
 
-            await _ensure_single_tenant_user_defaults(
+            await ensure_single_tenant_user_defaults_for_session(
                 session=session,
                 user_id=user.id,
                 is_superuser=True,
@@ -166,7 +165,7 @@ async def create_superuser(
             # Promote to superuser
             user.is_superuser = True
             user.role = UserRole.ADMIN
-            await _ensure_single_tenant_user_defaults(
+            await ensure_single_tenant_user_defaults_for_session(
                 session=session,
                 user_id=user.id,
                 is_superuser=True,
@@ -316,25 +315,6 @@ async def _ensure_platform_superuser(
     return user, True
 
 
-async def _ensure_single_tenant_user_defaults(
-    *,
-    session: AsyncSession,
-    user_id: UUID,
-    is_superuser: bool,
-    organization_id: UUID | None = None,
-) -> None:
-    if config.TRACECAT__EE_MULTI_TENANT:
-        return
-    if organization_id is None:
-        organization_id = await ensure_default_organization()
-    await ensure_single_tenant_user_defaults_in_session(
-        session=session,
-        user_id=user_id,
-        organization_id=organization_id,
-        is_superuser=is_superuser,
-    )
-
-
 async def _get_or_create_local_user(
     *,
     session: AsyncSession,
@@ -479,7 +459,7 @@ async def create_dev_user(
             email=superuser_email,
             password=superuser_password,
         )
-        await _ensure_single_tenant_user_defaults(
+        await ensure_single_tenant_user_defaults_for_session(
             session=session,
             user_id=superuser.id,
             is_superuser=True,
