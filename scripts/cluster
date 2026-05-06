@@ -3,7 +3,7 @@
 # Tracecat multi-cluster management script
 #
 # Usage:
-#   ./cluster [cluster_num] [-p profile] <command> [args...]
+#   ./cluster [cluster_num] [-p profile] [tenant mode] <command> [args...]
 #
 # Profiles:
 #   dev     docker-compose.dev.yml (default)
@@ -12,6 +12,7 @@
 #
 # Examples:
 #   ./cluster up -d                # Start next available cluster (auto-selects number)
+#   ./cluster up -d --single-tenant # Start cluster with multi-tenancy disabled
 #   ./cluster down                 # Stop cluster (auto-selects if only one running)
 #   ./cluster restart api          # Restart the api service
 #   ./cluster 2 up -d              # Start cluster 2 explicitly
@@ -37,6 +38,7 @@ ENV_FILE="${REPO_ROOT}/.env"
 
 # Default profile
 PROFILE="dev"
+CLUSTER_EE_MULTI_TENANT=""
 
 # Get worktree identifier for namespacing clusters
 # Returns "main" for the main worktree, or a sanitized branch/directory name for worktrees
@@ -359,7 +361,7 @@ get_compose_file() {
 
 usage() {
     cat <<EOF
-Usage: ./cluster [cluster_num] [-p profile] <command> [args...]
+Usage: ./cluster [cluster_num] [-p profile] [tenant mode] <command> [args...]
        ./cluster list
 
 Cluster number is optional:
@@ -371,10 +373,18 @@ Profiles:
   local     docker-compose.local.yml
   prod      docker-compose.yml
 
+Tenant mode:
+  Defaults to TRACECAT__EE_MULTI_TENANT from the environment/.env when set,
+  otherwise true for cluster development.
+  --single-tenant                 Set TRACECAT__EE_MULTI_TENANT=false
+  --multi-tenant                  Set TRACECAT__EE_MULTI_TENANT=true
+  --ee-multi-tenant true|false    Set TRACECAT__EE_MULTI_TENANT explicitly
+
 Commands:
   up [args]     Start the cluster (e.g., up -d)
                 Reuses existing cluster for this worktree if one is running.
                 Use --new/-n to force a new cluster instead.
+                Use --single-tenant or --multi-tenant to override tenant mode.
                 Seeds test@tracecat.com superuser, dev@tracecat.com tenant
                 user, and all default tier entitlements by default for the dev
                 profile. Use --no-seed to skip.
@@ -401,6 +411,10 @@ Nuke options:
 
 Examples:
   ./cluster up -d                Start cluster and create dev users
+  ./cluster up -d --single-tenant
+                                  Start cluster with multi-tenancy disabled
+  ./cluster --ee-multi-tenant false up -d
+                                  Start cluster with explicit tenant mode
   ./cluster up -d --new          Force a new cluster on next available number
   ./cluster up -d --no-seed      Start cluster without creating dev tenant user
   ./cluster up -d --default-tier-entitlements none
@@ -423,6 +437,24 @@ Examples:
 Current worktree: ${WORKTREE_ID}
 EOF
     exit 0
+}
+
+normalize_bool() {
+    local value
+    value=$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')
+
+    case "$value" in
+        true|1|yes|y|on)
+            echo "true"
+            ;;
+        false|0|no|n|off)
+            echo "false"
+            ;;
+        *)
+            echo "Error: expected a boolean value, got '$1'" >&2
+            exit 1
+            ;;
+    esac
 }
 
 # Calculate ports for a given cluster number
@@ -487,8 +519,9 @@ build_env() {
     # Default to direct executor backend for development
     export TRACECAT__EXECUTOR_BACKEND="${TRACECAT__EXECUTOR_BACKEND:-direct}"
 
-    # Enable multitenancy and all feature flags for development
-    export TRACECAT__EE_MULTI_TENANT=true
+    # Default cluster development to multi-tenant mode, but let .env/shell
+    # configuration override it unless an explicit cluster flag was provided.
+    export TRACECAT__EE_MULTI_TENANT="${CLUSTER_EE_MULTI_TENANT:-${TRACECAT__EE_MULTI_TENANT:-true}}"
     FEATURE_FLAGS=$(cd "$REPO_ROOT" && uv run python -c "from tracecat.feature_flags.enums import FeatureFlag; print(','.join(f.value for f in FeatureFlag))" 2>/dev/null) || FEATURE_FLAGS=""
     if [[ -n "$FEATURE_FLAGS" ]]; then
         export TRACECAT__FEATURE_FLAGS="$FEATURE_FLAGS"
@@ -575,15 +608,42 @@ if [[ $# -lt 1 ]]; then
     usage
 fi
 
-# Parse optional -p/--profile flag
-if [[ "$1" == "-p" ]] || [[ "$1" == "--profile" ]]; then
-    if [[ $# -lt 2 ]]; then
-        echo "Error: -p/--profile requires a profile name"
-        exit 1
-    fi
-    PROFILE="$2"
-    shift 2
-fi
+# Parse cluster-level flags that appear before the command.
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        -p|--profile)
+            if [[ $# -lt 2 ]]; then
+                echo "Error: -p/--profile requires a profile name" >&2
+                exit 1
+            fi
+            PROFILE="$2"
+            shift 2
+            ;;
+        --single-tenant)
+            CLUSTER_EE_MULTI_TENANT="false"
+            shift
+            ;;
+        --multi-tenant)
+            CLUSTER_EE_MULTI_TENANT="true"
+            shift
+            ;;
+        --ee-multi-tenant)
+            if [[ $# -lt 2 ]]; then
+                echo "Error: --ee-multi-tenant requires true or false" >&2
+                exit 1
+            fi
+            CLUSTER_EE_MULTI_TENANT=$(normalize_bool "$2")
+            shift 2
+            ;;
+        --ee-multi-tenant=*)
+            CLUSTER_EE_MULTI_TENANT=$(normalize_bool "${1#*=}")
+            shift
+            ;;
+        *)
+            break
+            ;;
+    esac
+done
 
 if [[ $# -lt 1 ]]; then
     usage
@@ -618,6 +678,44 @@ if [[ "$COMMAND" == "docs" ]]; then
 
     portless_install_tip
     exec mint dev "$@"
+fi
+
+# Parse cluster-level flags that appear after the command, so both of these work:
+#   ./cluster --single-tenant up -d
+#   ./cluster up -d --single-tenant
+FILTERED_ARGS=()
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --single-tenant)
+            CLUSTER_EE_MULTI_TENANT="false"
+            shift
+            ;;
+        --multi-tenant)
+            CLUSTER_EE_MULTI_TENANT="true"
+            shift
+            ;;
+        --ee-multi-tenant)
+            if [[ $# -lt 2 ]]; then
+                echo "Error: --ee-multi-tenant requires true or false" >&2
+                exit 1
+            fi
+            CLUSTER_EE_MULTI_TENANT=$(normalize_bool "$2")
+            shift 2
+            ;;
+        --ee-multi-tenant=*)
+            CLUSTER_EE_MULTI_TENANT=$(normalize_bool "${1#*=}")
+            shift
+            ;;
+        *)
+            FILTERED_ARGS+=("$1")
+            shift
+            ;;
+    esac
+done
+if [[ ${#FILTERED_ARGS[@]} -gt 0 ]]; then
+    set -- "${FILTERED_ARGS[@]}"
+else
+    set --
 fi
 
 # Parse --new/-n flag from remaining args (only meaningful for 'up')
@@ -953,6 +1051,10 @@ if [[ -f "$ENV_FILE" ]]; then
     set +a
     # Re-apply our overrides (source may have overwritten them)
     build_env "$CLUSTER_NUM"
+fi
+
+if [[ "$COMMAND" == "up" ]]; then
+    echo "EE multi-tenant: ${TRACECAT__EE_MULTI_TENANT}"
 fi
 
 # Sync dependencies before starting cluster
