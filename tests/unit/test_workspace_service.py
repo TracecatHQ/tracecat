@@ -196,20 +196,26 @@ class TestWorkspaceService:
     async def test_list_accessible_workspaces_returns_all_for_org_service_account(
         self,
         session: AsyncSession,
-        svc_organization: Organization,
     ) -> None:
+        organization = Organization(
+            id=uuid.uuid4(),
+            name="Workspace access org",
+            slug=f"workspace-access-{uuid.uuid4().hex}",
+            is_active=True,
+        )
         workspace_ids = [uuid.uuid4(), uuid.uuid4()]
         session.add_all(
             [
+                organization,
                 Workspace(
                     id=workspace_ids[0],
                     name="alpha",
-                    organization_id=svc_organization.id,
+                    organization_id=organization.id,
                 ),
                 Workspace(
                     id=workspace_ids[1],
                     name="beta",
-                    organization_id=svc_organization.id,
+                    organization_id=organization.id,
                 ),
             ]
         )
@@ -219,7 +225,7 @@ class TestWorkspaceService:
             session=session,
             role=Role(
                 type="service_account",
-                organization_id=svc_organization.id,
+                organization_id=organization.id,
                 service_account_id=uuid.uuid4(),
                 service_id="tracecat-api",
                 scopes=frozenset({"org:workspace:read"}),
