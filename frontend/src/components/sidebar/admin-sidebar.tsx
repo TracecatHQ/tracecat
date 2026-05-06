@@ -98,7 +98,7 @@ export function AdminSidebar({
         <SidebarMenu>
           <SidebarMenuItem>
             <SidebarMenuButton asChild>
-              <Link href="/admin" className="text-muted-foreground">
+              <Link href="/workspaces" className="text-muted-foreground">
                 <ChevronLeftIcon />
                 <span>Admin console</span>
               </Link>
