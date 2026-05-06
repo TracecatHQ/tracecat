@@ -101,7 +101,7 @@ POST_RLS_ORG_OPTIONAL_WORKSPACE_SCOPED_TABLES = (
 )
 
 SPECIAL_TENANT_POLICY_TABLES = frozenset(
-    {"service_account_api_key", "service_account_scope"}
+    {"agent_tag_link", "service_account_api_key", "service_account_scope"}
 )
 
 # Workspace and oauth_state carry custom policy SQL. scope and agent_catalog
@@ -350,6 +350,52 @@ def disable_service_account_child_table_rls(table: str) -> str:
     return f"""
         DROP POLICY IF EXISTS {policy_name(table)} ON "{table}";
         ALTER TABLE "{table}" DISABLE ROW LEVEL SECURITY;
+    """
+
+
+def _agent_tag_link_workspace_condition() -> str:
+    return """
+                EXISTS (
+                    SELECT 1
+                    FROM agent_tag
+                    WHERE agent_tag.id = agent_tag_link.tag_id
+                      AND agent_tag.workspace_id = NULLIF(current_setting('app.current_workspace_id', true), '')::uuid
+                )
+                AND EXISTS (
+                    SELECT 1
+                    FROM agent_preset
+                    WHERE agent_preset.id = agent_tag_link.preset_id
+                      AND agent_preset.workspace_id = NULLIF(current_setting('app.current_workspace_id', true), '')::uuid
+                )
+    """
+
+
+def enable_agent_tag_link_table_rls() -> str:
+    workspace_condition = _agent_tag_link_workspace_condition()
+    return f"""
+        ALTER TABLE "agent_tag_link" ENABLE ROW LEVEL SECURITY;
+
+        CREATE POLICY {policy_name("agent_tag_link")} ON "agent_tag_link"
+            FOR ALL
+            USING (
+                current_setting('{RLS_BYPASS_VAR}', true) = '{RLS_BYPASS_ON}'
+                OR (
+{workspace_condition}
+                )
+            )
+            WITH CHECK (
+                current_setting('{RLS_BYPASS_VAR}', true) = '{RLS_BYPASS_ON}'
+                OR (
+{workspace_condition}
+                )
+            );
+    """
+
+
+def disable_agent_tag_link_table_rls() -> str:
+    return f"""
+        DROP POLICY IF EXISTS {policy_name("agent_tag_link")} ON "agent_tag_link";
+        ALTER TABLE "agent_tag_link" DISABLE ROW LEVEL SECURITY;
     """
 
 

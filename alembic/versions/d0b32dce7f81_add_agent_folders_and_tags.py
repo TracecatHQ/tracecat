@@ -12,7 +12,9 @@ import sqlalchemy as sa
 
 from alembic import op
 from tracecat.db.tenant_rls import (
+    disable_agent_tag_link_table_rls,
     disable_workspace_table_rls,
+    enable_agent_tag_link_table_rls,
     enable_workspace_table_rls,
 )
 
@@ -123,9 +125,11 @@ def upgrade() -> None:
     )
     op.execute(enable_workspace_table_rls("agent_folder"))
     op.execute(enable_workspace_table_rls("agent_tag"))
+    op.execute(enable_agent_tag_link_table_rls())
 
 
 def downgrade() -> None:
+    op.execute(disable_agent_tag_link_table_rls())
     op.execute(disable_workspace_table_rls("agent_tag"))
     op.execute(disable_workspace_table_rls("agent_folder"))
     op.drop_constraint(
