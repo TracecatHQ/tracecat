@@ -7,7 +7,10 @@ import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.agent.folders.schemas import AgentFolderDirectoryItem
-from tracecat.agent.folders.service import AgentFolderService
+from tracecat.agent.folders.service import (
+    AGENT_FOLDER_PARENT_NOT_FOUND_CODE,
+    AgentFolderService,
+)
 from tracecat.auth.types import Role
 from tracecat.db.models import AgentPreset
 from tracecat.exceptions import (
@@ -105,6 +108,20 @@ async def test_list_folders_escapes_like_wildcards(
     folders = await folder_service.list_folders("/foo%")
 
     assert {folder.path for folder in folders} == {"/foo%/", "/foo%/child/"}
+
+
+@pytest.mark.anyio
+async def test_list_folders_rejects_missing_parent_path(
+    folder_service: AgentFolderService,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Missing parent paths should not look like empty folders."""
+    monkeypatch.setattr(folder_service, "has_entitlement", AsyncMock(return_value=True))
+
+    with pytest.raises(TracecatValidationError) as exc_info:
+        await folder_service.list_folders("/missing/")
+
+    assert exc_info.value.detail == {"code": AGENT_FOLDER_PARENT_NOT_FOUND_CODE}
 
 
 @pytest.mark.anyio

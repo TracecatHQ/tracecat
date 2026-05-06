@@ -91,6 +91,32 @@ async def test_create_folder_missing_parent_returns_404(
 
 
 @pytest.mark.anyio
+async def test_list_folders_missing_parent_returns_404(
+    client: TestClient,
+    test_admin_role: Role,
+) -> None:
+    """Listing a missing folder path should not look like an empty folder."""
+    with patch.object(agent_folder_router, "AgentFolderService") as mock_service_cls:
+        mock_service = _mock_service_with_async_method(
+            "list_folders",
+            side_effect=TracecatValidationError(
+                "Parent path /missing/ not found",
+                detail={"code": AGENT_FOLDER_PARENT_NOT_FOUND_CODE},
+            ),
+        )
+        mock_service._normalize_folder_path.return_value = "/missing/"
+        mock_service_cls.return_value = mock_service
+
+        response = client.get(
+            "/agent-folders",
+            params={"parent_path": "/missing/"},
+        )
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+        assert response.json()["detail"] == "Parent path /missing/ not found"
+
+
+@pytest.mark.anyio
 async def test_create_folder_blank_name_returns_400(
     client: TestClient,
     test_admin_role: Role,

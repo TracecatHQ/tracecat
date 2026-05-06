@@ -63,7 +63,10 @@ async def list_folders(
     """List folders under the specified parent path."""
     service = AgentFolderService(session, role=role)
     normalized_parent_path = service._normalize_folder_path(parent_path)
-    folders = await service.list_folders(parent_path=parent_path)
+    try:
+        folders = await service.list_folders(parent_path=parent_path)
+    except TracecatValidationError as e:
+        raise _folder_http_exception(e) from e
     folders = [f for f in folders if f.path != normalized_parent_path]
     return [
         AgentFolderRead.model_validate(folder, from_attributes=True)

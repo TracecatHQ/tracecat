@@ -169,6 +169,14 @@ class AgentFolderService(BaseWorkspaceService):
     async def list_folders(self, parent_path: str = "/") -> Sequence[AgentFolder]:
         """List all folders within the specified parent path subtree."""
         parent_path = self._normalize_folder_path(parent_path)
+        if parent_path != "/":
+            parent_exists = await self._folder_path_exists(parent_path)
+            if not parent_exists:
+                raise self._folder_validation_error(
+                    f"Parent path {parent_path} not found",
+                    code=AGENT_FOLDER_PARENT_NOT_FOUND_CODE,
+                )
+
         statement = select(AgentFolder).where(
             AgentFolder.workspace_id == self.workspace_id,
             AgentFolder.path.startswith(parent_path, autoescape=True),
