@@ -9,6 +9,7 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from tracecat import config
 from tracecat.auth.types import Role
 from tracecat.authz.seeding import seed_system_roles_for_org
 from tracecat.cases.service import CaseFieldsService
@@ -16,14 +17,17 @@ from tracecat.db.engine import get_async_session_bypass_rls_context_manager
 from tracecat.db.models import (
     Membership,
     Organization,
+    OrganizationMembership,
     OrganizationSecret,
     Ownership,
     RegistryAction,
     RegistryIndex,
     RegistryRepository,
     RegistryVersion,
+    UserRoleAssignment,
     Workspace,
 )
+from tracecat.db.models import Role as DBRole
 from tracecat.exceptions import TracecatValidationError
 from tracecat.identifiers import OrganizationID
 from tracecat.logger import logger
@@ -293,3 +297,100 @@ async def ensure_default_organization() -> OrganizationID:
         )
         await ensure_organization_defaults(session, org.id)
         return org.id
+
+
+async def ensure_single_tenant_user_defaults(
+    *,
+    user_id: uuid.UUID,
+    is_superuser: bool,
+) -> OrganizationID | None:
+    """Ensure single-tenant users are real members of the default organization.
+
+    In multi-tenant deployments this is a no-op. In single-tenant deployments,
+    every user receives default organization membership. Superusers receive the
+    organization-owner role; regular users receive organization-member unless
+    they already have an org-wide assignment.
+    """
+    if config.TRACECAT__EE_MULTI_TENANT:
+        return None
+
+    organization_id = await ensure_default_organization()
+    async with get_async_session_bypass_rls_context_manager() as session:
+        await ensure_single_tenant_user_defaults_in_session(
+            session=session,
+            user_id=user_id,
+            organization_id=organization_id,
+            is_superuser=is_superuser,
+        )
+        await session.commit()
+    return organization_id
+
+
+async def ensure_single_tenant_user_defaults_in_session(
+    *,
+    session: AsyncSession,
+    user_id: uuid.UUID,
+    organization_id: OrganizationID,
+    is_superuser: bool,
+) -> bool:
+    """Ensure single-tenant org membership and org-wide RBAC in a session."""
+    membership_result = await session.execute(
+        select(OrganizationMembership).where(
+            OrganizationMembership.user_id == user_id,
+            OrganizationMembership.organization_id == organization_id,
+        )
+    )
+    membership = membership_result.scalar_one_or_none()
+
+    assignment_result = await session.execute(
+        select(UserRoleAssignment, DBRole.slug)
+        .join(DBRole, UserRoleAssignment.role_id == DBRole.id)
+        .where(
+            UserRoleAssignment.user_id == user_id,
+            UserRoleAssignment.organization_id == organization_id,
+            UserRoleAssignment.workspace_id.is_(None),
+        )
+    )
+    assignment_row = assignment_result.tuples().one_or_none()
+    if membership is not None and assignment_row is not None:
+        _, current_role_slug = assignment_row
+        if not is_superuser or current_role_slug == "organization-owner":
+            return False
+
+    await seed_system_roles_for_org(session, organization_id)
+
+    changed = False
+    if membership is None:
+        session.add(
+            OrganizationMembership(
+                user_id=user_id,
+                organization_id=organization_id,
+            )
+        )
+        changed = True
+
+    role_slug = "organization-owner" if is_superuser else "organization-member"
+    role_result = await session.execute(
+        select(DBRole).where(
+            DBRole.organization_id == organization_id,
+            DBRole.slug == role_slug,
+        )
+    )
+    role = role_result.scalar_one()
+
+    assignment = assignment_row[0] if assignment_row is not None else None
+    if assignment is None:
+        session.add(
+            UserRoleAssignment(
+                organization_id=organization_id,
+                user_id=user_id,
+                workspace_id=None,
+                role_id=role.id,
+            )
+        )
+        return True
+
+    if is_superuser:
+        assignment.role_id = role.id
+        changed = True
+    return changed

@@ -354,9 +354,13 @@ async def test_auth_cache_middleware_initializes_cache():
 
 
 @pytest.mark.anyio
-async def test_auth_cache_reduces_database_queries(mocker):
+async def test_auth_cache_reduces_database_queries(
+    mocker, monkeypatch: pytest.MonkeyPatch
+):
     """Test that the cache reduces database queries for multiple workspace checks."""
     from tracecat.authz.service import MembershipService
+
+    monkeypatch.setattr(config, "TRACECAT__EE_MULTI_TENANT", True)
 
     # Create mock user and memberships with proper UUID4
     mock_user = MagicMock(spec=User)
@@ -602,9 +606,11 @@ async def test_performance_improvement(mocker):
 
 
 @pytest.mark.anyio
-async def test_cache_user_id_validation():
+async def test_cache_user_id_validation(monkeypatch: pytest.MonkeyPatch):
     """Test that cache validates user ID to prevent cross-user data leakage."""
     from tracecat.authz.service import MembershipService
+
+    monkeypatch.setattr(config, "TRACECAT__EE_MULTI_TENANT", True)
 
     # Create two different users
     user1 = MagicMock(spec=User)
@@ -697,9 +703,11 @@ async def test_cache_user_id_validation():
 
 
 @pytest.mark.anyio
-async def test_cache_size_limit():
+async def test_cache_size_limit(monkeypatch: pytest.MonkeyPatch):
     """Test that cache has size limits to prevent memory exhaustion."""
     from tracecat.authz.service import MembershipService
+
+    monkeypatch.setattr(config, "TRACECAT__EE_MULTI_TENANT", True)
 
     # Create user with excessive memberships
     user = MagicMock(spec=User)
@@ -781,8 +789,12 @@ async def test_cache_size_limit():
 
 
 @pytest.mark.anyio
-async def test_organization_id_populated_when_require_workspace_no(mocker):
+async def test_organization_id_populated_when_require_workspace_no(
+    mocker, monkeypatch: pytest.MonkeyPatch
+):
     """Test that organization_id is inferred from OrganizationMembership when require_workspace="no"."""
+
+    monkeypatch.setattr(config, "TRACECAT__EE_MULTI_TENANT", True)
 
     # Create mock user (non-superuser to exercise org membership resolution)
     mock_user = MagicMock(spec=User)
@@ -844,8 +856,10 @@ async def test_organization_id_populated_when_require_workspace_no(mocker):
 @pytest.mark.anyio
 @pytest.mark.usefixtures("db")
 async def test_role_dependency_infers_org_from_single_membership(
-    session: AsyncSession,
+    session: AsyncSession, monkeypatch: pytest.MonkeyPatch
 ):
+    monkeypatch.setattr(config, "TRACECAT__EE_MULTI_TENANT", True)
+
     org_id = uuid.uuid4()
     org = Organization(
         id=org_id,
@@ -906,8 +920,10 @@ async def test_role_dependency_infers_org_from_single_membership(
 @pytest.mark.anyio
 @pytest.mark.usefixtures("db")
 async def test_role_dependency_requires_workspace_for_multi_org(
-    session: AsyncSession,
+    session: AsyncSession, monkeypatch: pytest.MonkeyPatch
 ):
+    monkeypatch.setattr(config, "TRACECAT__EE_MULTI_TENANT", True)
+
     org_a_id = uuid.uuid4()
     org_b_id = uuid.uuid4()
     org_a = Organization(
