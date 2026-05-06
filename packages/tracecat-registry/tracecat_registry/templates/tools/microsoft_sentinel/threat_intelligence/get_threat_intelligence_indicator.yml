@@ -3,7 +3,7 @@ definition:
   title: Get threat intelligence indicator
   description: Get a specific threat intelligence indicator by name from Microsoft Sentinel.
   display_group: Microsoft Sentinel
-  doc_url: https://learn.microsoft.com/en-us/rest/api/securityinsights/threat-intelligence-indicator/get
+  doc_url: https://learn.microsoft.com/en-us/rest/api/securityinsights/threat-intelligence-indicator/get?view=rest-securityinsights-2025-09-01
   namespace: tools.microsoft_sentinel
   name: get_threat_intelligence_indicator
   secrets:

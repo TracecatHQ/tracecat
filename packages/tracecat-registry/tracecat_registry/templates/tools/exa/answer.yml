@@ -3,7 +3,7 @@ definition:
   title: Answer
   description: Answer a question with Exa.
   display_group: Exa
-  doc_url: https://docs.exa.ai/reference/answer
+  doc_url: https://exa.ai/docs/reference/answer
   namespace: tools.exa
   name: answer
   secrets:

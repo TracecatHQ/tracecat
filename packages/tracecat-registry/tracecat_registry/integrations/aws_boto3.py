@@ -249,7 +249,7 @@ async def _read_streaming_values(obj: Any) -> Any:
     default_title="Call method",
     description="Instantiate a Boto3 client and call an AWS Boto3 API method.",
     display_group="AWS Boto3",
-    doc_url="https://boto3.amazonaws.com/v1/documentation/api/latest/guide/clients.html",
+    doc_url="https://docs.aws.amazon.com/boto3/latest/guide/clients.html",
     namespace="tools.aws_boto3",
     secrets=[aws_secret],
 )
@@ -282,7 +282,7 @@ async def call_api(
     default_title="Call paginator",
     description="Instantiate a Boto3 paginator and call a paginated AWS API method.",
     display_group="AWS Boto3",
-    doc_url="https://boto3.amazonaws.com/v1/documentation/api/latest/guide/paginators.html",
+    doc_url="https://docs.aws.amazon.com/boto3/latest/guide/paginators.html",
     namespace="tools.aws_boto3",
     secrets=[aws_secret],
 )

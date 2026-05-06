@@ -3,7 +3,7 @@ definition:
   title: Get bookmark
   description: Get a specific bookmark by ID from Microsoft Sentinel workspace.
   display_group: Microsoft Sentinel
-  doc_url: https://learn.microsoft.com/en-us/rest/api/securityinsights/bookmarks/get
+  doc_url: https://learn.microsoft.com/en-us/rest/api/securityinsights/bookmarks/get?view=rest-securityinsights-2025-09-01
   namespace: tools.microsoft_sentinel
   name: get_bookmark
   secrets:

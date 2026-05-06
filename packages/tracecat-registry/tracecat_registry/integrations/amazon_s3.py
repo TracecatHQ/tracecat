@@ -68,7 +68,7 @@ cross-account AssumeRole requests and uses a default STS session name when
     default_title="Parse S3 URI",
     description="Parse an S3 URI into bucket name and object key.",
     display_group="Amazon S3",
-    doc_url="https://boto3.amazonaws.com/v1/documentation/api/latest/guide/s3-example-download-file.html",
+    doc_url="https://docs.aws.amazon.com/boto3/latest/guide/s3-example-download-file.html",
     namespace="tools.amazon_s3",
     secrets=[s3_secret],
 )
@@ -89,7 +89,7 @@ async def parse_uri(uri: str) -> tuple[str, str]:
     default_title="Call S3 method",
     description="Instantiate a S3 client and call a S3 method.",
     display_group="Amazon S3",
-    doc_url="https://boto3.amazonaws.com/v1/documentation/api/latest/guide/s3-example-download-file.html",
+    doc_url="https://docs.aws.amazon.com/boto3/latest/guide/s3-example-download-file.html",
     namespace="tools.amazon_s3",
     secrets=[s3_secret],
 )
@@ -106,7 +106,7 @@ async def call_method(
     default_title="Get S3 object",
     description="Download an object from S3 and return its body as a string.",
     display_group="Amazon S3",
-    doc_url="https://boto3.amazonaws.com/v1/documentation/api/latest/reference/services/s3.html#S3.Client.get_object",
+    doc_url="https://docs.aws.amazon.com/boto3/latest/reference/services/s3.html#S3.Client.get_object",
     namespace="tools.amazon_s3",
     secrets=[s3_secret],
 )
@@ -133,7 +133,7 @@ async def get_object(
     default_title="List S3 objects",
     description="List objects in an S3 bucket.",
     display_group="Amazon S3",
-    doc_url="https://boto3.amazonaws.com/v1/documentation/api/latest/reference/services/s3.html#S3.Client.list_objects_v2",
+    doc_url="https://docs.aws.amazon.com/boto3/latest/reference/services/s3.html#S3.Client.list_objects_v2",
     namespace="tools.amazon_s3",
     secrets=[s3_secret],
 )
@@ -161,7 +161,7 @@ async def list_objects(
     default_title="Copy S3 objects",
     description="Copy S3 objects from one bucket to another.",
     display_group="Amazon S3",
-    doc_url="https://boto3.amazonaws.com/v1/documentation/api/latest/reference/services/s3.html#S3.Client.copy_object",
+    doc_url="https://docs.aws.amazon.com/boto3/latest/reference/services/s3.html#S3.Client.copy_object",
     namespace="tools.amazon_s3",
     secrets=[s3_secret],
 )
@@ -235,7 +235,7 @@ async def copy_objects(
     default_title="Get S3 objects",
     description="Download multiple S3 objects and return their bodies as strings.",
     display_group="Amazon S3",
-    doc_url="https://boto3.amazonaws.com/v1/documentation/api/latest/reference/services/s3.html#S3.Client.get_object",
+    doc_url="https://docs.aws.amazon.com/boto3/latest/reference/services/s3.html#S3.Client.get_object",
     namespace="tools.amazon_s3",
     secrets=[s3_secret],
 )
@@ -263,7 +263,7 @@ async def get_objects(
     default_title="Put S3 object",
     description="Put an object to S3.",
     display_group="Amazon S3",
-    doc_url="https://boto3.amazonaws.com/v1/documentation/api/latest/reference/services/s3.html#S3.Client.put_object",
+    doc_url="https://docs.aws.amazon.com/boto3/latest/reference/services/s3.html#S3.Client.put_object",
     namespace="tools.amazon_s3",
     secrets=[s3_secret],
 )
@@ -310,7 +310,7 @@ async def put_object(
     default_title="Delete S3 object",
     description="Delete an object from S3.",
     display_group="Amazon S3",
-    doc_url="https://boto3.amazonaws.com/v1/documentation/api/latest/reference/services/s3.html#S3.Client.delete_object",
+    doc_url="https://docs.aws.amazon.com/boto3/latest/reference/services/s3.html#S3.Client.delete_object",
     namespace="tools.amazon_s3",
     secrets=[s3_secret],
 )

@@ -3,7 +3,7 @@ definition:
   title: Unsuspend user
   description: Unsuspend an Okta user.
   display_group: Okta
-  doc_url: https://developer.okta.com/docs/api/openapi/okta-management/management/tag/UserLifecycle/#tag/UserLifecycle/operation/unsuspendUser
+  doc_url: https://developer.okta.com/docs/api/openapi/okta-management/management/tags/userlifecycle/#tag/UserLifecycle/operation/unsuspendUser
   namespace: tools.okta
   name: unsuspend_user
   secrets:

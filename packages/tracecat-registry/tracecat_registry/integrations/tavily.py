@@ -16,7 +16,7 @@ tavily_secret = RegistrySecret(name="tavily", keys=["TAVILY_API_KEY"])
     default_title="Search the web",
     description="Search the web with Tavily for a given search query.",
     display_group="Tavily",
-    doc_url="https://docs.tavily.com/api-reference/endpoint/search",
+    doc_url="https://docs.tavily.com/documentation/api-reference/endpoint/search",
     namespace="tools.tavily",
     secrets=[tavily_secret],
 )

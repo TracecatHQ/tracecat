@@ -3,7 +3,7 @@ definition:
   title: Search events
   description: Search events from Splunk.
   display_group: Splunk
-  doc_url: https://docs.splunk.com/Documentation/Splunk/9.4.1/RESTREF/RESTsearch#search.2Fjobs
+  doc_url: https://help.splunk.com/en?resourceId=Splunk_RESTREF_RESTsearch&version=splunk-9_4#search.2Fjobs
   name: search_events
   namespace: tools.splunk
   secrets:

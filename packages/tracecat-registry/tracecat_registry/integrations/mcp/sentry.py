@@ -25,7 +25,7 @@ sentry_mcp_oauth_secret = RegistryOAuthSecret(
     default_title="Sentry MCP",
     description="Use AI to interact with Sentry.",
     display_group="Sentry MCP",
-    doc_url="https://docs.sentry.io/product/sentry-mcp/",
+    doc_url="https://docs.sentry.io/ai/mcp/",
     namespace="tools.sentry",
     secrets=[sentry_mcp_oauth_secret, *PYDANTIC_AI_REGISTRY_SECRETS],
 )

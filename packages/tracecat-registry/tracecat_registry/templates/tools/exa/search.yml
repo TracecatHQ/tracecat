@@ -3,7 +3,7 @@ definition:
   title: Search the web
   description: Search the web with Exa.
   display_group: Exa
-  doc_url: https://docs.exa.ai/reference/search
+  doc_url: https://exa.ai/docs/reference/search
   namespace: tools.exa
   name: search
   secrets:

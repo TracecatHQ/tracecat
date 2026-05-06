@@ -3,7 +3,7 @@ definition:
   title: List incident relations
   description: Get all relations for a specific incident in Microsoft Sentinel.
   display_group: Microsoft Sentinel
-  doc_url: https://learn.microsoft.com/en-us/rest/api/securityinsights/incident-relations/list
+  doc_url: https://learn.microsoft.com/en-us/rest/api/securityinsights/incident-relations/list?view=rest-securityinsights-2025-09-01
   namespace: tools.microsoft_sentinel
   name: list_incident_relations
   secrets:
