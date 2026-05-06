@@ -302,7 +302,49 @@ async def test_single_tenant_defaults_handle_concurrent_repairs() -> None:
 
 
 @pytest.mark.anyio
-async def test_single_tenant_defaults_do_not_downgrade_existing_role(
+async def test_single_tenant_defaults_keep_existing_role_after_repair(
+    session: AsyncSession,
+) -> None:
+    org = await _create_org_with_roles(session)
+    user = await _create_user(session)
+    session.add(OrganizationMembership(user_id=user.id, organization_id=org.id))
+    owner_role = (
+        await session.execute(
+            select(DBRole).where(
+                DBRole.organization_id == org.id,
+                DBRole.slug == "organization-owner",
+            )
+        )
+    ).scalar_one()
+    session.add(
+        UserRoleAssignment(
+            organization_id=org.id,
+            user_id=user.id,
+            workspace_id=None,
+            role_id=owner_role.id,
+        )
+    )
+    await session.flush()
+
+    changed = await ensure_single_tenant_user_defaults_in_session(
+        session=session,
+        user_id=user.id,
+        organization_id=org.id,
+        is_superuser=False,
+    )
+    await session.flush()
+
+    assert (
+        await _get_org_role_assignment_slug(
+            session, user_id=user.id, organization_id=org.id
+        )
+        == "organization-owner"
+    )
+    assert changed is False
+
+
+@pytest.mark.anyio
+async def test_single_tenant_defaults_normalize_existing_role_during_repair(
     session: AsyncSession,
 ) -> None:
     org = await _create_org_with_roles(session)
@@ -325,7 +367,7 @@ async def test_single_tenant_defaults_do_not_downgrade_existing_role(
     )
     await session.flush()
 
-    await ensure_single_tenant_user_defaults_in_session(
+    changed = await ensure_single_tenant_user_defaults_in_session(
         session=session,
         user_id=user.id,
         organization_id=org.id,
@@ -333,12 +375,18 @@ async def test_single_tenant_defaults_do_not_downgrade_existing_role(
     )
     await session.flush()
 
+    membership = await session.get(
+        OrganizationMembership,
+        {"user_id": user.id, "organization_id": org.id},
+    )
+    assert membership is not None
     assert (
         await _get_org_role_assignment_slug(
             session, user_id=user.id, organization_id=org.id
         )
-        == "organization-owner"
+        == "organization-member"
     )
+    assert changed is True
 
 
 @pytest.mark.anyio

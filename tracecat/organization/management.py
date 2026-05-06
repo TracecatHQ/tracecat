@@ -377,6 +377,8 @@ async def ensure_single_tenant_user_defaults_in_session(
     is_superuser: bool,
 ) -> bool:
     """Ensure single-tenant org membership and org-wide RBAC in a session."""
+    # Fast path: if the user already has default-org membership and an
+    # acceptable org-wide role, there is nothing to repair.
     membership_result = await session.execute(
         select(OrganizationMembership).where(
             OrganizationMembership.user_id == user_id,
@@ -400,10 +402,15 @@ async def ensure_single_tenant_user_defaults_in_session(
         if not is_superuser or current_role_slug == "organization-owner":
             return False
 
+    # Role lookup below depends on the preset roles existing. This is idempotent
+    # and only runs after the fast path determines a repair may be needed.
     await seed_system_roles_for_org(session, organization_id)
 
     changed = False
     if membership is None:
+        # Auth-path lazy repair can run concurrently for the same legacy user.
+        # Use an idempotent insert so one request repairs the row and the other
+        # continues without surfacing a unique-constraint failure.
         membership_insert = pg_insert(OrganizationMembership).values(
             user_id=user_id,
             organization_id=organization_id,
@@ -417,6 +424,8 @@ async def ensure_single_tenant_user_defaults_in_session(
         membership_result = await session.execute(membership_insert)
         changed = (membership_result.rowcount or 0) > 0  # pyright: ignore[reportAttributeAccessIssue]
 
+    # Single-tenant defaults are intentionally minimal for regular users, while
+    # superusers are granted default-org owner permissions.
     role_slug = "organization-owner" if is_superuser else "organization-member"
     role_result = await session.execute(
         select(DBRole).where(
@@ -428,6 +437,11 @@ async def ensure_single_tenant_user_defaults_in_session(
 
     assignment = assignment_row[0] if assignment_row is not None else None
     if assignment is None:
+        # There can only be one org-wide assignment per user. For superusers, a
+        # conflict means another request created or found a stale org-wide
+        # assignment, so upgrade it to owner. Regular users do not update on
+        # insert conflict; existing rows observed by this session are handled by
+        # the normalization branch below.
         assignment_insert = pg_insert(UserRoleAssignment).values(
             organization_id=organization_id,
             user_id=user_id,
@@ -454,7 +468,11 @@ async def ensure_single_tenant_user_defaults_in_session(
         changed = changed or (assignment_result.rowcount or 0) > 0  # pyright: ignore[reportAttributeAccessIssue]
         return changed
 
-    if is_superuser:
+    # At this point a repair is needed: either the membership row was missing,
+    # or a superuser still had a non-owner org-wide role. Keep the org-wide
+    # assignment aligned with the default role for this user type, but skip
+    # no-op writes.
+    if assignment.role_id != role.id:
         assignment.role_id = role.id
         changed = True
     return changed
