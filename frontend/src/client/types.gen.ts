@@ -8270,6 +8270,22 @@ export type WorkflowExecutionResetPointRead = {
   event_type: string
   label: string
   /**
+   * Workflow action ref used to describe this reset point.
+   */
+  action_ref?: string | null
+  /**
+   * Workflow action name used to describe this reset point.
+   */
+  action_name?: string | null
+  /**
+   * Temporal source or close event id for the related action.
+   */
+  action_event_id?: number | null
+  /**
+   * How the reset checkpoint relates to the related action.
+   */
+  action_relation?: "after" | "after_scheduling" | "before" | null
+  /**
    * True when this point maps to the earliest resettable point.
    */
   is_start?: boolean

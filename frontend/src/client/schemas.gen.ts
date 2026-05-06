@@ -27521,6 +27521,56 @@ export const $WorkflowExecutionResetPointRead = {
       type: "string",
       title: "Label",
     },
+    action_ref: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Action Ref",
+      description: "Workflow action ref used to describe this reset point.",
+    },
+    action_name: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Action Name",
+      description: "Workflow action name used to describe this reset point.",
+    },
+    action_event_id: {
+      anyOf: [
+        {
+          type: "integer",
+          minimum: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Action Event Id",
+      description: "Temporal source or close event id for the related action.",
+    },
+    action_relation: {
+      anyOf: [
+        {
+          type: "string",
+          enum: ["after", "after_scheduling", "before"],
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Action Relation",
+      description: "How the reset checkpoint relates to the related action.",
+    },
     is_start: {
       type: "boolean",
       title: "Is Start",
