@@ -9,6 +9,7 @@ SENSITIVE_SETTINGS_KEYS = {
     "audit_webhook_url",
     "audit_webhook_custom_headers",
     "audit_webhook_custom_payload",
+    "agent_otel_headers",
 }
 """Settings that are encrypted at rest."""
 
