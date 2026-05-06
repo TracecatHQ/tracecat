@@ -5,19 +5,27 @@ import time
 import uuid
 from collections.abc import AsyncGenerator, Callable, Iterator
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 from typing import Any
 from unittest.mock import patch
 
-# Set workflow return strategy BEFORE importing tracecat modules
-# test_workflows.py was written when we returned the full context by default
-# This must happen before any tracecat imports to ensure config reads the correct value
+from dotenv import dotenv_values, load_dotenv
+
+# Set test defaults BEFORE importing tracecat modules so config reads them.
+# test_workflows.py was written when we returned the full context by default.
 os.environ.setdefault("TRACECAT__WORKFLOW_RETURN_STRATEGY", "context")
+os.environ.setdefault(
+    "TRACECAT__SERVICE_KEY",
+    dotenv_values(Path(__file__).resolve().parents[1] / ".env").get(
+        "TRACECAT__SERVICE_KEY"
+    )
+    or "test-service-key",
+)
 
 import aioboto3
 import pytest
 import redis
 import tracecat_registry.integrations.aws_boto3 as boto3_module
-from dotenv import load_dotenv
 from minio import Minio
 from minio.error import S3Error
 from sqlalchemy import create_engine, select, text
@@ -1177,7 +1185,9 @@ def env_sandbox(monkeysession: pytest.MonkeyPatch):
         monkeysession.setattr(config, "TRACECAT__EXECUTOR_BACKEND", "test")
         monkeysession.setenv("TRACECAT__EXECUTOR_BACKEND", "test")
     monkeysession.setenv("TRACECAT__PUBLIC_API_URL", f"http://{api_host}/api")
-    monkeysession.setenv("TRACECAT__SERVICE_KEY", os.environ["TRACECAT__SERVICE_KEY"])
+    service_key = os.environ["TRACECAT__SERVICE_KEY"]
+    monkeysession.setattr(config, "TRACECAT__SERVICE_KEY", service_key)
+    monkeysession.setenv("TRACECAT__SERVICE_KEY", service_key)
     monkeysession.setenv("TRACECAT__SIGNING_SECRET", "test-signing-secret")
     monkeysession.setenv("USER_AUTH_SECRET", "test-user-auth-secret")
     monkeysession.setattr(config, "USER_AUTH_SECRET", "test-user-auth-secret")
