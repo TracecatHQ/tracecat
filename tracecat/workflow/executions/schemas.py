@@ -1118,6 +1118,23 @@ class WorkflowExecutionResetPointRead(BaseModel):
     event_time: datetime
     event_type: str
     label: str
+    action_ref: str | None = Field(
+        default=None,
+        description="Workflow action ref used to describe this reset point.",
+    )
+    action_name: str | None = Field(
+        default=None,
+        description="Workflow action name used to describe this reset point.",
+    )
+    action_event_id: int | None = Field(
+        default=None,
+        ge=1,
+        description="Temporal source or close event id for the related action.",
+    )
+    action_relation: Literal["after", "after_scheduling", "before"] | None = Field(
+        default=None,
+        description="How the reset checkpoint relates to the related action.",
+    )
     is_start: bool = Field(
         default=False,
         description="True when this point maps to the earliest resettable point.",

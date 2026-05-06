@@ -8,8 +8,8 @@ import json
 import uuid
 from collections import OrderedDict
 from collections.abc import AsyncGenerator, Sequence
-from dataclasses import dataclass
-from typing import Any, cast
+from dataclasses import dataclass, replace
+from typing import Any, Literal, cast
 
 import orjson
 import temporalio.api.enums.v1
@@ -128,6 +128,14 @@ class WorkflowExecutionStoredResult:
     event: HistoryEvent
     stored: StoredObject
     should_mask_output: bool
+
+
+@dataclass(frozen=True)
+class WorkflowResetActionContext:
+    source_event_id: int
+    action_ref: str
+    action_name: str
+    close_event_id: int | None = None
 
 
 @dataclass(frozen=True)
@@ -1843,6 +1851,140 @@ class WorkflowExecutionsService:
         return event.event_type == EventType.EVENT_TYPE_WORKFLOW_TASK_COMPLETED
 
     @staticmethod
+    def _format_reset_action_ref(action_ref: str) -> str:
+        label = action_ref.replace("_", " ").replace("-", " ")
+        return " ".join(part.capitalize() for part in label.split()) or action_ref
+
+    @classmethod
+    def _reset_point_for_action(
+        cls,
+        *,
+        point: WorkflowExecutionResetPointRead,
+        action: WorkflowResetActionContext,
+        relation: Literal["after", "after_scheduling", "before"],
+        action_event_id: int,
+    ) -> WorkflowExecutionResetPointRead:
+        action_label = cls._format_reset_action_ref(action.action_ref)
+        match relation:
+            case "after":
+                label = f"After {action_label}"
+            case "after_scheduling":
+                label = f"After scheduling {action_label}"
+            case "before":
+                label = f"Before {action_label}"
+            case _:
+                label = point.label
+        return point.model_copy(
+            update={
+                "label": label,
+                "action_ref": action.action_ref,
+                "action_name": action.action_name,
+                "action_event_id": action_event_id,
+                "action_relation": relation,
+            }
+        )
+
+    @classmethod
+    def _annotate_reset_point(
+        cls,
+        point: WorkflowExecutionResetPointRead,
+        action_contexts: Sequence[WorkflowResetActionContext],
+    ) -> WorkflowExecutionResetPointRead:
+        if point.is_start:
+            return point.model_copy(update={"label": "Workflow start"})
+        if not point.is_resettable:
+            return point
+
+        closed_actions = [
+            action
+            for action in action_contexts
+            if action.close_event_id is not None
+            and action.close_event_id <= point.event_id
+        ]
+        if closed_actions:
+            action = max(
+                closed_actions,
+                key=lambda item: item.close_event_id or item.source_event_id,
+            )
+            return cls._reset_point_for_action(
+                point=point,
+                action=action,
+                relation="after",
+                action_event_id=action.close_event_id or action.source_event_id,
+            )
+
+        scheduled_actions = [
+            action
+            for action in action_contexts
+            if action.source_event_id <= point.event_id
+        ]
+        if scheduled_actions:
+            action = max(scheduled_actions, key=lambda item: item.source_event_id)
+            return cls._reset_point_for_action(
+                point=point,
+                action=action,
+                relation="after_scheduling",
+                action_event_id=action.source_event_id,
+            )
+
+        future_actions = [
+            action
+            for action in action_contexts
+            if action.source_event_id > point.event_id
+        ]
+        if future_actions:
+            action = min(future_actions, key=lambda item: item.source_event_id)
+            return cls._reset_point_for_action(
+                point=point,
+                action=action,
+                relation="before",
+                action_event_id=action.source_event_id,
+            )
+        return point
+
+    @staticmethod
+    async def _build_reset_action_contexts(
+        events: Sequence[HistoryEvent],
+    ) -> list[WorkflowResetActionContext]:
+        context_by_source_id: OrderedDict[int, WorkflowResetActionContext] = (
+            OrderedDict()
+        )
+        for event in events:
+            if is_scheduled_event(event):
+                try:
+                    source = await WorkflowExecutionEventCompact.from_source_event(
+                        event
+                    )
+                except (TypeError, ValueError, ValidationError) as e:
+                    logger.trace(
+                        "Skipping reset action context; source event could not be parsed",
+                        event_id=event.event_id,
+                        error=e,
+                    )
+                    continue
+                if source is None:
+                    continue
+                context_by_source_id[event.event_id] = WorkflowResetActionContext(
+                    source_event_id=event.event_id,
+                    action_ref=source.action_ref,
+                    action_name=source.action_name,
+                )
+                continue
+
+            if not (is_close_event(event) or is_error_event(event)):
+                continue
+            source_event_id = get_source_event_id(event)
+            if source_event_id is None:
+                continue
+            action_context = context_by_source_id.get(source_event_id)
+            if action_context is None:
+                continue
+            context_by_source_id[source_event_id] = replace(
+                action_context, close_event_id=event.event_id
+            )
+        return list(context_by_source_id.values())
+
+    @staticmethod
     def _to_temporal_reset_reapply_type(
         reapply_type: WorkflowExecutionResetReapplyType,
     ) -> ResetReapplyType.ValueType:
@@ -1864,11 +2006,13 @@ class WorkflowExecutionsService:
     ) -> list[WorkflowExecutionResetPointRead]:
         await self.require_execution(wf_exec_id)
         points: list[WorkflowExecutionResetPointRead] = []
+        events: list[HistoryEvent] = []
         first_resettable_event_id: int | None = None
         handle = self.handle(wf_exec_id)
         async for event in handle.fetch_history_events(
             event_filter_type=WorkflowHistoryEventFilterType.ALL_EVENT
         ):
+            events.append(event)
             resettable = self._is_resettable_event(event)
             if resettable and first_resettable_event_id is None:
                 first_resettable_event_id = event.event_id
@@ -1888,7 +2032,9 @@ class WorkflowExecutionsService:
         if first_resettable_event_id is not None:
             for point in points:
                 point.is_start = point.event_id == first_resettable_event_id
-        return points
+
+        action_contexts = await self._build_reset_action_contexts(events)
+        return [self._annotate_reset_point(point, action_contexts) for point in points]
 
     async def _resolve_reset_event_id(
         self,

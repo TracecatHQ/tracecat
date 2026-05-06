@@ -23,6 +23,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { ACTION_REF_DELIMITER, undoSlugify } from "@/lib/utils"
 
 interface ResetWorkflowRunDialogProps {
   open: boolean
@@ -36,6 +37,34 @@ interface ResetWorkflowRunDialogProps {
     reason?: string | null
     reapplyType: WorkflowExecutionResetReapplyType
   }) => Promise<void>
+}
+
+function formatResetActionRef(actionRef: string): string {
+  return undoSlugify(actionRef, ACTION_REF_DELIMITER)
+}
+
+export function formatResetPointPrimaryLabel(
+  point: WorkflowExecutionResetPointRead
+): string {
+  if (!point.action_ref || !point.action_relation) {
+    return point.label
+  }
+
+  const actionLabel = formatResetActionRef(point.action_ref)
+  switch (point.action_relation) {
+    case "after":
+      return `After ${actionLabel}`
+    case "after_scheduling":
+      return `After scheduling ${actionLabel}`
+    case "before":
+      return `Before ${actionLabel}`
+  }
+}
+
+export function formatResetPointSecondaryLabel(
+  point: WorkflowExecutionResetPointRead
+): string {
+  return `Event ${point.event_id}`
 }
 
 export function ResetWorkflowRunDialog({
@@ -67,12 +96,17 @@ export function ResetWorkflowRunDialog({
     [resetPoints]
   )
 
+  const visibleResettablePoints = useMemo(
+    () => resettablePoints.filter((point) => !point.is_start),
+    [resettablePoints]
+  )
+
   const useResetPointSelect =
     executionCount === 1 && resettablePoints.length > 0
 
   const helperText = useMemo(() => {
     if (useResetPointSelect) {
-      return "Select start or a specific reset point from workflow history."
+      return "Select where the run should resume. Event IDs are shown for Temporal history reference."
     }
     if (!eventIdText.trim()) {
       return "Leave empty to reset from start."
@@ -116,7 +150,7 @@ export function ResetWorkflowRunDialog({
           <DialogTitle>Reset workflow run</DialogTitle>
           <DialogDescription>
             {executionCount === 1
-              ? "Reset the selected workflow run from start or a specific event."
+              ? "Reset the selected workflow run from workflow start or a history checkpoint."
               : `Reset ${executionCount} selected workflow runs from start or a specific event.`}
           </DialogDescription>
         </DialogHeader>
@@ -131,14 +165,21 @@ export function ResetWorkflowRunDialog({
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="start">Start</SelectItem>
-                  {resettablePoints.map((point) => (
+                  <SelectItem value="start" textValue="Workflow start">
+                    Workflow start
+                  </SelectItem>
+                  {visibleResettablePoints.map((point) => (
                     <SelectItem
                       key={point.event_id}
                       value={String(point.event_id)}
+                      textValue={formatResetPointPrimaryLabel(point)}
                     >
-                      Event {point.event_id} -{" "}
-                      {point.event_type.replaceAll("_", " ").toLowerCase()}
+                      <span className="truncate">
+                        {formatResetPointPrimaryLabel(point)}
+                        <span className="ml-2 text-muted-foreground">
+                          {formatResetPointSecondaryLabel(point)}
+                        </span>
+                      </span>
                     </SelectItem>
                   ))}
                 </SelectContent>

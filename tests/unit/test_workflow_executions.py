@@ -2192,6 +2192,159 @@ class TestWorkflowExecutionEvents:
                 assert event.while_iteration is None
                 assert event.while_continue is None
 
+    async def test_reset_points_label_completed_action(
+        self,
+        workflow_executions_service: WorkflowExecutionsService,
+        workflow_exec_id: WorkflowExecutionID,
+    ) -> None:
+        """Reset checkpoints after a closed action use action-aware labels."""
+        first_checkpoint = create_mock_history_event(
+            event_id=2,
+            event_type=EventType.EVENT_TYPE_WORKFLOW_TASK_COMPLETED,  # type: ignore
+        )
+        scheduled = create_mock_history_event(
+            event_id=3,
+            event_type=EventType.EVENT_TYPE_ACTIVITY_TASK_SCHEDULED,  # type: ignore
+        )
+        completed = create_mock_history_event(
+            event_id=4,
+            event_type=EventType.EVENT_TYPE_ACTIVITY_TASK_COMPLETED,  # type: ignore
+            scheduled_event_id=3,
+        )
+        action_checkpoint = create_mock_history_event(
+            event_id=5,
+            event_type=EventType.EVENT_TYPE_WORKFLOW_TASK_COMPLETED,  # type: ignore
+        )
+
+        mock_handle = Mock(spec=WorkflowHandle)
+
+        async def mock_fetch_history_events(**kwargs):
+            yield first_checkpoint
+            yield scheduled
+            yield completed
+            yield action_checkpoint
+
+        mock_handle.describe = AsyncMock(return_value=Mock())
+        mock_handle.fetch_history_events.return_value = mock_fetch_history_events()
+        workflow_executions_service._client.get_workflow_handle_for = Mock(
+            return_value=mock_handle
+        )
+
+        action_event = WorkflowExecutionEventCompact(
+            source_event_id=3,
+            schedule_time=datetime.datetime.fromtimestamp(1640995200, tz=datetime.UTC),
+            curr_event_type=WorkflowEventType.ACTIVITY_TASK_SCHEDULED,
+            status=WorkflowExecutionEventStatus.SCHEDULED,
+            action_name="core.transform.reshape",
+            action_ref="action_a",
+        )
+
+        with patch(
+            "tracecat.workflow.executions.service.WorkflowExecutionEventCompact.from_source_event",
+            AsyncMock(return_value=action_event),
+        ):
+            points = await workflow_executions_service.list_reset_points(
+                workflow_exec_id
+            )
+
+        resettable_points = [point for point in points if point.is_resettable]
+        assert resettable_points[0].label == "Workflow start"
+        assert resettable_points[0].is_start is True
+        assert resettable_points[1].label == "After Action A"
+        assert resettable_points[1].action_ref == "action_a"
+        assert resettable_points[1].action_name == "core.transform.reshape"
+        assert resettable_points[1].action_event_id == 4
+        assert resettable_points[1].action_relation == "after"
+
+    async def test_reset_points_label_scheduled_action(
+        self,
+        workflow_executions_service: WorkflowExecutionsService,
+        workflow_exec_id: WorkflowExecutionID,
+    ) -> None:
+        """Reset checkpoints after a source event identify scheduled actions."""
+        first_checkpoint = create_mock_history_event(
+            event_id=2,
+            event_type=EventType.EVENT_TYPE_WORKFLOW_TASK_COMPLETED,  # type: ignore
+        )
+        scheduled = create_mock_history_event(
+            event_id=3,
+            event_type=EventType.EVENT_TYPE_ACTIVITY_TASK_SCHEDULED,  # type: ignore
+        )
+        scheduled_checkpoint = create_mock_history_event(
+            event_id=4,
+            event_type=EventType.EVENT_TYPE_WORKFLOW_TASK_COMPLETED,  # type: ignore
+        )
+
+        mock_handle = Mock(spec=WorkflowHandle)
+
+        async def mock_fetch_history_events(**kwargs):
+            yield first_checkpoint
+            yield scheduled
+            yield scheduled_checkpoint
+
+        mock_handle.describe = AsyncMock(return_value=Mock())
+        mock_handle.fetch_history_events.return_value = mock_fetch_history_events()
+        workflow_executions_service._client.get_workflow_handle_for = Mock(
+            return_value=mock_handle
+        )
+
+        action_event = WorkflowExecutionEventCompact(
+            source_event_id=3,
+            schedule_time=datetime.datetime.fromtimestamp(1640995200, tz=datetime.UTC),
+            curr_event_type=WorkflowEventType.ACTIVITY_TASK_SCHEDULED,
+            status=WorkflowExecutionEventStatus.SCHEDULED,
+            action_name="core.transform.reshape",
+            action_ref="action_b",
+        )
+
+        with patch(
+            "tracecat.workflow.executions.service.WorkflowExecutionEventCompact.from_source_event",
+            AsyncMock(return_value=action_event),
+        ):
+            points = await workflow_executions_service.list_reset_points(
+                workflow_exec_id
+            )
+
+        resettable_points = [point for point in points if point.is_resettable]
+        assert resettable_points[1].label == "After scheduling Action B"
+        assert resettable_points[1].action_event_id == 3
+        assert resettable_points[1].action_relation == "after_scheduling"
+
+    async def test_reset_points_fallback_without_action_context(
+        self,
+        workflow_executions_service: WorkflowExecutionsService,
+        workflow_exec_id: WorkflowExecutionID,
+    ) -> None:
+        """Reset point labels fall back to event IDs when no action is available."""
+        first_checkpoint = create_mock_history_event(
+            event_id=2,
+            event_type=EventType.EVENT_TYPE_WORKFLOW_TASK_COMPLETED,  # type: ignore
+        )
+        later_checkpoint = create_mock_history_event(
+            event_id=5,
+            event_type=EventType.EVENT_TYPE_WORKFLOW_TASK_COMPLETED,  # type: ignore
+        )
+
+        mock_handle = Mock(spec=WorkflowHandle)
+
+        async def mock_fetch_history_events(**kwargs):
+            yield first_checkpoint
+            yield later_checkpoint
+
+        mock_handle.describe = AsyncMock(return_value=Mock())
+        mock_handle.fetch_history_events.return_value = mock_fetch_history_events()
+        workflow_executions_service._client.get_workflow_handle_for = Mock(
+            return_value=mock_handle
+        )
+
+        points = await workflow_executions_service.list_reset_points(workflow_exec_id)
+
+        resettable_points = [point for point in points if point.is_resettable]
+        assert resettable_points[0].label == "Workflow start"
+        assert resettable_points[1].label == "Event 5"
+        assert resettable_points[1].action_ref is None
+        assert resettable_points[1].action_relation is None
+
 
 # === Timeout Resolution Tests ===
 
