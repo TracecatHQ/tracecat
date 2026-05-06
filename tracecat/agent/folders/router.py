@@ -138,12 +138,13 @@ async def delete_folder(
     role: WorkspaceUserRouteRole,
     session: AsyncDBSession,
     folder_id: UUID,
-    params: AgentFolderDelete,
+    params: AgentFolderDelete | None = None,
 ) -> None:
     """Delete an agent folder."""
     service = AgentFolderService(session, role=role)
     try:
-        await service.delete_folder(folder_id, recursive=params.recursive)
+        recursive = params.recursive if params is not None else False
+        await service.delete_folder(folder_id, recursive=recursive)
     except TracecatValidationError as e:
         raise _folder_http_exception(e) from e
 

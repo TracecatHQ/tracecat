@@ -264,6 +264,24 @@ async def test_get_directory_requires_agent_addons_entitlement(
 
 
 @pytest.mark.anyio
+async def test_delete_folder_without_body_defaults_to_non_recursive(
+    client: TestClient,
+    test_admin_role: Role,
+) -> None:
+    """Non-recursive folder deletes should not require a request body."""
+    folder_id = uuid.uuid4()
+
+    with patch.object(agent_folder_router, "AgentFolderService") as mock_service_cls:
+        mock_service = _mock_service_with_async_method("delete_folder")
+        mock_service_cls.return_value = mock_service
+
+        response = client.delete(f"/agent-folders/{folder_id}")
+
+    assert response.status_code == status.HTTP_204_NO_CONTENT
+    mock_service.delete_folder.assert_awaited_once_with(folder_id, recursive=False)
+
+
+@pytest.mark.anyio
 @pytest.mark.parametrize(
     ("method", "path", "kwargs", "service_method"),
     [
