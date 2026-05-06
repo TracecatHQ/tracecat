@@ -129,6 +129,9 @@ from tracecat.integrations.router import (
 )
 from tracecat.logger import logger
 from tracecat.mcp.oidc import router as mcp_oidc_router
+from tracecat.mcp.personal_access_tokens.router import (
+    router as mcp_personal_access_tokens_router,
+)
 from tracecat.middleware import (
     AuthorizationCacheMiddleware,
     RequestLoggingMiddleware,
@@ -498,6 +501,7 @@ def create_app(**kwargs) -> FastAPI:
     app.include_router(agent_channels_router)
     app.include_router(workspaces_router)
     app.include_router(workspace_service_accounts_router)
+    app.include_router(mcp_personal_access_tokens_router)
     _include_workspace_scoped_router(app, workflow_management_router)
     _include_workspace_scoped_router(app, workflow_executions_workflow_router)
     _include_workspace_scoped_router(app, workflow_graph_router)

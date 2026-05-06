@@ -9628,6 +9628,69 @@ export const $CursorPaginatedResponse_InboxItemRead_ = {
   title: "CursorPaginatedResponse[InboxItemRead]",
 } as const
 
+export const $CursorPaginatedResponse_MCPPersonalAccessTokenRead_ = {
+  properties: {
+    items: {
+      items: {
+        $ref: "#/components/schemas/MCPPersonalAccessTokenRead",
+      },
+      type: "array",
+      title: "Items",
+    },
+    next_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Next Cursor",
+      description: "Cursor for next page",
+    },
+    prev_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Prev Cursor",
+      description: "Cursor for previous page",
+    },
+    has_more: {
+      type: "boolean",
+      title: "Has More",
+      description: "Whether more items exist",
+      default: false,
+    },
+    has_previous: {
+      type: "boolean",
+      title: "Has Previous",
+      description: "Whether previous items exist",
+      default: false,
+    },
+    total_estimate: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Total Estimate",
+      description: "Estimated total count from table statistics",
+    },
+  },
+  type: "object",
+  required: ["items"],
+  title: "CursorPaginatedResponse[MCPPersonalAccessTokenRead]",
+} as const
+
 export const $CursorPaginatedResponse_ServiceAccountApiKeyRead_ = {
   properties: {
     items: {
@@ -13662,6 +13725,21 @@ export const $InvitationStatus = {
   description: "Invitation lifecycle status.",
 } as const
 
+export const $IssuedMCPPersonalAccessToken = {
+  properties: {
+    raw_token: {
+      type: "string",
+      title: "Raw Token",
+    },
+    token: {
+      $ref: "#/components/schemas/MCPPersonalAccessTokenRead",
+    },
+  },
+  type: "object",
+  required: ["raw_token", "token"],
+  title: "IssuedMCPPersonalAccessToken",
+} as const
+
 export const $IssuedServiceAccountApiKey = {
   properties: {
     raw_key: {
@@ -14108,6 +14186,163 @@ export const $MCPIntegrationUpdate = {
   type: "object",
   title: "MCPIntegrationUpdate",
   description: "Request model for updating an MCP integration.",
+} as const
+
+export const $MCPPersonalAccessTokenCreate = {
+  properties: {
+    name: {
+      type: "string",
+      maxLength: 255,
+      minLength: 1,
+      title: "Name",
+    },
+    expires_at: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Expires At",
+    },
+  },
+  type: "object",
+  required: ["name"],
+  title: "MCPPersonalAccessTokenCreate",
+} as const
+
+export const $MCPPersonalAccessTokenIssueResponse = {
+  properties: {
+    issued_token: {
+      $ref: "#/components/schemas/IssuedMCPPersonalAccessToken",
+    },
+  },
+  type: "object",
+  required: ["issued_token"],
+  title: "MCPPersonalAccessTokenIssueResponse",
+} as const
+
+export const $MCPPersonalAccessTokenRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    user_id: {
+      type: "string",
+      format: "uuid",
+      title: "User Id",
+    },
+    organization_id: {
+      type: "string",
+      format: "uuid",
+      title: "Organization Id",
+    },
+    workspace_id: {
+      type: "string",
+      format: "uuid",
+      title: "Workspace Id",
+    },
+    name: {
+      type: "string",
+      title: "Name",
+    },
+    key_id: {
+      type: "string",
+      title: "Key Id",
+    },
+    preview: {
+      type: "string",
+      title: "Preview",
+    },
+    expires_at: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Expires At",
+    },
+    last_used_at: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Last Used At",
+    },
+    revoked_at: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Revoked At",
+    },
+    created_by: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Created By",
+    },
+    revoked_by: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Revoked By",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+    updated_at: {
+      type: "string",
+      format: "date-time",
+      title: "Updated At",
+    },
+  },
+  type: "object",
+  required: [
+    "id",
+    "user_id",
+    "organization_id",
+    "workspace_id",
+    "name",
+    "key_id",
+    "preview",
+    "created_at",
+    "updated_at",
+  ],
+  title: "MCPPersonalAccessTokenRead",
 } as const
 
 export const $MCPServerType = {

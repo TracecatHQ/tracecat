@@ -2750,6 +2750,30 @@ export type CursorPaginatedResponse_InboxItemRead_ = {
   total_estimate?: number | null
 }
 
+export type CursorPaginatedResponse_MCPPersonalAccessTokenRead_ = {
+  items: Array<MCPPersonalAccessTokenRead>
+  /**
+   * Cursor for next page
+   */
+  next_cursor?: string | null
+  /**
+   * Cursor for previous page
+   */
+  prev_cursor?: string | null
+  /**
+   * Whether more items exist
+   */
+  has_more?: boolean
+  /**
+   * Whether previous items exist
+   */
+  has_previous?: boolean
+  /**
+   * Estimated total count from table statistics
+   */
+  total_estimate?: number | null
+}
+
 export type CursorPaginatedResponse_ServiceAccountApiKeyRead_ = {
   items: Array<ServiceAccountApiKeyRead>
   /**
@@ -4235,6 +4259,11 @@ export type InteractionType = "approval" | "response"
  */
 export type InvitationStatus = "pending" | "accepted" | "revoked"
 
+export type IssuedMCPPersonalAccessToken = {
+  raw_token: string
+  token: MCPPersonalAccessTokenRead
+}
+
 export type IssuedServiceAccountApiKey = {
   raw_key: string
   api_key: ServiceAccountApiKeyRead
@@ -4366,6 +4395,32 @@ export type MCPIntegrationUpdate = {
    * Timeout in seconds
    */
   timeout?: number | null
+}
+
+export type MCPPersonalAccessTokenCreate = {
+  name: string
+  expires_at?: string | null
+}
+
+export type MCPPersonalAccessTokenIssueResponse = {
+  issued_token: IssuedMCPPersonalAccessToken
+}
+
+export type MCPPersonalAccessTokenRead = {
+  id: string
+  user_id: string
+  organization_id: string
+  workspace_id: string
+  name: string
+  key_id: string
+  preview: string
+  expires_at?: string | null
+  last_used_at?: string | null
+  revoked_at?: string | null
+  created_by?: string | null
+  revoked_by?: string | null
+  created_at: string
+  updated_at: string
 }
 
 export type MCPServerType = "http" | "stdio"
@@ -8941,6 +8996,31 @@ export type ServiceAccountsRevokeWorkspaceServiceAccountApiKeyData = {
 
 export type ServiceAccountsRevokeWorkspaceServiceAccountApiKeyResponse = void
 
+export type McpPersonalAccessTokensListMcpPersonalAccessTokensData = {
+  cursor?: string | null
+  limit?: number
+  reverse?: boolean
+  workspaceId: string
+}
+
+export type McpPersonalAccessTokensListMcpPersonalAccessTokensResponse =
+  CursorPaginatedResponse_MCPPersonalAccessTokenRead_
+
+export type McpPersonalAccessTokensCreateMcpPersonalAccessTokenData = {
+  requestBody: MCPPersonalAccessTokenCreate
+  workspaceId: string
+}
+
+export type McpPersonalAccessTokensCreateMcpPersonalAccessTokenResponse =
+  MCPPersonalAccessTokenIssueResponse
+
+export type McpPersonalAccessTokensRevokeMcpPersonalAccessTokenData = {
+  tokenId: string
+  workspaceId: string
+}
+
+export type McpPersonalAccessTokensRevokeMcpPersonalAccessTokenResponse = void
+
 export type WorkflowsListWorkflowsData = {
   cursor?: string | null
   limit?: number
@@ -12554,6 +12634,49 @@ export type $OpenApiTs = {
   "/workspaces/{workspace_id}/service-accounts/{service_account_id}/api-keys/{api_key_id}/revoke": {
     post: {
       req: ServiceAccountsRevokeWorkspaceServiceAccountApiKeyData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/mcp-personal-access-tokens": {
+    get: {
+      req: McpPersonalAccessTokensListMcpPersonalAccessTokensData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: CursorPaginatedResponse_MCPPersonalAccessTokenRead_
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    post: {
+      req: McpPersonalAccessTokensCreateMcpPersonalAccessTokenData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: MCPPersonalAccessTokenIssueResponse
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/mcp-personal-access-tokens/{token_id}/revoke": {
+    post: {
+      req: McpPersonalAccessTokensRevokeMcpPersonalAccessTokenData
       res: {
         /**
          * Successful Response
