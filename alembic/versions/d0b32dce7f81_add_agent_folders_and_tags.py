@@ -1,7 +1,7 @@
 """add_agent_folders_and_tags
 
 Revision ID: d0b32dce7f81
-Revises: b742858f7d69
+Revises: 8b2f6a9c4d10
 Create Date: 2026-04-13 10:21:23.858770
 
 """
@@ -113,6 +113,12 @@ def upgrade() -> None:
         ),
         sa.PrimaryKeyConstraint("tag_id", "preset_id", name=op.f("pk_agent_tag_link")),
     )
+    op.create_index(
+        op.f("ix_agent_tag_link_preset_id"),
+        "agent_tag_link",
+        ["preset_id"],
+        unique=False,
+    )
 
     op.add_column("agent_preset", sa.Column("folder_id", sa.UUID(), nullable=True))
     op.create_foreign_key(
@@ -138,6 +144,7 @@ def downgrade() -> None:
         type_="foreignkey",
     )
     op.drop_column("agent_preset", "folder_id")
+    op.drop_index(op.f("ix_agent_tag_link_preset_id"), table_name="agent_tag_link")
     op.drop_table("agent_tag_link")
     op.drop_index(op.f("ix_agent_tag_ref"), table_name="agent_tag")
     op.drop_index(op.f("ix_agent_tag_name"), table_name="agent_tag")
