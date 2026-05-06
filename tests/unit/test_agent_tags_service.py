@@ -1,5 +1,5 @@
 from collections.abc import Awaitable, Callable
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
 
 import pytest
@@ -101,6 +101,10 @@ async def test_preset_tag_methods_require_agent_addons_entitlement(
             frozenset({"agent:update"}),
         ),
         (lambda service: service.delete_tag(object()), frozenset({"agent:delete"})),
+        (
+            lambda service: service.delete_tag_by_id(uuid4()),
+            frozenset({"agent:delete"}),
+        ),
     ],
 )
 async def test_agent_tag_definition_methods_require_agent_addons_entitlement(
@@ -119,3 +123,25 @@ async def test_agent_tag_definition_methods_require_agent_addons_entitlement(
 
     mock_has_entitlement.assert_awaited_once_with(Entitlement.AGENT_ADDONS)
     session.execute.assert_not_awaited()
+
+
+@pytest.mark.anyio
+async def test_delete_tag_by_id_allows_delete_scope_without_read(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Deleting by ID should not require agent:read."""
+    tag = object()
+    result = MagicMock()
+    result.scalar_one.return_value = tag
+    session = AsyncMock()
+    session.execute.return_value = result
+    service = AgentTagsService(
+        session=session,
+        role=_role_with_scopes(frozenset({"agent:delete"})),
+    )
+    monkeypatch.setattr(service, "has_entitlement", AsyncMock(return_value=True))
+
+    await service.delete_tag_by_id(uuid4())
+
+    session.delete.assert_awaited_once_with(tag)
+    session.commit.assert_awaited_once()

@@ -113,10 +113,9 @@ async def delete_agent_tag(
     """Delete an agent tag definition."""
     service = AgentTagsService(session=session, role=role)
     try:
-        tag = await service.get_tag(tag_id)
+        await service.delete_tag_by_id(tag_id)
     except NoResultFound as err:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Tag not found",
         ) from err
-    await service.delete_tag(tag)

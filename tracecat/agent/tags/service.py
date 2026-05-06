@@ -23,6 +23,14 @@ class AgentTagsService(BaseWorkspaceService):
 
     # --- Tag definitions ---
 
+    async def _get_tag(self, tag_id: AgentTagID) -> AgentTag:
+        statement = select(AgentTag).where(
+            AgentTag.workspace_id == self.workspace_id,
+            AgentTag.id == tag_id,
+        )
+        result = await self.session.execute(statement)
+        return result.scalar_one()
+
     @require_scope("agent:read")
     @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def list_tags(self) -> Sequence[AgentTag]:
@@ -35,12 +43,7 @@ class AgentTagsService(BaseWorkspaceService):
     @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def get_tag(self, tag_id: AgentTagID) -> AgentTag:
         """Get an agent tag by ID."""
-        statement = select(AgentTag).where(
-            AgentTag.workspace_id == self.workspace_id,
-            AgentTag.id == tag_id,
-        )
-        result = await self.session.execute(statement)
-        return result.scalar_one()
+        return await self._get_tag(tag_id)
 
     async def get_tag_by_ref(self, ref: str) -> AgentTag:
         """Get an agent tag by its ref."""
@@ -106,6 +109,14 @@ class AgentTagsService(BaseWorkspaceService):
     @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def delete_tag(self, tag: AgentTag) -> None:
         """Delete an agent tag definition."""
+        await self.session.delete(tag)
+        await self.session.commit()
+
+    @require_scope("agent:delete")
+    @requires_entitlement(Entitlement.AGENT_ADDONS)
+    async def delete_tag_by_id(self, tag_id: AgentTagID) -> None:
+        """Delete an agent tag definition by ID."""
+        tag = await self._get_tag(tag_id)
         await self.session.delete(tag)
         await self.session.commit()
 

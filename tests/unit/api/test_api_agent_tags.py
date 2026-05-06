@@ -123,7 +123,7 @@ async def test_remove_preset_tag_requires_agent_addons_entitlement(
             {"json": {"name": "Updated"}},
             "get_tag",
         ),
-        ("delete", f"/agent-tags/{_FIXED_TAG_ID}", {}, "get_tag"),
+        ("delete", f"/agent-tags/{_FIXED_TAG_ID}", {}, "delete_tag_by_id"),
     ],
 )
 async def test_agent_tag_definition_routes_require_agent_addons_entitlement(
