@@ -198,6 +198,7 @@ class AgentFolderService(BaseWorkspaceService):
         return preset
 
     @require_scope("agent:update")
+    @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def rename_folder(self, folder_id: uuid.UUID, new_name: str) -> AgentFolder:
         """Rename a folder. Updates the folder name and path."""
         normalized_name = self._normalize_folder_name(new_name)
@@ -240,6 +241,7 @@ class AgentFolderService(BaseWorkspaceService):
         return folder
 
     @require_scope("agent:update")
+    @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def move_folder(
         self, folder_id: uuid.UUID, new_parent_id: uuid.UUID | None
     ) -> AgentFolder:
@@ -302,6 +304,7 @@ class AgentFolderService(BaseWorkspaceService):
         return folder
 
     @require_scope("agent:delete")
+    @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def delete_folder(
         self, folder_id: uuid.UUID, recursive: bool = False
     ) -> None:

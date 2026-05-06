@@ -168,6 +168,9 @@ async def test_move_preset_requires_agent_addons_entitlement(
         lambda service: service.list_folders("/"),
         lambda service: service.create_folder(name="parent", parent_path="/"),
         lambda service: service.get_folder_tree("/"),
+        lambda service: service.rename_folder(uuid4(), "renamed"),
+        lambda service: service.move_folder(uuid4(), None),
+        lambda service: service.delete_folder(uuid4()),
     ],
 )
 async def test_folder_management_methods_require_agent_addons_entitlement(
