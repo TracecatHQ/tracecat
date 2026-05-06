@@ -119,7 +119,7 @@ class SkillUpload(Schema):
 class SkillVersionPublish(Schema):
     """Payload for atomically publishing a skill version from files."""
 
-    base_version_id: uuid.UUID | None
+    base_version_id: uuid.UUID | None = Field(default=None)
     files: list[SkillUploadFile] = Field(min_length=1)
 
 

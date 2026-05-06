@@ -64,18 +64,18 @@ async def get_skill(skill_id: Annotated[str, Doc("Skill UUID.")]) -> dict[str, A
 )
 async def publish_skill_version(
     skill_id: Annotated[str, Doc("Skill UUID.")],
-    base_version_id: Annotated[
-        str | None,
-        Doc(
-            "Current version UUID observed before publishing. Use null for the first version."
-        ),
-    ],
     files: Annotated[
         list[dict[str, Any]],
         Doc(
             "Complete version file set. Each file requires path and content_base64, with optional content_type."
         ),
     ],
+    base_version_id: Annotated[
+        str | None,
+        Doc(
+            "Current version UUID observed before publishing. Omit or use null for the first version."
+        ),
+    ] = None,
 ) -> dict[str, Any]:
     return await get_context().agents.publish_skill_version(
         skill_id=skill_id,

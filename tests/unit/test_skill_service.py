@@ -1289,7 +1289,6 @@ class TestSkillService:
         published = await skill_service.publish_skill_version(
             skill_id=created.id,
             params=SkillVersionPublish(
-                base_version_id=None,
                 files=[
                     SkillUploadFile(
                         path="SKILL.md",

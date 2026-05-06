@@ -507,12 +507,15 @@ class AgentsClient:
         self,
         *,
         skill_id: str,
-        base_version_id: str | None,
         files: list[SkillPublishFile] | list[dict[str, Any]],
+        base_version_id: str | None = None,
     ) -> dict[str, Any]:
+        data: dict[str, Any] = {"files": files}
+        if base_version_id is not None:
+            data["base_version_id"] = base_version_id
         return await self._client.post(
             f"/agent/skills/{skill_id}/versions",
-            json={"base_version_id": base_version_id, "files": files},
+            json=data,
         )
 
     async def archive_skill(self, skill_id: str) -> None:
