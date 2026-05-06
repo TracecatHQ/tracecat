@@ -182,11 +182,15 @@ function buildMcpUrl(publicAppUrl?: string): string {
   return "https://<tracecat-app-url>/mcp"
 }
 
-function buildClaudeCommand(rawToken: string, mcpUrl: string): string {
+function buildClaudeCommand(mcpUrl: string): string {
   return [
     `claude mcp add --transport http tracecat ${mcpUrl} \\`,
     "  --header 'Authorization: Bearer ${TRACECAT_MCP_PAT}'",
   ].join("\n")
+}
+
+function buildExportCommand(tokenValue: string): string {
+  return `export TRACECAT_MCP_PAT="${tokenValue}"`
 }
 
 function CreateTokenDialog({
@@ -325,8 +329,12 @@ function IssuedTokenDialog({
   onClose: () => void
 }) {
   const rawToken = issuedCredential?.issued_token.raw_token ?? ""
-  const envVar = rawToken ? `TRACECAT_MCP_PAT=${rawToken}` : ""
-  const command = rawToken ? buildClaudeCommand(rawToken, mcpUrl) : ""
+  const tokenPreview = issuedCredential?.issued_token.token.preview ?? ""
+  const rawExportCommand = rawToken ? buildExportCommand(rawToken) : ""
+  const previewExportCommand = tokenPreview
+    ? buildExportCommand(tokenPreview)
+    : ""
+  const command = rawToken ? buildClaudeCommand(mcpUrl) : ""
 
   return (
     <Dialog
@@ -337,37 +345,41 @@ function IssuedTokenDialog({
         <DialogHeader>
           <DialogTitle>Set up an MCP PAT</DialogTitle>
           <DialogDescription>
-            This token is shown once. Save it as a long-lived secret for MCP
-            clients that cannot use OAuth.
+            The full token can only be copied now. Save it as a long-lived
+            secret for MCP clients that cannot use OAuth.
           </DialogDescription>
         </DialogHeader>
 
         <div className="min-w-0 space-y-4">
           <div className="min-w-0 space-y-2">
-            <Label>1. Save the token</Label>
+            <Label>1. Export the token</Label>
             <p className="text-xs text-muted-foreground">
-              Add this to your shell profile, project env file, direnv, or
-              whichever environment launches your MCP client. A one-time export
-              only works for that terminal session.
+              Run this in the shell that launches your MCP client, or add it to
+              your shell profile, project env file, or env manager. The full
+              token can only be copied now and will not be shown again.
             </p>
-            <div className="flex min-w-0 max-w-full items-center gap-2 rounded-md border bg-muted/30 px-3 py-2">
-              <code className="min-w-0 flex-1 truncate font-mono text-xs">
-                {envVar}
-              </code>
-              <CopyButton
-                value={envVar}
-                toastMessage="MCP token environment variable copied."
-                tooltipMessage="Copy env var"
-              />
+            <div className="min-w-0 max-w-full rounded-md border bg-muted/30">
+              <div className="flex min-w-0 items-center justify-between gap-2 border-b px-3 py-2">
+                <div className="min-w-0 text-xs font-medium">
+                  Export command
+                </div>
+                <CopyButton
+                  value={rawExportCommand}
+                  toastMessage="MCP token export command copied."
+                  tooltipMessage="Copy export command"
+                />
+              </div>
+              <pre className="max-w-full overflow-x-auto p-3 text-xs leading-5">
+                <code className="block min-w-0">{previewExportCommand}</code>
+              </pre>
             </div>
           </div>
 
           <div className="min-w-0 space-y-2">
-            <Label>2. Add the MCP</Label>
+            <Label>2. Add Tracecat MCP</Label>
             <p className="text-xs text-muted-foreground">
-              Configure your MCP client to send this token as a bearer header.
-              If you move or change the environment variable later, re-add the
-              server so the client uses the updated value.
+              Run this after TRACECAT_MCP_PAT is available in the environment
+              used to start Claude Code.
             </p>
             <div className="min-w-0 max-w-full rounded-md border bg-muted/30">
               <div className="flex min-w-0 items-center justify-between gap-2 border-b px-3 py-2">
