@@ -1,6 +1,7 @@
 """Tests for SizedMemoryCache."""
 
 import asyncio
+import threading
 from concurrent.futures import ThreadPoolExecutor
 
 import pytest
@@ -227,28 +228,36 @@ class TestSizedMemoryCache:
         assert cache.item_count <= 2
 
     def test_concurrent_access_from_multiple_event_loops(self):
-        """Test that one cache can be used from separate event loops."""
-        cache = SizedMemoryCache(max_bytes=100, ttl=300.0)
+        """Test that one cache can be shared by separate event loops."""
+        worker_count = 4
+        iteration_count = 250
+        cache = SizedMemoryCache(max_bytes=2048, ttl=300.0)
+        barrier = threading.Barrier(worker_count)
 
-        async def exercise_cache(prefix: str) -> None:
-            for i in range(100):
-                key = f"{prefix}-{i % 10}"
-                await cache.set(key, f"value-{i}".encode())
-                await cache.get(key)
+        async def exercise_cache(worker_id: int) -> None:
+            barrier.wait(timeout=5)
+            for i in range(iteration_count):
+                shared_key = f"shared-{i % 8}"
+                worker_key = f"worker-{worker_id}-{i % 8}"
+
+                await cache.set(shared_key, f"shared-value-{worker_id}-{i}".encode())
+                await cache.get(shared_key)
+                await cache.set(worker_key, f"worker-value-{worker_id}-{i}".encode())
+                await cache.get(worker_key)
                 await asyncio.sleep(0)
 
-        def run_in_new_loop(prefix: str) -> None:
-            asyncio.run(exercise_cache(prefix))
+        def run_in_new_loop(worker_id: int) -> None:
+            asyncio.run(exercise_cache(worker_id))
 
-        with ThreadPoolExecutor(max_workers=2) as executor:
+        with ThreadPoolExecutor(max_workers=worker_count) as executor:
             futures = [
-                executor.submit(run_in_new_loop, "a"),
-                executor.submit(run_in_new_loop, "b"),
+                executor.submit(run_in_new_loop, worker_id)
+                for worker_id in range(worker_count)
             ]
             for future in futures:
                 future.result()
 
-        assert cache.total_bytes <= 100
+        assert cache.total_bytes <= 2048
 
     @pytest.mark.anyio
     async def test_empty_value(self):
