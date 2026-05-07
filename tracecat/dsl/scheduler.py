@@ -735,6 +735,8 @@ class DSLScheduler:
                 raise TaskUnreachable(f"Task {task} is unreachable")
 
             if run_if_error is not None:
+                if _is_context_materialization_error(run_if_error):
+                    raise run_if_error
                 raise _TaskExecutionError(run_if_error) from run_if_error
 
             # 4) If we made it here, the task is reachable and not force-skipped.
@@ -968,6 +970,13 @@ class DSLScheduler:
             self.logger.debug("`run_if` condition", run_if=run_if)
             try:
                 expr_result = await self.resolve_expression(run_if, context)
+            except ApplicationError as e:
+                if _is_context_materialization_error(e):
+                    raise
+                raise ApplicationError(
+                    f"Error evaluating `run_if` condition: {e}",
+                    non_retryable=True,
+                ) from e
             except Exception as e:
                 raise ApplicationError(
                     f"Error evaluating `run_if` condition: {e}",
@@ -1046,14 +1055,19 @@ class DSLScheduler:
             isinstance(raw_max_iterations, int)
             and raw_max_iterations > MAX_DO_WHILE_ITERATIONS
         ):
-            raise ApplicationError(
-                (
-                    "Loop max_iterations exceeds platform cap: "
-                    f"{raw_max_iterations} > {MAX_DO_WHILE_ITERATIONS}."
-                ),
-                non_retryable=True,
+            raise _TaskExecutionError(
+                ApplicationError(
+                    (
+                        "Loop max_iterations exceeds platform cap: "
+                        f"{raw_max_iterations} > {MAX_DO_WHILE_ITERATIONS}."
+                    ),
+                    non_retryable=True,
+                )
             )
-        args = LoopEndArgs(**stmt.args)
+        try:
+            args = LoopEndArgs(**stmt.args)
+        except Exception as e:
+            raise _TaskExecutionError(e) from e
         loop_key = (region.start_ref, task.stream_id)
         current_index = self.loop_indices.get(loop_key, 0)
         # Skip semantics:
@@ -1071,10 +1085,21 @@ class DSLScheduler:
             context = self.build_stream_aware_context(stmt, task.stream_id)
             try:
                 expr_result = await self.resolve_expression(args.condition, context)
+            except ApplicationError as e:
+                if _is_context_materialization_error(e):
+                    raise
+                raise _TaskExecutionError(
+                    ApplicationError(
+                        f"Error evaluating `condition` in `core.loop.end`: {e}",
+                        non_retryable=True,
+                    )
+                ) from e
             except Exception as e:
-                raise ApplicationError(
-                    f"Error evaluating `condition` in `core.loop.end`: {e}",
-                    non_retryable=True,
+                raise _TaskExecutionError(
+                    ApplicationError(
+                        f"Error evaluating `condition` in `core.loop.end`: {e}",
+                        non_retryable=True,
+                    )
                 ) from e
             should_continue = bool(expr_result)
 
@@ -1087,12 +1112,14 @@ class DSLScheduler:
         if should_continue:
             next_index = current_index + 1
             if next_index >= args.max_iterations:
-                raise ApplicationError(
-                    (
-                        f"Loop '{task.ref}' exceeded max_iterations={args.max_iterations}. "
-                        "Update `condition` or increase `max_iterations`."
-                    ),
-                    non_retryable=True,
+                raise _TaskExecutionError(
+                    ApplicationError(
+                        (
+                            f"Loop '{task.ref}' exceeded max_iterations={args.max_iterations}. "
+                            "Update `condition` or increase `max_iterations`."
+                        ),
+                        non_retryable=True,
+                    )
                 )
             self._reset_loop_iteration_state(region, task.stream_id)
             self.loop_indices[loop_key] = next_index
@@ -1132,7 +1159,10 @@ class DSLScheduler:
             self.logger.debug("Skipped scatter", task=task)
             return await self._handle_scatter_skip_stream(task, curr_stream_id)
 
-        args = ScatterArgs(**stmt.args)
+        try:
+            args = ScatterArgs(**stmt.args)
+        except Exception as e:
+            raise _TaskExecutionError(e) from e
         context = self.get_context(curr_stream_id)
 
         collection_key = action_collection_prefix(
@@ -1265,12 +1295,16 @@ class DSLScheduler:
         # We still have to handle the last gather
         if self.open_streams[parent_scatter] == 0:
             self.logger.debug("Closing skip stream")
+            try:
+                gather_args = GatherArgs(**stmt.args)
+            except Exception as e:
+                raise _TaskExecutionError(e) from e
             await self._handle_gather_result(
                 task,
                 stmt,
                 parent_action_context,
                 parent_stream_id,
-                GatherArgs(**stmt.args),
+                gather_args,
                 gather_ref,
             )
         else:
@@ -1433,7 +1467,10 @@ class DSLScheduler:
             return
 
         # Here onwards, we are not skipping.
-        args = GatherArgs(**stmt.args)
+        try:
+            args = GatherArgs(**stmt.args)
+        except Exception as e:
+            raise _TaskExecutionError(e) from e
         gather_ref = task.ref
         # This means we must compute a return value for the gather.
         # We should only compute the items to store if we aren't skipping
@@ -1454,11 +1491,14 @@ class DSLScheduler:
                 start_to_close_timeout=timedelta(seconds=60),
                 retry_policy=RETRY_POLICIES["activity:fail_fast"],
             )
-        except Exception as e:
-            raise ApplicationError(
-                f"Error evaluating `items` expression in `core.transform.gather`: {e}",
-                non_retryable=True,
-            ) from e
+        except ActivityError as e:
+            match e.cause:
+                case ApplicationError() as app_err:
+                    if _is_context_materialization_error(app_err):
+                        raise app_err from None
+                    raise _TaskExecutionError(app_err) from None
+                case _:
+                    raise
 
         # XXX(concurrency): It's important we only decrement open_streams after
         # await block. If not, streams at the current level will observe 0

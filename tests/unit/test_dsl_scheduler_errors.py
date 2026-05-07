@@ -12,6 +12,7 @@ from temporalio.exceptions import ActivityError, ApplicationError
 from tracecat.auth.types import Role
 from tracecat.dsl.action import MATERIALIZE_CONTEXT_ERROR_MESSAGE, DSLActivities
 from tracecat.dsl.common import DSLEntrypoint, DSLInput
+from tracecat.dsl.constants import MAX_DO_WHILE_ITERATIONS
 from tracecat.dsl.enums import PlatformAction
 from tracecat.dsl.scheduler import DSLScheduler
 from tracecat.dsl.schemas import (
@@ -227,6 +228,298 @@ async def test_run_if_error_uses_error_path() -> None:
     assert executed_refs == ["handle_error"]
     assert not scheduler.task_exceptions
     assert not scheduler.stream_exceptions
+
+
+@pytest.mark.anyio
+async def test_run_if_context_materialization_error_fails_workflow() -> None:
+    executed_refs: list[str] = []
+
+    async def executor(action: ActionStatement) -> None:
+        executed_refs.append(action.ref)
+
+    scheduler = _make_scheduler(
+        ActionStatement(
+            ref="guarded",
+            action="core.noop",
+            run_if="${{ True }}",
+        ),
+        ActionStatement(
+            ref="handle_error",
+            action="core.noop",
+            depends_on=["guarded.error"],
+        ),
+        executor=executor,
+    )
+
+    with patch.object(
+        scheduler,
+        "resolve_expression",
+        new=AsyncMock(
+            side_effect=ApplicationError(
+                MATERIALIZE_CONTEXT_ERROR_MESSAGE,
+                non_retryable=True,
+            )
+        ),
+    ):
+        task_exceptions = await scheduler.start()
+
+    assert task_exceptions is not None
+    assert "guarded" in task_exceptions
+    assert executed_refs == []
+    assert not scheduler.stream_exceptions
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("loop_args", "resolve_result", "resolve_error", "expected_refs"),
+    [
+        ({}, False, None, ["loop_start", "body", "handle_error"]),
+        (
+            {"condition": "${{ True }}"},
+            None,
+            RuntimeError("bad condition"),
+            ["loop_start", "body", "handle_error"],
+        ),
+        (
+            {"condition": "${{ True }}", "max_iterations": 1},
+            True,
+            None,
+            ["loop_start", "body", "loop_end", "handle_error"],
+        ),
+        (
+            {
+                "condition": "${{ False }}",
+                "max_iterations": MAX_DO_WHILE_ITERATIONS + 1,
+            },
+            False,
+            None,
+            ["loop_start", "body", "handle_error"],
+        ),
+    ],
+    ids=[
+        "invalid-loop-args",
+        "condition-evaluation-error",
+        "max-iterations-exceeded",
+        "platform-cap-config-error",
+    ],
+)
+async def test_loop_end_user_errors_use_error_path(
+    loop_args: dict[str, Any],
+    resolve_result: Any,
+    resolve_error: Exception | None,
+    expected_refs: list[str],
+) -> None:
+    executed_refs: list[str] = []
+
+    async def executor(action: ActionStatement) -> None:
+        executed_refs.append(action.ref)
+
+    async def resolve_expression(_: str, __: ExecutionContext) -> Any:
+        if resolve_error is not None:
+            raise resolve_error
+        return resolve_result
+
+    scheduler = _make_scheduler(
+        ActionStatement(ref="loop_start", action=PlatformAction.LOOP_START),
+        ActionStatement(
+            ref="body",
+            action="core.noop",
+            depends_on=["loop_start"],
+        ),
+        ActionStatement(
+            ref="loop_end",
+            action=PlatformAction.LOOP_END,
+            args=loop_args,
+            depends_on=["body"],
+        ),
+        ActionStatement(
+            ref="handle_error",
+            action="core.noop",
+            depends_on=["loop_end.error"],
+        ),
+        executor=executor,
+    )
+
+    with patch.object(
+        scheduler,
+        "resolve_expression",
+        new=AsyncMock(side_effect=resolve_expression),
+    ):
+        task_exceptions = await scheduler.start()
+
+    assert task_exceptions is None
+    assert executed_refs == expected_refs
+    assert not scheduler.task_exceptions
+    assert not scheduler.stream_exceptions
+
+
+@pytest.mark.anyio
+async def test_loop_end_context_materialization_error_fails_workflow() -> None:
+    executed_refs: list[str] = []
+
+    async def executor(action: ActionStatement) -> None:
+        executed_refs.append(action.ref)
+
+    scheduler = _make_scheduler(
+        ActionStatement(ref="loop_start", action=PlatformAction.LOOP_START),
+        ActionStatement(
+            ref="body",
+            action="core.noop",
+            depends_on=["loop_start"],
+        ),
+        ActionStatement(
+            ref="loop_end",
+            action=PlatformAction.LOOP_END,
+            args={"condition": "${{ True }}"},
+            depends_on=["body"],
+        ),
+        ActionStatement(
+            ref="handle_error",
+            action="core.noop",
+            depends_on=["loop_end.error"],
+        ),
+        executor=executor,
+    )
+
+    with patch.object(
+        scheduler,
+        "resolve_expression",
+        new=AsyncMock(
+            side_effect=ApplicationError(
+                MATERIALIZE_CONTEXT_ERROR_MESSAGE,
+                non_retryable=True,
+            )
+        ),
+    ):
+        task_exceptions = await scheduler.start()
+
+    assert task_exceptions is not None
+    assert "loop_end" in task_exceptions
+    assert executed_refs == ["loop_start", "body"]
+    assert not scheduler.stream_exceptions
+
+
+@pytest.mark.anyio
+async def test_scatter_args_error_uses_error_path() -> None:
+    executed_refs: list[str] = []
+
+    async def executor(action: ActionStatement) -> None:
+        executed_refs.append(action.ref)
+
+    scheduler = _make_scheduler(
+        ActionStatement(
+            ref="scatter",
+            action=PlatformAction.TRANSFORM_SCATTER,
+            args={},
+        ),
+        ActionStatement(
+            ref="handle_error",
+            action="core.noop",
+            depends_on=["scatter.error"],
+        ),
+        executor=executor,
+    )
+
+    task_exceptions = await scheduler.start()
+
+    assert task_exceptions is None
+    assert executed_refs == ["handle_error"]
+    assert not scheduler.task_exceptions
+    assert not scheduler.stream_exceptions
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("gather_args", "gather_error", "fails_workflow", "expected_refs"),
+    [
+        ({}, None, False, ["handle_error"]),
+        (
+            {"items": "${{ ACTIONS.scatter.result }}"},
+            _activity_error_from(
+                ApplicationError(
+                    "Expression failed",
+                    type="TracecatExpressionError",
+                    non_retryable=True,
+                ),
+                activity_type="evaluate_templated_object_activity",
+            ),
+            False,
+            ["handle_error"],
+        ),
+        (
+            {"items": "${{ ACTIONS.scatter.result }}"},
+            _activity_error_from(
+                ApplicationError(
+                    MATERIALIZE_CONTEXT_ERROR_MESSAGE,
+                    non_retryable=True,
+                ),
+                activity_type="evaluate_templated_object_activity",
+            ),
+            True,
+            [],
+        ),
+    ],
+    ids=[
+        "invalid-gather-args",
+        "items-expression-error",
+        "context-materialization-error",
+    ],
+)
+async def test_gather_error_classification(
+    gather_args: dict[str, Any],
+    gather_error: Exception | None,
+    fails_workflow: bool,
+    expected_refs: list[str],
+) -> None:
+    executed_refs: list[str] = []
+
+    async def executor(action: ActionStatement) -> None:
+        executed_refs.append(action.ref)
+
+    scheduler = _make_scheduler(
+        ActionStatement(
+            ref="scatter",
+            action=PlatformAction.TRANSFORM_SCATTER,
+            args={"collection": ["item"]},
+        ),
+        ActionStatement(
+            ref="gather",
+            action=PlatformAction.TRANSFORM_GATHER,
+            args=gather_args,
+            depends_on=["scatter"],
+        ),
+        ActionStatement(
+            ref="handle_error",
+            action="core.noop",
+            depends_on=["gather.error"],
+        ),
+        executor=executor,
+    )
+
+    async def execute_activity(activity: object, *_: Any, **__: Any) -> object:
+        if activity == DSLActivities.handle_scatter_input_activity:
+            return InlineObject(data=["item"], typename="list")
+        if activity == DSLActivities.evaluate_templated_object_activity:
+            if gather_error is not None:
+                raise gather_error
+            return InlineObject(data="item", typename="str")
+        raise AssertionError(f"Unexpected activity: {activity}")
+
+    with patch(
+        "tracecat.dsl.scheduler.workflow.execute_activity",
+        new=AsyncMock(side_effect=execute_activity),
+    ):
+        task_exceptions = await scheduler.start()
+
+    assert executed_refs == expected_refs
+    if fails_workflow:
+        assert task_exceptions is not None
+        assert "gather" in task_exceptions
+        assert not scheduler.stream_exceptions
+    else:
+        assert task_exceptions is None
+        assert not scheduler.task_exceptions
+        assert not scheduler.stream_exceptions
 
 
 @pytest.mark.anyio
