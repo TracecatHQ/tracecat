@@ -488,6 +488,23 @@ export type AgentOtelConfig = {
   }
 }
 
+export type AgentOtelSettingsRead = {
+  agent_otel_config?: AgentOtelConfig
+}
+
+export type AgentOtelSettingsUpdate = {
+  /**
+   * Claude Code OTel telemetry configuration for agent runs.
+   */
+  agent_otel_config?: AgentOtelConfig
+  /**
+   * Encrypted headers for the Claude Code OTLP exporter. Omitted values leave existing headers unchanged.
+   */
+  agent_otel_headers?: {
+    [key: string]: string
+  } | null
+}
+
 export type AgentOutput = {
   output: unknown
   message_history?: Array<ChatMessage> | null
@@ -863,7 +880,6 @@ export type AgentSettingsRead = {
   agent_fixed_args: string | null
   agent_case_chat_prompt: string
   agent_case_chat_inject_content: boolean
-  agent_otel_config?: AgentOtelConfig
 }
 
 export type AgentSettingsUpdate = {
@@ -883,16 +899,6 @@ export type AgentSettingsUpdate = {
    * Whether to automatically inject case content into agent prompts when a case_id is available.
    */
   agent_case_chat_inject_content?: boolean
-  /**
-   * Claude Code OTel telemetry configuration for agent runs.
-   */
-  agent_otel_config?: AgentOtelConfig
-  /**
-   * Encrypted headers for the Claude Code OTLP exporter. Omitted values leave existing headers unchanged.
-   */
-  agent_otel_headers?: {
-    [key: string]: string
-  } | null
 }
 
 /**
@@ -10917,6 +10923,14 @@ export type SettingsUpdateAgentSettingsData = {
 
 export type SettingsUpdateAgentSettingsResponse = void
 
+export type SettingsGetAgentOtelSettingsResponse = AgentOtelSettingsRead
+
+export type SettingsUpdateAgentOtelSettingsData = {
+  requestBody: AgentOtelSettingsUpdate
+}
+
+export type SettingsUpdateAgentOtelSettingsResponse = void
+
 export type OrganizationSecretsListOrgSecretsData = {
   /**
    * Filter by secret type
@@ -16196,6 +16210,29 @@ export type $OpenApiTs = {
     }
     patch: {
       req: SettingsUpdateAgentSettingsData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/settings/agent-otel": {
+    get: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: AgentOtelSettingsRead
+      }
+    }
+    patch: {
+      req: SettingsUpdateAgentOtelSettingsData
       res: {
         /**
          * Successful Response

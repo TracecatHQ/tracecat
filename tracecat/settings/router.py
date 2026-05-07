@@ -11,6 +11,8 @@ from tracecat.db.dependencies import AsyncDBSession
 from tracecat.db.models import OrganizationDomain
 from tracecat.identifiers import OrganizationID
 from tracecat.settings.schemas import (
+    AgentOtelSettingsRead,
+    AgentOtelSettingsUpdate,
     AgentSettingsRead,
     AgentSettingsUpdate,
     AppSettingsRead,
@@ -252,3 +254,29 @@ async def update_agent_settings(
 ) -> None:
     service = SettingsService(session, role)
     await service.update_agent_settings(params)
+
+
+@router.get("/agent-otel", response_model=AgentOtelSettingsRead)
+@require_scope("org:settings:read")
+async def get_agent_otel_settings(
+    *,
+    role: OrgUserRole,
+    session: AsyncDBSession,
+) -> AgentOtelSettingsRead:
+    service = SettingsService(session, role)
+    keys = AgentOtelSettingsRead.keys()
+    settings = await service.list_org_settings(keys=keys)
+    settings_dict, _ = service.get_values_with_decryption_fallback(settings)
+    return AgentOtelSettingsRead(**settings_dict)
+
+
+@router.patch("/agent-otel", status_code=status.HTTP_204_NO_CONTENT)
+@require_scope("org:settings:update")
+async def update_agent_otel_settings(
+    *,
+    role: OrgUserRole,
+    session: AsyncDBSession,
+    params: AgentOtelSettingsUpdate,
+) -> None:
+    service = SettingsService(session, role)
+    await service.update_agent_otel_settings(params)

@@ -619,11 +619,14 @@ import type {
   ServiceAccountsUpdateOrganizationServiceAccountResponse,
   ServiceAccountsUpdateWorkspaceServiceAccountData,
   ServiceAccountsUpdateWorkspaceServiceAccountResponse,
+  SettingsGetAgentOtelSettingsResponse,
   SettingsGetAgentSettingsResponse,
   SettingsGetAppSettingsResponse,
   SettingsGetAuditSettingsResponse,
   SettingsGetGitSettingsResponse,
   SettingsGetSamlSettingsResponse,
+  SettingsUpdateAgentOtelSettingsData,
+  SettingsUpdateAgentOtelSettingsResponse,
   SettingsUpdateAgentSettingsData,
   SettingsUpdateAgentSettingsResponse,
   SettingsUpdateAppSettingsData,
@@ -8060,6 +8063,40 @@ export const settingsUpdateAgentSettings = (
   return __request(OpenAPI, {
     method: "PATCH",
     url: "/settings/agent",
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Get Agent Otel Settings
+ * @returns AgentOtelSettingsRead Successful Response
+ * @throws ApiError
+ */
+export const settingsGetAgentOtelSettings =
+  (): CancelablePromise<SettingsGetAgentOtelSettingsResponse> => {
+    return __request(OpenAPI, {
+      method: "GET",
+      url: "/settings/agent-otel",
+    })
+  }
+
+/**
+ * Update Agent Otel Settings
+ * @param data The data for the request.
+ * @param data.requestBody
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const settingsUpdateAgentOtelSettings = (
+  data: SettingsUpdateAgentOtelSettingsData
+): CancelablePromise<SettingsUpdateAgentOtelSettingsResponse> => {
+  return __request(OpenAPI, {
+    method: "PATCH",
+    url: "/settings/agent-otel",
     body: data.requestBody,
     mediaType: "application/json",
     errors: {

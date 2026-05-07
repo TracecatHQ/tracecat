@@ -175,7 +175,6 @@ class AgentSettingsRead(BaseSettingsGroup):
     agent_fixed_args: str | None
     agent_case_chat_prompt: str
     agent_case_chat_inject_content: bool
-    agent_otel_config: AgentOtelConfig = Field(default_factory=AgentOtelConfig)
 
 
 class AgentSettingsUpdate(BaseSettingsGroup):
@@ -197,6 +196,13 @@ class AgentSettingsUpdate(BaseSettingsGroup):
         default=False,
         description="Whether to automatically inject case content into agent prompts when a case_id is available.",
     )
+
+
+class AgentOtelSettingsRead(BaseSettingsGroup):
+    agent_otel_config: AgentOtelConfig = Field(default_factory=AgentOtelConfig)
+
+
+class AgentOtelSettingsUpdate(BaseSettingsGroup):
     agent_otel_config: AgentOtelConfig = Field(
         default_factory=AgentOtelConfig,
         description="Claude Code OTel telemetry configuration for agent runs.",

@@ -1797,6 +1797,43 @@ export const $AgentOtelConfig = {
   description: "Organization-scoped Claude Code OTel configuration.",
 } as const
 
+export const $AgentOtelSettingsRead = {
+  properties: {
+    agent_otel_config: {
+      $ref: "#/components/schemas/AgentOtelConfig",
+    },
+  },
+  type: "object",
+  title: "AgentOtelSettingsRead",
+} as const
+
+export const $AgentOtelSettingsUpdate = {
+  properties: {
+    agent_otel_config: {
+      $ref: "#/components/schemas/AgentOtelConfig",
+      description: "Claude Code OTel telemetry configuration for agent runs.",
+    },
+    agent_otel_headers: {
+      anyOf: [
+        {
+          additionalProperties: {
+            type: "string",
+          },
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Agent Otel Headers",
+      description:
+        "Encrypted headers for the Claude Code OTLP exporter. Omitted values leave existing headers unchanged.",
+    },
+  },
+  type: "object",
+  title: "AgentOtelSettingsUpdate",
+} as const
+
 export const $AgentOutput = {
   properties: {
     output: {
@@ -3679,9 +3716,6 @@ export const $AgentSettingsRead = {
       type: "boolean",
       title: "Agent Case Chat Inject Content",
     },
-    agent_otel_config: {
-      $ref: "#/components/schemas/AgentOtelConfig",
-    },
   },
   type: "object",
   required: [
@@ -3735,26 +3769,6 @@ export const $AgentSettingsUpdate = {
       description:
         "Whether to automatically inject case content into agent prompts when a case_id is available.",
       default: false,
-    },
-    agent_otel_config: {
-      $ref: "#/components/schemas/AgentOtelConfig",
-      description: "Claude Code OTel telemetry configuration for agent runs.",
-    },
-    agent_otel_headers: {
-      anyOf: [
-        {
-          additionalProperties: {
-            type: "string",
-          },
-          type: "object",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Agent Otel Headers",
-      description:
-        "Encrypted headers for the Claude Code OTLP exporter. Omitted values leave existing headers unchanged.",
     },
   },
   type: "object",

@@ -19,7 +19,7 @@ from tracecat.settings.router import (
     check_saml_domain_prerequisites,
 )
 from tracecat.settings.schemas import (
-    AgentSettingsUpdate,
+    AgentOtelSettingsUpdate,
     AuditSettingsUpdate,
     GitSettingsUpdate,
     SAMLSettingsUpdate,
@@ -432,8 +432,8 @@ async def test_update_agent_otel_settings_encrypts_headers(
     settings_service_with_defaults: SettingsService,
 ) -> None:
     service = settings_service_with_defaults
-    await service.update_agent_settings(
-        AgentSettingsUpdate(
+    await service.update_agent_otel_settings(
+        AgentOtelSettingsUpdate(
             agent_otel_config=AgentOtelConfig(
                 enabled=True,
                 env={
