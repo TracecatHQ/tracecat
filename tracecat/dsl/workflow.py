@@ -81,7 +81,7 @@ with workflow.unsafe.imports_passed_through():
         resolve_time_anchor_activity,
         resolve_workflow_concurrency_limits_enabled_activity,
     )
-    from tracecat.dsl.scheduler import DSLScheduler
+    from tracecat.dsl.scheduler import DSLScheduler, PlatformExecutionError
     from tracecat.dsl.schemas import (
         ROOT_STREAM,
         ActionStatement,
@@ -873,23 +873,40 @@ class DSLWorkflow:
                     # Single activity prepares everything: alias resolution, definition fetch, loop iteration data
                     self.logger.trace("Preparing child workflow")
                     use_committed = self.execution_type != ExecutionType.DRAFT
-                    prepared = await workflow.execute_activity(
-                        DSLActivities.prepare_subflow_activity,
-                        arg=PrepareSubflowActivityInput(
-                            role=self.role,
-                            task=task,
-                            operand=self.get_context(),
-                            key=action_collection_prefix(
-                                str(self.workspace_id),
-                                self.wf_exec_id,
-                                stream_id,
-                                task.ref,
+                    try:
+                        prepared = await workflow.execute_activity(
+                            DSLActivities.prepare_subflow_activity,
+                            arg=PrepareSubflowActivityInput(
+                                role=self.role,
+                                task=task,
+                                operand=self.get_context(),
+                                key=action_collection_prefix(
+                                    str(self.workspace_id),
+                                    self.wf_exec_id,
+                                    stream_id,
+                                    task.ref,
+                                ),
+                                use_committed=use_committed,
                             ),
-                            use_committed=use_committed,
-                        ),
-                        start_to_close_timeout=timedelta(seconds=120),
-                        retry_policy=RETRY_POLICIES["activity:fail_fast"],
-                    )
+                            start_to_close_timeout=timedelta(seconds=120),
+                            retry_policy=RETRY_POLICIES["activity:fail_fast"],
+                        )
+                    except Exception as e:
+                        root_error, root_message = self._unwrap_temporal_failure_cause(
+                            e
+                        )
+                        if (
+                            isinstance(root_error, ApplicationError)
+                            and root_error.type is None
+                        ):
+                            raise
+                        platform_error = (
+                            root_error if isinstance(root_error, Exception) else e
+                        )
+                        task_result = task_result.with_error(
+                            root_message, platform_error.__class__.__name__
+                        )
+                        raise PlatformExecutionError(platform_error) from e
                     self.logger.trace("Child workflow prepared", prepared=prepared)
                     # Execute child workflow (handles both single and looped)
                     stored_result = await self._execute_child_workflow_prepared(
@@ -1199,6 +1216,9 @@ class DSLWorkflow:
                     raise ApplicationError(
                         root_message, non_retryable=True, type=resolved_type
                     ) from e
+
+        except PlatformExecutionError:
+            raise
 
         except TracecatExpressionError as e:
             err_type = e.__class__.__name__

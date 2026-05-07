@@ -113,6 +113,14 @@ class LoopRegion:
     members: frozenset[str]
 
 
+class PlatformExecutionError(Exception):
+    """Marks a narrow executor-side platform failure that should fail the workflow."""
+
+    def __init__(self, error: Exception) -> None:
+        super().__init__(str(error))
+        self.error = error
+
+
 class _TaskExecutionError(Exception):
     """Wrap exceptions raised by task execution so scheduler errors stay distinct."""
 
@@ -665,6 +673,8 @@ class DSLScheduler:
         token = ctx_stream_id.set(task.stream_id)
         try:
             await self.executor(stmt)
+        except PlatformExecutionError:
+            raise
         except Exception as e:
             raise _TaskExecutionError(e) from e
         finally:
@@ -750,10 +760,14 @@ class DSLScheduler:
             # NOTE: Moved this here to handle single success path
             await self._handle_success_path(task)
         except Exception as e:
-            exc = e.error if isinstance(e, _TaskExecutionError) else e
-            is_scheduler_error = not isinstance(e, _TaskExecutionError) and not (
-                isinstance(exc, ApplicationError) and exc.details
-            )
+            if isinstance(e, PlatformExecutionError):
+                exc = e.error
+                is_scheduler_error = True
+            else:
+                exc = e.error if isinstance(e, _TaskExecutionError) else e
+                is_scheduler_error = not isinstance(e, _TaskExecutionError) and not (
+                    isinstance(exc, ApplicationError) and exc.details
+                )
             kind = exc.__class__.__name__
             non_retryable = getattr(exc, "non_retryable", True)
             self.logger.warning(
