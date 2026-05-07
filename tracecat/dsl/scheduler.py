@@ -11,7 +11,7 @@ from temporalio import workflow
 from temporalio.exceptions import ActivityError
 
 from tracecat.auth.types import Role
-from tracecat.dsl.action import MATERIALIZE_CONTEXT_ERROR_MESSAGE, ScatterActionInput
+from tracecat.dsl.action import PLATFORM_EXECUTION_ERROR_TYPE, ScatterActionInput
 
 with workflow.unsafe.imports_passed_through():
     from pydantic_core import to_json
@@ -129,10 +129,10 @@ class _TaskExecutionError(Exception):
         self.error = error
 
 
-def _is_context_materialization_error(error: Exception) -> bool:
+def _is_platform_application_error(error: Exception) -> bool:
     return (
         isinstance(error, ApplicationError)
-        and error.message == MATERIALIZE_CONTEXT_ERROR_MESSAGE
+        and error.type == PLATFORM_EXECUTION_ERROR_TYPE
     )
 
 
@@ -735,7 +735,7 @@ class DSLScheduler:
                 raise TaskUnreachable(f"Task {task} is unreachable")
 
             if run_if_error is not None:
-                if _is_context_materialization_error(run_if_error):
+                if _is_platform_application_error(run_if_error):
                     raise run_if_error
                 raise _TaskExecutionError(run_if_error) from run_if_error
 
@@ -971,7 +971,7 @@ class DSLScheduler:
             try:
                 expr_result = await self.resolve_expression(run_if, context)
             except ApplicationError as e:
-                if _is_context_materialization_error(e):
+                if _is_platform_application_error(e):
                     raise
                 raise ApplicationError(
                     f"Error evaluating `run_if` condition: {e}",
@@ -1086,7 +1086,7 @@ class DSLScheduler:
             try:
                 expr_result = await self.resolve_expression(args.condition, context)
             except ApplicationError as e:
-                if _is_context_materialization_error(e):
+                if _is_platform_application_error(e):
                     raise
                 raise _TaskExecutionError(
                     ApplicationError(
@@ -1185,7 +1185,7 @@ class DSLScheduler:
         except ActivityError as e:
             match e.cause:
                 case ApplicationError() as app_err:
-                    if _is_context_materialization_error(app_err):
+                    if _is_platform_application_error(app_err):
                         raise app_err from None
                     raise _TaskExecutionError(app_err) from None
                 case _:
@@ -1494,7 +1494,7 @@ class DSLScheduler:
         except ActivityError as e:
             match e.cause:
                 case ApplicationError() as app_err:
-                    if _is_context_materialization_error(app_err):
+                    if _is_platform_application_error(app_err):
                         raise app_err from None
                     raise _TaskExecutionError(app_err) from None
                 case _:

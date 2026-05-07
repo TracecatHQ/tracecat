@@ -68,6 +68,7 @@ from tracecat.validation.schemas import ValidationDetail
 _thread_local = threading.local()
 
 MATERIALIZE_CONTEXT_ERROR_MESSAGE = "Failed to materialize context"
+PLATFORM_EXECUTION_ERROR_TYPE = "PlatformExecutionError"
 
 
 def _strip_string_values(args: dict[str, Any]) -> dict[str, Any]:
@@ -347,6 +348,7 @@ async def materialize_context(ctx: ExecutionContext) -> MaterializedExecutionCon
         raise ApplicationError(
             MATERIALIZE_CONTEXT_ERROR_MESSAGE,
             non_retryable=True,
+            type=PLATFORM_EXECUTION_ERROR_TYPE,
         ) from e
 
     # Reconstruct ACTIONS dict with materialized results

@@ -10,7 +10,11 @@ import pytest
 from temporalio.exceptions import ActivityError, ApplicationError
 
 from tracecat.auth.types import Role
-from tracecat.dsl.action import MATERIALIZE_CONTEXT_ERROR_MESSAGE, DSLActivities
+from tracecat.dsl.action import (
+    MATERIALIZE_CONTEXT_ERROR_MESSAGE,
+    PLATFORM_EXECUTION_ERROR_TYPE,
+    DSLActivities,
+)
 from tracecat.dsl.common import DSLEntrypoint, DSLInput
 from tracecat.dsl.constants import MAX_DO_WHILE_ITERATIONS
 from tracecat.dsl.enums import PlatformAction
@@ -113,6 +117,14 @@ def _activity_error_from(
         return e
 
 
+def _context_materialization_error() -> ApplicationError:
+    return ApplicationError(
+        MATERIALIZE_CONTEXT_ERROR_MESSAGE,
+        non_retryable=True,
+        type=PLATFORM_EXECUTION_ERROR_TYPE,
+    )
+
+
 @pytest.mark.anyio
 async def test_platform_stream_error_promotes_to_workflow_failure() -> None:
     scheduler = _make_scheduler(
@@ -128,7 +140,7 @@ async def test_platform_stream_error_promotes_to_workflow_failure() -> None:
         ),
     )
     stream_id = StreamID.new("scatter", 0, base_stream_id=ROOT_STREAM)
-    error = ApplicationError("Failed to materialize context", non_retryable=True)
+    error = _context_materialization_error()
 
     await scheduler._handle_error_path(
         Task(ref="call_child", stream_id=stream_id), error, is_scheduler_error=True
@@ -254,12 +266,7 @@ async def test_run_if_context_materialization_error_fails_workflow() -> None:
     with patch.object(
         scheduler,
         "resolve_expression",
-        new=AsyncMock(
-            side_effect=ApplicationError(
-                MATERIALIZE_CONTEXT_ERROR_MESSAGE,
-                non_retryable=True,
-            )
-        ),
+        new=AsyncMock(side_effect=_context_materialization_error()),
     ):
         task_exceptions = await scheduler.start()
 
@@ -384,12 +391,7 @@ async def test_loop_end_context_materialization_error_fails_workflow() -> None:
     with patch.object(
         scheduler,
         "resolve_expression",
-        new=AsyncMock(
-            side_effect=ApplicationError(
-                MATERIALIZE_CONTEXT_ERROR_MESSAGE,
-                non_retryable=True,
-            )
-        ),
+        new=AsyncMock(side_effect=_context_materialization_error()),
     ):
         task_exceptions = await scheduler.start()
 
@@ -449,10 +451,7 @@ async def test_scatter_args_error_uses_error_path() -> None:
         (
             {"items": "${{ ACTIONS.scatter.result }}"},
             _activity_error_from(
-                ApplicationError(
-                    MATERIALIZE_CONTEXT_ERROR_MESSAGE,
-                    non_retryable=True,
-                ),
+                _context_materialization_error(),
                 activity_type="evaluate_templated_object_activity",
             ),
             True,
@@ -538,12 +537,7 @@ async def test_gather_error_classification(
             "prepare failed",
         ),
         (
-            _activity_error_from(
-                ApplicationError(
-                    MATERIALIZE_CONTEXT_ERROR_MESSAGE,
-                    non_retryable=True,
-                )
-            ),
+            _activity_error_from(_context_materialization_error()),
             True,
             [],
             MATERIALIZE_CONTEXT_ERROR_MESSAGE,
@@ -680,7 +674,7 @@ async def test_prepare_subflow_error_in_scatter_classification(
         ),
         (
             _activity_error_from(
-                ApplicationError(MATERIALIZE_CONTEXT_ERROR_MESSAGE, non_retryable=True),
+                _context_materialization_error(),
                 activity_type="handle_scatter_input_activity",
             ),
             True,

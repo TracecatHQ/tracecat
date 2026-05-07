@@ -52,7 +52,7 @@ with workflow.unsafe.imports_passed_through():
         ctx_stream_id,
     )
     from tracecat.dsl.action import (
-        MATERIALIZE_CONTEXT_ERROR_MESSAGE,
+        PLATFORM_EXECUTION_ERROR_TYPE,
         BuildAgentArgsActivityInput,
         BuildPresetAgentArgsActivityInput,
         DSLActivities,
@@ -197,7 +197,7 @@ def _is_subflow_prepare_platform_error(error: BaseException) -> bool:
     if not isinstance(error, ApplicationError):
         return True
     return (
-        error.message == MATERIALIZE_CONTEXT_ERROR_MESSAGE
+        error.type == PLATFORM_EXECUTION_ERROR_TYPE
         or error.type == RuntimeError.__name__
     )
 
