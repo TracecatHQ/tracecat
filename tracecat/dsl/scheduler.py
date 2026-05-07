@@ -54,6 +54,7 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.dsl.types import (
         ActionErrorInfo,
         ActionErrorInfoAdapter,
+        PlatformExecutionError,
         Task,
         TaskExceptionInfo,
     )
@@ -665,6 +666,8 @@ class DSLScheduler:
         token = ctx_stream_id.set(task.stream_id)
         try:
             await self.executor(stmt)
+        except PlatformExecutionError:
+            raise
         except Exception as e:
             raise _TaskExecutionError(e) from e
         finally:
@@ -750,10 +753,17 @@ class DSLScheduler:
             # NOTE: Moved this here to handle single success path
             await self._handle_success_path(task)
         except Exception as e:
-            exc = e.error if isinstance(e, _TaskExecutionError) else e
-            is_scheduler_error = not isinstance(e, _TaskExecutionError) and not (
-                isinstance(exc, ApplicationError) and exc.details
-            )
+            if isinstance(e, PlatformExecutionError):
+                exc = e.error
+                is_scheduler_error = True
+            elif isinstance(e, _TaskExecutionError):
+                exc = e.error
+                is_scheduler_error = False
+            else:
+                exc = e
+                is_scheduler_error = not (
+                    isinstance(exc, ApplicationError) and exc.details
+                )
             kind = exc.__class__.__name__
             non_retryable = getattr(exc, "non_retryable", True)
             self.logger.warning(
