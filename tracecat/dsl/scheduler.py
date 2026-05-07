@@ -395,29 +395,51 @@ class DSLScheduler:
     def __repr__(self) -> str:
         return to_json(self.__dict__, fallback=str, indent=2).decode()
 
-    @staticmethod
-    def _is_action_error_info_payload(payload: Any) -> bool:
+    @classmethod
+    def _action_error_info_from_payload(cls, payload: Any) -> ActionErrorInfo | None:
         if isinstance(payload, ActionErrorInfo):
-            return True
+            return payload
         try:
-            ActionErrorInfoAdapter.validate_python(payload)
-            return True
+            return ActionErrorInfoAdapter.validate_python(payload)
         except Exception:
             pass
 
         if isinstance(payload, Mapping):
-            return any(
-                DSLScheduler._is_action_error_info_payload(value)
-                for value in payload.values()
-            )
-        return False
+            for value in payload.values():
+                if info := cls._action_error_info_from_payload(value):
+                    return info
+        return None
 
     @classmethod
-    def _can_follow_user_error_handling(cls, exc: Exception) -> bool:
-        """Return whether an error is safe for error edges or gather strategy."""
-        if not isinstance(exc, ApplicationError) or not exc.details:
-            return False
-        return cls._is_action_error_info_payload(exc.details[0])
+    def _action_error_info_from_exception(
+        cls, exc: Exception
+    ) -> ActionErrorInfo | None:
+        if isinstance(exc, ApplicationError) and exc.details:
+            return cls._action_error_info_from_payload(exc.details[0])
+        return None
+
+    @staticmethod
+    def _error_info_from_unstructured_exception(
+        ref: str, stream_id: StreamID, exc: Exception
+    ) -> ActionErrorInfo:
+        if isinstance(exc, ApplicationError) and exc.details:
+            raw_details = exc.details[0]
+            message = "Application error details did not contain action error info."
+            try:
+                message += f"\nGot: {to_json(raw_details, fallback=str).decode()}"
+            except Exception as e:
+                message += f"\nCouldn't parse error details as json: {e}"
+        else:
+            try:
+                message = str(exc)
+            except Exception as e:
+                message = f"Failed to stringify non-application error: {e}"
+        return ActionErrorInfo(
+            ref=ref,
+            message=message,
+            type=exc.__class__.__name__,
+            stream_id=stream_id,
+        )
 
     async def _handle_error_path(self, task: Task, exc: Exception) -> None:
         ref = task.ref
@@ -434,158 +456,52 @@ class DSLScheduler:
             for dst, edge_type in self.adj[ref]
             if edge_type != EdgeType.ERROR
         }
-        follows_user_error_handling = self._can_follow_user_error_handling(exc)
-        if len(non_err_edges) < len(self.adj[ref]) and follows_user_error_handling:
+        action_error_info = self._action_error_info_from_exception(exc)
+        is_user_action_error = action_error_info is not None
+        has_error_edges = len(non_err_edges) < len(self.adj[ref])
+        if has_error_edges and is_user_action_error:
             await self._queue_tasks(task, unreachable=non_err_edges)
+            return
+
+        if is_user_action_error:
+            self.logger.info("Task failed with no error paths", task=task)
         else:
-            if follows_user_error_handling:
-                self.logger.info("Task failed with no error paths", task=task)
-            else:
-                self.logger.warning(
-                    "Task failed with platform error, bypassing user error handling",
-                    task=task,
-                    error=exc,
-                )
-            # XXX: This can sometimes return null because the exception isn't an ApplicationError
-            # But rather a ChildWorkflowError or CancelledError
-            if isinstance(exc, ApplicationError) and exc.details:
-                self.logger.info(
-                    "Task failed with application error",
-                    ref=ref,
-                    exc=exc,
-                    details=exc.details,
-                )
-                details = exc.details[0]
-                if not isinstance(details, dict):
-                    self.logger.info(
-                        "Application error details are not a dictionary",
-                        ref=ref,
-                        details=details,
-                    )
-                    message = "Application error details are not a dictionary."
-                    try:
-                        message += f"\nGot: {to_json(details, fallback=str).decode()}"
-                    except Exception as e:
-                        self.logger.debug(
-                            "Couldn't jsonify application error details",
-                            ref=ref,
-                            error=e,
-                        )
-                        message += "Couldn't parse error details as json."
-                    details = ActionErrorInfo(
-                        ref=ref,
-                        message=message,
-                        type=exc.__class__.__name__,
-                        stream_id=task.stream_id,
-                    )
-                elif all(k in details for k in ("ref", "message", "type")):
-                    # Regular action error
-                    # it's of shape ActionErrorInfo()
-                    try:
-                        # This is normal action error
-                        details = ActionErrorInfo(**details)
-                    except Exception as e:
-                        self.logger.info(
-                            "Failed to parse regular application error details",
-                            ref=ref,
-                            error=e,
-                        )
-                        message = (
-                            f"Failed to parse regular application error details: {e}."
-                        )
-                        try:
-                            message += f"\n{to_json(details, fallback=str).decode()}"
-                        except Exception as e:
-                            self.logger.debug(
-                                "Couldn't jsonify application error details",
-                                ref=ref,
-                                error=e,
-                            )
-                            message += "Couldn't parse error details as json."
-                        details = ActionErrorInfo(
-                            ref=ref,
-                            message=message,
-                            type=exc.__class__.__name__,
-                            stream_id=task.stream_id,
-                        )
-                else:
-                    # Child workflow error
-                    # it's of shape {ref: ActionErrorInfo(), ...}
-                    # try get the first element
-                    try:
-                        val = list(details.values())[0]
-                        details = ActionErrorInfo(**val)
-                    except Exception as e:
-                        self.logger.info(
-                            "Failed to parse child wf application error details",
-                            ref=ref,
-                            error=e,
-                        )
-                        message = "Child workflow error details are not a dictionary."
-                        try:
-                            message += (
-                                f"\nGot: {to_json(details, fallback=str).decode()}"
-                            )
-                        except Exception as e:
-                            self.logger.debug(
-                                "Couldn't jsonify child wf application error details",
-                                ref=ref,
-                                error=e,
-                            )
-                            message += "Couldn't parse error details as json."
-                        details = ActionErrorInfo(
-                            ref=ref,
-                            message=message,
-                            type=exc.__class__.__name__,
-                            stream_id=task.stream_id,
-                        )
-            else:
-                self.logger.info(
-                    "Task failed without structured application error details",
-                    ref=ref,
-                    exc=exc,
-                )
-                try:
-                    message = str(exc)
-                except Exception as e:
-                    self.logger.info(
-                        "Failed to stringify non-application error",
-                        ref=ref,
-                        error=e,
-                    )
-                    message = f"Failed to stringify non-application error: {e}"
-                details = ActionErrorInfo(
-                    ref=ref,
-                    message=message,
-                    type=exc.__class__.__name__,
-                    stream_id=task.stream_id,
-                )
-            if task.stream_id == ROOT_STREAM or not follows_user_error_handling:
-                self.logger.debug(
-                    "Setting task exception",
-                    task=task,
-                    details=details,
-                    follows_user_error_handling=follows_user_error_handling,
-                )
-                self.task_exceptions[ref] = TaskExceptionInfo(
-                    exception=exc, details=details
-                )
-                # After this point we gracefully handle the error in the root stream which will be handled by Temporal.
-            else:
-                self.logger.debug(
-                    "Setting task exception in execution stream",
-                    task=task,
-                    details=details,
-                )
-                self.stream_exceptions[task.stream_id] = TaskExceptionInfo(
-                    exception=exc, details=details
-                )
-                # To "throw" we need to trigger a skip stream
-                all_edges = {
-                    DSLEdge(src=ref, dst=dst, type=edge_type, stream_id=task.stream_id)
-                    for dst, edge_type in self.adj[ref]
-                }
-                await self._queue_tasks(task, unreachable=all_edges)
+            self.logger.warning(
+                "Task failed with platform error, bypassing user error handling",
+                task=task,
+                error=exc,
+            )
+
+        details = action_error_info or self._error_info_from_unstructured_exception(
+            ref, task.stream_id, exc
+        )
+        if task.stream_id == ROOT_STREAM or not is_user_action_error:
+            self.logger.debug(
+                "Setting task exception",
+                task=task,
+                details=details,
+                is_user_action_error=is_user_action_error,
+            )
+            self.task_exceptions[ref] = TaskExceptionInfo(
+                exception=exc, details=details
+            )
+            # After this point we gracefully handle the error in the root stream which will be handled by Temporal.
+            return
+
+        self.logger.debug(
+            "Setting task exception in execution stream",
+            task=task,
+            details=details,
+        )
+        self.stream_exceptions[task.stream_id] = TaskExceptionInfo(
+            exception=exc, details=details
+        )
+        # To "throw" we need to trigger a skip stream
+        all_edges = {
+            DSLEdge(src=ref, dst=dst, type=edge_type, stream_id=task.stream_id)
+            for dst, edge_type in self.adj[ref]
+        }
+        await self._queue_tasks(task, unreachable=all_edges)
 
     async def _handle_success_path(self, task: Task) -> None:
         ref = task.ref
