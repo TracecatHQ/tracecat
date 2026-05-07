@@ -955,7 +955,7 @@ def _evaluate_loop_iterations(
         iterators = get_iterables_from_expression(
             expr=task.for_each, operand=materialized
         )
-    except TracecatExpressionError as e:
+    except (TracecatExpressionError, ValueError) as e:
         raise UserError(f"Error evaluating subflow for_each expression: {e}") from e
     all_items = list(zip(*iterators, strict=False))
 

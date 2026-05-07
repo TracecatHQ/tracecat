@@ -12,7 +12,7 @@ from temporalio.exceptions import ActivityError, ApplicationError
 
 from tracecat import config
 from tracecat.auth.types import Role
-from tracecat.dsl.action import DSLActivities
+from tracecat.dsl.action import DSLActivities, _evaluate_loop_iterations
 from tracecat.dsl.common import DSLEntrypoint, DSLInput, DSLRunArgs
 from tracecat.dsl.enums import FailStrategy, PlatformAction, WaitStrategy
 from tracecat.dsl.scheduler import DSLScheduler
@@ -396,6 +396,22 @@ async def test_prepare_subflow_user_error_in_scatter_uses_error_path() -> None:
     assert executed_refs == ["handle_error"]
     assert not scheduler.task_exceptions
     assert not scheduler.stream_exceptions
+
+
+def test_evaluate_loop_iterations_invalid_for_each_raises_user_error() -> None:
+    task = ActionStatement(
+        ref="call_child",
+        action=PlatformAction.CHILD_WORKFLOW_EXECUTE,
+        args={"workflow_alias": "child"},
+        for_each="${{ [1, 2, 3] }}",
+    )
+
+    with pytest.raises(UserError, match="Error evaluating subflow for_each expression"):
+        _evaluate_loop_iterations(
+            task,
+            materialized=cast(Any, {"ACTIONS": {}, "TRIGGER": None}),
+            dsl_config=DSLConfig(),
+        )
 
 
 @pytest.mark.anyio
