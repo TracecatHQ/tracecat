@@ -113,23 +113,12 @@ class LoopRegion:
     members: frozenset[str]
 
 
-class PlatformExecutionError(Exception):
-    """Marks executor failures that should bypass user error handling."""
+class _TaskExecutionError(Exception):
+    """Wrap exceptions raised by task execution so scheduler errors stay distinct."""
 
     def __init__(self, error: Exception) -> None:
         super().__init__(str(error))
         self.error = error
-
-
-class _TaskExecutionError(Exception):
-    """Wrap exceptions raised by task execution so scheduler errors stay distinct."""
-
-    def __init__(
-        self, error: Exception, *, force_workflow_failure: bool = False
-    ) -> None:
-        super().__init__(str(error))
-        self.error = error
-        self.force_workflow_failure = force_workflow_failure
 
 
 class DSLScheduler:
@@ -415,7 +404,7 @@ class DSLScheduler:
         return to_json(self.__dict__, fallback=str, indent=2).decode()
 
     async def _handle_error_path(
-        self, task: Task, exc: Exception, *, force_workflow_failure: bool = False
+        self, task: Task, exc: Exception, *, is_scheduler_error: bool = False
     ) -> None:
         ref = task.ref
 
@@ -431,12 +420,12 @@ class DSLScheduler:
             for dst, edge_type in self.adj[ref]
             if edge_type != EdgeType.ERROR
         }
-        if len(non_err_edges) < len(self.adj[ref]) and not force_workflow_failure:
+        if len(non_err_edges) < len(self.adj[ref]) and not is_scheduler_error:
             await self._queue_tasks(task, unreachable=non_err_edges)
         else:
-            if force_workflow_failure:
+            if is_scheduler_error:
                 self.logger.warning(
-                    "Task failed; bypassing user error handling",
+                    "Task failed with scheduler error, bypassing user error handling",
                     task=task,
                     error=exc,
                 )
@@ -556,7 +545,7 @@ class DSLScheduler:
                     type=exc.__class__.__name__,
                     stream_id=task.stream_id,
                 )
-            if task.stream_id == ROOT_STREAM or force_workflow_failure:
+            if task.stream_id == ROOT_STREAM or is_scheduler_error:
                 self.logger.debug("Setting task exception", task=task, details=details)
                 self.task_exceptions[ref] = TaskExceptionInfo(
                     exception=exc, details=details
@@ -676,8 +665,6 @@ class DSLScheduler:
         token = ctx_stream_id.set(task.stream_id)
         try:
             await self.executor(stmt)
-        except PlatformExecutionError as e:
-            raise _TaskExecutionError(e.error, force_workflow_failure=True) from e
         except Exception as e:
             raise _TaskExecutionError(e) from e
         finally:
@@ -763,14 +750,10 @@ class DSLScheduler:
             # NOTE: Moved this here to handle single success path
             await self._handle_success_path(task)
         except Exception as e:
-            if isinstance(e, _TaskExecutionError):
-                exc = e.error
-                force_workflow_failure = e.force_workflow_failure
-            else:
-                exc = e
-                force_workflow_failure = not (
-                    isinstance(exc, ApplicationError) and exc.details
-                )
+            exc = e.error if isinstance(e, _TaskExecutionError) else e
+            is_scheduler_error = not isinstance(e, _TaskExecutionError) and not (
+                isinstance(exc, ApplicationError) and exc.details
+            )
             kind = exc.__class__.__name__
             non_retryable = getattr(exc, "non_retryable", True)
             self.logger.warning(
@@ -780,7 +763,7 @@ class DSLScheduler:
                 non_retryable=non_retryable,
             )
             await self._handle_error_path(
-                task, exc, force_workflow_failure=force_workflow_failure
+                task, exc, is_scheduler_error=is_scheduler_error
             )
         finally:
             # 5) Regardless of the outcome, the task is now complete
