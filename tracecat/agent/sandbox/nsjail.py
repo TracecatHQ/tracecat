@@ -145,6 +145,7 @@ async def spawn_jailed_runtime(
     enable_internet_access: bool = False,
     skills_dir: Path | None = None,
     inherited_fds: tuple[int, ...] = (),
+    otel_socket_path: Path | None = None,
 ) -> SpawnedRuntime:
     """Spawn the Claude shim inside an NSJail sandbox or direct subprocess.
 
@@ -235,6 +236,7 @@ async def spawn_jailed_runtime(
                 session_work_dir=session_work_dir,
                 skills_dir=skills_dir,
                 inherited_fds=inherited_fds,
+                otel_socket_path=otel_socket_path,
             )
         else:
             # NSJail mode for production - isolated runs require the per-job LLM socket.
@@ -258,6 +260,7 @@ async def spawn_jailed_runtime(
                 session_work_dir=session_work_dir,
                 enable_internet_access=enable_internet_access,
                 skills_dir=skills_dir,
+                otel_socket_path=otel_socket_path,
             )
     except BaseException:
         if owns_job_dir:
@@ -305,6 +308,7 @@ async def _spawn_direct_runtime(
     session_work_dir: Path | None,
     skills_dir: Path | None,
     inherited_fds: tuple[int, ...] = (),
+    otel_socket_path: Path | None = None,
 ) -> asyncio.subprocess.Process:
     """Spawn the Claude shim as a direct subprocess (for development/testing).
 
@@ -355,6 +359,8 @@ async def _spawn_direct_runtime(
     env["TRACECAT__AGENT_MCP_SOCKET_PATH"] = str(
         mcp_socket_path or TRACECAT__AGENT_MCP_SOCKET_PATH
     )
+    if otel_socket_path is not None:
+        env["TRACECAT__AGENT_OTEL_SOCKET_PATH"] = str(otel_socket_path)
     for key in ("TRACECAT__LITELLM_BASE_URL",):
         if value := os.environ.get(key):
             env[key] = value
@@ -399,6 +405,7 @@ async def _spawn_nsjail_runtime(
     session_work_dir: Path | None,
     enable_internet_access: bool = False,
     skills_dir: Path | None = None,
+    otel_socket_path: Path | None = None,
 ) -> asyncio.subprocess.Process:
     """Spawn the Claude shim inside an NSJail sandbox (production mode).
 
@@ -468,6 +475,7 @@ async def _spawn_nsjail_runtime(
                 else None
             ),
             skills_dir=skills_dir,
+            otel_socket_path=otel_socket_path,
         )
 
         # Write config to job directory

@@ -1488,12 +1488,20 @@ class ClaudeAgentRuntime:
             env["CLAUDE_CODE_AUTO_COMPACT_WINDOW"] = (
                 CUSTOM_MODEL_PROVIDER_AUTO_COMPACT_WINDOW
             )
+        if payload.config.passthrough or any(
+            subagent.config.passthrough for subagent in payload.subagents
+        ):
+            env["CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS"] = "1"
         # The CLI disables tool search (deferred tool loading) for
         # non-first-party base URLs — ours is always the socket bridge — unless
         # explicitly enabled. Every leg terminates at the managed LiteLLM or an
         # Anthropic-compatible passthrough gateway; both tolerate its wire
         # artifacts (defer_loading, tool_reference; verified on LiteLLM 1.89).
         env["ENABLE_TOOL_SEARCH"] = "true"
+        # Sandbox-safe Claude OTel env (no headers, no tenant endpoint — the
+        # shim points the SDK at its OtelBridge).
+        if payload.agent_otel_sandbox_env:
+            env.update(payload.agent_otel_sandbox_env)
         return env
 
     def _build_options(
