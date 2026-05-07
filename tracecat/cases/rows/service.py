@@ -200,6 +200,14 @@ class CaseTableRowsService(BaseWorkspaceService):
             row_id=params.row_id,
         )
         self.session.add(link)
+        try:
+            await self.session.flush()
+        except sa_exc.IntegrityError:
+            await self.session.rollback()
+            existing = (await self.session.execute(dedupe_stmt)).scalars().first()
+            if existing is None:
+                raise
+            return existing
 
         await CaseEventsService(self.session, self.role).create_event(
             case,
