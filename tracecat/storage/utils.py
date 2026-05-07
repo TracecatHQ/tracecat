@@ -2,20 +2,19 @@
 
 from __future__ import annotations
 
-import asyncio
 import hashlib
-from collections import OrderedDict
+import math
+import threading
+import time
 from typing import TYPE_CHECKING, Any
 
 import orjson
-from aiocache import Cache
+from cachetools import TTLCache
 
 from tracecat.logger import logger
 from tracecat.storage import blob
 
 if TYPE_CHECKING:
-    from aiocache.base import BaseCache
-
     from tracecat.storage.object import InlineObject, StoredObject
 
 # Cache configuration
@@ -25,61 +24,58 @@ BLOB_CACHE_TTL = 300.0  # 5 minutes
 
 
 class SizedMemoryCache:
-    """Byte-aware wrapper around aiocache SimpleMemoryCache with LRU eviction."""
+    """Thread-safe byte-aware memory cache with TTL and LRU eviction."""
 
     def __init__(self, max_bytes: int, ttl: float = 300.0):
-        self._cache: BaseCache = Cache(Cache.MEMORY, ttl=ttl)
-        self._sizes: OrderedDict[str, int] = OrderedDict()
-        self._total_bytes = 0
+        self._cache: TTLCache[str, bytes] = TTLCache(
+            maxsize=max_bytes,
+            ttl=ttl if ttl > 0 else math.inf,
+            timer=time.monotonic,
+            getsizeof=len,
+        )
         self._max_bytes = max_bytes
-        self._lock = asyncio.Lock()
+        # Temporal can execute async activities on multiple event loops in a
+        # thread pool. asyncio locks are bound to one loop under contention, and
+        # cachetools caches are not thread-safe without external synchronization.
+        self._lock = threading.RLock()
 
     async def get(self, key: str) -> bytes | None:
-        value: bytes | None = await self._cache.get(key)
-        if value is None and key in self._sizes:
-            # TTL expired in underlying cache, sync our tracking
-            async with self._lock:
-                if key in self._sizes:
-                    self._total_bytes -= self._sizes.pop(key)
-        elif value is not None:
-            # Mark as recently used (LRU)
-            async with self._lock:
-                if key in self._sizes:
-                    self._sizes.move_to_end(key)
-        return value
+        with self._lock:
+            self._cache.expire()
+            return self._cache.get(key)
 
     async def set(self, key: str, value: bytes) -> None:
         size = len(value)
-        if size > self._max_bytes:
-            logger.debug(
-                "Cache entry too large to store",
-                key=key,
-                size_bytes=size,
-                max_bytes=self._max_bytes,
-            )
-            return
-        async with self._lock:
-            # Remove old entry if exists
-            if key in self._sizes:
-                self._total_bytes -= self._sizes.pop(key)
+        with self._lock:
+            self._cache.expire()
+            if size > self._max_bytes:
+                logger.debug(
+                    "Cache entry too large to store",
+                    key=key,
+                    size_bytes=size,
+                    max_bytes=self._max_bytes,
+                )
+                return
 
-            # Evict LRU items until we have room
-            while self._total_bytes + size > self._max_bytes and self._sizes:
-                oldest_key, oldest_size = self._sizes.popitem(last=False)
-                self._total_bytes -= oldest_size
-                await self._cache.delete(oldest_key)
-
-            await self._cache.set(key, value)
-            self._sizes[key] = size
-            self._total_bytes += size
+            try:
+                self._cache[key] = value
+            except ValueError:
+                logger.debug(
+                    "Cache entry too large to store",
+                    key=key,
+                    size_bytes=size,
+                    max_bytes=self._max_bytes,
+                )
 
     @property
     def total_bytes(self) -> int:
-        return self._total_bytes
+        with self._lock:
+            return int(self._cache.currsize)
 
     @property
     def item_count(self) -> int:
-        return len(self._sizes)
+        with self._lock:
+            return len(self._cache)
 
 
 # Module-level cache for blob downloads and S3 Select results
