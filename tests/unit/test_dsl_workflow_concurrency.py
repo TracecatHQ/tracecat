@@ -8,12 +8,14 @@ from typing import Any, cast
 from unittest.mock import AsyncMock, patch
 
 import pytest
-from temporalio.exceptions import ApplicationError
+from temporalio.exceptions import ActivityError, ApplicationError
 
 from tracecat import config
 from tracecat.auth.types import Role
+from tracecat.dsl.action import DSLActivities, _evaluate_loop_iterations
 from tracecat.dsl.common import DSLEntrypoint, DSLInput, DSLRunArgs
-from tracecat.dsl.enums import FailStrategy, WaitStrategy
+from tracecat.dsl.enums import FailStrategy, PlatformAction, WaitStrategy
+from tracecat.dsl.scheduler import DSLScheduler
 from tracecat.dsl.schemas import (
     ROOT_STREAM,
     ActionRetryPolicy,
@@ -28,6 +30,7 @@ from tracecat.dsl.workflow_logging import get_workflow_logger
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.registry.lock.types import RegistryLock
 from tracecat.storage.object import InlineObject
+from tracecat.temporal.exceptions import UserError
 from tracecat.tiers.schemas import EffectiveLimits
 from tracecat.workflow.executions.enums import ExecutionType
 
@@ -73,7 +76,34 @@ def _build_workflow(*, limits: EffectiveLimits | None = None) -> DSLWorkflow:
     context = ExecutionContext(ACTIONS={}, TRIGGER=None)
     workflow.context = context
     workflow.scheduler = cast(Any, SimpleNamespace(streams={ROOT_STREAM: context}))
+    assert workflow.role.workspace_id is not None
+    workflow.workspace_id = workflow.role.workspace_id
+    workflow.wf_exec_id = workflow.run_context.wf_exec_id
     return workflow
+
+
+def _activity_error_from(
+    cause: Exception, *, activity_type: str = "prepare_subflow_activity"
+) -> ActivityError:
+    try:
+        raise ActivityError(
+            "Activity failed",
+            scheduled_event_id=1,
+            started_event_id=2,
+            identity="test",
+            activity_type=activity_type,
+            activity_id=activity_type,
+            retry_state=None,
+        ) from cause
+    except ActivityError as e:
+        return e
+
+
+def _user_error_from(cause: Exception, message: str) -> UserError:
+    try:
+        raise UserError(message) from cause
+    except UserError as e:
+        return e
 
 
 @pytest.mark.anyio
@@ -236,6 +266,232 @@ async def test_execute_task_releases_action_permit_when_cancelled_during_heartbe
 
     assert result.get_data() == {"ok": True}
     release_mock.assert_awaited_once_with(action_id="permit-id")
+
+
+@pytest.mark.anyio
+async def test_prepare_subflow_activity_failure_in_scatter_fails_workflow() -> None:
+    workflow = _build_workflow()
+    dsl = DSLInput(
+        title="test",
+        description="test",
+        entrypoint=DSLEntrypoint(ref="scatter"),
+        actions=[
+            ActionStatement(
+                ref="scatter",
+                action=PlatformAction.TRANSFORM_SCATTER,
+                args={"collection": ["item"]},
+            ),
+            ActionStatement(
+                ref="call_child",
+                action=PlatformAction.CHILD_WORKFLOW_EXECUTE,
+                args={"workflow_alias": "child"},
+                depends_on=["scatter"],
+            ),
+            ActionStatement(
+                ref="handle_error",
+                action="core.noop",
+                depends_on=["call_child.error"],
+            ),
+        ],
+    )
+    scheduler = DSLScheduler(
+        executor=workflow.execute_task,
+        dsl=dsl,
+        max_pending_tasks=16,
+        context=ExecutionContext(ACTIONS={}, TRIGGER=None),
+        role=workflow.role,
+        run_context=workflow.run_context,
+    )
+    workflow.dsl = dsl
+    workflow.scheduler = scheduler
+    executed_refs: list[str] = []
+
+    async def execute_activity(activity: object, *_: Any, **__: Any) -> object:
+        if activity == DSLActivities.handle_scatter_input_activity:
+            return InlineObject(data=["item"], typename="list")
+        if activity == DSLActivities.prepare_subflow_activity:
+            raise _activity_error_from(RuntimeError("prepare failed"))
+        raise AssertionError(f"Unexpected activity: {activity}")
+
+    async def run_action(task: ActionStatement) -> InlineObject:
+        executed_refs.append(task.ref)
+        return InlineObject(data={"handled": True})
+
+    with (
+        patch(
+            "tracecat.dsl.scheduler.workflow.execute_activity",
+            new=AsyncMock(side_effect=execute_activity),
+        ),
+        patch(
+            "tracecat.dsl.workflow.workflow.execute_activity",
+            new=AsyncMock(side_effect=execute_activity),
+        ),
+        patch.object(workflow, "_run_action", new=AsyncMock(side_effect=run_action)),
+    ):
+        task_exceptions = await scheduler.start()
+
+    assert task_exceptions is not None
+    assert "call_child" in task_exceptions
+    assert "prepare failed" in task_exceptions["call_child"].details.message
+    assert executed_refs == []
+    assert not scheduler.stream_exceptions
+
+
+@pytest.mark.anyio
+async def test_prepare_subflow_user_error_in_scatter_uses_error_path() -> None:
+    workflow = _build_workflow()
+    dsl = DSLInput(
+        title="test",
+        description="test",
+        entrypoint=DSLEntrypoint(ref="scatter"),
+        actions=[
+            ActionStatement(
+                ref="scatter",
+                action=PlatformAction.TRANSFORM_SCATTER,
+                args={"collection": ["item"]},
+            ),
+            ActionStatement(
+                ref="call_child",
+                action=PlatformAction.CHILD_WORKFLOW_EXECUTE,
+                args={"workflow_alias": "child"},
+                depends_on=["scatter"],
+            ),
+            ActionStatement(
+                ref="handle_error",
+                action="core.noop",
+                depends_on=["call_child.error"],
+            ),
+        ],
+    )
+    scheduler = DSLScheduler(
+        executor=workflow.execute_task,
+        dsl=dsl,
+        max_pending_tasks=16,
+        context=ExecutionContext(ACTIONS={}, TRIGGER=None),
+        role=workflow.role,
+        run_context=workflow.run_context,
+    )
+    workflow.dsl = dsl
+    workflow.scheduler = scheduler
+    executed_refs: list[str] = []
+
+    async def execute_activity(activity: object, *_: Any, **__: Any) -> object:
+        if activity == DSLActivities.handle_scatter_input_activity:
+            return InlineObject(data=["item"], typename="list")
+        if activity == DSLActivities.prepare_subflow_activity:
+            raise _activity_error_from(UserError("Workflow alias 'child' not found"))
+        raise AssertionError(f"Unexpected activity: {activity}")
+
+    async def run_action(task: ActionStatement) -> InlineObject:
+        executed_refs.append(task.ref)
+        return InlineObject(data={"handled": True})
+
+    with (
+        patch(
+            "tracecat.dsl.scheduler.workflow.execute_activity",
+            new=AsyncMock(side_effect=execute_activity),
+        ),
+        patch(
+            "tracecat.dsl.workflow.workflow.execute_activity",
+            new=AsyncMock(side_effect=execute_activity),
+        ),
+        patch.object(workflow, "_run_action", new=AsyncMock(side_effect=run_action)),
+    ):
+        task_exceptions = await scheduler.start()
+
+    assert task_exceptions is None
+    assert executed_refs == ["handle_error"]
+    assert not scheduler.task_exceptions
+    assert not scheduler.stream_exceptions
+
+
+@pytest.mark.anyio
+async def test_prepare_subflow_user_error_cause_in_scatter_uses_error_path() -> None:
+    workflow = _build_workflow()
+    dsl = DSLInput(
+        title="test",
+        description="test",
+        entrypoint=DSLEntrypoint(ref="scatter"),
+        actions=[
+            ActionStatement(
+                ref="scatter",
+                action=PlatformAction.TRANSFORM_SCATTER,
+                args={"collection": ["item"]},
+            ),
+            ActionStatement(
+                ref="call_child",
+                action=PlatformAction.CHILD_WORKFLOW_EXECUTE,
+                args={"workflow_alias": "child"},
+                depends_on=["scatter"],
+            ),
+            ActionStatement(
+                ref="handle_error",
+                action="core.noop",
+                depends_on=["call_child.error"],
+            ),
+        ],
+    )
+    scheduler = DSLScheduler(
+        executor=workflow.execute_task,
+        dsl=dsl,
+        max_pending_tasks=16,
+        context=ExecutionContext(ACTIONS={}, TRIGGER=None),
+        role=workflow.role,
+        run_context=workflow.run_context,
+    )
+    workflow.dsl = dsl
+    workflow.scheduler = scheduler
+    executed_refs: list[str] = []
+
+    async def execute_activity(activity: object, *_: Any, **__: Any) -> object:
+        if activity == DSLActivities.handle_scatter_input_activity:
+            return InlineObject(data=["item"], typename="list")
+        if activity == DSLActivities.prepare_subflow_activity:
+            cause = ValueError("Invalid for_each expression")
+            error = _user_error_from(
+                cause,
+                "Error evaluating subflow for_each expression: Invalid for_each expression",
+            )
+            raise _activity_error_from(error)
+        raise AssertionError(f"Unexpected activity: {activity}")
+
+    async def run_action(task: ActionStatement) -> InlineObject:
+        executed_refs.append(task.ref)
+        return InlineObject(data={"handled": True})
+
+    with (
+        patch(
+            "tracecat.dsl.scheduler.workflow.execute_activity",
+            new=AsyncMock(side_effect=execute_activity),
+        ),
+        patch(
+            "tracecat.dsl.workflow.workflow.execute_activity",
+            new=AsyncMock(side_effect=execute_activity),
+        ),
+        patch.object(workflow, "_run_action", new=AsyncMock(side_effect=run_action)),
+    ):
+        task_exceptions = await scheduler.start()
+
+    assert task_exceptions is None
+    assert executed_refs == ["handle_error"]
+    assert not scheduler.task_exceptions
+    assert not scheduler.stream_exceptions
+
+
+def test_evaluate_loop_iterations_invalid_for_each_raises_user_error() -> None:
+    task = ActionStatement(
+        ref="call_child",
+        action=PlatformAction.CHILD_WORKFLOW_EXECUTE,
+        args={"workflow_alias": "child"},
+        for_each="${{ [1, 2, 3] }}",
+    )
+
+    with pytest.raises(UserError, match="Error evaluating subflow for_each expression"):
+        _evaluate_loop_iterations(
+            task,
+            materialized=cast(Any, {"ACTIONS": {}, "TRIGGER": None}),
+            dsl_config=DSLConfig(),
+        )
 
 
 @pytest.mark.anyio

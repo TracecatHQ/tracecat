@@ -63,6 +63,7 @@ from tracecat.storage.object import (
     get_object_storage,
     retrieve_stored_object,
 )
+from tracecat.temporal.exceptions import UserError
 from tracecat.validation.schemas import ValidationDetail
 
 _thread_local = threading.local()
@@ -828,6 +829,24 @@ def _as_error_info(detail: Any) -> ActionErrorInfo | None:
         return None
 
 
+def _evaluate_subflow_args(
+    args: Mapping[str, Any], operand: Mapping[str, Any]
+) -> tuple[dict[str, Any], ExecuteSubflowArgs]:
+    try:
+        evaluated_args = cast(
+            dict[str, Any],
+            eval_templated_object(dict(args), operand=operand),
+        )
+        return evaluated_args, ExecuteSubflowArgs.model_validate(evaluated_args)
+    except TracecatExpressionError as e:
+        raise UserError(f"Error evaluating subflow arguments: {e}") from e
+    except ValidationError as e:
+        raise UserError(
+            "Invalid subflow arguments",
+            ValidationDetail.list_from_pydantic(e),
+        ) from e
+
+
 def _resolve_subflow_batch(
     input: ResolveSubflowBatchActivityInput,
 ) -> ResolvedSubflowBatch:
@@ -931,17 +950,18 @@ def _evaluate_loop_iterations(
         runtime_configs is single DSLConfig if all identical, else list.
     """
     if not task.for_each:
-        raise ApplicationError(
-            "task.for_each is required for loop iterations",
-            non_retryable=True,
+        raise UserError("task.for_each is required for loop iterations")
+    try:
+        iterators = get_iterables_from_expression(
+            expr=task.for_each, operand=materialized
         )
-    iterators = get_iterables_from_expression(expr=task.for_each, operand=materialized)
+    except (TracecatExpressionError, ValueError) as e:
+        raise UserError(f"Error evaluating subflow for_each expression: {e}") from e
     all_items = list(zip(*iterators, strict=False))
 
     if len(all_items) > MAX_LOOP_ITERATIONS:
-        raise ApplicationError(
-            f"Loop exceeds max iterations: {len(all_items)} > {MAX_LOOP_ITERATIONS}",
-            non_retryable=True,
+        raise UserError(
+            f"Loop exceeds max iterations: {len(all_items)} > {MAX_LOOP_ITERATIONS}"
         )
 
     trigger_inputs_list: list[Any] = []
@@ -960,10 +980,7 @@ def _evaluate_loop_iterations(
             )
 
         # Evaluate the full task args with patched context
-        iter_evaluated_args = eval_templated_object(
-            dict(task.args), operand=patched_context
-        )
-        iter_val_args = ExecuteSubflowArgs.model_validate(iter_evaluated_args)
+        _, iter_val_args = _evaluate_subflow_args(task.args, patched_context)
 
         # Environment precedence: args.environment > dsl.config
         resolved_environment = iter_val_args.environment or dsl_config.environment
@@ -1004,10 +1021,9 @@ async def _prepare_subflow(input: PrepareSubflowActivityInput) -> PreparedSubflo
 
     # Evaluate task args to get workflow_id or workflow_alias
     # Run CPU-bound expression evaluation in thread to avoid blocking event loop
-    evaluated_args = await asyncio.to_thread(
-        eval_templated_object, task.args, operand=materialized
+    evaluated_args, val_args = await asyncio.to_thread(
+        _evaluate_subflow_args, task.args, materialized
     )
-    val_args = ExecuteSubflowArgs.model_validate(evaluated_args)
 
     # Resolve workflow ID
     wf_id: WorkflowUUID
@@ -1019,18 +1035,12 @@ async def _prepare_subflow(input: PrepareSubflowActivityInput) -> PreparedSubflo
                 use_committed=input.use_committed,
             )
             if resolved_id is None:
-                raise ApplicationError(
-                    f"Workflow alias '{workflow_alias}' not found",
-                    non_retryable=True,
-                )
+                raise UserError(f"Workflow alias '{workflow_alias}' not found")
             wf_id = WorkflowUUID.new(resolved_id)
     elif workflow_id := val_args.workflow_id:
         wf_id = WorkflowUUID.new(workflow_id)
     else:
-        raise ApplicationError(
-            "Either workflow_id or workflow_alias must be provided",
-            non_retryable=True,
-        )
+        raise UserError("Either workflow_id or workflow_alias must be provided")
 
     # Fetch workflow definition
     async with WorkflowDefinitionsService.with_session(role=input.role) as service:
@@ -1038,10 +1048,7 @@ async def _prepare_subflow(input: PrepareSubflowActivityInput) -> PreparedSubflo
             wf_id, version=evaluated_args.get("version")
         )
         if not defn:
-            raise ApplicationError(
-                f"Workflow definition not found for {wf_id.short()}",
-                non_retryable=True,
-            )
+            raise UserError(f"Workflow definition not found for {wf_id.short()}")
     dsl = DSLInput(**defn.content)
     registry_lock = (
         RegistryLock.model_validate(defn.registry_lock) if defn.registry_lock else None
@@ -1049,10 +1056,9 @@ async def _prepare_subflow(input: PrepareSubflowActivityInput) -> PreparedSubflo
 
     # For single subflows (no for_each), evaluate args and return
     if not task.for_each:
-        evaluated_args = await asyncio.to_thread(
-            eval_templated_object, dict(task.args), operand=materialized
+        evaluated_args, val_args = await asyncio.to_thread(
+            _evaluate_subflow_args, task.args, materialized
         )
-        val_args = ExecuteSubflowArgs.model_validate(evaluated_args)
 
         runtime_config = DSLConfig(
             environment=val_args.environment or dsl.config.environment,

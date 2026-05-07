@@ -113,6 +113,14 @@ class LoopRegion:
     members: frozenset[str]
 
 
+class PlatformExecutionError(Exception):
+    """Marks platform work that should fail the workflow, even inside a stream."""
+
+    def __init__(self, error: Exception) -> None:
+        super().__init__(str(error))
+        self.error = error
+
+
 class DSLScheduler:
     """Manage only scheduling and control flow of tasks in a topological-like order."""
 
@@ -395,7 +403,9 @@ class DSLScheduler:
     def __repr__(self) -> str:
         return to_json(self.__dict__, fallback=str, indent=2).decode()
 
-    async def _handle_error_path(self, task: Task, exc: Exception) -> None:
+    async def _handle_error_path(
+        self, task: Task, exc: Exception, *, fail_workflow: bool = False
+    ) -> None:
         ref = task.ref
 
         self.logger.info(
@@ -410,10 +420,17 @@ class DSLScheduler:
             for dst, edge_type in self.adj[ref]
             if edge_type != EdgeType.ERROR
         }
-        if len(non_err_edges) < len(self.adj[ref]):
+        if len(non_err_edges) < len(self.adj[ref]) and not fail_workflow:
             await self._queue_tasks(task, unreachable=non_err_edges)
         else:
-            self.logger.info("Task failed with no error paths", task=task)
+            if fail_workflow:
+                self.logger.warning(
+                    "Task failed with platform error, bypassing stream handling",
+                    task=task,
+                    error=exc,
+                )
+            else:
+                self.logger.info("Task failed with no error paths", task=task)
             # XXX: This can sometimes return null because the exception isn't an ApplicationError
             # But rather a ChildWorkflowError or CancelledError
             if isinstance(exc, ApplicationError) and exc.details:
@@ -528,10 +545,8 @@ class DSLScheduler:
                     type=exc.__class__.__name__,
                     stream_id=task.stream_id,
                 )
-            if task.stream_id == ROOT_STREAM:
-                self.logger.debug(
-                    "Setting task exception in root stream", task=task, details=details
-                )
+            if task.stream_id == ROOT_STREAM or fail_workflow:
+                self.logger.debug("Setting task exception", task=task, details=details)
                 self.task_exceptions[ref] = TaskExceptionInfo(
                     exception=exc, details=details
                 )
@@ -733,12 +748,17 @@ class DSLScheduler:
             # NOTE: Moved this here to handle single success path
             await self._handle_success_path(task)
         except Exception as e:
+            exc = e.error if isinstance(e, PlatformExecutionError) else e
+            fail_workflow = isinstance(e, PlatformExecutionError)
             kind = e.__class__.__name__
-            non_retryable = getattr(e, "non_retryable", True)
+            non_retryable = getattr(exc, "non_retryable", True)
             self.logger.warning(
-                f"{kind} in DSLScheduler", ref=ref, error=e, non_retryable=non_retryable
+                f"{kind} in DSLScheduler",
+                ref=ref,
+                error=exc,
+                non_retryable=non_retryable,
             )
-            await self._handle_error_path(task, e)
+            await self._handle_error_path(task, exc, fail_workflow=fail_workflow)
         finally:
             # 5) Regardless of the outcome, the task is now complete
             self.logger.debug("Task completed", task=task)
