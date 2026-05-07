@@ -30,6 +30,7 @@ from tracecat.dsl.workflow_logging import get_workflow_logger
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.registry.lock.types import RegistryLock
 from tracecat.storage.object import InlineObject
+from tracecat.temporal.exceptions import UserError
 from tracecat.tiers.schemas import EffectiveLimits
 from tracecat.workflow.executions.enums import ExecutionType
 
@@ -326,6 +327,74 @@ async def test_prepare_subflow_activity_failure_in_scatter_fails_workflow() -> N
     assert "call_child" in task_exceptions
     assert "prepare failed" in task_exceptions["call_child"].details.message
     assert executed_refs == []
+    assert not scheduler.stream_exceptions
+
+
+@pytest.mark.anyio
+async def test_prepare_subflow_user_error_in_scatter_uses_error_path() -> None:
+    workflow = _build_workflow()
+    dsl = DSLInput(
+        title="test",
+        description="test",
+        entrypoint=DSLEntrypoint(ref="scatter"),
+        actions=[
+            ActionStatement(
+                ref="scatter",
+                action=PlatformAction.TRANSFORM_SCATTER,
+                args={"collection": ["item"]},
+            ),
+            ActionStatement(
+                ref="call_child",
+                action=PlatformAction.CHILD_WORKFLOW_EXECUTE,
+                args={"workflow_alias": "child"},
+                depends_on=["scatter"],
+            ),
+            ActionStatement(
+                ref="handle_error",
+                action="core.noop",
+                depends_on=["call_child.error"],
+            ),
+        ],
+    )
+    scheduler = DSLScheduler(
+        executor=workflow.execute_task,
+        dsl=dsl,
+        max_pending_tasks=16,
+        context=ExecutionContext(ACTIONS={}, TRIGGER=None),
+        role=workflow.role,
+        run_context=workflow.run_context,
+    )
+    workflow.dsl = dsl
+    workflow.scheduler = scheduler
+    executed_refs: list[str] = []
+
+    async def execute_activity(activity: object, *_: Any, **__: Any) -> object:
+        if activity == DSLActivities.handle_scatter_input_activity:
+            return InlineObject(data=["item"], typename="list")
+        if activity == DSLActivities.prepare_subflow_activity:
+            raise _activity_error_from(UserError("Workflow alias 'child' not found"))
+        raise AssertionError(f"Unexpected activity: {activity}")
+
+    async def run_action(task: ActionStatement) -> InlineObject:
+        executed_refs.append(task.ref)
+        return InlineObject(data={"handled": True})
+
+    with (
+        patch(
+            "tracecat.dsl.scheduler.workflow.execute_activity",
+            new=AsyncMock(side_effect=execute_activity),
+        ),
+        patch(
+            "tracecat.dsl.workflow.workflow.execute_activity",
+            new=AsyncMock(side_effect=execute_activity),
+        ),
+        patch.object(workflow, "_run_action", new=AsyncMock(side_effect=run_action)),
+    ):
+        task_exceptions = await scheduler.start()
+
+    assert task_exceptions is None
+    assert executed_refs == ["handle_error"]
+    assert not scheduler.task_exceptions
     assert not scheduler.stream_exceptions
 
 

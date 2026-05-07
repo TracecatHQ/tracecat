@@ -122,6 +122,7 @@ with workflow.unsafe.imports_passed_through():
         return_key,
         trigger_key,
     )
+    from tracecat.temporal.exceptions import UserError
     from tracecat.tiers.activities import (
         AcquireActionPermitInput,
         AcquireWorkflowPermitInput,
@@ -895,6 +896,8 @@ class DSLWorkflow:
                         root_error, root_message = self._unwrap_temporal_failure_cause(
                             e
                         )
+                        if UserError.matches(root_error):
+                            raise
                         platform_error = (
                             root_error if isinstance(root_error, Exception) else e
                         )
