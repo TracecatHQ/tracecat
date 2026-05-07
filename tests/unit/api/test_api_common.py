@@ -1,7 +1,7 @@
 import json
 
 from fastapi import status
-from sqlalchemy.exc import DBAPIError, IntegrityError
+from sqlalchemy.exc import DBAPIError
 from starlette.requests import Request
 from starlette.responses import Response
 
@@ -25,26 +25,6 @@ def _json_response(response: Response) -> object:
     if isinstance(body, memoryview):
         body = body.tobytes()
     return json.loads(body)
-
-
-def test_generic_exception_handler_maps_duplicate_case_row_link() -> None:
-    exc = IntegrityError(
-        "INSERT INTO case_table_row ...",
-        {},
-        Exception(
-            'duplicate key value violates unique constraint "uq_case_table_row_link"'
-        ),
-    )
-
-    response = generic_exception_handler(_request("/internal/cases/case-id/rows"), exc)
-
-    assert response.status_code == status.HTTP_409_CONFLICT
-    assert _json_response(response) == {
-        "detail": {
-            "code": "CASE_ROW_ALREADY_LINKED",
-            "message": "This table row is already linked to the case.",
-        }
-    }
 
 
 def test_generic_exception_handler_maps_database_type_mismatch() -> None:

@@ -1,6 +1,7 @@
 import uuid
 
 from fastapi import APIRouter, HTTPException, Query
+from sqlalchemy.exc import IntegrityError
 from starlette.status import (
     HTTP_201_CREATED,
     HTTP_204_NO_CONTENT,
@@ -9,8 +10,10 @@ from starlette.status import (
 )
 
 from tracecat import config
+from tracecat.api.common import raise_known_database_http_exception
 from tracecat.auth.dependencies import ExecutorWorkspaceRole
 from tracecat.authz.controls import require_scope
+from tracecat.cases.rows.common import CASE_ROW_LINK_CONSTRAINT_ERRORS
 from tracecat.cases.rows.schemas import (
     CaseTableRowInsertCreate,
     CaseTableRowLinkCreate,
@@ -76,6 +79,12 @@ async def link_case_row(
         raise HTTPException(status_code=HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    except IntegrityError as exc:
+        await raise_known_database_http_exception(
+            session,
+            exc,
+            constraint_errors=CASE_ROW_LINK_CONSTRAINT_ERRORS,
+        )
 
 
 @router.post("/{case_id}/rows/insert", status_code=HTTP_201_CREATED)

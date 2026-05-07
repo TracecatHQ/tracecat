@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from fastapi import HTTPException, status
 from fastapi.testclient import TestClient
+from sqlalchemy.exc import IntegrityError
 
 from tracecat.auth.types import Role
 from tracecat.cases import router as cases_router
@@ -32,6 +33,16 @@ def _build_case_read(case_id: uuid.UUID) -> CaseReadMinimal:
         dropdown_values=[],
         num_tasks_completed=0,
         num_tasks_total=0,
+    )
+
+
+def _duplicate_case_row_link_error() -> IntegrityError:
+    return IntegrityError(
+        "INSERT INTO case_table_row ...",
+        {},
+        Exception(
+            'duplicate key value violates unique constraint "uq_case_table_row_link"'
+        ),
     )
 
 
@@ -100,6 +111,36 @@ async def test_link_case_row_returns_400_for_value_error(
 
 
 @pytest.mark.anyio
+async def test_link_case_row_returns_409_for_duplicate_link(
+    test_admin_role: Role,
+) -> None:
+    case_id = uuid.uuid4()
+    table_id = uuid.uuid4()
+    row_id = uuid.uuid4()
+    session = AsyncMock()
+    with patch.object(case_rows_router, "CaseTableRowsService") as mock_service_cls:
+        mock_service = AsyncMock()
+        mock_service.get_case_or_raise.return_value = MagicMock()
+        mock_service.link_row.side_effect = _duplicate_case_row_link_error()
+        mock_service_cls.return_value = mock_service
+
+        with pytest.raises(HTTPException) as exc_info:
+            await case_rows_router.link_case_row(
+                role=test_admin_role,
+                session=session,
+                case_id=case_id,
+                params=CaseTableRowLinkCreate(table_id=table_id, row_id=row_id),
+            )
+
+    assert exc_info.value.status_code == status.HTTP_409_CONFLICT
+    assert exc_info.value.detail == {
+        "code": "CASE_ROW_ALREADY_LINKED",
+        "message": "This table row is already linked to the case.",
+    }
+    session.rollback.assert_awaited_once()
+
+
+@pytest.mark.anyio
 async def test_internal_link_case_row_returns_404_for_missing_case(
     client: TestClient, test_admin_role: Role
 ) -> None:
@@ -150,3 +191,31 @@ async def test_internal_link_case_row_returns_400_for_value_error(
 
     assert response.status_code == status.HTTP_400_BAD_REQUEST
     assert response.json()["detail"] == "A case can link rows from at most 10 tables"
+
+
+@pytest.mark.anyio
+async def test_internal_link_case_row_returns_409_for_duplicate_link(
+    client: TestClient, test_admin_role: Role
+) -> None:
+    case_id = uuid.uuid4()
+    table_id = uuid.uuid4()
+    row_id = uuid.uuid4()
+    with patch.object(
+        internal_case_rows_router, "CaseTableRowsService"
+    ) as mock_service_cls:
+        mock_service = AsyncMock()
+        mock_service.get_case_or_raise.return_value = MagicMock()
+        mock_service.link_row.side_effect = _duplicate_case_row_link_error()
+        mock_service_cls.return_value = mock_service
+
+        response = client.post(
+            f"/internal/cases/{case_id}/rows",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
+            json={"table_id": str(table_id), "row_id": str(row_id)},
+        )
+
+    assert response.status_code == status.HTTP_409_CONFLICT
+    assert response.json()["detail"] == {
+        "code": "CASE_ROW_ALREADY_LINKED",
+        "message": "This table row is already linked to the case.",
+    }

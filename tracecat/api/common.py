@@ -1,3 +1,7 @@
+from collections.abc import Mapping
+from dataclasses import dataclass
+from typing import NoReturn
+
 from fastapi import HTTPException, Request, Response, status
 from fastapi.exception_handlers import http_exception_handler as default_http_handler
 from fastapi.responses import ORJSONResponse
@@ -27,6 +31,22 @@ from tracecat.logger import logger
 from tracecat.workflow.executions.enums import TemporalSearchAttr
 
 
+@dataclass(frozen=True)
+class KnownDatabaseError:
+    status_code: int
+    code: str
+    message: str
+
+
+_GENERIC_DATABASE_MESSAGE_ERRORS = {
+    "expected str, got list": KnownDatabaseError(
+        status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+        code="DATABASE_VALUE_TYPE_MISMATCH",
+        message="A field received a value with an incompatible type.",
+    )
+}
+
+
 def _exception_text(exc: Exception) -> str:
     orig = getattr(exc, "orig", None)
     if orig is None:
@@ -34,33 +54,72 @@ def _exception_text(exc: Exception) -> str:
     return f"{exc} {orig}"
 
 
+def known_database_error(
+    exc: Exception,
+    *,
+    constraint_errors: Mapping[str, KnownDatabaseError] | None = None,
+    message_errors: Mapping[str, KnownDatabaseError] | None = None,
+) -> KnownDatabaseError | None:
+    text = _exception_text(exc)
+    if isinstance(exc, IntegrityError) and constraint_errors is not None:
+        for constraint, error in constraint_errors.items():
+            if constraint in text:
+                return error
+    if isinstance(exc, DBAPIError) and message_errors is not None:
+        for message, error in message_errors.items():
+            if message in text:
+                return error
+    return None
+
+
+def known_database_http_exception(
+    exc: Exception,
+    *,
+    constraint_errors: Mapping[str, KnownDatabaseError] | None = None,
+    message_errors: Mapping[str, KnownDatabaseError] | None = None,
+) -> HTTPException | None:
+    error = known_database_error(
+        exc, constraint_errors=constraint_errors, message_errors=message_errors
+    )
+    if error is None:
+        return None
+    return HTTPException(
+        status_code=error.status_code,
+        detail={"code": error.code, "message": error.message},
+    )
+
+
+async def raise_known_database_http_exception(
+    session: AsyncSession,
+    exc: Exception,
+    *,
+    constraint_errors: Mapping[str, KnownDatabaseError] | None = None,
+    message_errors: Mapping[str, KnownDatabaseError] | None = None,
+) -> NoReturn:
+    await session.rollback()
+    if http_exc := known_database_http_exception(
+        exc, constraint_errors=constraint_errors, message_errors=message_errors
+    ):
+        raise http_exc from exc
+    raise exc
+
+
 def _known_database_error_response(request: Request, exc: Exception) -> Response | None:
-    if isinstance(exc, IntegrityError) and "uq_case_table_row_link" in _exception_text(
-        exc
-    ):
-        code = "CASE_ROW_ALREADY_LINKED"
-        message = "This table row is already linked to the case."
-        status_code = status.HTTP_409_CONFLICT
-    elif isinstance(exc, DBAPIError) and "expected str, got list" in _exception_text(
-        exc
-    ):
-        code = "DATABASE_VALUE_TYPE_MISMATCH"
-        message = "A field received a value with an incompatible type."
-        status_code = status.HTTP_422_UNPROCESSABLE_CONTENT
-    else:
+    error = known_database_error(exc, message_errors=_GENERIC_DATABASE_MESSAGE_ERRORS)
+    if error is None:
         return None
 
     logger.warning(
         "Known database error",
-        code=code,
-        status_code=status_code,
+        code=error.code,
+        status_code=error.status_code,
         role=ctx_role.get(),
         params=request.query_params,
         path=request.url.path,
     )
     return ORJSONResponse(
-        status_code=status_code,
-        content={"detail": {"code": code, "message": message}},
+        status_code=error.status_code,
+        content={"detail": {"code": error.code, "message": error.message}},
     )
 
 
