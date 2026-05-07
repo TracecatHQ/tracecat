@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from collections import defaultdict
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, replace
 from datetime import timedelta
 from typing import Any
@@ -395,6 +395,30 @@ class DSLScheduler:
     def __repr__(self) -> str:
         return to_json(self.__dict__, fallback=str, indent=2).decode()
 
+    @staticmethod
+    def _is_action_error_info_payload(payload: Any) -> bool:
+        if isinstance(payload, ActionErrorInfo):
+            return True
+        try:
+            ActionErrorInfoAdapter.validate_python(payload)
+            return True
+        except Exception:
+            pass
+
+        if isinstance(payload, Mapping):
+            return any(
+                DSLScheduler._is_action_error_info_payload(value)
+                for value in payload.values()
+            )
+        return False
+
+    @classmethod
+    def _can_follow_user_error_handling(cls, exc: Exception) -> bool:
+        """Return whether an error is safe for error edges or gather strategy."""
+        if not isinstance(exc, ApplicationError) or not exc.details:
+            return False
+        return cls._is_action_error_info_payload(exc.details[0])
+
     async def _handle_error_path(self, task: Task, exc: Exception) -> None:
         ref = task.ref
 
@@ -410,10 +434,18 @@ class DSLScheduler:
             for dst, edge_type in self.adj[ref]
             if edge_type != EdgeType.ERROR
         }
-        if len(non_err_edges) < len(self.adj[ref]):
+        follows_user_error_handling = self._can_follow_user_error_handling(exc)
+        if len(non_err_edges) < len(self.adj[ref]) and follows_user_error_handling:
             await self._queue_tasks(task, unreachable=non_err_edges)
         else:
-            self.logger.info("Task failed with no error paths", task=task)
+            if follows_user_error_handling:
+                self.logger.info("Task failed with no error paths", task=task)
+            else:
+                self.logger.warning(
+                    "Task failed with platform error, bypassing user error handling",
+                    task=task,
+                    error=exc,
+                )
             # XXX: This can sometimes return null because the exception isn't an ApplicationError
             # But rather a ChildWorkflowError or CancelledError
             if isinstance(exc, ApplicationError) and exc.details:
@@ -509,7 +541,7 @@ class DSLScheduler:
                         )
             else:
                 self.logger.info(
-                    "Task failed with non-application error",
+                    "Task failed without structured application error details",
                     ref=ref,
                     exc=exc,
                 )
@@ -528,9 +560,12 @@ class DSLScheduler:
                     type=exc.__class__.__name__,
                     stream_id=task.stream_id,
                 )
-            if task.stream_id == ROOT_STREAM:
+            if task.stream_id == ROOT_STREAM or not follows_user_error_handling:
                 self.logger.debug(
-                    "Setting task exception in root stream", task=task, details=details
+                    "Setting task exception",
+                    task=task,
+                    details=details,
+                    follows_user_error_handling=follows_user_error_handling,
                 )
                 self.task_exceptions[ref] = TaskExceptionInfo(
                     exception=exc, details=details
