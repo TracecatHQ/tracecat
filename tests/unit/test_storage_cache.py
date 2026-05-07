@@ -184,6 +184,22 @@ class TestSizedMemoryCache:
         assert await cache.get("too_big") is None
 
     @pytest.mark.anyio
+    async def test_non_positive_ttl_disables_expiry(
+        self, monkeypatch: pytest.MonkeyPatch
+    ):
+        """Test that non-positive TTL preserves existing no-expiry behavior."""
+        now = 100.0
+        monkeypatch.setattr("tracecat.storage.utils.time.monotonic", lambda: now)
+        cache = SizedMemoryCache(max_bytes=1024, ttl=0.0)
+
+        await cache.set("key1", b"hello")
+
+        now = 10_000.0
+        assert await cache.get("key1") == b"hello"
+        assert cache.total_bytes == 5
+        assert cache.item_count == 1
+
+    @pytest.mark.anyio
     async def test_concurrent_access(self):
         """Test that concurrent access is safe."""
         cache = SizedMemoryCache(max_bytes=10000, ttl=300.0)

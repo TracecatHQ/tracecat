@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import hashlib
+import math
 import threading
 import time
-from collections import OrderedDict
 from typing import TYPE_CHECKING, Any
 
 import orjson
+from cachetools import TTLCache
 
 from tracecat.logger import logger
 from tracecat.storage import blob
@@ -26,50 +27,27 @@ class SizedMemoryCache:
     """Thread-safe byte-aware memory cache with TTL and LRU eviction."""
 
     def __init__(self, max_bytes: int, ttl: float = 300.0):
-        self._cache: dict[str, tuple[bytes, float | None]] = {}
-        self._sizes: OrderedDict[str, int] = OrderedDict()
-        self._total_bytes = 0
+        self._cache: TTLCache[str, bytes] = TTLCache(
+            maxsize=max_bytes,
+            ttl=ttl if ttl > 0 else math.inf,
+            timer=time.monotonic,
+            getsizeof=len,
+        )
         self._max_bytes = max_bytes
-        self._ttl = ttl
         # Temporal can execute async activities on multiple event loops in a
-        # thread pool. asyncio locks are bound to one loop under contention.
+        # thread pool. asyncio locks are bound to one loop under contention, and
+        # cachetools caches are not thread-safe without external synchronization.
         self._lock = threading.RLock()
 
-    def _delete_locked(self, key: str) -> None:
-        self._cache.pop(key, None)
-        if key in self._sizes:
-            self._total_bytes -= self._sizes.pop(key)
-
-    def _purge_expired_locked(self, now: float) -> None:
-        expired_keys = [
-            key
-            for key, (_, expires_at) in self._cache.items()
-            if expires_at is not None and expires_at <= now
-        ]
-        for key in expired_keys:
-            self._delete_locked(key)
-
     async def get(self, key: str) -> bytes | None:
-        now = time.monotonic()
         with self._lock:
-            cached = self._cache.get(key)
-            if cached is None:
-                return None
-
-            value, expires_at = cached
-            if expires_at is not None and expires_at <= now:
-                self._delete_locked(key)
-                return None
-
-            self._sizes.move_to_end(key)
-            return value
+            self._cache.expire()
+            return self._cache.get(key)
 
     async def set(self, key: str, value: bytes) -> None:
-        now = time.monotonic()
         size = len(value)
-        expires_at = now + self._ttl if self._ttl > 0 else None
         with self._lock:
-            self._purge_expired_locked(now)
+            self._cache.expire()
             if size > self._max_bytes:
                 logger.debug(
                     "Cache entry too large to store",
@@ -79,28 +57,17 @@ class SizedMemoryCache:
                 )
                 return
 
-            # Remove old entry if exists
-            self._delete_locked(key)
-
-            # Evict LRU items until we have room
-            while self._total_bytes + size > self._max_bytes and self._sizes:
-                oldest_key, oldest_size = self._sizes.popitem(last=False)
-                self._total_bytes -= oldest_size
-                self._cache.pop(oldest_key, None)
-
-            self._cache[key] = (value, expires_at)
-            self._sizes[key] = size
-            self._total_bytes += size
+            self._cache[key] = value
 
     @property
     def total_bytes(self) -> int:
         with self._lock:
-            return self._total_bytes
+            return int(self._cache.currsize)
 
     @property
     def item_count(self) -> int:
         with self._lock:
-            return len(self._sizes)
+            return len(self._cache)
 
 
 # Module-level cache for blob downloads and S3 Select results
