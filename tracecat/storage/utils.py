@@ -57,7 +57,15 @@ class SizedMemoryCache:
                 )
                 return
 
-            self._cache[key] = value
+            try:
+                self._cache[key] = value
+            except ValueError:
+                logger.debug(
+                    "Cache entry too large to store",
+                    key=key,
+                    size_bytes=size,
+                    max_bytes=self._max_bytes,
+                )
 
     @property
     def total_bytes(self) -> int:
