@@ -15,6 +15,8 @@ interface CodeEditorProps {
   language?: string
   readOnly?: boolean
   wrapLongLines?: boolean
+  placeholder?: string
+  extensions?: Extension[]
   className?: string
 }
 
@@ -38,12 +40,15 @@ export function CodeEditor({
   language = "python",
   readOnly = false,
   wrapLongLines = false,
+  placeholder,
+  extensions: customExtensions = [],
   className,
 }: CodeEditorProps) {
   const languageExtension = getLanguageExtension(language)
   const extensions = [
     ...(languageExtension ? [languageExtension] : []),
     ...(wrapLongLines ? [EditorView.lineWrapping] : []),
+    ...customExtensions,
   ]
 
   return (
@@ -52,6 +57,7 @@ export function CodeEditor({
       onChange={onChange}
       extensions={extensions}
       readOnly={readOnly}
+      placeholder={placeholder}
       className={cn(
         // Ensure the editor and all its tooltips/autocomplete popups are fully rounded and do not stick out
         "max-w-full min-w-0 rounded-md text-xs focus-visible:outline-none",

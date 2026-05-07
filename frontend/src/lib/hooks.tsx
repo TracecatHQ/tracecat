@@ -17,6 +17,7 @@ import {
   type AgentGetProviderCredentialConfigResponse,
   type AgentGetProvidersStatusResponse,
   type AgentModelAccessRead,
+  type AgentOtelSettingsRead,
   type AgentSessionsListSessionsData,
   type AgentSessionsListSessionsResponse,
   type AgentSettingsRead,
@@ -223,6 +224,7 @@ import {
   type SecretReadMinimal,
   type SecretUpdate,
   type SessionRead,
+  type SettingsUpdateAgentOtelSettingsData,
   type SettingsUpdateAgentSettingsData,
   type SettingsUpdateAppSettingsData,
   type SettingsUpdateAuditSettingsData,
@@ -238,11 +240,13 @@ import {
   secretsListSecretDefinitions,
   secretsListSecrets,
   secretsUpdateSecretById,
+  settingsGetAgentOtelSettings,
   settingsGetAgentSettings,
   settingsGetAppSettings,
   settingsGetAuditSettings,
   settingsGetGitSettings,
   settingsGetSamlSettings,
+  settingsUpdateAgentOtelSettings,
   settingsUpdateAgentSettings,
   settingsUpdateAppSettings,
   settingsUpdateAuditSettings,
@@ -2729,6 +2733,59 @@ export function useOrgAgentSettings() {
     updateAgentSettings,
     updateAgentSettingsIsPending,
     updateAgentSettingsError,
+  }
+}
+
+export function useOrgAgentOtelSettings() {
+  const queryClient = useQueryClient()
+  const {
+    data: agentOtelSettings,
+    isLoading: agentOtelSettingsIsLoading,
+    error: agentOtelSettingsError,
+  } = useQuery<AgentOtelSettingsRead>({
+    queryKey: ["org-agent-otel-settings"],
+    queryFn: async () => await settingsGetAgentOtelSettings(),
+  })
+
+  const {
+    mutateAsync: updateAgentOtelSettings,
+    isPending: updateAgentOtelSettingsIsPending,
+    error: updateAgentOtelSettingsError,
+  } = useMutation({
+    mutationFn: async (params: SettingsUpdateAgentOtelSettingsData) =>
+      await settingsUpdateAgentOtelSettings(params),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["org-agent-otel-settings"] })
+      toast({
+        title: "Updated agent telemetry",
+        description: "Agent OTel settings updated successfully.",
+      })
+    },
+    onError: (error: TracecatApiError) => {
+      switch (error.status) {
+        case 403:
+          toast({
+            title: "Forbidden",
+            description: "You cannot perform this action",
+          })
+          break
+        default:
+          console.error("Failed to update agent OTel settings", error)
+          toast({
+            title: "Failed to update agent telemetry",
+            description: `An error occurred while updating agent OTel settings: ${error.body.detail}`,
+          })
+      }
+    },
+  })
+
+  return {
+    agentOtelSettings,
+    agentOtelSettingsIsLoading,
+    agentOtelSettingsError,
+    updateAgentOtelSettings,
+    updateAgentOtelSettingsIsPending,
+    updateAgentOtelSettingsError,
   }
 }
 
