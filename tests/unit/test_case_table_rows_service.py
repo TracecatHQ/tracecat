@@ -9,6 +9,7 @@ from tracecat.auth.types import Role
 from tracecat.cases.enums import CasePriority, CaseSeverity, CaseStatus
 from tracecat.cases.rows.schemas import CaseTableRowLinkCreate
 from tracecat.cases.rows.service import (
+    MAX_LINKED_ROWS_PER_CASE,
     MAX_TABLES_PER_CASE,
     CaseTableRowsService,
 )
@@ -156,6 +157,67 @@ async def test_link_row_returns_existing_link_for_duplicate(
     )
     assert second_link.id == first_link.id
     assert count == 1
+
+
+@pytest.mark.anyio
+async def test_link_row_returns_existing_link_when_limit_reached_after_initial_miss(
+    monkeypatch: pytest.MonkeyPatch,
+    session: AsyncSession,
+    cases_service: CasesService,
+    case_rows_service: CaseTableRowsService,
+    tables_service: TablesService,
+) -> None:
+    case = await _create_case(cases_service)
+    table_id, row_id = await _create_table_with_row(
+        tables_service,
+        name=f"case_rows_race_duplicate_{uuid.uuid4().hex[:8]}",
+        value="seed",
+    )
+
+    existing_link = CaseTableRow(
+        workspace_id=case_rows_service.workspace_id,
+        case_id=case.id,
+        table_id=table_id,
+        row_id=row_id,
+    )
+    filler_links = [
+        CaseTableRow(
+            workspace_id=case_rows_service.workspace_id,
+            case_id=case.id,
+            table_id=table_id,
+            row_id=uuid.uuid4(),
+        )
+        for _ in range(MAX_LINKED_ROWS_PER_CASE - 1)
+    ]
+    session.add_all([existing_link, *filler_links])
+    await session.commit()
+    await session.refresh(existing_link)
+
+    original_get_existing_link = case_rows_service._get_existing_link
+    calls = 0
+
+    async def miss_initial_lookup(
+        *, case_id: uuid.UUID, table_id: uuid.UUID, row_id: uuid.UUID
+    ) -> CaseTableRow | None:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            return None
+        return await original_get_existing_link(
+            case_id=case_id,
+            table_id=table_id,
+            row_id=row_id,
+        )
+
+    monkeypatch.setattr(case_rows_service, "_get_existing_link", miss_initial_lookup)
+
+    link = await case_rows_service.link_row(
+        case=case,
+        params=CaseTableRowLinkCreate(table_id=table_id, row_id=row_id),
+    )
+
+    assert link.id == existing_link.id
+    assert calls == 2
 
 
 @pytest.mark.anyio

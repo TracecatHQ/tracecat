@@ -176,6 +176,13 @@ class CaseTableRowsService(BaseWorkspaceService):
         )
         total_links = int((await self.session.scalar(total_links_stmt)) or 0)
         if total_links >= MAX_LINKED_ROWS_PER_CASE:
+            existing = await self._get_existing_link(
+                case_id=case.id,
+                table_id=table.id,
+                row_id=params.row_id,
+            )
+            if existing is not None:
+                return existing
             raise ValueError(
                 f"A case can have at most {MAX_LINKED_ROWS_PER_CASE} linked rows"
             )
@@ -199,6 +206,13 @@ class CaseTableRowsService(BaseWorkspaceService):
                 (await self.session.scalar(distinct_tables_stmt)) or 0
             )
             if distinct_tables >= MAX_TABLES_PER_CASE:
+                existing = await self._get_existing_link(
+                    case_id=case.id,
+                    table_id=table.id,
+                    row_id=params.row_id,
+                )
+                if existing is not None:
+                    return existing
                 raise ValueError(
                     f"A case can link rows from at most {MAX_TABLES_PER_CASE} tables"
                 )
