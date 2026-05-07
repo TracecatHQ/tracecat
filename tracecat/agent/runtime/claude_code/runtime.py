@@ -1203,6 +1203,10 @@ class ClaudeAgentRuntime:
             subagent.config.passthrough for subagent in payload.subagents
         ):
             env["CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS"] = "1"
+        # Sandbox-safe Claude OTel env (no headers, no tenant endpoint — the
+        # shim points the SDK at its OtelBridge).
+        if payload.agent_otel_sandbox_env:
+            env.update(payload.agent_otel_sandbox_env)
         return env
 
     def _build_options(

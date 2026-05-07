@@ -48,6 +48,12 @@ from tracecat.agent.executor.loopback import (
 )
 from tracecat.agent.filesystem import hydrate_agent_work_dir, persist_agent_work_dir
 from tracecat.agent.llm_routing import get_litellm_route_model
+from tracecat.agent.otel_config import (
+    ResolvedAgentOtelConfig,
+    load_agent_otel_platform_override,
+    load_org_agent_otel_inputs,
+    resolve_agent_otel_config,
+)
 from tracecat.agent.preset.service import AgentPresetService
 from tracecat.agent.runtime.claude_code.broker import (
     ClaudeRuntimeBroker,
@@ -62,6 +68,7 @@ from tracecat.agent.sandbox.llm_proxy import (
     LLMRoutingPlan,
     LLMSocketProxy,
 )
+from tracecat.agent.sandbox.otel_relay import OTEL_SOCKET_NAME, OtelSocketRelay
 from tracecat.agent.session.service import AgentSessionService
 from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.agent.skill.service import SkillService
@@ -236,6 +243,7 @@ class SandboxedAgentExecutor:
     # Internal state
     _job_dir: Path | None = field(default=None, init=False, repr=False)
     _llm_proxy: LLMSocketProxy | None = field(default=None, init=False, repr=False)
+    _otel_relay: OtelSocketRelay | None = field(default=None, init=False, repr=False)
     _fatal_error: str | None = field(default=None, init=False, repr=False)
     _fatal_error_event: asyncio.Event = field(
         default_factory=asyncio.Event, init=False, repr=False
@@ -383,6 +391,43 @@ class SandboxedAgentExecutor:
             upstream_model_name=upstream_model_name,
         )
 
+    async def _resolve_agent_otel_config(self) -> ResolvedAgentOtelConfig:
+        """Resolve org + platform OTel inputs into a runtime config.
+
+        Header decryption and platform override loading happen here, inside
+        the activity, so secrets never round-trip through the workflow payload.
+        Errors are non-fatal: telemetry is best-effort and must not block agent
+        execution.
+        """
+        try:
+            org_config, org_headers = await load_org_agent_otel_inputs(
+                role=self.input.role
+            )
+            platform_override = load_agent_otel_platform_override()
+            return resolve_agent_otel_config(
+                org_config=org_config,
+                org_headers=org_headers,
+                platform_override=platform_override,
+                # Sentinel; the shim overwrites with its bridge URL. The
+                # resolver uses any non-None value to strip per-signal
+                # endpoints/protocols from sandbox_env.
+                relay_endpoint="http://127.0.0.1",
+            )
+        except Exception as exc:
+            logger.warning(
+                "Failed to resolve Agent OTel config; running without telemetry",
+                error_type=type(exc).__name__,
+                error=str(exc),
+            )
+            return ResolvedAgentOtelConfig(enabled=False)
+
+    @staticmethod
+    def _build_sandbox_env(resolved: ResolvedAgentOtelConfig) -> dict[str, str]:
+        """Strip the placeholder endpoint; the shim sets the real bridge URL."""
+        sandbox_env = dict(resolved.sandbox_env)
+        sandbox_env.pop("OTEL_EXPORTER_OTLP_ENDPOINT", None)
+        return sandbox_env
+
     def _build_runtime_init_payload(self) -> RuntimeInitPayload:
         """Build the runtime init payload for this execution."""
         return RuntimeInitPayload(
@@ -422,6 +467,22 @@ class SandboxedAgentExecutor:
                 socket_dir=str(socket_dir),
             )
 
+            # Resolve Agent OTel config inside the activity (org settings + headers
+            # decryption stay trusted-side, never cross Temporal payload boundary).
+            otel_socket_path: Path | None = None
+            resolved_otel = await self._resolve_agent_otel_config()
+            if resolved_otel.enabled:
+                init_payload.agent_otel_sandbox_env = self._build_sandbox_env(
+                    resolved_otel
+                )
+                otel_socket_path = socket_dir / OTEL_SOCKET_NAME
+                self._otel_relay = OtelSocketRelay(
+                    socket_path=otel_socket_path,
+                    collector_env=resolved_otel.collector_env,
+                    headers=resolved_otel.headers,
+                    timeout_seconds=resolved_otel.relay_timeout_seconds,
+                )
+
             # Create loopback handler
             loopback_input = LoopbackInput(
                 session_id=self.input.session_id,
@@ -442,6 +503,7 @@ class SandboxedAgentExecutor:
                 socket_dir=socket_dir,
                 llm_socket_path=llm_socket_path,
                 artifact_working_set=artifact_working_set,
+                otel_socket_path=otel_socket_path,
             )
 
         except AgentSandboxExecutionError as e:
@@ -535,6 +597,7 @@ class SandboxedAgentExecutor:
         socket_dir: Path,
         llm_socket_path: Path,
         artifact_working_set: ArtifactWorkingSetInput | None,
+        otel_socket_path: Path | None,
     ) -> None:
         """Execute the Claude turn through the worker-global warm broker."""
         if self._job_dir is None:
@@ -551,6 +614,10 @@ class SandboxedAgentExecutor:
         )
         self._log_benchmark_phase("broker_llm_proxy_ready")
 
+        if self._otel_relay is not None:
+            await self._otel_relay.start()
+            self._log_benchmark_phase("broker_otel_relay_ready")
+
         request = ClaudeTurnRequest(
             init_payload=init_payload,
             job_dir=self._job_dir,
@@ -562,6 +629,7 @@ class SandboxedAgentExecutor:
             hydrate_work_dir=self._hydrate_agent_filesystem
             if _agent_fs_persistence_enabled()
             else None,
+            otel_socket_path=otel_socket_path,
         )
 
         async def wait_fatal_error() -> str:
@@ -987,6 +1055,14 @@ class SandboxedAgentExecutor:
             except Exception as e:
                 logger.warning("Failed to stop LLM proxy", error=str(e))
             self._llm_proxy = None
+
+        # Stop Agent OTel relay
+        if self._otel_relay:
+            try:
+                await self._otel_relay.stop()
+            except Exception as e:
+                logger.warning("Failed to stop OTel relay", error=str(e))
+            self._otel_relay = None
 
         # Clean up job directory
         if self._job_dir and self._job_dir.exists():
