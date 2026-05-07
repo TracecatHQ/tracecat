@@ -1,13 +1,8 @@
-from collections.abc import Mapping
-from dataclasses import dataclass
-from typing import NoReturn
-
 from fastapi import HTTPException, Request, Response, status
 from fastapi.exception_handlers import http_exception_handler as default_http_handler
 from fastapi.responses import ORJSONResponse
 from fastapi.routing import APIRoute
 from sqlalchemy import select
-from sqlalchemy.exc import DBAPIError, IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from temporalio.api.enums.v1 import IndexedValueType
 from temporalio.api.operatorservice.v1 import (
@@ -31,102 +26,7 @@ from tracecat.logger import logger
 from tracecat.workflow.executions.enums import TemporalSearchAttr
 
 
-@dataclass(frozen=True)
-class KnownDatabaseError:
-    status_code: int
-    code: str
-    message: str
-
-
-_GENERIC_DATABASE_MESSAGE_ERRORS = {
-    "expected str, got list": KnownDatabaseError(
-        status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-        code="DATABASE_VALUE_TYPE_MISMATCH",
-        message="A field received a value with an incompatible type.",
-    )
-}
-
-
-def _exception_text(exc: Exception) -> str:
-    orig = getattr(exc, "orig", None)
-    if orig is None:
-        return str(exc)
-    return f"{exc} {orig}"
-
-
-def known_database_error(
-    exc: Exception,
-    *,
-    constraint_errors: Mapping[str, KnownDatabaseError] | None = None,
-    message_errors: Mapping[str, KnownDatabaseError] | None = None,
-) -> KnownDatabaseError | None:
-    text = _exception_text(exc)
-    if isinstance(exc, IntegrityError) and constraint_errors is not None:
-        for constraint, error in constraint_errors.items():
-            if constraint in text:
-                return error
-    if isinstance(exc, DBAPIError) and message_errors is not None:
-        for message, error in message_errors.items():
-            if message in text:
-                return error
-    return None
-
-
-def known_database_http_exception(
-    exc: Exception,
-    *,
-    constraint_errors: Mapping[str, KnownDatabaseError] | None = None,
-    message_errors: Mapping[str, KnownDatabaseError] | None = None,
-) -> HTTPException | None:
-    error = known_database_error(
-        exc, constraint_errors=constraint_errors, message_errors=message_errors
-    )
-    if error is None:
-        return None
-    return HTTPException(
-        status_code=error.status_code,
-        detail={"code": error.code, "message": error.message},
-    )
-
-
-async def raise_known_database_http_exception(
-    session: AsyncSession,
-    exc: Exception,
-    *,
-    constraint_errors: Mapping[str, KnownDatabaseError] | None = None,
-    message_errors: Mapping[str, KnownDatabaseError] | None = None,
-) -> NoReturn:
-    await session.rollback()
-    if http_exc := known_database_http_exception(
-        exc, constraint_errors=constraint_errors, message_errors=message_errors
-    ):
-        raise http_exc from exc
-    raise exc
-
-
-def _known_database_error_response(request: Request, exc: Exception) -> Response | None:
-    error = known_database_error(exc, message_errors=_GENERIC_DATABASE_MESSAGE_ERRORS)
-    if error is None:
-        return None
-
-    logger.warning(
-        "Known database error",
-        code=error.code,
-        status_code=error.status_code,
-        role=ctx_role.get(),
-        params=request.query_params,
-        path=request.url.path,
-    )
-    return ORJSONResponse(
-        status_code=error.status_code,
-        content={"detail": {"code": error.code, "message": error.message}},
-    )
-
-
 def generic_exception_handler(request: Request, exc: Exception) -> Response:
-    if response := _known_database_error_response(request, exc):
-        return response
-
     logger.error(
         "Unexpected error",
         exc=exc,
