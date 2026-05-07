@@ -232,6 +232,22 @@ class AgentOtelSettingsUpdate(BaseSettingsGroup):
         ),
     )
 
+    @field_validator("agent_otel_headers", mode="before")
+    @classmethod
+    def validate_agent_otel_headers(cls, value: Any) -> Any:
+        if value is None or not isinstance(value, dict):
+            return value
+
+        for key, header_value in value.items():
+            if not isinstance(key, str) or not key.strip():
+                raise ValueError("OTel header names must be non-empty strings")
+            if not isinstance(header_value, str) or not header_value:
+                raise ValueError(
+                    f"OTel header {key} must have a non-empty string value"
+                )
+
+        return value
+
 
 class ValueType(StrEnum):
     # This is the default type
