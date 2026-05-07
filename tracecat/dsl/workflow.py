@@ -52,7 +52,6 @@ with workflow.unsafe.imports_passed_through():
         ctx_stream_id,
     )
     from tracecat.dsl.action import (
-        PLATFORM_EXECUTION_ERROR_TYPE,
         BuildAgentArgsActivityInput,
         BuildPresetAgentArgsActivityInput,
         DSLActivities,
@@ -191,15 +190,6 @@ def _build_agent_child_search_attributes(
         ) from e
     alias = build_agent_alias(parent_wf_id, action_ref)
     return _inherit_search_attributes_with_alias(info.typed_search_attributes, alias)
-
-
-def _is_subflow_prepare_platform_error(error: BaseException) -> bool:
-    if not isinstance(error, ApplicationError):
-        return True
-    return (
-        error.type == PLATFORM_EXECUTION_ERROR_TYPE
-        or error.type == RuntimeError.__name__
-    )
 
 
 @workflow.defn
@@ -905,8 +895,6 @@ class DSLWorkflow:
                         root_error, root_message = self._unwrap_temporal_failure_cause(
                             e
                         )
-                        if not _is_subflow_prepare_platform_error(root_error):
-                            raise
                         platform_error = (
                             root_error if isinstance(root_error, Exception) else e
                         )

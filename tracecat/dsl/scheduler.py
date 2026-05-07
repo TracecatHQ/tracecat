@@ -11,7 +11,7 @@ from temporalio import workflow
 from temporalio.exceptions import ActivityError
 
 from tracecat.auth.types import Role
-from tracecat.dsl.action import PLATFORM_EXECUTION_ERROR_TYPE, ScatterActionInput
+from tracecat.dsl.action import ScatterActionInput
 
 with workflow.unsafe.imports_passed_through():
     from pydantic_core import to_json
@@ -114,26 +114,11 @@ class LoopRegion:
 
 
 class PlatformExecutionError(Exception):
-    """Marks a narrow executor-side platform failure that should fail the workflow."""
+    """Marks platform work that should fail the workflow, even inside a stream."""
 
     def __init__(self, error: Exception) -> None:
         super().__init__(str(error))
         self.error = error
-
-
-class _TaskExecutionError(Exception):
-    """Wrap exceptions raised by task execution so scheduler errors stay distinct."""
-
-    def __init__(self, error: Exception) -> None:
-        super().__init__(str(error))
-        self.error = error
-
-
-def _is_platform_application_error(error: Exception) -> bool:
-    return (
-        isinstance(error, ApplicationError)
-        and error.type == PLATFORM_EXECUTION_ERROR_TYPE
-    )
 
 
 class DSLScheduler:
@@ -419,7 +404,7 @@ class DSLScheduler:
         return to_json(self.__dict__, fallback=str, indent=2).decode()
 
     async def _handle_error_path(
-        self, task: Task, exc: Exception, *, is_scheduler_error: bool = False
+        self, task: Task, exc: Exception, *, fail_workflow: bool = False
     ) -> None:
         ref = task.ref
 
@@ -435,12 +420,12 @@ class DSLScheduler:
             for dst, edge_type in self.adj[ref]
             if edge_type != EdgeType.ERROR
         }
-        if len(non_err_edges) < len(self.adj[ref]) and not is_scheduler_error:
+        if len(non_err_edges) < len(self.adj[ref]) and not fail_workflow:
             await self._queue_tasks(task, unreachable=non_err_edges)
         else:
-            if is_scheduler_error:
+            if fail_workflow:
                 self.logger.warning(
-                    "Task failed with scheduler error, bypassing user error handling",
+                    "Task failed with platform error, bypassing stream handling",
                     task=task,
                     error=exc,
                 )
@@ -560,7 +545,7 @@ class DSLScheduler:
                     type=exc.__class__.__name__,
                     stream_id=task.stream_id,
                 )
-            if task.stream_id == ROOT_STREAM or is_scheduler_error:
+            if task.stream_id == ROOT_STREAM or fail_workflow:
                 self.logger.debug("Setting task exception", task=task, details=details)
                 self.task_exceptions[ref] = TaskExceptionInfo(
                     exception=exc, details=details
@@ -680,10 +665,6 @@ class DSLScheduler:
         token = ctx_stream_id.set(task.stream_id)
         try:
             await self.executor(stmt)
-        except PlatformExecutionError:
-            raise
-        except Exception as e:
-            raise _TaskExecutionError(e) from e
         finally:
             ctx_stream_id.reset(token)
 
@@ -735,9 +716,7 @@ class DSLScheduler:
                 raise TaskUnreachable(f"Task {task} is unreachable")
 
             if run_if_error is not None:
-                if _is_platform_application_error(run_if_error):
-                    raise run_if_error
-                raise _TaskExecutionError(run_if_error) from run_if_error
+                raise run_if_error
 
             # 4) If we made it here, the task is reachable and not force-skipped.
 
@@ -769,15 +748,9 @@ class DSLScheduler:
             # NOTE: Moved this here to handle single success path
             await self._handle_success_path(task)
         except Exception as e:
-            if isinstance(e, PlatformExecutionError):
-                exc = e.error
-                is_scheduler_error = True
-            else:
-                exc = e.error if isinstance(e, _TaskExecutionError) else e
-                is_scheduler_error = not isinstance(e, _TaskExecutionError) and not (
-                    isinstance(exc, ApplicationError) and exc.details
-                )
-            kind = exc.__class__.__name__
+            exc = e.error if isinstance(e, PlatformExecutionError) else e
+            fail_workflow = isinstance(e, PlatformExecutionError)
+            kind = e.__class__.__name__
             non_retryable = getattr(exc, "non_retryable", True)
             self.logger.warning(
                 f"{kind} in DSLScheduler",
@@ -785,9 +758,7 @@ class DSLScheduler:
                 error=exc,
                 non_retryable=non_retryable,
             )
-            await self._handle_error_path(
-                task, exc, is_scheduler_error=is_scheduler_error
-            )
+            await self._handle_error_path(task, exc, fail_workflow=fail_workflow)
         finally:
             # 5) Regardless of the outcome, the task is now complete
             self.logger.debug("Task completed", task=task)
@@ -970,13 +941,6 @@ class DSLScheduler:
             self.logger.debug("`run_if` condition", run_if=run_if)
             try:
                 expr_result = await self.resolve_expression(run_if, context)
-            except ApplicationError as e:
-                if _is_platform_application_error(e):
-                    raise
-                raise ApplicationError(
-                    f"Error evaluating `run_if` condition: {e}",
-                    non_retryable=True,
-                ) from e
             except Exception as e:
                 raise ApplicationError(
                     f"Error evaluating `run_if` condition: {e}",
@@ -1055,19 +1019,14 @@ class DSLScheduler:
             isinstance(raw_max_iterations, int)
             and raw_max_iterations > MAX_DO_WHILE_ITERATIONS
         ):
-            raise _TaskExecutionError(
-                ApplicationError(
-                    (
-                        "Loop max_iterations exceeds platform cap: "
-                        f"{raw_max_iterations} > {MAX_DO_WHILE_ITERATIONS}."
-                    ),
-                    non_retryable=True,
-                )
+            raise ApplicationError(
+                (
+                    "Loop max_iterations exceeds platform cap: "
+                    f"{raw_max_iterations} > {MAX_DO_WHILE_ITERATIONS}."
+                ),
+                non_retryable=True,
             )
-        try:
-            args = LoopEndArgs(**stmt.args)
-        except Exception as e:
-            raise _TaskExecutionError(e) from e
+        args = LoopEndArgs(**stmt.args)
         loop_key = (region.start_ref, task.stream_id)
         current_index = self.loop_indices.get(loop_key, 0)
         # Skip semantics:
@@ -1085,21 +1044,10 @@ class DSLScheduler:
             context = self.build_stream_aware_context(stmt, task.stream_id)
             try:
                 expr_result = await self.resolve_expression(args.condition, context)
-            except ApplicationError as e:
-                if _is_platform_application_error(e):
-                    raise
-                raise _TaskExecutionError(
-                    ApplicationError(
-                        f"Error evaluating `condition` in `core.loop.end`: {e}",
-                        non_retryable=True,
-                    )
-                ) from e
             except Exception as e:
-                raise _TaskExecutionError(
-                    ApplicationError(
-                        f"Error evaluating `condition` in `core.loop.end`: {e}",
-                        non_retryable=True,
-                    )
+                raise ApplicationError(
+                    f"Error evaluating `condition` in `core.loop.end`: {e}",
+                    non_retryable=True,
                 ) from e
             should_continue = bool(expr_result)
 
@@ -1112,14 +1060,12 @@ class DSLScheduler:
         if should_continue:
             next_index = current_index + 1
             if next_index >= args.max_iterations:
-                raise _TaskExecutionError(
-                    ApplicationError(
-                        (
-                            f"Loop '{task.ref}' exceeded max_iterations={args.max_iterations}. "
-                            "Update `condition` or increase `max_iterations`."
-                        ),
-                        non_retryable=True,
-                    )
+                raise ApplicationError(
+                    (
+                        f"Loop '{task.ref}' exceeded max_iterations={args.max_iterations}. "
+                        "Update `condition` or increase `max_iterations`."
+                    ),
+                    non_retryable=True,
                 )
             self._reset_loop_iteration_state(region, task.stream_id)
             self.loop_indices[loop_key] = next_index
@@ -1159,10 +1105,7 @@ class DSLScheduler:
             self.logger.debug("Skipped scatter", task=task)
             return await self._handle_scatter_skip_stream(task, curr_stream_id)
 
-        try:
-            args = ScatterArgs(**stmt.args)
-        except Exception as e:
-            raise _TaskExecutionError(e) from e
+        args = ScatterArgs(**stmt.args)
         context = self.get_context(curr_stream_id)
 
         collection_key = action_collection_prefix(
@@ -1183,11 +1126,9 @@ class DSLScheduler:
                 retry_policy=RETRY_POLICIES["activity:fail_fast"],
             )
         except ActivityError as e:
-            match e.cause:
-                case ApplicationError() as app_err:
-                    if _is_platform_application_error(app_err):
-                        raise app_err from None
-                    raise _TaskExecutionError(app_err) from None
+            match cause := e.cause:
+                case ApplicationError():
+                    raise cause from None
                 case _:
                     raise
 
@@ -1295,16 +1236,12 @@ class DSLScheduler:
         # We still have to handle the last gather
         if self.open_streams[parent_scatter] == 0:
             self.logger.debug("Closing skip stream")
-            try:
-                gather_args = GatherArgs(**stmt.args)
-            except Exception as e:
-                raise _TaskExecutionError(e) from e
             await self._handle_gather_result(
                 task,
                 stmt,
                 parent_action_context,
                 parent_stream_id,
-                gather_args,
+                GatherArgs(**stmt.args),
                 gather_ref,
             )
         else:
@@ -1467,10 +1404,7 @@ class DSLScheduler:
             return
 
         # Here onwards, we are not skipping.
-        try:
-            args = GatherArgs(**stmt.args)
-        except Exception as e:
-            raise _TaskExecutionError(e) from e
+        args = GatherArgs(**stmt.args)
         gather_ref = task.ref
         # This means we must compute a return value for the gather.
         # We should only compute the items to store if we aren't skipping
@@ -1491,14 +1425,11 @@ class DSLScheduler:
                 start_to_close_timeout=timedelta(seconds=60),
                 retry_policy=RETRY_POLICIES["activity:fail_fast"],
             )
-        except ActivityError as e:
-            match e.cause:
-                case ApplicationError() as app_err:
-                    if _is_platform_application_error(app_err):
-                        raise app_err from None
-                    raise _TaskExecutionError(app_err) from None
-                case _:
-                    raise
+        except Exception as e:
+            raise ApplicationError(
+                f"Error evaluating `items` expression in `core.transform.gather`: {e}",
+                non_retryable=True,
+            ) from e
 
         # XXX(concurrency): It's important we only decrement open_streams after
         # await block. If not, streams at the current level will observe 0
