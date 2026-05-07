@@ -140,6 +140,39 @@ class TestSizedMemoryCache:
         assert await cache.get("fresh") == b"world"
 
     @pytest.mark.anyio
+    async def test_set_purges_expired_mru_before_lru_eviction(self):
+        """Test that expired MRU entries do not cause fresh LRU eviction."""
+        cache = SizedMemoryCache(max_bytes=100, ttl=0.2)
+
+        await cache.set("expires_first", b"a" * 50)
+        await asyncio.sleep(0.05)
+        await cache.set("fresh_lru", b"b" * 40)
+        assert await cache.get("expires_first") == b"a" * 50
+
+        await asyncio.sleep(0.17)
+        await cache.set("new", b"c" * 40)
+
+        assert await cache.get("expires_first") is None
+        assert await cache.get("fresh_lru") == b"b" * 40
+        assert await cache.get("new") == b"c" * 40
+        assert cache.total_bytes == 80
+
+    @pytest.mark.anyio
+    async def test_oversized_set_purges_expired_entries(self):
+        """Test that rejected writes still purge expired entries."""
+        cache = SizedMemoryCache(max_bytes=100, ttl=0.1)
+
+        await cache.set("expired", b"a" * 50)
+        assert cache.total_bytes == 50
+
+        await asyncio.sleep(0.15)
+        await cache.set("too_big", b"b" * 101)
+
+        assert cache.total_bytes == 0
+        assert cache.item_count == 0
+        assert await cache.get("too_big") is None
+
+    @pytest.mark.anyio
     async def test_concurrent_access(self):
         """Test that concurrent access is safe."""
         cache = SizedMemoryCache(max_bytes=10000, ttl=300.0)
