@@ -21,8 +21,12 @@ LOGGER = logging.getLogger(__name__)
 INIT_PAYLOAD_ENV_VAR = "TRACECAT__AGENT_INIT_PAYLOAD_PATH"
 LLM_SOCKET_ENV_VAR = "TRACECAT__AGENT_LLM_SOCKET_PATH"
 DEFAULT_LLM_SOCKET_PATH = "/var/run/tracecat/llm.sock"
+OTEL_SOCKET_ENV_VAR = "TRACECAT__AGENT_OTEL_SOCKET_PATH"
+DEFAULT_OTEL_SOCKET_PATH = "/var/run/tracecat/otel.sock"
 LLM_BRIDGE_HOST = "127.0.0.1"
+OTEL_BRIDGE_HOST = "127.0.0.1"
 MAX_BODY_SIZE = 10 * 1024 * 1024
+OTEL_MAX_BODY_SIZE = 16 * 1024 * 1024
 
 
 class ClaudeShimInitPayload(TypedDict):
@@ -211,9 +215,146 @@ class LLMBridge:
         await writer.drain()
 
 
+class OtelBridge:
+    """HTTP bridge that forwards localhost OTLP traffic to the host OTel relay.
+
+    Mirrors :class:`LLMBridge` shape but is its own class with no shared base
+    (failure isolation, backpressure isolation, vulnerability isolation —
+    LLM and OTel must not share state).
+    """
+
+    def __init__(self, *, socket_path: Path, port: int = 0) -> None:
+        self.socket_path = socket_path
+        self._requested_port = port
+        self._actual_port: int | None = None
+        self._server: asyncio.Server | None = None
+        self._serve_task: asyncio.Task[None] | None = None
+
+    async def start(self) -> int:
+        """Start the bridge and return the bound localhost port."""
+        self._server = await asyncio.start_server(
+            self._handle_connection,
+            host=OTEL_BRIDGE_HOST,
+            port=self._requested_port,
+        )
+        if not self._server.sockets:
+            raise RuntimeError("OTel bridge did not expose a listening socket")
+        actual_port = int(self._server.sockets[0].getsockname()[1])
+        self._actual_port = actual_port
+        self._serve_task = asyncio.create_task(self._server.serve_forever())
+        self._serve_task.add_done_callback(self._on_serve_done)
+        LOGGER.info(
+            "OTel bridge started",
+            extra={
+                "requested_port": self._requested_port,
+                "actual_port": actual_port,
+                "socket_path": str(self.socket_path),
+            },
+        )
+        return actual_port
+
+    async def stop(self) -> None:
+        """Stop the bridge server."""
+        if self._serve_task is not None:
+            if not self._serve_task.done():
+                self._serve_task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await self._serve_task
+            self._serve_task = None
+        if self._server is not None:
+            self._server.close()
+            await self._server.wait_closed()
+            self._server = None
+            LOGGER.info("OTel bridge stopped")
+
+    def _on_serve_done(self, task: asyncio.Task[None]) -> None:
+        if task.cancelled():
+            return
+        try:
+            exc = task.exception()
+        except asyncio.CancelledError:
+            return
+        if isinstance(exc, RuntimeError) and str(exc) == "server is closed":
+            return
+        if exc:
+            LOGGER.error("OTel bridge server failed: %s", exc)
+
+    async def _handle_connection(
+        self,
+        client_reader: asyncio.StreamReader,
+        client_writer: asyncio.StreamWriter,
+    ) -> None:
+        try:
+            request_data = await self._read_http_request(client_reader)
+            if not request_data:
+                return
+
+            try:
+                sock_reader, sock_writer = await asyncio.open_unix_connection(
+                    str(self.socket_path)
+                )
+            except (OSError, ConnectionRefusedError) as exc:
+                LOGGER.warning("Failed to connect to OTel socket: %s", exc)
+                # Telemetry is best-effort: drop the request silently.
+                return
+
+            try:
+                sock_writer.write(request_data)
+                await sock_writer.drain()
+                while chunk := await sock_reader.read(8192):
+                    client_writer.write(chunk)
+                    await client_writer.drain()
+            finally:
+                sock_writer.close()
+                with contextlib.suppress(Exception):
+                    await sock_writer.wait_closed()
+        except asyncio.IncompleteReadError:
+            return
+        except Exception as exc:
+            LOGGER.warning("OTel bridge error: %s", exc)
+        finally:
+            with contextlib.suppress(Exception):
+                client_writer.close()
+                await client_writer.wait_closed()
+
+    @staticmethod
+    async def _read_http_request(reader: asyncio.StreamReader) -> bytes | None:
+        headers_data = b""
+        while True:
+            line = await reader.readline()
+            if not line:
+                return None
+            headers_data += line
+            if line == b"\r\n":
+                break
+
+        content_length = 0
+        for line in headers_data.split(b"\r\n"):
+            if line.lower().startswith(b"content-length:"):
+                with contextlib.suppress(ValueError, IndexError):
+                    content_length = int(line.split(b":", 1)[1].strip())
+                break
+
+        if content_length > OTEL_MAX_BODY_SIZE:
+            LOGGER.warning(
+                "OTel request body too large",
+                extra={
+                    "content_length": content_length,
+                    "max_size": OTEL_MAX_BODY_SIZE,
+                },
+            )
+            return None
+
+        body = b""
+        if content_length > 0:
+            body = await reader.readexactly(content_length)
+        return headers_data + body
+
+
 async def run_sandboxed_claude_shim() -> None:
     """Read shim config, start the LLM bridge, and proxy Claude stdio."""
     llm_bridge: LLMBridge | None = None
+    otel_bridge: OtelBridge | None = None
     process: asyncio.subprocess.Process | None = None
     stdout_task: asyncio.Task[None] | None = None
     stderr_task: asyncio.Task[None] | None = None
@@ -227,6 +368,21 @@ async def run_sandboxed_claude_shim() -> None:
         child_env = {**os.environ, **init_payload["env"]}
         child_env["TRACECAT__LLM_BRIDGE_PORT"] = str(bridge_port)
         child_env["ANTHROPIC_BASE_URL"] = f"http://127.0.0.1:{bridge_port}"
+
+        # Telemetry path: start the OTel bridge before spawning Claude so the
+        # SDK's exporters connect to the bridge instead of leaving the sandbox.
+        # The host-side relay holds tenant headers and the real collector URL.
+        if child_env.get("CLAUDE_CODE_ENABLE_TELEMETRY") == "1":
+            otel_bridge = OtelBridge(
+                socket_path=_resolve_otel_socket_path(),
+                port=0,
+            )
+            otel_port = await otel_bridge.start()
+            child_env["OTEL_EXPORTER_OTLP_ENDPOINT"] = (
+                f"http://{OTEL_BRIDGE_HOST}:{otel_port}"
+            )
+            LOGGER.info("OTel bridge started for shim on port %s", otel_port)
+
         process = await asyncio.create_subprocess_exec(
             *init_payload["command"],
             stdin=asyncio.subprocess.PIPE,
@@ -266,6 +422,8 @@ async def run_sandboxed_claude_shim() -> None:
                 await process.wait()
         if llm_bridge is not None:
             await llm_bridge.stop()
+        if otel_bridge is not None:
+            await otel_bridge.stop()
 
 
 async def _read_init_payload(init_path: Path) -> ClaudeShimInitPayload:
@@ -307,6 +465,11 @@ def _resolve_init_payload_path() -> Path:
 def _resolve_llm_socket_path() -> Path:
     """Resolve the mounted LLM socket path."""
     return Path(os.environ.get(LLM_SOCKET_ENV_VAR) or DEFAULT_LLM_SOCKET_PATH)
+
+
+def _resolve_otel_socket_path() -> Path:
+    """Resolve the mounted Agent OTel relay socket path."""
+    return Path(os.environ.get(OTEL_SOCKET_ENV_VAR) or DEFAULT_OTEL_SOCKET_PATH)
 
 
 async def _wait_for_process_with_stdin(

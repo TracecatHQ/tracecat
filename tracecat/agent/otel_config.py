@@ -207,6 +207,36 @@ def resolve_agent_otel_config(
     )
 
 
+async def load_org_agent_otel_inputs(
+    *,
+    role: Any,
+) -> tuple[AgentOtelConfig | None, dict[str, str] | None]:
+    """Load the org's saved Agent OTel config and decrypted headers.
+
+    Returns ``(None, None)`` when the org has no settings rows yet so the
+    resolver can fall back to its defaults.
+    """
+    from tracecat.settings.service import SettingsService
+
+    async with SettingsService.with_session(role=role) as service:
+        settings = await service.list_org_settings(
+            keys={"agent_otel_config", "agent_otel_headers"}
+        )
+        values, _ = service.get_values_with_decryption_fallback(settings)
+
+    raw_config = values.get("agent_otel_config")
+    config_value: AgentOtelConfig | None = None
+    if isinstance(raw_config, dict):
+        config_value = AgentOtelConfig.model_validate(raw_config)
+
+    raw_headers = values.get("agent_otel_headers")
+    headers_value: dict[str, str] | None = None
+    if isinstance(raw_headers, dict):
+        headers_value = {str(k): str(v) for k, v in raw_headers.items()}
+
+    return config_value, headers_value
+
+
 def load_agent_otel_platform_override(
     *,
     enabled: str | None = config.TRACECAT__AGENT_OTEL_PLATFORM_OVERRIDE_ENABLED,
