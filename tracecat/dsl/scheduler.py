@@ -735,7 +735,7 @@ class DSLScheduler:
                 raise TaskUnreachable(f"Task {task} is unreachable")
 
             if run_if_error is not None:
-                raise run_if_error
+                raise _TaskExecutionError(run_if_error) from run_if_error
 
             # 4) If we made it here, the task is reachable and not force-skipped.
 

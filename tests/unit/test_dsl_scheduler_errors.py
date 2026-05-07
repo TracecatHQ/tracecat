@@ -196,6 +196,40 @@ async def test_action_stream_error_uses_gather_error_strategy() -> None:
 
 
 @pytest.mark.anyio
+async def test_run_if_error_uses_error_path() -> None:
+    executed_refs: list[str] = []
+
+    async def executor(action: ActionStatement) -> None:
+        executed_refs.append(action.ref)
+
+    scheduler = _make_scheduler(
+        ActionStatement(
+            ref="guarded",
+            action="core.noop",
+            run_if="${{ True }}",
+        ),
+        ActionStatement(
+            ref="handle_error",
+            action="core.noop",
+            depends_on=["guarded.error"],
+        ),
+        executor=executor,
+    )
+
+    with patch.object(
+        scheduler,
+        "resolve_expression",
+        new=AsyncMock(side_effect=RuntimeError("missing context")),
+    ):
+        task_exceptions = await scheduler.start()
+
+    assert task_exceptions is None
+    assert executed_refs == ["handle_error"]
+    assert not scheduler.task_exceptions
+    assert not scheduler.stream_exceptions
+
+
+@pytest.mark.anyio
 @pytest.mark.parametrize(
     ("prepare_error", "fails_workflow", "expected_refs", "expected_message"),
     [
