@@ -48,20 +48,20 @@ variable "redis_default_user_id" {
 
 variable "waf_attachments_endpoint_pattern_name" {
   type        = string
-  description = "WAF regex pattern set name for attachments endpoint matching."
-  default     = "attachments-endpoint-pattern"
+  description = "WAF regex pattern set name for attachments endpoint matching. When null, defaults to \"$${name_prefix}-attachments-endpoint-pattern\"."
+  default     = null
 }
 
 variable "waf_mcp_oauth_endpoints_pattern_name" {
   type        = string
-  description = "WAF regex pattern set name for MCP OAuth endpoint matching."
-  default     = "mcp-oauth-endpoints-pattern"
+  description = "WAF regex pattern set name for MCP OAuth endpoint matching. When null, defaults to \"$${name_prefix}-mcp-oauth-endpoints-pattern\"."
+  default     = null
 }
 
 variable "waf_mcp_public_endpoint_pattern_name" {
   type        = string
-  description = "WAF regex pattern set name for MCP public endpoint matching."
-  default     = "mcp-public-endpoint-pattern"
+  description = "WAF regex pattern set name for MCP public endpoint matching. When null, defaults to \"$${name_prefix}-mcp-public-endpoint-pattern\"."
+  default     = null
 }
 
 ### Networking

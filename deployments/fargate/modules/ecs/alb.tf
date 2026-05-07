@@ -533,7 +533,7 @@ resource "aws_wafv2_web_acl" "this" {
 resource "aws_wafv2_regex_pattern_set" "attachments_endpoint" {
   count = var.enable_waf ? 1 : 0
 
-  name        = var.waf_attachments_endpoint_pattern_name
+  name        = local.waf_attachments_endpoint_pattern_name
   description = "Pattern to match attachments API endpoint"
   scope       = "REGIONAL"
 
@@ -549,7 +549,7 @@ resource "aws_wafv2_regex_pattern_set" "attachments_endpoint" {
 resource "aws_wafv2_regex_pattern_set" "mcp_oauth_endpoints" {
   count = var.enable_waf ? 1 : 0
 
-  name        = var.waf_mcp_oauth_endpoints_pattern_name
+  name        = local.waf_mcp_oauth_endpoints_pattern_name
   description = "Matches MCP OAuth endpoints that carry loopback redirect URIs"
   scope       = "REGIONAL"
 
@@ -567,7 +567,7 @@ resource "aws_wafv2_regex_pattern_set" "mcp_oauth_endpoints" {
 resource "aws_wafv2_regex_pattern_set" "mcp_public_endpoints" {
   count = var.enable_waf ? 1 : 0
 
-  name        = var.waf_mcp_public_endpoint_pattern_name
+  name        = local.waf_mcp_public_endpoint_pattern_name
   description = "Matches MCP discovery, transport, and OAuth endpoints"
   scope       = "REGIONAL"
 
