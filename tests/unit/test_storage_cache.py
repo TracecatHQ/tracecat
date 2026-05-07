@@ -1,6 +1,7 @@
 """Tests for SizedMemoryCache."""
 
 import asyncio
+from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 
@@ -149,6 +150,30 @@ class TestSizedMemoryCache:
 
         # Should complete without errors
         assert cache.item_count <= 2
+
+    def test_concurrent_access_from_multiple_event_loops(self):
+        """Test that one cache can be used from separate event loops."""
+        cache = SizedMemoryCache(max_bytes=100, ttl=300.0)
+
+        async def exercise_cache(prefix: str) -> None:
+            for i in range(100):
+                key = f"{prefix}-{i % 10}"
+                await cache.set(key, f"value-{i}".encode())
+                await cache.get(key)
+                await asyncio.sleep(0)
+
+        def run_in_new_loop(prefix: str) -> None:
+            asyncio.run(exercise_cache(prefix))
+
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            futures = [
+                executor.submit(run_in_new_loop, "a"),
+                executor.submit(run_in_new_loop, "b"),
+            ]
+            for future in futures:
+                future.result()
+
+        assert cache.total_bytes <= 100
 
     @pytest.mark.anyio
     async def test_empty_value(self):
