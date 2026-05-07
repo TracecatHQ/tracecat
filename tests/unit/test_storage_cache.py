@@ -287,28 +287,29 @@ class TestSizedMemoryCache:
         def run_in_new_loop(worker_id: int) -> None:
             asyncio.run(exercise_cache(worker_id))
 
-        with ThreadPoolExecutor(max_workers=worker_count + 1) as executor:
+        executor = ThreadPoolExecutor(max_workers=worker_count + 1)
+        try:
             holder_future = executor.submit(hold_cache_lock)
-            try:
-                if not lock_acquired.wait(timeout=5):
-                    if holder_future.done():
-                        holder_future.result()
-                    pytest.fail("Cache lock was not acquired")
+            if not lock_acquired.wait(timeout=5):
+                if holder_future.done():
+                    holder_future.result()
+                pytest.fail("Cache lock was not acquired")
 
-                futures = [
-                    executor.submit(run_in_new_loop, worker_id)
-                    for worker_id in range(worker_count)
-                ]
-                start_barrier.wait(timeout=5)
-                for _ in range(worker_count):
-                    assert workers_attempting_cache_access.acquire(timeout=5)
+            futures = [
+                executor.submit(run_in_new_loop, worker_id)
+                for worker_id in range(worker_count)
+            ]
+            start_barrier.wait(timeout=5)
+            for _ in range(worker_count):
+                assert workers_attempting_cache_access.acquire(timeout=5)
 
-                release_lock.set()
-                for future in futures:
-                    future.result(timeout=5)
-                holder_future.result(timeout=5)
-            finally:
-                release_lock.set()
+            release_lock.set()
+            for future in futures:
+                future.result(timeout=5)
+            holder_future.result(timeout=5)
+        finally:
+            release_lock.set()
+            executor.shutdown(wait=False, cancel_futures=True)
 
     @pytest.mark.anyio
     async def test_empty_value(self):
