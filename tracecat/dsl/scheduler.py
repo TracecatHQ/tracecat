@@ -113,6 +113,14 @@ class LoopRegion:
     members: frozenset[str]
 
 
+class _TaskExecutionError(Exception):
+    """Wrap exceptions raised by task execution so scheduler errors stay distinct."""
+
+    def __init__(self, error: Exception) -> None:
+        super().__init__(str(error))
+        self.error = error
+
+
 class DSLScheduler:
     """Manage only scheduling and control flow of tasks in a topological-like order."""
 
@@ -395,7 +403,9 @@ class DSLScheduler:
     def __repr__(self) -> str:
         return to_json(self.__dict__, fallback=str, indent=2).decode()
 
-    async def _handle_error_path(self, task: Task, exc: Exception) -> None:
+    async def _handle_error_path(
+        self, task: Task, exc: Exception, *, is_scheduler_error: bool = False
+    ) -> None:
         ref = task.ref
 
         self.logger.info(
@@ -410,7 +420,6 @@ class DSLScheduler:
             for dst, edge_type in self.adj[ref]
             if edge_type != EdgeType.ERROR
         }
-        is_scheduler_error = not (isinstance(exc, ApplicationError) and exc.details)
         if len(non_err_edges) < len(self.adj[ref]) and not is_scheduler_error:
             await self._queue_tasks(task, unreachable=non_err_edges)
         else:
@@ -656,6 +665,8 @@ class DSLScheduler:
         token = ctx_stream_id.set(task.stream_id)
         try:
             await self.executor(stmt)
+        except Exception as e:
+            raise _TaskExecutionError(e) from e
         finally:
             ctx_stream_id.reset(token)
 
@@ -739,12 +750,21 @@ class DSLScheduler:
             # NOTE: Moved this here to handle single success path
             await self._handle_success_path(task)
         except Exception as e:
-            kind = e.__class__.__name__
-            non_retryable = getattr(e, "non_retryable", True)
-            self.logger.warning(
-                f"{kind} in DSLScheduler", ref=ref, error=e, non_retryable=non_retryable
+            exc = e.error if isinstance(e, _TaskExecutionError) else e
+            is_scheduler_error = not isinstance(e, _TaskExecutionError) and not (
+                isinstance(exc, ApplicationError) and exc.details
             )
-            await self._handle_error_path(task, e)
+            kind = exc.__class__.__name__
+            non_retryable = getattr(exc, "non_retryable", True)
+            self.logger.warning(
+                f"{kind} in DSLScheduler",
+                ref=ref,
+                error=exc,
+                non_retryable=non_retryable,
+            )
+            await self._handle_error_path(
+                task, exc, is_scheduler_error=is_scheduler_error
+            )
         finally:
             # 5) Regardless of the outcome, the task is now complete
             self.logger.debug("Task completed", task=task)
