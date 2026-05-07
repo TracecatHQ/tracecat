@@ -818,6 +818,24 @@ class DSLWorkflow:
             return current, outer_message
         return current, current.__class__.__name__
 
+    @staticmethod
+    def _has_user_error_cause(error: BaseException) -> bool:
+        current = error
+        seen: set[int] = set()
+        while True:
+            current_id = id(current)
+            if current_id in seen:
+                return False
+            seen.add(current_id)
+
+            if UserError.matches(current):
+                return True
+
+            nested = getattr(current, "cause", None)
+            if not isinstance(nested, BaseException):
+                return False
+            current = nested
+
     @maybe_interactive
     async def _execute_task(self, task: ActionStatement) -> TaskResult:
         """Purely execute a task and manage the results.
@@ -893,11 +911,11 @@ class DSLWorkflow:
                             retry_policy=RETRY_POLICIES["activity:fail_fast"],
                         )
                     except Exception as e:
+                        if self._has_user_error_cause(e):
+                            raise
                         root_error, root_message = self._unwrap_temporal_failure_cause(
                             e
                         )
-                        if UserError.matches(root_error):
-                            raise
                         platform_error = (
                             root_error if isinstance(root_error, Exception) else e
                         )

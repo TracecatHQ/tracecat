@@ -99,6 +99,13 @@ def _activity_error_from(
         return e
 
 
+def _user_error_from(cause: Exception, message: str) -> UserError:
+    try:
+        raise UserError(message) from cause
+    except UserError as e:
+        return e
+
+
 @pytest.mark.anyio
 async def test_retry_until_counts_action_execution_limit_per_iteration() -> None:
     workflow = _build_workflow(
@@ -373,6 +380,79 @@ async def test_prepare_subflow_user_error_in_scatter_uses_error_path() -> None:
             return InlineObject(data=["item"], typename="list")
         if activity == DSLActivities.prepare_subflow_activity:
             raise _activity_error_from(UserError("Workflow alias 'child' not found"))
+        raise AssertionError(f"Unexpected activity: {activity}")
+
+    async def run_action(task: ActionStatement) -> InlineObject:
+        executed_refs.append(task.ref)
+        return InlineObject(data={"handled": True})
+
+    with (
+        patch(
+            "tracecat.dsl.scheduler.workflow.execute_activity",
+            new=AsyncMock(side_effect=execute_activity),
+        ),
+        patch(
+            "tracecat.dsl.workflow.workflow.execute_activity",
+            new=AsyncMock(side_effect=execute_activity),
+        ),
+        patch.object(workflow, "_run_action", new=AsyncMock(side_effect=run_action)),
+    ):
+        task_exceptions = await scheduler.start()
+
+    assert task_exceptions is None
+    assert executed_refs == ["handle_error"]
+    assert not scheduler.task_exceptions
+    assert not scheduler.stream_exceptions
+
+
+@pytest.mark.anyio
+async def test_prepare_subflow_user_error_cause_in_scatter_uses_error_path() -> None:
+    workflow = _build_workflow()
+    dsl = DSLInput(
+        title="test",
+        description="test",
+        entrypoint=DSLEntrypoint(ref="scatter"),
+        actions=[
+            ActionStatement(
+                ref="scatter",
+                action=PlatformAction.TRANSFORM_SCATTER,
+                args={"collection": ["item"]},
+            ),
+            ActionStatement(
+                ref="call_child",
+                action=PlatformAction.CHILD_WORKFLOW_EXECUTE,
+                args={"workflow_alias": "child"},
+                depends_on=["scatter"],
+            ),
+            ActionStatement(
+                ref="handle_error",
+                action="core.noop",
+                depends_on=["call_child.error"],
+            ),
+        ],
+    )
+    scheduler = DSLScheduler(
+        executor=workflow.execute_task,
+        dsl=dsl,
+        max_pending_tasks=16,
+        context=ExecutionContext(ACTIONS={}, TRIGGER=None),
+        role=workflow.role,
+        run_context=workflow.run_context,
+    )
+    workflow.dsl = dsl
+    workflow.scheduler = scheduler
+    executed_refs: list[str] = []
+
+    async def execute_activity(activity: object, *_: Any, **__: Any) -> object:
+        if activity == DSLActivities.handle_scatter_input_activity:
+            return InlineObject(data=["item"], typename="list")
+        if activity == DSLActivities.prepare_subflow_activity:
+            cause = ValueError("Invalid for_each expression")
+            error = _user_error_from(
+                cause,
+                "Error evaluating subflow for_each expression: Invalid for_each expression",
+            )
+            raise _activity_error_from(error)
         raise AssertionError(f"Unexpected activity: {activity}")
 
     async def run_action(task: ActionStatement) -> InlineObject:
