@@ -10,6 +10,7 @@ import {
   LogInIcon,
   LogsIcon,
   MousePointerClickIcon,
+  RadioTowerIcon,
   Settings2,
   UsersIcon,
 } from "lucide-react"
@@ -97,6 +98,14 @@ export function OrganizationSidebar({
       url: "/organization/settings/audit",
       icon: LogsIcon,
       isActive: pathname?.includes("/organization/settings/audit"),
+      visible: canViewSettings === true,
+      locked: false,
+    },
+    {
+      title: "Agent OTel",
+      url: "/organization/settings/agent-otel",
+      icon: RadioTowerIcon,
+      isActive: pathname?.includes("/organization/settings/agent-otel"),
       visible: canViewSettings === true,
       locked: false,
     },
