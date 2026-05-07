@@ -121,7 +121,9 @@ from tracecat.pagination import (
 from tracecat.service import BaseWorkspaceService, requires_entitlement
 from tracecat.tables.common import (
     coerce_integer_value,
+    coerce_multi_select_value,
     coerce_numeric_value,
+    coerce_select_value,
     normalize_column_options,
 )
 from tracecat.tables.enums import SqlType
@@ -1257,11 +1259,23 @@ class CaseFieldsService(CustomFieldsService):
 
         for field_name, value in fields.items():
             field_type = reflected_types.get(field_name)
+            field_options: list[str] | None = None
             if isinstance(schema_def := schema.get(field_name), dict):
-                if field_type is None and (raw_type := schema_def.get("type")):
-                    field_type = SqlType(
+                field_options = schema_def.get("options")
+                if raw_type := schema_def.get("type"):
+                    schema_field_type = SqlType(
                         _normalize_case_field_read_type(raw_type).value
                     )
+                    if field_type is None or (
+                        schema_field_type is SqlType.SELECT
+                        and field_type is SqlType.TEXT
+                    ):
+                        field_type = schema_field_type
+                    elif (
+                        schema_field_type is SqlType.MULTI_SELECT
+                        and field_type is SqlType.JSONB
+                    ):
+                        field_type = schema_field_type
 
             if value is None or field_type is None:
                 normalized[field_name] = value
@@ -1269,6 +1283,26 @@ class CaseFieldsService(CustomFieldsService):
                 normalized[field_name] = coerce_integer_value(value)
             elif field_type is SqlType.NUMERIC:
                 normalized[field_name] = coerce_numeric_value(value)
+            elif field_type is SqlType.TEXT:
+                if isinstance(value, dict | list | tuple | set):
+                    raise ValueError(
+                        f"Custom field '{field_name}' expects TEXT but received "
+                        f"{type(value).__name__}."
+                    )
+                normalized[field_name] = value if isinstance(value, str) else str(value)
+            elif field_type is SqlType.SELECT:
+                if isinstance(value, dict | list | tuple | set):
+                    raise ValueError(
+                        f"Custom field '{field_name}' expects SELECT but received "
+                        f"{type(value).__name__}."
+                    )
+                normalized[field_name] = coerce_select_value(
+                    value, options=field_options
+                )
+            elif field_type is SqlType.MULTI_SELECT:
+                normalized[field_name] = coerce_multi_select_value(
+                    value, options=field_options
+                )
             else:
                 normalized[field_name] = value
 
