@@ -2,6 +2,7 @@ import uuid
 from datetime import UTC, datetime, timedelta
 
 import pytest
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.auth.types import Role
@@ -118,6 +119,43 @@ async def test_link_row_allows_existing_table_when_table_limit_reached(
     assert link.case_id == case.id
     assert link.table_id == first_table_id
     assert link.row_id == extra_row_id
+
+
+@pytest.mark.anyio
+async def test_link_row_returns_existing_link_for_duplicate(
+    session: AsyncSession,
+    cases_service: CasesService,
+    case_rows_service: CaseTableRowsService,
+    tables_service: TablesService,
+) -> None:
+    case = await _create_case(cases_service)
+    table_id, row_id = await _create_table_with_row(
+        tables_service,
+        name=f"case_rows_duplicate_{uuid.uuid4().hex[:8]}",
+        value="seed",
+    )
+
+    first_link = await case_rows_service.link_row(
+        case=case,
+        params=CaseTableRowLinkCreate(table_id=table_id, row_id=row_id),
+    )
+    second_link = await case_rows_service.link_row(
+        case=case,
+        params=CaseTableRowLinkCreate(table_id=table_id, row_id=row_id),
+    )
+
+    count = await session.scalar(
+        select(func.count())
+        .select_from(CaseTableRow)
+        .where(
+            CaseTableRow.workspace_id == case_rows_service.workspace_id,
+            CaseTableRow.case_id == case.id,
+            CaseTableRow.table_id == table_id,
+            CaseTableRow.row_id == row_id,
+        )
+    )
+    assert second_link.id == first_link.id
+    assert count == 1
 
 
 @pytest.mark.anyio
