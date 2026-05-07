@@ -54,7 +54,6 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.dsl.types import (
         ActionErrorInfo,
         ActionErrorInfoAdapter,
-        PlatformExecutionError,
         Task,
         TaskExceptionInfo,
     )
@@ -114,12 +113,23 @@ class LoopRegion:
     members: frozenset[str]
 
 
-class _TaskExecutionError(Exception):
-    """Wrap exceptions raised by task execution so scheduler errors stay distinct."""
+class PlatformExecutionError(Exception):
+    """Marks executor failures that should bypass user error handling."""
 
     def __init__(self, error: Exception) -> None:
         super().__init__(str(error))
         self.error = error
+
+
+class _TaskExecutionError(Exception):
+    """Wrap exceptions raised by task execution so scheduler errors stay distinct."""
+
+    def __init__(
+        self, error: Exception, *, force_workflow_failure: bool = False
+    ) -> None:
+        super().__init__(str(error))
+        self.error = error
+        self.force_workflow_failure = force_workflow_failure
 
 
 class DSLScheduler:
@@ -405,7 +415,7 @@ class DSLScheduler:
         return to_json(self.__dict__, fallback=str, indent=2).decode()
 
     async def _handle_error_path(
-        self, task: Task, exc: Exception, *, is_scheduler_error: bool = False
+        self, task: Task, exc: Exception, *, force_workflow_failure: bool = False
     ) -> None:
         ref = task.ref
 
@@ -421,12 +431,12 @@ class DSLScheduler:
             for dst, edge_type in self.adj[ref]
             if edge_type != EdgeType.ERROR
         }
-        if len(non_err_edges) < len(self.adj[ref]) and not is_scheduler_error:
+        if len(non_err_edges) < len(self.adj[ref]) and not force_workflow_failure:
             await self._queue_tasks(task, unreachable=non_err_edges)
         else:
-            if is_scheduler_error:
+            if force_workflow_failure:
                 self.logger.warning(
-                    "Task failed with scheduler error, bypassing user error handling",
+                    "Task failed; bypassing user error handling",
                     task=task,
                     error=exc,
                 )
@@ -546,7 +556,7 @@ class DSLScheduler:
                     type=exc.__class__.__name__,
                     stream_id=task.stream_id,
                 )
-            if task.stream_id == ROOT_STREAM or is_scheduler_error:
+            if task.stream_id == ROOT_STREAM or force_workflow_failure:
                 self.logger.debug("Setting task exception", task=task, details=details)
                 self.task_exceptions[ref] = TaskExceptionInfo(
                     exception=exc, details=details
@@ -666,8 +676,8 @@ class DSLScheduler:
         token = ctx_stream_id.set(task.stream_id)
         try:
             await self.executor(stmt)
-        except PlatformExecutionError:
-            raise
+        except PlatformExecutionError as e:
+            raise _TaskExecutionError(e.error, force_workflow_failure=True) from e
         except Exception as e:
             raise _TaskExecutionError(e) from e
         finally:
@@ -753,15 +763,12 @@ class DSLScheduler:
             # NOTE: Moved this here to handle single success path
             await self._handle_success_path(task)
         except Exception as e:
-            if isinstance(e, PlatformExecutionError):
+            if isinstance(e, _TaskExecutionError):
                 exc = e.error
-                is_scheduler_error = True
-            elif isinstance(e, _TaskExecutionError):
-                exc = e.error
-                is_scheduler_error = False
+                force_workflow_failure = e.force_workflow_failure
             else:
                 exc = e
-                is_scheduler_error = not (
+                force_workflow_failure = not (
                     isinstance(exc, ApplicationError) and exc.details
                 )
             kind = exc.__class__.__name__
@@ -773,7 +780,7 @@ class DSLScheduler:
                 non_retryable=non_retryable,
             )
             await self._handle_error_path(
-                task, exc, is_scheduler_error=is_scheduler_error
+                task, exc, force_workflow_failure=force_workflow_failure
             )
         finally:
             # 5) Regardless of the outcome, the task is now complete

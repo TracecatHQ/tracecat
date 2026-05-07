@@ -113,7 +113,9 @@ async def test_platform_stream_error_promotes_to_workflow_failure() -> None:
     error = ApplicationError("Failed to materialize context", non_retryable=True)
 
     await scheduler._handle_error_path(
-        Task(ref="call_child", stream_id=stream_id), error, is_scheduler_error=True
+        Task(ref="call_child", stream_id=stream_id),
+        error,
+        force_workflow_failure=True,
     )
 
     assert scheduler.task_exceptions["call_child"].exception is error

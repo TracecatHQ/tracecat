@@ -81,7 +81,7 @@ with workflow.unsafe.imports_passed_through():
         resolve_time_anchor_activity,
         resolve_workflow_concurrency_limits_enabled_activity,
     )
-    from tracecat.dsl.scheduler import DSLScheduler
+    from tracecat.dsl.scheduler import DSLScheduler, PlatformExecutionError
     from tracecat.dsl.schemas import (
         ROOT_STREAM,
         ActionStatement,
@@ -93,11 +93,7 @@ with workflow.unsafe.imports_passed_through():
         StreamID,
         TaskResult,
     )
-    from tracecat.dsl.types import (
-        ActionErrorInfo,
-        ActionErrorInfoAdapter,
-        PlatformExecutionError,
-    )
+    from tracecat.dsl.types import ActionErrorInfo, ActionErrorInfoAdapter
     from tracecat.dsl.validation import format_input_schema_validation_error
     from tracecat.dsl.workflow_logging import get_workflow_logger
     from tracecat.ee.interactions.decorators import maybe_interactive

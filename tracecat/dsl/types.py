@@ -51,14 +51,6 @@ class Task:
     delay: float = field(default=0.0, compare=False)
 
 
-class PlatformExecutionError(Exception):
-    """Marks platform execution failures that must fail the workflow."""
-
-    def __init__(self, error: Exception) -> None:
-        super().__init__(str(error))
-        self.error = error
-
-
 @dataclass(frozen=True, slots=True)
 class ActionErrorInfo:
     """Contains information about an action error."""
