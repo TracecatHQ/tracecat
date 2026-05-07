@@ -328,7 +328,12 @@ locals {
     }
   ] : []
 
-  executor_secrets = concat(
+  executor_secrets = local.tracecat_temporal_secrets
+
+  # Agent executor reads platform OTel headers in-process via
+  # load_agent_otel_platform_override; the standard executor does not, so the
+  # secret is scoped to the agent task only.
+  agent_executor_secrets = concat(
     local.tracecat_temporal_secrets,
     local.agent_otel_platform_override_headers_secret,
   )
