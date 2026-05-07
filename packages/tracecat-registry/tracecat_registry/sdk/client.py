@@ -165,7 +165,7 @@ class TracecatClient:
         elif status_code == 403:
             raise TracecatAuthError(detail=detail, status_code=403)
         elif status_code == 404:
-            raise TracecatNotFoundError(resource="Resource", identifier=detail)
+            raise TracecatNotFoundError(detail=detail)
         elif status_code == 409:
             raise TracecatConflictError(detail=detail)
         elif status_code in (400, 422):

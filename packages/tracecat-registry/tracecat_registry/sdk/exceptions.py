@@ -52,10 +52,16 @@ class TracecatAuthError(TracecatAPIError):
 class TracecatNotFoundError(TracecatAPIError):
     """Exception raised when a resource is not found (404)."""
 
-    def __init__(self, resource: str, identifier: str | None = None) -> None:
-        detail = f"{resource} not found"
-        if identifier:
-            detail = f"{resource} '{identifier}' not found"
+    def __init__(
+        self,
+        resource: str = "Resource",
+        identifier: str | None = None,
+        detail: Any | None = None,
+    ) -> None:
+        if detail is None:
+            detail = f"{resource} not found"
+            if identifier:
+                detail = f"{resource} '{identifier}' not found"
         super().__init__(
             message="Resource not found",
             status_code=404,
