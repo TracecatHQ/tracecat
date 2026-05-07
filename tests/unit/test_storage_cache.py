@@ -125,6 +125,21 @@ class TestSizedMemoryCache:
         assert cache.item_count == 0
 
     @pytest.mark.anyio
+    async def test_set_purges_expired_entries_without_read(self):
+        """Test that writes purge expired entries before capacity accounting."""
+        cache = SizedMemoryCache(max_bytes=1024, ttl=0.1)  # 100ms TTL
+
+        await cache.set("expired", b"hello")
+        assert cache.total_bytes == 5
+
+        await asyncio.sleep(0.15)
+        await cache.set("fresh", b"world")
+
+        assert cache.total_bytes == 5
+        assert cache.item_count == 1
+        assert await cache.get("fresh") == b"world"
+
+    @pytest.mark.anyio
     async def test_concurrent_access(self):
         """Test that concurrent access is safe."""
         cache = SizedMemoryCache(max_bytes=10000, ttl=300.0)

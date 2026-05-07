@@ -35,38 +35,52 @@ class SizedMemoryCache:
         # thread pool. asyncio locks are bound to one loop under contention.
         self._lock = threading.RLock()
 
+    def _delete_locked(self, key: str) -> None:
+        self._cache.pop(key, None)
+        if key in self._sizes:
+            self._total_bytes -= self._sizes.pop(key)
+
+    def _purge_expired_locked(self, now: float) -> None:
+        expired_keys = [
+            key
+            for key, (_, expires_at) in self._cache.items()
+            if expires_at is not None and expires_at <= now
+        ]
+        for key in expired_keys:
+            self._delete_locked(key)
+
     async def get(self, key: str) -> bytes | None:
+        now = time.monotonic()
         with self._lock:
             cached = self._cache.get(key)
             if cached is None:
                 return None
 
             value, expires_at = cached
-            if expires_at is not None and expires_at <= time.monotonic():
-                self._cache.pop(key, None)
-                if key in self._sizes:
-                    self._total_bytes -= self._sizes.pop(key)
+            if expires_at is not None and expires_at <= now:
+                self._delete_locked(key)
                 return None
 
             self._sizes.move_to_end(key)
             return value
 
     async def set(self, key: str, value: bytes) -> None:
+        now = time.monotonic()
         size = len(value)
-        if size > self._max_bytes:
-            logger.debug(
-                "Cache entry too large to store",
-                key=key,
-                size_bytes=size,
-                max_bytes=self._max_bytes,
-            )
-            return
-        expires_at = time.monotonic() + self._ttl if self._ttl > 0 else None
+        expires_at = now + self._ttl if self._ttl > 0 else None
         with self._lock:
+            self._purge_expired_locked(now)
+            if size > self._max_bytes:
+                logger.debug(
+                    "Cache entry too large to store",
+                    key=key,
+                    size_bytes=size,
+                    max_bytes=self._max_bytes,
+                )
+                return
+
             # Remove old entry if exists
-            if key in self._sizes:
-                self._total_bytes -= self._sizes.pop(key)
-                self._cache.pop(key, None)
+            self._delete_locked(key)
 
             # Evict LRU items until we have room
             while self._total_bytes + size > self._max_bytes and self._sizes:
