@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import json
+from typing import Any
+
 
 class TracecatSDKError(Exception):
     """Base exception for all Tracecat SDK errors."""
@@ -18,7 +21,7 @@ class TracecatAPIError(TracecatSDKError):
         self,
         message: str,
         status_code: int,
-        detail: str | None = None,
+        detail: Any | None = None,
     ) -> None:
         self.status_code = status_code
         self.detail = detail
@@ -26,14 +29,19 @@ class TracecatAPIError(TracecatSDKError):
 
     def __str__(self) -> str:
         if self.detail:
-            return f"{self.message} (status={self.status_code}): {self.detail}"
+            detail = (
+                self.detail
+                if isinstance(self.detail, str)
+                else json.dumps(self.detail, default=str, sort_keys=True)
+            )
+            return f"{self.message} (status={self.status_code}): {detail}"
         return f"{self.message} (status={self.status_code})"
 
 
 class TracecatAuthError(TracecatAPIError):
     """Exception raised for authentication/authorization errors (401, 403)."""
 
-    def __init__(self, detail: str | None = None, status_code: int = 401) -> None:
+    def __init__(self, detail: Any | None = None, status_code: int = 401) -> None:
         super().__init__(
             message="Authentication failed",
             status_code=status_code,
@@ -58,7 +66,7 @@ class TracecatNotFoundError(TracecatAPIError):
 class TracecatValidationError(TracecatAPIError):
     """Exception raised for validation errors (400, 422)."""
 
-    def __init__(self, detail: str | None = None, status_code: int = 400) -> None:
+    def __init__(self, detail: Any | None = None, status_code: int = 400) -> None:
         super().__init__(
             message="Validation error",
             status_code=status_code,
@@ -69,7 +77,7 @@ class TracecatValidationError(TracecatAPIError):
 class TracecatConflictError(TracecatAPIError):
     """Exception raised for conflict errors (409)."""
 
-    def __init__(self, detail: str | None = None) -> None:
+    def __init__(self, detail: Any | None = None) -> None:
         super().__init__(
             message="Conflict",
             status_code=409,

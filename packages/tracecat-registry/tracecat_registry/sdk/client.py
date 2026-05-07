@@ -145,18 +145,20 @@ class TracecatClient:
             headers["Authorization"] = f"Bearer {self._token}"
         return headers
 
+    def _extract_error_detail(self, response: httpx.Response) -> Any | None:
+        try:
+            data = response.json()
+        except Exception:
+            return response.text or None
+
+        if isinstance(data, dict):
+            return data.get("detail") or data.get("message") or data
+        return data
+
     def _handle_error_response(self, response: httpx.Response) -> None:
         """Convert HTTP error responses to SDK exceptions."""
         status_code = response.status_code
-
-        # Try to extract detail from JSON response
-        detail: str | None = None
-        try:
-            data = response.json()
-            if isinstance(data, dict):
-                detail = data.get("detail")
-        except Exception:
-            detail = response.text or None
+        detail = self._extract_error_detail(response)
 
         if status_code == 401:
             raise TracecatAuthError(detail=detail, status_code=401)
