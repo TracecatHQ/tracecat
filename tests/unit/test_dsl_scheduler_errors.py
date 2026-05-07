@@ -10,7 +10,7 @@ import pytest
 from temporalio.exceptions import ActivityError, ApplicationError
 
 from tracecat.auth.types import Role
-from tracecat.dsl.action import DSLActivities
+from tracecat.dsl.action import MATERIALIZE_CONTEXT_ERROR_MESSAGE, DSLActivities
 from tracecat.dsl.common import DSLEntrypoint, DSLInput
 from tracecat.dsl.enums import PlatformAction
 from tracecat.dsl.scheduler import DSLScheduler
@@ -95,15 +95,17 @@ def _make_workflow(context: ExecutionContext) -> DSLWorkflow:
     return workflow
 
 
-def _activity_error_from(cause: Exception) -> ActivityError:
+def _activity_error_from(
+    cause: Exception, *, activity_type: str = "prepare_subflow_activity"
+) -> ActivityError:
     try:
         raise ActivityError(
             "Activity failed",
             scheduled_event_id=1,
             started_event_id=2,
             identity="test",
-            activity_type="prepare_subflow_activity",
-            activity_id="prepare-subflow",
+            activity_type=activity_type,
+            activity_id=activity_type,
             retry_state=None,
         ) from cause
     except ActivityError as e:
@@ -210,17 +212,42 @@ async def test_action_stream_error_uses_gather_error_strategy() -> None:
         ),
         (
             _activity_error_from(
+                ApplicationError(
+                    MATERIALIZE_CONTEXT_ERROR_MESSAGE,
+                    non_retryable=True,
+                )
+            ),
+            True,
+            [],
+            MATERIALIZE_CONTEXT_ERROR_MESSAGE,
+        ),
+        (
+            _activity_error_from(
                 ApplicationError("Workflow alias 'child' not found", non_retryable=True)
             ),
             False,
             ["handle_error"],
             "Workflow alias 'child' not found",
         ),
+        (
+            _activity_error_from(
+                ApplicationError(
+                    "Expression failed",
+                    type="TracecatExpressionError",
+                    non_retryable=True,
+                )
+            ),
+            False,
+            ["handle_error"],
+            "Expression failed",
+        ),
     ],
     ids=[
         "unexpected-platform-error",
         "wrapped-unexpected-platform-error",
+        "context-materialization-error",
         "user-facing-application-error",
+        "typed-user-facing-application-error",
     ],
 )
 async def test_prepare_subflow_error_in_scatter_classification(
@@ -302,6 +329,73 @@ async def test_prepare_subflow_error_in_scatter_classification(
         assert task_exceptions is not None
         assert "call_child" in task_exceptions
         assert expected_message in task_exceptions["call_child"].details.message
+        assert not scheduler.stream_exceptions
+    else:
+        assert task_exceptions is None
+        assert not scheduler.task_exceptions
+        assert not scheduler.stream_exceptions
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("scatter_error", "fails_workflow", "expected_refs"),
+    [
+        (
+            _activity_error_from(
+                ApplicationError(
+                    "Scatter collection is not iterable: <class 'int'>: 1",
+                    non_retryable=True,
+                ),
+                activity_type="handle_scatter_input_activity",
+            ),
+            False,
+            ["handle_error"],
+        ),
+        (
+            _activity_error_from(
+                ApplicationError(MATERIALIZE_CONTEXT_ERROR_MESSAGE, non_retryable=True),
+                activity_type="handle_scatter_input_activity",
+            ),
+            True,
+            [],
+        ),
+    ],
+    ids=["bad-collection-error", "context-materialization-error"],
+)
+async def test_scatter_input_error_classification(
+    scatter_error: Exception,
+    fails_workflow: bool,
+    expected_refs: list[str],
+) -> None:
+    executed_refs: list[str] = []
+
+    async def executor(action: ActionStatement) -> None:
+        executed_refs.append(action.ref)
+
+    scheduler = _make_scheduler(
+        ActionStatement(
+            ref="scatter",
+            action=PlatformAction.TRANSFORM_SCATTER,
+            args={"collection": "${{ 1 }}"},
+        ),
+        ActionStatement(
+            ref="handle_error",
+            action="core.noop",
+            depends_on=["scatter.error"],
+        ),
+        executor=executor,
+    )
+
+    with patch(
+        "tracecat.dsl.scheduler.workflow.execute_activity",
+        new=AsyncMock(side_effect=scatter_error),
+    ):
+        task_exceptions = await scheduler.start()
+
+    assert executed_refs == expected_refs
+    if fails_workflow:
+        assert task_exceptions is not None
+        assert "scatter" in task_exceptions
         assert not scheduler.stream_exceptions
     else:
         assert task_exceptions is None

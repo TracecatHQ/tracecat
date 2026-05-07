@@ -11,7 +11,7 @@ from temporalio import workflow
 from temporalio.exceptions import ActivityError
 
 from tracecat.auth.types import Role
-from tracecat.dsl.action import ScatterActionInput
+from tracecat.dsl.action import MATERIALIZE_CONTEXT_ERROR_MESSAGE, ScatterActionInput
 
 with workflow.unsafe.imports_passed_through():
     from pydantic_core import to_json
@@ -127,6 +127,13 @@ class _TaskExecutionError(Exception):
     def __init__(self, error: Exception) -> None:
         super().__init__(str(error))
         self.error = error
+
+
+def _is_context_materialization_error(error: Exception) -> bool:
+    return (
+        isinstance(error, ApplicationError)
+        and error.message == MATERIALIZE_CONTEXT_ERROR_MESSAGE
+    )
 
 
 class DSLScheduler:
@@ -1146,9 +1153,11 @@ class DSLScheduler:
                 retry_policy=RETRY_POLICIES["activity:fail_fast"],
             )
         except ActivityError as e:
-            match cause := e.cause:
-                case ApplicationError():
-                    raise cause from None
+            match e.cause:
+                case ApplicationError() as app_err:
+                    if _is_context_materialization_error(app_err):
+                        raise app_err from None
+                    raise _TaskExecutionError(app_err) from None
                 case _:
                     raise
 

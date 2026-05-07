@@ -67,6 +67,8 @@ from tracecat.validation.schemas import ValidationDetail
 
 _thread_local = threading.local()
 
+MATERIALIZE_CONTEXT_ERROR_MESSAGE = "Failed to materialize context"
+
 
 def _strip_string_values(args: dict[str, Any]) -> dict[str, Any]:
     """Strip leading/trailing whitespace from string values in args.
@@ -343,7 +345,7 @@ async def materialize_context(ctx: ExecutionContext) -> MaterializedExecutionCon
     except Exception as e:
         logger.warning("Error materializing context", error=e)
         raise ApplicationError(
-            "Failed to materialize context",
+            MATERIALIZE_CONTEXT_ERROR_MESSAGE,
             non_retryable=True,
         ) from e
 
