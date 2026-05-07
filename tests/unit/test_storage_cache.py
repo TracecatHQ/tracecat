@@ -108,31 +108,34 @@ class TestSizedMemoryCache:
         assert await cache.get("key2") is None  # Evicted (was LRU)
 
     @pytest.mark.anyio
-    async def test_ttl_expiry_syncs_tracking(self):
+    async def test_ttl_expiry_syncs_tracking(self, monkeypatch: pytest.MonkeyPatch):
         """Test that TTL expiry syncs size tracking on get."""
-        cache = SizedMemoryCache(max_bytes=1024, ttl=0.1)  # 100ms TTL
+        now = 100.0
+        monkeypatch.setattr("tracecat.storage.utils.time.monotonic", lambda: now)
+        cache = SizedMemoryCache(max_bytes=1024, ttl=0.1)
 
         await cache.set("key1", b"hello")
         assert cache.total_bytes == 5
 
-        # Wait for TTL to expire
-        await asyncio.sleep(0.15)
-
-        # Get should return None and sync tracking
+        now = 100.11
         result = await cache.get("key1")
         assert result is None
         assert cache.total_bytes == 0
         assert cache.item_count == 0
 
     @pytest.mark.anyio
-    async def test_set_purges_expired_entries_without_read(self):
+    async def test_set_purges_expired_entries_without_read(
+        self, monkeypatch: pytest.MonkeyPatch
+    ):
         """Test that writes purge expired entries before capacity accounting."""
-        cache = SizedMemoryCache(max_bytes=1024, ttl=0.1)  # 100ms TTL
+        now = 100.0
+        monkeypatch.setattr("tracecat.storage.utils.time.monotonic", lambda: now)
+        cache = SizedMemoryCache(max_bytes=1024, ttl=0.1)
 
         await cache.set("expired", b"hello")
         assert cache.total_bytes == 5
 
-        await asyncio.sleep(0.15)
+        now = 100.11
         await cache.set("fresh", b"world")
 
         assert cache.total_bytes == 5
@@ -140,16 +143,20 @@ class TestSizedMemoryCache:
         assert await cache.get("fresh") == b"world"
 
     @pytest.mark.anyio
-    async def test_set_purges_expired_mru_before_lru_eviction(self):
+    async def test_set_purges_expired_mru_before_lru_eviction(
+        self, monkeypatch: pytest.MonkeyPatch
+    ):
         """Test that expired MRU entries do not cause fresh LRU eviction."""
+        now = 100.0
+        monkeypatch.setattr("tracecat.storage.utils.time.monotonic", lambda: now)
         cache = SizedMemoryCache(max_bytes=100, ttl=0.2)
 
         await cache.set("expires_first", b"a" * 50)
-        await asyncio.sleep(0.05)
+        now = 100.05
         await cache.set("fresh_lru", b"b" * 40)
         assert await cache.get("expires_first") == b"a" * 50
 
-        await asyncio.sleep(0.17)
+        now = 100.21
         await cache.set("new", b"c" * 40)
 
         assert await cache.get("expires_first") is None
@@ -158,14 +165,18 @@ class TestSizedMemoryCache:
         assert cache.total_bytes == 80
 
     @pytest.mark.anyio
-    async def test_oversized_set_purges_expired_entries(self):
+    async def test_oversized_set_purges_expired_entries(
+        self, monkeypatch: pytest.MonkeyPatch
+    ):
         """Test that rejected writes still purge expired entries."""
+        now = 100.0
+        monkeypatch.setattr("tracecat.storage.utils.time.monotonic", lambda: now)
         cache = SizedMemoryCache(max_bytes=100, ttl=0.1)
 
         await cache.set("expired", b"a" * 50)
         assert cache.total_bytes == 50
 
-        await asyncio.sleep(0.15)
+        now = 100.11
         await cache.set("too_big", b"b" * 101)
 
         assert cache.total_bytes == 0
