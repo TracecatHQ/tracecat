@@ -3,6 +3,7 @@ from fastapi.exception_handlers import http_exception_handler as default_http_ha
 from fastapi.responses import ORJSONResponse
 from fastapi.routing import APIRoute
 from sqlalchemy import select
+from sqlalchemy.exc import DBAPIError, IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from temporalio.api.enums.v1 import IndexedValueType
 from temporalio.api.operatorservice.v1 import (
@@ -26,7 +27,47 @@ from tracecat.logger import logger
 from tracecat.workflow.executions.enums import TemporalSearchAttr
 
 
+def _exception_text(exc: Exception) -> str:
+    orig = getattr(exc, "orig", None)
+    if orig is None:
+        return str(exc)
+    return f"{exc} {orig}"
+
+
+def _known_database_error_response(request: Request, exc: Exception) -> Response | None:
+    if isinstance(exc, IntegrityError) and "uq_case_table_row_link" in _exception_text(
+        exc
+    ):
+        code = "CASE_ROW_ALREADY_LINKED"
+        message = "This table row is already linked to the case."
+        status_code = status.HTTP_409_CONFLICT
+    elif isinstance(exc, DBAPIError) and "expected str, got list" in _exception_text(
+        exc
+    ):
+        code = "DATABASE_VALUE_TYPE_MISMATCH"
+        message = "A field received a value with an incompatible type."
+        status_code = status.HTTP_422_UNPROCESSABLE_CONTENT
+    else:
+        return None
+
+    logger.warning(
+        "Known database error",
+        code=code,
+        status_code=status_code,
+        role=ctx_role.get(),
+        params=request.query_params,
+        path=request.url.path,
+    )
+    return ORJSONResponse(
+        status_code=status_code,
+        content={"detail": {"code": code, "message": message}},
+    )
+
+
 def generic_exception_handler(request: Request, exc: Exception) -> Response:
+    if response := _known_database_error_response(request, exc):
+        return response
+
     logger.error(
         "Unexpected error",
         exc=exc,
