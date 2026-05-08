@@ -86,6 +86,7 @@ async def run_agent(
     mcp_server_headers: dict[str, str] | None = None,
     mcp_servers: list[MCPServerConfig] | None = None,
     instructions: str | None = None,
+    allowed_tools: list[str] | None = None,
     output_type: OutputType | None = None,
     model_settings: dict[str, Any] | None = None,
     max_tool_calls: int = TRACECAT__AGENT_MAX_TOOL_CALLS,
@@ -157,6 +158,18 @@ async def run_agent(
     if max_requests > TRACECAT__AGENT_MAX_REQUESTS:
         raise ValueError(
             f"Cannot request more than {TRACECAT__AGENT_MAX_REQUESTS} requests"
+        )
+
+    if allowed_tools is not None:
+        # pydantic-ai does not have an implicit built-in toolset to
+        # filter — it only sees the tools explicitly registered on the
+        # agent. Honour the parameter at the API level so callers can
+        # set it without errors, but warn so it doesn't silently look
+        # like a no-op when callers expect the Claude SDK semantics.
+        logger.warning(
+            "allowed_tools is set but has no effect on the pydantic_ai "
+            "runtime (no implicit built-in toolset to filter)",
+            allowed_tools_count=len(allowed_tools),
         )
 
     start_time = default_timer()

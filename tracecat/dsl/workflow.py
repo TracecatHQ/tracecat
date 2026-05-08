@@ -40,6 +40,12 @@ with workflow.unsafe.imports_passed_through():
         ResolveAgentPresetVersionRefActivityInput,
         resolve_agent_preset_version_ref_activity,
     )
+    from tracecat.agent.provider.tool_cascade import resolve_allowed_tools
+    from tracecat.agent.provider.tool_overrides import (
+        CustomProviderToolsResult,
+        ResolveCustomProviderToolsInput,
+        resolve_custom_provider_tools_activity,
+    )
     from tracecat.agent.schemas import RunAgentArgs
     from tracecat.agent.session.types import AgentSessionEntity
     from tracecat.agent.types import AgentConfig
@@ -1027,6 +1033,51 @@ class DSLWorkflow:
                         start_to_close_timeout=timedelta(seconds=60),
                         retry_policy=RETRY_POLICIES["activity:fail_fast"],
                     )
+                    # Resolve source-level tools allowlist if a catalog row
+                    # backs this invocation. Best-effort: the activity
+                    # swallows DB failures internally, and we wrap the
+                    # ``execute_activity`` call too so a Temporal-level
+                    # failure (timeout, worker death) also falls back to
+                    # the SDK default toolset rather than aborting the run.
+                    source_tools = CustomProviderToolsResult()
+                    if action_args.catalog_id is not None:
+                        try:
+                            source_tools = await workflow.execute_activity(
+                                resolve_custom_provider_tools_activity,
+                                arg=ResolveCustomProviderToolsInput(
+                                    role=self.role,
+                                    catalog_id=action_args.catalog_id,
+                                ),
+                                start_to_close_timeout=timedelta(seconds=10),
+                                retry_policy=RETRY_POLICIES["activity:fail_fast"],
+                            )
+                        except (ActivityError, ApplicationError) as exc:
+                            self.logger.warning(
+                                "Custom provider tools activity failed; "
+                                "falling back to SDK default toolset",
+                                catalog_id=str(action_args.catalog_id),
+                                error=str(exc),
+                            )
+                    # Cascade: action overrides win over source overrides.
+                    # Action-level field is read defensively via ``getattr``
+                    # because ``AgentActionArgs`` (defined in the EE schema
+                    # module) does not yet expose it. When EE adds the
+                    # field, this code starts honouring it with no further
+                    # change.
+                    resolved_tools = resolve_allowed_tools(
+                        source_value=source_tools.allowed_tools,
+                        action_value=getattr(action_args, "allowed_tools", None),
+                    )
+                    self.logger.info(
+                        "Resolved agent allowed_tools",
+                        catalog_id=str(action_args.catalog_id)
+                        if action_args.catalog_id
+                        else None,
+                        allowed_tools_source=resolved_tools.source,
+                        allowed_tools_count=len(resolved_tools.allowed_tools)
+                        if resolved_tools.allowed_tools is not None
+                        else None,
+                    )
                     wf_info = workflow.info()
                     child_search_attributes = _build_agent_child_search_attributes(
                         wf_info, task.ref
@@ -1042,6 +1093,7 @@ class DSLWorkflow:
                                 model_provider=action_args.model_provider,
                                 catalog_id=action_args.catalog_id,
                                 instructions=action_args.instructions,
+                                allowed_tools=resolved_tools.allowed_tools,
                                 output_type=action_args.output_type,
                                 model_settings=action_args.model_settings,
                                 retries=action_args.retries,

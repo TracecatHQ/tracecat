@@ -28,6 +28,14 @@ class AgentCustomProviderCreate(BaseModel):
     api_key_header: str | None = Field(default=None, max_length=120)
     api_key: str | None = Field(default=None)
     custom_headers: dict[str, str] | None = Field(default=None)
+    allowed_tools: list[str] | None = Field(default=None)
+    """Optional whitelist of Claude SDK built-in tools the runtime is
+    allowed to enable for ``ai.action`` invocations using this source.
+    ``None`` keeps the SDK default (full toolset). An empty list ``[]``
+    disables all built-in tools — useful for upstream backends that do
+    not have access to the SDK's host environment (Bash, Read, Edit,
+    etc. cannot run on a remote LLM endpoint anyway). A specific list
+    such as ``["Read", "Grep"]`` whitelists those tool names only."""
 
     @field_validator("base_url")
     @classmethod
@@ -47,6 +55,7 @@ class AgentCustomProviderRead(BaseModel):
     passthrough: bool
     api_key_header: str | None
     last_refreshed_at: datetime | None
+    allowed_tools: list[str] | None = None
 
 
 class AgentCustomProviderUpdate(BaseModel):
@@ -58,6 +67,7 @@ class AgentCustomProviderUpdate(BaseModel):
     api_key_header: str | None = Field(default=None, max_length=120)
     api_key: str | None = None
     custom_headers: dict[str, str] | None = None
+    allowed_tools: list[str] | None = None
 
     @field_validator("base_url")
     @classmethod

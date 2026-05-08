@@ -130,6 +130,12 @@ class AgentConfig:
     actions: list[str] | None = None
     namespaces: list[str] | None = None
     tool_approvals: dict[str, bool] | None = None
+    allowed_tools: list[str] | None = None
+    """Optional whitelist of Claude SDK built-in tools the runtime should
+    enable. ``None`` keeps the SDK default (full toolset). An empty list
+    disables all built-ins. A specific list whitelists those names only.
+    Already cascade-resolved by the DSL layer (action override > custom
+    source default > None)."""
     # MCP
     model_settings: dict[str, Any] | None = None
     mcp_servers: list[MCPServerConfig] | None = None

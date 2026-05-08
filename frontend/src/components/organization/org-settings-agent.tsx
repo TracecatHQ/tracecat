@@ -114,6 +114,8 @@ const customProviderSchema = z
     apiKey: z.string().optional(),
     customHeadersJson: z.string().optional(),
     passthrough: z.boolean(),
+    allowedToolsMode: z.enum(["default", "disable_all", "whitelist"]),
+    allowedToolsList: z.string().optional(),
   })
   .superRefine((value, ctx) => {
     const raw = value.customHeadersJson?.trim()
@@ -159,6 +161,8 @@ const DEFAULT_CUSTOM_PROVIDER_VALUES: CustomProviderFormValues = {
   apiKey: "",
   customHeadersJson: "",
   passthrough: false,
+  allowedToolsMode: "default",
+  allowedToolsList: "",
 }
 
 const CLOUD_CATALOG_PROVIDERS = [
@@ -698,12 +702,45 @@ function ProviderMetaPill({
   )
 }
 
+function allowedToolsToFormState(
+  allowedTools: readonly string[] | null | undefined
+): {
+  mode: "default" | "disable_all" | "whitelist"
+  list: string
+} {
+  if (allowedTools == null) {
+    return { mode: "default", list: "" }
+  }
+  if (allowedTools.length === 0) {
+    return { mode: "disable_all", list: "" }
+  }
+  return { mode: "whitelist", list: allowedTools.join(", ") }
+}
+
+function allowedToolsFromFormState(
+  mode: "default" | "disable_all" | "whitelist",
+  list: string | undefined
+): string[] | null {
+  if (mode === "default") {
+    return null
+  }
+  if (mode === "disable_all") {
+    return []
+  }
+  // whitelist: split CSV, trim, drop empties
+  return (list ?? "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0)
+}
+
 function getProviderDialogDefaults(
   provider: AgentCustomProviderRead | null
 ): CustomProviderFormValues {
   if (!provider) {
     return DEFAULT_CUSTOM_PROVIDER_VALUES
   }
+  const tools = allowedToolsToFormState(provider.allowed_tools)
   return {
     displayName: provider.display_name,
     baseUrl: provider.base_url ?? "",
@@ -711,6 +748,8 @@ function getProviderDialogDefaults(
     apiKey: "",
     customHeadersJson: "",
     passthrough: provider.passthrough,
+    allowedToolsMode: tools.mode,
+    allowedToolsList: tools.list,
   }
 }
 
@@ -724,6 +763,10 @@ function buildProviderCreatePayload(
     api_key: normalizeOptional(values.apiKey),
     custom_headers: parseCustomHeaders(values.customHeadersJson),
     passthrough: values.passthrough,
+    allowed_tools: allowedToolsFromFormState(
+      values.allowedToolsMode,
+      values.allowedToolsList
+    ),
   }
 }
 
@@ -735,6 +778,10 @@ function buildProviderUpdatePayload(
     base_url: normalizeOptional(values.baseUrl),
     api_key_header: normalizeOptional(values.apiKeyHeader),
     passthrough: values.passthrough,
+    allowed_tools: allowedToolsFromFormState(
+      values.allowedToolsMode,
+      values.allowedToolsList
+    ),
   }
 
   const apiKey = normalizeOptional(values.apiKey)
@@ -889,7 +936,7 @@ function CustomProviderDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[560px]">
+      <DialogContent className="flex max-h-[90vh] flex-col sm:max-w-[560px]">
         <DialogHeader>
           <DialogTitle>
             {provider ? "Edit custom source" : "Add custom source"}
@@ -903,35 +950,77 @@ function CustomProviderDialog({
         <Form {...form}>
           <form
             onSubmit={form.handleSubmit(handleSubmit)}
-            className="space-y-4"
+            className="flex min-h-0 flex-1 flex-col"
           >
-            <FormField
-              control={form.control}
-              name="displayName"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Name</FormLabel>
-                  <FormControl>
-                    <Input {...field} placeholder="Local gateway" />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            <div className="grid gap-4 sm:grid-cols-2">
+            <div className="-mx-1 min-h-0 flex-1 space-y-4 overflow-y-auto px-1 pb-2">
               <FormField
                 control={form.control}
-                name="baseUrl"
+                name="displayName"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Base URL</FormLabel>
+                    <FormLabel>Name</FormLabel>
+                    <FormControl>
+                      <Input {...field} placeholder="Local gateway" />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <div className="grid gap-4 sm:grid-cols-2">
+                <FormField
+                  control={form.control}
+                  name="baseUrl"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Base URL</FormLabel>
+                      <FormControl>
+                        <Input
+                          {...field}
+                          placeholder="http://localhost:11434/v1"
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <FormField
+                  control={form.control}
+                  name="apiKeyHeader"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>API key header</FormLabel>
+                      <FormControl>
+                        <Input {...field} placeholder="Authorization" />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
+
+              <FormField
+                control={form.control}
+                name="apiKey"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>API key</FormLabel>
                     <FormControl>
                       <Input
                         {...field}
-                        placeholder="http://localhost:11434/v1"
+                        type="password"
+                        placeholder={
+                          provider
+                            ? "Leave blank to keep the current saved key"
+                            : "Optional"
+                        }
                       />
                     </FormControl>
+                    <FormDescription>
+                      Stored encrypted. Leave blank while editing to keep the
+                      current value.
+                    </FormDescription>
                     <FormMessage />
                   </FormItem>
                 )}
@@ -939,90 +1028,114 @@ function CustomProviderDialog({
 
               <FormField
                 control={form.control}
-                name="apiKeyHeader"
+                name="customHeadersJson"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>API key header</FormLabel>
+                    <FormLabel>Custom headers JSON</FormLabel>
                     <FormControl>
-                      <Input {...field} placeholder="Authorization" />
+                      <Textarea
+                        {...field}
+                        className="min-h-28 font-mono text-xs"
+                        placeholder='{"X-API-Key":"value"}'
+                      />
                     </FormControl>
+                    <FormDescription>
+                      Optional JSON object of static headers. Saving new JSON
+                      while editing replaces the saved value.
+                    </FormDescription>
                     <FormMessage />
                   </FormItem>
                 )}
               />
+
+              <FormField
+                control={form.control}
+                name="passthrough"
+                render={({ field }) => (
+                  <FormItem className="flex items-center justify-between gap-4 rounded-md border p-3">
+                    <div className="space-y-1">
+                      <FormLabel className="text-sm">
+                        Passthrough mode
+                      </FormLabel>
+                      <FormDescription>
+                        Skip gateway transforms and forward requests directly to
+                        the upstream endpoint.
+                      </FormDescription>
+                    </div>
+                    <FormControl>
+                      <Switch
+                        checked={field.value}
+                        onCheckedChange={field.onChange}
+                      />
+                    </FormControl>
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name="allowedToolsMode"
+                render={({ field }) => (
+                  <FormItem className="space-y-2 rounded-md border p-3">
+                    <div className="space-y-1">
+                      <FormLabel className="text-sm">
+                        Built-in tools (Claude SDK)
+                      </FormLabel>
+                      <FormDescription>
+                        Controls which Claude SDK built-in tools (Bash, Read,
+                        Edit, …) the runtime exposes for `ai.action` invocations
+                        using this source. Disabling them removes ~96 % of the
+                        per-call token overhead for backends that cannot execute
+                        these tools anyway.
+                      </FormDescription>
+                    </div>
+                    <FormControl>
+                      <Select
+                        value={field.value}
+                        onValueChange={field.onChange}
+                      >
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="default">
+                            Default (full SDK toolset)
+                          </SelectItem>
+                          <SelectItem value="disable_all">
+                            Disable all built-in tools
+                          </SelectItem>
+                          <SelectItem value="whitelist">
+                            Whitelist specific tools
+                          </SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </FormControl>
+                  </FormItem>
+                )}
+              />
+
+              {form.watch("allowedToolsMode") === "whitelist" ? (
+                <FormField
+                  control={form.control}
+                  name="allowedToolsList"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Allowed tools</FormLabel>
+                      <FormControl>
+                        <Input placeholder="Bash, Read, Edit" {...field} />
+                      </FormControl>
+                      <FormDescription>
+                        Comma-separated list of Claude SDK built-in tool names.
+                        Empty list with whitelist mode behaves like disable all.
+                      </FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              ) : null}
             </div>
 
-            <FormField
-              control={form.control}
-              name="apiKey"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>API key</FormLabel>
-                  <FormControl>
-                    <Input
-                      {...field}
-                      type="password"
-                      placeholder={
-                        provider
-                          ? "Leave blank to keep the current saved key"
-                          : "Optional"
-                      }
-                    />
-                  </FormControl>
-                  <FormDescription>
-                    Stored encrypted. Leave blank while editing to keep the
-                    current value.
-                  </FormDescription>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            <FormField
-              control={form.control}
-              name="customHeadersJson"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Custom headers JSON</FormLabel>
-                  <FormControl>
-                    <Textarea
-                      {...field}
-                      className="min-h-28 font-mono text-xs"
-                      placeholder='{"X-API-Key":"value"}'
-                    />
-                  </FormControl>
-                  <FormDescription>
-                    Optional JSON object of static headers. Saving new JSON
-                    while editing replaces the saved value.
-                  </FormDescription>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            <FormField
-              control={form.control}
-              name="passthrough"
-              render={({ field }) => (
-                <FormItem className="flex items-center justify-between gap-4 rounded-md border p-3">
-                  <div className="space-y-1">
-                    <FormLabel className="text-sm">Passthrough mode</FormLabel>
-                    <FormDescription>
-                      Skip gateway transforms and forward requests directly to
-                      the upstream endpoint.
-                    </FormDescription>
-                  </div>
-                  <FormControl>
-                    <Switch
-                      checked={field.value}
-                      onCheckedChange={field.onChange}
-                    />
-                  </FormControl>
-                </FormItem>
-              )}
-            />
-
-            <DialogFooter className="gap-2 sm:gap-0">
+            <DialogFooter className="gap-2 pt-4 sm:gap-0">
               <Button
                 type="button"
                 variant="outline"

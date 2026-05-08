@@ -283,6 +283,7 @@ class AgentConfigSchema(BaseModel):
     actions: list[str] | None = None
     namespaces: list[str] | None = None
     tool_approvals: dict[str, bool] | None = None
+    allowed_tools: list[str] | None = None
     model_settings: dict[str, Any] | None = None
     mcp_servers: list[MCPServerConfigSchema] | None = None
     retries: int = Field(default=20)

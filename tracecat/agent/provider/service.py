@@ -91,6 +91,7 @@ class AgentCustomProviderService(BaseOrgService):
             passthrough=provider.passthrough,
             api_key_header=provider.api_key_header,
             encrypted_config=encrypted_config,
+            allowed_tools=provider.allowed_tools,
         )
         self.session.add(model)
         await self.session.commit()

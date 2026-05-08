@@ -2643,6 +2643,7 @@ class AgentCustomProvider(OrganizationModel):
     last_refreshed_at: Mapped[datetime | None] = mapped_column(
         TIMESTAMP(timezone=True), nullable=True
     )
+    allowed_tools: Mapped[list[str] | None] = mapped_column(JSONB, nullable=True)
 
     catalog_rows: Mapped[list[AgentCatalog]] = relationship(
         "AgentCatalog",
