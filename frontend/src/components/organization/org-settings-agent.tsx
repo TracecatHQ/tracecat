@@ -114,6 +114,8 @@ const customProviderSchema = z
     apiKey: z.string().optional(),
     customHeadersJson: z.string().optional(),
     passthrough: z.boolean(),
+    systemPromptReplace: z.string().optional(),
+    systemPromptAppend: z.string().optional(),
   })
   .superRefine((value, ctx) => {
     const raw = value.customHeadersJson?.trim()
@@ -159,6 +161,8 @@ const DEFAULT_CUSTOM_PROVIDER_VALUES: CustomProviderFormValues = {
   apiKey: "",
   customHeadersJson: "",
   passthrough: false,
+  systemPromptReplace: "",
+  systemPromptAppend: "",
 }
 
 const CLOUD_CATALOG_PROVIDERS = [
@@ -711,6 +715,8 @@ function getProviderDialogDefaults(
     apiKey: "",
     customHeadersJson: "",
     passthrough: provider.passthrough,
+    systemPromptReplace: provider.system_prompt_replace ?? "",
+    systemPromptAppend: provider.system_prompt_append ?? "",
   }
 }
 
@@ -724,6 +730,8 @@ function buildProviderCreatePayload(
     api_key: normalizeOptional(values.apiKey),
     custom_headers: parseCustomHeaders(values.customHeadersJson),
     passthrough: values.passthrough,
+    system_prompt_replace: normalizeOptional(values.systemPromptReplace),
+    system_prompt_append: normalizeOptional(values.systemPromptAppend),
   }
 }
 
@@ -735,6 +743,8 @@ function buildProviderUpdatePayload(
     base_url: normalizeOptional(values.baseUrl),
     api_key_header: normalizeOptional(values.apiKeyHeader),
     passthrough: values.passthrough,
+    system_prompt_replace: normalizeOptional(values.systemPromptReplace),
+    system_prompt_append: normalizeOptional(values.systemPromptAppend),
   }
 
   const apiKey = normalizeOptional(values.apiKey)
@@ -889,7 +899,7 @@ function CustomProviderDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[560px]">
+      <DialogContent className="flex max-h-[90vh] flex-col sm:max-w-[560px]">
         <DialogHeader>
           <DialogTitle>
             {provider ? "Edit custom source" : "Add custom source"}
@@ -903,35 +913,77 @@ function CustomProviderDialog({
         <Form {...form}>
           <form
             onSubmit={form.handleSubmit(handleSubmit)}
-            className="space-y-4"
+            className="flex min-h-0 flex-1 flex-col"
           >
-            <FormField
-              control={form.control}
-              name="displayName"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Name</FormLabel>
-                  <FormControl>
-                    <Input {...field} placeholder="Local gateway" />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            <div className="grid gap-4 sm:grid-cols-2">
+            <div className="-mx-1 min-h-0 flex-1 space-y-4 overflow-y-auto px-1 pb-2">
               <FormField
                 control={form.control}
-                name="baseUrl"
+                name="displayName"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Base URL</FormLabel>
+                    <FormLabel>Name</FormLabel>
+                    <FormControl>
+                      <Input {...field} placeholder="Local gateway" />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <div className="grid gap-4 sm:grid-cols-2">
+                <FormField
+                  control={form.control}
+                  name="baseUrl"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Base URL</FormLabel>
+                      <FormControl>
+                        <Input
+                          {...field}
+                          placeholder="http://localhost:11434/v1"
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <FormField
+                  control={form.control}
+                  name="apiKeyHeader"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>API key header</FormLabel>
+                      <FormControl>
+                        <Input {...field} placeholder="Authorization" />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
+
+              <FormField
+                control={form.control}
+                name="apiKey"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>API key</FormLabel>
                     <FormControl>
                       <Input
                         {...field}
-                        placeholder="http://localhost:11434/v1"
+                        type="password"
+                        placeholder={
+                          provider
+                            ? "Leave blank to keep the current saved key"
+                            : "Optional"
+                        }
                       />
                     </FormControl>
+                    <FormDescription>
+                      Stored encrypted. Leave blank while editing to keep the
+                      current value.
+                    </FormDescription>
                     <FormMessage />
                   </FormItem>
                 )}
@@ -939,90 +991,96 @@ function CustomProviderDialog({
 
               <FormField
                 control={form.control}
-                name="apiKeyHeader"
+                name="customHeadersJson"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>API key header</FormLabel>
+                    <FormLabel>Custom headers JSON</FormLabel>
                     <FormControl>
-                      <Input {...field} placeholder="Authorization" />
+                      <Textarea
+                        {...field}
+                        className="min-h-28 font-mono text-xs"
+                        placeholder='{"X-API-Key":"value"}'
+                      />
                     </FormControl>
+                    <FormDescription>
+                      Optional JSON object of static headers. Saving new JSON
+                      while editing replaces the saved value.
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name="passthrough"
+                render={({ field }) => (
+                  <FormItem className="flex items-center justify-between gap-4 rounded-md border p-3">
+                    <div className="space-y-1">
+                      <FormLabel className="text-sm">
+                        Passthrough mode
+                      </FormLabel>
+                      <FormDescription>
+                        Skip gateway transforms and forward requests directly to
+                        the upstream endpoint.
+                      </FormDescription>
+                    </div>
+                    <FormControl>
+                      <Switch
+                        checked={field.value}
+                        onCheckedChange={field.onChange}
+                      />
+                    </FormControl>
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name="systemPromptReplace"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>System prompt replace</FormLabel>
+                    <FormControl>
+                      <Textarea
+                        placeholder="Replace the Tracecat baseline system prompt entirely. Leave empty to keep the default."
+                        className="min-h-[80px]"
+                        {...field}
+                      />
+                    </FormControl>
+                    <FormDescription>
+                      When set, replaces the default Tracecat baseline. An empty
+                      value keeps the default.
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name="systemPromptAppend"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>System prompt append</FormLabel>
+                    <FormControl>
+                      <Textarea
+                        placeholder="Appended after the resolved baseline."
+                        className="min-h-[80px]"
+                        {...field}
+                      />
+                    </FormControl>
+                    <FormDescription>
+                      Cumulates with any per-action append, separated by a blank
+                      line.
+                    </FormDescription>
                     <FormMessage />
                   </FormItem>
                 )}
               />
             </div>
 
-            <FormField
-              control={form.control}
-              name="apiKey"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>API key</FormLabel>
-                  <FormControl>
-                    <Input
-                      {...field}
-                      type="password"
-                      placeholder={
-                        provider
-                          ? "Leave blank to keep the current saved key"
-                          : "Optional"
-                      }
-                    />
-                  </FormControl>
-                  <FormDescription>
-                    Stored encrypted. Leave blank while editing to keep the
-                    current value.
-                  </FormDescription>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            <FormField
-              control={form.control}
-              name="customHeadersJson"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Custom headers JSON</FormLabel>
-                  <FormControl>
-                    <Textarea
-                      {...field}
-                      className="min-h-28 font-mono text-xs"
-                      placeholder='{"X-API-Key":"value"}'
-                    />
-                  </FormControl>
-                  <FormDescription>
-                    Optional JSON object of static headers. Saving new JSON
-                    while editing replaces the saved value.
-                  </FormDescription>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            <FormField
-              control={form.control}
-              name="passthrough"
-              render={({ field }) => (
-                <FormItem className="flex items-center justify-between gap-4 rounded-md border p-3">
-                  <div className="space-y-1">
-                    <FormLabel className="text-sm">Passthrough mode</FormLabel>
-                    <FormDescription>
-                      Skip gateway transforms and forward requests directly to
-                      the upstream endpoint.
-                    </FormDescription>
-                  </div>
-                  <FormControl>
-                    <Switch
-                      checked={field.value}
-                      onCheckedChange={field.onChange}
-                    />
-                  </FormControl>
-                </FormItem>
-              )}
-            />
-
-            <DialogFooter className="gap-2 sm:gap-0">
+            <DialogFooter className="gap-2 pt-4 sm:gap-0">
               <Button
                 type="button"
                 variant="outline"

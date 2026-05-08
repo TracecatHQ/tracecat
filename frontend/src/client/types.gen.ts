@@ -405,6 +405,8 @@ export type AgentCustomProviderCreate = {
   custom_headers?: {
     [key: string]: string
   } | null
+  system_prompt_replace?: string | null
+  system_prompt_append?: string | null
 }
 
 /**
@@ -426,6 +428,8 @@ export type AgentCustomProviderRead = {
   passthrough: boolean
   api_key_header: string | null
   last_refreshed_at: string | null
+  system_prompt_replace?: string | null
+  system_prompt_append?: string | null
 }
 
 /**
@@ -440,6 +444,8 @@ export type AgentCustomProviderUpdate = {
   custom_headers?: {
     [key: string]: string
   } | null
+  system_prompt_replace?: string | null
+  system_prompt_append?: string | null
 }
 
 export type AgentModel = {
