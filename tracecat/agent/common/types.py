@@ -109,6 +109,13 @@ class SandboxAgentConfig:
 
     # Agent
     instructions: str | None = None
+    system_prompt_replace: str | None = None
+    """When set, replaces the default Tracecat baseline system prompt
+    entirely. Already cascade-resolved by the DSL layer (action override
+    > custom-source default > None)."""
+    system_prompt_append: str | None = None
+    """When set, appended after the resolved system prompt. Already
+    cumulates custom-source and action contributions."""
 
     # Tools
     tool_approvals: dict[str, bool] | None = None
@@ -137,6 +144,8 @@ class SandboxAgentConfig:
             base_url=data.get("base_url"),
             passthrough=data.get("passthrough", False),
             instructions=data.get("instructions"),
+            system_prompt_replace=data.get("system_prompt_replace"),
+            system_prompt_append=data.get("system_prompt_append"),
             tool_approvals=data.get("tool_approvals"),
             mcp_servers=data.get("mcp_servers"),
             output_type=data.get("output_type"),
@@ -159,6 +168,8 @@ class SandboxAgentConfig:
             base_url=config.base_url,
             passthrough=getattr(config, "passthrough", False),
             instructions=config.instructions,
+            system_prompt_replace=getattr(config, "system_prompt_replace", None),
+            system_prompt_append=getattr(config, "system_prompt_append", None),
             tool_approvals=config.tool_approvals,
             mcp_servers=config.mcp_servers,
             output_type=config.output_type,
@@ -177,6 +188,10 @@ class SandboxAgentConfig:
         result["passthrough"] = self.passthrough
         if self.instructions is not None:
             result["instructions"] = self.instructions
+        if self.system_prompt_replace is not None:
+            result["system_prompt_replace"] = self.system_prompt_replace
+        if self.system_prompt_append is not None:
+            result["system_prompt_append"] = self.system_prompt_append
         if self.tool_approvals is not None:
             result["tool_approvals"] = self.tool_approvals
         if self.mcp_servers is not None:

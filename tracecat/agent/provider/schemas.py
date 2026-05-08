@@ -28,6 +28,13 @@ class AgentCustomProviderCreate(BaseModel):
     api_key_header: str | None = Field(default=None, max_length=120)
     api_key: str | None = Field(default=None)
     custom_headers: dict[str, str] | None = Field(default=None)
+    system_prompt_replace: str | None = Field(default=None)
+    """Replace the default Tracecat system prompt with this string. ``None``
+    keeps the default Tracecat baseline. Action-level overrides take
+    precedence over this value."""
+    system_prompt_append: str | None = Field(default=None)
+    """Append this string to the resolved system prompt. Cumulates with any
+    action-level append."""
 
     @field_validator("base_url")
     @classmethod
@@ -47,6 +54,8 @@ class AgentCustomProviderRead(BaseModel):
     passthrough: bool
     api_key_header: str | None
     last_refreshed_at: datetime | None
+    system_prompt_replace: str | None = None
+    system_prompt_append: str | None = None
 
 
 class AgentCustomProviderUpdate(BaseModel):
@@ -58,6 +67,8 @@ class AgentCustomProviderUpdate(BaseModel):
     api_key_header: str | None = Field(default=None, max_length=120)
     api_key: str | None = None
     custom_headers: dict[str, str] | None = None
+    system_prompt_replace: str | None = None
+    system_prompt_append: str | None = None
 
     @field_validator("base_url")
     @classmethod

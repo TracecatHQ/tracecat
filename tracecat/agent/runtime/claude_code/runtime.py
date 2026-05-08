@@ -700,10 +700,38 @@ class ClaudeAgentRuntime:
         return {"continue_": False, "stopReason": reason}
 
     def _build_system_prompt(
-        self, instructions: str | None, output_type: str | dict[str, Any] | None = None
+        self,
+        instructions: str | None,
+        output_type: str | dict[str, Any] | None = None,
+        system_prompt_replace: str | None = None,
+        system_prompt_append: str | None = None,
     ) -> str:
-        """Build the system prompt for the agent."""
-        base = "If asked about your identity, you are a Tracecat automation assistant."
+        """Build the system prompt for the agent.
+
+        Resolution order (most-specific wins for ``replace``, all
+        ``append`` contributions are concatenated):
+
+        1. ``system_prompt_replace`` (already cascade-resolved by the DSL
+           layer): when not ``None``, replaces the default Tracecat
+           baseline entirely.
+        2. ``output_type`` structured-output instruction: appended only
+           when an output type is configured.
+        3. ``system_prompt_append`` (already cascade-resolved): appended
+           after the baseline / replacement.
+        4. Legacy ``instructions``: appended last for backward
+           compatibility with the existing field on ``ai.action``.
+
+        ``system_prompt_replace`` and ``system_prompt_append`` are passed
+        through unchanged to the SDK's ``--system-prompt`` flag, so an
+        empty-string ``replace`` value is honoured as an explicit
+        no-baseline mode.
+        """
+        if system_prompt_replace is not None:
+            base = system_prompt_replace
+        else:
+            base = (
+                "If asked about your identity, you are a Tracecat automation assistant."
+            )
 
         # Only include structured output instruction if output_type is configured (not None)
         if output_type is not None:
@@ -713,7 +741,11 @@ class ClaudeAgentRuntime:
                 " after the structured output. This applies to every response, not just the first one."
             )
 
-        return f"{base}\n\n{instructions}" if instructions else base
+        if system_prompt_append:
+            base = f"{base}\n\n{system_prompt_append}"
+        if instructions:
+            base = f"{base}\n\n{instructions}"
+        return base
 
     async def run(self, payload: RuntimeInitPayload) -> None:
         """Run an agent with the given initialization payload.
@@ -863,7 +895,10 @@ class ClaudeAgentRuntime:
                     passthrough=payload.config.passthrough,
                 ),
                 system_prompt=self._build_system_prompt(
-                    payload.config.instructions, payload.config.output_type
+                    payload.config.instructions,
+                    payload.config.output_type,
+                    system_prompt_replace=payload.config.system_prompt_replace,
+                    system_prompt_append=payload.config.system_prompt_append,
                 ),
                 mcp_servers=mcp_servers,
                 disallowed_tools=disallowed_tools,

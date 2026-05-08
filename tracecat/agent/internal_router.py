@@ -153,6 +153,8 @@ async def run_agent_endpoint(
                 tool_approvals=config.tool_approvals,
                 mcp_servers=mcp_servers,
                 instructions=config.instructions,
+                system_prompt_replace=getattr(config, "system_prompt_replace", None),
+                system_prompt_append=getattr(config, "system_prompt_append", None),
                 output_type=_normalize_output_type(config.output_type),
                 model_settings=config.model_settings,
                 max_tool_calls=params.max_tool_calls or 40,

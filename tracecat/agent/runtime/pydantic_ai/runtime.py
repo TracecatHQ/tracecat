@@ -86,6 +86,8 @@ async def run_agent(
     mcp_server_headers: dict[str, str] | None = None,
     mcp_servers: list[MCPServerConfig] | None = None,
     instructions: str | None = None,
+    system_prompt_replace: str | None = None,
+    system_prompt_append: str | None = None,
     output_type: OutputType | None = None,
     model_settings: dict[str, Any] | None = None,
     max_tool_calls: int = TRACECAT__AGENT_MAX_TOOL_CALLS,
@@ -183,6 +185,22 @@ async def run_agent(
             }
             mcp_servers.append(legacy_mcp_server)
 
+        # pydantic-ai exposes a single ``instructions`` kwarg (no implicit
+        # baseline). Collapse the three potential contributors into one
+        # string in cascade order: replace wins as the baseline, then
+        # appended legacy ``instructions``, then explicit ``append``.
+        resolved_instructions: str | None
+        if system_prompt_replace is not None:
+            resolved_instructions = system_prompt_replace
+        else:
+            resolved_instructions = instructions
+        if system_prompt_append:
+            resolved_instructions = (
+                f"{resolved_instructions}\n\n{system_prompt_append}"
+                if resolved_instructions
+                else system_prompt_append
+            )
+
         args = RunAgentArgs(
             user_prompt=user_prompt,
             session_id=session_id,
@@ -190,7 +208,7 @@ async def run_agent(
                 model_name=model_name,
                 model_provider=model_provider,
                 base_url=base_url,
-                instructions=instructions,
+                instructions=resolved_instructions,
                 output_type=output_type,
                 model_settings=model_settings,
                 retries=retries,

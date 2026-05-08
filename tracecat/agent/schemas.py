@@ -279,6 +279,8 @@ class AgentConfigSchema(BaseModel):
     catalog_id: uuid.UUID | None = None
     base_url: str | None = None
     instructions: str | None = None
+    system_prompt_replace: str | None = None
+    system_prompt_append: str | None = None
     output_type: Any | None = None
     actions: list[str] | None = None
     namespaces: list[str] | None = None

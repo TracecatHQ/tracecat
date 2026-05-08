@@ -40,6 +40,11 @@ with workflow.unsafe.imports_passed_through():
         ResolveAgentPresetVersionRefActivityInput,
         resolve_agent_preset_version_ref_activity,
     )
+    from tracecat.agent.provider.activities import (
+        CustomProviderOverridesResult,
+        ResolveCustomProviderOverridesInput,
+        resolve_custom_provider_overrides_activity,
+    )
     from tracecat.agent.schemas import RunAgentArgs
     from tracecat.agent.session.types import AgentSessionEntity
     from tracecat.agent.types import AgentConfig
@@ -1027,6 +1032,58 @@ class DSLWorkflow:
                         start_to_close_timeout=timedelta(seconds=60),
                         retry_policy=RETRY_POLICIES["activity:fail_fast"],
                     )
+                    # Resolve source-level system prompt overrides if a catalog
+                    # row backs this invocation. The activity gracefully returns
+                    # empty results for non-custom-provider catalog entries, so
+                    # we never block on a benign miss.
+                    source_overrides = CustomProviderOverridesResult()
+                    if action_args.catalog_id is not None:
+                        source_overrides = await workflow.execute_activity(
+                            resolve_custom_provider_overrides_activity,
+                            arg=ResolveCustomProviderOverridesInput(
+                                role=self.role,
+                                catalog_id=action_args.catalog_id,
+                            ),
+                            start_to_close_timeout=timedelta(seconds=10),
+                            retry_policy=RETRY_POLICIES["activity:fail_fast"],
+                        )
+                    # Cascade: action overrides win over source overrides.
+                    # Action-level fields are read defensively via ``getattr``
+                    # because ``AgentActionArgs`` (defined in the EE schema
+                    # module) does not yet expose them. When EE adds the two
+                    # fields, this code starts honouring them with no further
+                    # change.
+                    action_replace = getattr(action_args, "system_prompt_replace", None)
+                    action_append = getattr(action_args, "system_prompt_append", None)
+                    resolved_replace = (
+                        action_replace
+                        if action_replace is not None
+                        else source_overrides.system_prompt_replace
+                    )
+                    append_parts: list[str] = []
+                    if source_overrides.system_prompt_append:
+                        append_parts.append(source_overrides.system_prompt_append)
+                    if action_append:
+                        append_parts.append(action_append)
+                    resolved_append = (
+                        "\n\n".join(append_parts) if append_parts else None
+                    )
+                    self.logger.info(
+                        "Resolved agent system prompt overrides",
+                        catalog_id=str(action_args.catalog_id)
+                        if action_args.catalog_id
+                        else None,
+                        system_prompt_replace_source=(
+                            "action"
+                            if action_replace is not None
+                            else (
+                                "source"
+                                if source_overrides.system_prompt_replace is not None
+                                else "default"
+                            )
+                        ),
+                        system_prompt_append_count=len(append_parts),
+                    )
                     wf_info = workflow.info()
                     child_search_attributes = _build_agent_child_search_attributes(
                         wf_info, task.ref
@@ -1042,6 +1099,8 @@ class DSLWorkflow:
                                 model_provider=action_args.model_provider,
                                 catalog_id=action_args.catalog_id,
                                 instructions=action_args.instructions,
+                                system_prompt_replace=resolved_replace,
+                                system_prompt_append=resolved_append,
                                 output_type=action_args.output_type,
                                 model_settings=action_args.model_settings,
                                 retries=action_args.retries,

@@ -2643,6 +2643,8 @@ class AgentCustomProvider(OrganizationModel):
     last_refreshed_at: Mapped[datetime | None] = mapped_column(
         TIMESTAMP(timezone=True), nullable=True
     )
+    system_prompt_replace: Mapped[str | None] = mapped_column(Text, nullable=True)
+    system_prompt_append: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     catalog_rows: Mapped[list[AgentCatalog]] = relationship(
         "AgentCatalog",

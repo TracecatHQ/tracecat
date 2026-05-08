@@ -125,6 +125,15 @@ class AgentConfig:
     passthrough: bool = False
     # Agent
     instructions: str | None = None
+    """Legacy append-style instructions (kept for backward compatibility).
+    Treated as an additional ``system_prompt_append`` contributor at the
+    runtime layer."""
+    system_prompt_replace: str | None = None
+    """If set, replaces the default Tracecat baseline system prompt entirely.
+    Resolved by the cascade: action override > custom-source default > None."""
+    system_prompt_append: str | None = None
+    """If set, appended after the resolved system prompt. Already cumulates
+    custom-source and action contributions when reaching the runtime."""
     output_type: str | dict[str, Any] | None = None
     # Tools
     actions: list[str] | None = None
