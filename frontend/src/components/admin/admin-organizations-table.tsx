@@ -1,6 +1,7 @@
 "use client"
 
 import { DotsHorizontalIcon } from "@radix-ui/react-icons"
+import { useRouter } from "next/navigation"
 import { useState } from "react"
 import type { tracecat_ee__admin__organizations__schemas__OrgRead as OrgRead } from "@/client"
 import { AdminOrgDomainsDialog } from "@/components/admin/admin-org-domains-dialog"
@@ -43,6 +44,7 @@ export function AdminOrganizationsTable() {
   const [registryOrgId, setRegistryOrgId] = useState<string | null>(null)
   const [selectedOrg, setSelectedOrg] = useState<OrgRead | null>(null)
   const [deleteConfirmation, setDeleteConfirmation] = useState("")
+  const router = useRouter()
   const { organizations, deleteOrganization } = useAdminOrganizations()
   const orgIds = organizations?.map((org) => org.id) ?? []
   const { orgTiersByOrgId, isLoading: orgTiersLoading } =
@@ -206,6 +208,12 @@ export function AdminOrganizationsTable() {
                       </Button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end">
+                      <DropdownMenuItem
+                        onSelect={() => router.push("/workspaces")}
+                      >
+                        Enter organization
+                      </DropdownMenuItem>
+                      <DropdownMenuSeparator />
                       <DropdownMenuItem
                         onClick={() =>
                           navigator.clipboard.writeText(row.original.id)
