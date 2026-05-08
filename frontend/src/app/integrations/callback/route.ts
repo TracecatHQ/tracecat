@@ -1,6 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server"
 
 import { buildUrl } from "@/lib/ss-utils"
+import { buildAppUrl } from "@/lib/url-utils"
 import { isIntegrationOAuthCallback } from "@/lib/utils"
 
 export const GET = async (request: NextRequest) => {
@@ -46,7 +47,10 @@ export const GET = async (request: NextRequest) => {
   if (error) {
     console.error("OAuth error received:", error, errorDescription)
     // Redirect to OAuth error page with error details
-    const errorUrl = new URL("/integrations/error", await resolvePublicAppUrl())
+    const errorUrl = buildAppUrl(
+      "/integrations/error",
+      await resolvePublicAppUrl()
+    )
     errorUrl.searchParams.set("error", error)
     if (errorDescription) {
       errorUrl.searchParams.set("error_description", errorDescription)
@@ -58,7 +62,7 @@ export const GET = async (request: NextRequest) => {
   if (!request.nextUrl.searchParams.get("code") || !state) {
     console.error("Missing code or state in request")
     return NextResponse.redirect(
-      new URL("/auth/error", await resolvePublicAppUrl())
+      buildAppUrl("/auth/error", await resolvePublicAppUrl())
     )
   }
 
@@ -69,7 +73,7 @@ export const GET = async (request: NextRequest) => {
   if (!cookie) {
     console.error("Missing cookie in request")
     return NextResponse.redirect(
-      new URL("/auth/error", await resolvePublicAppUrl())
+      buildAppUrl("/auth/error", await resolvePublicAppUrl())
     )
   }
 
@@ -84,7 +88,7 @@ export const GET = async (request: NextRequest) => {
   if (!isIntegrationOAuthCallback(cb)) {
     console.error("Invalid integration callback", cb)
     return NextResponse.redirect(
-      new URL("/auth/error", await resolvePublicAppUrl())
+      buildAppUrl("/auth/error", await resolvePublicAppUrl())
     )
   }
   const { redirect_url } = cb

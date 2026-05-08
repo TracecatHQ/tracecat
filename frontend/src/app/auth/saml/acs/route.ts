@@ -6,6 +6,7 @@ import {
   serializeClearPostAuthReturnUrlCookie,
 } from "@/lib/auth-return-url"
 import { buildUrl } from "@/lib/ss-utils"
+import { buildAppUrl } from "@/lib/url-utils"
 
 /**
  * @param request
@@ -29,7 +30,7 @@ export async function POST(request: NextRequest) {
 
   if (!samlResponse) {
     console.error("No SAML response found in the request")
-    return NextResponse.redirect(new URL("/auth/error", public_app_url))
+    return NextResponse.redirect(buildAppUrl("/auth/error", public_app_url))
   }
 
   // Prepare the request to the FastAPI backend
@@ -57,19 +58,19 @@ export async function POST(request: NextRequest) {
 
   if (!backendResponse.ok) {
     console.error("Error from backend:", await backendResponse.text())
-    return NextResponse.redirect(new URL("/auth/error", public_app_url))
+    return NextResponse.redirect(buildAppUrl("/auth/error", public_app_url))
   }
 
   const setCookieHeader = backendResponse.headers.get("set-cookie")
 
   if (!setCookieHeader) {
     console.error("No set-cookie header found in response")
-    return NextResponse.redirect(new URL("/auth/error", public_app_url))
+    return NextResponse.redirect(buildAppUrl("/auth/error", public_app_url))
   }
 
   const targetPath = getPostAuthDecisionPath(returnUrl)
   console.log(`Redirecting to ${targetPath} with GET`)
-  const redirectUrl = new URL(targetPath, public_app_url)
+  const redirectUrl = buildAppUrl(targetPath, public_app_url)
   const redirectResponse = NextResponse.redirect(redirectUrl, {
     status: 303, // Force GET request
   })

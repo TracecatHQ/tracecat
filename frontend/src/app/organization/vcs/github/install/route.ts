@@ -1,6 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server"
 
 import { buildUrl } from "@/lib/ss-utils"
+import { buildAppUrl } from "@/lib/url-utils"
 
 export const GET = async (request: NextRequest) => {
   console.log("GET /organization/vcs/github/install")
@@ -34,6 +35,6 @@ export const GET = async (request: NextRequest) => {
   const resp = await fetch(buildUrl("/info"))
   const { public_app_url } = await resp.json()
   console.log("Public app URL", public_app_url)
-  const redirect_url = new URL("/organization/vcs", public_app_url)
+  const redirect_url = buildAppUrl("/organization/vcs", public_app_url)
   return NextResponse.redirect(redirect_url)
 }

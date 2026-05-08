@@ -6,6 +6,7 @@ import {
   serializeClearPostAuthReturnUrlCookie,
 } from "@/lib/auth-return-url"
 import { buildUrl } from "@/lib/ss-utils"
+import { buildAppUrl } from "@/lib/url-utils"
 
 /**
  * @param request
@@ -32,7 +33,7 @@ export const GET = async (request: NextRequest) => {
     )
     const resp = await fetch(buildUrl("/info"))
     const { public_app_url } = await resp.json()
-    return NextResponse.redirect(new URL("/auth/error", public_app_url))
+    return NextResponse.redirect(buildAppUrl("/auth/error", public_app_url))
   }
 
   // Get redirect
@@ -42,13 +43,13 @@ export const GET = async (request: NextRequest) => {
 
   if (!setCookieHeader) {
     console.error("No set-cookie header found in response")
-    return NextResponse.redirect(new URL("/auth/error", public_app_url))
+    return NextResponse.redirect(buildAppUrl("/auth/error", public_app_url))
   }
 
   const targetPath = getPostAuthDecisionPath(returnUrl)
   console.log(`Redirecting to ${targetPath}`)
   const redirectResponse = NextResponse.redirect(
-    new URL(targetPath, public_app_url)
+    buildAppUrl(targetPath, public_app_url)
   )
   redirectResponse.headers.append("set-cookie", setCookieHeader)
   redirectResponse.headers.append(
