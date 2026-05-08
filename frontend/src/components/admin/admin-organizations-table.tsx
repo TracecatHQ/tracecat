@@ -1,6 +1,7 @@
 "use client"
 
 import { DotsHorizontalIcon } from "@radix-ui/react-icons"
+import Cookies from "js-cookie"
 import { useRouter } from "next/navigation"
 import { useState } from "react"
 import type { tracecat_ee__admin__organizations__schemas__OrgRead as OrgRead } from "@/client"
@@ -209,7 +210,19 @@ export function AdminOrganizationsTable() {
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end">
                       <DropdownMenuItem
-                        onSelect={() => router.push("/workspaces")}
+                        onSelect={() => {
+                          Cookies.set(
+                            "tracecat:active-org-id",
+                            row.original.id,
+                            {
+                              sameSite: "lax",
+                              secure:
+                                typeof window !== "undefined" &&
+                                window.location.protocol === "https:",
+                            }
+                          )
+                          router.push("/workspaces")
+                        }}
                       >
                         Enter organization
                       </DropdownMenuItem>

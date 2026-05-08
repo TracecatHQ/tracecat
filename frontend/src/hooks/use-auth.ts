@@ -1,6 +1,7 @@
 "use client"
 
 import { useQuery, useQueryClient } from "@tanstack/react-query"
+import Cookies from "js-cookie"
 import { useRouter } from "next/navigation"
 import { useCallback } from "react"
 import {
@@ -33,6 +34,7 @@ export function useAuthActions() {
   const logout = useCallback(
     async (redirectUrl?: string) => {
       const logoutResponse = await authAuthDatabaseLogout()
+      Cookies.remove("tracecat:active-org-id")
       await queryClient.invalidateQueries({
         queryKey: ["auth"],
       })

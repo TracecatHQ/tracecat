@@ -4,7 +4,6 @@ import {
   BookOpenIcon,
   BotIcon,
   BuildingIcon,
-  ChevronLeftIcon,
   LayersIcon,
   LogOutIcon,
   UsersIcon,
@@ -19,7 +18,6 @@ import {
   SidebarGroup,
   SidebarGroupContent,
   SidebarGroupLabel,
-  SidebarHeader,
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
@@ -86,18 +84,6 @@ export function AdminSidebar({
 
   return (
     <Sidebar collapsible="offcanvas" variant="inset" {...props}>
-      <SidebarHeader>
-        <SidebarMenu>
-          <SidebarMenuItem>
-            <SidebarMenuButton asChild>
-              <Link href="/workspaces" className="text-muted-foreground">
-                <ChevronLeftIcon />
-                <span>Back to workspaces</span>
-              </Link>
-            </SidebarMenuButton>
-          </SidebarMenuItem>
-        </SidebarMenu>
-      </SidebarHeader>
       <SidebarContent>
         <SidebarGroup>
           <SidebarGroupLabel>Platform</SidebarGroupLabel>
