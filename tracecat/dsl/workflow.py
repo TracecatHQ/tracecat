@@ -45,6 +45,7 @@ with workflow.unsafe.imports_passed_through():
         ResolveCustomProviderOverridesInput,
         resolve_custom_provider_overrides_activity,
     )
+    from tracecat.agent.provider.cascade import resolve_system_prompt_overrides
     from tracecat.agent.schemas import RunAgentArgs
     from tracecat.agent.session.types import AgentSessionEntity
     from tracecat.agent.types import AgentConfig
@@ -1053,36 +1054,23 @@ class DSLWorkflow:
                     # module) does not yet expose them. When EE adds the two
                     # fields, this code starts honouring them with no further
                     # change.
-                    action_replace = getattr(action_args, "system_prompt_replace", None)
-                    action_append = getattr(action_args, "system_prompt_append", None)
-                    resolved_replace = (
-                        action_replace
-                        if action_replace is not None
-                        else source_overrides.system_prompt_replace
-                    )
-                    append_parts: list[str] = []
-                    if source_overrides.system_prompt_append:
-                        append_parts.append(source_overrides.system_prompt_append)
-                    if action_append:
-                        append_parts.append(action_append)
-                    resolved_append = (
-                        "\n\n".join(append_parts) if append_parts else None
+                    overrides = resolve_system_prompt_overrides(
+                        source_replace=source_overrides.system_prompt_replace,
+                        source_append=source_overrides.system_prompt_append,
+                        action_replace=getattr(
+                            action_args, "system_prompt_replace", None
+                        ),
+                        action_append=getattr(
+                            action_args, "system_prompt_append", None
+                        ),
                     )
                     self.logger.info(
                         "Resolved agent system prompt overrides",
                         catalog_id=str(action_args.catalog_id)
                         if action_args.catalog_id
                         else None,
-                        system_prompt_replace_source=(
-                            "action"
-                            if action_replace is not None
-                            else (
-                                "source"
-                                if source_overrides.system_prompt_replace is not None
-                                else "default"
-                            )
-                        ),
-                        system_prompt_append_count=len(append_parts),
+                        system_prompt_replace_source=overrides.replace_source,
+                        system_prompt_append_count=overrides.append_count,
                     )
                     wf_info = workflow.info()
                     child_search_attributes = _build_agent_child_search_attributes(
@@ -1099,8 +1087,8 @@ class DSLWorkflow:
                                 model_provider=action_args.model_provider,
                                 catalog_id=action_args.catalog_id,
                                 instructions=action_args.instructions,
-                                system_prompt_replace=resolved_replace,
-                                system_prompt_append=resolved_append,
+                                system_prompt_replace=overrides.replace,
+                                system_prompt_append=overrides.append,
                                 output_type=action_args.output_type,
                                 model_settings=action_args.model_settings,
                                 retries=action_args.retries,
