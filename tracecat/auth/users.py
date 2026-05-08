@@ -5,6 +5,7 @@ import uuid
 from collections.abc import AsyncGenerator, Iterable, Sequence
 from datetime import UTC, datetime
 from typing import Annotated
+from urllib.parse import urlparse
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from fastapi.security import OAuth2PasswordRequestForm
@@ -564,9 +565,25 @@ def _get_cookie_name() -> str:
     return "fastapiusersauth"
 
 
+def _get_cookie_path() -> str:
+    """Cookie path scope, derived from PUBLIC_APP_URL.
+
+    When the app is served under a sub-path (e.g. https://example.com/tracecat),
+    the auth cookie should only be sent on requests that go to /tracecat/* —
+    not on every request to example.com — so it doesn't leak into other apps
+    sharing the same host.
+    """
+    try:
+        path = urlparse(config.TRACECAT__PUBLIC_APP_URL).path.rstrip("/")
+    except Exception:
+        path = ""
+    return path or "/"
+
+
 cookie_transport = CookieTransport(
     cookie_name=_get_cookie_name(),
     cookie_max_age=config.SESSION_EXPIRE_TIME_SECONDS,
+    cookie_path=_get_cookie_path(),
     cookie_secure=config.TRACECAT__API_URL.startswith("https"),
 )
 
