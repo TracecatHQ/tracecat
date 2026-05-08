@@ -239,7 +239,7 @@ async def test_role_dependency_resolves_multi_tenant_superuser_as_regular_org_us
     assert role.user_id == user.id
     assert role.is_platform_superuser is False
     assert role.scopes == scopes
-    mock_resolve_org.assert_awaited_once_with(session, user)
+    mock_resolve_org.assert_awaited_once_with(request, session, user)
 
 
 @pytest.mark.anyio

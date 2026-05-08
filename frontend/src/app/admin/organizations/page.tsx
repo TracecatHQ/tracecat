@@ -4,9 +4,12 @@ import { AdminOrganizationsTable } from "@/components/admin/admin-organizations-
 import { CreateOrganizationDialog } from "@/components/admin/create-organization-dialog"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { useAdminOrganizations } from "@/hooks/use-admin"
+import { useAppInfo } from "@/lib/hooks"
 
 export default function AdminOrganizationsPage() {
   const { isLoading, error } = useAdminOrganizations()
+  const { appInfo } = useAppInfo()
+  const multiTenantEnabled = appInfo?.ee_multi_tenant === true
 
   if (isLoading) {
     return <CenteredSpinner />
@@ -33,7 +36,7 @@ export default function AdminOrganizationsPage() {
             </p>
           </div>
           <div className="ml-auto flex items-center space-x-2">
-            <CreateOrganizationDialog />
+            {multiTenantEnabled && <CreateOrganizationDialog />}
           </div>
         </div>
         <AdminOrganizationsTable />

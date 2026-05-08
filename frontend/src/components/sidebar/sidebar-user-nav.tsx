@@ -18,7 +18,6 @@ import {
 import { siteConfig } from "@/config/site"
 import { useAuth } from "@/hooks/use-auth"
 import { useOrganization } from "@/hooks/use-organization"
-import { useAppInfo } from "@/lib/hooks"
 
 type SidebarUserNavManageItem = {
   title: string
@@ -37,9 +36,6 @@ export function SidebarUserNav({
   const { user } = useAuth()
   const { setOpen } = useSettingsModal()
   const { organization, isLoading } = useOrganization()
-  const { appInfo } = useAppInfo()
-  const multiTenantEnabled = appInfo?.ee_multi_tenant ?? true
-  const adminUrl = multiTenantEnabled ? "/admin" : "/admin/registry"
 
   return (
     <SidebarMenu>
@@ -73,7 +69,7 @@ export function SidebarUserNav({
           <Tooltip>
             <TooltipTrigger asChild>
               <SidebarMenuButton asChild>
-                <Link href={adminUrl}>
+                <Link href="/admin">
                   <ShieldCheckIcon className="size-4" />
                   <span>Admin</span>
                 </Link>

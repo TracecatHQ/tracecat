@@ -583,15 +583,40 @@ async def _get_membership_with_cache(
     return membership_with_org
 
 
+ACTIVE_ORG_COOKIE = "tracecat:active-org-id"
+
+
 async def _resolve_org_for_regular_user(
+    request: Request,
     session: AsyncSession,
     user: User,
 ) -> uuid.UUID:
     """Resolve organization context for a regular user from their memberships.
 
+    Honors the ``tracecat:active-org-id`` cookie when the user is a confirmed
+    member of the cookie's organization. The cookie is an untrusted hint —
+    membership is re-validated here on every request, so a tampered or stale
+    value cannot grant access to an org the user does not belong to.
+
     Raises:
         HTTPException(400): If user has no org memberships or multiple orgs.
     """
+    if cookie_value := request.cookies.get(ACTIVE_ORG_COOKIE):
+        try:
+            cookie_org_id = uuid.UUID(cookie_value)
+        except ValueError:
+            cookie_org_id = None
+        if cookie_org_id is not None:
+            membership_stmt = select(OrganizationMembership.organization_id).where(
+                OrganizationMembership.user_id == user.id,
+                OrganizationMembership.organization_id == cookie_org_id,
+            )
+            membership_row = (
+                await session.execute(membership_stmt)
+            ).scalar_one_or_none()
+            if membership_row is not None:
+                return cookie_org_id
+
     org_mem_stmt = select(OrganizationMembership.organization_id).where(
         OrganizationMembership.user_id == user.id
     )
@@ -717,7 +742,7 @@ async def _authenticate_user(
             )
     else:
         organization_id = single_tenant_org_id or await _resolve_org_for_regular_user(
-            session, user
+            request, session, user
         )
 
     return get_role_from_user(
