@@ -1,0 +1,245 @@
+---
+title: Deploy under a sub-path
+description: "Serve self-hosted Tracecat under a sub-path of an existing domain (e.g. https://example.com/tracecat) behind your own reverse proxy."
+---
+
+By default Tracecat is served at the **root of a domain**
+(`https://tracecat.example.com`). This page describes how to serve it
+under a **sub-path** of an existing domain
+(`https://example.com/tracecat`) instead, alongside another app on the
+same hostname, behind a reverse proxy you already operate.
+
+<Note>
+  Sub-path deployment is opt-in. If you don't set
+  `NEXT_PUBLIC_BASE_PATH` (default), Tracecat keeps serving at the root
+  of the domain — no behaviour change for existing deployments.
+</Note>
+
+## When you should use this
+
+- A primary app already lives at `https://example.com/`.
+- You want to add Tracecat at `https://example.com/tracecat` without
+  introducing a new sub-domain or a new TLS certificate.
+- You operate your own reverse proxy (nginx, Caddy, Traefik, an ingress
+  controller…) in front of the Tracecat services.
+
+If you can give Tracecat its own sub-domain (e.g.
+`tracecat.example.com`), prefer that — sub-domain deployment requires
+no special configuration.
+
+## Configuration overview
+
+Three things change versus a root deployment:
+
+1. The **frontend image** is built with a `NEXT_PUBLIC_BASE_PATH` build
+   argument. Next.js inlines this value into the client bundle, so it
+   has to be set at build time.
+2. The Tracecat-facing URLs (`PUBLIC_APP_URL`, `PUBLIC_API_URL`) carry
+   the sub-path.
+3. Your reverse proxy forwards `/<base-path>/*` to the right backend
+   service, stripping or preserving the prefix depending on the route.
+
+The bundled `Caddyfile` and `docker-compose.yml` ship for the root
+deployment. For sub-path deployment, you bring your own proxy.
+
+## Build the frontend image with a base path
+
+```bash
+docker build \
+  --build-arg NEXT_PUBLIC_BASE_PATH=/tracecat \
+  --build-arg NEXT_PUBLIC_APP_URL=https://example.com/tracecat \
+  --build-arg NEXT_PUBLIC_API_URL=https://example.com/tracecat/api \
+  --build-arg NEXT_SERVER_API_URL=http://api:8000 \
+  -f frontend/Dockerfile.prod \
+  -t tracecat-ui:basepath \
+  frontend/
+```
+
+Use the resulting `tracecat-ui:basepath` image in place of
+`ghcr.io/tracecathq/tracecat-ui` in your Compose file.
+
+## Update environment variables
+
+Set these in `.env`:
+
+```bash
+PUBLIC_APP_URL=https://example.com/tracecat
+PUBLIC_API_URL=https://example.com/tracecat/api
+TRACECAT__PUBLIC_APP_URL=https://example.com/tracecat
+TRACECAT__PUBLIC_API_URL=https://example.com/tracecat/api
+TRACECAT__ALLOW_ORIGINS=https://example.com
+```
+
+The session cookie path is automatically scoped to the sub-path on
+`TRACECAT__PUBLIC_APP_URL`, so the cookie does not leak to other apps
+sharing the host.
+
+## Reverse-proxy routing rules
+
+Whichever proxy you use, four rules must hold:
+
+| Path | Forward to | Strip prefix? |
+| :--- | :--------- | :------------ |
+| `/tracecat/api/*` | `api:8000/api/*` | yes — strip `/tracecat` |
+| `/tracecat/s3/*` | `minio:9000/*` | yes — strip `/tracecat/s3` |
+| `/tracecat/*` (everything else) | `ui:3000/tracecat/*` | **no** — keep `/tracecat` |
+| `/tracecat/` (with trailing slash) | redirect to `/tracecat` (without) | — |
+
+The trailing-slash redirect is required because Next.js' default
+behaviour is to strip trailing slashes; without the proxy-side redirect
+you'll see a redirect ping-pong on `/tracecat/`.
+
+The UI prefix must **not** be stripped: the Next.js bundle expects to
+receive the basePath in the request URL (assets included), because
+`basePath` is inlined into the client bundle at build time.
+
+<Note>
+  The **nginx** example below has been tested end-to-end on a live
+  deployment. The **Caddy** and **Traefik** examples are derived from
+  the same routing rules but have not been verified against running
+  instances — please open a PR with corrections if you spot anything
+  off.
+</Note>
+
+### nginx example
+
+```nginx
+# Forward API requests, stripping the /tracecat prefix
+location ^~ /tracecat/api/ {
+    rewrite ^/tracecat(/api/.*)$ $1 break;
+    proxy_pass http://api:8000;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-For $remote_addr;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header X-Forwarded-Prefix /tracecat;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "Upgrade";
+    proxy_buffering off;       # required for SSE
+    proxy_cache off;
+    chunked_transfer_encoding on;
+}
+
+# Forward MinIO presigned URLs, stripping /tracecat/s3
+location ^~ /tracecat/s3/ {
+    rewrite ^/tracecat/s3/(.*)$ /$1 break;
+    proxy_pass http://minio:9000;
+    proxy_buffering off;
+    proxy_request_buffering off;
+    client_max_body_size 1G;
+}
+
+# Trailing-slash redirect to avoid Next.js ping-pong
+location = /tracecat/ { return 308 /tracecat; }
+
+# Forward everything else under /tracecat to the UI, prefix preserved
+location ^~ /tracecat {
+    proxy_pass http://ui:3000;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header X-Forwarded-Prefix /tracecat;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "upgrade";
+}
+```
+
+The `^~` modifier ensures these prefix locations win over any regex
+location elsewhere in the server block (such as a `~* \.js$` rule),
+which is necessary because Next.js asset URLs end in `.js`.
+
+### Caddy example
+
+```caddyfile
+example.com {
+    handle /tracecat/api/* {
+        uri strip_prefix /tracecat
+        reverse_proxy api:8000
+    }
+
+    handle /tracecat/s3/* {
+        uri strip_prefix /tracecat/s3
+        reverse_proxy minio:9000
+    }
+
+    @tracecat_slash path /tracecat/
+    redir @tracecat_slash /tracecat 308
+
+    handle /tracecat* {
+        reverse_proxy ui:3000
+    }
+
+    # …routing rules for the primary app at /
+}
+```
+
+### Traefik example
+
+```yaml
+http:
+  routers:
+    tracecat-api:
+      rule: "Host(`example.com`) && PathPrefix(`/tracecat/api/`)"
+      middlewares:
+        - tracecat-strip-prefix
+      service: tracecat-api
+    tracecat-s3:
+      rule: "Host(`example.com`) && PathPrefix(`/tracecat/s3/`)"
+      middlewares:
+        - tracecat-strip-s3
+      service: tracecat-minio
+    tracecat-ui:
+      rule: "Host(`example.com`) && PathPrefix(`/tracecat`)"
+      service: tracecat-ui
+
+  middlewares:
+    tracecat-strip-prefix:
+      stripPrefix:
+        prefixes: ["/tracecat"]
+    tracecat-strip-s3:
+      stripPrefix:
+        prefixes: ["/tracecat/s3"]
+```
+
+Add a separate router that catches `/tracecat/` (trailing slash) and
+issues a 308 to `/tracecat` to avoid the Next.js ping-pong.
+
+## Update OIDC / SAML provider configuration
+
+If you use OIDC or SAML, update your identity provider's redirect URIs
+to include the sub-path:
+
+- OIDC: `https://example.com/tracecat/auth/oauth/callback`
+- SAML ACS: `https://example.com/tracecat/auth/saml/acs`
+
+## Testing the deployment
+
+```bash
+# UI loads (HTTP 200)
+curl -sS -o /dev/null -w "%{http_code}\n" https://example.com/tracecat
+
+# Trailing-slash redirect (308 to /tracecat)
+curl -sS -o /dev/null -w "%{http_code}\n" https://example.com/tracecat/
+
+# API responds with JSON, public_app_url contains the sub-path
+curl -s https://example.com/tracecat/api/info
+# {"version":"…","public_app_url":"https://example.com/tracecat", …}
+
+# A static asset under /tracecat/_next/static/* loads (HTTP 200)
+curl -sS -o /dev/null -w "%{http_code}\n" \
+  "https://example.com/tracecat/_next/static/chunks/webpack-<hash>.js"
+```
+
+If `public_app_url` in `/api/info` does not include the sub-path, your
+`TRACECAT__PUBLIC_APP_URL` is misconfigured. If a static asset under
+`/tracecat/_next/static/...` returns 404, the `NEXT_PUBLIC_BASE_PATH`
+build arg was missing during `docker build`.
+
+## Limitations
+
+- `basePath` is **inlined into the client bundle at build time**. You
+  cannot switch sub-paths without rebuilding the frontend image — this
+  is a Next.js architectural choice, not a Tracecat one.
+- Switching from a root deployment to a sub-path deployment requires
+  rebuilding the frontend image with the new build args; existing user
+  data, workflows, and credentials are unaffected.
