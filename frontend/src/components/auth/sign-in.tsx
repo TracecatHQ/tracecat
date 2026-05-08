@@ -33,6 +33,7 @@ import {
 import { Input } from "@/components/ui/input"
 import { toast } from "@/components/ui/use-toast"
 import { useAuthActions } from "@/hooks/use-auth"
+import { getBaseUrl } from "@/lib/api"
 import { setPostAuthReturnUrlCookie, startOidcLogin } from "@/lib/auth-login"
 import { sanitizeReturnUrl } from "@/lib/auth-return-url"
 import { useAppInfo } from "@/lib/hooks"
@@ -65,7 +66,9 @@ async function startSamlLogin(
 ): Promise<void> {
   // Use the org-scoped next_url from discovery when available so the
   // backend can resolve the correct organization for SAML login.
-  const loginUrl = nextUrl ?? "/api/auth/saml/login"
+  // When basePath is set, we must hit ${baseUrl}/auth/... (baseUrl already
+  // contains the /api segment); a bare "/api/..." would bypass basePath.
+  const loginUrl = nextUrl ?? `${getBaseUrl()}/auth/saml/login`
   const res = await fetch(loginUrl, { credentials: "include" })
   if (!res.ok) {
     throw new Error(`SAML login request failed: ${res.status}`)

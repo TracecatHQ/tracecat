@@ -727,7 +727,10 @@ function ActionSessionLiveStream({ sessionId }: { sessionId: string }) {
     return new DefaultChatTransport({
       credentials: "include",
       prepareReconnectToStreamRequest: ({ id }) => {
-        const url = new URL(`/api/agent/sessions/${id}/stream`, getBaseUrl())
+        // getBaseUrl() can include a sub-path (e.g. /tracecat/api when basePath
+        // is configured); URL constructor with a leading "/" path would strip
+        // that sub-path. We build the URL by appending to the base instead.
+        const url = new URL(`${getBaseUrl()}/agent/sessions/${id}/stream`)
         url.searchParams.set("workspace_id", workspaceId)
         return {
           api: url.toString(),

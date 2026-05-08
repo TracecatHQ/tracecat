@@ -169,6 +169,9 @@ jest.mock("@/client", () => {
     authDiscoverAuthMethod: jest.fn(),
     authOauthOidcDatabaseAuthorize: jest.fn(),
     ApiError: MockApiError,
+    // Required by lib/api.ts (transitively imported via sign-in.tsx after the
+    // basePath patch added a getBaseUrl() call there).
+    OpenAPI: { BASE: "", WITH_CREDENTIALS: false },
   }
 })
 

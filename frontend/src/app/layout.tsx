@@ -26,13 +26,17 @@ if (process.env.NEXT_PUBLIC_APP_ENV === "production") {
   PHProvider = require("@/providers/posthog").PHProvider
   console.log("PostHog initialized for production environment.")
 }
+// Favicons live under the public/ folder. Next.js does not auto-prefix the
+// `metadata.icons` paths with basePath, so we do it manually when configured.
+const faviconBase = process.env.NEXT_PUBLIC_BASE_PATH || ""
+
 export const metadata: Metadata = {
   title: siteConfig.name,
   description: siteConfig.description,
   icons: {
-    icon: "/favicon.png",
-    shortcut: "/favicon.png",
-    apple: "/apple-touch-icon.png",
+    icon: `${faviconBase}/favicon.png`,
+    shortcut: `${faviconBase}/favicon.png`,
+    apple: `${faviconBase}/apple-touch-icon.png`,
   },
 }
 

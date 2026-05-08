@@ -5,6 +5,7 @@ import { Suspense, useEffect } from "react"
 
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { useAuth } from "@/hooks/use-auth"
+import { getBaseUrl } from "@/lib/api"
 
 /**
  * MCP auth resume page.
@@ -29,7 +30,8 @@ function McpAuthContinueContent() {
 
     if (user) {
       // Already logged in — resume the authorization flow.
-      window.location.href = `/api/oauth/mcp/authorize/resume?txn=${encodeURIComponent(txnId)}`
+      // Use getBaseUrl() so the path honours basePath when configured.
+      window.location.href = `${getBaseUrl()}/oauth/mcp/authorize/resume?txn=${encodeURIComponent(txnId)}`
       return
     }
 

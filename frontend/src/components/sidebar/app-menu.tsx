@@ -7,8 +7,10 @@ import {
   Plus,
   RadarIcon,
 } from "lucide-react"
+import Image from "next/image"
 import Link from "next/link"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
+import TracecatIcon from "public/icon.png"
 import { useState } from "react"
 import { useScopeCheck } from "@/components/auth/scope-guard"
 import { Button } from "@/components/ui/button"
@@ -113,7 +115,11 @@ export function AppMenu({ workspaceId }: { workspaceId: string }) {
               size="default"
               className="data-[state=open]:bg-foreground/5 dark:data-[state=open]:bg-foreground/10 pl-0"
             >
-              <img src="/icon.png" alt="Tracecat" className="size-6 ml-0.5" />
+              <Image
+                src={TracecatIcon}
+                alt="Tracecat"
+                className="size-6 ml-0.5"
+              />
               <span className="truncate font-semibold text-zinc-700 dark:text-zinc-300">
                 {activeWorkspace?.name || "Select workspace"}
               </span>

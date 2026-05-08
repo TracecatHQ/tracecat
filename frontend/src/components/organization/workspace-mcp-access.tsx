@@ -177,7 +177,9 @@ function buildMcpUrl(publicAppUrl?: string): string {
     return `${publicAppUrl.replace(/\/$/, "")}/mcp`
   }
   if (typeof window !== "undefined") {
-    return `${window.location.origin}/mcp`
+    // Honour basePath when the app is served under a sub-path.
+    const basePath = process.env.NEXT_PUBLIC_BASE_PATH || ""
+    return `${window.location.origin}${basePath}/mcp`
   }
   return "https://<tracecat-app-url>/mcp"
 }

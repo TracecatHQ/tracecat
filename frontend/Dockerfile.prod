@@ -26,6 +26,9 @@ ARG NEXT_PUBLIC_APP_ENV=production
 ARG NEXT_PUBLIC_APP_URL=http://localhost:3000
 ARG NEXT_PUBLIC_API_URL=http://localhost:8000
 ARG NEXT_SERVER_API_URL=http://api:8000
+# Optional sub-path prefix (e.g. /tracecat) to serve the app under a reverse-proxy
+# path. Inlined into client bundles by Next.js — must be set at build time.
+ARG NEXT_PUBLIC_BASE_PATH=
 
 # Set environment variables
 ENV NODE_ENV=production
@@ -33,6 +36,7 @@ ENV NEXT_PUBLIC_APP_ENV=$NEXT_PUBLIC_APP_ENV
 ENV NEXT_PUBLIC_APP_URL=$NEXT_PUBLIC_APP_URL
 ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
 ENV NEXT_SERVER_API_URL=$NEXT_SERVER_API_URL
+ENV NEXT_PUBLIC_BASE_PATH=$NEXT_PUBLIC_BASE_PATH
 
 # Copy node_modules from the deps stage
 COPY --from=deps /app/node_modules ./node_modules

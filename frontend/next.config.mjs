@@ -1,8 +1,16 @@
 /** @type {import('next').NextConfig} */
 
+// Optional path prefix for serving the app behind a reverse proxy at a sub-path
+// (e.g. NEXT_PUBLIC_BASE_PATH=/tracecat to serve under https://example.com/tracecat).
+// Must be set at build time — Next.js inlines this value into client bundles.
+// Empty string (default) means the app is served at the domain root.
+const basePath = process.env.NEXT_PUBLIC_BASE_PATH || ""
+
 const nextConfig = {
   reactStrictMode: true, // Default to true; overridden in development
   output: "standalone", // Ensure standalone output for production
+  basePath,
+  assetPrefix: basePath || undefined,
   experimental: {
     optimizePackageImports: ["lucide-react"],
     serverActions: {

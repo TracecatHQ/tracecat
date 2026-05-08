@@ -394,7 +394,11 @@ export function OrgMembersTable() {
                                         await organizationGetInvitationToken({
                                           invitationId: member.invitation_id,
                                         })
-                                      const url = `${window.location.origin}/invitations/accept?token=${token}`
+                                      // Honour basePath when the app is served
+                                      // under a sub-path (e.g. /tracecat).
+                                      const basePath =
+                                        process.env.NEXT_PUBLIC_BASE_PATH || ""
+                                      const url = `${window.location.origin}${basePath}/invitations/accept?token=${token}`
                                       await navigator.clipboard.writeText(url)
                                       toast({
                                         title: "Copied",

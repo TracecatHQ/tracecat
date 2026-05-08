@@ -391,7 +391,10 @@ export function useVercelChat({
   // Build the Vercel streaming endpoint URL
   const apiEndpoint = useMemo(() => {
     if (!chatId) return ""
-    const url = new URL(`/api/agent/sessions/${chatId}/messages`, getBaseUrl())
+    // getBaseUrl() can include a sub-path (e.g. /tracecat/api when basePath is
+    // configured); URL constructor with a leading "/" path would strip that
+    // sub-path. We build the URL by appending to the base instead.
+    const url = new URL(`${getBaseUrl()}/agent/sessions/${chatId}/messages`)
     url.searchParams.set("workspace_id", workspaceId)
     return url.toString()
   }, [chatId, workspaceId])

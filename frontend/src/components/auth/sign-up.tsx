@@ -187,9 +187,15 @@ interface BasicRegistrationFormProps {
 function extractInvitationToken(returnUrl: string | null): string | null {
   if (!returnUrl) return null
   try {
-    // returnUrl might be like "/invitations/accept?token=abc123"
+    // returnUrl might be like "/invitations/accept?token=abc123" or
+    // "/tracecat/invitations/accept?token=abc123" when basePath is configured.
     const url = new URL(returnUrl, window.location.origin)
-    if (url.pathname === "/invitations/accept") {
+    const basePath = process.env.NEXT_PUBLIC_BASE_PATH || ""
+    const expectedPaths = new Set(["/invitations/accept"])
+    if (basePath) {
+      expectedPaths.add(`${basePath}/invitations/accept`)
+    }
+    if (expectedPaths.has(url.pathname)) {
       return url.searchParams.get("token")
     }
   } catch {

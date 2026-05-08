@@ -60,7 +60,9 @@ const ROLE_OPTIONS: Array<{ label: string; value: PlatformRoleSlug }> = [
 
 function invitationUrl(token: string) {
   const origin = typeof window === "undefined" ? "" : window.location.origin
-  return `${origin}/invitations/accept?token=${encodeURIComponent(token)}`
+  // Honour basePath when the app is served under a sub-path (e.g. /tracecat).
+  const basePath = process.env.NEXT_PUBLIC_BASE_PATH || ""
+  return `${origin}${basePath}/invitations/accept?token=${encodeURIComponent(token)}`
 }
 
 function statusVariant(status: AdminOrgInvitationRead["status"]) {

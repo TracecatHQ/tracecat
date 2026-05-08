@@ -10,13 +10,50 @@ const BLOCKED_POST_AUTH_RETURN_URL_PREFIXES = [
 const MCP_AUTH_CONTINUE_PATH = "/oauth/mcp/continue"
 const MCP_AUTH_LEGACY_SELECT_ORG_PATH = "/oauth/mcp/select-org"
 
+/**
+ * Resolve the Next.js basePath at call time (not at module load) so tests can
+ * override `process.env.NEXT_PUBLIC_BASE_PATH` between cases.
+ */
+function getBasePath(): string {
+  return process.env.NEXT_PUBLIC_BASE_PATH || ""
+}
+
+/**
+ * Strip the configured Next.js basePath from a pathname so the rest of this
+ * module can compare against unprefixed canonical paths regardless of whether
+ * the URL was generated with or without the basePath.
+ */
+function stripBasePath(pathname: string): string {
+  const basePath = getBasePath()
+  if (!basePath) {
+    return pathname
+  }
+  if (pathname === basePath) {
+    return "/"
+  }
+  if (pathname.startsWith(`${basePath}/`)) {
+    return pathname.slice(basePath.length)
+  }
+  return pathname
+}
+
+/**
+ * Cookie path scope so the auth return-url cookie is only sent on requests
+ * that actually go to the Tracecat app (not to other apps sharing the host).
+ */
+function cookiePath(): string {
+  return getBasePath() || "/"
+}
+
 function getPostAuthReturnUrlCookieSameSite(secure: boolean): "None" | "Lax" {
   // Cross-site POSTs (SAML ACS) require SameSite=None; browsers require Secure with None.
   return secure ? "None" : "Lax"
 }
 
 function isBlockedPostAuthReturnPath(pathname: string): boolean {
-  const normalizedPathname = pathname.toLowerCase()
+  // Strip the basePath so a returnUrl like "/tracecat/sign-in" cannot bypass
+  // the block by exploiting the prefix.
+  const normalizedPathname = stripBasePath(pathname).toLowerCase()
   return BLOCKED_POST_AUTH_RETURN_URL_PREFIXES.some(
     (prefix) =>
       normalizedPathname === prefix ||
@@ -42,10 +79,13 @@ export function normalizeMcpAuthReturnUrl(
     if (!parsed.searchParams.get("txn")) {
       return null
     }
-    if (parsed.pathname === MCP_AUTH_CONTINUE_PATH) {
+    // Compare against the unprefixed pathname so URLs generated with or
+    // without basePath both match.
+    const canonical = stripBasePath(parsed.pathname)
+    if (canonical === MCP_AUTH_CONTINUE_PATH) {
       return `${parsed.pathname}${parsed.search}${parsed.hash}`
     }
-    if (parsed.pathname === MCP_AUTH_LEGACY_SELECT_ORG_PATH) {
+    if (canonical === MCP_AUTH_LEGACY_SELECT_ORG_PATH) {
       return `${MCP_AUTH_CONTINUE_PATH}${parsed.search}${parsed.hash}`
     }
     return null
@@ -79,7 +119,7 @@ export function sanitizeReturnUrl(
     if (mcpAuthReturnUrl) {
       return mcpAuthReturnUrl
     }
-    if (parsed.pathname === MCP_AUTH_LEGACY_SELECT_ORG_PATH) {
+    if (stripBasePath(parsed.pathname) === MCP_AUTH_LEGACY_SELECT_ORG_PATH) {
       return null
     }
     return normalizedValue
@@ -108,11 +148,11 @@ export function serializePostAuthReturnUrlCookie(
 ): string {
   const sameSite = getPostAuthReturnUrlCookieSameSite(secure)
   const secureAttr = secure ? "; Secure" : ""
-  return `${POST_AUTH_RETURN_URL_COOKIE_NAME}=${encodeURIComponent(value)}; Path=/; Max-Age=${POST_AUTH_RETURN_URL_COOKIE_MAX_AGE_SECONDS}; SameSite=${sameSite}${secureAttr}`
+  return `${POST_AUTH_RETURN_URL_COOKIE_NAME}=${encodeURIComponent(value)}; Path=${cookiePath()}; Max-Age=${POST_AUTH_RETURN_URL_COOKIE_MAX_AGE_SECONDS}; SameSite=${sameSite}${secureAttr}`
 }
 
 export function serializeClearPostAuthReturnUrlCookie(secure: boolean): string {
   const sameSite = getPostAuthReturnUrlCookieSameSite(secure)
   const secureAttr = secure ? "; Secure" : ""
-  return `${POST_AUTH_RETURN_URL_COOKIE_NAME}=; Path=/; Max-Age=0; SameSite=${sameSite}${secureAttr}`
+  return `${POST_AUTH_RETURN_URL_COOKIE_NAME}=; Path=${cookiePath()}; Max-Age=0; SameSite=${sameSite}${secureAttr}`
 }
