@@ -36,6 +36,7 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { Input } from "@/components/ui/input"
 import { useAdminOrganizations, useAdminOrgTiers } from "@/hooks/use-admin"
+import { useAppInfo } from "@/lib/hooks"
 
 export function AdminOrganizationsTable() {
   const [editOrgId, setEditOrgId] = useState<string | null>(null)
@@ -46,6 +47,8 @@ export function AdminOrganizationsTable() {
   const [selectedOrg, setSelectedOrg] = useState<OrgRead | null>(null)
   const [deleteConfirmation, setDeleteConfirmation] = useState("")
   const router = useRouter()
+  const { appInfo } = useAppInfo()
+  const multiTenantEnabled = appInfo?.ee_multi_tenant === true
   const { organizations, deleteOrganization } = useAdminOrganizations()
   const orgIds = organizations?.map((org) => org.id) ?? []
   const { orgTiersByOrgId, isLoading: orgTiersLoading } =
@@ -259,16 +262,20 @@ export function AdminOrganizationsTable() {
                       >
                         Manage registry
                       </DropdownMenuItem>
-                      <DropdownMenuSeparator />
-                      <AlertDialogTrigger asChild>
-                        <DropdownMenuItem
-                          className="text-rose-500 focus:text-rose-600"
-                          onClick={() => setSelectedOrg(row.original)}
-                          onSelect={() => setDeleteConfirmation("")}
-                        >
-                          Delete organization
-                        </DropdownMenuItem>
-                      </AlertDialogTrigger>
+                      {multiTenantEnabled && (
+                        <>
+                          <DropdownMenuSeparator />
+                          <AlertDialogTrigger asChild>
+                            <DropdownMenuItem
+                              className="text-rose-500 focus:text-rose-600"
+                              onClick={() => setSelectedOrg(row.original)}
+                              onSelect={() => setDeleteConfirmation("")}
+                            >
+                              Delete organization
+                            </DropdownMenuItem>
+                          </AlertDialogTrigger>
+                        </>
+                      )}
                     </DropdownMenuContent>
                   </DropdownMenu>
                 )
