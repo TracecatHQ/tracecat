@@ -82,8 +82,9 @@ Whichever proxy you use, four rules must hold:
 | :--- | :--------- | :------------ |
 | `/tracecat/api/*` | `api:8000/api/*` | yes — strip `/tracecat` |
 | `/tracecat/s3/*` | `minio:9000/*` | yes — strip `/tracecat/s3` |
-| `/tracecat/*` (everything else) | `ui:3000/tracecat/*` | **no** — keep `/tracecat` |
-| `/tracecat/` (with trailing slash) | redirect to `/tracecat` (without) | — |
+| `/tracecat` (exact match, no slash) | `ui:3000/tracecat` | **no** — keep `/tracecat` |
+| `/tracecat/*` (with slash, everything else) | `ui:3000/tracecat/*` | **no** — keep `/tracecat` |
+| `/tracecat/` (trailing slash exact) | redirect to `/tracecat` (without) | — |
 
 The trailing-slash redirect is required because Next.js' default
 behaviour is to strip trailing slashes; without the proxy-side redirect
@@ -92,6 +93,14 @@ you'll see a redirect ping-pong on `/tracecat/`.
 The UI prefix must **not** be stripped: the Next.js bundle expects to
 receive the basePath in the request URL (assets included), because
 `basePath` is inlined into the client bundle at build time.
+
+<Warning>
+  Match `/tracecat` and `/tracecat/*` as **two distinct rules** rather
+  than a single broad `/tracecat*` prefix. A broad prefix would also
+  capture sibling paths like `/tracecatfoo` and misroute them to
+  Tracecat — harmless on a host where Tracecat is alone, but a real
+  routing bug on a host shared with another app.
+</Warning>
 
 <Note>
   The **nginx** example below has been tested end-to-end on a live
@@ -129,11 +138,22 @@ location ^~ /tracecat/s3/ {
     client_max_body_size 1G;
 }
 
+# UI — exact /tracecat (no slash)
+location = /tracecat {
+    proxy_pass http://ui:3000;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header X-Forwarded-Prefix /tracecat;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "upgrade";
+}
+
 # Trailing-slash redirect to avoid Next.js ping-pong
 location = /tracecat/ { return 308 /tracecat; }
 
-# Forward everything else under /tracecat to the UI, prefix preserved
-location ^~ /tracecat {
+# UI — everything under /tracecat/ (note the slash, not /tracecat*)
+location ^~ /tracecat/ {
     proxy_pass http://ui:3000;
     proxy_http_version 1.1;
     proxy_set_header Host $host;
@@ -146,7 +166,9 @@ location ^~ /tracecat {
 
 The `^~` modifier ensures these prefix locations win over any regex
 location elsewhere in the server block (such as a `~* \.js$` rule),
-which is necessary because Next.js asset URLs end in `.js`.
+which is necessary because Next.js asset URLs end in `.js`. The
+trailing slash on `/tracecat/` is what bounds the prefix correctly
+— without it, `/tracecatfoo` would also match.
 
 ### Caddy example
 
@@ -165,7 +187,15 @@ example.com {
     @tracecat_slash path /tracecat/
     redir @tracecat_slash /tracecat 308
 
-    handle /tracecat* {
+    # Two distinct matchers — `/tracecat` exact and `/tracecat/*` —
+    # rather than a broad `/tracecat*` that would also catch
+    # /tracecatfoo and misroute it to the UI.
+    @tracecat_exact path /tracecat
+    handle @tracecat_exact {
+        reverse_proxy ui:3000
+    }
+
+    handle /tracecat/* {
         reverse_proxy ui:3000
     }
 
@@ -178,18 +208,26 @@ example.com {
 ```yaml
 http:
   routers:
+    # API — strip /tracecat then forward
     tracecat-api:
       rule: "Host(`example.com`) && PathPrefix(`/tracecat/api/`)"
-      middlewares:
-        - tracecat-strip-prefix
+      middlewares: [tracecat-strip-prefix]
       service: tracecat-api
+
+    # MinIO — strip /tracecat/s3 then forward
     tracecat-s3:
       rule: "Host(`example.com`) && PathPrefix(`/tracecat/s3/`)"
-      middlewares:
-        - tracecat-strip-s3
+      middlewares: [tracecat-strip-s3]
       service: tracecat-minio
-    tracecat-ui:
-      rule: "Host(`example.com`) && PathPrefix(`/tracecat`)"
+
+    # UI — exact /tracecat (no slash) and /tracecat/* explicitly,
+    # rather than a broad PathPrefix(`/tracecat`) that would also
+    # match /tracecatfoo on some Traefik versions.
+    tracecat-ui-exact:
+      rule: "Host(`example.com`) && Path(`/tracecat`)"
+      service: tracecat-ui
+    tracecat-ui-prefix:
+      rule: "Host(`example.com`) && PathPrefix(`/tracecat/`)"
       service: tracecat-ui
 
   middlewares:
@@ -201,8 +239,8 @@ http:
         prefixes: ["/tracecat/s3"]
 ```
 
-Add a separate router that catches `/tracecat/` (trailing slash) and
-issues a 308 to `/tracecat` to avoid the Next.js ping-pong.
+Add a separate router that catches `/tracecat/` (trailing slash exact)
+and issues a 308 to `/tracecat` to avoid the Next.js ping-pong.
 
 ## Update OIDC / SAML provider configuration
 
