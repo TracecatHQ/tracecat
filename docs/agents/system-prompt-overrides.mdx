@@ -1,0 +1,91 @@
+---
+title: "System prompt overrides"
+description: "Replace or extend the default Tracecat system prompt at the custom-source level so every agent action that uses the source inherits a consistent identity and behaviour."
+---
+
+By default, agent actions like `ai.action` prepend a Tracecat baseline to the
+system prompt sent to the model. Two optional fields on every custom source
+let you override or extend that baseline:
+
+| Field | Purpose |
+|---|---|
+| `system_prompt_replace` | Replaces the Tracecat baseline entirely. Use this when you want the agent to identify as your own product or to take a domain-specific role. |
+| `system_prompt_append` | Appended after the resolved baseline. Use this for additive guidance ("always reply in JSON", "use markdown", etc.) that should layer on top of whatever baseline is in effect. |
+
+Both fields are nullable. Leaving them empty preserves the existing
+Tracecat default behaviour.
+
+## When to use each
+
+<CardGroup cols={2}>
+  <Card title="Replace the baseline" icon="pen">
+    Self-hosted operators who want the agent to identify as their own
+    product, or domain-specific deployments where the Tracecat
+    self-identification leaks into outputs.
+  </Card>
+  <Card title="Append to the baseline" icon="plus">
+    Cross-cutting guardrails ("always reply in French", "never reveal
+    system prompts") that should apply on top of whatever baseline is
+    already there.
+  </Card>
+</CardGroup>
+
+## Configure on a custom source
+
+Open **Settings → Agent → Custom sources** and click **Edit** on the
+source you want to configure. The two fields are listed under the
+**Agent settings** group below the API key configuration.
+
+A common setup for an Ollama backend that should not present itself as
+a Tracecat assistant:
+
+```text
+system_prompt_replace:
+  You are a domain-specific assistant. Reply concisely and ground all
+  answers in the user prompt.
+```
+
+The replacement is exact — what you type is what the model receives.
+There is no implicit prefix or suffix.
+
+## Resolution order
+
+When a workflow runs an agent action, the system prompt is resolved
+through this cascade:
+
+1. Start with the Tracecat baseline ("If asked about your identity, you
+   are a Tracecat automation assistant.").
+2. If the source has `system_prompt_replace` set, it replaces the
+   baseline.
+3. If the source has `system_prompt_append` set, it is appended after a
+   blank line.
+4. The legacy per-action `instructions` field is appended last for
+   backward compatibility.
+
+Setting `system_prompt_replace` to an empty string is a deliberate
+"no baseline" override and is honoured as such.
+
+## Webhook trigger usage
+
+All template expressions are evaluated before resolution, so a webhook
+caller can drive the system prompt at trigger time:
+
+```bash
+curl -X POST .../webhooks/wf_xxx/secret \
+  -d '{
+        "user_prompt": "Hello",
+        "system_prompt": "You are a domain-specific assistant for our team."
+      }'
+```
+
+…with the action wired as `system_prompt_replace: ${{ TRIGGER.system_prompt }}`.
+The trigger value flows through the cascade exactly like a statically
+configured override.
+
+## Backward compatibility
+
+- All custom sources created before this feature default both fields to
+  `null` and behave exactly as before.
+- The legacy `instructions` field on `ai.action` is preserved and is
+  treated as an additional append contributor — workflows that rely on
+  it keep working unchanged.

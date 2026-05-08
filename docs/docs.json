@@ -127,6 +127,7 @@
               "agents/ai-action",
               "agents/ai-agent",
               "agents/skills",
+              "agents/system-prompt-overrides",
               "agents/secrets-variables"
             ]
           },

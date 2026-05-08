@@ -188,6 +188,15 @@ PAGES: list[dict[str, Any]] = [
             - Use a JSON schema object when you need named fields.
             - Tracecat parses valid JSON before storing it in the action result.
 
+            ## System prompt overrides
+
+            By default the agent receives a Tracecat baseline system prompt
+            ("If asked about your identity, you are a Tracecat automation
+            assistant.") with the per-action `instructions` field appended
+            after it. To replace or extend the baseline at the custom-source
+            level so every workflow that uses the source inherits the same
+            override, see [System prompt overrides](/agents/system-prompt-overrides).
+
             ## Reference
             """
         ).strip(),
