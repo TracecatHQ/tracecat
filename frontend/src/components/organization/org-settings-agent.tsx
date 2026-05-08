@@ -473,6 +473,22 @@ function normalizeOptional(value: string | null | undefined): string | null {
   return trimmed.length > 0 ? trimmed : null
 }
 
+/**
+ * Pass-through normalisation for fields where an empty string carries
+ * semantic meaning (e.g. ``system_prompt_replace = ""`` is a deliberate
+ * "no baseline" override, distinct from ``null`` which keeps the
+ * Tracecat default). Only ``null``/``undefined`` collapse to ``null``;
+ * a literal empty string is preserved untouched.
+ */
+function preserveEmptyOptional(
+  value: string | null | undefined
+): string | null {
+  if (value == null) {
+    return null
+  }
+  return value
+}
+
 function parseCustomHeaders(
   value: string | null | undefined
 ): Record<string, string> | null {
@@ -730,8 +746,8 @@ function buildProviderCreatePayload(
     api_key: normalizeOptional(values.apiKey),
     custom_headers: parseCustomHeaders(values.customHeadersJson),
     passthrough: values.passthrough,
-    system_prompt_replace: normalizeOptional(values.systemPromptReplace),
-    system_prompt_append: normalizeOptional(values.systemPromptAppend),
+    system_prompt_replace: preserveEmptyOptional(values.systemPromptReplace),
+    system_prompt_append: preserveEmptyOptional(values.systemPromptAppend),
   }
 }
 
@@ -743,8 +759,8 @@ function buildProviderUpdatePayload(
     base_url: normalizeOptional(values.baseUrl),
     api_key_header: normalizeOptional(values.apiKeyHeader),
     passthrough: values.passthrough,
-    system_prompt_replace: normalizeOptional(values.systemPromptReplace),
-    system_prompt_append: normalizeOptional(values.systemPromptAppend),
+    system_prompt_replace: preserveEmptyOptional(values.systemPromptReplace),
+    system_prompt_append: preserveEmptyOptional(values.systemPromptAppend),
   }
 
   const apiKey = normalizeOptional(values.apiKey)

@@ -57,22 +57,38 @@ async def resolve_custom_provider_overrides_activity(
         "Resolving custom provider overrides",
         extra={"catalog_id": str(args.catalog_id)},
     )
-    async with get_async_session_context_manager() as session:
-        stmt = (
-            select(
-                AgentCustomProvider.system_prompt_replace,
-                AgentCustomProvider.system_prompt_append,
+    try:
+        async with get_async_session_context_manager() as session:
+            stmt = (
+                select(
+                    AgentCustomProvider.system_prompt_replace,
+                    AgentCustomProvider.system_prompt_append,
+                )
+                .join(
+                    AgentCatalog,
+                    sa.and_(
+                        AgentCatalog.organization_id
+                        == AgentCustomProvider.organization_id,
+                        AgentCatalog.custom_provider_id == AgentCustomProvider.id,
+                    ),
+                )
+                .where(AgentCatalog.id == args.catalog_id)
             )
-            .join(
-                AgentCatalog,
-                sa.and_(
-                    AgentCatalog.organization_id == AgentCustomProvider.organization_id,
-                    AgentCatalog.custom_provider_id == AgentCustomProvider.id,
-                ),
-            )
-            .where(AgentCatalog.id == args.catalog_id)
+            row = (await session.execute(stmt)).first()
+    except Exception as exc:  # noqa: BLE001 - any DB error must fall back to defaults
+        # The cascade is best-effort: a transient DB issue or schema drift
+        # must never abort an ``ai.action`` run. Surface a warning so it
+        # shows up in operational logs and let the runtime apply its
+        # default baseline.
+        activity.logger.warning(
+            "Custom provider override lookup failed; falling back to defaults",
+            extra={
+                "catalog_id": str(args.catalog_id),
+                "error": str(exc),
+                "error_type": type(exc).__name__,
+            },
         )
-        row = (await session.execute(stmt)).first()
+        return CustomProviderOverridesResult()
     if row is None:
         return CustomProviderOverridesResult()
     return CustomProviderOverridesResult(

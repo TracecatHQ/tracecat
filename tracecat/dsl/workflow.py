@@ -1034,20 +1034,32 @@ class DSLWorkflow:
                         retry_policy=RETRY_POLICIES["activity:fail_fast"],
                     )
                     # Resolve source-level system prompt overrides if a catalog
-                    # row backs this invocation. The activity gracefully returns
-                    # empty results for non-custom-provider catalog entries, so
-                    # we never block on a benign miss.
+                    # row backs this invocation. The activity is best-effort:
+                    # it gracefully returns empty results on benign misses
+                    # (non-custom-provider catalog rows, missing rows) and
+                    # swallows DB failures internally with a warning log.
+                    # Wrap the activity call too so a Temporal-level failure
+                    # (timeout, worker death) also falls back to defaults
+                    # instead of aborting the workflow run.
                     source_overrides = CustomProviderOverridesResult()
                     if action_args.catalog_id is not None:
-                        source_overrides = await workflow.execute_activity(
-                            resolve_custom_provider_overrides_activity,
-                            arg=ResolveCustomProviderOverridesInput(
-                                role=self.role,
-                                catalog_id=action_args.catalog_id,
-                            ),
-                            start_to_close_timeout=timedelta(seconds=10),
-                            retry_policy=RETRY_POLICIES["activity:fail_fast"],
-                        )
+                        try:
+                            source_overrides = await workflow.execute_activity(
+                                resolve_custom_provider_overrides_activity,
+                                arg=ResolveCustomProviderOverridesInput(
+                                    role=self.role,
+                                    catalog_id=action_args.catalog_id,
+                                ),
+                                start_to_close_timeout=timedelta(seconds=10),
+                                retry_policy=RETRY_POLICIES["activity:fail_fast"],
+                            )
+                        except (ActivityError, ApplicationError) as exc:
+                            self.logger.warning(
+                                "Custom provider overrides activity failed; "
+                                "falling back to default system prompt",
+                                catalog_id=str(action_args.catalog_id),
+                                error=str(exc),
+                            )
                     # Cascade: action overrides win over source overrides.
                     # Action-level fields are read defensively via ``getattr``
                     # because ``AgentActionArgs`` (defined in the EE schema
