@@ -1824,3 +1824,59 @@ class TestClaudeAgentRuntimeSessionLineFlushing:
         assert runtime._last_seen_byte_offset == len(expected_data.encode("utf-8"))
         session_file = runtime._get_session_file_path(sdk_session_id)
         assert session_file.read_text(encoding="utf-8") == expected_data
+
+    @pytest.mark.anyio
+    async def test_forked_resume_keeps_zero_offset_when_child_file_missing(
+        self,
+        mock_socket_writer: MagicMock,
+        sample_init_payload: RuntimeInitPayload,
+        tmp_path: Path,
+    ) -> None:
+        """A fresh fork should not reuse the parent's byte offset."""
+        parent_sdk_session_id = "eed8297f-26fb-4e00-905f-a10f0cf20704"
+        child_sdk_session_id = "eed8297f-26fb-4e00-905f-a10f0cf20705"
+        parent_history = (
+            '{"type":"user","message":{"content":"parent prompt"}}\n'
+            '{"type":"assistant","message":{"content":[{"type":"text","text":"parent answer"}]}}\n'
+        )
+        child_line = {
+            "type": "user",
+            "uuid": "child-first-line",
+            "message": {"role": "user", "content": "fork prompt"},
+        }
+        child_bytes = self._line_bytes(child_line)
+        runtime = ClaudeAgentRuntime(
+            mock_socket_writer,
+            transport_factory=lambda _: MagicMock(),
+            session_home_dir=tmp_path / "claude-home",
+            cwd=tmp_path / "claude-project",
+        )
+        payload = replace(
+            sample_init_payload,
+            sdk_session_id=parent_sdk_session_id,
+            sdk_session_data=parent_history,
+            is_fork=True,
+        )
+
+        await runtime._prepare_resume_and_mcp(payload, write_session_file=True)
+        await runtime._capture_sdk_session_id(
+            child_sdk_session_id,
+            resume_session_id=parent_sdk_session_id,
+            fork_session=True,
+        )
+
+        assert runtime._sdk_session_id == child_sdk_session_id
+        assert runtime._last_seen_byte_offset == 0
+
+        child_session_file = runtime._get_session_file_path(child_sdk_session_id)
+        child_session_file.parent.mkdir(parents=True, exist_ok=True)
+        child_session_file.write_bytes(child_bytes)
+
+        await runtime._emit_new_session_lines()
+
+        mock_socket_writer.send_session_line.assert_awaited_once_with(
+            child_sdk_session_id,
+            child_bytes.rstrip(b"\n").decode("utf-8"),
+            internal=False,
+        )
+        assert runtime._last_seen_byte_offset == len(child_bytes)

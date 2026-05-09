@@ -347,9 +347,9 @@ class ClaudeAgentRuntime:
         if payload.sdk_session_id and payload.sdk_session_data:
             resume_session_id = payload.sdk_session_id
             fork_session = payload.is_fork
-            session_data = self._session_data_for_disk(payload.sdk_session_data)
-            self._last_seen_byte_offset = len(session_data.encode("utf-8"))
             if not fork_session:
+                session_data = self._session_data_for_disk(payload.sdk_session_data)
+                self._last_seen_byte_offset = len(session_data.encode("utf-8"))
                 self._sdk_session_id = resume_session_id
 
         async with asyncio.TaskGroup() as tg:
