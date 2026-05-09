@@ -5,6 +5,7 @@ Tests the runtime execution with mocked Claude SDK.
 
 from __future__ import annotations
 
+import asyncio
 import os
 import tempfile
 import uuid
@@ -123,6 +124,7 @@ def mock_socket_writer() -> MagicMock:
     writer.send_stream_event = AsyncMock()
     writer.send_message = AsyncMock()
     writer.send_session_line = AsyncMock()
+    writer.send_result = AsyncMock()
     writer.send_error = AsyncMock()
     writer.send_done = AsyncMock()
     writer.close = AsyncMock()
@@ -302,6 +304,259 @@ class TestClaudeAgentRuntimeRun:
 
         # Should have called send_stream_event
         mock_socket_writer.send_stream_event.assert_awaited()
+
+    @pytest.mark.anyio
+    async def test_stream_events_flush_new_session_lines(
+        self,
+        mock_socket_writer: MagicMock,
+        mock_claude_sdk_client: MagicMock,
+        sample_init_payload: RuntimeInitPayload,
+        tmp_path: Path,
+    ) -> None:
+        """Stream progress should flush newly written Claude JSONL rows."""
+        sdk_session_id = "test-sdk-session"
+        session_line = {
+            "type": "user",
+            "uuid": "user-line-uuid",
+            "sessionId": sdk_session_id,
+            "message": {"role": "user", "content": "Hello"},
+        }
+        runtime = ClaudeAgentRuntime(
+            mock_socket_writer,
+            transport_factory=lambda _: MagicMock(),
+            session_home_dir=tmp_path / "claude-home",
+            cwd=tmp_path / "claude-project",
+            cwd_setup_path=tmp_path / "claude-project",
+        )
+        session_file = runtime._get_session_file_path(sdk_session_id)
+        session_file.parent.mkdir(parents=True, exist_ok=True)
+        session_file.write_text(orjson.dumps(session_line).decode("utf-8") + "\n")
+
+        async def mock_receive() -> Any:
+            yield StreamEvent(
+                uuid="stream-event-uuid",
+                session_id=sdk_session_id,
+                event={
+                    "type": "content_block_delta",
+                    "index": 0,
+                    "delta": {"type": "text_delta", "text": "Hello"},
+                },
+            )
+
+        mock_claude_sdk_client.receive_response = mock_receive
+
+        mock_adapter = MagicMock()
+        mock_adapter.to_unified_event.return_value = UnifiedStreamEvent(
+            type=StreamEventType.TEXT_DELTA,
+            text="Hello",
+            part_id=0,
+        )
+
+        with (
+            patch(
+                "tracecat.agent.runtime.claude_code.runtime.ClaudeSDKClient",
+                return_value=mock_claude_sdk_client,
+            ),
+            patch(
+                "tracecat.agent.runtime.claude_code.runtime.create_proxy_mcp_server",
+                AsyncMock(return_value={}),
+            ),
+            patch(
+                "tracecat.agent.runtime.claude_code.runtime.ClaudeSDKAdapter",
+                return_value=mock_adapter,
+            ),
+        ):
+            await runtime.run(sample_init_payload)
+
+        mock_socket_writer.send_session_line.assert_awaited_once_with(
+            sdk_session_id,
+            orjson.dumps(session_line).decode("utf-8"),
+            internal=False,
+        )
+        mock_socket_writer.send_stream_event.assert_awaited_once()
+
+    @pytest.mark.anyio
+    async def test_stream_event_is_not_delayed_by_slow_session_line_flush(
+        self,
+        mock_socket_writer: MagicMock,
+        mock_claude_sdk_client: MagicMock,
+        sample_init_payload: RuntimeInitPayload,
+        tmp_path: Path,
+    ) -> None:
+        """Session-line persistence should run after the stream event is sent."""
+        sdk_session_id = "test-sdk-session"
+        session_line = {
+            "type": "user",
+            "uuid": "user-line-uuid",
+            "sessionId": sdk_session_id,
+            "message": {"role": "user", "content": "Hello"},
+        }
+        runtime = ClaudeAgentRuntime(
+            mock_socket_writer,
+            transport_factory=lambda _: MagicMock(),
+            session_home_dir=tmp_path / "claude-home",
+            cwd=tmp_path / "claude-project",
+            cwd_setup_path=tmp_path / "claude-project",
+        )
+        session_file = runtime._get_session_file_path(sdk_session_id)
+        session_file.parent.mkdir(parents=True, exist_ok=True)
+        session_file.write_bytes(orjson.dumps(session_line) + b"\n")
+
+        stream_sent = asyncio.Event()
+        session_send_started = asyncio.Event()
+        release_session_send = asyncio.Event()
+        order: list[str] = []
+
+        async def record_stream_event(_event: UnifiedStreamEvent) -> None:
+            order.append("stream")
+            stream_sent.set()
+
+        async def slow_session_line(
+            _sdk_session_id: str,
+            _line: str,
+            *,
+            internal: bool = False,
+        ) -> None:
+            del internal
+            order.append("session")
+            session_send_started.set()
+            await release_session_send.wait()
+
+        mock_socket_writer.send_stream_event.side_effect = record_stream_event
+        mock_socket_writer.send_session_line.side_effect = slow_session_line
+
+        async def mock_receive() -> Any:
+            yield StreamEvent(
+                uuid="stream-event-uuid",
+                session_id=sdk_session_id,
+                event={
+                    "type": "content_block_delta",
+                    "index": 0,
+                    "delta": {"type": "text_delta", "text": "Hello"},
+                },
+            )
+            yield ResultMessage(
+                subtype="success",
+                duration_ms=1,
+                duration_api_ms=1,
+                is_error=False,
+                num_turns=1,
+                session_id=sdk_session_id,
+                usage={},
+                result="done",
+            )
+
+        mock_claude_sdk_client.receive_response = mock_receive
+
+        mock_adapter = MagicMock()
+        mock_adapter.to_unified_event.return_value = UnifiedStreamEvent(
+            type=StreamEventType.TEXT_DELTA,
+            text="Hello",
+            part_id=0,
+        )
+
+        with (
+            patch(
+                "tracecat.agent.runtime.claude_code.runtime.ClaudeSDKClient",
+                return_value=mock_claude_sdk_client,
+            ),
+            patch(
+                "tracecat.agent.runtime.claude_code.runtime.create_proxy_mcp_server",
+                AsyncMock(return_value={}),
+            ),
+            patch(
+                "tracecat.agent.runtime.claude_code.runtime.ClaudeSDKAdapter",
+                return_value=mock_adapter,
+            ),
+        ):
+            run_task = asyncio.create_task(runtime.run(sample_init_payload))
+            await asyncio.wait_for(stream_sent.wait(), timeout=1.0)
+            assert order[0] == "stream"
+            await asyncio.wait_for(session_send_started.wait(), timeout=1.0)
+            release_session_send.set()
+            await run_task
+
+        assert order[:2] == ["stream", "session"]
+
+    @pytest.mark.anyio
+    async def test_final_flush_persists_session_lines_before_done_without_stream_events(
+        self,
+        mock_socket_writer: MagicMock,
+        mock_claude_sdk_client: MagicMock,
+        sample_init_payload: RuntimeInitPayload,
+        tmp_path: Path,
+    ) -> None:
+        """A result-only turn should still persist SDK JSONL before done."""
+        sdk_session_id = "test-sdk-session"
+        session_line = {
+            "type": "assistant",
+            "uuid": "assistant-line-uuid",
+            "sessionId": sdk_session_id,
+            "message": {
+                "role": "assistant",
+                "content": [{"type": "text", "text": "Done"}],
+            },
+        }
+        order: list[str] = []
+
+        async def record_session_line(
+            _sdk_session_id: str,
+            _line: str,
+            *,
+            internal: bool = False,
+        ) -> None:
+            del internal
+            order.append("session")
+
+        async def record_result(**_kwargs: Any) -> None:
+            order.append("result")
+
+        async def record_done() -> None:
+            order.append("done")
+
+        mock_socket_writer.send_session_line.side_effect = record_session_line
+        mock_socket_writer.send_result.side_effect = record_result
+        mock_socket_writer.send_done.side_effect = record_done
+
+        runtime = ClaudeAgentRuntime(
+            mock_socket_writer,
+            transport_factory=lambda _: MagicMock(),
+            session_home_dir=tmp_path / "claude-home",
+            cwd=tmp_path / "claude-project",
+            cwd_setup_path=tmp_path / "claude-project",
+        )
+        session_file = runtime._get_session_file_path(sdk_session_id)
+        session_file.parent.mkdir(parents=True, exist_ok=True)
+        session_file.write_bytes(orjson.dumps(session_line) + b"\n")
+
+        async def mock_receive() -> Any:
+            yield ResultMessage(
+                subtype="success",
+                duration_ms=1,
+                duration_api_ms=1,
+                is_error=False,
+                num_turns=1,
+                session_id=sdk_session_id,
+                usage={},
+                result="done",
+            )
+
+        mock_claude_sdk_client.receive_response = mock_receive
+
+        with (
+            patch(
+                "tracecat.agent.runtime.claude_code.runtime.ClaudeSDKClient",
+                return_value=mock_claude_sdk_client,
+            ),
+            patch(
+                "tracecat.agent.runtime.claude_code.runtime.create_proxy_mcp_server",
+                AsyncMock(return_value={}),
+            ),
+        ):
+            await runtime.run(sample_init_payload)
+
+        mock_socket_writer.send_session_line.assert_awaited_once()
+        assert order == ["result", "session", "done"]
 
     @pytest.mark.anyio
     async def test_sets_skip_version_check_before_sdk_connect(
@@ -1433,3 +1688,139 @@ class TestClaudeAgentRuntimeInternalSessionLines:
         assert internal_by_uuid[prompt_uuid] is True
         assert internal_by_uuid[thinking_uuid] is False
         assert internal_by_uuid[answer_uuid] is False
+
+
+class TestClaudeAgentRuntimeSessionLineFlushing:
+    """Tests for ClaudeAgentRuntime SDK JSONL flushing."""
+
+    @staticmethod
+    def _line_bytes(line: dict[str, Any]) -> bytes:
+        return orjson.dumps(line) + b"\n"
+
+    @pytest.mark.anyio
+    async def test_emit_new_session_lines_tails_by_byte_offset(
+        self,
+        mock_socket_writer: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """Only bytes after the last flushed offset should be emitted."""
+        runtime = ClaudeAgentRuntime(
+            mock_socket_writer,
+            transport_factory=lambda _: MagicMock(),
+            session_home_dir=tmp_path / "claude-home",
+            cwd=tmp_path / "claude-project",
+        )
+        sdk_session_id = "eed8297f-26fb-4e00-905f-a10f0cf20704"
+        runtime._sdk_session_id = sdk_session_id
+
+        first_line = {
+            "type": "user",
+            "uuid": "first-line",
+            "message": {"role": "user", "content": "old"},
+        }
+        second_line = {
+            "type": "assistant",
+            "uuid": "second-line",
+            "message": {
+                "role": "assistant",
+                "content": [{"type": "text", "text": "new"}],
+            },
+        }
+        first_bytes = self._line_bytes(first_line)
+        second_bytes = self._line_bytes(second_line)
+
+        session_file = runtime._get_session_file_path(sdk_session_id)
+        session_file.parent.mkdir(parents=True, exist_ok=True)
+        session_file.write_bytes(first_bytes + second_bytes)
+        runtime._last_seen_byte_offset = len(first_bytes)
+
+        await runtime._emit_new_session_lines()
+
+        mock_socket_writer.send_session_line.assert_awaited_once_with(
+            sdk_session_id,
+            second_bytes.rstrip(b"\n").decode("utf-8"),
+            internal=False,
+        )
+        assert runtime._last_seen_byte_offset == len(first_bytes + second_bytes)
+
+    @pytest.mark.anyio
+    async def test_emit_new_session_lines_retries_partial_line(
+        self,
+        mock_socket_writer: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """A trailing incomplete JSONL row should not advance the byte offset."""
+        runtime = ClaudeAgentRuntime(
+            mock_socket_writer,
+            transport_factory=lambda _: MagicMock(),
+            session_home_dir=tmp_path / "claude-home",
+            cwd=tmp_path / "claude-project",
+        )
+        sdk_session_id = "eed8297f-26fb-4e00-905f-a10f0cf20704"
+        runtime._sdk_session_id = sdk_session_id
+
+        first_bytes = self._line_bytes(
+            {
+                "type": "user",
+                "uuid": "first-line",
+                "message": {"role": "user", "content": "complete"},
+            }
+        )
+        second_bytes = self._line_bytes(
+            {
+                "type": "assistant",
+                "uuid": "second-line",
+                "message": {
+                    "role": "assistant",
+                    "content": [{"type": "text", "text": "complete later"}],
+                },
+            }
+        )
+
+        session_file = runtime._get_session_file_path(sdk_session_id)
+        session_file.parent.mkdir(parents=True, exist_ok=True)
+        session_file.write_bytes(first_bytes + second_bytes.rstrip(b"\n"))
+
+        await runtime._emit_new_session_lines()
+
+        mock_socket_writer.send_session_line.assert_awaited_once()
+        assert runtime._last_seen_byte_offset == len(first_bytes)
+
+        session_file.write_bytes(first_bytes + second_bytes)
+        await runtime._emit_new_session_lines()
+
+        assert mock_socket_writer.send_session_line.await_count == 2
+        assert runtime._last_seen_byte_offset == len(first_bytes + second_bytes)
+
+    @pytest.mark.anyio
+    async def test_prepare_resume_seeds_byte_offset_from_canonical_disk_data(
+        self,
+        mock_socket_writer: MagicMock,
+        sample_init_payload: RuntimeInitPayload,
+        tmp_path: Path,
+    ) -> None:
+        """Normal resume offsets should match the canonical JSONL written to disk."""
+        sdk_session_id = "eed8297f-26fb-4e00-905f-a10f0cf20704"
+        sdk_session_data = (
+            '{"type":"assistant","message":{"content":[{"type":"tool_use",'
+            '"name":"mcp__tracecat_registry__execute_tool"}]}}'
+        )
+        runtime = ClaudeAgentRuntime(
+            mock_socket_writer,
+            transport_factory=lambda _: MagicMock(),
+            session_home_dir=tmp_path / "claude-home",
+            cwd=tmp_path / "claude-project",
+        )
+        payload = replace(
+            sample_init_payload,
+            sdk_session_id=sdk_session_id,
+            sdk_session_data=sdk_session_data,
+        )
+
+        await runtime._prepare_resume_and_mcp(payload, write_session_file=True)
+
+        expected_data = runtime._session_data_for_disk(sdk_session_data)
+        assert runtime._sdk_session_id == sdk_session_id
+        assert runtime._last_seen_byte_offset == len(expected_data.encode("utf-8"))
+        session_file = runtime._get_session_file_path(sdk_session_id)
+        assert session_file.read_text(encoding="utf-8") == expected_data

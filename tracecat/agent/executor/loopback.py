@@ -16,9 +16,10 @@ from __future__ import annotations
 
 import asyncio
 import uuid
+from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
 from time import perf_counter
-from typing import Any, Protocol
+from typing import Any, Literal, NotRequired, Protocol, TypedDict, cast
 
 import orjson
 from sqlalchemy import select
@@ -45,6 +46,35 @@ from tracecat.db.models import AgentChannelToken, AgentSession, AgentSessionHist
 from tracecat.exceptions import TracecatValidationError
 from tracecat.logger import logger
 
+type JsonScalar = str | int | float | bool | None
+type JsonValue = JsonScalar | list[JsonValue] | dict[str, JsonValue]
+type JsonObject = dict[str, JsonValue]
+type ResultUsage = dict[str, JsonValue]
+type RuntimeOutput = JsonValue
+type SessionLineKind = Literal["chat-message", "internal", "compaction"]
+type CompactionPhase = Literal["started", "completed", "failed"]
+
+
+class ClaudeSessionMessage(TypedDict):
+    """Message payload embedded in a Claude Code JSONL session line."""
+
+    role: NotRequired[str]
+    content: NotRequired[str | list[JsonObject]]
+
+
+class ClaudeSessionLine(TypedDict):
+    """Subset of Claude Code JSONL fields used by loopback persistence."""
+
+    uuid: NotRequired[str]
+    parentUuid: NotRequired[str]
+    sessionId: NotRequired[str]
+    type: NotRequired[str]
+    subtype: NotRequired[str]
+    message: NotRequired[ClaudeSessionMessage | JsonObject]
+
+
+type SinkOperation = Callable[[LoopbackEventSink], Awaitable[None]]
+
 
 @dataclass(kw_only=True, slots=True)
 class LoopbackInput:
@@ -62,8 +92,8 @@ class LoopbackResult:
     error: str | None = None
     approval_requested: bool = False
     approval_items: list[ToolCallContent] = field(default_factory=list)
-    output: Any = None
-    result_usage: dict[str, Any] | None = None
+    output: RuntimeOutput | None = None
+    result_usage: ResultUsage | None = None
     result_num_turns: int | None = None
 
 
@@ -78,7 +108,10 @@ class ResolvedSlackContext:
     reaction_ts: str | None = None
 
     @classmethod
-    def from_channel_context(cls, ctx: dict[str, Any]) -> ResolvedSlackContext | None:
+    def from_channel_context(
+        cls,
+        ctx: Mapping[str, object],
+    ) -> ResolvedSlackContext | None:
         """Parse a channel_context dict into a validated context, or None on failure."""
         channel_id = ctx.get("channel_id")
         thread_ts = ctx.get("thread_ts")
@@ -143,31 +176,55 @@ class FanoutStreamSink:
 
     sinks: tuple[LoopbackEventSink, ...]
 
-    async def _broadcast(self, method_name: str, *args: Any) -> None:
+    async def _broadcast(
+        self,
+        operation_name: str,
+        operation: SinkOperation,
+    ) -> None:
         failures = 0
         for sink in self.sinks:
-            method = getattr(sink, method_name)
             try:
-                await method(*args)
+                await operation(sink)
             except Exception as exc:
                 failures += 1
                 logger.warning(
                     "Fanout stream sink target failed",
-                    method=method_name,
+                    method=operation_name,
                     sink_type=type(sink).__name__,
                     error=str(exc),
                 )
         if failures == len(self.sinks):
-            raise RuntimeError(f"All fanout sinks failed for method '{method_name}'")
+            raise RuntimeError(f"All fanout sinks failed for method '{operation_name}'")
 
     async def append(self, event: UnifiedStreamEvent) -> None:
-        await self._broadcast("append", event)
+        await self._broadcast("append", lambda sink: sink.append(event))
 
     async def error(self, error: str) -> None:
-        await self._broadcast("error", error)
+        await self._broadcast("error", lambda sink: sink.error(error))
 
     async def done(self) -> None:
-        await self._broadcast("done")
+        await self._broadcast("done", lambda sink: sink.done())
+
+
+def _runtime_envelope_from_json(payload: bytes) -> RuntimeEventEnvelope:
+    """Decode a socket payload into a typed runtime event envelope."""
+    decoded = orjson.loads(payload)
+    if not isinstance(decoded, dict):
+        raise ValueError("Runtime event payload must be a JSON object")
+    return RuntimeEventEnvelope.from_dict(cast(dict[str, Any], decoded))
+
+
+def _session_line_from_json(session_line: str) -> ClaudeSessionLine:
+    """Decode and validate the outer shape of a Claude Code JSONL line."""
+    decoded = orjson.loads(session_line)
+    if not isinstance(decoded, dict):
+        raise ValueError("Claude session line must be a JSON object")
+    return cast(ClaudeSessionLine, decoded)
+
+
+def _session_line_db_content(line: ClaudeSessionLine) -> dict[str, Any]:
+    """Return a SQLAlchemy JSONB payload for an already validated session line."""
+    return cast(dict[str, Any], line)
 
 
 class LoopbackHandler:
@@ -212,7 +269,7 @@ class LoopbackHandler:
         )
 
     @staticmethod
-    def _tool_output_contains_internal_interrupt(value: Any) -> bool:
+    def _tool_output_contains_internal_interrupt(value: object) -> bool:
         """Return True when tool output matches approval interruption artifacts."""
         markers = (
             "doesn't want to take this action",
@@ -220,17 +277,18 @@ class LoopbackHandler:
             "request interrupted by user",
         )
 
-        stack: list[Any] = [value]
+        stack: list[object] = [value]
         while stack:
             current = stack.pop()
-            if isinstance(current, str):
-                lowered = current.lower()
-                if any(marker in lowered for marker in markers):
-                    return True
-            elif isinstance(current, list):
-                stack.extend(current)
-            elif isinstance(current, dict):
-                stack.extend(current.values())
+            match current:
+                case str() as text:
+                    lowered = text.lower()
+                    if any(marker in lowered for marker in markers):
+                        return True
+                case list() as items:
+                    stack.extend(items)
+                case Mapping() as mapping:
+                    stack.extend(mapping.values())
         return False
 
     def _should_suppress_stream_event(self, event: UnifiedStreamEvent) -> bool:
@@ -249,6 +307,14 @@ class LoopbackHandler:
             return False
 
         return self._tool_output_contains_internal_interrupt(event.tool_output)
+
+    @staticmethod
+    def _compaction_phase(event: UnifiedStreamEvent) -> CompactionPhase | None:
+        match event.metadata:
+            case {"phase": "started" | "completed" | "failed" as phase}:
+                return phase
+            case _:
+                return None
 
     async def prepare(self) -> LoopbackEventSink:
         """Initialize and cache the stream sink before runtime connection."""
@@ -388,7 +454,7 @@ class LoopbackHandler:
                     await self._stream_sink.error(self._result.error)
                 break
 
-            envelope = RuntimeEventEnvelope.from_dict(orjson.loads(payload_bytes))
+            envelope = _runtime_envelope_from_json(payload_bytes)
             if await self.process_envelope(envelope):
                 break
 
@@ -478,7 +544,7 @@ class LoopbackHandler:
             session_id=self.input.session_id,
         )
         if event.type == StreamEventType.COMPACTION:
-            phase = (event.metadata or {}).get("phase")
+            phase = self._compaction_phase(event)
             if phase == "started":
                 self._started_compaction_event = True
                 self._terminal_compaction_event = False
@@ -525,10 +591,10 @@ class LoopbackHandler:
 
     async def send_result(
         self,
-        usage: dict[str, Any] | None = None,
+        usage: ResultUsage | None = None,
         num_turns: int | None = None,
         duration_ms: int | None = None,
-        output: Any = None,
+        output: RuntimeOutput | None = None,
     ) -> None:
         """Store the final Claude result payload."""
         del duration_ms
@@ -749,13 +815,13 @@ class LoopbackHandler:
             internal: If True, this is internal state not shown in UI timeline.
         """
         # Parse and sanitize to prevent XSS from untrusted content (e.g., tool results)
-        line_data = orjson.loads(session_line)
+        line_data = _session_line_from_json(session_line)
         if not internal and line_data.get("type") == "assistant":
             self._received_assistant_content = True
 
         # Deduplicate by UUID - each JSONL line has a unique uuid field
         line_uuid = line_data.get("uuid")
-        if line_uuid and line_uuid in self._persisted_line_uuids:
+        if isinstance(line_uuid, str) and line_uuid in self._persisted_line_uuids:
             logger.debug(
                 "Skipping duplicate session line",
                 uuid=line_uuid,
@@ -790,7 +856,7 @@ class LoopbackHandler:
                     )
 
             # Use explicit internal flag from runtime, not content-based heuristics
-            kind = "internal" if internal else "chat-message"
+            kind: SessionLineKind = "internal" if internal else "chat-message"
 
             # Compaction system message (compact_boundary) marked with its own kind for badge rendering
             # The system compact_boundary message carries the metadata (pre_tokens, trigger)
@@ -803,14 +869,14 @@ class LoopbackHandler:
             history_entry = AgentSessionHistory(
                 session_id=self.input.session_id,
                 workspace_id=self.input.workspace_id,
-                content=line_data,
+                content=_session_line_db_content(line_data),
                 kind=kind,
             )
             session.add(history_entry)
             await session.commit()
 
         # Track as persisted after successful commit
-        if line_uuid:
+        if isinstance(line_uuid, str):
             self._persisted_line_uuids.add(line_uuid)
 
     def _validate_runtime_completion(self) -> str | None:
@@ -830,7 +896,7 @@ class LoopbackHandler:
         return None
 
     @staticmethod
-    def _is_effectively_empty_output(value: Any) -> bool:
+    def _is_effectively_empty_output(value: object | None) -> bool:
         """Return True when the result output carries no meaningful content."""
         if value is None:
             return True
@@ -841,7 +907,7 @@ class LoopbackHandler:
         return False
 
     @staticmethod
-    def _is_zero_usage(usage: dict[str, Any] | None) -> bool:
+    def _is_zero_usage(usage: ResultUsage | None) -> bool:
         """Return True when usage is missing or contains no positive numeric values."""
         if not usage:
             return True

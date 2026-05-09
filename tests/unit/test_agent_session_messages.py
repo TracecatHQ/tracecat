@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 from types import SimpleNamespace
 from typing import Any, cast
-from unittest.mock import AsyncMock, Mock
+from unittest.mock import AsyncMock, MagicMock, Mock
 
 import orjson
 import pytest
@@ -15,10 +15,12 @@ from tracecat.db.models import AgentSession
 
 
 def _mock_scalar_result(items: list[Any]) -> Mock:
-    scalars = Mock()
+    scalars = MagicMock()
     scalars.all.return_value = items
+    scalars.__iter__.return_value = iter(items)
     result = Mock()
     result.scalars.return_value = scalars
+    result.scalar_one_or_none.return_value = items[0] if items else None
     return result
 
 
@@ -40,6 +42,7 @@ def _build_service() -> tuple[AgentSessionService, AgentSession]:
         entity_type="case",
         entity_id=uuid.uuid4(),
     )
+    agent_session.id = uuid.uuid4()
     return service, agent_session
 
 
