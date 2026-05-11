@@ -241,7 +241,15 @@ class OtelSocketRelay:
     async def _read_request(
         reader: asyncio.StreamReader,
     ) -> _RelayRequest | None:
-        """Parse the HTTP request line, headers, and body."""
+        """Parse the HTTP request line, headers, and body.
+
+        Deliberately retains only four pieces of state: method, path,
+        content-type, and authorization. Every other inbound header is
+        discarded at parse time so it cannot reach the outbound request
+        built in ``_handle_connection``. Do not accumulate an inbound
+        header dict here; the relay's contract is that the sandbox cannot
+        influence outbound headers beyond echoing content-type.
+        """
         request_line = await reader.readline()
         if not request_line:
             return None
