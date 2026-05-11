@@ -2779,7 +2779,8 @@ Within a scatter stream, each child action accesses its item via \
 ## Recommended authoring sequence
 1. `get_workflow_authoring_context` — get action schemas, secrets, and variables
 2. Use `create_workflow` to create a blank workflow shell when needed
-3. `get_workflow` — fetch `draft_document` plus `draft_revision` for patch-based edits
+3. For existing workflows, use the latest `draft_document` plus `draft_revision`
+already in context when you know they are current; otherwise call `get_workflow`
 4. Prefer `edit_workflow` for existing workflow changes — apply small RFC 6902
 JSON Patch operations to the draft document instead of resending full YAML
 5. Use `get_workflow(include_definition_yaml=true)` when you want full inline YAML,
@@ -2792,9 +2793,11 @@ bulk-updating the workflow definition from inline YAML
 10. `get_workflow_execution` — inspect execution status, per-action results/errors
 
 ## Workflow definition editing
-- Default to `edit_workflow` for existing workflows. Fetch `draft_document` and
-`draft_revision` with `get_workflow`, create the smallest RFC 6902 patch that
-changes the intended fields, then call `edit_workflow`.
+- Default to `edit_workflow` for existing workflows. If the latest
+`draft_document` and `draft_revision` are already in the context window, reuse
+them and create the smallest RFC 6902 patch that changes the intended fields.
+Call `get_workflow` only when the latest draft is missing, stale, or a revision
+conflict says the draft changed.
 - Use `update_workflow` without `definition_yaml` for metadata-only updates.
 - Use inline YAML on `create_workflow` and `update_workflow` only when creating a
 workflow from YAML or intentionally replacing/bulk-updating the definition.

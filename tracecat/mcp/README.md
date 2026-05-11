@@ -26,9 +26,11 @@ own embedded collection truncation behavior below.
 
 ### Workflow definition editing
 
-- For existing workflow changes, prefer `edit_workflow`. Fetch
-  `draft_document` and `draft_revision` with `get_workflow`, then send the
-  smallest RFC 6902 JSON Patch that changes the intended fields.
+- For existing workflow changes, prefer `edit_workflow`. If the latest
+  `draft_document` and `draft_revision` are already in context, reuse them and
+  send the smallest RFC 6902 JSON Patch that changes the intended fields. Call
+  `get_workflow` only when the latest draft is missing, stale, or a revision
+  conflict says the draft changed.
 - Use `update_workflow` without `definition_yaml` for metadata-only updates.
 - Use inline YAML on `create_workflow` and `update_workflow` only when creating
   a workflow from YAML or intentionally replacing/bulk-updating the definition.

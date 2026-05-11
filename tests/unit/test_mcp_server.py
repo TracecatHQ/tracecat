@@ -7856,6 +7856,13 @@ def test_mcp_instructions_prefer_edit_workflow_for_existing_workflows() -> None:
     assert "Prefer `edit_workflow` for existing workflow changes" in (
         mcp_server._MCP_INSTRUCTIONS
     )
+    assert "already in context when you know they are current" in (
+        mcp_server._MCP_INSTRUCTIONS
+    )
+    assert "Call `get_workflow` only when the latest draft is missing" in (
+        mcp_server._MCP_INSTRUCTIONS
+    )
+    assert "conflict says the draft changed" in mcp_server._MCP_INSTRUCTIONS
     assert "instead of resending full YAML" in mcp_server._MCP_INSTRUCTIONS
     assert "Use `update_workflow` without `definition_yaml`" in (
         mcp_server._MCP_INSTRUCTIONS
