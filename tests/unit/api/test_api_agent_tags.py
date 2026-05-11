@@ -7,12 +7,15 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from fastapi import status
 from fastapi.testclient import TestClient
-from sqlalchemy.exc import NoResultFound
 
 from tracecat.agent.tags import definitions_router as agent_tag_definitions_router
 from tracecat.agent.tags import router as agent_tags_router
 from tracecat.auth.types import Role
-from tracecat.exceptions import EntitlementRequired, TracecatConflictError
+from tracecat.exceptions import (
+    EntitlementRequired,
+    TracecatConflictError,
+    TracecatNotFoundError,
+)
 from tracecat.pagination import CursorPaginatedResponse
 
 # Fixed UUID for parametrized test IDs — uuid.uuid4() at module level causes
@@ -70,7 +73,7 @@ async def test_list_preset_tags_missing_preset_returns_404(
     with patch.object(agent_tags_router, "AgentTagsService") as mock_service_cls:
         mock_service = _mock_service_with_async_method(
             "list_tags_for_preset",
-            side_effect=NoResultFound("Agent preset not found"),
+            side_effect=TracecatNotFoundError("Agent preset not found"),
         )
         mock_service_cls.return_value = mock_service
 

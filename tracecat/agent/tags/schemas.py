@@ -2,10 +2,11 @@
 
 from pydantic import BaseModel
 
+from tracecat.core.schemas import Schema
 from tracecat.identifiers import AgentTagID
 
 
-class AgentTagRead(BaseModel):
+class AgentTagRead(Schema):
     """Tag data."""
 
     id: AgentTagID

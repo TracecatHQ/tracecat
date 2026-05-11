@@ -4,12 +4,16 @@ from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
 
 import pytest
-from sqlalchemy.exc import NoResultFound
 
 from tracecat.agent.tags.service import AgentTagsService
 from tracecat.auth.types import Role
 from tracecat.db.models import AgentTag, AgentTagLink
-from tracecat.exceptions import EntitlementRequired, ScopeDeniedError
+from tracecat.exceptions import (
+    EntitlementRequired,
+    ScopeDeniedError,
+    TracecatNotFoundError,
+    TracecatValidationError,
+)
 from tracecat.pagination import BaseCursorPaginator, CursorPaginationParams
 from tracecat.tags.schemas import TagCreate, TagUpdate
 from tracecat.tiers.enums import Entitlement
@@ -202,7 +206,7 @@ async def test_delete_tag_by_id_allows_delete_scope_without_read(
     """Deleting by ID should not require agent:read."""
     tag = object()
     result = MagicMock()
-    result.scalar_one.return_value = tag
+    result.scalar_one_or_none.return_value = tag
     session = AsyncMock()
     session.execute.return_value = result
     service = AgentTagsService(
@@ -218,6 +222,40 @@ async def test_delete_tag_by_id_allows_delete_scope_without_read(
 
 
 @pytest.mark.anyio
+async def test_get_tag_missing_raises_tracecat_not_found(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Missing tag definitions should surface app-level not-found errors."""
+    result = MagicMock()
+    result.scalar_one_or_none.return_value = None
+    session = AsyncMock()
+    session.execute.return_value = result
+    service = AgentTagsService(
+        session=session,
+        role=_role_with_scopes(frozenset({"agent:read"})),
+    )
+    monkeypatch.setattr(service, "has_entitlement", AsyncMock(return_value=True))
+
+    with pytest.raises(TracecatNotFoundError, match="Agent tag not found"):
+        await service.get_tag(uuid4())
+
+
+@pytest.mark.anyio
+async def test_list_tags_paginated_invalid_cursor_raises_tracecat_validation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Invalid tag cursors should surface app-level validation errors."""
+    service = AgentTagsService(
+        session=AsyncMock(),
+        role=_role_with_scopes(frozenset({"agent:read"})),
+    )
+    monkeypatch.setattr(service, "has_entitlement", AsyncMock(return_value=True))
+
+    with pytest.raises(TracecatValidationError, match="Invalid cursor for agent tags"):
+        await service.list_tags_paginated(CursorPaginationParams(cursor="invalid"))
+
+
+@pytest.mark.anyio
 async def test_list_tags_for_preset_requires_existing_preset(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -230,7 +268,7 @@ async def test_list_tags_for_preset_requires_existing_preset(
     )
     monkeypatch.setattr(service, "has_entitlement", AsyncMock(return_value=True))
 
-    with pytest.raises(NoResultFound, match="Agent preset not found"):
+    with pytest.raises(TracecatNotFoundError, match="Agent preset not found"):
         await service.list_tags_for_preset(uuid4())
 
     session.execute.assert_not_awaited()
@@ -245,7 +283,7 @@ async def test_add_preset_tag_returns_existing_link_for_duplicate_assignment(
     insert_result = MagicMock()
     insert_result.scalar_one_or_none.return_value = None
     existing_result = MagicMock()
-    existing_result.scalar_one.return_value = existing_link
+    existing_result.scalar_one_or_none.return_value = existing_link
     session = AsyncMock()
     session.scalar.return_value = True
     session.execute.side_effect = [insert_result, existing_result]

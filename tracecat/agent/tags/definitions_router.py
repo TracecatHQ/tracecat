@@ -1,7 +1,7 @@
 """HTTP routes for agent tag definition CRUD."""
 
 from fastapi import APIRouter, HTTPException, Query, status
-from sqlalchemy.exc import IntegrityError, NoResultFound
+from sqlalchemy.exc import IntegrityError
 
 from tracecat import config
 from tracecat.agent.tags.schemas import AgentTagRead
@@ -9,7 +9,11 @@ from tracecat.agent.tags.service import AgentTagsService
 from tracecat.auth.dependencies import WorkspaceUserRouteRole
 from tracecat.authz.controls import require_scope
 from tracecat.db.dependencies import AsyncDBSession
-from tracecat.exceptions import TracecatConflictError
+from tracecat.exceptions import (
+    TracecatConflictError,
+    TracecatNotFoundError,
+    TracecatValidationError,
+)
 from tracecat.identifiers import AgentTagID
 from tracecat.pagination import CursorPaginatedResponse, CursorPaginationParams
 from tracecat.tags.schemas import TagCreate, TagUpdate
@@ -37,7 +41,7 @@ async def list_agent_tags(
         page = await service.list_tags_paginated(
             CursorPaginationParams(limit=limit, cursor=cursor, reverse=reverse)
         )
-    except ValueError as err:
+    except TracecatValidationError as err:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(err),
@@ -66,10 +70,10 @@ async def get_agent_tag(
     service = AgentTagsService(session=session, role=role)
     try:
         tag = await service.get_tag(tag_id)
-    except NoResultFound as err:
+    except TracecatNotFoundError as err:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Tag not found",
+            detail=str(err),
         ) from err
     return AgentTagRead.model_validate(tag, from_attributes=True)
 
@@ -112,10 +116,10 @@ async def update_agent_tag(
     service = AgentTagsService(session=session, role=role)
     try:
         tag = await service.get_tag(tag_id)
-    except NoResultFound as err:
+    except TracecatNotFoundError as err:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Tag not found",
+            detail=str(err),
         ) from err
     try:
         updated = await service.update_tag(tag, params)
@@ -144,8 +148,8 @@ async def delete_agent_tag(
     service = AgentTagsService(session=session, role=role)
     try:
         await service.delete_tag_by_id(tag_id)
-    except NoResultFound as err:
+    except TracecatNotFoundError as err:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Tag not found",
+            detail=str(err),
         ) from err

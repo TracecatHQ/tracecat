@@ -8,11 +8,14 @@ import sqlalchemy as sa
 from slugify import slugify
 from sqlalchemy import exists, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
-from sqlalchemy.exc import NoResultFound
 
 from tracecat.authz.controls import require_scope
 from tracecat.db.models import AgentPreset, AgentTag, AgentTagLink
-from tracecat.exceptions import TracecatConflictError
+from tracecat.exceptions import (
+    TracecatConflictError,
+    TracecatNotFoundError,
+    TracecatValidationError,
+)
 from tracecat.identifiers import AgentTagID
 from tracecat.pagination import (
     BaseCursorPaginator,
@@ -37,7 +40,9 @@ class AgentTagsService(BaseWorkspaceService):
             AgentTag.id == tag_id,
         )
         result = await self.session.execute(statement)
-        return result.scalar_one()
+        if tag := result.scalar_one_or_none():
+            return tag
+        raise TracecatNotFoundError("Agent tag not found")
 
     @require_scope("agent:read")
     @requires_entitlement(Entitlement.AGENT_ADDONS)
@@ -61,11 +66,11 @@ class AgentTagsService(BaseWorkspaceService):
                 cursor_data = paginator.decode_cursor(params.cursor)
                 cursor_id = uuid.UUID(cursor_data.id)
             except ValueError as err:
-                raise ValueError("Invalid cursor for agent tags") from err
+                raise TracecatValidationError("Invalid cursor for agent tags") from err
 
             cursor_created_at = cursor_data.sort_value
             if not isinstance(cursor_created_at, datetime):
-                raise ValueError("Invalid cursor for agent tags")
+                raise TracecatValidationError("Invalid cursor for agent tags")
 
             predicate = sa.or_(
                 AgentTag.created_at < cursor_created_at,
@@ -142,7 +147,9 @@ class AgentTagsService(BaseWorkspaceService):
             AgentTag.ref == ref,
         )
         result = await self.session.execute(statement)
-        return result.scalar_one()
+        if tag := result.scalar_one_or_none():
+            return tag
+        raise TracecatNotFoundError("Agent tag not found")
 
     @require_scope("agent:create")
     @requires_entitlement(Entitlement.AGENT_ADDONS)
@@ -231,7 +238,7 @@ class AgentTagsService(BaseWorkspaceService):
         )
         is_allowed = await self.session.scalar(select(preset_exists & tag_exists))
         if not is_allowed:
-            raise NoResultFound("Agent preset or tag not found")
+            raise TracecatNotFoundError("Agent preset or tag not found")
 
     async def _require_preset_in_workspace(self, preset_id: uuid.UUID) -> None:
         preset_exists = exists(
@@ -242,7 +249,7 @@ class AgentTagsService(BaseWorkspaceService):
         )
         is_allowed = await self.session.scalar(select(preset_exists))
         if not is_allowed:
-            raise NoResultFound("Agent preset not found")
+            raise TracecatNotFoundError("Agent preset not found")
 
     @require_scope("agent:read")
     @requires_entitlement(Entitlement.AGENT_ADDONS)
@@ -280,7 +287,9 @@ class AgentTagsService(BaseWorkspaceService):
             )
         )
         result = await self.session.execute(stmt)
-        return result.scalar_one()
+        if link := result.scalar_one_or_none():
+            return link
+        raise TracecatNotFoundError("Tag not found")
 
     @require_scope("agent:update")
     @requires_entitlement(Entitlement.AGENT_ADDONS)
@@ -304,7 +313,9 @@ class AgentTagsService(BaseWorkspaceService):
                     AgentTagLink.tag_id == tag_id,
                 )
             )
-            link = existing.scalar_one()
+            link = existing.scalar_one_or_none()
+            if link is None:
+                raise TracecatNotFoundError("Agent preset or tag not found")
         await self.session.commit()
         return link
 
