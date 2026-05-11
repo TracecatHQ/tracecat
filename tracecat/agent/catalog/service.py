@@ -360,22 +360,33 @@ class AgentCatalogService(BaseService):
                     "last_refreshed_at": now,
                 }
             )
-        if not values:
-            return 0
+        if values:
+            stmt = insert(AgentCatalog).values(values)
+            stmt = stmt.on_conflict_do_update(
+                index_elements=[
+                    "organization_id",
+                    "custom_provider_id",
+                    "model_provider",
+                    "model_name",
+                ],
+                set_={
+                    "model_metadata": stmt.excluded.model_metadata,
+                    "last_refreshed_at": stmt.excluded.last_refreshed_at,
+                },
+            )
+            await self.session.execute(stmt)
 
-        stmt = insert(AgentCatalog).values(values)
-        stmt = stmt.on_conflict_do_update(
-            index_elements=[
-                "organization_id",
-                "custom_provider_id",
-                "model_provider",
-                "model_name",
-            ],
-            set_={
-                "model_metadata": stmt.excluded.model_metadata,
-                "last_refreshed_at": stmt.excluded.last_refreshed_at,
-            },
+        # Remove models that are no longer returned by the provider.
+        # Runs even when values is empty so a provider returning no models
+        # clears its entire catalog rather than leaving stale rows.
+        current_model_names = [v["model_name"] for v in values]
+        delete_stmt = sa.delete(AgentCatalog).where(
+            and_(
+                AgentCatalog.organization_id == org_id,
+                AgentCatalog.custom_provider_id == custom_provider_id,
+                AgentCatalog.model_name.not_in(current_model_names),
+            )
         )
-        await self.session.execute(stmt)
+        await self.session.execute(delete_stmt)
         await self.session.commit()
         return len(values)

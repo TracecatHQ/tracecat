@@ -214,6 +214,101 @@ async def test_upsert_discovered_models_inserts_rows(
 
 
 @pytest.mark.anyio
+async def test_upsert_discovered_models_removes_stale_models(
+    session: AsyncSession,
+    svc_organization: Organization,
+) -> None:
+    service = AgentCatalogService(session=session)
+    provider = AgentCustomProvider(
+        organization_id=svc_organization.id,
+        display_name="Provider",
+        base_url="https://api.example.com",
+    )
+    session.add(provider)
+    await session.commit()
+
+    await service.upsert_discovered_models(
+        org_id=svc_organization.id,
+        custom_provider_id=provider.id,
+        model_provider="custom-model-provider",
+        models=[
+            {"id": "model-a"},
+            {"id": "model-b"},
+            {"id": "model-c"},
+        ],
+    )
+
+    count = await service.upsert_discovered_models(
+        org_id=svc_organization.id,
+        custom_provider_id=provider.id,
+        model_provider="custom-model-provider",
+        models=[
+            {"id": "model-b"},
+            {"id": "model-d"},
+        ],
+    )
+
+    rows = (
+        (
+            await session.execute(
+                select(AgentCatalog).where(
+                    AgentCatalog.custom_provider_id == provider.id
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+
+    assert count == 2
+    assert {row.model_name for row in rows} == {"model-b", "model-d"}
+
+
+@pytest.mark.anyio
+async def test_upsert_discovered_models_clears_catalog_when_empty(
+    session: AsyncSession,
+    svc_organization: Organization,
+) -> None:
+    service = AgentCatalogService(session=session)
+    provider = AgentCustomProvider(
+        organization_id=svc_organization.id,
+        display_name="Provider",
+        base_url="https://api.example.com",
+    )
+    session.add(provider)
+    await session.commit()
+
+    await service.upsert_discovered_models(
+        org_id=svc_organization.id,
+        custom_provider_id=provider.id,
+        model_provider="custom-model-provider",
+        models=[{"id": "model-a"}, {"id": "model-b"}],
+    )
+
+    count = await service.upsert_discovered_models(
+        org_id=svc_organization.id,
+        custom_provider_id=provider.id,
+        model_provider="custom-model-provider",
+        models=[],
+    )
+
+    rows = (
+        (
+            await session.execute(
+                select(AgentCatalog).where(
+                    AgentCatalog.custom_provider_id == provider.id
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+
+    assert count == 0
+    assert rows == []
+
+
+@pytest.mark.anyio
 async def test_get_catalog_entry_returns_platform_row(
     session: AsyncSession,
     svc_organization: Organization,
