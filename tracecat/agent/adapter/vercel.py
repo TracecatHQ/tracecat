@@ -983,12 +983,14 @@ class VercelStreamContext:
 
                 # Ensure input-available before output
                 if not self.tool_input_emitted.get(tool_call_id, False):
-                    tool_name = self.approval_tool_name.get(
-                        tool_call_id, event.tool_name
+                    tool_name = (
+                        self.approval_tool_name.get(tool_call_id)
+                        or event.tool_name
+                        or "tool"
                     )
                     yield ToolInputAvailableEventPayload(
                         toolCallId=tool_call_id,
-                        toolName=str(tool_name),
+                        toolName=tool_name,
                         input=self.approval_input.get(tool_call_id, {}),
                     )
                     self.tool_input_emitted[tool_call_id] = True
