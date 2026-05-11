@@ -39,8 +39,26 @@ def make_init_payload() -> RuntimeInitPayload:
         ),
         user_prompt="Say hello",
         llm_gateway_auth_token="test-llm-token",
+        agent_otel_auth_token="test-otel-token",
         allowed_actions={},
     )
+
+
+def test_runtime_init_payload_round_trips_agent_otel_auth_token() -> None:
+    payload = make_init_payload()
+
+    restored = RuntimeInitPayload.from_dict(payload.to_dict())
+
+    assert restored.agent_otel_auth_token == "test-otel-token"
+
+
+def test_runtime_init_payload_accepts_missing_agent_otel_auth_token() -> None:
+    data = make_init_payload().to_dict()
+    data.pop("agent_otel_auth_token")
+
+    restored = RuntimeInitPayload.from_dict(data)
+
+    assert restored.agent_otel_auth_token is None
 
 
 class TestRuntimeSocketCommunication:

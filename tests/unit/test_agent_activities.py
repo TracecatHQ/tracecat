@@ -1315,6 +1315,7 @@ class TestSandboxedAgentExecutorHelpers:
             role=mock_role,
             mcp_auth_token="mock-mcp-token",
             llm_gateway_auth_token="mock-llm-token",
+            agent_otel_auth_token="mock-otel-token",
         )
 
     def test_build_runtime_init_payload(
@@ -1330,6 +1331,7 @@ class TestSandboxedAgentExecutorHelpers:
         assert payload.user_prompt == executor_input.user_prompt
         assert payload.mcp_auth_token == executor_input.mcp_auth_token
         assert payload.llm_gateway_auth_token == executor_input.llm_gateway_auth_token
+        assert payload.agent_otel_auth_token == executor_input.agent_otel_auth_token
         assert (
             cast(Any, payload.config).model_name
             == cast(Any, executor_input.config).model_name
