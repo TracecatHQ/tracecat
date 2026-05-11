@@ -33,6 +33,7 @@ class ClaudeTurnRequest:
     llm_socket_path: Path
     enable_internet_access: bool
     skills_dir: Path | None = None
+    otel_socket_path: Path | None = None
 
 
 class ClaudeRuntimeBroker:
@@ -97,6 +98,7 @@ class ClaudeRuntimeBroker:
                     use_jailed_paths=not TRACECAT__DISABLE_NSJAIL,
                     session_id=str(request.init_payload.session_id),
                     skills_dir=request.skills_dir,
+                    otel_socket_path=request.otel_socket_path,
                 ),
                 session_home_dir=path_mapping.host_home_dir,
                 cwd=path_mapping.runtime_cwd,

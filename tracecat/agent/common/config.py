@@ -44,6 +44,12 @@ LLM_SOCKET_NAME = "llm.sock"
 JAILED_LLM_SOCKET_PATH = Path("/var/run/tracecat/llm.sock")
 """Path to the LLM socket inside the jail."""
 
+OTEL_SOCKET_NAME = "otel.sock"
+"""Name of the per-job Agent OTel relay socket."""
+
+JAILED_OTEL_SOCKET_PATH = Path("/var/run/tracecat/otel.sock")
+"""Path to the Agent OTel relay socket inside the jail."""
+
 # === Runtime socket overrides (primarily for direct subprocess mode) === #
 #
 # In NSJail mode, the orchestrator mounts per-job sockets into the jailed paths above.
@@ -60,6 +66,11 @@ TRACECAT__AGENT_LLM_SOCKET_PATH = Path(
     os.environ.get("TRACECAT__AGENT_LLM_SOCKET_PATH", str(JAILED_LLM_SOCKET_PATH))
 )
 """Path to the orchestrator LLM socket for the runtime bridge to connect to."""
+
+TRACECAT__AGENT_OTEL_SOCKET_PATH = Path(
+    os.environ.get("TRACECAT__AGENT_OTEL_SOCKET_PATH", str(JAILED_OTEL_SOCKET_PATH))
+)
+"""Path to the orchestrator OTel relay socket for the runtime bridge to connect to."""
 
 # === Managed LiteLLM defaults === #
 

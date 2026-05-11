@@ -45,6 +45,13 @@ class RuntimeInitPayload:
     is_approval_continuation: bool = False  # True when resuming after approval decision
     is_fork: bool = False
 
+    # Sandbox-safe Claude OTel env (exporters, protocols, intervals, content
+    # gates, resource attrs, and the OTEL_EXPORTER_OTLP_HEADERS bearer for
+    # the host-side relay). Tenant collector endpoint and tenant headers are
+    # excluded; the host-side OtelSocketRelay holds those. The shim sets
+    # OTEL_EXPORTER_OTLP_ENDPOINT after starting its bridge.
+    agent_otel_sandbox_env: dict[str, str] | None = None
+
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> RuntimeInitPayload:
         """Construct from dict (orjson parsed)."""
@@ -76,6 +83,7 @@ class RuntimeInitPayload:
             sdk_session_data=data.get("sdk_session_data"),
             is_approval_continuation=data.get("is_approval_continuation", False),
             is_fork=data.get("is_fork", False),
+            agent_otel_sandbox_env=data.get("agent_otel_sandbox_env"),
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -98,6 +106,8 @@ class RuntimeInitPayload:
             result["sdk_session_id"] = self.sdk_session_id
         if self.sdk_session_data is not None:
             result["sdk_session_data"] = self.sdk_session_data
+        if self.agent_otel_sandbox_env is not None:
+            result["agent_otel_sandbox_env"] = self.agent_otel_sandbox_env
         return result
 
 

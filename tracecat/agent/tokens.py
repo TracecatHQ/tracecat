@@ -5,6 +5,7 @@ between the jailed agent runtime and trusted services:
 
 1. MCP Token: For tool execution via the trusted MCP server
 2. LLM Token: For LLM API calls via the LLM gateway
+3. Agent OTel Token: For sandbox bridge calls to the host OTel relay
 
 These tokens are separate to provide isolation - a compromised MCP execution
 path (which runs user code) cannot make arbitrary LLM calls, and vice versa.
@@ -381,3 +382,104 @@ def verify_llm_token(token: str) -> LLMTokenClaims:
         return LLMTokenClaims.model_validate(payload)
     except ValidationError as exc:
         raise ValueError("Invalid LLM token claims") from exc
+
+
+# -----------------------------------------------------------------------------
+# Agent OTel Token (for sandbox bridge to host relay)
+# -----------------------------------------------------------------------------
+
+AGENT_OTEL_TOKEN_ISSUER = "tracecat-agent-executor"
+AGENT_OTEL_TOKEN_AUDIENCE = "tracecat-agent-otel-relay"
+AGENT_OTEL_TOKEN_SUBJECT = "tracecat-agent-runtime"
+AGENT_OTEL_REQUIRED_CLAIMS = (
+    "iss",
+    "aud",
+    "sub",
+    "iat",
+    "exp",
+    "workspace_id",
+    "organization_id",
+    "session_id",
+)
+
+
+class AgentOtelTokenClaims(BaseModel):
+    """Claims extracted from a verified Agent OTel relay token."""
+
+    workspace_id: WorkspaceID = Field(..., description="Workspace UUID")
+    organization_id: OrganizationID = Field(..., description="Organization UUID")
+    session_id: uuid.UUID = Field(..., description="Agent session UUID")
+
+
+def mint_agent_otel_token(
+    *,
+    workspace_id: WorkspaceID,
+    organization_id: OrganizationID,
+    session_id: uuid.UUID,
+    ttl_seconds: int | None = None,
+) -> str:
+    """Create a signed JWT for sandbox bridge calls to the host OTel relay.
+
+    The token authorizes only the internal agent OTel bridge-to-relay path. It
+    does not grant access to Tracecat APIs or tenant collector credentials.
+
+    Args:
+        workspace_id: Workspace UUID for authorization context.
+        organization_id: Organization UUID for authorization context.
+        session_id: Agent session UUID for relay claim matching.
+        ttl_seconds: Token TTL in seconds (defaults to executor token TTL).
+
+    Returns:
+        Signed JWT string.
+    """
+    now = datetime.now(UTC)
+    ttl = ttl_seconds or config.TRACECAT__EXECUTOR_TOKEN_TTL_SECONDS
+
+    payload: dict[str, Any] = {
+        "iss": AGENT_OTEL_TOKEN_ISSUER,
+        "aud": AGENT_OTEL_TOKEN_AUDIENCE,
+        "sub": AGENT_OTEL_TOKEN_SUBJECT,
+        "iat": int(now.timestamp()),
+        "exp": int((now + timedelta(seconds=ttl)).timestamp()),
+        "workspace_id": str(workspace_id),
+        "organization_id": str(organization_id),
+        "session_id": str(session_id),
+    }
+
+    return jwt.encode(payload, get_service_key(), algorithm="HS256")
+
+
+def verify_agent_otel_token(token: str) -> AgentOtelTokenClaims:
+    """Verify an Agent OTel relay JWT and return extracted claims.
+
+    Args:
+        token: The JWT string to verify.
+
+    Returns:
+        AgentOtelTokenClaims containing the expected tenant/session identity.
+
+    Raises:
+        ValueError: If token is invalid, expired, or missing required claims.
+    """
+    if not token:
+        raise ValueError("Invalid Agent OTel token")
+
+    try:
+        payload = jwt.decode(
+            token,
+            get_service_key(),
+            algorithms=["HS256"],
+            audience=AGENT_OTEL_TOKEN_AUDIENCE,
+            issuer=AGENT_OTEL_TOKEN_ISSUER,
+            options={"require": list(AGENT_OTEL_REQUIRED_CLAIMS)},
+        )
+    except PyJWTError as exc:
+        raise ValueError("Invalid Agent OTel token") from exc
+
+    if payload.get("sub") != AGENT_OTEL_TOKEN_SUBJECT:
+        raise ValueError("Invalid Agent OTel token subject")
+
+    try:
+        return AgentOtelTokenClaims.model_validate(payload)
+    except ValidationError as exc:
+        raise ValueError("Invalid Agent OTel token claims") from exc

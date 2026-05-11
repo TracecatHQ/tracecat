@@ -856,6 +856,9 @@ class ClaudeAgentRuntime:
                         if payload.config.passthrough
                         else {}
                     ),
+                    # Sandbox-safe Claude OTel env (no headers, no tenant
+                    # endpoint — the shim points the SDK at its OtelBridge).
+                    **(payload.agent_otel_sandbox_env or {}),
                 },
                 model=get_litellm_route_model(
                     model_provider=payload.config.model_provider,

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+import tempfile
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any, cast
 
@@ -10,11 +12,12 @@ import pytest
 from tracecat.agent.sandbox.shim_entrypoint import (
     DEFAULT_LLM_SOCKET_PATH,
     INIT_PAYLOAD_ENV_VAR,
-    LLMBridge,
+    LLM_MAX_BODY_SIZE,
+    LLM_SOCKET_ENV_VAR,
+    SandboxSocketBridge,
     _pump_stdin_to_process,
     _read_stdin_chunk,
     _resolve_init_payload_path,
-    _resolve_llm_socket_path,
     _wait_for_process_with_stdin,
 )
 from tracecat.agent.sandbox.shim_entrypoint import (
@@ -60,20 +63,29 @@ def test_read_stdin_chunk_uses_os_read(monkeypatch: pytest.MonkeyPatch) -> None:
     assert captured == {"fd": 42, "chunk_size": 65536}
 
 
-def test_resolve_llm_socket_path_falls_back_on_empty_env(
+def test_llm_socket_path_falls_back_on_empty_env(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("TRACECAT__AGENT_LLM_SOCKET_PATH", "")
+    """The shim resolves the LLM socket path with an env-var-then-default lookup."""
+    import os
 
-    assert _resolve_llm_socket_path() == Path(DEFAULT_LLM_SOCKET_PATH)
+    monkeypatch.setenv(LLM_SOCKET_ENV_VAR, "")
+
+    resolved = Path(os.environ.get(LLM_SOCKET_ENV_VAR) or DEFAULT_LLM_SOCKET_PATH)
+    assert resolved == Path(DEFAULT_LLM_SOCKET_PATH)
 
 
 @pytest.mark.anyio
-async def test_llm_bridge_ignores_expected_server_closed_error(
+async def test_sandbox_socket_bridge_ignores_expected_server_closed_error(
     caplog: pytest.LogCaptureFixture,
     tmp_path: Path,
 ) -> None:
-    bridge = LLMBridge(socket_path=tmp_path / "llm.sock")
+    bridge = SandboxSocketBridge(
+        socket_path=tmp_path / "llm.sock",
+        max_body_size=LLM_MAX_BODY_SIZE,
+        on_uds_failure="error",
+        log_label="LLM bridge",
+    )
 
     async def raise_server_closed() -> None:
         raise RuntimeError("server is closed")
@@ -185,3 +197,123 @@ async def test_wait_for_process_with_stdin_does_not_wait_for_stdin_eof(
     assert return_code == 7
     assert stdin_started.is_set()
     assert stdin_cancelled.is_set()
+
+
+@pytest.fixture
+def short_socket_dir() -> Iterator[Path]:
+    """Provide a short directory (under /tmp) for Unix socket binding.
+
+    macOS limits AF_UNIX paths to ~104 chars; pytest's tmp_path is too deep.
+    """
+    with tempfile.TemporaryDirectory(prefix="tc-bridge-", dir="/tmp") as path:
+        yield Path(path)
+
+
+@pytest.mark.anyio
+async def test_sandbox_socket_bridge_forwards_unchanged_without_hook(
+    short_socket_dir: Path,
+) -> None:
+    """No before_forward hook means request bytes pass through unchanged."""
+    socket_path = short_socket_dir / "upstream.sock"
+    received: list[bytes] = []
+
+    async def handle_uds(
+        reader: asyncio.StreamReader, writer: asyncio.StreamWriter
+    ) -> None:
+        data = await reader.read(4096)
+        received.append(data)
+        writer.write(
+            b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok"
+        )
+        await writer.drain()
+        writer.close()
+
+    uds_server = await asyncio.start_unix_server(handle_uds, path=str(socket_path))
+    try:
+        bridge = SandboxSocketBridge(
+            socket_path=socket_path,
+            port=0,
+            max_body_size=LLM_MAX_BODY_SIZE,
+            on_uds_failure="error",
+            log_label="LLM bridge",
+        )
+        port = await bridge.start()
+        try:
+            reader, writer = await asyncio.open_connection("127.0.0.1", port)
+            writer.write(
+                b"POST /v1/messages HTTP/1.1\r\n"
+                b"Host: bridge\r\n"
+                b"Content-Length: 4\r\n"
+                b"\r\n"
+                b"body"
+            )
+            await writer.drain()
+            response = await reader.read(4096)
+            writer.close()
+            await writer.wait_closed()
+        finally:
+            await bridge.stop()
+    finally:
+        uds_server.close()
+        await uds_server.wait_closed()
+
+    assert response.startswith(b"HTTP/1.1 200 OK")
+    assert received and received[0].endswith(b"\r\n\r\nbody")
+    assert b"Content-Length: 4" in received[0]
+
+
+@pytest.mark.anyio
+async def test_sandbox_socket_bridge_returns_502_on_uds_failure_in_error_mode(
+    short_socket_dir: Path,
+) -> None:
+    """on_uds_failure='error' surfaces 502 to the client when the UDS is missing."""
+    bridge = SandboxSocketBridge(
+        socket_path=short_socket_dir / "missing.sock",
+        port=0,
+        max_body_size=LLM_MAX_BODY_SIZE,
+        on_uds_failure="error",
+        log_label="LLM bridge",
+    )
+    port = await bridge.start()
+    try:
+        reader, writer = await asyncio.open_connection("127.0.0.1", port)
+        writer.write(
+            b"POST /v1/messages HTTP/1.1\r\nHost: bridge\r\nContent-Length: 0\r\n\r\n"
+        )
+        await writer.drain()
+        response = await reader.read(4096)
+        writer.close()
+        await writer.wait_closed()
+    finally:
+        await bridge.stop()
+
+    assert response.startswith(b"HTTP/1.1 502")
+
+
+@pytest.mark.anyio
+async def test_sandbox_socket_bridge_drops_silently_on_uds_failure_in_drop_mode(
+    short_socket_dir: Path,
+) -> None:
+    """on_uds_failure='drop' closes the connection without an error response."""
+    bridge = SandboxSocketBridge(
+        socket_path=short_socket_dir / "missing.sock",
+        port=0,
+        max_body_size=LLM_MAX_BODY_SIZE,
+        on_uds_failure="drop",
+        log_label="OTel bridge",
+    )
+    port = await bridge.start()
+    try:
+        reader, writer = await asyncio.open_connection("127.0.0.1", port)
+        writer.write(
+            b"POST /v1/traces HTTP/1.1\r\nHost: bridge\r\nContent-Length: 0\r\n\r\n"
+        )
+        await writer.drain()
+        response = await reader.read(4096)
+        writer.close()
+        await writer.wait_closed()
+    finally:
+        await bridge.stop()
+
+    # drop mode: no HTTP response written, connection just closes.
+    assert response == b""

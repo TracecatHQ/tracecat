@@ -48,6 +48,7 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.agent.session.types import AgentSessionEntity
     from tracecat.agent.tokens import (
         InternalToolContext,
+        mint_agent_otel_token,
         mint_llm_token,
         mint_mcp_token,
     )
@@ -516,6 +517,11 @@ class DurableAgentWorkflow:
             base_url=cfg.base_url,
             model_settings=cfg.model_settings,
         )
+        agent_otel_auth_token = mint_agent_otel_token(
+            workspace_id=self.workspace_id,
+            organization_id=self.organization_id,
+            session_id=self.session_id,
+        )
 
         # Prepare executor input
         executor_input = AgentExecutorInput(
@@ -526,6 +532,7 @@ class DurableAgentWorkflow:
             role=self.role,
             mcp_auth_token=mcp_auth_token,
             llm_gateway_auth_token=llm_gateway_auth_token,
+            agent_otel_auth_token=agent_otel_auth_token,
             allowed_actions=allowed_actions,
             sdk_session_id=self._sdk_session_id,
             sdk_session_data=self._sdk_session_data,
@@ -617,6 +624,7 @@ class DurableAgentWorkflow:
                     role=self.role,
                     mcp_auth_token=mcp_auth_token,
                     llm_gateway_auth_token=llm_gateway_auth_token,
+                    agent_otel_auth_token=agent_otel_auth_token,
                     allowed_actions=allowed_actions,
                     sdk_session_id=self._sdk_session_id,
                     sdk_session_data=self._sdk_session_data,
