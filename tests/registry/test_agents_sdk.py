@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from typing import Any, cast
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -75,3 +76,17 @@ async def test_run_omits_null_config_fields(
     assert config["model_provider"] == "openai"
     assert "agents" not in config
     assert "catalog_id" not in config
+
+
+def test_agent_config_rejects_agents_option() -> None:
+    config_kwargs = cast(
+        Any,
+        {
+            "model_name": "gpt-4.1",
+            "model_provider": "openai",
+            "agents": {"enabled": True},
+        },
+    )
+
+    with pytest.raises(TypeError, match="agents"):
+        AgentConfig(**config_kwargs)
