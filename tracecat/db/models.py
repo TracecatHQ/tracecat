@@ -3385,6 +3385,7 @@ class AgentPreset(WorkspaceModel):
     __tablename__ = "agent_preset"
     __table_args__ = (
         UniqueConstraint("workspace_id", "slug", name="uq_agent_preset_workspace_slug"),
+        Index("ix_agent_preset_workspace_folder", "workspace_id", "folder_id"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
