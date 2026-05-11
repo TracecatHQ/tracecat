@@ -229,9 +229,6 @@ class ClaudeAgentRuntime:
         self._last_seen_byte_offset: int = 0
         self._session_flush_lock = asyncio.Lock()
         self._session_flush_event = asyncio.Event()
-        # One-shot guard for hiding our neutral approval-continuation prompt.
-        # Other SDK metadata rows are hidden structurally by `_is_internal_session_line`.
-        self._hide_next_approval_continuation_prompt: bool = False
         # Adapter for converting Claude SDK events - must be reused to track state
         self._stream_adapter = ClaudeSDKAdapter()
         # Working directory for session file path resolution
@@ -388,6 +385,7 @@ class ClaudeAgentRuntime:
     def _session_data_for_disk(self, sdk_session_data: str) -> str:
         """Return canonical SDK JSONL exactly as written to the local session file."""
         sdk_session_data = self._canonicalize_sdk_session_data(sdk_session_data)
+        # Ensure JSONL readers do not treat the final record as truncated.
         if sdk_session_data and not sdk_session_data.endswith("\n"):
             return f"{sdk_session_data}\n"
         return sdk_session_data
@@ -512,13 +510,13 @@ class ClaudeAgentRuntime:
 
     async def _capture_sdk_session_id(
         self,
-        sdk_session_id: object,
+        sdk_session_id: str | None,
         *,
         resume_session_id: str | None,
         fork_session: bool,
     ) -> None:
         """Capture the SDK session ID from any SDK message that carries it."""
-        if not isinstance(sdk_session_id, str) or not sdk_session_id:
+        if not sdk_session_id:
             return
         if self._sdk_session_id == sdk_session_id:
             return
@@ -541,19 +539,29 @@ class ClaudeAgentRuntime:
             previous_sdk_session_id=previous,
         )
 
-    async def _flush_session_lines_when_signaled(self) -> None:
+    async def _flush_session_lines_when_signaled(
+        self,
+        *,
+        is_approval_continuation: bool,
+    ) -> None:
         """Flush SDK JSONL lines when stream progress marks the session dirty."""
         while True:
             await self._session_flush_event.wait()
             self._session_flush_event.clear()
             try:
-                await self._emit_new_session_lines()
+                await self._emit_new_session_lines(
+                    is_approval_continuation=is_approval_continuation
+                )
             except asyncio.CancelledError:
                 raise
             except Exception as e:
                 logger.warning("Failed to flush session lines", error=str(e))
 
-    async def _emit_new_session_lines(self) -> None:
+    async def _emit_new_session_lines(
+        self,
+        *,
+        is_approval_continuation: bool = False,
+    ) -> None:
         """Read and emit new JSONL lines from the SDK session file.
 
         This tails the session file written by Claude SDK and emits complete new
@@ -614,14 +622,10 @@ class ClaudeAgentRuntime:
                     )
                     break
 
-                internal = self._is_internal_session_line(line_data)
-
-                if (
-                    self._hide_next_approval_continuation_prompt
+                internal = self._is_internal_session_line(line_data) or (
+                    is_approval_continuation
                     and is_approval_continuation_prompt_line(line_data)
-                ):
-                    internal = True
-                    self._hide_next_approval_continuation_prompt = False
+                )
 
                 await self._event_writer.send_session_line(
                     sdk_session_id, line, internal=internal
@@ -958,7 +962,6 @@ class ClaudeAgentRuntime:
             _configure_claude_sdk_process_env()
             if payload.is_approval_continuation:
                 query_input = self._meta_text_input_stream(APPROVAL_CONTINUATION_PROMPT)
-                self._hide_next_approval_continuation_prompt = True
                 query_log_extra = {
                     "prompt_length": len(APPROVAL_CONTINUATION_PROMPT),
                     "is_meta": True,
@@ -977,7 +980,9 @@ class ClaudeAgentRuntime:
                 log_benchmark_phase("runtime_client_connected")
                 stderr_task = asyncio.create_task(drain_stderr())
                 session_flush_task = asyncio.create_task(
-                    self._flush_session_lines_when_signaled()
+                    self._flush_session_lines_when_signaled(
+                        is_approval_continuation=payload.is_approval_continuation
+                    )
                 )
                 try:
                     await self._event_writer.send_log(
@@ -1004,8 +1009,14 @@ class ClaudeAgentRuntime:
                         logger.debug(
                             "Received message", message_type=type(message).__name__
                         )
+                        raw_sdk_session_id = getattr(message, "session_id", None)
+                        sdk_session_id = (
+                            raw_sdk_session_id
+                            if isinstance(raw_sdk_session_id, str)
+                            else None
+                        )
                         await self._capture_sdk_session_id(
-                            getattr(message, "session_id", None),
+                            sdk_session_id,
                             resume_session_id=resume_session_id,
                             fork_session=fork_session,
                         )
@@ -1043,7 +1054,6 @@ class ClaudeAgentRuntime:
                                 duration_ms=message.duration_ms,
                                 output=result_output,
                             )
-                            self._hide_next_approval_continuation_prompt = False
 
                         elif isinstance(message, SystemMessage):
                             # init: emitted once at session start; surfaces MCP
@@ -1114,7 +1124,9 @@ class ClaudeAgentRuntime:
                         pass
 
             # CLI has exited — session file is fully flushed.
-            await self._emit_new_session_lines()
+            await self._emit_new_session_lines(
+                is_approval_continuation=payload.is_approval_continuation
+            )
             log_benchmark_phase("runtime_complete")
 
         except Exception as e:

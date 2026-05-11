@@ -559,6 +559,140 @@ class TestClaudeAgentRuntimeRun:
         assert order == ["result", "session", "done"]
 
     @pytest.mark.anyio
+    async def test_approval_continuation_prompt_remains_internal_when_result_beats_flush(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        mock_socket_writer: MagicMock,
+        mock_claude_sdk_client: MagicMock,
+        sample_init_payload: RuntimeInitPayload,
+        tmp_path: Path,
+    ) -> None:
+        """A result should not expose a hidden approval continuation prompt."""
+        sdk_session_id = "eed8297f-26fb-4e00-905f-a10f0cf20704"
+        parent_history = '{"type":"user","message":{"content":"parent prompt"}}\n'
+
+        # This is the control row produced by the approval-continuation meta prompt.
+        # It should always be persisted as internal, even if the final result arrives
+        # before the background flush consumes it.
+        prompt_uuid = "approval-continuation-prompt"
+        prompt_line = {
+            "type": "user",
+            "uuid": prompt_uuid,
+            "message": {
+                "role": "user",
+                "content": runtime_module.APPROVAL_CONTINUATION_PROMPT,
+            },
+        }
+        prompt_bytes = orjson.dumps(prompt_line) + b"\n"
+        payload = replace(
+            sample_init_payload,
+            sdk_session_id=sdk_session_id,
+            sdk_session_data=parent_history,
+            is_approval_continuation=True,
+        )
+        runtime = ClaudeAgentRuntime(
+            mock_socket_writer,
+            transport_factory=lambda _options: MagicMock(),
+            session_home_dir=tmp_path / "claude-home",
+            cwd=tmp_path / "claude-project",
+            cwd_setup_path=tmp_path / "claude-project",
+        )
+        session_file = runtime._get_session_file_path(sdk_session_id)
+
+        read_tail_started = asyncio.Event()
+        release_read_tail = asyncio.Event()
+        result_sent = asyncio.Event()
+        original_to_thread = asyncio.to_thread
+
+        async def controlled_to_thread(func: Any, /, *args: Any, **kwargs: Any) -> Any:
+            if getattr(func, "__name__", "") == "_read_tail":
+                # Pause the background flush after it has started, but before it has
+                # read and classified the hidden "Continue." JSONL row.
+                read_tail_started.set()
+                await release_read_tail.wait()
+            return await original_to_thread(func, *args, **kwargs)
+
+        monkeypatch.setattr(runtime_module.asyncio, "to_thread", controlled_to_thread)
+
+        async def record_result(**_kwargs: Any) -> None:
+            result_sent.set()
+
+        mock_socket_writer.send_result.side_effect = record_result
+
+        async def mock_receive() -> Any:
+            # Simulate Claude writing the next row before emitting stream progress.
+            session_file.write_bytes(parent_history.encode("utf-8") + prompt_bytes)
+            yield StreamEvent(
+                uuid="stream-event-uuid",
+                session_id=sdk_session_id,
+                event={
+                    "type": "content_block_delta",
+                    "index": 0,
+                    "delta": {"type": "text_delta", "text": "continued"},
+                },
+            )
+            # The stream event schedules the background flush. Yield the result only
+            # after that flush is blocked at _read_tail.
+            await asyncio.wait_for(read_tail_started.wait(), timeout=1.0)
+            yield ResultMessage(
+                subtype="success",
+                duration_ms=1,
+                duration_api_ms=1,
+                is_error=False,
+                num_turns=1,
+                session_id=sdk_session_id,
+                usage={},
+                result="done",
+            )
+
+        mock_claude_sdk_client.receive_response = mock_receive
+
+        mock_adapter = MagicMock()
+        mock_adapter.to_unified_event.return_value = UnifiedStreamEvent(
+            type=StreamEventType.TEXT_DELTA,
+            text="continued",
+            part_id=0,
+        )
+
+        with (
+            patch(
+                "tracecat.agent.runtime.claude_code.runtime.ClaudeSDKClient",
+                return_value=mock_claude_sdk_client,
+            ),
+            patch(
+                "tracecat.agent.runtime.claude_code.runtime.create_proxy_mcp_server",
+                AsyncMock(return_value={}),
+            ),
+            patch(
+                "tracecat.agent.runtime.claude_code.runtime.ClaudeSDKAdapter",
+                return_value=mock_adapter,
+            ),
+        ):
+            run_task = asyncio.create_task(runtime.run(payload))
+            try:
+                # Hold the flush, wait for ResultMessage handling to complete, then
+                # release the flush so it classifies the row afterward.
+                await asyncio.wait_for(read_tail_started.wait(), timeout=1.0)
+                await asyncio.wait_for(result_sent.wait(), timeout=1.0)
+                release_read_tail.set()
+                await run_task
+            finally:
+                release_read_tail.set()
+
+        persisted = [
+            (orjson.loads(call.args[1]), call.kwargs["internal"])
+            for call in mock_socket_writer.send_session_line.await_args_list
+        ]
+        internal_by_uuid = {
+            line["uuid"]: internal
+            for line, internal in persisted
+            if isinstance(line.get("uuid"), str)
+        }
+        # Desired behavior: the hidden continuation prompt remains internal despite
+        # the result beating the background flush.
+        assert internal_by_uuid[prompt_uuid] is True
+
+    @pytest.mark.anyio
     async def test_sets_skip_version_check_before_sdk_connect(
         self,
         monkeypatch: pytest.MonkeyPatch,
@@ -1590,7 +1724,6 @@ class TestClaudeAgentRuntimeInternalSessionLines:
         )
         sdk_session_id = "eed8297f-26fb-4e00-905f-a10f0cf20704"
         runtime._sdk_session_id = sdk_session_id
-        runtime._hide_next_approval_continuation_prompt = True
 
         tool_result_uuid = "tool-result-uuid"
         meta_uuid = "meta-uuid"
@@ -1671,7 +1804,7 @@ class TestClaudeAgentRuntimeInternalSessionLines:
             "\n".join(orjson.dumps(line).decode("utf-8") for line in lines) + "\n"
         )
 
-        await runtime._emit_new_session_lines()
+        await runtime._emit_new_session_lines(is_approval_continuation=True)
 
         persisted = [
             (orjson.loads(call.args[1]), call.kwargs["internal"])
@@ -1742,6 +1875,43 @@ class TestClaudeAgentRuntimeSessionLineFlushing:
             internal=False,
         )
         assert runtime._last_seen_byte_offset == len(first_bytes + second_bytes)
+
+    @pytest.mark.anyio
+    async def test_emit_new_session_lines_keeps_normal_continue_prompt_visible(
+        self,
+        mock_socket_writer: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """A normal user "Continue." row should not be hidden."""
+        runtime = ClaudeAgentRuntime(
+            mock_socket_writer,
+            transport_factory=lambda _: MagicMock(),
+            session_home_dir=tmp_path / "claude-home",
+            cwd=tmp_path / "claude-project",
+        )
+        sdk_session_id = "eed8297f-26fb-4e00-905f-a10f0cf20704"
+        runtime._sdk_session_id = sdk_session_id
+        continue_line = {
+            "type": "user",
+            "uuid": "normal-continue-line",
+            "message": {
+                "role": "user",
+                "content": runtime_module.APPROVAL_CONTINUATION_PROMPT,
+            },
+        }
+        continue_bytes = self._line_bytes(continue_line)
+
+        session_file = runtime._get_session_file_path(sdk_session_id)
+        session_file.parent.mkdir(parents=True, exist_ok=True)
+        session_file.write_bytes(continue_bytes)
+
+        await runtime._emit_new_session_lines()
+
+        mock_socket_writer.send_session_line.assert_awaited_once_with(
+            sdk_session_id,
+            continue_bytes.rstrip(b"\n").decode("utf-8"),
+            internal=False,
+        )
 
     @pytest.mark.anyio
     async def test_emit_new_session_lines_retries_partial_line(
