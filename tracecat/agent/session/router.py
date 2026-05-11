@@ -35,6 +35,7 @@ from tracecat.chat.schemas import (
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.exceptions import TracecatNotFoundError
 from tracecat.logger import logger
+from tracecat.redis.client import get_redis_client
 
 router = APIRouter(prefix="/agent/sessions", tags=["agent-sessions"])
 
@@ -418,14 +419,19 @@ async def stream_session_events(
         if agent_session is not None:
             last_stream_id = agent_session.last_stream_id
 
-    # No active stream — return immediately so the client releases the input lock.
-    # last_stream_id is None when the stream completed or never started.
+    # Use Redis key existence as the authoritative signal for whether a turn is
+    # active. last_stream_id is only advanced by stream consumers, so it can be
+    # None while a turn is already writing (e.g. the continuation path skips
+    # reset_for_new_turn). Returning 204 based on last_stream_id alone would
+    # terminate reconnects without Last-Event-ID before they attach to Redis.
     last_event_id = request.headers.get("Last-Event-ID")
-    if last_stream_id is None and not last_event_id:
+    stream_key = StreamKey(workspace_id, session_id)
+    redis = await get_redis_client()
+    stream_key_exists = await redis.exists(stream_key)
+    if not stream_key_exists and not last_event_id:
         return Response(status_code=status.HTTP_204_NO_CONTENT)
 
     start_id = last_stream_id or last_event_id or "0-0"
-    stream_key = StreamKey(workspace_id, session_id)
     logger.info(
         "Starting session stream",
         stream_key=stream_key,
