@@ -556,10 +556,15 @@ def _inject_provider_credentials(
                 )
             if region := creds.get("AWS_REGION"):
                 data["aws_region_name"] = region
+            bedrock_prefix = (
+                "bedrock/converse"
+                if creds.get("AWS_BEDROCK_USE_CONVERSE") == "true"
+                else "bedrock"
+            )
             if inference_profile_id := creds.get("AWS_INFERENCE_PROFILE_ID"):
-                data["model"] = f"bedrock/{inference_profile_id}"
+                data["model"] = f"{bedrock_prefix}/{inference_profile_id}"
             elif model_id := creds.get("AWS_MODEL_ID"):
-                data["model"] = f"bedrock/{model_id}"
+                data["model"] = f"{bedrock_prefix}/{model_id}"
             else:
                 raise ProxyException(
                     message="No Bedrock model configured. Set AWS_INFERENCE_PROFILE_ID or AWS_MODEL_ID in your credentials.",

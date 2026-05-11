@@ -182,6 +182,7 @@ const bedrockCloudModelSchema = z.object({
   display_name: z.string().trim().optional(),
   inference_profile_id: z.string().trim().optional(),
   model_id: z.string().trim().optional(),
+  use_converse: z.boolean().default(false),
 })
 
 const azureOpenAICloudModelSchema = z.object({
@@ -219,7 +220,13 @@ const cloudCatalogModelSchema = z
     if (value.provider === "bedrock") {
       const hasProfile = !!value.inference_profile_id
       const hasModelId = !!value.model_id
-      if (hasProfile === hasModelId) {
+      if (hasProfile && hasModelId) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Provide at most one of Inference profile ID or Model ID.",
+          path: ["inference_profile_id"],
+        })
+      } else if (!hasProfile && !hasModelId) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
           message: "Provide exactly one of Inference profile ID or Model ID.",
@@ -260,6 +267,7 @@ function buildCloudCatalogDefaults(
           "inference_profile_id"
         ),
         model_id: getCatalogMetadataString(metadata, "model_id"),
+        use_converse: metadata?.use_converse === true,
       }
     case "azure_openai":
       return {
@@ -304,6 +312,7 @@ function buildCatalogCreatePayload(
         display_name: displayName,
         inference_profile_id: values.inference_profile_id || null,
         model_id: values.model_id || null,
+        use_converse: values.use_converse,
       }
     case "azure_openai":
       return {
@@ -342,6 +351,7 @@ function buildCatalogUpdatePayload(values: CloudCatalogModelFormValues) {
         display_name: displayName,
         inference_profile_id: values.inference_profile_id || null,
         model_id: values.model_id || null,
+        use_converse: values.use_converse,
       }
     case "azure_openai":
       return {
@@ -1745,6 +1755,29 @@ function CloudCatalogModelDialog({
                         Direct model ID for older on-demand models.
                       </FormDescription>
                       <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="use_converse"
+                  render={({ field }) => (
+                    <FormItem className="flex items-center justify-between gap-4 rounded-md border p-3">
+                      <div className="space-y-1">
+                        <FormLabel className="text-sm">
+                          Use Converse API
+                        </FormLabel>
+                        <FormDescription>
+                          Force the Bedrock Converse API instead of InvokeModel.
+                          Enable this for models that require the Converse API.
+                        </FormDescription>
+                      </div>
+                      <FormControl>
+                        <Switch
+                          checked={field.value}
+                          onCheckedChange={field.onChange}
+                        />
+                      </FormControl>
                     </FormItem>
                   )}
                 />

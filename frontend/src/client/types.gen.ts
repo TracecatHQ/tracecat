@@ -1241,6 +1241,7 @@ export type BedrockCatalogCreate = {
   model_name: string
   inference_profile_id?: string | null
   model_id?: string | null
+  use_converse?: boolean
 }
 
 export type BedrockCatalogUpdate = {
@@ -1248,6 +1249,7 @@ export type BedrockCatalogUpdate = {
   model_provider: "bedrock"
   inference_profile_id?: string | null
   model_id?: string | null
+  use_converse?: boolean
 }
 
 /**
