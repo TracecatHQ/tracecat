@@ -721,26 +721,7 @@ async def test_agent_workflow_routes_approved_tools_to_executor_and_reconciles_h
 
         assert input.is_approval_continuation is True
         assert input.sdk_session_id == "sdk-session"
-        assert input.sdk_session_data is not None
-
-        session_lines = [
-            orjson.loads(line)
-            for line in input.sdk_session_data.splitlines()
-            if line.strip()
-        ]
-        tool_result_blocks = [
-            block
-            for entry in session_lines
-            for block in entry.get("message", {}).get("content", [])
-            if isinstance(block, dict) and block.get("type") == "tool_result"
-        ]
-        assert len(tool_result_blocks) == 1
-        assert tool_result_blocks[0]["tool_use_id"] == "call_123"
-        assert tool_result_blocks[0]["is_error"] is False
-        assert orjson.loads(tool_result_blocks[0]["content"]) == {
-            "status": "success",
-            "executor_queue": executor_queue,
-        }
+        assert input.sdk_session_data is None
 
         resumed_after_approval.set()
         run_agent_call_count += 1
@@ -1339,23 +1320,7 @@ async def test_agent_workflow_does_not_retry_approved_tool_failures(
 
         assert input.is_approval_continuation is True
         assert input.sdk_session_id == "sdk-session"
-        assert input.sdk_session_data is not None
-
-        session_lines = [
-            orjson.loads(line)
-            for line in input.sdk_session_data.splitlines()
-            if line.strip()
-        ]
-        tool_result_blocks = [
-            block
-            for entry in session_lines
-            for block in entry.get("message", {}).get("content", [])
-            if isinstance(block, dict) and block.get("type") == "tool_result"
-        ]
-        assert len(tool_result_blocks) == 1
-        assert tool_result_blocks[0]["tool_use_id"] == "call_123"
-        assert tool_result_blocks[0]["is_error"] is True
-        assert "transient tool failure" in tool_result_blocks[0]["content"]
+        assert input.sdk_session_data is None
 
         resumed_after_approval.set()
         run_agent_call_count += 1

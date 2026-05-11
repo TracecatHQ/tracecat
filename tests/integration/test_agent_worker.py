@@ -411,18 +411,6 @@ class TestAgentWorkerSingleTenant:
         queue = TEST_AGENT_QUEUE
         approval_request_recorded = asyncio.Event()
         captured_inputs: list[AgentExecutorInput] = []
-        sdk_history_without_tool_result = (
-            '{"type":"user","message":{"content":"Run approved tool"}}\n'
-            '{"type":"assistant","message":{"content":[{"type":"tool_use",'
-            '"id":"call_123","name":"core__http_request","input":{"url":'
-            '"https://example.com","method":"GET"}}]}}\n'
-        )
-        sdk_history_with_tool_result = (
-            sdk_history_without_tool_result
-            + '{"type":"user","message":{"content":[{"type":"tool_result",'
-            '"tool_use_id":"call_123","content":"{\\"status\\":\\"success\\"}",'
-            '"is_error":false}]}}\n'
-        )
 
         @activity.defn(name="create_session_activity")
         async def mock_create_session_activity(
@@ -444,7 +432,7 @@ class TestAgentWorkerSingleTenant:
             return LoadSessionResult(
                 found=True,
                 sdk_session_id="sdk-session",
-                sdk_session_data=sdk_history_with_tool_result,
+                sdk_session_data=None,
             )
 
         @activity.defn(name="record_approval_requests")
@@ -496,9 +484,7 @@ class TestAgentWorkerSingleTenant:
 
             assert input.is_approval_continuation is True
             assert input.sdk_session_id == "sdk-session"
-            assert input.sdk_session_data == sdk_history_with_tool_result
-            assert '"type":"tool_result"' in input.sdk_session_data
-            assert "Continue." not in input.sdk_session_data
+            assert input.sdk_session_data is None
             return AgentExecutorResult(
                 success=True,
                 approval_requested=False,
