@@ -489,16 +489,17 @@ class TestCreateSessionActivity:
         mock_ctx.__aenter__.return_value = mock_service
         mock_with_session.return_value = mock_ctx
 
-        result = await create_session_activity(input)
-
-        assert result.success is expected_success
         if expected_success:
+            result = await create_session_activity(input)
+            assert result.success is True
             assert result.error is None
         else:
-            assert (
-                result.error
-                == "Agent session was created with a different agents binding"
+            with pytest.raises(ApplicationError) as exc_info:
+                await create_session_activity(input)
+            assert exc_info.value.message == (
+                "Agent session was created with a different agents binding"
             )
+            assert exc_info.value.non_retryable is True
         mock_service.session.add.assert_not_called()
         mock_service.session.commit.assert_not_awaited()
 

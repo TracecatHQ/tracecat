@@ -199,6 +199,8 @@ async def create_session_activity(input: CreateSessionInput) -> CreateSessionRes
 
         return CreateSessionResult(session_id=input.session_id, success=True)
 
+    except ApplicationError:
+        raise
     except Exception as e:
         logger.error("Failed to create agent session", error=str(e))
         return CreateSessionResult(
