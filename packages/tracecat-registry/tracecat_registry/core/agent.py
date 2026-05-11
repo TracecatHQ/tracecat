@@ -15,6 +15,7 @@ from tracecat_registry.fields import (
     ActionType,
     AgentModel,
     AgentPreset,
+    MCPIntegration,
     ModelSelection,
     TextArea,
 )
@@ -255,6 +256,11 @@ async def agent(
         list[str] | None,
         Doc("Actions (e.g. 'tools.slack.post_message') to include in the agent."),
         ActionType(multiple=True),
+    ] = None,
+    mcp_integrations: Annotated[
+        list[str] | None,
+        Doc("Saved MCP integrations to include in the agent."),
+        MCPIntegration(multiple=True),
     ] = None,
     instructions: Annotated[
         str | None, Doc("Instructions for the agent."), TextArea()

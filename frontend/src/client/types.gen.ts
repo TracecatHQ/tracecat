@@ -3273,6 +3273,7 @@ export type EditorComponent =
   | WorkflowAlias
   | AgentPreset
   | AgentModel
+  | MCPIntegration
 
 export type EditorFunctionRead = {
   name: string
@@ -4337,9 +4338,15 @@ export type MCPHttpServerConfig = {
   }
   transport?: "http" | "sse"
   timeout?: number
+  id?: string
 }
 
 export type transport = "http" | "sse"
+
+export type MCPIntegration = {
+  component_id?: "mcp-integration"
+  multiple?: boolean
+}
 
 export type MCPIntegrationCreate =
   | MCPHttpIntegrationCreate
@@ -4472,6 +4479,7 @@ export type MCPStdioServerConfig = {
     [key: string]: string
   }
   timeout?: number
+  id?: string
 }
 
 /**

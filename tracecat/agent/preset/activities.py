@@ -3,11 +3,12 @@ from __future__ import annotations
 import uuid
 
 import sqlalchemy as sa
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel, ConfigDict, model_validator
 from sqlalchemy import select
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
+from tracecat.agent.common.types import MCPServerConfig
 from tracecat.agent.preset.service import AgentPresetService
 from tracecat.agent.service import AgentManagementService
 from tracecat.agent.workflow_config import agent_config_to_payload
@@ -59,6 +60,36 @@ async def resolve_agent_preset_config_activity(
             preset_version=args.preset_version,
         ) as config:
             return agent_config_to_payload(config)
+
+
+class ResolveAiAgentMcpIntegrationsActivityInput(BaseModel):
+    role: Role
+    mcp_integration_ids: list[str]
+
+
+class ResolveAiAgentMcpIntegrationsActivityResult(BaseModel):
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    mcp_servers: list[MCPServerConfig] | None = None
+    """Partial MCP server configs (no secrets). Each carries its source ``id``
+    so trusted callers can re-resolve secrets per use."""
+
+
+@activity.defn
+async def resolve_ai_agent_mcp_integrations_activity(
+    args: ResolveAiAgentMcpIntegrationsActivityInput,
+) -> ResolveAiAgentMcpIntegrationsActivityResult:
+    """Resolve ``core.ai.agent`` MCP integration IDs into partial server configs.
+
+    Activity-scope sibling of preset resolution. Returns metadata only —
+    no headers, no stdio env. The trusted MCP server fetches secrets per
+    call via :meth:`AgentPresetService.resolve_mcp_integration_secrets`.
+    """
+    async with AgentPresetService.with_session(role=args.role) as service:
+        # Validates IDs exist in the workspace before resolving.
+        await service.validate_mcp_integrations(args.mcp_integration_ids)
+        servers = await service.resolve_mcp_integration_refs(args.mcp_integration_ids)
+    return ResolveAiAgentMcpIntegrationsActivityResult(mcp_servers=servers)
 
 
 @activity.defn

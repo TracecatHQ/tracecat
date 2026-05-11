@@ -6,7 +6,7 @@ Pure dataclasses with no Pydantic dependencies for minimal import footprint.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Literal, NotRequired, TypedDict
+from typing import Any, Literal, NotRequired, TypedDict, TypeGuard
 
 
 class MCPHttpServerConfig(TypedDict):
@@ -35,13 +35,23 @@ class MCPHttpServerConfig(TypedDict):
     """Required: HTTP/SSE endpoint URL for the MCP server."""
 
     headers: NotRequired[dict[str, str]]
-    """Optional: Auth headers (can reference Tracecat secrets)."""
+    """Optional: Auth headers (can reference Tracecat secrets).
+
+    Only populated when the config has been resolved at the trusted edge for
+    immediate use. Boundary-crossing configs omit this field; the trusted
+    caller re-resolves secrets per use via the source ``id``.
+    """
 
     transport: NotRequired[Literal["http", "sse"]]
     """Optional: Transport type. Defaults to 'http'."""
 
     timeout: NotRequired[int]
     """Optional: Request timeout in seconds."""
+
+    id: NotRequired[str]
+    """Optional: UUID of the source ``mcp_integrations`` row this config was
+    resolved from. Set when produced by ``AgentPresetService`` resolvers so
+    callers can re-resolve secrets per use without re-listing integrations."""
 
 
 class MCPStdioServerConfig(TypedDict):
@@ -52,10 +62,25 @@ class MCPStdioServerConfig(TypedDict):
     command: str
     args: NotRequired[list[str]]
     env: NotRequired[dict[str, str]]
+    """Optional: Process env vars. Treated as secrets; omitted at
+    boundary-crossing producers — re-resolved at the trusted edge."""
     timeout: NotRequired[int]
+    id: NotRequired[str]
+    """Optional: UUID of the source ``mcp_integrations`` row this config was
+    resolved from. See :class:`MCPHttpServerConfig.id`."""
 
 
 MCPServerConfig = MCPHttpServerConfig | MCPStdioServerConfig
+
+
+def is_http_mcp_server(config: MCPServerConfig) -> TypeGuard[MCPHttpServerConfig]:
+    """Narrow a generic ``MCPServerConfig`` to its HTTP variant.
+
+    HTTP is the default discriminator (the ``type`` key is optional on
+    ``MCPHttpServerConfig`` and defaults to ``"http"``), so configs without
+    an explicit ``type`` are treated as HTTP for backwards compatibility.
+    """
+    return config.get("type", "http") == "http"
 
 
 @dataclass(kw_only=True, slots=True)

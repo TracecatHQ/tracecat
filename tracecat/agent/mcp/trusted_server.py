@@ -22,7 +22,7 @@ from typing import Any
 from fastmcp import FastMCP
 from fastmcp.exceptions import ToolError
 
-from tracecat.agent.common.types import MCPHttpServerConfig
+from tracecat.agent.common.types import MCPHttpServerConfig, is_http_mcp_server
 from tracecat.agent.mcp.executor import ActionExecutionError, execute_action
 from tracecat.agent.mcp.internal_tools import (
     INTERNAL_TOOL_HANDLERS,
@@ -151,18 +151,10 @@ async def execute_user_mcp_tool(
 ) -> str:
     """Execute a tool on a user-defined MCP server.
 
-    User MCP servers are configured in the agent config and their credentials
-    are stored in the JWT claims. This tool proxies calls from the sandboxed
-    runtime to the user's MCP server.
-
-    Args:
-        server_name: Name of the user MCP server (from config).
-        tool_name: Original tool name (without mcp__ prefix).
-        args: Arguments to pass to the tool.
-        auth_token: JWT token containing user MCP server configs.
-
-    Returns:
-        JSON-encoded result from the tool.
+    User MCP servers are authorized via the JWT claims (only ``name`` + source
+    integration ``id`` cross the boundary). Secrets (OAuth bearers, custom
+    auth headers, stdio env) are re-resolved here per call so they never
+    enter Temporal history or JWT payloads.
     """
     try:
         claims = verify_mcp_token(auth_token)
@@ -170,15 +162,13 @@ async def execute_user_mcp_tool(
         logger.warning("MCP token verification failed", error_type=_safe_error_type(e))
         raise ToolError("Authentication failed") from None
 
-    _set_role_context(claims)
-    # Find the server config in claims
-    server_config = None
-    for cfg in claims.user_mcp_servers:
-        if cfg.name == server_name:
-            server_config = cfg
-            break
+    role = _set_role_context(claims)
 
-    if server_config is None:
+    ref = next(
+        (s for s in claims.user_mcp_servers if s.name == server_name),
+        None,
+    )
+    if ref is None:
         logger.warning(
             "User MCP server not found in claims",
             server_name=server_name,
@@ -186,17 +176,48 @@ async def execute_user_mcp_tool(
         )
         raise ToolError(f"User MCP server '{server_name}' not authorized") from None
 
-    try:
+    # Resolve metadata + secrets per call. Both come from the DB; no
+    # secrets are carried through the claim itself.
+    from tracecat.agent.preset.service import AgentPresetService
+
+    if ref.id is None:
+        # Legacy replay path: in-flight tokens minted before the refs-only
+        # cutover. Use the inline url/headers from the claim. New tokens
+        # always carry ``id`` and never hit this branch.
+        if not ref.url:
+            raise ToolError(f"User MCP server '{server_name}' missing url")
         config_dict: MCPHttpServerConfig = {
             "type": "http",
-            "name": server_config.name,
-            "url": server_config.url,
-            "transport": server_config.transport,
-            "headers": server_config.headers,
+            "name": ref.name,
+            "url": ref.url,
+            "transport": ref.transport,
+            "headers": ref.headers,
         }
-        if server_config.timeout is not None:
-            config_dict["timeout"] = server_config.timeout
+        if ref.timeout is not None:
+            config_dict["timeout"] = ref.timeout
+    else:
+        async with AgentPresetService.with_session(role=role) as svc:
+            refs = await svc.resolve_mcp_integration_refs([str(ref.id)])
+            if not refs:
+                raise ToolError(f"MCP integration {ref.id} not found")
+            metadata = refs[0]
+            if not is_http_mcp_server(metadata):
+                raise ToolError(
+                    f"User MCP server '{server_name}' is not an HTTP server"
+                )
+            secrets = await svc.resolve_mcp_integration_secrets(ref.id)
+        config_dict = {
+            "type": "http",
+            "name": metadata["name"],
+            "url": metadata["url"],
+            "transport": metadata.get("transport", "http"),
+            "headers": secrets or {},
+        }
+        timeout = metadata.get("timeout")
+        if timeout is not None:
+            config_dict["timeout"] = timeout
 
+    try:
         client = UserMCPClient([config_dict])
         result = await client.call_tool(server_name, tool_name, args)
 

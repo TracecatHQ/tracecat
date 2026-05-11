@@ -38,7 +38,9 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.agent.aliases import build_agent_alias
     from tracecat.agent.preset.activities import (
         ResolveAgentPresetVersionRefActivityInput,
+        ResolveAiAgentMcpIntegrationsActivityInput,
         resolve_agent_preset_version_ref_activity,
+        resolve_ai_agent_mcp_integrations_activity,
     )
     from tracecat.agent.schemas import RunAgentArgs
     from tracecat.agent.session.types import AgentSessionEntity
@@ -963,6 +965,18 @@ class DSLWorkflow:
                         start_to_close_timeout=timedelta(seconds=60),
                         retry_policy=RETRY_POLICIES["activity:fail_fast"],
                     )
+                    mcp_servers = None
+                    if action_args.mcp_integrations:
+                        mcp_result = await workflow.execute_activity(
+                            resolve_ai_agent_mcp_integrations_activity,
+                            arg=ResolveAiAgentMcpIntegrationsActivityInput(
+                                role=self.role,
+                                mcp_integration_ids=list(action_args.mcp_integrations),
+                            ),
+                            start_to_close_timeout=timedelta(seconds=30),
+                            retry_policy=RETRY_POLICIES["activity:fail_fast"],
+                        )
+                        mcp_servers = mcp_result.mcp_servers
                     wf_info = workflow.info()
                     child_search_attributes = _build_agent_child_search_attributes(
                         wf_info, task.ref
@@ -985,6 +999,7 @@ class DSLWorkflow:
                                 base_url=action_args.base_url,
                                 actions=action_args.actions,
                                 tool_approvals=action_args.tool_approvals,
+                                mcp_servers=mcp_servers,
                             ),
                             max_requests=action_args.max_requests,
                             max_tool_calls=action_args.max_tool_calls,

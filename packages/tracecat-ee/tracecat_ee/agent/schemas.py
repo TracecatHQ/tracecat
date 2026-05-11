@@ -45,6 +45,7 @@ class AgentActionArgs(BaseModel):
         return values
 
     actions: list[str] | None = None
+    mcp_integrations: list[str] | None = None
     instructions: str | None = None
     output_type: OutputType | None = None
     session_id: uuid.UUID | None = None
