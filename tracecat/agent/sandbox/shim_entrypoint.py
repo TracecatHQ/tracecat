@@ -24,6 +24,7 @@ MCP_SOCKET_ENV_VAR = "TRACECAT__AGENT_MCP_SOCKET_PATH"
 DEFAULT_LLM_SOCKET_PATH = "/var/run/tracecat/llm.sock"
 DEFAULT_MCP_SOCKET_PATH = "/var/run/tracecat/mcp.sock"
 LLM_BRIDGE_HOST = "127.0.0.1"
+TRUSTED_MCP_BRIDGE_PATH = "/mcp"
 MAX_BODY_SIZE = 10 * 1024 * 1024
 
 
@@ -214,6 +215,25 @@ class LLMBridge:
         await writer.drain()
 
 
+def _trusted_mcp_bridge_url(port: int) -> str:
+    return f"http://{LLM_BRIDGE_HOST}:{port}{TRUSTED_MCP_BRIDGE_PATH}"
+
+
+def _rewrite_mcp_bridge_command_port(
+    command: list[str],
+    *,
+    requested_port: int,
+    actual_port: int,
+) -> list[str]:
+    """Rewrite trusted MCP bridge URLs after dynamic port binding."""
+    if requested_port == actual_port:
+        return command
+
+    requested_url = _trusted_mcp_bridge_url(requested_port)
+    actual_url = _trusted_mcp_bridge_url(actual_port)
+    return [arg.replace(requested_url, actual_url) for arg in command]
+
+
 async def run_sandboxed_claude_shim() -> None:
     """Read shim config, start the LLM bridge, and proxy Claude stdio."""
     llm_bridge: LLMBridge | None = None
@@ -233,6 +253,11 @@ async def run_sandboxed_claude_shim() -> None:
         )
         mcp_bridge_port = await mcp_bridge.start()
         LOGGER.info("MCP bridge started for shim on port %s", mcp_bridge_port)
+        command = _rewrite_mcp_bridge_command_port(
+            init_payload["command"],
+            requested_port=init_payload["mcp_bridge_port"],
+            actual_port=mcp_bridge_port,
+        )
 
         child_env = {
             **os.environ,
@@ -242,7 +267,7 @@ async def run_sandboxed_claude_shim() -> None:
         child_env["TRACECAT__MCP_BRIDGE_PORT"] = str(mcp_bridge_port)
         child_env["ANTHROPIC_BASE_URL"] = f"http://127.0.0.1:{bridge_port}"
         process = await asyncio.create_subprocess_exec(
-            *init_payload["command"],
+            *command,
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
@@ -309,8 +334,8 @@ async def _read_init_payload(init_path: Path) -> ClaudeShimInitPayload:
         raise ValueError("Shim payload env must be a dict[str, str]")
     if not isinstance(cwd, str):
         raise ValueError("Shim payload cwd must be a string")
-    if not isinstance(mcp_bridge_port, int) or mcp_bridge_port <= 0:
-        raise ValueError("Shim payload mcp_bridge_port must be a positive integer")
+    if not isinstance(mcp_bridge_port, int) or mcp_bridge_port < 0:
+        raise ValueError("Shim payload mcp_bridge_port must be a non-negative integer")
 
     return {
         "command": command,

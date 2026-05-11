@@ -18,6 +18,7 @@ from tracecat.agent.sandbox.shim_entrypoint import (
     _resolve_init_payload_path,
     _resolve_llm_socket_path,
     _resolve_mcp_socket_path,
+    _rewrite_mcp_bridge_command_port,
     _wait_for_process_with_stdin,
 )
 from tracecat.agent.sandbox.shim_entrypoint import (
@@ -123,7 +124,7 @@ async def test_read_shim_init_payload_validates_shape(tmp_path: Path) -> None:
 
 
 @pytest.mark.anyio
-async def test_read_shim_init_payload_rejects_port_zero(tmp_path: Path) -> None:
+async def test_read_shim_init_payload_allows_port_zero(tmp_path: Path) -> None:
     init_path = tmp_path / "shim-init.json"
     init_path.write_bytes(
         orjson.dumps(
@@ -136,8 +137,29 @@ async def test_read_shim_init_payload_rejects_port_zero(tmp_path: Path) -> None:
         )
     )
 
-    with pytest.raises(ValueError, match="mcp_bridge_port must be a positive integer"):
-        await _read_shim_init_payload(init_path)
+    payload = await _read_shim_init_payload(init_path)
+
+    assert payload["mcp_bridge_port"] == 0
+
+
+def test_rewrite_mcp_bridge_command_port_replaces_dynamic_urls() -> None:
+    command = [
+        "claude",
+        "--mcp-config",
+        '{"url":"http://127.0.0.1:0/mcp","other":"http://127.0.0.1:4101/mcp"}',
+    ]
+
+    rewritten = _rewrite_mcp_bridge_command_port(
+        command,
+        requested_port=0,
+        actual_port=54321,
+    )
+
+    assert rewritten == [
+        "claude",
+        "--mcp-config",
+        '{"url":"http://127.0.0.1:54321/mcp","other":"http://127.0.0.1:4101/mcp"}',
+    ]
 
 
 class _FakeStreamWriter:

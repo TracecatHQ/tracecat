@@ -279,25 +279,12 @@ def test_transport_uses_fixed_mcp_bridge_port_for_jailed_runtime(
     )
 
 
-def test_transport_uses_available_mcp_bridge_port_for_direct_runtime(
-    monkeypatch: pytest.MonkeyPatch,
+def test_transport_uses_dynamic_mcp_bridge_port_for_direct_runtime(
     tmp_path: Path,
 ) -> None:
-    captured_start_port: list[int] = []
-
-    def fake_available_localhost_port(start_port: int) -> int:
-        captured_start_port.append(start_port)
-        return 54321
-
-    monkeypatch.setattr(
-        SandboxedCLITransport,
-        "_available_localhost_port",
-        staticmethod(fake_available_localhost_port),
-    )
     transport = _make_transport(tmp_path, use_jailed_paths=False)
 
-    assert transport._mcp_bridge_port_for_runtime() == 54321
-    assert captured_start_port == [transport_module.TRACECAT__AGENT_MCP_BRIDGE_PORT]
+    assert transport._mcp_bridge_port_for_runtime() == 0
 
 
 def test_transport_rewrites_trusted_mcp_bridge_urls_for_selected_port(
@@ -376,11 +363,6 @@ async def test_transport_connect_applies_selected_direct_port_to_sdk_options(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    monkeypatch.setattr(
-        SandboxedCLITransport,
-        "_available_localhost_port",
-        staticmethod(lambda _start_port: 54321),
-    )
     transport = _make_transport(tmp_path, use_jailed_paths=False)
     options = ClaudeAgentOptions(
         mcp_servers={"tracecat-registry": _trusted_mcp_config(4101, token="root")},
@@ -425,14 +407,13 @@ async def test_transport_connect_applies_selected_direct_port_to_sdk_options(
 
     init_payload_path = cast(Path, captured_spawn_kwargs["init_payload_path"])
     init_payload = orjson.loads(init_payload_path.read_bytes())
-    assert init_payload["mcp_bridge_port"] == 54321
-    assert init_payload["mcp_bridge_port"] != 0
+    assert init_payload["mcp_bridge_port"] == 0
 
     mcp_servers = cast(dict[str, Any], options.mcp_servers)
-    assert mcp_servers["tracecat-registry"]["url"] == "http://127.0.0.1:54321/mcp"
+    assert mcp_servers["tracecat-registry"]["url"] == "http://127.0.0.1:0/mcp"
     assert options.agents is not None
     agent = options.agents["analyst"]
     assert agent.mcpServers is not None
     agent_entry = cast(dict[str, Any], agent.mcpServers[0])
     child_server = cast(dict[str, Any], agent_entry["tracecat-registry-analyst"])
-    assert child_server["url"] == "http://127.0.0.1:54321/mcp"
+    assert child_server["url"] == "http://127.0.0.1:0/mcp"
