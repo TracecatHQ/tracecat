@@ -159,7 +159,8 @@ class LLMSocketProxy:
     """Unix socket proxy that forwards HTTP traffic to the LLM gateway.
 
     Runs on the host side as part of the agent executor. The socket is
-    mounted into the NSJail sandbox where the LLMBridge connects to it.
+    mounted into the NSJail sandbox where the SandboxSocketBridge connects
+    to it.
     """
 
     def __init__(

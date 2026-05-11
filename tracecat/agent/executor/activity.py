@@ -242,10 +242,24 @@ class SandboxedAgentExecutor:
             return ResolvedAgentOtelConfig(enabled=False)
 
     @staticmethod
-    def _build_sandbox_env(resolved: ResolvedAgentOtelConfig) -> dict[str, str]:
-        """Strip the placeholder endpoint; the shim sets the real bridge URL."""
+    def _build_sandbox_env(
+        resolved: ResolvedAgentOtelConfig,
+        *,
+        otel_auth_token: str,
+    ) -> dict[str, str]:
+        """Build the sandbox-side OTel env.
+
+        Strips the placeholder collector endpoint (the shim sets the real
+        bridge URL after starting its bridge) and injects the relay's
+        bearer JWT as ``OTEL_EXPORTER_OTLP_HEADERS`` so the Claude OTel
+        exporter attaches it to outbound OTLP requests for the host-side
+        relay to verify.
+        """
         sandbox_env = dict(resolved.sandbox_env)
         sandbox_env.pop("OTEL_EXPORTER_OTLP_ENDPOINT", None)
+        sandbox_env["OTEL_EXPORTER_OTLP_HEADERS"] = (
+            f"Authorization=Bearer {otel_auth_token}"
+        )
         return sandbox_env
 
     def _build_runtime_init_payload(self) -> RuntimeInitPayload:
@@ -256,7 +270,6 @@ class SandboxedAgentExecutor:
             config=SandboxAgentConfig.from_agent_config(self.input.config),
             user_prompt=self.input.user_prompt,
             llm_gateway_auth_token=self.input.llm_gateway_auth_token,
-            agent_otel_auth_token=self.input.agent_otel_auth_token,
             allowed_actions=self.input.allowed_actions,
             sdk_session_id=self.input.sdk_session_id,
             sdk_session_data=self.input.sdk_session_data,
@@ -301,7 +314,8 @@ class SandboxedAgentExecutor:
                     )
                 else:
                     init_payload.agent_otel_sandbox_env = self._build_sandbox_env(
-                        resolved_otel
+                        resolved_otel,
+                        otel_auth_token=self.input.agent_otel_auth_token,
                     )
                     otel_socket_path = socket_dir / OTEL_SOCKET_NAME
                     self._otel_relay = OtelSocketRelay(

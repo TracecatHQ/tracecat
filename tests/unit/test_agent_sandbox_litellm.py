@@ -936,7 +936,6 @@ async def test_run_agent_activity_with_fake_runtime_exercises_loopback_approval_
         payload: RuntimeInitPayload,
     ) -> None:
         assert payload.session_id == executor_input.session_id
-        assert payload.agent_otel_auth_token == executor_input.agent_otel_auth_token
         assert payload.is_fork is False
         assert payload.is_approval_continuation is False
         await handler.send_stream_event(
@@ -1466,9 +1465,10 @@ async def test_executor_starts_llm_socket_proxy_for_passthrough_provider_with_in
 class _DummyBridge:
     instances: list[_DummyBridge] = []
 
-    def __init__(self, socket_path: Path, port: int) -> None:
-        self.socket_path = socket_path
-        self.port = port
+    def __init__(self, **kwargs: object) -> None:
+        self.kwargs = kwargs
+        self.socket_path = kwargs.get("socket_path")
+        self.port = kwargs.get("port")
         self.started = False
         self.stopped = False
         type(self).instances.append(self)
@@ -1508,10 +1508,16 @@ class _ConnectedFakeProcess:
 
 
 @pytest.mark.anyio
-async def test_transport_writes_otel_token_as_top_level_shim_init_field(
+async def test_transport_shim_init_payload_excludes_otel_auth_token_field(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
+    """The shim init payload no longer carries agent_otel_auth_token.
+
+    The host injects the JWT into the sandbox env as OTEL_EXPORTER_OTLP_HEADERS
+    (built by the executor activity), so the shim has nothing OTel-specific
+    to know about beyond the env it's given.
+    """
     captured: dict[str, Path] = {}
     path_mapping = session_paths_module.ClaudeSandboxPathMapping(
         host_home_dir=tmp_path / "home",
@@ -1528,7 +1534,6 @@ async def test_transport_writes_otel_token_as_top_level_shim_init_field(
         path_mapping=path_mapping,
         enable_internet_access=False,
         use_jailed_paths=False,
-        agent_otel_auth_token="otel-token",
     )
     (tmp_path / "sockets").mkdir()
 
@@ -1560,8 +1565,8 @@ async def test_transport_writes_otel_token_as_top_level_shim_init_field(
     await transport.close()
 
     init_payload = orjson.loads(captured["init_payload_path"].read_bytes())
-    assert init_payload["agent_otel_auth_token"] == "otel-token"
-    assert "TRACECAT__AGENT_OTEL_AUTH_TOKEN" not in init_payload["env"]
+    assert "agent_otel_auth_token" not in init_payload
+    assert set(init_payload.keys()) == {"command", "env", "cwd"}
 
 
 @pytest.mark.anyio
@@ -1579,7 +1584,6 @@ async def test_sandbox_shim_starts_bridge_and_sets_child_base_url(
                 "command": ["claude", "--print"],
                 "env": {"ANTHROPIC_AUTH_TOKEN": "llm-token"},
                 "cwd": str(tmp_path),
-                "agent_otel_auth_token": "otel-token",
             }
         )
     )
@@ -1599,7 +1603,7 @@ async def test_sandbox_shim_starts_bridge_and_sets_child_base_url(
         "create_subprocess_exec",
         fake_create_subprocess_exec,
     )
-    monkeypatch.setattr(shim_entrypoint, "LLMBridge", _DummyBridge)
+    monkeypatch.setattr(shim_entrypoint, "SandboxSocketBridge", _DummyBridge)
 
     async def fake_pump_stream(*_args: object) -> None:
         return None
@@ -1629,27 +1633,6 @@ async def test_sandbox_shim_starts_bridge_and_sets_child_base_url(
     assert child_env["ANTHROPIC_BASE_URL"] == "http://127.0.0.1:4312"
     assert "agent_otel_auth_token" not in child_env
     assert "TRACECAT__AGENT_OTEL_AUTH_TOKEN" not in child_env
-
-
-def test_otel_bridge_injects_and_replaces_authorization(tmp_path: Path) -> None:
-    bridge = shim_entrypoint.OtelBridge(
-        socket_path=tmp_path / "otel.sock",
-        auth_token="otel-token",
-    )
-    request = (
-        b"POST /v1/traces HTTP/1.1\r\n"
-        b"Host: bridge\r\n"
-        b"Authorization: Bearer caller-token\r\n"
-        b"Content-Length: 4\r\n"
-        b"\r\n"
-        b"body"
-    )
-
-    rewritten = bridge._inject_relay_auth_header(request)
-
-    assert b"Authorization: Bearer caller-token" not in rewritten
-    assert b"Authorization: Bearer otel-token" in rewritten
-    assert rewritten.endswith(b"\r\n\r\nbody")
 
 
 if __name__ == "__main__":

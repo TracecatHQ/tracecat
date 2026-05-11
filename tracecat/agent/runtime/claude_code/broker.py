@@ -99,7 +99,6 @@ class ClaudeRuntimeBroker:
                     session_id=str(request.init_payload.session_id),
                     skills_dir=request.skills_dir,
                     otel_socket_path=request.otel_socket_path,
-                    agent_otel_auth_token=request.init_payload.agent_otel_auth_token,
                 ),
                 session_home_dir=path_mapping.host_home_dir,
                 cwd=path_mapping.runtime_cwd,

@@ -308,8 +308,8 @@ async def _spawn_direct_runtime(
     if control_socket_required:
         env["TRACECAT__AGENT_CONTROL_SOCKET_PATH"] = str(control_socket_path)
     if llm_socket_path is not None:
-        # If the runtime uses LLMBridge (internet access disabled), it must connect
-        # to the orchestrator-side LLM socket.
+        # If the runtime uses SandboxSocketBridge (internet access disabled), it
+        # must connect to the orchestrator-side LLM socket.
         env["TRACECAT__AGENT_LLM_SOCKET_PATH"] = str(llm_socket_path)
     if otel_socket_path is not None:
         env["TRACECAT__AGENT_OTEL_SOCKET_PATH"] = str(otel_socket_path)

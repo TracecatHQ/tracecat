@@ -120,6 +120,7 @@ async def _send_request(
     body: bytes = b"",
     content_type: str = "application/x-protobuf",
     authorization: str | None = None,
+    extra_headers: dict[str, str] | None = None,
 ) -> tuple[int, str, bytes]:
     reader, writer = await asyncio.open_unix_connection(str(socket_path))
     try:
@@ -132,6 +133,9 @@ async def _send_request(
         ).encode("ascii")
         if authorization is not None:
             head += f"Authorization: {authorization}\r\n".encode("ascii")
+        if extra_headers:
+            for key, value in extra_headers.items():
+                head += f"{key}: {value}\r\n".encode("ascii")
         head += b"\r\n"
         writer.write(head + body)
         await writer.drain()
@@ -246,6 +250,39 @@ async def test_relay_uses_trusted_collector_authorization(
         authorization=f"Bearer {relay_identity.token}",
     )
     request = mock_transport.requests[0]
+    assert request.headers["authorization"] == "Bearer secret"
+
+
+@pytest.mark.anyio
+async def test_relay_drops_inbound_sandbox_headers(
+    started_relay: OtelSocketRelay,
+    mock_transport: _MockTransport,
+    relay_identity: _RelayIdentity,
+) -> None:
+    """Inbound headers other than the four the parser extracts must not be
+    forwarded to the tenant collector. The relay builds the outbound header
+    set from scratch (user-agent + content-type echo + decrypted tenant
+    headers); anything the sandbox tries to attach is dropped."""
+    await _send_request(
+        started_relay.socket_path,
+        method="POST",
+        path="/v1/logs",
+        body=b"log",
+        authorization=f"Bearer {relay_identity.token}",
+        extra_headers={
+            "X-Sandbox-Exfil": "secret-from-sandbox",
+            "Cookie": "session=stolen",
+            "X-Forwarded-For": "10.0.0.1",
+        },
+    )
+    request = mock_transport.requests[0]
+    # Only the three deliberate outbound headers are present.
+    forwarded_keys = {key.lower() for key in request.headers.keys()}
+    assert "x-sandbox-exfil" not in forwarded_keys
+    assert "cookie" not in forwarded_keys
+    assert "x-forwarded-for" not in forwarded_keys
+    # The JWT envelope itself does not leak through either; the tenant
+    # collector sees only the trusted-side Authorization header.
     assert request.headers["authorization"] == "Bearer secret"
 
 
@@ -373,7 +410,8 @@ async def test_sandbox_env_strips_per_signal_endpoints_and_protocols() -> None:
     assert sandbox_env["OTEL_LOGS_EXPORTER"] == "otlp"
     assert sandbox_env["OTEL_LOG_USER_PROMPTS"] == "true"
     assert sandbox_env["OTEL_RESOURCE_ATTRIBUTES"] == "service.name=tracecat"
-    # Headers never reach the sandbox env
+    # Tenant headers never reach the resolver's sandbox env (the activity later
+    # injects only a relay-bearer JWT as OTEL_EXPORTER_OTLP_HEADERS).
     assert "OTEL_EXPORTER_OTLP_HEADERS" not in sandbox_env
     # Tenant headers + collector env remain trusted-side only
     assert resolved.collector_env["OTEL_EXPORTER_OTLP_ENDPOINT"] == (
