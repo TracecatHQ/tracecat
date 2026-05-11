@@ -7,7 +7,7 @@ import hashlib
 import uuid
 from collections.abc import AsyncIterator, Sequence
 from dataclasses import dataclass, replace
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, Literal
 
 import orjson
@@ -1086,7 +1086,6 @@ class AgentSessionService(BaseWorkspaceService):
                 workflow_args,
                 id=str(workflow_id),
                 task_queue=config.TRACECAT__AGENT_QUEUE,
-                execution_timeout=timedelta(hours=1),
                 retry_policy=RETRY_POLICIES["workflow:fail_fast"],
                 search_attributes=self._build_direct_agent_search_attributes(
                     session_id
