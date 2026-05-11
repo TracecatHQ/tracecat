@@ -8,10 +8,11 @@ from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 from fastapi import HTTPException
-from fastapi.responses import StreamingResponse
+from fastapi.responses import Response, StreamingResponse
+from starlette import status
 
 from tracecat.agent.adapter.vercel import UIMessage
-from tracecat.agent.session.router import send_message
+from tracecat.agent.session.router import send_message, stream_session_events
 from tracecat.auth.types import Role
 from tracecat.chat.schemas import (
     ApprovalDecision,
@@ -294,3 +295,121 @@ async def test_send_message_does_not_reset_stream_when_validation_fails() -> Non
     fake_stream.abort_new_turn.assert_not_awaited()
     fake_stream.sse.assert_not_called()
     fake_svc.run_turn.assert_not_awaited()
+
+
+def _make_stream_role(workspace_id: uuid.UUID) -> Role:
+    return Role(
+        type="service",
+        service_id="tracecat-api",
+        workspace_id=workspace_id,
+        organization_id=uuid.uuid4(),
+        scopes=frozenset({"agent:read"}),
+    )
+
+
+@pytest.mark.anyio
+async def test_stream_session_events_returns_204_when_no_turn_started() -> None:
+    """last_stream_id=None with no Last-Event-ID header → 204, no stream attached."""
+    session_id = uuid.uuid4()
+    workspace_id = uuid.uuid4()
+    role = _make_stream_role(workspace_id)
+
+    fake_session = SimpleNamespace(last_stream_id=None)
+    fake_svc = SimpleNamespace(get_session=AsyncMock(return_value=fake_session))
+    fake_stream = SimpleNamespace(sse=Mock(return_value=_empty_event_stream()))
+
+    with (
+        patch(
+            "tracecat.agent.session.router.AgentSessionService.with_session",
+            return_value=_AsyncContext(fake_svc),
+        ),
+        patch(
+            "tracecat.agent.session.router.AgentStream.new",
+            AsyncMock(return_value=fake_stream),
+        ),
+    ):
+        raw = cast(Any, stream_session_events).__wrapped__
+        response = await raw(
+            role=role,
+            request=SimpleNamespace(headers={}),
+            session_id=session_id,
+        )
+
+    assert isinstance(response, Response)
+    assert response.status_code == status.HTTP_204_NO_CONTENT
+    fake_stream.sse.assert_not_called()
+
+
+@pytest.mark.anyio
+async def test_stream_session_events_attaches_when_turn_in_progress_no_events_yet() -> (
+    None
+):
+    """last_stream_id="0-0" (reset_for_new_turn written, key not yet in Redis) → stream, no 204.
+
+    This is the regression case: the stream key doesn't exist yet but a turn is
+    active. The old Redis-exists check would have incorrectly returned 204 here.
+    """
+    session_id = uuid.uuid4()
+    workspace_id = uuid.uuid4()
+    role = _make_stream_role(workspace_id)
+
+    fake_session = SimpleNamespace(last_stream_id="0-0")
+    fake_svc = SimpleNamespace(get_session=AsyncMock(return_value=fake_session))
+    fake_stream = SimpleNamespace(sse=Mock(return_value=_empty_event_stream()))
+
+    with (
+        patch(
+            "tracecat.agent.session.router.AgentSessionService.with_session",
+            return_value=_AsyncContext(fake_svc),
+        ),
+        patch(
+            "tracecat.agent.session.router.AgentStream.new",
+            AsyncMock(return_value=fake_stream),
+        ),
+    ):
+        raw = cast(Any, stream_session_events).__wrapped__
+        response = await raw(
+            role=role,
+            request=SimpleNamespace(
+                headers={}, is_disconnected=AsyncMock(return_value=False)
+            ),
+            session_id=session_id,
+        )
+
+    assert isinstance(response, StreamingResponse)
+    fake_stream.sse.assert_called_once()
+
+
+@pytest.mark.anyio
+async def test_stream_session_events_attaches_when_last_event_id_present() -> None:
+    """Last-Event-ID header present → always attach regardless of last_stream_id."""
+    session_id = uuid.uuid4()
+    workspace_id = uuid.uuid4()
+    role = _make_stream_role(workspace_id)
+
+    fake_session = SimpleNamespace(last_stream_id=None)
+    fake_svc = SimpleNamespace(get_session=AsyncMock(return_value=fake_session))
+    fake_stream = SimpleNamespace(sse=Mock(return_value=_empty_event_stream()))
+
+    with (
+        patch(
+            "tracecat.agent.session.router.AgentSessionService.with_session",
+            return_value=_AsyncContext(fake_svc),
+        ),
+        patch(
+            "tracecat.agent.session.router.AgentStream.new",
+            AsyncMock(return_value=fake_stream),
+        ),
+    ):
+        raw = cast(Any, stream_session_events).__wrapped__
+        response = await raw(
+            role=role,
+            request=SimpleNamespace(
+                headers={"Last-Event-ID": "1234-0"},
+                is_disconnected=AsyncMock(return_value=False),
+            ),
+            session_id=session_id,
+        )
+
+    assert isinstance(response, StreamingResponse)
+    fake_stream.sse.assert_called_once()
