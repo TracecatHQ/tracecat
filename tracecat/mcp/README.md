@@ -26,13 +26,16 @@ own embedded collection truncation behavior below.
 
 ### Workflow definition editing
 
-- Workflow edits can use inline YAML directly on `create_workflow` and
-  `update_workflow` up to the configured MCP input limit.
+- For existing workflow changes, prefer `edit_workflow`. Fetch
+  `draft_document` and `draft_revision` with `get_workflow`, then send the
+  smallest RFC 6902 JSON Patch that changes the intended fields.
+- Use `update_workflow` without `definition_yaml` for metadata-only updates.
+- Use inline YAML on `create_workflow` and `update_workflow` only when creating
+  a workflow from YAML or intentionally replacing/bulk-updating the definition.
+  Inline YAML is supported up to the configured MCP input limit.
 - `get_workflow(include_definition_yaml=True)` returns inline `definition_yaml`
   when the serialized workflow fits the configured MCP input limit; otherwise
   it returns `definition_transport="too_large"`.
-- `get_workflow` also returns `draft_document` and `draft_revision` for targeted
-  RFC 6902 JSON Patch updates through `edit_workflow`.
 - Template validation uploads and CSV exports still use separate staged blob
   transfer tools.
 

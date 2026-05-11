@@ -2780,9 +2780,11 @@ Within a scatter stream, each child action accesses its item via \
 1. `get_workflow_authoring_context` — get action schemas, secrets, and variables
 2. Use `create_workflow` to create a blank workflow shell when needed
 3. `get_workflow` — fetch `draft_document` plus `draft_revision` for patch-based edits
-4. `edit_workflow` — apply RFC 6902 JSON Patch operations to the draft document
+4. Prefer `edit_workflow` for existing workflow changes — apply small RFC 6902
+JSON Patch operations to the draft document instead of resending full YAML
 5. Use `get_workflow(include_definition_yaml=true)` when you want full inline YAML,
-or keep using `edit_workflow` for larger targeted edits
+or `update_workflow(definition_yaml=...)` only when intentionally replacing or
+bulk-updating the workflow definition from inline YAML
 6. `validate_workflow` — check for structural and expression errors
 7. `publish_workflow` — freeze a versioned snapshot
 8. `run_published_workflow` or `run_draft_workflow` — execute it
@@ -2790,14 +2792,17 @@ or keep using `edit_workflow` for larger targeted edits
 10. `get_workflow_execution` — inspect execution status, per-action results/errors
 
 ## Workflow definition editing
-- Inline workflow YAML is supported on `create_workflow` and `update_workflow`
-for payloads up to the configured MCP input limit.
+- Default to `edit_workflow` for existing workflows. Fetch `draft_document` and
+`draft_revision` with `get_workflow`, create the smallest RFC 6902 patch that
+changes the intended fields, then call `edit_workflow`.
+- Use `update_workflow` without `definition_yaml` for metadata-only updates.
+- Use inline YAML on `create_workflow` and `update_workflow` only when creating a
+workflow from YAML or intentionally replacing/bulk-updating the definition.
+Inline YAML payloads are supported up to the configured MCP input limit.
 - `get_workflow(include_definition_yaml=true)` returns inline `definition_yaml`
 when the workflow fits within that limit; otherwise it returns
 `definition_transport: "too_large"`. Use `draft_document` and `draft_revision`
-with `edit_workflow` for large targeted edits.
-- `get_workflow` also returns a JSON `draft_document` plus `draft_revision` for
-incremental MCP edits via `edit_workflow`.
+with `edit_workflow` for targeted edits.
 
 ## Template and CSV file tools
 - {_TEMPLATE_FILE_WARNING}

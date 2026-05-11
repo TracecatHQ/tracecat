@@ -7852,6 +7852,18 @@ def test_mcp_instructions_include_agent_preset_authoring_tools() -> None:
     assert "update_agent_preset" in mcp_server._MCP_INSTRUCTIONS
 
 
+def test_mcp_instructions_prefer_edit_workflow_for_existing_workflows() -> None:
+    assert "Prefer `edit_workflow` for existing workflow changes" in (
+        mcp_server._MCP_INSTRUCTIONS
+    )
+    assert "instead of resending full YAML" in mcp_server._MCP_INSTRUCTIONS
+    assert "Use `update_workflow` without `definition_yaml`" in (
+        mcp_server._MCP_INSTRUCTIONS
+    )
+    assert "only when intentionally replacing" in mcp_server._MCP_INSTRUCTIONS
+    assert "bulk-updating the workflow definition" in mcp_server._MCP_INSTRUCTIONS
+
+
 @pytest.mark.anyio
 async def test_collect_agent_response_returns_text(
     monkeypatch: pytest.MonkeyPatch,
