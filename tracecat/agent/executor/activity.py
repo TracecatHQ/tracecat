@@ -275,7 +275,8 @@ class SandboxedAgentExecutor:
         result.error = loopback_result.error
         result.approval_requested = loopback_result.approval_requested
         result.approval_items = loopback_result.approval_items or None
-        result.output = loopback_result.output
+        if not loopback_result.approval_requested:
+            result.output = loopback_result.output
         result.result_usage = loopback_result.result_usage
         result.result_num_turns = loopback_result.result_num_turns
 

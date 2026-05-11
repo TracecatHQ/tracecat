@@ -28,6 +28,7 @@ from tracecat.agent.executor.activity import (
     _hydrate_sdk_session_history,
     run_agent_activity,
 )
+from tracecat.agent.executor.loopback import LoopbackResult
 from tracecat.agent.schemas import ToolFilters
 from tracecat.agent.session.activities import (
     CreateSessionInput,
@@ -709,6 +710,37 @@ class TestSandboxedAgentExecutorHelpers:
         assert payload.mcp_auth_token == executor_input.mcp_auth_token
         assert payload.llm_gateway_auth_token == executor_input.llm_gateway_auth_token
         assert payload.config.model_name == executor_input.config.model_name
+
+    def test_apply_loopback_result_omits_output_for_approval_turn(
+        self,
+    ) -> None:
+        result = AgentExecutorResult(success=False)
+        loopback_result = LoopbackResult(
+            success=True,
+            approval_requested=True,
+            output={"status": "waiting-for-approval"},
+        )
+
+        SandboxedAgentExecutor._apply_loopback_result(result, loopback_result)
+
+        assert result.success is True
+        assert result.approval_requested is True
+        assert result.output is None
+
+    def test_apply_loopback_result_keeps_output_for_final_turn(
+        self,
+    ) -> None:
+        result = AgentExecutorResult(success=False)
+        loopback_result = LoopbackResult(
+            success=True,
+            output={"status": "completed"},
+        )
+
+        SandboxedAgentExecutor._apply_loopback_result(result, loopback_result)
+
+        assert result.success is True
+        assert result.approval_requested is False
+        assert result.output == {"status": "completed"}
 
     @pytest.mark.anyio
     @patch("tracecat.agent.executor.activity.AgentSessionService.with_session")
