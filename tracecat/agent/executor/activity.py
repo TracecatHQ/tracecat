@@ -208,7 +208,10 @@ class SandboxedAgentExecutor:
 
         Agent config decides routing, not root/subagent position. The managed
         route is the fallback for every request model that does not have a
-        direct passthrough entry.
+        direct passthrough entry. Direct passthrough traffic bypasses managed
+        LiteLLM, so each passthrough root/subagent needs its own exact-model
+        route to preserve its custom provider base URL, credentials, and
+        upstream model name.
 
         Returns:
             Routing plan for the host-side LLM socket proxy.
@@ -233,6 +236,11 @@ class SandboxedAgentExecutor:
         Each entry is keyed by the exact model string the runtime will send in
         the request body. The proxy can then make a local routing decision
         without needing to know which agent produced the request.
+
+        A single execution can include a passthrough root agent and multiple
+        passthrough subagents. Since passthrough skips the managed LiteLLM
+        fallback, the shared proxy needs one direct route per exact runtime
+        model key rather than one global passthrough destination.
 
         Returns:
             Direct passthrough routes keyed by request model.
