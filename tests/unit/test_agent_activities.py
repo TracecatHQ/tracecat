@@ -555,11 +555,11 @@ class TestCreateSessionActivity:
         mock_ctx.__aenter__.return_value = mock_service
         mock_with_session.return_value = mock_ctx
 
-        result = await create_session_activity(input)
+        with pytest.raises(ApplicationError) as exc_info:
+            await create_session_activity(input)
 
-        assert result.success is False
-        assert result.error is not None
-        assert str(mock_session_id) in result.error
+        assert str(mock_session_id) in exc_info.value.message
+        assert exc_info.value.non_retryable is True
         mock_service.get_session.assert_awaited_once_with(mock_session_id)
         mock_service.get_or_create_session.assert_not_called()
 

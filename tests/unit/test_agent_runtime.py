@@ -369,10 +369,6 @@ class TestClaudeAgentRuntimeRun:
                 return_value=mock_claude_sdk_client,
             ),
             patch(
-                "tracecat.agent.runtime.claude_code.runtime.create_proxy_mcp_server",
-                AsyncMock(return_value={}),
-            ),
-            patch(
                 "tracecat.agent.runtime.claude_code.runtime.ClaudeSDKAdapter",
                 return_value=mock_adapter,
             ),
@@ -472,10 +468,6 @@ class TestClaudeAgentRuntimeRun:
                 return_value=mock_claude_sdk_client,
             ),
             patch(
-                "tracecat.agent.runtime.claude_code.runtime.create_proxy_mcp_server",
-                AsyncMock(return_value={}),
-            ),
-            patch(
                 "tracecat.agent.runtime.claude_code.runtime.ClaudeSDKAdapter",
                 return_value=mock_adapter,
             ),
@@ -558,10 +550,6 @@ class TestClaudeAgentRuntimeRun:
             patch(
                 "tracecat.agent.runtime.claude_code.runtime.ClaudeSDKClient",
                 return_value=mock_claude_sdk_client,
-            ),
-            patch(
-                "tracecat.agent.runtime.claude_code.runtime.create_proxy_mcp_server",
-                AsyncMock(return_value={}),
             ),
         ):
             await runtime.run(sample_init_payload)
@@ -669,10 +657,6 @@ class TestClaudeAgentRuntimeRun:
             patch(
                 "tracecat.agent.runtime.claude_code.runtime.ClaudeSDKClient",
                 return_value=mock_claude_sdk_client,
-            ),
-            patch(
-                "tracecat.agent.runtime.claude_code.runtime.create_proxy_mcp_server",
-                AsyncMock(return_value={}),
             ),
             patch(
                 "tracecat.agent.runtime.claude_code.runtime.ClaudeSDKAdapter",
