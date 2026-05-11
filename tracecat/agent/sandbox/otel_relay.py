@@ -14,12 +14,16 @@ from __future__ import annotations
 import asyncio
 import os
 from collections.abc import Mapping
+from dataclasses import dataclass
 from pathlib import Path
+from uuid import UUID
 
 import httpx
 import orjson
 from pydantic import SecretStr
 
+from tracecat.agent.tokens import AgentOtelTokenClaims, verify_agent_otel_token
+from tracecat.identifiers import OrganizationID, WorkspaceID
 from tracecat.logger import logger
 
 OTEL_SOCKET_NAME = "otel.sock"
@@ -37,6 +41,15 @@ _USER_AGENT = "tracecat-agent-otel-relay/1.0"
 # Telemetry payloads are bounded — anything larger than this almost certainly
 # indicates a misconfiguration rather than legitimate OTel data.
 MAX_BODY_SIZE = 16 * 1024 * 1024
+
+
+@dataclass(frozen=True, slots=True)
+class _RelayRequest:
+    method: str
+    path: str
+    content_type: str | None
+    authorization: str | None
+    body: bytes
 
 
 def resolve_collector_url(collector_env: Mapping[str, str], path: str) -> str | None:
@@ -65,6 +78,9 @@ class OtelSocketRelay:
         collector_env: Mapping[str, str],
         headers: Mapping[str, SecretStr],
         timeout_seconds: float,
+        expected_workspace_id: WorkspaceID,
+        expected_organization_id: OrganizationID,
+        expected_session_id: UUID,
     ) -> None:
         self.socket_path = socket_path
         self._collector_env = dict(collector_env)
@@ -72,6 +88,9 @@ class OtelSocketRelay:
             key: value.get_secret_value() for key, value in headers.items()
         }
         self._timeout_seconds = timeout_seconds
+        self._expected_workspace_id = expected_workspace_id
+        self._expected_organization_id = expected_organization_id
+        self._expected_session_id = expected_session_id
         self._server: asyncio.Server | None = None
         self._client: httpx.AsyncClient | None = None
         self._attempted: set[str] = set()
@@ -127,16 +146,26 @@ class OtelSocketRelay:
         summary on stop().
         """
         try:
-            method, path, content_type, body = await self._read_request(reader)
-            if method is None or method != "POST":
+            request = await self._read_request(reader)
+            if request is None or request.method != "POST":
                 await self._write_response(
                     writer, status_code=405, reason="Method Not Allowed"
                 )
                 return
 
-            normalized_path = path.split("?", 1)[0]
+            normalized_path = request.path.split("?", 1)[0]
             if normalized_path not in _SIGNAL_PATHS:
                 await self._write_response(writer, status_code=404, reason="Not Found")
+                return
+
+            claims = self._verify_inbound_auth(request.authorization)
+            if claims is None:
+                await self._write_response(
+                    writer, status_code=401, reason="Unauthorized"
+                )
+                return
+            if not self._claims_match_expected_context(claims):
+                await self._write_response(writer, status_code=403, reason="Forbidden")
                 return
 
             url = resolve_collector_url(self._collector_env, normalized_path)
@@ -147,8 +176,8 @@ class OtelSocketRelay:
                 return
 
             outbound_headers = {"user-agent": _USER_AGENT}
-            if content_type:
-                outbound_headers["content-type"] = content_type
+            if request.content_type:
+                outbound_headers["content-type"] = request.content_type
             outbound_headers.update(self._headers)
 
             self._attempted.add(normalized_path)
@@ -156,7 +185,7 @@ class OtelSocketRelay:
                 response = await self._client.post(
                     url,
                     headers=outbound_headers,
-                    content=body,
+                    content=request.body,
                 )
             except httpx.HTTPError:
                 await self._write_response(
@@ -188,25 +217,46 @@ class OtelSocketRelay:
             except Exception:
                 pass
 
+    def _verify_inbound_auth(
+        self, auth_header: str | None
+    ) -> AgentOtelTokenClaims | None:
+        """Verify the relay's internal bearer token."""
+        scheme, _, token = (auth_header or "").partition(" ")
+        if scheme.lower() != "bearer" or not token:
+            return None
+        try:
+            return verify_agent_otel_token(token.strip())
+        except ValueError:
+            return None
+
+    def _claims_match_expected_context(self, claims: AgentOtelTokenClaims) -> bool:
+        """Check token identity matches the relay instance's execution context."""
+        return (
+            claims.workspace_id == self._expected_workspace_id
+            and claims.organization_id == self._expected_organization_id
+            and claims.session_id == self._expected_session_id
+        )
+
     @staticmethod
     async def _read_request(
         reader: asyncio.StreamReader,
-    ) -> tuple[str | None, str, str | None, bytes]:
+    ) -> _RelayRequest | None:
         """Parse the HTTP request line, headers, and body."""
         request_line = await reader.readline()
         if not request_line:
-            return None, "", None, b""
+            return None
 
         try:
             parts = request_line.decode("ascii").strip().split(" ", 2)
         except UnicodeDecodeError:
-            return None, "", None, b""
+            return None
         if len(parts) < 2:
-            return None, "", None, b""
+            return None
         method, path = parts[0], parts[1]
 
         content_length = 0
         content_type: str | None = None
+        auth_header: str | None = None
         while True:
             line = await reader.readline()
             if not line or line == b"\r\n":
@@ -221,17 +271,25 @@ class OtelSocketRelay:
                 try:
                     content_length = int(value)
                 except ValueError:
-                    return None, "", None, b""
+                    return None
             elif key_lower == "content-type":
                 content_type = value
+            elif key_lower == "authorization":
+                auth_header = value
 
         if content_length < 0 or content_length > MAX_BODY_SIZE:
-            return None, "", None, b""
+            return None
 
         body = b""
         if content_length > 0:
             body = await reader.readexactly(content_length)
-        return method, path, content_type, body
+        return _RelayRequest(
+            method=method,
+            path=path,
+            content_type=content_type,
+            authorization=auth_header,
+            body=body,
+        )
 
     @staticmethod
     async def _write_response(
