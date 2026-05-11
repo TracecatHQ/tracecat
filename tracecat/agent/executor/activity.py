@@ -31,6 +31,7 @@ from tracecat.agent.executor.loopback import (
     LoopbackInput,
     LoopbackResult,
 )
+from tracecat.agent.preset.service import AgentPresetService
 from tracecat.agent.runtime.claude_code.broker import (
     ClaudeTurnRequest,
     ConcurrentSessionTurnError,
@@ -519,6 +520,39 @@ class SandboxedAgentExecutor:
                 )
 
 
+async def _hydrate_stdio_env(mcp_servers: list[Any] | None, *, role: Role) -> None:
+    """Resolve stdio ``env`` secrets in-place before the runtime starts.
+
+    HTTP MCP servers route through the trusted MCP server, which re-resolves
+    secrets per call. Stdio servers are spawned directly by the Claude
+    runtime from ``payload.config.mcp_servers``, so there's no later
+    rehydration hook — env secrets must be present on the config dict when
+    the runtime reads it.
+
+    ``mcp_servers`` is mutated in place. Secret data lives only for the
+    lifetime of this activity frame.
+    """
+    if not mcp_servers:
+        return
+
+    stdio_targets = [
+        cfg
+        for cfg in mcp_servers
+        if cfg.get("type") == "stdio" and cfg.get("id") and not cfg.get("env")
+    ]
+    if not stdio_targets:
+        return
+
+    async with AgentPresetService.with_session(role=role) as svc:
+        for cfg in stdio_targets:
+            try:
+                env = await svc.resolve_mcp_integration_secrets(uuid.UUID(cfg["id"]))
+            except ValueError:
+                env = None
+            if env:
+                cfg["env"] = env
+
+
 @activity.defn
 async def run_agent_activity(input: AgentExecutorInput) -> AgentExecutorResult:
     """Temporal activity that runs one brokered agent turn.
@@ -547,6 +581,14 @@ async def run_agent_activity(input: AgentExecutorInput) -> AgentExecutorResult:
     )
 
     input = await _hydrate_sdk_session_history(input)
+   
+    # Stdio MCP servers are spawned directly by the runtime; unlike HTTP
+    # servers they have no per-call secret resolution hook downstream. The
+    # configs in ``input.config.mcp_servers`` arrive in refs-only shape
+    # (no ``env``) — hydrate from the DB here so the spawned process gets
+    # its credentials.
+    await _hydrate_stdio_env(input.config.mcp_servers, role=input.role)
+
     executor = SandboxedAgentExecutor(input=input)
     result = await executor.run()
 

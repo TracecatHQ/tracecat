@@ -204,16 +204,35 @@ class AgentActivities:
                 for tool_name, tool_def in user_mcp_tools.items():
                     defs[tool_name] = tool_def
 
-                # JWT claims carry only refs — name + source integration id.
-                # Trusted MCP server re-resolves headers per call.
-                user_mcp_claims = [
-                    UserMCPServerClaim(
-                        name=cfg["name"],
-                        id=uuid.UUID(integration_id_str),
+                # JWT claims carry the source integration id when available so
+                # the trusted MCP server can re-resolve headers per call. For
+                # legacy in-flight payloads that don't carry ``id`` (recorded
+                # before the refs-only cutover), fall back to the pre-rollout
+                # inline shape — otherwise discovery would add ``mcp__*`` tools
+                # that the trusted server can't authorize at call time.
+                user_mcp_claims = []
+                for cfg in http_servers:
+                    integration_id_str = cfg.get("id")
+                    if integration_id_str:
+                        user_mcp_claims.append(
+                            UserMCPServerClaim(
+                                name=cfg["name"],
+                                id=uuid.UUID(integration_id_str),
+                            )
+                        )
+                        continue
+                    # Legacy replay path: no id → trusted server uses inline
+                    # url/headers from the claim itself. ``execute_user_mcp_tool``
+                    # has the matching read-side branch.
+                    user_mcp_claims.append(
+                        UserMCPServerClaim(
+                            name=cfg["name"],
+                            url=cfg["url"],
+                            transport=cfg.get("transport", "http"),
+                            headers=cfg.get("headers", {}),
+                            timeout=cfg.get("timeout"),
+                        )
                     )
-                    for cfg in http_servers
-                    if (integration_id_str := cfg.get("id"))
-                ]
 
                 logger.info(
                     "Discovered user MCP tools",
