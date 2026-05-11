@@ -33,7 +33,7 @@ TRUSTED_MCP_SOCKET_PATH = Path("/var/run/tracecat/mcp.sock")
 """Path to the trusted MCP socket (shared across jobs)."""
 
 TRACECAT__AGENT_MCP_SOCKET_PATH = Path(
-    os.environ.get("TRACECAT__AGENT_MCP_SOCKET_PATH", str(TRUSTED_MCP_SOCKET_PATH))
+    os.environ.get("TRACECAT__AGENT_MCP_SOCKET_PATH") or str(TRUSTED_MCP_SOCKET_PATH)
 )
 """Path to the trusted MCP socket visible to the runtime shim."""
 
