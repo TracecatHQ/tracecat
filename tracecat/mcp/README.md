@@ -13,11 +13,8 @@ own embedded collection truncation behavior below.
 - `list_workspaces(limit=20, cursor=None)`
 - `create_workflow(workspace_id, title, description="", definition_yaml=None)`
 - `get_workflow(workspace_id, workflow_id, include_definition_yaml=False)`
-- `get_workflow_file(workspace_id, workflow_id, draft=True)`
-- `prepare_workflow_file_upload(workspace_id, relative_path, operation, workflow_id=None, update_mode="patch")`
-- `create_workflow_from_uploaded_file(workspace_id, artifact_id, title=None, description="", use_workflow_id=False)`
-- `update_workflow_from_uploaded_file(workspace_id, workflow_id, artifact_id, title=None, description=None, status=None, alias=None, error_handler=None, update_mode=None)`
 - `update_workflow(workspace_id, workflow_id, title=None, description=None, status=None, alias=None, error_handler=None, definition_yaml=None, update_mode="patch")`
+- `edit_workflow(workspace_id, workflow_id, base_revision, patch_ops, validate_only=False)`
 - `list_workflows(workspace_id, status=None, limit=50, search=None, cursor=None)`
 - `list_workflow_tree(workspace_id, path="/", depth=1, include_workflows=True, limit=20, cursor=None)`
 - `validate_workflow(workspace_id, workflow_id)`
@@ -27,22 +24,17 @@ own embedded collection truncation behavior below.
 - `list_workflow_executions(workspace_id, workflow_id, limit=20, cursor=None)`
 - `get_workflow_execution(workspace_id, execution_id)`
 
-### Workflow file transfer notes
+### Workflow definition editing
 
-- Small workflow edits can use inline YAML directly on `create_workflow` and
-  `update_workflow`.
+- Workflow edits can use inline YAML directly on `create_workflow` and
+  `update_workflow` up to the configured MCP input limit.
 - `get_workflow(include_definition_yaml=True)` returns inline `definition_yaml`
-  when the serialized workflow is small enough; otherwise it returns metadata
-  showing staged retrieval is required.
-- Remote `/mcp` clients should use staged blob transfer for larger workflows:
-  - `get_workflow_file` returns a short-lived `download_url`
-  - `prepare_workflow_file_upload` returns a short-lived `upload_url` plus an opaque `artifact_id`
-  - `create_workflow_from_uploaded_file` and `update_workflow_from_uploaded_file` finalize from that staged artifact
-- For workflow updates, `update_mode` is bound during `prepare_workflow_file_upload`; the finalize call may omit it or repeat the same value, but it cannot override the prepared artifact.
-- Staged workflow files are stored in the existing workflow blob bucket under workspace-scoped prefixes and artifact metadata is bound server-side to workspace, organization, MCP client, and MCP session to prevent cross-tenant IDOR.
-- Inline workflow YAML has a 128 KB limit. Above that, the server returns a
-  clear error or `staged_required` metadata and clients should switch to the
-  staged file tools.
+  when the serialized workflow fits the configured MCP input limit; otherwise
+  it returns `definition_transport="too_large"`.
+- `get_workflow` also returns `draft_document` and `draft_revision` for targeted
+  RFC 6902 JSON Patch updates through `edit_workflow`.
+- Template validation uploads and CSV exports still use separate staged blob
+  transfer tools.
 
 ## Action discovery and authoring context
 

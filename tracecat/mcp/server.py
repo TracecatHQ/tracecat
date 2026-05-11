@@ -15,7 +15,6 @@ import uuid
 from collections import defaultdict, deque
 from collections.abc import Callable, Collection, Iterator, Mapping, Sequence
 from datetime import UTC, datetime, timedelta
-from enum import StrEnum
 from io import StringIO
 from pathlib import PurePosixPath
 from typing import (
@@ -122,7 +121,6 @@ from tracecat.db.models import (
     Table,
     Workflow,
     WorkflowDefinition,
-    WorkflowFolder,
 )
 from tracecat.dsl.common import (
     DSLEntrypoint,
@@ -164,6 +162,7 @@ from tracecat.mcp.auth import (
 )
 from tracecat.mcp.config import (
     TRACECAT_MCP__FILE_TRANSFER_URL_EXPIRY_SECONDS,
+    TRACECAT_MCP__MAX_INPUT_SIZE_BYTES,
     TRACECAT_MCP__RATE_LIMIT_BURST,
     TRACECAT_MCP__RATE_LIMIT_RPS,
 )
@@ -764,11 +763,10 @@ class WorkflowSummaryResponse(BaseModel):
 class InlineWorkflowDefinitionResponse(BaseModel):
     """Inline workflow definition transport metadata."""
 
-    definition_transport: Literal["inline", "staged_required"]
+    definition_transport: Literal["inline", "too_large"]
     definition_size_bytes: int
     inline_limit_bytes: int
     definition_yaml: str | None = None
-    suggested_relative_path: str | None = None
 
     def model_dump(self, *args: Any, **kwargs: Any) -> dict[str, Any]:
         kwargs.setdefault("exclude_none", True)
@@ -780,51 +778,14 @@ class WorkflowMetadataResponse(WorkflowSummaryResponse):
 
     draft_revision: str | None = None
     draft_document: WorkflowEditDocument | None = None
-    definition_transport: Literal["inline", "staged_required"] | None = None
+    definition_transport: Literal["inline", "too_large"] | None = None
     definition_size_bytes: int | None = None
     inline_limit_bytes: int | None = None
     definition_yaml: str | None = None
-    suggested_relative_path: str | None = None
 
     def model_dump(self, *args: Any, **kwargs: Any) -> dict[str, Any]:
         kwargs.setdefault("exclude_none", True)
         return super().model_dump(*args, **kwargs)
-
-
-class WorkflowFileResponse(BaseModel):
-    """Workflow file staging/download response."""
-
-    workflow_id: WorkflowUUID
-    title: str
-    suggested_relative_path: str
-    draft: bool | None = None
-    download_url: str | None = None
-    expires_at: str | None = None
-    transport: str | None = None
-
-
-class WorkflowFileUploadPreparedResponse(BaseModel):
-    """Prepared staged workflow upload metadata."""
-
-    artifact_id: uuid.UUID
-    upload_url: str
-    expires_at: str
-    relative_path: str
-    folder_path: str | None = None
-    operation: str
-    workflow_id: WorkflowUUID | None = None
-    update_mode: Literal["replace", "patch"]
-
-
-class WorkflowCreatedFromFileResponse(BaseModel):
-    """Workflow create response produced from a staged upload."""
-
-    id: WorkflowUUID
-    title: str
-    description: str | None = None
-    status: str
-    folder_path: str | None = None
-    artifact_id: uuid.UUID
 
 
 class WorkflowUpdateResponse(BaseModel):
@@ -832,8 +793,6 @@ class WorkflowUpdateResponse(BaseModel):
 
     message: str
     mode: str
-    folder_path: str | None = None
-    artifact_id: uuid.UUID | None = None
 
 
 class WorkflowFolderCreatedResponse(BaseModel):
@@ -1277,28 +1236,6 @@ class AgentAwaitingApprovalResponse(BaseModel):
     partial_output: str | None = None
 
 
-class WorkflowFileOperation(StrEnum):
-    CREATE = "create"
-    UPDATE = "update"
-
-
-class WorkflowFileArtifact(BaseModel):
-    artifact_id: uuid.UUID
-    organization_id: uuid.UUID
-    workspace_id: uuid.UUID
-    client_id: str
-    session_id: str
-    operation: WorkflowFileOperation
-    relative_path: str
-    folder_path: str | None = Field(default=None)
-    blob_key: str
-    workflow_id: WorkflowUUID | None = Field(default=None)
-    update_mode: Literal["replace", "patch"] = Field(default="patch")
-    expires_at: datetime
-    used: bool = Field(default=False)
-    sha256: str | None = Field(default=None)
-
-
 class TemplateFileArtifact(BaseModel):
     artifact_id: uuid.UUID
     organization_id: uuid.UUID
@@ -1312,14 +1249,8 @@ class TemplateFileArtifact(BaseModel):
     sha256: str | None = Field(default=None)
 
 
-_WORKFLOW_FILE_ARTIFACT_KEY_PREFIX = "mcp:workflow-artifacts"
 _TEMPLATE_FILE_ARTIFACT_KEY_PREFIX = "mcp:template-artifacts"
 _WORKFLOW_FILE_ALLOWED_EXTENSIONS = {".yaml", ".yml"}
-_WORKFLOW_FILE_WARNING = (
-    "Workflow file tools use staged blob transfers for remote MCP clients. "
-    "Download URLs and upload artifacts are short-lived and bound to the "
-    "requesting client/session."
-)
 _TEMPLATE_FILE_WARNING = (
     "Template validation only supports staged uploads for remote MCP clients. "
     "Local filesystem paths are not supported."
@@ -1328,7 +1259,7 @@ _CSV_FILE_WARNING = (
     "CSV exports are delivered through staged blob downloads for remote MCP "
     "clients. Local filesystem export/import paths are not supported."
 )
-_INLINE_WORKFLOW_YAML_MAX_BYTES = 128 * 1024
+_INLINE_WORKFLOW_YAML_MAX_BYTES = TRACECAT_MCP__MAX_INPUT_SIZE_BYTES
 _workflow_artifact_redis: AsyncRedis | None = None
 
 
@@ -1343,16 +1274,11 @@ def _inline_workflow_yaml_max_bytes() -> int:
 
 
 def _get_workflow_artifact_redis() -> AsyncRedis:
-    """Get the Redis client used for workflow file artifact metadata."""
+    """Get the Redis client used for MCP file artifact metadata."""
     global _workflow_artifact_redis
     if _workflow_artifact_redis is None:
         _workflow_artifact_redis = AsyncRedis.from_url(config.REDIS_URL)
     return _workflow_artifact_redis
-
-
-def _workflow_artifact_redis_key(artifact_id: uuid.UUID | str) -> str:
-    """Build the Redis key for a workflow file artifact."""
-    return f"{_WORKFLOW_FILE_ARTIFACT_KEY_PREFIX}:{artifact_id}"
 
 
 def _template_artifact_redis_key(artifact_id: uuid.UUID | str) -> str:
@@ -1371,7 +1297,7 @@ def _current_mcp_client_id() -> str:
 def _get_context_session_id(ctx: Context | None) -> str:
     """Return the current MCP session id."""
     if ctx is None:
-        raise ToolError("Workflow file tools require MCP context")
+        raise ToolError("MCP file tools require MCP context")
     return ctx.session_id
 
 
@@ -1393,7 +1319,7 @@ def _require_remote_mcp_context(ctx: Context | None, *, tool_name: str) -> None:
 
 
 def _workflow_file_bucket() -> str:
-    """Return the bucket used for staged workflow file blobs."""
+    """Return the bucket used for staged MCP file blobs."""
     return config.TRACECAT__BLOB_STORAGE_BUCKET_WORKFLOW
 
 
@@ -1993,7 +1919,7 @@ async def _persist_workflow_edit_document(
 
 
 def _normalize_workflow_file_relative_path(relative_path: str) -> str:
-    """Validate and normalize a relative workflow file path."""
+    """Validate and normalize a relative YAML file path."""
     raw = relative_path.replace("\\", "/").strip()
     if not raw:
         raise ToolError("relative_path is required")
@@ -2010,7 +1936,7 @@ def _normalize_workflow_file_relative_path(relative_path: str) -> str:
         raise ToolError("relative_path cannot contain ':' segments")
 
     if path.suffix.lower() not in _WORKFLOW_FILE_ALLOWED_EXTENSIONS:
-        raise ToolError("Workflow file path must end with .yaml or .yml")
+        raise ToolError("YAML file path must end with .yaml or .yml")
     return path.as_posix()
 
 
@@ -2060,81 +1986,15 @@ def _merge_uploaded_skill_markdown_metadata(
     ]
 
 
-def _infer_folder_path_from_relative_path(relative_path: str) -> str | None:
-    """Infer the Tracecat workflow folder path from a relative file path."""
-    path = PurePosixPath(relative_path)
-    parent_parts = path.parts[:-1]
-    if not parent_parts:
-        return None
-    return f"/{'/'.join(parent_parts)}/"
-
-
-def _folder_path_to_relative_dir(folder_path: str | None) -> str:
-    """Convert a materialized folder path to a relative directory string."""
-    if not folder_path or folder_path == "/":
-        return ""
-    return folder_path.strip("/")
-
-
-def _build_workflow_file_name(title: str, workflow_id: WorkflowUUID) -> str:
-    """Build a stable local file name for a workflow."""
-    title_slug = slugify(title, separator="-") or "workflow"
-    return f"{title_slug}--{workflow_id.short()}.yaml"
-
-
-def _build_workflow_relative_path(
-    title: str,
-    workflow_id: WorkflowUUID,
-    folder_path: str | None,
-) -> str:
-    """Build the relative workflow file path from folder path and workflow metadata."""
-    file_name = _build_workflow_file_name(title, workflow_id)
-    if folder_dir := _folder_path_to_relative_dir(folder_path):
-        return PurePosixPath(folder_dir, file_name).as_posix()
-    return file_name
-
-
-def _workflow_file_blob_key(
-    workspace_id: uuid.UUID,
-    session_id: str,
-    artifact_id: uuid.UUID,
-    file_name: str,
-) -> str:
-    """Build the blob storage key for a staged workflow file."""
-    return f"{workspace_id}/mcp/workflow-files/{session_id}/{artifact_id}/{file_name}"
-
-
 def _workflow_file_artifact_expires_at() -> datetime:
-    """Return the expiry timestamp for a staged workflow artifact."""
+    """Return the expiry timestamp for a staged MCP file artifact."""
     return datetime.now(UTC) + timedelta(seconds=_mcp_file_transfer_ttl_seconds())
 
 
 def _workflow_file_artifact_remaining_seconds(expires_at: datetime) -> int:
-    """Return the remaining TTL in seconds for an artifact."""
+    """Return the remaining TTL in seconds for a staged MCP file artifact."""
     remaining = int((expires_at - datetime.now(UTC)).total_seconds())
     return max(remaining, 1)
-
-
-async def _store_workflow_file_artifact(artifact: WorkflowFileArtifact) -> None:
-    """Persist workflow file artifact metadata in Redis."""
-    redis = _get_workflow_artifact_redis()
-    payload = orjson.dumps(artifact.model_dump(mode="json"))
-    await redis.set(
-        _workflow_artifact_redis_key(artifact.artifact_id),
-        payload,
-        ex=_workflow_file_artifact_remaining_seconds(artifact.expires_at),
-    )
-
-
-async def _load_workflow_file_artifact(
-    artifact_id: uuid.UUID,
-) -> WorkflowFileArtifact | None:
-    """Load workflow file artifact metadata from Redis."""
-    redis = _get_workflow_artifact_redis()
-    raw = await redis.get(_workflow_artifact_redis_key(artifact_id))
-    if raw is None:
-        return None
-    return WorkflowFileArtifact.model_validate(orjson.loads(raw))
 
 
 async def _store_template_file_artifact(artifact: TemplateFileArtifact) -> None:
@@ -2164,11 +2024,6 @@ async def _update_template_file_artifact(artifact: TemplateFileArtifact) -> None
     await _store_template_file_artifact(artifact)
 
 
-async def _update_workflow_file_artifact(artifact: WorkflowFileArtifact) -> None:
-    """Update an existing workflow file artifact in Redis."""
-    await _store_workflow_file_artifact(artifact)
-
-
 def _normalize_workflow_yaml_payload(raw_payload: Any) -> dict[str, Any]:
     """Normalize YAML payload shape for MCP workflow update APIs."""
     if raw_payload is None:
@@ -2190,20 +2045,6 @@ def _parse_workflow_yaml_payload(definition_yaml: str) -> WorkflowYamlPayload:
         raise ToolError(f"Invalid YAML: {exc}") from exc
     normalized = _normalize_workflow_yaml_payload(raw)
     return WorkflowYamlPayload.model_validate(normalized)
-
-
-async def _get_workflow_folder_path(
-    *,
-    role: Role,
-    session: AsyncSession,
-    workflow: Workflow,
-) -> str | None:
-    """Load the materialized folder path for a workflow."""
-    folder_id = getattr(workflow, "folder_id", None)
-    if folder_id is None:
-        return None
-    folder = await WorkflowFolderService(session, role=role).get_folder(folder_id)
-    return None if folder is None else folder.path
 
 
 async def _build_workflow_yaml_envelope(
@@ -2317,17 +2158,6 @@ async def _build_inline_workflow_response(
     draft: bool,
 ) -> InlineWorkflowDefinitionResponse:
     """Build the optional inline workflow YAML response payload."""
-    wf_id = WorkflowUUID.new(workflow.id)
-    folder_path = await _get_workflow_folder_path(
-        role=role,
-        session=service.session,
-        workflow=workflow,
-    )
-    relative_path = _build_workflow_relative_path(
-        workflow.title,
-        wf_id,
-        folder_path,
-    )
     yaml_payload = await _build_workflow_yaml_envelope(
         role=role,
         service=service,
@@ -2340,79 +2170,15 @@ async def _build_inline_workflow_response(
     inline_limit_bytes = _inline_workflow_yaml_max_bytes()
     if definition_size_bytes > inline_limit_bytes:
         return InlineWorkflowDefinitionResponse(
-            definition_transport="staged_required",
+            definition_transport="too_large",
             definition_size_bytes=definition_size_bytes,
             inline_limit_bytes=inline_limit_bytes,
-            suggested_relative_path=relative_path,
         )
     return InlineWorkflowDefinitionResponse(
         definition_transport="inline",
         definition_size_bytes=definition_size_bytes,
         inline_limit_bytes=inline_limit_bytes,
         definition_yaml=definition_yaml,
-    )
-
-
-async def _ensure_workflow_folder(
-    *,
-    role: Role,
-    session: AsyncSession,
-    folder_path: str | None,
-) -> WorkflowFolder | None:
-    """Ensure the materialized workflow folder path exists."""
-    if folder_path is None or folder_path == "/":
-        return None
-
-    folder_service = WorkflowFolderService(session, role=role)
-    if existing := await folder_service.get_folder_by_path(folder_path):
-        return existing
-
-    current_path = "/"
-    created_folder = None
-    for segment in folder_path.strip("/").split("/"):
-        next_path = (
-            f"{current_path}{segment}/" if current_path != "/" else f"/{segment}/"
-        )
-        if existing := await folder_service.get_folder_by_path(next_path):
-            created_folder = existing
-            current_path = next_path
-            continue
-        created_folder = await folder_service.create_folder(
-            segment,
-            parent_path=current_path,
-            commit=True,
-        )
-        current_path = created_folder.path
-    return created_folder
-
-
-async def _assign_workflow_to_folder(
-    *,
-    role: Role,
-    session: AsyncSession,
-    workflow_id: WorkflowUUID,
-    folder_path: str | None,
-) -> None:
-    """Move a workflow to the inferred folder path."""
-    folder_service = WorkflowFolderService(session, role=role)
-    folder = await _ensure_workflow_folder(
-        role=role, session=session, folder_path=folder_path
-    )
-    await folder_service.move_workflow(workflow_id, folder)
-
-
-def _build_workflow_file_payload(
-    *,
-    workflow: Workflow,
-    relative_path: str,
-    extra: dict[str, Any] | None = None,
-) -> WorkflowFileResponse:
-    """Build the common response payload for workflow file tools."""
-    return WorkflowFileResponse(
-        workflow_id=WorkflowUUID.new(workflow.id),
-        title=workflow.title,
-        suggested_relative_path=relative_path,
-        **(extra or {}),
     )
 
 
@@ -2426,55 +2192,6 @@ def _parse_uploaded_text_file(content: bytes, *, label: str) -> tuple[str, str]:
         return content.decode("utf-8"), _compute_sha256(content)
     except UnicodeDecodeError as exc:
         raise ToolError(f"Uploaded {label} must be UTF-8 encoded") from exc
-
-
-def _parse_uploaded_workflow_yaml(content: bytes) -> tuple[str, str]:
-    """Validate uploaded workflow file bytes and decode to text."""
-    return _parse_uploaded_text_file(content, label="workflow file")
-
-
-async def _require_workflow_file_artifact(
-    *,
-    artifact_id: uuid.UUID,
-    role: Role,
-    ctx: Context | None,
-    operation: WorkflowFileOperation,
-    workflow_id: WorkflowUUID | None = None,
-) -> WorkflowFileArtifact:
-    """Load and authorize a workflow file artifact."""
-    artifact = await _load_workflow_file_artifact(artifact_id)
-    if artifact is None:
-        raise ToolError("Workflow file artifact not found or expired")
-    if artifact.used:
-        raise ToolError("Workflow file artifact has already been consumed")
-    if artifact.expires_at <= datetime.now(UTC):
-        raise ToolError("Workflow file artifact has expired")
-    if artifact.operation != operation:
-        raise ToolError("Workflow file artifact operation does not match this tool")
-    if artifact.workspace_id != role.workspace_id:
-        raise ToolError("Workflow file artifact is not valid for this workspace")
-    if artifact.organization_id != role.organization_id:
-        raise ToolError("Workflow file artifact is not valid for this organization")
-
-    current_client_id = _current_mcp_client_id()
-    if artifact.client_id != current_client_id:
-        raise ToolError("Workflow file artifact is not valid for this MCP client")
-    if artifact.session_id != _get_context_session_id(ctx):
-        raise ToolError("Workflow file artifact is not valid for this MCP session")
-    if workflow_id is not None and artifact.workflow_id != workflow_id:
-        raise ToolError("Workflow file artifact is not valid for this workflow")
-    return artifact
-
-
-async def _consume_workflow_file_artifact(
-    *,
-    artifact: WorkflowFileArtifact,
-    sha256: str,
-) -> None:
-    """Mark a workflow file artifact as used."""
-    artifact.used = True
-    artifact.sha256 = sha256
-    await _update_workflow_file_artifact(artifact)
 
 
 async def _require_template_file_artifact(
@@ -2520,9 +2237,8 @@ def _ensure_inline_workflow_yaml_size(definition_yaml: str) -> None:
     if size > limit:
         raise ToolError(
             "definition_yaml exceeds the inline workflow limit "
-            f"({size} bytes > {limit} bytes); use prepare_workflow_file_upload "
-            "with create_workflow_from_uploaded_file or "
-            "update_workflow_from_uploaded_file instead"
+            f"({size} bytes > {limit} bytes); use edit_workflow for targeted "
+            "RFC 6902 JSON Patch edits or send a smaller inline definition_yaml"
         )
 
 
@@ -3065,26 +2781,23 @@ Within a scatter stream, each child action accesses its item via \
 2. Use `create_workflow` to create a blank workflow shell when needed
 3. `get_workflow` — fetch `draft_document` plus `draft_revision` for patch-based edits
 4. `edit_workflow` — apply RFC 6902 JSON Patch operations to the draft document
-5. Use `get_workflow(include_definition_yaml=true)` when you want inline YAML
-for a small workflow, or `get_workflow_file` / `prepare_workflow_file_upload`
-plus the file-based workflow create/update tools for larger workflows
+5. Use `get_workflow(include_definition_yaml=true)` when you want full inline YAML,
+or keep using `edit_workflow` for larger targeted edits
 6. `validate_workflow` — check for structural and expression errors
 7. `publish_workflow` — freeze a versioned snapshot
 8. `run_published_workflow` or `run_draft_workflow` — execute it
 9. `list_workflow_executions` — see run history, find execution IDs
 10. `get_workflow_execution` — inspect execution status, per-action results/errors
 
-## Workflow file tools
-- {_WORKFLOW_FILE_WARNING}
+## Workflow definition editing
 - Inline workflow YAML is supported on `create_workflow` and `update_workflow`
-for small payloads up to 128 KB.
+for payloads up to the configured MCP input limit.
 - `get_workflow(include_definition_yaml=true)` returns inline `definition_yaml`
 when the workflow fits within that limit; otherwise it returns
-`definition_transport: "staged_required"` and a `suggested_relative_path`.
+`definition_transport: "too_large"`. Use `draft_document` and `draft_revision`
+with `edit_workflow` for large targeted edits.
 - `get_workflow` also returns a JSON `draft_document` plus `draft_revision` for
 incremental MCP edits via `edit_workflow`.
-- `get_workflow_file` returns a short-lived download URL for remote `/mcp` clients.
-- `prepare_workflow_file_upload` is required for remote `/mcp` workflow file uploads. It returns a short-lived upload URL and an opaque artifact id for the finalize create/update tools.
 
 ## Template and CSV file tools
 - {_TEMPLATE_FILE_WARNING}
@@ -4090,10 +3803,6 @@ _TOOL_NAMESPACE_BY_NAME: dict[str, str] = {
     "list_workspaces": "workspaces",
     "create_workflow": "workflows",
     "get_workflow": "workflows",
-    "get_workflow_file": "workflows",
-    "prepare_workflow_file_upload": "workflows",
-    "create_workflow_from_uploaded_file": "workflows",
-    "update_workflow_from_uploaded_file": "workflows",
     "update_workflow": "workflows",
     "edit_workflow": "workflows",
     "list_workflows": "workflows",
@@ -4247,7 +3956,7 @@ async def create_workflow(
         workspace_id: The workspace ID (from list_workspaces).
         title: Workflow title (3-100 characters).
         description: Optional workflow description (up to 1000 characters).
-        definition_yaml: Optional inline workflow YAML for small workflows.
+        definition_yaml: Optional inline workflow YAML up to the MCP input limit.
 
     Returns JSON with the new workflow's id, title, description, and status.
     """
@@ -4298,8 +4007,8 @@ async def get_workflow(
         workflow_id: The workflow ID (short or full format).
         include_definition_yaml: When true, include inline YAML if small enough.
 
-    Returns JSON with workflow metadata. Use get_workflow_file to retrieve the
-    full workflow definition as a file or staged download.
+    Returns JSON with workflow metadata. Use include_definition_yaml for small
+    inline YAML payloads or draft_document with edit_workflow for targeted edits.
     """
 
     try:
@@ -4440,312 +4149,6 @@ async def edit_workflow(
 
 
 @mcp.tool()
-async def get_workflow_file(
-    workspace_id: uuid.UUID,
-    workflow_id: MCPWorkflowUUID,
-    draft: bool = True,
-    ctx: Context | None = None,
-) -> WorkflowFileResponse:
-    """Export a workflow to a staged download URL."""
-
-    try:
-        workflow_id = WorkflowUUID.new(workflow_id)
-        _require_remote_mcp_context(ctx, tool_name="get_workflow_file")
-        _, role = await _resolve_workspace_role(workspace_id)
-        async with WorkflowsManagementService.with_session(role=role) as svc:
-            workflow = await svc.get_workflow(workflow_id)
-            if workflow is None:
-                raise ToolError(f"Workflow {workflow_id} not found")
-
-            folder_path = await _get_workflow_folder_path(
-                role=role,
-                session=svc.session,
-                workflow=workflow,
-            )
-            relative_path = _build_workflow_relative_path(
-                workflow.title,
-                workflow_id,
-                folder_path,
-            )
-            yaml_payload = await _build_workflow_yaml_envelope(
-                role=role,
-                service=svc,
-                workflow=workflow,
-                workflow_id=workflow_id,
-                draft=draft,
-            )
-            content = _serialize_workflow_yaml_envelope(yaml_payload)
-            result_payload = _build_workflow_file_payload(
-                workflow=workflow,
-                relative_path=relative_path,
-                extra={"draft": draft},
-            )
-
-        artifact_id = uuid.uuid4()
-        expires_at = _workflow_file_artifact_expires_at()
-        blob_key = _workflow_file_blob_key(
-            _role_workspace_id(role),
-            _get_context_session_id(ctx),
-            artifact_id,
-            PurePosixPath(relative_path).name,
-        )
-        await blob.upload_file(
-            content.encode("utf-8"),
-            key=blob_key,
-            bucket=_workflow_file_bucket(),
-            content_type="application/yaml",
-        )
-        download_url = await blob.generate_presigned_download_url(
-            key=blob_key,
-            bucket=_workflow_file_bucket(),
-            expiry=_mcp_file_transfer_ttl_seconds(),
-            override_content_type="application/yaml",
-        )
-        result_payload = result_payload.model_copy(
-            update={
-                "download_url": download_url,
-                "expires_at": expires_at.isoformat(),
-                "transport": _get_context_transport(ctx),
-            }
-        )
-        return result_payload
-    except ToolError:
-        raise
-    except ValueError as e:
-        raise ToolError(str(e)) from e
-    except Exception as e:
-        logger.error("Failed to export workflow file", error=str(e))
-        raise ToolError(f"Failed to export workflow file: {e}") from None
-
-
-@mcp.tool()
-async def prepare_workflow_file_upload(
-    workspace_id: uuid.UUID,
-    relative_path: str,
-    operation: str,
-    workflow_id: MCPWorkflowUUID | None = None,
-    update_mode: str = "patch",
-    ctx: Context | None = None,
-) -> WorkflowFileUploadPreparedResponse:
-    """Prepare a staged workflow file upload for remote `/mcp` clients.
-
-    Clients typically save and upload files locally before handing them to the
-    remote MCP upload URL returned by this tool.
-    """
-
-    try:
-        _require_remote_mcp_context(ctx, tool_name="prepare_workflow_file_upload")
-        _, role = await _resolve_workspace_role(workspace_id)
-        if workflow_id is not None:
-            workflow_id = WorkflowUUID.new(workflow_id)
-        workflow_operation = WorkflowFileOperation(operation)
-        if update_mode not in {"replace", "patch"}:
-            raise ToolError("update_mode must be 'replace' or 'patch'")
-        normalized_relative_path = _normalize_workflow_file_relative_path(relative_path)
-        if workflow_operation is WorkflowFileOperation.UPDATE and workflow_id is None:
-            raise ToolError("workflow_id is required for update uploads")
-
-        artifact_id = uuid.uuid4()
-        expires_at = _workflow_file_artifact_expires_at()
-        artifact = WorkflowFileArtifact(
-            artifact_id=artifact_id,
-            organization_id=_role_organization_id(role),
-            workspace_id=_role_workspace_id(role),
-            client_id=_current_mcp_client_id(),
-            session_id=_get_context_session_id(ctx),
-            operation=workflow_operation,
-            relative_path=normalized_relative_path,
-            folder_path=_infer_folder_path_from_relative_path(normalized_relative_path),
-            blob_key=_workflow_file_blob_key(
-                _role_workspace_id(role),
-                _get_context_session_id(ctx),
-                artifact_id,
-                PurePosixPath(normalized_relative_path).name,
-            ),
-            workflow_id=workflow_id,
-            update_mode=cast(Literal["replace", "patch"], update_mode),
-            expires_at=expires_at,
-        )
-        await _store_workflow_file_artifact(artifact)
-        upload_url = await blob.generate_presigned_upload_url(
-            key=artifact.blob_key,
-            bucket=_workflow_file_bucket(),
-            expiry=_mcp_file_transfer_ttl_seconds(),
-            content_type="application/yaml",
-        )
-        return WorkflowFileUploadPreparedResponse(
-            artifact_id=artifact.artifact_id,
-            upload_url=upload_url,
-            expires_at=artifact.expires_at.isoformat(),
-            relative_path=artifact.relative_path,
-            folder_path=artifact.folder_path,
-            operation=artifact.operation.value,
-            workflow_id=artifact.workflow_id,
-            update_mode=artifact.update_mode,
-        )
-    except ToolError:
-        raise
-    except ValueError as e:
-        raise ToolError(str(e)) from e
-    except Exception as e:
-        logger.error("Failed to prepare workflow file upload", error=str(e))
-        raise ToolError(f"Failed to prepare workflow file upload: {e}") from None
-
-
-@mcp.tool()
-async def create_workflow_from_uploaded_file(
-    workspace_id: uuid.UUID,
-    artifact_id: uuid.UUID,
-    title: str | None = None,
-    description: str = "",
-    use_workflow_id: bool = False,
-    ctx: Context | None = None,
-) -> WorkflowCreatedFromFileResponse:
-    """Create a workflow from a previously staged workflow file upload."""
-
-    try:
-        _require_remote_mcp_context(ctx, tool_name="create_workflow_from_uploaded_file")
-        _, role = await _resolve_workspace_role(workspace_id)
-        artifact = await _require_workflow_file_artifact(
-            artifact_id=artifact_id,
-            role=role,
-            ctx=ctx,
-            operation=WorkflowFileOperation.CREATE,
-        )
-        if not await blob.file_exists(artifact.blob_key, _workflow_file_bucket()):
-            raise ToolError("Uploaded workflow file was not found in staged storage")
-
-        content = await blob.download_file(artifact.blob_key, _workflow_file_bucket())
-        definition_yaml, sha256 = _parse_uploaded_workflow_yaml(content)
-        import_data = _build_import_data_from_workflow_yaml(
-            definition_yaml=definition_yaml,
-            title=title,
-            description=description,
-        )
-        workflow = await _create_workflow_from_import_data(
-            role=role,
-            import_data=import_data,
-            use_workflow_id=use_workflow_id,
-        )
-        async with WorkflowsManagementService.with_session(role=role) as svc:
-            await _assign_workflow_to_folder(
-                role=role,
-                session=svc.session,
-                workflow_id=WorkflowUUID.new(workflow.id),
-                folder_path=artifact.folder_path,
-            )
-
-        await _consume_workflow_file_artifact(artifact=artifact, sha256=sha256)
-        return WorkflowCreatedFromFileResponse(
-            id=WorkflowUUID.new(workflow.id),
-            title=workflow.title,
-            description=workflow.description,
-            status=workflow.status,
-            folder_path=artifact.folder_path,
-            artifact_id=artifact.artifact_id,
-        )
-    except ToolError:
-        raise
-    except ValueError as e:
-        raise ToolError(str(e)) from e
-    except Exception as e:
-        logger.error("Failed to create workflow from uploaded file", error=str(e))
-        raise ToolError(f"Failed to create workflow from uploaded file: {e}") from None
-
-
-@mcp.tool()
-async def update_workflow_from_uploaded_file(
-    workspace_id: uuid.UUID,
-    workflow_id: MCPWorkflowUUID,
-    artifact_id: uuid.UUID,
-    title: str | None = None,
-    description: str | None = None,
-    status: str | None = None,
-    alias: str | None = None,
-    error_handler: str | None = None,
-    update_mode: str | None = None,
-    ctx: Context | None = None,
-) -> WorkflowUpdateResponse:
-    """Update a workflow from a previously staged workflow file upload."""
-
-    try:
-        workflow_id = WorkflowUUID.new(workflow_id)
-        _require_remote_mcp_context(ctx, tool_name="update_workflow_from_uploaded_file")
-        _, role = await _resolve_workspace_role(workspace_id)
-        artifact = await _require_workflow_file_artifact(
-            artifact_id=artifact_id,
-            role=role,
-            ctx=ctx,
-            operation=WorkflowFileOperation.UPDATE,
-            workflow_id=workflow_id,
-        )
-        effective_update_mode = artifact.update_mode
-        if update_mode is not None:
-            if update_mode not in {"replace", "patch"}:
-                raise ToolError("update_mode must be 'replace' or 'patch'")
-            if update_mode != artifact.update_mode:
-                raise ToolError(
-                    "update_mode does not match the prepared upload artifact"
-                )
-            effective_update_mode = cast(Literal["replace", "patch"], update_mode)
-        if not await blob.file_exists(artifact.blob_key, _workflow_file_bucket()):
-            raise ToolError("Uploaded workflow file was not found in staged storage")
-
-        content = await blob.download_file(artifact.blob_key, _workflow_file_bucket())
-        definition_yaml, sha256 = _parse_uploaded_workflow_yaml(content)
-        yaml_payload = _parse_workflow_yaml_payload(definition_yaml)
-
-        update_kwargs: dict[str, Any] = {}
-        if title is not None:
-            update_kwargs["title"] = title
-        if description is not None:
-            update_kwargs["description"] = description
-        if status is not None:
-            update_kwargs["status"] = status
-        if alias is not None:
-            update_kwargs["alias"] = alias
-        if error_handler is not None:
-            update_kwargs["error_handler"] = error_handler
-        update_params = WorkflowUpdate(**update_kwargs)
-
-        async with WorkflowsManagementService.with_session(role=role) as svc:
-            workflow = await svc.get_workflow(workflow_id, for_update=True)
-            if workflow is None:
-                raise ToolError(f"Workflow {workflow_id} not found")
-            await _apply_workflow_yaml_update(
-                role=role,
-                service=svc,
-                workflow=workflow,
-                workflow_id=workflow_id,
-                update_params=update_params,
-                yaml_payload=yaml_payload,
-                definition_yaml=definition_yaml,
-                update_mode=effective_update_mode,
-            )
-            await _assign_workflow_to_folder(
-                role=role,
-                session=svc.session,
-                workflow_id=workflow_id,
-                folder_path=artifact.folder_path,
-            )
-
-        await _consume_workflow_file_artifact(artifact=artifact, sha256=sha256)
-        return WorkflowUpdateResponse(
-            message=f"Workflow {workflow_id} updated successfully",
-            mode=effective_update_mode,
-            folder_path=artifact.folder_path,
-            artifact_id=artifact.artifact_id,
-        )
-    except ToolError:
-        raise
-    except ValueError as e:
-        raise ToolError(str(e)) from e
-    except Exception as e:
-        logger.error("Failed to update workflow from uploaded file", error=str(e))
-        raise ToolError(f"Failed to update workflow from uploaded file: {e}") from None
-
-
-@mcp.tool()
 async def update_workflow(
     workspace_id: uuid.UUID,
     workflow_id: MCPWorkflowUUID,
@@ -4767,7 +4170,7 @@ async def update_workflow(
         status: New status - "online" or "offline" (optional).
         alias: New alias for the workflow (optional).
         error_handler: Error handler workflow alias (optional).
-        definition_yaml: Optional inline workflow YAML for small workflows.
+        definition_yaml: Optional inline workflow YAML up to the MCP input limit.
         update_mode: "patch" to update provided YAML sections, or "replace" to
             replace provided YAML state sections.
     Returns a confirmation message.
