@@ -540,7 +540,7 @@ class TestLoadSessionMessagesActivity:
 
     @pytest.mark.anyio
     @patch("tracecat.agent.session.activities.AgentSessionService.with_session")
-    async def test_returns_error_when_message_load_fails(
+    async def test_raises_when_message_load_fails(
         self, mock_with_session, mock_role: Role, mock_session_id: uuid.UUID
     ) -> None:
         input = LoadSessionMessagesInput(
@@ -554,10 +554,8 @@ class TestLoadSessionMessagesActivity:
         mock_ctx.__aenter__.return_value = mock_service
         mock_with_session.return_value = mock_ctx
 
-        result = await load_session_messages_activity(input)
-
-        assert result.messages is None
-        assert result.error == "db unavailable"
+        with pytest.raises(RuntimeError, match="db unavailable"):
+            await load_session_messages_activity(input)
 
 
 class TestRunAgentActivity:

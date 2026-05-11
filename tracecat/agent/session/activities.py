@@ -258,7 +258,7 @@ async def load_session_messages_activity(
             session_id=str(input.session_id),
             error=str(e),
         )
-        return LoadSessionMessagesResult(error=str(e))
+        raise
 
 
 @activity.defn
