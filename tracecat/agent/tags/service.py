@@ -295,8 +295,13 @@ class AgentTagsService(BaseWorkspaceService):
         result = await self.session.execute(stmt)
         link = result.scalar_one_or_none()
         if link is None:
-            await self.session.rollback()
-            raise ValueError("Agent preset tag already exists")
+            existing = await self.session.execute(
+                select(AgentTagLink).where(
+                    AgentTagLink.preset_id == preset_id,
+                    AgentTagLink.tag_id == tag_id,
+                )
+            )
+            link = existing.scalar_one()
         await self.session.commit()
         return link
 

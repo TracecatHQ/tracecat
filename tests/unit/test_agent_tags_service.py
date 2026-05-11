@@ -8,7 +8,7 @@ from sqlalchemy.exc import NoResultFound
 
 from tracecat.agent.tags.service import AgentTagsService
 from tracecat.auth.types import Role
-from tracecat.db.models import AgentTag
+from tracecat.db.models import AgentTag, AgentTagLink
 from tracecat.exceptions import EntitlementRequired, ScopeDeniedError
 from tracecat.pagination import BaseCursorPaginator, CursorPaginationParams
 from tracecat.tags.schemas import TagCreate, TagUpdate
@@ -237,23 +237,26 @@ async def test_list_tags_for_preset_requires_existing_preset(
 
 
 @pytest.mark.anyio
-async def test_add_preset_tag_rejects_duplicate_assignment(
+async def test_add_preset_tag_returns_existing_link_for_duplicate_assignment(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Duplicate preset-tag assignments should surface as conflicts."""
-    result = MagicMock()
-    result.scalar_one_or_none.return_value = None
+    """Duplicate preset-tag assignments should return the existing link."""
+    existing_link = AgentTagLink(tag_id=uuid4(), preset_id=uuid4())
+    insert_result = MagicMock()
+    insert_result.scalar_one_or_none.return_value = None
+    existing_result = MagicMock()
+    existing_result.scalar_one.return_value = existing_link
     session = AsyncMock()
     session.scalar.return_value = True
-    session.execute.return_value = result
+    session.execute.side_effect = [insert_result, existing_result]
     service = AgentTagsService(
         session=session,
         role=_role_with_scopes(frozenset({"agent:update"})),
     )
     monkeypatch.setattr(service, "has_entitlement", AsyncMock(return_value=True))
 
-    with pytest.raises(ValueError, match="Agent preset tag already exists"):
-        await service.add_preset_tag(uuid4(), uuid4())
+    link = await service.add_preset_tag(existing_link.preset_id, existing_link.tag_id)
 
-    session.rollback.assert_awaited_once()
-    session.commit.assert_not_awaited()
+    assert link is existing_link
+    session.rollback.assert_not_awaited()
+    session.commit.assert_awaited_once()
