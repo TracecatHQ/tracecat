@@ -85,6 +85,7 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.agent.tokens import (
         InternalToolContext,
         LLMRouteClaim,
+        mint_agent_otel_token,
         mint_llm_token,
         mint_mcp_token,
     )
@@ -1303,6 +1304,11 @@ class DurableAgentWorkflow:
         # with the now-unconditional emit_session_done command; verify that no
         # such executions remain RUNNING before rollout.
         workflow.deprecate_patch(APPROVAL_STREAM_V2_PATCH)
+        agent_otel_auth_token = mint_agent_otel_token(
+            workspace_id=self.workspace_id,
+            organization_id=self.organization_id,
+            session_id=self.session_id,
+        )
 
         # Prepare executor input
         executor_input = AgentExecutorInput(
@@ -1315,6 +1321,7 @@ class DurableAgentWorkflow:
             role=self.role,
             mcp_auth_token=compiled_run.root.mcp_auth_token,
             llm_gateway_auth_token=llm_gateway_auth_token,
+            agent_otel_auth_token=agent_otel_auth_token,
             allowed_actions=allowed_actions,
             subagents=compiled_run.sandbox_subagents,
             sdk_session_id=load_result.sdk_session_id,
@@ -1563,6 +1570,7 @@ class DurableAgentWorkflow:
                     role=self.role,
                     mcp_auth_token=compiled_run.root.mcp_auth_token,
                     llm_gateway_auth_token=llm_gateway_auth_token,
+                    agent_otel_auth_token=agent_otel_auth_token,
                     allowed_actions=allowed_actions,
                     subagents=compiled_run.sandbox_subagents,
                     sdk_session_id=reload_result.sdk_session_id,

@@ -2,13 +2,16 @@ from __future__ import annotations
 
 import asyncio
 import tempfile
+import uuid
 from collections.abc import AsyncIterator, Iterator
+from dataclasses import dataclass
 from pathlib import Path
 
 import httpx
 import pytest
 from pydantic import SecretStr
 
+from tracecat import config
 from tracecat.agent.otel_config import (
     AgentOtelConfig,
     ResolvedAgentOtelConfig,
@@ -18,6 +21,15 @@ from tracecat.agent.sandbox.otel_relay import (
     OtelSocketRelay,
     resolve_collector_url,
 )
+from tracecat.agent.tokens import mint_agent_otel_token
+
+
+@dataclass(frozen=True, slots=True)
+class _RelayIdentity:
+    workspace_id: uuid.UUID
+    organization_id: uuid.UUID
+    session_id: uuid.UUID
+    token: str
 
 
 def _make_config(
@@ -46,6 +58,24 @@ def mock_transport() -> _MockTransport:
 
 
 @pytest.fixture
+def relay_identity(monkeypatch: pytest.MonkeyPatch) -> _RelayIdentity:
+    monkeypatch.setattr(config, "TRACECAT__SERVICE_KEY", "test-service-key")
+    workspace_id = uuid.uuid4()
+    organization_id = uuid.uuid4()
+    session_id = uuid.uuid4()
+    return _RelayIdentity(
+        workspace_id=workspace_id,
+        organization_id=organization_id,
+        session_id=session_id,
+        token=mint_agent_otel_token(
+            workspace_id=workspace_id,
+            organization_id=organization_id,
+            session_id=session_id,
+        ),
+    )
+
+
+@pytest.fixture
 def short_socket_dir() -> Iterator[Path]:
     # macOS AF_UNIX path limit (~104 chars) — tmp_path is too long.
     with tempfile.TemporaryDirectory(prefix="otrelay-") as raw:
@@ -56,6 +86,7 @@ def short_socket_dir() -> Iterator[Path]:
 async def started_relay(
     short_socket_dir: Path,
     mock_transport: _MockTransport,
+    relay_identity: _RelayIdentity,
     monkeypatch: pytest.MonkeyPatch,
 ) -> AsyncIterator[OtelSocketRelay]:
     relay = OtelSocketRelay(
@@ -66,6 +97,9 @@ async def started_relay(
         },
         headers={"Authorization": SecretStr("Bearer secret")},
         timeout_seconds=5.0,
+        expected_workspace_id=relay_identity.workspace_id,
+        expected_organization_id=relay_identity.organization_id,
+        expected_session_id=relay_identity.session_id,
     )
     await relay.start()
     # Swap the outbound client for a deterministic transport
@@ -85,6 +119,7 @@ async def _send_request(
     path: str,
     body: bytes = b"",
     content_type: str = "application/x-protobuf",
+    authorization: str | None = None,
 ) -> tuple[int, str, bytes]:
     reader, writer = await asyncio.open_unix_connection(str(socket_path))
     try:
@@ -94,8 +129,10 @@ async def _send_request(
             f"Content-Type: {content_type}\r\n"
             f"Content-Length: {len(body)}\r\n"
             "Connection: close\r\n"
-            "\r\n"
         ).encode("ascii")
+        if authorization is not None:
+            head += f"Authorization: {authorization}\r\n".encode("ascii")
+        head += b"\r\n"
         writer.write(head + body)
         await writer.drain()
         if hasattr(writer, "write_eof"):
@@ -157,6 +194,7 @@ async def test_resolve_collector_url_returns_none_for_unknown_path() -> None:
 async def test_relay_forwards_post_with_injected_headers(
     started_relay: OtelSocketRelay,
     mock_transport: _MockTransport,
+    relay_identity: _RelayIdentity,
 ) -> None:
     body = b"\x0a\x05hello"
     status, _, _ = await _send_request(
@@ -164,6 +202,7 @@ async def test_relay_forwards_post_with_injected_headers(
         method="POST",
         path="/v1/metrics",
         body=body,
+        authorization=f"Bearer {relay_identity.token}",
     )
     assert status == 200
     assert len(mock_transport.requests) == 1
@@ -180,34 +219,87 @@ async def test_relay_forwards_post_with_injected_headers(
 async def test_relay_uses_signal_specific_endpoint(
     started_relay: OtelSocketRelay,
     mock_transport: _MockTransport,
+    relay_identity: _RelayIdentity,
 ) -> None:
     status, _, _ = await _send_request(
         started_relay.socket_path,
         method="POST",
         path="/v1/traces",
         body=b"trace-bytes",
+        authorization=f"Bearer {relay_identity.token}",
     )
     assert status == 200
     assert str(mock_transport.requests[0].url) == "https://traces.example.com/v1/traces"
 
 
 @pytest.mark.anyio
-async def test_relay_does_not_forward_inbound_authorization(
+async def test_relay_uses_trusted_collector_authorization(
     started_relay: OtelSocketRelay,
     mock_transport: _MockTransport,
+    relay_identity: _RelayIdentity,
 ) -> None:
-    # Inbound request has no Authorization header — only the relay's configured
-    # tenant headers should appear outbound.
     await _send_request(
         started_relay.socket_path,
         method="POST",
         path="/v1/logs",
         body=b"log",
+        authorization=f"Bearer {relay_identity.token}",
     )
     request = mock_transport.requests[0]
-    # The configured Authorization header is the only one; inbound never had a
-    # competing one to leak. Verify the value is exactly the configured secret.
     assert request.headers["authorization"] == "Bearer secret"
+
+
+@pytest.mark.anyio
+async def test_relay_rejects_missing_token(
+    started_relay: OtelSocketRelay,
+    mock_transport: _MockTransport,
+) -> None:
+    status, _, _ = await _send_request(
+        started_relay.socket_path,
+        method="POST",
+        path="/v1/logs",
+        body=b"log",
+    )
+    assert status == 401
+    assert mock_transport.requests == []
+
+
+@pytest.mark.anyio
+async def test_relay_rejects_invalid_token(
+    started_relay: OtelSocketRelay,
+    mock_transport: _MockTransport,
+) -> None:
+    status, _, _ = await _send_request(
+        started_relay.socket_path,
+        method="POST",
+        path="/v1/logs",
+        body=b"log",
+        authorization="Bearer not-a-jwt",
+    )
+    assert status == 401
+    assert mock_transport.requests == []
+
+
+@pytest.mark.anyio
+async def test_relay_rejects_mismatched_claims(
+    started_relay: OtelSocketRelay,
+    mock_transport: _MockTransport,
+    relay_identity: _RelayIdentity,
+) -> None:
+    wrong_session_token = mint_agent_otel_token(
+        workspace_id=relay_identity.workspace_id,
+        organization_id=relay_identity.organization_id,
+        session_id=uuid.uuid4(),
+    )
+    status, _, _ = await _send_request(
+        started_relay.socket_path,
+        method="POST",
+        path="/v1/logs",
+        body=b"log",
+        authorization=f"Bearer {wrong_session_token}",
+    )
+    assert status == 403
+    assert mock_transport.requests == []
 
 
 @pytest.mark.anyio
