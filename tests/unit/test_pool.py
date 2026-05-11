@@ -11,6 +11,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import orjson
 import pytest
 
 from tracecat.auth.types import Role
@@ -23,6 +24,7 @@ from tracecat.executor.backends.pool import (
 )
 from tracecat.executor.backends.pool.pool import get_available_cpus
 from tracecat.executor.schemas import ActionImplementation, ResolvedContext
+from tracecat.executor.secret_preprocessors import SecretEnvProjection
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.registry.lock.types import RegistryLock
 
@@ -425,6 +427,59 @@ class TestWorkerPool:
         await pool._get_available_worker(timeout=1.0)
 
         assert pool._lock_acquisitions > initial_acquisitions
+
+    @pytest.mark.anyio
+    async def test_execute_on_worker_masks_failure_payload(
+        self, mock_run_action_input, mock_role, mock_resolved_context, mock_worker_info
+    ):
+        """Test pool worker failures are masked before returning to the service."""
+        pool = WorkerPool(size=1)
+
+        secret_value = "aws-session-token-secret"
+        mock_resolved_context.secret_projection = SecretEnvProjection(
+            env={"AWS_SESSION_TOKEN": secret_value},
+            mask_values={secret_value},
+        )
+
+        failure_response = {
+            "type": "failure",
+            "error": {
+                "action_name": mock_run_action_input.task.action,
+                "type": "ValueError",
+                "message": f"leaked {secret_value}",
+                "filename": "worker.py",
+                "function": "handle_task",
+                "lineno": 123,
+            },
+        }
+        response_bytes = orjson.dumps(failure_response)
+
+        reader = AsyncMock()
+        reader.readexactly = AsyncMock(
+            side_effect=[
+                len(response_bytes).to_bytes(4, "big"),
+                response_bytes,
+            ]
+        )
+        writer = MagicMock()
+        writer.drain = AsyncMock()
+        writer.wait_closed = AsyncMock()
+
+        with patch(
+            "tracecat.executor.backends.pool.pool.asyncio.open_unix_connection",
+            new=AsyncMock(return_value=(reader, writer)),
+        ):
+            result = await pool._execute_on_worker(
+                worker=mock_worker_info,
+                input=mock_run_action_input,
+                role=mock_role,
+                resolved_context=mock_resolved_context,
+                timeout=1.0,
+            )
+
+        assert result.type == "failure"
+        assert secret_value not in result.error.message
+        assert "***" in result.error.message
 
 
 class TestWorkerInfo:

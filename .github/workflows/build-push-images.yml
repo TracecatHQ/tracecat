@@ -36,15 +36,20 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - runner: blacksmith-4vcpu-ubuntu-2404
+          - runner: blacksmith-8vcpu-ubuntu-2404
             platform: linux/amd64
             platform_tag: linux-amd64
-          - runner: blacksmith-4vcpu-ubuntu-2404-arm
+          - runner: blacksmith-8vcpu-ubuntu-2404-arm
             platform: linux/arm64
             platform_tag: linux-arm64
     steps:
       - name: Checkout repository
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Disable IPv6 (Blacksmith VMs lack IPv6 routing)
+        run: |
+          sudo sysctl -w net.ipv6.conf.all.disable_ipv6=1
+          sudo sysctl -w net.ipv6.conf.default.disable_ipv6=1
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
@@ -106,7 +111,7 @@ jobs:
         github.triggering_actor || github.actor
       )
     needs: build-and-push-api
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: blacksmith-8vcpu-ubuntu-2404
     steps:
       - name: Download digests
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
@@ -114,6 +119,11 @@ jobs:
           path: /tmp/digests
           pattern: digests-*
           merge-multiple: true
+
+      - name: Disable IPv6 (Blacksmith VMs lack IPv6 routing)
+        run: |
+          sudo sysctl -w net.ipv6.conf.all.disable_ipv6=1
+          sudo sysctl -w net.ipv6.conf.default.disable_ipv6=1
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
@@ -166,15 +176,20 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - runner: blacksmith-4vcpu-ubuntu-2404
+          - runner: blacksmith-8vcpu-ubuntu-2404
             platform: linux/amd64
             platform_tag: linux-amd64
-          - runner: blacksmith-4vcpu-ubuntu-2404-arm
+          - runner: blacksmith-8vcpu-ubuntu-2404-arm
             platform: linux/arm64
             platform_tag: linux-arm64
     steps:
       - name: Checkout repository
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Disable IPv6 (Blacksmith VMs lack IPv6 routing)
+        run: |
+          sudo sysctl -w net.ipv6.conf.all.disable_ipv6=1
+          sudo sysctl -w net.ipv6.conf.default.disable_ipv6=1
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
@@ -248,7 +263,7 @@ jobs:
         github.triggering_actor || github.actor
       )
     needs: build-and-push-ui
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: blacksmith-8vcpu-ubuntu-2404
     steps:
       - name: Download digests
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
@@ -256,6 +271,11 @@ jobs:
           path: /tmp/digests
           pattern: ui-digests-*
           merge-multiple: true
+
+      - name: Disable IPv6 (Blacksmith VMs lack IPv6 routing)
+        run: |
+          sudo sysctl -w net.ipv6.conf.all.disable_ipv6=1
+          sudo sysctl -w net.ipv6.conf.default.disable_ipv6=1
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3

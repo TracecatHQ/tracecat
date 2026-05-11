@@ -2,7 +2,16 @@
 locals {
 
   # Tracecat version
-  tracecat_image_tag = var.tracecat_image_tag
+  tracecat_image_tag            = var.tracecat_image_tag
+  tracecat_migrations_image     = coalesce(var.tracecat_migrations_image, var.tracecat_image)
+  tracecat_migrations_image_tag = coalesce(var.tracecat_migrations_image_tag, local.tracecat_image_tag)
+
+  # WAF regex pattern set names. Default to "${name_prefix}-..." so each stack
+  # gets uniquely-named pattern sets within a shared AWS account; explicit
+  # variable values override (e.g. legacy stacks that already own bare names).
+  waf_attachments_endpoint_pattern_name = coalesce(var.waf_attachments_endpoint_pattern_name, "${var.name_prefix}-attachments-endpoint-pattern")
+  waf_mcp_oauth_endpoints_pattern_name  = coalesce(var.waf_mcp_oauth_endpoints_pattern_name, "${var.name_prefix}-mcp-oauth-endpoints-pattern")
+  waf_mcp_public_endpoint_pattern_name  = coalesce(var.waf_mcp_public_endpoint_pattern_name, "${var.name_prefix}-mcp-public-endpoint-pattern")
 
   # Tracecat common URLs
   public_app_url   = "https://${var.domain_name}"
@@ -48,15 +57,24 @@ locals {
     TRACECAT__DB_SSLMODE                             = "require"
   }
 
+  tracecat_temporal_payload_encryption_env = {
+    TEMPORAL__PAYLOAD_ENCRYPTION_ENABLED           = var.temporal_payload_encryption_enabled
+    TEMPORAL__PAYLOAD_ENCRYPTION_KEYRING_ARN       = var.temporal_payload_encryption_keyring_arn
+    TEMPORAL__PAYLOAD_ENCRYPTION_CACHE_TTL_SECONDS = var.temporal_payload_encryption_cache_ttl_seconds
+    TEMPORAL__PAYLOAD_ENCRYPTION_CACHE_MAX_ITEMS   = var.temporal_payload_encryption_cache_max_items
+  }
+
   tracecat_blob_storage_env = {
     TRACECAT__BLOB_STORAGE_BUCKET_ATTACHMENTS = aws_s3_bucket.attachments.bucket
     TRACECAT__BLOB_STORAGE_BUCKET_REGISTRY    = aws_s3_bucket.registry.bucket
+    TRACECAT__BLOB_STORAGE_BUCKET_SKILLS      = aws_s3_bucket.skills.bucket
     TRACECAT__BLOB_STORAGE_BUCKET_WORKFLOW    = aws_s3_bucket.workflow.bucket
   }
 
   api_env = [
     for k, v in merge(
       local.tracecat_common_env,
+      local.tracecat_temporal_payload_encryption_env,
       local.tracecat_blob_storage_env,
       local.tracecat_db_configs,
       {
@@ -88,6 +106,7 @@ locals {
   worker_env = [
     for k, v in merge(
       local.tracecat_common_env,
+      local.tracecat_temporal_payload_encryption_env,
       local.tracecat_blob_storage_env,
       local.tracecat_db_configs,
       {
@@ -106,6 +125,7 @@ locals {
   agent_worker_env = [
     for k, v in merge(
       local.tracecat_common_env,
+      local.tracecat_temporal_payload_encryption_env,
       local.tracecat_blob_storage_env,
       local.tracecat_db_configs,
       {
@@ -127,6 +147,7 @@ locals {
   executor_env = [
     for k, v in merge(
       local.tracecat_common_env,
+      local.tracecat_temporal_payload_encryption_env,
       local.tracecat_blob_storage_env,
       local.tracecat_db_configs,
       local.tracecat_db_configs_executor,
@@ -149,34 +170,50 @@ locals {
   agent_executor_env = [
     for k, v in merge(
       local.tracecat_common_env,
+      local.tracecat_temporal_payload_encryption_env,
       local.tracecat_blob_storage_env,
       local.tracecat_db_configs,
       local.tracecat_db_configs_executor,
       {
-        TRACECAT__API_URL                                     = local.internal_api_url
-        TRACECAT__DB_ENDPOINT                                 = local.core_db_hostname
-        TRACECAT__EXECUTOR_BACKEND                            = "direct"
-        TRACECAT__AGENT_QUEUE                                 = var.agent_queue
-        TRACECAT__AGENT_EXECUTOR_QUEUE                        = var.agent_executor_queue
-        TRACECAT__EXECUTOR_QUEUE                              = var.executor_queue
-        TRACECAT__AGENT_EXECUTOR_MAX_CONCURRENT_ACTIVITIES    = var.agent_executor_max_concurrent_activities
-        TRACECAT__EXECUTOR_WORKER_POOL_SIZE                   = var.agent_executor_worker_pool_size
-        TRACECAT__EXECUTOR_CLIENT_TIMEOUT                     = var.executor_client_timeout
-        TRACECAT__LLM_PROXY_READ_TIMEOUT                          = var.llm_proxy_read_timeout
-        TRACECAT__LLM_GATEWAY_CREDENTIAL_CACHE_TTL_SECONDS        = var.llm_gateway_credential_cache_ttl_seconds
-        TRACECAT__LLM_GATEWAY_HEALTHCHECK_INTERVAL_SECONDS        = var.llm_gateway_healthcheck_interval_seconds
-        TRACECAT__LLM_GATEWAY_HEALTHCHECK_TIMEOUT_SECONDS         = var.llm_gateway_healthcheck_timeout_seconds
-        TRACECAT__LLM_GATEWAY_CONNECT_TIMEOUT_SECONDS             = var.llm_gateway_healthcheck_connect_timeout_seconds
-        TRACECAT__LLM_GATEWAY_READ_TIMEOUT_SECONDS                = var.llm_gateway_healthcheck_read_timeout_seconds
-        TRACECAT__LLM_GATEWAY_WRITE_TIMEOUT_SECONDS               = var.llm_gateway_healthcheck_write_timeout_seconds
-        TRACECAT__LLM_GATEWAY_POOL_TIMEOUT_SECONDS                = var.llm_gateway_healthcheck_pool_timeout_seconds
-        TRACECAT__LLM_GATEWAY_FAILURE_THRESHOLD                   = var.llm_gateway_healthcheck_failure_threshold
-        TRACECAT__LLM_GATEWAY_STATUS_LOG_INTERVAL_SECONDS         = var.llm_gateway_status_log_interval_seconds
-        TRACECAT__UNSAFE_DISABLE_SM_MASKING                   = "false"
-        TRACECAT__DISABLE_NSJAIL                              = "true"
-        TRACECAT__SANDBOX_NSJAIL_PATH                         = "/usr/local/bin/nsjail"
-        TRACECAT__SANDBOX_ROOTFS_PATH                         = "/var/lib/tracecat/sandbox-rootfs"
-        TRACECAT__SANDBOX_CACHE_DIR                           = "/var/lib/tracecat/sandbox-cache"
+        TRACECAT__API_URL                                  = local.internal_api_url
+        TRACECAT__DB_ENDPOINT                              = local.core_db_hostname
+        TRACECAT__EXECUTOR_BACKEND                         = "direct"
+        TRACECAT__AGENT_QUEUE                              = var.agent_queue
+        TRACECAT__AGENT_EXECUTOR_QUEUE                     = var.agent_executor_queue
+        TRACECAT__EXECUTOR_QUEUE                           = var.executor_queue
+        TRACECAT__AGENT_EXECUTOR_MAX_CONCURRENT_ACTIVITIES = var.agent_executor_max_concurrent_activities
+        TRACECAT__EXECUTOR_WORKER_POOL_SIZE                = var.agent_executor_worker_pool_size
+        TRACECAT__EXECUTOR_CLIENT_TIMEOUT                  = var.executor_client_timeout
+        TRACECAT__LLM_PROXY_READ_TIMEOUT                   = var.llm_proxy_read_timeout
+        TRACECAT__LLM_GATEWAY_CREDENTIAL_CACHE_TTL_SECONDS = var.llm_gateway_credential_cache_ttl_seconds
+        TRACECAT__LLM_GATEWAY_HEALTHCHECK_INTERVAL_SECONDS = var.llm_gateway_healthcheck_interval_seconds
+        TRACECAT__LLM_GATEWAY_HEALTHCHECK_TIMEOUT_SECONDS  = var.llm_gateway_healthcheck_timeout_seconds
+        TRACECAT__LLM_GATEWAY_CONNECT_TIMEOUT_SECONDS      = var.llm_gateway_healthcheck_connect_timeout_seconds
+        TRACECAT__LLM_GATEWAY_READ_TIMEOUT_SECONDS         = var.llm_gateway_healthcheck_read_timeout_seconds
+        TRACECAT__LLM_GATEWAY_WRITE_TIMEOUT_SECONDS        = var.llm_gateway_healthcheck_write_timeout_seconds
+        TRACECAT__LLM_GATEWAY_POOL_TIMEOUT_SECONDS         = var.llm_gateway_healthcheck_pool_timeout_seconds
+        TRACECAT__LLM_GATEWAY_FAILURE_THRESHOLD            = var.llm_gateway_healthcheck_failure_threshold
+        TRACECAT__LLM_GATEWAY_STATUS_LOG_INTERVAL_SECONDS  = var.llm_gateway_status_log_interval_seconds
+        TRACECAT__LITELLM_BASE_URL                         = "http://litellm-service:4000"
+        TRACECAT__UNSAFE_DISABLE_SM_MASKING                = "false"
+        TRACECAT__DISABLE_NSJAIL                           = "true"
+        TRACECAT__SANDBOX_NSJAIL_PATH                      = "/usr/local/bin/nsjail"
+        TRACECAT__SANDBOX_ROOTFS_PATH                      = "/var/lib/tracecat/sandbox-rootfs"
+        TRACECAT__SANDBOX_CACHE_DIR                        = "/var/lib/tracecat/sandbox-cache"
+      }
+    ) :
+    { name = k, value = tostring(v) } if v != null
+  ]
+
+  litellm_env = [
+    for k, v in merge(
+      local.tracecat_common_env,
+      local.tracecat_db_configs,
+      {
+        TRACECAT__DB_ENDPOINT         = local.core_db_hostname
+        TRACECAT__LITELLM_PORT        = "4000"
+        TRACECAT__LITELLM_NUM_WORKERS = var.litellm_num_workers
+        TRACECAT__LITELLM_BASE_URL    = "http://litellm-service:4000"
       }
     ) :
     { name = k, value = tostring(v) } if v != null
@@ -185,14 +222,15 @@ locals {
   mcp_env = [
     for k, v in merge(
       local.tracecat_common_env,
+      local.tracecat_temporal_payload_encryption_env,
       local.tracecat_db_configs,
       {
         TRACECAT__DB_ENDPOINT                     = local.core_db_hostname
-        OIDC_ISSUER                               = var.oidc_issuer
-        OIDC_SCOPES                               = var.oidc_scopes
+        TRACECAT__API_URL                         = local.internal_api_url
+        TRACECAT__PUBLIC_APP_URL                  = local.public_app_url
+        TRACECAT__PUBLIC_API_URL                  = local.public_api_url
         TRACECAT_MCP__HOST                        = "0.0.0.0"
         TRACECAT_MCP__PORT                        = "8099"
-        TRACECAT_MCP__BASE_URL                    = "https://${var.domain_name}"
         TRACECAT_MCP__RATE_LIMIT_RPS              = var.mcp_rate_limit_rps
         TRACECAT_MCP__RATE_LIMIT_BURST            = var.mcp_rate_limit_burst
         TRACECAT_MCP__TOOL_TIMEOUT_SECONDS        = var.mcp_tool_timeout_seconds

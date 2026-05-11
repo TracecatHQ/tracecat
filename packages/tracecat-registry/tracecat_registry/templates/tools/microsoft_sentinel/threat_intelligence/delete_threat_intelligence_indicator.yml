@@ -3,7 +3,7 @@ definition:
   title: Delete threat intelligence indicator
   description: Delete a threat intelligence indicator from Microsoft Sentinel workspace.
   display_group: Microsoft Sentinel
-  doc_url: https://learn.microsoft.com/en-us/rest/api/securityinsights/threat-intelligence-indicator/delete
+  doc_url: https://learn.microsoft.com/en-us/rest/api/securityinsights/threat-intelligence-indicator/delete?view=rest-securityinsights-2025-09-01
   namespace: tools.microsoft_sentinel
   name: delete_threat_intelligence_indicator
   secrets:

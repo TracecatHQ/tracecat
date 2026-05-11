@@ -27,12 +27,11 @@ export async function getCurrentUser(): Promise<UserRead | null> {
 /**
  * Check if user has platform-level admin privileges.
  *
- * This checks the platform role (superuser or role=admin), NOT the
- * organization membership role. For org-level admin checks, use
- * useScopeCheck("org:update") from the scope-guard module.
+ * Backend platform admin routes are gated by User.is_superuser.
+ * For org-level admin checks, use useScopeCheck("org:update").
  */
 export function userIsPlatformAdmin(user?: UserRead | null): boolean {
-  return user?.is_superuser || user?.role === "admin"
+  return user?.is_superuser ?? false
 }
 
 export function getDisplayName(
@@ -92,9 +91,8 @@ export class User {
   /**
    * Returns true if the user has platform-level admin privileges.
    *
-   * This checks the platform role (superuser or role=admin), NOT the
-   * organization membership role. For org-level admin checks, use
-   * useScopeCheck("org:update") from the scope-guard module.
+   * Backend platform admin routes are gated by User.is_superuser.
+   * For org-level admin checks, use useScopeCheck("org:update").
    */
   isPlatformAdmin(): boolean {
     return userIsPlatformAdmin(this.user)

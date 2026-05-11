@@ -96,6 +96,10 @@ async def create_case(
         list[str] | None,
         Doc("List of tag identifiers (IDs or refs) to add to the case."),
     ] = None,
+    create_missing_tags: Annotated[
+        bool,
+        Doc("If true, create any tags that do not already exist."),
+    ] = False,
 ) -> types.Case:
     params: dict[str, Any] = {}
     if summary is not None:
@@ -116,6 +120,8 @@ async def create_case(
         params["dropdown_values"] = dropdown_values
     if tags is not None:
         params["tags"] = tags
+    if create_missing_tags:
+        params["create_missing_tags"] = create_missing_tags
     return await get_context().cases.create_case_simple(**params)
 
 
@@ -171,6 +177,10 @@ async def update_case(
             "List of tag identifiers (IDs or refs) to set on the case. This will replace all existing tags."
         ),
     ] = None,
+    create_missing_tags: Annotated[
+        bool,
+        Doc("If true, create any tags that do not already exist."),
+    ] = False,
     append: Annotated[
         bool,
         Doc(
@@ -200,6 +210,8 @@ async def update_case(
         client_params["dropdown_values"] = dropdown_values
     if tags is not None:
         client_params["tags"] = tags
+    if create_missing_tags:
+        client_params["create_missing_tags"] = create_missing_tags
     if append and description is not None:
         client_params["append_description"] = True
     return await get_context().cases.update_case_simple(case_id, **client_params)

@@ -12,9 +12,16 @@ from sqlalchemy.orm import Mapped
 from tracecat_ee.admin.users.schemas import AdminUserCreate
 from tracecat_ee.admin.users.service import AdminUserService
 
+from tracecat import config
 from tracecat.auth.schemas import UserRole
 from tracecat.auth.types import PlatformRole
-from tracecat.db.models import Membership, OrganizationMembership, User
+from tracecat.db.models import (
+    Membership,
+    OrganizationMembership,
+    User,
+    UserRoleAssignment,
+)
+from tracecat.db.models import Role as DBRole
 
 pytestmark = pytest.mark.usefixtures("db")
 
@@ -32,7 +39,9 @@ def platform_role() -> PlatformRole:
 async def test_create_user_creates_platform_user_without_memberships(
     session: AsyncSession,
     platform_role: PlatformRole,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.setattr(config, "TRACECAT__EE_MULTI_TENANT", True)
     service = AdminUserService(session, role=platform_role)
     params = AdminUserCreate(
         email="platform-user@example.com",
@@ -93,6 +102,75 @@ async def test_create_user_respects_superuser_flag(
     )
     user = user_result.scalar_one()
     assert user.is_superuser is True
+
+
+@pytest.mark.anyio
+async def test_create_user_provisions_default_org_in_single_tenant(
+    session: AsyncSession,
+    platform_role: PlatformRole,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(config, "TRACECAT__EE_MULTI_TENANT", False)
+    service = AdminUserService(session, role=platform_role)
+    params = AdminUserCreate(
+        email="single-tenant-user@example.com",
+        password="this-is-a-strong-password",
+        is_superuser=False,
+    )
+
+    created = await service.create_user(params)
+
+    membership_count = await session.scalar(
+        select(func.count())
+        .select_from(OrganizationMembership)
+        .where(OrganizationMembership.user_id == created.id)
+    )
+    role_slug = await session.scalar(
+        select(DBRole.slug)
+        .join(UserRoleAssignment, UserRoleAssignment.role_id == DBRole.id)
+        .where(
+            UserRoleAssignment.user_id == created.id,
+            UserRoleAssignment.workspace_id.is_(None),
+        )
+    )
+    workspace_membership_count = await session.scalar(
+        select(func.count())
+        .select_from(Membership)
+        .where(Membership.user_id == created.id)
+    )
+
+    assert membership_count == 1
+    assert role_slug == "organization-member"
+    assert workspace_membership_count == 0
+
+
+@pytest.mark.anyio
+async def test_promote_superuser_provisions_owner_in_single_tenant(
+    session: AsyncSession,
+    platform_role: PlatformRole,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(config, "TRACECAT__EE_MULTI_TENANT", False)
+    service = AdminUserService(session, role=platform_role)
+    created = await service.create_user(
+        AdminUserCreate(
+            email="promoted-single-tenant-user@example.com",
+            password="this-is-a-strong-password",
+            is_superuser=False,
+        )
+    )
+
+    await service.promote_superuser(created.id)
+
+    role_slug = await session.scalar(
+        select(DBRole.slug)
+        .join(UserRoleAssignment, UserRoleAssignment.role_id == DBRole.id)
+        .where(
+            UserRoleAssignment.user_id == created.id,
+            UserRoleAssignment.workspace_id.is_(None),
+        )
+    )
+    assert role_slug == "organization-owner"
 
 
 @pytest.mark.anyio

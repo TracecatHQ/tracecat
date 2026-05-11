@@ -3,7 +3,7 @@ definition:
   title: Create threat intelligence indicator
   description: Create a threat intelligence indicator in Microsoft Sentinel workspace.
   display_group: Microsoft Sentinel
-  doc_url: https://learn.microsoft.com/en-us/rest/api/securityinsights/threat-intelligence-indicator/create
+  doc_url: https://learn.microsoft.com/en-us/rest/api/securityinsights/threat-intelligence-indicator/create?view=rest-securityinsights-2025-09-01
   namespace: tools.microsoft_sentinel
   name: create_threat_intelligence_indicator
   secrets:

@@ -81,7 +81,7 @@ with workflow.unsafe.imports_passed_through():
         resolve_time_anchor_activity,
         resolve_workflow_concurrency_limits_enabled_activity,
     )
-    from tracecat.dsl.scheduler import DSLScheduler
+    from tracecat.dsl.scheduler import DSLScheduler, PlatformExecutionError
     from tracecat.dsl.schemas import (
         ROOT_STREAM,
         ActionStatement,
@@ -122,6 +122,7 @@ with workflow.unsafe.imports_passed_through():
         return_key,
         trigger_key,
     )
+    from tracecat.temporal.exceptions import UserError
     from tracecat.tiers.activities import (
         AcquireActionPermitInput,
         AcquireWorkflowPermitInput,
@@ -817,6 +818,24 @@ class DSLWorkflow:
             return current, outer_message
         return current, current.__class__.__name__
 
+    @staticmethod
+    def _has_user_error_cause(error: BaseException) -> bool:
+        current = error
+        seen: set[int] = set()
+        while True:
+            current_id = id(current)
+            if current_id in seen:
+                return False
+            seen.add(current_id)
+
+            if UserError.matches(current):
+                return True
+
+            nested = getattr(current, "cause", None)
+            if not isinstance(nested, BaseException):
+                return False
+            current = nested
+
     @maybe_interactive
     async def _execute_task(self, task: ActionStatement) -> TaskResult:
         """Purely execute a task and manage the results.
@@ -873,23 +892,37 @@ class DSLWorkflow:
                     # Single activity prepares everything: alias resolution, definition fetch, loop iteration data
                     self.logger.trace("Preparing child workflow")
                     use_committed = self.execution_type != ExecutionType.DRAFT
-                    prepared = await workflow.execute_activity(
-                        DSLActivities.prepare_subflow_activity,
-                        arg=PrepareSubflowActivityInput(
-                            role=self.role,
-                            task=task,
-                            operand=self.get_context(),
-                            key=action_collection_prefix(
-                                str(self.workspace_id),
-                                self.wf_exec_id,
-                                stream_id,
-                                task.ref,
+                    try:
+                        prepared = await workflow.execute_activity(
+                            DSLActivities.prepare_subflow_activity,
+                            arg=PrepareSubflowActivityInput(
+                                role=self.role,
+                                task=task,
+                                operand=self.get_context(),
+                                key=action_collection_prefix(
+                                    str(self.workspace_id),
+                                    self.wf_exec_id,
+                                    stream_id,
+                                    task.ref,
+                                ),
+                                use_committed=use_committed,
                             ),
-                            use_committed=use_committed,
-                        ),
-                        start_to_close_timeout=timedelta(seconds=120),
-                        retry_policy=RETRY_POLICIES["activity:fail_fast"],
-                    )
+                            start_to_close_timeout=timedelta(seconds=120),
+                            retry_policy=RETRY_POLICIES["activity:fail_fast"],
+                        )
+                    except Exception as e:
+                        if self._has_user_error_cause(e):
+                            raise
+                        root_error, root_message = self._unwrap_temporal_failure_cause(
+                            e
+                        )
+                        platform_error = (
+                            root_error if isinstance(root_error, Exception) else e
+                        )
+                        task_result = task_result.with_error(
+                            root_message, platform_error.__class__.__name__
+                        )
+                        raise PlatformExecutionError(platform_error) from e
                     self.logger.trace("Child workflow prepared", prepared=prepared)
                     # Execute child workflow (handles both single and looped)
                     stored_result = await self._execute_child_workflow_prepared(
@@ -934,7 +967,7 @@ class DSLWorkflow:
                     child_search_attributes = _build_agent_child_search_attributes(
                         wf_info, task.ref
                     )
-                    session_id = workflow.uuid4()
+                    session_id = action_args.session_id or workflow.uuid4()
                     arg = AgentWorkflowArgs(
                         role=self.role,
                         agent_args=RunAgentArgs(
@@ -943,21 +976,23 @@ class DSLWorkflow:
                             config=AgentConfig(
                                 model_name=action_args.model_name,
                                 model_provider=action_args.model_provider,
+                                catalog_id=action_args.catalog_id,
                                 instructions=action_args.instructions,
                                 output_type=action_args.output_type,
                                 model_settings=action_args.model_settings,
                                 retries=action_args.retries,
+                                enable_thinking=action_args.enable_thinking,
                                 base_url=action_args.base_url,
                                 actions=action_args.actions,
                                 tool_approvals=action_args.tool_approvals,
                             ),
                             max_requests=action_args.max_requests,
                             max_tool_calls=action_args.max_tool_calls,
-                            use_workspace_credentials=action_args.use_workspace_credentials,
                         ),
                         title=self.dsl.title,
                         entity_type=AgentSessionEntity.WORKFLOW,
                         entity_id=self.run_context.wf_id,
+                        continue_existing_session=action_args.session_id is not None,
                     )
                     action_result = await workflow.execute_child_workflow(
                         DurableAgentWorkflow.run,
@@ -973,6 +1008,7 @@ class DSLWorkflow:
                             action_ref=task.ref,
                             action_title=task.title,
                             stream_id=stream_id or ROOT_STREAM,
+                            mask_output=task.mask_output,
                         ).model_dump(),
                     )
                 case PlatformAction.AI_ACTION:
@@ -1004,11 +1040,15 @@ class DSLWorkflow:
                             config=AgentConfig(
                                 model_name=action_args.model_name,
                                 model_provider=action_args.model_provider,
+                                catalog_id=action_args.catalog_id,
                                 instructions=action_args.instructions,
                                 output_type=action_args.output_type,
                                 model_settings=action_args.model_settings,
                                 retries=action_args.retries,
-                                base_url=action_args.base_url,
+                                enable_thinking=action_args.enable_thinking,
+                                base_url=action_args.base_url
+                                if action_args.catalog_id is None
+                                else None,
                                 # AI action has no tools
                                 actions=None,
                                 tool_approvals=None,
@@ -1016,7 +1056,6 @@ class DSLWorkflow:
                             max_requests=action_args.max_requests,
                             # No tool calls for AI action
                             max_tool_calls=0,
-                            use_workspace_credentials=action_args.use_workspace_credentials,
                         ),
                         title=self.dsl.title,
                         entity_type=AgentSessionEntity.WORKFLOW,
@@ -1036,6 +1075,7 @@ class DSLWorkflow:
                             action_ref=task.ref,
                             action_title=task.title,
                             stream_id=stream_id or ROOT_STREAM,
+                            mask_output=task.mask_output,
                         ).model_dump(),
                     )
                 case PlatformAction.AI_PRESET_AGENT:
@@ -1081,7 +1121,7 @@ class DSLWorkflow:
                     child_search_attributes = _build_agent_child_search_attributes(
                         wf_info, task.ref
                     )
-                    session_id = workflow.uuid4()
+                    session_id = preset_action_args.session_id or workflow.uuid4()
                     arg = AgentWorkflowArgs(
                         role=self.role,
                         agent_args=RunAgentArgs(
@@ -1092,13 +1132,14 @@ class DSLWorkflow:
                             config=override_config,
                             max_requests=preset_action_args.max_requests,
                             max_tool_calls=preset_action_args.max_tool_calls,
-                            use_workspace_credentials=preset_action_args.use_workspace_credentials,
                         ),
                         title=self.dsl.title,
                         entity_type=AgentSessionEntity.WORKFLOW,
                         entity_id=self.run_context.wf_id,
                         agent_preset_id=preset_ref.preset_id,
                         agent_preset_version_id=preset_ref.preset_version_id,
+                        continue_existing_session=preset_action_args.session_id
+                        is not None,
                     )
                     action_result = await workflow.execute_child_workflow(
                         DurableAgentWorkflow.run,
@@ -1114,6 +1155,7 @@ class DSLWorkflow:
                             action_ref=task.ref,
                             action_title=task.title,
                             stream_id=stream_id or ROOT_STREAM,
+                            mask_output=task.mask_output,
                         ).model_dump(),
                     )
                 case _:
@@ -1190,6 +1232,9 @@ class DSLWorkflow:
                     raise ApplicationError(
                         root_message, non_retryable=True, type=resolved_type
                     ) from e
+
+        except PlatformExecutionError:
+            raise
 
         except TracecatExpressionError as e:
             err_type = e.__class__.__name__
@@ -1780,6 +1825,7 @@ class DSLWorkflow:
             loop_index=loop_index,
             wait_strategy=wait_strategy,
             stream_id=stream_id,
+            mask_output=task.mask_output,
         ).model_dump()
         self.logger.debug(
             "Dispatching child workflow",

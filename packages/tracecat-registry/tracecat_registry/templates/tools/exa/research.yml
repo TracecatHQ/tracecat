@@ -3,7 +3,7 @@ definition:
   title: Create research task
   description: Start a research task that explores the web, gathers sources, and synthesizes findings. Returns immediately with a researchId for polling.
   display_group: Exa
-  doc_url: https://docs.exa.ai/reference/research/create-a-task
+  doc_url: https://exa.ai/docs/reference/research/create-a-task
   namespace: tools.exa
   name: research
   secrets:

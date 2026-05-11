@@ -242,6 +242,29 @@ async def test_insert_table_row_success(
 
 
 @pytest.mark.anyio
+async def test_insert_table_row_invalid_numeric_value_returns_400(
+    client: TestClient,
+    test_admin_role: Role,
+    mock_table: Table,
+) -> None:
+    """Invalid numeric row input should be surfaced as a client error."""
+    with patch.object(tables_router, "TablesService") as MockService:
+        mock_svc = AsyncMock()
+        mock_svc.get_table.return_value = mock_table
+        mock_svc.insert_row.side_effect = ValueError("Invalid numeric value: 'abc'")
+        MockService.return_value = mock_svc
+
+        response = client.post(
+            f"/tables/{mock_table.id}/rows",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
+            json={"data": {"score": "abc"}},
+        )
+
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
+    assert response.json()["detail"] == "Invalid numeric value: 'abc'"
+
+
+@pytest.mark.anyio
 async def test_insert_table_rows_batch_success(
     client: TestClient,
     test_admin_role: Role,
@@ -321,3 +344,26 @@ async def test_list_table_rows_success(
         data = response.json()
         assert len(data["items"]) == 2
         assert data["items"][0]["value"] == "test1"
+
+
+@pytest.mark.anyio
+async def test_update_table_row_invalid_integer_value_returns_400(
+    client: TestClient,
+    test_admin_role: Role,
+    mock_table: Table,
+) -> None:
+    """Invalid integer row input should be surfaced as a client error."""
+    with patch.object(tables_router, "TablesService") as MockService:
+        mock_svc = AsyncMock()
+        mock_svc.get_table.return_value = mock_table
+        mock_svc.update_row.side_effect = ValueError("Invalid integer value: '1.5'")
+        MockService.return_value = mock_svc
+
+        response = client.patch(
+            f"/tables/{mock_table.id}/rows/{uuid.uuid4()}",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
+            json={"data": {"attempts": "1.5"}},
+        )
+
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
+    assert response.json()["detail"] == "Invalid integer value: '1.5'"

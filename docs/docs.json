@@ -43,13 +43,6 @@
                 ]
               },
               {
-                "group": "Cheatsheets",
-                "pages": [
-                  "cheatsheets/functions",
-                  "cheatsheets/jsonpath"
-                ]
-              },
-              {
                 "group": "Core actions",
                 "pages": [
                   {
@@ -133,6 +126,7 @@
             "pages": [
               "agents/ai-action",
               "agents/ai-agent",
+              "agents/skills",
               "agents/secrets-variables"
             ]
           },
@@ -150,8 +144,11 @@
             "group": "Self-hosting",
             "icon": "server",
             "pages": [
+              "self-hosting/architecture",
               "self-hosting/docker-compose",
               "self-hosting/aws-fargate",
+              "self-hosting/kubernetes",
+              "self-hosting/environment-variables",
               "self-hosting/security"
             ]
           },
@@ -239,6 +236,19 @@
               "tools/wazuh",
               "tools/wiz",
               "tools/zendesk"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Cheatsheets",
+        "groups": [
+          {
+            "group": "Cheatsheets",
+            "icon": "book-open",
+            "pages": [
+              "cheatsheets/functions",
+              "cheatsheets/jsonpath"
             ]
           }
         ]
@@ -385,7 +395,8 @@
   ],
   "logo": {
     "light": "/img/logos/light.svg",
-    "dark": "/img/logos/dark.svg"
+    "dark": "/img/logos/dark.svg",
+    "href": "/overview/introduction"
   },
   "fonts": {
     "family": "Instrument Sans"
@@ -394,7 +405,7 @@
     "links": [
       {
         "label": "Support",
-        "href": "https://discord.gg/H4XZwsYzY4"
+        "href": "https://discord.com/invite/H4XZwsYzY4"
       }
     ],
     "primary": {

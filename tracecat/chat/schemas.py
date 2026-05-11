@@ -195,9 +195,10 @@ class ApprovalRead(BaseModel):
 class ChatMessage(BaseModel):
     """Model for a chat message with typed message payload.
 
-    This model supports both regular messages and approval bubbles:
+    This model supports multiple message kinds:
     - kind=CHAT_MESSAGE: Contains message field with user/assistant content
     - kind=APPROVAL_REQUEST/APPROVAL_DECISION: Contains approval field with approval data
+    - kind=COMPACTION: Contains compaction field with compaction status data
     """
 
     id: str = Field(..., description="Unique message identifier")
@@ -212,6 +213,10 @@ class ChatMessage(BaseModel):
     approval: ApprovalRead | None = Field(
         default=None,
         description="Approval data for approval bubble rendering (for kind=APPROVAL_REQUEST/APPROVAL_DECISION)",
+    )
+    compaction: dict[str, Any] | None = Field(
+        default=None,
+        description="Compaction status data for badge rendering (for kind=COMPACTION)",
     )
 
     @classmethod

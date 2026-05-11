@@ -8,14 +8,13 @@ import type {
   CaseDurationDefinitionRead,
   CaseDurationDefinitionUpdate,
 } from "@/client"
-import {
-  getFilterFieldKey,
-  normalizeFilterValues,
-} from "@/components/cases/case-duration-dialog"
+import { normalizeFilterValues } from "@/components/cases/case-duration-dialog"
 import {
   CASE_EVENT_FILTER_OPTIONS,
   getCaseEventOption,
+  isCaseDropdownEventType,
   isCaseEventFilterType,
+  isCaseFieldEventType,
   isCaseTagEventType,
 } from "@/components/cases/case-duration-options"
 import { UpdateCaseDurationDialog } from "@/components/cases/update-case-duration-dialog"
@@ -74,6 +73,24 @@ const defaultToolbarProps: DataTableToolbarProps<CaseDurationDefinitionRead> = {
     placeholder: "Filter durations...",
     column: "name",
   },
+}
+
+function getAnchorFilterValues(
+  anchor: CaseDurationDefinitionRead["start_anchor"]
+): unknown {
+  if (isCaseEventFilterType(anchor.event_type)) {
+    return anchor.filters?.new_values
+  }
+  if (isCaseTagEventType(anchor.event_type)) {
+    return anchor.filters?.tag_refs
+  }
+  if (isCaseFieldEventType(anchor.event_type)) {
+    return anchor.filters?.field_ids
+  }
+  if (isCaseDropdownEventType(anchor.event_type)) {
+    return anchor.filters?.dropdown_option_ids
+  }
+  return undefined
 }
 
 export function CaseDurationsTable({
@@ -137,9 +154,8 @@ export function CaseDurationsTable({
     const selection = anchor.selection ?? "first"
     const valueLabels: string[] = []
 
-    const filterFieldKey = getFilterFieldKey(anchor.event_type)
-    if (filterFieldKey) {
-      const rawFilterValue = anchor.field_filters?.[filterFieldKey]
+    const rawFilterValue = getAnchorFilterValues(anchor)
+    if (rawFilterValue) {
       const values = normalizeFilterValues(rawFilterValue)
 
       for (const value of values) {
@@ -155,6 +171,12 @@ export function CaseDurationsTable({
           valueLabels.push(value)
         }
       }
+    }
+    if (
+      isCaseDropdownEventType(anchor.event_type) &&
+      anchor.filters?.dropdown_definition_id
+    ) {
+      valueLabels.unshift(anchor.filters.dropdown_definition_id)
     }
 
     return (

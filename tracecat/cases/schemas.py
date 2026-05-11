@@ -14,6 +14,7 @@ from tracecat.cases.dropdowns.schemas import (
     CaseDropdownValueInput,
     CaseDropdownValueRead,
 )
+from tracecat.cases.durations.schemas import CaseDurationRead
 from tracecat.cases.enums import (
     CaseEventType,
     CaseFieldKind,
@@ -52,6 +53,8 @@ class CaseReadMinimal(Schema):
     tags: list[CaseTagRead] = Field(default_factory=list)
     dropdown_values: list[CaseDropdownValueRead]
     rows: list[CaseTableRowRead] = Field(default_factory=list)
+    durations: list[CaseDurationRead] | None = None
+    field_values: dict[str, Any] | None = None
     num_tasks_completed: int = Field(default=0)
     num_tasks_total: int = Field(default=0)
 

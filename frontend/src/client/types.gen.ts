@@ -29,6 +29,10 @@ export type ActionControlFlow = {
    * Override environment for this action's execution
    */
   environment?: string | null
+  /**
+   * If true, redact this action's result in workflow execution API responses while preserving internal workflow data flow between actions.
+   */
+  mask_output?: boolean
 }
 
 export type ActionCreate = {
@@ -177,6 +181,10 @@ export type ActionStatement = {
    * Override environment for this action's execution. Can be a template expression.
    */
   environment?: string | null
+  /**
+   * If true, redact this action's result in workflow execution API responses while preserving internal workflow data flow between actions.
+   */
+  mask_output?: boolean
 }
 
 export type ActionStep = {
@@ -226,6 +234,66 @@ export type ActionValidationResult = {
 export type status = "success" | "error"
 
 /**
+ * Create an organization invitation from the platform admin console.
+ */
+export type AdminOrgInvitationCreate = {
+  email: string
+  role_slug?:
+    | "organization-owner"
+    | "organization-admin"
+    | "organization-member"
+}
+
+export type role_slug =
+  | "organization-owner"
+  | "organization-admin"
+  | "organization-member"
+
+/**
+ * Create response containing the raw invitation token.
+ */
+export type AdminOrgInvitationCreateResponse = {
+  id: string
+  organization_id: string
+  email: string
+  role_id: string
+  role_name: string
+  role_slug?: string | null
+  status: InvitationStatus
+  invited_by: string | null
+  expires_at: string
+  created_at: string
+  accepted_at: string | null
+  created_by_platform_admin: boolean
+  token: string
+}
+
+/**
+ * Platform-created organization invitation response.
+ */
+export type AdminOrgInvitationRead = {
+  id: string
+  organization_id: string
+  email: string
+  role_id: string
+  role_name: string
+  role_slug?: string | null
+  status: InvitationStatus
+  invited_by: string | null
+  expires_at: string
+  created_at: string
+  accepted_at: string | null
+  created_by_platform_admin: boolean
+}
+
+/**
+ * Raw invitation token response.
+ */
+export type AdminOrgInvitationTokenRead = {
+  token: string
+}
+
+/**
  * Create a user from the platform admin control plane.
  */
 export type AdminUserCreate = {
@@ -249,6 +317,28 @@ export type AdminUserRead = {
   is_superuser: boolean
   is_verified: boolean
   last_login_at?: string | null
+}
+
+/**
+ * List catalog entries with pagination.
+ */
+export type AgentCatalogListResponse = {
+  items: Array<AgentCatalogRead>
+  next_cursor?: string | null
+}
+
+/**
+ * Single catalog model entry.
+ */
+export type AgentCatalogRead = {
+  id: string
+  custom_provider_id: string | null
+  organization_id: string | null
+  model_provider: string
+  model_name: string
+  model_metadata: {
+    [key: string]: unknown
+  } | null
 }
 
 /**
@@ -303,6 +393,85 @@ export type AgentChannelTokenUpdate = {
   is_active?: boolean | null
 }
 
+/**
+ * Create custom LLM provider.
+ */
+export type AgentCustomProviderCreate = {
+  display_name: string
+  base_url?: string | null
+  passthrough?: boolean
+  api_key_header?: string | null
+  api_key?: string | null
+  custom_headers?: {
+    [key: string]: string
+  } | null
+}
+
+/**
+ * List response with pagination.
+ */
+export type AgentCustomProviderListResponse = {
+  items: Array<AgentCustomProviderRead>
+  next_cursor?: string | null
+}
+
+/**
+ * Read custom provider.
+ */
+export type AgentCustomProviderRead = {
+  id: string
+  organization_id: string
+  display_name: string
+  base_url: string | null
+  passthrough: boolean
+  api_key_header: string | null
+  last_refreshed_at: string | null
+}
+
+/**
+ * Update custom provider.
+ */
+export type AgentCustomProviderUpdate = {
+  display_name?: string | null
+  base_url?: string | null
+  passthrough?: boolean | null
+  api_key_header?: string | null
+  api_key?: string | null
+  custom_headers?: {
+    [key: string]: string
+  } | null
+}
+
+export type AgentModel = {
+  component_id?: "agent-model"
+}
+
+/**
+ * Enable a model for org or workspace.
+ */
+export type AgentModelAccessCreate = {
+  catalog_id: string
+  workspace_id?: string | null
+}
+
+/**
+ * List accessible models with pagination.
+ */
+export type AgentModelAccessListResponse = {
+  items: Array<AgentModelAccessRead>
+  next_cursor?: string | null
+}
+
+/**
+ * Model access entry.
+ */
+export type AgentModelAccessRead = {
+  id: string
+  organization_id: string
+  workspace_id: string | null
+  catalog_id: string
+}
+
 export type AgentOutput = {
   output: unknown
   /**
@@ -325,6 +494,7 @@ export type AgentPresetCreate = {
   instructions?: string | null
   model_name: string
   model_provider: string
+  catalog_id?: string | null
   base_url?: string | null
   output_type?: OutputType | null
   actions?: Array<string> | null
@@ -334,8 +504,10 @@ export type AgentPresetCreate = {
   } | null
   mcp_integrations?: Array<string> | null
   retries?: number
+  enable_thinking?: boolean
   enable_internet_access?: boolean
   description?: string | null
+  skills?: Array<AgentPresetSkillBindingBase> | null
   name: string
   slug?: string | null
 }
@@ -347,6 +519,7 @@ export type AgentPresetRead = {
   instructions?: string | null
   model_name: string
   model_provider: string
+  catalog_id?: string | null
   base_url?: string | null
   output_type?: OutputType | null
   actions?: Array<string> | null
@@ -356,6 +529,7 @@ export type AgentPresetRead = {
   } | null
   mcp_integrations?: Array<string> | null
   retries?: number
+  enable_thinking?: boolean
   enable_internet_access?: boolean
   id: string
   workspace_id: string
@@ -363,6 +537,7 @@ export type AgentPresetRead = {
   slug: string
   description?: string | null
   current_version_id?: string | null
+  skills?: Array<AgentPresetSkillBindingRead>
   created_at: string
   updated_at: string
 }
@@ -382,6 +557,36 @@ export type AgentPresetReadMinimal = {
 }
 
 /**
+ * Shared fields for preset skill bindings.
+ */
+export type AgentPresetSkillBindingBase = {
+  skill_id: string
+  skill_version_id: string
+}
+
+/**
+ * Diff entry for skill binding changes between preset versions.
+ */
+export type AgentPresetSkillBindingChange = {
+  skill_id: string
+  skill_name: string
+  old_skill_version_id?: string | null
+  old_skill_version?: number | null
+  new_skill_version_id?: string | null
+  new_skill_version?: number | null
+}
+
+/**
+ * Resolved preset skill binding with metadata.
+ */
+export type AgentPresetSkillBindingRead = {
+  skill_id: string
+  skill_version_id: string
+  skill_name: string
+  skill_version: number
+}
+
+/**
  * Payload for updating an existing agent preset.
  */
 export type AgentPresetUpdate = {
@@ -391,6 +596,7 @@ export type AgentPresetUpdate = {
   instructions?: string | null
   model_name?: string | null
   model_provider?: string | null
+  catalog_id?: string | null
   base_url?: string | null
   output_type?: OutputType | null
   actions?: Array<string> | null
@@ -400,7 +606,9 @@ export type AgentPresetUpdate = {
   } | null
   mcp_integrations?: Array<string> | null
   retries?: number | null
+  enable_thinking?: boolean | null
   enable_internet_access?: boolean | null
+  skills?: Array<AgentPresetSkillBindingBase> | null
 }
 
 /**
@@ -417,6 +625,7 @@ export type AgentPresetVersionDiff = {
   scalar_changes?: Array<ScalarFieldChange>
   list_changes?: Array<StringListFieldChange>
   tool_approval_changes?: Array<ToolApprovalFieldChange>
+  skill_changes?: Array<AgentPresetSkillBindingChange>
   total_changes?: number
 }
 
@@ -427,6 +636,7 @@ export type AgentPresetVersionRead = {
   instructions?: string | null
   model_name: string
   model_provider: string
+  catalog_id?: string | null
   base_url?: string | null
   output_type?: OutputType | null
   actions?: Array<string> | null
@@ -436,32 +646,21 @@ export type AgentPresetVersionRead = {
   } | null
   mcp_integrations?: Array<string> | null
   retries?: number
+  enable_thinking?: boolean
   enable_internet_access?: boolean
   id: string
   preset_id: string
   workspace_id: string
   version: number
+  skills?: Array<AgentPresetSkillBindingRead>
   created_at: string
   updated_at: string
 }
 
 /**
- * Minimal response model for agent preset versions.
+ * Metadata returned when listing immutable preset versions.
  */
 export type AgentPresetVersionReadMinimal = {
-  instructions?: string | null
-  model_name: string
-  model_provider: string
-  base_url?: string | null
-  output_type?: OutputType | null
-  actions?: Array<string> | null
-  namespaces?: Array<string> | null
-  tool_approvals?: {
-    [key: string]: boolean
-  } | null
-  mcp_integrations?: Array<string> | null
-  retries?: number
-  enable_internet_access?: boolean
   id: string
   preset_id: string
   workspace_id: string
@@ -997,11 +1196,61 @@ export type AwsAssumeRoleAccessRead = {
 }
 
 /**
+ * Azure AI catalog entry.
+ */
+export type AzureAICatalogCreate = {
+  display_name?: string | null
+  model_provider: "azure_ai"
+  model_name: string
+  azure_ai_model_name: string
+}
+
+export type AzureAICatalogUpdate = {
+  display_name?: string | null
+  model_provider: "azure_ai"
+  azure_ai_model_name: string
+}
+
+/**
+ * Azure OpenAI catalog entry.
+ */
+export type AzureOpenAICatalogCreate = {
+  display_name?: string | null
+  model_provider: "azure_openai"
+  model_name: string
+  deployment_name: string
+}
+
+export type AzureOpenAICatalogUpdate = {
+  display_name?: string | null
+  model_provider: "azure_openai"
+  deployment_name: string
+}
+
+/**
  * Batch update for action and trigger positions.
  */
 export type BatchPositionUpdate = {
   actions?: Array<ActionPositionUpdate>
   trigger_position?: Position | null
+}
+
+/**
+ * Bedrock catalog entry. Requires exactly one of inference_profile_id or model_id.
+ */
+export type BedrockCatalogCreate = {
+  display_name?: string | null
+  model_provider: "bedrock"
+  model_name: string
+  inference_profile_id?: string | null
+  model_id?: string | null
+}
+
+export type BedrockCatalogUpdate = {
+  display_name?: string | null
+  model_provider: "bedrock"
+  inference_profile_id?: string | null
+  model_id?: string | null
 }
 
 /**
@@ -1425,19 +1674,39 @@ export type CaseDurationEventAnchor = {
    */
   event_type: CaseEventType
   /**
-   * Dot-delimited path to the timestamp field on the event. Defaults to the event creation timestamp.
+   * Optional product-level filters for matching event payload values.
    */
-  timestamp_path?: string
-  /**
-   * Optional dot-delimited equality filters that must match on the event payload, e.g. {'data.new': 'resolved'}.
-   */
-  field_filters?: {
-    [key: string]: unknown
-  }
+  filters?: CaseDurationEventFilters
   /**
    * Whether to use the first or last matching event for this anchor. Defaults to the first match.
    */
   selection?: CaseDurationAnchorSelection
+}
+
+/**
+ * Product-level filters for narrowing case duration event anchors.
+ */
+export type CaseDurationEventFilters = {
+  /**
+   * New priority, severity, or status values to match.
+   */
+  new_values?: Array<string>
+  /**
+   * Case tag refs to match for tag add/remove events.
+   */
+  tag_refs?: Array<string>
+  /**
+   * Case custom field IDs to match for field change events.
+   */
+  field_ids?: Array<string>
+  /**
+   * Dropdown definition ID to match for dropdown value change events.
+   */
+  dropdown_definition_id?: string | null
+  /**
+   * Dropdown option IDs to match for dropdown value change events.
+   */
+  dropdown_option_ids?: Array<string>
 }
 
 /**
@@ -1718,6 +1987,10 @@ export type CaseReadMinimal = {
   tags?: Array<CaseTagRead>
   dropdown_values: Array<CaseDropdownValueRead>
   rows?: Array<CaseTableRowRead>
+  durations?: Array<CaseDurationRead> | null
+  field_values?: {
+    [key: string]: unknown
+  } | null
   num_tasks_completed?: number
   num_tasks_total?: number
 }
@@ -1923,9 +2196,10 @@ export type ChannelType = "slack"
 /**
  * Model for a chat message with typed message payload.
  *
- * This model supports both regular messages and approval bubbles:
+ * This model supports multiple message kinds:
  * - kind=CHAT_MESSAGE: Contains message field with user/assistant content
  * - kind=APPROVAL_REQUEST/APPROVAL_DECISION: Contains approval field with approval data
+ * - kind=COMPACTION: Contains compaction field with compaction status data
  */
 export type ChatMessage = {
   /**
@@ -1952,6 +2226,12 @@ export type ChatMessage = {
    * Approval data for approval bubble rendering (for kind=APPROVAL_REQUEST/APPROVAL_DECISION)
    */
   approval?: ApprovalRead | null
+  /**
+   * Compaction status data for badge rendering (for kind=COMPACTION)
+   */
+  compaction?: {
+    [key: string]: unknown
+  } | null
 }
 
 /**
@@ -2353,6 +2633,30 @@ export type CreatedEventRead = {
   created_at: string
 }
 
+export type CursorPaginatedResponse_AdminOrgInvitationRead_ = {
+  items: Array<AdminOrgInvitationRead>
+  /**
+   * Cursor for next page
+   */
+  next_cursor?: string | null
+  /**
+   * Cursor for previous page
+   */
+  prev_cursor?: string | null
+  /**
+   * Whether more items exist
+   */
+  has_more?: boolean
+  /**
+   * Whether previous items exist
+   */
+  has_previous?: boolean
+  /**
+   * Estimated total count from table statistics
+   */
+  total_estimate?: number | null
+}
+
 export type CursorPaginatedResponse_AgentPresetVersionReadMinimal_ = {
   items: Array<AgentPresetVersionReadMinimal>
   /**
@@ -2427,6 +2731,126 @@ export type CursorPaginatedResponse_CaseTableRowRead_ = {
 
 export type CursorPaginatedResponse_InboxItemRead_ = {
   items: Array<InboxItemRead>
+  /**
+   * Cursor for next page
+   */
+  next_cursor?: string | null
+  /**
+   * Cursor for previous page
+   */
+  prev_cursor?: string | null
+  /**
+   * Whether more items exist
+   */
+  has_more?: boolean
+  /**
+   * Whether previous items exist
+   */
+  has_previous?: boolean
+  /**
+   * Estimated total count from table statistics
+   */
+  total_estimate?: number | null
+}
+
+export type CursorPaginatedResponse_MCPPersonalAccessTokenRead_ = {
+  items: Array<MCPPersonalAccessTokenRead>
+  /**
+   * Cursor for next page
+   */
+  next_cursor?: string | null
+  /**
+   * Cursor for previous page
+   */
+  prev_cursor?: string | null
+  /**
+   * Whether more items exist
+   */
+  has_more?: boolean
+  /**
+   * Whether previous items exist
+   */
+  has_previous?: boolean
+  /**
+   * Estimated total count from table statistics
+   */
+  total_estimate?: number | null
+}
+
+export type CursorPaginatedResponse_ServiceAccountApiKeyRead_ = {
+  items: Array<ServiceAccountApiKeyRead>
+  /**
+   * Cursor for next page
+   */
+  next_cursor?: string | null
+  /**
+   * Cursor for previous page
+   */
+  prev_cursor?: string | null
+  /**
+   * Whether more items exist
+   */
+  has_more?: boolean
+  /**
+   * Whether previous items exist
+   */
+  has_previous?: boolean
+  /**
+   * Estimated total count from table statistics
+   */
+  total_estimate?: number | null
+}
+
+export type CursorPaginatedResponse_ServiceAccountRead_ = {
+  items: Array<ServiceAccountRead>
+  /**
+   * Cursor for next page
+   */
+  next_cursor?: string | null
+  /**
+   * Cursor for previous page
+   */
+  prev_cursor?: string | null
+  /**
+   * Whether more items exist
+   */
+  has_more?: boolean
+  /**
+   * Whether previous items exist
+   */
+  has_previous?: boolean
+  /**
+   * Estimated total count from table statistics
+   */
+  total_estimate?: number | null
+}
+
+export type CursorPaginatedResponse_SkillReadMinimal_ = {
+  items: Array<SkillReadMinimal>
+  /**
+   * Cursor for next page
+   */
+  next_cursor?: string | null
+  /**
+   * Cursor for previous page
+   */
+  prev_cursor?: string | null
+  /**
+   * Whether more items exist
+   */
+  has_more?: boolean
+  /**
+   * Whether previous items exist
+   */
+  has_previous?: boolean
+  /**
+   * Estimated total count from table statistics
+   */
+  total_estimate?: number | null
+}
+
+export type CursorPaginatedResponse_SkillVersionReadMinimal_ = {
+  items: Array<SkillVersionReadMinimal>
   /**
    * Cursor for next page
    */
@@ -2702,6 +3126,23 @@ export type DataUIPart = {
 }
 
 /**
+ * Canonical default-model selection for an organization.
+ */
+export type DefaultModelSelection = {
+  catalog_id: string
+  model_name: string
+  model_provider: string
+  custom_provider_id?: string | null
+}
+
+/**
+ * Payload for updating the organization's default model selection.
+ */
+export type DefaultModelSelectionUpdate = {
+  catalog_id: string
+}
+
+/**
  * The URL of the document.
  */
 export type DocumentUrl = {
@@ -2832,6 +3273,7 @@ export type EditorComponent =
   | ActionType
   | WorkflowAlias
   | AgentPreset
+  | AgentModel
 
 export type EditorFunctionRead = {
   name: string
@@ -2873,6 +3315,10 @@ export type EffectiveEntitlements = {
    */
   rbac_addons?: boolean
   /**
+   * Whether service accounts for API key access are enabled
+   */
+  service_accounts?: boolean
+  /**
    * Whether Watchtower agent monitoring is enabled (agent sessions, tool-call telemetry, and controls)
    */
   watchtower?: boolean
@@ -2904,6 +3350,10 @@ export type EntitlementsDict = {
    * Whether RBAC add-ons are enabled (custom roles, groups, and assignments)
    */
   rbac_addons?: boolean
+  /**
+   * Whether service accounts for API key access are enabled
+   */
+  service_accounts?: boolean
   /**
    * Whether Watchtower agent monitoring is enabled (agent sessions, tool-call telemetry, and controls)
    */
@@ -2952,6 +3402,7 @@ export type EventGroup_TypeVar_ = {
     | GetWorkflowDefinitionActivityInputs
     | InteractionResult
     | InteractionInput
+    | UnreadableTemporalPayload
   action_result?: unknown | null
   current_attempt?: number | null
   retry_policy?: ActionRetryPolicy
@@ -3811,6 +4262,16 @@ export type InteractionType = "approval" | "response"
  */
 export type InvitationStatus = "pending" | "accepted" | "revoked"
 
+export type IssuedMCPPersonalAccessToken = {
+  raw_token: string
+  token: MCPPersonalAccessTokenRead
+}
+
+export type IssuedServiceAccountApiKey = {
+  raw_key: string
+  api_key: ServiceAccountApiKeyRead
+}
+
 export type JoinStrategy = "any" | "all"
 
 /**
@@ -3939,6 +4400,32 @@ export type MCPIntegrationUpdate = {
   timeout?: number | null
 }
 
+export type MCPPersonalAccessTokenCreate = {
+  name: string
+  expires_at?: string | null
+}
+
+export type MCPPersonalAccessTokenIssueResponse = {
+  issued_token: IssuedMCPPersonalAccessToken
+}
+
+export type MCPPersonalAccessTokenRead = {
+  id: string
+  user_id: string
+  organization_id: string
+  workspace_id: string
+  name: string
+  key_id: string
+  preview: string
+  expires_at?: string | null
+  last_used_at?: string | null
+  revoked_at?: string | null
+  created_by?: string | null
+  revoked_by?: string | null
+  created_at: string
+  updated_at: string
+}
+
 export type MCPServerType = "http" | "stdio"
 
 /**
@@ -3996,6 +4483,7 @@ export type MessageKind =
   | "approval-request"
   | "approval-decision"
   | "internal"
+  | "compaction"
 
 export type ModelConfig = {
   /**
@@ -4006,6 +4494,10 @@ export type ModelConfig = {
    * The provider of the model. This is used to determine which organization secret to use for this model.
    */
   provider: string
+  /**
+   * Optional catalog row backing this model selection. Populated for v2 org-scoped cloud/custom catalog rows; left ``None`` for platform (built-in) models that resolve credentials via ``agent-{provider}-credentials``.
+   */
+  catalog_id?: string | null
   /**
    * The name of the organization secret to use for this model. This secret must be configured in the organization settings.
    */
@@ -5010,18 +5502,7 @@ export type RetryPromptPart = {
 }
 
 /**
- * The identity and authorization of a user or service.
- *
- * Params
- * ------
- * type : Literal["user", "service"]
- * The type of role.
- * user_id : UUID | None
- * The user's ID, or the service's user_id.
- * This can be None for internal services, or when a user hasn't been set for the role.
- * service_id : str | None = None
- * The service's role name, or None if the role is a user.
- *
+ * The identity, intrinsic bindings, and resolved authorization context.
  *
  * User roles
  * ----------
@@ -5036,10 +5517,12 @@ export type RetryPromptPart = {
  * - A service's `user_id` is the user it's acting on behalf of. This can be None for internal services.
  */
 export type Role = {
-  type: "user" | "service"
+  type: "user" | "service" | "service_account"
   workspace_id?: string | null
+  bound_workspace_id?: string | null
   organization_id?: string | null
   user_id?: string | null
+  service_account_id?: string | null
   service_id:
     | "tracecat-api"
     | "tracecat-bootstrap"
@@ -5058,7 +5541,7 @@ export type Role = {
   [key: string]: unknown | string | boolean
 }
 
-export type type3 = "user" | "service"
+export type type3 = "user" | "service" | "service_account"
 
 export type service_id =
   | "tracecat-api"
@@ -5455,6 +5938,78 @@ export type Select = {
   multiple?: boolean
 }
 
+export type ServiceAccountApiKeyCounts = {
+  total?: number
+  active?: number
+  revoked?: number
+}
+
+export type ServiceAccountApiKeyCreate = {
+  name?: string
+}
+
+export type ServiceAccountApiKeyIssueResponse = {
+  issued_api_key: IssuedServiceAccountApiKey
+  service_account: ServiceAccountRead
+}
+
+export type ServiceAccountApiKeyRead = {
+  id: string
+  name: string
+  key_id: string
+  preview: string
+  created_by?: string | null
+  created_by_user?: UserReadMinimal | null
+  revoked_by?: string | null
+  revoked_by_user?: UserReadMinimal | null
+  last_used_at?: string | null
+  revoked_at?: string | null
+  created_at: string
+  updated_at: string
+}
+
+export type ServiceAccountCreate = {
+  name: string
+  description?: string | null
+  scope_ids?: Array<string>
+  initial_key_name?: string
+}
+
+export type ServiceAccountRead = {
+  id: string
+  organization_id: string
+  workspace_id?: string | null
+  owner_user_id?: string | null
+  owner_user?: UserReadMinimal | null
+  name: string
+  description?: string | null
+  disabled_at?: string | null
+  last_used_at?: string | null
+  created_at: string
+  updated_at: string
+  scopes?: Array<ServiceAccountScopeRead>
+  active_api_key?: ServiceAccountApiKeyRead | null
+  api_key_counts?: ServiceAccountApiKeyCounts
+}
+
+export type ServiceAccountScopeList = {
+  items?: Array<ServiceAccountScopeRead>
+}
+
+export type ServiceAccountScopeRead = {
+  id: string
+  name: string
+  resource: string
+  action: string
+  description?: string | null
+}
+
+export type ServiceAccountUpdate = {
+  name?: string | null
+  description?: string | null
+  scope_ids?: Array<string> | null
+}
+
 export type SessionRead = {
   id: string
   created_at: string
@@ -5489,6 +6044,222 @@ export type SeverityChangedEventRead = {
    * The timestamp of the event.
    */
   created_at: string
+}
+
+/**
+ * Payload for creating a new logical skill.
+ */
+export type SkillCreate = {
+  name: string
+  description?: string | null
+}
+
+/**
+ * Attach a finalized staged upload to a draft path.
+ */
+export type SkillDraftAttachUploadedBlobOp = {
+  op?: "attach_uploaded_blob"
+  path: string
+  upload_id: string
+}
+
+/**
+ * Delete a file from the mutable skill draft.
+ */
+export type SkillDraftDeleteFileOp = {
+  op?: "delete_file"
+  path: string
+}
+
+/**
+ * Response model for reading a single skill draft file.
+ */
+export type SkillDraftFileRead = {
+  kind: "inline" | "download"
+  path: string
+  content_type: string
+  size_bytes: number
+  sha256: string
+  text_content?: string | null
+  download_url?: string | null
+}
+
+export type kind = "inline" | "download"
+
+/**
+ * Move (rename) a draft file to a new path while preserving its blob.
+ */
+export type SkillDraftMoveFileOp = {
+  op?: "move_file"
+  from_path: string
+  to_path: string
+}
+
+export type SkillDraftOperation =
+  | SkillDraftUpsertTextFileOp
+  | SkillDraftAttachUploadedBlobOp
+  | SkillDraftDeleteFileOp
+  | SkillDraftMoveFileOp
+
+/**
+ * Optimistic-concurrency draft mutation request.
+ */
+export type SkillDraftPatch = {
+  base_revision: number
+  operations: Array<SkillDraftOperation>
+}
+
+/**
+ * Current mutable draft state for a skill.
+ */
+export type SkillDraftRead = {
+  skill_id: string
+  skill_name: string
+  draft_revision: number
+  name?: string | null
+  description?: string | null
+  files?: Array<SkillFileEntry>
+  is_publishable: boolean
+  validation_errors?: Array<SkillValidationErrorDetail>
+}
+
+/**
+ * Replace or create a text file in the skill draft.
+ */
+export type SkillDraftUpsertTextFileOp = {
+  op?: "upsert_text_file"
+  path: string
+  content: string
+  content_type?: string
+}
+
+/**
+ * Manifest entry for a skill file (used in both drafts and versions).
+ */
+export type SkillFileEntry = {
+  path: string
+  blob_id: string
+  sha256: string
+  size_bytes: number
+  content_type: string
+}
+
+/**
+ * Full response model for a workspace skill.
+ */
+export type SkillRead = {
+  id: string
+  workspace_id: string
+  name: string
+  description?: string | null
+  current_version_id?: string | null
+  draft_revision: number
+  created_at: string
+  updated_at: string
+  archived_at?: string | null
+  current_version?: SkillVersionReadMinimal | null
+  is_draft_publishable: boolean
+  draft_validation_errors?: Array<SkillValidationErrorDetail>
+  draft_file_count: number
+}
+
+/**
+ * Minimal response model for listing workspace skills.
+ */
+export type SkillReadMinimal = {
+  id: string
+  workspace_id: string
+  name: string
+  description?: string | null
+  current_version_id?: string | null
+  created_at: string
+  updated_at: string
+  archived_at?: string | null
+}
+
+/**
+ * Payload for importing a full skill draft in one request.
+ */
+export type SkillUpload = {
+  name: string
+  files: Array<SkillUploadFile>
+}
+
+/**
+ * Single file in a one-shot skill upload payload.
+ */
+export type SkillUploadFile = {
+  path: string
+  content_base64: string
+  content_type?: string | null
+}
+
+/**
+ * Request body for creating a staged draft upload.
+ */
+export type SkillUploadSessionCreate = {
+  sha256: string
+  size_bytes: number
+  content_type: string
+}
+
+/**
+ * Presigned upload session details for a draft file blob.
+ */
+export type SkillUploadSessionRead = {
+  upload_id: string
+  upload_url: string
+  method?: "PUT"
+  headers?: {
+    [key: string]: string
+  }
+  expires_at: string
+  bucket: string
+  key: string
+}
+
+/**
+ * Structured draft validation error.
+ */
+export type SkillValidationErrorDetail = {
+  code: string
+  message: string
+  path?: string | null
+}
+
+/**
+ * Published skill version response including its manifest.
+ */
+export type SkillVersionRead = {
+  id: string
+  skill_id: string
+  workspace_id: string
+  version: number
+  manifest_sha256: string
+  file_count: number
+  total_size_bytes: number
+  name: string
+  description?: string | null
+  created_at: string
+  updated_at: string
+  files?: Array<SkillFileEntry>
+}
+
+/**
+ * Summary response model for published skill versions in list endpoints.
+ */
+export type SkillVersionReadMinimal = {
+  id: string
+  skill_id: string
+  workspace_id: string
+  version: number
+  manifest_sha256: string
+  file_count: number
+  total_size_bytes: number
+  name: string
+  description?: string | null
+  created_at: string
+  updated_at: string
 }
 
 /**
@@ -6474,6 +7245,16 @@ export type UIMessage = {
 export type role = "system" | "user" | "assistant"
 
 /**
+ * Structured placeholder for Temporal payloads that cannot be decoded.
+ */
+export type UnreadableTemporalPayload = {
+  error?: "unreadable_temporal_payload"
+  error_type: string
+  encoding: string
+  payload_size_bytes: number
+}
+
+/**
  * Event for when a case is updated.
  */
 export type UpdatedEventRead = {
@@ -6529,6 +7310,14 @@ export type UserRead = {
   settings: {
     [key: string]: unknown
   }
+}
+
+export type UserReadMinimal = {
+  id: string
+  email: string
+  role: UserRole
+  first_name?: string | null
+  last_name?: string | null
 }
 
 export type UserRole = "basic" | "admin"
@@ -6716,6 +7505,22 @@ export type VersionDiff = {
 }
 
 /**
+ * Vertex AI catalog entry.
+ */
+export type VertexAICatalogCreate = {
+  display_name?: string | null
+  model_provider: "vertex_ai"
+  model_name: string
+  vertex_model: string
+}
+
+export type VertexAICatalogUpdate = {
+  display_name?: string | null
+  model_provider: "vertex_ai"
+  vertex_model: string
+}
+
+/**
  * A URL to a video.
  */
 export type VideoUrl = {
@@ -6748,6 +7553,10 @@ export type VideoUrl = {
 export type WaitResultOutput =
   | WebhookStoredObjectInlineResponse
   | WebhookStoredObjectDownloadResponse
+
+export type WaitResultUnwrapOverflowResponse = {
+  detail: WebhookStoredObjectDownloadResponse
+}
 
 export type WaitStrategy = "wait" | "detach"
 
@@ -6948,7 +7757,7 @@ export type WebhookStoredObjectDownloadResponse = {
   size_bytes: number
 }
 
-export type kind = "download_file" | "download_export"
+export type kind2 = "download_file" | "download_export"
 
 export type WebhookStoredObjectInlineResponse = {
   kind: "value"
@@ -7974,6 +8783,10 @@ export type PublicIncomingWebhookGetResponse = unknown
 export type PublicIncomingWebhookWaitData = {
   contentType?: string | null
   secret: string
+  /**
+   * Return the workflow result directly as the response body, without the `{kind, value}` envelope. Requires the result to fit inline. If the result was externalized, returns 413 with the download envelope in `detail`.
+   */
+  unwrap?: boolean
   workflowId: string
 }
 
@@ -8102,6 +8915,115 @@ export type WorkspacesRevokeWorkspaceInvitationData = {
 
 export type WorkspacesRevokeWorkspaceInvitationResponse = void
 
+export type ServiceAccountsListWorkspaceServiceAccountsData = {
+  cursor?: string | null
+  limit?: number
+  reverse?: boolean
+  workspaceId: string
+}
+
+export type ServiceAccountsListWorkspaceServiceAccountsResponse =
+  CursorPaginatedResponse_ServiceAccountRead_
+
+export type ServiceAccountsCreateWorkspaceServiceAccountData = {
+  requestBody: ServiceAccountCreate
+  workspaceId: string
+}
+
+export type ServiceAccountsCreateWorkspaceServiceAccountResponse =
+  ServiceAccountApiKeyIssueResponse
+
+export type ServiceAccountsListWorkspaceServiceAccountScopesData = {
+  workspaceId: string
+}
+
+export type ServiceAccountsListWorkspaceServiceAccountScopesResponse =
+  ServiceAccountScopeList
+
+export type ServiceAccountsGetWorkspaceServiceAccountData = {
+  serviceAccountId: string
+  workspaceId: string
+}
+
+export type ServiceAccountsGetWorkspaceServiceAccountResponse =
+  ServiceAccountRead
+
+export type ServiceAccountsUpdateWorkspaceServiceAccountData = {
+  requestBody: ServiceAccountUpdate
+  serviceAccountId: string
+  workspaceId: string
+}
+
+export type ServiceAccountsUpdateWorkspaceServiceAccountResponse =
+  ServiceAccountRead
+
+export type ServiceAccountsListWorkspaceServiceAccountApiKeysData = {
+  cursor?: string | null
+  limit?: number
+  reverse?: boolean
+  serviceAccountId: string
+  workspaceId: string
+}
+
+export type ServiceAccountsListWorkspaceServiceAccountApiKeysResponse =
+  CursorPaginatedResponse_ServiceAccountApiKeyRead_
+
+export type ServiceAccountsCreateWorkspaceServiceAccountApiKeyData = {
+  requestBody: ServiceAccountApiKeyCreate
+  serviceAccountId: string
+  workspaceId: string
+}
+
+export type ServiceAccountsCreateWorkspaceServiceAccountApiKeyResponse =
+  ServiceAccountApiKeyIssueResponse
+
+export type ServiceAccountsDisableWorkspaceServiceAccountData = {
+  serviceAccountId: string
+  workspaceId: string
+}
+
+export type ServiceAccountsDisableWorkspaceServiceAccountResponse = void
+
+export type ServiceAccountsEnableWorkspaceServiceAccountData = {
+  serviceAccountId: string
+  workspaceId: string
+}
+
+export type ServiceAccountsEnableWorkspaceServiceAccountResponse = void
+
+export type ServiceAccountsRevokeWorkspaceServiceAccountApiKeyData = {
+  apiKeyId: string
+  serviceAccountId: string
+  workspaceId: string
+}
+
+export type ServiceAccountsRevokeWorkspaceServiceAccountApiKeyResponse = void
+
+export type McpPersonalAccessTokensListMcpPersonalAccessTokensData = {
+  cursor?: string | null
+  limit?: number
+  reverse?: boolean
+  workspaceId: string
+}
+
+export type McpPersonalAccessTokensListMcpPersonalAccessTokensResponse =
+  CursorPaginatedResponse_MCPPersonalAccessTokenRead_
+
+export type McpPersonalAccessTokensCreateMcpPersonalAccessTokenData = {
+  requestBody: MCPPersonalAccessTokenCreate
+  workspaceId: string
+}
+
+export type McpPersonalAccessTokensCreateMcpPersonalAccessTokenResponse =
+  MCPPersonalAccessTokenIssueResponse
+
+export type McpPersonalAccessTokensRevokeMcpPersonalAccessTokenData = {
+  tokenId: string
+  workspaceId: string
+}
+
+export type McpPersonalAccessTokensRevokeMcpPersonalAccessTokenResponse = void
+
 export type WorkflowsListWorkflowsData = {
   cursor?: string | null
   limit?: number
@@ -8186,6 +9108,14 @@ export type WorkflowsListWorkflowDefinitionsData = {
 
 export type WorkflowsListWorkflowDefinitionsResponse =
   Array<WorkflowDefinitionRead>
+
+export type WorkflowsRestoreWorkflowDefinitionData = {
+  version: number
+  workflowId: string
+  workspaceId: string
+}
+
+export type WorkflowsRestoreWorkflowDefinitionResponse = WorkflowRead
 
 export type WorkflowsGetWorkflowDefinitionData = {
   version?: number | null
@@ -8277,6 +9207,15 @@ export type WorkflowsMoveWorkflowToFolderData = {
 }
 
 export type WorkflowsMoveWorkflowToFolderResponse = void
+
+export type WorkflowExecutionsGetWorkflowExecutionByWorkflowIdData = {
+  executionId: string
+  workflowId: string
+  workspaceId: string
+}
+
+export type WorkflowExecutionsGetWorkflowExecutionByWorkflowIdResponse =
+  WorkflowExecutionRead
 
 export type GraphGetGraphData = {
   workflowId: string
@@ -8840,6 +9779,77 @@ export type OrganizationGetInvitationByTokenData = {
 
 export type OrganizationGetInvitationByTokenResponse = OrgInvitationReadMinimal
 
+export type ServiceAccountsListOrganizationServiceAccountsData = {
+  cursor?: string | null
+  limit?: number
+  reverse?: boolean
+}
+
+export type ServiceAccountsListOrganizationServiceAccountsResponse =
+  CursorPaginatedResponse_ServiceAccountRead_
+
+export type ServiceAccountsCreateOrganizationServiceAccountData = {
+  requestBody: ServiceAccountCreate
+}
+
+export type ServiceAccountsCreateOrganizationServiceAccountResponse =
+  ServiceAccountApiKeyIssueResponse
+
+export type ServiceAccountsListOrganizationServiceAccountScopesResponse =
+  ServiceAccountScopeList
+
+export type ServiceAccountsGetOrganizationServiceAccountData = {
+  serviceAccountId: string
+}
+
+export type ServiceAccountsGetOrganizationServiceAccountResponse =
+  ServiceAccountRead
+
+export type ServiceAccountsUpdateOrganizationServiceAccountData = {
+  requestBody: ServiceAccountUpdate
+  serviceAccountId: string
+}
+
+export type ServiceAccountsUpdateOrganizationServiceAccountResponse =
+  ServiceAccountRead
+
+export type ServiceAccountsListOrganizationServiceAccountApiKeysData = {
+  cursor?: string | null
+  limit?: number
+  reverse?: boolean
+  serviceAccountId: string
+}
+
+export type ServiceAccountsListOrganizationServiceAccountApiKeysResponse =
+  CursorPaginatedResponse_ServiceAccountApiKeyRead_
+
+export type ServiceAccountsCreateOrganizationServiceAccountApiKeyData = {
+  requestBody: ServiceAccountApiKeyCreate
+  serviceAccountId: string
+}
+
+export type ServiceAccountsCreateOrganizationServiceAccountApiKeyResponse =
+  ServiceAccountApiKeyIssueResponse
+
+export type ServiceAccountsDisableOrganizationServiceAccountData = {
+  serviceAccountId: string
+}
+
+export type ServiceAccountsDisableOrganizationServiceAccountResponse = void
+
+export type ServiceAccountsEnableOrganizationServiceAccountData = {
+  serviceAccountId: string
+}
+
+export type ServiceAccountsEnableOrganizationServiceAccountResponse = void
+
+export type ServiceAccountsRevokeOrganizationServiceAccountApiKeyData = {
+  apiKeyId: string
+  serviceAccountId: string
+}
+
+export type ServiceAccountsRevokeOrganizationServiceAccountApiKeyResponse = void
+
 export type AgentListModelsResponse = {
   [key: string]: ModelConfig
 }
@@ -8887,11 +9897,131 @@ export type AgentDeleteProviderCredentialsResponse = {
 export type AgentGetDefaultModelResponse = string | null
 
 export type AgentSetDefaultModelData = {
-  modelName: string
+  requestBody: DefaultModelSelectionUpdate
 }
 
-export type AgentSetDefaultModelResponse = {
-  [key: string]: string
+export type AgentSetDefaultModelResponse = DefaultModelSelection
+
+export type AgentGetDefaultModelSelectionResponse = DefaultModelSelection | null
+
+export type AgentSetDefaultModelSelectionData = {
+  requestBody: DefaultModelSelectionUpdate
+}
+
+export type AgentSetDefaultModelSelectionResponse = DefaultModelSelection
+
+export type ListCatalogData = {
+  cursor?: string | null
+  limit?: number
+  modelName?: string | null
+  provider?: string | null
+}
+
+export type ListCatalogResponse = AgentCatalogListResponse
+
+export type CreateCatalogEntryData = {
+  requestBody:
+    | BedrockCatalogCreate
+    | AzureOpenAICatalogCreate
+    | AzureAICatalogCreate
+    | VertexAICatalogCreate
+}
+
+export type CreateCatalogEntryResponse = AgentCatalogRead
+
+export type GetCatalogEntryData = {
+  catalogId: string
+}
+
+export type GetCatalogEntryResponse = AgentCatalogRead
+
+export type UpdateCatalogEntryData = {
+  catalogId: string
+  requestBody:
+    | BedrockCatalogUpdate
+    | AzureOpenAICatalogUpdate
+    | AzureAICatalogUpdate
+    | VertexAICatalogUpdate
+}
+
+export type UpdateCatalogEntryResponse = AgentCatalogRead
+
+export type DeleteCatalogEntryData = {
+  catalogId: string
+}
+
+export type DeleteCatalogEntryResponse = void
+
+export type GetWorkspaceModelsData = {
+  workspaceId: string
+}
+
+export type GetWorkspaceModelsResponse = AgentCatalogListResponse
+
+export type EnableModelData = {
+  requestBody: AgentModelAccessCreate
+}
+
+export type EnableModelResponse = AgentModelAccessRead
+
+export type ListEnabledModelsData = {
+  cursor?: string | null
+  limit?: number
+  workspaceId?: string | null
+}
+
+export type ListEnabledModelsResponse = AgentModelAccessListResponse
+
+export type DisableModelData = {
+  accessId: string
+}
+
+export type DisableModelResponse = void
+
+export type CreateCustomProviderData = {
+  requestBody: AgentCustomProviderCreate
+}
+
+export type CreateCustomProviderResponse = AgentCustomProviderRead
+
+export type ListCustomProvidersData = {
+  cursor?: string | null
+  limit?: number
+}
+
+export type ListCustomProvidersResponse = AgentCustomProviderListResponse
+
+export type GetCustomProviderData = {
+  providerId: string
+}
+
+export type GetCustomProviderResponse = AgentCustomProviderRead
+
+export type UpdateCustomProviderData = {
+  providerId: string
+  requestBody: AgentCustomProviderUpdate
+}
+
+export type UpdateCustomProviderResponse = AgentCustomProviderRead
+
+export type DeleteCustomProviderData = {
+  providerId: string
+}
+
+export type DeleteCustomProviderResponse = void
+
+export type RefreshCustomProviderCatalogData = {
+  providerId: string
+}
+
+export type RefreshCustomProviderCatalogResponse = unknown
+
+export type ValidateCustomProviderConnectionData = {
+  requestBody: AgentCustomProviderCreate
+}
+
+export type ValidateCustomProviderConnectionResponse = {
+  [key: string]: boolean
 }
 
 export type AgentGetWorkspaceProvidersStatusData = {
@@ -9034,6 +10164,118 @@ export type AgentPresetsRestoreAgentPresetVersionData = {
 }
 
 export type AgentPresetsRestoreAgentPresetVersionResponse = AgentPresetRead
+
+export type AgentSkillsListSkillsData = {
+  cursor?: string | null
+  limit?: number
+  reverse?: boolean
+  workspaceId: string
+}
+
+export type AgentSkillsListSkillsResponse =
+  CursorPaginatedResponse_SkillReadMinimal_
+
+export type AgentSkillsCreateSkillData = {
+  requestBody: SkillCreate
+  workspaceId: string
+}
+
+export type AgentSkillsCreateSkillResponse = SkillRead
+
+export type AgentSkillsUploadSkillData = {
+  requestBody: SkillUpload
+  workspaceId: string
+}
+
+export type AgentSkillsUploadSkillResponse = SkillRead
+
+export type AgentSkillsGetSkillData = {
+  skillId: string
+  workspaceId: string
+}
+
+export type AgentSkillsGetSkillResponse = SkillRead
+
+export type AgentSkillsArchiveSkillData = {
+  skillId: string
+  workspaceId: string
+}
+
+export type AgentSkillsArchiveSkillResponse = void
+
+export type AgentSkillsGetSkillDraftData = {
+  skillId: string
+  workspaceId: string
+}
+
+export type AgentSkillsGetSkillDraftResponse = SkillDraftRead
+
+export type AgentSkillsPatchSkillDraftData = {
+  requestBody: SkillDraftPatch
+  skillId: string
+  workspaceId: string
+}
+
+export type AgentSkillsPatchSkillDraftResponse = SkillDraftRead
+
+export type AgentSkillsGetSkillDraftFileData = {
+  path: string
+  skillId: string
+  workspaceId: string
+}
+
+export type AgentSkillsGetSkillDraftFileResponse = SkillDraftFileRead
+
+export type AgentSkillsCreateSkillDraftUploadData = {
+  requestBody: SkillUploadSessionCreate
+  skillId: string
+  workspaceId: string
+}
+
+export type AgentSkillsCreateSkillDraftUploadResponse = SkillUploadSessionRead
+
+export type AgentSkillsPublishSkillData = {
+  skillId: string
+  workspaceId: string
+}
+
+export type AgentSkillsPublishSkillResponse = SkillVersionRead
+
+export type AgentSkillsListSkillVersionsData = {
+  cursor?: string | null
+  limit?: number
+  reverse?: boolean
+  skillId: string
+  workspaceId: string
+}
+
+export type AgentSkillsListSkillVersionsResponse =
+  CursorPaginatedResponse_SkillVersionReadMinimal_
+
+export type AgentSkillsGetSkillVersionData = {
+  skillId: string
+  versionId: string
+  workspaceId: string
+}
+
+export type AgentSkillsGetSkillVersionResponse = SkillVersionRead
+
+export type AgentSkillsGetSkillVersionFileData = {
+  path: string
+  skillId: string
+  versionId: string
+  workspaceId: string
+}
+
+export type AgentSkillsGetSkillVersionFileResponse = SkillDraftFileRead
+
+export type AgentSkillsRestoreSkillVersionData = {
+  skillId: string
+  versionId: string
+  workspaceId: string
+}
+
+export type AgentSkillsRestoreSkillVersionResponse = SkillReadMinimal
 
 export type AgentSessionsCreateSessionData = {
   requestBody: AgentSessionCreate
@@ -9223,6 +10465,40 @@ export type AdminDeleteOrganizationData = {
 
 export type AdminDeleteOrganizationResponse = void
 
+export type AdminCreateOrganizationInvitationData = {
+  orgId: string
+  requestBody: AdminOrgInvitationCreate
+}
+
+export type AdminCreateOrganizationInvitationResponse =
+  AdminOrgInvitationCreateResponse
+
+export type AdminListOrganizationInvitationsData = {
+  cursor?: string | null
+  limit?: number
+  orgId: string
+  reverse?: boolean
+  status?: InvitationStatus | null
+}
+
+export type AdminListOrganizationInvitationsResponse =
+  CursorPaginatedResponse_AdminOrgInvitationRead_
+
+export type AdminGetOrganizationInvitationTokenData = {
+  invitationId: string
+  orgId: string
+}
+
+export type AdminGetOrganizationInvitationTokenResponse =
+  AdminOrgInvitationTokenRead
+
+export type AdminRevokeOrganizationInvitationData = {
+  invitationId: string
+  orgId: string
+}
+
+export type AdminRevokeOrganizationInvitationResponse = void
+
 export type AdminListOrganizationDomainsData = {
   orgId: string
 }
@@ -9375,6 +10651,15 @@ export type AdminDemoteFromSuperuserData = {
 
 export type AdminDemoteFromSuperuserResponse = AdminUserRead
 
+export type AdminAgentListPlatformCatalogData = {
+  cursor?: string | null
+  limit?: number
+  modelName?: string | null
+  provider?: string | null
+}
+
+export type AdminAgentListPlatformCatalogResponse = AgentCatalogListResponse
+
 export type AdminRegistryListPlatformRepositoriesResponse =
   Array<RegistryRepositoryReadMinimal>
 
@@ -9459,6 +10744,10 @@ export type EditorValidateExpressionData = {
 }
 
 export type EditorValidateExpressionResponse = ExpressionValidationResponse
+
+export type EditorFieldSchemaData = {
+  workspaceId: string
+}
 
 export type EditorFieldSchemaResponse = EditorComponent
 
@@ -9796,6 +11085,14 @@ export type CasesListCasesData = {
    */
   cursor?: string | null
   /**
+   * Include only the requested custom field IDs
+   */
+  fieldIds?: Array<string> | null
+  /**
+   * Include case duration values
+   */
+  includeDurations?: boolean
+  /**
    * Include linked table rows
    */
   includeRows?: boolean
@@ -9851,6 +11148,14 @@ export type CasesSearchCasesData = {
    * Return cases created at or before this timestamp
    */
   endTime?: string | null
+  /**
+   * Include only the requested custom field IDs
+   */
+  fieldIds?: Array<string> | null
+  /**
+   * Include case duration values
+   */
+  includeDurations?: boolean
   /**
    * Include linked table rows
    */
@@ -10937,6 +12242,10 @@ export type $OpenApiTs = {
          */
         200: WaitResultOutput
         /**
+         * Unwrapped workflow result exceeded inline response limits. Use `detail.download_url` to fetch the externalized result.
+         */
+        413: WaitResultUnwrapOverflowResponse
+        /**
          * Validation Error
          */
         422: HTTPValidationError
@@ -11196,7 +12505,194 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/workflows": {
+  "/workspaces/{workspace_id}/service-accounts": {
+    get: {
+      req: ServiceAccountsListWorkspaceServiceAccountsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: CursorPaginatedResponse_ServiceAccountRead_
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    post: {
+      req: ServiceAccountsCreateWorkspaceServiceAccountData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: ServiceAccountApiKeyIssueResponse
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/service-accounts/scopes": {
+    get: {
+      req: ServiceAccountsListWorkspaceServiceAccountScopesData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: ServiceAccountScopeList
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/service-accounts/{service_account_id}": {
+    get: {
+      req: ServiceAccountsGetWorkspaceServiceAccountData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: ServiceAccountRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    patch: {
+      req: ServiceAccountsUpdateWorkspaceServiceAccountData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: ServiceAccountRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/service-accounts/{service_account_id}/api-keys": {
+    get: {
+      req: ServiceAccountsListWorkspaceServiceAccountApiKeysData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: CursorPaginatedResponse_ServiceAccountApiKeyRead_
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    post: {
+      req: ServiceAccountsCreateWorkspaceServiceAccountApiKeyData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: ServiceAccountApiKeyIssueResponse
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/service-accounts/{service_account_id}/disable": {
+    post: {
+      req: ServiceAccountsDisableWorkspaceServiceAccountData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/service-accounts/{service_account_id}/enable": {
+    post: {
+      req: ServiceAccountsEnableWorkspaceServiceAccountData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/service-accounts/{service_account_id}/api-keys/{api_key_id}/revoke": {
+    post: {
+      req: ServiceAccountsRevokeWorkspaceServiceAccountApiKeyData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/mcp-personal-access-tokens": {
+    get: {
+      req: McpPersonalAccessTokensListMcpPersonalAccessTokensData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: CursorPaginatedResponse_MCPPersonalAccessTokenRead_
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    post: {
+      req: McpPersonalAccessTokensCreateMcpPersonalAccessTokenData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: MCPPersonalAccessTokenIssueResponse
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/mcp-personal-access-tokens/{token_id}/revoke": {
+    post: {
+      req: McpPersonalAccessTokensRevokeMcpPersonalAccessTokenData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/workflows": {
     get: {
       req: WorkflowsListWorkflowsData
       res: {
@@ -11224,7 +12720,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/workflows/validate-entrypoint": {
+  "/workspaces/{workspace_id}/workflows/validate-entrypoint": {
     post: {
       req: WorkflowsValidateWorkflowEntrypointData
       res: {
@@ -11239,7 +12735,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/workflows/{workflow_id}": {
+  "/workspaces/{workspace_id}/workflows/{workflow_id}": {
     get: {
       req: WorkflowsGetWorkflowData
       res: {
@@ -11280,7 +12776,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/workflows/{workflow_id}/commit": {
+  "/workspaces/{workspace_id}/workflows/{workflow_id}/commit": {
     post: {
       req: WorkflowsCommitWorkflowData
       res: {
@@ -11295,7 +12791,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/workflows/{workflow_id}/export": {
+  "/workspaces/{workspace_id}/workflows/{workflow_id}/export": {
     get: {
       req: WorkflowsExportWorkflowData
       res: {
@@ -11310,7 +12806,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/workflows/{workflow_id}/definitions": {
+  "/workspaces/{workspace_id}/workflows/{workflow_id}/definitions": {
     get: {
       req: WorkflowsListWorkflowDefinitionsData
       res: {
@@ -11325,7 +12821,22 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/workflows/{workflow_id}/definition": {
+  "/workspaces/{workspace_id}/workflows/{workflow_id}/definitions/{version}/restore": {
+    post: {
+      req: WorkflowsRestoreWorkflowDefinitionData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: WorkflowRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/workflows/{workflow_id}/definition": {
     get: {
       req: WorkflowsGetWorkflowDefinitionData
       res: {
@@ -11353,7 +12864,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/workflows/{workflow_id}/webhook": {
+  "/workspaces/{workspace_id}/workflows/{workflow_id}/webhook": {
     post: {
       req: TriggersCreateWebhookData
       res: {
@@ -11394,7 +12905,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/workflows/{workflow_id}/case-trigger": {
+  "/workspaces/{workspace_id}/workflows/{workflow_id}/case-trigger": {
     post: {
       req: TriggersCreateCaseTriggerData
       res: {
@@ -11435,7 +12946,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/workflows/{workflow_id}/webhook/api-key": {
+  "/workspaces/{workspace_id}/workflows/{workflow_id}/webhook/api-key": {
     post: {
       req: TriggersGenerateWebhookApiKeyData
       res: {
@@ -11463,7 +12974,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/workflows/{workflow_id}/webhook/api-key/revoke": {
+  "/workspaces/{workspace_id}/workflows/{workflow_id}/webhook/api-key/revoke": {
     post: {
       req: TriggersRevokeWebhookApiKeyData
       res: {
@@ -11478,7 +12989,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/workflows/{workflow_id}/move": {
+  "/workspaces/{workspace_id}/workflows/{workflow_id}/move": {
     post: {
       req: WorkflowsMoveWorkflowToFolderData
       res: {
@@ -11493,7 +13004,22 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/workflows/{workflow_id}/graph": {
+  "/workspaces/{workspace_id}/workflows/{workflow_id}/executions/{execution_id}": {
+    get: {
+      req: WorkflowExecutionsGetWorkflowExecutionByWorkflowIdData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: WorkflowExecutionRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/workflows/{workflow_id}/graph": {
     get: {
       req: GraphGetGraphData
       res: {
@@ -11521,7 +13047,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/workflow-executions": {
+  "/workspaces/{workspace_id}/workflow-executions": {
     get: {
       req: WorkflowExecutionsListWorkflowExecutionsData
       res: {
@@ -11549,7 +13075,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/workflow-executions/search": {
+  "/workspaces/{workspace_id}/workflow-executions/search": {
     get: {
       req: WorkflowExecutionsSearchWorkflowExecutionsData
       res: {
@@ -11564,7 +13090,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/workflow-executions/{execution_id}/reset-points": {
+  "/workspaces/{workspace_id}/workflow-executions/{execution_id}/reset-points": {
     get: {
       req: WorkflowExecutionsListWorkflowExecutionResetPointsData
       res: {
@@ -11579,7 +13105,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/workflow-executions/{execution_id}/reset": {
+  "/workspaces/{workspace_id}/workflow-executions/{execution_id}/reset": {
     post: {
       req: WorkflowExecutionsResetWorkflowExecutionData
       res: {
@@ -11594,7 +13120,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/workflow-executions/reset/bulk": {
+  "/workspaces/{workspace_id}/workflow-executions/reset/bulk": {
     post: {
       req: WorkflowExecutionsBulkResetWorkflowExecutionsData
       res: {
@@ -11609,7 +13135,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/workflow-executions/{execution_id}": {
+  "/workspaces/{workspace_id}/workflow-executions/{execution_id}": {
     get: {
       req: WorkflowExecutionsGetWorkflowExecutionData
       res: {
@@ -11624,7 +13150,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/workflow-executions/{execution_id}/compact": {
+  "/workspaces/{workspace_id}/workflow-executions/{execution_id}/compact": {
     get: {
       req: WorkflowExecutionsGetWorkflowExecutionCompactData
       res: {
@@ -11639,7 +13165,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/workflow-executions/{execution_id}/objects/download": {
+  "/workspaces/{workspace_id}/workflow-executions/{execution_id}/objects/download": {
     post: {
       req: WorkflowExecutionsGetWorkflowExecutionObjectDownloadData
       res: {
@@ -11654,7 +13180,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/workflow-executions/{execution_id}/objects/preview": {
+  "/workspaces/{workspace_id}/workflow-executions/{execution_id}/objects/preview": {
     post: {
       req: WorkflowExecutionsGetWorkflowExecutionObjectPreviewData
       res: {
@@ -11669,7 +13195,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/workflow-executions/{execution_id}/objects/collection/page": {
+  "/workspaces/{workspace_id}/workflow-executions/{execution_id}/objects/collection/page": {
     post: {
       req: WorkflowExecutionsGetWorkflowExecutionCollectionPageData
       res: {
@@ -11684,7 +13210,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/workflow-executions/draft": {
+  "/workspaces/{workspace_id}/workflow-executions/draft": {
     post: {
       req: WorkflowExecutionsCreateDraftWorkflowExecutionData
       res: {
@@ -11699,7 +13225,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/workflow-executions/{execution_id}/cancel": {
+  "/workspaces/{workspace_id}/workflow-executions/{execution_id}/cancel": {
     post: {
       req: WorkflowExecutionsCancelWorkflowExecutionData
       res: {
@@ -11714,7 +13240,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/workflow-executions/{execution_id}/terminate": {
+  "/workspaces/{workspace_id}/workflow-executions/{execution_id}/terminate": {
     post: {
       req: WorkflowExecutionsTerminateWorkflowExecutionData
       res: {
@@ -11729,7 +13255,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/actions/batch-positions": {
+  "/workspaces/{workspace_id}/actions/batch-positions": {
     post: {
       req: ActionsBatchUpdatePositionsData
       res: {
@@ -11744,7 +13270,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/actions": {
+  "/workspaces/{workspace_id}/actions": {
     get: {
       req: ActionsListActionsData
       res: {
@@ -11772,7 +13298,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/actions/{action_id}": {
+  "/workspaces/{workspace_id}/actions/{action_id}": {
     get: {
       req: ActionsGetActionData
       res: {
@@ -11813,7 +13339,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/workflows/{workflow_id}/tags": {
+  "/workspaces/{workspace_id}/workflows/{workflow_id}/tags": {
     get: {
       req: WorkflowsListTagsData
       res: {
@@ -11841,7 +13367,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/workflows/{workflow_id}/tags/{tag_id}": {
+  "/workspaces/{workspace_id}/workflows/{workflow_id}/tags/{tag_id}": {
     delete: {
       req: WorkflowsRemoveTagData
       res: {
@@ -11856,7 +13382,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/workflows/{workflow_id}/publish": {
+  "/workspaces/{workspace_id}/workflows/{workflow_id}/publish": {
     post: {
       req: WorkflowsPublishWorkflowData
       res: {
@@ -11871,7 +13397,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/workflows/sync/commits": {
+  "/workspaces/{workspace_id}/workflows/sync/commits": {
     get: {
       req: WorkflowsListWorkflowCommitsData
       res: {
@@ -11886,7 +13412,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/workflows/sync/branches": {
+  "/workspaces/{workspace_id}/workflows/sync/branches": {
     get: {
       req: WorkflowsListWorkflowBranchesData
       res: {
@@ -11901,7 +13427,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/workflows/sync/pull": {
+  "/workspaces/{workspace_id}/workflows/sync/pull": {
     post: {
       req: WorkflowsPullWorkflowsData
       res: {
@@ -11916,7 +13442,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/secrets/search": {
+  "/workspaces/{workspace_id}/secrets/search": {
     get: {
       req: SecretsSearchSecretsData
       res: {
@@ -11931,7 +13457,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/secrets": {
+  "/workspaces/{workspace_id}/secrets": {
     get: {
       req: SecretsListSecretsData
       res: {
@@ -11959,7 +13485,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/secrets/definitions": {
+  "/workspaces/{workspace_id}/secrets/definitions": {
     get: {
       req: SecretsListSecretDefinitionsData
       res: {
@@ -11974,7 +13500,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/secrets/aws-assume-role": {
+  "/workspaces/{workspace_id}/secrets/aws-assume-role": {
     get: {
       req: SecretsGetAwsAssumeRoleAccessData
       res: {
@@ -11989,7 +13515,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/secrets/{secret_name}": {
+  "/workspaces/{workspace_id}/secrets/{secret_name}": {
     get: {
       req: SecretsGetSecretByNameData
       res: {
@@ -12004,7 +13530,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/secrets/{secret_id}": {
+  "/workspaces/{workspace_id}/secrets/{secret_id}": {
     post: {
       req: SecretsUpdateSecretByIdData
       res: {
@@ -12032,7 +13558,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/variables/search": {
+  "/workspaces/{workspace_id}/variables/search": {
     get: {
       req: VariablesSearchVariablesData
       res: {
@@ -12047,7 +13573,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/variables": {
+  "/workspaces/{workspace_id}/variables": {
     get: {
       req: VariablesListVariablesData
       res: {
@@ -12075,7 +13601,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/variables/{variable_name}": {
+  "/workspaces/{workspace_id}/variables/{variable_name}": {
     get: {
       req: VariablesGetVariableByNameData
       res: {
@@ -12090,7 +13616,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/variables/{variable_id}": {
+  "/workspaces/{workspace_id}/variables/{variable_id}": {
     post: {
       req: VariablesUpdateVariableByIdData
       res: {
@@ -12118,7 +13644,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/schedules": {
+  "/workspaces/{workspace_id}/schedules": {
     get: {
       req: SchedulesListSchedulesData
       res: {
@@ -12146,7 +13672,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/schedules/{schedule_id}": {
+  "/workspaces/{workspace_id}/schedules/{schedule_id}": {
     get: {
       req: SchedulesGetScheduleData
       res: {
@@ -12187,7 +13713,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/schedules/search": {
+  "/workspaces/{workspace_id}/schedules/search": {
     get: {
       req: SchedulesSearchSchedulesData
       res: {
@@ -12202,7 +13728,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/tags": {
+  "/workspaces/{workspace_id}/tags": {
     get: {
       req: TagsListTagsData
       res: {
@@ -12230,7 +13756,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/tags/{tag_id}": {
+  "/workspaces/{workspace_id}/tags/{tag_id}": {
     get: {
       req: TagsGetTagData
       res: {
@@ -12504,6 +14030,145 @@ export type $OpenApiTs = {
       }
     }
   }
+  "/organization/service-accounts": {
+    get: {
+      req: ServiceAccountsListOrganizationServiceAccountsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: CursorPaginatedResponse_ServiceAccountRead_
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    post: {
+      req: ServiceAccountsCreateOrganizationServiceAccountData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: ServiceAccountApiKeyIssueResponse
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/organization/service-accounts/scopes": {
+    get: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: ServiceAccountScopeList
+      }
+    }
+  }
+  "/organization/service-accounts/{service_account_id}": {
+    get: {
+      req: ServiceAccountsGetOrganizationServiceAccountData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: ServiceAccountRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    patch: {
+      req: ServiceAccountsUpdateOrganizationServiceAccountData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: ServiceAccountRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/organization/service-accounts/{service_account_id}/api-keys": {
+    get: {
+      req: ServiceAccountsListOrganizationServiceAccountApiKeysData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: CursorPaginatedResponse_ServiceAccountApiKeyRead_
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    post: {
+      req: ServiceAccountsCreateOrganizationServiceAccountApiKeyData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: ServiceAccountApiKeyIssueResponse
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/organization/service-accounts/{service_account_id}/disable": {
+    post: {
+      req: ServiceAccountsDisableOrganizationServiceAccountData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/organization/service-accounts/{service_account_id}/enable": {
+    post: {
+      req: ServiceAccountsEnableOrganizationServiceAccountData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/organization/service-accounts/{service_account_id}/api-keys/{api_key_id}/revoke": {
+    post: {
+      req: ServiceAccountsRevokeOrganizationServiceAccountApiKeyData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
   "/agent/models": {
     get: {
       res: {
@@ -12627,8 +14292,257 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
+        200: DefaultModelSelection
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/agent/default-model-selection": {
+    get: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: DefaultModelSelection | null
+      }
+    }
+    put: {
+      req: AgentSetDefaultModelSelectionData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: DefaultModelSelection
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/organization/agent-catalog": {
+    get: {
+      req: ListCatalogData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: AgentCatalogListResponse
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    post: {
+      req: CreateCatalogEntryData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: AgentCatalogRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/organization/agent-catalog/{catalog_id}": {
+    get: {
+      req: GetCatalogEntryData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: AgentCatalogRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    patch: {
+      req: UpdateCatalogEntryData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: AgentCatalogRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    delete: {
+      req: DeleteCatalogEntryData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/agent-models": {
+    get: {
+      req: GetWorkspaceModelsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: AgentCatalogListResponse
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/organization/agent-model-access": {
+    post: {
+      req: EnableModelData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: AgentModelAccessRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    get: {
+      req: ListEnabledModelsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: AgentModelAccessListResponse
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/organization/agent-model-access/{access_id}": {
+    delete: {
+      req: DisableModelData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/organization/agent-custom-providers": {
+    post: {
+      req: CreateCustomProviderData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: AgentCustomProviderRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    get: {
+      req: ListCustomProvidersData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: AgentCustomProviderListResponse
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/organization/agent-custom-providers/{provider_id}": {
+    get: {
+      req: GetCustomProviderData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: AgentCustomProviderRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    patch: {
+      req: UpdateCustomProviderData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: AgentCustomProviderRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    delete: {
+      req: DeleteCustomProviderData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/organization/agent-custom-providers/{provider_id}/refresh": {
+    post: {
+      req: RefreshCustomProviderCatalogData
+      res: {
+        /**
+         * Successful Response
+         */
+        202: unknown
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/organization/agent-custom-providers/validate": {
+    post: {
+      req: ValidateCustomProviderConnectionData
+      res: {
+        /**
+         * Successful Response
+         */
         200: {
-          [key: string]: string
+          [key: string]: boolean
         }
         /**
          * Validation Error
@@ -12637,7 +14551,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/agent/workspace/providers/status": {
+  "/workspaces/{workspace_id}/agent/workspace/providers/status": {
     get: {
       req: AgentGetWorkspaceProvidersStatusData
       res: {
@@ -12654,7 +14568,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/agent/channels/tokens": {
+  "/workspaces/{workspace_id}/agent/channels/tokens": {
     post: {
       req: AgentChannelsCreateChannelTokenData
       res: {
@@ -12682,7 +14596,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/agent/channels/tokens/{token_id}": {
+  "/workspaces/{workspace_id}/agent/channels/tokens/{token_id}": {
     patch: {
       req: AgentChannelsUpdateChannelTokenData
       res: {
@@ -12710,7 +14624,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/agent/channels/tokens/{token_id}/rotate": {
+  "/workspaces/{workspace_id}/agent/channels/tokens/{token_id}/rotate": {
     post: {
       req: AgentChannelsRotateChannelTokenData
       res: {
@@ -12725,7 +14639,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/agent/channels/tokens/slack/oauth/start": {
+  "/workspaces/{workspace_id}/agent/channels/tokens/slack/oauth/start": {
     post: {
       req: AgentChannelsStartSlackOauthData
       res: {
@@ -12740,7 +14654,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/agent/presets": {
+  "/workspaces/{workspace_id}/agent/presets": {
     get: {
       req: AgentPresetsListAgentPresetsData
       res: {
@@ -12768,7 +14682,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/agent/presets/{preset_id}": {
+  "/workspaces/{workspace_id}/agent/presets/{preset_id}": {
     get: {
       req: AgentPresetsGetAgentPresetData
       res: {
@@ -12809,7 +14723,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/agent/presets/by-slug/{slug}": {
+  "/workspaces/{workspace_id}/agent/presets/by-slug/{slug}": {
     get: {
       req: AgentPresetsGetAgentPresetBySlugData
       res: {
@@ -12824,7 +14738,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/agent/presets/{preset_id}/versions": {
+  "/workspaces/{workspace_id}/agent/presets/{preset_id}/versions": {
     get: {
       req: AgentPresetsListAgentPresetVersionsData
       res: {
@@ -12839,7 +14753,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/agent/presets/{preset_id}/versions/{version_id}": {
+  "/workspaces/{workspace_id}/agent/presets/{preset_id}/versions/{version_id}": {
     get: {
       req: AgentPresetsGetAgentPresetVersionData
       res: {
@@ -12854,7 +14768,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/agent/presets/{preset_id}/versions/{version_id}/compare": {
+  "/workspaces/{workspace_id}/agent/presets/{preset_id}/versions/{version_id}/compare": {
     get: {
       req: AgentPresetsCompareAgentPresetVersionsData
       res: {
@@ -12869,7 +14783,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/agent/presets/{preset_id}/versions/{version_id}/restore": {
+  "/workspaces/{workspace_id}/agent/presets/{preset_id}/versions/{version_id}/restore": {
     post: {
       req: AgentPresetsRestoreAgentPresetVersionData
       res: {
@@ -12884,7 +14798,211 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/agent/sessions": {
+  "/workspaces/{workspace_id}/agent/skills": {
+    get: {
+      req: AgentSkillsListSkillsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: CursorPaginatedResponse_SkillReadMinimal_
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    post: {
+      req: AgentSkillsCreateSkillData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: SkillRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/agent/skills:upload": {
+    post: {
+      req: AgentSkillsUploadSkillData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: SkillRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/agent/skills/{skill_id}": {
+    get: {
+      req: AgentSkillsGetSkillData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: SkillRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    delete: {
+      req: AgentSkillsArchiveSkillData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/agent/skills/{skill_id}/draft": {
+    get: {
+      req: AgentSkillsGetSkillDraftData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: SkillDraftRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    patch: {
+      req: AgentSkillsPatchSkillDraftData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: SkillDraftRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/agent/skills/{skill_id}/draft/file": {
+    get: {
+      req: AgentSkillsGetSkillDraftFileData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: SkillDraftFileRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/agent/skills/{skill_id}/draft/uploads": {
+    post: {
+      req: AgentSkillsCreateSkillDraftUploadData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: SkillUploadSessionRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/agent/skills/{skill_id}/publish": {
+    post: {
+      req: AgentSkillsPublishSkillData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: SkillVersionRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/agent/skills/{skill_id}/versions": {
+    get: {
+      req: AgentSkillsListSkillVersionsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: CursorPaginatedResponse_SkillVersionReadMinimal_
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/agent/skills/{skill_id}/versions/{version_id}": {
+    get: {
+      req: AgentSkillsGetSkillVersionData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: SkillVersionRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/agent/skills/{skill_id}/versions/{version_id}/file": {
+    get: {
+      req: AgentSkillsGetSkillVersionFileData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: SkillDraftFileRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/agent/skills/{skill_id}/versions/{version_id}/restore": {
+    post: {
+      req: AgentSkillsRestoreSkillVersionData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: SkillReadMinimal
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/agent/sessions": {
     post: {
       req: AgentSessionsCreateSessionData
       res: {
@@ -12912,7 +15030,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/agent/sessions/{session_id}": {
+  "/workspaces/{workspace_id}/agent/sessions/{session_id}": {
     get: {
       req: AgentSessionsGetSessionData
       res: {
@@ -12953,7 +15071,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/agent/sessions/{session_id}/vercel": {
+  "/workspaces/{workspace_id}/agent/sessions/{session_id}/vercel": {
     get: {
       req: AgentSessionsGetSessionVercelData
       res: {
@@ -12968,7 +15086,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/agent/sessions/{session_id}/messages": {
+  "/workspaces/{workspace_id}/agent/sessions/{session_id}/messages": {
     post: {
       req: AgentSessionsSendMessageData
       res: {
@@ -12983,7 +15101,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/agent/sessions/{session_id}/stream": {
+  "/workspaces/{workspace_id}/agent/sessions/{session_id}/stream": {
     get: {
       req: AgentSessionsStreamSessionEventsData
       res: {
@@ -12998,7 +15116,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/agent/sessions/{session_id}/fork": {
+  "/workspaces/{workspace_id}/agent/sessions/{session_id}/fork": {
     post: {
       req: AgentSessionsForkSessionData
       res: {
@@ -13013,7 +15131,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/approvals/{session_id}": {
+  "/workspaces/{workspace_id}/approvals/{session_id}": {
     post: {
       req: ApprovalsSubmitApprovalsData
       res: {
@@ -13170,6 +15288,64 @@ export type $OpenApiTs = {
     }
     delete: {
       req: AdminDeleteOrganizationData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/admin/organizations/{org_id}/invitations": {
+    post: {
+      req: AdminCreateOrganizationInvitationData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: AdminOrgInvitationCreateResponse
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    get: {
+      req: AdminListOrganizationInvitationsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: CursorPaginatedResponse_AdminOrgInvitationRead_
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/admin/organizations/{org_id}/invitations/{invitation_id}/token": {
+    get: {
+      req: AdminGetOrganizationInvitationTokenData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: AdminOrgInvitationTokenRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/admin/organizations/{org_id}/invitations/{invitation_id}": {
+    delete: {
+      req: AdminRevokeOrganizationInvitationData
       res: {
         /**
          * Successful Response
@@ -13501,6 +15677,21 @@ export type $OpenApiTs = {
       }
     }
   }
+  "/admin/agent/catalog": {
+    get: {
+      req: AdminAgentListPlatformCatalogData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: AgentCatalogListResponse
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
   "/admin/registry/repos": {
     get: {
       res: {
@@ -13596,7 +15787,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/inbox/items": {
+  "/workspaces/{workspace_id}/inbox/items": {
     get: {
       req: InboxListItemsData
       res: {
@@ -13611,7 +15802,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/editor/functions": {
+  "/workspaces/{workspace_id}/editor/functions": {
     get: {
       req: EditorListFunctionsData
       res: {
@@ -13626,7 +15817,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/editor/actions": {
+  "/workspaces/{workspace_id}/editor/actions": {
     get: {
       req: EditorListActionsData
       res: {
@@ -13641,7 +15832,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/editor/expressions/validate": {
+  "/workspaces/{workspace_id}/editor/expressions/validate": {
     post: {
       req: EditorValidateExpressionData
       res: {
@@ -13656,13 +15847,18 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/editor/field-schema": {
+  "/workspaces/{workspace_id}/editor/field-schema": {
     get: {
+      req: EditorFieldSchemaData
       res: {
         /**
          * Successful Response
          */
         200: EditorComponent
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
       }
     }
   }
@@ -14059,7 +16255,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/tables": {
+  "/workspaces/{workspace_id}/tables": {
     get: {
       req: TablesListTablesData
       res: {
@@ -14087,7 +16283,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/tables/{table_id}": {
+  "/workspaces/{workspace_id}/tables/{table_id}": {
     get: {
       req: TablesGetTableData
       res: {
@@ -14128,7 +16324,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/tables/{table_id}/columns": {
+  "/workspaces/{workspace_id}/tables/{table_id}/columns": {
     post: {
       req: TablesCreateColumnData
       res: {
@@ -14143,7 +16339,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/tables/{table_id}/columns/{column_id}": {
+  "/workspaces/{workspace_id}/tables/{table_id}/columns/{column_id}": {
     patch: {
       req: TablesUpdateColumnData
       res: {
@@ -14171,7 +16367,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/tables/{table_id}/rows": {
+  "/workspaces/{workspace_id}/tables/{table_id}/rows": {
     get: {
       req: TablesListRowsData
       res: {
@@ -14199,7 +16395,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/tables/{table_id}/rows/{row_id}": {
+  "/workspaces/{workspace_id}/tables/{table_id}/rows/{row_id}": {
     get: {
       req: TablesGetRowData
       res: {
@@ -14240,7 +16436,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/tables/{table_id}/rows/batch": {
+  "/workspaces/{workspace_id}/tables/{table_id}/rows/batch": {
     post: {
       req: TablesBatchInsertRowsData
       res: {
@@ -14255,7 +16451,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/tables/{table_id}/rows/batch-delete": {
+  "/workspaces/{workspace_id}/tables/{table_id}/rows/batch-delete": {
     post: {
       req: TablesBatchDeleteRowsData
       res: {
@@ -14270,7 +16466,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/tables/{table_id}/rows/batch-update": {
+  "/workspaces/{workspace_id}/tables/{table_id}/rows/batch-update": {
     post: {
       req: TablesBatchUpdateRowsData
       res: {
@@ -14285,7 +16481,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/tables/import": {
+  "/workspaces/{workspace_id}/tables/import": {
     post: {
       req: TablesImportTableFromCsvData
       res: {
@@ -14300,7 +16496,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/tables/{table_id}/import": {
+  "/workspaces/{workspace_id}/tables/{table_id}/import": {
     post: {
       req: TablesImportCsvData
       res: {
@@ -14315,7 +16511,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/cases": {
+  "/workspaces/{workspace_id}/cases": {
     get: {
       req: CasesListCasesData
       res: {
@@ -14343,7 +16539,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/cases/search": {
+  "/workspaces/{workspace_id}/cases/search": {
     get: {
       req: CasesSearchCasesData
       res: {
@@ -14358,7 +16554,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/cases/search/aggregate": {
+  "/workspaces/{workspace_id}/cases/search/aggregate": {
     get: {
       req: CasesSearchCaseAggregatesData
       res: {
@@ -14373,7 +16569,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/cases/{case_id}": {
+  "/workspaces/{workspace_id}/cases/{case_id}": {
     get: {
       req: CasesGetCaseData
       res: {
@@ -14414,7 +16610,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/cases/{case_id}/comments": {
+  "/workspaces/{workspace_id}/cases/{case_id}/comments": {
     get: {
       req: CasesListCommentsData
       res: {
@@ -14442,7 +16638,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/cases/{case_id}/comments/threads": {
+  "/workspaces/{workspace_id}/cases/{case_id}/comments/threads": {
     get: {
       req: CasesListCommentThreadsData
       res: {
@@ -14457,7 +16653,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/cases/{case_id}/comments/{comment_id}": {
+  "/workspaces/{workspace_id}/cases/{case_id}/comments/{comment_id}": {
     patch: {
       req: CasesUpdateCommentData
       res: {
@@ -14485,7 +16681,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/cases/{case_id}/events": {
+  "/workspaces/{workspace_id}/cases/{case_id}/events": {
     get: {
       req: CasesListEventsWithUsersData
       res: {
@@ -14500,7 +16696,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/cases/{case_id}/tasks": {
+  "/workspaces/{workspace_id}/cases/{case_id}/tasks": {
     get: {
       req: CasesListTasksData
       res: {
@@ -14528,7 +16724,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/cases/{case_id}/tasks/{task_id}": {
+  "/workspaces/{workspace_id}/cases/{case_id}/tasks/{task_id}": {
     patch: {
       req: CasesUpdateTaskData
       res: {
@@ -14556,7 +16752,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/cases/{case_id}/rows": {
+  "/workspaces/{workspace_id}/cases/{case_id}/rows": {
     get: {
       req: CasesListCaseRowsData
       res: {
@@ -14584,7 +16780,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/cases/{case_id}/rows/insert": {
+  "/workspaces/{workspace_id}/cases/{case_id}/rows/insert": {
     post: {
       req: CasesInsertCaseRowData
       res: {
@@ -14599,7 +16795,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/cases/{case_id}/rows/{table_id}/{row_id}": {
+  "/workspaces/{workspace_id}/cases/{case_id}/rows/{table_id}/{row_id}": {
     delete: {
       req: CasesUnlinkCaseRowData
       res: {
@@ -14614,7 +16810,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/case-fields": {
+  "/workspaces/{workspace_id}/case-fields": {
     get: {
       req: CasesListFieldsData
       res: {
@@ -14642,7 +16838,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/case-fields/{field_id}": {
+  "/workspaces/{workspace_id}/case-fields/{field_id}": {
     patch: {
       req: CasesUpdateFieldData
       res: {
@@ -14670,7 +16866,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/cases/{case_id}/tags": {
+  "/workspaces/{workspace_id}/cases/{case_id}/tags": {
     get: {
       req: CasesListTagsData
       res: {
@@ -14698,7 +16894,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/cases/{case_id}/tags/{tag_identifier}": {
+  "/workspaces/{workspace_id}/cases/{case_id}/tags/{tag_identifier}": {
     delete: {
       req: CasesRemoveTagData
       res: {
@@ -14713,7 +16909,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/case-tags": {
+  "/workspaces/{workspace_id}/case-tags": {
     get: {
       req: CaseTagsListCaseTagsData
       res: {
@@ -14741,7 +16937,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/case-tags/{tag_id}": {
+  "/workspaces/{workspace_id}/case-tags/{tag_id}": {
     get: {
       req: CaseTagsGetCaseTagData
       res: {
@@ -14782,7 +16978,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/cases/{case_id}/attachments": {
+  "/workspaces/{workspace_id}/cases/{case_id}/attachments": {
     get: {
       req: CaseAttachmentsListAttachmentsData
       res: {
@@ -14810,7 +17006,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/cases/{case_id}/attachments/{attachment_id}": {
+  "/workspaces/{workspace_id}/cases/{case_id}/attachments/{attachment_id}": {
     get: {
       req: CaseAttachmentsDownloadAttachmentData
       res: {
@@ -14838,7 +17034,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/case-dropdowns": {
+  "/workspaces/{workspace_id}/case-dropdowns": {
     get: {
       req: CaseDropdownsListDropdownDefinitionsData
       res: {
@@ -14866,7 +17062,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/case-dropdowns/{definition_id}": {
+  "/workspaces/{workspace_id}/case-dropdowns/{definition_id}": {
     get: {
       req: CaseDropdownsGetDropdownDefinitionData
       res: {
@@ -14907,7 +17103,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/case-dropdowns/{definition_id}/options": {
+  "/workspaces/{workspace_id}/case-dropdowns/{definition_id}/options": {
     post: {
       req: CaseDropdownsAddDropdownOptionData
       res: {
@@ -14922,7 +17118,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/case-dropdowns/{definition_id}/options/{option_id}": {
+  "/workspaces/{workspace_id}/case-dropdowns/{definition_id}/options/{option_id}": {
     patch: {
       req: CaseDropdownsUpdateDropdownOptionData
       res: {
@@ -14950,7 +17146,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/case-dropdowns/{definition_id}/options/reorder": {
+  "/workspaces/{workspace_id}/case-dropdowns/{definition_id}/options/reorder": {
     put: {
       req: CaseDropdownsReorderDropdownOptionsData
       res: {
@@ -14965,7 +17161,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/cases/{case_id}/dropdowns": {
+  "/workspaces/{workspace_id}/cases/{case_id}/dropdowns": {
     get: {
       req: CasesListCaseDropdownValuesData
       res: {
@@ -14980,7 +17176,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/cases/{case_id}/dropdowns/{definition_id}": {
+  "/workspaces/{workspace_id}/cases/{case_id}/dropdowns/{definition_id}": {
     put: {
       req: CasesSetCaseDropdownValueData
       res: {
@@ -14995,7 +17191,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/case-durations": {
+  "/workspaces/{workspace_id}/case-durations": {
     get: {
       req: CaseDurationsListCaseDurationDefinitionsData
       res: {
@@ -15023,7 +17219,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/case-durations/{duration_id}": {
+  "/workspaces/{workspace_id}/case-durations/{duration_id}": {
     get: {
       req: CaseDurationsGetCaseDurationDefinitionData
       res: {
@@ -15064,7 +17260,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/cases/{case_id}/durations": {
+  "/workspaces/{workspace_id}/cases/{case_id}/durations": {
     get: {
       req: CaseDurationsListCaseDurationsData
       res: {
@@ -15092,7 +17288,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/cases/{case_id}/durations/{duration_id}": {
+  "/workspaces/{workspace_id}/cases/{case_id}/durations/{duration_id}": {
     get: {
       req: CaseDurationsGetCaseDurationData
       res: {
@@ -15133,7 +17329,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/folders/directory": {
+  "/workspaces/{workspace_id}/folders/directory": {
     get: {
       req: FoldersGetDirectoryData
       res: {
@@ -15148,7 +17344,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/folders": {
+  "/workspaces/{workspace_id}/folders": {
     get: {
       req: FoldersListFoldersData
       res: {
@@ -15176,7 +17372,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/folders/{folder_id}": {
+  "/workspaces/{workspace_id}/folders/{folder_id}": {
     get: {
       req: FoldersGetFolderData
       res: {
@@ -15217,7 +17413,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/folders/{folder_id}/move": {
+  "/workspaces/{workspace_id}/folders/{folder_id}/move": {
     post: {
       req: FoldersMoveFolderData
       res: {
@@ -15247,7 +17443,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/integrations": {
+  "/workspaces/{workspace_id}/integrations": {
     get: {
       req: IntegrationsListIntegrationsData
       res: {
@@ -15262,7 +17458,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/integrations/{provider_id}": {
+  "/workspaces/{workspace_id}/integrations/{provider_id}": {
     get: {
       req: IntegrationsGetIntegrationData
       res: {
@@ -15303,7 +17499,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/integrations/{provider_id}/connect": {
+  "/workspaces/{workspace_id}/integrations/{provider_id}/connect": {
     post: {
       req: IntegrationsConnectProviderData
       res: {
@@ -15318,7 +17514,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/integrations/{provider_id}/disconnect": {
+  "/workspaces/{workspace_id}/integrations/{provider_id}/disconnect": {
     post: {
       req: IntegrationsDisconnectIntegrationData
       res: {
@@ -15333,7 +17529,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/integrations/{provider_id}/test": {
+  "/workspaces/{workspace_id}/integrations/{provider_id}/test": {
     post: {
       req: IntegrationsTestConnectionData
       res: {
@@ -15348,7 +17544,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/providers": {
+  "/workspaces/{workspace_id}/providers": {
     post: {
       req: ProvidersCreateCustomProviderData
       res: {
@@ -15376,7 +17572,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/providers/{provider_id}": {
+  "/workspaces/{workspace_id}/providers/{provider_id}": {
     get: {
       req: ProvidersGetProviderData
       res: {
@@ -15391,7 +17587,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/mcp-integrations": {
+  "/workspaces/{workspace_id}/mcp-integrations": {
     post: {
       req: McpIntegrationsCreateMcpIntegrationData
       res: {
@@ -15419,7 +17615,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/mcp-integrations/{mcp_integration_id}": {
+  "/workspaces/{workspace_id}/mcp-integrations/{mcp_integration_id}": {
     get: {
       req: McpIntegrationsGetMcpIntegrationData
       res: {

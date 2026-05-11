@@ -214,7 +214,7 @@ class TestMCPIntegrationCRUD:
             session=integration_service.session,
             role=integration_service.role,
         )
-        resolved = await preset_service._resolve_mcp_integrations([str(created.id)])
+        resolved = await preset_service.resolve_mcp_integrations([str(created.id)])
 
         assert resolved is not None
         assert len(resolved) == 1
@@ -246,7 +246,7 @@ class TestMCPIntegrationCRUD:
             session=integration_service.session,
             role=integration_service.role,
         )
-        resolved = await preset_service._resolve_mcp_integrations([str(created.id)])
+        resolved = await preset_service.resolve_mcp_integrations([str(created.id)])
 
         assert resolved is not None
         assert len(resolved) == 1
@@ -276,7 +276,7 @@ class TestMCPIntegrationCRUD:
             session=integration_service.session,
             role=integration_service.role,
         )
-        resolved = await preset_service._resolve_mcp_integrations([str(created.id)])
+        resolved = await preset_service.resolve_mcp_integrations([str(created.id)])
 
         assert resolved is not None
         assert len(resolved) == 1

@@ -1,14 +1,18 @@
 .simple-editor-wrapper {
   width: 100%;
+  max-width: 100%;
   height: auto;
+  min-width: 0;
+  min-height: 0;
+}
+
+.simple-editor-wrapper--readonly {
+  display: flex;
+  flex-direction: column;
 }
 
 .simple-editor-toolbar {
-  --tt-toolbar-bg-color: color-mix(
-    in srgb,
-    hsl(var(--muted)) 20%,
-    hsl(var(--background)) 80%
-  );
+  --tt-toolbar-bg-color: transparent;
 
   position: relative;
   min-height: var(--tt-toolbar-height);
@@ -129,10 +133,19 @@
   padding: 0;
   display: flex;
   flex-direction: column;
+  min-width: 0;
+}
+
+.simple-editor-content--readonly {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
 }
 
 .simple-editor-content .tiptap.ProseMirror.simple-editor {
   flex: 1;
+  max-width: 100%;
+  min-width: 0;
   min-height: 12rem;
   padding: 0.125rem 0 0.25rem;
   background: transparent;

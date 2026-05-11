@@ -1,0 +1,16 @@
+x-tracecat-ci-image: &tracecat-ci-image
+  image: tracecat-ci:${TRACECAT__CI_IMAGE_TAG:?Set TRACECAT__CI_IMAGE_TAG}
+  pull_policy: never
+
+services:
+  api:
+    <<: *tracecat-ci-image
+
+  worker:
+    <<: *tracecat-ci-image
+
+  executor:
+    <<: *tracecat-ci-image
+
+  migrations:
+    <<: *tracecat-ci-image

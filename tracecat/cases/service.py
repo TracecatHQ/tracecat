@@ -28,6 +28,7 @@ from tracecat.cases.dropdowns.schemas import (
     CaseDropdownValueRead,
 )
 from tracecat.cases.dropdowns.service import CaseDropdownValuesService
+from tracecat.cases.durations.schemas import CaseDurationRead
 from tracecat.cases.durations.service import CaseDurationService
 from tracecat.cases.enums import (
     CaseEventType,
@@ -118,9 +119,19 @@ from tracecat.pagination import (
     CursorPaginationParams,
 )
 from tracecat.service import BaseWorkspaceService, requires_entitlement
-from tracecat.tables.common import normalize_column_options
+from tracecat.tables.common import (
+    coerce_integer_value,
+    coerce_multi_select_value,
+    coerce_numeric_value,
+    coerce_select_value,
+    normalize_column_options,
+)
 from tracecat.tables.enums import SqlType
-from tracecat.tables.service import DYNAMIC_WORKSPACE_TENANT_COLUMN, TablesService
+from tracecat.tables.service import (
+    DYNAMIC_WORKSPACE_TENANT_COLUMN,
+    TablesService,
+    validate_identifier,
+)
 from tracecat.tiers.enums import Entitlement
 
 
@@ -376,9 +387,11 @@ class CasesService(BaseWorkspaceService):
         ]
         | None = None,
         sort: Literal["asc", "desc"] | None = None,
+        include_durations: bool = False,
     ) -> CursorPaginatedResponse[CaseReadMinimal]:
         """Search cases with cursor-based pagination and filtering."""
         paginator = BaseCursorPaginator(self.session)
+        include_case_addons = await self.has_entitlement(Entitlement.CASE_ADDONS)
         filters = self._build_search_filters(
             search_term=search_term,
             short_id=short_id,
@@ -397,7 +410,7 @@ class CasesService(BaseWorkspaceService):
             updated_after=updated_after,
         )
 
-        # Base query - eagerly load tags, assignee, and dropdown values
+        # Base query - eagerly load tags, assignee, and dropdown values.
         stmt = (
             select(Case)
             .options(selectinload(Case.tags))
@@ -413,6 +426,8 @@ class CasesService(BaseWorkspaceService):
                 )
             )
         )
+        if include_case_addons and include_durations:
+            stmt = stmt.options(selectinload(Case.durations))
 
         for clause in filters:
             stmt = stmt.where(clause)
@@ -598,7 +613,6 @@ class CasesService(BaseWorkspaceService):
 
         # Convert to CaseReadMinimal objects with tags and dropdown values
         case_items = []
-        include_dropdown_values = await self.has_entitlement(Entitlement.CASE_ADDONS)
         for case in cases:
             # Tags are already loaded via selectinload
             tag_reads = [
@@ -607,7 +621,8 @@ class CasesService(BaseWorkspaceService):
             ]
 
             dropdown_reads = []
-            if include_dropdown_values:
+            duration_reads: list[CaseDurationRead] | None = None
+            if include_case_addons:
                 # Dropdown values are already loaded via selectinload
                 dropdown_reads = [
                     CaseDropdownValueRead(
@@ -622,6 +637,12 @@ class CasesService(BaseWorkspaceService):
                         option_color=dv.option.color if dv.option else None,
                     )
                     for dv in case.dropdown_values
+                ]
+            if include_case_addons and include_durations and case.durations:
+                # Durations are already loaded via selectinload
+                duration_reads = [
+                    CaseDurationRead.model_validate(d, from_attributes=True)
+                    for d in case.durations
                 ]
 
             case_items.append(
@@ -641,6 +662,7 @@ class CasesService(BaseWorkspaceService):
                     else None,
                     tags=tag_reads,
                     dropdown_values=dropdown_reads,
+                    durations=duration_reads,
                     num_tasks_completed=task_counts[case.id]["completed"],
                     num_tasks_total=task_counts[case.id]["total"],
                 )
@@ -752,12 +774,14 @@ class CasesService(BaseWorkspaceService):
         ]
         | None = None,
         sort: Literal["asc", "desc"] | None = None,
+        include_durations: bool = False,
     ) -> CursorPaginatedResponse[CaseReadMinimal]:
         """List cases with a simplified default search query."""
         return await self.search_cases(
             params=CursorPaginationParams(limit=limit, cursor=cursor, reverse=reverse),
             order_by=order_by,
             sort=sort,
+            include_durations=include_durations,
         )
 
     async def get_case(
@@ -906,13 +930,9 @@ class CasesService(BaseWorkspaceService):
                     missing_fields.append(name)
 
         # --- Dropdown definitions ---
-        stmt = (
-            select(CaseDropdownDefinition)
-            .where(
-                CaseDropdownDefinition.workspace_id == self.workspace_id,
-                CaseDropdownDefinition.required_on_closure.is_(True),
-            )
-            .options(selectinload(CaseDropdownDefinition.options))
+        stmt = select(CaseDropdownDefinition).where(
+            CaseDropdownDefinition.workspace_id == self.workspace_id,
+            CaseDropdownDefinition.required_on_closure.is_(True),
         )
         result = await self.session.execute(stmt)
         required_defs = result.scalars().all()
@@ -934,7 +954,15 @@ class CasesService(BaseWorkspaceService):
                                 def_id = rd.id
                                 break
                     if def_id is not None:
-                        current_dropdown_map[def_id] = validated.option_id
+                        option_id = validated.option_id
+                        if option_id is None and validated.option_ref is not None:
+                            option_id = await self.session.scalar(
+                                select(CaseDropdownOption.id).where(
+                                    CaseDropdownOption.definition_id == def_id,
+                                    CaseDropdownOption.ref == validated.option_ref,
+                                )
+                            )
+                        current_dropdown_map[def_id] = option_id
 
             for defn in required_defs:
                 if not current_dropdown_map.get(defn.id):
@@ -1037,22 +1065,24 @@ class CasesService(BaseWorkspaceService):
             if not isinstance(fields, dict):
                 raise ValueError("Fields must be a dict")
 
+            normalized_fields = await self.fields.normalize_field_values(fields)
             # Get existing fields for diff calculation
             existing_fields = await self.fields.get_fields(case) or {}
 
             # Upsert the field values (handles both create and update)
-            await self.fields.upsert_field_values(case, fields)
+            await self.fields.upsert_field_values(case, normalized_fields)
 
             # Calculate diffs for event
             diffs = []
-            for field, value in fields.items():
+            for field, value in normalized_fields.items():
                 old_value = existing_fields.get(field)
                 if old_value != value:
                     diffs.append(FieldDiff(field=field, old=old_value, new=value))
-            await self.events.create_event(
-                case=case,
-                event=FieldsChangedEvent(changes=diffs, wf_exec_id=wf_exec_id),
-            )
+            if diffs:
+                await self.events.create_event(
+                    case=case,
+                    event=FieldsChangedEvent(changes=diffs, wf_exec_id=wf_exec_id),
+                )
 
         if dropdown_values is not None:
             # Update paths keep the same persisted payload shape as create:
@@ -1209,6 +1239,75 @@ class CaseFieldsService(CustomFieldsService):
         schema = result.scalar_one_or_none()
         return schema or {}
 
+    async def normalize_field_values(self, fields: dict[str, Any]) -> dict[str, Any]:
+        """Normalize case field values to their storage types."""
+        if not fields:
+            return {}
+
+        schema = await self.get_field_schema()
+        reflected_types: dict[str, SqlType] = {}
+        for column in await self.editor.get_columns():
+            column_name = column.get("name")
+            if (
+                isinstance(column_name, str)
+                and column_name not in self._reserved_columns
+            ):
+                reflected_types[column_name] = SqlType(
+                    _normalize_case_field_read_type(column["type"]).value
+                )
+        normalized: dict[str, Any] = {}
+
+        for field_name, value in fields.items():
+            field_type = reflected_types.get(field_name)
+            field_options: list[str] | None = None
+            if isinstance(schema_def := schema.get(field_name), dict):
+                field_options = schema_def.get("options")
+                if raw_type := schema_def.get("type"):
+                    schema_field_type = SqlType(
+                        _normalize_case_field_read_type(raw_type).value
+                    )
+                    if field_type is None or (
+                        schema_field_type is SqlType.SELECT
+                        and field_type is SqlType.TEXT
+                    ):
+                        field_type = schema_field_type
+                    elif (
+                        schema_field_type is SqlType.MULTI_SELECT
+                        and field_type is SqlType.JSONB
+                    ):
+                        field_type = schema_field_type
+
+            if value is None or field_type is None:
+                normalized[field_name] = value
+            elif field_type is SqlType.INTEGER:
+                normalized[field_name] = coerce_integer_value(value)
+            elif field_type is SqlType.NUMERIC:
+                normalized[field_name] = coerce_numeric_value(value)
+            elif field_type is SqlType.TEXT:
+                if isinstance(value, dict | list | tuple | set):
+                    raise ValueError(
+                        f"Custom field '{field_name}' expects TEXT but received "
+                        f"{type(value).__name__}."
+                    )
+                normalized[field_name] = value if isinstance(value, str) else str(value)
+            elif field_type is SqlType.SELECT:
+                if isinstance(value, dict | list | tuple | set):
+                    raise ValueError(
+                        f"Custom field '{field_name}' expects SELECT but received "
+                        f"{type(value).__name__}."
+                    )
+                normalized[field_name] = coerce_select_value(
+                    value, options=field_options
+                )
+            elif field_type is SqlType.MULTI_SELECT:
+                normalized[field_name] = coerce_multi_select_value(
+                    value, options=field_options
+                )
+            else:
+                normalized[field_name] = value
+
+        return normalized
+
     async def _update_field_schema(
         self, field_id: str, field_def: dict[str, Any] | None
     ) -> None:
@@ -1361,6 +1460,56 @@ class CaseFieldsService(CustomFieldsService):
         )
         return await self.editor.get_row(row_id) if row_id else None
 
+    async def batch_get_fields(
+        self, case_ids: list[uuid.UUID], field_ids: Sequence[str]
+    ) -> dict[uuid.UUID, dict[str, Any]]:
+        """Batch-load custom field values for multiple cases.
+
+        Only selects requested custom-field columns to keep case list hydration
+        proportional to the visible field badges.
+        """
+        if not field_ids:
+            return {}
+        await self._ensure_schema_ready()
+
+        # Validate requested fields against reflected columns so stale or missing
+        # schema metadata does not hide real columns.
+        available_fields = {
+            column_name
+            for column in await self.editor.get_columns()
+            if isinstance((column_name := column.get("name")), str)
+            and column_name not in self._reserved_columns
+        }
+        requested_field_ids: list[str] = []
+        for field_id in dict.fromkeys(field_ids):
+            self._assert_user_field_name_allowed(field_id)
+            normalized_field_id = validate_identifier(field_id)
+            if normalized_field_id in self._reserved_columns:
+                raise ValueError(f"Field {field_id} is a reserved field")
+            if normalized_field_id in available_fields:
+                requested_field_ids.append(normalized_field_id)
+
+        if not case_ids or not requested_field_ids:
+            return {}
+
+        conn = await self.session.connection()
+        stmt = (
+            sa.select(
+                sa.column("case_id"),
+                *(sa.column(field_id) for field_id in requested_field_ids),
+            )
+            .select_from(sa.table(self.sanitized_table_name, schema=self.schema_name))
+            .where(sa.column("case_id").in_(case_ids))
+        )
+        result = await conn.execute(stmt)
+        rows = result.mappings().all()
+        return {
+            row["case_id"]: {
+                k: v for k, v in dict(row).items() if k != "case_id" and v is not None
+            }
+            for row in rows
+        }
+
     @require_scope("case:create", "case:update", require_all=False)
     async def upsert_field_values(
         self, case: Case, fields: dict[str, Any]
@@ -1388,11 +1537,14 @@ class CaseFieldsService(CustomFieldsService):
             )
         for field_name in fields:
             self._assert_user_field_name_allowed(field_name)
+        normalized_fields = await self.normalize_field_values(fields)
         row_id = await self.ensure_workspace_row(case.id)
 
         try:
-            if fields:
-                res = await self.editor.update_row(row_id=row_id, data=fields)
+            if normalized_fields:
+                res = await self.editor.update_row(
+                    row_id=row_id, data=normalized_fields
+                )
                 await self.session.flush()
                 return res
             return await self.editor.get_row(row_id=row_id)
@@ -1403,10 +1555,10 @@ class CaseFieldsService(CustomFieldsService):
                 "Case fields row not found after upsert",
                 row_id=row_id,
                 case_id=case.id,
-                fields=fields,
+                fields=normalized_fields,
                 error=str(e),
             )
-            field_names = list(fields.keys()) if fields else []
+            field_names = list(normalized_fields.keys()) if normalized_fields else []
             field_info = (
                 f" Fields attempted: {', '.join(field_names)}." if field_names else ""
             )
@@ -2052,7 +2204,7 @@ class CaseCommentsService(BaseWorkspaceService):
         )
 
         try:
-            if comment.user_id != self.role.user_id:
+            if self.role.user_id is None or comment.user_id != self.role.user_id:
                 raise TracecatAuthorizationError("You cannot update this comment")
             if comment.deleted_at is not None:
                 raise TracecatValidationError("Deleted comments cannot be updated")
@@ -2115,7 +2267,7 @@ class CaseCommentsService(BaseWorkspaceService):
             TracecatAuthorizationError: If the user doesn't own the comment
         """
 
-        if comment.user_id != self.role.user_id:
+        if self.role.user_id is None or comment.user_id != self.role.user_id:
             raise TracecatAuthorizationError("You can only delete your own comments")
 
         has_replies = comment.parent_id is None and await self._comment_has_replies(

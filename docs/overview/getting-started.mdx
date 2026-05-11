@@ -3,16 +3,10 @@ title: "Getting started"
 ---
 
 import McpInstallation from "/snippets/mcp-installation.mdx";
+import McpInstallationSelfHosted from "/snippets/mcp-installation-self-hosted.mdx";
 
-Join Tracecat Community Cloud or self-host your own instance.
+Self-host your own instance or join Tracecat Community Cloud.
 The easiest way to get started is to connect your agent harness (Claude Code, Cursor, OpenAI Codex) to Tracecat.
-
-## Cloud
-
-Connecting your agent to Tracecat Cloud automatically creates an account for you.
-You can also sign up manually via [https://platform.tracecat.com](https://platform.tracecat.com).
-
-<McpInstallation />
 
 ## Self-host
 
@@ -21,16 +15,29 @@ Check out the full guide [here](/self-hosting/docker-compose) or follow the quic
 
 ```bash
 # Setup environment variables and secrets
-curl -o env.sh https://raw.githubusercontent.com/TracecatHQ/tracecat/1.0.0-beta.37/env.sh
-curl -o .env.example https://raw.githubusercontent.com/TracecatHQ/tracecat/1.0.0-beta.37/.env.example
+curl -o env.sh https://raw.githubusercontent.com/TracecatHQ/tracecat/1.0.0-beta.47/env.sh
+curl -o .env.example https://raw.githubusercontent.com/TracecatHQ/tracecat/1.0.0-beta.47/.env.example
 chmod +x env.sh && ./env.sh
 
 # Download Caddyfile
-curl -o Caddyfile https://raw.githubusercontent.com/TracecatHQ/tracecat/1.0.0-beta.37/Caddyfile
+curl -o Caddyfile https://raw.githubusercontent.com/TracecatHQ/tracecat/1.0.0-beta.47/Caddyfile
 
 # Download Docker Compose file
-curl -o docker-compose.yml https://raw.githubusercontent.com/TracecatHQ/tracecat/1.0.0-beta.37/docker-compose.yml
+curl -o docker-compose.yml https://raw.githubusercontent.com/TracecatHQ/tracecat/1.0.0-beta.47/docker-compose.yml
 
 # Start Tracecat
 docker compose up -d
 ```
+
+## Connect MCP
+
+<McpInstallationSelfHosted />
+
+## Cloud
+
+<Badge icon="credit-card" color="blue" size="lg" shape="pill">Subscription required</Badge>
+
+Connecting your agent to Tracecat Cloud automatically creates an account for you.
+You can also sign up manually via [https://platform.tracecat.com](https://platform.tracecat.com).
+
+<McpInstallation />

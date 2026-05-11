@@ -2,16 +2,18 @@
 
 import {
   BlocksIcon,
+  BotIcon,
   BoxIcon,
   ChevronDown,
-  InboxIcon,
   KeyRound,
   LayersIcon,
-  LayersPlus,
+  ListChecksIcon,
   ListVideoIcon,
   type LucideIcon,
   Plus,
+  Pyramid,
   Table2Icon,
+  TerminalIcon,
   UsersIcon,
   VariableIcon,
   WorkflowIcon,
@@ -19,10 +21,9 @@ import {
 import Link from "next/link"
 import { useParams, usePathname, useRouter } from "next/navigation"
 import type * as React from "react"
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import type { AgentPresetReadMinimal } from "@/client"
 import { useScopeCheck } from "@/components/auth/scope-guard"
-import { CreateCaseDialog } from "@/components/cases/case-create-dialog"
 import {
   LockedFeatureChip,
   LockedFeatureModal,
@@ -62,6 +63,22 @@ function SidebarHeaderContent({ workspaceId }: { workspaceId: string }) {
   return <AppMenu workspaceId={workspaceId} />
 }
 
+type NavItem = {
+  title: string
+  url?: string
+  icon: LucideIcon
+  isActive?: boolean
+  isLocked?: boolean
+  onSelect?: () => void
+  visible?: boolean
+  requiredScope?: string
+  items?: {
+    title: string
+    url: string
+    isActive?: boolean
+  }[]
+}
+
 export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const pathname = usePathname()
   const router = useRouter()
@@ -73,10 +90,9 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const caseId = params?.caseId
   const casesListPath = `${basePath}/cases`
   const isCasesList = pathname === casesListPath
-  const { hasEntitlement, isLoading: entitlementsIsLoading } = useEntitlements()
-  const agentAddonsEnabled = hasEntitlement("agent_addons")
-  const [createCaseDialogOpen, setCreateCaseDialogOpen] = useState(false)
+  const isAgentsRoute = pathname?.startsWith(`${basePath}/agents`) ?? false
   const [lockedFeatureDialogOpen, setLockedFeatureDialogOpen] = useState(false)
+  const [agentsSectionOpen, setAgentsSectionOpen] = useState(isAgentsRoute)
 
   useEffect(() => {
     setSidebarOpenRef.current = setSidebarOpen
@@ -91,20 +107,6 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
     }
   }, [caseId, isCasesList])
 
-  type NavItem = {
-    title: string
-    url?: string
-    icon: LucideIcon
-    isActive?: boolean
-    visible?: boolean
-    requiredScope?: string
-    items?: {
-      title: string
-      url: string
-      isActive?: boolean
-    }[]
-  }
-
   // Scope checks for sidebar items
   const canViewWorkflows = useScopeCheck("workflow:read")
   const canViewAgents = useScopeCheck("agent:read")
@@ -115,24 +117,119 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const canViewActions = useScopeCheck("org:registry:read")
   const canViewInbox = useScopeCheck("inbox:read")
   const canViewMembers = useScopeCheck("workspace:member:read")
+  const canViewServiceAccounts = useScopeCheck("workspace:service_account:read")
+  const canViewMcpAccess = useScopeCheck("workspace:read")
   const canViewCases = useScopeCheck("case:read")
-  const canCreateCase = useScopeCheck("case:create")
-  const { presets, presetsIsLoading } = useAgentPresets(workspaceId, {
-    enabled: agentAddonsEnabled && canViewAgents === true,
+  const shouldLoadEntitlements =
+    canViewAgents === true || canViewServiceAccounts === true
+  const shouldLoadAgentsSection =
+    canViewAgents === true && (agentsSectionOpen || isAgentsRoute)
+  const { hasEntitlement, isLoading: entitlementsIsLoading } = useEntitlements({
+    enabled: shouldLoadEntitlements,
   })
+  const agentAddonsEnabled = hasEntitlement("agent_addons")
+  const serviceAccountsEnabled = hasEntitlement("service_accounts")
+  const { presets, presetsIsLoading } = useAgentPresets(workspaceId, {
+    enabled: shouldLoadAgentsSection && agentAddonsEnabled,
+  })
+
+  useEffect(() => {
+    if (isAgentsRoute) {
+      setAgentsSectionOpen(true)
+    }
+  }, [isAgentsRoute])
 
   const openNewAgentBuilder = () => {
     router.push(`${basePath}/agents/new`)
   }
 
-  const navWorkspace: NavItem[] = [
-    {
-      title: "Workflows",
-      url: `${basePath}/workflows`,
-      icon: WorkflowIcon,
-      isActive: pathname?.startsWith(`${basePath}/workflows`),
-      visible: canViewWorkflows === true,
-    },
+  const navWorkspace: NavItem[] = useMemo(
+    () => [
+      {
+        title: "Workflows",
+        url: `${basePath}/workflows`,
+        icon: WorkflowIcon,
+        isActive: pathname?.startsWith(`${basePath}/workflows`),
+        visible: canViewWorkflows === true,
+      },
+      {
+        title: "Runs",
+        url: `${basePath}/runs`,
+        icon: ListVideoIcon,
+        isActive: pathname?.startsWith(`${basePath}/runs`),
+        visible: canViewWorkflows === true,
+      },
+      {
+        title: "Cases",
+        url: `${basePath}/cases`,
+        icon: LayersIcon,
+        isActive: pathname?.startsWith(`${basePath}/cases`),
+        visible: canViewCases === true,
+      },
+      {
+        title: "Tables",
+        url: `${basePath}/tables`,
+        icon: Table2Icon,
+        isActive: pathname?.startsWith(`${basePath}/tables`),
+        visible: canViewTables === true,
+      },
+      {
+        title: "Variables",
+        url: `${basePath}/variables`,
+        icon: VariableIcon,
+        isActive: pathname?.startsWith(`${basePath}/variables`),
+        visible: canViewVariables === true,
+      },
+      {
+        title: "Credentials",
+        url: `${basePath}/credentials`,
+        icon: KeyRound,
+        isActive: pathname?.startsWith(`${basePath}/credentials`),
+        visible: canViewSecrets === true,
+      },
+      {
+        title: "Integrations",
+        url: `${basePath}/integrations`,
+        icon: BlocksIcon,
+        isActive: pathname?.startsWith(`${basePath}/integrations`),
+        visible: canViewIntegrations === true,
+      },
+      {
+        title: "Skills",
+        url: `${basePath}/skills`,
+        icon: Pyramid,
+        isActive: pathname?.startsWith(`${basePath}/skills`),
+        isLocked: entitlementsIsLoading || !agentAddonsEnabled,
+        onSelect: entitlementsIsLoading
+          ? undefined
+          : () => setLockedFeatureDialogOpen(true),
+        visible: canViewAgents === true,
+      },
+      {
+        title: "Actions",
+        url: `${basePath}/actions`,
+        icon: BoxIcon,
+        isActive: pathname?.startsWith(`${basePath}/actions`),
+        visible: canViewActions === true,
+      },
+    ],
+    [
+      basePath,
+      pathname,
+      canViewWorkflows,
+      canViewCases,
+      canViewTables,
+      canViewVariables,
+      canViewSecrets,
+      canViewIntegrations,
+      entitlementsIsLoading,
+      agentAddonsEnabled,
+      canViewAgents,
+      canViewActions,
+    ]
+  )
+
+  const navMonitor: NavItem[] = [
     {
       title: "Runs",
       url: `${basePath}/runs`,
@@ -141,46 +238,11 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       visible: canViewWorkflows === true,
     },
     {
-      title: "Cases",
-      url: `${basePath}/cases`,
-      icon: LayersIcon,
-      isActive: pathname?.startsWith(`${basePath}/cases`),
-      visible: canViewCases === true,
-    },
-    {
-      title: "Tables",
-      url: `${basePath}/tables`,
-      icon: Table2Icon,
-      isActive: pathname?.startsWith(`${basePath}/tables`),
-      visible: canViewTables === true,
-    },
-    {
-      title: "Variables",
-      url: `${basePath}/variables`,
-      icon: VariableIcon,
-      isActive: pathname?.startsWith(`${basePath}/variables`),
-      visible: canViewVariables === true,
-    },
-    {
-      title: "Credentials",
-      url: `${basePath}/credentials`,
-      icon: KeyRound,
-      isActive: pathname?.startsWith(`${basePath}/credentials`),
-      visible: canViewSecrets === true,
-    },
-    {
-      title: "Integrations",
-      url: `${basePath}/integrations`,
-      icon: BlocksIcon,
-      isActive: pathname?.startsWith(`${basePath}/integrations`),
-      visible: canViewIntegrations === true,
-    },
-    {
-      title: "Actions",
-      url: `${basePath}/actions`,
-      icon: BoxIcon,
-      isActive: pathname?.startsWith(`${basePath}/actions`),
-      visible: canViewActions === true,
+      title: "Approvals",
+      url: `${basePath}/inbox`,
+      icon: ListChecksIcon,
+      isActive: pathname?.startsWith(`${basePath}/inbox`),
+      visible: canViewInbox === true,
     },
   ]
 
@@ -194,39 +256,6 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
           open={lockedFeatureDialogOpen}
           onOpenChange={setLockedFeatureDialogOpen}
         />
-        <SidebarGroup>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              {canCreateCase === true && (
-                <SidebarMenuItem>
-                  <SidebarMenuButton
-                    onClick={() => setCreateCaseDialogOpen(true)}
-                  >
-                    <LayersPlus />
-                    <span>Add case</span>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              )}
-              {canViewInbox === true && (
-                <SidebarMenuItem>
-                  <SidebarMenuButton
-                    asChild
-                    isActive={pathname?.startsWith(`${basePath}/inbox`)}
-                  >
-                    <Link href={`${basePath}/inbox`}>
-                      <InboxIcon />
-                      <span>Inbox</span>
-                    </Link>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              )}
-            </SidebarMenu>
-            <CreateCaseDialog
-              open={createCaseDialogOpen}
-              onOpenChange={setCreateCaseDialogOpen}
-            />
-          </SidebarGroupContent>
-        </SidebarGroup>
         {navWorkspace.some((item) => item.visible === true) && (
           <Collapsible defaultOpen className="group/collapsible">
             <SidebarGroup>
@@ -267,6 +296,17 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                                 ))}
                               </SidebarMenuSub>
                             </SidebarMenuItem>
+                          ) : item.isLocked ? (
+                            <SidebarMenuButton
+                              type="button"
+                              isActive={item.isActive}
+                              onClick={item.onSelect}
+                              className="text-muted-foreground"
+                            >
+                              <item.icon />
+                              <span>{item.title}</span>
+                              <LockedFeatureChip className="ml-auto shrink-0" />
+                            </SidebarMenuButton>
                           ) : (
                             <SidebarMenuButton asChild isActive={item.isActive}>
                               <Link href={item.url!}>
@@ -283,9 +323,43 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
             </SidebarGroup>
           </Collapsible>
         )}
+        {navMonitor.some((item) => item.visible === true) && (
+          <Collapsible defaultOpen className="group/collapsible">
+            <SidebarGroup>
+              <SidebarGroupLabel asChild>
+                <CollapsibleTrigger className="w-full">
+                  Monitor
+                  <ChevronDown className="ml-auto size-4 transition-transform group-data-[state=open]/collapsible:rotate-180" />
+                </CollapsibleTrigger>
+              </SidebarGroupLabel>
+              <CollapsibleContent>
+                <SidebarGroupContent>
+                  <SidebarMenu>
+                    {navMonitor
+                      .filter((item) => item.visible === true)
+                      .map((item) => (
+                        <SidebarMenuItem key={item.title}>
+                          <SidebarMenuButton asChild isActive={item.isActive}>
+                            <Link href={item.url!}>
+                              <item.icon />
+                              <span>{item.title}</span>
+                            </Link>
+                          </SidebarMenuButton>
+                        </SidebarMenuItem>
+                      ))}
+                  </SidebarMenu>
+                </SidebarGroupContent>
+              </CollapsibleContent>
+            </SidebarGroup>
+          </Collapsible>
+        )}
 
         {canViewAgents === true && (
-          <Collapsible defaultOpen className="group/collapsible">
+          <Collapsible
+            open={agentsSectionOpen}
+            onOpenChange={setAgentsSectionOpen}
+            className="group/collapsible"
+          >
             <SidebarGroup className="group/agents relative">
               <SidebarGroupLabel asChild>
                 <CollapsibleTrigger className="w-full">
@@ -373,18 +447,35 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       </SidebarContent>
       <SidebarFooter>
         <SidebarUserNav
-          settingsItems={
+          showManageLabel={false}
+          manageItems={[
             canViewMembers === true
-              ? [
-                  {
-                    title: "Members",
-                    href: `${basePath}/members`,
-                    icon: UsersIcon,
-                    isActive: pathname?.startsWith(`${basePath}/members`),
-                  },
-                ]
-              : undefined
-          }
+              ? {
+                  title: "Members",
+                  href: `${basePath}/members`,
+                  icon: UsersIcon,
+                  isActive: pathname?.startsWith(`${basePath}/members`),
+                }
+              : null,
+            canViewServiceAccounts === true && serviceAccountsEnabled
+              ? {
+                  title: "Service accounts",
+                  href: `${basePath}/service-accounts`,
+                  icon: BotIcon,
+                  isActive: pathname?.startsWith(
+                    `${basePath}/service-accounts`
+                  ),
+                }
+              : null,
+            canViewMcpAccess === true
+              ? {
+                  title: "MCP access",
+                  href: `${basePath}/mcp`,
+                  icon: TerminalIcon,
+                  isActive: pathname?.startsWith(`${basePath}/mcp`),
+                }
+              : null,
+          ].filter((item) => item !== null)}
         />
       </SidebarFooter>
       <SidebarRail />

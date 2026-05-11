@@ -1,7 +1,7 @@
 import uuid
-from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, Query
+from sqlalchemy.exc import IntegrityError
 from starlette.status import (
     HTTP_201_CREATED,
     HTTP_204_NO_CONTENT,
@@ -10,9 +10,9 @@ from starlette.status import (
 )
 
 from tracecat import config
-from tracecat.auth.credentials import RoleACL
-from tracecat.auth.types import Role
+from tracecat.auth.dependencies import WorkspaceUserRouteRole
 from tracecat.authz.controls import require_scope
+from tracecat.cases.rows.exceptions import raise_case_row_link_integrity_error
 from tracecat.cases.rows.schemas import (
     CaseTableRowInsertCreate,
     CaseTableRowLinkCreate,
@@ -25,21 +25,12 @@ from tracecat.pagination import CursorPaginatedResponse
 
 router = APIRouter(prefix="/cases", tags=["cases"])
 
-WorkspaceUser = Annotated[
-    Role,
-    RoleACL(
-        allow_user=True,
-        allow_service=False,
-        require_workspace="yes",
-    ),
-]
-
 
 @router.get("/{case_id}/rows")
 @require_scope("case:read")
 async def list_case_rows(
     *,
-    role: WorkspaceUser,
+    role: WorkspaceUserRouteRole,
     session: AsyncDBSession,
     case_id: uuid.UUID,
     limit: int = Query(
@@ -70,7 +61,7 @@ async def list_case_rows(
 @require_scope("case:update")
 async def link_case_row(
     *,
-    role: WorkspaceUser,
+    role: WorkspaceUserRouteRole,
     session: AsyncDBSession,
     case_id: uuid.UUID,
     params: CaseTableRowLinkCreate,
@@ -85,13 +76,15 @@ async def link_case_row(
         raise HTTPException(status_code=HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    except IntegrityError as exc:
+        await raise_case_row_link_integrity_error(session, exc)
 
 
 @router.post("/{case_id}/rows/insert", status_code=HTTP_201_CREATED)
 @require_scope("case:update")
 async def insert_case_row(
     *,
-    role: WorkspaceUser,
+    role: WorkspaceUserRouteRole,
     session: AsyncDBSession,
     case_id: uuid.UUID,
     params: CaseTableRowInsertCreate,
@@ -112,7 +105,7 @@ async def insert_case_row(
 @require_scope("case:update")
 async def unlink_case_row(
     *,
-    role: WorkspaceUser,
+    role: WorkspaceUserRouteRole,
     session: AsyncDBSession,
     case_id: uuid.UUID,
     table_id: uuid.UUID,

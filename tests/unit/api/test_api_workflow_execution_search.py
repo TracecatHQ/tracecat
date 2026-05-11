@@ -64,10 +64,17 @@ async def test_list_workflow_executions_excludes_agent_workflow_types(
     mock_service = AsyncMock()
     mock_service.list_executions = AsyncMock(return_value=[])
 
-    with patch.object(
-        executions_router.WorkflowExecutionsService,
-        "connect",
-        AsyncMock(return_value=mock_service),
+    with (
+        patch.object(
+            executions_router.WorkflowExecutionsService,
+            "connect",
+            AsyncMock(return_value=mock_service),
+        ),
+        patch.object(
+            executions_router,
+            "get_setting",
+            AsyncMock(return_value=None),
+        ),
     ):
         response = client.get("/workflow-executions")
 

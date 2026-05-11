@@ -165,7 +165,7 @@ async def _download_csv(
         "create, append, or override modes."
     ),
     display_group="Splunk",
-    doc_url="https://help.splunk.com/en/splunk-enterprise/rest-api-reference/9.4/kv-store-endpoints",
+    doc_url="https://help.splunk.com/en/splunk-enterprise/rest-api-reference/9.4/kv-store-endpoints/kv-store-endpoint-descriptions",
     namespace="tools.splunk",
     secrets=[splunk_secret],
 )

@@ -1,4 +1,5 @@
-from fastapi import Request, Response, status
+from fastapi import HTTPException, Request, Response, status
+from fastapi.exception_handlers import http_exception_handler as default_http_handler
 from fastapi.responses import ORJSONResponse
 from fastapi.routing import APIRoute
 from sqlalchemy import select
@@ -37,6 +38,22 @@ def generic_exception_handler(request: Request, exc: Exception) -> Response:
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         content={"message": "An unexpected error occurred. Please try again later."},
     )
+
+
+async def http_exception_handler(request: Request, exc: Exception) -> Response:
+    """Log HTTP exceptions with tenant context for observability."""
+    http_exc = exc if isinstance(exc, HTTPException) else HTTPException(500, str(exc))
+    role = ctx_role.get()
+    log_method = logger.warning if http_exc.status_code < 500 else logger.error
+    log_method(
+        "HTTP error",
+        status_code=http_exc.status_code,
+        detail=http_exc.detail,
+        path=request.url.path,
+        method=request.method,
+        role=role,
+    )
+    return await default_http_handler(request, http_exc)
 
 
 def bootstrap_role(organization_id: OrganizationID | None = None) -> Role:

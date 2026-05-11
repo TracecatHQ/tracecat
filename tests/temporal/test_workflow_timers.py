@@ -497,12 +497,14 @@ async def test_workflow_wait_until_past(
     # Resolve the past_time if it's a callable (lazy evaluation for xdist compatibility)
     resolved_time = cast(str, past_time() if callable(past_time) else past_time)
 
-    # Monkeypatch out  asyncio.sleep with a counter
+    # Monkeypatch out asyncio.sleep with a counter.
+    # Only count non-zero sleeps (actual timers), not cooperative yields (sleep(0)).
     num_sleeps = 0
 
     async def sleep_mock(seconds: float) -> None:
         nonlocal num_sleeps
-        num_sleeps += 1
+        if seconds > 0:
+            num_sleeps += 1
 
     monkeypatch.setattr(asyncio, "sleep", sleep_mock)
 

@@ -72,6 +72,7 @@ from tracecat.interactions.schemas import ActionInteractionValidator
 from tracecat.logger import logger
 from tracecat.registry.lock.types import RegistryLock
 from tracecat.storage.object import CollectionObject, InlineObject, StoredObject
+from tracecat.temporal.codec import decode_payloads
 from tracecat.workflow.actions.schemas import ActionControlFlow
 from tracecat.workflow.executions.enums import (
     ExecutionType,
@@ -1075,13 +1076,20 @@ class AgentActionMemo(BaseModel):
         default=ROOT_STREAM,
         description="The execution stream ID where the agent workflow was spawned.",
     )
+    mask_output: bool = Field(
+        default=False,
+        description="Whether to redact the child workflow result in execution APIs.",
+    )
 
     @classmethod
-    def from_temporal(cls, memo: temporalio.api.common.v1.Memo) -> AgentActionMemo:
+    async def from_temporal(
+        cls, memo: temporalio.api.common.v1.Memo
+    ) -> AgentActionMemo:
         data: dict[str, Any] = {}
         for key, value in memo.fields.items():
             try:
-                data[key] = _memo_payload_converter.from_payload(value)
+                decoded_value = (await decode_payloads([value]))[0]
+                data[key] = _memo_payload_converter.from_payload(decoded_value)
             except Exception as e:
                 logger.warning(
                     "Error parsing agent action memo field",
@@ -1115,35 +1123,68 @@ class ChildWorkflowMemo(BaseModel):
         default=ROOT_STREAM,
         description="The stream ID of the child workflow.",
     )
+    mask_output: bool = Field(
+        default=False,
+        description="Whether to redact the child workflow result in execution APIs.",
+    )
 
     @staticmethod
-    def from_temporal(memo: temporalio.api.common.v1.Memo) -> ChildWorkflowMemo:
+    async def from_temporal(memo: temporalio.api.common.v1.Memo) -> ChildWorkflowMemo:
+        decoded_fields: dict[str, temporalio.api.common.v1.Payload] = {}
+        for key, value in memo.fields.items():
+            try:
+                decoded_fields[key] = (await decode_payloads([value]))[0]
+            except Exception as e:
+                logger.warning(
+                    "Error decoding child workflow memo field",
+                    error=e,
+                    key=key,
+                    encoding=value.metadata.get("encoding", b"").decode(
+                        "utf-8", errors="replace"
+                    ),
+                    payload_size_bytes=len(value.data),
+                )
         try:
-            action_ref = orjson.loads(memo.fields["action_ref"].data)
+            action_ref = orjson.loads(decoded_fields["action_ref"].data)
         except Exception as e:
             logger.warning("Error parsing child workflow memo action ref", error=e)
             action_ref = "Unknown Child Workflow"
-        if loop_index_data := memo.fields["loop_index"].data:
-            loop_index = orjson.loads(loop_index_data)
-        else:
+        try:
+            if loop_index_data := decoded_fields["loop_index"].data:
+                loop_index = orjson.loads(loop_index_data)
+            else:
+                loop_index = None
+        except Exception as e:
+            logger.warning("Error parsing child workflow memo loop index", error=e)
             loop_index = None
         try:
             wait_strategy = WaitStrategy(
-                orjson.loads(memo.fields["wait_strategy"].data)
+                orjson.loads(decoded_fields["wait_strategy"].data)
             )
         except Exception as e:
             logger.warning("Error parsing child workflow memo wait strategy", error=e)
             wait_strategy = WaitStrategy.WAIT
         try:
-            stream_id = StreamID(orjson.loads(memo.fields["stream_id"].data))
+            stream_id = StreamID(orjson.loads(decoded_fields["stream_id"].data))
         except Exception as e:
             logger.warning("Error parsing child workflow memo stream id", error=e)
             stream_id = ROOT_STREAM
+        try:
+            mask_output_payload = decoded_fields.get("mask_output")
+            mask_output = (
+                bool(orjson.loads(mask_output_payload.data))
+                if mask_output_payload is not None and mask_output_payload.data
+                else False
+            )
+        except Exception as e:
+            logger.warning("Error parsing child workflow memo mask output", error=e)
+            mask_output = False
         return ChildWorkflowMemo(
             action_ref=action_ref,
             loop_index=loop_index,
             wait_strategy=wait_strategy,
             stream_id=stream_id,
+            mask_output=mask_output,
         )
 
 
@@ -1289,6 +1330,7 @@ def build_action_statements_from_actions(
             join_strategy=control_flow.join_strategy,
             interaction=interaction,
             environment=control_flow.environment,
+            mask_output=control_flow.mask_output,
         )
         statements.append(action_stmt)
     return statements

@@ -15,8 +15,11 @@ import asyncio
 import os
 import tempfile
 import uuid
+from collections.abc import AsyncIterator, Callable
+from contextlib import suppress
 from pathlib import Path
-from typing import Any, cast
+from time import perf_counter
+from typing import Any, Literal, Protocol, cast
 
 import orjson
 from claude_agent_sdk import (
@@ -24,6 +27,7 @@ from claude_agent_sdk import (
     ClaudeSDKClient,
     HookMatcher,
     SandboxSettings,
+    Transport,
 )
 from claude_agent_sdk.types import (
     HookContext,
@@ -32,6 +36,7 @@ from claude_agent_sdk.types import (
     ResultMessage,
     StreamEvent,
     SyncHookJSONOutput,
+    SystemMessage,
     ToolResultBlock,
     UserMessage,
 )
@@ -40,7 +45,6 @@ from tracecat.agent.common.config import TRACECAT__DISABLE_NSJAIL
 from tracecat.agent.common.exceptions import AgentSandboxValidationError
 from tracecat.agent.common.output_format import build_sdk_output_format
 from tracecat.agent.common.protocol import RuntimeInitPayload
-from tracecat.agent.common.socket_io import SocketStreamWriter
 from tracecat.agent.common.stream_types import (
     StreamEventType,
     ToolCallContent,
@@ -54,17 +58,85 @@ from tracecat.agent.mcp.proxy_server import (
 )
 from tracecat.agent.mcp.utils import normalize_mcp_tool_name
 from tracecat.agent.runtime.claude_code.adapter import ClaudeSDKAdapter
+from tracecat.agent.runtime.claude_code.session_lines import (
+    APPROVAL_CONTINUATION_PROMPT,
+    is_approval_continuation_prompt_line,
+    is_meta_session_line,
+    is_synthetic_session_line,
+)
 from tracecat.logger import logger
 
 
-def get_llm_proxy_url() -> str:
-    """Get the LLM proxy URL from the dynamic port assigned by the LLM bridge."""
-    port = os.environ.get("TRACECAT__LLM_BRIDGE_PORT")
-    if not port:
-        raise RuntimeError(
-            "TRACECAT__LLM_BRIDGE_PORT is not set — LLM bridge was not started"
-        )
-    return f"http://127.0.0.1:{port}"
+class RuntimeEventWriter(Protocol):
+    """Protocol for runtime event delivery."""
+
+    async def send_stream_event(self, event: UnifiedStreamEvent) -> None:
+        """Send a unified stream event."""
+
+    async def send_session_line(
+        self, sdk_session_id: str, line: str, *, internal: bool = False
+    ) -> None:
+        """Send a raw Claude session line."""
+
+    async def send_result(
+        self,
+        usage: dict[str, Any] | None = None,
+        num_turns: int | None = None,
+        duration_ms: int | None = None,
+        output: Any = None,
+    ) -> None:
+        """Send the final Claude result."""
+
+    async def send_error(self, error: str) -> None:
+        """Send a terminal runtime error."""
+
+    async def send_done(self) -> None:
+        """Signal that the runtime turn is complete."""
+
+    async def send_log(self, level: str, message: str, **extra: object) -> None:
+        """Send a structured runtime log event."""
+
+
+_LITELLM_ROUTE_PREFIXES: dict[str, str] = {
+    "openai": "openai",
+    "anthropic": "anthropic",
+    "gemini": "gemini",
+    "vertex_ai": "vertex_ai",
+    "bedrock": "bedrock",
+    "azure_openai": "azure",
+    "azure_ai": "azure_ai",
+}
+
+
+def get_litellm_route_model(
+    *,
+    model_provider: str,
+    model_name: str,
+    passthrough: bool = False,
+) -> str:
+    """Prefix model names so LiteLLM enters the intended provider route.
+
+    Claude Code speaks to LiteLLM through the Anthropic-compatible
+    ``/v1/messages`` surface. LiteLLM chooses the provider route from the
+    incoming ``model`` string before Tracecat's credential hook rewrites the
+    final provider-specific model ID, so unqualified model names can fall
+    through to the OpenAI catch-all route.
+    """
+    if passthrough:
+        # Direct upstream passthrough should preserve the configured model ID.
+        return model_name
+
+    # Tracecat specific LiteLLM logic
+    if any(
+        model_name.startswith(f"{prefix}/")
+        for prefix in set(_LITELLM_ROUTE_PREFIXES.values())
+    ):
+        return model_name
+
+    if prefix := _LITELLM_ROUTE_PREFIXES.get(model_provider):
+        return f"{prefix}/{model_name}"
+
+    return model_name
 
 
 def _configure_claude_sdk_process_env() -> None:
@@ -91,7 +163,6 @@ DISALLOWED_TOOLS = [
     "TodoWrite",
     "Task",
     "TaskOutput",
-    "Skill",
     "SlashCommand",
 ]
 
@@ -111,6 +182,16 @@ REGISTRY_MCP_DOT_PREFIX = f"mcp.{REGISTRY_MCP_SERVER_NAME}."
 LEGACY_REGISTRY_MCP_TOOL_PREFIX = "mcp__tracecat_registry__"
 LEGACY_REGISTRY_MCP_DOT_PREFIX = "mcp.tracecat_registry."
 
+# Increase the SDK's stdout/stderr capture buffer above its default 1 MiB so
+# larger tool responses do not truncate during agent execution.
+CLAUDE_SDK_MAX_BUFFER_SIZE_BYTES = 5 * 1024 * 1024
+CUSTOM_MODEL_PROVIDER_AUTO_COMPACT_WINDOW = "128000"
+
+# Cap on how many times the CLI may re-invoke the model to satisfy a Stop hook
+# (e.g. structured-output schema validation). Without a cap the CLI can death-loop
+# when the model keeps emitting output that fails validation.
+MAX_STOP_HOOK_RETRIES = 3
+
 
 class ClaudeAgentRuntime:
     """Stateless, sandboxed Claude SDK runtime.
@@ -126,8 +207,16 @@ class ClaudeAgentRuntime:
     - Approval flow coordination
     """
 
-    def __init__(self, socket_writer: SocketStreamWriter):
-        self._socket_writer = socket_writer
+    def __init__(
+        self,
+        event_writer: RuntimeEventWriter,
+        *,
+        transport_factory: Callable[[ClaudeAgentOptions], Transport],
+        session_home_dir: Path | None = None,
+        cwd: Path | None = None,
+        cwd_setup_path: Path | None = None,
+    ):
+        self._event_writer = event_writer
         self._session_id: uuid.UUID | None = None
         # Public for testing - these represent runtime configuration
         self.registry_tools: dict[str, MCPToolDefinition] | None = None
@@ -137,14 +226,40 @@ class ClaudeAgentRuntime:
         self._was_interrupted: bool = False
         # For incremental JSONL line tracking
         self._sdk_session_id: str | None = None
-        self._last_seen_line_index: int = 0
-        # Flag to mark continuation prompt as internal (consumed after first use)
-        self._is_continuation: bool = False
+        self._last_seen_byte_offset: int = 0
+        self._session_flush_lock = asyncio.Lock()
+        self._session_flush_event = asyncio.Event()
         # Adapter for converting Claude SDK events - must be reused to track state
         self._stream_adapter = ClaudeSDKAdapter()
         # Working directory for session file path resolution
         # Must match the cwd passed to ClaudeAgentOptions for session resume
-        self._cwd: Path = Path.cwd()
+        self._cwd: Path | None = cwd
+        self._cwd_setup_path = cwd_setup_path
+        self._session_home_dir = session_home_dir
+        self._transport_factory = transport_factory
+        # Tracks Stop hook retries within this run to break structured-output loops
+        self._stop_hook_retries: int = 0
+
+    @staticmethod
+    def _is_manual_compaction_prompt(prompt: str) -> bool:
+        """Return True when the current prompt triggers manual compaction."""
+        stripped = prompt.strip()
+        return stripped == "/compact" or stripped.startswith("/compact ")
+
+    @staticmethod
+    def _build_compaction_status_event(
+        *,
+        phase: Literal["started", "completed"],
+        pre_tokens: int | None = None,
+    ) -> UnifiedStreamEvent:
+        """Create a transient stream event for compaction UI feedback."""
+        metadata: dict[str, Any] = {}
+        if pre_tokens is not None:
+            metadata["pre_tokens"] = pre_tokens
+        return UnifiedStreamEvent.compaction_event(
+            phase=phase,
+            metadata=metadata or None,
+        )
 
     def _should_inject_tool_metadata(self, tool_name: str, action_name: str) -> bool:
         """Return True when a tool executes through the registry proxy path."""
@@ -188,8 +303,11 @@ class ClaudeAgentRuntime:
                 f"Invalid sdk_session_id: must be alphanumeric with hyphens/underscores only, got {sdk_session_id!r}"
             )
 
+        if self._cwd is None:
+            raise RuntimeError("Runtime working directory is not configured")
         encoded_cwd = str(self._cwd).replace("/", "-")
-        claude_dir = Path.home() / ".claude" / "projects" / encoded_cwd
+        claude_home_dir = self._session_home_dir or Path.home()
+        claude_dir = claude_home_dir / ".claude" / "projects" / encoded_cwd
         return claude_dir / f"{sdk_session_id}.jsonl"
 
     async def _write_session_file(
@@ -199,65 +317,41 @@ class ClaudeAgentRuntime:
     ) -> Path:
         """Write session data to local filesystem for SDK resume."""
         session_file_path = self._get_session_file_path(sdk_session_id)
-        sdk_session_data = self._canonicalize_sdk_session_data(sdk_session_data)
-
-        # Ensure the file ends with a newline so JSONL readers don't treat the last
-        # record as truncated (some implementations are strict about this).
-        if sdk_session_data and not sdk_session_data.endswith("\n"):
-            sdk_session_data = f"{sdk_session_data}\n"
+        sdk_session_data = self._session_data_for_disk(sdk_session_data)
 
         def _write() -> None:
             session_file_path.parent.mkdir(parents=True, exist_ok=True)
-            session_file_path.write_text(sdk_session_data)
+            session_file_path.write_text(sdk_session_data, encoding="utf-8")
 
         await asyncio.to_thread(_write)
         logger.debug("Wrote session file", path=str(session_file_path))
         return session_file_path
 
     def _validate_resume_session_path(self, resume_session_path: str) -> Path:
-        """Validate a staged resume path produced by the trusted executor.
-
-        Accepts paths ending with /resume/{session_id}.jsonl in any location:
-        - Relative: resume/{session_id}.jsonl → resolved to /work/resume/{session_id}.jsonl
-        - Absolute: /work/resume/{session_id}.jsonl or /tmp/.../resume/{session_id}.jsonl
-
-        Args:
-            resume_session_path: Path string to validate.
-
-        Returns:
-            Resolved absolute Path to the session file.
-
-        Raises:
-            AgentSandboxValidationError: If path contains traversal, invalid structure, or bad session ID.
-        """
+        """Validate a staged resume path produced by the trusted executor."""
         path = Path(resume_session_path)
-
-        # Prevent directory traversal attacks
         if ".." in path.parts:
             raise AgentSandboxValidationError(
                 f"Resume session path must not contain traversal: {resume_session_path!r}"
             )
 
-        # Normalize relative paths to absolute form
         resolved = Path("/work") / path if not path.is_absolute() else path
-
-        # Enforce structure: .../resume/{session_id}.jsonl
         if resolved.parent.name != "resume":
             raise AgentSandboxValidationError(
                 f"Path must end with '/resume/{{session_id}}.jsonl': {resume_session_path!r}"
             )
 
-        # Validate filename and extract session ID
         filename = resolved.name
         if not filename.endswith(".jsonl"):
             raise AgentSandboxValidationError(
                 f"Filename must be '{{session_id}}.jsonl': {filename!r}"
             )
 
-        session_id = filename[:-6]  # Strip .jsonl extension
+        session_id = filename[:-6]
         if not session_id or not all(c.isalnum() or c in "-_" for c in session_id):
             raise AgentSandboxValidationError(
-                f"Invalid session ID (must be alphanumeric + hyphens/underscores): {session_id!r}"
+                "Invalid session ID (must be alphanumeric + "
+                f"hyphens/underscores): {session_id!r}"
             )
 
         return resolved
@@ -267,21 +361,103 @@ class ClaudeAgentRuntime:
         path = self._validate_resume_session_path(resume_session_path)
         return await asyncio.to_thread(path.read_text)
 
+    async def _prepare_resume_and_mcp(
+        self,
+        payload: RuntimeInitPayload,
+        *,
+        write_session_file: bool = True,
+    ) -> tuple[str | None, bool, dict[str, Any]]:
+        """Prepare resume state and MCP server config in parallel."""
+        resume_session_id: str | None = None
+        fork_session = False
+        mcp_servers: dict[str, Any] = {}
+
+        session_file_task: asyncio.Task[Path] | None = None
+        proxy_config_task: asyncio.Task[Any] | None = None
+
+        sdk_session_data: str | None = None
+        if payload.resume_session_path:
+            sdk_session_data = await self._read_resume_session_file(
+                payload.resume_session_path
+            )
+        elif payload.sdk_session_data:
+            sdk_session_data = payload.sdk_session_data
+
+        if payload.sdk_session_id and sdk_session_data:
+            resume_session_id = payload.sdk_session_id
+            fork_session = payload.is_fork
+            if not fork_session:
+                session_data = self._session_data_for_disk(sdk_session_data)
+                self._last_seen_byte_offset = len(session_data.encode("utf-8"))
+                self._sdk_session_id = resume_session_id
+
+        async with asyncio.TaskGroup() as tg:
+            if write_session_file and payload.sdk_session_id and sdk_session_data:
+                session_file_task = tg.create_task(
+                    self._write_session_file(payload.sdk_session_id, sdk_session_data)
+                )
+            if self.registry_tools:
+                proxy_config_task = tg.create_task(
+                    create_proxy_mcp_server(
+                        allowed_actions=self.registry_tools,
+                        auth_token=payload.mcp_auth_token,
+                    )
+                )
+
+        if session_file_task is not None:
+            _ = session_file_task.result()
+
+        if proxy_config_task is not None:
+            mcp_servers[REGISTRY_MCP_SERVER_NAME] = proxy_config_task.result()
+
+        return resume_session_id, fork_session, mcp_servers
+
     def _canonicalize_sdk_session_data(self, sdk_session_data: str) -> str:
         """Canonicalize legacy registry MCP aliases in JSONL session history."""
         return sdk_session_data.replace(
             LEGACY_REGISTRY_MCP_TOOL_PREFIX, REGISTRY_MCP_TOOL_PREFIX
         ).replace(LEGACY_REGISTRY_MCP_DOT_PREFIX, REGISTRY_MCP_DOT_PREFIX)
 
+    def _session_data_for_disk(self, sdk_session_data: str) -> str:
+        """Return canonical SDK JSONL exactly as written to the local session file."""
+        sdk_session_data = self._canonicalize_sdk_session_data(sdk_session_data)
+        # Ensure JSONL readers do not treat the final record as truncated.
+        if sdk_session_data and not sdk_session_data.endswith("\n"):
+            return f"{sdk_session_data}\n"
+        return sdk_session_data
+
+    @staticmethod
+    def _is_internal_compaction_prompt(text: str) -> bool:
+        """Return True for structured Claude SDK compaction artifacts."""
+        compact_markers = (
+            "<local-command-caveat>",
+            "<command-name>/compact</command-name>",
+            "<local-command-stdout>Compacted ",
+        )
+        return any(marker in text for marker in compact_markers)
+
+    @staticmethod
+    async def _meta_text_input_stream(text: str) -> AsyncIterator[dict[str, Any]]:
+        """Yield a hidden Claude SDK stream-json user message."""
+        yield {
+            "type": "user",
+            "message": {"role": "user", "content": text},
+            "parent_tool_use_id": None,
+            "session_id": "default",
+            "isMeta": True,
+        }
+
     def _is_internal_session_line(self, line_data: dict[str, Any]) -> bool:
         """Determine if a session line is internal (not shown in UI timeline).
 
         Internal lines include:
         - queue-operation, compaction, summary, system messages
+        - compaction continuation prompts/summarizer sidechain messages
         - Interrupt signals (tool_result with "doesn't want to take this action")
         - Interrupt markers ("[Request interrupted by user")
         - Synthetic messages (model="<synthetic>")
         - Raw tool result/error text injections from approval flow
+        - SDK compaction summary and metadata messages (isCompactSummary, isMeta)
 
         Visible lines are:
         - User messages (actual user input)
@@ -293,16 +469,26 @@ class ClaudeAgentRuntime:
         Returns:
             True if this line should be marked as internal.
         """
+        # SDK compaction artifacts marked with structural flags
+        # isCompactSummary messages are persisted as kind='compaction' for badge rendering
+        # isMeta messages (like caveats) are internal
+        if is_meta_session_line(line_data) or line_data.get("isCompactSummary"):
+            return True
+
         msg_type = line_data.get("type", "")
 
         # Only user and assistant messages can be visible
         if msg_type not in ("user", "assistant"):
             return True
 
+        agent_id = line_data.get("agentId")
+        if isinstance(agent_id, str) and agent_id.startswith("acompact-"):
+            return True
+
         message = line_data.get("message", {})
 
         # Synthetic messages are internal (placeholders during approval flow)
-        if message.get("model") == "<synthetic>":
+        if is_synthetic_session_line(line_data):
             return True
 
         # "(no content)" placeholder assistant message from the SDK's
@@ -327,6 +513,8 @@ class ClaudeAgentRuntime:
                 "Result:" in msg_content or "Error:" in msg_content
             ):
                 return True
+            if self._is_internal_compaction_prompt(msg_content):
+                return True
             # Stop hook feedback injected by Claude SDK for structured output
             if "Stop hook feedback:" in msg_content:
                 return True
@@ -349,73 +537,139 @@ class ClaudeAgentRuntime:
                         text = part.get("text", "")
                         if "[Request interrupted by user" in text:
                             return True
+                        if self._is_internal_compaction_prompt(text):
+                            return True
                         if "Stop hook feedback:" in text:
                             return True
 
         return False
 
-    async def _emit_new_session_lines(self) -> None:
+    async def _capture_sdk_session_id(
+        self,
+        sdk_session_id: str | None,
+        *,
+        resume_session_id: str | None,
+        fork_session: bool,
+    ) -> None:
+        """Capture the SDK session ID from any SDK message that carries it."""
+        if not sdk_session_id:
+            return
+        if self._sdk_session_id == sdk_session_id:
+            return
+
+        previous = self._sdk_session_id
+        self._sdk_session_id = sdk_session_id
+
+        if previous is None and resume_session_id and fork_session:
+            session_file = self._get_session_file_path(sdk_session_id)
+            try:
+                stat = session_file.stat()
+            except FileNotFoundError:
+                pass
+            else:
+                self._last_seen_byte_offset = stat.st_size
+
+        logger.debug(
+            "Captured SDK session ID",
+            sdk_session_id=self._sdk_session_id,
+            previous_sdk_session_id=previous,
+        )
+
+    async def _flush_session_lines_when_signaled(
+        self,
+        *,
+        is_approval_continuation: bool,
+    ) -> None:
+        """Flush SDK JSONL lines when stream progress marks the session dirty."""
+        while True:
+            await self._session_flush_event.wait()
+            self._session_flush_event.clear()
+            try:
+                await self._emit_new_session_lines(
+                    is_approval_continuation=is_approval_continuation
+                )
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:
+                logger.warning("Failed to flush session lines", error=str(e))
+
+    async def _emit_new_session_lines(
+        self,
+        *,
+        is_approval_continuation: bool = False,
+    ) -> None:
         """Read and emit new JSONL lines from the SDK session file.
 
-        This reads the session file written by Claude SDK and emits any new lines
-        (past _last_seen_line_index) to the orchestrator for persistence.
+        This tails the session file written by Claude SDK and emits complete new
+        lines from the last byte offset to the orchestrator for persistence.
         The lines contain the full JSONL envelope (uuid, timestamp, parentUuid, etc.)
         needed for proper resume.
 
-        If a line fails to parse (e.g., incomplete write by SDK), we stop processing
-        at that point and keep the index there. The incomplete line will be retried
-        on the next call once the SDK finishes writing it.
+        If a line is incomplete or fails to parse, we stop processing at that byte
+        offset. The incomplete line will be retried on the next call once the SDK
+        finishes writing it.
 
         Race condition handling: If called before _sdk_session_id is set (i.e., before
         the first StreamEvent), this is a no-op. The loopback handler uses UUID-based
         deduplication to handle any duplicates that might occur from out-of-order events.
         """
-        if not self._sdk_session_id:
-            return
+        async with self._session_flush_lock:
+            if not self._sdk_session_id:
+                return
 
-        session_file = self._get_session_file_path(self._sdk_session_id)
-        if not session_file.exists():
-            return
+            sdk_session_id = self._sdk_session_id
+            session_file = self._get_session_file_path(sdk_session_id)
+            start_offset = self._last_seen_byte_offset
 
-        try:
-            file_content = await asyncio.to_thread(session_file.read_text)
-            lines = file_content.splitlines()
-            new_lines = lines[self._last_seen_line_index :]
+            def _read_tail() -> bytes | None:
+                try:
+                    with session_file.open("rb") as file:
+                        file.seek(start_offset)
+                        return file.read()
+                except FileNotFoundError:
+                    return None
 
-            for line in new_lines:
-                if not line.strip():
-                    # Empty line - advance index and continue
-                    self._last_seen_line_index += 1
+            tail = await asyncio.to_thread(_read_tail)
+            if not tail:
+                return
+
+            line_offset = start_offset
+            for raw_line in tail.splitlines(keepends=True):
+                if not raw_line.endswith(b"\n"):
+                    break
+
+                next_offset = line_offset + len(raw_line)
+                line_bytes = raw_line.rstrip(b"\r\n")
+                if not line_bytes.strip():
+                    self._last_seen_byte_offset = next_offset
+                    line_offset = next_offset
                     continue
 
                 # Parse to determine visibility, but send raw line for SDK resume
                 try:
+                    line = line_bytes.decode("utf-8")
                     line_data = orjson.loads(line)
-                except orjson.JSONDecodeError:
+                except (UnicodeDecodeError, orjson.JSONDecodeError):
                     # Stop at the first decode failure - this line may be incomplete
                     # because the SDK is still writing it. We'll retry on the next pass.
                     logger.debug(
                         "Stopping at incomplete session line, will retry",
-                        line_index=self._last_seen_line_index,
+                        byte_offset=line_offset,
                     )
                     break
 
-                internal = self._is_internal_session_line(line_data)
-
-                # On continuation, mark the continuation prompt (first user message) as internal
-                if self._is_continuation and line_data.get("type") == "user":
-                    internal = True
-                    self._is_continuation = False
-
-                await self._socket_writer.send_session_line(
-                    self._sdk_session_id, line, internal=internal
+                internal = self._is_internal_session_line(line_data) or (
+                    is_approval_continuation
+                    and is_approval_continuation_prompt_line(line_data)
                 )
 
-                # Only advance the index after successfully processing the line
-                self._last_seen_line_index += 1
+                await self._event_writer.send_session_line(
+                    sdk_session_id, line, internal=internal
+                )
 
-        except Exception as e:
-            logger.warning("Failed to read session file", error=str(e))
+                # Only advance the offset after successfully processing the line.
+                self._last_seen_byte_offset = next_offset
+                line_offset = next_offset
 
     async def _handle_approval_request(
         self,
@@ -439,7 +693,7 @@ class ClaudeAgentRuntime:
                 )
             ]
         )
-        await self._socket_writer.send_stream_event(approval_event)
+        await self._event_writer.send_stream_event(approval_event)
 
         logger.info("Approval request streamed, interrupting", tool_name=tool_name)
 
@@ -510,6 +764,43 @@ class ClaudeAgentRuntime:
             "hookSpecificOutput": hook_output,
         }
 
+    async def _stop_hook(
+        self,
+        input_data: HookInput,
+        tool_use_id: str | None,
+        context: HookContext,
+    ) -> SyncHookJSONOutput:
+        """Stop hook: cap structured-output retry loops.
+
+        The CLI runs this on every natural stop. When ``stop_hook_active`` is True
+        the CLI is already inside a retry loop (e.g. structured-output schema
+        validation failed and it wants the model to try again). We let the first
+        ``MAX_STOP_HOOK_RETRIES`` retries through, then terminate the turn so a
+        broken schema or stuck model can't death-loop.
+        """
+        if input_data["hook_event_name"] != "Stop":
+            raise ValueError(
+                f"Expected Stop hook event, got {input_data['hook_event_name']!r}"
+            )
+        if not input_data.get("stop_hook_active"):
+            return {}
+
+        self._stop_hook_retries += 1
+        if self._stop_hook_retries <= MAX_STOP_HOOK_RETRIES:
+            return {}
+
+        reason = (
+            f"Stop hook retry cap reached ({MAX_STOP_HOOK_RETRIES}); ending turn "
+            "to prevent a structured-output death loop."
+        )
+        await self._event_writer.send_log(
+            "warning",
+            "Stop hook retry cap reached, terminating turn",
+            retries=self._stop_hook_retries,
+            cap=MAX_STOP_HOOK_RETRIES,
+        )
+        return {"continue_": False, "stopReason": reason}
+
     def _build_system_prompt(
         self, instructions: str | None, output_type: str | dict[str, Any] | None = None
     ) -> str:
@@ -532,12 +823,28 @@ class ClaudeAgentRuntime:
         This is the main entry point for sandboxed execution.
         Called after receiving init payload from orchestrator via socket.
 
-        On resume after approval, the session history already contains the proper
-        tool_result entry (inserted by execute_approved_tools_activity), so we just
-        resume the session normally and the agent will continue from there.
+        On resume after approval, session history already contains the
+        approved or denied tool_result. The runtime sends a hidden meta tick so
+        Claude Code consumes the completed history.
         """
+        run_started_at = perf_counter()
+
+        def log_benchmark_phase(phase: str, **extra: object) -> None:
+            logger.info(
+                "Agent benchmark phase",
+                phase=phase,
+                elapsed_ms=round((perf_counter() - run_started_at) * 1000, 2),
+                session_id=payload.session_id,
+                component="runtime",
+                **extra,
+            )
+
         self._session_id = payload.session_id
-        await self._socket_writer.send_log(
+        self._sdk_session_id = None
+        self._last_seen_byte_offset = 0
+        self._session_flush_event.clear()
+        log_benchmark_phase("runtime_start")
+        await self._event_writer.send_log(
             "info",
             "Runtime initialized",
         )
@@ -545,45 +852,35 @@ class ClaudeAgentRuntime:
         # Use resolved tool definitions from orchestrator
         self.registry_tools = payload.allowed_actions
         self.tool_approvals = payload.config.tool_approvals
+        session_flush_task: asyncio.Task[None] | None = None
 
         # Stable per-session working directory for the Claude Code CLI.
         # IMPORTANT: Must be deterministic per session_id. The CLI indexes
         # sessions by project directory (cwd), so if cwd changes between
         # turns (e.g., random mkdtemp), --resume can't find the session.
         # Both nsjail and direct mode use the same scheme for parity.
-        self._cwd = Path(tempfile.gettempdir()) / f"tracecat-agent-{payload.session_id}"
-        self._cwd.mkdir(parents=True, exist_ok=True)
+        if self._cwd is None:
+            self._cwd = (
+                Path(tempfile.gettempdir()) / f"tracecat-agent-{payload.session_id}"
+            )
+        cwd_setup_path = self._cwd_setup_path or self._cwd
+        cwd_setup_path.mkdir(parents=True, exist_ok=True)
 
         # Write session file locally if resuming or forking
-        resume_session_id: str | None = None
-        fork_session: bool = False
-        if payload.sdk_session_id and payload.resume_session_path:
-            staged_session_data = await self._read_resume_session_file(
-                payload.resume_session_path
-            )
-            await self._write_session_file(payload.sdk_session_id, staged_session_data)
-            resume_session_id = payload.sdk_session_id
-            # If forking, tell the SDK to create a new session from the parent's history
-            fork_session = payload.is_fork
-            # For a normal resume (non-fork), seed line tracking *before* we send the
-            # new query. The CLI can append new JSONL lines for this turn before the
-            # first StreamEvent arrives; if we only set `_last_seen_line_index` after
-            # the first StreamEvent, we can permanently skip those lines and corrupt
-            # persisted history (leading to flaky resume crashes).
-            if not fork_session:
-                self._sdk_session_id = resume_session_id
-                # Count lines from the staged session data we just wrote to disk.
-                self._last_seen_line_index = len(staged_session_data.splitlines())
-
         try:
-            # Build MCP servers config for registry actions and stdio servers
-            mcp_servers: dict[str, Any] = {}
-            if self.registry_tools:
-                proxy_config = await create_proxy_mcp_server(
-                    allowed_actions=self.registry_tools,
-                    auth_token=payload.mcp_auth_token,
-                )
-                mcp_servers[REGISTRY_MCP_SERVER_NAME] = proxy_config
+            (
+                resume_session_id,
+                fork_session,
+                mcp_servers,
+            ) = await self._prepare_resume_and_mcp(
+                payload,
+                write_session_file=True,
+            )
+            log_benchmark_phase(
+                "runtime_resume_ready",
+                resumed=resume_session_id is not None,
+                fork_session=fork_session,
+            )
 
             stderr_queue: asyncio.Queue[str] = asyncio.Queue()
             if payload.config.mcp_servers:
@@ -615,7 +912,7 @@ class ClaudeAgentRuntime:
                 """Forward Claude CLI stderr to loopback via queue."""
                 stderr_queue.put_nowait(line)
 
-            await self._socket_writer.send_log(
+            await self._event_writer.send_log(
                 "debug",
                 "MCP servers configured",
                 extra={
@@ -641,16 +938,36 @@ class ClaudeAgentRuntime:
                 sandbox_settings["allowUnsandboxedCommands"] = False
             # Build output_format from output_type if provided
             sdk_output_format = build_sdk_output_format(payload.config.output_type)
-
             options = ClaudeAgentOptions(
                 include_partial_messages=True,
                 resume=resume_session_id,
                 fork_session=fork_session,  # If True, creates new session from parent's history
+                thinking=(
+                    {"type": "enabled", "budget_tokens": 1024}
+                    if payload.config.enable_thinking
+                    else {"type": "disabled"}
+                ),
+                setting_sources=["user"],
                 env={
                     "ANTHROPIC_AUTH_TOKEN": payload.llm_gateway_auth_token,
-                    "ANTHROPIC_BASE_URL": get_llm_proxy_url(),
+                    **(
+                        {
+                            "CLAUDE_CODE_AUTO_COMPACT_WINDOW": CUSTOM_MODEL_PROVIDER_AUTO_COMPACT_WINDOW
+                        }
+                        if payload.config.model_provider == "custom-model-provider"
+                        else {}
+                    ),
+                    **(
+                        {"CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS": "1"}
+                        if payload.config.passthrough
+                        else {}
+                    ),
                 },
-                model=payload.config.model_name,
+                model=get_litellm_route_model(
+                    model_provider=payload.config.model_provider,
+                    model_name=payload.config.model_name,
+                    passthrough=payload.config.passthrough,
+                ),
                 system_prompt=self._build_system_prompt(
                     payload.config.instructions, payload.config.output_type
                 ),
@@ -660,9 +977,11 @@ class ClaudeAgentRuntime:
                 sandbox=sandbox_settings,
                 hooks={
                     "PreToolUse": [HookMatcher(hooks=[self._pre_tool_use_hook])],
+                    "Stop": [HookMatcher(hooks=[self._stop_hook])],
                 },
                 # Stable per-session working directory (deterministic across turns)
                 cwd=self._cwd,
+                max_buffer_size=CLAUDE_SDK_MAX_BUFFER_SIZE_BYTES,
                 output_format=sdk_output_format,
             )
 
@@ -670,107 +989,149 @@ class ClaudeAgentRuntime:
                 """Background task to drain stderr queue to loopback."""
                 while True:
                     line = await stderr_queue.get()
-                    await self._socket_writer.send_log("warning", f"[stderr] {line}")
+                    await self._event_writer.send_log("warning", f"[stderr] {line}")
 
             logger.debug(
                 "Creating ClaudeSDKClient",
                 mcp_servers=list(mcp_servers.keys()),
             )
             _configure_claude_sdk_process_env()
-            client = ClaudeSDKClient(options=options)
+            if payload.is_approval_continuation:
+                query_input = self._meta_text_input_stream(APPROVAL_CONTINUATION_PROMPT)
+                query_log_extra = {
+                    "prompt_length": len(APPROVAL_CONTINUATION_PROMPT),
+                    "is_meta": True,
+                }
+                logger.debug("Approval continuation with meta prompt")
+            else:
+                query_input = payload.user_prompt
+                query_log_extra = {"prompt_length": len(query_input)}
+                logger.debug("Normal turn with user prompt")
+
+            transport = self._transport_factory(options)
+            client = ClaudeSDKClient(options=options, transport=transport)
             logger.debug("Client created, entering context")
             async with client:
                 self.client = client
+                log_benchmark_phase("runtime_client_connected")
                 stderr_task = asyncio.create_task(drain_stderr())
+                session_flush_task = asyncio.create_task(
+                    self._flush_session_lines_when_signaled(
+                        is_approval_continuation=payload.is_approval_continuation
+                    )
+                )
                 try:
-                    # On approval continuation, send hidden continuation prompt
-                    # On normal turn (fresh or resume), send the user's prompt
-                    if payload.is_approval_continuation:
-                        query_prompt = "[INTERNAL] End of Tool Call"
-                        self._is_continuation = True
-                        logger.debug("Approval continuation with hidden prompt")
-                    else:
-                        query_prompt = payload.user_prompt
-                        logger.debug("Normal turn with user prompt")
-
-                    await self._socket_writer.send_log(
+                    await self._event_writer.send_log(
                         "info",
                         "Sending query to Claude SDK",
-                        prompt_length=len(query_prompt),
                         is_continuation=payload.is_approval_continuation,
+                        **query_log_extra,
                     )
-                    await client.query(query_prompt)
+                    if isinstance(
+                        query_input, str
+                    ) and self._is_manual_compaction_prompt(query_input):
+                        await self._event_writer.send_stream_event(
+                            self._build_compaction_status_event(phase="started")
+                        )
+                    await client.query(query_input)
+                    log_benchmark_phase("runtime_query_sent")
 
-                    await self._socket_writer.send_log(
+                    await self._event_writer.send_log(
                         "debug", "Query sent, receiving response"
                     )
 
+                    first_stream_event_logged = False
                     async for message in client.receive_response():
                         logger.debug(
                             "Received message", message_type=type(message).__name__
                         )
+                        raw_sdk_session_id = getattr(message, "session_id", None)
+                        sdk_session_id = (
+                            raw_sdk_session_id
+                            if isinstance(raw_sdk_session_id, str)
+                            else None
+                        )
+                        await self._capture_sdk_session_id(
+                            sdk_session_id,
+                            resume_session_id=resume_session_id,
+                            fork_session=fork_session,
+                        )
                         if isinstance(message, StreamEvent):
-                            # Capture SDK session ID from first StreamEvent
-                            if (
-                                message.session_id
-                                and self._sdk_session_id != message.session_id
-                            ):
-                                previous = self._sdk_session_id
-                                self._sdk_session_id = message.session_id
-                                # If the CLI started a different session (e.g. fork), avoid
-                                # re-persisting old history by jumping to current file length.
-                                # For normal resumes we pre-seed `_last_seen_line_index` above.
-                                if (
-                                    previous is None
-                                    and resume_session_id
-                                    and fork_session
-                                ):
-                                    session_file = self._get_session_file_path(
-                                        self._sdk_session_id
-                                    )
-                                    if session_file.exists():
-                                        file_content = await asyncio.to_thread(
-                                            session_file.read_text
-                                        )
-                                        self._last_seen_line_index = len(
-                                            file_content.splitlines()
-                                        )
-                                logger.debug(
-                                    "Captured SDK session ID",
-                                    sdk_session_id=self._sdk_session_id,
-                                    previous_sdk_session_id=previous,
-                                )
+                            if not first_stream_event_logged:
+                                first_stream_event_logged = True
+                                log_benchmark_phase("runtime_first_stream_event")
 
                             # Partial streaming delta - forward to UI
                             unified = self._stream_adapter.to_unified_event(message)
-                            await self._socket_writer.send_stream_event(unified)
+                            await self._event_writer.send_stream_event(unified)
+                            self._session_flush_event.set()
 
                         elif isinstance(message, ResultMessage):
-                            # Final result - emit any remaining lines
-                            await self._emit_new_session_lines()
-                            await self._socket_writer.send_log(
+                            await self._event_writer.send_log(
                                 "info",
                                 "Agent turn completed",
                                 num_turns=message.num_turns,
                                 duration_ms=message.duration_ms,
                                 usage=message.usage,
                             )
+                            log_benchmark_phase(
+                                "runtime_result_received",
+                                duration_ms=message.duration_ms,
+                                num_turns=message.num_turns,
+                            )
                             result_output = (
                                 message.structured_output
                                 if message.structured_output is not None
                                 else message.result
                             )
-                            await self._socket_writer.send_result(
+                            await self._event_writer.send_result(
                                 usage=message.usage,
                                 num_turns=message.num_turns,
                                 duration_ms=message.duration_ms,
                                 output=result_output,
                             )
 
-                        else:
-                            # AssistantMessage, UserMessage, SystemMessage, etc.
-                            await self._emit_new_session_lines()
+                        elif isinstance(message, SystemMessage):
+                            # init: emitted once at session start; surfaces MCP
+                            # server connection results so we can flag failures.
+                            if message.subtype == "init":
+                                mcp_servers = message.data.get("mcp_servers")
+                                if isinstance(mcp_servers, list):
+                                    for server in mcp_servers:
+                                        if (
+                                            isinstance(server, dict)
+                                            and server.get("status") == "failed"
+                                        ):
+                                            await self._event_writer.send_log(
+                                                "error",
+                                                "MCP server failed to connect",
+                                                server_name=server.get(
+                                                    "name", "<unknown>"
+                                                ),
+                                            )
 
+                            # compact_boundary: emitted after auto-compaction,
+                            # carries pre-compaction token count for UI feedback.
+                            elif message.subtype == "compact_boundary":
+                                pre_tokens: int | None = None
+                                compact_metadata = message.data.get("compact_metadata")
+                                if isinstance(compact_metadata, dict):
+                                    pre_tokens_value = compact_metadata.get(
+                                        "pre_tokens"
+                                    )
+                                    if isinstance(pre_tokens_value, int):
+                                        pre_tokens = pre_tokens_value
+
+                                await self._event_writer.send_stream_event(
+                                    self._build_compaction_status_event(
+                                        phase="completed",
+                                        pre_tokens=pre_tokens,
+                                    )
+                                )
+                                self._session_flush_event.set()
+
+                        else:
+                            # AssistantMessage, UserMessage, etc.
                             # Stream tool results for UI
                             if isinstance(message, UserMessage) and isinstance(
                                 message.content, list
@@ -782,7 +1143,7 @@ class ClaudeAgentRuntime:
                                             in self._pending_approval_tool_ids
                                         ):
                                             continue
-                                        await self._socket_writer.send_stream_event(
+                                        await self._event_writer.send_stream_event(
                                             UnifiedStreamEvent(
                                                 type=StreamEventType.TOOL_RESULT,
                                                 tool_call_id=block.tool_use_id,
@@ -790,6 +1151,7 @@ class ClaudeAgentRuntime:
                                                 is_error=block.is_error or False,
                                             )
                                         )
+                                        self._session_flush_event.set()
                 finally:
                     stderr_task.cancel()
                     try:
@@ -798,17 +1160,24 @@ class ClaudeAgentRuntime:
                         pass
 
             # CLI has exited — session file is fully flushed.
-            await self._emit_new_session_lines()
+            await self._emit_new_session_lines(
+                is_approval_continuation=payload.is_approval_continuation
+            )
+            log_benchmark_phase("runtime_complete")
 
         except Exception as e:
-            await self._socket_writer.send_log(
+            await self._event_writer.send_log(
                 "error",
                 "Runtime error",
                 error_type=type(e).__name__,
                 error_message=str(e),
             )
-            await self._socket_writer.send_error(str(e))
+            await self._event_writer.send_error(str(e))
             raise
         finally:
+            if session_flush_task is not None:
+                session_flush_task.cancel()
+                with suppress(asyncio.CancelledError):
+                    await session_flush_task
             self.client = None
-            await self._socket_writer.send_done()
+            await self._event_writer.send_done()

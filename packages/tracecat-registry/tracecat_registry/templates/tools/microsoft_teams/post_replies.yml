@@ -3,7 +3,7 @@ definition:
   title: Send replies to a Teams message
   description: Send a reply to a Microsoft Teams message.
   display_group: Microsoft Teams
-  doc_url: https://learn.microsoft.com/en-us/graph/api/chatmessage-post-replies
+  doc_url: https://learn.microsoft.com/en-us/graph/api/chatmessage-post-replies?view=graph-rest-1.0
   namespace: tools.microsoft_teams
   name: post_replies
   secrets:

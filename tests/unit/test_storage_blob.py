@@ -147,10 +147,8 @@ class TestS3Operations:
         mock_get_client.return_value.__aenter__.return_value = mock_client
 
         expected_content = b"test content"
-        mock_stream = AsyncMock()
-        mock_stream.read.return_value = expected_content
         mock_body = AsyncMock()
-        mock_body.__aenter__.return_value = mock_stream
+        mock_body.read.return_value = expected_content
         mock_response = {"Body": mock_body}
         mock_client.get_object.return_value = mock_response
 
@@ -520,7 +518,7 @@ class TestEdgeCases:
         mock_client.get_object.return_value = mock_response
 
         async with open_download_stream(key="k", bucket="b") as (stream, length):
-            assert stream is mock_stream
+            assert stream is mock_body
             assert length == 123
 
     @pytest.mark.anyio

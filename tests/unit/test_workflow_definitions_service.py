@@ -3,6 +3,7 @@ from datetime import datetime
 
 import pytest
 import yaml
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.auth.types import Role
@@ -42,6 +43,94 @@ async def workflow_id(
     finally:
         await session.delete(workflow)
         await session.commit()
+
+
+def _dsl_input(marker: str) -> DSLInput:
+    return DSLInput.model_validate(
+        {
+            "title": f"Test Workflow {marker}",
+            "description": "Test workflow for definitions testing",
+            "entrypoint": {"ref": "test_action"},
+            "actions": [
+                {
+                    "ref": "test_action",
+                    "action": "core.transform.transform",
+                    "args": {"value": marker},
+                }
+            ],
+        }
+    )
+
+
+@pytest.mark.anyio
+async def test_get_definition_prefers_workflow_current_version(
+    definitions_service: WorkflowDefinitionsService,
+    workflow_id: WorkflowUUID,
+    session: AsyncSession,
+):
+    version_one = await definitions_service.create_workflow_definition(
+        workflow_id=workflow_id,
+        dsl=_dsl_input("v1"),
+        commit=True,
+    )
+    version_two = await definitions_service.create_workflow_definition(
+        workflow_id=workflow_id,
+        dsl=_dsl_input("v2"),
+        commit=True,
+    )
+
+    workflow = await session.scalar(select(Workflow).where(Workflow.id == workflow_id))
+    assert workflow is not None
+    workflow.version = version_one.version
+    await session.commit()
+
+    current = await definitions_service.get_definition_by_workflow_id(workflow_id)
+    assert current is not None
+    assert current.id == version_one.id
+
+    explicit = await definitions_service.get_definition_by_workflow_id(
+        workflow_id, version=version_two.version
+    )
+    assert explicit is not None
+    assert explicit.id == version_two.id
+
+
+@pytest.mark.anyio
+async def test_get_definition_falls_back_to_latest_when_current_version_missing(
+    definitions_service: WorkflowDefinitionsService,
+    workflow_id: WorkflowUUID,
+    session: AsyncSession,
+):
+    await definitions_service.create_workflow_definition(
+        workflow_id=workflow_id,
+        dsl=_dsl_input("v1"),
+        commit=True,
+    )
+    version_two = await definitions_service.create_workflow_definition(
+        workflow_id=workflow_id,
+        dsl=_dsl_input("v2"),
+        commit=True,
+    )
+
+    workflow = await session.scalar(select(Workflow).where(Workflow.id == workflow_id))
+    assert workflow is not None
+    workflow.version = version_two.version + 10
+    await session.commit()
+
+    stale_pointer_result = await definitions_service.get_definition_by_workflow_id(
+        workflow_id
+    )
+    assert stale_pointer_result is not None
+    assert stale_pointer_result.id == version_two.id
+
+    workflow.version = None
+    await session.commit()
+
+    null_pointer_result = await definitions_service.get_definition_by_workflow_id(
+        workflow_id
+    )
+    assert null_pointer_result is not None
+    assert null_pointer_result.id == version_two.id
 
 
 @pytest.mark.anyio

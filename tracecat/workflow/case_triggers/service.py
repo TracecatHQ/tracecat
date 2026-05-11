@@ -18,6 +18,19 @@ class CaseTriggersService(BaseWorkspaceService):
 
     service_name = "case_triggers"
 
+    async def _lock_workflow(self, workflow_id: WorkflowID) -> None:
+        workflow_uuid = WorkflowUUID.new(workflow_id)
+        stmt = (
+            select(Workflow.id)
+            .where(
+                Workflow.workspace_id == self.workspace_id,
+                Workflow.id == workflow_uuid,
+            )
+            .with_for_update()
+        )
+        if await self.session.scalar(stmt) is None:
+            raise TracecatNotFoundError(f"Workflow {workflow_id} not found")
+
     async def _ensure_case_trigger_exists(
         self, workflow_id: WorkflowID, *, commit: bool = True
     ) -> CaseTrigger:
@@ -71,6 +84,7 @@ class CaseTriggersService(BaseWorkspaceService):
         create_missing_tags: bool = False,
         commit: bool = True,
     ) -> CaseTrigger:
+        await self._lock_workflow(workflow_id)
         try:
             case_trigger = await self._ensure_case_trigger_exists(
                 workflow_id, commit=commit
@@ -113,6 +127,7 @@ class CaseTriggersService(BaseWorkspaceService):
         create_missing_tags: bool = False,
         commit: bool = True,
     ) -> CaseTrigger:
+        await self._lock_workflow(workflow_id)
         case_trigger = await self._ensure_case_trigger_exists(
             workflow_id, commit=commit
         )

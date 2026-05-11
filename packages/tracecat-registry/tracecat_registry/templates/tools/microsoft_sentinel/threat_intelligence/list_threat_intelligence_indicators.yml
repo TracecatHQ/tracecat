@@ -3,7 +3,7 @@ definition:
   title: List threat intelligence indicators
   description: Get all threat intelligence indicators in Microsoft Sentinel workspace.
   display_group: Microsoft Sentinel
-  doc_url: https://learn.microsoft.com/en-us/rest/api/securityinsights/threat-intelligence-indicators/list
+  doc_url: https://learn.microsoft.com/en-us/rest/api/securityinsights/threat-intelligence-indicators/list?view=rest-securityinsights-2025-09-01
   namespace: tools.microsoft_sentinel
   name: list_threat_intelligence_indicators
   secrets:

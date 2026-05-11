@@ -57,12 +57,6 @@ class RLSMode(StrEnum):
     ENFORCE = "enforce"
 
 
-class LLMExecutionBackend(StrEnum):
-    """Execution backend for the agent LLM runtime path."""
-
-    TRACECAT_PROXY = "tracecat_proxy"
-
-
 # === Internal Services === #
 TRACECAT__APP_ENV: Literal["development", "staging", "production"] = cast(
     Literal["development", "staging", "production"],
@@ -154,6 +148,16 @@ TRACECAT__EXECUTOR_REGISTRY_CACHE_DIR = os.environ.get(
     "TRACECAT__EXECUTOR_REGISTRY_CACHE_DIR", "/tmp/tracecat/registry-cache"
 )
 """Directory for caching extracted registry tarballs in subprocess mode. Uses /tmp for ephemeral storage."""
+
+TRACECAT__AGENT_SKILL_CACHE_DIR = os.environ.get(
+    "TRACECAT__AGENT_SKILL_CACHE_DIR", "/tmp/tracecat/agent-skill-cache"
+)
+"""Directory for caching extracted published skills on executor workers."""
+
+TRACECAT__AGENT_SKILL_CACHE_MAX_CONCURRENT_DOWNLOADS = int(
+    os.environ.get("TRACECAT__AGENT_SKILL_CACHE_MAX_CONCURRENT_DOWNLOADS") or 8
+)
+"""Maximum concurrent file downloads while populating a cached published skill."""
 
 # TODO: Set this as an environment variable
 TRACECAT__SERVICE_ROLES_WHITELIST = [
@@ -340,7 +344,7 @@ SAML_VERIFY_SSL_METADATA = (
 # === CORS config === #
 # NOTE: If you are using Tracecat self-hosted, please replace with your
 # own domain by setting the comma separated TRACECAT__ALLOW_ORIGINS env var.
-TRACECAT__ALLOW_ORIGINS = os.environ.get("TRACECAT__ALLOW_ORIGINS")
+TRACECAT__ALLOW_ORIGINS = os.environ.get("TRACECAT__ALLOW_ORIGINS") or None
 
 # === Temporal config === #
 TEMPORAL__CONNECT_RETRIES = int(os.environ.get("TEMPORAL__CONNECT_RETRIES") or 10)
@@ -369,6 +373,30 @@ TEMPORAL__DISABLE_EAGER_ACTIVITY_EXECUTION = os.environ.get(
     "TEMPORAL__DISABLE_EAGER_ACTIVITY_EXECUTION", "true"
 ).lower() in ("true", "1")
 """Disable eager activity execution for Temporal workflows."""
+TEMPORAL__PAYLOAD_ENCRYPTION_ENABLED = os.environ.get(
+    "TEMPORAL__PAYLOAD_ENCRYPTION_ENABLED", "false"
+).lower() in ("true", "1")
+"""Enable application-layer encryption for Temporal payloads."""
+
+TEMPORAL__PAYLOAD_ENCRYPTION_KEYRING = os.environ.get(
+    "TEMPORAL__PAYLOAD_ENCRYPTION_KEYRING"
+)
+"""JSON keyring used to derive workspace-scoped Temporal payload keys."""
+
+TEMPORAL__PAYLOAD_ENCRYPTION_KEYRING_ARN = os.environ.get(
+    "TEMPORAL__PAYLOAD_ENCRYPTION_KEYRING_ARN"
+)
+"""AWS Secrets Manager ARN containing the Temporal payload encryption keyring."""
+
+TEMPORAL__PAYLOAD_ENCRYPTION_CACHE_TTL_SECONDS = int(
+    os.environ.get("TEMPORAL__PAYLOAD_ENCRYPTION_CACHE_TTL_SECONDS") or 3600
+)
+"""TTL for cached derived Temporal payload keys."""
+
+TEMPORAL__PAYLOAD_ENCRYPTION_CACHE_MAX_ITEMS = int(
+    os.environ.get("TEMPORAL__PAYLOAD_ENCRYPTION_CACHE_MAX_ITEMS") or 4096
+)
+"""Maximum number of cached derived Temporal payload keys."""
 
 # === Sentry config === #
 SENTRY_ENVIRONMENT_OVERRIDE = os.environ.get("SENTRY_ENVIRONMENT_OVERRIDE")
@@ -409,6 +437,11 @@ TRACECAT__BLOB_STORAGE_BUCKET_REGISTRY = os.environ.get(
     "TRACECAT__BLOB_STORAGE_BUCKET_REGISTRY", "tracecat-registry"
 )
 """Bucket for registry tarball files and versioned artifacts."""
+
+TRACECAT__BLOB_STORAGE_BUCKET_SKILLS = os.environ.get(
+    "TRACECAT__BLOB_STORAGE_BUCKET_SKILLS", "tracecat-skills"
+)
+"""Bucket for workspace skill blobs."""
 
 TRACECAT__BLOB_STORAGE_ENDPOINT = os.environ.get("TRACECAT__BLOB_STORAGE_ENDPOINT", "")
 """Endpoint URL for blob storage."""
@@ -642,21 +675,23 @@ TRACECAT__AGENT_SANDBOX_MEMORY_MB = int(
 )
 """Default memory limit for agent sandbox execution in megabytes (4 GiB)."""
 
+TRACECAT__LITELLM_PORT = int(os.environ.get("TRACECAT__LITELLM_PORT") or 4000)
+"""Bind port for the managed LiteLLM service."""
+
+TRACECAT__LITELLM_NUM_WORKERS = int(
+    os.environ.get("TRACECAT__LITELLM_NUM_WORKERS") or 2
+)
+"""Number of uvicorn workers for the managed LiteLLM service."""
+
+TRACECAT__LITELLM_BASE_URL = os.environ.get(
+    "TRACECAT__LITELLM_BASE_URL", f"http://127.0.0.1:{TRACECAT__LITELLM_PORT}"
+)
+"""Internal base URL for the managed LiteLLM service."""
+
 TRACECAT__LLM_PROXY_READ_TIMEOUT = float(
     os.environ.get("TRACECAT__LLM_PROXY_READ_TIMEOUT") or 300.0
 )
 """Read timeout for the LLM socket proxy in seconds (default: 5 minutes)."""
-
-try:
-    TRACECAT__LLM_EXECUTION_BACKEND = LLMExecutionBackend(
-        (os.environ.get("TRACECAT__LLM_EXECUTION_BACKEND") or "tracecat_proxy").strip()
-    )
-except ValueError:
-    valid = ", ".join(f"'{backend.value}'" for backend in LLMExecutionBackend)
-    raise ValueError(
-        f"Invalid TRACECAT__LLM_EXECUTION_BACKEND. Valid values: {valid}"
-    ) from None
-"""Execution backend for the agent LLM runtime path."""
 
 
 TRACECAT__LLM_GATEWAY_CREDENTIAL_CACHE_TTL_SECONDS = float(
@@ -1024,7 +1059,7 @@ TRACECAT__UNIFIED_AGENT_STREAMING_ENABLED = os.environ.get(
 ).lower() in ("true", "1")
 """Whether to enable unified streaming for agent execution."""
 
-TRACECAT__AGENT_MAX_TOOLS = int(os.environ.get("TRACECAT__AGENT_MAX_TOOLS") or 30)
+TRACECAT__AGENT_MAX_TOOLS = int(os.environ.get("TRACECAT__AGENT_MAX_TOOLS") or 128)
 """The maximum number of tools that can be used in an agent."""
 
 TRACECAT__AGENT_MAX_TOOL_CALLS = int(

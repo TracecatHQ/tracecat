@@ -8,7 +8,7 @@ from temporalio.exceptions import ApplicationError
 
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
-from tracecat.exceptions import EntitlementRequired
+from tracecat.exceptions import BuiltinRegistryHasNoSelectionError, EntitlementRequired
 from tracecat.workflow.management.definitions import resolve_registry_lock_activity
 from tracecat.workflow.management.schemas import ResolveRegistryLockActivityInputs
 
@@ -54,3 +54,37 @@ async def test_resolve_registry_lock_activity_maps_entitlement_error(
     detail = app_error.details[0]
     assert isinstance(detail, dict)
     assert detail["entitlement"] == "custom_registry"
+
+
+@pytest.mark.anyio
+async def test_resolve_registry_lock_activity_maps_builtin_sync_pending_as_retryable(
+    mock_role: Role,
+) -> None:
+    inputs = ResolveRegistryLockActivityInputs(
+        role=mock_role,
+        action_names={"tools.custom.only_action"},
+    )
+    mock_service = AsyncMock()
+    mock_service.resolve_lock_with_bindings.side_effect = (
+        BuiltinRegistryHasNoSelectionError(
+            "Builtin registry sync is still in progress. Please retry shortly.",
+            detail={"origin": "tracecat_registry"},
+        )
+    )
+    mock_ctx = AsyncMock()
+    mock_ctx.__aenter__.return_value = mock_service
+
+    with patch(
+        "tracecat.workflow.management.definitions.RegistryLockService.with_session",
+        return_value=mock_ctx,
+    ):
+        with pytest.raises(ApplicationError) as exc_info:
+            await resolve_registry_lock_activity(inputs)
+
+    app_error = exc_info.value
+    assert app_error.type == "BuiltinRegistryHasNoSelectionError"
+    assert app_error.non_retryable is False
+    assert len(app_error.details) > 0
+    detail = app_error.details[0]
+    assert isinstance(detail, dict)
+    assert detail["origin"] == "tracecat_registry"

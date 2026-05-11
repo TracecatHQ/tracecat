@@ -43,6 +43,7 @@ export function WorkflowActions({
   setActiveDialog,
   showMoveToFolder = true,
   availableTags,
+  areTagsLoading = false,
 }: {
   item: WorkflowDirectoryItem
   onDuplicateWorkflow: (item: WorkflowDirectoryItem) => void
@@ -51,6 +52,7 @@ export function WorkflowActions({
   setActiveDialog?: (activeDialog: ActiveDialog | null) => void
   showMoveToFolder?: boolean
   availableTags?: TagRead[]
+  areTagsLoading?: boolean
 }) {
   const { appSettings } = useOrgAppSettings()
   const workspaceId = useWorkspaceId()
@@ -190,6 +192,14 @@ export function WorkflowActions({
             </ContextMenuSubContent>
           </ContextMenuPortal>
         </ContextMenuSub>
+      ) : areTagsLoading ? (
+        <ContextMenuItem
+          className="!bg-transparent text-xs !text-muted-foreground"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <TagsIcon className="mr-2 size-3.5" />
+          <span>Loading tags...</span>
+        </ContextMenuItem>
       ) : (
         <ContextMenuItem
           className="!bg-transparent text-xs !text-muted-foreground hover:cursor-not-allowed"

@@ -74,19 +74,40 @@ POST_RLS_WORKSPACE_SCOPED_TABLES = (
     "case_table_row",
     "agent_channel_token",
     "agent_preset_version",
+    "agent_folder",
+    "agent_tag",
+    "skill",
+    "skill_blob",
+    "skill_upload",
+    "skill_draft_file",
+    "skill_version",
+    "skill_version_file",
+    "agent_preset_skill",
+    "agent_preset_version_skill",
 )
 
-POST_RLS_ORG_SCOPED_TABLES = ("watchtower_agent",)
+POST_RLS_ORG_SCOPED_TABLES = (
+    "watchtower_agent",
+    "mcp_refresh_token",
+    "agent_custom_provider",
+)
 
 POST_RLS_ORG_OPTIONAL_WORKSPACE_SCOPED_TABLES = (
     "watchtower_agent_session",
     "watchtower_agent_tool_call",
+    "service_account",
+    "mcp_personal_access_token",
+    "agent_model_access",
 )
 
-# Workspace and oauth_state carry custom policy SQL, and scope allows shared
-# platform-owned rows.
+SPECIAL_TENANT_POLICY_TABLES = frozenset(
+    {"agent_tag_link", "service_account_api_key", "service_account_scope"}
+)
+
+# Workspace and oauth_state carry custom policy SQL. scope and agent_catalog
+# both have nullable organization_id and allow shared platform-owned rows.
 SPECIAL_WORKSPACE_POLICY_TABLES = frozenset({"oauth_state"})
-SPECIAL_ORG_POLICY_TABLES = frozenset({"workspace", "scope"})
+SPECIAL_ORG_POLICY_TABLES = frozenset({"workspace", "scope", "agent_catalog"})
 
 CURRENT_WORKSPACE_SCOPED_TABLES = (
     *INITIAL_WORKSPACE_SCOPED_TABLES,
@@ -112,6 +133,7 @@ ALL_TENANT_RLS_TABLES = (
     | ORG_OPTIONAL_WORKSPACE_POLICY_TABLES
     | SPECIAL_WORKSPACE_POLICY_TABLES
     | SPECIAL_ORG_POLICY_TABLES
+    | SPECIAL_TENANT_POLICY_TABLES
 )
 
 
@@ -252,6 +274,136 @@ def disable_scope_table_rls() -> str:
     return f"""
         DROP POLICY IF EXISTS {policy_name("scope")} ON "scope";
         ALTER TABLE "scope" DISABLE ROW LEVEL SECURITY;
+    """
+
+
+def enable_service_account_child_table_rls(table: str) -> str:
+    return f"""
+        ALTER TABLE "{table}" ENABLE ROW LEVEL SECURITY;
+
+        CREATE POLICY {policy_name(table)} ON "{table}"
+            FOR ALL
+            USING (
+                current_setting('{RLS_BYPASS_VAR}', true) = '{RLS_BYPASS_ON}'
+                OR EXISTS (
+                    SELECT 1
+                    FROM service_account
+                    WHERE service_account.id = "{table}".service_account_id
+                      AND service_account.organization_id = NULLIF(current_setting('app.current_org_id', true), '')::uuid
+                      AND (
+                          service_account.workspace_id IS NULL
+                          OR service_account.workspace_id = NULLIF(current_setting('app.current_workspace_id', true), '')::uuid
+                          OR NULLIF(current_setting('app.current_workspace_id', true), '')::uuid IS NULL
+                      )
+                )
+            )
+            WITH CHECK (
+                current_setting('{RLS_BYPASS_VAR}', true) = '{RLS_BYPASS_ON}'
+                OR EXISTS (
+                    SELECT 1
+                    FROM service_account
+                    WHERE service_account.id = "{table}".service_account_id
+                      AND service_account.organization_id = NULLIF(current_setting('app.current_org_id', true), '')::uuid
+                      AND (
+                          service_account.workspace_id IS NULL
+                          OR service_account.workspace_id = NULLIF(current_setting('app.current_workspace_id', true), '')::uuid
+                          OR NULLIF(current_setting('app.current_workspace_id', true), '')::uuid IS NULL
+                      )
+                )
+            );
+    """
+
+
+def _agent_catalog_platform_read_policy() -> str:
+    return f"{policy_name('agent_catalog')}_platform_read"
+
+
+def enable_agent_catalog_table_rls() -> str:
+    # Split policy so platform rows (organization_id IS NULL) are readable by
+    # every org but cannot be written or deleted by an org-scoped session.
+    # Writes/deletes are gated by the FOR ALL policy, which only matches
+    # rows owned by the current org; platform-row read access is granted
+    # additively via a FOR SELECT policy (permissive policies OR together).
+    return f"""
+        ALTER TABLE "agent_catalog" ENABLE ROW LEVEL SECURITY;
+
+        CREATE POLICY {policy_name("agent_catalog")} ON "agent_catalog"
+            FOR ALL
+            USING (
+                current_setting('{RLS_BYPASS_VAR}', true) = '{RLS_BYPASS_ON}'
+                OR organization_id = NULLIF(current_setting('app.current_org_id', true), '')::uuid
+            )
+            WITH CHECK (
+                current_setting('{RLS_BYPASS_VAR}', true) = '{RLS_BYPASS_ON}'
+                OR organization_id = NULLIF(current_setting('app.current_org_id', true), '')::uuid
+            );
+
+        CREATE POLICY {_agent_catalog_platform_read_policy()} ON "agent_catalog"
+            FOR SELECT
+            USING (
+                organization_id IS NULL
+            );
+    """
+
+
+def disable_service_account_child_table_rls(table: str) -> str:
+    return f"""
+        DROP POLICY IF EXISTS {policy_name(table)} ON "{table}";
+        ALTER TABLE "{table}" DISABLE ROW LEVEL SECURITY;
+    """
+
+
+def _agent_tag_link_workspace_condition() -> str:
+    return """
+                EXISTS (
+                    SELECT 1
+                    FROM agent_tag
+                    WHERE agent_tag.id = agent_tag_link.tag_id
+                      AND agent_tag.workspace_id = NULLIF(current_setting('app.current_workspace_id', true), '')::uuid
+                )
+                AND EXISTS (
+                    SELECT 1
+                    FROM agent_preset
+                    WHERE agent_preset.id = agent_tag_link.preset_id
+                      AND agent_preset.workspace_id = NULLIF(current_setting('app.current_workspace_id', true), '')::uuid
+                )
+    """
+
+
+def enable_agent_tag_link_table_rls() -> str:
+    workspace_condition = _agent_tag_link_workspace_condition()
+    return f"""
+        ALTER TABLE "agent_tag_link" ENABLE ROW LEVEL SECURITY;
+
+        CREATE POLICY {policy_name("agent_tag_link")} ON "agent_tag_link"
+            FOR ALL
+            USING (
+                current_setting('{RLS_BYPASS_VAR}', true) = '{RLS_BYPASS_ON}'
+                OR (
+{workspace_condition}
+                )
+            )
+            WITH CHECK (
+                current_setting('{RLS_BYPASS_VAR}', true) = '{RLS_BYPASS_ON}'
+                OR (
+{workspace_condition}
+                )
+            );
+    """
+
+
+def disable_agent_tag_link_table_rls() -> str:
+    return f"""
+        DROP POLICY IF EXISTS {policy_name("agent_tag_link")} ON "agent_tag_link";
+        ALTER TABLE "agent_tag_link" DISABLE ROW LEVEL SECURITY;
+    """
+
+
+def disable_agent_catalog_table_rls() -> str:
+    return f"""
+        DROP POLICY IF EXISTS {_agent_catalog_platform_read_policy()} ON "agent_catalog";
+        DROP POLICY IF EXISTS {policy_name("agent_catalog")} ON "agent_catalog";
+        ALTER TABLE "agent_catalog" DISABLE ROW LEVEL SECURITY;
     """
 
 

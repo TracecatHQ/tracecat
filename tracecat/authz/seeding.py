@@ -89,6 +89,30 @@ SYSTEM_SCOPE_DEFINITIONS: list[ScopeDefinition] = [
         "delete",
         "Delete roles, scopes, groups, and assignments",
     ),
+    ScopeDefinition(
+        "org:service_account:read",
+        "org:service_account",
+        "read",
+        "View organization service accounts",
+    ),
+    ScopeDefinition(
+        "org:service_account:create",
+        "org:service_account",
+        "create",
+        "Create organization service accounts",
+    ),
+    ScopeDefinition(
+        "org:service_account:update",
+        "org:service_account",
+        "update",
+        "Update organization service accounts",
+    ),
+    ScopeDefinition(
+        "org:service_account:disable",
+        "org:service_account",
+        "disable",
+        "Disable or enable organization service accounts",
+    ),
     # Org settings management
     ScopeDefinition(
         "org:settings:read",
@@ -181,6 +205,30 @@ SYSTEM_SCOPE_DEFINITIONS: list[ScopeDefinition] = [
         "workspace:rbac",
         "manage",
         "Manage workspace role assignments and group permissions",
+    ),
+    ScopeDefinition(
+        "workspace:service_account:read",
+        "workspace:service_account",
+        "read",
+        "View workspace service accounts",
+    ),
+    ScopeDefinition(
+        "workspace:service_account:create",
+        "workspace:service_account",
+        "create",
+        "Create workspace service accounts",
+    ),
+    ScopeDefinition(
+        "workspace:service_account:update",
+        "workspace:service_account",
+        "update",
+        "Update workspace service accounts",
+    ),
+    ScopeDefinition(
+        "workspace:service_account:disable",
+        "workspace:service_account",
+        "disable",
+        "Disable or enable workspace service accounts",
     ),
     # Workflow scopes
     ScopeDefinition(

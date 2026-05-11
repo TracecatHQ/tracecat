@@ -44,7 +44,9 @@ from tracecat.pagination import (
 )
 from tracecat.service import BaseWorkspaceService
 from tracecat.tables.common import (
+    coerce_integer_value,
     coerce_multi_select_value,
+    coerce_numeric_value,
     coerce_select_value,
     coerce_to_date,
     coerce_to_utc_datetime,
@@ -261,6 +263,10 @@ class BaseTablesService(BaseWorkspaceService):
 
             if sql_type is SqlType.TIMESTAMPTZ:
                 normalised[column_name] = coerce_to_utc_datetime(value)
+            elif sql_type is SqlType.INTEGER:
+                normalised[column_name] = coerce_integer_value(value)
+            elif sql_type is SqlType.NUMERIC:
+                normalised[column_name] = coerce_numeric_value(value)
             elif sql_type is SqlType.DATE and value is not None:
                 normalised[column_name] = coerce_to_date(value)
             else:

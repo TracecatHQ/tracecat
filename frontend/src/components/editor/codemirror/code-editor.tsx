@@ -2,6 +2,9 @@
 
 import { json } from "@codemirror/lang-json"
 import { python } from "@codemirror/lang-python"
+import { yaml } from "@codemirror/lang-yaml"
+import type { Extension } from "@codemirror/state"
+import { EditorView } from "@codemirror/view"
 import ReactCodeMirror from "@uiw/react-codemirror"
 
 import { cn } from "@/lib/utils"
@@ -11,16 +14,21 @@ interface CodeEditorProps {
   onChange?: (value: string) => void
   language?: string
   readOnly?: boolean
+  wrapLongLines?: boolean
   className?: string
 }
-export const getLanguageExtension = (language: string) => {
+
+function getLanguageExtension(language: string): Extension | null {
   switch (language) {
     case "python":
       return python()
     case "json":
       return json()
+    case "yaml":
+      return yaml()
+    case "text":
     default:
-      return python()
+      return null
   }
 }
 
@@ -29,21 +37,31 @@ export function CodeEditor({
   onChange,
   language = "python",
   readOnly = false,
+  wrapLongLines = false,
   className,
 }: CodeEditorProps) {
+  const languageExtension = getLanguageExtension(language)
+  const extensions = [
+    ...(languageExtension ? [languageExtension] : []),
+    ...(wrapLongLines ? [EditorView.lineWrapping] : []),
+  ]
+
   return (
     <ReactCodeMirror
       value={value}
       onChange={onChange}
-      extensions={[getLanguageExtension(language)]}
+      extensions={extensions}
       readOnly={readOnly}
       className={cn(
         // Ensure the editor and all its tooltips/autocomplete popups are fully rounded and do not stick out
-        "rounded-md text-xs focus-visible:outline-none",
+        "max-w-full min-w-0 rounded-md text-xs focus-visible:outline-none",
         // Editor container
-        "[&_.cm-editor]:rounded-md [&_.cm-editor]:border [&_.cm-focused]:outline-none",
+        "[&_.cm-editor]:min-w-0 [&_.cm-editor]:rounded-md [&_.cm-editor]:border [&_.cm-focused]:outline-none",
         // Scroller
-        "[&_.cm-scroller]:rounded-md",
+        "[&_.cm-scroller]:min-w-0 [&_.cm-scroller]:overflow-auto [&_.cm-scroller]:rounded-md",
+        wrapLongLines
+          ? "[&_.cm-content]:min-w-0 [&_.cm-content]:w-full [&_.cm-line]:break-words [&_.cm-lineWrapping]:break-words [&_.cm-lineWrapping]:whitespace-pre-wrap"
+          : "[&_.cm-content]:min-w-full [&_.cm-content]:w-max",
         // Tooltip (e.g., hover, autocomplete)
         "[&_.cm-tooltip]:rounded-md",
         // Autocomplete suggestion widget and its children

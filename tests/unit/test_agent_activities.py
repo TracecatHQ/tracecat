@@ -7,22 +7,27 @@ These tests cover:
 
 from __future__ import annotations
 
+import asyncio
+import shutil
 import uuid
 from pathlib import Path
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from temporalio.exceptions import ApplicationError
+from tracecat_ee.agent import activities as agent_activities
+from tracecat_ee.agent.activities import AgentActivities, BuildToolDefsArgs
 
-from tracecat.agent.common.exceptions import AgentSandboxExecutionError
+from tracecat.agent.common.protocol import RuntimeInitPayload
 from tracecat.agent.common.stream_types import HarnessType
 from tracecat.agent.executor.activity import (
-    MAX_ACTIVITY_MESSAGE_HISTORY_BYTES,
     AgentExecutorInput,
     AgentExecutorResult,
     SandboxedAgentExecutor,
-    _preview_message_history,
     run_agent_activity,
 )
+from tracecat.agent.schemas import ToolFilters
 from tracecat.agent.session.activities import (
     CreateSessionInput,
     CreateSessionResult,
@@ -33,10 +38,13 @@ from tracecat.agent.session.activities import (
     load_session_activity,
 )
 from tracecat.agent.session.types import AgentSessionEntity
+from tracecat.agent.skill.types import ResolvedSkillRef
+from tracecat.agent.tools import BuildToolsResult
 from tracecat.agent.types import AgentConfig
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
-from tracecat.chat.schemas import ChatMessage
+from tracecat.exceptions import BuiltinRegistryHasNoSelectionError
+from tracecat.registry.lock.service import RegistryLockService
 
 
 @pytest.fixture
@@ -56,30 +64,6 @@ def mock_role() -> Role:
 def mock_session_id() -> uuid.UUID:
     """Create a mock session ID for testing."""
     return uuid.uuid4()
-
-
-def test_preview_message_history_returns_placeholder_for_oversize_message() -> None:
-    oversize_message = ChatMessage.model_validate(
-        {
-            "id": "msg-oversize",
-            "message": {
-                "role": "assistant",
-                "content": [
-                    {
-                        "type": "text",
-                        "text": "x" * (MAX_ACTIVITY_MESSAGE_HISTORY_BYTES + 1),
-                    }
-                ],
-            },
-        }
-    )
-
-    preview = _preview_message_history([oversize_message])
-
-    assert preview is not None
-    assert len(preview) == 1
-    assert preview[0].id == "msg-oversize-preview"
-    assert preview[0].message is not None
 
 
 @pytest.fixture
@@ -113,6 +97,79 @@ class TestSessionActivities:
         assert "create_session_activity" in activity_names
         assert "load_session_activity" in activity_names
         assert "reconcile_tool_results_activity" in activity_names
+
+
+class TestBuildToolDefinitionsActivity:
+    @pytest.mark.anyio
+    async def test_maps_tool_definition_errors_to_application_error(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        async def mock_build_agent_tools(**_kwargs: Any) -> BuildToolsResult:
+            raise ValueError("Cannot request more than 100 tools")
+
+        monkeypatch.setattr(
+            agent_activities, "build_agent_tools", mock_build_agent_tools
+        )
+
+        args = BuildToolDefsArgs(
+            role=Role(type="service", service_id="tracecat-api"),
+            tool_filters=ToolFilters(actions=["core.http_request"]),
+        )
+
+        with pytest.raises(ApplicationError) as exc_info:
+            await AgentActivities().build_tool_definitions(args)
+
+        app_error = exc_info.value
+        assert app_error.type == "AgentToolDefinitionError"
+        assert app_error.non_retryable is True
+        assert app_error.message == "Cannot request more than 100 tools"
+
+    @pytest.mark.anyio
+    async def test_maps_builtin_sync_pending_to_application_error(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        async def mock_build_agent_tools(**_kwargs: Any) -> BuildToolsResult:
+            return BuildToolsResult(tools=[], collected_secrets=set())
+
+        class _LockService:
+            async def resolve_lock_with_bindings(self, _actions: set[str]) -> None:
+                raise BuiltinRegistryHasNoSelectionError(
+                    "Builtin registry sync is still in progress. Please retry shortly.",
+                    detail={"origin": "tracecat_registry"},
+                )
+
+        class _AsyncContext:
+            async def __aenter__(self) -> _LockService:
+                return _LockService()
+
+            async def __aexit__(
+                self, exc_type: object, exc: object, tb: object
+            ) -> None:
+                return None
+
+        monkeypatch.setattr(
+            agent_activities, "build_agent_tools", mock_build_agent_tools
+        )
+        monkeypatch.setattr(
+            RegistryLockService,
+            "with_session",
+            lambda: _AsyncContext(),
+        )
+
+        args = BuildToolDefsArgs(
+            role=Role(type="service", service_id="tracecat-api"),
+            tool_filters=ToolFilters(actions=[]),
+        )
+
+        with pytest.raises(ApplicationError) as exc_info:
+            await AgentActivities().build_tool_definitions(args)
+
+        app_error = exc_info.value
+        assert app_error.type == "BuiltinRegistryHasNoSelectionError"
+        assert app_error.non_retryable is False
+        assert app_error.details[0] == {"origin": "tracecat_registry"}
 
 
 class TestCreateSessionActivity:
@@ -174,6 +231,62 @@ class TestCreateSessionActivity:
 
         assert result.success is True
         assert result.session_id == mock_session_id
+
+    @pytest.mark.anyio
+    @patch("tracecat.agent.session.activities.AgentSessionService.with_session")
+    async def test_uses_existing_session_when_required(
+        self, mock_with_session, mock_role: Role, mock_session_id: uuid.UUID
+    ):
+        """Test that require_existing reuses a pre-existing session."""
+        input = CreateSessionInput(
+            role=mock_role,
+            session_id=mock_session_id,
+            require_existing=True,
+            entity_type=AgentSessionEntity.WORKFLOW,
+            entity_id=uuid.uuid4(),
+        )
+
+        mock_service = AsyncMock()
+        mock_service.get_session.return_value = MagicMock()
+
+        mock_ctx = AsyncMock()
+        mock_ctx.__aenter__.return_value = mock_service
+        mock_with_session.return_value = mock_ctx
+
+        result = await create_session_activity(input)
+
+        assert result.success is True
+        mock_service.get_session.assert_awaited_once_with(mock_session_id)
+        mock_service.get_or_create_session.assert_not_called()
+
+    @pytest.mark.anyio
+    @patch("tracecat.agent.session.activities.AgentSessionService.with_session")
+    async def test_fails_when_required_session_is_missing(
+        self, mock_with_session, mock_role: Role, mock_session_id: uuid.UUID
+    ):
+        """Test that require_existing rejects unknown sessions."""
+        input = CreateSessionInput(
+            role=mock_role,
+            session_id=mock_session_id,
+            require_existing=True,
+            entity_type=AgentSessionEntity.WORKFLOW,
+            entity_id=uuid.uuid4(),
+        )
+
+        mock_service = AsyncMock()
+        mock_service.get_session.return_value = None
+
+        mock_ctx = AsyncMock()
+        mock_ctx.__aenter__.return_value = mock_service
+        mock_with_session.return_value = mock_ctx
+
+        result = await create_session_activity(input)
+
+        assert result.success is False
+        assert result.error is not None
+        assert str(mock_session_id) in result.error
+        mock_service.get_session.assert_awaited_once_with(mock_session_id)
+        mock_service.get_or_create_session.assert_not_called()
 
     @pytest.mark.anyio
     @patch("tracecat.agent.session.activities.AgentSessionService.with_session")
@@ -387,39 +500,16 @@ class TestRunAgentActivity:
             patch(
                 "tracecat.agent.executor.activity.SandboxedAgentExecutor"
             ) as mock_executor_cls,
-            patch(
-                "tracecat.agent.executor.activity.AgentSessionService.with_session"
-            ) as mock_with_session,
         ):
             mock_activity.heartbeat = MagicMock()
             mock_executor = MagicMock()
             mock_executor.run = AsyncMock(return_value=expected_result)
             mock_executor_cls.return_value = mock_executor
-            mock_service = AsyncMock()
-            mock_service.list_messages.return_value = [
-                ChatMessage.model_validate(
-                    {
-                        "id": "msg-1",
-                        "message": {
-                            "role": "assistant",
-                            "content": [{"type": "text", "text": "done"}],
-                        },
-                    }
-                )
-            ]
-            mock_ctx = AsyncMock()
-            mock_ctx.__aenter__.return_value = mock_service
-            mock_with_session.return_value = mock_ctx
 
             result = await run_agent_activity(mock_executor_input)
 
-            assert result.success is True
-            assert result.messages is not None
-            assert [message.id for message in result.messages] == ["msg-1"]
+            assert result == expected_result
             mock_executor_cls.assert_called_once_with(input=mock_executor_input)
-            mock_executor.run.assert_awaited_once_with(
-                progress_callback=mock_activity.heartbeat
-            )
 
     @pytest.mark.anyio
     async def test_returns_approval_requested_on_approval_interrupt(
@@ -430,8 +520,6 @@ class TestRunAgentActivity:
             success=True,
             approval_requested=True,
             approval_items=[],
-            output={"leak": True},
-            result_usage={"input_tokens": 999},
         )
 
         with (
@@ -439,9 +527,6 @@ class TestRunAgentActivity:
             patch(
                 "tracecat.agent.executor.activity.SandboxedAgentExecutor"
             ) as mock_executor_cls,
-            patch(
-                "tracecat.agent.executor.activity.AgentSessionService.with_session"
-            ) as mock_with_session,
         ):
             mock_activity.heartbeat = MagicMock()
             mock_executor = MagicMock()
@@ -452,11 +537,6 @@ class TestRunAgentActivity:
 
             assert result.success is True
             assert result.approval_requested is True
-            assert result.approval_items == []
-            assert result.output is None
-            assert result.result_usage is None
-            assert result.messages is None
-            mock_with_session.assert_not_called()
 
     @pytest.mark.anyio
     async def test_handles_execution_error(
@@ -505,308 +585,398 @@ class TestRunAgentActivity:
             assert mock_activity.heartbeat.call_count >= 2
 
 
-class TestSandboxedAgentExecutorResumeStaging:
-    """Tests for resume file staging in the executor."""
+class TestSandboxedAgentExecutorHelpers:
+    """Tests for SandboxedAgentExecutor helper methods."""
 
-    @pytest.mark.anyio
-    @patch("tracecat.agent.executor.activity.AgentSessionService.with_session")
-    async def test_stages_resume_file_for_direct_runtime(
-        self,
-        mock_with_session,
-        mock_role: Role,
-        mock_session_id: uuid.UUID,
-        mock_agent_config: AgentConfig,
-        tmp_path: Path,
-    ) -> None:
-        executor = SandboxedAgentExecutor(
-            input=AgentExecutorInput(
-                session_id=mock_session_id,
-                workspace_id=mock_role.workspace_id or uuid.uuid4(),
-                user_prompt="Test prompt",
-                config=mock_agent_config,
-                role=mock_role,
-                mcp_auth_token="mock-jwt-token",
-                llm_gateway_auth_token="mock-llm-token",
-                sdk_session_id="sdk-session-123",
-                resume_source_session_id=mock_session_id,
-            )
-        )
-        executor._job_dir = tmp_path
-
-        mock_service = AsyncMock()
-        mock_service.materialize_session_history.return_value = '{"type":"user"}\n'
-        mock_ctx = AsyncMock()
-        mock_ctx.__aenter__.return_value = mock_service
-        mock_with_session.return_value = mock_ctx
-
-        with patch("tracecat.agent.executor.activity.TRACECAT__DISABLE_NSJAIL", True):
-            staged_path = await executor._stage_resume_session_file()
-
-        assert staged_path is not None
-        assert staged_path == str(tmp_path / "resume" / "sdk-session-123.jsonl")
-        assert Path(staged_path).read_text() == '{"type":"user"}\n'
-
-    @pytest.mark.anyio
-    @patch("tracecat.agent.executor.activity.AgentSessionService.with_session")
-    async def test_stages_resume_file_for_nsjail_runtime(
-        self,
-        mock_with_session,
-        mock_role: Role,
-        mock_session_id: uuid.UUID,
-        mock_agent_config: AgentConfig,
-        tmp_path: Path,
-    ) -> None:
-        executor = SandboxedAgentExecutor(
-            input=AgentExecutorInput(
-                session_id=mock_session_id,
-                workspace_id=mock_role.workspace_id or uuid.uuid4(),
-                user_prompt="Test prompt",
-                config=mock_agent_config,
-                role=mock_role,
-                mcp_auth_token="mock-jwt-token",
-                llm_gateway_auth_token="mock-llm-token",
-                sdk_session_id="sdk-session-123",
-                resume_source_session_id=mock_session_id,
-            )
-        )
-        executor._job_dir = tmp_path
-
-        mock_service = AsyncMock()
-        mock_service.materialize_session_history.return_value = '{"type":"user"}\n'
-        mock_ctx = AsyncMock()
-        mock_ctx.__aenter__.return_value = mock_service
-        mock_with_session.return_value = mock_ctx
-
-        with patch("tracecat.agent.executor.activity.TRACECAT__DISABLE_NSJAIL", False):
-            staged_path = await executor._stage_resume_session_file()
-
-        assert staged_path is not None
-        assert staged_path == "/work/resume/sdk-session-123.jsonl"
-        assert (tmp_path / "resume" / "sdk-session-123.jsonl").read_text() == (
-            '{"type":"user"}\n'
-        )
-
-    @pytest.mark.anyio
-    @patch("tracecat.agent.executor.activity.AgentSessionService.with_session")
-    async def test_passes_progress_callback_to_session_materialization(
-        self,
-        mock_with_session,
-        mock_role: Role,
-        mock_session_id: uuid.UUID,
-        mock_agent_config: AgentConfig,
-        tmp_path: Path,
-    ) -> None:
-        heartbeat = MagicMock()
-        executor = SandboxedAgentExecutor(
-            input=AgentExecutorInput(
-                session_id=mock_session_id,
-                workspace_id=mock_role.workspace_id or uuid.uuid4(),
-                user_prompt="Test prompt",
-                config=mock_agent_config,
-                role=mock_role,
-                mcp_auth_token="mock-jwt-token",
-                llm_gateway_auth_token="mock-llm-token",
-                sdk_session_id="sdk-session-123",
-                resume_source_session_id=mock_session_id,
-            )
-        )
-        executor._job_dir = tmp_path
-
-        mock_service = AsyncMock()
-        mock_service.materialize_session_history.return_value = '{"type":"user"}\n'
-        mock_ctx = AsyncMock()
-        mock_ctx.__aenter__.return_value = mock_service
-        mock_with_session.return_value = mock_ctx
-
-        await executor._stage_resume_session_file(progress_callback=heartbeat)
-
-        progress_callback = mock_service.materialize_session_history.await_args.kwargs[
-            "progress_callback"
-        ]
-        progress_callback("Materialized 1 resume history entries")
-
-        heartbeat.assert_any_call(f"Loading resume history: {mock_session_id}")
-        heartbeat.assert_any_call("Materialized 1 resume history entries")
-        heartbeat.assert_any_call("Staged resume history: sdk-session-123")
-
-    @pytest.mark.anyio
-    async def test_run_passes_executor_work_dir_to_nsjail_spawn(
+    @pytest.fixture
+    def executor_input(
         self,
         mock_role: Role,
         mock_session_id: uuid.UUID,
         mock_agent_config: AgentConfig,
-        tmp_path: Path,
-    ) -> None:
-        executor = SandboxedAgentExecutor(
-            input=AgentExecutorInput(
-                session_id=mock_session_id,
-                workspace_id=mock_role.workspace_id or uuid.uuid4(),
-                user_prompt="Test prompt",
-                config=mock_agent_config,
-                role=mock_role,
-                mcp_auth_token="mock-jwt-token",
-                llm_gateway_auth_token="mock-llm-token",
-            )
+    ) -> AgentExecutorInput:
+        return AgentExecutorInput(
+            session_id=mock_session_id,
+            workspace_id=mock_role.workspace_id or uuid.uuid4(),
+            user_prompt="Investigate startup latency",
+            config=mock_agent_config,
+            role=mock_role,
+            mcp_auth_token="mock-mcp-token",
+            llm_gateway_auth_token="mock-llm-token",
         )
 
-        mock_proxy = MagicMock()
-        mock_proxy.start = AsyncMock()
-        mock_proxy.stop = AsyncMock()
-        mock_server = AsyncMock()
-        mock_server.__aenter__.return_value = mock_server
-        mock_server.__aexit__.return_value = None
+    def test_build_runtime_init_payload(
+        self,
+        executor_input: AgentExecutorInput,
+    ) -> None:
+        executor = SandboxedAgentExecutor(input=executor_input)
 
-        with (
-            patch.object(
-                executor,
-                "_create_job_directory",
-                AsyncMock(return_value=tmp_path),
+        payload = executor._build_runtime_init_payload()
+
+        assert isinstance(payload, RuntimeInitPayload)
+        assert payload.session_id == executor_input.session_id
+        assert payload.user_prompt == executor_input.user_prompt
+        assert payload.mcp_auth_token == executor_input.mcp_auth_token
+        assert payload.llm_gateway_auth_token == executor_input.llm_gateway_auth_token
+        assert payload.config.model_name == executor_input.config.model_name
+
+
+class TestSandboxedAgentExecutorSkillCaching:
+    """Tests for cached skill staging in the sandbox executor."""
+
+    @pytest.mark.anyio
+    async def test_ensure_cached_skill_dir_downloads_files_concurrently(
+        self,
+        mock_role: Role,
+        mock_session_id: uuid.UUID,
+        mock_agent_config: AgentConfig,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        """Cache population uses bounded concurrent blob downloads."""
+
+        mock_executor_input = AgentExecutorInput(
+            session_id=mock_session_id,
+            workspace_id=mock_role.workspace_id or uuid.uuid4(),
+            user_prompt="Test prompt",
+            config=mock_agent_config,
+            role=mock_role,
+            mcp_auth_token="mock-jwt-token",
+            llm_gateway_auth_token="mock-llm-token",
+        )
+        mock_executor = SandboxedAgentExecutor(input=mock_executor_input)
+        manifest_sha256 = "manifest-sha"
+        skill_version_id = uuid.uuid4()
+        version_files = [
+            (
+                "skill-a/SKILL.md",
+                MagicMock(
+                    key="k1",
+                    bucket="skills",
+                    sha256="s1",
+                    size_bytes=10,
+                ),
             ),
-            patch.object(
-                executor,
-                "_stage_resume_session_file",
-                AsyncMock(return_value="/work/resume/sdk-session-123.jsonl"),
+            (
+                "skill-a/helper.py",
+                MagicMock(
+                    key="k2",
+                    bucket="skills",
+                    sha256="s2",
+                    size_bytes=10,
+                ),
             ),
-            patch.object(
-                executor,
-                "_create_llm_socket_proxy",
-                return_value=mock_proxy,
-            ),
-            patch(
-                "tracecat.agent.executor.activity.asyncio.start_unix_server",
-                AsyncMock(return_value=mock_server),
-            ),
-            patch(
-                "tracecat.agent.executor.activity.spawn_jailed_runtime",
-                AsyncMock(side_effect=AgentSandboxExecutionError("spawn failed")),
-            ) as mock_spawn,
-        ):
-            result = await executor.run()
-
-        assert result.success is False
-        assert result.error == "spawn failed"
-        assert mock_spawn.await_args is not None
-        assert mock_spawn.await_args.kwargs["work_dir"] == tmp_path
-
-    @pytest.mark.anyio
-    @patch("tracecat.agent.executor.activity.AgentSessionService.with_session")
-    async def test_rejects_invalid_sdk_session_id_before_writing_resume_file(
-        self,
-        mock_with_session,
-        mock_role: Role,
-        mock_session_id: uuid.UUID,
-        mock_agent_config: AgentConfig,
-        tmp_path: Path,
-    ) -> None:
-        outside_path = tmp_path / "outside-session"
-        executor = SandboxedAgentExecutor(
-            input=AgentExecutorInput(
-                session_id=mock_session_id,
-                workspace_id=mock_role.workspace_id or uuid.uuid4(),
-                user_prompt="Test prompt",
-                config=mock_agent_config,
-                role=mock_role,
-                mcp_auth_token="mock-jwt-token",
-                llm_gateway_auth_token="mock-llm-token",
-                sdk_session_id=str(outside_path),
-                resume_source_session_id=mock_session_id,
-            )
-        )
-        executor._job_dir = tmp_path
-
-        mock_service = AsyncMock()
-        mock_service.materialize_session_history.return_value = '{"type":"user"}\n'
-        mock_ctx = AsyncMock()
-        mock_ctx.__aenter__.return_value = mock_service
-        mock_with_session.return_value = mock_ctx
-
-        with pytest.raises(
-            AgentSandboxExecutionError,
-            match="Invalid sdk_session_id",
-        ):
-            await executor._stage_resume_session_file()
-
-        assert not (outside_path.with_suffix(".jsonl")).exists()
-        assert not (tmp_path / "resume" / "outside-session.jsonl").exists()
-
-    @pytest.mark.anyio
-    @patch("tracecat.agent.executor.activity.AgentSessionService.with_session")
-    async def test_skips_resume_when_persisted_history_is_missing(
-        self,
-        mock_with_session,
-        mock_role: Role,
-        mock_session_id: uuid.UUID,
-        mock_agent_config: AgentConfig,
-        tmp_path: Path,
-    ) -> None:
-        executor = SandboxedAgentExecutor(
-            input=AgentExecutorInput(
-                session_id=mock_session_id,
-                workspace_id=mock_role.workspace_id or uuid.uuid4(),
-                user_prompt="Test prompt",
-                config=mock_agent_config,
-                role=mock_role,
-                mcp_auth_token="mock-jwt-token",
-                llm_gateway_auth_token="mock-llm-token",
-                sdk_session_id="sdk-session-123",
-                resume_source_session_id=mock_session_id,
-            )
-        )
-        executor._job_dir = tmp_path
-
-        mock_service = AsyncMock()
-        mock_service.materialize_session_history.return_value = None
-        mock_ctx = AsyncMock()
-        mock_ctx.__aenter__.return_value = mock_service
-        mock_with_session.return_value = mock_ctx
-
-        staged_path = await executor._stage_resume_session_file()
-
-        assert staged_path is None
-        assert not (tmp_path / "resume").exists()
-
-
-class TestActivityMessageHistoryTruncation:
-    """Tests for bounded activity message history payloads."""
-
-    def test_returns_tail_that_fits_in_budget(self) -> None:
-        """Keep the newest messages when they fit comfortably in the budget."""
-        messages = [
-            ChatMessage.model_validate(
-                {
-                    "id": "msg-1",
-                    "message": {"role": "assistant", "content": "first"},
-                }
-            ),
-            ChatMessage.model_validate(
-                {
-                    "id": "msg-2",
-                    "message": {"role": "assistant", "content": "second"},
-                }
+            (
+                "skill-a/README.md",
+                MagicMock(
+                    key="k3",
+                    bucket="skills",
+                    sha256="s3",
+                    size_bytes=10,
+                ),
             ),
         ]
+        mock_service = AsyncMock()
+        mock_service.get_version_file_materialization.return_value = version_files
 
-        result = _preview_message_history(messages)
+        started_two_downloads = asyncio.Event()
+        release_downloads = asyncio.Event()
+        max_in_flight = 0
+        in_flight = 0
 
-        assert result is not None
-        assert [message.id for message in result] == ["msg-1", "msg-2"]
+        async def fake_download_file_to_path(
+            *,
+            key: str,
+            bucket: str,
+            output_path: Path,
+            expected_sha256: str | None = None,
+            max_bytes: int | None = None,
+        ) -> int:
+            del key, bucket, expected_sha256, max_bytes
+            nonlocal in_flight, max_in_flight
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            in_flight += 1
+            max_in_flight = max(max_in_flight, in_flight)
+            if in_flight >= 2:
+                started_two_downloads.set()
+            await release_downloads.wait()
+            output_path.write_text("ok")
+            in_flight -= 1
+            return 2
 
-    def test_returns_placeholder_when_last_message_exceeds_budget(self) -> None:
-        """Return a placeholder instead of an empty preview for oversized messages."""
-        messages = [
-            ChatMessage.model_validate(
-                {
-                    "id": "msg-oversized",
-                    "message": {
-                        "role": "assistant",
-                        "content": "x" * (MAX_ACTIVITY_MESSAGE_HISTORY_BYTES + 1024),
-                    },
-                }
+        monkeypatch.setattr(
+            "tracecat.agent.executor.activity.TRACECAT__AGENT_SKILL_CACHE_DIR",
+            str(tmp_path),
+        )
+        monkeypatch.setattr(
+            "tracecat.agent.executor.activity.TRACECAT__AGENT_SKILL_CACHE_MAX_CONCURRENT_DOWNLOADS",
+            2,
+        )
+        monkeypatch.setattr(
+            "tracecat.agent.executor.activity.blob.download_file_to_path",
+            fake_download_file_to_path,
+        )
+
+        task = asyncio.create_task(
+            mock_executor._ensure_cached_skill_dir(
+                service=mock_service,
+                manifest_sha256=manifest_sha256,
+                skill_version_id=skill_version_id,
+            )
+        )
+        await asyncio.wait_for(started_two_downloads.wait(), timeout=1)
+        assert max_in_flight == 2
+        release_downloads.set()
+        cache_dir = await task
+
+        assert cache_dir == tmp_path / manifest_sha256
+        assert (cache_dir / "skill-a" / "SKILL.md").read_text() == "ok"
+        assert (cache_dir / "skill-a" / "helper.py").read_text() == "ok"
+        assert (cache_dir / "skill-a" / "README.md").read_text() == "ok"
+
+    @pytest.mark.anyio
+    async def test_ensure_cached_skill_dir_clamps_non_positive_download_limit(
+        self,
+        mock_role: Role,
+        mock_session_id: uuid.UUID,
+        mock_agent_config: AgentConfig,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        """Skill caching should still complete when concurrency config is invalid."""
+
+        mock_executor_input = AgentExecutorInput(
+            session_id=mock_session_id,
+            workspace_id=mock_role.workspace_id or uuid.uuid4(),
+            user_prompt="Test prompt",
+            config=mock_agent_config,
+            role=mock_role,
+            mcp_auth_token="mock-jwt-token",
+            llm_gateway_auth_token="mock-llm-token",
+        )
+        mock_executor = SandboxedAgentExecutor(input=mock_executor_input)
+        manifest_sha256 = "manifest-sha"
+        skill_version_id = uuid.uuid4()
+        mock_service = AsyncMock()
+        mock_service.get_version_file_materialization.return_value = [
+            (
+                "skill-a/SKILL.md",
+                MagicMock(
+                    key="k1",
+                    bucket="skills",
+                    sha256="s1",
+                    size_bytes=10,
+                ),
             )
         ]
 
-        result = _preview_message_history(messages)
+        async def fake_download_file_to_path(
+            *,
+            key: str,
+            bucket: str,
+            output_path: Path,
+            expected_sha256: str | None = None,
+            max_bytes: int | None = None,
+        ) -> int:
+            del key, bucket, expected_sha256, max_bytes
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            output_path.write_text("ok")
+            return 2
 
-        assert result is not None
-        assert len(result) == 1
-        assert result[0].id == "msg-oversized-preview"
+        monkeypatch.setattr(
+            "tracecat.agent.executor.activity.TRACECAT__AGENT_SKILL_CACHE_DIR",
+            str(tmp_path),
+        )
+        monkeypatch.setattr(
+            "tracecat.agent.executor.activity.TRACECAT__AGENT_SKILL_CACHE_MAX_CONCURRENT_DOWNLOADS",
+            0,
+        )
+        monkeypatch.setattr(
+            "tracecat.agent.executor.activity.blob.download_file_to_path",
+            fake_download_file_to_path,
+        )
+
+        cache_dir = await asyncio.wait_for(
+            mock_executor._ensure_cached_skill_dir(
+                service=mock_service,
+                manifest_sha256=manifest_sha256,
+                skill_version_id=skill_version_id,
+            ),
+            timeout=1,
+        )
+
+        assert cache_dir == tmp_path / manifest_sha256
+        assert (cache_dir / "skill-a" / "SKILL.md").read_text() == "ok"
+
+    @pytest.mark.anyio
+    async def test_stage_resolved_skills_offloads_copytree(
+        self,
+        mock_role: Role,
+        mock_session_id: uuid.UUID,
+        mock_agent_config: AgentConfig,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        """Resolved skill staging copies cached skill directories in a worker thread."""
+
+        mock_agent_config.resolved_skills = [
+            ResolvedSkillRef(
+                skill_id=uuid.uuid4(),
+                skill_name="skill-a",
+                skill_version_id=uuid.uuid4(),
+                manifest_sha256="manifest-sha",
+            )
+        ]
+        mock_executor_input = AgentExecutorInput(
+            session_id=mock_session_id,
+            workspace_id=mock_role.workspace_id or uuid.uuid4(),
+            user_prompt="Test prompt",
+            config=mock_agent_config,
+            role=mock_role,
+            mcp_auth_token="mock-jwt-token",
+            llm_gateway_auth_token="mock-llm-token",
+        )
+        mock_executor = SandboxedAgentExecutor(input=mock_executor_input)
+        cached_dir = tmp_path / "cache"
+        cached_dir.mkdir()
+        (cached_dir / "SKILL.md").write_text("# Cached skill")
+        skills_dir = tmp_path / "skills"
+        skills_dir.mkdir()
+        to_thread_calls: list[tuple[object, tuple[object, ...], dict[str, object]]] = []
+
+        async def fake_ensure_cached_skill_dir(**kwargs) -> Path:
+            del kwargs
+            return cached_dir
+
+        async def fake_to_thread(func, /, *args, **kwargs):
+            to_thread_calls.append((func, args, kwargs))
+            return func(*args, **kwargs)
+
+        mock_service = AsyncMock()
+        mock_ctx = AsyncMock()
+        mock_ctx.__aenter__.return_value = mock_service
+        monkeypatch.setattr(
+            mock_executor,
+            "_ensure_cached_skill_dir",
+            fake_ensure_cached_skill_dir,
+        )
+        monkeypatch.setattr(
+            "tracecat.agent.executor.activity.SkillService.with_session",
+            lambda role: mock_ctx,
+        )
+        monkeypatch.setattr(
+            "tracecat.agent.executor.activity.asyncio.to_thread",
+            fake_to_thread,
+        )
+
+        await mock_executor._stage_resolved_skills(skills_dir)
+
+        assert len(to_thread_calls) == 1
+        func, args, kwargs = to_thread_calls[0]
+        assert func is shutil.copytree
+        assert args[0] == cached_dir
+        assert args[1] == skills_dir / "skill-a"
+        assert kwargs == {"dirs_exist_ok": True}
+        assert (skills_dir / "skill-a" / "SKILL.md").read_text() == "# Cached skill"
+
+    @pytest.mark.anyio
+    async def test_cleanup_offloads_job_dir_removal(
+        self,
+        mock_role: Role,
+        mock_session_id: uuid.UUID,
+        mock_agent_config: AgentConfig,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        """Job directory cleanup runs in a worker thread."""
+
+        mock_executor_input = AgentExecutorInput(
+            session_id=mock_session_id,
+            workspace_id=mock_role.workspace_id or uuid.uuid4(),
+            user_prompt="Test prompt",
+            config=mock_agent_config,
+            role=mock_role,
+            mcp_auth_token="mock-jwt-token",
+            llm_gateway_auth_token="mock-llm-token",
+        )
+        mock_executor = SandboxedAgentExecutor(input=mock_executor_input)
+        job_dir = tmp_path / "job"
+        job_dir.mkdir()
+        (job_dir / "session.log").write_text("log")
+        mock_executor._job_dir = job_dir
+
+        to_thread_calls: list[tuple[object, tuple[object, ...], dict[str, object]]] = []
+
+        async def fake_to_thread(func, /, *args, **kwargs):
+            to_thread_calls.append((func, args, kwargs))
+            return func(*args, **kwargs)
+
+        monkeypatch.setattr(
+            "tracecat.agent.executor.activity.asyncio.to_thread",
+            fake_to_thread,
+        )
+
+        await mock_executor._cleanup()
+
+        assert len(to_thread_calls) == 1
+        func, args, kwargs = to_thread_calls[0]
+        assert func is shutil.rmtree
+        assert args == (job_dir,)
+        assert kwargs == {}
+        assert not job_dir.exists()
+
+    @pytest.mark.anyio
+    async def test_create_job_directory_cleans_up_when_skill_staging_fails(
+        self,
+        mock_role: Role,
+        mock_session_id: uuid.UUID,
+        mock_agent_config: AgentConfig,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        """Failed skill staging removes the temp job directory before re-raising."""
+
+        mock_executor_input = AgentExecutorInput(
+            session_id=mock_session_id,
+            workspace_id=mock_role.workspace_id or uuid.uuid4(),
+            user_prompt="Test prompt",
+            config=mock_agent_config,
+            role=mock_role,
+            mcp_auth_token="mock-jwt-token",
+            llm_gateway_auth_token="mock-llm-token",
+        )
+        mock_executor = SandboxedAgentExecutor(input=mock_executor_input)
+        job_dir = tmp_path / "agent-job-test"
+        to_thread_calls: list[tuple[object, tuple[object, ...], dict[str, object]]] = []
+
+        async def fake_stage_resolved_skills(_skills_dir: Path) -> None:
+            raise RuntimeError("staging failed")
+
+        async def fake_to_thread(func, /, *args, **kwargs):
+            to_thread_calls.append((func, args, kwargs))
+            return func(*args, **kwargs)
+
+        def fake_mkdtemp(*, prefix: str, dir: Path) -> str:
+            del prefix, dir
+            job_dir.mkdir()
+            return str(job_dir)
+
+        monkeypatch.setattr(
+            mock_executor, "_stage_resolved_skills", fake_stage_resolved_skills
+        )
+        monkeypatch.setattr(
+            "tracecat.agent.executor.activity.asyncio.to_thread", fake_to_thread
+        )
+        monkeypatch.setattr(
+            "tracecat.agent.executor.activity.tempfile.mkdtemp", fake_mkdtemp
+        )
+
+        with pytest.raises(RuntimeError, match="staging failed"):
+            await mock_executor._create_job_directory()
+
+        assert len(to_thread_calls) == 1
+        func, args, kwargs = to_thread_calls[0]
+        assert func is shutil.rmtree
+        assert args == (job_dir, True)
+        assert kwargs == {}
+        assert not job_dir.exists()

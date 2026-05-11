@@ -1,6 +1,6 @@
 ---
 title: "Workflows"
-description: "Build and manage workflows."
+description: "Build, run, and manage Tracecat workflows: connect triggers and actions, version definitions, and orchestrate automations across cases and agents."
 ---
 
 ## Creating workflows
@@ -201,6 +201,8 @@ The link icon copies the JSONPath reference to the action result. For example, `
 The copy icon copies the value of the action result itself.
 
 ![Copy action result](/img/automations/workflows/copy-action-result.png)
+
+When an action uses `mask_output`, the workflow execution UI keeps object and array structure but shows `[REDACTED]` for each individual value. You can still copy JSONPath references from the displayed shape, and downstream actions still receive the original result.
 
 ## Workflow definition
 

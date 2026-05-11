@@ -11,7 +11,11 @@ import {
  *
  * Returns basic information about the organization the authenticated user belongs to.
  */
-export function useOrganization() {
+export function useOrganization({
+  enabled = true,
+}: {
+  enabled?: boolean
+} = {}) {
   const {
     data: organization,
     isLoading,
@@ -19,6 +23,7 @@ export function useOrganization() {
   } = useQuery<OrganizationGetOrganizationResponse>({
     queryKey: ["current-organization"],
     queryFn: organizationGetOrganization,
+    enabled,
     retry: false,
   })
 

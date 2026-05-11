@@ -53,8 +53,10 @@ from pydantic import TypeAdapter
 
 from tracecat import config
 from tracecat.executor.schemas import ExecutorResult, ResolvedContext
+from tracecat.executor.secret_preprocessors import project_secret_env
 from tracecat.logger import logger
 from tracecat.sandbox.seccomp import build_untrusted_seccomp_policy
+from tracecat.secrets.common import apply_masks_object
 
 if TYPE_CHECKING:
     from tracecat.auth.types import Role
@@ -1061,11 +1063,19 @@ class WorkerPool:
         action_name = input.task.action
         task_ref = input.task.ref
         stage = "init"
+        secret_projection = resolved_context.secret_projection
+        if secret_projection is None:
+            secret_projection = await project_secret_env(
+                secrets=resolved_context.secrets,
+                role=role,
+                run_context=input.run_context,
+            )
 
         request = {
             "input": input.model_dump(mode="json"),
             "role": role.model_dump(mode="json"),
             "resolved_context": resolved_context.model_dump(mode="json"),
+            "secret_env": secret_projection.env,
         }
         request_bytes = orjson.dumps(request)
 
@@ -1141,6 +1151,10 @@ class WorkerPool:
 
             elapsed_ms = (time.monotonic() - start_time) * 1000
             data = orjson.loads(response_bytes)
+            if data.get("type") == "failure":
+                data["error"] = apply_masks_object(
+                    data["error"], masks=secret_projection.mask_values
+                )
 
             # Validate using discriminated union
             result = _ExecutorResultAdapter.validate_python(data)

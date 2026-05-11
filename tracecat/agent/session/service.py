@@ -18,7 +18,18 @@ from pydantic_ai.messages import (
     UserPromptPart,
 )
 from pydantic_ai.tools import ToolApproved, ToolDenied
-from sqlalchemy import delete, select, update
+from sqlalchemy import (
+    and_,
+    case,
+    column,
+    delete,
+    func,
+    literal,
+    or_,
+    select,
+    update,
+)
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.exc import SQLAlchemyError
 from temporalio.common import TypedSearchAttributes
 from tracecat_registry._internal.exceptions import SecretNotFoundError
@@ -29,6 +40,13 @@ from tracecat.agent.approvals.enums import ApprovalStatus
 from tracecat.agent.mcp.metadata import sanitize_message_tool_inputs
 from tracecat.agent.preset.prompts import AgentPresetBuilderPrompt
 from tracecat.agent.preset.service import AgentPresetService
+from tracecat.agent.runtime.claude_code.session_lines import (
+    APPROVAL_INTERRUPT_CONTENT_EXACT,
+    APPROVAL_INTERRUPT_CONTENT_MARKERS,
+    is_approval_interrupt_tool_result,
+    is_continuation_control_artifact,
+    session_line_uuid,
+)
 from tracecat.agent.schemas import RunAgentArgs
 from tracecat.agent.service import AgentManagementService
 from tracecat.agent.session.schemas import (
@@ -65,7 +83,8 @@ from tracecat.identifiers import UserID
 from tracecat.logger import logger
 from tracecat.redis.client import get_redis_client
 from tracecat.service import BaseWorkspaceService
-from tracecat.tiers.entitlements import Entitlement, check_entitlement
+from tracecat.tiers.entitlements import check_entitlement
+from tracecat.tiers.enums import Entitlement
 from tracecat.workflow.executions.correlation import build_agent_session_correlation_id
 from tracecat.workflow.executions.enums import (
     ExecutionType,
@@ -82,13 +101,22 @@ APPROVAL_CONTINUATION_DEDUP_TTL_SECONDS = 5 * 60
 RESUME_HISTORY_BATCH_SIZE = 250
 
 
+@dataclass
+class SessionHistoryData:
+    """Data structure for session history loaded from DB."""
+
+    sdk_session_id: str
+    sdk_session_data: str
+    is_fork: bool = False  # If True, SDK should use fork_session=True
+
+
 @dataclass(frozen=True)
 class SessionResumeDescriptor:
     """Lightweight resume metadata for a Claude SDK session."""
 
     sdk_session_id: str
     source_session_id: uuid.UUID
-    is_fork: bool = False  # If True, SDK should use fork_session=True
+    is_fork: bool = False
 
 
 class AgentSessionService(BaseWorkspaceService):
@@ -375,22 +403,24 @@ class AgentSessionService(BaseWorkspaceService):
         session_result = await self.session.execute(session_stmt)
         sessions = list(session_result.scalars().all())
 
-        # Query legacy Chat table
-        # Note: exclude_entity_types is not applied here because legacy Chat records
-        # predate entity types like WORKFLOW and APPROVAL that are typically excluded.
-        # Legacy chats only have entity types like "case" or "agent_preset".
-        chat_stmt = select(Chat).where(Chat.workspace_id == self.workspace_id)
-        if created_by is not None:
-            chat_stmt = chat_stmt.where(Chat.user_id == created_by)
-        if entity_type is not None:
-            chat_stmt = chat_stmt.where(Chat.entity_type == entity_type.value)
-        if entity_id is not None:
-            chat_stmt = chat_stmt.where(Chat.entity_id == entity_id)
-        # Bound query cost at the database layer; we still merge+sort below.
-        chat_stmt = chat_stmt.order_by(Chat.created_at.desc()).limit(limit)
+        legacy_chats: list[Chat] = []
+        if parent_session_id is None:
+            # Query legacy Chat table
+            # Note: exclude_entity_types is not applied here because legacy Chat records
+            # predate entity types like WORKFLOW and APPROVAL that are typically excluded.
+            # Legacy chats only have entity types like "case" or "agent_preset".
+            chat_stmt = select(Chat).where(Chat.workspace_id == self.workspace_id)
+            if created_by is not None:
+                chat_stmt = chat_stmt.where(Chat.user_id == created_by)
+            if entity_type is not None:
+                chat_stmt = chat_stmt.where(Chat.entity_type == entity_type.value)
+            if entity_id is not None:
+                chat_stmt = chat_stmt.where(Chat.entity_id == entity_id)
+            # Bound query cost at the database layer; we still merge+sort below.
+            chat_stmt = chat_stmt.order_by(Chat.created_at.desc()).limit(limit)
 
-        chat_result = await self.session.execute(chat_stmt)
-        legacy_chats = list(chat_result.scalars().all())
+            chat_result = await self.session.execute(chat_stmt)
+            legacy_chats = list(chat_result.scalars().all())
 
         # Convert and merge
         items: list[AgentSessionRead | ChatReadMinimal] = []
@@ -598,35 +628,95 @@ class AgentSessionService(BaseWorkspaceService):
         progress_callback: Callable[[str], None] | None = None,
         batch_size: int = RESUME_HISTORY_BATCH_SIZE,
     ) -> str | None:
-        """Reconstruct JSONL session history from persisted session rows.
-
-        Fetches and encodes history in batches so long resume chains can report
-        incremental progress to the caller and avoid activity heartbeat stalls.
-
-        Args:
-            session_id: Session UUID whose persisted history should be
-                reconstructed into Claude SDK JSONL.
-            progress_callback: Optional progress hook invoked after each encoded
-                batch so callers can emit Temporal heartbeats.
-            batch_size: Maximum number of history rows to fetch and encode per
-                batch.
-
-        Returns:
-            Reconstructed JSONL content, or None if no history entries exist.
-        """
+        """Reconstruct model-visible Claude SDK JSONL from persisted rows."""
         total_entries = 0
         batch_number = 0
         last_surrogate_id: int | None = None
-        encoded_batches: list[str] = []
+        lines: list[str] = []
+        included_uuids: set[str] = set()
+        internal_uuids: set[str] = set()
+        last_visible_uuid: str | None = None
 
-        def encode_batch(history_entries: Sequence[dict[str, Any]]) -> str:
-            return "\n".join(
-                orjson.dumps(entry).decode("utf-8") for entry in history_entries
-            )
+        def normalize_history_rows(
+            result: Any,
+        ) -> tuple[list[tuple[int, dict[str, Any], str]], bool]:
+            """Adapt real DB rows and lightweight test doubles to one shape."""
+            try:
+                raw_rows = list(result.tuples().all())
+            except TypeError:
+                raw_rows = []
+            if raw_rows:
+                normalized: list[tuple[int, dict[str, Any], str]] = []
+                for row in raw_rows:
+                    if len(row) == 3:
+                        surrogate_id, content, kind = row
+                    elif len(row) == 2:
+                        surrogate_id, content = row
+                        kind = MessageKind.CHAT_MESSAGE.value
+                    else:
+                        continue
+                    if isinstance(content, dict):
+                        normalized.append((int(surrogate_id), content, str(kind)))
+                return normalized, False
+
+            try:
+                history_entries = list(result.scalars().all())
+            except AttributeError:
+                return [], True
+
+            normalized = []
+            for index, entry in enumerate(history_entries, start=1):
+                content = getattr(entry, "content", None)
+                if not isinstance(content, dict):
+                    continue
+                surrogate_id = getattr(entry, "surrogate_id", index)
+                kind = getattr(entry, "kind", MessageKind.CHAT_MESSAGE.value)
+                normalized.append((int(surrogate_id), content, str(kind)))
+            return normalized, True
+
+        def encode_visible_entries(
+            history_entries: Sequence[tuple[int, dict[str, Any], str]],
+        ) -> list[str]:
+            nonlocal last_visible_uuid
+            encoded_lines: list[str] = []
+            for _surrogate_id, entry_content, entry_kind in history_entries:
+                content = orjson.loads(orjson.dumps(entry_content))
+                if not isinstance(content, dict):
+                    continue
+
+                line_uuid = session_line_uuid(content)
+                if entry_kind == MessageKind.INTERNAL.value:
+                    if line_uuid is not None:
+                        internal_uuids.add(line_uuid)
+                    continue
+
+                if is_continuation_control_artifact(content, internal_uuids):
+                    if line_uuid is not None:
+                        internal_uuids.add(line_uuid)
+                    continue
+
+                parent_uuid = content.get("parentUuid")
+                if (
+                    isinstance(parent_uuid, str)
+                    and parent_uuid not in included_uuids
+                    and last_visible_uuid is not None
+                ):
+                    content["parentUuid"] = last_visible_uuid
+
+                if line_uuid is not None:
+                    included_uuids.add(line_uuid)
+                    last_visible_uuid = line_uuid
+
+                encoded_lines.append(orjson.dumps(content).decode("utf-8"))
+            return encoded_lines
 
         while True:
             stmt = (
-                select(AgentSessionHistory.surrogate_id, AgentSessionHistory.content)
+                select(
+                    AgentSessionHistory.surrogate_id,
+                    AgentSessionHistory.content,
+                    AgentSessionHistory.kind,
+                )
                 .where(AgentSessionHistory.session_id == session_id)
                 .order_by(AgentSessionHistory.surrogate_id)
                 .limit(batch_size)
@@ -635,21 +725,22 @@ class AgentSessionService(BaseWorkspaceService):
                 stmt = stmt.where(AgentSessionHistory.surrogate_id > last_surrogate_id)
 
             result = await self.session.execute(stmt)
-            rows = list(result.tuples().all())
+            rows, exhausted_after_rows = normalize_history_rows(result)
             if not rows:
                 break
 
             batch_number += 1
             last_surrogate_id = rows[-1][0]
-            batch_entries = [content for _, content in rows]
-            encoded_batches.append(await asyncio.to_thread(encode_batch, batch_entries))
-            total_entries += len(batch_entries)
+            lines.extend(await asyncio.to_thread(encode_visible_entries, rows))
+            total_entries += len(rows)
 
             if progress_callback is not None:
                 progress_callback(
                     f"Materialized {total_entries} resume history entries "
                     f"for {session_id} (batch {batch_number})"
                 )
+            if exhausted_after_rows:
+                break
 
         if total_entries == 0:
             logger.warning(
@@ -658,7 +749,40 @@ class AgentSessionService(BaseWorkspaceService):
             )
             return None
 
-        return "\n".join(encoded_batches)
+        if not lines:
+            logger.warning(
+                "No model-visible history entries found",
+                session_id=session_id,
+            )
+            return None
+
+        return "\n".join(lines)
+
+    async def load_session_history(
+        self,
+        session_id: uuid.UUID,
+    ) -> SessionHistoryData | None:
+        """Load session history for legacy callers that still need inline JSONL."""
+        resume_context = await self.get_session_resume_context(session_id)
+        if resume_context is None:
+            return None
+
+        sdk_session_data = await self.materialize_session_history(
+            resume_context.source_session_id
+        )
+        if sdk_session_data is None:
+            logger.warning(
+                "sdk_session_id set but no model-visible history entries",
+                session_id=resume_context.source_session_id,
+                sdk_session_id=resume_context.sdk_session_id,
+            )
+            return None
+
+        return SessionHistoryData(
+            sdk_session_id=resume_context.sdk_session_id,
+            sdk_session_data=sdk_session_data,
+            is_fork=resume_context.is_fork,
+        )
 
     async def get_session_history(
         self,
@@ -821,9 +945,7 @@ class AgentSessionService(BaseWorkspaceService):
                 }
             )
             agent_service = AgentManagementService(self.session, service_role)
-            async with agent_service.with_model_config(
-                use_workspace_credentials=False
-            ) as model_config:
+            async with agent_service.with_model_config() as model_config:
                 new_title = await generate_session_title(
                     user_prompt=prompt,
                     model_name=model_config.name,
@@ -1026,16 +1148,10 @@ class AgentSessionService(BaseWorkspaceService):
                 )
             run_id = uuid.uuid4()
 
-            # Copilot uses org-level credentials; other entities use workspace credentials
-            use_workspace_credentials = (
-                agent_session.entity_type != AgentSessionEntity.COPILOT
-            )
-
             args = RunAgentArgs(
                 user_prompt=user_prompt or "",
                 session_id=session_id,
                 config=agent_config,
-                use_workspace_credentials=use_workspace_credentials,
             )
 
             client = await get_temporal_client()
@@ -1166,13 +1282,21 @@ class AgentSessionService(BaseWorkspaceService):
         decision_metadata: dict[str, dict[str, Any]] = {}
         for decision in request.decisions:
             if decision.action == "approve":
-                if decision.override_args:
-                    approval_map[decision.tool_call_id] = ToolApproved(
-                        override_args=decision.override_args
-                    )
-                else:
-                    approval_map[decision.tool_call_id] = True
+                approval_map[decision.tool_call_id] = True
+            elif decision.action == "override":
+                approval_map[decision.tool_call_id] = ToolApproved(
+                    override_args=decision.override_args or {}
+                )
+            elif decision.action == "deny":
+                approval_map[decision.tool_call_id] = ToolDenied(
+                    message=decision.reason or "Tool denied by user"
+                )
             else:
+                logger.warning(
+                    "Unknown approval decision action; defaulting to deny",
+                    action=decision.action,
+                    tool_call_id=decision.tool_call_id,
+                )
                 approval_map[decision.tool_call_id] = ToolDenied(
                     message=decision.reason or "Tool denied by user"
                 )
@@ -1278,14 +1402,13 @@ class AgentSessionService(BaseWorkspaceService):
         agent_svc = AgentManagementService(self.session, self.role)
 
         if agent_session.entity_type is None:
-            # No entity type - use default config with workspace credentials
-            async with agent_svc.with_model_config(
-                use_workspace_credentials=True
-            ) as model_config:
+            # No entity type - use the org's default model
+            async with agent_svc.with_model_config() as model_config:
                 yield AgentConfig(
                     instructions="",
                     model_name=model_config.name,
                     model_provider=model_config.provider,
+                    catalog_id=model_config.catalog_id,
                     actions=agent_session.tools,
                 )
             return
@@ -1310,22 +1433,19 @@ class AgentSessionService(BaseWorkspaceService):
                     config = replace(preset_config, instructions=combined_instructions)
                     yield config
             else:
-                # Case chat without preset uses workspace credentials
-                async with agent_svc.with_model_config(
-                    use_workspace_credentials=True
-                ) as model_config:
+                # Case chat without preset uses the org's default model
+                async with agent_svc.with_model_config() as model_config:
                     yield AgentConfig(
                         instructions=entity_instructions,
                         model_name=model_config.name,
                         model_provider=model_config.provider,
+                        catalog_id=model_config.catalog_id,
                         actions=agent_session.tools,
                     )
         elif session_entity is AgentSessionEntity.AGENT_PRESET:
-            # Live chat uses workspace-level credentials
             async with agent_svc.with_preset_config(
                 preset_id=agent_session.entity_id,
                 preset_version_id=pinned_preset_version_id,
-                use_workspace_credentials=True,
             ) as preset_config:
                 yield preset_config
         elif session_entity is AgentSessionEntity.EXTERNAL_CHANNEL:
@@ -1334,7 +1454,6 @@ class AgentSessionService(BaseWorkspaceService):
             async with agent_svc.with_preset_config(
                 preset_id=preset_id,
                 preset_version_id=pinned_preset_version_id,
-                use_workspace_credentials=True,
             ) as preset_config:
                 yield preset_config
         elif session_entity is AgentSessionEntity.AGENT_PRESET_BUILDER:
@@ -1342,16 +1461,14 @@ class AgentSessionService(BaseWorkspaceService):
                 raise ValueError("Agent preset builder requires entity_id")
             instructions = await self._entity_to_prompt(agent_session)
             try:
-                # Agent preset builder uses workspace credentials
                 # Tools are resolved via MCP path in the durable workflow
                 # (internal tools + bundled registry actions)
-                async with agent_svc.with_model_config(
-                    use_workspace_credentials=True
-                ) as model_config:
+                async with agent_svc.with_model_config() as model_config:
                     yield AgentConfig(
                         instructions=instructions,
                         model_name=model_config.name,
                         model_provider=model_config.provider,
+                        catalog_id=model_config.catalog_id,
                         actions=None,
                     )
             except TracecatNotFoundError as exc:
@@ -1366,7 +1483,6 @@ class AgentSessionService(BaseWorkspaceService):
                 async with agent_svc.with_preset_config(
                     preset_id=agent_session.agent_preset_id,
                     preset_version_id=pinned_preset_version_id,
-                    use_workspace_credentials=False,
                 ) as preset_config:
                     combined_instructions = (
                         f"{preset_config.instructions}\n\n{entity_instructions}"
@@ -1382,6 +1498,7 @@ class AgentSessionService(BaseWorkspaceService):
                         instructions=entity_instructions,
                         model_name=model_config.name,
                         model_provider=model_config.provider,
+                        catalog_id=model_config.catalog_id,
                         actions=agent_session.tools,
                     )
         elif session_entity in (
@@ -1407,7 +1524,6 @@ class AgentSessionService(BaseWorkspaceService):
                     async with agent_svc.with_preset_config(
                         preset_id=parent_session.agent_preset_id,
                         preset_version_id=parent_version_id,
-                        use_workspace_credentials=True,
                     ) as preset_config:
                         combined_instructions = (
                             f"{fork_context}{preset_config.instructions}"
@@ -1418,17 +1534,18 @@ class AgentSessionService(BaseWorkspaceService):
                             instructions=combined_instructions,
                             model_name=preset_config.model_name,
                             model_provider=preset_config.model_provider,
+                            catalog_id=preset_config.catalog_id,
                             actions=[],  # No tools for forked sessions
+                            enable_thinking=preset_config.enable_thinking,
                         )
                 else:
-                    # No preset - use workspace model with fork context
-                    async with agent_svc.with_model_config(
-                        use_workspace_credentials=True
-                    ) as model_config:
+                    # No preset - use org default model with fork context
+                    async with agent_svc.with_model_config() as model_config:
                         yield AgentConfig(
                             instructions=fork_context.strip(),
                             model_name=model_config.name,
                             model_provider=model_config.provider,
+                            catalog_id=model_config.catalog_id,
                             actions=[],  # No tools for forked sessions
                         )
             elif agent_session.agent_preset_id:
@@ -1436,18 +1553,16 @@ class AgentSessionService(BaseWorkspaceService):
                 async with agent_svc.with_preset_config(
                     preset_id=agent_session.agent_preset_id,
                     preset_version_id=pinned_preset_version_id,
-                    use_workspace_credentials=True,
                 ) as preset_config:
                     yield preset_config
             else:
-                # Workflow without preset uses workspace credentials
-                async with agent_svc.with_model_config(
-                    use_workspace_credentials=True
-                ) as model_config:
+                # Workflow without preset uses the org's default model
+                async with agent_svc.with_model_config() as model_config:
                     yield AgentConfig(
                         instructions="",
                         model_name=model_config.name,
                         model_provider=model_config.provider,
+                        catalog_id=model_config.catalog_id,
                         actions=agent_session.tools,
                     )
         else:
@@ -1539,6 +1654,7 @@ class AgentSessionService(BaseWorkspaceService):
         # Process both chat-message and internal entries in order
         # Internal entries contain tool results that the adapter will extract
         messages: list[ChatMessage] = []
+        internal_uuids: set[str] = set()
         for entry in all_entries:
             content = entry.content
             if not content:
@@ -1546,6 +1662,41 @@ class AgentSessionService(BaseWorkspaceService):
 
             # Skip internal entries (e.g., continuation prompts)
             if entry.kind == MessageKind.INTERNAL.value:
+                if line_uuid := session_line_uuid(content):
+                    internal_uuids.add(line_uuid)
+                continue
+
+            if is_continuation_control_artifact(content, internal_uuids):
+                if line_uuid := session_line_uuid(content):
+                    internal_uuids.add(line_uuid)
+                continue
+
+            # Handle compaction entries: these are badges showing when compaction happened
+            if entry.kind == MessageKind.COMPACTION.value:
+                kind = MessageKind.COMPACTION
+
+                # Filter by kinds if specified
+                if kinds and kind not in kinds:
+                    continue
+
+                # Compaction badge data: extract metadata from the system message
+                # The system compact_boundary message has compactMetadata at the top level
+                compaction_data: dict[str, Any] = {"phase": "completed"}
+
+                # Extract pre_tokens from compactMetadata if available
+                compact_metadata = content.get("compactMetadata")
+                if isinstance(compact_metadata, dict):
+                    pre_tokens = compact_metadata.get("preTokens")
+                    if isinstance(pre_tokens, int):
+                        compaction_data["pre_tokens"] = pre_tokens
+
+                messages.append(
+                    ChatMessage(
+                        id=str(entry.id),
+                        kind=kind,
+                        compaction=compaction_data,
+                    )
+                )
                 continue
 
             # Skip non-message entries (e.g., system metadata)
@@ -1553,7 +1704,7 @@ class AgentSessionService(BaseWorkspaceService):
             if msg_type not in ("user", "assistant"):
                 continue
 
-            # All AgentSessionHistory entries are CHAT_MESSAGE kind
+            # Standard chat messages
             kind = MessageKind.CHAT_MESSAGE
 
             # Filter by kinds if specified
@@ -1624,14 +1775,18 @@ class AgentSessionService(BaseWorkspaceService):
         session_id: uuid.UUID,
         tool_results: Sequence[ToolExecutionResult],
     ) -> None:
-        """Replace interrupt entries with proper tool_result entry.
+        """Replace interrupted approval artifacts with a real tool_result entry.
 
         After approval execution, the session history contains SDK-generated
         interrupt entries (error tool_result, interrupt text, synthetic message).
         This method:
-        1. Finds the assistant message with tool_use blocks (for parentUuid)
+        1. Finds the assistant message with tool_use blocks
         2. Deletes the interrupt entries
-        3. Inserts a proper tool_result JSONL entry
+        3. Inserts the approved/denied tool_result as the next user entry
+
+        Claude Code must see tool_result immediately after the assistant tool_use
+        when it loads the resumed session. If we stream tool_result after the CLI
+        starts, the CLI may first append a synthetic no-op assistant entry.
 
         Args:
             session_id: The session UUID.
@@ -1648,81 +1803,178 @@ class AgentSessionService(BaseWorkspaceService):
 
         tool_call_ids = {tr.tool_call_id for tr in tool_results}
 
-        # Find the assistant message containing these tool_uses (for parentUuid)
+        # Find the assistant message containing these tool_uses so we only delete
+        # interrupt artifacts that follow the pending tool call.
         history = await self.get_session_history(session_id)
-        assistant_uuid = None
-        assistant_surrogate_id = None
+        assistant_entry: AgentSessionHistory | None = None
 
         for entry in reversed(history):
             if entry.content.get("type") == "assistant":
                 tool_uses = self._extract_tool_uses_from_message(
                     entry.content.get("message", {})
                 )
-                if any(tu.get("id") in tool_call_ids for tu in tool_uses):
-                    assistant_uuid = entry.content.get("uuid")
-                    assistant_surrogate_id = entry.surrogate_id
+                assistant_tool_call_ids = {
+                    tool_use_id
+                    for tool_use in tool_uses
+                    if isinstance(tool_use_id := tool_use.get("id"), str)
+                }
+                if tool_call_ids.issubset(assistant_tool_call_ids):
+                    assistant_entry = entry
                     break
 
-        if assistant_uuid is None:
+        if assistant_entry is None:
             logger.warning(
-                "Could not find assistant message with tool_use for replacement",
+                "Could not find assistant message with tool_use for continuation",
                 session_id=session_id,
                 tool_call_ids=tool_call_ids,
             )
             return
-        if assistant_surrogate_id is None:
+
+        assistant_content = assistant_entry.content
+        assistant_uuid = assistant_content.get("uuid")
+        if not isinstance(assistant_uuid, str):
             logger.warning(
-                "Could not find assistant message with tool_use for replacement",
+                "Assistant tool_use entry is missing uuid for continuation",
                 session_id=session_id,
                 tool_call_ids=tool_call_ids,
             )
             return
+
         # Delete interrupt entries that follow the assistant message
         await self._delete_interrupt_entries_for_tool_calls(
-            session_id, assistant_surrogate_id, tool_call_ids
+            session_id, assistant_entry.surrogate_id, tool_call_ids
         )
 
-        # Build and insert proper tool_result entry
-        entry_content = {
+        # Avoid duplicate tool_result rows if the activity is retried after the
+        # replacement has already been committed.
+        if await self._has_tool_result_entry_after(
+            session_id, assistant_entry.surrogate_id, tool_call_ids
+        ):
+            await self.session.commit()
+            logger.info(
+                "Tool_result entry already exists for approval continuation",
+                session_id=session_id,
+                tool_call_ids=list(tool_call_ids),
+            )
+            return
+
+        entry_content: dict[str, Any] = {
             "uuid": str(uuid.uuid4()),
             "parentUuid": assistant_uuid,
             "sessionId": session.sdk_session_id,
             "type": "user",
             "timestamp": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
-            "cwd": "/home/agent",
-            "version": "2.0.72",
-            "userType": "external",
-            "gitBranch": "",
+            "cwd": assistant_content.get("cwd") or "/home/agent",
+            "version": assistant_content.get("version") or "2.1.85",
+            "userType": assistant_content.get("userType") or "external",
+            "gitBranch": assistant_content.get("gitBranch") or "",
+            "entrypoint": assistant_content.get("entrypoint") or "sdk-py",
             "isSidechain": False,
+            "permissionMode": "default",
+            "promptId": str(uuid.uuid4()),
             "message": {
                 "role": "user",
                 "content": [
                     {
                         "type": "tool_result",
-                        "tool_use_id": tr.tool_call_id,
-                        "content": self._serialize_tool_result(tr.result),
-                        "is_error": tr.is_error,
+                        "tool_use_id": result.tool_call_id,
+                        "content": self._serialize_tool_result(result.result),
+                        "is_error": result.is_error,
                     }
-                    for tr in tool_results
+                    for result in tool_results
                 ],
             },
         }
 
-        history_entry = AgentSessionHistory(
-            session_id=session_id,
-            workspace_id=self.workspace_id,
-            content=entry_content,
-            kind="chat-message",
+        self.session.add(
+            AgentSessionHistory(
+                session_id=session_id,
+                workspace_id=self.workspace_id,
+                content=entry_content,
+                kind=MessageKind.CHAT_MESSAGE.value,
+            )
         )
-        self.session.add(history_entry)
         await self.session.commit()
 
         logger.info(
-            "Replaced interrupt entries with proper tool_result",
+            "Replaced interrupt entries with tool_result",
             session_id=session_id,
             tool_call_ids=list(tool_call_ids),
             parent_uuid=assistant_uuid,
         )
+
+    async def _has_tool_result_entry_after(
+        self,
+        session_id: uuid.UUID,
+        assistant_surrogate_id: int,
+        tool_call_ids: set[str],
+    ) -> bool:
+        """Return True when all approval tool calls already have real results.
+
+        This is the idempotency guard for approval reconciliation retries. SDK
+        approval interrupts also write error `tool_result` blocks, so those
+        placeholder rows must be ignored here; otherwise a retry could mistake
+        stale interrupt state for the approved/denied tool execution result.
+        """
+        if not tool_call_ids:
+            return False
+
+        # Only user messages with list content can contain Anthropic
+        # `tool_result` blocks. Treat other content shapes as empty so malformed
+        # or text-only rows cannot satisfy the idempotency check.
+        message_content = AgentSessionHistory.content["message"]["content"]
+        message_content_array = case(
+            (func.jsonb_typeof(message_content) == "array", message_content),
+            else_=literal([], type_=JSONB),
+        )
+        content_blocks = (
+            func.jsonb_array_elements(message_content_array)
+            .table_valued(column("value", JSONB))
+            .alias("content_block")
+        )
+        block = content_blocks.c.value
+
+        # The SDK writes approval-interrupt placeholders as error tool_results
+        # for the same tool_use IDs. Those rows should be deleted/replaced, not
+        # treated as the real reconciled tool result.
+        block_text = func.lower(func.btrim(block["content"].astext))
+        is_approval_interrupt = and_(
+            block["is_error"].astext == "true",
+            or_(
+                block_text == APPROVAL_INTERRUPT_CONTENT_EXACT,
+                *(
+                    block_text.contains(marker)
+                    for marker in APPROVAL_INTERRUPT_CONTENT_MARKERS
+                ),
+            ),
+        )
+        # A multi-tool approval continuation is only reconciled once every
+        # pending tool_use has a non-placeholder result after the assistant row.
+        matching_tool_result_count = (
+            select(func.count(func.distinct(block["tool_use_id"].astext)))
+            .select_from(content_blocks)
+            .where(
+                block["type"].astext == "tool_result",
+                block["tool_use_id"].astext.in_(tool_call_ids),
+                ~is_approval_interrupt,
+            )
+            .correlate(AgentSessionHistory)
+            .scalar_subquery()
+        )
+
+        stmt = (
+            select(literal(True))
+            .where(
+                AgentSessionHistory.workspace_id == self.workspace_id,
+                AgentSessionHistory.session_id == session_id,
+                AgentSessionHistory.surrogate_id > assistant_surrogate_id,
+                AgentSessionHistory.content["type"].astext == "user",
+                matching_tool_result_count == len(tool_call_ids),
+            )
+            .limit(1)
+        )
+        result = await self.session.execute(stmt)
+        return result.scalar_one_or_none() is True
 
     async def _delete_interrupt_entries_for_tool_calls(
         self,
@@ -1771,11 +2023,7 @@ class AgentSessionService(BaseWorkspaceService):
                     if not isinstance(block, dict):
                         continue
                     # Check for error tool_result matching our tool_call_ids
-                    if (
-                        block.get("type") == "tool_result"
-                        and block.get("is_error") is True
-                        and block.get("tool_use_id") in tool_call_ids
-                    ):
+                    if is_approval_interrupt_tool_result(block, tool_call_ids):
                         entries_to_delete.append(entry)
                         break
                     # Check for interrupt text
@@ -1806,7 +2054,7 @@ class AgentSessionService(BaseWorkspaceService):
 
     @staticmethod
     def _serialize_tool_result(result: Any) -> str:
-        """Serialize a tool result to string for Claude SDK format."""
+        """Serialize a tool result to Claude's string tool_result content."""
         if isinstance(result, str):
             return result
         try:

@@ -1,6 +1,6 @@
 ---
 title: "Workflow definition"
-description: "YAML reference for Tracecat workflow definitions."
+description: "YAML reference for Tracecat workflow definitions: triggers, actions, inputs, outputs, control flow, and schema fields used to author and version workflows."
 ---
 
 import ActionExpressionsSection from "/snippets/action-expressions-section.mdx";
@@ -141,6 +141,10 @@ Join behavior for downstream actions. Use `all` to wait for all upstream branche
 
 <ResponseField name="environment" type="expression | string">
 Per-action override for the secrets environment.
+</ResponseField>
+
+<ResponseField name="mask_output" type="boolean">
+Redacts this action's result in workflow execution views and execution API responses. Tracecat keeps object and array structure but replaces each individual value, so JSONPath references remain visible. Downstream actions still receive the original result.
 </ResponseField>
 
 <ResponseField name="interaction" type="object">

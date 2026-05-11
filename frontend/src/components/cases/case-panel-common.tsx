@@ -28,24 +28,22 @@ export function UserHoverCard({
 }) {
   const displayName = user.getDisplayName()
   const avatarText = displayName.substring(0, 1).toUpperCase()
-  const username = user.email.split("@")[0]
 
   return (
     <HoverCard>
       <HoverCardTrigger asChild>{children}</HoverCardTrigger>
-      <HoverCardContent className="w-auto" side="top">
-        <div className="flex items-center gap-4">
-          <Avatar className="size-16">
-            <AvatarFallback className="bg-primary/10 text-lg text-primary">
+      <HoverCardContent className="w-auto max-w-xs" side="top">
+        <div className="flex items-center gap-3">
+          <Avatar className="size-8 shrink-0">
+            <AvatarFallback className="text-sm font-medium">
               {avatarText}
             </AvatarFallback>
           </Avatar>
-          <div className="flex flex-col gap-1">
-            <div className="flex items-center gap-2">
-              <span className="text-base font-medium">{displayName}</span>
-              <span className="text-muted-foreground">({username})</span>
-            </div>
-            <span className="text-xs text-muted-foreground">{user.email}</span>
+          <div className="flex min-w-0 flex-col">
+            <span className="truncate text-sm font-medium">{displayName}</span>
+            <span className="truncate text-xs text-muted-foreground">
+              {user.email}
+            </span>
           </div>
         </div>
       </HoverCardContent>
@@ -69,15 +67,15 @@ export function CaseUserAvatar({
         className={cn(
           "cursor-default",
           className,
-          size === "sm" && "size-4",
+          size === "sm" && "size-5",
           size === "md" && "size-8",
           size === "lg" && "size-12"
         )}
       >
         <AvatarFallback
           className={cn(
-            "bg-primary/10 text-primary",
-            size === "sm" && "text-xs",
+            "text-sm font-medium",
+            size === "sm" && "text-[10px]",
             size === "md" && "text-sm",
             size === "lg" && "text-lg"
           )}

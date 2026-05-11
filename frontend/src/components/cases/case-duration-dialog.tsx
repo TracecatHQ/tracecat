@@ -5,6 +5,7 @@ import { FlagTriangleRight, Tag, Timer } from "lucide-react"
 import { type ReactNode, useEffect, useMemo } from "react"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
+import type { CaseDurationEventFilters } from "@/client"
 import {
   PRIORITIES,
   SEVERITIES,
@@ -15,7 +16,9 @@ import {
   CASE_EVENT_FILTER_OPTIONS,
   CASE_EVENT_OPTIONS,
   CASE_EVENT_VALUES,
+  isCaseDropdownEventType,
   isCaseEventFilterType,
+  isCaseFieldEventType,
   isCaseTagEventType,
 } from "@/components/cases/case-duration-options"
 import {
@@ -49,13 +52,19 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
-import { useCaseTagCatalog } from "@/lib/hooks"
+import {
+  useCaseDropdownDefinitions,
+  useCaseFields,
+  useCaseTagCatalog,
+} from "@/lib/hooks"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
 const anchorSchema = z.object({
   selection: z.enum(["first", "last"]),
   eventType: z.enum(CASE_EVENT_VALUES),
   filterValues: z.array(z.string()).optional(),
+  dropdownDefinitionId: z.string().optional(),
+  dropdownOptionIds: z.array(z.string()).optional(),
 })
 
 const CATEGORY_OPTIONS = {
@@ -69,7 +78,12 @@ type CaseDurationEventTypeValue = (typeof CASE_EVENT_VALUES)[number]
 const requiresFilterSelection = (
   eventType: CaseDurationEventTypeValue
 ): boolean => {
-  return isCaseEventFilterType(eventType) || isCaseTagEventType(eventType)
+  return (
+    isCaseEventFilterType(eventType) ||
+    isCaseTagEventType(eventType) ||
+    isCaseFieldEventType(eventType) ||
+    isCaseDropdownEventType(eventType)
+  )
 }
 
 const getFilterLabel = (
@@ -80,6 +94,9 @@ const getFilterLabel = (
   }
   if (isCaseTagEventType(eventType)) {
     return "Tag"
+  }
+  if (isCaseFieldEventType(eventType)) {
+    return "Field"
   }
   return null
 }
@@ -110,7 +127,23 @@ const formSchema = z
     const startRequiresFilter = requiresFilterSelection(startEventType)
     const endRequiresFilter = requiresFilterSelection(endEventType)
 
-    if (startRequiresFilter && startFilterValues.length === 0) {
+    // Dropdown validation uses its own fields
+    if (isCaseDropdownEventType(startEventType)) {
+      if (!values.start.dropdownDefinitionId) {
+        ctx.addIssue({
+          path: ["start", "dropdownDefinitionId"],
+          code: z.ZodIssueCode.custom,
+          message: "Select a dropdown.",
+        })
+      }
+      if (!values.start.dropdownOptionIds?.length) {
+        ctx.addIssue({
+          path: ["start", "dropdownOptionIds"],
+          code: z.ZodIssueCode.custom,
+          message: "Select at least one option.",
+        })
+      }
+    } else if (startRequiresFilter && startFilterValues.length === 0) {
       const label = getFilterLabel(startEventType) ?? "value"
       ctx.addIssue({
         path: ["start", "filterValues"],
@@ -119,7 +152,22 @@ const formSchema = z
       })
     }
 
-    if (endRequiresFilter && endFilterValues.length === 0) {
+    if (isCaseDropdownEventType(endEventType)) {
+      if (!values.end.dropdownDefinitionId) {
+        ctx.addIssue({
+          path: ["end", "dropdownDefinitionId"],
+          code: z.ZodIssueCode.custom,
+          message: "Select a dropdown.",
+        })
+      }
+      if (!values.end.dropdownOptionIds?.length) {
+        ctx.addIssue({
+          path: ["end", "dropdownOptionIds"],
+          code: z.ZodIssueCode.custom,
+          message: "Select at least one option.",
+        })
+      }
+    } else if (endRequiresFilter && endFilterValues.length === 0) {
       const label = getFilterLabel(endEventType) ?? "value"
       ctx.addIssue({
         path: ["end", "filterValues"],
@@ -128,10 +176,12 @@ const formSchema = z
       })
     }
 
+    // Overlap validation for filterValues-based events
     if (
       startRequiresFilter &&
       endRequiresFilter &&
-      startEventType === endEventType
+      startEventType === endEventType &&
+      !isCaseDropdownEventType(startEventType)
     ) {
       const overlappingValues = startFilterValues.filter((value) =>
         endFilterValues.includes(value)
@@ -150,13 +200,39 @@ const formSchema = z
         })
       }
     }
+
+    // Overlap validation for dropdown events
+    if (
+      isCaseDropdownEventType(startEventType) &&
+      isCaseDropdownEventType(endEventType) &&
+      values.start.dropdownDefinitionId &&
+      values.start.dropdownDefinitionId === values.end.dropdownDefinitionId
+    ) {
+      const startOpts = values.start.dropdownOptionIds ?? []
+      const endOpts = values.end.dropdownOptionIds ?? []
+      const overlapping = startOpts.filter((id) => endOpts.includes(id))
+      if (overlapping.length > 0) {
+        ctx.addIssue({
+          path: ["start", "dropdownOptionIds"],
+          code: z.ZodIssueCode.custom,
+          message:
+            'Remove duplicate option selections shared with the "To event".',
+        })
+        ctx.addIssue({
+          path: ["end", "dropdownOptionIds"],
+          code: z.ZodIssueCode.custom,
+          message: 'Choose options that differ from the "From event".',
+        })
+      }
+    }
   })
 
 export type CaseDurationFormValues = z.infer<typeof formSchema>
 
 const buildFilterOptions = (
   eventType: CaseDurationFormValues["start"]["eventType"] | undefined,
-  tagOptions: CaseFilterOption[]
+  tagOptions: CaseFilterOption[],
+  fieldOptions?: CaseFilterOption[]
 ): CaseFilterOption[] => {
   if (!eventType) {
     return []
@@ -183,6 +259,10 @@ const buildFilterOptions = (
     return tagOptions
   }
 
+  if (isCaseFieldEventType(eventType)) {
+    return fieldOptions ?? []
+  }
+
   return []
 }
 
@@ -205,11 +285,15 @@ export const createEmptyCaseDurationFormValues =
       selection: "first",
       eventType: "case_created",
       filterValues: [],
+      dropdownDefinitionId: undefined,
+      dropdownOptionIds: [],
     },
     end: {
       selection: "first",
       eventType: "case_closed",
       filterValues: [],
+      dropdownDefinitionId: undefined,
+      dropdownOptionIds: [],
     },
   })
 
@@ -234,28 +318,37 @@ export const normalizeFilterValues = (value: unknown): string[] => {
   return []
 }
 
-export const getFilterFieldKey = (
-  eventType: CaseDurationFormValues["start"]["eventType"]
-): string | null => {
-  if (isCaseEventFilterType(eventType)) {
-    return "data.new"
-  }
-  if (isCaseTagEventType(eventType)) {
-    return "data.tag_ref"
-  }
-  return null
-}
-
-export const buildFieldFilters = (
+export const buildDurationFilters = (
   eventType: CaseDurationFormValues["start"]["eventType"],
-  filterValues: CaseDurationFormValues["start"]["filterValues"]
-): Record<string, unknown> | null => {
-  const fieldKey = getFilterFieldKey(eventType)
-  if (!fieldKey || !filterValues || filterValues.length === 0) {
+  filterValues: CaseDurationFormValues["start"]["filterValues"],
+  anchor?: CaseDurationFormValues["start"]
+): CaseDurationEventFilters | null => {
+  if (isCaseDropdownEventType(eventType) && anchor) {
+    const { dropdownDefinitionId, dropdownOptionIds } = anchor
+    if (!dropdownDefinitionId || !dropdownOptionIds?.length) {
+      return null
+    }
+    return {
+      dropdown_definition_id: dropdownDefinitionId,
+      dropdown_option_ids: dropdownOptionIds,
+    }
+  }
+
+  if (!filterValues || filterValues.length === 0) {
     return null
   }
 
-  return { [fieldKey]: filterValues }
+  if (isCaseEventFilterType(eventType)) {
+    return { new_values: filterValues }
+  }
+  if (isCaseTagEventType(eventType)) {
+    return { tag_refs: filterValues }
+  }
+  if (isCaseFieldEventType(eventType)) {
+    return { field_ids: filterValues }
+  }
+
+  return null
 }
 
 export function CaseDurationDialog({
@@ -283,6 +376,11 @@ export function CaseDurationDialog({
   const { caseTags } = useCaseTagCatalog(workspaceId ?? "", {
     enabled: Boolean(workspaceId),
   })
+  const { caseFields } = useCaseFields(workspaceId ?? "", Boolean(workspaceId))
+  const { dropdownDefinitions } = useCaseDropdownDefinitions(
+    workspaceId ?? "",
+    Boolean(workspaceId)
+  )
 
   const tagFilterOptions = useMemo<CaseFilterOption[]>(() => {
     if (!caseTags) {
@@ -296,40 +394,100 @@ export function CaseDurationDialog({
     }))
   }, [caseTags])
 
+  const fieldFilterOptions = useMemo<CaseFilterOption[]>(() => {
+    if (!caseFields) {
+      return []
+    }
+    return caseFields
+      .filter((f) => !f.reserved)
+      .map((f) => ({
+        value: f.id,
+        label: f.id,
+      }))
+  }, [caseFields])
+
   const startEventType = form.watch("start.eventType")
   const endEventType = form.watch("end.eventType")
   const nameValue = form.watch("name")
   const startFilterCount = form.watch("start.filterValues")?.length ?? 0
   const endFilterCount = form.watch("end.filterValues")?.length ?? 0
+  const startDropdownDefId = form.watch("start.dropdownDefinitionId")
+  const endDropdownDefId = form.watch("end.dropdownDefinitionId")
+  const startDropdownOptionCount =
+    form.watch("start.dropdownOptionIds")?.length ?? 0
+  const endDropdownOptionCount =
+    form.watch("end.dropdownOptionIds")?.length ?? 0
 
   const startFilterOptions = useMemo(
-    () => buildFilterOptions(startEventType, tagFilterOptions),
-    [startEventType, tagFilterOptions]
+    () =>
+      buildFilterOptions(startEventType, tagFilterOptions, fieldFilterOptions),
+    [startEventType, tagFilterOptions, fieldFilterOptions]
   )
   const endFilterOptions = useMemo(
-    () => buildFilterOptions(endEventType, tagFilterOptions),
-    [endEventType, tagFilterOptions]
+    () =>
+      buildFilterOptions(endEventType, tagFilterOptions, fieldFilterOptions),
+    [endEventType, tagFilterOptions, fieldFilterOptions]
+  )
+
+  const getDropdownOptions = (
+    defId: string | undefined
+  ): CaseFilterOption[] => {
+    if (!defId || !dropdownDefinitions) return []
+    const def = dropdownDefinitions.find((d) => d.id === defId)
+    return def?.options?.map((o) => ({ value: o.id, label: o.label })) ?? []
+  }
+
+  const startDropdownOptions = useMemo(
+    () => getDropdownOptions(startDropdownDefId),
+    [startDropdownDefId, dropdownDefinitions]
+  )
+  const endDropdownOptions = useMemo(
+    () => getDropdownOptions(endDropdownDefId),
+    [endDropdownDefId, dropdownDefinitions]
   )
 
   const startFilterLabel = startEventType
     ? getFilterLabel(startEventType)
     : null
   const endFilterLabel = endEventType ? getFilterLabel(endEventType) : null
+
   const isSubmitDisabled = useMemo(() => {
-    if (isSubmitting) {
+    if (isSubmitting) return true
+    if (!nameValue?.trim()) return true
+    if (!startEventType || !endEventType) return true
+
+    const hasFilters = (
+      eventType: CaseDurationEventTypeValue,
+      filterCount: number,
+      dropdownDefId: string | undefined,
+      dropdownOptionCount: number
+    ): boolean => {
+      if (isCaseDropdownEventType(eventType)) {
+        return !!dropdownDefId && dropdownOptionCount > 0
+      }
+      return filterCount > 0
+    }
+
+    if (
+      requiresFilterSelection(startEventType) &&
+      !hasFilters(
+        startEventType,
+        startFilterCount,
+        startDropdownDefId,
+        startDropdownOptionCount
+      )
+    ) {
       return true
     }
-    const trimmedName = nameValue?.trim() ?? ""
-    if (!trimmedName) {
-      return true
-    }
-    if (!startEventType || !endEventType) {
-      return true
-    }
-    if (requiresFilterSelection(startEventType) && startFilterCount === 0) {
-      return true
-    }
-    if (requiresFilterSelection(endEventType) && endFilterCount === 0) {
+    if (
+      requiresFilterSelection(endEventType) &&
+      !hasFilters(
+        endEventType,
+        endFilterCount,
+        endDropdownDefId,
+        endDropdownOptionCount
+      )
+    ) {
       return true
     }
     return false
@@ -340,6 +498,10 @@ export function CaseDurationDialog({
     endEventType,
     startFilterCount,
     endFilterCount,
+    startDropdownDefId,
+    startDropdownOptionCount,
+    endDropdownDefId,
+    endDropdownOptionCount,
   ])
 
   return (
@@ -432,6 +594,8 @@ export function CaseDurationDialog({
                         value={field.value}
                         onValueChange={(value) => {
                           form.setValue("start.filterValues", [])
+                          form.setValue("start.dropdownDefinitionId", undefined)
+                          form.setValue("start.dropdownOptionIds", [])
                           field.onChange(value)
                         }}
                       >
@@ -455,29 +619,86 @@ export function CaseDurationDialog({
                     </FormItem>
                   )}
                 />
-                {startFilterLabel && (
-                  <FormField
-                    control={form.control}
-                    name="start.filterValues"
-                    render={({ field }) => (
-                      <FormItem className="space-y-2">
-                        <FormLabel className="text-xs">
-                          {startFilterLabel}
-                        </FormLabel>
-                        <FormControl className="w-full">
-                          <CaseFilterMultiSelect
-                            placeholder={`Select ${startFilterLabel.toLowerCase()}`}
-                            value={field.value ?? []}
-                            options={startFilterOptions}
-                            onChange={(nextValue) => {
-                              field.onChange(nextValue)
+                {startFilterLabel &&
+                  !isCaseDropdownEventType(startEventType) && (
+                    <FormField
+                      control={form.control}
+                      name="start.filterValues"
+                      render={({ field }) => (
+                        <FormItem className="space-y-2">
+                          <FormLabel className="text-xs">
+                            {startFilterLabel}
+                          </FormLabel>
+                          <FormControl className="w-full">
+                            <CaseFilterMultiSelect
+                              placeholder={`Select ${startFilterLabel.toLowerCase()}`}
+                              value={field.value ?? []}
+                              options={startFilterOptions}
+                              onChange={(nextValue) => {
+                                field.onChange(nextValue)
+                              }}
+                            />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  )}
+                {isCaseDropdownEventType(startEventType) && (
+                  <>
+                    <FormField
+                      control={form.control}
+                      name="start.dropdownDefinitionId"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel className="text-xs">Dropdown</FormLabel>
+                          <Select
+                            value={field.value ?? ""}
+                            onValueChange={(value) => {
+                              form.setValue("start.dropdownOptionIds", [])
+                              field.onChange(value)
                             }}
-                          />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
+                          >
+                            <FormControl>
+                              <SelectTrigger>
+                                <SelectValue placeholder="Select dropdown" />
+                              </SelectTrigger>
+                            </FormControl>
+                            <SelectContent>
+                              {dropdownDefinitions?.map((def) => (
+                                <SelectItem key={def.id} value={def.id}>
+                                  {def.name}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                    {startDropdownDefId && (
+                      <FormField
+                        control={form.control}
+                        name="start.dropdownOptionIds"
+                        render={({ field }) => (
+                          <FormItem className="space-y-2">
+                            <FormLabel className="text-xs">Option</FormLabel>
+                            <FormControl className="w-full">
+                              <CaseFilterMultiSelect
+                                placeholder="Select option"
+                                value={field.value ?? []}
+                                options={startDropdownOptions}
+                                onChange={(nextValue) => {
+                                  field.onChange(nextValue)
+                                }}
+                              />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
                     )}
-                  />
+                  </>
                 )}
               </div>
 
@@ -523,6 +744,8 @@ export function CaseDurationDialog({
                         value={field.value}
                         onValueChange={(value) => {
                           form.setValue("end.filterValues", [])
+                          form.setValue("end.dropdownDefinitionId", undefined)
+                          form.setValue("end.dropdownOptionIds", [])
                           field.onChange(value)
                         }}
                       >
@@ -546,7 +769,7 @@ export function CaseDurationDialog({
                     </FormItem>
                   )}
                 />
-                {endFilterLabel && (
+                {endFilterLabel && !isCaseDropdownEventType(endEventType) && (
                   <FormField
                     control={form.control}
                     name="end.filterValues"
@@ -569,6 +792,62 @@ export function CaseDurationDialog({
                       </FormItem>
                     )}
                   />
+                )}
+                {isCaseDropdownEventType(endEventType) && (
+                  <>
+                    <FormField
+                      control={form.control}
+                      name="end.dropdownDefinitionId"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel className="text-xs">Dropdown</FormLabel>
+                          <Select
+                            value={field.value ?? ""}
+                            onValueChange={(value) => {
+                              form.setValue("end.dropdownOptionIds", [])
+                              field.onChange(value)
+                            }}
+                          >
+                            <FormControl>
+                              <SelectTrigger>
+                                <SelectValue placeholder="Select dropdown" />
+                              </SelectTrigger>
+                            </FormControl>
+                            <SelectContent>
+                              {dropdownDefinitions?.map((def) => (
+                                <SelectItem key={def.id} value={def.id}>
+                                  {def.name}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                    {endDropdownDefId && (
+                      <FormField
+                        control={form.control}
+                        name="end.dropdownOptionIds"
+                        render={({ field }) => (
+                          <FormItem className="space-y-2">
+                            <FormLabel className="text-xs">Option</FormLabel>
+                            <FormControl className="w-full">
+                              <CaseFilterMultiSelect
+                                placeholder="Select option"
+                                value={field.value ?? []}
+                                options={endDropdownOptions}
+                                onChange={(nextValue) => {
+                                  field.onChange(nextValue)
+                                }}
+                              />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                    )}
+                  </>
                 )}
               </div>
             </div>

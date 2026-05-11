@@ -64,7 +64,7 @@ class TemplateExecutionContext(TypedDict):
     """Environment metadata about the workflow."""
 
     SECRETS: NotRequired[dict[str, Any]]
-    """Secrets context."""
+    """Raw secrets context for expression evaluation."""
 
     VARS: NotRequired[dict[str, Any]]
     """Workspace variables."""
@@ -362,6 +362,13 @@ class ActionStatement(BaseModel):
     environment: ExpressionStr | None = Field(
         default=None,
         description="Override environment for this action's execution. Can be a template expression.",
+    )
+    mask_output: bool = Field(
+        default=False,
+        description=(
+            "If true, redact this action's result in workflow execution API responses "
+            "while preserving internal workflow data flow between actions."
+        ),
     )
 
     @property

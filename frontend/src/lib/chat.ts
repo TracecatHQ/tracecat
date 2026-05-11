@@ -245,6 +245,11 @@ export type ModelInfo = {
   name: string
   provider: string
   baseUrl?: string | null
+  iconId?: string
+}
+
+type CompactionData = {
+  phase?: "started" | "completed" | "failed"
 }
 
 /**
@@ -296,6 +301,7 @@ export function transformMessages(messages: ai.UIMessage[]): ai.UIMessage[] {
   >()
   // Array positions to ignore (using "msgIndex-partIndex" string format)
   const ignorePos = new Set<string>()
+  let pendingCompactionStartPos: string | null = null
 
   for (const [i, message] of messages.entries()) {
     for (const [j, part] of message.parts.entries()) {
@@ -347,6 +353,24 @@ export function transformMessages(messages: ai.UIMessage[]): ai.UIMessage[] {
                 approval: posKey,
               })
             }
+          }
+        }
+      } else if (part.type === "data-compaction") {
+        const phase =
+          part.data &&
+          typeof part.data === "object" &&
+          "phase" in part.data &&
+          (part.data as CompactionData).phase
+
+        if (phase === "started") {
+          if (pendingCompactionStartPos) {
+            ignorePos.add(pendingCompactionStartPos)
+          }
+          pendingCompactionStartPos = posKey
+        } else if (phase === "completed" || phase === "failed") {
+          if (pendingCompactionStartPos) {
+            ignorePos.add(pendingCompactionStartPos)
+            pendingCompactionStartPos = null
           }
         }
       }

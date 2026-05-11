@@ -14,7 +14,7 @@ import asyncio
 import tempfile
 import uuid
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import orjson
@@ -48,7 +48,7 @@ class TestRuntimeSocketCommunication:
 
     @pytest.fixture(autouse=True)
     def _mock_llm_bridge_port(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Set the LLM bridge port env var so get_llm_proxy_url() succeeds."""
+        """Set the LLM bridge port env var so get_litellm_url() succeeds."""
         monkeypatch.setenv("TRACECAT__LLM_BRIDGE_PORT", "12345")
 
     @pytest.fixture
@@ -57,6 +57,8 @@ class TestRuntimeSocketCommunication:
         mock_client = MagicMock()
         mock_client.__aenter__ = AsyncMock(return_value=mock_client)
         mock_client.__aexit__ = AsyncMock(return_value=None)
+        mock_client.connect = AsyncMock()
+        mock_client.disconnect = AsyncMock()
         mock_client.query = AsyncMock()
         mock_client.interrupt = AsyncMock()
 
@@ -130,7 +132,9 @@ class TestRuntimeSocketCommunication:
                         AsyncMock(return_value={}),
                     ),
                 ):
-                    runtime = ClaudeAgentRuntime(socket_writer)
+                    runtime = ClaudeAgentRuntime(
+                        socket_writer, transport_factory=lambda _: MagicMock()
+                    )
                     payload = make_init_payload()
                     await runtime.run(payload)
 
@@ -146,6 +150,39 @@ class TestRuntimeSocketCommunication:
             finally:
                 server.close()
                 await server.wait_closed()
+
+    @pytest.mark.anyio
+    async def test_socket_writer_serializes_concurrent_sends(self) -> None:
+        """Concurrent send calls should not overlap socket drains."""
+        active_drains = 0
+        max_active_drains = 0
+        raw_writer = MagicMock()
+
+        async def drain() -> None:
+            nonlocal active_drains, max_active_drains
+            active_drains += 1
+            max_active_drains = max(max_active_drains, active_drains)
+            await asyncio.sleep(0)
+            active_drains -= 1
+
+        raw_writer.write = MagicMock()
+        raw_writer.drain = AsyncMock(side_effect=drain)
+        socket_writer = SocketStreamWriter(cast(asyncio.StreamWriter, raw_writer))
+
+        await asyncio.gather(
+            socket_writer.send_stream_event(
+                UnifiedStreamEvent(
+                    type=StreamEventType.TEXT_DELTA,
+                    text="hello",
+                    part_id=0,
+                )
+            ),
+            socket_writer.send_session_line("sdk-session", "{}"),
+            socket_writer.send_done(),
+        )
+
+        assert raw_writer.write.call_count == 3
+        assert max_active_drains == 1
 
     @pytest.mark.anyio
     async def test_runtime_streams_sdk_events(
@@ -227,7 +264,9 @@ class TestRuntimeSocketCommunication:
                         MagicMock,
                     ),
                 ):
-                    runtime = ClaudeAgentRuntime(socket_writer)
+                    runtime = ClaudeAgentRuntime(
+                        socket_writer, transport_factory=lambda _: MagicMock()
+                    )
                     payload = make_init_payload()
                     await runtime.run(payload)
 
@@ -300,7 +339,9 @@ class TestRuntimeSocketCommunication:
                     ),
                     pytest.raises(ValueError, match="SDK connection failed"),
                 ):
-                    runtime = ClaudeAgentRuntime(socket_writer)
+                    runtime = ClaudeAgentRuntime(
+                        socket_writer, transport_factory=lambda _: MagicMock()
+                    )
                     payload = make_init_payload()
                     await runtime.run(payload)
 

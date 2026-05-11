@@ -1,22 +1,28 @@
 "use client"
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { useMemo } from "react"
+import { useEffect, useMemo, useState } from "react"
 import {
   type AdminCreateOrganizationDomainResponse,
+  type AdminCreateOrganizationInvitationResponse,
   type AdminCreateOrganizationResponse,
   type AdminCreateTierResponse,
   type AdminCreateUserResponse,
   type AdminListOrganizationDomainsResponse,
+  type AdminListOrganizationInvitationsResponse,
   type AdminListOrganizationsResponse,
   type AdminListTiersResponse,
   type AdminListUsersResponse,
+  type AdminOrgInvitationCreate,
   type AdminRegistryGetRegistryStatusResponse,
   type AdminRegistryListRegistryVersionsResponse,
   type AdminUserCreate,
   type AdminUserRead,
+  type AgentCatalogListResponse,
+  type AgentCatalogRead,
   adminCreateOrganization,
   adminCreateOrganizationDomain,
+  adminCreateOrganizationInvitation,
   adminCreateTier,
   adminCreateUser,
   adminDeleteOrganization,
@@ -24,10 +30,12 @@ import {
   adminDeleteTier,
   adminDemoteFromSuperuser,
   adminGetOrganization,
+  adminGetOrganizationInvitationToken,
   adminGetOrgTier,
   adminGetRegistrySettings,
   adminGetTier,
   adminListOrganizationDomains,
+  adminListOrganizationInvitations,
   adminListOrganizations,
   adminListOrgRepositories,
   adminListOrgRepositoryVersions,
@@ -41,12 +49,14 @@ import {
   adminRegistryPromoteRegistryVersion,
   adminRegistrySyncAllRepositories,
   adminRegistrySyncRepository,
+  adminRevokeOrganizationInvitation,
   adminSyncOrgRepository,
   adminUpdateOrganization,
   adminUpdateOrganizationDomain,
   adminUpdateOrgTier,
   adminUpdateRegistrySettings,
   adminUpdateTier,
+  OpenAPI,
   type OrganizationTierRead,
   type OrganizationTierUpdate,
   type OrgCreate,
@@ -60,8 +70,58 @@ import {
   type TierRead,
   type TierUpdate,
 } from "@/client"
+import { request as apiRequest } from "@/client/core/request"
+import { retryHandler, type TracecatApiError } from "@/lib/errors"
+
+export interface AdminPlatformCatalogEntry {
+  id: string
+  model_provider: string
+  model_name: string
+  model_id: string
+  display_name: string
+  metadata?: Record<string, unknown> | null
+}
+
+export interface AdminPlatformCatalogRead {
+  models: AdminPlatformCatalogEntry[]
+}
+
+function adminListPlatformCatalog({
+  cursor,
+  limit,
+}: {
+  cursor?: string
+  limit?: number
+} = {}) {
+  return apiRequest<AgentCatalogListResponse>(OpenAPI, {
+    method: "GET",
+    url: "/admin/agent/catalog",
+    query: {
+      cursor,
+      limit,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
 
 /* ── ORGANIZATIONS ─────────────────────────────────────────────────────────── */
+
+const ADMIN_ORG_INVITATIONS_PAGE_SIZE = 20
+
+interface AdminOrgInvitationsPaginationState {
+  cursor: string | null
+  reverse: boolean
+  page: number
+}
+
+const DEFAULT_ADMIN_ORG_INVITATIONS_PAGINATION: AdminOrgInvitationsPaginationState =
+  {
+    cursor: null,
+    reverse: false,
+    page: 0,
+  }
 
 export function useAdminOrganizations({
   enabled = true,
@@ -218,6 +278,102 @@ export function useAdminOrgDomains(orgId: string) {
     updatePending,
     deleteDomain,
     deletePending,
+  }
+}
+
+/** Fetch and mutate platform-created organization invitations. */
+export function useAdminOrgInvitations(orgId: string) {
+  const queryClient = useQueryClient()
+  const [pagination, setPagination] =
+    useState<AdminOrgInvitationsPaginationState>(
+      DEFAULT_ADMIN_ORG_INVITATIONS_PAGINATION
+    )
+  const queryKey = ["admin", "organizations", orgId, "invitations"]
+
+  useEffect(() => {
+    setPagination(DEFAULT_ADMIN_ORG_INVITATIONS_PAGINATION)
+  }, [orgId])
+
+  const {
+    data: invitationsPage,
+    isLoading,
+    error,
+  } = useQuery<AdminListOrganizationInvitationsResponse>({
+    queryKey: [...queryKey, pagination.cursor, pagination.reverse],
+    queryFn: () =>
+      adminListOrganizationInvitations({
+        orgId,
+        limit: ADMIN_ORG_INVITATIONS_PAGE_SIZE,
+        cursor: pagination.cursor,
+        reverse: pagination.reverse,
+      }),
+    enabled: !!orgId,
+  })
+
+  const { mutateAsync: createInvitation, isPending: createPending } =
+    useMutation<
+      AdminCreateOrganizationInvitationResponse,
+      Error,
+      AdminOrgInvitationCreate
+    >({
+      mutationFn: (data) =>
+        adminCreateOrganizationInvitation({ orgId, requestBody: data }),
+      onSuccess: () => {
+        setPagination(DEFAULT_ADMIN_ORG_INVITATIONS_PAGINATION)
+        queryClient.invalidateQueries({ queryKey })
+      },
+    })
+
+  const { mutateAsync: getInvitationToken } = useMutation<
+    { token: string },
+    Error,
+    string
+  >({
+    mutationFn: (invitationId) =>
+      adminGetOrganizationInvitationToken({ orgId, invitationId }),
+  })
+
+  const { mutateAsync: revokeInvitation, isPending: revokePending } =
+    useMutation<void, Error, string>({
+      mutationFn: (invitationId) =>
+        adminRevokeOrganizationInvitation({ orgId, invitationId }),
+      onSuccess: () => {
+        queryClient.invalidateQueries({ queryKey })
+      },
+    })
+
+  function goToNextPage() {
+    if (!invitationsPage?.next_cursor) return
+    setPagination((previous) => ({
+      cursor: invitationsPage.next_cursor ?? null,
+      reverse: false,
+      page: previous.page + 1,
+    }))
+  }
+
+  function goToPreviousPage() {
+    if (!invitationsPage?.prev_cursor) return
+    setPagination((previous) => ({
+      cursor: invitationsPage.prev_cursor ?? null,
+      reverse: true,
+      page: Math.max(previous.page - 1, 0),
+    }))
+  }
+
+  return {
+    invitations: invitationsPage?.items ?? [],
+    isLoading,
+    error,
+    createInvitation,
+    createPending,
+    getInvitationToken,
+    revokeInvitation,
+    revokePending,
+    goToNextPage,
+    goToPreviousPage,
+    hasNextPage: invitationsPage?.has_more ?? false,
+    hasPreviousPage: invitationsPage?.has_previous ?? false,
+    currentPage: pagination.page,
   }
 }
 
@@ -643,5 +799,87 @@ export function useAdminRegistrySettings() {
     error,
     updateSettings,
     updatePending,
+  }
+}
+
+/**
+ * Read platform-scoped catalog rows through the admin catalog surface.
+ */
+export function useAdminPlatformCatalog({
+  query = "",
+}: {
+  query?: string
+} = {}) {
+  const {
+    data: catalogItems,
+    isLoading,
+    error,
+    refetch,
+  } = useQuery<AgentCatalogRead[], TracecatApiError>({
+    queryKey: ["admin", "agent-platform-catalog"],
+    queryFn: async () => {
+      const items: AgentCatalogRead[] = []
+      let cursor: string | undefined
+
+      do {
+        const response = await adminListPlatformCatalog({
+          cursor,
+          limit: 100,
+        })
+        items.push(...response.items)
+        cursor = response.next_cursor ?? undefined
+      } while (cursor)
+
+      return items
+    },
+    retry: retryHandler,
+  })
+  const catalog = useMemo<AdminPlatformCatalogRead | undefined>(() => {
+    if (!catalogItems) {
+      return undefined
+    }
+
+    const normalizedQuery = query.trim().toLowerCase()
+    const models = catalogItems
+      .filter((item) => {
+        if (!normalizedQuery) {
+          return true
+        }
+        return (
+          item.model_name.toLowerCase().includes(normalizedQuery) ||
+          item.model_provider.toLowerCase().includes(normalizedQuery)
+        )
+      })
+      .sort((left, right) => {
+        const providerComparison = left.model_provider.localeCompare(
+          right.model_provider
+        )
+        if (providerComparison !== 0) {
+          return providerComparison
+        }
+        return left.model_name.localeCompare(right.model_name)
+      })
+      .map((item) => ({
+        id: item.id,
+        model_provider: item.model_provider,
+        model_name: item.model_name,
+        model_id: item.model_name,
+        display_name:
+          (item.model_metadata?.display_name as string | undefined) ??
+          item.model_name,
+        metadata:
+          (item.model_metadata as Record<string, unknown> | null) ?? null,
+      }))
+
+    return {
+      models,
+    }
+  }, [catalogItems, query])
+
+  return {
+    catalog,
+    isLoading,
+    error,
+    refetch,
   }
 }

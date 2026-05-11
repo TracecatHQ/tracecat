@@ -1,10 +1,74 @@
 """Tests for SizedMemoryCache."""
 
 import asyncio
+import multiprocessing
+import threading
+import traceback
+from concurrent.futures import ThreadPoolExecutor
+from multiprocessing.connection import Connection
 
 import pytest
 
 from tracecat.storage.utils import SizedMemoryCache
+
+
+def _run_shared_cache_lock_contention_probe(result_connection: Connection) -> None:
+    try:
+        worker_count = 3
+        cache = SizedMemoryCache(max_bytes=2048, ttl=300.0)
+        lock_acquired = threading.Event()
+        release_lock = threading.Event()
+        start_barrier = threading.Barrier(worker_count + 1)
+        workers_attempting_cache_access = threading.Semaphore(0)
+
+        def hold_cache_lock() -> None:
+            # This intentionally touches the lock internals: the regression is
+            # reintroducing an event-loop-bound lock on this process-global cache.
+            with cache._lock:
+                lock_acquired.set()
+                assert release_lock.wait(timeout=5)
+
+        async def exercise_cache(worker_id: int) -> None:
+            start_barrier.wait(timeout=5)
+            workers_attempting_cache_access.release()
+
+            key = f"key-{worker_id}"
+            value = f"value-{worker_id}".encode()
+            await cache.set(key, value)
+            assert await cache.get(key) == value
+
+        def run_in_new_loop(worker_id: int) -> None:
+            asyncio.run(exercise_cache(worker_id))
+
+        executor = ThreadPoolExecutor(max_workers=worker_count + 1)
+        try:
+            holder_future = executor.submit(hold_cache_lock)
+            if not lock_acquired.wait(timeout=5):
+                if holder_future.done():
+                    holder_future.result()
+                raise AssertionError("Cache lock was not acquired")
+
+            futures = [
+                executor.submit(run_in_new_loop, worker_id)
+                for worker_id in range(worker_count)
+            ]
+            start_barrier.wait(timeout=5)
+            for _ in range(worker_count):
+                assert workers_attempting_cache_access.acquire(timeout=5)
+
+            release_lock.set()
+            for future in futures:
+                future.result(timeout=5)
+            holder_future.result(timeout=5)
+        finally:
+            release_lock.set()
+            executor.shutdown(wait=False, cancel_futures=True)
+    except BaseException:
+        result_connection.send(("error", traceback.format_exc()))
+    else:
+        result_connection.send(("ok", ""))
+    finally:
+        result_connection.close()
 
 
 class TestSizedMemoryCache:
@@ -107,21 +171,96 @@ class TestSizedMemoryCache:
         assert await cache.get("key2") is None  # Evicted (was LRU)
 
     @pytest.mark.anyio
-    async def test_ttl_expiry_syncs_tracking(self):
+    async def test_ttl_expiry_syncs_tracking(self, monkeypatch: pytest.MonkeyPatch):
         """Test that TTL expiry syncs size tracking on get."""
-        cache = SizedMemoryCache(max_bytes=1024, ttl=0.1)  # 100ms TTL
+        now = 100.0
+        monkeypatch.setattr("tracecat.storage.utils.time.monotonic", lambda: now)
+        cache = SizedMemoryCache(max_bytes=1024, ttl=0.1)
 
         await cache.set("key1", b"hello")
         assert cache.total_bytes == 5
 
-        # Wait for TTL to expire
-        await asyncio.sleep(0.15)
-
-        # Get should return None and sync tracking
+        now = 100.11
         result = await cache.get("key1")
         assert result is None
         assert cache.total_bytes == 0
         assert cache.item_count == 0
+
+    @pytest.mark.anyio
+    async def test_set_purges_expired_entries_without_read(
+        self, monkeypatch: pytest.MonkeyPatch
+    ):
+        """Test that writes purge expired entries before capacity accounting."""
+        now = 100.0
+        monkeypatch.setattr("tracecat.storage.utils.time.monotonic", lambda: now)
+        cache = SizedMemoryCache(max_bytes=1024, ttl=0.1)
+
+        await cache.set("expired", b"hello")
+        assert cache.total_bytes == 5
+
+        now = 100.11
+        await cache.set("fresh", b"world")
+
+        assert cache.total_bytes == 5
+        assert cache.item_count == 1
+        assert await cache.get("fresh") == b"world"
+
+    @pytest.mark.anyio
+    async def test_set_purges_expired_mru_before_lru_eviction(
+        self, monkeypatch: pytest.MonkeyPatch
+    ):
+        """Test that expired MRU entries do not cause fresh LRU eviction."""
+        now = 100.0
+        monkeypatch.setattr("tracecat.storage.utils.time.monotonic", lambda: now)
+        cache = SizedMemoryCache(max_bytes=100, ttl=0.2)
+
+        await cache.set("expires_first", b"a" * 50)
+        now = 100.05
+        await cache.set("fresh_lru", b"b" * 40)
+        assert await cache.get("expires_first") == b"a" * 50
+
+        now = 100.21
+        await cache.set("new", b"c" * 40)
+
+        assert await cache.get("expires_first") is None
+        assert await cache.get("fresh_lru") == b"b" * 40
+        assert await cache.get("new") == b"c" * 40
+        assert cache.total_bytes == 80
+
+    @pytest.mark.anyio
+    async def test_oversized_set_purges_expired_entries(
+        self, monkeypatch: pytest.MonkeyPatch
+    ):
+        """Test that rejected writes still purge expired entries."""
+        now = 100.0
+        monkeypatch.setattr("tracecat.storage.utils.time.monotonic", lambda: now)
+        cache = SizedMemoryCache(max_bytes=100, ttl=0.1)
+
+        await cache.set("expired", b"a" * 50)
+        assert cache.total_bytes == 50
+
+        now = 100.11
+        await cache.set("too_big", b"b" * 101)
+
+        assert cache.total_bytes == 0
+        assert cache.item_count == 0
+        assert await cache.get("too_big") is None
+
+    @pytest.mark.anyio
+    async def test_non_positive_ttl_disables_expiry(
+        self, monkeypatch: pytest.MonkeyPatch
+    ):
+        """Test that non-positive TTL preserves existing no-expiry behavior."""
+        now = 100.0
+        monkeypatch.setattr("tracecat.storage.utils.time.monotonic", lambda: now)
+        cache = SizedMemoryCache(max_bytes=1024, ttl=0.0)
+
+        await cache.set("key1", b"hello")
+
+        now = 10_000.0
+        assert await cache.get("key1") == b"hello"
+        assert cache.total_bytes == 5
+        assert cache.item_count == 1
 
     @pytest.mark.anyio
     async def test_concurrent_access(self):
@@ -149,6 +288,65 @@ class TestSizedMemoryCache:
 
         # Should complete without errors
         assert cache.item_count <= 2
+
+    def test_concurrent_access_from_multiple_event_loops(self):
+        """Test that one cache can be shared by separate event loops."""
+        worker_count = 4
+        iteration_count = 250
+        cache = SizedMemoryCache(max_bytes=2048, ttl=300.0)
+        barrier = threading.Barrier(worker_count)
+
+        async def exercise_cache(worker_id: int) -> None:
+            barrier.wait(timeout=5)
+            for i in range(iteration_count):
+                shared_key = f"shared-{i % 8}"
+                worker_key = f"worker-{worker_id}-{i % 8}"
+
+                await cache.set(shared_key, f"shared-value-{worker_id}-{i}".encode())
+                await cache.get(shared_key)
+                await cache.set(worker_key, f"worker-value-{worker_id}-{i}".encode())
+                await cache.get(worker_key)
+                await asyncio.sleep(0)
+
+        def run_in_new_loop(worker_id: int) -> None:
+            asyncio.run(exercise_cache(worker_id))
+
+        with ThreadPoolExecutor(max_workers=worker_count) as executor:
+            futures = [
+                executor.submit(run_in_new_loop, worker_id)
+                for worker_id in range(worker_count)
+            ]
+            for future in futures:
+                future.result()
+
+        assert cache.total_bytes <= 2048
+
+    def test_shared_cache_handles_cross_loop_lock_contention(self):
+        """Test that cross-loop cache users can contend on the shared lock."""
+        context = multiprocessing.get_context("spawn")
+        parent_connection, child_connection = context.Pipe(duplex=False)
+        process = context.Process(
+            target=_run_shared_cache_lock_contention_probe,
+            args=(child_connection,),
+        )
+
+        process.start()
+        child_connection.close()
+        process.join(timeout=10)
+        if process.is_alive():
+            process.terminate()
+            process.join(timeout=5)
+            if process.is_alive():
+                process.kill()
+                process.join()
+            pytest.fail("Cache lock contention probe timed out")
+
+        if parent_connection.poll():
+            status, detail = parent_connection.recv()
+            if status == "error":
+                pytest.fail(detail)
+        elif process.exitcode != 0:
+            pytest.fail(f"Cache lock contention probe exited with {process.exitcode}")
 
     @pytest.mark.anyio
     async def test_empty_value(self):

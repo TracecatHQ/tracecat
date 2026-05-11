@@ -3,11 +3,12 @@
 # 2. TRACECAT__SERVICE_KEY
 # 3. TRACECAT__SIGNING_SECRET
 #
-# Required secrets (API only):
-# 4. USER_AUTH_SECRET  — only the API service uses this (password reset, email
-#    verification, and OAuth state signing). Required for ALL auth types.
+# Required secrets (API and MCP):
+# 4. USER_AUTH_SECRET  — used by the API service (password reset, email
+#    verification, OAuth state signing) and the MCP service (internal OIDC
+#    client-secret derivation). Required for ALL auth types.
 #    Do NOT add to required_tracecat_base_secrets; it must stay out of
-#    executor, worker, and MCP to limit blast radius.
+#    executor and worker services to limit blast radius.
 #
 # Optional secrets:
 # 1. OAUTH_CLIENT_ID (legacy OIDC alias)
@@ -207,9 +208,11 @@ locals {
     }
   ] : []
 
-  tracecat_base_secrets = concat(
-    local.required_tracecat_base_secrets,
-    local.temporal_api_key_secret
+  tracecat_base_secrets = local.required_tracecat_base_secrets
+
+  tracecat_temporal_secrets = concat(
+    local.tracecat_base_secrets,
+    local.temporal_api_key_secret,
   )
 
   oauth_client_id_secret = var.oauth_client_id_arn != null ? [
@@ -240,10 +243,11 @@ locals {
     }
   ] : []
 
-  # USER_AUTH_SECRET is only needed by the API service (password reset, email
-  # verification, OAuth state signing). Required for ALL auth types.
+  # USER_AUTH_SECRET is needed by the API service (password reset, email
+  # verification, OAuth state signing) and the MCP service (internal OIDC
+  # client-secret derivation). Required for ALL auth types.
   # It must NOT be in required_tracecat_base_secrets to avoid leaking to
-  # executor, worker, and MCP services.
+  # executor and worker services.
   user_auth_secret_secret = [
     {
       name      = "USER_AUTH_SECRET"
@@ -287,7 +291,7 @@ locals {
   ] : []
 
   tracecat_api_secrets = concat(
-    local.tracecat_base_secrets,
+    local.tracecat_temporal_secrets,
     local.oauth_client_id_secret,
     local.oauth_client_secret_secret,
     local.oidc_client_id_secret,
@@ -317,11 +321,12 @@ locals {
     local.temporal_auth_client_secret_secret,
   )
 
-  executor_secrets = local.tracecat_base_secrets
+  executor_secrets = local.tracecat_temporal_secrets
+
+  litellm_secrets = local.tracecat_base_secrets
 
   mcp_secrets = concat(
-    local.tracecat_base_secrets,
-    local.oidc_client_id_secret,
-    local.oidc_client_secret_secret,
+    local.tracecat_temporal_secrets,
+    local.user_auth_secret_secret,
   )
 }

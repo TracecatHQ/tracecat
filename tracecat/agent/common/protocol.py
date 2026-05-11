@@ -22,6 +22,9 @@ class RuntimeInitPayload:
 
     The orchestrator sends this after the runtime connects to the control socket.
     Contains everything the runtime needs to execute an agent turn.
+
+    On resume after approval, the executor stages persisted SDK JSONL into a
+    local file and sends only the runtime-visible path through this payload.
     """
 
     # Runtime selection
@@ -39,6 +42,7 @@ class RuntimeInitPayload:
     allowed_actions: dict[str, MCPToolDefinition] | None = None
     sdk_session_id: str | None = None
     resume_session_path: str | None = None  # Runtime-visible staged JSONL file path
+    sdk_session_data: str | None = None  # Legacy inline JSONL resume payload
     is_approval_continuation: bool = False  # True when resuming after approval decision
     is_fork: bool = False
 
@@ -71,6 +75,7 @@ class RuntimeInitPayload:
             allowed_actions=allowed_actions,
             sdk_session_id=data.get("sdk_session_id"),
             resume_session_path=data.get("resume_session_path"),
+            sdk_session_data=data.get("sdk_session_data"),
             is_approval_continuation=data.get("is_approval_continuation", False),
             is_fork=data.get("is_fork", False),
         )
@@ -95,6 +100,8 @@ class RuntimeInitPayload:
             result["sdk_session_id"] = self.sdk_session_id
         if self.resume_session_path is not None:
             result["resume_session_path"] = self.resume_session_path
+        if self.sdk_session_data is not None:
+            result["sdk_session_data"] = self.sdk_session_data
         return result
 
 

@@ -3,7 +3,7 @@ definition:
   title: Get user
   description: Get an Okta user by ID.
   display_group: Okta
-  doc_url: https://developer.okta.com/docs/reference/api/users/#get-user
+  doc_url: https://developer.okta.com/docs/api/openapi/okta-management/management/tags/user/#get-user
   namespace: tools.okta_oar
   name: get_user
   secrets:

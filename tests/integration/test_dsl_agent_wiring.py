@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import uuid
 from collections.abc import Callable, Generator, Iterator, Sequence
 from datetime import timedelta
 from typing import Any
@@ -228,3 +229,74 @@ class TestDSLAgentWiring:
 
         data = await to_data(result)
         assert data["output"] == "dsl-agent-wired"
+
+    @pytest.mark.anyio
+    @pytest.mark.integration
+    async def test_dsl_workflow_marks_existing_agent_session_as_required(
+        self,
+        test_role: Role,
+        temporal_client: Client,
+        test_worker_factory: Callable[..., Worker],
+        agent_worker_factory: Callable[..., Worker],
+    ) -> None:
+        session_id = uuid.uuid4()
+        captured_inputs: list[CreateSessionInput] = []
+
+        agent_activities = list(get_agent_worker_activities())
+        for replacement in (
+            create_mock_create_session_activity(captured_inputs),
+            create_mock_load_session_activity(),
+            create_mock_build_tool_definitions_activity(),
+        ):
+            agent_activities = _replace_activity(agent_activities, replacement)
+        agent_activities.append(
+            create_mock_run_agent_activity(output="dsl-agent-existing-session")
+        )
+
+        dsl = DSLInput(
+            title="DSL agent existing session wiring",
+            description="Verify ai.agent reuses a provided session ID",
+            entrypoint=DSLEntrypoint(ref="agent"),
+            actions=[
+                ActionStatement(
+                    ref="agent",
+                    action="ai.agent",
+                    args={
+                        "user_prompt": "Continue this investigation",
+                        "model_name": "gpt-4o-mini",
+                        "model_provider": "openai",
+                        "session_id": str(session_id),
+                    },
+                )
+            ],
+            returns="${{ ACTIONS.agent.result }}",
+        )
+        wf_id = WorkflowUUID.new_uuid4()
+
+        async with test_worker_factory(
+            temporal_client,
+            activities=list(get_dsl_worker_activities()),
+        ):
+            async with agent_worker_factory(
+                temporal_client,
+                task_queue=config.TRACECAT__AGENT_QUEUE,
+                activities=agent_activities,
+            ):
+                result = await temporal_client.execute_workflow(
+                    DSLWorkflow.run,
+                    DSLRunArgs(
+                        dsl=dsl,
+                        role=test_role,
+                        wf_id=wf_id,
+                    ),
+                    id=generate_exec_id(wf_id),
+                    task_queue=config.TEMPORAL__CLUSTER_QUEUE,
+                    retry_policy=RETRY_POLICIES["workflow:fail_fast"],
+                    execution_timeout=timedelta(seconds=60),
+                )
+
+        data = await to_data(result)
+        assert data["output"] == "dsl-agent-existing-session"
+        assert len(captured_inputs) == 1
+        assert captured_inputs[0].session_id == session_id
+        assert captured_inputs[0].require_existing is True

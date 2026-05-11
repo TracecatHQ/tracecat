@@ -3,7 +3,7 @@ definition:
   title: List incident entities
   description: Get all entities related to a specific incident in Microsoft Sentinel.
   display_group: Microsoft Sentinel
-  doc_url: https://learn.microsoft.com/en-us/rest/api/securityinsights/incidents/list-entities
+  doc_url: https://learn.microsoft.com/en-us/rest/api/securityinsights/incidents/list-entities?view=rest-securityinsights-2025-09-01
   namespace: tools.microsoft_sentinel
   name: list_incident_entities
   secrets:

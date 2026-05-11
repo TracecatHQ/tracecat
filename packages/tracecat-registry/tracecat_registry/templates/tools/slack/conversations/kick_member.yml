@@ -3,7 +3,7 @@ definition:
   title: Kick member
   description: Kick a member from a Slack channel.
   display_group: Slack
-  doc_url: https://api.slack.com/methods/conversations.kick
+  doc_url: https://docs.slack.dev/reference/methods/conversations.kick/
   namespace: tools.slack
   name: kick_member
   expects:

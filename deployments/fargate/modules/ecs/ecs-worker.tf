@@ -1,6 +1,6 @@
 # ECS Task Definition for Worker service
 resource "aws_ecs_task_definition" "worker_task_definition" {
-  family                   = "TracecatWorkerTaskDefinition"
+  family                   = "${var.iam_name_prefix}WorkerTaskDefinition"
   network_mode             = "awsvpc"
   requires_compatibilities = ["FARGATE"]
   cpu                      = var.worker_cpu
@@ -27,7 +27,7 @@ resource "aws_ecs_task_definition" "worker_task_definition" {
         }
       }
       environment = local.worker_env
-      secrets     = local.tracecat_base_secrets
+      secrets     = local.tracecat_temporal_secrets
     }
   ])
 }

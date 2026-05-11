@@ -1,17 +1,13 @@
 "use client"
 
 import type { AxiosError } from "axios"
-import Cookies from "js-cookie"
 import { ChevronDownIcon } from "lucide-react"
 import Image from "next/image"
 import { useRouter } from "next/navigation"
 import TracecatIcon from "public/icon.png"
 // Error components must be Client Components
 import { useEffect } from "react"
-import {
-  ApiError,
-  type tracecat_ee__admin__organizations__schemas__OrgRead as OrgRead,
-} from "@/client"
+import { ApiError } from "@/client"
 import { type AlertLevel, AlertNotification } from "@/components/notifications"
 import { Button } from "@/components/ui/button"
 import {
@@ -19,7 +15,6 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible"
-import { useAdminOrganizations } from "@/hooks/use-admin"
 
 type ErrorProps = Error & { digest?: string }
 
@@ -69,77 +64,6 @@ function GoHome() {
     <Button variant="outline" onClick={() => router.replace("/")}>
       Return to the home page
     </Button>
-  )
-}
-
-function OrgSelector() {
-  const router = useRouter()
-  const { organizations, isLoading, error } = useAdminOrganizations()
-
-  const handleSelectOrg = (org: OrgRead) => {
-    Cookies.set("tracecat-org-id", org.id, { path: "/", sameSite: "lax" })
-    // Full page reload to ensure React Query refetches with new cookie
-    window.location.reload()
-  }
-
-  if (isLoading) {
-    return (
-      <div className="text-sm text-muted-foreground">
-        Loading organizations...
-      </div>
-    )
-  }
-
-  if (error || !organizations) {
-    return (
-      <Button
-        variant="outline"
-        onClick={() => router.replace("/admin/organizations")}
-      >
-        Go to organizations
-      </Button>
-    )
-  }
-
-  if (organizations.length === 0) {
-    return (
-      <div className="flex w-full flex-col items-center gap-4">
-        <div className="text-sm text-muted-foreground">
-          No organizations available
-        </div>
-        <Button
-          variant="outline"
-          onClick={() => router.push("/admin/organizations")}
-        >
-          Go to admin console
-        </Button>
-      </div>
-    )
-  }
-
-  return (
-    <div className="flex w-full flex-col gap-4">
-      <div className="flex w-full flex-col gap-2">
-        {organizations.map((org) => (
-          <Button
-            key={org.id}
-            variant="outline"
-            className="w-full justify-start"
-            onClick={() => handleSelectOrg(org)}
-          >
-            {org.name}
-          </Button>
-        ))}
-      </div>
-      <Button
-        variant="ghost"
-        size="sm"
-        className="text-muted-foreground"
-        onClick={() => router.push("/admin/organizations")}
-      >
-        Go to admin console
-      </Button>
-    </div>
   )
 }
 
@@ -259,10 +183,10 @@ function apiErrorHandler(error: ApiError): CustomError {
       }
     case 428:
       return {
-        headline: "Select organization",
+        headline: "Organization required",
         level: "info",
-        message: null,
-        action: <OrgSelector />,
+        message: "This flow requires an organization-specific link.",
+        action: <GoHome />,
       }
     case 503:
       return {

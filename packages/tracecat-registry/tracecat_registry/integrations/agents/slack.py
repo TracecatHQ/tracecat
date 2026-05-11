@@ -19,7 +19,7 @@ from tracecat_registry.sdk.agents import run_agent
 
 from tracecat_registry import registry
 from tracecat_registry.core.agent import PYDANTIC_AI_REGISTRY_SECRETS
-from tracecat_registry.fields import ActionType, TextArea
+from tracecat_registry.fields import ActionType, AgentModel, ModelSelection, TextArea
 from pydantic import BaseModel
 from typing_extensions import Doc
 from typing import Annotated, Any
@@ -230,8 +230,11 @@ async def slackbot(
         TextArea(),
     ],
     channel_id: Annotated[str, Doc("Channel ID to send the initial message to.")],
-    model_name: Annotated[str, Doc("Name of the model to use.")],
-    model_provider: Annotated[str, Doc("Provider of the model to use.")],
+    model: Annotated[
+        ModelSelection,
+        Doc("Model to use. Pick from the list of models enabled for this workspace."),
+        AgentModel(),
+    ],
     actions: Annotated[
         list[str] | None,
         Doc(
@@ -243,7 +246,6 @@ async def slackbot(
         dict[str, Any] | None, Doc("Model settings for the agent.")
     ] = None,
     retries: Annotated[int, Doc("Number of retries for the agent.")] = 6,
-    base_url: Annotated[str | None, Doc("Base URL of the model to use.")] = None,
     limit_messages: Annotated[
         int, Doc("Max number of messages to look back in the conversation.")
     ] = 5,
@@ -306,13 +308,13 @@ async def slackbot(
     try:
         response = await run_agent(
             user_prompt=prompts.user_prompt,
-            model_name=model_name,
-            model_provider=model_provider,
+            model_name=model.model_name,
+            model_provider=model.model_provider,
+            catalog_id=model.catalog_id,
             actions=bot_actions,
             instructions=prompts.instructions,
             model_settings=model_settings,
             retries=retries,
-            base_url=base_url,
         )
     except Exception as e:
         # Send unexpected error message to Slack with the thread_ts

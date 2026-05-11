@@ -2,13 +2,11 @@
 
 import hashlib
 import uuid
-from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, Query, Request, UploadFile, status
 
 from tracecat import config
-from tracecat.auth.credentials import RoleACL
-from tracecat.auth.types import Role
+from tracecat.auth.dependencies import WorkspaceUserRouteRole
 from tracecat.authz.controls import require_scope
 from tracecat.cases.attachments.schemas import (
     CaseAttachmentCreate,
@@ -29,21 +27,12 @@ from tracecat.storage.exceptions import (
 
 router = APIRouter(tags=["case-attachments"], prefix="/cases/{case_id}/attachments")
 
-WorkspaceUser = Annotated[
-    Role,
-    RoleACL(
-        allow_user=True,
-        allow_service=False,
-        require_workspace="yes",
-    ),
-]
-
 
 @router.get("")
 @require_scope("case:read")
 async def list_attachments(
     *,
-    role: WorkspaceUser,
+    role: WorkspaceUserRouteRole,
     session: AsyncDBSession,
     case_id: uuid.UUID,
 ) -> list[CaseAttachmentRead]:
@@ -82,7 +71,7 @@ async def list_attachments(
 @require_scope("case:update")
 async def create_attachment(
     *,
-    role: WorkspaceUser,
+    role: WorkspaceUserRouteRole,
     session: AsyncDBSession,
     case_id: uuid.UUID,
     file: UploadFile,
@@ -337,7 +326,7 @@ async def create_attachment(
 @require_scope("case:read")
 async def download_attachment(
     *,
-    role: WorkspaceUser,
+    role: WorkspaceUserRouteRole,
     session: AsyncDBSession,
     case_id: uuid.UUID,
     attachment_id: uuid.UUID,
@@ -407,7 +396,7 @@ async def download_attachment(
 @require_scope("case:update")
 async def delete_attachment(
     *,
-    role: WorkspaceUser,
+    role: WorkspaceUserRouteRole,
     session: AsyncDBSession,
     case_id: uuid.UUID,
     attachment_id: uuid.UUID,

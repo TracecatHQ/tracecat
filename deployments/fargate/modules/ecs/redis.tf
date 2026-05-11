@@ -1,6 +1,6 @@
 # subnet group (or use an existing one from your network module)
 resource "aws_elasticache_subnet_group" "redis" {
-  name       = "tracecat-redis-subnet"
+  name       = "${var.name_prefix}-redis-subnet"
   subnet_ids = var.private_subnet_ids
 }
 
@@ -11,7 +11,7 @@ resource "random_password" "redis_app_user_password" {
 
 # Default user (required by AWS ElastiCache)
 resource "aws_elasticache_user" "default" {
-  user_id       = "default-user-tracecat"
+  user_id       = var.redis_default_user_id
   user_name     = "default" # Must be named "default"
   engine        = "redis"
   access_string = "off ~* -@all" # Disabled user with no access
@@ -27,8 +27,8 @@ resource "aws_elasticache_user" "default" {
 
 # Application user
 resource "aws_elasticache_user" "app_user" {
-  user_id       = "tracecat-app"
-  user_name     = "tracecat-app" # App connections will use this username
+  user_id       = "${var.name_prefix}-app"
+  user_name     = "${var.name_prefix}-app" # App connections will use this username
   engine        = "redis"
   access_string = "on ~* +@all" # Full access; refine later if needed
 
@@ -40,7 +40,7 @@ resource "aws_elasticache_user" "app_user" {
 }
 
 resource "aws_elasticache_user_group" "redis" {
-  user_group_id = "tracecat-users"
+  user_group_id = "${var.name_prefix}-users"
   engine        = "redis"
   user_ids = [
     aws_elasticache_user.default.user_id,
@@ -54,7 +54,7 @@ resource "aws_elasticache_user_group" "redis" {
 
 # The replication group (single-node, TLS & KMS encryption are ON by default in Redis 7)
 resource "aws_elasticache_replication_group" "redis" {
-  replication_group_id = "tracecat-redis"
+  replication_group_id = "${var.name_prefix}-redis"
   description          = "Tracecat Redis - password-protected app user"
   engine               = "redis"
   engine_version       = "7.1"
@@ -73,7 +73,7 @@ resource "aws_elasticache_replication_group" "redis" {
 
 # Store the complete Redis URL in Secrets Manager so ECS tasks can inject it.
 resource "aws_secretsmanager_secret" "redis_url" {
-  name_prefix = "tracecat-redis-url-"
+  name_prefix = "${var.name_prefix}-redis-url-"
   description = "Tracecat Redis connection URL"
 }
 

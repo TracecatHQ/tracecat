@@ -2,7 +2,7 @@ name: Lint python
 
 on:
   push:
-    branches: ["main"]
+    branches: [ "main" ]
     paths:
       - tracecat/**
       - packages/**
@@ -11,7 +11,7 @@ on:
       - pyproject.toml
       - .github/workflows/lint-python.yml
   pull_request:
-    branches: ["main", "staging"]
+    branches: [ "main", "staging" ]
     paths:
       - tracecat/**
       - packages/**

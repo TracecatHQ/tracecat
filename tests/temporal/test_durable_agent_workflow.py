@@ -21,10 +21,16 @@ pytestmark = [pytest.mark.temporal, pytest.mark.usefixtures("db")]
 
 from pydantic_ai.tools import ToolApproved, ToolDenied
 from temporalio import activity
-from temporalio.client import Client
+from temporalio.client import Client, WorkflowFailureError
 from temporalio.exceptions import ApplicationError
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
-from tracecat_ee.agent.activities import BuildToolDefsArgs, BuildToolDefsResult
+from tracecat_ee.agent.activities import (
+    ApplyApprovalResultsActivityInputs,
+    BuildToolDefsArgs,
+    BuildToolDefsResult,
+    EmitSessionErrorInputs,
+    PersistApprovalsActivityInputs,
+)
 from tracecat_ee.agent.approvals.service import (
     ApprovalManager,
     ApprovalMap,
@@ -397,6 +403,58 @@ async def agent_worker_factory(threadpool, monkeypatch: pytest.MonkeyPatch):
 
 @pytest.mark.anyio
 @pytest.mark.integration
+async def test_agent_workflow_streams_tool_definition_error(
+    temporal_client: Client,
+    agent_worker_factory,
+    agent_workflow_args: AgentWorkflowArgs,
+    mock_session_id: uuid.UUID,
+) -> None:
+    queue = f"test-agent-queue-{mock_session_id}"
+    emitted_errors: list[EmitSessionErrorInputs] = []
+
+    @activity.defn(name="build_tool_definitions")
+    async def mock_build_tool_definitions(
+        args: BuildToolDefsArgs,
+    ) -> BuildToolDefsResult:
+        del args
+        raise ApplicationError(
+            "Cannot request more than 100 tools",
+            type="AgentToolDefinitionError",
+            non_retryable=True,
+        )
+
+    @activity.defn(name="emit_session_error")
+    async def mock_emit_session_error(args: EmitSessionErrorInputs) -> None:
+        emitted_errors.append(args)
+
+    activities = [
+        create_mock_create_session_activity(),
+        mock_build_tool_definitions,
+        mock_emit_session_error,
+    ]
+
+    async with agent_worker_factory(
+        temporal_client, task_queue=queue, custom_activities=activities
+    ):
+        with pytest.raises(WorkflowFailureError) as exc_info:
+            await temporal_client.execute_workflow(
+                DurableAgentWorkflow.run,
+                agent_workflow_args,
+                id=AgentWorkflowID(mock_session_id),
+                task_queue=queue,
+                retry_policy=RETRY_POLICIES["workflow:fail_fast"],
+                execution_timeout=timedelta(seconds=30),
+            )
+
+    assert isinstance(exc_info.value.cause, ApplicationError)
+    assert "Cannot request more than 100 tools" in str(exc_info.value.cause)
+    assert len(emitted_errors) == 1
+    assert emitted_errors[0].session_id == mock_session_id
+    assert emitted_errors[0].message == "Cannot request more than 100 tools"
+
+
+@pytest.mark.anyio
+@pytest.mark.integration
 async def test_agent_workflow_simple_execution(
     svc_role: Role,
     temporal_client: Client,
@@ -681,10 +739,14 @@ async def test_agent_workflow_routes_approved_tools_to_executor_and_reconciles_h
             for block in entry.get("message", {}).get("content", [])
             if isinstance(block, dict) and block.get("type") == "tool_result"
         ]
-        assert any(
-            block.get("tool_use_id") == "call_123" and block.get("is_error") is False
-            for block in tool_result_blocks
-        )
+        assert len(tool_result_blocks) == 1
+        assert tool_result_blocks[0]["tool_use_id"] == "call_123"
+        assert tool_result_blocks[0]["is_error"] is False
+        assert orjson.loads(tool_result_blocks[0]["content"]) == {
+            "status": "success",
+            "executor_queue": executor_queue,
+        }
+
         resumed_after_approval.set()
         run_agent_call_count += 1
         return AgentExecutorResult(
@@ -820,6 +882,307 @@ async def test_agent_workflow_routes_approved_tools_to_executor_and_reconciles_h
         "status": "success",
         "executor_queue": executor_queue,
     }
+
+
+@pytest.mark.anyio
+@pytest.mark.integration
+async def test_agent_workflow_plumbs_forked_session_through_approval_continuation(
+    svc_role: Role,
+    temporal_client: Client,
+    mock_session_id: uuid.UUID,
+    agent_config_with_approvals: AgentConfig,
+    monkeypatch: pytest.MonkeyPatch,
+    threadpool,
+) -> None:
+    """Forked sessions should remain forked only for the pre-approval turn."""
+    agent_queue = f"test-agent-queue-{mock_session_id}"
+    agent_executor_queue = f"test-agent-executor-queue-{mock_session_id}"
+    executor_queue = f"test-executor-queue-{mock_session_id}"
+
+    monkeypatch.setattr(config, "TRACECAT__AGENT_QUEUE", agent_queue)
+    monkeypatch.setattr(config, "TRACECAT__AGENT_EXECUTOR_QUEUE", agent_executor_queue)
+    monkeypatch.setattr(config, "TRACECAT__EXECUTOR_QUEUE", executor_queue)
+
+    approval_request_recorded = asyncio.Event()
+    continuation_seen = asyncio.Event()
+    captured_agent_inputs: list[AgentExecutorInput] = []
+    captured_run_inputs: list[RunActionInput] = []
+    captured_pending_result_batches: list[list[Any]] = []
+    captured_approval_decisions: list[Any] = []
+
+    parent_sdk_session_data = (
+        '{"type":"user","message":{"content":"parent prompt"}}\n'
+        '{"type":"assistant","message":{"content":[{"type":"text","text":"parent answer"}]}}\n'
+    )
+    continuation_sdk_session_data = (
+        '{"type":"user","message":{"content":"parent prompt"}}\n'
+        '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"call_safe",'
+        '"name":"core__http_request","input":{"url":"https://safe.example.com",'
+        '"method":"GET"}},{"type":"tool_use","id":"call_risky",'
+        '"name":"core__http_request","input":{"url":"https://risky.example.com",'
+        '"method":"DELETE"}}]}}\n'
+        '{"type":"user","message":{"content":[{"type":"tool_result",'
+        '"tool_use_id":"call_safe","content":"{\\"status\\":\\"success\\"}",'
+        '"is_error":false},{"type":"tool_result","tool_use_id":"call_risky",'
+        '"content":"denied","is_error":true}]}}\n'
+    )
+
+    @activity.defn(name="create_session_activity")
+    async def mock_create_session_activity(
+        input: CreateSessionInput,
+    ) -> CreateSessionResult:
+        assert input.session_id == mock_session_id
+        return CreateSessionResult(session_id=input.session_id, success=True)
+
+    load_session_call_count = 0
+
+    @activity.defn(name="load_session_activity")
+    async def mock_load_session_activity(
+        input: LoadSessionInput,
+    ) -> LoadSessionResult:
+        nonlocal load_session_call_count
+        assert input.session_id == mock_session_id
+        load_session_call_count += 1
+        if load_session_call_count == 1:
+            return LoadSessionResult(
+                found=True,
+                sdk_session_id="parent-sdk-session",
+                sdk_session_data=parent_sdk_session_data,
+                is_fork=True,
+            )
+        return LoadSessionResult(
+            found=True,
+            sdk_session_id="child-sdk-session",
+            sdk_session_data=continuation_sdk_session_data,
+            is_fork=False,
+        )
+
+    @activity.defn(name="build_tool_definitions")
+    async def mock_build_tool_definitions(
+        args: BuildToolDefsArgs,
+    ) -> BuildToolDefsResult:
+        assert args.tool_approvals == {"core.http_request": True}
+        return BuildToolDefsResult(
+            tool_definitions={
+                "core.http_request": MCPToolDefinition(
+                    name="core__http_request",
+                    description="HTTP request",
+                    parameters_json_schema={
+                        "type": "object",
+                        "properties": {
+                            "url": {"type": "string"},
+                            "method": {"type": "string"},
+                        },
+                        "required": ["url", "method"],
+                        "additionalProperties": False,
+                    },
+                )
+            },
+            registry_lock=RegistryLock(
+                origins={"tracecat_registry": "test-version"},
+                actions={"core.http_request": "tracecat_registry"},
+            ),
+        )
+
+    run_agent_call_count = 0
+
+    @activity.defn(name="run_agent_activity")
+    async def mock_run_agent_activity(
+        input: AgentExecutorInput,
+    ) -> AgentExecutorResult:
+        nonlocal run_agent_call_count
+        captured_agent_inputs.append(input)
+
+        if run_agent_call_count == 0:
+            run_agent_call_count += 1
+            assert input.sdk_session_id == "parent-sdk-session"
+            assert input.sdk_session_data == parent_sdk_session_data
+            assert input.is_fork is True
+            assert input.is_approval_continuation is False
+            return AgentExecutorResult(
+                success=True,
+                approval_requested=True,
+                approval_items=[
+                    ToolCallContent(
+                        id="call_safe",
+                        name="core__http_request",
+                        input={"url": "https://safe.example.com", "method": "GET"},
+                    ),
+                    ToolCallContent(
+                        id="call_risky",
+                        name="core__http_request",
+                        input={"url": "https://risky.example.com", "method": "DELETE"},
+                    ),
+                ],
+            )
+
+        run_agent_call_count += 1
+        assert input.sdk_session_id == "child-sdk-session"
+        assert input.sdk_session_data == continuation_sdk_session_data
+        assert input.is_fork is False
+        assert input.is_approval_continuation is True
+        assert '"type":"tool_result"' in input.sdk_session_data
+        continuation_seen.set()
+        return AgentExecutorResult(
+            success=True,
+            approval_requested=False,
+            output={"status": "continued"},
+        )
+
+    @activity.defn(name="record_approval_requests")
+    async def mock_record_approval_requests(
+        input: PersistApprovalsActivityInputs,
+    ) -> None:
+        assert [approval.tool_call_id for approval in input.approvals] == [
+            "call_safe",
+            "call_risky",
+        ]
+        approval_request_recorded.set()
+
+    @activity.defn(name="apply_approval_decisions")
+    async def mock_apply_approval_decisions(
+        input: ApplyApprovalResultsActivityInputs,
+    ) -> None:
+        captured_approval_decisions.extend(input.decisions)
+
+    @activity.defn(name="execute_action_activity")
+    async def mock_execute_action_activity(
+        input: RunActionInput,
+        role: Role,
+    ) -> InlineObject[dict[str, str]]:
+        captured_run_inputs.append(input)
+        assert role.type == "service"
+        return InlineObject(data={"status": "success"})
+
+    @activity.defn(name="reconcile_tool_results_activity")
+    async def mock_reconcile_tool_results_activity(
+        input: ReconcileToolResultsInput,
+    ) -> ReconcileToolResultsResult:
+        captured_pending_result_batches.append(list(input.pending_results))
+        return ReconcileToolResultsResult(
+            results=[
+                ToolExecutionResult(
+                    tool_call_id=pending.tool_call_id,
+                    tool_name=pending.tool_name,
+                    result={"status": "success"}
+                    if pending.stored_result is not None
+                    else pending.raw_result,
+                    is_error=pending.is_error,
+                )
+                for pending in input.pending_results
+            ]
+        )
+
+    workflow_args = AgentWorkflowArgs(
+        role=svc_role,
+        agent_args=RunAgentArgs(
+            session_id=mock_session_id,
+            user_prompt="Continue from fork and run approved tools",
+            config=agent_config_with_approvals,
+        ),
+        entity_type=AgentSessionEntity.WORKFLOW,
+        entity_id=uuid.uuid4(),
+    )
+
+    workflow_worker = Worker(
+        client=temporal_client,
+        task_queue=agent_queue,
+        activities=[
+            mock_create_session_activity,
+            mock_load_session_activity,
+            mock_build_tool_definitions,
+            mock_record_approval_requests,
+            mock_apply_approval_decisions,
+            mock_reconcile_tool_results_activity,
+        ],
+        workflows=[DurableAgentWorkflow],
+        workflow_runner=UnsandboxedWorkflowRunner(),
+        activity_executor=threadpool,
+    )
+    agent_executor_worker = Worker(
+        client=temporal_client,
+        task_queue=agent_executor_queue,
+        activities=[mock_run_agent_activity],
+        workflows=[],
+        activity_executor=threadpool,
+    )
+    executor_worker = Worker(
+        client=temporal_client,
+        task_queue=executor_queue,
+        activities=[mock_execute_action_activity],
+        workflows=[],
+        activity_executor=threadpool,
+    )
+
+    async with workflow_worker, agent_executor_worker, executor_worker:
+        wf_handle = await temporal_client.start_workflow(
+            DurableAgentWorkflow.run,
+            workflow_args,
+            id=AgentWorkflowID(mock_session_id),
+            task_queue=agent_queue,
+            retry_policy=RETRY_POLICIES["workflow:fail_fast"],
+            execution_timeout=timedelta(seconds=60),
+        )
+
+        await asyncio.wait_for(approval_request_recorded.wait(), timeout=10)
+        await wf_handle.execute_update(
+            DurableAgentWorkflow.set_approvals,
+            WorkflowApprovalSubmission(
+                approvals={
+                    "call_safe": ToolApproved(
+                        override_args={"method": "POST", "body": {"ok": True}}
+                    ),
+                    "call_risky": ToolDenied(message="too risky"),
+                },
+                approved_by=svc_role.user_id,
+                decision_metadata={"call_safe": {"source": "test"}},
+            ),
+        )
+
+        result = await wf_handle.result()
+
+    assert result.session_id == mock_session_id
+    assert result.output == {"status": "continued"}
+    assert continuation_seen.is_set()
+    assert [agent_input.is_fork for agent_input in captured_agent_inputs] == [
+        True,
+        False,
+    ]
+    assert [
+        agent_input.is_approval_continuation for agent_input in captured_agent_inputs
+    ] == [False, True]
+
+    assert len(captured_run_inputs) == 1
+    assert captured_run_inputs[0].task.action == "core__http_request"
+    assert captured_run_inputs[0].task.args == {
+        "url": "https://safe.example.com",
+        "method": "POST",
+        "body": {"ok": True},
+    }
+
+    assert len(captured_pending_result_batches) == 1
+    pending_results = captured_pending_result_batches[0]
+    assert [pending.tool_call_id for pending in pending_results] == [
+        "call_safe",
+        "call_risky",
+    ]
+    denied_result = pending_results[1]
+    assert denied_result.is_error is True
+    assert denied_result.raw_result == "Tool denied by user: too risky"
+
+    decisions_by_tool_call_id = {
+        decision.tool_call_id: decision for decision in captured_approval_decisions
+    }
+    assert decisions_by_tool_call_id["call_safe"].approved is True
+    assert decisions_by_tool_call_id["call_safe"].decision == {
+        "kind": "tool-approved",
+        "override_args": {"method": "POST", "body": {"ok": True}},
+    }
+    assert decisions_by_tool_call_id["call_safe"].decision_metadata == {
+        "source": "test"
+    }
+    assert decisions_by_tool_call_id["call_risky"].approved is False
+    assert decisions_by_tool_call_id["call_risky"].reason == "too risky"
 
 
 @pytest.mark.anyio
@@ -999,10 +1362,11 @@ async def test_agent_workflow_does_not_retry_approved_tool_failures(
             for block in entry.get("message", {}).get("content", [])
             if isinstance(block, dict) and block.get("type") == "tool_result"
         ]
-        assert any(
-            block.get("tool_use_id") == "call_123" and block.get("is_error") is True
-            for block in tool_result_blocks
-        )
+        assert len(tool_result_blocks) == 1
+        assert tool_result_blocks[0]["tool_use_id"] == "call_123"
+        assert tool_result_blocks[0]["is_error"] is True
+        assert "transient tool failure" in tool_result_blocks[0]["content"]
+
         resumed_after_approval.set()
         run_agent_call_count += 1
         return AgentExecutorResult(

@@ -51,7 +51,7 @@ export function AddWorkflowTagDialog({
   onOpenChange,
 }: AddWorkflowTagDialogProps) {
   const workspaceId = useWorkspaceId()
-  const { tags, createTag } = useWorkflowTags(workspaceId)
+  const { tags, createTag } = useWorkflowTags(workspaceId, { enabled: open })
 
   const methods = useForm<TagCreate>({
     resolver: zodResolver(createTagSchema),

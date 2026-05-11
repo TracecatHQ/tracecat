@@ -17,7 +17,7 @@ LEGACY_REGISTRY_MCP_SERVER_NAME = "tracecat_registry"
 def action_name_to_mcp_tool_name(action_name: str) -> str:
     """Convert action name (dots) to MCP tool name format (underscores).
 
-    Example: tools.slack.post_message -> tools__slack__post_message
+    Example: core.http_request -> core__http_request
     """
     return action_name.replace(".", "__")
 
@@ -25,7 +25,7 @@ def action_name_to_mcp_tool_name(action_name: str) -> str:
 def mcp_tool_name_to_action_name(tool_name: str) -> str:
     """Convert MCP tool name (underscores) back to action name (dots).
 
-    Example: tools__slack__post_message -> tools.slack.post_message
+    Example: core__script__run_python -> core.script.run_python
     """
     return tool_name.replace("__", ".")
 
@@ -36,10 +36,10 @@ def normalize_mcp_tool_name(mcp_tool_name: str) -> str:
     MCP tool naming convention: mcp__{server_name}__{tool_name}
 
     Handles Tracecat registry tools:
-    - mcp__tracecat-registry__tools__slack__post_message -> tools.slack.post_message
-    - mcp__tracecat_registry__tools__slack__post_message -> tools.slack.post_message
-    - mcp.tracecat-registry.core.cases.create_case -> core.cases.create_case
-    - mcp.tracecat_registry.core.cases.create_case -> core.cases.create_case
+    - mcp__tracecat-registry__core__http_request -> core.http_request
+    - mcp__tracecat_registry__core__script__run_python -> core.script.run_python
+    - mcp.tracecat-registry.core.http_request -> core.http_request
+    - mcp.tracecat_registry.core.script.run_python -> core.script.run_python
 
     Handles user MCP servers routed through the proxy:
     - mcp__tracecat-registry__mcp__Linear__list_issues -> mcp.Linear.list_issues

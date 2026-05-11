@@ -10,6 +10,7 @@ import sqlalchemy as sa
 from asyncpg.exceptions import UndefinedTableError
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy import exc as sa_exc
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -37,6 +38,17 @@ class CaseTableRowsService(BaseWorkspaceService):
     def __init__(self, session: AsyncSession, role: Role | None = None):
         super().__init__(session, role)
         self.tables = TablesService(session=self.session, role=self.role)
+
+    async def _get_existing_link(
+        self, *, case_id: uuid.UUID, table_id: uuid.UUID, row_id: uuid.UUID
+    ) -> CaseTableRow | None:
+        stmt = select(CaseTableRow).where(
+            CaseTableRow.workspace_id == self.workspace_id,
+            CaseTableRow.case_id == case_id,
+            CaseTableRow.table_id == table_id,
+            CaseTableRow.row_id == row_id,
+        )
+        return (await self.session.execute(stmt)).scalars().first()
 
     async def list_rows(
         self,
@@ -146,13 +158,11 @@ class CaseTableRowsService(BaseWorkspaceService):
         table = await self.tables.get_table(params.table_id)
         await self.tables.get_row(table, params.row_id)
 
-        dedupe_stmt = select(CaseTableRow).where(
-            CaseTableRow.workspace_id == self.workspace_id,
-            CaseTableRow.case_id == case.id,
-            CaseTableRow.table_id == params.table_id,
-            CaseTableRow.row_id == params.row_id,
+        existing = await self._get_existing_link(
+            case_id=case.id,
+            table_id=params.table_id,
+            row_id=params.row_id,
         )
-        existing = (await self.session.execute(dedupe_stmt)).scalars().first()
         if existing is not None:
             return existing
 
@@ -166,6 +176,13 @@ class CaseTableRowsService(BaseWorkspaceService):
         )
         total_links = int((await self.session.scalar(total_links_stmt)) or 0)
         if total_links >= MAX_LINKED_ROWS_PER_CASE:
+            existing = await self._get_existing_link(
+                case_id=case.id,
+                table_id=table.id,
+                row_id=params.row_id,
+            )
+            if existing is not None:
+                return existing
             raise ValueError(
                 f"A case can have at most {MAX_LINKED_ROWS_PER_CASE} linked rows"
             )
@@ -189,17 +206,43 @@ class CaseTableRowsService(BaseWorkspaceService):
                 (await self.session.scalar(distinct_tables_stmt)) or 0
             )
             if distinct_tables >= MAX_TABLES_PER_CASE:
+                existing = await self._get_existing_link(
+                    case_id=case.id,
+                    table_id=table.id,
+                    row_id=params.row_id,
+                )
+                if existing is not None:
+                    return existing
                 raise ValueError(
                     f"A case can link rows from at most {MAX_TABLES_PER_CASE} tables"
                 )
 
-        link = CaseTableRow(
-            workspace_id=self.workspace_id,
-            case_id=case.id,
-            table_id=table.id,
-            row_id=params.row_id,
+        stmt = (
+            insert(CaseTableRow)
+            .values(
+                workspace_id=self.workspace_id,
+                case_id=case.id,
+                table_id=table.id,
+                row_id=params.row_id,
+            )
+            .on_conflict_do_nothing(constraint="uq_case_table_row_link")
+            .returning(CaseTableRow.surrogate_id)
         )
-        self.session.add(link)
+        link_surrogate_id = await self.session.scalar(stmt)
+
+        if link_surrogate_id is None:
+            existing = await self._get_existing_link(
+                case_id=case.id,
+                table_id=table.id,
+                row_id=params.row_id,
+            )
+            if existing is not None:
+                return existing
+            raise TracecatNotFoundError("Case row link was not created")
+
+        link = await self.session.get(CaseTableRow, link_surrogate_id)
+        if link is None:
+            raise TracecatNotFoundError("Case row link was not created")
 
         await CaseEventsService(self.session, self.role).create_event(
             case,

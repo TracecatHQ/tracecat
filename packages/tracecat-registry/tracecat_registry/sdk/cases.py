@@ -630,6 +630,7 @@ class CasesClient:
         tags: list[str] | None | Unset = UNSET,
         fields: dict[str, Any] | None | Unset = UNSET,
         dropdown_values: list[types.CaseDropdownValueInput] | None | Unset = UNSET,
+        create_missing_tags: bool = False,
     ) -> types.Case:
         """Create a new case and return simple dict format.
 
@@ -669,6 +670,8 @@ class CasesClient:
             # Write payloads use `dropdown_values` because they represent persisted
             # per-case selections (definition/option IDs).
             data["dropdown_values"] = self._serialize_dropdown_values(dropdown_values)
+        if create_missing_tags:
+            data["create_missing_tags"] = create_missing_tags
 
         return await self._client.post("/cases/simple", json=data)
 
@@ -687,6 +690,7 @@ class CasesClient:
         tags: list[str] | None | Unset = UNSET,
         dropdown_values: list[types.CaseDropdownValueInput] | None | Unset = UNSET,
         append_description: bool = False,
+        create_missing_tags: bool = False,
     ) -> types.Case:
         """Update a case and return simple dict format.
 
@@ -734,6 +738,8 @@ class CasesClient:
             data["dropdown_values"] = self._serialize_dropdown_values(dropdown_values)
         if append_description:
             data["append_description"] = append_description
+        if create_missing_tags:
+            data["create_missing_tags"] = create_missing_tags
 
         return await self._client.patch(f"/cases/{case_id}/simple", json=data)
 

@@ -1,5 +1,5 @@
 import { type NextRequest, NextResponse } from "next/server"
-
+import { getPostAuthDecisionPath } from "@/lib/auth-redirect"
 import {
   decodeAndSanitizeReturnUrl,
   POST_AUTH_RETURN_URL_COOKIE_NAME,
@@ -67,7 +67,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.redirect(new URL("/auth/error", public_app_url))
   }
 
-  const targetPath = returnUrl ?? "/"
+  const targetPath = getPostAuthDecisionPath(returnUrl)
   console.log(`Redirecting to ${targetPath} with GET`)
   const redirectUrl = new URL(targetPath, public_app_url)
   const redirectResponse = NextResponse.redirect(redirectUrl, {

@@ -55,7 +55,7 @@ export function durationToISOString(duration: Duration): string {
 
 export function parseISODuration(duration: string): Duration {
   const regex =
-    /^P(?:(\d+)Y)?(?:(\d+)M)?(?:(\d+)W)?(?:(\d+)D)?(?:T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?)?$/
+    /^P(?:(\d+)Y)?(?:(\d+)M)?(?:(\d+)W)?(?:(\d+)D)?(?:T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+(?:\.\d+)?)S)?)?$/
   const matches = duration.match(regex)
 
   if (!matches) {
@@ -74,15 +74,32 @@ export function parseISODuration(duration: string): Duration {
     seconds,
   ] = matches
 
-  return {
+  const parsed = {
     years: years ? parseInt(years, 10) : 0,
     months: months ? parseInt(months, 10) : 0,
     weeks: weeks ? parseInt(weeks, 10) : 0,
     days: days ? parseInt(days, 10) : 0,
     hours: hours ? parseInt(hours, 10) : 0,
     minutes: minutes ? parseInt(minutes, 10) : 0,
-    seconds: seconds ? parseInt(seconds, 10) : 0,
+    seconds: seconds ? Math.round(parseFloat(seconds)) : 0,
   }
+
+  if (parsed.seconds >= 60) {
+    parsed.minutes += Math.floor(parsed.seconds / 60)
+    parsed.seconds %= 60
+  }
+
+  if (parsed.minutes >= 60) {
+    parsed.hours += Math.floor(parsed.minutes / 60)
+    parsed.minutes %= 60
+  }
+
+  if (parsed.hours >= 24) {
+    parsed.days += Math.floor(parsed.hours / 24)
+    parsed.hours %= 24
+  }
+
+  return parsed
 }
 
 export function durationToHumanReadable(duration: string): string {

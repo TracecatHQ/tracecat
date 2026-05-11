@@ -5,19 +5,27 @@ import time
 import uuid
 from collections.abc import AsyncGenerator, Callable, Iterator
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 from typing import Any
 from unittest.mock import patch
 
-# Set workflow return strategy BEFORE importing tracecat modules
-# test_workflows.py was written when we returned the full context by default
-# This must happen before any tracecat imports to ensure config reads the correct value
+from dotenv import dotenv_values, load_dotenv
+
+# Set test defaults BEFORE importing tracecat modules so config reads them.
+# test_workflows.py was written when we returned the full context by default.
 os.environ.setdefault("TRACECAT__WORKFLOW_RETURN_STRATEGY", "context")
+os.environ.setdefault(
+    "TRACECAT__SERVICE_KEY",
+    dotenv_values(Path(__file__).resolve().parents[1] / ".env").get(
+        "TRACECAT__SERVICE_KEY"
+    )
+    or "test-service-key",
+)
 
 import aioboto3
 import pytest
 import redis
 import tracecat_registry.integrations.aws_boto3 as boto3_module
-from dotenv import load_dotenv
 from minio import Minio
 from minio.error import S3Error
 from sqlalchemy import create_engine, select, text
@@ -856,13 +864,15 @@ def registry_version_with_manifest(default_org: None) -> Iterator[None]:
                     RegistryVersion.version == version,
                 )
             )
+            fake_tarball_uri = "s3://test/test.tar.gz"
+
             if rv is None:
                 rv = RegistryVersion(
                     organization_id=TEST_ORG_ID,
                     repository_id=repo.id,
                     version=version,
                     manifest=manifest,
-                    tarball_uri="s3://test/test.tar.gz",
+                    tarball_uri=fake_tarball_uri,
                 )
                 session.add(rv)
                 try:
@@ -882,7 +892,7 @@ def registry_version_with_manifest(default_org: None) -> Iterator[None]:
                     session.refresh(rv)
             else:
                 rv.manifest = manifest
-                rv.tarball_uri = "s3://test/test.tar.gz"
+                rv.tarball_uri = fake_tarball_uri
                 session.commit()
 
             # Set current_version_id on the repository for lock resolution
@@ -933,7 +943,7 @@ def registry_version_with_manifest(default_org: None) -> Iterator[None]:
                     repository_id=platform_repo.id,
                     version=version,
                     manifest=manifest,
-                    tarball_uri="s3://test/test.tar.gz",
+                    tarball_uri=fake_tarball_uri,
                 )
                 session.add(platform_rv)
                 try:
@@ -952,11 +962,31 @@ def registry_version_with_manifest(default_org: None) -> Iterator[None]:
                     session.refresh(platform_rv)
             else:
                 platform_rv.manifest = manifest
-                platform_rv.tarball_uri = "s3://test/test.tar.gz"
+                platform_rv.tarball_uri = fake_tarball_uri
                 session.commit()
 
-            platform_repo.current_version_id = platform_rv.id
-            session.commit()
+            # Do not replace an already-selected live platform registry version.
+            # Integration tests run against Docker services that sync a real
+            # builtin tarball; clobbering it with this fixture's fake tarball can
+            # make unrelated workflow executions try to download s3://test/test.tar.gz.
+            current_platform_version = (
+                session.scalar(
+                    select(PlatformRegistryVersion).where(
+                        PlatformRegistryVersion.id == platform_repo.current_version_id
+                    )
+                )
+                if platform_repo.current_version_id is not None
+                else None
+            )
+            if _should_select_fixture_platform_current(
+                sync_db_uri,
+                current_version=current_platform_version.version
+                if current_platform_version is not None
+                else None,
+                fixture_version=version,
+            ):
+                platform_repo.current_version_id = platform_rv.id
+                session.commit()
 
             # Create PlatformRegistryIndex entries for each action in the manifest
             # This is required for get_actions_from_index to work in agent tools
@@ -1016,6 +1046,24 @@ def registry_version_with_manifest(default_org: None) -> Iterator[None]:
 
     yield
     # No cleanup needed - the database is dropped at the end of the session
+
+
+def _should_select_fixture_platform_current(
+    sync_db_uri: str,
+    *,
+    current_version: str | None,
+    fixture_version: str,
+) -> bool:
+    """Return whether the fixture platform version should be current.
+
+    The fake fixture tarball is safe as the selected version when no platform
+    current exists yet. The shared/default DB may also be used by live executor
+    services, so preserve any existing live current selection instead of
+    clobbering it with the fixture version.
+    """
+    if sync_db_uri == TEST_DB_CONFIG.test_url_sync:
+        return True
+    return current_version is None or current_version == fixture_version
 
 
 @pytest.fixture(scope="function")
@@ -1137,7 +1185,9 @@ def env_sandbox(monkeysession: pytest.MonkeyPatch):
         monkeysession.setattr(config, "TRACECAT__EXECUTOR_BACKEND", "test")
         monkeysession.setenv("TRACECAT__EXECUTOR_BACKEND", "test")
     monkeysession.setenv("TRACECAT__PUBLIC_API_URL", f"http://{api_host}/api")
-    monkeysession.setenv("TRACECAT__SERVICE_KEY", os.environ["TRACECAT__SERVICE_KEY"])
+    service_key = os.environ["TRACECAT__SERVICE_KEY"]
+    monkeysession.setattr(config, "TRACECAT__SERVICE_KEY", service_key)
+    monkeysession.setenv("TRACECAT__SERVICE_KEY", service_key)
     monkeysession.setenv("TRACECAT__SIGNING_SECRET", "test-signing-secret")
     monkeysession.setenv("USER_AUTH_SECRET", "test-user-auth-secret")
     monkeysession.setattr(config, "USER_AUTH_SECRET", "test-user-auth-secret")
@@ -1285,19 +1335,18 @@ async def test_workspace(test_organization, mock_org_id):
     )
 
     async with WorkspaceService.with_session(role=org_role) as svc:
-        # Create new test workspace
         workspace = await svc.create_workspace(name=workspace_name, override_id=ws_id)
 
-        logger.debug("Created test workspace", workspace=workspace)
+    logger.debug("Created test workspace", workspace=workspace)
+    try:
+        yield workspace
+    finally:
+        logger.debug("Teardown test workspace")
         try:
-            yield workspace
-        finally:
-            # Clean up the workspace
-            logger.debug("Teardown test workspace")
-            try:
+            async with WorkspaceService.with_session(role=org_role) as svc:
                 await svc.delete_workspace(ws_id)
-            except Exception as e:
-                logger.warning(f"Error during workspace cleanup: {e}")
+        except Exception as e:
+            logger.warning(f"Error during workspace cleanup: {e}")
 
 
 @pytest.fixture(scope="session")

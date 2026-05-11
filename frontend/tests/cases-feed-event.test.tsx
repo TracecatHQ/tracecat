@@ -94,7 +94,7 @@ describe("case feed comment events", () => {
     expect(screen.getByText("deleted a reply")).toBeInTheDocument()
   })
 
-  it("offers comment events in trigger suggestions only", () => {
+  it("offers comment events in both trigger suggestions and duration options", () => {
     const suggestionValues = new Set(
       CASE_EVENT_SUGGESTIONS.map(({ value }) => value)
     )
@@ -102,8 +102,8 @@ describe("case feed comment events", () => {
 
     expect(suggestionValues).toContain("comment_created")
     expect(suggestionValues).toContain("comment_reply_deleted")
-    expect(durationValues).not.toContain("comment_created")
-    expect(durationValues).not.toContain("comment_reply_deleted")
+    expect(durationValues).toContain("comment_created")
+    expect(durationValues).toContain("comment_reply_deleted")
     expect(getCaseEventOption("comment_reply_updated").label).toBe(
       "Comment Reply Updated"
     )

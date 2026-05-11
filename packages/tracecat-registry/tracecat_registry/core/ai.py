@@ -2,11 +2,13 @@
 
 from typing import Annotated, Any, Literal, TypedDict
 
+from pydantic import Field
 from typing_extensions import Doc
 
 from tracecat_registry import registry
 from tracecat_registry.core.agent import PYDANTIC_AI_REGISTRY_SECRETS
 from tracecat_registry.core.transform import flatten_dict
+from tracecat_registry.fields import AgentModel, ModelSelection
 from tracecat_registry.sdk.agents import RankableItem, rank_items, rank_items_pairwise
 
 
@@ -14,11 +16,17 @@ MAX_KEYS: int = 100
 """Maximum number of keys rankable by the AI."""
 
 
-DEFAULT_RANKING_MODEL: str = "gpt-5-nano-2025-08-07"
-"""Default ranking model to use."""
+DEFAULT_RANKING_MODEL = ModelSelection(
+    model_name="gpt-5-nano-2025-08-07",
+    model_provider="openai",
+)
+"""Default ranking model selection to use."""
 
-DEFAULT_RANKING_MODEL_PROVIDER: str = "openai"
-"""Default ranking model provider to use."""
+LEGACY_MODEL_FIELD_DEPRECATION_MESSAGE = "Use `model` instead."
+"""Deprecation message for raw model selection fields."""
+LEGACY_MODEL_FIELD_SCHEMA_EXTRA: dict[str, Any] = {
+    "x-tracecat-deprecation-message": LEGACY_MODEL_FIELD_DEPRECATION_MESSAGE
+}
 
 DEFAULT_RANKING_ALGORITHM: Literal["single-pass", "pairwise"] = "single-pass"
 """Default ranking algorithm to use."""
@@ -31,6 +39,29 @@ DEFAULT_RANKING_NUM_PASSES: int = 10
 
 DEFAULT_RANKING_REFINEMENT_RATIO: float = 0.5
 """Default ranking refinement ratio to use."""
+
+
+def _resolve_model_selection(
+    *,
+    model: ModelSelection | dict[str, Any] | None,
+    model_name: str | None,
+    model_provider: str | None,
+    default: ModelSelection | None = None,
+) -> ModelSelection:
+    if model is not None:
+        return ModelSelection.model_validate(model)
+    if model_name is not None or model_provider is not None:
+        if not model_name or not model_provider:
+            raise ValueError(
+                "Both deprecated `model_name` and `model_provider` must be set "
+                "when `model` is not provided."
+            )
+        return ModelSelection(model_name=model_name, model_provider=model_provider)
+    if default is not None:
+        return default
+    raise ValueError(
+        "Either `model` or deprecated `model_name` and `model_provider` must be set."
+    )
 
 
 @registry.register(
@@ -50,14 +81,27 @@ async def rank_documents(
             'Criteria to rank the items by. For example, "from most to least important."'
         ),
     ],
+    model: Annotated[
+        ModelSelection | None,
+        Doc("Model to use. Pick from the list of models enabled for this workspace."),
+        AgentModel(),
+    ] = None,
     model_name: Annotated[
-        str,
-        Doc("LLM model to use for ranking."),
-    ] = DEFAULT_RANKING_MODEL,
+        str | None,
+        Doc("Deprecated model name. Use `model` instead."),
+        Field(
+            deprecated=True,
+            json_schema_extra=LEGACY_MODEL_FIELD_SCHEMA_EXTRA,
+        ),
+    ] = None,
     model_provider: Annotated[
-        str,
-        Doc("LLM provider (e.g., 'openai', 'anthropic')."),
-    ] = DEFAULT_RANKING_MODEL_PROVIDER,
+        str | None,
+        Doc("Deprecated model provider. Use `model` instead."),
+        Field(
+            deprecated=True,
+            json_schema_extra=LEGACY_MODEL_FIELD_SCHEMA_EXTRA,
+        ),
+    ] = None,
     algorithm: Annotated[
         Literal["single-pass", "pairwise"],
         Doc("Algorithm to use for ranking."),
@@ -92,13 +136,20 @@ async def rank_documents(
     dict_items: list[RankableItem] = [
         {"id": i, "text": item} for i, item in enumerate(items)
     ]
+    resolved_model = _resolve_model_selection(
+        model=model,
+        model_name=model_name,
+        model_provider=model_provider,
+        default=DEFAULT_RANKING_MODEL,
+    )
 
     if algorithm == "pairwise":
         ranked_ids = await rank_items_pairwise(
             items=dict_items,
             criteria_prompt=criteria_prompt,
-            model_name=model_name,
-            model_provider=model_provider,
+            model_name=resolved_model.model_name,
+            model_provider=resolved_model.model_provider,
+            catalog_id=resolved_model.catalog_id,
             id_field="id",
             batch_size=batch_size,
             num_passes=num_passes,
@@ -110,8 +161,9 @@ async def rank_documents(
         ranked_ids = await rank_items(
             items=dict_items,
             criteria_prompt=criteria_prompt,
-            model_name=model_name,
-            model_provider=model_provider,
+            model_name=resolved_model.model_name,
+            model_provider=resolved_model.model_provider,
+            catalog_id=resolved_model.catalog_id,
             min_items=1,
             max_items=1,
         )
@@ -157,14 +209,27 @@ async def select_field(
             "Extract from and return a flattened single level object with JSONPath notation as keys."
         ),
     ] = False,
+    model: Annotated[
+        ModelSelection | None,
+        Doc("Model to use. Pick from the list of models enabled for this workspace."),
+        AgentModel(),
+    ] = None,
     model_name: Annotated[
-        str,
-        Doc("LLM model to use for ranking."),
-    ] = DEFAULT_RANKING_MODEL,
+        str | None,
+        Doc("Deprecated model name. Use `model` instead."),
+        Field(
+            deprecated=True,
+            json_schema_extra=LEGACY_MODEL_FIELD_SCHEMA_EXTRA,
+        ),
+    ] = None,
     model_provider: Annotated[
-        str,
-        Doc("LLM provider (e.g., 'openai', 'anthropic')."),
-    ] = DEFAULT_RANKING_MODEL_PROVIDER,
+        str | None,
+        Doc("Deprecated model provider. Use `model` instead."),
+        Field(
+            deprecated=True,
+            json_schema_extra=LEGACY_MODEL_FIELD_SCHEMA_EXTRA,
+        ),
+    ] = None,
     algorithm: Annotated[
         Literal["single-pass", "pairwise"],
         Doc("Algorithm to use for ranking."),
@@ -183,12 +248,19 @@ async def select_field(
         raise ValueError(f"Expected at most {MAX_KEYS} keys, got {len(keys)} keys.")
 
     # Rank keys by criteria
+    resolved_model = _resolve_model_selection(
+        model=model,
+        model_name=model_name,
+        model_provider=model_provider,
+        default=DEFAULT_RANKING_MODEL,
+    )
     if algorithm == "pairwise":
         ranked_ids = await rank_items_pairwise(
             items=keys,
             criteria_prompt=criteria_prompt,
-            model_name=model_name,
-            model_provider=model_provider,
+            model_name=resolved_model.model_name,
+            model_provider=resolved_model.model_provider,
+            catalog_id=resolved_model.catalog_id,
             min_items=1,
             max_items=1,
         )
@@ -196,8 +268,9 @@ async def select_field(
         ranked_ids = await rank_items(
             items=keys,
             criteria_prompt=criteria_prompt,
-            model_name=model_name,
-            model_provider=model_provider,
+            model_name=resolved_model.model_name,
+            model_provider=resolved_model.model_provider,
+            catalog_id=resolved_model.catalog_id,
             min_items=1,
             max_items=1,
         )
@@ -255,14 +328,27 @@ async def select_fields(
             "Extract from and return a flattened single level object with JSONPath notation as keys."
         ),
     ] = False,
+    model: Annotated[
+        ModelSelection | None,
+        Doc("Model to use. Pick from the list of models enabled for this workspace."),
+        AgentModel(),
+    ] = None,
     model_name: Annotated[
-        str,
-        Doc("LLM model to use for ranking."),
-    ] = DEFAULT_RANKING_MODEL,
+        str | None,
+        Doc("Deprecated model name. Use `model` instead."),
+        Field(
+            deprecated=True,
+            json_schema_extra=LEGACY_MODEL_FIELD_SCHEMA_EXTRA,
+        ),
+    ] = None,
     model_provider: Annotated[
-        str,
-        Doc("LLM provider (e.g., 'openai', 'anthropic')."),
-    ] = DEFAULT_RANKING_MODEL_PROVIDER,
+        str | None,
+        Doc("Deprecated model provider. Use `model` instead."),
+        Field(
+            deprecated=True,
+            json_schema_extra=LEGACY_MODEL_FIELD_SCHEMA_EXTRA,
+        ),
+    ] = None,
     algorithm: Annotated[
         Literal["single-pass", "pairwise"],
         Doc("Algorithm to use for ranking."),
@@ -285,12 +371,19 @@ async def select_fields(
     # Get keys
     keys = _get_keys(json)
     # Rank keys by criteria
+    resolved_model = _resolve_model_selection(
+        model=model,
+        model_name=model_name,
+        model_provider=model_provider,
+        default=DEFAULT_RANKING_MODEL,
+    )
     if algorithm == "pairwise":
         ranked_ids = await rank_items_pairwise(
             items=keys,
             criteria_prompt=criteria_prompt,
-            model_name=model_name,
-            model_provider=model_provider,
+            model_name=resolved_model.model_name,
+            model_provider=resolved_model.model_provider,
+            catalog_id=resolved_model.catalog_id,
             min_items=min_fields,
             max_items=max_fields,
         )
@@ -298,8 +391,9 @@ async def select_fields(
         ranked_ids = await rank_items(
             items=keys,
             criteria_prompt=criteria_prompt,
-            model_name=model_name,
-            model_provider=model_provider,
+            model_name=resolved_model.model_name,
+            model_provider=resolved_model.model_provider,
+            catalog_id=resolved_model.catalog_id,
             min_items=min_fields,
             max_items=max_fields,
         )

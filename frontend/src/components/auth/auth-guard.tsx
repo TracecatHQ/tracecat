@@ -2,9 +2,10 @@
 
 import { useRouter } from "next/navigation"
 import { useEffect } from "react"
-import { useScopeCheck } from "@/components/auth/scope-guard"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { useAuth } from "@/hooks/use-auth"
+import { useUserScopes } from "@/lib/hooks"
+import { hasGrantedScope } from "@/lib/scopes"
 
 interface AuthGuardProps {
   children: React.ReactNode
@@ -13,6 +14,7 @@ interface AuthGuardProps {
   requireOrgAdmin?: boolean
   requireSuperuser?: boolean
   redirectTo?: string
+  unauthenticatedRedirectTo?: string
 }
 
 export function AuthGuard({
@@ -21,17 +23,24 @@ export function AuthGuard({
   requireOrgAdmin = false,
   requireSuperuser = false,
   redirectTo = "/",
+  unauthenticatedRedirectTo = "/sign-in",
 }: AuthGuardProps) {
   const { user, userIsLoading } = useAuth()
-  const canAdministerOrg = useScopeCheck("org:update")
+  const { userScopes, isLoading: scopesLoading } = useUserScopes(undefined, {
+    enabled: requireOrgAdmin && !!user,
+  })
   const router = useRouter()
+  const canAdministerOrg = requireOrgAdmin
+    ? hasGrantedScope("org:update", new Set(userScopes?.scopes ?? []))
+    : true
 
-  const isLoading = userIsLoading || canAdministerOrg === undefined
+  const isLoading =
+    userIsLoading || (requireOrgAdmin && !!user && scopesLoading)
 
   useEffect(() => {
     if (!isLoading) {
       if (requireAuth && !user) {
-        router.push(redirectTo)
+        router.push(unauthenticatedRedirectTo)
       } else if (requireOrgAdmin && canAdministerOrg === false) {
         router.push(redirectTo)
       } else if (requireSuperuser && !user?.isSuperuser) {
@@ -46,6 +55,7 @@ export function AuthGuard({
     canAdministerOrg,
     requireSuperuser,
     redirectTo,
+    unauthenticatedRedirectTo,
     router,
   ])
 

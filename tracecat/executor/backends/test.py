@@ -42,6 +42,7 @@ from tracecat.executor.schemas import (
     ExecutorResultSuccess,
     ResolvedContext,
 )
+from tracecat.executor.secret_preprocessors import project_secret_env
 from tracecat.logger import logger
 from tracecat.registry.actions.schemas import RegistryActionUDFImpl
 from tracecat.registry.loaders import load_udf_impl
@@ -198,12 +199,18 @@ class TestBackend(ExecutorBackend):
             action_name=action_name,
         )
 
-        flattened_secrets = secrets_manager.flatten_secrets(resolved_context.secrets)
-        secrets_token = registry_secrets.set_context(flattened_secrets)
+        secret_projection = resolved_context.secret_projection
+        if secret_projection is None:
+            secret_projection = await project_secret_env(
+                secrets=resolved_context.secrets,
+                role=role,
+                run_context=input.run_context,
+            )
+        secrets_token = registry_secrets.set_context(secret_projection.env)
 
         try:
             args = resolved_context.evaluated_args or {}
-            with secrets_manager.env_sandbox(flattened_secrets):
+            with secrets_manager.env_sandbox(secret_projection.env):
                 if asyncio.iscoroutinefunction(fn):
                     result = await fn(**args)
                 else:

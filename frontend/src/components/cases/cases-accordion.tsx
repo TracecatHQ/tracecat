@@ -16,6 +16,8 @@ import type { ComponentType } from "react"
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import type {
   CaseDropdownDefinitionRead,
+  CaseDurationDefinitionRead,
+  CaseFieldReadMinimal,
   CaseReadMinimal,
   CaseSearchAggregateRead,
   CaseStatus,
@@ -122,6 +124,9 @@ interface CasesAccordionProps {
   tags?: CaseTagRead[]
   members?: WorkspaceMember[]
   dropdownDefinitions?: CaseDropdownDefinitionRead[]
+  fieldTypesById?: ReadonlyMap<string, CaseFieldReadMinimal["type"]>
+  durationNamesById?: ReadonlyMap<CaseDurationDefinitionRead["id"], string>
+  visibleColumnIds?: string[]
   prioritySortDirection?: SortDirection
   severitySortDirection?: SortDirection
   assigneeSortDirection?: SortDirection
@@ -149,6 +154,9 @@ interface VirtualizedGroupRowsProps {
   tags?: CaseTagRead[]
   members?: WorkspaceMember[]
   dropdownDefinitions?: CaseDropdownDefinitionRead[]
+  fieldTypesById?: ReadonlyMap<string, CaseFieldReadMinimal["type"]>
+  durationNamesById?: ReadonlyMap<CaseDurationDefinitionRead["id"], string>
+  visibleColumnIds?: string[]
 }
 
 function VirtualizedGroupRows({
@@ -162,6 +170,9 @@ function VirtualizedGroupRows({
   tags,
   members,
   dropdownDefinitions,
+  fieldTypesById,
+  durationNamesById,
+  visibleColumnIds,
 }: VirtualizedGroupRowsProps) {
   const groupContainerRef = useRef<HTMLDivElement | null>(null)
   const [scrollMargin, setScrollMargin] = useState(0)
@@ -270,6 +281,9 @@ function VirtualizedGroupRows({
               tags={tags}
               members={members}
               dropdownDefinitions={dropdownDefinitions}
+              fieldTypesById={fieldTypesById}
+              durationNamesById={durationNamesById}
+              visibleColumnIds={visibleColumnIds}
             />
           </div>
         )
@@ -288,6 +302,9 @@ export function CasesAccordion({
   tags,
   members,
   dropdownDefinitions,
+  fieldTypesById,
+  durationNamesById,
+  visibleColumnIds,
   prioritySortDirection,
   severitySortDirection,
   assigneeSortDirection,
@@ -479,6 +496,9 @@ export function CasesAccordion({
                     tags={tags}
                     members={members}
                     dropdownDefinitions={dropdownDefinitions}
+                    fieldTypesById={fieldTypesById}
+                    durationNamesById={durationNamesById}
+                    visibleColumnIds={visibleColumnIds}
                   />
                 </div>
               </AccordionPrimitive.Content>

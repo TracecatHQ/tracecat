@@ -490,7 +490,7 @@ async def test_is_superadmin_saml_bootstrap_allowed_for_org_false_for_non_defaul
         (True, False, False, False, True),
         (False, True, False, False, True),
         (False, False, True, False, True),
-        (False, False, False, True, True),
+        (False, False, False, True, False),
         (True, True, False, False, True),
         (True, False, True, False, True),
         (False, True, True, False, True),

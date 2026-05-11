@@ -9,6 +9,7 @@ import {
   Check,
   ChevronDown,
   CircleIcon,
+  CircleSlashIcon,
   ClockIcon,
   ListIcon,
   SearchIcon,
@@ -22,6 +23,8 @@ import { type ComponentType, useEffect, useMemo, useState } from "react"
 import type { DateRange } from "react-day-picker"
 import type {
   CaseDropdownDefinitionRead,
+  CaseDurationDefinitionRead,
+  CaseFieldReadMinimal,
   CasePriority,
   CaseSeverity,
   CaseStatus,
@@ -33,6 +36,7 @@ import {
   SEVERITIES,
   STATUSES,
 } from "@/components/cases/case-categories"
+import { CaseColumnPicker } from "@/components/cases/case-column-picker"
 import { UNASSIGNED } from "@/components/cases/case-panel-selectors"
 import {
   type CaseSortField,
@@ -66,7 +70,6 @@ import type {
   DropdownFilterState,
 } from "@/hooks/use-cases"
 import { DEFAULT_CREATED_PRESET } from "@/hooks/use-cases"
-import { getDisplayName } from "@/lib/auth"
 import { cn } from "@/lib/utils"
 
 const getIconTextClass = (color?: string) =>
@@ -386,6 +389,10 @@ interface CasesHeaderProps {
   members?: WorkspaceMember[]
   tags?: CaseTagRead[]
   dropdownDefinitions?: CaseDropdownDefinitionRead[]
+  fieldDefinitions?: CaseFieldReadMinimal[]
+  durationDefinitions?: CaseDurationDefinitionRead[]
+  visibleColumnIds?: string[]
+  onToggleColumn?: (columnId: string) => void
   dropdownFilters: Record<string, DropdownFilterState>
   onDropdownFilterChange: (ref: string, values: string[]) => void
   onDropdownModeChange: (ref: string, mode: FilterMode) => void
@@ -438,6 +445,10 @@ export function CasesHeader({
   members,
   tags,
   dropdownDefinitions,
+  fieldDefinitions,
+  durationDefinitions,
+  visibleColumnIds,
+  onToggleColumn,
   dropdownFilters,
   onDropdownFilterChange,
   onDropdownModeChange,
@@ -477,18 +488,11 @@ export function CasesHeader({
 
   const assigneeOptions = useMemo<FilterOption<string>[]>(() => {
     const workspaceMembers = members?.map((member) => {
-      const displayName = getDisplayName({
-        first_name: member.first_name,
-        last_name: member.last_name,
-        email: member.email,
-      })
-      const initials = member.first_name
-        ? member.first_name[0].toUpperCase()
-        : member.email[0].toUpperCase()
+      const initials = member.email[0].toUpperCase()
 
       return {
         value: member.user_id,
-        label: displayName,
+        label: member.email,
         renderIcon: () => (
           <Avatar className="size-5">
             <AvatarFallback className="text-[10px] font-medium">
@@ -502,10 +506,10 @@ export function CasesHeader({
     return [
       {
         value: UNASSIGNED,
-        label: "Not assigned",
+        label: "Unassigned",
         renderIcon: () => (
           <div className="flex size-5 items-center justify-center">
-            <UserIcon className="size-3.5 text-muted-foreground" />
+            <CircleSlashIcon className="size-3 text-muted-foreground/50" />
           </div>
         ),
       },
@@ -603,13 +607,22 @@ export function CasesHeader({
           />
         </div>
 
-        {(displayCaseCount ?? totalCaseCount) > 0 && (
-          <div className="ml-auto flex items-center gap-2">
+        <div className="ml-auto flex items-center gap-2">
+          {onToggleColumn && visibleColumnIds && (
+            <CaseColumnPicker
+              dropdownDefinitions={dropdownDefinitions}
+              fieldDefinitions={fieldDefinitions}
+              durationDefinitions={durationDefinitions}
+              visibleColumnIds={visibleColumnIds}
+              onToggle={onToggleColumn}
+            />
+          )}
+          {(displayCaseCount ?? totalCaseCount) > 0 && (
             <span className="text-xs text-muted-foreground">
               {displayCaseCount ?? totalCaseCount} cases
             </span>
-          </div>
-        )}
+          )}
+        </div>
       </header>
 
       {/* Row 2: Filter dropdowns */}

@@ -791,6 +791,8 @@ function WorkflowsListRow({
   setSelectedFolder,
   setActiveDialog,
   availableTags,
+  areTagsLoading = false,
+  onWorkflowContextMenuOpen,
 }: {
   item: DirectoryItem
   onOpenWorkflow: (workflowId: string) => void
@@ -801,6 +803,8 @@ function WorkflowsListRow({
   setSelectedFolder: (folder: FolderDirectoryItem | null) => void
   setActiveDialog: (activeDialog: ActiveDialog | null) => void
   availableTags?: TagRead[]
+  areTagsLoading?: boolean
+  onWorkflowContextMenuOpen?: () => void
 }) {
   const [isContextMenuOpen, setIsContextMenuOpen] = useState(false)
 
@@ -839,7 +843,14 @@ function WorkflowsListRow({
   }
 
   return (
-    <ContextMenu onOpenChange={setIsContextMenuOpen}>
+    <ContextMenu
+      onOpenChange={(open) => {
+        setIsContextMenuOpen(open)
+        if (open) {
+          onWorkflowContextMenuOpen?.()
+        }
+      }}
+    >
       <ContextMenuTrigger asChild>
         <div
           className={cn(
@@ -871,6 +882,7 @@ function WorkflowsListRow({
           onDuplicateWorkflow={onDuplicateWorkflow}
           duplicateDisabled={duplicateDisabled}
           availableTags={availableTags}
+          areTagsLoading={areTagsLoading}
           showMoveToFolder
           setSelectedWorkflow={setSelectedWorkflow}
           setActiveDialog={setActiveDialog}
@@ -910,6 +922,7 @@ export function WorkflowsDashboard() {
     useState<WorkflowReadMinimal | null>(null)
   const [selectedFolder, setSelectedFolder] =
     useState<FolderDirectoryItem | null>(null)
+  const [shouldLoadWorkflowTags, setShouldLoadWorkflowTags] = useState(false)
 
   const { createWorkflow, moveWorkflow, addWorkflowTag } = useWorkflowManager(
     undefined,
@@ -920,7 +933,15 @@ export function WorkflowsDashboard() {
   const { folders, foldersIsLoading } = useFolders(workspaceId, {
     enabled: view === "list",
   })
-  const { tags } = useWorkflowTags(workspaceId)
+  const { tags, tagsIsLoading } = useWorkflowTags(workspaceId, {
+    enabled: shouldLoadWorkflowTags,
+  })
+
+  useEffect(() => {
+    if (tagFilter.length > 0) {
+      setShouldLoadWorkflowTags(true)
+    }
+  }, [tagFilter.length])
 
   const tagNameByRef = useMemo(() => {
     const map = new Map<string, string>()
@@ -1293,6 +1314,11 @@ export function WorkflowsDashboard() {
             tags={tags}
             tagFilter={tagFilter}
             onTagChange={setTagFilter}
+            onTagFilterOpenChange={(open) => {
+              if (open) {
+                setShouldLoadWorkflowTags(true)
+              }
+            }}
             webhookFilter={webhookFilter}
             onWebhookFilterChange={setWebhookFilter}
             scheduleFilter={scheduleFilter}
@@ -1342,6 +1368,10 @@ export function WorkflowsDashboard() {
                     key={`${item.type}-${item.id}`}
                     item={item}
                     availableTags={tags}
+                    areTagsLoading={shouldLoadWorkflowTags && tagsIsLoading}
+                    onWorkflowContextMenuOpen={() => {
+                      setShouldLoadWorkflowTags(true)
+                    }}
                     onOpenWorkflow={(workflowId) => {
                       router.push(
                         `/workspaces/${workspaceId}/workflows/${workflowId}`

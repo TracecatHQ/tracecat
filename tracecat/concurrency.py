@@ -77,3 +77,25 @@ async def cooperative[T](
     for item in it:
         yield item
         await asyncio.sleep(delay)
+
+
+async def cooperative_every[T](
+    it: Iterable[T], *, every: int, delay: float = 0
+) -> AsyncGenerator[T, None]:
+    """Yield items from an iterable and checkpoint every N items.
+
+    This is useful when iterating over large collections where per-item
+    checkpoints are unnecessary but the loop should still yield periodically.
+
+    Args:
+        it: The iterable to yield items from.
+        every: Yield control back to the event loop after this many items.
+        delay: The duration to sleep at each checkpoint.
+    """
+    if every <= 0:
+        raise ValueError("'every' must be greater than 0")
+
+    for index, item in enumerate(it, start=1):
+        yield item
+        if index % every == 0:
+            await asyncio.sleep(delay)

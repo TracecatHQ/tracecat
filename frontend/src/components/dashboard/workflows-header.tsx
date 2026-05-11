@@ -216,14 +216,26 @@ interface TagFilterSelectProps {
   value: string[]
   options: TagRead[]
   onChange: (next: string[]) => void
+  onOpenChange?: (open: boolean) => void
 }
 
-function TagFilterSelect({ value, options, onChange }: TagFilterSelectProps) {
+function TagFilterSelect({
+  value,
+  options,
+  onChange,
+  onOpenChange,
+}: TagFilterSelectProps) {
   const [open, setOpen] = useState(false)
   const valueSet = useMemo(() => new Set(value), [value])
 
   return (
-    <Popover open={open} onOpenChange={setOpen}>
+    <Popover
+      open={open}
+      onOpenChange={(nextOpen) => {
+        setOpen(nextOpen)
+        onOpenChange?.(nextOpen)
+      }}
+    >
       <PopoverTrigger asChild>
         <button
           type="button"
@@ -474,6 +486,7 @@ interface WorkflowsHeaderProps {
   tags?: TagRead[]
   tagFilter: string[]
   onTagChange: (value: string[]) => void
+  onTagFilterOpenChange?: (open: boolean) => void
   webhookFilter: WorkflowWebhookFilterValue
   onWebhookFilterChange: (value: WorkflowWebhookFilterValue) => void
   scheduleFilter: WorkflowScheduleFilterValue
@@ -502,6 +515,7 @@ export function WorkflowsHeader({
   tags,
   tagFilter,
   onTagChange,
+  onTagFilterOpenChange,
   webhookFilter,
   onWebhookFilterChange,
   scheduleFilter,
@@ -631,6 +645,7 @@ export function WorkflowsHeader({
           value={tagFilter}
           options={tags ?? []}
           onChange={onTagChange}
+          onOpenChange={onTagFilterOpenChange}
         />
 
         <IconFilterSelect

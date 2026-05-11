@@ -62,6 +62,10 @@ class EffectiveEntitlements(Schema):
         description="Whether RBAC add-ons are enabled"
         " (custom roles, groups, and assignments)",
     )
+    service_accounts: bool = Field(
+        default=False,
+        description="Whether service accounts for API key access are enabled",
+    )
     watchtower: bool = Field(
         default=False,
         description="Whether Watchtower agent monitoring is enabled"

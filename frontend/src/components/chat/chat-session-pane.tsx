@@ -22,6 +22,7 @@ import {
 import { motion } from "motion/react"
 import {
   type ChangeEvent,
+  type FocusEvent,
   type KeyboardEvent,
   memo,
   useCallback,
@@ -86,7 +87,7 @@ import {
   ToolOutput,
 } from "@/components/ai-elements/tool"
 import { CodeEditor } from "@/components/editor/codemirror/code-editor"
-import { getIcon } from "@/components/icons"
+import { getIcon, ProviderIcon } from "@/components/icons"
 import { JsonViewWithControls } from "@/components/json-viewer"
 import { Dots } from "@/components/loading/dots"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
@@ -243,6 +244,11 @@ export function ChatSessionPane({
   presetSelector,
 }: ChatSessionPaneProps) {
   const queryClient = useQueryClient()
+  const promptInputContainerRef = useRef<HTMLDivElement>(null)
+  const promptTextareaFocusedRef = useRef(false)
+  const shouldRestoreInputFocusRef = useRef(false)
+  const promptPointerDownInsideRef = useRef(false)
+  const promptPointerDownResetTimerRef = useRef<number>()
   const processedMessageRef = useRef<
     | {
         messageId: string
@@ -319,6 +325,66 @@ export function ChatSessionPane({
     }
     return false
   }, [status, messages])
+
+  const isInputDisabled = isReadonly || inputDisabled || !canSubmit
+  const isInputDisabledRef = useRef(isInputDisabled)
+  isInputDisabledRef.current = isInputDisabled
+  const wasInputDisabledRef = useRef(isInputDisabled)
+
+  useEffect(() => {
+    const wasInputDisabled = wasInputDisabledRef.current
+    wasInputDisabledRef.current = isInputDisabled
+
+    if (!wasInputDisabled && isInputDisabled) {
+      shouldRestoreInputFocusRef.current = promptTextareaFocusedRef.current
+      return
+    }
+
+    if (!wasInputDisabled || isInputDisabled) {
+      return
+    }
+
+    if (!shouldRestoreInputFocusRef.current) {
+      return
+    }
+    shouldRestoreInputFocusRef.current = false
+
+    const textarea =
+      promptInputContainerRef.current?.querySelector<HTMLTextAreaElement>(
+        'textarea[name="message"]'
+      )
+    textarea?.focus()
+  }, [isInputDisabled])
+
+  useEffect(() => {
+    if (!isInputDisabled) {
+      return
+    }
+
+    function cancelPendingFocusRestore(event: Event) {
+      const target = event.target
+      if (!(target instanceof Node)) {
+        return
+      }
+      if (promptInputContainerRef.current?.contains(target)) {
+        return
+      }
+      shouldRestoreInputFocusRef.current = false
+      promptTextareaFocusedRef.current = false
+    }
+
+    document.addEventListener("pointerdown", cancelPendingFocusRestore, true)
+    document.addEventListener("focusin", cancelPendingFocusRestore, true)
+
+    return () => {
+      document.removeEventListener(
+        "pointerdown",
+        cancelPendingFocusRestore,
+        true
+      )
+      document.removeEventListener("focusin", cancelPendingFocusRestore, true)
+    }
+  }, [isInputDisabled])
 
   const handleSubmitApprovals = useCallback(
     async (decisionPayload: ApprovalDecision[]) => {
@@ -644,6 +710,53 @@ export function ChatSessionPane({
     [filteredToolSuggestions, handleSelectMentionTool, toolMention]
   )
 
+  const handleInputFocus = useCallback(() => {
+    promptTextareaFocusedRef.current = true
+  }, [])
+
+  const handlePromptPointerDownCapture = useCallback(() => {
+    promptPointerDownInsideRef.current = true
+    if (promptPointerDownResetTimerRef.current !== undefined) {
+      window.clearTimeout(promptPointerDownResetTimerRef.current)
+    }
+    promptPointerDownResetTimerRef.current = window.setTimeout(() => {
+      promptPointerDownInsideRef.current = false
+      promptPointerDownResetTimerRef.current = undefined
+    }, 0)
+  }, [])
+
+  const handleInputBlur = useCallback(
+    (event: FocusEvent<HTMLTextAreaElement>) => {
+      setToolMention(undefined)
+
+      const nextFocusedElement = event.relatedTarget
+      if (
+        nextFocusedElement instanceof Node &&
+        promptInputContainerRef.current?.contains(nextFocusedElement)
+      ) {
+        return
+      }
+
+      if (nextFocusedElement === null && promptPointerDownInsideRef.current) {
+        return
+      }
+
+      if (!isInputDisabledRef.current) {
+        promptTextareaFocusedRef.current = false
+        shouldRestoreInputFocusRef.current = false
+      }
+    },
+    []
+  )
+
+  useEffect(() => {
+    return () => {
+      if (promptPointerDownResetTimerRef.current !== undefined) {
+        window.clearTimeout(promptPointerDownResetTimerRef.current)
+      }
+    }
+  }, [])
+
   const selectedToolBadges = useMemo(
     () =>
       selectedTools.map((toolName) => {
@@ -842,7 +955,11 @@ export function ChatSessionPane({
           <ConversationScrollButton />
         </Conversation>
       </div>
-      <div className="relative px-3 pb-3">
+      <div
+        className="relative px-3 pb-3"
+        onPointerDownCapture={handlePromptPointerDownCapture}
+        ref={promptInputContainerRef}
+      >
         {mentionEnabled && toolMention && (
           <div className="absolute inset-x-3 bottom-full z-30 mb-2">
             <div className="overflow-hidden rounded-md border bg-popover shadow-md">
@@ -936,7 +1053,8 @@ export function ChatSessionPane({
             <PromptInputTextarea
               onChange={handleInputChange}
               onKeyDown={handleInputKeyDown}
-              onBlur={() => setToolMention(undefined)}
+              onFocus={handleInputFocus}
+              onBlur={handleInputBlur}
               placeholder={
                 isReadonly
                   ? "This is a legacy session (read-only)"
@@ -946,7 +1064,7 @@ export function ChatSessionPane({
               }
               value={input}
               autoFocus={autoFocusInput && !isReadonly && !inputDisabled}
-              disabled={isReadonly || inputDisabled || !canSubmit}
+              disabled={isInputDisabled}
             />
           </PromptInputBody>
           <PromptInputFooter>
@@ -957,11 +1075,12 @@ export function ChatSessionPane({
                   disabled={inputDisabled || !canSubmit}
                 />
               )}
+              {!isReadonly ? (
+                <PromptModelIndicator modelInfo={modelInfo} />
+              ) : null}
             </PromptInputTools>
             <PromptInputSubmit
-              disabled={
-                isReadonly || inputDisabled || !canSubmit || !input.trim()
-              }
+              disabled={isInputDisabled || !input.trim()}
               status={status}
               className="text-muted-foreground/80"
             />
@@ -1120,6 +1239,52 @@ function PromptPresetSelector({
         )}
       </ModelSelectorContent>
     </ModelSelector>
+  )
+}
+
+function formatProviderLabel(value: string): string {
+  return value.replaceAll("_", " ")
+}
+
+function getProviderIconId(provider: string): string {
+  switch (provider) {
+    case "anthropic":
+      return "anthropic"
+    case "azure_ai":
+    case "azure_openai":
+      return "microsoft"
+    case "bedrock":
+      return "amazon-bedrock"
+    case "gemini":
+    case "vertex_ai":
+      return "google"
+    case "openai":
+      return "openai"
+    default:
+      return "custom"
+  }
+}
+
+function PromptModelIndicator({ modelInfo }: { modelInfo: ModelInfo }) {
+  return (
+    <Badge
+      variant="outline"
+      className="h-7 max-w-[18rem] gap-1.5 px-2.5 text-xs font-normal"
+    >
+      <ProviderIcon
+        className="size-4 rounded-none bg-transparent p-0"
+        providerId={modelInfo.iconId ?? getProviderIconId(modelInfo.provider)}
+      />
+      <span
+        className="truncate font-medium text-foreground"
+        title={modelInfo.name}
+      >
+        {modelInfo.name}
+      </span>
+      <span className="shrink-0 text-muted-foreground">
+        {formatProviderLabel(modelInfo.provider)}
+      </span>
+    </Badge>
   )
 }
 

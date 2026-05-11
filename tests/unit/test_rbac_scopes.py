@@ -294,8 +294,14 @@ class TestOrgRoleScopes:
                 "org:registry:read",
                 "agent:read",
                 "agent:execute",
+                "org:secret:read",
             }
         )
+
+    def test_member_can_execute_agents_with_org_secret_read(self):
+        required_scopes = {"agent:read", "agent:execute", "org:secret:read"}
+
+        assert required_scopes.issubset(PRESET_ROLE_SCOPES["organization-member"])
 
 
 class TestRequireScopeDecorator:

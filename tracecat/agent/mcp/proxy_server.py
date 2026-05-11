@@ -4,14 +4,13 @@ Creates a per-job MCP server that exposes only configured tools and
 forwards execution requests to the trusted MCP server via Unix socket.
 
 Handles two types of tools:
-1. Registry actions (e.g., core.cases.list_cases) -> execute_action_tool
-2. User MCP tools (e.g., mcp__my-server__my_tool) -> execute_user_mcp_tool
+1. Registry actions (for example core.http_request or core.script.run_python) -> execute_action_tool
+2. User MCP tools (for example mcp__my-server__my_tool) -> execute_user_mcp_tool
 """
 
 from __future__ import annotations
 
 import copy
-import json
 from collections.abc import Callable, Coroutine
 from typing import Any
 
@@ -20,6 +19,7 @@ from claude_agent_sdk import McpSdkServerConfig, SdkMcpTool, create_sdk_mcp_serv
 from fastmcp import Client
 from fastmcp.client.transports import StreamableHttpTransport
 
+from tracecat.agent.common.config import TRUSTED_MCP_SOCKET_PATH
 from tracecat.agent.common.types import MCPToolDefinition
 from tracecat.agent.mcp.metadata import (
     PROXY_TOOL_CALL_ID_KEY,
@@ -28,7 +28,6 @@ from tracecat.agent.mcp.metadata import (
 )
 from tracecat.agent.mcp.user_client import UserMCPClient
 from tracecat.agent.mcp.utils import action_name_to_mcp_tool_name
-from tracecat.agent.sandbox.config import TRUSTED_MCP_SOCKET_PATH
 from tracecat.logger import logger
 
 
@@ -156,33 +155,34 @@ def _make_tool_handler(
                 first_block = call_result.content[0]
                 result_text = getattr(first_block, "text", str(first_block))
 
-            # Check if the tool call returned an error
-            # Return structured JSON so frontend can detect errors
             if call_result.is_error:
                 logger.error(
                     "Tool call returned error", error=result_text, **log_context
                 )
-                error_response = json.dumps(
-                    {
-                        "success": False,
-                        "error": result_text or "Tool execution failed",
-                    }
-                )
-                return {"content": [{"type": "text", "text": error_response}]}
+                return {
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": result_text or "Tool execution failed",
+                        }
+                    ],
+                    "is_error": True,
+                }
 
             return {"content": [{"type": "text", "text": result_text}]}
 
         except Exception as e:
-            # Unexpected exceptions - return structured error response
             error_msg = str(e)
             logger.error("Proxy request failed", error=error_msg, **log_context)
-            error_response = json.dumps(
-                {
-                    "success": False,
-                    "error": error_msg or "Tool execution failed",
-                }
-            )
-            return {"content": [{"type": "text", "text": error_response}]}
+            return {
+                "content": [
+                    {
+                        "type": "text",
+                        "text": error_msg or "Tool execution failed",
+                    }
+                ],
+                "is_error": True,
+            }
 
     return _handler
 
@@ -197,9 +197,9 @@ async def create_proxy_mcp_server(
     execution requests to the trusted MCP server via Unix socket.
 
     Handles three types of tools:
-    - Registry actions (e.g., core.cases.list_cases) -> execute_action_tool
-    - User MCP tools (e.g., mcp__my-server__my_tool) -> execute_user_mcp_tool
-    - Internal tools (e.g., internal.builder.get_preset_summary) -> execute_internal_tool
+    - Registry actions (for example core.http_request or core.script.run_python) -> execute_action_tool
+    - User MCP tools (for example mcp__my-server__my_tool) -> execute_user_mcp_tool
+    - Internal tools -> execute_internal_tool
 
     Args:
         allowed_actions: Dict mapping action names to their definitions.
