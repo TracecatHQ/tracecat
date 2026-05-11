@@ -8,7 +8,7 @@ from sqlalchemy import delete, func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Mapped
 
-from tracecat.audit.service import AuditService
+from tracecat.audit.logger import audit_log
 from tracecat.auth.schemas import UserCreate, UserRole
 from tracecat.auth.users import get_user_db_context, get_user_manager_context
 from tracecat.db.models import AccessToken, Approval, Membership, User
@@ -26,6 +26,7 @@ class AdminUserService(BasePlatformService):
 
     service_name = "admin_user"
 
+    @audit_log(resource_type="user", action="create")
     async def create_user(self, params: AdminUserCreate) -> AdminUserRead:
         """Create a platform-level user."""
         async with get_user_db_context(self.session) as user_db:
@@ -59,15 +60,6 @@ class AdminUserService(BasePlatformService):
 
         await self.session.refresh(user)
 
-        async with AuditService.with_session(
-            role=self.role, session=self.session
-        ) as svc:
-            await svc.create_event(
-                resource_type="user",
-                action="create",
-                resource_id=user.id,
-            )
-
         return AdminUserRead.model_validate(user)
 
     async def list_users(self) -> Sequence[AdminUserRead]:
@@ -85,6 +77,7 @@ class AdminUserService(BasePlatformService):
             raise ValueError(f"User {user_id} not found")
         return AdminUserRead.model_validate(user)
 
+    @audit_log(resource_type="user", action="promote", resource_id_attr="user_id")
     async def promote_superuser(self, user_id: uuid.UUID) -> AdminUserRead:
         """Promote a user to superuser."""
         stmt = select(User).where(cast(Mapped[uuid.UUID], User.id) == user_id)
@@ -106,6 +99,7 @@ class AdminUserService(BasePlatformService):
         await self.session.refresh(user)
         return AdminUserRead.model_validate(user)
 
+    @audit_log(resource_type="user", action="demote", resource_id_attr="user_id")
     async def demote_superuser(
         self, user_id: uuid.UUID, current_user_id: uuid.UUID
     ) -> AdminUserRead:
@@ -140,6 +134,7 @@ class AdminUserService(BasePlatformService):
         await self.session.refresh(user)
         return AdminUserRead.model_validate(user)
 
+    @audit_log(resource_type="user", action="delete", resource_id_attr="user_id")
     async def delete_user(self, user_id: uuid.UUID, current_user_id: uuid.UUID) -> None:
         """Delete a global platform user and clear blocking dependencies.
 
@@ -190,12 +185,3 @@ class AdminUserService(BasePlatformService):
             raise ValueError(
                 "Cannot delete user because related records still reference them"
             ) from e
-
-        async with AuditService.with_session(
-            role=self.role, session=self.session
-        ) as svc:
-            await svc.create_event(
-                resource_type="user",
-                action="delete",
-                resource_id=user_id,
-            )

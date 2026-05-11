@@ -6,15 +6,19 @@ from contextlib import asynccontextmanager
 from typing import Any, Self
 
 import httpx
+import orjson
+from cryptography.fernet import InvalidToken
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.audit.enums import AuditEventActor, AuditEventStatus
-from tracecat.audit.types import AuditAction, AuditEvent, AuditResourceType
+from tracecat.audit.types import AuditAction, AuditEvent, AuditResourceType, AuditSink
+from tracecat.auth.secrets import get_db_encryption_key
 from tracecat.auth.types import PlatformRole, Role
 from tracecat.contexts import ctx_client_ip, ctx_role
 from tracecat.db.engine import get_async_session_context_manager
-from tracecat.db.models import ServiceAccount, User
+from tracecat.db.models import PlatformSetting, ServiceAccount, User
+from tracecat.secrets.encryption import decrypt_value
 from tracecat.service import BaseService
 
 # Union type for roles that can be used for audit logging
@@ -34,9 +38,18 @@ class AuditService(BaseService):
     service_name = "audit"
     role: AuditableRole | None
 
-    def __init__(self, session: AsyncSession, role: AuditableRole | None = None):
+    def __init__(
+        self,
+        session: AsyncSession,
+        role: AuditableRole | None = None,
+        *,
+        audit_sink: AuditSink | None = None,
+    ):
         super().__init__(session)
         self.role = role or ctx_role.get()
+        self.audit_sink = audit_sink or (
+            "platform" if isinstance(self.role, PlatformRole) else "organization"
+        )
         # Don't require organization_id - platform ops won't have one
 
     @classmethod
@@ -46,6 +59,7 @@ class AuditService(BaseService):
         role: AuditableRole | None = None,
         *,
         session: AsyncSession | None = None,
+        audit_sink: AuditSink | None = None,
     ) -> AsyncGenerator[Self, None]:
         """Create an AuditService instance with a database session.
 
@@ -53,10 +67,30 @@ class AuditService(BaseService):
         Accepts both Role (org-scoped) and PlatformRole (platform-scoped).
         """
         if session is not None:
-            yield cls(session, role=role)
+            yield cls(session, role=role, audit_sink=audit_sink)
         else:
             async with get_async_session_context_manager() as session:
-                yield cls(session, role=role)
+                yield cls(session, role=role, audit_sink=audit_sink)
+
+    async def _get_platform_setting(self, key: str) -> Any | None:
+        """Fetch a platform setting for platform-scoped audit delivery."""
+        stmt = select(PlatformSetting).where(PlatformSetting.key == key)
+        setting = (await self.session.execute(stmt)).scalar_one_or_none()
+        if setting is None:
+            return None
+
+        value = setting.value
+        if setting.is_encrypted:
+            try:
+                value = decrypt_value(value, key=get_db_encryption_key())
+            except (InvalidToken, ValueError) as exc:
+                self.logger.warning(
+                    "Failed to decrypt platform audit setting",
+                    key=key,
+                    error=str(exc),
+                )
+                return None
+        return orjson.loads(value)
 
     async def _get_webhook_url(self) -> str | None:
         """Fetch the configured audit webhook URL.
@@ -66,9 +100,16 @@ class AuditService(BaseService):
         2. Organization setting `audit_webhook_url`
         """
 
-        from tracecat.settings.service import get_setting_cached
+        if self.audit_sink == "platform":
+            value = await self._get_platform_setting("audit_webhook_url")
+        else:
+            from tracecat.settings.service import get_setting
 
-        value = await get_setting_cached("audit_webhook_url")
+            value = await get_setting(
+                "audit_webhook_url",
+                role=self.role if isinstance(self.role, Role) else None,
+                session=self.session,
+            )
         if value is None:
             return None
         if not isinstance(value, str):
@@ -87,9 +128,16 @@ class AuditService(BaseService):
 
         Note: Uses get_setting (uncached) to ensure changes take effect immediately.
         """
-        from tracecat.settings.service import get_setting
+        if self.audit_sink == "platform":
+            value = await self._get_platform_setting("audit_webhook_custom_headers")
+        else:
+            from tracecat.settings.service import get_setting
 
-        value = await get_setting("audit_webhook_custom_headers", session=self.session)
+            value = await get_setting(
+                "audit_webhook_custom_headers",
+                role=self.role if isinstance(self.role, Role) else None,
+                session=self.session,
+            )
         if value is None:
             return None
         if not isinstance(value, dict):
@@ -103,9 +151,16 @@ class AuditService(BaseService):
 
     async def _get_custom_payload(self) -> dict[str, Any] | None:
         """Fetch the configured custom payload for the audit webhook."""
-        from tracecat.settings.service import get_setting
+        if self.audit_sink == "platform":
+            value = await self._get_platform_setting("audit_webhook_custom_payload")
+        else:
+            from tracecat.settings.service import get_setting
 
-        value = await get_setting("audit_webhook_custom_payload", session=self.session)
+            value = await get_setting(
+                "audit_webhook_custom_payload",
+                role=self.role if isinstance(self.role, Role) else None,
+                session=self.session,
+            )
         if value is None:
             return None
         if not isinstance(value, dict):
@@ -118,11 +173,19 @@ class AuditService(BaseService):
 
     async def _get_verify_ssl(self) -> bool:
         """Fetch SSL verification setting for audit webhook requests."""
-        from tracecat.settings.service import get_setting
+        if self.audit_sink == "platform":
+            value = await self._get_platform_setting("audit_webhook_verify_ssl")
+            if value is None:
+                value = True
+        else:
+            from tracecat.settings.service import get_setting
 
-        value = await get_setting(
-            "audit_webhook_verify_ssl", session=self.session, default=True
-        )
+            value = await get_setting(
+                "audit_webhook_verify_ssl",
+                role=self.role if isinstance(self.role, Role) else None,
+                session=self.session,
+                default=True,
+            )
         if not isinstance(value, bool):
             self.logger.warning(
                 "audit_webhook_verify_ssl must be a bool",
@@ -134,11 +197,16 @@ class AuditService(BaseService):
 
     async def _get_payload_attribute(self) -> str | None:
         """Fetch optional wrapper attribute for webhook payloads."""
-        from tracecat.settings.service import get_setting
+        if self.audit_sink == "platform":
+            value = await self._get_platform_setting("audit_webhook_payload_attribute")
+        else:
+            from tracecat.settings.service import get_setting
 
-        value = await get_setting(
-            "audit_webhook_payload_attribute", session=self.session
-        )
+            value = await get_setting(
+                "audit_webhook_payload_attribute",
+                role=self.role if isinstance(self.role, Role) else None,
+                session=self.session,
+            )
         if value is None:
             return None
         if not isinstance(value, str):
@@ -224,6 +292,7 @@ class AuditService(BaseService):
         resource_id: uuid.UUID | None,
         status: AuditEventStatus,
         actor_label: str | None,
+        ip_address: str | None,
         data: dict[str, Any] | None,
     ) -> AuditEvent:
         if self.role is None or self.role.actor_id is None:
@@ -245,7 +314,7 @@ class AuditService(BaseService):
             resource_id=resource_id,
             action=action,
             status=status,
-            ip_address=ctx_client_ip.get(),
+            ip_address=ip_address,
             data=data,
         )
 
@@ -257,6 +326,8 @@ class AuditService(BaseService):
         resource_id: uuid.UUID | None = None,
         status: AuditEventStatus = AuditEventStatus.SUCCESS,
         data: dict[str, Any] | None = None,
+        include_actor_label: bool = True,
+        include_ip_address: bool = True,
     ) -> None:
         if self.role is None or getattr(self.role, "actor_id", None) is None:
             self.logger.debug(
@@ -269,13 +340,14 @@ class AuditService(BaseService):
             self.logger.debug("Skipping audit log", reason="webhook_unconfigured")
             return
 
-        actor_label = await self._get_actor_label()
+        actor_label = await self._get_actor_label() if include_actor_label else None
         payload = self._build_payload(
             resource_type=resource_type,
             action=action,
             resource_id=resource_id,
             status=status,
             actor_label=actor_label,
+            ip_address=ctx_client_ip.get() if include_ip_address else None,
             data=data,
         )
         await self._post_event(webhook_url=webhook_url, payload=payload)
