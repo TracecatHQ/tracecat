@@ -779,6 +779,36 @@ async def test_with_model_config_injects_bedrock_external_id(role: Role) -> None
     assert secrets_manager.get("TRACECAT_AWS_EXTERNAL_ID") is None
 
 
+def test_catalog_target_credentials_serializes_bool_use_converse_true() -> None:
+    """use_converse=True stored in JSONB as a bool must project to the string 'true'."""
+    row = SimpleNamespace(
+        model_provider="bedrock",
+        model_metadata={
+            "inference_profile_id": "us.anthropic.claude-3-haiku",
+            "use_converse": True,
+        },
+    )
+    svc = AgentManagementService.__new__(AgentManagementService)
+    creds = svc._catalog_target_credentials(cast(AgentCatalog, row))
+    assert creds["AWS_INFERENCE_PROFILE_ID"] == "us.anthropic.claude-3-haiku"
+    assert creds["AWS_BEDROCK_USE_CONVERSE"] == "true"
+
+
+def test_catalog_target_credentials_serializes_bool_use_converse_false() -> None:
+    """use_converse=False stored in JSONB must project to the string 'false'."""
+    row = SimpleNamespace(
+        model_provider="bedrock",
+        model_metadata={
+            "model_id": "anthropic.claude-3-haiku-20240307-v1:0",
+            "use_converse": False,
+        },
+    )
+    svc = AgentManagementService.__new__(AgentManagementService)
+    creds = svc._catalog_target_credentials(cast(AgentCatalog, row))
+    assert creds["AWS_MODEL_ID"] == "anthropic.claude-3-haiku-20240307-v1:0"
+    assert creds["AWS_BEDROCK_USE_CONVERSE"] == "false"
+
+
 @pytest.mark.anyio
 async def test_get_runtime_provider_credentials_resolves_azure_openai_client_credentials(
     role: Role,

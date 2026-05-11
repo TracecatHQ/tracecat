@@ -8,7 +8,10 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from tracecat.agent.catalog.schemas import AzureOpenAICatalogUpdate
+from tracecat.agent.catalog.schemas import (
+    AzureOpenAICatalogUpdate,
+    BedrockCatalogUpdate,
+)
 from tracecat.agent.catalog.service import AgentCatalogService
 from tracecat.auth.types import Role
 from tracecat.contexts import ctx_role
@@ -502,3 +505,43 @@ async def test_delete_catalog_entry_rejects_platform_row(
             )
     finally:
         ctx_role.reset(token)
+
+
+# --- BedrockCatalogUpdate validator ---
+
+
+def test_bedrock_update_use_converse_only_requires_no_ref() -> None:
+    """use_converse-only patch is valid; model ref unchanged in DB."""
+    update = BedrockCatalogUpdate(model_provider="bedrock", use_converse=True)
+    assert update.use_converse is True
+    assert update.inference_profile_id is None
+    assert update.model_id is None
+
+
+def test_bedrock_update_with_ref_and_use_converse_is_valid() -> None:
+    update = BedrockCatalogUpdate(
+        model_provider="bedrock",
+        inference_profile_id="us.anthropic.claude-3-haiku",
+        use_converse=True,
+    )
+    assert update.inference_profile_id == "us.anthropic.claude-3-haiku"
+    assert update.use_converse is True
+
+
+def test_bedrock_update_rejects_both_refs_set() -> None:
+    with pytest.raises(ValueError, match="at most one"):
+        BedrockCatalogUpdate(
+            model_provider="bedrock",
+            inference_profile_id="us.anthropic.claude-3-haiku",
+            model_id="anthropic.claude-3-haiku-20240307-v1:0",
+        )
+
+
+def test_bedrock_update_rejects_both_refs_explicitly_null() -> None:
+    """Explicitly sending null for both refs must be rejected."""
+    with pytest.raises(ValueError, match="At least one"):
+        BedrockCatalogUpdate(
+            model_provider="bedrock",
+            inference_profile_id=None,
+            model_id=None,
+        )

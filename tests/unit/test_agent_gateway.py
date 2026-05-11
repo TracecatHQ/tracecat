@@ -182,6 +182,53 @@ def test_bedrock_rejects_ambient_credential_fallback() -> None:
     assert "resolved before request dispatch" in exc_info.value.message
 
 
+def test_bedrock_uses_invoke_prefix_when_use_converse_absent() -> None:
+    data = {"model": "bedrock"}
+    creds = {
+        "AWS_ACCESS_KEY_ID": "AKIA123",
+        "AWS_SECRET_ACCESS_KEY": "secret",
+        "AWS_MODEL_ID": "anthropic.claude-3-haiku-20240307-v1:0",
+    }
+    _inject_provider_credentials(data, "bedrock", creds)
+    assert data["model"] == "bedrock/anthropic.claude-3-haiku-20240307-v1:0"
+
+
+def test_bedrock_uses_converse_prefix_for_model_id_when_flag_true() -> None:
+    data = {"model": "bedrock"}
+    creds = {
+        "AWS_ACCESS_KEY_ID": "AKIA123",
+        "AWS_SECRET_ACCESS_KEY": "secret",
+        "AWS_MODEL_ID": "anthropic.claude-3-haiku-20240307-v1:0",
+        "AWS_BEDROCK_USE_CONVERSE": "true",
+    }
+    _inject_provider_credentials(data, "bedrock", creds)
+    assert data["model"] == "bedrock/converse/anthropic.claude-3-haiku-20240307-v1:0"
+
+
+def test_bedrock_uses_converse_prefix_for_inference_profile_when_flag_true() -> None:
+    data = {"model": "bedrock"}
+    creds = {
+        "AWS_ACCESS_KEY_ID": "AKIA123",
+        "AWS_SECRET_ACCESS_KEY": "secret",
+        "AWS_INFERENCE_PROFILE_ID": "us.anthropic.claude-3-haiku-20240307-v1:0",
+        "AWS_BEDROCK_USE_CONVERSE": "true",
+    }
+    _inject_provider_credentials(data, "bedrock", creds)
+    assert data["model"] == "bedrock/converse/us.anthropic.claude-3-haiku-20240307-v1:0"
+
+
+def test_bedrock_false_flag_does_not_use_converse_prefix() -> None:
+    data = {"model": "bedrock"}
+    creds = {
+        "AWS_ACCESS_KEY_ID": "AKIA123",
+        "AWS_SECRET_ACCESS_KEY": "secret",
+        "AWS_MODEL_ID": "anthropic.claude-3-haiku-20240307-v1:0",
+        "AWS_BEDROCK_USE_CONVERSE": "false",
+    }
+    _inject_provider_credentials(data, "bedrock", creds)
+    assert data["model"] == "bedrock/anthropic.claude-3-haiku-20240307-v1:0"
+
+
 def test_litellm_config_routes_provider_placeholders_before_catch_all() -> None:
     config_path = (
         Path(__file__).resolve().parents[2]

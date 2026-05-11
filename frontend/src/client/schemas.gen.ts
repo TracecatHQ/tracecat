@@ -4874,6 +4874,11 @@ export const $BedrockCatalogCreate = {
       ],
       title: "Model Id",
     },
+    use_converse: {
+      type: "boolean",
+      title: "Use Converse",
+      default: false,
+    },
   },
   additionalProperties: false,
   type: "object",
@@ -4924,6 +4929,11 @@ export const $BedrockCatalogUpdate = {
         },
       ],
       title: "Model Id",
+    },
+    use_converse: {
+      type: "boolean",
+      title: "Use Converse",
+      default: false,
     },
   },
   additionalProperties: false,

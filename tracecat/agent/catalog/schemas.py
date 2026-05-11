@@ -46,6 +46,7 @@ class BedrockCatalogCreate(CloudCatalogModelBase):
     model_name: str = Field(min_length=1, max_length=500)
     inference_profile_id: str | None = Field(default=None, min_length=1)
     model_id: str | None = Field(default=None, min_length=1)
+    use_converse: bool = False
 
     @model_validator(mode="after")
     def _require_one_model_ref(self) -> "BedrockCatalogCreate":
@@ -93,13 +94,23 @@ class BedrockCatalogUpdate(CloudCatalogModelBase):
     model_provider: Literal["bedrock"]
     inference_profile_id: str | None = Field(default=None, min_length=1)
     model_id: str | None = Field(default=None, min_length=1)
+    use_converse: bool = False
 
     @model_validator(mode="after")
     def _require_one_model_ref(self) -> "BedrockCatalogUpdate":
+        ref_fields = {"inference_profile_id", "model_id"}
+        refs_sent = ref_fields & self.model_fields_set
+        if not refs_sent:
+            # use_converse-only update; model ref unchanged in DB
+            return self
         has_profile = self.inference_profile_id is not None
         has_model_id = self.model_id is not None
-        if has_profile == has_model_id:
-            raise ValueError("Provide exactly one of inference_profile_id or model_id")
+        if has_profile and has_model_id:
+            raise ValueError("Provide at most one of inference_profile_id or model_id")
+        if not has_profile and not has_model_id:
+            raise ValueError(
+                "At least one of inference_profile_id or model_id must be non-null when updating model refs"
+            )
         return self
 
 
