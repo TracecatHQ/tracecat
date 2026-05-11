@@ -9,6 +9,7 @@ from tracecat.agent.tags.service import AgentTagsService
 from tracecat.auth.dependencies import WorkspaceUserRouteRole
 from tracecat.authz.controls import require_scope
 from tracecat.db.dependencies import AsyncDBSession
+from tracecat.exceptions import TracecatConflictError
 from tracecat.identifiers import AgentTagID
 from tracecat.pagination import CursorPaginatedResponse, CursorPaginationParams
 from tracecat.tags.schemas import TagCreate, TagUpdate
@@ -85,7 +86,7 @@ async def create_agent_tag(
     service = AgentTagsService(session=session, role=role)
     try:
         tag = await service.create_tag(params)
-    except ValueError as err:
+    except TracecatConflictError as err:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=str(err),
@@ -118,7 +119,7 @@ async def update_agent_tag(
         ) from err
     try:
         updated = await service.update_tag(tag, params)
-    except ValueError as err:
+    except TracecatConflictError as err:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=str(err),

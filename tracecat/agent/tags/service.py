@@ -12,6 +12,7 @@ from sqlalchemy.exc import NoResultFound
 
 from tracecat.authz.controls import require_scope
 from tracecat.db.models import AgentPreset, AgentTag, AgentTagLink
+from tracecat.exceptions import TracecatConflictError
 from tracecat.identifiers import AgentTagID
 from tracecat.pagination import (
     BaseCursorPaginator,
@@ -156,7 +157,7 @@ class AgentTagsService(BaseWorkspaceService):
             )
         )
         if existing.one_or_none():
-            raise ValueError(f"Agent tag with slug '{ref}' already exists")
+            raise TracecatConflictError(f"Agent tag with slug '{ref}' already exists")
 
         db_tag = AgentTag(
             name=tag.name,
@@ -184,7 +185,9 @@ class AgentTagsService(BaseWorkspaceService):
                     )
                 )
                 if existing.one_or_none():
-                    raise ValueError(f"Agent tag with slug '{new_ref}' already exists")
+                    raise TracecatConflictError(
+                        f"Agent tag with slug '{new_ref}' already exists"
+                    )
                 tag.ref = new_ref
 
         for key, value in params.model_dump(exclude_unset=True).items():

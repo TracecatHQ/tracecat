@@ -12,7 +12,7 @@ from sqlalchemy.exc import NoResultFound
 from tracecat.agent.tags import definitions_router as agent_tag_definitions_router
 from tracecat.agent.tags import router as agent_tags_router
 from tracecat.auth.types import Role
-from tracecat.exceptions import EntitlementRequired
+from tracecat.exceptions import EntitlementRequired, TracecatConflictError
 from tracecat.pagination import CursorPaginatedResponse
 
 # Fixed UUID for parametrized test IDs — uuid.uuid4() at module level causes
@@ -178,6 +178,33 @@ async def test_list_agent_tags_returns_paginated_response(
         "has_previous": False,
         "total_estimate": None,
     }
+
+
+@pytest.mark.anyio
+async def test_update_agent_tag_conflict_returns_409(
+    client: TestClient,
+    test_admin_role: Role,
+) -> None:
+    """Agent tag definition conflicts should be reported as 409s."""
+    tag_id = uuid.uuid4()
+
+    with patch.object(
+        agent_tag_definitions_router, "AgentTagsService"
+    ) as mock_service_cls:
+        mock_service = MagicMock()
+        mock_service.get_tag = AsyncMock(return_value=object())
+        mock_service.update_tag = AsyncMock(
+            side_effect=TracecatConflictError("Agent tag already exists")
+        )
+        mock_service_cls.return_value = mock_service
+
+        response = client.patch(
+            f"/agent-tags/{tag_id}",
+            json={"name": "Updated"},
+        )
+
+    assert response.status_code == status.HTTP_409_CONFLICT
+    assert response.json()["detail"] == "Agent tag already exists"
 
 
 @pytest.mark.anyio

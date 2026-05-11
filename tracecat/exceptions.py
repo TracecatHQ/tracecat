@@ -31,6 +31,10 @@ class TracecatValidationError(TracecatException):
     """Tracecat user-facing validation error"""
 
 
+class TracecatConflictError(TracecatException):
+    """Tracecat user-facing resource conflict error"""
+
+
 class TracecatDSLError(TracecatValidationError):
     """Tracecat user-facing DSL error"""
 
