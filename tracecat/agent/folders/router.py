@@ -85,10 +85,7 @@ async def list_folders(
     except TracecatValidationError as e:
         raise _folder_http_exception(e) from e
     return CursorPaginatedResponse(
-        items=[
-            AgentFolderRead.model_validate(folder, from_attributes=True)
-            for folder in page.items
-        ],
+        items=AgentFolderRead.list_adapter().validate_python(page.items),
         next_cursor=page.next_cursor,
         prev_cursor=page.prev_cursor,
         has_more=page.has_more,

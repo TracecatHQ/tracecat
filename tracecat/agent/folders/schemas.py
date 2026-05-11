@@ -6,10 +6,11 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, Field, TypeAdapter
 
+from tracecat.core.schemas import Schema
 from tracecat.tags.schemas import TagRead
 
 
-class AgentFolderRead(BaseModel):
+class AgentFolderRead(Schema):
     id: uuid.UUID
     name: str
     path: str
