@@ -8,6 +8,7 @@ import sqlalchemy as sa
 from slugify import slugify
 from sqlalchemy import exists, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.exc import IntegrityError
 
 from tracecat.authz.controls import require_scope
 from tracecat.db.models import AgentPreset, AgentTag, AgentTagLink
@@ -33,6 +34,13 @@ class AgentTagsService(BaseWorkspaceService):
     service_name = "agent_tags"
 
     # --- Tag definitions ---
+
+    async def _commit_tag_definition_change(self, conflict_message: str) -> None:
+        try:
+            await self.session.commit()
+        except IntegrityError as err:
+            await self.session.rollback()
+            raise TracecatConflictError(conflict_message) from err
 
     async def _get_tag(self, tag_id: AgentTagID) -> AgentTag:
         statement = select(AgentTag).where(
@@ -173,7 +181,9 @@ class AgentTagsService(BaseWorkspaceService):
             color=tag.color,
         )
         self.session.add(db_tag)
-        await self.session.commit()
+        await self._commit_tag_definition_change(
+            f"Agent tag with slug '{ref}' already exists"
+        )
         await self.session.refresh(db_tag)
         return db_tag
 
@@ -200,7 +210,9 @@ class AgentTagsService(BaseWorkspaceService):
         for key, value in params.model_dump(exclude_unset=True).items():
             setattr(tag, key, value)
 
-        await self.session.commit()
+        await self._commit_tag_definition_change(
+            f"Agent tag with slug '{tag.ref}' already exists"
+        )
         await self.session.refresh(tag)
         return tag
 

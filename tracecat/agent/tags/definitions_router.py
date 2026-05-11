@@ -1,7 +1,6 @@
 """HTTP routes for agent tag definition CRUD."""
 
 from fastapi import APIRouter, HTTPException, Query, status
-from sqlalchemy.exc import IntegrityError
 
 from tracecat import config
 from tracecat.agent.tags.schemas import AgentTagRead
@@ -95,11 +94,6 @@ async def create_agent_tag(
             status_code=status.HTTP_409_CONFLICT,
             detail=str(err),
         ) from err
-    except IntegrityError as err:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Agent tag already exists",
-        ) from err
     return AgentTagRead.model_validate(tag, from_attributes=True)
 
 
@@ -127,11 +121,6 @@ async def update_agent_tag(
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=str(err),
-        ) from err
-    except IntegrityError as err:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Agent tag already exists",
         ) from err
     return AgentTagRead.model_validate(updated, from_attributes=True)
 

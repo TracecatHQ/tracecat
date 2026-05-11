@@ -4,6 +4,7 @@ from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
 
 import pytest
+from sqlalchemy.exc import IntegrityError
 
 from tracecat.agent.tags.service import AgentTagsService
 from tracecat.auth.types import Role
@@ -11,6 +12,7 @@ from tracecat.db.models import AgentTag, AgentTagLink
 from tracecat.exceptions import (
     EntitlementRequired,
     ScopeDeniedError,
+    TracecatConflictError,
     TracecatNotFoundError,
     TracecatValidationError,
 )
@@ -253,6 +255,37 @@ async def test_list_tags_paginated_invalid_cursor_raises_tracecat_validation(
 
     with pytest.raises(TracecatValidationError, match="Invalid cursor for agent tags"):
         await service.list_tags_paginated(CursorPaginationParams(cursor="invalid"))
+
+
+@pytest.mark.anyio
+async def test_update_tag_commit_conflict_raises_tracecat_conflict(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Commit-time uniqueness races should be translated by the service."""
+    workspace_id = uuid4()
+    tag = _agent_tag("alpha", datetime(2026, 1, 1, tzinfo=UTC), workspace_id)
+    result = MagicMock()
+    result.one_or_none.return_value = None
+    session = AsyncMock()
+    session.execute.return_value = result
+    session.commit.side_effect = IntegrityError(
+        statement="UPDATE agent_tag",
+        params={},
+        orig=Exception("duplicate key"),
+    )
+    service = AgentTagsService(
+        session=session,
+        role=_role_with_scopes(frozenset({"agent:update"})),
+    )
+    monkeypatch.setattr(service, "has_entitlement", AsyncMock(return_value=True))
+
+    with pytest.raises(
+        TracecatConflictError, match="Agent tag with slug 'beta' already exists"
+    ):
+        await service.update_tag(tag, TagUpdate(name="beta"))
+
+    session.rollback.assert_awaited_once()
+    session.refresh.assert_not_awaited()
 
 
 @pytest.mark.anyio
