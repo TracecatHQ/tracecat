@@ -112,6 +112,9 @@ import { useBuilderRegistryActions } from "@/lib/hooks"
 import { cn } from "@/lib/utils"
 
 const MAX_TOOL_MENTION_RESULTS = 40
+const AGENT_TOOL_NAMES = new Set(["Agent", "Task"])
+const AGENT_TOOL_TARGET_KEYS = ["subagent_type", "agent_type", "type", "name"]
+const AGENT_TOOL_NESTED_INPUT_KEYS = ["args", "input", "tool_input"]
 
 type ToolMentionToken = {
   start: number
@@ -1345,6 +1348,7 @@ export function MessagePart({
 
   if (isToolUIPart(part)) {
     const toolName = getToolName(part).replaceAll("__", ".")
+    const toolTitle = getToolTitle(toolName, part.input)
     // Derive an error state for streaming when servers send
     // a tool output that encodes validation feedback in `output`
     // rather than `errorText`.
@@ -1366,7 +1370,7 @@ export function MessagePart({
     return (
       <Tool key={`${id}-${partIdx}`}>
         <ToolHeader
-          title={toolName}
+          title={toolTitle}
           type={part.type}
           state={derivedState}
           icon={getIcon(toolName, TOOL_ICON_PROPS)}
@@ -1380,6 +1384,63 @@ export function MessagePart({
   }
 
   return null
+}
+
+function getToolTitle(toolName: string, input: unknown): string {
+  if (!AGENT_TOOL_NAMES.has(toolName)) {
+    return toolName
+  }
+
+  const agentTarget = getAgentToolTarget(input)
+  return agentTarget ? `${toolName}: ${agentTarget}` : toolName
+}
+
+function getAgentToolTarget(input: unknown, depth = 0): string | null {
+  if (depth > 2) {
+    return null
+  }
+
+  const inputRecord = asInputRecord(input)
+  if (!inputRecord) {
+    return null
+  }
+
+  for (const key of AGENT_TOOL_TARGET_KEYS) {
+    const value = inputRecord[key]
+    if (typeof value === "string" && value.trim()) {
+      return value.trim()
+    }
+  }
+
+  for (const key of AGENT_TOOL_NESTED_INPUT_KEYS) {
+    const nestedTarget = getAgentToolTarget(inputRecord[key], depth + 1)
+    if (nestedTarget) {
+      return nestedTarget
+    }
+  }
+
+  return null
+}
+
+function asInputRecord(input: unknown): Record<string, unknown> | null {
+  if (typeof input === "string") {
+    const trimmed = input.trim()
+    if (!trimmed) {
+      return null
+    }
+    try {
+      const parsed: unknown = JSON.parse(trimmed)
+      return asInputRecord(parsed)
+    } catch {
+      return null
+    }
+  }
+
+  if (!input || typeof input !== "object" || Array.isArray(input)) {
+    return null
+  }
+
+  return input as Record<string, unknown>
 }
 
 const MemoizedMessagePart = memo(MessagePart, (prev, next) => {

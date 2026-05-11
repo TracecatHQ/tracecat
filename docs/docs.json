@@ -126,6 +126,7 @@
             "pages": [
               "agents/ai-action",
               "agents/ai-agent",
+              "agents/custom-llm-providers",
               "agents/skills",
               "agents/secrets-variables"
             ]
