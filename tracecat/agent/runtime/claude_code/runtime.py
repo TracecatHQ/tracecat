@@ -16,6 +16,7 @@ import os
 import tempfile
 import uuid
 from collections.abc import AsyncIterator, Callable
+from contextlib import suppress
 from pathlib import Path
 from time import perf_counter
 from typing import Any, Literal, Protocol, cast
@@ -225,10 +226,9 @@ class ClaudeAgentRuntime:
         self._was_interrupted: bool = False
         # For incremental JSONL line tracking
         self._sdk_session_id: str | None = None
-        self._last_seen_line_index: int = 0
-        # One-shot guard for hiding our neutral approval-continuation prompt.
-        # Other SDK metadata rows are hidden structurally by `_is_internal_session_line`.
-        self._hide_next_approval_continuation_prompt: bool = False
+        self._last_seen_byte_offset: int = 0
+        self._session_flush_lock = asyncio.Lock()
+        self._session_flush_event = asyncio.Event()
         # Adapter for converting Claude SDK events - must be reused to track state
         self._stream_adapter = ClaudeSDKAdapter()
         # Working directory for session file path resolution
@@ -317,16 +317,11 @@ class ClaudeAgentRuntime:
     ) -> Path:
         """Write session data to local filesystem for SDK resume."""
         session_file_path = self._get_session_file_path(sdk_session_id)
-        sdk_session_data = self._canonicalize_sdk_session_data(sdk_session_data)
-
-        # Ensure the file ends with a newline so JSONL readers don't treat the last
-        # record as truncated (some implementations are strict about this).
-        if sdk_session_data and not sdk_session_data.endswith("\n"):
-            sdk_session_data = f"{sdk_session_data}\n"
+        sdk_session_data = self._session_data_for_disk(sdk_session_data)
 
         def _write() -> None:
             session_file_path.parent.mkdir(parents=True, exist_ok=True)
-            session_file_path.write_text(sdk_session_data)
+            session_file_path.write_text(sdk_session_data, encoding="utf-8")
 
         await asyncio.to_thread(_write)
         logger.debug("Wrote session file", path=str(session_file_path))
@@ -350,8 +345,9 @@ class ClaudeAgentRuntime:
             resume_session_id = payload.sdk_session_id
             fork_session = payload.is_fork
             if not fork_session:
+                session_data = self._session_data_for_disk(payload.sdk_session_data)
+                self._last_seen_byte_offset = len(session_data.encode("utf-8"))
                 self._sdk_session_id = resume_session_id
-                self._last_seen_line_index = len(payload.sdk_session_data.splitlines())
 
         async with asyncio.TaskGroup() as tg:
             if (
@@ -385,6 +381,14 @@ class ClaudeAgentRuntime:
         return sdk_session_data.replace(
             LEGACY_REGISTRY_MCP_TOOL_PREFIX, REGISTRY_MCP_TOOL_PREFIX
         ).replace(LEGACY_REGISTRY_MCP_DOT_PREFIX, REGISTRY_MCP_DOT_PREFIX)
+
+    def _session_data_for_disk(self, sdk_session_data: str) -> str:
+        """Return canonical SDK JSONL exactly as written to the local session file."""
+        sdk_session_data = self._canonicalize_sdk_session_data(sdk_session_data)
+        # Ensure JSONL readers do not treat the final record as truncated.
+        if sdk_session_data and not sdk_session_data.endswith("\n"):
+            return f"{sdk_session_data}\n"
+        return sdk_session_data
 
     @staticmethod
     def _is_internal_compaction_prompt(text: str) -> bool:
@@ -504,70 +508,132 @@ class ClaudeAgentRuntime:
 
         return False
 
-    async def _emit_new_session_lines(self) -> None:
+    async def _capture_sdk_session_id(
+        self,
+        sdk_session_id: str | None,
+        *,
+        resume_session_id: str | None,
+        fork_session: bool,
+    ) -> None:
+        """Capture the SDK session ID from any SDK message that carries it."""
+        if not sdk_session_id:
+            return
+        if self._sdk_session_id == sdk_session_id:
+            return
+
+        previous = self._sdk_session_id
+        self._sdk_session_id = sdk_session_id
+
+        if previous is None and resume_session_id and fork_session:
+            session_file = self._get_session_file_path(sdk_session_id)
+            try:
+                stat = session_file.stat()
+            except FileNotFoundError:
+                pass
+            else:
+                self._last_seen_byte_offset = stat.st_size
+
+        logger.debug(
+            "Captured SDK session ID",
+            sdk_session_id=self._sdk_session_id,
+            previous_sdk_session_id=previous,
+        )
+
+    async def _flush_session_lines_when_signaled(
+        self,
+        *,
+        is_approval_continuation: bool,
+    ) -> None:
+        """Flush SDK JSONL lines when stream progress marks the session dirty."""
+        while True:
+            await self._session_flush_event.wait()
+            self._session_flush_event.clear()
+            try:
+                await self._emit_new_session_lines(
+                    is_approval_continuation=is_approval_continuation
+                )
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:
+                logger.warning("Failed to flush session lines", error=str(e))
+
+    async def _emit_new_session_lines(
+        self,
+        *,
+        is_approval_continuation: bool = False,
+    ) -> None:
         """Read and emit new JSONL lines from the SDK session file.
 
-        This reads the session file written by Claude SDK and emits any new lines
-        (past _last_seen_line_index) to the orchestrator for persistence.
+        This tails the session file written by Claude SDK and emits complete new
+        lines from the last byte offset to the orchestrator for persistence.
         The lines contain the full JSONL envelope (uuid, timestamp, parentUuid, etc.)
         needed for proper resume.
 
-        If a line fails to parse (e.g., incomplete write by SDK), we stop processing
-        at that point and keep the index there. The incomplete line will be retried
-        on the next call once the SDK finishes writing it.
+        If a line is incomplete or fails to parse, we stop processing at that byte
+        offset. The incomplete line will be retried on the next call once the SDK
+        finishes writing it.
 
         Race condition handling: If called before _sdk_session_id is set (i.e., before
         the first StreamEvent), this is a no-op. The loopback handler uses UUID-based
         deduplication to handle any duplicates that might occur from out-of-order events.
         """
-        if not self._sdk_session_id:
-            return
+        async with self._session_flush_lock:
+            if not self._sdk_session_id:
+                return
 
-        session_file = self._get_session_file_path(self._sdk_session_id)
-        if not session_file.exists():
-            return
+            sdk_session_id = self._sdk_session_id
+            session_file = self._get_session_file_path(sdk_session_id)
+            start_offset = self._last_seen_byte_offset
 
-        try:
-            file_content = await asyncio.to_thread(session_file.read_text)
-            lines = file_content.splitlines()
-            new_lines = lines[self._last_seen_line_index :]
+            def _read_tail() -> bytes | None:
+                try:
+                    with session_file.open("rb") as file:
+                        file.seek(start_offset)
+                        return file.read()
+                except FileNotFoundError:
+                    return None
 
-            for line in new_lines:
-                if not line.strip():
-                    # Empty line - advance index and continue
-                    self._last_seen_line_index += 1
+            tail = await asyncio.to_thread(_read_tail)
+            if not tail:
+                return
+
+            line_offset = start_offset
+            for raw_line in tail.splitlines(keepends=True):
+                if not raw_line.endswith(b"\n"):
+                    break
+
+                next_offset = line_offset + len(raw_line)
+                line_bytes = raw_line.rstrip(b"\r\n")
+                if not line_bytes.strip():
+                    self._last_seen_byte_offset = next_offset
+                    line_offset = next_offset
                     continue
 
                 # Parse to determine visibility, but send raw line for SDK resume
                 try:
+                    line = line_bytes.decode("utf-8")
                     line_data = orjson.loads(line)
-                except orjson.JSONDecodeError:
+                except (UnicodeDecodeError, orjson.JSONDecodeError):
                     # Stop at the first decode failure - this line may be incomplete
                     # because the SDK is still writing it. We'll retry on the next pass.
                     logger.debug(
                         "Stopping at incomplete session line, will retry",
-                        line_index=self._last_seen_line_index,
+                        byte_offset=line_offset,
                     )
                     break
 
-                internal = self._is_internal_session_line(line_data)
-
-                if (
-                    self._hide_next_approval_continuation_prompt
+                internal = self._is_internal_session_line(line_data) or (
+                    is_approval_continuation
                     and is_approval_continuation_prompt_line(line_data)
-                ):
-                    internal = True
-                    self._hide_next_approval_continuation_prompt = False
-
-                await self._event_writer.send_session_line(
-                    self._sdk_session_id, line, internal=internal
                 )
 
-                # Only advance the index after successfully processing the line
-                self._last_seen_line_index += 1
+                await self._event_writer.send_session_line(
+                    sdk_session_id, line, internal=internal
+                )
 
-        except Exception as e:
-            logger.warning("Failed to read session file", error=str(e))
+                # Only advance the offset after successfully processing the line.
+                self._last_seen_byte_offset = next_offset
+                line_offset = next_offset
 
     async def _handle_approval_request(
         self,
@@ -738,6 +804,9 @@ class ClaudeAgentRuntime:
             )
 
         self._session_id = payload.session_id
+        self._sdk_session_id = None
+        self._last_seen_byte_offset = 0
+        self._session_flush_event.clear()
         log_benchmark_phase("runtime_start")
         await self._event_writer.send_log(
             "info",
@@ -747,6 +816,7 @@ class ClaudeAgentRuntime:
         # Use resolved tool definitions from orchestrator
         self.registry_tools = payload.allowed_actions
         self.tool_approvals = payload.config.tool_approvals
+        session_flush_task: asyncio.Task[None] | None = None
 
         # Stable per-session working directory for the Claude Code CLI.
         # IMPORTANT: Must be deterministic per session_id. The CLI indexes
@@ -892,7 +962,6 @@ class ClaudeAgentRuntime:
             _configure_claude_sdk_process_env()
             if payload.is_approval_continuation:
                 query_input = self._meta_text_input_stream(APPROVAL_CONTINUATION_PROMPT)
-                self._hide_next_approval_continuation_prompt = True
                 query_log_extra = {
                     "prompt_length": len(APPROVAL_CONTINUATION_PROMPT),
                     "is_meta": True,
@@ -910,6 +979,11 @@ class ClaudeAgentRuntime:
                 self.client = client
                 log_benchmark_phase("runtime_client_connected")
                 stderr_task = asyncio.create_task(drain_stderr())
+                session_flush_task = asyncio.create_task(
+                    self._flush_session_lines_when_signaled(
+                        is_approval_continuation=payload.is_approval_continuation
+                    )
+                )
                 try:
                     await self._event_writer.send_log(
                         "info",
@@ -935,48 +1009,28 @@ class ClaudeAgentRuntime:
                         logger.debug(
                             "Received message", message_type=type(message).__name__
                         )
+                        raw_sdk_session_id = getattr(message, "session_id", None)
+                        sdk_session_id = (
+                            raw_sdk_session_id
+                            if isinstance(raw_sdk_session_id, str)
+                            else None
+                        )
+                        await self._capture_sdk_session_id(
+                            sdk_session_id,
+                            resume_session_id=resume_session_id,
+                            fork_session=fork_session,
+                        )
                         if isinstance(message, StreamEvent):
                             if not first_stream_event_logged:
                                 first_stream_event_logged = True
                                 log_benchmark_phase("runtime_first_stream_event")
-                            # Capture SDK session ID from first StreamEvent
-                            if (
-                                message.session_id
-                                and self._sdk_session_id != message.session_id
-                            ):
-                                previous = self._sdk_session_id
-                                self._sdk_session_id = message.session_id
-                                # If the CLI started a different session (e.g. fork), avoid
-                                # re-persisting old history by jumping to current file length.
-                                # For normal resumes we pre-seed `_last_seen_line_index` above.
-                                if (
-                                    previous is None
-                                    and resume_session_id
-                                    and fork_session
-                                ):
-                                    session_file = self._get_session_file_path(
-                                        self._sdk_session_id
-                                    )
-                                    if session_file.exists():
-                                        file_content = await asyncio.to_thread(
-                                            session_file.read_text
-                                        )
-                                        self._last_seen_line_index = len(
-                                            file_content.splitlines()
-                                        )
-                                logger.debug(
-                                    "Captured SDK session ID",
-                                    sdk_session_id=self._sdk_session_id,
-                                    previous_sdk_session_id=previous,
-                                )
 
                             # Partial streaming delta - forward to UI
                             unified = self._stream_adapter.to_unified_event(message)
                             await self._event_writer.send_stream_event(unified)
+                            self._session_flush_event.set()
 
                         elif isinstance(message, ResultMessage):
-                            # Final result - emit any remaining lines
-                            await self._emit_new_session_lines()
                             await self._event_writer.send_log(
                                 "info",
                                 "Agent turn completed",
@@ -1000,11 +1054,8 @@ class ClaudeAgentRuntime:
                                 duration_ms=message.duration_ms,
                                 output=result_output,
                             )
-                            self._hide_next_approval_continuation_prompt = False
 
                         elif isinstance(message, SystemMessage):
-                            await self._emit_new_session_lines()
-
                             # init: emitted once at session start; surfaces MCP
                             # server connection results so we can flag failures.
                             if message.subtype == "init":
@@ -1041,11 +1092,10 @@ class ClaudeAgentRuntime:
                                         pre_tokens=pre_tokens,
                                     )
                                 )
+                                self._session_flush_event.set()
 
                         else:
                             # AssistantMessage, UserMessage, etc.
-                            await self._emit_new_session_lines()
-
                             # Stream tool results for UI
                             if isinstance(message, UserMessage) and isinstance(
                                 message.content, list
@@ -1065,6 +1115,7 @@ class ClaudeAgentRuntime:
                                                 is_error=block.is_error or False,
                                             )
                                         )
+                                        self._session_flush_event.set()
                 finally:
                     stderr_task.cancel()
                     try:
@@ -1073,7 +1124,9 @@ class ClaudeAgentRuntime:
                         pass
 
             # CLI has exited — session file is fully flushed.
-            await self._emit_new_session_lines()
+            await self._emit_new_session_lines(
+                is_approval_continuation=payload.is_approval_continuation
+            )
             log_benchmark_phase("runtime_complete")
 
         except Exception as e:
@@ -1086,5 +1139,9 @@ class ClaudeAgentRuntime:
             await self._event_writer.send_error(str(e))
             raise
         finally:
+            if session_flush_task is not None:
+                session_flush_task.cancel()
+                with suppress(asyncio.CancelledError):
+                    await session_flush_task
             self.client = None
             await self._event_writer.send_done()
