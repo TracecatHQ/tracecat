@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.agent.folders.schemas import AgentFolderDirectoryItem
 from tracecat.agent.folders.service import (
-    AGENT_FOLDER_PARENT_NOT_FOUND_CODE,
+    AgentFolderErrorCode,
     AgentFolderService,
 )
 from tracecat.auth.types import Role
@@ -192,7 +192,9 @@ async def test_list_folders_rejects_missing_parent_path(
     with pytest.raises(TracecatValidationError) as exc_info:
         await folder_service.list_folders("/missing/")
 
-    assert exc_info.value.detail == {"code": AGENT_FOLDER_PARENT_NOT_FOUND_CODE}
+    assert exc_info.value.detail == {
+        "code": AgentFolderErrorCode.PARENT_NOT_FOUND.value
+    }
 
 
 @pytest.mark.anyio

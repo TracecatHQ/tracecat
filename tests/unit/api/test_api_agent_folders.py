@@ -10,9 +10,7 @@ from fastapi.testclient import TestClient
 
 from tracecat.agent.folders import router as agent_folder_router
 from tracecat.agent.folders.service import (
-    AGENT_FOLDER_CONFLICT_CODE,
-    AGENT_FOLDER_INVALID_CODE,
-    AGENT_FOLDER_PARENT_NOT_FOUND_CODE,
+    AgentFolderErrorCode,
 )
 from tracecat.agent.preset import router as agent_preset_router
 from tracecat.agent.preset.schemas import AgentPresetMoveToFolder
@@ -52,7 +50,7 @@ async def test_create_folder_conflict_returns_409(
             "create_folder",
             side_effect=TracecatValidationError(
                 "Folder /agents/ already exists",
-                detail={"code": AGENT_FOLDER_CONFLICT_CODE},
+                detail={"code": AgentFolderErrorCode.CONFLICT.value},
             ),
         )
         mock_service_cls.return_value = mock_service
@@ -77,7 +75,7 @@ async def test_create_folder_missing_parent_returns_404(
             "create_folder",
             side_effect=TracecatValidationError(
                 "Parent path /missing/ not found",
-                detail={"code": AGENT_FOLDER_PARENT_NOT_FOUND_CODE},
+                detail={"code": AgentFolderErrorCode.PARENT_NOT_FOUND.value},
             ),
         )
         mock_service_cls.return_value = mock_service
@@ -102,7 +100,7 @@ async def test_list_folders_missing_parent_returns_404(
             "list_folders_paginated",
             side_effect=TracecatValidationError(
                 "Parent path /missing/ not found",
-                detail={"code": AGENT_FOLDER_PARENT_NOT_FOUND_CODE},
+                detail={"code": AgentFolderErrorCode.PARENT_NOT_FOUND.value},
             ),
         )
         mock_service_cls.return_value = mock_service
@@ -169,7 +167,7 @@ async def test_create_folder_blank_name_returns_400(
             "create_folder",
             side_effect=TracecatValidationError(
                 "Folder name cannot be empty",
-                detail={"code": AGENT_FOLDER_INVALID_CODE},
+                detail={"code": AgentFolderErrorCode.INVALID.value},
             ),
         )
         mock_service_cls.return_value = mock_service
@@ -194,7 +192,7 @@ async def test_update_folder_validation_returns_400(
             "rename_folder",
             side_effect=TracecatValidationError(
                 "Folder name cannot contain slashes",
-                detail={"code": AGENT_FOLDER_INVALID_CODE},
+                detail={"code": AgentFolderErrorCode.INVALID.value},
             ),
         )
         mock_service_cls.return_value = mock_service
@@ -219,7 +217,7 @@ async def test_update_folder_blank_name_returns_400(
             "rename_folder",
             side_effect=TracecatValidationError(
                 "Folder name cannot be empty",
-                detail={"code": AGENT_FOLDER_INVALID_CODE},
+                detail={"code": AgentFolderErrorCode.INVALID.value},
             ),
         )
         mock_service_cls.return_value = mock_service
@@ -244,7 +242,7 @@ async def test_move_folder_validation_returns_400(
             "move_folder",
             side_effect=TracecatValidationError(
                 "Cannot create cyclic folder structure",
-                detail={"code": AGENT_FOLDER_INVALID_CODE},
+                detail={"code": AgentFolderErrorCode.INVALID.value},
             ),
         )
         mock_service_cls.return_value = mock_service

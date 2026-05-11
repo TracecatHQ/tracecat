@@ -5,6 +5,7 @@ from __future__ import annotations
 import uuid
 from collections.abc import Sequence
 from datetime import datetime
+from enum import StrEnum
 from typing import Literal
 
 import sqlalchemy as sa
@@ -29,10 +30,14 @@ from tracecat.service import BaseWorkspaceService, requires_entitlement
 from tracecat.tags.schemas import TagRead
 from tracecat.tiers.enums import Entitlement
 
-AGENT_FOLDER_CONFLICT_CODE = "agent_folder_conflict"
-AGENT_FOLDER_NOT_FOUND_CODE = "agent_folder_not_found"
-AGENT_FOLDER_PARENT_NOT_FOUND_CODE = "agent_folder_parent_not_found"
-AGENT_FOLDER_INVALID_CODE = "agent_folder_invalid"
+
+class AgentFolderErrorCode(StrEnum):
+    """Machine-readable agent folder validation error codes."""
+
+    CONFLICT = "agent_folder_conflict"
+    NOT_FOUND = "agent_folder_not_found"
+    PARENT_NOT_FOUND = "agent_folder_parent_not_found"
+    INVALID = "agent_folder_invalid"
 
 
 class AgentFolderService(BaseWorkspaceService):
@@ -51,9 +56,9 @@ class AgentFolderService(BaseWorkspaceService):
     def _folder_validation_error(
         message: str,
         *,
-        code: str,
+        code: AgentFolderErrorCode,
     ) -> TracecatValidationError:
-        return TracecatValidationError(message, detail={"code": code})
+        return TracecatValidationError(message, detail={"code": code.value})
 
     @staticmethod
     def _normalize_folder_name(name: str) -> str:
@@ -62,12 +67,12 @@ class AgentFolderService(BaseWorkspaceService):
         if not normalized_name:
             raise AgentFolderService._folder_validation_error(
                 "Folder name cannot be empty",
-                code=AGENT_FOLDER_INVALID_CODE,
+                code=AgentFolderErrorCode.INVALID,
             )
         if "/" in normalized_name:
             raise AgentFolderService._folder_validation_error(
                 "Folder name cannot contain slashes",
-                code=AGENT_FOLDER_INVALID_CODE,
+                code=AgentFolderErrorCode.INVALID,
             )
         return normalized_name
 
@@ -97,7 +102,7 @@ class AgentFolderService(BaseWorkspaceService):
             await self.session.rollback()
             raise self._folder_validation_error(
                 f"Folder {conflict_path} already exists",
-                code=AGENT_FOLDER_CONFLICT_CODE,
+                code=AgentFolderErrorCode.CONFLICT,
             ) from exc
 
     @require_scope("agent:create")
@@ -115,7 +120,7 @@ class AgentFolderService(BaseWorkspaceService):
             if not parent_exists:
                 raise self._folder_validation_error(
                     f"Parent path {parent_path} not found",
-                    code=AGENT_FOLDER_PARENT_NOT_FOUND_CODE,
+                    code=AgentFolderErrorCode.PARENT_NOT_FOUND,
                 )
 
         full_path = (
@@ -128,7 +133,7 @@ class AgentFolderService(BaseWorkspaceService):
         if path_exists:
             raise self._folder_validation_error(
                 f"Folder {full_path} already exists",
-                code=AGENT_FOLDER_CONFLICT_CODE,
+                code=AgentFolderErrorCode.CONFLICT,
             )
 
         folder = AgentFolder(
@@ -178,7 +183,7 @@ class AgentFolderService(BaseWorkspaceService):
             if not parent_exists:
                 raise self._folder_validation_error(
                     f"Parent path {parent_path} not found",
-                    code=AGENT_FOLDER_PARENT_NOT_FOUND_CODE,
+                    code=AgentFolderErrorCode.PARENT_NOT_FOUND,
                 )
         return parent_path
 
@@ -320,7 +325,7 @@ class AgentFolderService(BaseWorkspaceService):
         if not folder:
             raise self._folder_validation_error(
                 f"Folder {folder_id} not found",
-                code=AGENT_FOLDER_NOT_FOUND_CODE,
+                code=AgentFolderErrorCode.NOT_FOUND,
             )
 
         old_path = folder.path
@@ -336,7 +341,7 @@ class AgentFolderService(BaseWorkspaceService):
             if path_exists:
                 raise self._folder_validation_error(
                     f"Folder {new_path} already exists",
-                    code=AGENT_FOLDER_CONFLICT_CODE,
+                    code=AgentFolderErrorCode.CONFLICT,
                 )
 
         descendants = await self._get_descendants(old_path)
@@ -363,7 +368,7 @@ class AgentFolderService(BaseWorkspaceService):
         if not folder:
             raise self._folder_validation_error(
                 f"Folder {folder_id} not found",
-                code=AGENT_FOLDER_NOT_FOUND_CODE,
+                code=AgentFolderErrorCode.NOT_FOUND,
             )
 
         new_parent_path = "/"
@@ -372,19 +377,19 @@ class AgentFolderService(BaseWorkspaceService):
             if not new_parent:
                 raise self._folder_validation_error(
                     f"Parent folder {new_parent_id} not found",
-                    code=AGENT_FOLDER_PARENT_NOT_FOUND_CODE,
+                    code=AgentFolderErrorCode.PARENT_NOT_FOUND,
                 )
             new_parent_path = new_parent.path
 
             if folder.path == new_parent_path:
                 raise self._folder_validation_error(
                     "Cannot make a folder its own child",
-                    code=AGENT_FOLDER_INVALID_CODE,
+                    code=AgentFolderErrorCode.INVALID,
                 )
             if new_parent.path.startswith(folder.path):
                 raise self._folder_validation_error(
                     "Cannot create cyclic folder structure",
-                    code=AGENT_FOLDER_INVALID_CODE,
+                    code=AgentFolderErrorCode.INVALID,
                 )
 
         old_path = folder.path
@@ -400,7 +405,7 @@ class AgentFolderService(BaseWorkspaceService):
             if path_exists:
                 raise self._folder_validation_error(
                     f"Folder {new_path} already exists",
-                    code=AGENT_FOLDER_CONFLICT_CODE,
+                    code=AgentFolderErrorCode.CONFLICT,
                 )
 
         descendants = await self._get_descendants(old_path)
@@ -426,13 +431,13 @@ class AgentFolderService(BaseWorkspaceService):
         if not folder:
             raise self._folder_validation_error(
                 f"Folder {folder_id} not found",
-                code=AGENT_FOLDER_NOT_FOUND_CODE,
+                code=AgentFolderErrorCode.NOT_FOUND,
             )
 
         if folder.path == "/":
             raise self._folder_validation_error(
                 "Cannot delete root folder",
-                code=AGENT_FOLDER_INVALID_CODE,
+                code=AgentFolderErrorCode.INVALID,
             )
 
         if not recursive:
@@ -441,7 +446,7 @@ class AgentFolderService(BaseWorkspaceService):
             if has_children or has_presets:
                 raise self._folder_validation_error(
                     "Folder is not empty. Please move or delete its contents first.",
-                    code=AGENT_FOLDER_INVALID_CODE,
+                    code=AgentFolderErrorCode.INVALID,
                 )
         else:
             descendants = await self._get_descendants(folder.path)

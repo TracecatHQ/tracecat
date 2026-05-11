@@ -14,9 +14,7 @@ from tracecat.agent.folders.schemas import (
     DirectoryItem,
 )
 from tracecat.agent.folders.service import (
-    AGENT_FOLDER_CONFLICT_CODE,
-    AGENT_FOLDER_NOT_FOUND_CODE,
-    AGENT_FOLDER_PARENT_NOT_FOUND_CODE,
+    AgentFolderErrorCode,
     AgentFolderService,
 )
 from tracecat.auth.dependencies import WorkspaceUserRouteRole
@@ -30,11 +28,15 @@ router = APIRouter(prefix="/agent-folders", tags=["agent-folders"])
 
 def _folder_http_exception(err: TracecatValidationError) -> HTTPException:
     detail = err.detail if isinstance(err.detail, dict) else {}
-    code = detail.get("code") if isinstance(detail, dict) else None
+    raw_code = detail.get("code") if isinstance(detail, dict) else None
+    try:
+        code = AgentFolderErrorCode(raw_code)
+    except (TypeError, ValueError):
+        code = None
 
-    if code in {AGENT_FOLDER_NOT_FOUND_CODE, AGENT_FOLDER_PARENT_NOT_FOUND_CODE}:
+    if code in {AgentFolderErrorCode.NOT_FOUND, AgentFolderErrorCode.PARENT_NOT_FOUND}:
         return HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(err))
-    if code == AGENT_FOLDER_CONFLICT_CODE:
+    if code == AgentFolderErrorCode.CONFLICT:
         return HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(err))
     return HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(err))
 
