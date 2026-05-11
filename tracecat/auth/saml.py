@@ -962,5 +962,7 @@ async def sso_acs(
         )
 
     response = await auth_backend.login(strategy, user)
-    await user_manager.on_after_login(user, request, response)
+    await user_manager.on_after_login(
+        user, request, response, organization_id=organization_id
+    )
     return response

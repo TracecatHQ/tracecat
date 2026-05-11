@@ -9,6 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import selectinload
 
+from tracecat.audit.logger import audit_log
 from tracecat.db.models import Organization, OrganizationTier, Tier
 from tracecat.logger import logger
 from tracecat.service import BasePlatformService
@@ -56,6 +57,7 @@ class AdminTierService(BasePlatformService):
             raise TierNotFoundError(f"Tier {tier_id} not found")
         return TierRead.model_validate(tier)
 
+    @audit_log(resource_type="tier", action="create", resource_id_attr="id")
     async def create_tier(self, params: TierCreate) -> TierRead:
         """Create a new tier."""
         # If this tier is set as default, unset other defaults
@@ -84,6 +86,7 @@ class AdminTierService(BasePlatformService):
         await self.session.refresh(tier)
         return TierRead.model_validate(tier)
 
+    @audit_log(resource_type="tier", action="update")
     async def update_tier(self, tier_id: uuid.UUID, params: TierUpdate) -> TierRead:
         """Update a tier."""
         stmt = select(Tier).where(Tier.id == tier_id)
@@ -123,6 +126,7 @@ class AdminTierService(BasePlatformService):
                 )
         return TierRead.model_validate(tier)
 
+    @audit_log(resource_type="tier", action="delete")
     async def delete_tier(self, tier_id: uuid.UUID) -> None:
         """Delete a tier (only if no orgs are assigned to it)."""
         # Check if tier exists
@@ -228,6 +232,7 @@ class AdminTierService(BasePlatformService):
             tier=tier_read,
         )
 
+    @audit_log(resource_type="organization_tier", action="update")
     async def update_org_tier(
         self, org_id: uuid.UUID, params: OrganizationTierUpdate
     ) -> OrganizationTierRead:

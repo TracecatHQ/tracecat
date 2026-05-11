@@ -36,6 +36,7 @@ import type {
   AdminDeleteTierResponse,
   AdminDemoteFromSuperuserData,
   AdminDemoteFromSuperuserResponse,
+  AdminGetAuditSettingsResponse,
   AdminGetOrganizationData,
   AdminGetOrganizationInvitationTokenData,
   AdminGetOrganizationInvitationTokenResponse,
@@ -81,6 +82,8 @@ import type {
   AdminRevokeOrganizationInvitationResponse,
   AdminSyncOrgRepositoryData,
   AdminSyncOrgRepositoryResponse,
+  AdminUpdateAuditSettingsData,
+  AdminUpdateAuditSettingsResponse,
   AdminUpdateOrganizationData,
   AdminUpdateOrganizationDomainData,
   AdminUpdateOrganizationDomainResponse,
@@ -6854,6 +6857,42 @@ export const adminPromoteOrgRepositoryVersion = (
       repository_id: data.repositoryId,
       version_id: data.versionId,
     },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Get Audit Settings
+ * Get platform audit settings.
+ * @returns PlatformAuditSettingsRead Successful Response
+ * @throws ApiError
+ */
+export const adminGetAuditSettings =
+  (): CancelablePromise<AdminGetAuditSettingsResponse> => {
+    return __request(OpenAPI, {
+      method: "GET",
+      url: "/admin/settings/audit",
+    })
+  }
+
+/**
+ * Update Audit Settings
+ * Update platform audit settings.
+ * @param data The data for the request.
+ * @param data.requestBody
+ * @returns PlatformAuditSettingsRead Successful Response
+ * @throws ApiError
+ */
+export const adminUpdateAuditSettings = (
+  data: AdminUpdateAuditSettingsData
+): CancelablePromise<AdminUpdateAuditSettingsResponse> => {
+  return __request(OpenAPI, {
+    method: "PATCH",
+    url: "/admin/settings/audit",
+    body: data.requestBody,
+    mediaType: "application/json",
     errors: {
       422: "Validation Error",
     },

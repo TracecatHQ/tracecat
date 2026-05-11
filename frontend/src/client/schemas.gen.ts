@@ -15946,6 +15946,148 @@ export const $PayloadChangedEventRead = {
   description: "Event for when a case payload is changed.",
 } as const
 
+export const $PlatformAuditSettingsRead = {
+  properties: {
+    audit_webhook_url: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Audit Webhook Url",
+    },
+    audit_webhook_custom_headers: {
+      anyOf: [
+        {
+          additionalProperties: {
+            type: "string",
+          },
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Audit Webhook Custom Headers",
+    },
+    audit_webhook_custom_payload: {
+      anyOf: [
+        {
+          additionalProperties: true,
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Audit Webhook Custom Payload",
+    },
+    audit_webhook_payload_attribute: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Audit Webhook Payload Attribute",
+    },
+    audit_webhook_verify_ssl: {
+      type: "boolean",
+      title: "Audit Webhook Verify Ssl",
+      default: true,
+    },
+    decryption_failed_keys: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Decryption Failed Keys",
+      description:
+        "Encrypted setting keys that could not be decrypted with the current encryption key and must be reconfigured.",
+    },
+  },
+  type: "object",
+  required: ["audit_webhook_url"],
+  title: "PlatformAuditSettingsRead",
+  description: "Platform audit settings response.",
+} as const
+
+export const $PlatformAuditSettingsUpdate = {
+  properties: {
+    audit_webhook_url: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Audit Webhook Url",
+      description:
+        "Webhook URL that receives streamed audit events. When unset, audit events are skipped.",
+    },
+    audit_webhook_custom_headers: {
+      anyOf: [
+        {
+          additionalProperties: {
+            type: "string",
+          },
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Audit Webhook Custom Headers",
+      description:
+        "Custom headers to include in audit webhook requests. Header names are case-insensitive.",
+    },
+    audit_webhook_custom_payload: {
+      anyOf: [
+        {
+          additionalProperties: true,
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Audit Webhook Custom Payload",
+      description:
+        "Custom JSON payload merged into streamed audit event payloads. Custom keys override default audit event keys.",
+    },
+    audit_webhook_payload_attribute: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Audit Webhook Payload Attribute",
+      description:
+        "Optional wrapper key for audit payloads. When set to a value like 'event', payload is sent as {'event': <audit_payload>}.",
+    },
+    audit_webhook_verify_ssl: {
+      type: "boolean",
+      title: "Audit Webhook Verify Ssl",
+      description:
+        "Whether TLS certificates are verified for webhook requests. Disable only for trusted on-prem/self-signed endpoints.",
+      default: true,
+    },
+  },
+  type: "object",
+  title: "PlatformAuditSettingsUpdate",
+  description: "Update platform audit settings.",
+} as const
+
 export const $PlatformRegistrySettingsRead = {
   properties: {
     git_repo_url: {

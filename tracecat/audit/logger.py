@@ -9,10 +9,10 @@ from typing import Any, Concatenate, ParamSpec, TypeVar
 from tracecat.audit.enums import AuditEventStatus
 from tracecat.audit.service import AuditService
 from tracecat.audit.types import AuditAction, AuditResourceType
-from tracecat.auth.types import Role
+from tracecat.auth.types import PlatformRole, Role
 from tracecat.contexts import ctx_role
 from tracecat.logger import logger
-from tracecat.service import BaseService
+from tracecat.service import BasePlatformService, BaseService
 
 P = ParamSpec("P")
 R = TypeVar("R")
@@ -23,6 +23,14 @@ _RESOURCE_ID_ATTR_MAP: dict[str, str] = {
     "workflow_execution": "wf_id",
     "organization_member": "user_id",
     "organization_session": "session_id",
+    "organization": "org_id",
+    "organization_domain": "domain_id",
+    "organization_invitation": "invitation_id",
+    "organization_tier": "org_id",
+    "platform_registry_repository": "repository_id",
+    "platform_registry_version": "version_id",
+    "tier": "tier_id",
+    "user": "user_id",
 }
 
 
@@ -56,7 +64,9 @@ def audit_log(
 
         @functools.wraps(func)
         async def wrapper(self: Any, *args: P.args, **kwargs: P.kwargs) -> R:
-            role: Role | None = ctx_role.get()
+            role: Role | PlatformRole | None = (
+                self.role if isinstance(self, BasePlatformService) else ctx_role.get()
+            )
 
             if role is None or role.actor_id is None:
                 return await func(self, *args, **kwargs)
@@ -100,7 +110,8 @@ def audit_log(
                 # Execute the actual function
                 result = await func(self, *args, **kwargs)
 
-                # Log success
+                # Log success, or a semantic failure for result objects that
+                # complete without raising but report success=False.
                 try:
                     resource_id = _extract_resource_id(
                         args,
@@ -114,7 +125,11 @@ def audit_log(
                             resource_type=resource_type,
                             action=action,
                             resource_id=resource_id,
-                            status=AuditEventStatus.SUCCESS,
+                            status=(
+                                AuditEventStatus.FAILURE
+                                if getattr(result, "success", None) is False
+                                else AuditEventStatus.SUCCESS
+                            ),
                         )
                 except Exception as exc:
                     logger.warning("Audit success log failed", error=str(exc))

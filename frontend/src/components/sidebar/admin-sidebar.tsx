@@ -6,6 +6,7 @@ import {
   BuildingIcon,
   LayersIcon,
   LogOutIcon,
+  LogsIcon,
   UsersIcon,
 } from "lucide-react"
 import Link from "next/link"
@@ -61,6 +62,12 @@ export function AdminSidebar({
       url: "/admin/agent",
       icon: BotIcon,
       isActive: pathname?.includes("/admin/agent"),
+    },
+    {
+      title: "Audit Logs",
+      url: "/admin/audit",
+      icon: LogsIcon,
+      isActive: pathname?.includes("/admin/audit"),
     },
   ]
 

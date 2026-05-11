@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from contextlib import asynccontextmanager
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
@@ -12,9 +13,10 @@ from tracecat.audit.enums import AuditEventActor, AuditEventStatus
 from tracecat.audit.logger import audit_log
 from tracecat.audit.service import AuditService
 from tracecat.audit.types import AuditEvent
-from tracecat.auth.types import Role
+from tracecat.auth.types import PlatformRole, Role
+from tracecat.auth.users import UserManager
 from tracecat.authz.scopes import ADMIN_SCOPES
-from tracecat.contexts import ctx_role
+from tracecat.contexts import ctx_client_ip, ctx_role
 
 
 @pytest.fixture
@@ -55,6 +57,16 @@ async def test_create_event_streams_to_webhook(
     webhook_url = "https://example.com/audit"
     monkeypatch.setattr(
         audit_service, "_get_webhook_url", AsyncMock(return_value=webhook_url)
+    )
+    monkeypatch.setattr(
+        audit_service, "_get_custom_headers", AsyncMock(return_value=None)
+    )
+    monkeypatch.setattr(
+        audit_service, "_get_custom_payload", AsyncMock(return_value=None)
+    )
+    monkeypatch.setattr(audit_service, "_get_verify_ssl", AsyncMock(return_value=True))
+    monkeypatch.setattr(
+        audit_service, "_get_payload_attribute", AsyncMock(return_value=None)
     )
     mock_user = MagicMock()
     mock_user.email = "user@example.com"
@@ -106,6 +118,196 @@ async def test_create_event_includes_case_comment_data_in_payload(
     payload = post_mock.await_args.kwargs["payload"]
     assert payload.resource_type == "case_comment"
     assert payload.data == data
+
+
+@pytest.mark.anyio
+async def test_create_event_can_emit_sanitized_platform_org_auth_event(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    webhook_url = "https://example.com/platform-audit"
+    client_ip = "203.0.113.10"
+    role = Role(
+        type="user",
+        organization_id=uuid.uuid4(),
+        user_id=uuid.uuid4(),
+        service_id="tracecat-api",
+    )
+    audit_service = AuditService(AsyncMock(), role=role, audit_sink="platform")
+    post_mock = AsyncMock()
+    actor_label_mock = AsyncMock()
+    monkeypatch.setattr(
+        audit_service, "_get_webhook_url", AsyncMock(return_value=webhook_url)
+    )
+    monkeypatch.setattr(audit_service, "_get_actor_label", actor_label_mock)
+    monkeypatch.setattr(audit_service, "_post_event", post_mock)
+    token = ctx_client_ip.set(client_ip)
+
+    try:
+        await audit_service.create_event(
+            resource_type="auth",
+            action="sign_in",
+            resource_id=role.user_id,
+            data={"auth_method": "saml"},
+            include_actor_label=False,
+        )
+    finally:
+        ctx_client_ip.reset(token)
+
+    actor_label_mock.assert_not_awaited()
+    assert post_mock.await_args is not None
+    payload = post_mock.await_args.kwargs["payload"]
+    assert payload.organization_id == role.organization_id
+    assert payload.actor_id == role.user_id
+    assert payload.actor_label is None
+    assert payload.ip_address == client_ip
+    assert payload.data == {"auth_method": "saml"}
+
+
+@pytest.mark.anyio
+async def test_auth_success_audit_emits_to_platform_and_org_sinks(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    org_id = uuid.uuid4()
+    user_id = uuid.uuid4()
+    user = MagicMock()
+    user.id = user_id
+    user.is_superuser = False
+    calls: list[dict[str, object]] = []
+
+    @asynccontextmanager
+    async def fake_with_session(
+        role: Role | PlatformRole | None = None,
+        *,
+        session=None,
+        audit_sink=None,
+    ):
+        class FakeAuditService:
+            async def create_event(self, **kwargs):
+                calls.append(
+                    {
+                        "role": role,
+                        "session": session,
+                        "audit_sink": audit_sink,
+                        "kwargs": kwargs,
+                    }
+                )
+
+        yield FakeAuditService()
+
+    monkeypatch.setattr(AuditService, "with_session", fake_with_session)
+    manager = UserManager.__new__(UserManager)
+
+    await manager._emit_auth_success_audit(
+        user=user,
+        auth_method="basic",
+        org_ids={org_id},
+    )
+
+    assert [call["audit_sink"] for call in calls] == ["platform", "organization"]
+    for call in calls:
+        role = call["role"]
+        assert isinstance(role, Role)
+        assert role.user_id == user_id
+        assert role.organization_id == org_id
+        assert call["kwargs"] == {
+            "resource_type": "auth",
+            "action": "sign_in",
+            "resource_id": user_id,
+            "data": {"auth_method": "basic"},
+            "include_actor_label": False,
+        }
+
+
+@pytest.mark.anyio
+async def test_auth_success_audit_emits_superuser_auth_only_to_platform_sink(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    user_id = uuid.uuid4()
+    user = MagicMock()
+    user.id = user_id
+    user.is_superuser = True
+    calls: list[dict[str, object]] = []
+
+    @asynccontextmanager
+    async def fake_with_session(
+        role: Role | PlatformRole | None = None,
+        *,
+        session=None,
+        audit_sink=None,
+    ):
+        class FakeAuditService:
+            async def create_event(self, **kwargs):
+                calls.append(
+                    {
+                        "role": role,
+                        "session": session,
+                        "audit_sink": audit_sink,
+                        "kwargs": kwargs,
+                    }
+                )
+
+        yield FakeAuditService()
+
+    monkeypatch.setattr(AuditService, "with_session", fake_with_session)
+    manager = UserManager.__new__(UserManager)
+
+    await manager._emit_auth_success_audit(
+        user=user,
+        auth_method="basic",
+        org_ids=set(),
+    )
+
+    assert len(calls) == 1
+    call = calls[0]
+    assert call["audit_sink"] == "platform"
+    role = call["role"]
+    assert isinstance(role, PlatformRole)
+    assert role.user_id == user_id
+    assert call["kwargs"] == {
+        "resource_type": "auth",
+        "action": "sign_in",
+        "resource_id": user_id,
+        "data": {"auth_method": "basic"},
+        "include_actor_label": False,
+    }
+
+
+@pytest.mark.anyio
+async def test_auth_success_audit_skips_platform_scoped_auth_for_non_superusers(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    user = MagicMock()
+    user.id = uuid.uuid4()
+    user.is_superuser = False
+    with_session = MagicMock()
+    monkeypatch.setattr(AuditService, "with_session", with_session)
+    manager = UserManager.__new__(UserManager)
+
+    await manager._emit_auth_success_audit(
+        user=user,
+        auth_method="basic",
+        org_ids=set(),
+    )
+
+    with_session.assert_not_called()
+
+
+@pytest.mark.anyio
+async def test_platform_role_defaults_to_platform_audit_sink(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    role = PlatformRole(
+        type="user",
+        user_id=uuid.uuid4(),
+        service_id="tracecat-api",
+    )
+    audit_service = AuditService(AsyncMock(), role=role)
+    get_platform_setting = AsyncMock(return_value="https://example.com/audit")
+    monkeypatch.setattr(audit_service, "_get_platform_setting", get_platform_setting)
+
+    assert audit_service.audit_sink == "platform"
+    assert await audit_service._get_webhook_url() == "https://example.com/audit"
+    get_platform_setting.assert_awaited_once_with("audit_webhook_url")
 
 
 @pytest.mark.anyio

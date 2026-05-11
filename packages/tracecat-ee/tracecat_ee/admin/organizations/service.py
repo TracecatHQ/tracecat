@@ -13,6 +13,7 @@ from sqlalchemy.exc import IntegrityError, NoResultFound
 from sqlalchemy.orm import selectinload
 
 from tracecat.audit.enums import AuditEventStatus
+from tracecat.audit.logger import audit_log
 from tracecat.audit.service import AuditService
 from tracecat.audit.types import AuditAction
 from tracecat.auth.types import Role
@@ -81,6 +82,7 @@ class AdminOrgService(BasePlatformService):
         result = await self.session.execute(stmt)
         return OrgRead.list_adapter().validate_python(result.scalars().all())
 
+    @audit_log(resource_type="organization", action="create", resource_id_attr="id")
     async def create_organization(self, params: OrgCreate) -> OrgRead:
         """Create a new organization with default settings and workspace."""
         org = await create_organization_with_defaults(
@@ -105,6 +107,7 @@ class AdminOrgService(BasePlatformService):
         if await self.session.scalar(stmt) is None:
             raise ValueError(f"Organization {org_id} not found")
 
+    @audit_log(resource_type="organization", action="update")
     async def update_organization(
         self, org_id: uuid.UUID, params: OrgUpdate
     ) -> OrgRead:
@@ -126,6 +129,7 @@ class AdminOrgService(BasePlatformService):
         await self.session.refresh(org)
         return OrgRead.model_validate(org)
 
+    @audit_log(resource_type="organization", action="delete")
     async def delete_organization(
         self,
         org_id: uuid.UUID,
@@ -149,6 +153,11 @@ class AdminOrgService(BasePlatformService):
 
     # Org Invitation Methods
 
+    @audit_log(
+        resource_type="organization_invitation",
+        action="create",
+        resource_id_attr="id",
+    )
     async def create_organization_invitation(
         self,
         org_id: uuid.UUID,
@@ -326,6 +335,11 @@ class AdminOrgService(BasePlatformService):
         invitation = await self._get_platform_invitation(org_id, invitation_id)
         return AdminOrgInvitationTokenRead(token=invitation.token)
 
+    @audit_log(
+        resource_type="organization_invitation",
+        action="revoke",
+        resource_id_attr="invitation_id",
+    )
     async def revoke_organization_invitation(
         self,
         org_id: uuid.UUID,
@@ -724,6 +738,11 @@ class AdminOrgService(BasePlatformService):
             OrgRegistryVersionRead.model_validate(v) for v in result.scalars().all()
         ]
 
+    @audit_log(
+        resource_type="platform_registry_repository",
+        action="sync",
+        resource_id_attr="repository_id",
+    )
     async def sync_org_repository(
         self, org_id: uuid.UUID, repository_id: uuid.UUID, force: bool = False
     ) -> OrgRegistrySyncResponse:
@@ -866,6 +885,11 @@ class AdminOrgService(BasePlatformService):
             forced=force,
         )
 
+    @audit_log(
+        resource_type="platform_registry_version",
+        action="promote",
+        resource_id_attr="version_id",
+    )
     async def promote_org_repository_version(
         self, org_id: uuid.UUID, repository_id: uuid.UUID, version_id: uuid.UUID
     ) -> OrgRegistryVersionPromoteResponse:

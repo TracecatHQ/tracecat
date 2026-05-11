@@ -4842,6 +4842,55 @@ export type PayloadChangedEventRead = {
 }
 
 /**
+ * Platform audit settings response.
+ */
+export type PlatformAuditSettingsRead = {
+  audit_webhook_url: string | null
+  audit_webhook_custom_headers?: {
+    [key: string]: string
+  } | null
+  audit_webhook_custom_payload?: {
+    [key: string]: unknown
+  } | null
+  audit_webhook_payload_attribute?: string | null
+  audit_webhook_verify_ssl?: boolean
+  /**
+   * Encrypted setting keys that could not be decrypted with the current encryption key and must be reconfigured.
+   */
+  decryption_failed_keys?: Array<string>
+}
+
+/**
+ * Update platform audit settings.
+ */
+export type PlatformAuditSettingsUpdate = {
+  /**
+   * Webhook URL that receives streamed audit events. When unset, audit events are skipped.
+   */
+  audit_webhook_url?: string | null
+  /**
+   * Custom headers to include in audit webhook requests. Header names are case-insensitive.
+   */
+  audit_webhook_custom_headers?: {
+    [key: string]: string
+  } | null
+  /**
+   * Custom JSON payload merged into streamed audit event payloads. Custom keys override default audit event keys.
+   */
+  audit_webhook_custom_payload?: {
+    [key: string]: unknown
+  } | null
+  /**
+   * Optional wrapper key for audit payloads. When set to a value like 'event', payload is sent as {'event': <audit_payload>}.
+   */
+  audit_webhook_payload_attribute?: string | null
+  /**
+   * Whether TLS certificates are verified for webhook requests. Disable only for trusted on-prem/self-signed endpoints.
+   */
+  audit_webhook_verify_ssl?: boolean
+}
+
+/**
  * Platform registry settings response.
  */
 export type PlatformRegistrySettingsRead = {
@@ -10558,6 +10607,14 @@ export type AdminPromoteOrgRepositoryVersionData = {
 export type AdminPromoteOrgRepositoryVersionResponse =
   OrgRegistryVersionPromoteResponse
 
+export type AdminGetAuditSettingsResponse = PlatformAuditSettingsRead
+
+export type AdminUpdateAuditSettingsData = {
+  requestBody: PlatformAuditSettingsUpdate
+}
+
+export type AdminUpdateAuditSettingsResponse = PlatformAuditSettingsRead
+
 export type AdminGetRegistrySettingsResponse = PlatformRegistrySettingsRead
 
 export type AdminUpdateRegistrySettingsData = {
@@ -15464,6 +15521,29 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: OrgRegistryVersionPromoteResponse
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/admin/settings/audit": {
+    get: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: PlatformAuditSettingsRead
+      }
+    }
+    patch: {
+      req: AdminUpdateAuditSettingsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: PlatformAuditSettingsRead
         /**
          * Validation Error
          */

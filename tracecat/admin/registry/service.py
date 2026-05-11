@@ -19,6 +19,7 @@ from tracecat.admin.registry.schemas import (
     RepositoryStatus,
     RepositorySyncResult,
 )
+from tracecat.audit.logger import audit_log
 from tracecat.db.models import (
     PlatformRegistryIndex,
     PlatformRegistryRepository,
@@ -157,6 +158,7 @@ class AdminRegistryService(BasePlatformService):
                 )
         return actions
 
+    @audit_log(resource_type="platform_registry", action="sync")
     async def sync_all_repositories(self, force: bool = False) -> RegistrySyncResponse:
         """Sync all platform registry repositories."""
         repos = await self._ensure_platform_repositories()
@@ -172,6 +174,11 @@ class AdminRegistryService(BasePlatformService):
             repositories=results,
         )
 
+    @audit_log(
+        resource_type="platform_registry_repository",
+        action="sync",
+        resource_id_attr="repository_id",
+    )
     async def sync_repository(
         self, repository_id: uuid.UUID, force: bool = False
     ) -> RegistrySyncResponse:
@@ -374,6 +381,11 @@ class AdminRegistryService(BasePlatformService):
         result = await self.session.execute(stmt)
         return [RegistryVersionRead.model_validate(v) for v in result.scalars().all()]
 
+    @audit_log(
+        resource_type="platform_registry_version",
+        action="promote",
+        resource_id_attr="version_id",
+    )
     async def promote_version(
         self,
         repository_id: uuid.UUID,
