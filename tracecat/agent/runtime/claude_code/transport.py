@@ -51,7 +51,6 @@ class ClaudeShimInitPayload(TypedDict):
     cwd: str
     mcp_bridge_port: int
     mcp_bridge_fd: int | None
-    agent_otel_auth_token: str | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -104,7 +103,6 @@ class SandboxedCLITransport(Transport):
         use_jailed_paths: bool,
         skills_dir: Path | None = None,
         otel_socket_path: Path | None = None,
-        agent_otel_auth_token: str | None = None,
     ) -> None:
         self._options = options
         self._session_id = session_id
@@ -116,7 +114,6 @@ class SandboxedCLITransport(Transport):
         self._use_jailed_paths = use_jailed_paths
         self._skills_dir = skills_dir
         self._otel_socket_path = otel_socket_path
-        self._agent_otel_auth_token = agent_otel_auth_token
         self._process: asyncio.subprocess.Process | None = None
         self._spawned_runtime: SpawnedRuntime | None = None
         self._ready = False
@@ -172,7 +169,6 @@ class SandboxedCLITransport(Transport):
                 "cwd": str(self._path_mapping.runtime_work_dir),
                 "mcp_bridge_port": mcp_binding.port,
                 "mcp_bridge_fd": mcp_binding.listener_fd,
-                "agent_otel_auth_token": self._agent_otel_auth_token,
             }
             init_payload_path = self._job_dir / "claude-shim-init.json"
             await asyncio.to_thread(
