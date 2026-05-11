@@ -4,6 +4,7 @@ from unittest.mock import AsyncMock
 from uuid import uuid4
 
 import pytest
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.agent.folders.schemas import AgentFolderDirectoryItem
@@ -12,7 +13,7 @@ from tracecat.agent.folders.service import (
     AgentFolderService,
 )
 from tracecat.auth.types import Role
-from tracecat.db.models import AgentPreset
+from tracecat.db.models import AgentFolder, AgentPreset
 from tracecat.exceptions import (
     EntitlementRequired,
     ScopeDeniedError,
@@ -328,6 +329,118 @@ async def test_get_directory_items_returns_real_direct_item_counts(
     )
 
     assert parent_item.num_items == 4
+
+
+@pytest.mark.anyio
+async def test_rename_folder_updates_descendant_paths(
+    folder_service: AgentFolderService,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Folder renames should rewrite descendant materialized paths."""
+    monkeypatch.setattr(folder_service, "has_entitlement", AsyncMock(return_value=True))
+    parent = await folder_service.create_folder(name="parent", parent_path="/")
+    await folder_service.create_folder(name="child", parent_path="/parent/")
+    await folder_service.create_folder(name="grandchild", parent_path="/parent/child/")
+
+    renamed = await folder_service.rename_folder(parent.id, "renamed")
+    result = await folder_service.session.execute(
+        select(AgentFolder.path).where(
+            AgentFolder.workspace_id == folder_service.workspace_id,
+            AgentFolder.path.startswith("/renamed/", autoescape=True),
+        )
+    )
+
+    assert renamed.path == "/renamed/"
+    assert set(result.scalars().all()) == {
+        "/renamed/",
+        "/renamed/child/",
+        "/renamed/child/grandchild/",
+    }
+
+
+@pytest.mark.anyio
+async def test_move_folder_updates_descendant_paths(
+    folder_service: AgentFolderService,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Folder moves should rewrite descendant materialized paths."""
+    monkeypatch.setattr(folder_service, "has_entitlement", AsyncMock(return_value=True))
+    source = await folder_service.create_folder(name="source", parent_path="/")
+    target = await folder_service.create_folder(name="target", parent_path="/")
+    child = await folder_service.create_folder(name="child", parent_path="/source/")
+    await folder_service.create_folder(name="grandchild", parent_path="/source/child/")
+
+    moved = await folder_service.move_folder(child.id, target.id)
+    result = await folder_service.session.execute(
+        select(AgentFolder.path).where(
+            AgentFolder.workspace_id == folder_service.workspace_id,
+            AgentFolder.path.startswith("/target/child/", autoescape=True),
+        )
+    )
+
+    assert moved.path == "/target/child/"
+    assert set(result.scalars().all()) == {
+        "/target/child/",
+        "/target/child/grandchild/",
+    }
+    assert await folder_service.get_folder_by_path(source.path) is not None
+
+
+@pytest.mark.anyio
+async def test_delete_folder_recursive_clears_presets_and_deletes_descendants(
+    folder_service: AgentFolderService,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Recursive folder deletes should batch-clear preset links and remove descendants."""
+    monkeypatch.setattr(folder_service, "has_entitlement", AsyncMock(return_value=True))
+    parent = await folder_service.create_folder(name="parent", parent_path="/")
+    child = await folder_service.create_folder(name="child", parent_path="/parent/")
+    folder_service.session.add_all(
+        [
+            AgentPreset(
+                workspace_id=folder_service.workspace_id,
+                name="Parent preset",
+                slug="parent-preset",
+                model_name="gpt-4o-mini",
+                model_provider="openai",
+                retries=3,
+                enable_internet_access=False,
+                folder_id=parent.id,
+            ),
+            AgentPreset(
+                workspace_id=folder_service.workspace_id,
+                name="Child preset",
+                slug="child-preset",
+                model_name="gpt-4o-mini",
+                model_provider="openai",
+                retries=3,
+                enable_internet_access=False,
+                folder_id=child.id,
+            ),
+        ]
+    )
+    await folder_service.session.commit()
+
+    await folder_service.delete_folder(parent.id, recursive=True)
+
+    folder_result = await folder_service.session.execute(
+        select(AgentFolder.path).where(
+            AgentFolder.workspace_id == folder_service.workspace_id,
+            AgentFolder.path.startswith("/parent/", autoescape=True),
+        )
+    )
+    preset_result = await folder_service.session.execute(
+        select(AgentPreset.slug, AgentPreset.folder_id).where(
+            AgentPreset.workspace_id == folder_service.workspace_id,
+            AgentPreset.slug.in_(["parent-preset", "child-preset"]),
+        )
+    )
+
+    assert folder_result.scalars().all() == []
+    assert dict(preset_result.tuples().all()) == {
+        "parent-preset": None,
+        "child-preset": None,
+    }
 
 
 @pytest.mark.anyio

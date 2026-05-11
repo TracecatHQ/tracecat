@@ -344,15 +344,12 @@ class AgentFolderService(BaseWorkspaceService):
                     code=AgentFolderErrorCode.CONFLICT,
                 )
 
-        descendants = await self._get_descendants(old_path)
-
         folder.name = normalized_name
         folder.path = new_path
         self.session.add(folder)
 
-        for descendant in descendants:
-            descendant.path = descendant.path.replace(old_path, new_path, 1)
-            self.session.add(descendant)
+        if new_path != old_path:
+            await self._update_descendant_paths(old_path, new_path)
 
         await self._write_folder_change(conflict_path=new_path, commit=True)
         await self.session.refresh(folder)
@@ -408,14 +405,11 @@ class AgentFolderService(BaseWorkspaceService):
                     code=AgentFolderErrorCode.CONFLICT,
                 )
 
-        descendants = await self._get_descendants(old_path)
-
         folder.path = new_path
         self.session.add(folder)
 
-        for descendant in descendants:
-            descendant.path = descendant.path.replace(old_path, new_path, 1)
-            self.session.add(descendant)
+        if new_path != old_path:
+            await self._update_descendant_paths(old_path, new_path)
 
         await self._write_folder_change(conflict_path=new_path, commit=True)
         await self.session.refresh(folder)
@@ -449,28 +443,28 @@ class AgentFolderService(BaseWorkspaceService):
                     code=AgentFolderErrorCode.INVALID,
                 )
         else:
-            descendants = await self._get_descendants(folder.path)
-            for descendant in descendants:
-                statement = select(AgentPreset).where(
-                    AgentPreset.workspace_id == self.workspace_id,
-                    AgentPreset.folder_id == descendant.id,
-                )
-                result = await self.session.execute(statement)
-                presets = result.scalars().all()
-                for preset in presets:
-                    preset.folder_id = None
-                    self.session.add(preset)
-                await self.session.delete(descendant)
-
-            statement = select(AgentPreset).where(
-                AgentPreset.workspace_id == self.workspace_id,
-                AgentPreset.folder_id == folder.id,
+            folder_ids = select(AgentFolder.id).where(
+                AgentFolder.workspace_id == self.workspace_id,
+                AgentFolder.path.startswith(folder.path, autoescape=True),
             )
-            result = await self.session.execute(statement)
-            presets = result.scalars().all()
-            for preset in presets:
-                preset.folder_id = None
-                self.session.add(preset)
+            await self.session.execute(
+                sa.update(AgentPreset)
+                .where(
+                    AgentPreset.workspace_id == self.workspace_id,
+                    AgentPreset.folder_id.in_(folder_ids),
+                )
+                .values(folder_id=None)
+                .execution_options(synchronize_session=False)
+            )
+            await self.session.execute(
+                sa.delete(AgentFolder)
+                .where(
+                    AgentFolder.workspace_id == self.workspace_id,
+                    AgentFolder.path.startswith(folder.path, autoescape=True),
+                    AgentFolder.path != folder.path,
+                )
+                .execution_options(synchronize_session=False)
+            )
 
         await self.session.delete(folder)
         await self.session.commit()
@@ -541,15 +535,19 @@ class AgentFolderService(BaseWorkspaceService):
                 if folder_id is not None
             }
 
-            descendant_path_result = await self.session.execute(
+            child_depth = path_depth + 1
+            child_path_result = await self.session.execute(
                 select(AgentFolder.path).where(
                     AgentFolder.workspace_id == self.workspace_id,
                     AgentFolder.path.startswith(path, autoescape=True),
                     AgentFolder.path != path,
+                    func.length(AgentFolder.path)
+                    - func.length(func.replace(AgentFolder.path, "/", ""))
+                    == child_depth,
                 )
             )
-            for descendant_path in descendant_path_result.scalars().all():
-                parent_path = self._get_parent_path(descendant_path)
+            for child_path in child_path_result.scalars().all():
+                parent_path = self._get_parent_path(child_path)
                 if parent_path in folder_paths:
                     child_folder_counts_by_path[parent_path] = (
                         child_folder_counts_by_path.get(parent_path, 0) + 1
@@ -615,49 +613,43 @@ class AgentFolderService(BaseWorkspaceService):
 
     async def _folder_path_exists(self, path: str) -> bool:
         path = self._normalize_folder_path(path)
-        statement = (
-            select(func.count())
-            .select_from(AgentFolder)
+        exists_clause = sa.exists().where(
+            AgentFolder.workspace_id == self.workspace_id,
+            AgentFolder.path == path,
+        )
+        return bool(await self.session.scalar(select(exists_clause)))
+
+    async def _update_descendant_paths(self, old_path: str, new_path: str) -> None:
+        old_path = self._normalize_folder_path(old_path)
+        new_path = self._normalize_folder_path(new_path)
+        await self.session.execute(
+            sa.update(AgentFolder)
             .where(
                 AgentFolder.workspace_id == self.workspace_id,
-                AgentFolder.path == path,
+                AgentFolder.path.startswith(old_path, autoescape=True),
+                AgentFolder.path != old_path,
             )
+            .values(
+                path=func.concat(
+                    new_path,
+                    func.substring(AgentFolder.path, len(old_path) + 1),
+                )
+            )
+            .execution_options(synchronize_session=False)
         )
-        result = await self.session.execute(statement)
-        return result.scalar_one() > 0
 
     async def _has_children(self, path: str) -> bool:
         path = self._normalize_folder_path(path)
-        statement = (
-            select(func.count())
-            .select_from(AgentFolder)
-            .where(
-                AgentFolder.workspace_id == self.workspace_id,
-                AgentFolder.path.startswith(path, autoescape=True),
-                AgentFolder.path != path,
-            )
-        )
-        result = await self.session.execute(statement)
-        return result.scalar_one() > 0
-
-    async def _has_presets(self, folder_id: uuid.UUID) -> bool:
-        statement = (
-            select(func.count())
-            .select_from(AgentPreset)
-            .where(
-                AgentPreset.workspace_id == self.workspace_id,
-                AgentPreset.folder_id == folder_id,
-            )
-        )
-        result = await self.session.execute(statement)
-        return result.scalar_one() > 0
-
-    async def _get_descendants(self, path: str) -> Sequence[AgentFolder]:
-        path = self._normalize_folder_path(path)
-        statement = select(AgentFolder).where(
+        exists_clause = sa.exists().where(
             AgentFolder.workspace_id == self.workspace_id,
             AgentFolder.path.startswith(path, autoescape=True),
             AgentFolder.path != path,
         )
-        result = await self.session.execute(statement)
-        return result.scalars().all()
+        return bool(await self.session.scalar(select(exists_clause)))
+
+    async def _has_presets(self, folder_id: uuid.UUID) -> bool:
+        exists_clause = sa.exists().where(
+            AgentPreset.workspace_id == self.workspace_id,
+            AgentPreset.folder_id == folder_id,
+        )
+        return bool(await self.session.scalar(select(exists_clause)))
