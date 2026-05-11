@@ -47,6 +47,7 @@ from tracecat.agent.mcp.utils import (
     REGISTRY_MCP_SERVER_NAME,
     action_name_to_mcp_tool_name,
     fetch_tool_definitions,
+    fetch_tool_definitions_for_lock,
     mcp_tool_name_to_action_name,
     normalize_mcp_tool_name,
 )
@@ -266,7 +267,15 @@ async def build_token_scoped_tools(claims: MCPTokenClaims) -> list[Tool]:
     tools: list[Tool] = []
 
     registry_action_names = _registry_action_names(claims)
-    registry_definitions = await fetch_tool_definitions(registry_action_names)
+    registry_definitions = (
+        await fetch_tool_definitions_for_lock(
+            registry_action_names,
+            claims.registry_lock,
+            claims.organization_id,
+        )
+        if claims.registry_lock is not None
+        else await fetch_tool_definitions(registry_action_names)
+    )
     for action_name in registry_action_names:
         if definition := registry_definitions.get(action_name):
             tools.append(

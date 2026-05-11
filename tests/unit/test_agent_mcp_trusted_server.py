@@ -281,6 +281,63 @@ async def test_build_token_scoped_tools_filters_root_catalog(
 
 
 @pytest.mark.anyio
+async def test_build_token_scoped_tools_uses_registry_lock_catalog(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def fake_fetch_tool_definitions(
+        _action_names: list[str],
+    ) -> dict[str, MCPToolDefinition]:
+        pytest.fail("locked tokens must not fetch latest registry definitions")
+
+    async def fake_fetch_tool_definitions_for_lock(
+        action_names: list[str],
+        registry_lock: RegistryLock,
+        organization_id: uuid.UUID,
+    ) -> dict[str, MCPToolDefinition]:
+        assert action_names == ["core.cases.list_cases"]
+        assert registry_lock == lock
+        assert organization_id == claims.organization_id
+        return {
+            "core.cases.list_cases": MCPToolDefinition(
+                name="core.cases.list_cases",
+                description="List cases from locked manifest",
+                parameters_json_schema={
+                    "type": "object",
+                    "properties": {"locked_limit": {"type": "integer"}},
+                    "additionalProperties": False,
+                },
+            )
+        }
+
+    monkeypatch.setattr(
+        trusted_server,
+        "fetch_tool_definitions",
+        fake_fetch_tool_definitions,
+    )
+    monkeypatch.setattr(
+        trusted_server,
+        "fetch_tool_definitions_for_lock",
+        fake_fetch_tool_definitions_for_lock,
+    )
+
+    lock = RegistryLock(
+        origins={"tracecat_registry": "2026.05.11"},
+        actions={"core.cases.list_cases": "tracecat_registry"},
+    )
+    claims = _build_claims(
+        allowed_actions=["core.cases.list_cases"],
+        registry_lock=lock,
+    )
+    tools = await trusted_server.build_token_scoped_tools(claims)
+
+    assert [tool.name for tool in tools] == ["core__cases__list_cases"]
+    schema = tools[0].parameters
+    assert isinstance(schema, dict)
+    assert "locked_limit" in schema["properties"]
+    assert PROXY_TOOL_METADATA_KEY in schema["properties"]
+
+
+@pytest.mark.anyio
 async def test_build_token_scoped_tools_filters_subagent_catalog(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
