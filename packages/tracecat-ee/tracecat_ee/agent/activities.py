@@ -233,7 +233,8 @@ class AgentActivities:
                     raise ApplicationError(
                         "Failed to discover configured MCP tools for agent scope",
                         str(e),
-                        type(e).__name__,
+                        type="AgentToolDefinitionError",
+                        non_retryable=True,
                     ) from e
                 # Continue without user MCP tools - don't fail the whole operation
 

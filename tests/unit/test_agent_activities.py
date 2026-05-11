@@ -248,6 +248,8 @@ class TestBuildToolDefinitionsActivity:
         assert exc_info.value.message == (
             "Failed to discover configured MCP tools for agent scope"
         )
+        assert exc_info.value.type == "AgentToolDefinitionError"
+        assert exc_info.value.non_retryable is True
 
     @pytest.mark.anyio
     async def test_build_agent_tool_definitions_returns_partitioned_scopes(
