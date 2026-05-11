@@ -21,9 +21,15 @@ pytestmark = [pytest.mark.temporal, pytest.mark.usefixtures("db")]
 
 from pydantic_ai.tools import ToolApproved, ToolDenied
 from temporalio import activity
-from temporalio.client import Client, WorkflowFailureError
+from temporalio.api.enums.v1 import EventType
+from temporalio.client import (
+    Client,
+    WorkflowFailureError,
+    WorkflowHandle,
+    WorkflowHistory,
+)
 from temporalio.exceptions import ApplicationError
-from temporalio.worker import UnsandboxedWorkflowRunner, Worker
+from temporalio.worker import Replayer, UnsandboxedWorkflowRunner, Worker
 from tracecat_ee.agent.activities import (
     ApplyApprovalResultsActivityInputs,
     BuildToolDefsArgs,
@@ -253,6 +259,35 @@ def create_activities_with_mock_executor(
         *ApprovalManager.get_activities(),
     ]
     return activities
+
+
+async def replay_durable_agent_workflow_history(
+    temporal_client: Client,
+    history: WorkflowHistory,
+) -> None:
+    """Replay a fetched durable-agent history against the current workflow code."""
+    replay_result = await Replayer(
+        workflows=[DurableAgentWorkflow],
+        workflow_runner=UnsandboxedWorkflowRunner(),
+        data_converter=temporal_client.data_converter,
+    ).replay_workflow(history, raise_on_replay_failure=False)
+    assert replay_result.replay_failure is None
+
+
+async def fetch_history_after_completed_workflow_task(
+    handle: WorkflowHandle[Any, Any],
+) -> WorkflowHistory:
+    """Fetch history once the workflow task that reached a wait state is recorded."""
+    for _ in range(100):
+        history = await handle.fetch_history()
+        if (
+            history.events
+            and history.events[-1].event_type
+            == EventType.EVENT_TYPE_WORKFLOW_TASK_COMPLETED
+        ):
+            return history
+        await asyncio.sleep(0.05)
+    raise AssertionError("Timed out waiting for workflow task completion")
 
 
 # =============================================================================
@@ -721,26 +756,7 @@ async def test_agent_workflow_routes_approved_tools_to_executor_and_reconciles_h
 
         assert input.is_approval_continuation is True
         assert input.sdk_session_id == "sdk-session"
-        assert input.sdk_session_data is not None
-
-        session_lines = [
-            orjson.loads(line)
-            for line in input.sdk_session_data.splitlines()
-            if line.strip()
-        ]
-        tool_result_blocks = [
-            block
-            for entry in session_lines
-            for block in entry.get("message", {}).get("content", [])
-            if isinstance(block, dict) and block.get("type") == "tool_result"
-        ]
-        assert len(tool_result_blocks) == 1
-        assert tool_result_blocks[0]["tool_use_id"] == "call_123"
-        assert tool_result_blocks[0]["is_error"] is False
-        assert orjson.loads(tool_result_blocks[0]["content"]) == {
-            "status": "success",
-            "executor_queue": executor_queue,
-        }
+        assert input.sdk_session_data is None
 
         resumed_after_approval.set()
         run_agent_call_count += 1
@@ -1182,6 +1198,144 @@ async def test_agent_workflow_plumbs_forked_session_through_approval_continuatio
 
 @pytest.mark.anyio
 @pytest.mark.integration
+async def test_agent_workflow_replays_suspended_legacy_sdk_session_data_history(
+    svc_role: Role,
+    temporal_client: Client,
+    agent_worker_factory,
+    mock_session_id: uuid.UUID,
+    agent_config_with_approvals: AgentConfig,
+) -> None:
+    """A suspended workflow with legacy SDK JSONL payloads should replay."""
+    queue = f"test-agent-queue-{mock_session_id}"
+    approval_request_recorded = asyncio.Event()
+    captured_agent_inputs: list[AgentExecutorInput] = []
+    legacy_sdk_session_data = (
+        '{"type":"user","message":{"content":"legacy prompt"}}\n'
+        '{"type":"assistant","message":{"content":[{"type":"text","text":"legacy"}]}}\n'
+    )
+
+    @activity.defn(name="load_session_activity")
+    async def mock_load_session_activity(
+        input: LoadSessionInput,
+    ) -> LoadSessionResult:
+        assert input.session_id == mock_session_id
+        if len(captured_agent_inputs) == 0:
+            return LoadSessionResult(
+                found=True,
+                sdk_session_id="legacy-sdk-session",
+                sdk_session_data=legacy_sdk_session_data,
+                is_fork=False,
+            )
+        return LoadSessionResult(
+            found=True,
+            sdk_session_id="legacy-sdk-session",
+            sdk_session_data=None,
+            is_fork=False,
+        )
+
+    @activity.defn(name="run_agent_activity")
+    async def mock_run_agent_activity(
+        input: AgentExecutorInput,
+    ) -> AgentExecutorResult:
+        captured_agent_inputs.append(input)
+        if len(captured_agent_inputs) == 1:
+            assert input.sdk_session_id == "legacy-sdk-session"
+            assert input.sdk_session_data == legacy_sdk_session_data
+            assert input.is_approval_continuation is False
+            return AgentExecutorResult(
+                success=True,
+                approval_requested=True,
+                approval_items=[
+                    ToolCallContent(
+                        id="call_123",
+                        name="core__http_request",
+                        input={"url": "https://example.com", "method": "GET"},
+                    )
+                ],
+            )
+
+        assert input.sdk_session_id == "legacy-sdk-session"
+        assert input.sdk_session_data is None
+        assert input.is_approval_continuation is True
+        return AgentExecutorResult(
+            success=True,
+            approval_requested=False,
+            output={"status": "continued"},
+        )
+
+    @activity.defn(name="record_approval_requests")
+    async def mock_record_approval_requests(
+        input: PersistApprovalsActivityInputs,
+    ) -> None:
+        assert [approval.tool_call_id for approval in input.approvals] == ["call_123"]
+        approval_request_recorded.set()
+
+    @activity.defn(name="apply_approval_decisions")
+    async def mock_apply_approval_decisions(
+        input: ApplyApprovalResultsActivityInputs,
+    ) -> None:
+        assert [decision.tool_call_id for decision in input.decisions] == ["call_123"]
+
+    workflow_args = AgentWorkflowArgs(
+        role=svc_role,
+        agent_args=RunAgentArgs(
+            session_id=mock_session_id,
+            user_prompt="Continue from legacy suspended workflow",
+            config=agent_config_with_approvals,
+        ),
+        entity_type=AgentSessionEntity.WORKFLOW,
+        entity_id=uuid.uuid4(),
+    )
+
+    activities = [
+        create_mock_create_session_activity(),
+        mock_load_session_activity,
+        create_mock_build_tool_definitions_activity(),
+        mock_run_agent_activity,
+        create_mock_execute_action_activity(),
+        create_mock_reconcile_tool_results_activity(),
+        mock_record_approval_requests,
+        mock_apply_approval_decisions,
+    ]
+
+    async with agent_worker_factory(
+        temporal_client, task_queue=queue, custom_activities=activities
+    ):
+        wf_handle = await temporal_client.start_workflow(
+            DurableAgentWorkflow.run,
+            workflow_args,
+            id=AgentWorkflowID(mock_session_id),
+            task_queue=queue,
+            retry_policy=RETRY_POLICIES["workflow:fail_fast"],
+            execution_timeout=timedelta(seconds=30),
+        )
+
+        await asyncio.wait_for(approval_request_recorded.wait(), timeout=10)
+        suspended_history = await fetch_history_after_completed_workflow_task(wf_handle)
+        await replay_durable_agent_workflow_history(temporal_client, suspended_history)
+
+        await wf_handle.execute_update(
+            DurableAgentWorkflow.set_approvals,
+            WorkflowApprovalSubmission(
+                approvals={"call_123": True},
+                approved_by=svc_role.user_id,
+            ),
+        )
+
+        result = await wf_handle.result()
+        completed_history = await wf_handle.fetch_history()
+        await replay_durable_agent_workflow_history(temporal_client, completed_history)
+
+    assert result.session_id == mock_session_id
+    assert result.output == {"status": "continued"}
+    assert [input.sdk_session_data for input in captured_agent_inputs] == [
+        legacy_sdk_session_data,
+        None,
+    ]
+
+
+@pytest.mark.anyio
+@pytest.mark.integration
 async def test_agent_workflow_does_not_retry_approved_tool_failures(
     svc_role: Role,
     temporal_client: Client,
@@ -1339,23 +1493,7 @@ async def test_agent_workflow_does_not_retry_approved_tool_failures(
 
         assert input.is_approval_continuation is True
         assert input.sdk_session_id == "sdk-session"
-        assert input.sdk_session_data is not None
-
-        session_lines = [
-            orjson.loads(line)
-            for line in input.sdk_session_data.splitlines()
-            if line.strip()
-        ]
-        tool_result_blocks = [
-            block
-            for entry in session_lines
-            for block in entry.get("message", {}).get("content", [])
-            if isinstance(block, dict) and block.get("type") == "tool_result"
-        ]
-        assert len(tool_result_blocks) == 1
-        assert tool_result_blocks[0]["tool_use_id"] == "call_123"
-        assert tool_result_blocks[0]["is_error"] is True
-        assert "transient tool failure" in tool_result_blocks[0]["content"]
+        assert input.sdk_session_data is None
 
         resumed_after_approval.set()
         run_agent_call_count += 1
