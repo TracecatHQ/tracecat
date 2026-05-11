@@ -7,6 +7,7 @@ import pytest
 from fastmcp.exceptions import ToolError
 
 from tracecat.agent.mcp import trusted_server
+from tracecat.agent.preset.service import AgentPresetService
 from tracecat.agent.tokens import MCPTokenClaims, UserMCPServerClaim
 from tracecat.exceptions import BuiltinRegistryHasNoSelectionError
 
@@ -86,6 +87,97 @@ async def test_execute_user_mcp_tool_returns_descriptive_error_on_execution_erro
             {},
             "token",
         )
+
+
+@pytest.mark.anyio
+async def test_execute_user_mcp_tool_uses_claimed_name_for_resolved_config(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    integration_id = uuid.UUID("00000000-0000-0000-0000-000000000004")
+    monkeypatch.setattr(
+        trusted_server,
+        "verify_mcp_token",
+        lambda _: _build_claims(
+            user_mcp_servers=[
+                UserMCPServerClaim(
+                    name="Jira",
+                    id=integration_id,
+                )
+            ]
+        ),
+    )
+
+    class _PresetServiceContext:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return None
+
+        async def resolve_mcp_integration_refs(self, integration_ids):
+            assert integration_ids == [str(integration_id)]
+            return [
+                {
+                    "type": "http",
+                    "name": "Renamed Jira",
+                    "url": "https://mcp.atlassian.com/v1/mcp",
+                    "transport": "http",
+                    "id": str(integration_id),
+                }
+            ]
+
+        async def resolve_mcp_integration_secrets(self, resolved_integration_id):
+            assert resolved_integration_id == integration_id
+            return {"Authorization": "Bearer secret"}
+
+    monkeypatch.setattr(
+        AgentPresetService,
+        "with_session",
+        lambda role=None: _PresetServiceContext(),
+    )
+
+    created_configs: list[dict[str, object]] = []
+    call_args: dict[str, object] = {}
+
+    class _UserMCPClient:
+        def __init__(self, configs):
+            created_configs.extend(configs)
+
+        async def call_tool(self, server_name, tool_name, args):
+            call_args.update(
+                server_name=server_name,
+                tool_name=tool_name,
+                args=args,
+            )
+            return {"ok": True}
+
+    monkeypatch.setattr(trusted_server, "UserMCPClient", _UserMCPClient)
+    execute_user_mcp_tool = cast(
+        ExecuteUserMCPTool, trusted_server.execute_user_mcp_tool
+    )
+
+    result = await execute_user_mcp_tool(
+        "Jira",
+        "getIssue",
+        {"key": "SEC-1"},
+        "token",
+    )
+
+    assert result == '{"ok": true}'
+    assert created_configs == [
+        {
+            "type": "http",
+            "name": "Jira",
+            "url": "https://mcp.atlassian.com/v1/mcp",
+            "transport": "http",
+            "headers": {"Authorization": "Bearer secret"},
+        }
+    ]
+    assert call_args == {
+        "server_name": "Jira",
+        "tool_name": "getIssue",
+        "args": {"key": "SEC-1"},
+    }
 
 
 @pytest.mark.anyio

@@ -208,7 +208,10 @@ async def execute_user_mcp_tool(
             secrets = await svc.resolve_mcp_integration_secrets(ref.id)
         config_dict = {
             "type": "http",
-            "name": metadata["name"],
+            # Keep the call-time routing key stable. The DB row's display name
+            # may have changed after tools were discovered or while a run was
+            # paused, but the runtime still calls the claimed server name.
+            "name": ref.name,
             "url": metadata["url"],
             "transport": metadata.get("transport", "http"),
             "headers": secrets or {},

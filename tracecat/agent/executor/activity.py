@@ -581,7 +581,7 @@ async def run_agent_activity(input: AgentExecutorInput) -> AgentExecutorResult:
     )
 
     input = await _hydrate_sdk_session_history(input)
-   
+
     # Stdio MCP servers are spawned directly by the runtime; unlike HTTP
     # servers they have no per-call secret resolution hook downstream. The
     # configs in ``input.config.mcp_servers`` arrive in refs-only shape
