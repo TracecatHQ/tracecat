@@ -65,6 +65,7 @@ async def test_send_message_continue_uses_path_session_id_for_stream_key() -> No
     )
     fake_stream = SimpleNamespace(
         reset_for_new_turn=AsyncMock(return_value=None),
+        abort_new_turn=AsyncMock(return_value=None),
         sse=Mock(return_value=_empty_event_stream()),
     )
 
@@ -133,6 +134,7 @@ async def test_send_message_new_turn_resets_stream_before_streaming() -> None:
     )
     fake_stream = SimpleNamespace(
         reset_for_new_turn=AsyncMock(return_value=None),
+        abort_new_turn=AsyncMock(return_value=None),
         sse=Mock(return_value=_empty_event_stream()),
     )
 
@@ -160,8 +162,73 @@ async def test_send_message_new_turn_resets_stream_before_streaming() -> None:
     assert isinstance(response, StreamingResponse)
     with_session_mock.assert_called_once_with(role=role)
     fake_stream.reset_for_new_turn.assert_awaited_once()
+    fake_stream.abort_new_turn.assert_not_awaited()
     fake_stream.sse.assert_called_once()
     assert fake_stream.sse.call_args.kwargs["last_id"] == "0-0"
+
+
+@pytest.mark.anyio
+async def test_send_message_new_turn_clears_stream_when_startup_fails() -> None:
+    session_id = uuid.uuid4()
+    workspace_id = uuid.uuid4()
+    role = Role(
+        type="service",
+        service_id="tracecat-api",
+        workspace_id=workspace_id,
+        organization_id=uuid.uuid4(),
+        scopes=frozenset({"agent:execute"}),
+    )
+    request = VercelChatRequest(
+        message=UIMessage(
+            id="msg-1",
+            role="user",
+            parts=[{"type": "text", "text": "hello"}],
+        ),
+        model="gpt-4o-mini",
+        model_provider="openai",
+    )
+
+    fake_svc = SimpleNamespace(
+        is_legacy_session=AsyncMock(return_value=False),
+        validate_turn_request=AsyncMock(return_value=None),
+        run_turn=AsyncMock(side_effect=RuntimeError("temporal unavailable")),
+    )
+    fake_stream = SimpleNamespace(
+        reset_for_new_turn=AsyncMock(return_value=None),
+        abort_new_turn=AsyncMock(return_value=None),
+        sse=Mock(return_value=_empty_event_stream()),
+    )
+
+    with (
+        patch(
+            "tracecat.agent.session.router.AgentSessionService.with_session",
+            return_value=_AsyncContext(fake_svc),
+        ),
+        patch(
+            "tracecat.agent.session.router.AgentStream.new",
+            AsyncMock(return_value=fake_stream),
+        ),
+    ):
+        raw_send_message = cast(Any, send_message).__wrapped__
+        with pytest.raises(HTTPException) as exc_info:
+            await raw_send_message(
+                session_id=session_id,
+                request=request,
+                role=role,
+                http_request=cast(
+                    Any,
+                    SimpleNamespace(is_disconnected=AsyncMock(return_value=False)),
+                ),
+            )
+
+    assert exc_info.value.status_code == 500
+    fake_stream.reset_for_new_turn.assert_awaited_once()
+    fake_svc.run_turn.assert_awaited_once_with(
+        session_id=session_id,
+        request=request,
+    )
+    fake_stream.abort_new_turn.assert_awaited_once()
+    fake_stream.sse.assert_not_called()
 
 
 @pytest.mark.anyio
@@ -194,6 +261,7 @@ async def test_send_message_does_not_reset_stream_when_validation_fails() -> Non
     )
     fake_stream = SimpleNamespace(
         reset_for_new_turn=AsyncMock(return_value=None),
+        abort_new_turn=AsyncMock(return_value=None),
         sse=Mock(return_value=_empty_event_stream()),
     )
 
@@ -223,5 +291,6 @@ async def test_send_message_does_not_reset_stream_when_validation_fails() -> Non
     with_session_mock.assert_called_once_with(role=role)
     stream_new_mock.assert_awaited_once_with(session_id, workspace_id)
     fake_stream.reset_for_new_turn.assert_not_awaited()
+    fake_stream.abort_new_turn.assert_not_awaited()
     fake_stream.sse.assert_not_called()
     fake_svc.run_turn.assert_not_awaited()

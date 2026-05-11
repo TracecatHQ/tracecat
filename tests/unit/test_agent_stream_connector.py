@@ -14,6 +14,25 @@ from tracecat.redis.client import RedisClient
 
 
 @pytest.mark.anyio
+async def test_abort_new_turn_clears_buffer_and_saved_cursor() -> None:
+    workspace_id = uuid.uuid4()
+    session_id = uuid.uuid4()
+    client = SimpleNamespace(delete=AsyncMock(return_value=1))
+    stream = AgentStream(
+        client=cast(RedisClient, client),
+        workspace_id=workspace_id,
+        session_id=session_id,
+    )
+
+    stream._set_last_stream_id = AsyncMock()
+
+    await stream.abort_new_turn()
+
+    client.delete.assert_awaited_once_with(stream._stream_key)
+    stream._set_last_stream_id.assert_awaited_once_with(None)
+
+
+@pytest.mark.anyio
 async def test_stream_events_clears_buffer_after_terminal_marker() -> None:
     workspace_id = uuid.uuid4()
     session_id = uuid.uuid4()

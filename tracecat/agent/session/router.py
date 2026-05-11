@@ -327,10 +327,22 @@ async def send_message(
                 start_id = "0-0"
 
             # Run session turn (spawns DurableAgentWorkflow)
-            await svc.run_turn(
-                session_id=session_id,
-                request=request,
-            )
+            try:
+                await svc.run_turn(
+                    session_id=session_id,
+                    request=request,
+                )
+            except Exception:
+                if not isinstance(request, ContinueRunRequest):
+                    try:
+                        await stream.abort_new_turn()
+                    except Exception as rollback_exc:
+                        logger.warning(
+                            "Failed to clear stream state after turn startup failure",
+                            session_id=session_id,
+                            error=str(rollback_exc),
+                        )
+                raise
 
         logger.info(
             "Starting Vercel streaming session",

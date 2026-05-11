@@ -73,6 +73,11 @@ class AgentStream:
         # Write "0-0" immediately so a reconnect during the turn has a valid cursor.
         await self._set_last_stream_id("0-0")
 
+    async def abort_new_turn(self) -> None:
+        """Clear stream state after startup fails before a turn can produce events."""
+        await self.client.delete(self._stream_key)
+        await self._set_last_stream_id(None)
+
     async def _expire_completed_stream(self) -> None:
         """Keep completed streams briefly for reconnects, then let Redis evict them."""
         try:
