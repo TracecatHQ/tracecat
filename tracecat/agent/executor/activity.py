@@ -97,6 +97,8 @@ class AgentExecutorResult(BaseModel):
     error: str | None = None
     approval_requested: bool = False
     approval_items: list[ToolCallContent] | None = None
+    # Legacy replay compatibility only. New executions load terminal message
+    # history in the durable workflow after the final executor turn completes.
     messages: list[ChatMessage] | None = None
     output: Any = Field(
         default=None,
@@ -526,7 +528,7 @@ async def run_agent_activity(input: AgentExecutorInput) -> AgentExecutorResult:
     This activity:
     1. Creates a SandboxedAgentExecutor
     2. Dispatches the turn through the worker-global runtime broker
-    3. Returns the result with session updates
+    3. Returns runtime status, approval state, usage, and terminal output
 
     The broker-owned transport decides whether the runtime shim runs with nsjail
     or as a direct subprocess based on TRACECAT__DISABLE_NSJAIL.
@@ -539,7 +541,7 @@ async def run_agent_activity(input: AgentExecutorInput) -> AgentExecutorResult:
         input: Agent executor configuration and tokens.
 
     Returns:
-        AgentExecutorResult with execution status and session data.
+        AgentExecutorResult with execution status and terminal output.
     """
     sandbox_mode = "direct" if TRACECAT__DISABLE_NSJAIL else "nsjail"
     activity.heartbeat(
@@ -552,16 +554,6 @@ async def run_agent_activity(input: AgentExecutorInput) -> AgentExecutorResult:
 
     if result.success:
         activity.heartbeat(f"Agent execution completed: {input.session_id}")
-        # Fetch messages from database to include in result
-        try:
-            async with AgentSessionService.with_session(role=input.role) as svc:
-                result.messages = await svc.list_messages(input.session_id)
-        except Exception as e:
-            logger.warning(
-                "Failed to fetch session messages",
-                session_id=str(input.session_id),
-                error=str(e),
-            )
     else:
         activity.heartbeat(f"Agent execution failed: {result.error}")
 

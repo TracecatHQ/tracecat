@@ -33,10 +33,13 @@ from tracecat.agent.session.activities import (
     CreateSessionInput,
     CreateSessionResult,
     LoadSessionInput,
+    LoadSessionMessagesInput,
+    LoadSessionMessagesResult,
     LoadSessionResult,
     create_session_activity,
     get_session_activities,
     load_session_activity,
+    load_session_messages_activity,
 )
 from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.agent.skill.types import ResolvedSkillRef
@@ -44,6 +47,7 @@ from tracecat.agent.tools import BuildToolsResult
 from tracecat.agent.types import AgentConfig
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
+from tracecat.chat.schemas import ChatMessage
 from tracecat.exceptions import BuiltinRegistryHasNoSelectionError
 from tracecat.registry.lock.service import RegistryLockService
 
@@ -83,7 +87,7 @@ class TestSessionActivities:
         """Test that get_session_activities returns a list of activity functions."""
         activities = get_session_activities()
         assert isinstance(activities, list)
-        assert len(activities) == 3
+        assert len(activities) == 4
 
         # All returned items should have the temporal activity definition
         for activity in activities:
@@ -97,6 +101,7 @@ class TestSessionActivities:
         ]
         assert "create_session_activity" in activity_names
         assert "load_session_activity" in activity_names
+        assert "load_session_messages_activity" in activity_names
         assert "reconcile_tool_results_activity" in activity_names
 
 
@@ -503,6 +508,55 @@ class TestLoadSessionActivity:
         assert result.sdk_session_id == "parent-sdk-session"
         assert result.sdk_session_data is None
         assert result.is_fork is True
+
+
+class TestLoadSessionMessagesActivity:
+    """Tests for load_session_messages_activity."""
+
+    @pytest.mark.anyio
+    @patch("tracecat.agent.session.activities.AgentSessionService.with_session")
+    async def test_loads_messages(
+        self, mock_with_session, mock_role: Role, mock_session_id: uuid.UUID
+    ) -> None:
+        input = LoadSessionMessagesInput(
+            role=mock_role,
+            session_id=mock_session_id,
+        )
+        expected_messages = [ChatMessage(id="msg-1")]
+
+        mock_service = AsyncMock()
+        mock_service.list_messages.return_value = expected_messages
+        mock_ctx = AsyncMock()
+        mock_ctx.__aenter__.return_value = mock_service
+        mock_with_session.return_value = mock_ctx
+
+        result = await load_session_messages_activity(input)
+
+        assert isinstance(result, LoadSessionMessagesResult)
+        assert result.messages == expected_messages
+        assert result.error is None
+        mock_service.list_messages.assert_awaited_once_with(mock_session_id)
+
+    @pytest.mark.anyio
+    @patch("tracecat.agent.session.activities.AgentSessionService.with_session")
+    async def test_returns_error_when_message_load_fails(
+        self, mock_with_session, mock_role: Role, mock_session_id: uuid.UUID
+    ) -> None:
+        input = LoadSessionMessagesInput(
+            role=mock_role,
+            session_id=mock_session_id,
+        )
+
+        mock_service = AsyncMock()
+        mock_service.list_messages.side_effect = RuntimeError("db unavailable")
+        mock_ctx = AsyncMock()
+        mock_ctx.__aenter__.return_value = mock_service
+        mock_with_session.return_value = mock_ctx
+
+        result = await load_session_messages_activity(input)
+
+        assert result.messages is None
+        assert result.error == "db unavailable"
 
 
 class TestRunAgentActivity:
