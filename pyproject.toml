@@ -198,6 +198,8 @@ markers = [
 [tool.basedpyright]
 pythonVersion = "3.12"
 typeCheckingMode = "standard"
+venvPath = "."
+venv = ".venv"
 include = ["tracecat", "packages", "alembic", "tests"]
 exclude = ["scripts/", "**/__pycache__", "**/node_modules"]
 # Core type checking - keep enabled for catching real bugs
