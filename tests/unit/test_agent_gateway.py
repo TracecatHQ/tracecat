@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, cast
@@ -216,19 +217,32 @@ def _make_request(
     *,
     headers: list[tuple[bytes, bytes]] | None = None,
     query_string: bytes = b"",
+    json_body: dict[str, Any] | None = None,
 ) -> Request:
-    return Request(
-        {
-            "type": "http",
-            "method": "GET",
-            "path": path,
-            "headers": headers or [],
-            "query_string": query_string,
-            "scheme": "http",
-            "server": ("127.0.0.1", 4000),
-            "client": ("127.0.0.1", 12345),
-        }
-    )
+    scope = {
+        "type": "http",
+        "method": "POST" if json_body is not None else "GET",
+        "path": path,
+        "headers": headers or [],
+        "query_string": query_string,
+        "scheme": "http",
+        "server": ("127.0.0.1", 4000),
+        "client": ("127.0.0.1", 12345),
+    }
+    if json_body is None:
+        return Request(scope)
+
+    body = json.dumps(json_body).encode()
+    sent = False
+
+    async def receive() -> dict[str, object]:
+        nonlocal sent
+        if sent:
+            return {"type": "http.disconnect"}
+        sent = True
+        return {"type": "http.request", "body": body, "more_body": False}
+
+    return Request(scope, receive)
 
 
 @pytest.mark.anyio
@@ -278,6 +292,7 @@ async def test_user_api_key_auth_strips_anthropic_beta_metadata_for_non_anthropi
             provider="bedrock",
             base_url=None,
             model_settings={},
+            routes={},
         ),
     )
     request = _make_request(
@@ -308,6 +323,7 @@ async def test_user_api_key_auth_preserves_anthropic_beta_metadata_for_anthropic
             provider="anthropic",
             base_url=None,
             model_settings={},
+            routes={},
         ),
     )
     request = _make_request(
@@ -320,6 +336,87 @@ async def test_user_api_key_auth_preserves_anthropic_beta_metadata_for_anthropic
 
     assert request.headers["anthropic-beta"] == "clear_thinking_20251015"
     assert request.query_params["beta"] == "true"
+
+
+@pytest.mark.parametrize(
+    (
+        "root_model",
+        "root_provider",
+        "route_key",
+        "route_model",
+        "route_provider",
+        "preserves_metadata",
+    ),
+    [
+        pytest.param(
+            "gpt-5",
+            "openai",
+            "anthropic/claude-sonnet-4",
+            "claude-sonnet-4",
+            "anthropic",
+            True,
+            id="anthropic-route",
+        ),
+        pytest.param(
+            "claude-sonnet-4",
+            "anthropic",
+            "openai/gpt-5",
+            "gpt-5",
+            "openai",
+            False,
+            id="non-anthropic-route",
+        ),
+    ],
+)
+@pytest.mark.anyio
+async def test_user_api_key_auth_applies_anthropic_beta_metadata_by_route(
+    monkeypatch: pytest.MonkeyPatch,
+    root_model: str,
+    root_provider: str,
+    route_key: str,
+    route_model: str,
+    route_provider: str,
+    preserves_metadata: bool,
+) -> None:
+    monkeypatch.setattr(
+        "tracecat.agent.gateway.verify_llm_token",
+        lambda _: SimpleNamespace(
+            workspace_id="00000000-0000-0000-0000-000000000001",
+            organization_id="00000000-0000-0000-0000-000000000002",
+            session_id="00000000-0000-0000-0000-000000000003",
+            catalog_id=None,
+            use_workspace_credentials=False,
+            model=root_model,
+            provider=root_provider,
+            base_url=None,
+            model_settings={},
+            routes={
+                route_key: SimpleNamespace(
+                    model=route_model,
+                    provider=route_provider,
+                    catalog_id=None,
+                    base_url=None,
+                    model_settings={},
+                    use_workspace_credentials=False,
+                )
+            },
+        ),
+    )
+    request = _make_request(
+        "/v1/messages",
+        headers=[(b"anthropic-beta", b"clear_thinking_20251015")],
+        query_string=b"beta=true",
+        json_body={"model": route_key},
+    )
+
+    await user_api_key_auth(request, api_key="valid-token")
+
+    if preserves_metadata:
+        assert request.headers["anthropic-beta"] == "clear_thinking_20251015"
+        assert request.query_params["beta"] == "true"
+    else:
+        assert request.headers.get("anthropic-beta") is None
+        assert "beta" not in request.query_params
 
 
 @pytest.mark.anyio
@@ -394,6 +491,56 @@ async def test_pre_call_hook_filters_model_settings(
     assert "metadata" not in result
     assert result["api_key"] == "test-openai-key"
     assert captured_kwargs["use_workspace_credentials"] is True
+
+
+@pytest.mark.anyio
+async def test_pre_call_hook_uses_request_model_route_claim(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    credential_requests: list[dict[str, Any]] = []
+
+    async def mock_get_provider_credentials(**kwargs: Any) -> dict[str, str]:
+        credential_requests.append(kwargs)
+        return {"OPENAI_API_KEY": "test-openai-key"}
+
+    monkeypatch.setattr(
+        "tracecat.agent.gateway.get_provider_credentials",
+        mock_get_provider_credentials,
+    )
+
+    user_api_key_dict = UserAPIKeyAuth(
+        api_key="llm-token",
+        metadata={
+            "workspace_id": "00000000-0000-0000-0000-000000000001",
+            "organization_id": "00000000-0000-0000-0000-000000000002",
+            "model": "gpt-5",
+            "provider": "openai",
+            "model_settings": {"temperature": 0.8},
+            "use_workspace_credentials": True,
+            "routes": {
+                "openai/gpt-5-mini": {
+                    "model": "gpt-5-mini",
+                    "provider": "openai",
+                    "base_url": None,
+                    "model_settings": {"temperature": 0.2},
+                    "use_workspace_credentials": False,
+                }
+            },
+        },
+    )
+
+    handler = TracecatCallbackHandler()
+    result = await handler.async_pre_call_hook(
+        user_api_key_dict=user_api_key_dict,
+        cache=cast(DualCache, object()),
+        data={"model": "openai/gpt-5-mini"},
+        call_type="completion",
+    )
+
+    assert result["model"] == "openai/gpt-5-mini"
+    assert result["temperature"] == 0.2
+    assert result["api_key"] == "test-openai-key"
+    assert credential_requests[0]["use_workspace_credentials"] is False
 
 
 @pytest.mark.anyio

@@ -32,6 +32,16 @@ TRACECAT__DISABLE_NSJAIL = os.environ.get(
 TRUSTED_MCP_SOCKET_PATH = Path("/var/run/tracecat/mcp.sock")
 """Path to the trusted MCP socket (shared across jobs)."""
 
+TRACECAT__AGENT_MCP_SOCKET_PATH = Path(
+    os.environ.get("TRACECAT__AGENT_MCP_SOCKET_PATH", str(TRUSTED_MCP_SOCKET_PATH))
+)
+"""Path to the trusted MCP socket visible to the runtime shim."""
+
+TRACECAT__AGENT_MCP_BRIDGE_PORT = int(
+    os.environ.get("TRACECAT__AGENT_MCP_BRIDGE_PORT") or 4101
+)
+"""Loopback port for the in-sandbox trusted MCP HTTP bridge."""
+
 CONTROL_SOCKET_NAME = "control.sock"
 """Name of the per-job control socket."""
 

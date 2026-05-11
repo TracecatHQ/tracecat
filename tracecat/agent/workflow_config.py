@@ -122,6 +122,7 @@ def agent_config_to_payload(config: AgentConfig) -> AgentConfigPayload:
             if config.mcp_servers
             else None
         ),
+        agents=config.agents,
         retries=config.retries,
         enable_thinking=config.enable_thinking,
         enable_internet_access=config.enable_internet_access,
@@ -152,6 +153,7 @@ def agent_config_from_payload(payload: AgentConfigPayload) -> AgentConfig:
             if payload.mcp_servers
             else None
         ),
+        agents=payload.agents,
         retries=payload.retries,
         enable_thinking=payload.enable_thinking,
         enable_internet_access=payload.enable_internet_access,

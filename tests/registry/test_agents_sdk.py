@@ -46,3 +46,32 @@ async def test_run_serializes_config_catalog_id(
     mock_tracecat_client.post.assert_awaited_once()
     _, kwargs = mock_tracecat_client.post.await_args
     assert kwargs["json"]["config"]["catalog_id"] == str(catalog_id)
+
+
+@pytest.mark.anyio
+async def test_run_omits_null_config_fields(
+    agents_client: AgentsClient,
+    mock_tracecat_client: MagicMock,
+) -> None:
+    mock_tracecat_client.post.return_value = {
+        "output": "ok",
+        "duration": 0.1,
+        "usage": {},
+        "session_id": str(uuid.uuid4()),
+    }
+
+    await agents_client.run(
+        user_prompt="Summarize this",
+        config=AgentConfig(
+            model_name="gpt-4.1",
+            model_provider="openai",
+        ),
+    )
+
+    mock_tracecat_client.post.assert_awaited_once()
+    _, kwargs = mock_tracecat_client.post.await_args
+    config = kwargs["json"]["config"]
+    assert config["model_name"] == "gpt-4.1"
+    assert config["model_provider"] == "openai"
+    assert "agents" not in config
+    assert "catalog_id" not in config

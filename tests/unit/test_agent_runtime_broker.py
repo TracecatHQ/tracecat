@@ -7,17 +7,27 @@ from typing import Any, cast
 from unittest.mock import AsyncMock
 from uuid import uuid4
 
+import orjson
 import pytest
+from claude_agent_sdk import ClaudeAgentOptions
+from claude_agent_sdk.types import (
+    AgentDefinition,
+    McpHttpServerConfig,
+    McpServerConfig,
+    McpStdioServerConfig,
+)
 
 from tracecat.agent.common.protocol import RuntimeInitPayload
 from tracecat.agent.common.types import SandboxAgentConfig
 from tracecat.agent.runtime.claude_code import broker as broker_module
 from tracecat.agent.runtime.claude_code import session_paths as session_paths_module
+from tracecat.agent.runtime.claude_code import transport as transport_module
 from tracecat.agent.runtime.claude_code.broker import (
     ClaudeRuntimeBroker,
     ClaudeTurnRequest,
     ConcurrentSessionTurnError,
 )
+from tracecat.agent.runtime.claude_code.session_paths import ClaudeSandboxPathMapping
 from tracecat.agent.runtime.claude_code.transport import SandboxedCLITransport
 
 
@@ -42,6 +52,46 @@ def _make_request(tmp_path: Path) -> ClaudeTurnRequest:
         llm_socket_path=socket_dir / "llm.sock",
         enable_internet_access=False,
     )
+
+
+def _make_transport(tmp_path: Path, *, use_jailed_paths: bool) -> SandboxedCLITransport:
+    runtime_root = Path("/work") if use_jailed_paths else tmp_path / "runtime"
+    path_mapping = ClaudeSandboxPathMapping(
+        host_home_dir=tmp_path / "home",
+        host_project_dir=tmp_path / "project",
+        runtime_home_dir=runtime_root / "home",
+        runtime_cwd=runtime_root / "project",
+    )
+    return SandboxedCLITransport(
+        options=ClaudeAgentOptions(),
+        session_id="session-123",
+        socket_dir=tmp_path / "sockets",
+        llm_socket_path=tmp_path / "llm.sock",
+        job_dir=tmp_path,
+        path_mapping=path_mapping,
+        enable_internet_access=False,
+        use_jailed_paths=use_jailed_paths,
+    )
+
+
+def _trusted_mcp_config(port: int, token: str = "token") -> McpHttpServerConfig:
+    return {
+        "type": "http",
+        "url": f"http://127.0.0.1:{port}/mcp",
+        "headers": {"Authorization": f"Bearer {token}"},
+    }
+
+
+def _stdio_mcp_config(command: str) -> McpStdioServerConfig:
+    return {"type": "stdio", "command": command}
+
+
+class _FakeSandboxProcess:
+    stdin = object()
+    stdout = object()
+    stderr = None
+    returncode = None
+    pid = 12345
 
 
 @pytest.mark.anyio
@@ -216,3 +266,173 @@ def test_transport_rewrites_resolved_bundled_claude_path_for_jail(
         "/site-packages/claude_agent_sdk/_bundled/claude",
         "--print",
     ]
+
+
+def test_transport_uses_fixed_mcp_bridge_port_for_jailed_runtime(
+    tmp_path: Path,
+) -> None:
+    transport = _make_transport(tmp_path, use_jailed_paths=True)
+
+    assert (
+        transport._mcp_bridge_port_for_runtime()
+        == transport_module.TRACECAT__AGENT_MCP_BRIDGE_PORT
+    )
+
+
+def test_transport_uses_available_mcp_bridge_port_for_direct_runtime(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    captured_start_port: list[int] = []
+
+    def fake_available_localhost_port(start_port: int) -> int:
+        captured_start_port.append(start_port)
+        return 54321
+
+    monkeypatch.setattr(
+        SandboxedCLITransport,
+        "_available_localhost_port",
+        staticmethod(fake_available_localhost_port),
+    )
+    transport = _make_transport(tmp_path, use_jailed_paths=False)
+
+    assert transport._mcp_bridge_port_for_runtime() == 54321
+    assert captured_start_port == [transport_module.TRACECAT__AGENT_MCP_BRIDGE_PORT]
+
+
+def test_transport_rewrites_trusted_mcp_bridge_urls_for_selected_port(
+    tmp_path: Path,
+) -> None:
+    transport = _make_transport(tmp_path, use_jailed_paths=False)
+    mcp_servers: dict[str, McpServerConfig] = {
+        "tracecat-registry": _trusted_mcp_config(4101, token="root"),
+        "stdio-server": _stdio_mcp_config("tool"),
+        "other-http-server": _trusted_mcp_config(4999, token="other"),
+    }
+    transport._options = ClaudeAgentOptions(
+        mcp_servers=mcp_servers,
+        agents={
+            "analyst": AgentDefinition(
+                description="Analyze scoped data",
+                prompt="Analyze",
+                mcpServers=[
+                    {
+                        "tracecat-registry-analyst": _trusted_mcp_config(
+                            4101, token="child"
+                        )
+                    },
+                    "stdio-server",
+                ],
+            )
+        },
+    )
+
+    rewritten = transport._options_for_mcp_bridge_port(54321)
+
+    mcp_servers = cast(dict[str, Any], rewritten.mcp_servers)
+    registry_server = cast(dict[str, Any], mcp_servers["tracecat-registry"])
+    assert registry_server["url"] == "http://127.0.0.1:54321/mcp"
+    assert mcp_servers["stdio-server"] == {
+        "type": "stdio",
+        "command": "tool",
+    }
+    other_http_server = cast(dict[str, Any], mcp_servers["other-http-server"])
+    assert other_http_server["url"] == "http://127.0.0.1:4999/mcp"
+    assert rewritten.agents is not None
+    agent = rewritten.agents["analyst"]
+    assert agent.mcpServers is not None
+    agent_mcp_entry = cast(dict[str, Any], agent.mcpServers[0])
+    child_server = cast(
+        dict[str, Any],
+        agent_mcp_entry["tracecat-registry-analyst"],
+    )
+    assert child_server["url"] == "http://127.0.0.1:54321/mcp"
+    assert agent.mcpServers[1] == "stdio-server"
+
+
+def test_transport_mcp_bridge_url_rewrite_keeps_original_options(
+    tmp_path: Path,
+) -> None:
+    transport = _make_transport(tmp_path, use_jailed_paths=False)
+    original_options = ClaudeAgentOptions(
+        mcp_servers={"tracecat-registry": _trusted_mcp_config(4101, token="root")}
+    )
+    transport._options = original_options
+
+    rewritten = transport._options_for_mcp_bridge_port(54321)
+
+    original_mcp_servers = cast(dict[str, Any], original_options.mcp_servers)
+    rewritten_mcp_servers = cast(dict[str, Any], rewritten.mcp_servers)
+    assert original_mcp_servers["tracecat-registry"]["url"] == (
+        "http://127.0.0.1:4101/mcp"
+    )
+    assert rewritten_mcp_servers["tracecat-registry"]["url"] == (
+        "http://127.0.0.1:54321/mcp"
+    )
+
+
+@pytest.mark.anyio
+async def test_transport_connect_applies_selected_direct_port_to_sdk_options(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(
+        SandboxedCLITransport,
+        "_available_localhost_port",
+        staticmethod(lambda _start_port: 54321),
+    )
+    transport = _make_transport(tmp_path, use_jailed_paths=False)
+    options = ClaudeAgentOptions(
+        mcp_servers={"tracecat-registry": _trusted_mcp_config(4101, token="root")},
+        agents={
+            "analyst": AgentDefinition(
+                description="Analyze scoped data",
+                prompt="Analyze",
+                mcpServers=[
+                    {
+                        "tracecat-registry-analyst": _trusted_mcp_config(
+                            4101, token="child"
+                        )
+                    }
+                ],
+            )
+        },
+    )
+    transport._options = options
+    captured_spawn_kwargs: dict[str, object] = {}
+
+    async def fake_build_claude_command() -> list[str]:
+        return ["claude", "--print"]
+
+    async def fake_spawn_jailed_runtime(
+        **kwargs: object,
+    ) -> transport_module.SpawnedRuntime:
+        captured_spawn_kwargs.update(kwargs)
+        return transport_module.SpawnedRuntime(
+            process=cast(Any, _FakeSandboxProcess()),
+            job_dir=None,
+        )
+
+    monkeypatch.setattr(transport, "_build_claude_command", fake_build_claude_command)
+    monkeypatch.setattr(transport, "_build_claude_env_overlay", lambda: {})
+    monkeypatch.setattr(
+        transport_module,
+        "spawn_jailed_runtime",
+        fake_spawn_jailed_runtime,
+    )
+
+    await transport.connect()
+
+    init_payload_path = cast(Path, captured_spawn_kwargs["init_payload_path"])
+    init_payload = orjson.loads(init_payload_path.read_bytes())
+    assert init_payload["mcp_bridge_port"] == 54321
+    assert init_payload["mcp_bridge_port"] != 0
+
+    mcp_servers = cast(dict[str, Any], options.mcp_servers)
+    assert mcp_servers["tracecat-registry"]["url"] == "http://127.0.0.1:54321/mcp"
+    assert options.agents is not None
+    agent = options.agents["analyst"]
+    assert agent.mcpServers is not None
+    agent_entry = cast(dict[str, Any], agent.mcpServers[0])
+    child_server = cast(dict[str, Any], agent_entry["tracecat-registry-analyst"])
+    assert child_server["url"] == "http://127.0.0.1:54321/mcp"

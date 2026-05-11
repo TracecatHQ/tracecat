@@ -27,6 +27,7 @@ from tracecat.agent.skill.schemas import (
     SkillDraftUpsertTextFileOp,
 )
 from tracecat.agent.skill.service import SkillService
+from tracecat.agent.subagents import AgentSubagentsConfig, ResolvedAttachedSubagentRef
 from tracecat.agent.types import AgentConfig
 from tracecat.auth.types import Role
 from tracecat.db.models import (
@@ -775,6 +776,34 @@ class TestAgentPresetService:
 
         assert [version.version for version in page_2.items] == [1]
         assert page_2.has_more is False
+
+    async def test_list_versions_exposes_subagent_eligibility(
+        self,
+        agent_preset_service: AgentPresetService,
+        agent_preset_create_params: AgentPresetCreate,
+    ) -> None:
+        """Version list metadata includes version-specific subagent eligibility."""
+        created_preset = await agent_preset_service.create_preset(
+            agent_preset_create_params.model_copy(
+                update={
+                    "agents": AgentSubagentsConfig.model_validate(
+                        {"enabled": True, "subagents": []}
+                    )
+                }
+            )
+        )
+
+        versions = await agent_preset_service.list_versions(
+            created_preset.id,
+            CursorPaginationParams(limit=10),
+        )
+
+        assert len(versions.items) == 1
+        version = versions.items[0]
+        assert version.capabilities == ["subagents"]
+        assert version.subagent_eligibility.eligible is False
+        assert version.subagent_eligibility.reasons == ["agents_enabled"]
+        assert version.subagent_eligibility.message is not None
 
     async def test_list_versions_rejects_invalid_cursor(
         self,
@@ -1992,6 +2021,131 @@ class TestAgentPresetService:
         deleted_preset = await agent_preset_service.get_preset(preset_id)
         assert deleted_preset is None
 
+    async def test_delete_preset_blocks_when_referenced_as_subagent_in_head(
+        self,
+        agent_preset_service: AgentPresetService,
+        agent_preset_create_params: AgentPresetCreate,
+    ) -> None:
+        """Deleting a preset is blocked while another preset head references it."""
+        child = await agent_preset_service.create_preset(
+            agent_preset_create_params.model_copy(
+                update={"name": "Child Agent", "slug": "child-agent"}
+            )
+        )
+        await agent_preset_service.create_preset(
+            agent_preset_create_params.model_copy(
+                update={
+                    "name": "Parent Agent",
+                    "slug": "parent-agent",
+                    "agents": AgentSubagentsConfig.model_validate(
+                        {
+                            "enabled": True,
+                            "subagents": [{"preset": child.slug}],
+                        }
+                    ),
+                }
+            )
+        )
+
+        with pytest.raises(
+            TracecatValidationError,
+            match="still referenced as a subagent",
+        ) as exc_info:
+            await agent_preset_service.delete_preset(child)
+
+        assert exc_info.value.detail == {
+            "code": "preset_in_use_as_subagent",
+            "head_reference_count": 1,
+            "history_reference_count": 1,
+        }
+        assert await agent_preset_service.get_preset(child.id) is not None
+
+    async def test_delete_preset_blocks_when_referenced_as_subagent_in_history(
+        self,
+        agent_preset_service: AgentPresetService,
+        agent_preset_create_params: AgentPresetCreate,
+    ) -> None:
+        """Deleting a preset is blocked while another preset version references it."""
+        child = await agent_preset_service.create_preset(
+            agent_preset_create_params.model_copy(
+                update={"name": "Historical Child", "slug": "historical-child"}
+            )
+        )
+        parent = await agent_preset_service.create_preset(
+            agent_preset_create_params.model_copy(
+                update={
+                    "name": "Historical Parent",
+                    "slug": "historical-parent",
+                    "agents": AgentSubagentsConfig.model_validate(
+                        {
+                            "enabled": True,
+                            "subagents": [{"preset": child.slug}],
+                        }
+                    ),
+                }
+            )
+        )
+        await agent_preset_service.update_preset(
+            parent, AgentPresetUpdate(agents=AgentSubagentsConfig())
+        )
+
+        with pytest.raises(
+            TracecatValidationError,
+            match="still referenced as a subagent",
+        ) as exc_info:
+            await agent_preset_service.delete_preset(child)
+
+        assert exc_info.value.detail == {
+            "code": "preset_in_use_as_subagent",
+            "head_reference_count": 0,
+            "history_reference_count": 1,
+        }
+        assert await agent_preset_service.get_preset(child.id) is not None
+
+    async def test_delete_preset_ignores_resolved_reference_with_reused_slug(
+        self,
+        agent_preset_service: AgentPresetService,
+        agent_preset_create_params: AgentPresetCreate,
+    ) -> None:
+        """Resolved refs use preset_id, so stale slugs do not block a new preset."""
+        original_child = await agent_preset_service.create_preset(
+            agent_preset_create_params.model_copy(
+                update={"name": "Original Child", "slug": "reused-child"}
+            )
+        )
+        await agent_preset_service.create_preset(
+            agent_preset_create_params.model_copy(
+                update={
+                    "name": "Referencing Parent",
+                    "slug": "referencing-parent",
+                    "agents": AgentSubagentsConfig.model_validate(
+                        {
+                            "enabled": True,
+                            "subagents": [{"preset": original_child.slug}],
+                        }
+                    ),
+                }
+            )
+        )
+        await agent_preset_service.update_preset(
+            original_child,
+            AgentPresetUpdate(slug="renamed-child"),
+        )
+        new_child = await agent_preset_service.create_preset(
+            agent_preset_create_params.model_copy(
+                update={"name": "New Child", "slug": "reused-child"}
+            )
+        )
+
+        await agent_preset_service.delete_preset(new_child)
+
+        assert await agent_preset_service.get_preset(new_child.id) is None
+        with pytest.raises(
+            TracecatValidationError,
+            match="still referenced as a subagent",
+        ):
+            await agent_preset_service.delete_preset(original_child)
+
     async def test_get_preset_by_slug(
         self,
         agent_preset_service: AgentPresetService,
@@ -2218,6 +2372,130 @@ class TestAgentPresetService:
 
         preset = await agent_preset_service.create_preset(agent_preset_create_params)
         assert preset.tool_approvals == {"tools.test.test_action": True}
+
+    async def test_create_parent_rejects_subagent_with_tool_approvals(
+        self,
+        agent_preset_service: AgentPresetService,
+        agent_preset_create_params: AgentPresetCreate,
+        registry_actions: list[RegistryAction],
+    ) -> None:
+        """Preset-backed subagents cannot require manual approval in v1."""
+        child_params = agent_preset_create_params.model_copy(
+            update={
+                "name": "Approval Child",
+                "slug": "approval-child",
+                "actions": ["tools.test.test_action"],
+                "tool_approvals": {"tools.test.test_action": True},
+            }
+        )
+        child = await agent_preset_service.create_preset(child_params)
+
+        parent_params = agent_preset_create_params.model_copy(
+            update={
+                "name": "Parent Agent",
+                "slug": "parent-agent",
+                "agents": AgentSubagentsConfig.model_validate(
+                    {
+                        "enabled": True,
+                        "subagents": [{"preset": child.slug}],
+                    }
+                ),
+            }
+        )
+
+        with pytest.raises(
+            TracecatValidationError,
+            match=(
+                "Subagent preset 'approval-child' uses manual approvals, "
+                "which are not supported for subagents yet."
+            ),
+        ):
+            await agent_preset_service.create_preset(parent_params)
+
+    async def test_create_parent_allows_pinned_subagent_with_reused_parent_slug(
+        self,
+        agent_preset_service: AgentPresetService,
+        agent_preset_create_params: AgentPresetCreate,
+    ) -> None:
+        """Pinned subagent refs compare immutable IDs instead of stale slugs."""
+        child = await agent_preset_service.create_preset(
+            agent_preset_create_params.model_copy(
+                update={"name": "Original Child", "slug": "reused-slug"}
+            )
+        )
+        child_version = await agent_preset_service.get_current_version_for_preset(child)
+        await agent_preset_service.update_preset(
+            child,
+            AgentPresetUpdate(slug="renamed-child"),
+        )
+
+        parent = await agent_preset_service.create_preset(
+            agent_preset_create_params.model_copy(
+                update={
+                    "name": "Parent Agent",
+                    "slug": "reused-slug",
+                    "agents": AgentSubagentsConfig.model_validate(
+                        {
+                            "enabled": True,
+                            "subagents": [
+                                {
+                                    "preset": "reused-slug",
+                                    "preset_version": child_version.version,
+                                    "preset_id": child.id,
+                                    "preset_version_id": child_version.id,
+                                }
+                            ],
+                        }
+                    ),
+                }
+            )
+        )
+
+        agents = AgentSubagentsConfig.model_validate(parent.agents)
+        assert agents.enabled is True
+        assert isinstance(agents.subagents[0], ResolvedAttachedSubagentRef)
+        assert agents.subagents[0].preset_id == child.id
+
+    async def test_update_parent_rejects_subagent_with_tool_approvals(
+        self,
+        agent_preset_service: AgentPresetService,
+        agent_preset_create_params: AgentPresetCreate,
+        registry_actions: list[RegistryAction],
+    ) -> None:
+        """Existing parent presets cannot attach approval-gated subagents."""
+        child_params = agent_preset_create_params.model_copy(
+            update={
+                "name": "Approval Child",
+                "slug": "approval-child",
+                "actions": ["tools.test.test_action"],
+                "tool_approvals": {"tools.test.test_action": True},
+            }
+        )
+        child = await agent_preset_service.create_preset(child_params)
+        parent = await agent_preset_service.create_preset(
+            agent_preset_create_params.model_copy(
+                update={"name": "Parent Agent", "slug": "parent-agent"}
+            )
+        )
+
+        with pytest.raises(
+            TracecatValidationError,
+            match=(
+                "Subagent preset 'approval-child' uses manual approvals, "
+                "which are not supported for subagents yet."
+            ),
+        ):
+            await agent_preset_service.update_preset(
+                parent,
+                AgentPresetUpdate(
+                    agents=AgentSubagentsConfig.model_validate(
+                        {
+                            "enabled": True,
+                            "subagents": [{"preset": child.slug}],
+                        }
+                    )
+                ),
+            )
 
     async def test_update_preset_tool_approvals(
         self,

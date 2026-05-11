@@ -9,12 +9,15 @@ import pytest
 
 from tracecat.agent.sandbox.shim_entrypoint import (
     DEFAULT_LLM_SOCKET_PATH,
+    DEFAULT_MCP_SOCKET_PATH,
     INIT_PAYLOAD_ENV_VAR,
+    MCP_SOCKET_ENV_VAR,
     LLMBridge,
     _pump_stdin_to_process,
     _read_stdin_chunk,
     _resolve_init_payload_path,
     _resolve_llm_socket_path,
+    _resolve_mcp_socket_path,
     _wait_for_process_with_stdin,
 )
 from tracecat.agent.sandbox.shim_entrypoint import (
@@ -68,6 +71,14 @@ def test_resolve_llm_socket_path_falls_back_on_empty_env(
     assert _resolve_llm_socket_path() == Path(DEFAULT_LLM_SOCKET_PATH)
 
 
+def test_resolve_mcp_socket_path_falls_back_on_empty_env(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv(MCP_SOCKET_ENV_VAR, "")
+
+    assert _resolve_mcp_socket_path() == Path(DEFAULT_MCP_SOCKET_PATH)
+
+
 @pytest.mark.anyio
 async def test_llm_bridge_ignores_expected_server_closed_error(
     caplog: pytest.LogCaptureFixture,
@@ -96,6 +107,7 @@ async def test_read_shim_init_payload_validates_shape(tmp_path: Path) -> None:
                 "command": ["claude", "--print"],
                 "env": {"HOME": "/work/claude-home"},
                 "cwd": "/work/claude-project",
+                "mcp_bridge_port": 4101,
             }
         )
     )
@@ -106,7 +118,26 @@ async def test_read_shim_init_payload_validates_shape(tmp_path: Path) -> None:
         "command": ["claude", "--print"],
         "env": {"HOME": "/work/claude-home"},
         "cwd": "/work/claude-project",
+        "mcp_bridge_port": 4101,
     }
+
+
+@pytest.mark.anyio
+async def test_read_shim_init_payload_rejects_port_zero(tmp_path: Path) -> None:
+    init_path = tmp_path / "shim-init.json"
+    init_path.write_bytes(
+        orjson.dumps(
+            {
+                "command": ["claude", "--print"],
+                "env": {"HOME": "/work/claude-home"},
+                "cwd": "/work/claude-project",
+                "mcp_bridge_port": 0,
+            }
+        )
+    )
+
+    with pytest.raises(ValueError, match="mcp_bridge_port must be a positive integer"):
+        await _read_shim_init_payload(init_path)
 
 
 class _FakeStreamWriter:
@@ -151,6 +182,35 @@ async def test_pump_stdin_to_process_suppresses_broken_pipe(
     assert writer.closed is True
 
 
+@pytest.mark.anyio
+async def test_pump_stdin_forwards_streamed_initialize_agent_mcp_urls(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    chunks = iter(
+        [
+            b'{"type":"control_request","agents":{"analyst":{"mcpServers":[{"tracecat-registry-analyst":{"type":"http","url":"http://127.0.0.1:4101',
+            b'/mcp","headers":{"Authorization":"Bearer token"}}}]}}}\n',
+            b"",
+        ]
+    )
+
+    async def fake_wait_for_stdin_chunk(chunk_size: int) -> bytes:
+        assert chunk_size == 65536
+        return next(chunks)
+
+    monkeypatch.setattr(
+        "tracecat.agent.sandbox.shim_entrypoint._wait_for_stdin_chunk",
+        fake_wait_for_stdin_chunk,
+    )
+    writer = _FakeStreamWriter()
+
+    await _pump_stdin_to_process(cast(Any, writer))
+
+    forwarded = b"".join(writer.writes)
+    assert b"http://127.0.0.1:4101/mcp" in forwarded
+    assert writer.closed is True
+
+
 class _FakeProcess:
     async def wait(self) -> int:
         await asyncio.sleep(0)
@@ -164,7 +224,10 @@ async def test_wait_for_process_with_stdin_does_not_wait_for_stdin_eof(
     stdin_started = asyncio.Event()
     stdin_cancelled = asyncio.Event()
 
-    async def fake_pump_stdin_to_process(_writer: asyncio.StreamWriter) -> None:
+    async def fake_pump_stdin_to_process(
+        _writer: asyncio.StreamWriter,
+        **_kwargs: Any,
+    ) -> None:
         stdin_started.set()
         try:
             await asyncio.Event().wait()

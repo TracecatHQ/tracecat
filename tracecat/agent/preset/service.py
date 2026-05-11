@@ -10,10 +10,12 @@ from typing import TYPE_CHECKING, Any, cast
 
 import sqlalchemy as sa
 from slugify import slugify
-from sqlalchemy import func, select
+from sqlalchemy import column, func, literal, select
+from sqlalchemy.dialects.postgresql import JSONB
 
 from tracecat.agent.access.service import AgentModelAccessService
 from tracecat.agent.common.types import MCPHttpServerConfig
+from tracecat.agent.preset.resolver import resolve_agents_config
 from tracecat.agent.preset.schemas import (
     AgentPresetCreate,
     AgentPresetRead,
@@ -27,9 +29,14 @@ from tracecat.agent.preset.schemas import (
     ScalarFieldChange,
     StringListFieldChange,
     ToolApprovalFieldChange,
+    _agent_preset_capabilities,
+    build_subagent_eligibility,
 )
 from tracecat.agent.preset.types import SkillBindingSpec
 from tracecat.agent.skill.service import SkillService
+from tracecat.agent.subagents import (
+    AgentSubagentsConfig,
+)
 from tracecat.agent.types import (
     AgentConfig,
     MCPServerConfig,
@@ -90,6 +97,7 @@ class AgentPresetService(BaseWorkspaceService):
         "namespaces",
         "tool_approvals",
         "mcp_integrations",
+        "agents",
         "retries",
         "enable_thinking",
         "enable_internet_access",
@@ -171,6 +179,7 @@ class AgentPresetService(BaseWorkspaceService):
     async def build_preset_read(self, preset: AgentPreset) -> AgentPresetRead:
         """Build the response model for a preset."""
 
+        agents = AgentSubagentsConfig.model_validate(preset.agents)
         return AgentPresetRead(
             id=preset.id,
             workspace_id=preset.workspace_id,
@@ -188,6 +197,7 @@ class AgentPresetService(BaseWorkspaceService):
             namespaces=preset.namespaces,
             tool_approvals=preset.tool_approvals,
             mcp_integrations=preset.mcp_integrations,
+            agents=agents,
             retries=preset.retries,
             enable_thinking=preset.enable_thinking,
             enable_internet_access=preset.enable_internet_access,
@@ -201,6 +211,7 @@ class AgentPresetService(BaseWorkspaceService):
     ) -> AgentPresetVersionRead:
         """Build the response model for an immutable preset version."""
 
+        agents = AgentSubagentsConfig.model_validate(version.agents)
         return AgentPresetVersionRead(
             id=version.id,
             preset_id=version.preset_id,
@@ -216,9 +227,19 @@ class AgentPresetService(BaseWorkspaceService):
             namespaces=version.namespaces,
             tool_approvals=version.tool_approvals,
             mcp_integrations=version.mcp_integrations,
+            agents=agents,
             retries=version.retries,
             enable_thinking=version.enable_thinking,
             enable_internet_access=version.enable_internet_access,
+            capabilities=_agent_preset_capabilities(
+                agents_config=agents,
+                tool_approvals=version.tool_approvals,
+                enable_internet_access=version.enable_internet_access,
+            ),
+            subagent_eligibility=build_subagent_eligibility(
+                agents_config=agents,
+                tool_approvals=version.tool_approvals,
+            ),
             created_at=version.created_at,
             updated_at=version.updated_at,
             skills=await self._list_version_skill_bindings(version.id),
@@ -269,12 +290,18 @@ class AgentPresetService(BaseWorkspaceService):
             namespaces=params.namespaces,
             tool_approvals=params.tool_approvals,
             mcp_integrations=params.mcp_integrations,
+            agents=AgentSubagentsConfig().model_dump(mode="json"),
             enable_thinking=params.enable_thinking,
             enable_internet_access=params.enable_internet_access,
             retries=params.retries,
         )
         self.session.add(preset)
         await self.session.flush()
+        preset.agents = await self._resolve_preset_subagent_configs(
+            params.agents,
+            parent_preset_id=preset.id,
+            parent_slug=slug,
+        )
         if params.skills is not None:
             await self._replace_head_skill_bindings(preset.id, params.skills)
         version = await self._create_version_from_preset(preset)
@@ -366,6 +393,16 @@ class AgentPresetService(BaseWorkspaceService):
                 preset.mcp_integrations = mcp_integrations
                 execution_changed = True
 
+        if "agents" in set_fields:
+            agents = await self._resolve_preset_subagent_configs(
+                set_fields.pop("agents"),
+                parent_preset_id=preset.id,
+                parent_slug=preset.slug,
+            )
+            if preset.agents != agents:
+                preset.agents = agents
+                execution_changed = True
+
         if requested_skills is not None:
             await self._lock_preset_for_versioning(preset.id)
             preset_locked = True
@@ -412,6 +449,7 @@ class AgentPresetService(BaseWorkspaceService):
     @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def delete_preset(self, preset: AgentPreset) -> None:
         """Delete a preset."""
+        await self._ensure_not_referenced_as_subagent(preset)
         # Break the mutable-head pointer before deleting version rows to avoid an ORM
         # dependency cycle between AgentPreset.current_version_id and its versions.
         preset.current_version_id = None
@@ -419,6 +457,86 @@ class AgentPresetService(BaseWorkspaceService):
         await self.session.flush()
         await self.session.delete(preset)
         await self.session.commit()
+
+    async def _ensure_not_referenced_as_subagent(self, preset: AgentPreset) -> None:
+        """Block deletion while other presets still reference this preset."""
+        head_reference_count = await self._count_head_subagent_references(preset)
+        history_reference_count = await self._count_history_subagent_references(preset)
+        if head_reference_count > 0 or history_reference_count > 0:
+            raise TracecatValidationError(
+                "Cannot delete an agent preset that is still referenced as a subagent",
+                detail={
+                    "code": "preset_in_use_as_subagent",
+                    "head_reference_count": head_reference_count,
+                    "history_reference_count": history_reference_count,
+                },
+            )
+
+    async def _count_head_subagent_references(self, preset: AgentPreset) -> int:
+        subagent_ref_exists = self._subagent_reference_exists(
+            AgentPreset.agents,
+            preset_id=preset.id,
+            slug=preset.slug,
+        )
+        stmt = (
+            select(func.count())
+            .select_from(AgentPreset)
+            .where(
+                AgentPreset.workspace_id == self.workspace_id,
+                AgentPreset.id != preset.id,
+                subagent_ref_exists,
+            )
+        )
+        return (await self.session.execute(stmt)).scalar_one()
+
+    async def _count_history_subagent_references(self, preset: AgentPreset) -> int:
+        subagent_ref_exists = self._subagent_reference_exists(
+            AgentPresetVersion.agents,
+            preset_id=preset.id,
+            slug=preset.slug,
+        )
+        stmt = (
+            select(func.count())
+            .select_from(AgentPresetVersion)
+            .where(
+                AgentPresetVersion.workspace_id == self.workspace_id,
+                AgentPresetVersion.preset_id != preset.id,
+                subagent_ref_exists,
+            )
+        )
+        return (await self.session.execute(stmt)).scalar_one()
+
+    @staticmethod
+    def _subagent_reference_exists(
+        agents: sa.SQLColumnExpression[dict[str, Any]],
+        *,
+        preset_id: uuid.UUID,
+        slug: str,
+    ) -> sa.ColumnElement[bool]:
+        subagents_value = agents["subagents"]
+        subagents_array = sa.case(
+            (func.jsonb_typeof(subagents_value) == "array", subagents_value),
+            else_=literal([], type_=JSONB),
+        )
+        subagents = (
+            func.jsonb_array_elements(subagents_array)
+            .table_valued(column("value", JSONB))
+            .alias("subagent")
+        )
+        return (
+            select(literal(True))
+            .select_from(subagents)
+            .where(
+                sa.or_(
+                    subagents.c.value["preset_id"].astext == str(preset_id),
+                    sa.and_(
+                        subagents.c.value["preset_id"].astext.is_(None),
+                        subagents.c.value["preset"].astext == slug,
+                    ),
+                )
+            )
+            .exists()
+        )
 
     @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def resolve_agent_preset_config(
@@ -520,6 +638,22 @@ class AgentPresetService(BaseWorkspaceService):
             raise TracecatValidationError(
                 f"{len(missing_ids)} MCP integrations were not found in this workspace: {missing_str}"
             )
+
+    async def _resolve_preset_subagent_configs(
+        self,
+        agents: AgentSubagentsConfig | dict[str, Any] | None,
+        *,
+        parent_preset_id: uuid.UUID,
+        parent_slug: str,
+    ) -> dict[str, Any]:
+        """Resolve and validate a preset's subagent configuration."""
+        resolved = await resolve_agents_config(
+            self,
+            agents=agents,
+            parent_preset_id=parent_preset_id,
+            parent_slug=parent_slug,
+        )
+        return resolved.to_agents_binding().model_dump(mode="json")
 
     def _decrypt_mcp_headers(
         self,
@@ -960,6 +1094,9 @@ class AgentPresetService(BaseWorkspaceService):
             AgentPresetVersion.preset_id,
             AgentPresetVersion.workspace_id,
             AgentPresetVersion.version,
+            AgentPresetVersion.agents,
+            AgentPresetVersion.tool_approvals,
+            AgentPresetVersion.enable_internet_access,
             AgentPresetVersion.created_at,
             AgentPresetVersion.updated_at,
         ).where(
@@ -1014,6 +1151,15 @@ class AgentPresetService(BaseWorkspaceService):
                 preset_id=row_preset_id,
                 workspace_id=workspace_id,
                 version=version_number,
+                capabilities=_agent_preset_capabilities(
+                    agents_config=agents,
+                    tool_approvals=tool_approvals,
+                    enable_internet_access=enable_internet_access,
+                ),
+                subagent_eligibility=build_subagent_eligibility(
+                    agents_config=agents,
+                    tool_approvals=tool_approvals,
+                ),
                 created_at=created_at,
                 updated_at=updated_at,
             )
@@ -1022,6 +1168,9 @@ class AgentPresetService(BaseWorkspaceService):
                 row_preset_id,
                 workspace_id,
                 version_number,
+                agents,
+                tool_approvals,
+                enable_internet_access,
                 created_at,
                 updated_at,
             ) in result.tuples().all()
@@ -1332,6 +1481,7 @@ class AgentPresetService(BaseWorkspaceService):
             "retries",
             "enable_thinking",
             "enable_internet_access",
+            "agents",
         ):
             old_value = getattr(base_version, field)
             new_value = getattr(compare_version, field)
@@ -1440,6 +1590,7 @@ class AgentPresetService(BaseWorkspaceService):
             namespaces=version.namespaces,
             tool_approvals=version.tool_approvals,
             mcp_servers=mcp_servers,
+            agents=AgentSubagentsConfig.model_validate(version.agents),
             retries=version.retries,
             model_settings=model_settings,
             enable_thinking=version.enable_thinking,
@@ -1509,6 +1660,7 @@ class AgentPresetService(BaseWorkspaceService):
             namespaces=preset.namespaces,
             tool_approvals=preset.tool_approvals,
             mcp_integrations=preset.mcp_integrations,
+            agents=preset.agents,
             retries=preset.retries,
             enable_thinking=preset.enable_thinking,
             enable_internet_access=preset.enable_internet_access,
@@ -1534,6 +1686,7 @@ class AgentPresetService(BaseWorkspaceService):
         preset.namespaces = version.namespaces
         preset.tool_approvals = version.tool_approvals
         preset.mcp_integrations = version.mcp_integrations
+        preset.agents = version.agents
         preset.retries = version.retries
         preset.enable_thinking = version.enable_thinking
         preset.enable_internet_access = version.enable_internet_access

@@ -230,6 +230,8 @@ PAGES: list[dict[str, Any]] = [
             `ai.agent` does not take MCP servers directly in the workflow action. If you need MCP, save that configuration in an agent preset and run it with `ai.preset_agent`.
             `ai.preset_agent` supports both remote and stdio MCP servers.
 
+            Internet access is controlled by the root preset for the shared sandbox process. Subagent presets can define their own tools and MCP integrations, but their internet setting does not grant network access unless the root preset also enables it.
+
             See [MCP integrations](/automations/integrations/mcp-integrations) to learn more.
 
             ## Reference

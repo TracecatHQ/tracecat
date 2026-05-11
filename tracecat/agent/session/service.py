@@ -55,6 +55,9 @@ from tracecat.agent.session.schemas import (
 )
 from tracecat.agent.session.title_generator import generate_session_title
 from tracecat.agent.session.types import AgentSessionEntity
+from tracecat.agent.subagents import (
+    ResolvedAgentsConfig,
+)
 from tracecat.agent.types import AgentConfig, ClaudeSDKMessageTA, StreamKey
 from tracecat.audit.logger import audit_log
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
@@ -141,12 +144,14 @@ class AgentSessionService(BaseWorkspaceService):
         args: AgentSessionCreate,
         *,
         channel_context: dict[str, Any] | None = None,
+        agents_binding: ResolvedAgentsConfig | None = None,
     ) -> AgentSession:
         """Create a new agent session.
 
         Args:
             args: Session creation parameters.
             channel_context: Trusted external channel metadata to bind to session.
+            agents_binding: Internal resolved subagent binding for non-preset runs.
 
         Returns:
             The created AgentSession model.
@@ -166,6 +171,13 @@ class AgentSessionService(BaseWorkspaceService):
             agent_preset_id=args.agent_preset_id,
             agent_preset_version_id=args.agent_preset_version_id,
         )
+        resolved_agents_binding = (
+            await self._resolve_agents_binding_for_preset_version_id(
+                pinned_preset_version_id
+            )
+        )
+        if resolved_agents_binding is None and agents_binding is not None:
+            resolved_agents_binding = agents_binding.model_dump(mode="json")
 
         agent_session = AgentSession(
             workspace_id=self.workspace_id,
@@ -178,6 +190,7 @@ class AgentSessionService(BaseWorkspaceService):
             tools=tools,
             agent_preset_id=logical_preset_id,
             agent_preset_version_id=pinned_preset_version_id,
+            agents_binding=resolved_agents_binding,
             # Harness
             harness_type=args.harness_type,
         )
@@ -262,6 +275,21 @@ class AgentSessionService(BaseWorkspaceService):
         await self.session.commit()
         return version.id
 
+    async def _resolve_agents_binding_for_preset_version_id(
+        self, preset_version_id: uuid.UUID | None
+    ) -> dict[str, Any] | None:
+        """Resolve the normalized subagent binding for a pinned preset version."""
+        if preset_version_id is None:
+            return None
+
+        preset_service = AgentPresetService(self.session, self.role)
+        version = await preset_service.resolve_agent_preset_version(
+            preset_version_id=preset_version_id
+        )
+        return ResolvedAgentsConfig.model_validate(version.agents).model_dump(
+            mode="json"
+        )
+
     async def get_session(
         self,
         session_id: uuid.UUID,
@@ -318,6 +346,8 @@ class AgentSessionService(BaseWorkspaceService):
     async def get_or_create_session(
         self,
         args: AgentSessionCreate,
+        *,
+        agents_binding: ResolvedAgentsConfig | None = None,
     ) -> tuple[AgentSession, bool]:
         """Get an existing session or create a new one.
 
@@ -333,7 +363,7 @@ class AgentSessionService(BaseWorkspaceService):
             existing = await self.get_session(args.id)
             if existing:
                 return existing, False
-        new_session = await self.create_session(args)
+        new_session = await self.create_session(args, agents_binding=agents_binding)
         return new_session, True
 
     async def list_sessions(
@@ -466,6 +496,7 @@ class AgentSessionService(BaseWorkspaceService):
             if logical_preset_id is None:
                 agent_session.agent_preset_id = None
                 agent_session.agent_preset_version_id = None
+                agent_session.agents_binding = None
             else:
                 if preset_id_updated and (
                     requested_preset_id != agent_session.agent_preset_id
@@ -502,6 +533,11 @@ class AgentSessionService(BaseWorkspaceService):
                     resolved_version_id = requested_version_id
                 agent_session.agent_preset_id = logical_preset_id
                 agent_session.agent_preset_version_id = resolved_version_id
+                agent_session.agents_binding = (
+                    await self._resolve_agents_binding_for_preset_version_id(
+                        resolved_version_id
+                    )
+                )
 
         # Update remaining fields if provided
         for field, value in set_fields.items():

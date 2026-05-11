@@ -9,7 +9,11 @@ import pytest
 from temporalio import activity
 from temporalio.client import Client
 from temporalio.worker import Worker
-from tracecat_ee.agent.activities import BuildToolDefsArgs, BuildToolDefsResult
+from tracecat_ee.agent.activities import (
+    BuildAgentToolDefsArgs,
+    BuildAgentToolDefsResult,
+    BuildToolDefsResult,
+)
 from tracecat_ee.agent.workflows.durable import DurableAgentWorkflow
 
 from tests.shared import to_data
@@ -110,12 +114,11 @@ def create_mock_load_session_activity() -> Callable[..., Any]:
 
 
 def create_mock_build_tool_definitions_activity() -> Callable[..., Any]:
-    @activity.defn(name="build_tool_definitions")
+    @activity.defn(name="build_agent_tool_definitions")
     async def mock_build_tool_definitions(
-        args: BuildToolDefsArgs,
-    ) -> BuildToolDefsResult:
-        del args
-        return BuildToolDefsResult(
+        args: BuildAgentToolDefsArgs,
+    ) -> BuildAgentToolDefsResult:
+        tool_result = BuildToolDefsResult(
             tool_definitions={},
             registry_lock=RegistryLock(
                 origins={"tracecat_registry": "test-version"},
@@ -123,6 +126,9 @@ def create_mock_build_tool_definitions_activity() -> Callable[..., Any]:
             ),
             user_mcp_claims=None,
             allowed_internal_tools=None,
+        )
+        return BuildAgentToolDefsResult(
+            scopes={scope.scope: tool_result for scope in args.scopes}
         )
 
     return mock_build_tool_definitions

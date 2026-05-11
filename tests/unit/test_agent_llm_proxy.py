@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import AsyncIterator
+from dataclasses import replace
 from pathlib import Path
 from typing import cast
 
@@ -10,7 +11,11 @@ import orjson
 import pytest
 
 from tracecat.agent.observability import LLMGatewayLoadTracker
-from tracecat.agent.sandbox.llm_proxy import LLMSocketProxy
+from tracecat.agent.sandbox.llm_proxy import (
+    LLMRoute,
+    LLMRoutingPlan,
+    LLMSocketProxy,
+)
 
 
 class _FakeWriter:
@@ -32,6 +37,34 @@ class _FakeWriter:
 
     async def wait_closed(self) -> None:
         return None
+
+
+def _routing_plan(
+    *,
+    managed_url: str = "http://litellm:4000",
+    managed_provider: str = "openai",
+    managed_local_provider_cleanup: bool = True,
+    direct_routes: dict[str, LLMRoute] | None = None,
+    direct_authorizations: dict[str, str] | None = None,
+) -> LLMRoutingPlan:
+    routing_plan = LLMRoutingPlan(
+        managed_route=LLMRoute(
+            base_url=managed_url,
+            model_provider=managed_provider,
+            mode="managed",
+            local_provider_cleanup=managed_local_provider_cleanup,
+        ),
+        direct_routes=direct_routes or {},
+    )
+    return LLMRoutingPlan(
+        managed_route=routing_plan.managed_route,
+        direct_routes={
+            route_key: replace(
+                route, authorization=(direct_authorizations or {}).get(route_key)
+            )
+            for route_key, route in routing_plan.direct_routes.items()
+        },
+    )
 
 
 @pytest.mark.anyio
@@ -60,7 +93,7 @@ async def test_forward_request_streams_litellm_response(
 
     socket_proxy = LLMSocketProxy(
         socket_path=tmp_path / "llm.sock",
-        upstream_url="http://litellm:4000",
+        routing_plan=_routing_plan(),
     )
     socket_proxy._client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
     writer = _FakeWriter()
@@ -123,7 +156,7 @@ async def test_forward_request_returns_upstream_error_response(
 
     socket_proxy = LLMSocketProxy(
         socket_path=tmp_path / "llm.sock",
-        upstream_url="http://litellm:4000",
+        routing_plan=_routing_plan(),
         on_error=errors.append,
     )
     socket_proxy._client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
@@ -169,7 +202,7 @@ async def test_forward_request_emits_error_for_critical_upstream_http_error(
 
     socket_proxy = LLMSocketProxy(
         socket_path=tmp_path / "llm.sock",
-        upstream_url="http://litellm:4000",
+        routing_plan=_routing_plan(),
         on_error=errors.append,
     )
     socket_proxy._client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
@@ -210,7 +243,7 @@ async def test_write_stream_response_emits_error_after_headers_sent(
     errors: list[str] = []
     socket_proxy = LLMSocketProxy(
         socket_path=tmp_path / "llm.sock",
-        upstream_url="http://litellm:4000",
+        routing_plan=_routing_plan(),
         on_error=errors.append,
     )
     writer = _FakeWriter()
@@ -251,8 +284,14 @@ async def test_forward_request_strips_authorization_for_passthrough_upstream(
 
     socket_proxy = LLMSocketProxy(
         socket_path=tmp_path / "llm.sock",
-        upstream_url="https://customer-litellm.example",
-        passthrough=True,
+        routing_plan=_routing_plan(
+            direct_routes={
+                "customer-alias": LLMRoute(
+                    base_url="https://customer-litellm.example",
+                    model_provider="custom-model-provider",
+                )
+            }
+        ),
     )
     socket_proxy._client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
     writer = _FakeWriter()
@@ -266,7 +305,10 @@ async def test_forward_request_strips_authorization_for_passthrough_upstream(
                     "Content-Type": "application/json",
                     "Authorization": "Bearer llm-token",
                 },
-                "body": b'{"messages":[{"role":"user","content":"hello"}]}',
+                "body": (
+                    b'{"model":"customer-alias",'
+                    b'"messages":[{"role":"user","content":"hello"}]}'
+                ),
             },
             cast(asyncio.StreamWriter, writer),
         )
@@ -278,28 +320,33 @@ async def test_forward_request_strips_authorization_for_passthrough_upstream(
     assert response_text.startswith("HTTP/1.1 200 OK")
 
 
-def test_passthrough_upstream_url_strips_version_suffix(tmp_path: Path) -> None:
+def test_direct_route_strips_version_suffix(tmp_path: Path) -> None:
     """Passthrough strips a trailing /vN from the stored base_url so it does
     not collide with the /v1/... path the SDK clients emit."""
-    socket_proxy = LLMSocketProxy(
-        socket_path=tmp_path / "llm.sock",
-        upstream_url="https://customer-litellm.example/v1/",
-        passthrough=True,
+    routing_plan = _routing_plan(
+        direct_routes={
+            "customer-alias": LLMRoute(
+                base_url="https://customer-litellm.example/v1/",
+                model_provider="custom-model-provider",
+            )
+        }
     )
 
-    assert socket_proxy.upstream_url == "https://customer-litellm.example"
+    assert (
+        routing_plan.direct_routes["customer-alias"].base_url
+        == "https://customer-litellm.example"
+    )
 
 
-def test_non_passthrough_upstream_url_preserves_path(tmp_path: Path) -> None:
+def test_managed_route_url_preserves_path(tmp_path: Path) -> None:
     """Non-passthrough talks to internal LiteLLM at a known host root and must
     not have any path segment trimmed."""
     socket_proxy = LLMSocketProxy(
         socket_path=tmp_path / "llm.sock",
-        upstream_url="http://litellm:4000/v1",
-        passthrough=False,
+        routing_plan=_routing_plan(managed_url="http://litellm:4000/v1"),
     )
 
-    assert socket_proxy.upstream_url == "http://litellm:4000/v1"
+    assert socket_proxy.routing_plan.managed_route.base_url == "http://litellm:4000/v1"
 
 
 @pytest.mark.anyio
@@ -320,8 +367,14 @@ async def test_passthrough_does_not_double_prefix_version_in_request_url(
 
     socket_proxy = LLMSocketProxy(
         socket_path=tmp_path / "llm.sock",
-        upstream_url="https://customer-litellm.example/v1",
-        passthrough=True,
+        routing_plan=_routing_plan(
+            direct_routes={
+                "customer-alias": LLMRoute(
+                    base_url="https://customer-litellm.example/v1",
+                    model_provider="custom-model-provider",
+                )
+            }
+        ),
     )
     socket_proxy._client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
     writer = _FakeWriter()
@@ -335,7 +388,10 @@ async def test_passthrough_does_not_double_prefix_version_in_request_url(
                     "Content-Type": "application/json",
                     "Authorization": "Bearer llm-token",
                 },
-                "body": b'{"messages":[{"role":"user","content":"hello"}]}',
+                "body": (
+                    b'{"model":"customer-alias",'
+                    b'"messages":[{"role":"user","content":"hello"}]}'
+                ),
             },
             cast(asyncio.StreamWriter, writer),
         )
@@ -347,6 +403,161 @@ async def test_passthrough_does_not_double_prefix_version_in_request_url(
         f"expected single /v1 prefix, got {received_urls[0]!r} — "
         "double-prefix causes upstream 404 'model not found'"
     )
+
+
+@pytest.mark.anyio
+async def test_passthrough_routes_root_direct_and_subagents_to_gateway(
+    tmp_path: Path,
+) -> None:
+    received: list[tuple[str, str | None, str | None]] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        payload = orjson.loads(request.content)
+        received.append(
+            (
+                str(request.url),
+                request.headers.get("authorization"),
+                payload.get("model"),
+            )
+        )
+        return httpx.Response(
+            200,
+            headers={"Content-Type": "application/json"},
+            json={"ok": True},
+        )
+
+    socket_proxy = LLMSocketProxy(
+        socket_path=tmp_path / "llm.sock",
+        routing_plan=_routing_plan(
+            direct_routes={
+                "customer-alias": LLMRoute(
+                    base_url="https://customer-litellm.example/v1",
+                    model_provider="custom-model-provider",
+                )
+            },
+            direct_authorizations={"customer-alias": "Bearer sk-customer"},
+        ),
+    )
+    socket_proxy._client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+
+    try:
+        # Only the exact passthrough model key should bypass managed LiteLLM.
+        # Synthetic subagent keys without a direct route stay on the gateway.
+        for model in (
+            "customer-alias",
+            "openai/gpt-5-mini::tracecat-subagent::analyst",
+        ):
+            writer = _FakeWriter()
+            await socket_proxy._forward_request(
+                {
+                    "method": "POST",
+                    "path": "/v1/messages",
+                    "headers": {
+                        "Content-Type": "application/json",
+                        "Authorization": "Bearer llm-token",
+                    },
+                    "body": orjson.dumps(
+                        {
+                            "model": model,
+                            "messages": [{"role": "user", "content": "hello"}],
+                        }
+                    ),
+                },
+                cast(asyncio.StreamWriter, writer),
+            )
+    finally:
+        if socket_proxy._client is not None:
+            await socket_proxy._client.aclose()
+
+    assert received == [
+        (
+            "https://customer-litellm.example/v1/messages",
+            "Bearer sk-customer",
+            "customer-alias",
+        ),
+        (
+            "http://litellm:4000/v1/messages",
+            "Bearer llm-token",
+            "openai/gpt-5-mini::tracecat-subagent::analyst",
+        ),
+    ]
+
+
+@pytest.mark.anyio
+async def test_passthrough_routes_subagent_direct_when_subagent_config_passthrough(
+    tmp_path: Path,
+) -> None:
+    received: list[tuple[str, str | None, str | None]] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        payload = orjson.loads(request.content)
+        received.append(
+            (
+                str(request.url),
+                request.headers.get("authorization"),
+                payload.get("model"),
+            )
+        )
+        return httpx.Response(
+            200,
+            headers={"Content-Type": "application/json"},
+            json={"ok": True},
+        )
+
+    child_model = "child-alias::tracecat-subagent::analyst"
+    socket_proxy = LLMSocketProxy(
+        socket_path=tmp_path / "llm.sock",
+        routing_plan=_routing_plan(
+            direct_routes={
+                child_model: LLMRoute(
+                    base_url="https://child-litellm.example/v1",
+                    model_provider="custom-model-provider",
+                    upstream_model_name="child-alias",
+                )
+            },
+            direct_authorizations={child_model: "Bearer sk-child"},
+        ),
+    )
+    socket_proxy._client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+
+    try:
+        # A passthrough subagent gets its own direct route, independent of the
+        # root agent and independent of other subagent routes.
+        for model in (child_model, "openai/gpt-5-mini::tracecat-subagent::critic"):
+            writer = _FakeWriter()
+            await socket_proxy._forward_request(
+                {
+                    "method": "POST",
+                    "path": "/v1/messages",
+                    "headers": {
+                        "Content-Type": "application/json",
+                        "Authorization": "Bearer llm-token",
+                    },
+                    "body": orjson.dumps(
+                        {
+                            "model": model,
+                            "messages": [{"role": "user", "content": "hello"}],
+                        }
+                    ),
+                },
+                cast(asyncio.StreamWriter, writer),
+            )
+    finally:
+        if socket_proxy._client is not None:
+            await socket_proxy._client.aclose()
+
+    assert received == [
+        (
+            "https://child-litellm.example/v1/messages",
+            "Bearer sk-child",
+            "child-alias",
+        ),
+        (
+            "http://litellm:4000/v1/messages",
+            "Bearer llm-token",
+            "openai/gpt-5-mini::tracecat-subagent::critic",
+        ),
+    ]
 
 
 @pytest.mark.anyio
@@ -371,9 +582,14 @@ async def test_forward_request_preserves_anthropic_fields_for_anthropic_upstream
 
     socket_proxy = LLMSocketProxy(
         socket_path=tmp_path / "llm.sock",
-        upstream_url="https://customer-litellm.example",
-        passthrough=True,
-        model_provider="anthropic",
+        routing_plan=_routing_plan(
+            direct_routes={
+                "claude-direct": LLMRoute(
+                    base_url="https://customer-litellm.example",
+                    model_provider="anthropic",
+                )
+            }
+        ),
     )
     socket_proxy._client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
     writer = _FakeWriter()
@@ -389,6 +605,7 @@ async def test_forward_request_preserves_anthropic_fields_for_anthropic_upstream
                 },
                 "body": orjson.dumps(
                     {
+                        "model": "claude-direct",
                         "messages": [{"role": "user", "content": "hello"}],
                         "thinking": {"type": "enabled", "budget_tokens": 1024},
                         "reasoning_effort": "high",
@@ -427,8 +644,7 @@ async def test_forward_request_strips_anthropic_only_fields_for_non_anthropic_up
 
     socket_proxy = LLMSocketProxy(
         socket_path=tmp_path / "llm.sock",
-        upstream_url="http://litellm:4000",
-        model_provider="openai",
+        routing_plan=_routing_plan(),
     )
     socket_proxy._client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
     writer = _FakeWriter()
@@ -463,6 +679,60 @@ async def test_forward_request_strips_anthropic_only_fields_for_non_anthropic_up
 
 
 @pytest.mark.anyio
+async def test_managed_route_can_defer_provider_cleanup_to_gateway(
+    tmp_path: Path,
+) -> None:
+    async def handler(request: httpx.Request) -> httpx.Response:
+        payload = orjson.loads(request.content)
+        assert str(request.url) == "http://litellm:4000/v1/messages"
+        assert payload["anthropic_beta"] == ["prompt-caching-2024-07-31"]
+        assert payload["context_management"] == {"strategy": "summarize"}
+        assert payload["output_config"] == {"task_budget": 2048}
+        assert payload["output_format"] == {"type": "json_schema"}
+        return httpx.Response(
+            200,
+            headers={"Content-Type": "application/json"},
+            json={"ok": True},
+        )
+
+    socket_proxy = LLMSocketProxy(
+        socket_path=tmp_path / "llm.sock",
+        routing_plan=_routing_plan(managed_local_provider_cleanup=False),
+    )
+    socket_proxy._client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    writer = _FakeWriter()
+
+    try:
+        await socket_proxy._forward_request(
+            {
+                "method": "POST",
+                "path": "/v1/messages",
+                "headers": {
+                    "Content-Type": "application/json",
+                    "Authorization": "Bearer llm-token",
+                },
+                "body": orjson.dumps(
+                    {
+                        "model": "openai/gpt-5-mini::tracecat-subagent::analyst",
+                        "messages": [{"role": "user", "content": "hello"}],
+                        "anthropic_beta": ["prompt-caching-2024-07-31"],
+                        "context_management": {"strategy": "summarize"},
+                        "output_config": {"task_budget": 2048},
+                        "output_format": {"type": "json_schema"},
+                    }
+                ),
+            },
+            cast(asyncio.StreamWriter, writer),
+        )
+    finally:
+        if socket_proxy._client is not None:
+            await socket_proxy._client.aclose()
+
+    response_text = writer.buffer.decode("utf-8")
+    assert response_text.startswith("HTTP/1.1 200 OK")
+
+
+@pytest.mark.anyio
 async def test_forward_request_injects_passthrough_api_key_as_bearer_authorization(
     tmp_path: Path,
 ) -> None:
@@ -476,10 +746,16 @@ async def test_forward_request_injects_passthrough_api_key_as_bearer_authorizati
 
     socket_proxy = LLMSocketProxy(
         socket_path=tmp_path / "llm.sock",
-        upstream_url="https://customer-litellm.example",
-        passthrough=True,
+        routing_plan=_routing_plan(
+            direct_routes={
+                "customer-alias": LLMRoute(
+                    base_url="https://customer-litellm.example",
+                    model_provider="custom-model-provider",
+                )
+            },
+            direct_authorizations={"customer-alias": "Bearer sk-customer"},
+        ),
     )
-    socket_proxy._upstream_api_key = "sk-customer"
     socket_proxy._client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
     writer = _FakeWriter()
 
@@ -492,7 +768,10 @@ async def test_forward_request_injects_passthrough_api_key_as_bearer_authorizati
                     "Content-Type": "application/json",
                     "Authorization": "Bearer llm-token",
                 },
-                "body": b'{"messages":[{"role":"user","content":"hello"}]}',
+                "body": (
+                    b'{"model":"customer-alias",'
+                    b'"messages":[{"role":"user","content":"hello"}]}'
+                ),
             },
             cast(asyncio.StreamWriter, writer),
         )
@@ -510,7 +789,7 @@ async def test_forward_request_short_circuits_event_logging_batch(
 ) -> None:
     socket_proxy = LLMSocketProxy(
         socket_path=tmp_path / "llm.sock",
-        upstream_url="http://litellm:4000",
+        routing_plan=_routing_plan(),
     )
     writer = _FakeWriter()
 
@@ -534,7 +813,7 @@ async def test_stop_closes_http_client_and_removes_socket(tmp_path: Path) -> Non
     socket_path.touch()
     socket_proxy = LLMSocketProxy(
         socket_path=socket_path,
-        upstream_url="http://litellm:4000",
+        routing_plan=_routing_plan(),
     )
     socket_proxy._client = httpx.AsyncClient(
         transport=httpx.MockTransport(

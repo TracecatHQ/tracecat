@@ -218,6 +218,9 @@ jobs:
           echo "=== API Logs ==="
           docker compose -f docker-compose.local.yml -f .github/docker-compose.integration.yml logs api --tail=200
 
+          echo "=== Migrations Logs ==="
+          docker compose -f docker-compose.local.yml -f .github/docker-compose.integration.yml logs migrations --tail=200
+
           echo "=== Worker Logs ==="
           docker compose -f docker-compose.local.yml -f .github/docker-compose.integration.yml logs worker --tail=200
 

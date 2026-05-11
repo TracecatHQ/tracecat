@@ -25,6 +25,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from tracecat import config
 from tracecat.auth.secrets import get_service_key
 from tracecat.identifiers import OrganizationID, UserID, WorkspaceID
+from tracecat.registry.lock.types import RegistryLock
 
 # -----------------------------------------------------------------------------
 # MCP Token (for tool execution)
@@ -101,6 +102,14 @@ class MCPTokenClaims(BaseModel):
     """Set of allowed internal tool names (e.g., {"internal.builder.get_preset_summary"})."""
     internal_tool_context: InternalToolContext | None = None
     """Context for internal tools (preset_id, entity_type, etc.)."""
+    # Decode must tolerate already-signed legacy tokens. New tokens require this
+    # at mint time so registry tool execution stays pinned to compile-time locks.
+    registry_lock: RegistryLock | None = None
+    """Registry lock resolved for this token's registry actions.
+
+    Optional for tokens minted before registry locks were embedded in MCP claims.
+    New tokens should always include this claim.
+    """
 
 
 def mint_mcp_token(
@@ -109,6 +118,7 @@ def mint_mcp_token(
     organization_id: OrganizationID,
     allowed_actions: list[str],
     session_id: uuid.UUID,
+    registry_lock: RegistryLock,
     user_id: UserID | None = None,
     parent_agent_workflow_id: str | None = None,
     parent_agent_run_id: str | None = None,
@@ -131,6 +141,7 @@ def mint_mcp_token(
         organization_id: Organization UUID for authorization context
         allowed_actions: Set of allowed action names
         session_id: Agent session ID for traceability
+        registry_lock: Registry lock resolved for this token's registry actions
         user_id: Optional user ID for audit/traceability
         user_mcp_servers: User-defined MCP server configs for proxying
         allowed_internal_tools: Set of allowed internal tool names
@@ -149,29 +160,24 @@ def mint_mcp_token(
         "sub": MCP_TOKEN_SUBJECT,
         "iat": int(now.timestamp()),
         "exp": int((now + timedelta(seconds=ttl)).timestamp()),
-        "workspace_id": str(workspace_id),
-        "organization_id": str(organization_id),
-        "allowed_actions": allowed_actions,
-        "session_id": str(session_id),
     }
-
-    if user_id is not None:
-        payload["user_id"] = str(user_id)
-
-    if parent_agent_workflow_id is not None:
-        payload["parent_agent_workflow_id"] = parent_agent_workflow_id
-
-    if parent_agent_run_id is not None:
-        payload["parent_agent_run_id"] = parent_agent_run_id
-
-    if user_mcp_servers:
-        payload["user_mcp_servers"] = [s.model_dump() for s in user_mcp_servers]
-
-    if allowed_internal_tools:
-        payload["allowed_internal_tools"] = allowed_internal_tools
-
-    if internal_tool_context:
-        payload["internal_tool_context"] = internal_tool_context.model_dump(mode="json")
+    # Use the claims model as the single serialization path for UUIDs and nested
+    # Pydantic values instead of manually encoding each optional claim.
+    payload.update(
+        MCPTokenClaims(
+            workspace_id=workspace_id,
+            organization_id=organization_id,
+            user_id=user_id,
+            session_id=session_id,
+            parent_agent_workflow_id=parent_agent_workflow_id,
+            parent_agent_run_id=parent_agent_run_id,
+            allowed_actions=allowed_actions,
+            user_mcp_servers=user_mcp_servers or [],
+            allowed_internal_tools=allowed_internal_tools or [],
+            internal_tool_context=internal_tool_context,
+            registry_lock=registry_lock,
+        ).model_dump(mode="json", exclude_none=True)
+    )
 
     return jwt.encode(payload, get_service_key(), algorithm="HS256")
 
@@ -230,6 +236,17 @@ LLM_REQUIRED_CLAIMS = (
 )
 
 
+class LLMRouteClaim(BaseModel):
+    """Immutable model route authorized by an LLM token."""
+
+    model: str
+    provider: str
+    catalog_id: uuid.UUID | None = None
+    base_url: str | None = None
+    model_settings: dict[str, Any] = Field(default_factory=dict)
+    use_workspace_credentials: bool = False
+
+
 class LLMTokenClaims(BaseModel):
     """Claims extracted from a verified LLM token.
 
@@ -283,6 +300,9 @@ class LLMTokenClaims(BaseModel):
         description="Model-specific settings passed through to the LLM provider",
     )
 
+    routes: dict[str, LLMRouteClaim] = Field(default_factory=dict)
+    """Optional request-model keyed route map for subagent model isolation."""
+
 
 def mint_llm_token(
     *,
@@ -295,6 +315,7 @@ def mint_llm_token(
     base_url: str | None = None,
     model_settings: dict[str, Any] | None = None,
     use_workspace_credentials: bool = False,
+    routes: dict[str, LLMRouteClaim] | None = None,
     ttl_seconds: int | None = None,
 ) -> str:
     """Create a signed LLM JWT for jailed agent runtime.
@@ -343,6 +364,10 @@ def mint_llm_token(
         "model_settings": model_settings or {},
         "use_workspace_credentials": use_workspace_credentials,
     }
+    if routes:
+        payload["routes"] = {
+            key: route.model_dump(mode="json") for key, route in routes.items()
+        }
 
     return jwt.encode(payload, get_service_key(), algorithm="HS256")
 

@@ -24,6 +24,7 @@ import tracecat.agent.runtime.claude_code.broker as broker_module
 import tracecat.agent.runtime.claude_code.runtime as runtime_module
 import tracecat.agent.runtime.claude_code.session_paths as session_paths_module
 import tracecat.agent.runtime.claude_code.transport as transport_module
+import tracecat.agent.sandbox.llm_proxy as llm_proxy_module
 import tracecat.agent.sandbox.nsjail as nsjail_module
 import tracecat.agent.sandbox.shim_entrypoint as shim_entrypoint
 from tracecat import config as app_config
@@ -32,6 +33,11 @@ from tracecat.agent.common.stream_types import (
     StreamEventType,
     ToolCallContent,
     UnifiedStreamEvent,
+)
+from tracecat.agent.common.types import (
+    MCPToolDefinition,
+    SandboxAgentConfig,
+    SandboxSubagentConfig,
 )
 from tracecat.agent.executor.activity import (
     AgentExecutorInput,
@@ -49,7 +55,11 @@ from tracecat.agent.runtime.claude_code.broker import (
     ClaudeTurnRequest,
 )
 from tracecat.agent.runtime.claude_code.transport import SandboxedCLITransport
-from tracecat.agent.sandbox.llm_proxy import LLM_SOCKET_NAME
+from tracecat.agent.sandbox.llm_proxy import (
+    LLM_SOCKET_NAME,
+    LLMRoute,
+    LLMRoutingPlan,
+)
 from tracecat.agent.skill.service import SkillService
 from tracecat.agent.skill.types import ResolvedSkillRef
 from tracecat.agent.types import AgentConfig
@@ -85,6 +95,8 @@ class _FakeClaudeOptions:
     env: dict[str, str]
     enable_file_checkpointing: bool = False
     stderr: Callable[[str], None] | None = None
+    mcp_servers: object = None
+    agents: object = None
 
 
 def _make_executor_input(*, enable_internet_access: bool) -> AgentExecutorInput:
@@ -287,19 +299,13 @@ class _FakeLLMSocketProxy:
         self,
         *,
         socket_path: Path,
-        upstream_url: str,
+        routing_plan: LLMRoutingPlan,
         on_error: Callable[[str], None] | None = None,
-        passthrough: bool = False,
-        role: object | None = None,
-        model_provider: str | None = None,
-        catalog_id: object | None = None,
     ) -> None:
-        del on_error, role
+        del on_error
         self.socket_path = socket_path
-        self.upstream_url = upstream_url
-        self.passthrough = passthrough
-        self.catalog_id = catalog_id
-        self.model_provider = model_provider
+        self.routing_plan = routing_plan
+        self.direct_routes = routing_plan.direct_routes
         self.started = False
         self.stopped = False
         self.request_count = 0
@@ -350,6 +356,7 @@ class _FakeLLMSocketProxy:
             body_bytes = await reader.readexactly(content_length)
 
         self.request_count += 1
+
         request_body = _decode_litellm_request_payload(body_bytes)
         self.requests.append(request_body)
 
@@ -383,6 +390,37 @@ class _FakeLLMSocketProxy:
         await writer.drain()
         writer.close()
         await writer.wait_closed()
+
+
+class _FakeAgentManagementService:
+    async def get_catalog_credentials(self, _catalog_id: uuid.UUID) -> dict[str, str]:
+        return {"CUSTOM_MODEL_PROVIDER_API_KEY": "sk-test"}
+
+    async def get_runtime_provider_credentials(
+        self,
+        _provider: str,
+    ) -> dict[str, str]:
+        return {"CUSTOM_MODEL_PROVIDER_API_KEY": "sk-test"}
+
+    async def get_workspace_provider_credentials(
+        self,
+        _provider: str,
+    ) -> dict[str, str]:
+        return {"CUSTOM_MODEL_PROVIDER_API_KEY": "sk-test"}
+
+
+def _patch_agent_management_credentials(monkeypatch: pytest.MonkeyPatch) -> None:
+    @contextlib.asynccontextmanager
+    async def fake_agent_management_context(
+        _role: Role,
+    ) -> AsyncIterator[_FakeAgentManagementService]:
+        yield _FakeAgentManagementService()
+
+    monkeypatch.setattr(
+        llm_proxy_module.AgentManagementService,
+        "with_session",
+        fake_agent_management_context,
+    )
 
 
 class _InMemoryStreamSink:
@@ -516,6 +554,7 @@ async def _run_full_claude_harness_runtime_case(
     tmp_path: Path,
     enable_internet_access: bool = False,
 ) -> None:
+    _patch_agent_management_credentials(monkeypatch)
     _FakeLLMSocketProxy.instances.clear()
     broker = ClaudeRuntimeBroker()
     await broker.start()
@@ -527,6 +566,7 @@ async def _run_full_claude_harness_runtime_case(
         del self
         socket_dir = job_dir / "sockets"
         socket_dir.mkdir(parents=True)
+        (socket_dir / "mcp.sock").touch()
         return job_dir
 
     async def fake_initialize_stream_sink(self: LoopbackHandler) -> _InMemoryStreamSink:
@@ -544,6 +584,11 @@ async def _run_full_claude_harness_runtime_case(
         persisted_session_lines.append((sdk_session_id, session_line, internal))
 
     monkeypatch.setattr(executor_activity, "LLMSocketProxy", _FakeLLMSocketProxy)
+    monkeypatch.setattr(
+        nsjail_module,
+        "TRACECAT__AGENT_MCP_SOCKET_PATH",
+        job_dir / "sockets" / "mcp.sock",
+    )
     monkeypatch.setattr(
         SandboxedAgentExecutor,
         "_create_job_directory",
@@ -784,7 +829,7 @@ async def _run_executor_with_fake_broker(
         socket_dir.mkdir(parents=True)
         return tmp_path
 
-    def fake_create_llm_socket_proxy(
+    async def fake_create_llm_socket_proxy(
         self: SandboxedAgentExecutor,
         socket_path: Path,
     ) -> _FakeProxy:
@@ -843,7 +888,7 @@ async def _run_activity_with_fake_loopback_runtime(
         (job_dir / "sockets").mkdir(parents=True, exist_ok=True)
         return job_dir
 
-    def fake_create_llm_socket_proxy(
+    async def fake_create_llm_socket_proxy(
         self: SandboxedAgentExecutor,
         socket_path: Path,
     ) -> _FakeProxy:
@@ -1089,12 +1134,102 @@ async def test_run_agent_activity_with_fake_runtime_plumbs_resume_flags_to_loopb
         assert runtimes[0].cwd_setup_path.is_relative_to(tmp_path / "sessions")
 
 
+@pytest.mark.parametrize(
+    "disable_nsjail",
+    [
+        pytest.param(True, id="direct"),
+        pytest.param(False, id="nsjail"),
+    ],
+)
+@pytest.mark.anyio
+async def test_run_agent_activity_plumbs_subagents_to_runtime_in_each_sandbox_mode(
+    disable_nsjail: bool,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _set_disable_nsjail_mode(monkeypatch, disable_nsjail)
+    child_actions = {
+        "core.lookup_ip": MCPToolDefinition(
+            name="core.lookup_ip",
+            description="Lookup IP",
+            parameters_json_schema={"type": "object"},
+        )
+    }
+    child_config = AgentConfig(
+        model_name="gpt-5-mini",
+        model_provider="openai",
+        enable_internet_access=False,
+        tool_approvals={"core.lookup_ip": True},
+    )
+    executor_input = _make_executor_input(enable_internet_access=False).model_copy(
+        update={
+            "config": AgentConfig(
+                model_name="gpt-5",
+                model_provider="openai",
+                agents=cast(
+                    Any,
+                    {"enabled": True, "subagents": [{"preset": "analyst"}]},
+                ),
+            ),
+            "subagents": [
+                SandboxSubagentConfig(
+                    alias="analyst",
+                    description="Use for enrichment analysis.",
+                    prompt="Analyze enrichment data.",
+                    config=SandboxAgentConfig.from_agent_config(child_config),
+                    mcp_auth_token="child-mcp-token",
+                    allowed_actions=child_actions,
+                )
+            ],
+        }
+    )
+
+    async def subagent_script(
+        handler: LoopbackHandler,
+        payload: RuntimeInitPayload,
+    ) -> None:
+        assert payload.config.agents.enabled is True
+        assert payload.config.agents.subagents[0].preset == "analyst"
+        [subagent] = payload.subagents
+        assert subagent.alias == "analyst"
+        assert subagent.mcp_auth_token == "child-mcp-token"
+        assert subagent.config.model_name == "gpt-5-mini"
+        assert subagent.config.model_provider == "openai"
+        assert subagent.allowed_actions == child_actions
+        await handler.send_result(output="subagents-ready")
+        await handler.send_done()
+
+    (
+        result,
+        _stream_sink,
+        _persisted_session_lines,
+        _fake_proxy,
+        payloads,
+        runtimes,
+    ) = await _run_activity_with_fake_loopback_runtime(
+        executor_input=executor_input,
+        monkeypatch=monkeypatch,
+        tmp_path=tmp_path,
+        script=subagent_script,
+    )
+
+    assert result.success is True
+    assert result.output == "subagents-ready"
+    assert len(payloads) == 1
+    assert len(runtimes) == 1
+    if disable_nsjail:
+        assert runtimes[0].cwd == runtimes[0].cwd_setup_path
+    else:
+        assert runtimes[0].cwd == Path("/work/claude-project")
+
+
 @pytest.mark.anyio
 async def test_run_agent_activity_with_fake_litellm_provider_spawns_runtime_in_each_sandbox_mode(
     disable_nsjail_mode: bool,
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
+    _patch_agent_management_credentials(monkeypatch)
     _FakeLLMSocketProxy.instances.clear()
     _FakeRuntimeConnectingTransport.instances.clear()
     broker = ClaudeRuntimeBroker()
@@ -1170,9 +1305,22 @@ async def test_run_agent_activity_with_fake_litellm_provider_spawns_runtime_in_e
     proxy = _FakeLLMSocketProxy.instances[0]
     assert proxy.started is True
     assert proxy.stopped is True
-    assert proxy.upstream_url == "https://customer-litellm.example"
-    assert proxy.passthrough is True
-    assert proxy.model_provider == "custom-model-provider"
+    assert (
+        proxy.routing_plan.managed_route.base_url
+        == app_config.TRACECAT__LITELLM_BASE_URL
+    )
+    # The executor now passes a routing plan: managed LiteLLM is the fallback,
+    # and the root passthrough model is a direct route inside that plan.
+    assert proxy.direct_routes == {
+        "customer-alias": LLMRoute(
+            base_url="https://customer-litellm.example",
+            model_provider="custom-model-provider",
+            authorization="Bearer sk-test",
+        )
+    }
+    assert proxy.routing_plan is not None
+    assert proxy.routing_plan.managed_route.model_provider == "custom-model-provider"
+    assert proxy.routing_plan.managed_route.local_provider_cleanup is True
     assert proxy.request_count == 1
 
     assert len(_FakeRuntimeConnectingTransport.instances) == 1
@@ -1191,6 +1339,7 @@ async def _run_attached_skills_visible_case(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
+    _patch_agent_management_credentials(monkeypatch)
     _FakeLLMSocketProxy.instances.clear()
     _FakeRuntimeReadingTransport.instances.clear()
     _FakeRuntimeReadingTransport.messages.clear()
@@ -1234,6 +1383,19 @@ async def _run_attached_skills_visible_case(
         )
         return [python_bin, "-c", code]
 
+    original_create_job_directory = SandboxedAgentExecutor._create_job_directory
+
+    async def fake_create_job_directory(self: SandboxedAgentExecutor) -> Path:
+        job_dir = await original_create_job_directory(self)
+        mcp_socket_path = job_dir / "sockets" / "mcp.sock"
+        mcp_socket_path.touch()
+        monkeypatch.setattr(
+            nsjail_module,
+            "TRACECAT__AGENT_MCP_SOCKET_PATH",
+            mcp_socket_path,
+        )
+        return job_dir
+
     base_input = _make_passthrough_executor_input(enable_internet_access=False)
     executor_input = base_input.model_copy(
         update={
@@ -1254,9 +1416,19 @@ async def _run_attached_skills_visible_case(
     monkeypatch.setattr(executor_activity, "LoopbackHandler", _FakeLoopbackHandler)
     monkeypatch.setattr(executor_activity, "LLMSocketProxy", _FakeLLMSocketProxy)
     monkeypatch.setattr(
+        SandboxedAgentExecutor,
+        "_create_job_directory",
+        fake_create_job_directory,
+    )
+    monkeypatch.setattr(
         executor_activity.SkillService,
         "with_session",
         lambda role: fake_skill_service_context(role=role),
+    )
+    monkeypatch.setattr(
+        executor_activity.AgentSessionService,
+        "with_session",
+        lambda **_kwargs: _FakeAgentSessionService(),
     )
     monkeypatch.setattr(
         SandboxedAgentExecutor,
@@ -1433,6 +1605,43 @@ async def test_executor_starts_llm_socket_proxy_for_isolated_passthrough_runs(
 
 
 @pytest.mark.anyio
+async def test_executor_keeps_runtime_isolated_when_only_subagent_requires_internet(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    subagent = SandboxSubagentConfig(
+        alias="web",
+        description="Use for internet research.",
+        prompt="Research the user's request.",
+        config=SandboxAgentConfig(
+            model_name="gpt-5-mini",
+            model_provider="openai",
+            enable_internet_access=True,
+        ),
+        mcp_auth_token="child-mcp-token",
+    )
+    executor_input = _make_executor_input(enable_internet_access=False).model_copy(
+        update={"subagents": [subagent]}
+    )
+
+    (
+        result,
+        _created_socket_paths,
+        _fake_proxy,
+        fake_broker,
+    ) = await _run_executor_with_fake_broker(
+        executor_input=executor_input,
+        monkeypatch=monkeypatch,
+        tmp_path=tmp_path,
+    )
+
+    assert result.success is True
+    assert len(fake_broker.requests) == 1
+    assert fake_broker.requests[0].init_payload.config.enable_internet_access is False
+    assert fake_broker.requests[0].enable_internet_access is False
+
+
+@pytest.mark.anyio
 async def test_executor_starts_llm_socket_proxy_for_passthrough_provider_with_internet_enabled(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -1459,6 +1668,87 @@ async def test_executor_starts_llm_socket_proxy_for_passthrough_provider_with_in
     assert fake_broker.requests[0].enable_internet_access is True
 
 
+@pytest.mark.anyio
+async def test_executor_keeps_direct_passthrough_available_for_root_with_subagents(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _patch_agent_management_credentials(monkeypatch)
+    subagent = SandboxSubagentConfig(
+        alias="analyst",
+        description="Use for enrichment analysis.",
+        prompt="Analyze enrichment data.",
+        config=SandboxAgentConfig(
+            model_name="gpt-5-mini",
+            model_provider="openai",
+        ),
+        mcp_auth_token="child-mcp-token",
+    )
+    executor_input = _make_passthrough_executor_input(
+        enable_internet_access=False
+    ).model_copy(update={"subagents": [subagent]})
+    executor = SandboxedAgentExecutor(input=executor_input)
+
+    proxy = await executor._create_llm_socket_proxy(tmp_path / LLM_SOCKET_NAME)
+
+    assert proxy.routing_plan.managed_route.base_url == (
+        app_config.TRACECAT__LITELLM_BASE_URL.rstrip("/")
+    )
+    assert proxy.routing_plan.managed_route.local_provider_cleanup is False
+    # Root passthrough remains direct even when the run also has subagents.
+    assert proxy.routing_plan.direct_routes == {
+        "customer-alias": LLMRoute(
+            base_url="https://customer-litellm.example",
+            model_provider="custom-model-provider",
+            authorization="Bearer sk-test",
+        )
+    }
+
+
+@pytest.mark.anyio
+async def test_executor_routes_passthrough_subagent_by_its_own_model_config(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _patch_agent_management_credentials(monkeypatch)
+    subagent = SandboxSubagentConfig(
+        alias="analyst",
+        description="Use for enrichment analysis.",
+        prompt="Analyze enrichment data.",
+        config=SandboxAgentConfig(
+            model_name="child-alias",
+            model_provider="custom-model-provider",
+            base_url="https://child-litellm.example/v1",
+            passthrough=True,
+        ),
+        mcp_auth_token="child-mcp-token",
+        model_route="child-alias::tracecat-subagent::analyst",
+    )
+    executor_input = _make_passthrough_executor_input(
+        enable_internet_access=False
+    ).model_copy(update={"subagents": [subagent]})
+    executor = SandboxedAgentExecutor(input=executor_input)
+
+    proxy = await executor._create_llm_socket_proxy(tmp_path / LLM_SOCKET_NAME)
+
+    # The subagent's own passthrough config adds a second direct route keyed by
+    # the scoped model string that the runtime sends for that subagent.
+    assert proxy.routing_plan.managed_route.local_provider_cleanup is False
+    assert proxy.routing_plan.direct_routes == {
+        "customer-alias": LLMRoute(
+            base_url="https://customer-litellm.example",
+            model_provider="custom-model-provider",
+            authorization="Bearer sk-test",
+        ),
+        "child-alias::tracecat-subagent::analyst": LLMRoute(
+            base_url="https://child-litellm.example",
+            model_provider="custom-model-provider",
+            upstream_model_name="child-alias",
+            authorization="Bearer sk-test",
+        ),
+    }
+
+
 class _DummyBridge:
     instances: list[_DummyBridge] = []
 
@@ -1471,7 +1761,7 @@ class _DummyBridge:
 
     async def start(self) -> int:
         self.started = True
-        return 4312
+        return self.port if self.port else 4312
 
     async def stop(self) -> None:
         self.stopped = True
@@ -1505,6 +1795,7 @@ async def test_sandbox_shim_starts_bridge_and_sets_child_base_url(
                 "command": ["claude", "--print"],
                 "env": {"ANTHROPIC_AUTH_TOKEN": "llm-token"},
                 "cwd": str(tmp_path),
+                "mcp_bridge_port": 4313,
             }
         )
     )
@@ -1512,6 +1803,10 @@ async def test_sandbox_shim_starts_bridge_and_sets_child_base_url(
     monkeypatch.setenv(
         shim_entrypoint.LLM_SOCKET_ENV_VAR,
         str(tmp_path / "llm.sock"),
+    )
+    monkeypatch.setenv(
+        shim_entrypoint.MCP_SOCKET_ENV_VAR,
+        str(tmp_path / "mcp.sock"),
     )
 
     async def fake_create_subprocess_exec(*args: str, **kwargs: object) -> _FakeProcess:
@@ -1541,9 +1836,16 @@ async def test_sandbox_shim_starts_bridge_and_sets_child_base_url(
 
     await shim_entrypoint.run_sandboxed_claude_shim()
 
-    assert len(_DummyBridge.instances) == 1
-    assert _DummyBridge.instances[0].started is True
-    assert _DummyBridge.instances[0].stopped is True
+    assert len(_DummyBridge.instances) == 2
+    llm_bridge, mcp_bridge = _DummyBridge.instances
+    assert llm_bridge.socket_path == tmp_path / "llm.sock"
+    assert llm_bridge.port == 0
+    assert llm_bridge.started is True
+    assert llm_bridge.stopped is True
+    assert mcp_bridge.socket_path == tmp_path / "mcp.sock"
+    assert mcp_bridge.port == 4313
+    assert mcp_bridge.started is True
+    assert mcp_bridge.stopped is True
     assert captured["args"] == ("claude", "--print")
     kwargs = captured["kwargs"]
     assert isinstance(kwargs, dict)
@@ -1551,6 +1853,7 @@ async def test_sandbox_shim_starts_bridge_and_sets_child_base_url(
     assert isinstance(child_env, dict)
     assert child_env["ANTHROPIC_AUTH_TOKEN"] == "llm-token"
     assert child_env["TRACECAT__LLM_BRIDGE_PORT"] == "4312"
+    assert child_env["TRACECAT__MCP_BRIDGE_PORT"] == "4313"
     assert child_env["ANTHROPIC_BASE_URL"] == "http://127.0.0.1:4312"
 
 
