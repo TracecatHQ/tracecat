@@ -18,6 +18,7 @@ from typing import Any, TypedDict, cast
 
 import orjson
 import pytest
+from claude_agent_sdk import ClaudeAgentOptions
 
 import tracecat.agent.executor.activity as executor_activity
 import tracecat.agent.runtime.claude_code.broker as broker_module
@@ -100,6 +101,7 @@ def _make_executor_input(*, enable_internet_access: bool) -> AgentExecutorInput:
         role=Role(type="service", service_id="tracecat-agent-executor"),
         mcp_auth_token="mcp-token",
         llm_gateway_auth_token="llm-token",
+        agent_otel_auth_token="otel-token",
     )
 
 
@@ -120,6 +122,7 @@ def _make_passthrough_executor_input(
         role=Role(type="service", service_id="tracecat-agent-executor"),
         mcp_auth_token="mcp-token",
         llm_gateway_auth_token="llm-token",
+        agent_otel_auth_token="otel-token",
     )
 
 
@@ -933,6 +936,7 @@ async def test_run_agent_activity_with_fake_runtime_exercises_loopback_approval_
         payload: RuntimeInitPayload,
     ) -> None:
         assert payload.session_id == executor_input.session_id
+        assert payload.agent_otel_auth_token == executor_input.agent_otel_auth_token
         assert payload.is_fork is False
         assert payload.is_approval_continuation is False
         await handler.send_stream_event(
@@ -1490,6 +1494,76 @@ class _FakeProcess:
         self.returncode = -15
 
 
+class _ClosablePipe:
+    def close(self) -> None:
+        pass
+
+
+class _ConnectedFakeProcess:
+    stdin = _ClosablePipe()
+    stdout = object()
+    stderr = None
+    returncode = 0
+    pid = 12345
+
+
+@pytest.mark.anyio
+async def test_transport_writes_otel_token_as_top_level_shim_init_field(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    captured: dict[str, Path] = {}
+    path_mapping = session_paths_module.ClaudeSandboxPathMapping(
+        host_home_dir=tmp_path / "home",
+        host_project_dir=tmp_path / "project",
+        runtime_home_dir=tmp_path / "home",
+        runtime_cwd=tmp_path / "project",
+    )
+    transport = SandboxedCLITransport(
+        options=ClaudeAgentOptions(env={"ANTHROPIC_AUTH_TOKEN": "fake-llm-token"}),
+        session_id="session-1",
+        socket_dir=tmp_path / "sockets",
+        llm_socket_path=tmp_path / "sockets" / "llm.sock",
+        job_dir=tmp_path,
+        path_mapping=path_mapping,
+        enable_internet_access=False,
+        use_jailed_paths=False,
+        agent_otel_auth_token="otel-token",
+    )
+    (tmp_path / "sockets").mkdir()
+
+    async def fake_build_claude_command(self: SandboxedCLITransport) -> list[str]:
+        del self
+        return ["claude", "--print"]
+
+    async def fake_spawn_jailed_runtime(**kwargs: object) -> object:
+        init_payload_path = kwargs["init_payload_path"]
+        assert isinstance(init_payload_path, Path)
+        captured["init_payload_path"] = init_payload_path
+        return nsjail_module.SpawnedRuntime(
+            process=cast(Any, _ConnectedFakeProcess()),
+            job_dir=None,
+        )
+
+    monkeypatch.setattr(
+        transport_module.SandboxedCLITransport,
+        "_build_claude_command",
+        fake_build_claude_command,
+    )
+    monkeypatch.setattr(
+        transport_module,
+        "spawn_jailed_runtime",
+        fake_spawn_jailed_runtime,
+    )
+
+    await transport.connect()
+    await transport.close()
+
+    init_payload = orjson.loads(captured["init_payload_path"].read_bytes())
+    assert init_payload["agent_otel_auth_token"] == "otel-token"
+    assert "TRACECAT__AGENT_OTEL_AUTH_TOKEN" not in init_payload["env"]
+
+
 @pytest.mark.anyio
 async def test_sandbox_shim_starts_bridge_and_sets_child_base_url(
     monkeypatch: pytest.MonkeyPatch,
@@ -1505,6 +1579,7 @@ async def test_sandbox_shim_starts_bridge_and_sets_child_base_url(
                 "command": ["claude", "--print"],
                 "env": {"ANTHROPIC_AUTH_TOKEN": "llm-token"},
                 "cwd": str(tmp_path),
+                "agent_otel_auth_token": "otel-token",
             }
         )
     )
@@ -1552,6 +1627,29 @@ async def test_sandbox_shim_starts_bridge_and_sets_child_base_url(
     assert child_env["ANTHROPIC_AUTH_TOKEN"] == "llm-token"
     assert child_env["TRACECAT__LLM_BRIDGE_PORT"] == "4312"
     assert child_env["ANTHROPIC_BASE_URL"] == "http://127.0.0.1:4312"
+    assert "agent_otel_auth_token" not in child_env
+    assert "TRACECAT__AGENT_OTEL_AUTH_TOKEN" not in child_env
+
+
+def test_otel_bridge_injects_and_replaces_authorization(tmp_path: Path) -> None:
+    bridge = shim_entrypoint.OtelBridge(
+        socket_path=tmp_path / "otel.sock",
+        auth_token="otel-token",
+    )
+    request = (
+        b"POST /v1/traces HTTP/1.1\r\n"
+        b"Host: bridge\r\n"
+        b"Authorization: Bearer caller-token\r\n"
+        b"Content-Length: 4\r\n"
+        b"\r\n"
+        b"body"
+    )
+
+    rewritten = bridge._inject_relay_auth_header(request)
+
+    assert b"Authorization: Bearer caller-token" not in rewritten
+    assert b"Authorization: Bearer otel-token" in rewritten
+    assert rewritten.endswith(b"\r\n\r\nbody")
 
 
 if __name__ == "__main__":

@@ -88,6 +88,7 @@ class AgentExecutorInput(BaseModel):
     llm_gateway_auth_token: str = Field(
         validation_alias=AliasChoices("llm_gateway_auth_token", "litellm_auth_token"),
     )
+    agent_otel_auth_token: str | None = None
     # Resolved tool definitions
     allowed_actions: dict[str, MCPToolDefinition] | None = None
     # Session resume data from previous runs
@@ -255,6 +256,7 @@ class SandboxedAgentExecutor:
             config=SandboxAgentConfig.from_agent_config(self.input.config),
             user_prompt=self.input.user_prompt,
             llm_gateway_auth_token=self.input.llm_gateway_auth_token,
+            agent_otel_auth_token=self.input.agent_otel_auth_token,
             allowed_actions=self.input.allowed_actions,
             sdk_session_id=self.input.sdk_session_id,
             sdk_session_data=self.input.sdk_session_data,
@@ -287,16 +289,30 @@ class SandboxedAgentExecutor:
             otel_socket_path: Path | None = None
             resolved_otel = await self._resolve_agent_otel_config()
             if resolved_otel.enabled:
-                init_payload.agent_otel_sandbox_env = self._build_sandbox_env(
-                    resolved_otel
-                )
-                otel_socket_path = socket_dir / OTEL_SOCKET_NAME
-                self._otel_relay = OtelSocketRelay(
-                    socket_path=otel_socket_path,
-                    collector_env=resolved_otel.collector_env,
-                    headers=resolved_otel.headers,
-                    timeout_seconds=resolved_otel.relay_timeout_seconds,
-                )
+                if self.input.agent_otel_auth_token is None:
+                    logger.warning(
+                        "Agent OTel enabled but auth token is missing; running without telemetry",
+                        session_id=self.input.session_id,
+                    )
+                elif self.input.role.organization_id is None:
+                    logger.warning(
+                        "Agent OTel enabled but organization context is missing; running without telemetry",
+                        session_id=self.input.session_id,
+                    )
+                else:
+                    init_payload.agent_otel_sandbox_env = self._build_sandbox_env(
+                        resolved_otel
+                    )
+                    otel_socket_path = socket_dir / OTEL_SOCKET_NAME
+                    self._otel_relay = OtelSocketRelay(
+                        socket_path=otel_socket_path,
+                        collector_env=resolved_otel.collector_env,
+                        headers=resolved_otel.headers,
+                        timeout_seconds=resolved_otel.relay_timeout_seconds,
+                        expected_workspace_id=self.input.workspace_id,
+                        expected_organization_id=self.input.role.organization_id,
+                        expected_session_id=self.input.session_id,
+                    )
 
             # Create loopback handler
             loopback_input = LoopbackInput(

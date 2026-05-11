@@ -13,6 +13,7 @@ import json
 import logging
 import os
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 from typing import BinaryIO, TypedDict
 
@@ -29,12 +30,19 @@ MAX_BODY_SIZE = 10 * 1024 * 1024
 OTEL_MAX_BODY_SIZE = 16 * 1024 * 1024
 
 
+@dataclass(frozen=True, slots=True)
+class _HttpRequestParts:
+    header_block: bytes
+    body: bytes
+
+
 class ClaudeShimInitPayload(TypedDict):
     """Init payload consumed by the sandbox shim process."""
 
     command: list[str]
     env: dict[str, str]
     cwd: str
+    agent_otel_auth_token: str | None
 
 
 class LLMBridge:
@@ -223,8 +231,15 @@ class OtelBridge:
     LLM and OTel must not share state).
     """
 
-    def __init__(self, *, socket_path: Path, port: int = 0) -> None:
+    def __init__(
+        self,
+        *,
+        socket_path: Path,
+        auth_token: str | None,
+        port: int = 0,
+    ) -> None:
         self.socket_path = socket_path
+        self._auth_token = auth_token
         self._requested_port = port
         self._actual_port: int | None = None
         self._server: asyncio.Server | None = None
@@ -299,7 +314,7 @@ class OtelBridge:
                 return
 
             try:
-                sock_writer.write(request_data)
+                sock_writer.write(self._inject_relay_auth_header(request_data))
                 await sock_writer.drain()
                 while chunk := await sock_reader.read(8192):
                     client_writer.write(chunk)
@@ -316,6 +331,38 @@ class OtelBridge:
             with contextlib.suppress(Exception):
                 client_writer.close()
                 await client_writer.wait_closed()
+
+    @staticmethod
+    def _split_http_request(request_data: bytes) -> _HttpRequestParts | None:
+        marker = b"\r\n\r\n"
+        header_end = request_data.find(marker)
+        if header_end < 0:
+            return None
+        body_start = header_end + len(marker)
+        return _HttpRequestParts(
+            header_block=request_data[:header_end],
+            body=request_data[body_start:],
+        )
+
+    def _inject_relay_auth_header(self, request_data: bytes) -> bytes:
+        """Replace inbound Authorization with the relay bearer token."""
+        if not self._auth_token:
+            return request_data
+        split = self._split_http_request(request_data)
+        if split is None:
+            return request_data
+        lines = split.header_block.split(b"\r\n")
+        if not lines:
+            return request_data
+        request_line = lines[0]
+        preserved_headers = [
+            line for line in lines[1:] if not line.lower().startswith(b"authorization:")
+        ]
+        auth_header = f"Authorization: Bearer {self._auth_token}".encode("ascii")
+        rewritten = b"\r\n".join(
+            [request_line, *preserved_headers, auth_header, b"", b""]
+        )
+        return rewritten + split.body
 
     @staticmethod
     async def _read_http_request(reader: asyncio.StreamReader) -> bytes | None:
@@ -375,6 +422,7 @@ async def run_sandboxed_claude_shim() -> None:
         if child_env.get("CLAUDE_CODE_ENABLE_TELEMETRY") == "1":
             otel_bridge = OtelBridge(
                 socket_path=_resolve_otel_socket_path(),
+                auth_token=init_payload.get("agent_otel_auth_token"),
                 port=0,
             )
             otel_port = await otel_bridge.start()
@@ -440,6 +488,7 @@ async def _read_init_payload(init_path: Path) -> ClaudeShimInitPayload:
     command = data.get("command")
     env = data.get("env")
     cwd = data.get("cwd")
+    agent_otel_auth_token = data.get("agent_otel_auth_token")
 
     if not isinstance(command, list) or not all(
         isinstance(item, str) for item in command
@@ -451,8 +500,15 @@ async def _read_init_payload(init_path: Path) -> ClaudeShimInitPayload:
         raise ValueError("Shim payload env must be a dict[str, str]")
     if not isinstance(cwd, str):
         raise ValueError("Shim payload cwd must be a string")
+    if agent_otel_auth_token is not None and not isinstance(agent_otel_auth_token, str):
+        raise ValueError("Shim payload agent_otel_auth_token must be a string or null")
 
-    return {"command": command, "env": env, "cwd": cwd}
+    return {
+        "command": command,
+        "env": env,
+        "cwd": cwd,
+        "agent_otel_auth_token": agent_otel_auth_token,
+    }
 
 
 def _resolve_init_payload_path() -> Path:

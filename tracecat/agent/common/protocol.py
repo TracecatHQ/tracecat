@@ -37,6 +37,7 @@ class RuntimeInitPayload:
     config: SandboxAgentConfig
     user_prompt: str
     llm_gateway_auth_token: str
+    agent_otel_auth_token: str | None = None
 
     # Resolved tool definitions (orchestrator resolves action names → full definitions)
     allowed_actions: dict[str, MCPToolDefinition] | None = None
@@ -77,6 +78,7 @@ class RuntimeInitPayload:
             config=config,
             user_prompt=data["user_prompt"],
             llm_gateway_auth_token=data["llm_gateway_auth_token"],
+            agent_otel_auth_token=data.get("agent_otel_auth_token"),
             allowed_actions=allowed_actions,
             sdk_session_id=data.get("sdk_session_id"),
             sdk_session_data=data.get("sdk_session_data"),
@@ -97,6 +99,8 @@ class RuntimeInitPayload:
             "is_approval_continuation": self.is_approval_continuation,
             "is_fork": self.is_fork,
         }
+        if self.agent_otel_auth_token is not None:
+            result["agent_otel_auth_token"] = self.agent_otel_auth_token
         if self.allowed_actions is not None:
             result["allowed_actions"] = {
                 k: v.to_dict() for k, v in self.allowed_actions.items()
