@@ -4,6 +4,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Query, status
 
+from tracecat import config
 from tracecat.agent.folders.schemas import (
     AgentFolderCreate,
     AgentFolderDelete,
@@ -22,6 +23,7 @@ from tracecat.auth.dependencies import WorkspaceUserRouteRole
 from tracecat.authz.controls import require_scope
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
+from tracecat.pagination import CursorPaginatedResponse, CursorPaginationParams
 
 router = APIRouter(prefix="/agent-folders", tags=["agent-folders"])
 
@@ -53,25 +55,44 @@ async def get_directory(
     return list(result)
 
 
-@router.get("")
+@router.get("", response_model=CursorPaginatedResponse[AgentFolderRead])
 @require_scope("agent:read")
 async def list_folders(
     role: WorkspaceUserRouteRole,
     session: AsyncDBSession,
     parent_path: str = Query(default="/", description="Parent folder path"),
-) -> list[AgentFolderRead]:
+    limit: int = Query(
+        default=config.TRACECAT__LIMIT_DEFAULT,
+        ge=config.TRACECAT__LIMIT_MIN,
+        le=config.TRACECAT__LIMIT_CURSOR_MAX,
+    ),
+    cursor: str | None = Query(default=None),
+    reverse: bool = Query(default=False),
+) -> CursorPaginatedResponse[AgentFolderRead]:
     """List folders under the specified parent path."""
     service = AgentFolderService(session, role=role)
-    normalized_parent_path = service._normalize_folder_path(parent_path)
     try:
-        folders = await service.list_folders(parent_path=parent_path)
+        page = await service.list_folders_paginated(
+            parent_path=parent_path,
+            params=CursorPaginationParams(
+                limit=limit,
+                cursor=cursor,
+                reverse=reverse,
+            ),
+        )
     except TracecatValidationError as e:
         raise _folder_http_exception(e) from e
-    folders = [f for f in folders if f.path != normalized_parent_path]
-    return [
-        AgentFolderRead.model_validate(folder, from_attributes=True)
-        for folder in folders
-    ]
+    return CursorPaginatedResponse(
+        items=[
+            AgentFolderRead.model_validate(folder, from_attributes=True)
+            for folder in page.items
+        ],
+        next_cursor=page.next_cursor,
+        prev_cursor=page.prev_cursor,
+        has_more=page.has_more,
+        has_previous=page.has_previous,
+        total_estimate=page.total_estimate,
+    )
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)

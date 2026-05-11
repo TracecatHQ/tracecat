@@ -2738,6 +2738,30 @@ export type CursorPaginatedResponse_AdminOrgInvitationRead_ = {
   total_estimate?: number | null
 }
 
+export type CursorPaginatedResponse_AgentFolderRead_ = {
+  items: Array<AgentFolderRead>
+  /**
+   * Cursor for next page
+   */
+  next_cursor?: string | null
+  /**
+   * Cursor for previous page
+   */
+  prev_cursor?: string | null
+  /**
+   * Whether more items exist
+   */
+  has_more?: boolean
+  /**
+   * Whether previous items exist
+   */
+  has_previous?: boolean
+  /**
+   * Estimated total count from table statistics
+   */
+  total_estimate?: number | null
+}
+
 export type CursorPaginatedResponse_AgentPresetVersionReadMinimal_ = {
   items: Array<AgentPresetVersionReadMinimal>
   /**
@@ -10332,14 +10356,18 @@ export type AgentFoldersGetDirectoryResponse = Array<
 >
 
 export type AgentFoldersListFoldersData = {
+  cursor?: string | null
+  limit?: number
   /**
    * Parent folder path
    */
   parentPath?: string
+  reverse?: boolean
   workspaceId: string
 }
 
-export type AgentFoldersListFoldersResponse = Array<AgentFolderRead>
+export type AgentFoldersListFoldersResponse =
+  CursorPaginatedResponse_AgentFolderRead_
 
 export type AgentFoldersCreateFolderData = {
   requestBody: AgentFolderCreate
@@ -15137,7 +15165,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        200: Array<AgentFolderRead>
+        200: CursorPaginatedResponse_AgentFolderRead_
         /**
          * Validation Error
          */

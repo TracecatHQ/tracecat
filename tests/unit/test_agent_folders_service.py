@@ -18,6 +18,7 @@ from tracecat.exceptions import (
     ScopeDeniedError,
     TracecatValidationError,
 )
+from tracecat.pagination import CursorPaginationParams
 from tracecat.tiers.enums import Entitlement
 
 pytestmark = pytest.mark.usefixtures("db")
@@ -38,6 +39,7 @@ async def folder_service(
         lambda service: service.get_folder(uuid4()),
         lambda service: service.get_folder_by_path("/parent/"),
         lambda service: service.list_folders("/"),
+        lambda service: service.list_folders_paginated("/", CursorPaginationParams()),
         lambda service: service.get_directory_items("/"),
         lambda service: service.get_folder_tree("/"),
     ],
@@ -108,6 +110,75 @@ async def test_list_folders_escapes_like_wildcards(
     folders = await folder_service.list_folders("/foo%")
 
     assert {folder.path for folder in folders} == {"/foo%/", "/foo%/child/"}
+
+
+@pytest.mark.anyio
+async def test_list_folders_paginated_excludes_parent_and_escapes_like_wildcards(
+    folder_service: AgentFolderService,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Paginated subtree listing should exclude the parent and escape LIKE wildcards."""
+    monkeypatch.setattr(folder_service, "has_entitlement", AsyncMock(return_value=True))
+    await folder_service.create_folder(name="foo%", parent_path="/")
+    await folder_service.create_folder(name="child", parent_path="/foo%/")
+    await folder_service.create_folder(name="fooz", parent_path="/")
+
+    page = await folder_service.list_folders_paginated(
+        "/foo%", CursorPaginationParams(limit=10)
+    )
+
+    assert [folder.path for folder in page.items] == ["/foo%/child/"]
+    assert page.has_more is False
+
+
+@pytest.mark.anyio
+async def test_list_folders_paginated_uses_cursor_pages(
+    folder_service: AgentFolderService,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Paginated folder listing should return stable cursor pages."""
+    monkeypatch.setattr(folder_service, "has_entitlement", AsyncMock(return_value=True))
+    created_paths = {
+        (await folder_service.create_folder(name="alpha", parent_path="/")).path,
+        (await folder_service.create_folder(name="beta", parent_path="/")).path,
+        (await folder_service.create_folder(name="gamma", parent_path="/")).path,
+    }
+
+    first_page = await folder_service.list_folders_paginated(
+        "/", CursorPaginationParams(limit=2)
+    )
+
+    assert len(first_page.items) == 2
+    assert first_page.has_more is True
+    assert first_page.has_previous is False
+    assert first_page.next_cursor is not None
+
+    second_page = await folder_service.list_folders_paginated(
+        "/", CursorPaginationParams(limit=2, cursor=first_page.next_cursor)
+    )
+
+    assert len(second_page.items) == 1
+    assert second_page.has_more is False
+    assert second_page.has_previous is True
+    assert {folder.path for folder in first_page.items + second_page.items} == (
+        created_paths
+    )
+
+
+@pytest.mark.anyio
+async def test_list_folders_paginated_invalid_cursor_raises_tracecat_validation(
+    folder_service: AgentFolderService,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Invalid folder cursors should surface app-level validation errors."""
+    monkeypatch.setattr(folder_service, "has_entitlement", AsyncMock(return_value=True))
+
+    with pytest.raises(
+        TracecatValidationError, match="Invalid cursor for agent folders"
+    ):
+        await folder_service.list_folders_paginated(
+            "/", CursorPaginationParams(cursor="invalid")
+        )
 
 
 @pytest.mark.anyio
@@ -183,6 +254,7 @@ async def test_move_preset_requires_agent_addons_entitlement(
         lambda service: service.get_folder(uuid4()),
         lambda service: service.get_folder_by_path("/parent/"),
         lambda service: service.list_folders("/"),
+        lambda service: service.list_folders_paginated("/", CursorPaginationParams()),
         lambda service: service.create_folder(name="parent", parent_path="/"),
         lambda service: service.get_folder_tree("/"),
         lambda service: service.rename_folder(uuid4(), "renamed"),

@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Sequence
+from datetime import datetime
 from typing import Literal
 
+import sqlalchemy as sa
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import selectinload
@@ -18,6 +20,11 @@ from tracecat.agent.folders.schemas import (
 from tracecat.authz.controls import require_scope
 from tracecat.db.models import AgentFolder, AgentPreset
 from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
+from tracecat.pagination import (
+    BaseCursorPaginator,
+    CursorPaginatedResponse,
+    CursorPaginationParams,
+)
 from tracecat.service import BaseWorkspaceService, requires_entitlement
 from tracecat.tags.schemas import TagRead
 from tracecat.tiers.enums import Entitlement
@@ -164,10 +171,7 @@ class AgentFolderService(BaseWorkspaceService):
         """Get a folder by its path."""
         return await self._get_folder_by_path(path)
 
-    @require_scope("agent:read")
-    @requires_entitlement(Entitlement.AGENT_ADDONS)
-    async def list_folders(self, parent_path: str = "/") -> Sequence[AgentFolder]:
-        """List all folders within the specified parent path subtree."""
+    async def _require_existing_parent_path(self, parent_path: str) -> str:
         parent_path = self._normalize_folder_path(parent_path)
         if parent_path != "/":
             parent_exists = await self._folder_path_exists(parent_path)
@@ -176,6 +180,13 @@ class AgentFolderService(BaseWorkspaceService):
                     f"Parent path {parent_path} not found",
                     code=AGENT_FOLDER_PARENT_NOT_FOUND_CODE,
                 )
+        return parent_path
+
+    @require_scope("agent:read")
+    @requires_entitlement(Entitlement.AGENT_ADDONS)
+    async def list_folders(self, parent_path: str = "/") -> Sequence[AgentFolder]:
+        """List all folders within the specified parent path subtree."""
+        parent_path = await self._require_existing_parent_path(parent_path)
 
         statement = select(AgentFolder).where(
             AgentFolder.workspace_id == self.workspace_id,
@@ -183,6 +194,100 @@ class AgentFolderService(BaseWorkspaceService):
         )
         result = await self.session.execute(statement)
         return result.scalars().all()
+
+    @require_scope("agent:read")
+    @requires_entitlement(Entitlement.AGENT_ADDONS)
+    async def list_folders_paginated(
+        self,
+        parent_path: str = "/",
+        params: CursorPaginationParams | None = None,
+    ) -> CursorPaginatedResponse[AgentFolder]:
+        """List folders within a parent path subtree with cursor pagination."""
+        params = params or CursorPaginationParams()
+        parent_path = await self._require_existing_parent_path(parent_path)
+        paginator = BaseCursorPaginator(self.session)
+        statement = select(AgentFolder).where(
+            AgentFolder.workspace_id == self.workspace_id,
+            AgentFolder.path.startswith(parent_path, autoescape=True),
+            AgentFolder.path != parent_path,
+        )
+
+        if params.cursor:
+            try:
+                cursor_data = paginator.decode_cursor(params.cursor)
+                cursor_id = uuid.UUID(cursor_data.id)
+            except ValueError as err:
+                raise TracecatValidationError(
+                    "Invalid cursor for agent folders"
+                ) from err
+
+            cursor_created_at = cursor_data.sort_value
+            if not isinstance(cursor_created_at, datetime):
+                raise TracecatValidationError("Invalid cursor for agent folders")
+
+            predicate = sa.or_(
+                AgentFolder.created_at < cursor_created_at,
+                sa.and_(
+                    AgentFolder.created_at == cursor_created_at,
+                    AgentFolder.id < cursor_id,
+                ),
+            )
+            if params.reverse:
+                predicate = sa.or_(
+                    AgentFolder.created_at > cursor_created_at,
+                    sa.and_(
+                        AgentFolder.created_at == cursor_created_at,
+                        AgentFolder.id > cursor_id,
+                    ),
+                )
+            statement = statement.where(predicate)
+
+        if params.reverse:
+            statement = statement.order_by(
+                AgentFolder.created_at.asc(), AgentFolder.id.asc()
+            )
+        else:
+            statement = statement.order_by(
+                AgentFolder.created_at.desc(), AgentFolder.id.desc()
+            )
+        statement = statement.limit(params.limit + 1)
+
+        folders = (await self.session.execute(statement)).scalars().all()
+        has_more = len(folders) > params.limit
+        items = list(folders[: params.limit])
+
+        next_cursor = None
+        if has_more and items:
+            last = items[-1]
+            next_cursor = paginator.encode_cursor(
+                last.id,
+                sort_column="created_at",
+                sort_value=last.created_at,
+            )
+
+        prev_cursor = None
+        if params.cursor and items:
+            first = items[0]
+            prev_cursor = paginator.encode_cursor(
+                first.id,
+                sort_column="created_at",
+                sort_value=first.created_at,
+            )
+
+        if params.reverse:
+            items.reverse()
+            next_cursor, prev_cursor = prev_cursor, next_cursor
+            has_more, has_previous = params.cursor is not None, has_more
+        else:
+            has_previous = params.cursor is not None
+
+        return CursorPaginatedResponse(
+            items=items,
+            next_cursor=next_cursor,
+            prev_cursor=prev_cursor,
+            has_more=has_more,
+            has_previous=has_previous,
+        )
 
     @require_scope("agent:update")
     @requires_entitlement(Entitlement.AGENT_ADDONS)

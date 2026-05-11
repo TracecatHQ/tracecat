@@ -5745,7 +5745,10 @@ export const agentFoldersGetDirectory = (
  * @param data The data for the request.
  * @param data.workspaceId
  * @param data.parentPath Parent folder path
- * @returns AgentFolderRead Successful Response
+ * @param data.limit
+ * @param data.cursor
+ * @param data.reverse
+ * @returns CursorPaginatedResponse_AgentFolderRead_ Successful Response
  * @throws ApiError
  */
 export const agentFoldersListFolders = (
@@ -5759,6 +5762,9 @@ export const agentFoldersListFolders = (
     },
     query: {
       parent_path: data.parentPath,
+      limit: data.limit,
+      cursor: data.cursor,
+      reverse: data.reverse,
     },
     errors: {
       422: "Validation Error",

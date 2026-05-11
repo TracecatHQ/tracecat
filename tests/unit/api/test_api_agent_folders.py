@@ -18,6 +18,7 @@ from tracecat.agent.preset import router as agent_preset_router
 from tracecat.agent.preset.schemas import AgentPresetMoveToFolder
 from tracecat.auth.types import Role
 from tracecat.exceptions import EntitlementRequired, TracecatValidationError
+from tracecat.pagination import CursorPaginatedResponse, CursorPaginationParams
 
 # Fixed UUID for parametrized test IDs — uuid.uuid4() at module level causes
 # pytest-xdist collection mismatches because each worker generates a different value.
@@ -98,13 +99,12 @@ async def test_list_folders_missing_parent_returns_404(
     """Listing a missing folder path should not look like an empty folder."""
     with patch.object(agent_folder_router, "AgentFolderService") as mock_service_cls:
         mock_service = _mock_service_with_async_method(
-            "list_folders",
+            "list_folders_paginated",
             side_effect=TracecatValidationError(
                 "Parent path /missing/ not found",
                 detail={"code": AGENT_FOLDER_PARENT_NOT_FOUND_CODE},
             ),
         )
-        mock_service._normalize_folder_path.return_value = "/missing/"
         mock_service_cls.return_value = mock_service
 
         response = client.get(
@@ -114,6 +114,48 @@ async def test_list_folders_missing_parent_returns_404(
 
         assert response.status_code == status.HTTP_404_NOT_FOUND
         assert response.json()["detail"] == "Parent path /missing/ not found"
+
+
+@pytest.mark.anyio
+async def test_list_folders_returns_paginated_response(
+    client: TestClient,
+    test_admin_role: Role,
+) -> None:
+    """Folder listing should use the cursor-paginated API shape."""
+    with patch.object(agent_folder_router, "AgentFolderService") as mock_service_cls:
+        mock_service = _mock_service_with_async_method(
+            "list_folders_paginated",
+            return_value=CursorPaginatedResponse(items=[], has_more=True),
+        )
+        mock_service_cls.return_value = mock_service
+
+        response = client.get(
+            "/agent-folders",
+            params={
+                "parent_path": "/agents/",
+                "limit": 2,
+                "cursor": "encoded-cursor",
+                "reverse": True,
+            },
+        )
+
+    assert response.status_code == status.HTTP_200_OK
+    assert response.json() == {
+        "items": [],
+        "next_cursor": None,
+        "prev_cursor": None,
+        "has_more": True,
+        "has_previous": False,
+        "total_estimate": None,
+    }
+    mock_service.list_folders_paginated.assert_awaited_once_with(
+        parent_path="/agents/",
+        params=CursorPaginationParams(
+            limit=2,
+            cursor="encoded-cursor",
+            reverse=True,
+        ),
+    )
 
 
 @pytest.mark.anyio
@@ -311,7 +353,12 @@ async def test_delete_folder_without_body_defaults_to_non_recursive(
 @pytest.mark.parametrize(
     ("method", "path", "kwargs", "service_method"),
     [
-        ("get", "/agent-folders", {"params": {"parent_path": "/"}}, "list_folders"),
+        (
+            "get",
+            "/agent-folders",
+            {"params": {"parent_path": "/"}},
+            "list_folders_paginated",
+        ),
         (
             "post",
             "/agent-folders",
