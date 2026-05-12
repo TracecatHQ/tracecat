@@ -1120,6 +1120,7 @@ function CustomSourceModelRow({
 }
 
 function ProviderAllowlistModelRow({
+  canManageModels,
   disabled,
   model,
   showCapabilityColumns,
@@ -1127,6 +1128,7 @@ function ProviderAllowlistModelRow({
   onEdit,
   onDelete,
 }: {
+  canManageModels: boolean
   disabled: boolean
   model: BuiltInCatalogEntry
   showCapabilityColumns: boolean
@@ -1136,9 +1138,10 @@ function ProviderAllowlistModelRow({
 }) {
   const canEnable = canEnableBuiltInCatalogModel(model)
   const statusMessage = model.readiness_message
-  const isOrgScoped = model.organization_id != null
   const isCloudCatalogModel = isCloudCatalogProvider(model.model_provider)
-  const showOverflowMenu = isOrgScoped && (onEdit || onDelete)
+  const isOrgScoped = model.organization_id != null
+  const showOverflowMenu =
+    isOrgScoped && isCloudCatalogModel && (onEdit || onDelete)
   const displayName = model.metadata_display_name?.trim()
 
   return (
@@ -1147,8 +1150,12 @@ function ProviderAllowlistModelRow({
         className={cn(
           "grid gap-3 sm:items-center sm:gap-4",
           showCapabilityColumns
-            ? "sm:grid-cols-[minmax(0,1fr)_88px_88px_7rem_2rem]"
-            : "sm:grid-cols-[minmax(0,1fr)_7rem_2rem]"
+            ? canManageModels
+              ? "sm:grid-cols-[minmax(0,1fr)_88px_88px_7rem_2rem]"
+              : "sm:grid-cols-[minmax(0,1fr)_88px_88px_2rem]"
+            : canManageModels
+              ? "sm:grid-cols-[minmax(0,1fr)_7rem_2rem]"
+              : "sm:grid-cols-[minmax(0,1fr)_2rem]"
         )}
       >
         <div className="min-w-0 space-y-1">
@@ -1156,11 +1163,6 @@ function ProviderAllowlistModelRow({
             <p className="truncate text-sm font-medium">
               {displayName || getModelLabel(model)}
             </p>
-            {isOrgScoped && !isCloudCatalogModel ? (
-              <Badge className="shrink-0" variant="outline">
-                Custom
-              </Badge>
-            ) : null}
           </div>
           {displayName ? (
             <p className="truncate text-xs text-muted-foreground">
@@ -1187,19 +1189,21 @@ function ProviderAllowlistModelRow({
             </p>
           </>
         ) : null}
-        <div className="flex items-center justify-center">
-          <Button
-            className="w-24"
-            disabled={disabled || !canEnable}
-            onClick={() => {
-              void onToggle(model)
-            }}
-            size="sm"
-            variant={model.enabled ? "secondary" : "outline"}
-          >
-            {model.enabled ? "Disallow" : "Allow"}
-          </Button>
-        </div>
+        {canManageModels ? (
+          <div className="flex items-center justify-center">
+            <Button
+              className="w-24"
+              disabled={disabled || !canEnable}
+              onClick={() => {
+                void onToggle(model)
+              }}
+              size="sm"
+              variant={model.enabled ? "secondary" : "outline"}
+            >
+              {model.enabled ? "Disallow" : "Allow"}
+            </Button>
+          </div>
+        ) : null}
         <div className="flex items-center justify-end">
           {showOverflowMenu ? (
             <DropdownMenu>
@@ -1265,7 +1269,6 @@ function ProviderConnectionItem({
   onToggleModel: (model: ModelCatalogEntry) => Promise<void>
   provider: BuiltInProviderConnection
 }) {
-  const canExpand = canManageModels
   const [catalogQueryInput, setCatalogQueryInput] = useState("")
   const [allowAllOverride, setAllowAllOverride] = useState<boolean | null>(null)
   const [enabledCountOverride, setEnabledCountOverride] = useState<
@@ -1306,8 +1309,6 @@ function ProviderConnectionItem({
     enabledSelectableProviderCount === selectableProviderModelCount
   const allowAllChecked =
     !isWhitelistMode && (allowAllOverride ?? allSelectableAllowed)
-  const showWhitelistControls = isWhitelistMode || !allowAllChecked
-  const showModelList = showWhitelistControls
   const showCapabilityColumns = !isCloudCatalogProvider(provider.provider)
   const subtitle = provider.credentials_configured
     ? provider.base_url || provider.runtime_target
@@ -1323,17 +1324,6 @@ function ProviderConnectionItem({
             <ProviderMetaPill active={enabledSelectableProviderCount > 0}>
               {enabledSelectableProviderCount} enabled
             </ProviderMetaPill>
-          ) : null}
-          {provider.credentials_configured && !canManageModels ? (
-            <Button
-              onClick={() => {
-                void onDeleteCredentials(provider.provider, provider.label)
-              }}
-              size="sm"
-              variant="outline"
-            >
-              Disconnect
-            </Button>
           ) : null}
           {onAddCatalogModel && provider.credentials_configured ? (
             <Button
@@ -1363,46 +1353,44 @@ function ProviderConnectionItem({
       }
       isExpanded={isExpanded}
       onExpandedChange={onExpandedChange}
-      reserveExpandSpace={canExpand}
+      reserveExpandSpace
       subtitle={subtitle}
       title={provider.label}
     >
-      {canExpand ? (
-        <div className="space-y-4">
-          {provider.credentials_configured ? (
-            <div className="flex flex-wrap gap-2">
-              <Button
-                onClick={() => {
-                  void onDeleteCredentials(provider.provider, provider.label)
-                }}
-                size="sm"
-                variant="outline"
-              >
-                Disconnect
-              </Button>
-            </div>
-          ) : (
-            <div className="rounded-lg border border-dashed px-4 py-4">
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                <div className="space-y-1">
-                  <p className="text-sm font-medium">
-                    Connect {provider.label}
-                  </p>
-                  <p className="text-xs text-muted-foreground">
-                    Use the Connect action above to add organization credentials
-                    before these models can be enabled for organization use.
-                  </p>
-                </div>
+      <div className="space-y-4">
+        {provider.credentials_configured ? (
+          <div className="flex flex-wrap gap-2">
+            <Button
+              onClick={() => {
+                void onDeleteCredentials(provider.provider, provider.label)
+              }}
+              size="sm"
+              variant="outline"
+            >
+              Disconnect
+            </Button>
+          </div>
+        ) : (
+          <div className="rounded-lg border border-dashed px-4 py-4">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="space-y-1">
+                <p className="text-sm font-medium">Connect {provider.label}</p>
+                <p className="text-xs text-muted-foreground">
+                  Use the Connect action above to add organization credentials
+                  before these models can be enabled for organization use.
+                </p>
               </div>
             </div>
-          )}
+          </div>
+        )}
 
-          {provider.last_error ? (
-            <div className="rounded-md border border-destructive/40 px-3 py-2 text-sm text-destructive">
-              {provider.last_error}
-            </div>
-          ) : null}
+        {provider.last_error ? (
+          <div className="rounded-md border border-destructive/40 px-3 py-2 text-sm text-destructive">
+            {provider.last_error}
+          </div>
+        ) : null}
 
+        {canManageModels ? (
           <div className="rounded-lg border px-4 py-3">
             <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
               <div className="space-y-1">
@@ -1471,106 +1459,106 @@ function ProviderConnectionItem({
               </ProviderMetaPill>
             </div>
           </div>
+        ) : null}
 
-          {showModelList ? (
-            provider.credentials_configured ? (
-              <div className="space-y-3">
-                <div className="flex items-center gap-2">
-                  <Input
-                    className="focus-visible:ring-0 focus-visible:ring-offset-0"
-                    onChange={(event) => {
-                      setCatalogQueryInput(event.target.value)
-                    }}
-                    placeholder={`Search ${provider.label} models`}
-                    value={catalogQueryInput}
-                  />
-                  {catalogQueryInput.trim() ? (
-                    <Button
-                      onClick={() => {
-                        setCatalogQueryInput("")
-                      }}
-                      size="sm"
-                      type="button"
-                      variant="ghost"
-                    >
-                      Clear
-                    </Button>
-                  ) : null}
-                </div>
-                {providerModels.length ? (
-                  <ScrollArea className="h-96 rounded-lg border">
-                    <div className="px-4">
-                      <div
-                        className={cn(
-                          "hidden gap-4 border-b border-border/40 py-3 text-[11px] font-medium uppercase tracking-wide text-muted-foreground sm:grid",
-                          showCapabilityColumns
-                            ? "grid-cols-[minmax(0,1fr)_88px_88px_7rem_2rem]"
-                            : "grid-cols-[minmax(0,1fr)_7rem_2rem]"
-                        )}
-                      >
-                        <span>Model</span>
-                        {showCapabilityColumns ? (
-                          <>
-                            <span className="text-right">Context</span>
-                            <span className="text-right">Output</span>
-                          </>
-                        ) : null}
-                        <span className="text-center">Access</span>
-                        <span aria-hidden="true" />
-                      </div>
-                      {providerModels.map((model) => (
-                        <ProviderAllowlistModelRow
-                          disabled={disabled}
-                          key={getModelSelectionKey(toModelSelection(model))}
-                          model={model}
-                          onDelete={onDeleteCatalogModel}
-                          onEdit={onEditCatalogModel}
-                          showCapabilityColumns={showCapabilityColumns}
-                          onToggle={async (nextModel) => {
-                            const nextCountDelta = nextModel.enabled ? -1 : 1
-                            setAllowAllOverride(null)
-                            setEnabledCountOverride((current) =>
-                              Math.min(
-                                selectableProviderModelCount ||
-                                  Number.POSITIVE_INFINITY,
-                                Math.max(
-                                  0,
-                                  (current ?? enabledCount) + nextCountDelta
-                                )
-                              )
-                            )
-                            try {
-                              await onToggleModel(nextModel)
-                            } catch {
-                              setEnabledCountOverride(null)
-                            }
-                          }}
-                        />
-                      ))}
-                    </div>
-                  </ScrollArea>
-                ) : (
-                  <div className="rounded-md border border-dashed px-3 py-4 text-sm text-muted-foreground">
-                    {catalogQueryInput.trim()
-                      ? `No ${provider.label} models matched this search.`
-                      : "No selectable models are currently available for this provider."}
+        {provider.credentials_configured ? (
+          <div className="space-y-3">
+            <div className="flex items-center gap-2">
+              <Input
+                className="focus-visible:ring-0 focus-visible:ring-offset-0"
+                onChange={(event) => {
+                  setCatalogQueryInput(event.target.value)
+                }}
+                placeholder={`Search ${provider.label} models`}
+                value={catalogQueryInput}
+              />
+              {catalogQueryInput.trim() ? (
+                <Button
+                  onClick={() => {
+                    setCatalogQueryInput("")
+                  }}
+                  size="sm"
+                  type="button"
+                  variant="ghost"
+                >
+                  Clear
+                </Button>
+              ) : null}
+            </div>
+            {providerModels.length ? (
+              <ScrollArea className="h-96 rounded-lg border">
+                <div className="px-4">
+                  <div
+                    className={cn(
+                      "hidden gap-4 border-b border-border/40 py-3 text-[11px] font-medium uppercase tracking-wide text-muted-foreground sm:grid",
+                      showCapabilityColumns
+                        ? canManageModels
+                          ? "grid-cols-[minmax(0,1fr)_88px_88px_7rem_2rem]"
+                          : "grid-cols-[minmax(0,1fr)_88px_88px_2rem]"
+                        : canManageModels
+                          ? "grid-cols-[minmax(0,1fr)_7rem_2rem]"
+                          : "grid-cols-[minmax(0,1fr)_2rem]"
+                    )}
+                  >
+                    <span>Model</span>
+                    {showCapabilityColumns ? (
+                      <>
+                        <span className="text-right">Context</span>
+                        <span className="text-right">Output</span>
+                      </>
+                    ) : null}
+                    {canManageModels ? (
+                      <span className="text-center">Access</span>
+                    ) : null}
+                    <span aria-hidden="true" />
                   </div>
-                )}
-              </div>
+                  {providerModels.map((model) => (
+                    <ProviderAllowlistModelRow
+                      canManageModels={canManageModels}
+                      disabled={disabled}
+                      key={getModelSelectionKey(toModelSelection(model))}
+                      model={model}
+                      onDelete={onDeleteCatalogModel}
+                      onEdit={onEditCatalogModel}
+                      showCapabilityColumns={showCapabilityColumns}
+                      onToggle={async (nextModel) => {
+                        const nextCountDelta = nextModel.enabled ? -1 : 1
+                        setAllowAllOverride(null)
+                        setEnabledCountOverride((current) =>
+                          Math.min(
+                            selectableProviderModelCount ||
+                              Number.POSITIVE_INFINITY,
+                            Math.max(
+                              0,
+                              (current ?? enabledCount) + nextCountDelta
+                            )
+                          )
+                        )
+                        try {
+                          await onToggleModel(nextModel)
+                        } catch {
+                          setEnabledCountOverride(null)
+                        }
+                      }}
+                    />
+                  ))}
+                </div>
+              </ScrollArea>
             ) : (
               <div className="rounded-md border border-dashed px-3 py-4 text-sm text-muted-foreground">
-                Connect this provider, then allow the platform models your
-                organization should be able to choose.
+                {catalogQueryInput.trim()
+                  ? `No ${provider.label} models matched this search.`
+                  : "No selectable models are currently available for this provider."}
               </div>
-            )
-          ) : (
-            <div className="rounded-md border border-dashed px-3 py-4 text-sm text-muted-foreground">
-              Every selectable {provider.label} model is allowed. Turn off Allow
-              all to trim this down to a whitelist.
-            </div>
-          )}
-        </div>
-      ) : null}
+            )}
+          </div>
+        ) : (
+          <div className="rounded-md border border-dashed px-3 py-4 text-sm text-muted-foreground">
+            Connect this provider, then allow the platform models your
+            organization should be able to choose.
+          </div>
+        )}
+      </div>
     </RbacListItem>
   )
 }
@@ -2642,20 +2630,19 @@ export function OrgSettingsAgentForm() {
                   (model) => model.enabled
                 ).length
 
-                const supportsCatalogAuthoring =
-                  agentAddonsEnabled &&
-                  isCloudCatalogProvider(provider.provider)
+                const isCloudProvider = isCloudCatalogProvider(
+                  provider.provider
+                )
+                const supportsCatalogAuthoring = isCloudProvider
+                const canManageModels = agentAddonsEnabled
                 return (
                   <ProviderConnectionItem
-                    canManageModels={agentAddonsEnabled}
+                    canManageModels={canManageModels}
                     disabled={
                       isSelectionUpdating || credentialDeleteMutation.isPending
                     }
                     enabledCount={enabledCount}
-                    isExpanded={
-                      agentAddonsEnabled &&
-                      expandedProvider === provider.provider
-                    }
+                    isExpanded={expandedProvider === provider.provider}
                     key={provider.provider}
                     onAddCatalogModel={
                       supportsCatalogAuthoring
@@ -2677,11 +2664,7 @@ export function OrgSettingsAgentForm() {
                     }
                     onEnableAllModels={handleEnableAllProviderModels}
                     onExpandedChange={(expanded) => {
-                      setExpandedProvider(
-                        agentAddonsEnabled && expanded
-                          ? provider.provider
-                          : null
-                      )
+                      setExpandedProvider(expanded ? provider.provider : null)
                     }}
                     onToggleModel={handleModelToggle}
                     provider={provider}
