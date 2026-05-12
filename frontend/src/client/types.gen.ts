@@ -699,7 +699,7 @@ export type AgentSessionCreate = {
    */
   agent_preset_id?: string | null
   /**
-   * Pinned preset version used for this session (if any)
+   * Pinned preset version used for this session. If null, the session follows the preset's current version.
    */
   agent_preset_version_id?: string | null
   /**
@@ -833,7 +833,7 @@ export type AgentSessionUpdate = {
    */
   agent_preset_id?: string | null
   /**
-   * Pinned preset version to use for this session
+   * Pinned preset version to use for this session. Set null to follow the preset's current version.
    */
   agent_preset_version_id?: string | null
   /**

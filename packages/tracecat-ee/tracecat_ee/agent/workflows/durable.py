@@ -131,7 +131,11 @@ class AgentWorkflowArgs(BaseModel):
         default=None, description="Agent preset used for this session"
     )
     agent_preset_version_id: uuid.UUID | None = Field(
-        default=None, description="Pinned preset version used for this session"
+        default=None,
+        description=(
+            "Pinned preset version used for this workflow run. "
+            "If null, the run follows the preset's current version."
+        ),
     )
     harness_type: HarnessType | None = Field(
         default=None,

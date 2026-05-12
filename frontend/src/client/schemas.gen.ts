@@ -3020,7 +3020,8 @@ export const $AgentSessionCreate = {
         },
       ],
       title: "Agent Preset Version Id",
-      description: "Pinned preset version used for this session (if any)",
+      description:
+        "Pinned preset version used for this session. If null, the session follows the preset's current version.",
     },
     harness_type: {
       $ref: "#/components/schemas/HarnessType",
@@ -3604,7 +3605,8 @@ export const $AgentSessionUpdate = {
         },
       ],
       title: "Agent Preset Version Id",
-      description: "Pinned preset version to use for this session",
+      description:
+        "Pinned preset version to use for this session. Set null to follow the preset's current version.",
     },
     harness_type: {
       anyOf: [
