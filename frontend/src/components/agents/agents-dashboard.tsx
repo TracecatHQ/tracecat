@@ -1885,6 +1885,14 @@ export function AgentsDashboard() {
   const { agentTags, agentTagsIsLoading } = useAgentTagCatalog(workspaceId)
   const { createAgentPreset, createAgentPresetIsPending } =
     useCreateAgentPreset(workspaceId)
+  const { moveAgentPreset } = useMoveAgentPreset(workspaceId)
+  const { folders, foldersIsLoading } = useAgentFolders(workspaceId, {
+    enabled: view === "list",
+  })
+  const folderPathById = useMemo(
+    () => new Map((folders ?? []).map((folder) => [folder.id, folder.path])),
+    [folders]
+  )
 
   const handleDuplicatePreset = useCallback(
     async (item: AgentPresetDirectoryItem | AgentPresetReadMinimal) => {
@@ -1915,6 +1923,25 @@ export function AgentsDashboard() {
           existingSlugs
         )
         const created = await createAgentPreset(payload)
+        const targetFolderPath =
+          view === "folders"
+            ? currentPath
+            : item.folder_id
+              ? folderPathById.get(item.folder_id)
+              : "/"
+
+        if (targetFolderPath === undefined) {
+          throw new Error("Source agent folder is not loaded yet")
+        }
+
+        try {
+          await moveAgentPreset({
+            presetId: created.id,
+            folder_path: targetFolderPath,
+          })
+        } catch {
+          // Move hook already toasts; continue to open the duplicated preset.
+        }
         router.push(`/workspaces/${workspaceId}/agents/${created.id}`)
       } catch (error) {
         console.error("Failed to duplicate agent preset:", error)
@@ -1925,7 +1952,17 @@ export function AgentsDashboard() {
         })
       }
     },
-    [createAgentPreset, presets, queryClient, router, workspaceId]
+    [
+      createAgentPreset,
+      currentPath,
+      folderPathById,
+      moveAgentPreset,
+      presets,
+      queryClient,
+      router,
+      view,
+      workspaceId,
+    ]
   )
 
   const baseRoute = `/workspaces/${workspaceId}/agents`
@@ -2069,7 +2106,13 @@ export function AgentsDashboard() {
                   availableTags={agentTags}
                   areTagsLoading={agentTagsIsLoading}
                   onDuplicate={handleDuplicatePreset}
-                  duplicateDisabled={createAgentPresetIsPending}
+                  duplicateDisabled={
+                    createAgentPresetIsPending ||
+                    (item.type === "preset" &&
+                      view === "list" &&
+                      item.folder_id != null &&
+                      (foldersIsLoading || !folderPathById.has(item.folder_id)))
+                  }
                 />
               ))}
             </div>
