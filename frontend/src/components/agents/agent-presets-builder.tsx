@@ -484,7 +484,7 @@ export function AgentPresetsBuilder({
       <AgentPresetForm
         key={selectedPreset?.id ?? activePresetId}
         preset={selectedPreset ?? null}
-        mode="edit"
+        mode={selectedPreset ? "edit" : "create"}
         workspaceId={workspaceId}
         actionSuggestions={actionSuggestions}
         namespaceSuggestions={namespaceSuggestions}
