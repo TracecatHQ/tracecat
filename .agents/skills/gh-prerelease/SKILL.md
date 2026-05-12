@@ -2,7 +2,7 @@
 name: gh-prerelease
 description: Cut a GitHub prerelease off a specific commit — branch, bump version with `just update-version`, tag, push, and publish a prerelease
 disable-model-invocation: true
-argument-hint: "<tag> [<commit>]"
+argument-hint: "[<tag>] [<commit>]"
 ---
 
 # gh-prerelease
@@ -17,14 +17,29 @@ Full argument string: `$ARGUMENTS`.
 
 Split `$ARGUMENTS` on whitespace into tokens:
 
-- Token 1 → `<tag>` (required). Semver with a prerelease suffix, e.g. `0.20.0-beta.0`, `0.20.0-rc.1`. Do not include a leading `v` — tags in this repo are bare semver.
+- Token 1 → `<tag>` (optional). Semver with a prerelease suffix, e.g. `0.20.0-rc.1`, `1.0.0-beta.48-rc.5`. Do not include a leading `v` — tags in this repo are bare semver.
 - Token 2 → `<commit>` (optional, default `HEAD`). Anything `git rev-parse` accepts: a SHA, branch, `HEAD`, `HEAD~3`, `origin/main`, etc.
 
 Do not rely on `$1`, `$2` — only `$ARGUMENTS` is reliably substituted in skill markdown.
 
-If `<tag>` is missing, **stop and ask**. Do not guess.
+If `<tag>` is missing, suggest the next logical RC tag by inspecting recent tags:
 
-Validate `<tag>` against `^[0-9]+\.[0-9]+\.[0-9]+-[a-zA-Z]+\.[0-9]+$`. If it lacks a prerelease suffix (e.g. plain `0.20.0`), refuse and point the user at `.github/workflows/create-release.yml` — this skill is for prereleases only.
+```sh
+git fetch --tags --prune
+LATEST_RC=$(git tag --sort=-v:refname | rg -m1 -- '-rc\.[0-9]+$' || true)
+```
+
+- If `LATEST_RC` matches `<base>-rc.<N>`, the suggested tag is `<base>-rc.<N+1>`. For example, `1.0.0-beta.48-rc.4` → `1.0.0-beta.48-rc.5`.
+  ```sh
+  BASE="${LATEST_RC%-rc.*}"
+  N="${LATEST_RC##*-rc.}"
+  SUGGESTED="${BASE}-rc.$((N + 1))"
+  ```
+- If no `-rc.<N>` tag exists, stop and ask — there is no unambiguous "next" without a precedent.
+
+Present the suggestion in one line and wait for explicit confirmation (`y` to accept, or have the user supply an alternative). Do not proceed silently. If the user accepts, use the suggestion as `<tag>` for the rest of the workflow.
+
+Validate `<tag>` against `^[0-9]+\.[0-9]+\.[0-9]+-[A-Za-z0-9][A-Za-z0-9.-]*$` (semver core + a prerelease suffix). If it lacks a prerelease suffix (e.g. plain `0.20.0`), refuse and point the user at `.github/workflows/create-release.yml` — this skill is for prereleases only.
 
 ## Workflow
 
