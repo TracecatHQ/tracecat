@@ -64,6 +64,7 @@ Repository = "https://github.com/TracecatHQ/tracecat"
 
 [tool.hatch.version]
 path = "tracecat_registry/__init__.py"
+pattern = '^__pep440_version__ = "(?P<version>[^"]+)"'
 
 [tool.mypy]
 strict = true
