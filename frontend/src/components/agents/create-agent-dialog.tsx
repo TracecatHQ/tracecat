@@ -58,6 +58,18 @@ export function CreateAgentDialog({
   open,
   onOpenChange,
 }: CreateAgentDialogProps) {
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      {open ? <CreateAgentDialogContent onOpenChange={onOpenChange} /> : null}
+    </Dialog>
+  )
+}
+
+function CreateAgentDialogContent({
+  onOpenChange,
+}: {
+  onOpenChange: (open: boolean) => void
+}) {
   const workspaceId = useWorkspaceId()
   const router = useRouter()
   const { models, modelsLoading } = useWorkspaceAgentModels(workspaceId)
@@ -108,139 +120,137 @@ export function CreateAgentDialog({
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[calc(100vh-2rem)] overflow-y-auto sm:max-w-lg">
-        <DialogHeader>
-          <DialogTitle>Create agent</DialogTitle>
-          <DialogDescription>
-            Configure a new agent with a name, model, and optional description.
-          </DialogDescription>
-        </DialogHeader>
-        <Form {...methods}>
-          <form onSubmit={methods.handleSubmit(handleSubmit)}>
-            <div className="grid gap-4">
+    <DialogContent className="max-h-[calc(100vh-2rem)] overflow-y-auto sm:max-w-lg">
+      <DialogHeader>
+        <DialogTitle>Create agent</DialogTitle>
+        <DialogDescription>
+          Configure a new agent with a name, model, and optional description.
+        </DialogDescription>
+      </DialogHeader>
+      <Form {...methods}>
+        <form onSubmit={methods.handleSubmit(handleSubmit)}>
+          <div className="grid gap-4">
+            <FormField
+              control={methods.control}
+              name="name"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel className="text-sm">Name</FormLabel>
+                  <FormControl>
+                    <Input
+                      className="text-sm"
+                      placeholder="My agent"
+                      {...field}
+                    />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <FormField
                 control={methods.control}
-                name="name"
+                name="model_provider"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel className="text-sm">Name</FormLabel>
-                    <FormControl>
-                      <Input
-                        className="text-sm"
-                        placeholder="My agent"
-                        {...field}
-                      />
-                    </FormControl>
+                    <FormLabel className="text-sm">Provider</FormLabel>
+                    <Select
+                      value={field.value}
+                      onValueChange={(value) => {
+                        field.onChange(value)
+                        methods.setValue("model_name", "")
+                        methods.setValue("catalog_id", "")
+                      }}
+                    >
+                      <FormControl>
+                        <SelectTrigger className="min-w-0 text-sm">
+                          <SelectValue placeholder="Select provider" />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        {providers.map((provider) => (
+                          <SelectItem key={provider} value={provider}>
+                            {provider}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                     <FormMessage />
                   </FormItem>
                 )}
               />
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                <FormField
-                  control={methods.control}
-                  name="model_provider"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel className="text-sm">Provider</FormLabel>
-                      <Select
-                        value={field.value}
-                        onValueChange={(value) => {
-                          field.onChange(value)
-                          methods.setValue("model_name", "")
-                          methods.setValue("catalog_id", "")
-                        }}
-                      >
-                        <FormControl>
-                          <SelectTrigger className="min-w-0 text-sm">
-                            <SelectValue placeholder="Select provider" />
-                          </SelectTrigger>
-                        </FormControl>
-                        <SelectContent>
-                          {providers.map((provider) => (
-                            <SelectItem key={provider} value={provider}>
-                              {provider}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={methods.control}
-                  name="model_name"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel className="text-sm">Model</FormLabel>
-                      <Select
-                        value={methods.watch("catalog_id") || ""}
-                        onValueChange={(catalogId) => {
-                          const selectedModel = filteredModels.find(
-                            (model) => model.id === catalogId
+              <FormField
+                control={methods.control}
+                name="model_name"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel className="text-sm">Model</FormLabel>
+                    <Select
+                      value={methods.watch("catalog_id") || ""}
+                      onValueChange={(catalogId) => {
+                        const selectedModel = filteredModels.find(
+                          (model) => model.id === catalogId
+                        )
+                        methods.setValue("catalog_id", catalogId)
+                        if (selectedModel) {
+                          field.onChange(selectedModel.model_name)
+                          methods.setValue(
+                            "model_provider",
+                            selectedModel.model_provider
                           )
-                          methods.setValue("catalog_id", catalogId)
-                          if (selectedModel) {
-                            field.onChange(selectedModel.model_name)
-                            methods.setValue(
-                              "model_provider",
-                              selectedModel.model_provider
-                            )
-                          }
-                        }}
-                        disabled={!selectedProvider || modelsLoading}
-                      >
-                        <FormControl>
-                          <SelectTrigger className="min-w-0 text-sm">
-                            <SelectValue placeholder="Select model" />
-                          </SelectTrigger>
-                        </FormControl>
-                        <SelectContent>
-                          {filteredModels.map((model) => (
-                            <SelectItem key={model.id} value={model.id}>
-                              {model.model_name}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-              </div>
-              <FormField
-                control={methods.control}
-                name="description"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel className="text-sm">
-                      Description{" "}
-                      <span className="text-muted-foreground">(optional)</span>
-                    </FormLabel>
-                    <FormControl>
-                      <Textarea
-                        className="min-h-[60px] resize-none text-sm"
-                        placeholder="What does this agent do?"
-                        {...field}
-                      />
-                    </FormControl>
+                        }
+                      }}
+                      disabled={!selectedProvider || modelsLoading}
+                    >
+                      <FormControl>
+                        <SelectTrigger className="min-w-0 text-sm">
+                          <SelectValue placeholder="Select model" />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        {filteredModels.map((model) => (
+                          <SelectItem key={model.id} value={model.id}>
+                            {model.model_name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                     <FormMessage />
                   </FormItem>
                 )}
               />
-              <DialogFooter>
-                <Button
-                  type="submit"
-                  disabled={createAgentPresetIsPending || modelsLoading}
-                >
-                  Create agent
-                </Button>
-              </DialogFooter>
             </div>
-          </form>
-        </Form>
-      </DialogContent>
-    </Dialog>
+            <FormField
+              control={methods.control}
+              name="description"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel className="text-sm">
+                    Description{" "}
+                    <span className="text-muted-foreground">(optional)</span>
+                  </FormLabel>
+                  <FormControl>
+                    <Textarea
+                      className="min-h-[60px] resize-none text-sm"
+                      placeholder="What does this agent do?"
+                      {...field}
+                    />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <DialogFooter>
+              <Button
+                type="submit"
+                disabled={createAgentPresetIsPending || modelsLoading}
+              >
+                Create agent
+              </Button>
+            </DialogFooter>
+          </div>
+        </form>
+      </Form>
+    </DialogContent>
   )
 }
