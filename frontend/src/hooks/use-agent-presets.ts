@@ -39,6 +39,47 @@ import {
 import { toast } from "@/components/ui/use-toast"
 import { retryHandler, type TracecatApiError } from "@/lib/errors"
 
+async function listAllAgentFolders({
+  workspaceId,
+  parentPath,
+}: {
+  workspaceId: string
+  parentPath?: string
+}): Promise<AgentFolderRead[]> {
+  const folders: AgentFolderRead[] = []
+  let cursor: string | undefined
+
+  do {
+    const response = await agentFoldersListFolders({
+      workspaceId,
+      parentPath,
+      limit: 200,
+      cursor,
+    })
+    folders.push(...response.items)
+    cursor = response.next_cursor ?? undefined
+  } while (cursor)
+
+  return folders
+}
+
+async function listAllAgentTags(workspaceId: string): Promise<AgentTagRead[]> {
+  const agentTags: AgentTagRead[] = []
+  let cursor: string | undefined
+
+  do {
+    const response = await agentTagsListAgentTags({
+      workspaceId,
+      limit: 200,
+      cursor,
+    })
+    agentTags.push(...response.items)
+    cursor = response.next_cursor ?? undefined
+  } while (cursor)
+
+  return agentTags
+}
+
 export function useAgentPresets(
   workspaceId?: string,
   { enabled = true }: { enabled?: boolean } = {}
@@ -452,7 +493,7 @@ export function useAgentFolders(
     error: foldersError,
   } = useQuery<AgentFolderRead[]>({
     queryKey: ["agent-folders", workspaceId],
-    queryFn: async () => await agentFoldersListFolders({ workspaceId }),
+    queryFn: async () => await listAllAgentFolders({ workspaceId }),
     enabled: options.enabled,
   })
 
@@ -465,7 +506,7 @@ export function useAgentFolders(
   } = useQuery<AgentFolderRead[]>({
     queryKey: ["agent-folders", workspaceId, "parent"],
     queryFn: async () =>
-      await agentFoldersListFolders({
+      await listAllAgentFolders({
         workspaceId,
         parentPath: "/",
       }),
@@ -728,7 +769,7 @@ export function useAgentTagCatalog(
     error: agentTagsError,
   } = useQuery<AgentTagRead[]>({
     queryKey: ["agent-tags", workspaceId],
-    queryFn: async () => await agentTagsListAgentTags({ workspaceId }),
+    queryFn: async () => await listAllAgentTags(workspaceId),
     enabled: options.enabled,
     staleTime: 5 * 60 * 1000,
     refetchOnWindowFocus: false,
