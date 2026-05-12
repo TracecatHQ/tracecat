@@ -475,17 +475,8 @@ class AgentFolderService(BaseWorkspaceService):
         self, path: str = "/", *, order_by: Literal["asc", "desc"] = "desc"
     ) -> Sequence[DirectoryItem]:
         """Get all directory items (presets and folders) in the given path."""
-        path = self._normalize_folder_path(path)
+        path, folder_id = await self._get_directory_context(path)
 
-        if path != "/":
-            folder = await self.get_folder_by_path(path)
-            if not folder:
-                raise TracecatNotFoundError(f"Folder {path} not found")
-            folder_id = folder.id
-        else:
-            folder_id = None
-
-        # Fetch presets in this folder
         preset_statement = (
             select(AgentPreset)
             .where(
@@ -502,8 +493,156 @@ class AgentFolderService(BaseWorkspaceService):
         preset_result = await self.session.execute(preset_statement)
         presets = preset_result.scalars().all()
 
+        folder_statement = self._directory_folders_statement(path)
+        folder_result = await self.session.execute(folder_statement)
+        folders = folder_result.scalars().all()
+
+        return await self._build_directory_items(
+            folders=folders, presets=presets, path=path
+        )
+
+    @require_scope("agent:read")
+    @requires_entitlement(Entitlement.AGENT_ADDONS)
+    async def get_directory_items_paginated(
+        self,
+        path: str = "/",
+        params: CursorPaginationParams | None = None,
+    ) -> CursorPaginatedResponse[DirectoryItem]:
+        """Get directory items in the given path with cursor pagination."""
+        params = params or CursorPaginationParams()
+        path, folder_id = await self._get_directory_context(path)
+        paginator = BaseCursorPaginator(self.session)
+
+        folder_statement = self._directory_folders_statement(path)
+        preset_statement = (
+            select(AgentPreset)
+            .where(
+                AgentPreset.workspace_id == self.workspace_id,
+                AgentPreset.folder_id == folder_id,
+            )
+            .options(selectinload(AgentPreset.tags))
+        )
+
+        if params.cursor:
+            try:
+                cursor_data = paginator.decode_cursor(params.cursor)
+                cursor_id = uuid.UUID(cursor_data.id)
+            except ValueError as err:
+                raise TracecatValidationError(
+                    "Invalid cursor for agent folder directory"
+                ) from err
+
+            cursor_created_at = cursor_data.sort_value
+            if not isinstance(cursor_created_at, datetime):
+                raise TracecatValidationError(
+                    "Invalid cursor for agent folder directory"
+                )
+
+            folder_statement = folder_statement.where(
+                self._directory_cursor_predicate(
+                    AgentFolder,
+                    cursor_created_at=cursor_created_at,
+                    cursor_id=cursor_id,
+                    reverse=params.reverse,
+                )
+            )
+            preset_statement = preset_statement.where(
+                self._directory_cursor_predicate(
+                    AgentPreset,
+                    cursor_created_at=cursor_created_at,
+                    cursor_id=cursor_id,
+                    reverse=params.reverse,
+                )
+            )
+
+        if params.reverse:
+            folder_statement = folder_statement.order_by(
+                AgentFolder.created_at.asc(), AgentFolder.id.asc()
+            )
+            preset_statement = preset_statement.order_by(
+                AgentPreset.created_at.asc(), AgentPreset.id.asc()
+            )
+        else:
+            folder_statement = folder_statement.order_by(
+                AgentFolder.created_at.desc(), AgentFolder.id.desc()
+            )
+            preset_statement = preset_statement.order_by(
+                AgentPreset.created_at.desc(), AgentPreset.id.desc()
+            )
+
+        folder_result = await self.session.execute(
+            folder_statement.limit(params.limit + 1)
+        )
+        preset_result = await self.session.execute(
+            preset_statement.limit(params.limit + 1)
+        )
+        folder_rows = folder_result.scalars().all()
+        preset_rows = preset_result.scalars().all()
+
+        rows = sorted(
+            [*folder_rows, *preset_rows],
+            key=lambda row: (row.created_at, row.id),
+            reverse=not params.reverse,
+        )
+        has_more = len(rows) > params.limit
+        page_rows = rows[: params.limit]
+
+        next_cursor = None
+        if has_more and page_rows:
+            last = page_rows[-1]
+            next_cursor = paginator.encode_cursor(
+                last.id,
+                sort_column="created_at",
+                sort_value=last.created_at,
+            )
+
+        prev_cursor = None
+        if params.cursor and page_rows:
+            first = page_rows[0]
+            prev_cursor = paginator.encode_cursor(
+                first.id,
+                sort_column="created_at",
+                sort_value=first.created_at,
+            )
+
+        if params.reverse:
+            page_rows.reverse()
+            next_cursor, prev_cursor = prev_cursor, next_cursor
+            has_more, has_previous = params.cursor is not None, has_more
+        else:
+            has_previous = params.cursor is not None
+
+        folders = [row for row in page_rows if isinstance(row, AgentFolder)]
+        presets = [row for row in page_rows if isinstance(row, AgentPreset)]
+        items = await self._build_directory_items(
+            folders=folders,
+            presets=presets,
+            path=path,
+            preserve_order=page_rows,
+        )
+
+        return CursorPaginatedResponse(
+            items=items,
+            next_cursor=next_cursor,
+            prev_cursor=prev_cursor,
+            has_more=has_more,
+            has_previous=has_previous,
+        )
+
+    async def _get_directory_context(self, path: str) -> tuple[str, uuid.UUID | None]:
+        path = self._normalize_folder_path(path)
+
+        if path != "/":
+            folder = await self._get_folder_by_path(path)
+            if not folder:
+                raise TracecatNotFoundError(f"Folder {path} not found")
+            return path, folder.id
+
+        return path, None
+
+    def _directory_folders_statement(self, path: str) -> sa.Select[tuple[AgentFolder]]:
         path_depth = path.count("/") + 1
-        folder_statement = select(AgentFolder).where(
+        return select(AgentFolder).where(
             AgentFolder.workspace_id == self.workspace_id,
             AgentFolder.path.startswith(path, autoescape=True),
             AgentFolder.path != path,
@@ -511,10 +650,35 @@ class AgentFolderService(BaseWorkspaceService):
             - func.length(func.replace(AgentFolder.path, "/", ""))
             == path_depth,
         )
-        folder_result = await self.session.execute(folder_statement)
-        folders = folder_result.scalars().all()
 
+    @staticmethod
+    def _directory_cursor_predicate(
+        model: type[AgentFolder] | type[AgentPreset],
+        *,
+        cursor_created_at: datetime,
+        cursor_id: uuid.UUID,
+        reverse: bool,
+    ) -> sa.ColumnElement[bool]:
+        if reverse:
+            return sa.or_(
+                model.created_at > cursor_created_at,
+                sa.and_(model.created_at == cursor_created_at, model.id > cursor_id),
+            )
+        return sa.or_(
+            model.created_at < cursor_created_at,
+            sa.and_(model.created_at == cursor_created_at, model.id < cursor_id),
+        )
+
+    async def _build_directory_items(
+        self,
+        *,
+        folders: Sequence[AgentFolder],
+        presets: Sequence[AgentPreset],
+        path: str,
+        preserve_order: Sequence[AgentFolder | AgentPreset] | None = None,
+    ) -> list[DirectoryItem]:
         directory_items: list[DirectoryItem] = []
+        path_depth = path.count("/") + 1
         folder_ids = [folder.id for folder in folders]
         folder_paths = {folder.path for folder in folders}
         preset_counts_by_folder_id: dict[uuid.UUID, int] = {}
@@ -553,42 +717,48 @@ class AgentFolderService(BaseWorkspaceService):
                         child_folder_counts_by_path.get(parent_path, 0) + 1
                     )
 
+        items_by_id: dict[uuid.UUID, DirectoryItem] = {}
         for f in folders:
             num_items = child_folder_counts_by_path.get(
                 f.path, 0
             ) + preset_counts_by_folder_id.get(f.id, 0)
-            directory_items.append(
-                AgentFolderDirectoryItem(
-                    type="folder",
-                    num_items=num_items,
-                    id=f.id,
-                    name=f.name,
-                    path=f.path,
-                    workspace_id=f.workspace_id,
-                    created_at=f.created_at,
-                    updated_at=f.updated_at,
-                )
+            items_by_id[f.id] = AgentFolderDirectoryItem(
+                type="folder",
+                num_items=num_items,
+                id=f.id,
+                name=f.name,
+                path=f.path,
+                workspace_id=f.workspace_id,
+                created_at=f.created_at,
+                updated_at=f.updated_at,
             )
 
         for preset in presets:
-            directory_items.append(
-                AgentPresetDirectoryItem(
-                    type="preset",
-                    id=preset.id,
-                    name=preset.name,
-                    slug=preset.slug,
-                    description=preset.description,
-                    model_provider=preset.model_provider,
-                    model_name=preset.model_name,
-                    folder_id=preset.folder_id,
-                    tags=[
-                        TagRead.model_validate(tag, from_attributes=True)
-                        for tag in preset.tags
-                    ],
-                    created_at=preset.created_at,
-                    updated_at=preset.updated_at,
-                )
+            items_by_id[preset.id] = AgentPresetDirectoryItem(
+                type="preset",
+                id=preset.id,
+                name=preset.name,
+                slug=preset.slug,
+                description=preset.description,
+                model_provider=preset.model_provider,
+                model_name=preset.model_name,
+                folder_id=preset.folder_id,
+                tags=[
+                    TagRead.model_validate(tag, from_attributes=True)
+                    for tag in preset.tags
+                ],
+                created_at=preset.created_at,
+                updated_at=preset.updated_at,
             )
+
+        if preserve_order is not None:
+            return [items_by_id[row.id] for row in preserve_order]
+
+        for f in folders:
+            directory_items.append(items_by_id[f.id])
+
+        for preset in presets:
+            directory_items.append(items_by_id[preset.id])
 
         return directory_items
 

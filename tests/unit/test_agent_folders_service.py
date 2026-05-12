@@ -42,6 +42,9 @@ async def folder_service(
         lambda service: service.list_folders("/"),
         lambda service: service.list_folders_paginated("/", CursorPaginationParams()),
         lambda service: service.get_directory_items("/"),
+        lambda service: service.get_directory_items_paginated(
+            "/", CursorPaginationParams()
+        ),
         lambda service: service.get_folder_tree("/"),
     ],
 )
@@ -87,6 +90,7 @@ async def test_delete_folder_allows_delete_scope_without_read(
         ),
     )
     folder = SimpleNamespace(id=uuid4(), path="/folder/")
+    monkeypatch.setattr(service, "has_entitlement", AsyncMock(return_value=True))
     monkeypatch.setattr(service, "_get_folder", AsyncMock(return_value=folder))
     monkeypatch.setattr(service, "_has_children", AsyncMock(return_value=False))
     monkeypatch.setattr(service, "_has_presets", AsyncMock(return_value=False))
@@ -221,6 +225,67 @@ async def test_get_directory_items_escapes_like_wildcards(
 
 
 @pytest.mark.anyio
+async def test_get_directory_items_paginated_uses_cursor_pages(
+    folder_service: AgentFolderService,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Paginated directory listing should return stable bounded pages."""
+    monkeypatch.setattr(folder_service, "has_entitlement", AsyncMock(return_value=True))
+    alpha = await folder_service.create_folder(name="alpha", parent_path="/")
+    preset = AgentPreset(
+        workspace_id=folder_service.workspace_id,
+        name="Root preset",
+        slug="root-preset",
+        model_name="gpt-4o-mini",
+        model_provider="openai",
+        retries=3,
+        enable_internet_access=False,
+        folder_id=None,
+    )
+    folder_service.session.add(preset)
+    beta = await folder_service.create_folder(name="beta", parent_path="/")
+    await folder_service.session.commit()
+
+    first_page = await folder_service.get_directory_items_paginated(
+        "/", CursorPaginationParams(limit=2)
+    )
+
+    assert len(first_page.items) == 2
+    assert first_page.has_more is True
+    assert first_page.has_previous is False
+    assert first_page.next_cursor is not None
+
+    second_page = await folder_service.get_directory_items_paginated(
+        "/", CursorPaginationParams(limit=2, cursor=first_page.next_cursor)
+    )
+
+    assert len(second_page.items) == 1
+    assert second_page.has_more is False
+    assert second_page.has_previous is True
+    assert {item.id for item in first_page.items + second_page.items} == {
+        alpha.id,
+        beta.id,
+        preset.id,
+    }
+
+
+@pytest.mark.anyio
+async def test_get_directory_items_paginated_invalid_cursor_raises_validation(
+    folder_service: AgentFolderService,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Invalid directory cursors should surface app-level validation errors."""
+    monkeypatch.setattr(folder_service, "has_entitlement", AsyncMock(return_value=True))
+
+    with pytest.raises(
+        TracecatValidationError, match="Invalid cursor for agent folder directory"
+    ):
+        await folder_service.get_directory_items_paginated(
+            "/", CursorPaginationParams(cursor="invalid")
+        )
+
+
+@pytest.mark.anyio
 async def test_get_directory_items_requires_agent_addons_entitlement(
     folder_service: AgentFolderService,
     monkeypatch: pytest.MonkeyPatch,
@@ -258,6 +323,9 @@ async def test_move_preset_requires_agent_addons_entitlement(
         lambda service: service.get_folder_by_path("/parent/"),
         lambda service: service.list_folders("/"),
         lambda service: service.list_folders_paginated("/", CursorPaginationParams()),
+        lambda service: service.get_directory_items_paginated(
+            "/", CursorPaginationParams()
+        ),
         lambda service: service.create_folder(name="parent", parent_path="/"),
         lambda service: service.get_folder_tree("/"),
         lambda service: service.rename_folder(uuid4(), "renamed"),

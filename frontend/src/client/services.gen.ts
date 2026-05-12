@@ -5718,7 +5718,10 @@ export const agentPresetsRemovePresetTag = (
  * @param data The data for the request.
  * @param data.workspaceId
  * @param data.path Folder path
- * @returns unknown Successful Response
+ * @param data.limit
+ * @param data.cursor
+ * @param data.reverse
+ * @returns AgentDirectoryResponse Successful Response
  * @throws ApiError
  */
 export const agentFoldersGetDirectory = (
@@ -5732,6 +5735,9 @@ export const agentFoldersGetDirectory = (
     },
     query: {
       path: data.path,
+      limit: data.limit,
+      cursor: data.cursor,
+      reverse: data.reverse,
     },
     errors: {
       422: "Validation Error",
