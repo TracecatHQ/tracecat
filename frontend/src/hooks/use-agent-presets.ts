@@ -290,6 +290,9 @@ export function useCreateAgentPreset(workspaceId: string) {
         queryKey: ["agent-presets", workspaceId],
       })
       queryClient.invalidateQueries({
+        queryKey: ["agent-directory-items", workspaceId],
+      })
+      queryClient.invalidateQueries({
         queryKey: ["agent-preset-versions", workspaceId, preset.id],
       })
       toast({
