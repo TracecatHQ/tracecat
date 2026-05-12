@@ -68,7 +68,6 @@ export function CreateSkillDialog({
                     .replace(/_/g, "-")
                     .replace(/[^a-z0-9-\s]/g, "")
                     .replace(/[\s-]+/g, "-")
-                    .replace(/^-+|-+$/g, "")
                 )
               }
               placeholder="threat-intel"

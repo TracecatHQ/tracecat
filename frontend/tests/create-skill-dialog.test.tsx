@@ -43,4 +43,27 @@ describe("CreateSkillDialog", () => {
 
     expect(onNameChange).toHaveBeenCalledWith("cafe-tools")
   })
+
+  it("preserves a trailing hyphen while the user composes a name", () => {
+    const onNameChange = jest.fn()
+
+    render(
+      <CreateSkillDialog
+        open={true}
+        onOpenChange={jest.fn()}
+        name=""
+        onNameChange={onNameChange}
+        description=""
+        onDescriptionChange={jest.fn()}
+        pending={false}
+        onCreate={jest.fn()}
+      />
+    )
+
+    fireEvent.change(screen.getByLabelText("Name"), {
+      target: { value: "threat-" },
+    })
+
+    expect(onNameChange).toHaveBeenCalledWith("threat-")
+  })
 })
