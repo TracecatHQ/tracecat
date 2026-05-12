@@ -346,6 +346,9 @@ export function useUpdateAgentPreset(workspaceId: string) {
         queryKey: ["agent-preset", workspaceId, preset.id],
       })
       queryClient.invalidateQueries({
+        queryKey: ["agent-directory-items", workspaceId],
+      })
+      queryClient.invalidateQueries({
         queryKey: ["agent-preset-versions", workspaceId, preset.id],
       })
       queryClient.invalidateQueries({
