@@ -444,6 +444,7 @@ function AgentsActions() {
   const pathname = usePathname()
   const workspaceId = useWorkspaceId()
   const searchParams = useSearchParams()
+  const { hasEntitlement, isLoading: entitlementsLoading } = useEntitlements()
   const [createDialogOpen, setCreateDialogOpen] = useState(false)
   const [createTagDialogOpen, setCreateTagDialogOpen] = useState(false)
   const [folderDialogOpen, setFolderDialogOpen] = useState(false)
@@ -457,20 +458,20 @@ function AgentsActions() {
   const currentPath = normalizeAgentActionPath(
     searchParams?.get("path") ?? null
   )
+  const agentAddonsEnabled = hasEntitlement("agent_addons")
+  const canUseAgentActions = !entitlementsLoading && agentAddonsEnabled
+  let agentActionControls: ReactNode = null
 
-  return (
-    <>
-      <AgentsCatalogViewToggle
-        view={catalogView}
-        agentsHref={agentsHref}
-        tagsHref={tagsHref}
-      />
-      {catalogView === AgentsCatalogViewMode.Tags ? (
+  if (canUseAgentActions) {
+    if (catalogView === AgentsCatalogViewMode.Tags) {
+      agentActionControls = (
         <AddAgentTag
           open={createTagDialogOpen}
           onOpenChange={setCreateTagDialogOpen}
         />
-      ) : (
+      )
+    } else {
+      agentActionControls = (
         <>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
@@ -521,7 +522,18 @@ function AgentsActions() {
             currentPath={currentPath}
           />
         </>
-      )}
+      )
+    }
+  }
+
+  return (
+    <>
+      <AgentsCatalogViewToggle
+        view={catalogView}
+        agentsHref={agentsHref}
+        tagsHref={tagsHref}
+      />
+      {agentActionControls}
     </>
   )
 }
