@@ -17,10 +17,38 @@ Full argument string: `$ARGUMENTS`.
 
 Split `$ARGUMENTS` on whitespace into tokens:
 
-- Token 1 → `<tag>` (optional). Semver with a prerelease suffix, e.g. `0.20.0-rc.1`, `1.0.0-beta.48-rc.5`. Do not include a leading `v` — tags in this repo are bare semver.
+- Token 1 → `<tag>` (optional). Semver-style version with a prerelease suffix, e.g. `0.20.0-rc.1`, `1.0.0-beta.48-rc.5`. Do not include a leading `v` — tags in this repo are bare versions.
 - Token 2 → `<commit>` (optional, default `HEAD`). Anything `git rev-parse` accepts: a SHA, branch, `HEAD`, `HEAD~3`, `origin/main`, etc.
 
 Do not rely on `$1`, `$2` — only `$ARGUMENTS` is reliably substituted in skill markdown.
+
+## Version format
+
+Keep `<tag>` in Tracecat's public release/image tag convention. `just update-version <tag>` writes that value to `__version__`, and writes a separate PEP 440-compatible value to `__pep440_version__` for Hatchling package metadata. This lets Git branches, GitHub releases, and image tags stay as `1.0.0-beta.48-rc.5` while Python builds use `1.0.0b48+rc.5`.
+
+Examples:
+
+| Public `<tag>` | Python package version |
+|----------------|------------------------|
+| `1.0.0-alpha.1` | `1.0.0a1` |
+| `1.0.0-beta.48` | `1.0.0b48` |
+| `1.0.0-rc.5` | `1.0.0rc5` |
+| `1.0.0-beta.48-rc.5` | `1.0.0b48+rc.5` |
+| `1.0.0-dev.3` | `1.0.0.dev3` |
+| `1.0.0-post.1` | `1.0.0.post1` |
+
+After running `just update-version <tag>`, verify both fields:
+
+```sh
+PUBLIC_VERSION=$(grep -oP '__version__ = "\K[^"]+' tracecat/__init__.py)
+PYTHON_VERSION=$(grep -oP '__pep440_version__ = "\K[^"]+' tracecat/__init__.py)
+uv run python - "$PYTHON_VERSION" <<'PY'
+import sys
+from packaging.version import Version
+
+Version(sys.argv[1])
+PY
+```
 
 If `<tag>` is missing, suggest the next logical RC tag by inspecting recent tags:
 
@@ -39,7 +67,7 @@ LATEST_RC=$(git tag --sort=-v:refname | rg -m1 -- '-rc\.[0-9]+$' || true)
 
 Present the suggestion in one line and wait for explicit confirmation (`y` to accept, or have the user supply an alternative). Do not proceed silently. If the user accepts, use the suggestion as `<tag>` for the rest of the workflow.
 
-Validate `<tag>` against `^[0-9]+\.[0-9]+\.[0-9]+-[A-Za-z0-9][A-Za-z0-9.-]*$` (semver core + a prerelease suffix). If it lacks a prerelease suffix (e.g. plain `0.20.0`), refuse and point the user at `.github/workflows/create-release.yml` — this skill is for prereleases only.
+Validate `<tag>` against `^[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z]+\.[0-9]+){1,2}$`. If it is a stable release (e.g. plain `0.20.0`), refuse and point the user at `.github/workflows/create-release.yml` — this skill is for prereleases only.
 
 ## Workflow
 
@@ -109,12 +137,23 @@ yes | just update-version <tag>
 
 `update-version.sh` prompts before overwriting files; `yes |` answers `y`.
 
+Important: pass the public release tag, e.g. `1.0.0-beta.48-rc.5`. `update-version.sh` keeps that value in `__version__` and writes the PEP 440 equivalent, e.g. `1.0.0b48+rc.5`, to `__pep440_version__` for Python package builds.
+
 Sanity-check the result:
 
 ```sh
 git diff --quiet && { echo "update-version produced no changes" >&2; exit 1; }
 NEW_VERSION=$(grep -oP '__version__ = "\K[^"]+' tracecat/__init__.py)
 [ "$NEW_VERSION" = "<tag>" ] || { echo "version mismatch: got $NEW_VERSION, expected <tag>" >&2; exit 1; }
+PYTHON_VERSION=$(grep -oP '__pep440_version__ = "\K[^"]+' tracecat/__init__.py)
+REGISTRY_PYTHON_VERSION=$(grep -oP '__pep440_version__ = "\K[^"]+' packages/tracecat-registry/tracecat_registry/__init__.py)
+[ "$PYTHON_VERSION" = "$REGISTRY_PYTHON_VERSION" ] || { echo "Python version mismatch: tracecat=$PYTHON_VERSION registry=$REGISTRY_PYTHON_VERSION" >&2; exit 1; }
+uv run python - "$PYTHON_VERSION" <<'PY'
+import sys
+from packaging.version import Version
+
+Version(sys.argv[1])
+PY
 ```
 
 If it fails: `git restore .` (after confirming with the user) and abort.

@@ -140,6 +140,7 @@ dev = [
 
 [tool.hatch.version]
 path = "tracecat/__init__.py"
+pattern = '^__pep440_version__ = "(?P<version>[^"]+)"'
 
 [tool.hatch.metadata]
 allow-direct-references = true
