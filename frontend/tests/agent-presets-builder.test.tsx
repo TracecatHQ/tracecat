@@ -1,6 +1,7 @@
 import {
   buildDuplicateAgentPresetPayload,
   buildDuplicateAgentSlug,
+  buildSkillCommandItemValue,
   canSubmitAgentPresetForm,
 } from "@/lib/agent-presets"
 
@@ -98,5 +99,23 @@ describe("canSubmitAgentPresetForm", () => {
     expect(duplicated.instructions).toBe("Investigate alerts")
     expect(duplicated.actions).toEqual(["core.http_request"])
     expect(duplicated.enable_internet_access).toBe(true)
+  })
+
+  it("keeps skill picker command values safe when skill descriptions contain selector metacharacters", () => {
+    const skillId = "784dd826-072e-46f1-95a4-08d3417c784f"
+    const skillName = "investigate-mailbox-delegation"
+    const unsafeDescription =
+      '"][data-value="investigate-mailbox-delegation use this skill to investigate alerts"]'
+    const value = buildSkillCommandItemValue({
+      id: skillId,
+      name: skillName,
+    })
+
+    expect(value).toBe(`skill:${skillId}:${skillName}`)
+    expect(value).not.toContain(unsafeDescription)
+    expect(value).toContain(skillName)
+    expect(() => {
+      document.querySelector(`[cmdk-item=""][data-value="${value}"]`)
+    }).not.toThrow()
   })
 })

@@ -3,6 +3,16 @@ import { slugify } from "@/lib/utils"
 
 export type AgentPresetFormMode = "create" | "edit"
 
+export function buildSkillCommandItemValue({
+  id,
+  name,
+}: {
+  id: string
+  name: string
+}): string {
+  return `skill:${id}:${name}`
+}
+
 export function getDuplicateItemName(name: string, fallback: string): string {
   const trimmedName = name.trim()
   return `Copy of ${trimmedName || fallback}`
