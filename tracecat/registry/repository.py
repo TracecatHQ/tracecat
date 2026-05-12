@@ -61,6 +61,12 @@ from tracecat.ssh import SshEnv, ssh_context
 ArgsClsT = type[BaseModel]
 type F = Callable[..., Any]
 
+_NO_SUBMODULE_GIT_ENV: dict[str, str] = {
+    "GIT_CONFIG_COUNT": "1",
+    "GIT_CONFIG_KEY_0": "submodule.recurse",
+    "GIT_CONFIG_VALUE_0": "false",
+}
+
 
 def get_custom_registry_target() -> Path:
     """Get the target directory for installing custom registry packages.
@@ -1093,7 +1099,7 @@ async def install_remote_repository(
             *cmd,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
-            env=os.environ.copy() | env.to_dict(),
+            env=os.environ.copy() | env.to_dict() | _NO_SUBMODULE_GIT_ENV,
         )
         _, stderr = await process.communicate()
         if process.returncode != 0:
