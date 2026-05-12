@@ -68,9 +68,8 @@ class UserMCPClient:
                 logger.error(
                     "Failed to discover tools from user MCP server",
                     server_name=server_name,
-                    error_type=type(e).__name__,
+                    error=str(e),
                 )
-                # Continue with other servers - don't fail completely
 
         logger.info(
             "Discovered user MCP tools",
