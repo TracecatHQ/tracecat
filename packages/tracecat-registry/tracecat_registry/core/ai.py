@@ -41,7 +41,7 @@ DEFAULT_RANKING_REFINEMENT_RATIO: float = 0.5
 """Default ranking refinement ratio to use."""
 
 
-def _resolve_model_selection(
+def resolve_model_selection(
     *,
     model: ModelSelection | dict[str, Any] | None,
     model_name: str | None,
@@ -136,7 +136,7 @@ async def rank_documents(
     dict_items: list[RankableItem] = [
         {"id": i, "text": item} for i, item in enumerate(items)
     ]
-    resolved_model = _resolve_model_selection(
+    resolved_model = resolve_model_selection(
         model=model,
         model_name=model_name,
         model_provider=model_provider,
@@ -248,7 +248,7 @@ async def select_field(
         raise ValueError(f"Expected at most {MAX_KEYS} keys, got {len(keys)} keys.")
 
     # Rank keys by criteria
-    resolved_model = _resolve_model_selection(
+    resolved_model = resolve_model_selection(
         model=model,
         model_name=model_name,
         model_provider=model_provider,
@@ -371,7 +371,7 @@ async def select_fields(
     # Get keys
     keys = _get_keys(json)
     # Rank keys by criteria
-    resolved_model = _resolve_model_selection(
+    resolved_model = resolve_model_selection(
         model=model,
         model_name=model_name,
         model_provider=model_provider,

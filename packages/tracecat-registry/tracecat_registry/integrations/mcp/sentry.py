@@ -8,7 +8,7 @@ from tracecat_registry.context import get_context
 from tracecat_registry.core.agent import PYDANTIC_AI_REGISTRY_SECRETS
 from tracecat_registry.core.ai import (
     LEGACY_MODEL_FIELD_SCHEMA_EXTRA,
-    _resolve_model_selection,
+    resolve_model_selection,
 )
 from tracecat_registry.fields import AgentModel, ModelSelection
 from tracecat_registry.sdk.agents import AgentConfig, MCPServerConfig
@@ -54,7 +54,7 @@ async def mcp(
     ] = None,
 ) -> AgentOutputRead:
     """Use AI to interact with Sentry."""
-    resolved_model = _resolve_model_selection(
+    resolved_model = resolve_model_selection(
         model=model, model_name=model_name, model_provider=model_provider
     )
     token = secrets.get(sentry_mcp_oauth_secret.token_name)
