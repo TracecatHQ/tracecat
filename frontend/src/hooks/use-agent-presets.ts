@@ -397,6 +397,9 @@ export function useDeleteAgentPreset(workspaceId: string) {
       queryClient.invalidateQueries({
         queryKey: ["agent-presets", workspaceId],
       })
+      queryClient.invalidateQueries({
+        queryKey: ["agent-directory-items", workspaceId],
+      })
       const label = variables.presetName ?? variables.presetId
       toast({
         title: "Agent preset deleted",
