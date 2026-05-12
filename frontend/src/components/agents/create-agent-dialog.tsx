@@ -126,10 +126,14 @@ function CreateAgentDialogContent({
       const targetFolderPath =
         currentPath && currentPath !== "/" ? currentPath : null
       if (targetFolderPath) {
-        await moveAgentPreset({
-          presetId: preset.id,
-          folder_path: targetFolderPath,
-        })
+        try {
+          await moveAgentPreset({
+            presetId: preset.id,
+            folder_path: targetFolderPath,
+          })
+        } catch {
+          // Move hook already toasts; continue to open the created preset.
+        }
       }
       methods.reset()
       onOpenChange(false)
