@@ -430,6 +430,16 @@ function SkillsBreadcrumb({
   )
 }
 
+function normalizeAgentActionPath(rawPath: string | null): string {
+  if (!rawPath || rawPath === "/") {
+    return "/"
+  }
+  const withLeadingSlash = rawPath.startsWith("/") ? rawPath : `/${rawPath}`
+  return withLeadingSlash.endsWith("/") && withLeadingSlash !== "/"
+    ? withLeadingSlash.slice(0, -1)
+    : withLeadingSlash
+}
+
 function AgentsActions() {
   const pathname = usePathname()
   const workspaceId = useWorkspaceId()
@@ -444,7 +454,9 @@ function AgentsActions() {
   const agentsHref = `/workspaces/${workspaceId}/agents`
   const tagsHref = `/workspaces/${workspaceId}/agents/tags`
   const isFoldersView = searchParams?.get("view") !== "list"
-  const currentPath = searchParams?.get("path") || "/"
+  const currentPath = normalizeAgentActionPath(
+    searchParams?.get("path") ?? null
+  )
 
   return (
     <>
@@ -501,6 +513,7 @@ function AgentsActions() {
           <CreateAgentDialog
             open={createDialogOpen}
             onOpenChange={setCreateDialogOpen}
+            currentPath={isFoldersView ? currentPath : null}
           />
           <AgentFolderCreateDialog
             open={folderDialogOpen}

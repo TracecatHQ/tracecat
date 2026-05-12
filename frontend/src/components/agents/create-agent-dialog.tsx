@@ -31,7 +31,10 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
-import { useCreateAgentPreset } from "@/hooks/use-agent-presets"
+import {
+  useCreateAgentPreset,
+  useMoveAgentPreset,
+} from "@/hooks/use-agent-presets"
 import { useWorkspaceAgentModels } from "@/lib/hooks"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
@@ -52,22 +55,31 @@ type CreateAgentFormValues = z.infer<typeof createAgentSchema>
 interface CreateAgentDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
+  currentPath?: string | null
 }
 
 export function CreateAgentDialog({
   open,
   onOpenChange,
+  currentPath,
 }: CreateAgentDialogProps) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      {open ? <CreateAgentDialogContent onOpenChange={onOpenChange} /> : null}
+      {open ? (
+        <CreateAgentDialogContent
+          currentPath={currentPath}
+          onOpenChange={onOpenChange}
+        />
+      ) : null}
     </Dialog>
   )
 }
 
 function CreateAgentDialogContent({
+  currentPath,
   onOpenChange,
 }: {
+  currentPath?: string | null
   onOpenChange: (open: boolean) => void
 }) {
   const workspaceId = useWorkspaceId()
@@ -75,6 +87,8 @@ function CreateAgentDialogContent({
   const { models, modelsLoading } = useWorkspaceAgentModels(workspaceId)
   const { createAgentPreset, createAgentPresetIsPending } =
     useCreateAgentPreset(workspaceId)
+  const { moveAgentPreset, moveAgentPresetIsPending } =
+    useMoveAgentPreset(workspaceId)
 
   const providers = useMemo(() => {
     return Array.from(
@@ -109,6 +123,14 @@ function CreateAgentDialogContent({
         catalog_id: values.catalog_id || undefined,
         description: values.description || undefined,
       })
+      const targetFolderPath =
+        currentPath && currentPath !== "/" ? currentPath : null
+      if (targetFolderPath) {
+        await moveAgentPreset({
+          presetId: preset.id,
+          folder_path: targetFolderPath,
+        })
+      }
       methods.reset()
       onOpenChange(false)
       router.push(
@@ -243,7 +265,11 @@ function CreateAgentDialogContent({
             <DialogFooter>
               <Button
                 type="submit"
-                disabled={createAgentPresetIsPending || modelsLoading}
+                disabled={
+                  createAgentPresetIsPending ||
+                  moveAgentPresetIsPending ||
+                  modelsLoading
+                }
               >
                 Create agent
               </Button>
