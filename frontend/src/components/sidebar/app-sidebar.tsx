@@ -165,7 +165,10 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
         icon: MousePointerClickIcon,
         isActive: pathname?.startsWith(`${basePath}/agents`),
         visible: canViewAgents === true,
-        locked: entitlementsIsLoading || !agentAddonsEnabled,
+        isLocked: entitlementsIsLoading || !agentAddonsEnabled,
+        onSelect: entitlementsIsLoading
+          ? undefined
+          : () => setLockedFeatureDialogOpen(true),
       },
       {
         title: "Tables",
