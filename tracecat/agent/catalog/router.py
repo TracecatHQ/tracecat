@@ -89,16 +89,13 @@ async def create_catalog_entry(
     session: AsyncDBSession,
     params: AgentCatalogCreate = Body(...),
 ) -> AgentCatalogRead:
-    """Create an org-scoped catalog entry.
-
-    Does not auto-enable the model; enablement is handled separately via the
-    model-access API or a one-time migration.
-    """
+    """Create an org-scoped catalog entry and auto-enable it at the org level."""
     assert role.organization_id is not None  # OrgUserRole guarantees this
-    service = AgentCatalogService(session=session)
+    catalog_service = AgentCatalogService(session=session)
+    access_service = AgentModelAccessService(session=session, role=role)
     metadata = params.model_dump(exclude={"model_provider", "model_name"})
     try:
-        row = await service.create_catalog_entry(
+        row = await catalog_service.create_catalog_entry(
             org_id=role.organization_id,
             model_provider=params.model_provider,
             model_name=params.model_name,
@@ -109,6 +106,11 @@ async def create_catalog_entry(
             status_code=status.HTTP_409_CONFLICT,
             detail=str(e),
         ) from e
+    try:
+        await access_service.enable_model(row.id)
+    except TracecatValidationError:
+        # Already enabled — ignore duplicate access row
+        pass
     return AgentCatalogRead.model_validate(row)
 
 

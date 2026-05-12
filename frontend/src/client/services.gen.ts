@@ -4770,10 +4770,7 @@ export const listCatalog = (
 
 /**
  * Create Catalog Entry
- * Create an org-scoped catalog entry.
- *
- * Does not auto-enable the model; enablement is handled separately via the
- * model-access API or a one-time migration.
+ * Create an org-scoped catalog entry and auto-enable it at the org level.
  * @param data The data for the request.
  * @param data.requestBody
  * @returns AgentCatalogRead Successful Response
