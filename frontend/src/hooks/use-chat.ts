@@ -399,10 +399,19 @@ export function useVercelChat({
   // Use Vercel's useChat hook for streaming
   const chat = aiSdk.useChat({
     id: chatId,
+    resume: !!chatId,
     messages,
     transport: new DefaultChatTransport({
       api: apiEndpoint,
       credentials: "include",
+      prepareReconnectToStreamRequest: ({ id }) => {
+        const url = new URL(`/api/agent/sessions/${id}/stream`, getBaseUrl())
+        url.searchParams.set("workspace_id", workspaceId)
+        return {
+          api: url.toString(),
+          credentials: "include",
+        }
+      },
       prepareSendMessagesRequest: ({ messages }) => {
         // Support both normal vercel chat turns and approval continuations.
         const last = messages[messages.length - 1]

@@ -6,7 +6,7 @@ This router consolidates chat and session endpoints into a unified /agent/sessio
 import uuid
 
 from fastapi import APIRouter, HTTPException, Query, Request, status
-from fastapi.responses import StreamingResponse
+from fastapi.responses import Response, StreamingResponse
 
 from tracecat import config
 from tracecat.agent.adapter import vercel
@@ -22,7 +22,6 @@ from tracecat.agent.session.service import AgentSessionService
 from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.agent.stream.connector import AgentStream
 from tracecat.agent.stream.events import StreamFormat
-from tracecat.agent.types import StreamKey
 from tracecat.auth.dependencies import WorkspaceUserRouteRole
 from tracecat.authz.controls import require_scope
 from tracecat.chat.schemas import (
@@ -327,10 +326,22 @@ async def send_message(
                 start_id = "0-0"
 
             # Run session turn (spawns DurableAgentWorkflow)
-            await svc.run_turn(
-                session_id=session_id,
-                request=request,
-            )
+            try:
+                await svc.run_turn(
+                    session_id=session_id,
+                    request=request,
+                )
+            except Exception:
+                if not isinstance(request, ContinueRunRequest):
+                    try:
+                        await stream.abort_new_turn()
+                    except Exception as rollback_exc:
+                        logger.warning(
+                            "Failed to clear stream state after turn startup failure",
+                            session_id=session_id,
+                            error=str(rollback_exc),
+                        )
+                raise
 
         logger.info(
             "Starting Vercel streaming session",
@@ -406,11 +417,12 @@ async def stream_session_events(
         if agent_session is not None:
             last_stream_id = agent_session.last_stream_id
 
-    start_id = last_stream_id or request.headers.get("Last-Event-ID", "0-0")
-    stream_key = StreamKey(workspace_id, session_id)
+    last_event_id = request.headers.get("Last-Event-ID")
+    if last_stream_id is None and not last_event_id:
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
+    start_id = last_event_id or last_stream_id or "0-0"
     logger.info(
         "Starting session stream",
-        stream_key=stream_key,
         last_id=start_id,
         session_id=session_id,
     )
