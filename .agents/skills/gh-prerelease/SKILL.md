@@ -156,15 +156,110 @@ This `push` event for a `*.*.*` tag triggers `.github/workflows/build-push-image
 
 ### 8. Publish the GitHub prerelease
 
+Build release notes that (a) only cover changes since the **previous published release or prerelease** and (b) are grouped into the same categories the `release-drafter` GitHub Action uses on `main`. Then publish.
+
+#### 8a. Resolve the previous release
+
 ```sh
+PREV_TAG=$(gh release list --exclude-drafts --limit 1 --json tagName --jq '.[0].tagName')
+```
+
+`gh release list` orders by created-at desc and includes prereleases, so this picks the most recent published release of any kind. If empty, fall back to the most recent reachable tag:
+
+```sh
+PREV_TAG=${PREV_TAG:-$(git describe --tags --abbrev=0 "${COMMIT_SHA}^")}
+```
+
+Stop and ask if neither resolves.
+
+#### 8b. Pull raw notes from GitHub, scoped to PREV_TAG..\<tag\>
+
+```sh
+REPO=$(gh repo view --json nameWithOwner --jq .nameWithOwner)
+RAW_NOTES=$(gh api "repos/$REPO/releases/generate-notes" \
+  --method POST \
+  -f tag_name="<tag>" \
+  -f previous_tag_name="$PREV_TAG" \
+  -f target_commitish="$COMMIT_SHA" \
+  --jq .body)
+```
+
+This is the same auto-generated body `gh release create --generate-notes` would produce, but with `previous_tag_name` pinned so the diff window is exactly `PREV_TAG..<tag>` (prereleases included as PREV) instead of "latest stable release".
+
+#### 8c. Extract PRs and look up labels
+
+```sh
+PR_NUMS=$(printf '%s\n' "$RAW_NOTES" | grep -oE 'pull/[0-9]+' | grep -oE '[0-9]+' | sort -un)
+```
+
+For each PR number, fetch metadata once:
+
+```sh
+gh pr view "$N" --json number,title,labels,author,url
+```
+
+#### 8d. Categorize per `.github/release-drafter.yml`
+
+Drop any PR carrying an `exclude-labels` value (`skip changelog`, `release`).
+
+For the rest, bucket each PR into the **first** matching category in this order. The list mirrors `.github/release-drafter.yml` exactly — if that file changes, update this list:
+
+| # | Category title           | Labels that match                                                                                  |
+|---|--------------------------|----------------------------------------------------------------------------------------------------|
+| 1 | Breaking changes         | `breaking`, `breaking ui`, `breaking frontend`, `breaking engine`, `breaking app`, `breaking infra` |
+| 2 | Deprecations             | `deprecation`                                                                                       |
+| 3 | Security                 | `security`                                                                                          |
+| 4 | Playbooks                | `playbook`                                                                                          |
+| 5 | Integrations             | `integrations`                                                                                      |
+| 6 | Agents                   | `agents`                                                                                            |
+| 7 | Performance improvements | `performance`                                                                                       |
+| 8 | Enhancements             | `enhancement`                                                                                       |
+| 9 | Bug fixes                | `fix`                                                                                               |
+| 10| Infrastructure           | `infra`                                                                                             |
+| 11| Documentation            | `documentation`                                                                                     |
+| 12| Dependencies             | `dependencies`                                                                                      |
+| 13| Build system             | `build`                                                                                             |
+| 14| Other improvements       | `internal`                                                                                          |
+
+Anything left with no matching label goes under a trailing **Other** section. Do not silently drop PRs.
+
+Format each entry as `- <cleaned-title> (#<number>)` (matches release-drafter's `change-template`). Strip conventional-commit prefixes from the title using the same replacer regex the config uses:
+
+```
+^(build|chore|ci|depr|deps|docs|feat|fix|helm|infra|perf|refactor|release|revert|security|style|test)(\(.*\))?(\!)?:\s
+```
+
+#### 8e. Assemble the body
+
+```
+## <Category title>
+
+- <title> (#<number>)
+- ...
+```
+
+Only emit a category header if it has at least one entry. End the body with:
+
+```
+**Full changelog**: https://github.com/<owner>/<repo>/compare/<PREV_TAG>...<tag>
+```
+
+#### 8f. Publish
+
+Write the body to a temp file and create the release with `--notes-file` (not `--generate-notes`):
+
+```sh
+BODY_FILE=$(mktemp)
+# write categorized markdown to "$BODY_FILE"
 gh release create "<tag>" \
   --target "release/<tag>" \
   --prerelease \
   --title "Tracecat <tag>" \
-  --generate-notes
+  --notes-file "$BODY_FILE"
+rm -f "$BODY_FILE"
 ```
 
-`--generate-notes` autopopulates the changelog from PRs since the previous tag, consistent with how `release-drafter` builds the draft release on `main`.
+If there are zero PRs between `PREV_TAG` and `<tag>` (rare — usually means you tagged the same commit), publish with a single-line body: `No changes since \`<PREV_TAG>\`.`
 
 ### 9. Report
 
