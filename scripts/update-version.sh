@@ -29,14 +29,14 @@ if [ ! -f "$INIT_FILE" ]; then
 fi
 
 # Match both regular semver (1.2.3) and prerelease versions (1.2.3-beta.0, 1.2.3-rc.1)
-CURRENT_VERSION=$(grep -E '__version__ = "[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z]+\.[0-9]+)?"' "$INIT_FILE" | grep -Eo '[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z]+\.[0-9]+)?')
+CURRENT_VERSION=$(grep -E '__version__ = "[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z]+\.[0-9]+){0,2}"' "$INIT_FILE" | grep -Eo '[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z]+\.[0-9]+){0,2}')
 if [ -z "$CURRENT_VERSION" ]; then
     echo "Error: Could not extract version from $INIT_FILE"
     exit 1
 fi
 
 # Parse version components
-if [[ $CURRENT_VERSION =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)(-([a-zA-Z]+)\.([0-9]+))?$ ]]; then
+if [[ $CURRENT_VERSION =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)(-([a-zA-Z]+)\.([0-9]+)){0,2}$ ]]; then
     CURRENT_MAJOR="${BASH_REMATCH[1]}"
     CURRENT_MINOR="${BASH_REMATCH[2]}"
     CURRENT_PATCH="${BASH_REMATCH[3]}"
@@ -114,7 +114,7 @@ else
 fi
 
 # Validate version numbers (semver format with optional prerelease)
-if ! [[ $NEW_VERSION =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z]+\.[0-9]+)?$ ]]; then
+if ! [[ $NEW_VERSION =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z]+\.[0-9]+){0,2}$ ]]; then
     echo "Error: Version must be in semver format (e.g., 1.0.0 or 1.0.0-beta.0)"
     exit 1
 fi
@@ -156,7 +156,7 @@ append_matching_files < <(
         -g 'docker-compose*.yml' \
         -g 'docs/**/*' \
         -g 'deployments/**/*' \
-        '\$\{TRACECAT__IMAGE_TAG:-[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z]+\.[0-9]+)?\}|variable "tracecat_image_tag"|raw\.githubusercontent\.com/TracecatHQ/tracecat/[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z]+\.[0-9]+)?/|TF_VAR_tracecat_image_tag=[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z]+\.[0-9]+)?' \
+        '\$\{TRACECAT__IMAGE_TAG:-[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z]+\.[0-9]+){0,2}\}|variable "tracecat_image_tag"|raw\.githubusercontent\.com/TracecatHQ/tracecat/[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z]+\.[0-9]+){0,2}/|TF_VAR_tracecat_image_tag=[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z]+\.[0-9]+){0,2}' \
         .
 )
 
@@ -195,12 +195,12 @@ update_version() {
     local ESCAPED_NEW=$(echo "$NEW_VERSION" | sed 's/[&/]/\\&/g')
 
     run_sed_in_place "s/$ESCAPED_CURRENT/$ESCAPED_NEW/g" "$file" && \
-    run_sed_in_place "s/\/blob\/[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z]+\.[0-9]+)?\//\/blob\/$NEW_VERSION\//g" "$file" && \
-    run_sed_in_place "s/\`[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z]+\.[0-9]+)?\`/\`$NEW_VERSION\`/g" "$file" && \
-    run_sed_in_place 's/(\$\{TRACECAT__IMAGE_TAG:-)[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z]+\.[0-9]+)?(\})/\1'"$NEW_VERSION"'\3/g' "$file" && \
+    run_sed_in_place "s/\/blob\/[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z]+\.[0-9]+){0,2}\//\/blob\/$NEW_VERSION\//g" "$file" && \
+    run_sed_in_place "s/\`[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z]+\.[0-9]+){0,2}\`/\`$NEW_VERSION\`/g" "$file" && \
+    run_sed_in_place 's/(\$\{TRACECAT__IMAGE_TAG:-)[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z]+\.[0-9]+){0,2}(\})/\1'"$NEW_VERSION"'\3/g' "$file" && \
     run_sed_in_place '/variable "tracecat_image_tag"/,/\}/ s/(default[[:space:]]*=[[:space:]]*)"[^"]*"/\1"'"$NEW_VERSION"'"/' "$file" && \
-    run_sed_in_place 's#(raw\.githubusercontent\.com/TracecatHQ/tracecat/)[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z]+\.[0-9]+)?/#\1'"$NEW_VERSION"'/#g' "$file" && \
-    run_sed_in_place 's/(TF_VAR_tracecat_image_tag=)[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z]+\.[0-9]+)?/\1'"$NEW_VERSION"'/g' "$file" && \
+    run_sed_in_place 's#(raw\.githubusercontent\.com/TracecatHQ/tracecat/)[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z]+\.[0-9]+){0,2}/#\1'"$NEW_VERSION"'/#g' "$file" && \
+    run_sed_in_place 's/(TF_VAR_tracecat_image_tag=)[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z]+\.[0-9]+){0,2}/\1'"$NEW_VERSION"'/g' "$file" && \
     echo "✓ Updated $file" || echo "✗ Failed to update $file"
 }
 
