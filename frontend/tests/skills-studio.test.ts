@@ -241,6 +241,29 @@ title: Incident triage
 Updated body`)
   })
 
+  it("does not include the frontmatter separator blank line in the editable body", () => {
+    const split = splitMarkdownFrontmatter(`---
+name: incident-triage
+description: Handles incidents.
+---
+
+Use this skill for triage.`)
+
+    expect(split?.body).toBe("Use this skill for triage.")
+  })
+
+  it("preserves intentional extra leading blank lines after frontmatter", () => {
+    const split = splitMarkdownFrontmatter(`---
+name: incident-triage
+description: Handles incidents.
+---
+
+
+Use this skill for triage.`)
+
+    expect(split?.body).toBe("\nUse this skill for triage.")
+  })
+
   it("keeps language selection for non-markdown code files", () => {
     expect(getLanguageForPath("script.py")).toBe("python")
   })

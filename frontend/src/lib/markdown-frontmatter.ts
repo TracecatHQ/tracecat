@@ -14,7 +14,7 @@ export interface SplitMarkdownFrontmatter {
 }
 
 const FRONTMATTER_PATTERN =
-  /^(?:\uFEFF)?(?:[ \t]*\r?\n)*---[ \t]*\r?\n([\s\S]*?)\r?\n---[ \t]*(?:\r?\n|$)/
+  /^(?:\uFEFF)?(?:[ \t]*\r?\n)*---[ \t]*\r?\n([\s\S]*?)\r?\n---[ \t]*(?:\r?\n(?:[ \t]*\r?\n)?|$)/
 
 /**
  * Splits a markdown document into a leading frontmatter block and body.
