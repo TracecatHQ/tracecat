@@ -43,12 +43,7 @@ export function composeMarkdownFrontmatter(
   const lineBreak =
     frontmatter.includes("\r\n") || body.includes("\r\n") ? "\r\n" : "\n"
   const closingFence = `${lineBreak}---`
-  const bodyPrefix =
-    body.length === 0
-      ? lineBreak
-      : body.startsWith("\n") || body.startsWith("\r\n")
-        ? ""
-        : `${lineBreak}${lineBreak}`
+  const bodyPrefix = body.length === 0 ? lineBreak : `${lineBreak}${lineBreak}`
 
   return `---${lineBreak}${frontmatter}${closingFence}${bodyPrefix}${body}`
 }

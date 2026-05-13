@@ -253,15 +253,19 @@ Use this skill for triage.`)
   })
 
   it("preserves intentional extra leading blank lines after frontmatter", () => {
-    const split = splitMarkdownFrontmatter(`---
+    const markdown = `---
 name: incident-triage
 description: Handles incidents.
 ---
 
 
-Use this skill for triage.`)
+Use this skill for triage.`
+    const split = splitMarkdownFrontmatter(markdown)
 
     expect(split?.body).toBe("\nUse this skill for triage.")
+    expect(
+      composeMarkdownFrontmatter(split?.frontmatter ?? "", split?.body ?? "")
+    ).toBe(markdown)
   })
 
   it("keeps language selection for non-markdown code files", () => {
