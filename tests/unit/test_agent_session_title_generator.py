@@ -1,6 +1,5 @@
 """Tests for first-prompt session title generation."""
 
-from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -33,55 +32,59 @@ def test_sanitize_session_title_handles_quotes_newlines_and_empty() -> None:
 
 @pytest.mark.anyio
 async def test_generate_session_title_returns_sanitized_output() -> None:
-    mock_agent = AsyncMock()
-    mock_agent.run.return_value = SimpleNamespace(
-        output='  "Investigate API\nerrors in worker"  '
-    )
+    llm_complete = AsyncMock(return_value='  "Investigate API\nerrors in worker"  ')
 
-    with (
-        patch(
-            "tracecat.agent.session.title_generator.get_model", return_value=object()
-        ),
-        patch("tracecat.agent.session.title_generator.Agent", return_value=mock_agent),
-    ):
+    with patch("tracecat.agent.session.title_generator.llm_complete", llm_complete):
         title = await generate_session_title(
             user_prompt="The worker API keeps failing",
-            model_name="gpt-4o-mini",
-            model_provider="openai",
+            session=AsyncMock(),
+            role=AsyncMock(),
         )
 
     assert title == "Investigate API errors in worker"
-    mock_agent.run.assert_awaited_once()
+    llm_complete.assert_awaited_once()
 
 
 @pytest.mark.anyio
-async def test_generate_session_title_raises_on_model_error() -> None:
+async def test_generate_session_title_raises_on_llm_error() -> None:
     with patch(
-        "tracecat.agent.session.title_generator.get_model",
+        "tracecat.agent.session.title_generator.llm_complete",
         side_effect=RuntimeError("bad model"),
     ):
         with pytest.raises(RuntimeError, match="bad model"):
             await generate_session_title(
                 user_prompt="Find root cause",
-                model_name="bad-model",
-                model_provider="openai",
+                session=AsyncMock(),
+                role=AsyncMock(),
             )
 
 
 @pytest.mark.anyio
-async def test_generate_session_title_returns_none_on_timeout() -> None:
-    mock_agent = AsyncMock()
-    mock_agent.run = AsyncMock(side_effect=TimeoutError())
-
-    with (
-        patch(
-            "tracecat.agent.session.title_generator.get_model", return_value=object()
-        ),
-        patch("tracecat.agent.session.title_generator.Agent", return_value=mock_agent),
-    ):
-        title = await generate_session_title(
-            user_prompt="Find root cause",
-            model_name="gpt-4o-mini",
-            model_provider="openai",
+async def test_generate_session_title_skips_empty_prompt() -> None:
+    llm_complete = AsyncMock()
+    with patch("tracecat.agent.session.title_generator.llm_complete", llm_complete):
+        assert (
+            await generate_session_title(
+                user_prompt="   ",
+                session=AsyncMock(),
+                role=AsyncMock(),
+            )
+            is None
         )
-    assert title is None
+    llm_complete.assert_not_awaited()
+
+
+@pytest.mark.anyio
+async def test_generate_session_title_returns_none_for_empty_sanitized_output() -> None:
+    with patch(
+        "tracecat.agent.session.title_generator.llm_complete",
+        AsyncMock(return_value='""'),
+    ):
+        assert (
+            await generate_session_title(
+                user_prompt="Find root cause",
+                session=AsyncMock(),
+                role=AsyncMock(),
+            )
+            is None
+        )
