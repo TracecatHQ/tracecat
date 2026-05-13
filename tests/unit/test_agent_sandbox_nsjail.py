@@ -45,8 +45,33 @@ async def test_spawn_direct_runtime_sets_explicit_claude_session_paths(
     assert env["TRACECAT__AGENT_MCP_SOCKET_PATH"] == str(
         tmp_path / "sockets" / "mcp.sock"
     )
-    assert "pass_fds" not in create_subprocess_exec.await_args.kwargs
+    assert create_subprocess_exec.await_args.kwargs["pass_fds"] == ()
     assert env[SESSION_HOME_ENV_VAR] == str(session_home_dir)
     assert env[SESSION_PROJECT_ENV_VAR] == str(session_project_dir)
     assert session_home_dir.is_dir()
     assert session_project_dir.is_dir()
+
+
+@pytest.mark.anyio
+async def test_spawn_direct_runtime_passes_inherited_fds(tmp_path: Path) -> None:
+    mock_process = MagicMock()
+
+    with patch(
+        "tracecat.agent.sandbox.nsjail.asyncio.create_subprocess_exec",
+        AsyncMock(return_value=mock_process),
+    ) as create_subprocess_exec:
+        await _spawn_direct_runtime(
+            socket_dir=tmp_path / "sockets",
+            llm_socket_path=tmp_path / "sockets" / "llm.sock",
+            mcp_socket_path=tmp_path / "sockets" / "mcp.sock",
+            init_payload_path=tmp_path / "init.json",
+            control_socket_required=False,
+            pipe_stdin=True,
+            session_home_dir=None,
+            session_project_dir=None,
+            skills_dir=None,
+            inherited_fds=(42,),
+        )
+
+    assert create_subprocess_exec.await_args is not None
+    assert create_subprocess_exec.await_args.kwargs["pass_fds"] == (42,)
