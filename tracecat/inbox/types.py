@@ -46,3 +46,7 @@ class InboxProvider(Protocol):
     ) -> CursorPaginatedResponse[InboxItemRead]:
         """List inbox items with cursor-based pagination."""
         ...
+
+    async def count_pending_items(self) -> int:
+        """Count pending inbox items that require attention."""
+        ...

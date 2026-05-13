@@ -262,6 +262,7 @@ async def test_case_tag_assignment_scope_guards(
 @pytest.mark.parametrize(
     ("endpoint", "required_scope"),
     [
+        (inbox_router.get_pending_count, "inbox:read"),
         (inbox_router.list_items, "inbox:read"),
     ],
 )

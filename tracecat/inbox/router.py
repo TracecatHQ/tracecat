@@ -9,12 +9,25 @@ from tracecat.auth.dependencies import WorkspaceUserRouteRole
 from tracecat.authz.controls import require_scope
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.inbox.dependencies import get_inbox_providers
-from tracecat.inbox.schemas import InboxItemRead
+from tracecat.inbox.schemas import InboxItemRead, InboxPendingCount
 from tracecat.inbox.service import InboxService
 from tracecat.logger import logger
 from tracecat.pagination import CursorPaginatedResponse
 
 router = APIRouter(prefix="/inbox", tags=["inbox"])
+
+
+@router.get("/items/pending-count")
+@require_scope("inbox:read")
+async def get_pending_count(
+    role: WorkspaceUserRouteRole,
+    session: AsyncDBSession,
+) -> InboxPendingCount:
+    """Get the number of pending inbox items that require attention."""
+    providers = get_inbox_providers(session, role)
+    service = InboxService(session, role, providers)
+
+    return InboxPendingCount(count=await service.count_pending_items())
 
 
 @router.get("/items")

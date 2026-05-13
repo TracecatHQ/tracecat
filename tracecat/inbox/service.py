@@ -150,3 +150,10 @@ class InboxService(BaseWorkspaceService, BaseCursorPaginator):
             has_previous=has_previous,
             total_estimate=len(all_items),
         )
+
+    async def count_pending_items(self) -> int:
+        """Count pending inbox items across all configured providers."""
+        count = 0
+        for provider in self.providers:
+            count += await provider.count_pending_items()
+        return count

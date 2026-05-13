@@ -13106,6 +13106,21 @@ export const $InboxItemType = {
   description: "Types of inbox items.",
 } as const
 
+export const $InboxPendingCount = {
+  properties: {
+    count: {
+      type: "integer",
+      minimum: 0,
+      title: "Count",
+      description: "Number of pending inbox items",
+    },
+  },
+  type: "object",
+  required: ["count"],
+  title: "InboxPendingCount",
+  description: "Count of pending inbox items that require attention.",
+} as const
+
 export const $InferredColumn = {
   properties: {
     csv_header: {

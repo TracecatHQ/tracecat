@@ -374,6 +374,8 @@ import type {
   GraphApplyGraphOperationsResponse,
   GraphGetGraphData,
   GraphGetGraphResponse,
+  InboxGetPendingCountData,
+  InboxGetPendingCountResponse,
   InboxListItemsData,
   InboxListItemsResponse,
   IntegrationsConnectProviderData,
@@ -7359,6 +7361,29 @@ export const adminRegistryPromoteRegistryVersion = (
     path: {
       repository_id: data.repositoryId,
       version_id: data.versionId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Get Pending Count
+ * Get the number of pending inbox items that require attention.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @returns InboxPendingCount Successful Response
+ * @throws ApiError
+ */
+export const inboxGetPendingCount = (
+  data: InboxGetPendingCountData
+): CancelablePromise<InboxGetPendingCountResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/workspaces/{workspace_id}/inbox/items/pending-count",
+    path: {
+      workspace_id: data.workspaceId,
     },
     errors: {
       422: "Validation Error",
