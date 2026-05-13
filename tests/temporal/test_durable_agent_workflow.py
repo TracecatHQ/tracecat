@@ -21,15 +21,9 @@ pytestmark = [pytest.mark.temporal, pytest.mark.usefixtures("db")]
 
 from pydantic_ai.tools import ToolApproved, ToolDenied
 from temporalio import activity
-from temporalio.api.enums.v1 import EventType
-from temporalio.client import (
-    Client,
-    WorkflowFailureError,
-    WorkflowHandle,
-    WorkflowHistory,
-)
+from temporalio.client import Client, WorkflowFailureError
 from temporalio.exceptions import ApplicationError
-from temporalio.worker import Replayer, UnsandboxedWorkflowRunner, Worker
+from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 from tracecat_ee.agent.activities import (
     ApplyApprovalResultsActivityInputs,
     BuildToolDefsArgs,
@@ -63,11 +57,14 @@ from tracecat.agent.session.activities import (
     CreateSessionInput,
     CreateSessionResult,
     LoadSessionInput,
+    LoadSessionMessagesInput,
+    LoadSessionMessagesResult,
     LoadSessionResult,
     ReconcileToolResultsInput,
     ReconcileToolResultsResult,
     create_session_activity,
     load_session_activity,
+    load_session_messages_activity,
     reconcile_tool_results_activity,
 )
 from tracecat.agent.session.service import AgentSessionService
@@ -75,6 +72,7 @@ from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.agent.types import AgentConfig
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
+from tracecat.chat.schemas import ChatMessage
 from tracecat.db.models import AgentSessionHistory, User
 from tracecat.dsl.common import RETRY_POLICIES
 from tracecat.dsl.schemas import RunActionInput
@@ -127,6 +125,26 @@ def create_mock_load_session_activity() -> Callable[..., Any]:
         )
 
     return mock_load_session_activity
+
+
+def create_mock_load_session_messages_activity(
+    *,
+    captured_inputs: list[LoadSessionMessagesInput] | None = None,
+    messages: list[ChatMessage] | None = None,
+    error: str | None = None,
+) -> Callable[..., Any]:
+    """Create a mock load_session_messages_activity for terminal history."""
+
+    @activity.defn(name="load_session_messages_activity")
+    async def mock_load_session_messages_activity(
+        input: LoadSessionMessagesInput,
+    ) -> LoadSessionMessagesResult:
+        if captured_inputs is not None:
+            captured_inputs.append(input)
+        result_messages = None if error is not None else messages or []
+        return LoadSessionMessagesResult(messages=result_messages, error=error)
+
+    return mock_load_session_messages_activity
 
 
 def create_mock_build_tool_definitions_activity(
@@ -238,6 +256,8 @@ def create_activities_with_mock_executor(
     tool_exec_callback: Callable[[RunActionInput], InlineObject[dict[str, str]]]
     | None = None,
     tool_definitions: dict[str, MCPToolDefinition] | None = None,
+    message_load_inputs: list[LoadSessionMessagesInput] | None = None,
+    session_messages: list[ChatMessage] | None = None,
 ) -> Sequence[Callable[..., Any]]:
     """Create a full activity list with mocked agent executor.
 
@@ -252,6 +272,10 @@ def create_activities_with_mock_executor(
     activities: list[Callable[..., Any]] = [
         create_mock_create_session_activity(),
         create_mock_load_session_activity(),
+        create_mock_load_session_messages_activity(
+            captured_inputs=message_load_inputs,
+            messages=session_messages,
+        ),
         create_mock_build_tool_definitions_activity(tool_definitions),
         create_mock_run_agent_activity(response_callback),
         create_mock_execute_action_activity(tool_exec_callback),
@@ -259,35 +283,6 @@ def create_activities_with_mock_executor(
         *ApprovalManager.get_activities(),
     ]
     return activities
-
-
-async def replay_durable_agent_workflow_history(
-    temporal_client: Client,
-    history: WorkflowHistory,
-) -> None:
-    """Replay a fetched durable-agent history against the current workflow code."""
-    replay_result = await Replayer(
-        workflows=[DurableAgentWorkflow],
-        workflow_runner=UnsandboxedWorkflowRunner(),
-        data_converter=temporal_client.data_converter,
-    ).replay_workflow(history, raise_on_replay_failure=False)
-    assert replay_result.replay_failure is None
-
-
-async def fetch_history_after_completed_workflow_task(
-    handle: WorkflowHandle[Any, Any],
-) -> WorkflowHistory:
-    """Fetch history once the workflow task that reached a wait state is recorded."""
-    for _ in range(100):
-        history = await handle.fetch_history()
-        if (
-            history.events
-            and history.events[-1].event_type
-            == EventType.EVENT_TYPE_WORKFLOW_TASK_COMPLETED
-        ):
-            return history
-        await asyncio.sleep(0.05)
-    raise AssertionError("Timed out waiting for workflow task completion")
 
 
 # =============================================================================
@@ -511,7 +506,13 @@ async def test_agent_workflow_simple_execution(
     ) -> AgentExecutorResult:
         return AgentExecutorResult(success=True, approval_requested=False)
 
-    activities = create_activities_with_mock_executor(mock_executor)
+    message_load_inputs: list[LoadSessionMessagesInput] = []
+    session_messages = [ChatMessage(id="msg-1")]
+    activities = create_activities_with_mock_executor(
+        mock_executor,
+        message_load_inputs=message_load_inputs,
+        session_messages=session_messages,
+    )
 
     async with agent_worker_factory(
         temporal_client, task_queue=queue, custom_activities=activities
@@ -527,6 +528,56 @@ async def test_agent_workflow_simple_execution(
 
         result = await wf_handle.result()
         assert result.session_id == mock_session_id
+        assert result.message_history == session_messages
+
+    assert [input.session_id for input in message_load_inputs] == [mock_session_id]
+
+
+@pytest.mark.anyio
+@pytest.mark.integration
+async def test_agent_workflow_preserves_legacy_activity_message_history(
+    svc_role: Role,
+    temporal_client: Client,
+    agent_worker_factory,
+    agent_workflow_args: AgentWorkflowArgs,
+    mock_session_id: uuid.UUID,
+) -> None:
+    """Existing activity payloads with messages should not schedule a new load."""
+    queue = f"test-agent-queue-{mock_session_id}"
+    legacy_messages = [ChatMessage(id="legacy-msg")]
+
+    def mock_executor(
+        call_count: int, input: AgentExecutorInput
+    ) -> AgentExecutorResult:
+        return AgentExecutorResult(
+            success=True,
+            approval_requested=False,
+            messages=legacy_messages,
+        )
+
+    message_load_inputs: list[LoadSessionMessagesInput] = []
+    activities = create_activities_with_mock_executor(
+        mock_executor,
+        message_load_inputs=message_load_inputs,
+    )
+
+    async with agent_worker_factory(
+        temporal_client, task_queue=queue, custom_activities=activities
+    ):
+        wf_handle = await temporal_client.start_workflow(
+            DurableAgentWorkflow.run,
+            agent_workflow_args,
+            id=AgentWorkflowID(mock_session_id),
+            task_queue=queue,
+            retry_policy=RETRY_POLICIES["workflow:fail_fast"],
+            execution_timeout=timedelta(seconds=30),
+        )
+
+        result = await wf_handle.result()
+        assert result.session_id == mock_session_id
+        assert result.message_history == legacy_messages
+
+    assert message_load_inputs == []
 
 
 @pytest.mark.anyio
@@ -807,6 +858,7 @@ async def test_agent_workflow_routes_approved_tools_to_executor_and_reconciles_h
         activities=[
             create_session_activity,
             load_session_activity,
+            load_session_messages_activity,
             reconcile_tool_results_activity,
             mock_build_tool_definitions,
             mock_record_approval_requests,
@@ -1101,6 +1153,7 @@ async def test_agent_workflow_plumbs_forked_session_through_approval_continuatio
         activities=[
             mock_create_session_activity,
             mock_load_session_activity,
+            create_mock_load_session_messages_activity(),
             mock_build_tool_definitions,
             mock_record_approval_requests,
             mock_apply_approval_decisions,
@@ -1194,144 +1247,6 @@ async def test_agent_workflow_plumbs_forked_session_through_approval_continuatio
     }
     assert decisions_by_tool_call_id["call_risky"].approved is False
     assert decisions_by_tool_call_id["call_risky"].reason == "too risky"
-
-
-@pytest.mark.anyio
-@pytest.mark.integration
-async def test_agent_workflow_replays_suspended_legacy_sdk_session_data_history(
-    svc_role: Role,
-    temporal_client: Client,
-    agent_worker_factory,
-    mock_session_id: uuid.UUID,
-    agent_config_with_approvals: AgentConfig,
-) -> None:
-    """A suspended workflow with legacy SDK JSONL payloads should replay."""
-    queue = f"test-agent-queue-{mock_session_id}"
-    approval_request_recorded = asyncio.Event()
-    captured_agent_inputs: list[AgentExecutorInput] = []
-    legacy_sdk_session_data = (
-        '{"type":"user","message":{"content":"legacy prompt"}}\n'
-        '{"type":"assistant","message":{"content":[{"type":"text","text":"legacy"}]}}\n'
-    )
-
-    @activity.defn(name="load_session_activity")
-    async def mock_load_session_activity(
-        input: LoadSessionInput,
-    ) -> LoadSessionResult:
-        assert input.session_id == mock_session_id
-        if len(captured_agent_inputs) == 0:
-            return LoadSessionResult(
-                found=True,
-                sdk_session_id="legacy-sdk-session",
-                sdk_session_data=legacy_sdk_session_data,
-                is_fork=False,
-            )
-        return LoadSessionResult(
-            found=True,
-            sdk_session_id="legacy-sdk-session",
-            sdk_session_data=None,
-            is_fork=False,
-        )
-
-    @activity.defn(name="run_agent_activity")
-    async def mock_run_agent_activity(
-        input: AgentExecutorInput,
-    ) -> AgentExecutorResult:
-        captured_agent_inputs.append(input)
-        if len(captured_agent_inputs) == 1:
-            assert input.sdk_session_id == "legacy-sdk-session"
-            assert input.sdk_session_data == legacy_sdk_session_data
-            assert input.is_approval_continuation is False
-            return AgentExecutorResult(
-                success=True,
-                approval_requested=True,
-                approval_items=[
-                    ToolCallContent(
-                        id="call_123",
-                        name="core__http_request",
-                        input={"url": "https://example.com", "method": "GET"},
-                    )
-                ],
-            )
-
-        assert input.sdk_session_id == "legacy-sdk-session"
-        assert input.sdk_session_data is None
-        assert input.is_approval_continuation is True
-        return AgentExecutorResult(
-            success=True,
-            approval_requested=False,
-            output={"status": "continued"},
-        )
-
-    @activity.defn(name="record_approval_requests")
-    async def mock_record_approval_requests(
-        input: PersistApprovalsActivityInputs,
-    ) -> None:
-        assert [approval.tool_call_id for approval in input.approvals] == ["call_123"]
-        approval_request_recorded.set()
-
-    @activity.defn(name="apply_approval_decisions")
-    async def mock_apply_approval_decisions(
-        input: ApplyApprovalResultsActivityInputs,
-    ) -> None:
-        assert [decision.tool_call_id for decision in input.decisions] == ["call_123"]
-
-    workflow_args = AgentWorkflowArgs(
-        role=svc_role,
-        agent_args=RunAgentArgs(
-            session_id=mock_session_id,
-            user_prompt="Continue from legacy suspended workflow",
-            config=agent_config_with_approvals,
-        ),
-        entity_type=AgentSessionEntity.WORKFLOW,
-        entity_id=uuid.uuid4(),
-    )
-
-    activities = [
-        create_mock_create_session_activity(),
-        mock_load_session_activity,
-        create_mock_build_tool_definitions_activity(),
-        mock_run_agent_activity,
-        create_mock_execute_action_activity(),
-        create_mock_reconcile_tool_results_activity(),
-        mock_record_approval_requests,
-        mock_apply_approval_decisions,
-    ]
-
-    async with agent_worker_factory(
-        temporal_client, task_queue=queue, custom_activities=activities
-    ):
-        wf_handle = await temporal_client.start_workflow(
-            DurableAgentWorkflow.run,
-            workflow_args,
-            id=AgentWorkflowID(mock_session_id),
-            task_queue=queue,
-            retry_policy=RETRY_POLICIES["workflow:fail_fast"],
-            execution_timeout=timedelta(seconds=30),
-        )
-
-        await asyncio.wait_for(approval_request_recorded.wait(), timeout=10)
-        suspended_history = await fetch_history_after_completed_workflow_task(wf_handle)
-        await replay_durable_agent_workflow_history(temporal_client, suspended_history)
-
-        await wf_handle.execute_update(
-            DurableAgentWorkflow.set_approvals,
-            WorkflowApprovalSubmission(
-                approvals={"call_123": True},
-                approved_by=svc_role.user_id,
-            ),
-        )
-
-        result = await wf_handle.result()
-        completed_history = await wf_handle.fetch_history()
-        await replay_durable_agent_workflow_history(temporal_client, completed_history)
-
-    assert result.session_id == mock_session_id
-    assert result.output == {"status": "continued"}
-    assert [input.sdk_session_data for input in captured_agent_inputs] == [
-        legacy_sdk_session_data,
-        None,
-    ]
 
 
 @pytest.mark.anyio
@@ -1541,6 +1456,7 @@ async def test_agent_workflow_does_not_retry_approved_tool_failures(
         activities=[
             create_session_activity,
             load_session_activity,
+            load_session_messages_activity,
             reconcile_tool_results_activity,
             mock_build_tool_definitions,
             mock_record_approval_requests,

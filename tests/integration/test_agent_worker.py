@@ -47,6 +47,8 @@ from tracecat.agent.session.activities import (
     CreateSessionInput,
     CreateSessionResult,
     LoadSessionInput,
+    LoadSessionMessagesInput,
+    LoadSessionMessagesResult,
     LoadSessionResult,
     ReconcileToolResultsInput,
     ReconcileToolResultsResult,
@@ -100,6 +102,19 @@ def create_mock_load_session_activity() -> Callable[..., Any]:
     return mock_load_session_activity
 
 
+def create_mock_load_session_messages_activity() -> Callable[..., Any]:
+    """Create a mock load_session_messages_activity that returns no messages."""
+
+    @activity.defn(name="load_session_messages_activity")
+    async def mock_load_session_messages_activity(
+        input: LoadSessionMessagesInput,
+    ) -> LoadSessionMessagesResult:
+        del input
+        return LoadSessionMessagesResult(messages=[])
+
+    return mock_load_session_messages_activity
+
+
 def create_mock_run_agent_activity(
     response_callback: Callable[[AgentExecutorInput], AgentExecutorResult],
 ) -> Callable[..., Any]:
@@ -140,6 +155,7 @@ def create_activities_with_mock_executor(
     # Add mocked session activities (to avoid DB FK constraints)
     activities.append(create_mock_create_session_activity())
     activities.append(create_mock_load_session_activity())
+    activities.append(create_mock_load_session_messages_activity())
 
     # Add mocked runtime activity
     activities.append(create_mock_run_agent_activity(response_callback))
@@ -229,6 +245,7 @@ class TestAgentWorkerLifecycle:
         assert set(activity_names) == {
             "create_session_activity",
             "load_session_activity",
+            "load_session_messages_activity",
             "reconcile_tool_results_activity",
         }
 
@@ -496,6 +513,7 @@ class TestAgentWorkerSingleTenant:
             *agent_activities.get_activities(),
             mock_create_session_activity,
             mock_load_session_activity,
+            create_mock_load_session_messages_activity(),
             mock_record_approval_requests,
             mock_apply_approval_decisions,
             mock_execute_action_activity,
