@@ -205,6 +205,7 @@ async def test_run_skips_search_attribute_upsert_without_patch_marker() -> None:
 async def test_load_terminal_message_history_skips_activity_without_patch_marker() -> (
     None
 ):
+    """Legacy replays must not schedule the new terminal-history activity."""
     role = Role(
         type="user",
         service_id="tracecat-api",
@@ -226,6 +227,9 @@ async def test_load_terminal_message_history_skips_activity_without_patch_marker
             new_callable=AsyncMock,
         ) as execute_activity_mock,
     ):
+        execute_activity_mock.side_effect = AssertionError(
+            "legacy replay scheduled terminal message load"
+        )
         message_history = await workflow_instance._load_terminal_message_history(
             AgentExecutorResult(success=True)
         )
