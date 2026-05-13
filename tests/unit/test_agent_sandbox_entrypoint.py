@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import socket
 from pathlib import Path
 from typing import Any, cast
 
@@ -140,6 +141,45 @@ async def test_read_shim_init_payload_allows_port_zero(tmp_path: Path) -> None:
     payload = await _read_shim_init_payload(init_path)
 
     assert payload["mcp_bridge_port"] == 0
+
+
+@pytest.mark.anyio
+async def test_read_shim_init_payload_accepts_inherited_mcp_bridge_fd(
+    tmp_path: Path,
+) -> None:
+    init_path = tmp_path / "shim-init.json"
+    init_path.write_bytes(
+        orjson.dumps(
+            {
+                "command": ["claude", "--print"],
+                "env": {"HOME": "/work/claude-home"},
+                "cwd": "/work/claude-project",
+                "mcp_bridge_port": 54321,
+                "mcp_bridge_fd": 42,
+            }
+        )
+    )
+
+    payload = await _read_shim_init_payload(init_path)
+
+    assert payload["mcp_bridge_port"] == 54321
+    assert payload.get("mcp_bridge_fd") == 42
+
+
+@pytest.mark.anyio
+async def test_llm_bridge_adopts_inherited_listener_fd(tmp_path: Path) -> None:
+    listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    listener.bind(("127.0.0.1", 0))
+    listener.listen()
+    expected_port = int(listener.getsockname()[1])
+    listener_fd = listener.detach()
+    bridge = LLMBridge(socket_path=tmp_path / "mcp.sock", listener_fd=listener_fd)
+
+    actual_port = await bridge.start()
+    try:
+        assert actual_port == expected_port
+    finally:
+        await bridge.stop()
 
 
 def test_rewrite_mcp_bridge_command_port_replaces_dynamic_urls() -> None:

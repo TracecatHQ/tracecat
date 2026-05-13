@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import socket
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, cast
@@ -28,7 +29,10 @@ from tracecat.agent.runtime.claude_code.broker import (
     ConcurrentSessionTurnError,
 )
 from tracecat.agent.runtime.claude_code.session_paths import ClaudeSandboxPathMapping
-from tracecat.agent.runtime.claude_code.transport import SandboxedCLITransport
+from tracecat.agent.runtime.claude_code.transport import (
+    SandboxedCLITransport,
+    open_mcp_bridge_binding,
+)
 
 
 def _make_request(tmp_path: Path) -> ClaudeTurnRequest:
@@ -268,23 +272,25 @@ def test_transport_rewrites_resolved_bundled_claude_path_for_jail(
     ]
 
 
-def test_transport_uses_fixed_mcp_bridge_port_for_jailed_runtime(
-    tmp_path: Path,
-) -> None:
-    transport = _make_transport(tmp_path, use_jailed_paths=True)
-
-    assert (
-        transport._mcp_bridge_port_for_runtime()
-        == transport_module.TRACECAT__AGENT_MCP_BRIDGE_PORT
-    )
+def test_mcp_bridge_binding_uses_fixed_port_for_jailed_runtime() -> None:
+    with open_mcp_bridge_binding(use_jailed_paths=True) as binding:
+        assert binding.port == transport_module.TRACECAT__AGENT_MCP_BRIDGE_PORT
+        assert binding.inherited_fds == ()
+        assert binding.listener_fd is None
 
 
-def test_transport_uses_dynamic_mcp_bridge_port_for_direct_runtime(
-    tmp_path: Path,
-) -> None:
-    transport = _make_transport(tmp_path, use_jailed_paths=False)
+def test_mcp_bridge_binding_uses_inherited_listener_for_direct_runtime() -> None:
+    with open_mcp_bridge_binding(use_jailed_paths=False) as binding:
+        assert binding.port > 0
+        assert binding.listener_fd is not None
+        assert binding.inherited_fds == (binding.listener_fd,)
 
-    assert transport._mcp_bridge_port_for_runtime() == 0
+        probe = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        try:
+            with pytest.raises(OSError):
+                probe.bind(("127.0.0.1", binding.port))
+        finally:
+            probe.close()
 
 
 def test_transport_rewrites_trusted_mcp_bridge_urls_for_selected_port(
@@ -407,13 +413,18 @@ async def test_transport_connect_applies_selected_direct_port_to_sdk_options(
 
     init_payload_path = cast(Path, captured_spawn_kwargs["init_payload_path"])
     init_payload = orjson.loads(init_payload_path.read_bytes())
-    assert init_payload["mcp_bridge_port"] == 0
+    selected_port = init_payload["mcp_bridge_port"]
+    assert selected_port > 0
+    assert init_payload["mcp_bridge_fd"] is not None
+    assert captured_spawn_kwargs["inherited_fds"] == (init_payload["mcp_bridge_fd"],)
 
     mcp_servers = cast(dict[str, Any], options.mcp_servers)
-    assert mcp_servers["tracecat-registry"]["url"] == "http://127.0.0.1:0/mcp"
+    assert mcp_servers["tracecat-registry"]["url"] == (
+        f"http://127.0.0.1:{selected_port}/mcp"
+    )
     assert options.agents is not None
     agent = options.agents["analyst"]
     assert agent.mcpServers is not None
     agent_entry = cast(dict[str, Any], agent.mcpServers[0])
     child_server = cast(dict[str, Any], agent_entry["tracecat-registry-analyst"])
-    assert child_server["url"] == "http://127.0.0.1:0/mcp"
+    assert child_server["url"] == f"http://127.0.0.1:{selected_port}/mcp"

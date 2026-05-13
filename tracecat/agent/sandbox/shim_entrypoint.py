@@ -12,9 +12,10 @@ import contextlib
 import json
 import logging
 import os
+import socket
 import sys
 from pathlib import Path
-from typing import BinaryIO, TypedDict
+from typing import BinaryIO, NotRequired, TypedDict
 
 LOGGER = logging.getLogger(__name__)
 
@@ -35,25 +36,41 @@ class ClaudeShimInitPayload(TypedDict):
     env: dict[str, str]
     cwd: str
     mcp_bridge_port: int
+    mcp_bridge_fd: NotRequired[int | None]
 
 
 class LLMBridge:
     """HTTP bridge that forwards localhost traffic to a Unix socket."""
 
-    def __init__(self, *, socket_path: Path, port: int = 0) -> None:
+    def __init__(
+        self,
+        *,
+        socket_path: Path,
+        port: int = 0,
+        listener_fd: int | None = None,
+    ) -> None:
         self.socket_path = socket_path
         self._requested_port = port
+        self._listener_fd = listener_fd
         self._actual_port: int | None = None
         self._server: asyncio.Server | None = None
         self._serve_task: asyncio.Task[None] | None = None
 
     async def start(self) -> int:
         """Start the bridge and return the bound localhost port."""
-        self._server = await asyncio.start_server(
-            self._handle_connection,
-            host=LLM_BRIDGE_HOST,
-            port=self._requested_port,
-        )
+        if self._listener_fd is None:
+            self._server = await asyncio.start_server(
+                self._handle_connection,
+                host=LLM_BRIDGE_HOST,
+                port=self._requested_port,
+            )
+        else:
+            listener = socket.socket(fileno=self._listener_fd)
+            listener.setblocking(False)
+            self._server = await asyncio.start_server(
+                self._handle_connection,
+                sock=listener,
+            )
         if not self._server.sockets:
             raise RuntimeError("LLM bridge did not expose a listening socket")
         actual_port = int(self._server.sockets[0].getsockname()[1])
@@ -250,6 +267,7 @@ async def run_sandboxed_claude_shim() -> None:
         mcp_bridge = LLMBridge(
             socket_path=_resolve_mcp_socket_path(),
             port=init_payload["mcp_bridge_port"],
+            listener_fd=init_payload.get("mcp_bridge_fd"),
         )
         mcp_bridge_port = await mcp_bridge.start()
         LOGGER.info("MCP bridge started for shim on port %s", mcp_bridge_port)
@@ -323,6 +341,7 @@ async def _read_init_payload(init_path: Path) -> ClaudeShimInitPayload:
     env = data.get("env")
     cwd = data.get("cwd")
     mcp_bridge_port = data.get("mcp_bridge_port")
+    mcp_bridge_fd = data.get("mcp_bridge_fd")
 
     if not isinstance(command, list) or not all(
         isinstance(item, str) for item in command
@@ -336,13 +355,20 @@ async def _read_init_payload(init_path: Path) -> ClaudeShimInitPayload:
         raise ValueError("Shim payload cwd must be a string")
     if not isinstance(mcp_bridge_port, int) or mcp_bridge_port < 0:
         raise ValueError("Shim payload mcp_bridge_port must be a non-negative integer")
+    if mcp_bridge_fd is not None and (
+        not isinstance(mcp_bridge_fd, int) or mcp_bridge_fd < 0
+    ):
+        raise ValueError("Shim payload mcp_bridge_fd must be a non-negative integer")
 
-    return {
+    payload: ClaudeShimInitPayload = {
         "command": command,
         "env": env,
         "cwd": cwd,
         "mcp_bridge_port": mcp_bridge_port,
     }
+    if mcp_bridge_fd is not None:
+        payload["mcp_bridge_fd"] = mcp_bridge_fd
+    return payload
 
 
 def _resolve_init_payload_path() -> Path:

@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import asyncio
 import os
-from collections.abc import AsyncIterator
-from dataclasses import replace
+import socket
+from collections.abc import AsyncIterator, Iterator
+from contextlib import contextmanager
+from dataclasses import dataclass, replace
 from pathlib import Path
 from time import perf_counter
 from typing import Any, TypedDict, cast
@@ -41,6 +43,38 @@ class ClaudeShimInitPayload(TypedDict):
     env: dict[str, str]
     cwd: str
     mcp_bridge_port: int
+    mcp_bridge_fd: int | None
+
+
+@dataclass(frozen=True, slots=True)
+class MCPBridgeBinding:
+    """Host-side MCP bridge endpoint prepared for one runtime process."""
+
+    port: int
+    inherited_fds: tuple[int, ...] = ()
+    listener_fd: int | None = None
+
+
+@contextmanager
+def open_mcp_bridge_binding(*, use_jailed_paths: bool) -> Iterator[MCPBridgeBinding]:
+    """Open the MCP bridge binding appropriate for the runtime isolation mode."""
+    if use_jailed_paths:
+        yield MCPBridgeBinding(port=TRACECAT__AGENT_MCP_BRIDGE_PORT)
+        return
+
+    listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        listener.bind(("127.0.0.1", 0))
+        listener.listen()
+        listener.set_inheritable(True)
+        listener_fd = listener.fileno()
+        yield MCPBridgeBinding(
+            port=int(listener.getsockname()[1]),
+            inherited_fds=(listener_fd,),
+            listener_fd=listener_fd,
+        )
+    finally:
+        listener.close()
 
 
 class SandboxedCLITransport(Transport):
@@ -103,45 +137,49 @@ class SandboxedCLITransport(Transport):
         self._connect_started_at = perf_counter()
         self._logged_first_message = False
         self._log_benchmark_phase("broker_transport_connect_start")
-        mcp_bridge_port = self._mcp_bridge_port_for_runtime()
-        runtime_options = self._options_with_runtime_bridge_port(mcp_bridge_port)
-        original_options = self._options
-        if runtime_options is not original_options:
-            original_options.mcp_servers = runtime_options.mcp_servers
-            original_options.agents = runtime_options.agents
-        try:
-            self._options = runtime_options
-            command = await self._build_claude_command()
-            env = self._build_claude_env_overlay()
-        finally:
-            self._options = original_options
-        init_payload: ClaudeShimInitPayload = {
-            "command": command,
-            "env": env,
-            "cwd": str(self._path_mapping.runtime_cwd),
-            "mcp_bridge_port": mcp_bridge_port,
-        }
-        init_payload_path = self._job_dir / "claude-shim-init.json"
-        await asyncio.to_thread(
-            init_payload_path.write_bytes, orjson.dumps(init_payload)
-        )
-        self._log_benchmark_phase(
-            "broker_transport_init_written",
-            init_payload_path=str(init_payload_path),
-        )
+        with open_mcp_bridge_binding(
+            use_jailed_paths=self._use_jailed_paths
+        ) as mcp_binding:
+            runtime_options = self._options_with_runtime_bridge_port(mcp_binding.port)
+            original_options = self._options
+            if runtime_options is not original_options:
+                original_options.mcp_servers = runtime_options.mcp_servers
+                original_options.agents = runtime_options.agents
+            try:
+                self._options = runtime_options
+                command = await self._build_claude_command()
+                env = self._build_claude_env_overlay()
+            finally:
+                self._options = original_options
+            init_payload: ClaudeShimInitPayload = {
+                "command": command,
+                "env": env,
+                "cwd": str(self._path_mapping.runtime_cwd),
+                "mcp_bridge_port": mcp_binding.port,
+                "mcp_bridge_fd": mcp_binding.listener_fd,
+            }
+            init_payload_path = self._job_dir / "claude-shim-init.json"
+            await asyncio.to_thread(
+                init_payload_path.write_bytes, orjson.dumps(init_payload)
+            )
+            self._log_benchmark_phase(
+                "broker_transport_init_written",
+                init_payload_path=str(init_payload_path),
+            )
 
-        self._spawned_runtime = await spawn_jailed_runtime(
-            socket_dir=self._socket_dir,
-            init_payload_path=init_payload_path,
-            llm_socket_path=self._llm_socket_path,
-            control_socket_required=False,
-            pipe_stdin=True,
-            job_dir=self._job_dir,
-            session_home_dir=self._path_mapping.host_home_dir,
-            session_project_dir=self._path_mapping.host_project_dir,
-            enable_internet_access=self._enable_internet_access,
-            skills_dir=self._skills_dir,
-        )
+            self._spawned_runtime = await spawn_jailed_runtime(
+                socket_dir=self._socket_dir,
+                init_payload_path=init_payload_path,
+                llm_socket_path=self._llm_socket_path,
+                control_socket_required=False,
+                pipe_stdin=True,
+                job_dir=self._job_dir,
+                session_home_dir=self._path_mapping.host_home_dir,
+                session_project_dir=self._path_mapping.host_project_dir,
+                enable_internet_access=self._enable_internet_access,
+                skills_dir=self._skills_dir,
+                inherited_fds=mcp_binding.inherited_fds,
+            )
         self._process = self._spawned_runtime.process
         if self._process.stdin is None or self._process.stdout is None:
             raise CLIConnectionError("Sandbox shim stdio was not initialized")
@@ -277,18 +315,6 @@ class SandboxedCLITransport(Transport):
             command,
             use_jailed_paths=self._use_jailed_paths,
         )
-
-    def _mcp_bridge_port_for_runtime(self) -> int:
-        """Return the MCP bridge port for this runtime process.
-
-        Jailed runtimes have a private loopback namespace, so the configured fixed
-        port is safe there. Direct mode shares the host namespace, so delegate
-        port selection to the shim with port 0 and rewrite the command after the
-        bridge binds to avoid probe-then-bind races between concurrent runs.
-        """
-        if self._use_jailed_paths:
-            return TRACECAT__AGENT_MCP_BRIDGE_PORT
-        return 0
 
     @staticmethod
     def _trusted_mcp_bridge_url(port: int) -> str:
