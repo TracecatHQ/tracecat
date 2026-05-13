@@ -12,8 +12,18 @@ export function buildSkillCommandItemValue({
   name: string
   description?: string | null
 }): string {
-  const safeDescription = slugify(description ?? "", "-")
+  const safeDescription = buildCommandSearchSegment(description ?? "")
   return ["skill", id, name, safeDescription].filter(Boolean).join(":")
+}
+
+function buildCommandSearchSegment(value: string): string {
+  return value
+    .normalize("NFKC")
+    .toLowerCase()
+    .trim()
+    .replace(/[^\p{L}\p{N}\s-]/gu, "")
+    .replace(/[-\s]+/g, "-")
+    .replace(/^-+|-+$/g, "")
 }
 
 export function getDuplicateItemName(name: string, fallback: string): string {

@@ -129,4 +129,17 @@ describe("canSubmitAgentPresetForm", () => {
 
     expect(value).toContain("investigates-delegation-alerts")
   })
+
+  it("keeps non-ASCII skill descriptions searchable in safe command values", () => {
+    const value = buildSkillCommandItemValue({
+      id: "784dd826-072e-46f1-95a4-08d3417c784f",
+      name: "mailbox-skill",
+      description: "メール調査 Café alerts",
+    })
+
+    expect(value).toContain("メール調査-café-alerts")
+    expect(() => {
+      document.querySelector(`[cmdk-item=""][data-value="${value}"]`)
+    }).not.toThrow()
+  })
 })
