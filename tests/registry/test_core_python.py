@@ -352,6 +352,28 @@ def main(data_list, data_dict):
         assert result["processed"]["dict_keys"] == ["a", "b"]
 
     @pytest.mark.anyio
+    async def test_non_json_leaf_values_are_normalized(
+        self, sandbox_service: SandboxService
+    ) -> None:
+        """Test that non-JSON leaf values are normalized instead of failing."""
+        script_content = """
+from datetime import datetime
+
+def main():
+    return {
+        "all_ips": {"2.2.2.2", "1.1.1.1"},
+        "seen_at": datetime(2026, 3, 30, 13, 9, 52),
+        "nested": [{"ports": {443, 80}}],
+    }
+"""
+        result = await sandbox_service.run_python(script=script_content)
+        assert result == {
+            "all_ips": ["1.1.1.1", "2.2.2.2"],
+            "seen_at": "2026-03-30T13:09:52",
+            "nested": [{"ports": [80, 443]}],
+        }
+
+    @pytest.mark.anyio
     async def test_clean_error_messages(self, sandbox_service: SandboxService) -> None:
         """Test that error messages are clean and user-friendly without tracebacks."""
         script_with_value_error = """
