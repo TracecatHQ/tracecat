@@ -338,6 +338,21 @@ def test_direct_route_strips_version_suffix(tmp_path: Path) -> None:
     )
 
 
+def test_routing_plan_uses_managed_route_for_non_string_model() -> None:
+    routing_plan = _routing_plan(
+        direct_routes={
+            "customer-alias": LLMRoute(
+                base_url="https://customer-litellm.example",
+                model_provider="custom-model-provider",
+            )
+        }
+    )
+
+    assert (
+        routing_plan.resolve({"model": "customer-alias"}) is routing_plan.managed_route
+    )
+
+
 def test_managed_route_url_preserves_path(tmp_path: Path) -> None:
     """Non-passthrough talks to internal LiteLLM at a known host root and must
     not have any path segment trimmed."""

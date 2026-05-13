@@ -379,16 +379,16 @@ class LLMRoutingPlan:
             },
         )
 
-    def resolve(self, request_model: str | None) -> LLMRoute:
+    def resolve(self, request_model: object) -> LLMRoute:
         """Return the route for one request model.
 
         Args:
-            request_model: Model string from the request body, if present.
+            request_model: Raw model value from the request body, if present.
 
         Returns:
             Route for request forwarding.
         """
-        if request_model is not None and (
+        if isinstance(request_model, str) and (
             route := self.direct_routes.get(request_model)
         ):
             return route
@@ -810,10 +810,9 @@ class LLMSocketProxy:
             if isinstance(parsed, dict):
                 data = parsed
 
-        request_model = data.get("model") if data is not None else None
-        if not isinstance(request_model, str):
-            request_model = None
-        route = self.routing_plan.resolve(request_model)
+        route = self.routing_plan.resolve(
+            data.get("model") if data is not None else None
+        )
         upstream_request = route.prepare_forward_request(
             path=path,
             headers=headers,
