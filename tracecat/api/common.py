@@ -27,7 +27,7 @@ from tracecat.workflow.executions.enums import TemporalSearchAttr
 
 
 def generic_exception_handler(request: Request, exc: Exception) -> Response:
-    logger.error(
+    logger.exception(
         "Unexpected error",
         exc=exc,
         role=ctx_role.get(),
