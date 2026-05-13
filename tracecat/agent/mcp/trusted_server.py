@@ -30,6 +30,7 @@ from tracecat.agent.mcp.internal_tools import (
 )
 from tracecat.agent.mcp.user_client import UserMCPClient
 from tracecat.agent.mcp.utils import normalize_mcp_tool_name
+from tracecat.agent.preset.service import AgentPresetService
 from tracecat.agent.tokens import MCPTokenClaims, verify_mcp_token
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
@@ -180,8 +181,6 @@ async def execute_user_mcp_tool(
 
     # Resolve metadata + secrets per call. Both come from the DB; no
     # secrets are carried through the claim itself.
-    from tracecat.agent.preset.service import AgentPresetService
-
     if ref.id is None:
         # Legacy replay path: in-flight tokens minted before the refs-only
         # cutover. Use the inline url/headers from the claim. New tokens

@@ -25,7 +25,12 @@ from tracecat.agent.common.config import (
 from tracecat.agent.common.exceptions import AgentSandboxExecutionError
 from tracecat.agent.common.protocol import RuntimeInitPayload
 from tracecat.agent.common.stream_types import ToolCallContent
-from tracecat.agent.common.types import MCPToolDefinition, SandboxAgentConfig
+from tracecat.agent.common.types import (
+    MCPServerConfig,
+    MCPToolDefinition,
+    SandboxAgentConfig,
+    is_stdio_mcp_server,
+)
 from tracecat.agent.executor.loopback import (
     LoopbackHandler,
     LoopbackInput,
@@ -520,8 +525,10 @@ class SandboxedAgentExecutor:
                 )
 
 
-async def _hydrate_stdio_env(mcp_servers: list[Any] | None, *, role: Role) -> None:
-    """Resolve stdio ``env`` secrets in-place before the runtime starts.
+async def _hydrate_stdio_env(
+    mcp_servers: list[MCPServerConfig] | None, *, role: Role
+) -> list[MCPServerConfig] | None:
+    """Resolve stdio ``env`` secrets and return a new list before the runtime starts.
 
     HTTP MCP servers route through the trusted MCP server, which re-resolves
     secrets per call. Stdio servers are spawned directly by the Claude
@@ -529,28 +536,30 @@ async def _hydrate_stdio_env(mcp_servers: list[Any] | None, *, role: Role) -> No
     rehydration hook — env secrets must be present on the config dict when
     the runtime reads it.
 
-    ``mcp_servers`` is mutated in place. Secret data lives only for the
-    lifetime of this activity frame.
+    Returns a new list with hydrated stdio configs; HTTP configs are passed
+    through unchanged. Secret data lives only for the lifetime of this
+    activity frame.
     """
     if not mcp_servers:
-        return
+        return mcp_servers
 
-    stdio_targets = [
-        cfg
-        for cfg in mcp_servers
-        if cfg.get("type") == "stdio" and cfg.get("id") and not cfg.get("env")
-    ]
-    if not stdio_targets:
-        return
-
+    result: list[MCPServerConfig] = []
     async with AgentPresetService.with_session(role=role) as svc:
-        for cfg in stdio_targets:
-            try:
-                env = await svc.resolve_mcp_integration_secrets(uuid.UUID(cfg["id"]))
-            except ValueError:
-                env = None
-            if env:
-                cfg["env"] = env
+        for cfg in mcp_servers:
+            if not is_stdio_mcp_server(cfg):
+                result.append(cfg)
+            else:
+                cfg_id = cfg.get("id")
+                if not cfg_id:
+                    raise ValueError(
+                        f"Stdio MCP server {cfg.get('name')!r} is missing a source integration id"
+                    )
+                try:
+                    env = await svc.resolve_mcp_integration_secrets(uuid.UUID(cfg_id))
+                except ValueError:
+                    env = None
+                result.append({**cfg, "env": env} if env else cfg)
+    return result
 
 
 @activity.defn
@@ -587,7 +596,9 @@ async def run_agent_activity(input: AgentExecutorInput) -> AgentExecutorResult:
     # configs in ``input.config.mcp_servers`` arrive in refs-only shape
     # (no ``env``) — hydrate from the DB here so the spawned process gets
     # its credentials.
-    await _hydrate_stdio_env(input.config.mcp_servers, role=input.role)
+    input.config.mcp_servers = await _hydrate_stdio_env(
+        input.config.mcp_servers, role=input.role
+    )
 
     executor = SandboxedAgentExecutor(input=input)
     result = await executor.run()

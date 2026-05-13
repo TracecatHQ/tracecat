@@ -70,9 +70,13 @@ class UserMCPServerClaim(BaseModel):
     # --- Legacy fields kept for replay of in-flight tokens. ---
     # New mint paths leave these unset. Trusted server reads only (name, id).
     url: str | None = None
+    """HTTP/SSE endpoint URL."""
     transport: Literal["http", "sse"] = "http"
+    """Transport type: 'http' or 'sse'."""
     headers: dict[str, str] = Field(default_factory=dict)
+    """Auth headers."""
     timeout: int | None = None
+    """Optional request timeout in seconds."""
 
 
 class InternalToolContext(BaseModel):

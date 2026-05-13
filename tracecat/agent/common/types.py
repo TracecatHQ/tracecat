@@ -73,6 +73,11 @@ class MCPStdioServerConfig(TypedDict):
 MCPServerConfig = MCPHttpServerConfig | MCPStdioServerConfig
 
 
+def is_stdio_mcp_server(config: MCPServerConfig) -> TypeGuard[MCPStdioServerConfig]:
+    """Narrow a generic ``MCPServerConfig`` to its stdio variant."""
+    return config.get("type") == "stdio"
+
+
 def is_http_mcp_server(config: MCPServerConfig) -> TypeGuard[MCPHttpServerConfig]:
     """Narrow a generic ``MCPServerConfig`` to its HTTP variant.
 

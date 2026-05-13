@@ -912,6 +912,26 @@ class AgentPresetService(BaseWorkspaceService):
                         },
                     )
                     continue
+                # Re-validate command policy at resolution time so rows that
+                # predate tighter rules are rejected here rather than at spawn.
+                try:
+                    validate_mcp_command_config(
+                        command=mcp_integration.stdio_command,
+                        args=mcp_integration.stdio_args,
+                        env=None,
+                        name=mcp_integration.slug,
+                    )
+                except MCPValidationError as e:
+                    logger.warning(
+                        "Stdio MCP integration %r failed command validation, skipping: %s",
+                        mcp_integration.name,
+                        str(e),
+                        extra={
+                            "workspace_id": str(self.workspace_id),
+                            "mcp_integration_id": str(mcp_integration.id),
+                        },
+                    )
+                    continue
                 stdio_ref: MCPServerConfig = {
                     "type": "stdio",
                     "name": mcp_integration.slug,

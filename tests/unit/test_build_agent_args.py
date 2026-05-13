@@ -361,7 +361,7 @@ class TestBuildAgentArgsMcpResolution:
         )
 
         with patch(
-            "tracecat.dsl.action._resolve_mcp_integration_ids",
+            "tracecat.dsl.action._resolve_mcp_integrations",
             new_callable=AsyncMock,
             return_value=[resolved],
         ) as mock_resolve:
@@ -395,7 +395,7 @@ class TestBuildAgentArgsMcpResolution:
         )
 
         with patch(
-            "tracecat.dsl.action._resolve_mcp_integration_ids",
+            "tracecat.dsl.action._resolve_mcp_integrations",
             new_callable=AsyncMock,
             return_value=[resolved],
         ):
@@ -421,7 +421,7 @@ class TestBuildAgentArgsMcpResolution:
         )
 
         with patch(
-            "tracecat.dsl.action._resolve_mcp_integration_ids",
+            "tracecat.dsl.action._resolve_mcp_integrations",
             new_callable=AsyncMock,
         ) as mock_resolve:
             result = await DSLActivities.build_agent_args_activity(input)
@@ -451,7 +451,7 @@ class TestBuildAgentArgsMcpResolution:
             "user_prompt": "Hello",
             "model_name": "claude-sonnet-4-5-20250929",
             "model_provider": "anthropic",
-            "mcp_integration_ids": [id1, id2],
+            "mcp_integrations": [id1, id2],
         }
         input = BuildAgentArgsActivityInput(
             args=args,
@@ -462,7 +462,7 @@ class TestBuildAgentArgsMcpResolution:
         )
 
         with patch(
-            "tracecat.dsl.action._resolve_mcp_integration_ids",
+            "tracecat.dsl.action._resolve_mcp_integrations",
             new_callable=AsyncMock,
             return_value=resolved,
         ) as mock_resolve:
@@ -498,7 +498,7 @@ class TestBuildAgentArgsMcpResolution:
         )
 
         with patch(
-            "tracecat.dsl.action._resolve_mcp_integration_ids",
+            "tracecat.dsl.action._resolve_mcp_integrations",
             new_callable=AsyncMock,
             return_value=[resolved],
         ):
@@ -534,7 +534,7 @@ class TestBuildAgentArgsMcpResolution:
         )
 
         with patch(
-            "tracecat.dsl.action._resolve_mcp_integration_ids",
+            "tracecat.dsl.action._resolve_mcp_integrations",
             new_callable=AsyncMock,
             return_value=[resolved],
         ):

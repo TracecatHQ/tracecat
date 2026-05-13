@@ -37,7 +37,7 @@ from tracecat.dsl.schemas import (
 )
 from tracecat.dsl.types import ActionErrorInfo, ActionErrorInfoAdapter
 from tracecat.dsl.validation import normalize_trigger_inputs
-from tracecat.exceptions import TracecatExpressionError
+from tracecat.exceptions import TracecatExpressionError, TracecatValidationError
 from tracecat.executor.service import get_workspace_variables
 from tracecat.expressions.common import ExprContext
 from tracecat.expressions.core import TemplateExpression
@@ -49,6 +49,7 @@ from tracecat.expressions.eval import (
 )
 from tracecat.expressions.schemas import ExpectedField
 from tracecat.identifiers.workflow import WorkflowUUID
+from tracecat.integrations.mcp_validation import MCPValidationError
 from tracecat.logger import logger
 from tracecat.registry.lock.types import RegistryLock
 from tracecat.storage.collection import (
@@ -71,12 +72,15 @@ from tracecat.validation.schemas import ValidationDetail
 _thread_local = threading.local()
 
 
-async def _resolve_mcp_integration_ids(
+async def _resolve_mcp_integrations(
     mcp_integration_ids: list[str], *, role: Role
 ) -> list[MCPServerConfig]:
-    async with AgentPresetService.with_session(role=role) as svc:
-        await svc.validate_mcp_integrations(mcp_integration_ids)
-        servers = await svc.resolve_mcp_integration_refs(mcp_integration_ids)
+    try:
+        async with AgentPresetService.with_session(role=role) as svc:
+            await svc.validate_mcp_integrations(mcp_integration_ids)
+            servers = await svc.resolve_mcp_integration_refs(mcp_integration_ids)
+    except (MCPValidationError, TracecatValidationError) as e:
+        raise ApplicationError(str(e), non_retryable=True) from e
     return servers or []
 
 
@@ -669,7 +673,7 @@ class DSLActivities:
         )
         mcp_integration_ids = evaled_args.pop("mcp_integrations", None)
         if mcp_integration_ids:
-            evaled_args["mcp_servers"] = await _resolve_mcp_integration_ids(
+            evaled_args["mcp_servers"] = await _resolve_mcp_integrations(
                 mcp_integration_ids, role=input.role
             )
         return AgentActionArgs(**evaled_args)
