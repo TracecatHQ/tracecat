@@ -6,11 +6,14 @@ export type AgentPresetFormMode = "create" | "edit"
 export function buildSkillCommandItemValue({
   id,
   name,
+  description,
 }: {
   id: string
   name: string
+  description?: string | null
 }): string {
-  return `skill:${id}:${name}`
+  const safeDescription = slugify(description ?? "", "-")
+  return ["skill", id, name, safeDescription].filter(Boolean).join(":")
 }
 
 export function getDuplicateItemName(name: string, fallback: string): string {

@@ -109,13 +109,24 @@ describe("canSubmitAgentPresetForm", () => {
     const value = buildSkillCommandItemValue({
       id: skillId,
       name: skillName,
+      description: unsafeDescription,
     })
 
-    expect(value).toBe(`skill:${skillId}:${skillName}`)
     expect(value).not.toContain(unsafeDescription)
     expect(value).toContain(skillName)
+    expect(value).toContain("use-this-skill-to-investigate-alerts")
     expect(() => {
       document.querySelector(`[cmdk-item=""][data-value="${value}"]`)
     }).not.toThrow()
+  })
+
+  it("keeps skill descriptions searchable in safe command values", () => {
+    const value = buildSkillCommandItemValue({
+      id: "784dd826-072e-46f1-95a4-08d3417c784f",
+      name: "mailbox-skill",
+      description: "Investigates delegation alerts",
+    })
+
+    expect(value).toContain("investigates-delegation-alerts")
   })
 })
