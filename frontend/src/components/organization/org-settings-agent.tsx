@@ -2,7 +2,7 @@
 
 import { zodResolver } from "@hookform/resolvers/zod"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { Loader2, MoreVertical } from "lucide-react"
+import { ChevronDown, Loader2, MoreVertical } from "lucide-react"
 import { type ReactNode, useEffect, useMemo, useState } from "react"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
@@ -59,6 +59,11 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible"
 import {
   Dialog,
   DialogContent,
@@ -929,86 +934,65 @@ function CustomProviderDialog({
               )}
             />
 
-            <div className="grid gap-4 sm:grid-cols-2">
-              <FormField
-                control={form.control}
-                name="baseUrl"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Base URL</FormLabel>
-                    <FormControl>
-                      <Input
-                        {...field}
-                        placeholder="http://localhost:11434/v1"
-                      />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
+            <FormField
+              control={form.control}
+              name="baseUrl"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Base URL</FormLabel>
+                  <FormControl>
+                    <Input {...field} placeholder="http://localhost:11434/v1" />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
 
-              <FormField
-                control={form.control}
-                name="apiKeyHeader"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>API key header</FormLabel>
-                    <FormControl>
-                      <Input {...field} placeholder="Authorization" />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
+            <div className="space-y-2">
+              <div className="grid gap-4 sm:grid-cols-2">
+                <FormField
+                  control={form.control}
+                  name="apiKeyHeader"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Auth header</FormLabel>
+                      <FormControl>
+                        <Input {...field} placeholder="Authorization" />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="apiKey"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Auth value</FormLabel>
+                      <FormControl>
+                        <Input
+                          {...field}
+                          type="password"
+                          placeholder={
+                            provider
+                              ? "Leave blank to keep saved value"
+                              : "Bearer sk-…"
+                          }
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
+              <p className="text-muted-foreground text-xs">
+                Defaults to{" "}
+                <code className="bg-muted rounded px-1 py-0.5 font-mono">
+                  Authorization: Bearer &lt;value&gt;
+                </code>{" "}
+                if no header is set.
+              </p>
             </div>
-
-            <FormField
-              control={form.control}
-              name="apiKey"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>API key</FormLabel>
-                  <FormControl>
-                    <Input
-                      {...field}
-                      type="password"
-                      placeholder={
-                        provider
-                          ? "Leave blank to keep the current saved key"
-                          : "Optional"
-                      }
-                    />
-                  </FormControl>
-                  <FormDescription>
-                    Stored encrypted. Leave blank while editing to keep the
-                    current value.
-                  </FormDescription>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            <FormField
-              control={form.control}
-              name="customHeadersJson"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Custom headers JSON</FormLabel>
-                  <FormControl>
-                    <Textarea
-                      {...field}
-                      className="min-h-28 font-mono text-xs"
-                      placeholder='{"X-API-Key":"value"}'
-                    />
-                  </FormControl>
-                  <FormDescription>
-                    Optional JSON object of static headers. Saving new JSON
-                    while editing replaces the saved value.
-                  </FormDescription>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
 
             <FormField
               control={form.control}
@@ -1018,8 +1002,9 @@ function CustomProviderDialog({
                   <div className="space-y-1">
                     <FormLabel className="text-sm">Passthrough mode</FormLabel>
                     <FormDescription>
-                      Skip gateway transforms and forward requests directly to
-                      the upstream endpoint.
+                      Recommended for bring-your-own gateways (LiteLLM, vLLM,
+                      etc.). Skips Tracecat&apos;s transforms and forwards
+                      requests directly to your endpoint.
                     </FormDescription>
                   </div>
                   <FormControl>
@@ -1031,6 +1016,40 @@ function CustomProviderDialog({
                 </FormItem>
               )}
             />
+
+            <Collapsible>
+              <CollapsibleTrigger className="text-muted-foreground hover:text-foreground flex items-center gap-1 text-sm [&[data-state=open]>svg]:rotate-180">
+                <ChevronDown className="size-4 transition-transform duration-200" />
+                Advanced
+              </CollapsibleTrigger>
+              <CollapsibleContent>
+                <div className="pt-3">
+                  <FormField
+                    control={form.control}
+                    name="customHeadersJson"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Additional headers</FormLabel>
+                        <FormControl>
+                          <Textarea
+                            {...field}
+                            className="min-h-28 font-mono text-xs"
+                            placeholder='{"X-Custom-Header":"value"}'
+                          />
+                        </FormControl>
+                        <FormDescription>
+                          Optional JSON object of extra static headers sent on
+                          every request. Use this for non-auth headers not
+                          covered by the API key above. Saving new JSON replaces
+                          the saved value.
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </div>
+              </CollapsibleContent>
+            </Collapsible>
 
             <DialogFooter className="gap-2 sm:gap-0">
               <Button
