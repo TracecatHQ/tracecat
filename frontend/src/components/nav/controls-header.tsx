@@ -445,6 +445,7 @@ function AgentsActions() {
   const workspaceId = useWorkspaceId()
   const searchParams = useSearchParams()
   const { hasEntitlement, isLoading: entitlementsLoading } = useEntitlements()
+  const canCreateAgent = useScopeCheck("agent:create")
   const [createDialogOpen, setCreateDialogOpen] = useState(false)
   const [createTagDialogOpen, setCreateTagDialogOpen] = useState(false)
   const [folderDialogOpen, setFolderDialogOpen] = useState(false)
@@ -459,7 +460,8 @@ function AgentsActions() {
     searchParams?.get("path") ?? null
   )
   const agentAddonsEnabled = hasEntitlement("agent_addons")
-  const canUseAgentActions = !entitlementsLoading && agentAddonsEnabled
+  const canUseAgentActions =
+    !entitlementsLoading && agentAddonsEnabled && canCreateAgent === true
   let agentActionControls: ReactNode = null
 
   if (canUseAgentActions) {
