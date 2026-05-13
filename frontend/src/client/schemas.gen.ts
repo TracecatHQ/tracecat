@@ -5458,7 +5458,7 @@ export const $BedrockCatalogCreate = {
     use_converse: {
       type: "boolean",
       title: "Use Converse",
-      default: false,
+      default: true,
     },
   },
   additionalProperties: false,
@@ -5467,6 +5467,100 @@ export const $BedrockCatalogCreate = {
   title: "BedrockCatalogCreate",
   description:
     "Bedrock catalog entry. Requires exactly one of inference_profile_id or model_id.",
+} as const
+
+export const $BedrockCatalogTest = {
+  properties: {
+    model_provider: {
+      type: "string",
+      const: "bedrock",
+      title: "Model Provider",
+    },
+    inference_profile_id: {
+      anyOf: [
+        {
+          type: "string",
+          minLength: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Inference Profile Id",
+    },
+    model_id: {
+      anyOf: [
+        {
+          type: "string",
+          minLength: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Model Id",
+    },
+    use_converse: {
+      type: "boolean",
+      title: "Use Converse",
+      default: true,
+    },
+    workspace_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Workspace Id",
+    },
+  },
+  additionalProperties: false,
+  type: "object",
+  required: ["model_provider"],
+  title: "BedrockCatalogTest",
+  description: "Request to verify an unsaved Bedrock catalog target.",
+} as const
+
+export const $BedrockCatalogTestResponse = {
+  properties: {
+    success: {
+      type: "boolean",
+      title: "Success",
+      description: "Whether the Bedrock target verification succeeded",
+    },
+    message: {
+      type: "string",
+      title: "Message",
+      description: "Message describing the verification result",
+    },
+    error: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Error",
+      description: "Error message if verification failed",
+    },
+    details: {
+      additionalProperties: true,
+      type: "object",
+      title: "Details",
+      description:
+        "Non-sensitive provider details returned during verification",
+    },
+  },
+  type: "object",
+  required: ["success", "message"],
+  title: "BedrockCatalogTestResponse",
+  description: "Response for Bedrock catalog target verification.",
 } as const
 
 export const $BedrockCatalogUpdate = {
@@ -5514,7 +5608,7 @@ export const $BedrockCatalogUpdate = {
     use_converse: {
       type: "boolean",
       title: "Use Converse",
-      default: false,
+      default: true,
     },
   },
   additionalProperties: false,

@@ -3,19 +3,29 @@
 from uuid import UUID
 
 from fastapi import APIRouter, Body, HTTPException, Query, status
+from sqlalchemy import select
 
 from tracecat.agent.access.service import AgentModelAccessService
+from tracecat.agent.catalog.bedrock_validation import (
+    BedrockVerificationError,
+    verify_bedrock_catalog_target,
+)
 from tracecat.agent.catalog.schemas import (
     AgentCatalogCreate,
     AgentCatalogListResponse,
     AgentCatalogRead,
     AgentCatalogUpdate,
+    BedrockCatalogTest,
+    BedrockCatalogTestResponse,
 )
 from tracecat.agent.catalog.service import AgentCatalogService
+from tracecat.agent.service import AgentManagementService
 from tracecat.auth.dependencies import OrgUserRole, WorkspaceUserPathRole
 from tracecat.authz.controls import require_scope
 from tracecat.db.dependencies import AsyncDBSession
+from tracecat.db.models import Workspace
 from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
+from tracecat.integrations.aws_assume_role import build_workspace_external_id
 from tracecat.pagination import CursorPaginationParams
 
 router = APIRouter()
@@ -52,32 +62,6 @@ async def list_catalog(
         ) from e
 
 
-@router.get(
-    "/organization/agent-catalog/{catalog_id}",
-    response_model=AgentCatalogRead,
-)
-@require_scope("agent:read")
-async def get_catalog_entry(
-    catalog_id: UUID,
-    role: OrgUserRole,
-    session: AsyncDBSession,
-) -> AgentCatalogRead:
-    """Get a specific catalog entry."""
-    assert role.organization_id is not None  # OrgUserRole guarantees this
-    service = AgentCatalogService(session=session)
-    try:
-        row = await service.get_catalog_entry(
-            org_id=role.organization_id,
-            catalog_id=catalog_id,
-        )
-    except TracecatNotFoundError as e:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=str(e),
-        ) from e
-    return AgentCatalogRead.model_validate(row)
-
-
 @router.post(
     "/organization/agent-catalog",
     response_model=AgentCatalogRead,
@@ -111,6 +95,89 @@ async def create_catalog_entry(
     except TracecatValidationError:
         # Already enabled — ignore duplicate access row
         pass
+    return AgentCatalogRead.model_validate(row)
+
+
+@router.post(
+    "/organization/agent-catalog/bedrock/test",
+    response_model=BedrockCatalogTestResponse,
+)
+@require_scope("agent:update")
+async def test_bedrock_catalog_target(
+    role: OrgUserRole,
+    session: AsyncDBSession,
+    params: BedrockCatalogTest = Body(...),
+) -> BedrockCatalogTestResponse:
+    """Verify an unsaved Bedrock catalog target."""
+    assert role.organization_id is not None  # OrgUserRole guarantees this
+    credentials_service = AgentManagementService(session=session, role=role)
+    credentials = await credentials_service.get_provider_credentials("bedrock")
+    if not credentials:
+        return BedrockCatalogTestResponse(
+            success=False,
+            message="Bedrock credentials are not configured.",
+            error="Configure AWS Bedrock credentials before verifying a model.",
+        )
+
+    if params.workspace_id is not None:
+        workspace_id = await session.scalar(
+            select(Workspace.id).where(
+                Workspace.id == params.workspace_id,
+                Workspace.organization_id == role.organization_id,
+            )
+        )
+        if workspace_id is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Workspace {params.workspace_id} not found",
+            )
+        credentials = credentials | {
+            "TRACECAT_AWS_EXTERNAL_ID": build_workspace_external_id(params.workspace_id)
+        }
+
+    try:
+        details = await verify_bedrock_catalog_target(
+            credentials=credentials,
+            inference_profile_id=params.inference_profile_id,
+            model_id=params.model_id,
+            use_converse=params.use_converse,
+        )
+    except BedrockVerificationError as e:
+        return BedrockCatalogTestResponse(
+            success=False,
+            message="Bedrock model verification failed.",
+            error=str(e),
+        )
+    return BedrockCatalogTestResponse(
+        success=True,
+        message="Bedrock model verified successfully.",
+        details=details,
+    )
+
+
+@router.get(
+    "/organization/agent-catalog/{catalog_id}",
+    response_model=AgentCatalogRead,
+)
+@require_scope("agent:read")
+async def get_catalog_entry(
+    catalog_id: UUID,
+    role: OrgUserRole,
+    session: AsyncDBSession,
+) -> AgentCatalogRead:
+    """Get a specific catalog entry."""
+    assert role.organization_id is not None  # OrgUserRole guarantees this
+    service = AgentCatalogService(session=session)
+    try:
+        row = await service.get_catalog_entry(
+            org_id=role.organization_id,
+            catalog_id=catalog_id,
+        )
+    except TracecatNotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        ) from e
     return AgentCatalogRead.model_validate(row)
 
 

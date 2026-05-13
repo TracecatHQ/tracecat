@@ -46,7 +46,7 @@ class BedrockCatalogCreate(CloudCatalogModelBase):
     model_name: str = Field(min_length=1, max_length=500)
     inference_profile_id: str | None = Field(default=None, min_length=1)
     model_id: str | None = Field(default=None, min_length=1)
-    use_converse: bool = False
+    use_converse: bool = True
 
     @model_validator(mode="after")
     def _require_one_model_ref(self) -> "BedrockCatalogCreate":
@@ -94,7 +94,7 @@ class BedrockCatalogUpdate(CloudCatalogModelBase):
     model_provider: Literal["bedrock"]
     inference_profile_id: str | None = Field(default=None, min_length=1)
     model_id: str | None = Field(default=None, min_length=1)
-    use_converse: bool = False
+    use_converse: bool = True
 
     @model_validator(mode="after")
     def _require_one_model_ref(self) -> "BedrockCatalogUpdate":
@@ -136,3 +136,44 @@ AgentCatalogUpdate = Annotated[
     | VertexAICatalogUpdate,
     Field(discriminator="model_provider"),
 ]
+
+
+class BedrockCatalogTest(BaseModel):
+    """Request to verify an unsaved Bedrock catalog target."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    model_provider: Literal["bedrock"]
+    inference_profile_id: str | None = Field(default=None, min_length=1)
+    model_id: str | None = Field(default=None, min_length=1)
+    use_converse: bool = True
+    workspace_id: UUID | None = None
+
+    @model_validator(mode="after")
+    def _require_one_model_ref(self) -> "BedrockCatalogTest":
+        has_profile = self.inference_profile_id is not None
+        has_model_id = self.model_id is not None
+        if has_profile == has_model_id:
+            raise ValueError("Provide exactly one of inference_profile_id or model_id")
+        return self
+
+
+class BedrockCatalogTestResponse(BaseModel):
+    """Response for Bedrock catalog target verification."""
+
+    success: bool = Field(
+        ...,
+        description="Whether the Bedrock target verification succeeded",
+    )
+    message: str = Field(
+        ...,
+        description="Message describing the verification result",
+    )
+    error: str | None = Field(
+        default=None,
+        description="Error message if verification failed",
+    )
+    details: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Non-sensitive provider details returned during verification",
+    )

@@ -718,6 +718,8 @@ import type {
   TagsListTagsResponse,
   TagsUpdateTagData,
   TagsUpdateTagResponse,
+  TestBedrockCatalogTargetData,
+  TestBedrockCatalogTargetResponse,
   TriggersCreateCaseTriggerData,
   TriggersCreateCaseTriggerResponse,
   TriggersCreateWebhookData,
@@ -4820,6 +4822,28 @@ export const createCatalogEntry = (
   return __request(OpenAPI, {
     method: "POST",
     url: "/organization/agent-catalog",
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Test Bedrock Catalog Target
+ * Verify an unsaved Bedrock catalog target.
+ * @param data The data for the request.
+ * @param data.requestBody
+ * @returns BedrockCatalogTestResponse Successful Response
+ * @throws ApiError
+ */
+export const testBedrockCatalogTarget = (
+  data: TestBedrockCatalogTargetData
+): CancelablePromise<TestBedrockCatalogTargetResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/organization/agent-catalog/bedrock/test",
     body: data.requestBody,
     mediaType: "application/json",
     errors: {

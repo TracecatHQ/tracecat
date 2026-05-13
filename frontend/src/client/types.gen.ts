@@ -1388,6 +1388,41 @@ export type BedrockCatalogCreate = {
   use_converse?: boolean
 }
 
+/**
+ * Request to verify an unsaved Bedrock catalog target.
+ */
+export type BedrockCatalogTest = {
+  model_provider: "bedrock"
+  inference_profile_id?: string | null
+  model_id?: string | null
+  use_converse?: boolean
+  workspace_id?: string | null
+}
+
+/**
+ * Response for Bedrock catalog target verification.
+ */
+export type BedrockCatalogTestResponse = {
+  /**
+   * Whether the Bedrock target verification succeeded
+   */
+  success: boolean
+  /**
+   * Message describing the verification result
+   */
+  message: string
+  /**
+   * Error message if verification failed
+   */
+  error?: string | null
+  /**
+   * Non-sensitive provider details returned during verification
+   */
+  details?: {
+    [key: string]: unknown
+  }
+}
+
 export type BedrockCatalogUpdate = {
   display_name?: string | null
   model_provider: "bedrock"
@@ -10178,6 +10213,12 @@ export type CreateCatalogEntryData = {
 
 export type CreateCatalogEntryResponse = AgentCatalogRead
 
+export type TestBedrockCatalogTargetData = {
+  requestBody: BedrockCatalogTest
+}
+
+export type TestBedrockCatalogTargetResponse = BedrockCatalogTestResponse
+
 export type GetCatalogEntryData = {
   catalogId: string
 }
@@ -14751,6 +14792,21 @@ export type $OpenApiTs = {
          * Successful Response
          */
         201: AgentCatalogRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/organization/agent-catalog/bedrock/test": {
+    post: {
+      req: TestBedrockCatalogTargetData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: BedrockCatalogTestResponse
         /**
          * Validation Error
          */

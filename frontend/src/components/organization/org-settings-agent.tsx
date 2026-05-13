@@ -27,6 +27,7 @@ import {
   listCustomProviders,
   listEnabledModels,
   refreshCustomProviderCatalog,
+  testBedrockCatalogTarget,
   updateCatalogEntry,
   updateCustomProvider,
   type VertexAICatalogCreate,
@@ -187,7 +188,7 @@ const bedrockCloudModelSchema = z.object({
   display_name: z.string().trim().optional(),
   inference_profile_id: z.string().trim().optional(),
   model_id: z.string().trim().optional(),
-  use_converse: z.boolean().default(false),
+  use_converse: z.boolean().default(true),
 })
 
 const azureOpenAICloudModelSchema = z.object({
@@ -272,7 +273,7 @@ function buildCloudCatalogDefaults(
           "inference_profile_id"
         ),
         model_id: getCatalogMetadataString(metadata, "model_id"),
-        use_converse: metadata?.use_converse === true,
+        use_converse: entry ? metadata?.use_converse === true : true,
       }
     case "azure_openai":
       return {
@@ -344,6 +345,19 @@ function buildCatalogCreatePayload(
       throw new Error(
         `Unsupported cloud provider: ${(values as { provider: string }).provider}`
       )
+  }
+}
+
+function buildBedrockCatalogTestPayload(values: CloudCatalogModelFormValues) {
+  if (values.provider !== "bedrock") {
+    throw new Error("Bedrock verification requires a Bedrock model.")
+  }
+  return {
+    model_provider: "bedrock" as const,
+    inference_profile_id: values.inference_profile_id || null,
+    model_id: values.model_id || null,
+    use_converse: values.use_converse,
+    workspace_id: Cookies.get("__tracecat:workspaces:last-viewed") || null,
   }
 }
 
@@ -1662,6 +1676,31 @@ function CloudCatalogModelDialog({
       })
     },
   })
+  const verifyMutation = useMutation({
+    mutationFn: async (values: CloudCatalogModelFormValues) =>
+      await testBedrockCatalogTarget({
+        requestBody: buildBedrockCatalogTestPayload(values),
+      }),
+    onSuccess: (result) => {
+      if (result.success) {
+        toast({
+          title: "Model verified",
+          description: result.message,
+        })
+        return
+      }
+      toast({
+        title: "Verification failed",
+        description: result.error || result.message,
+      })
+    },
+    onError: (error: ApiError) => {
+      toast({
+        title: "Verification failed",
+        description: getApiErrorDetail(error) ?? "Unable to verify the model.",
+      })
+    },
+  })
 
   async function handleSubmit(values: CloudCatalogModelFormValues) {
     await saveMutation.mutateAsync(values)
@@ -1673,6 +1712,11 @@ function CloudCatalogModelDialog({
 
   const label = getCloudProviderLabel(provider)
   const isEdit = entry !== null
+  const inferenceProfileId = form.watch("inference_profile_id") ?? ""
+  const modelId = form.watch("model_id") ?? ""
+  const canVerifyBedrock =
+    provider === "bedrock" &&
+    Boolean(inferenceProfileId.trim()) !== Boolean(modelId.trim())
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -1854,16 +1898,30 @@ function CloudCatalogModelDialog({
               />
             ) : null}
 
-            <DialogFooter>
+            <DialogFooter className="gap-2 sm:gap-0">
+              {provider === "bedrock" ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={
+                    !canVerifyBedrock ||
+                    verifyMutation.isPending ||
+                    saveMutation.isPending
+                  }
+                  onClick={() => {
+                    verifyMutation.mutate(form.getValues())
+                  }}
+                >
+                  {verifyMutation.isPending ? (
+                    <Loader2 className="mr-2 size-4 animate-spin" />
+                  ) : null}
+                  Test connection
+                </Button>
+              ) : null}
               <Button
-                type="button"
-                variant="outline"
-                disabled={saveMutation.isPending}
-                onClick={() => onOpenChange(false)}
+                type="submit"
+                disabled={saveMutation.isPending || verifyMutation.isPending}
               >
-                Cancel
-              </Button>
-              <Button type="submit" disabled={saveMutation.isPending}>
                 {saveMutation.isPending ? (
                   <Loader2 className="mr-2 size-4 animate-spin" />
                 ) : null}
