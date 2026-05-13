@@ -1,5 +1,6 @@
 import { AlertCircle, CheckCircle2 } from "lucide-react"
 import type { DragEvent, ReactNode } from "react"
+import { z } from "zod"
 
 import { Badge } from "@/components/ui/badge"
 
@@ -99,23 +100,54 @@ const SKILL_NAME_PATTERN = /^[a-z0-9]+(-[a-z0-9]+)*$/
 const SKILL_NAME_MAX_LENGTH = 64
 
 /**
+ * Zod schema for Agent Skills `name` values.
+ */
+export const skillNameSchema = z
+  .string()
+  .trim()
+  .superRefine((name, ctx) => {
+    if (name.length === 0) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Name is required.",
+      })
+      return
+    }
+
+    if (name.length > SKILL_NAME_MAX_LENGTH) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: `Name must be ${SKILL_NAME_MAX_LENGTH} characters or fewer.`,
+      })
+      return
+    }
+
+    if (name.endsWith("-")) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Name cannot end with a hyphen.",
+      })
+      return
+    }
+
+    if (!SKILL_NAME_PATTERN.test(name)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message:
+          "Use lowercase letters, numbers, and single hyphens (e.g. threat-intel).",
+      })
+    }
+  })
+
+/**
  * Validates a skill name against the Agent Skills `name` rules: kebab-case
  * (lowercase letters, digits, and single hyphens), 1-64 characters.
  *
  * Returns a human-readable error message, or null if the name is valid.
  */
 export function validateSkillName(name: string): string | null {
-  const trimmed = name.trim()
-  if (trimmed.length === 0) {
-    return "Name is required."
-  }
-  if (trimmed.length > SKILL_NAME_MAX_LENGTH) {
-    return `Name must be ${SKILL_NAME_MAX_LENGTH} characters or fewer.`
-  }
-  if (!SKILL_NAME_PATTERN.test(trimmed)) {
-    return "Use lowercase letters, numbers, and single hyphens (e.g. threat-intel)."
-  }
-  return null
+  const result = skillNameSchema.safeParse(name)
+  return result.success ? null : (result.error.issues[0]?.message ?? null)
 }
 
 /**

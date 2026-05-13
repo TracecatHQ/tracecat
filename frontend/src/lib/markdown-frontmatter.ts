@@ -14,7 +14,7 @@ export interface SplitMarkdownFrontmatter {
 }
 
 const FRONTMATTER_PATTERN =
-  /^(?:\uFEFF)?(?:[ \t]*\r?\n)*---[ \t]*\r?\n([\s\S]*?)\r?\n---[ \t]*(?:\r?\n|$)/
+  /^(?:\uFEFF)?(?:[ \t]*\r?\n)*---[ \t]*\r?\n([\s\S]*?)\r?\n---[ \t]*(?:\r?\n(?:[ \t]*\r?\n)?|$)/
 
 /**
  * Splits a markdown document into a leading frontmatter block and body.
@@ -43,12 +43,7 @@ export function composeMarkdownFrontmatter(
   const lineBreak =
     frontmatter.includes("\r\n") || body.includes("\r\n") ? "\r\n" : "\n"
   const closingFence = `${lineBreak}---`
-  const bodyPrefix =
-    body.length === 0
-      ? lineBreak
-      : body.startsWith("\n") || body.startsWith("\r\n")
-        ? ""
-        : `${lineBreak}${lineBreak}`
+  const bodyPrefix = body.length === 0 ? lineBreak : `${lineBreak}${lineBreak}`
 
   return `---${lineBreak}${frontmatter}${closingFence}${bodyPrefix}${body}`
 }
