@@ -166,6 +166,11 @@ def _resolve_agent_output(
 UPSERT_TRACECAT_SEARCH_ATTRIBUTES_PATCH = (
     "durable-agent-upsert-tracecat-search-attributes-v1"
 )
+# Temporal patch IDs are persisted in each workflow execution's history. Use a
+# stable, unique ID for every command-producing workflow change, and never reuse
+# an ID for another change. Keep both branches until old histories that lack the
+# marker have aged out, then use workflow.deprecate_patch(...) before removing
+# the marker entirely in a later cleanup.
 LOAD_TERMINAL_MESSAGE_HISTORY_PATCH = "durable-agent-load-terminal-message-history-v1"
 
 
@@ -631,7 +636,20 @@ class DurableAgentWorkflow:
         self,
         result: AgentExecutorResult,
     ) -> list[ChatMessage] | None:
-        """Load terminal chat history, preserving legacy activity payloads."""
+        """Load terminal chat history in a replay-compatible way.
+
+        Legacy histories may already contain a completed run_agent_activity
+        result with messages populated. Preserve that payload and avoid
+        scheduling another activity.
+
+        If a legacy history has messages=None, it also lacks the patch marker
+        for the new load_session_messages_activity command. In that case,
+        workflow.patched(...) returns False during replay, so the workflow keeps
+        the old behavior and returns no terminal history.
+
+        New executions record the patch marker, schedule the message-loading
+        activity, and replay through the same branch later.
+        """
         if result.messages is not None:
             return result.messages
 
