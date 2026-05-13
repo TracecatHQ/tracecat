@@ -28,7 +28,7 @@ slack_secret = RegistrySecret(name="slack", keys=["SLACK_BOT_TOKEN"])
 
 @registry.register(
     default_title="Call method",
-    description="Instantiate a Slack client and call a Slack SDK method.",
+    description="Instantiate a Slack client and call a Slack SDK or Web API method.",
     display_group="Slack SDK",
     doc_url="https://docs.slack.dev/reference/methods",
     namespace="tools.slack_sdk",
@@ -39,7 +39,10 @@ async def call_method(
         str,
         Field(
             ...,
-            description="Slack Python SDK method name (e.g. `chat_postMessage`)",
+            description=(
+                "Slack Python SDK method name or Web API method name "
+                "(e.g. `chat_postMessage` or `chat.postMessage`)"
+            ),
         ),
     ],
     params: Annotated[
@@ -50,7 +53,10 @@ async def call_method(
     bot_token = secrets.get("SLACK_BOT_TOKEN")
     client = AsyncWebClient(token=bot_token)
     params = params or {}
-    result: AsyncSlackResponse = await getattr(client, sdk_method)(**params)
+    if method := getattr(client, sdk_method, None):
+        result: AsyncSlackResponse = await method(**params)
+    else:
+        result = await client.api_call(api_method=sdk_method, json=params)
     data = result.data
     return cast(dict[str, Any], data)
 
