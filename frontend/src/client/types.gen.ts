@@ -4017,16 +4017,6 @@ export type InboxItemRead = {
 }
 
 /**
- * Count of pending inbox items that require attention.
- */
-export type InboxPendingCount = {
-  /**
-   * Number of pending inbox items
-   */
-  count: number
-}
-
-/**
  * Status of inbox items.
  */
 export type InboxItemStatus = "pending" | "completed" | "failed"
@@ -4035,6 +4025,16 @@ export type InboxItemStatus = "pending" | "completed" | "failed"
  * Types of inbox items.
  */
 export type InboxItemType = "approval"
+
+/**
+ * Count of pending inbox items that require attention.
+ */
+export type InboxPendingCount = {
+  /**
+   * Number of pending inbox items
+   */
+  count: number
+}
 
 /**
  * Inferred column mapping between CSV headers and table columns.

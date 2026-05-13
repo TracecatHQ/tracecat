@@ -13092,6 +13092,20 @@ export const $InboxItemRead = {
   description: "Read model for inbox items.",
 } as const
 
+export const $InboxItemStatus = {
+  type: "string",
+  enum: ["pending", "completed", "failed"],
+  title: "InboxItemStatus",
+  description: "Status of inbox items.",
+} as const
+
+export const $InboxItemType = {
+  type: "string",
+  enum: ["approval"],
+  title: "InboxItemType",
+  description: "Types of inbox items.",
+} as const
+
 export const $InboxPendingCount = {
   properties: {
     count: {
@@ -13105,20 +13119,6 @@ export const $InboxPendingCount = {
   required: ["count"],
   title: "InboxPendingCount",
   description: "Count of pending inbox items that require attention.",
-} as const
-
-export const $InboxItemStatus = {
-  type: "string",
-  enum: ["pending", "completed", "failed"],
-  title: "InboxItemStatus",
-  description: "Status of inbox items.",
-} as const
-
-export const $InboxItemType = {
-  type: "string",
-  enum: ["approval"],
-  title: "InboxItemType",
-  description: "Types of inbox items.",
 } as const
 
 export const $InferredColumn = {
