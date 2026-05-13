@@ -390,22 +390,6 @@ class ClaudeAgentRuntime:
                 return alias
         return None
 
-    def _requires_tool_approval(
-        self,
-        input_data: HookInput,
-        *,
-        tool_name: str,
-        action_name: str,
-    ) -> bool:
-        """Return whether this tool call needs root manual approval."""
-        # Preset-backed subagents cannot require manual approvals in v1.
-        # Dynamic/general-purpose subagents still inherit root approvals.
-        return (
-            self._explicit_subagent_alias_for_tool(input_data, tool_name) is None
-            and self.tool_approvals is not None
-            and self.tool_approvals.get(action_name) is True
-        )
-
     @staticmethod
     def _agent_tool_target(tool_input: dict[str, Any]) -> str | None:
         for key in ("subagent_type", "agent_type", "type", "name"):
@@ -872,10 +856,12 @@ class ClaudeAgentRuntime:
                 }
             }
 
-        requires_approval = self._requires_tool_approval(
-            input_data,
-            tool_name=tool_name,
-            action_name=action_name,
+        # Preset-backed subagents cannot require manual approvals in v1.
+        # Dynamic/general-purpose subagents still inherit root approvals.
+        requires_approval = (
+            self._explicit_subagent_alias_for_tool(input_data, tool_name) is None
+            and self.tool_approvals is not None
+            and self.tool_approvals.get(action_name) is True
         )
 
         if requires_approval:
