@@ -294,8 +294,8 @@ class SandboxedCLITransport(Transport):
     def _trusted_mcp_bridge_url(port: int) -> str:
         return f"http://127.0.0.1:{port}{_TRUSTED_MCP_BRIDGE_PATH}"
 
-    @classmethod
-    def _is_trusted_mcp_bridge_config(cls, config: object) -> bool:
+    @staticmethod
+    def _is_trusted_mcp_bridge_config(config: object) -> bool:
         if not isinstance(config, dict) or config.get("type") != "http":
             return False
         url = config.get("url")
@@ -308,22 +308,24 @@ class SandboxedCLITransport(Transport):
         return (
             isinstance(authorization, str)
             and authorization.startswith("Bearer ")
-            and url == cls._trusted_mcp_bridge_url(TRACECAT__AGENT_MCP_BRIDGE_PORT)
+            and url
+            == SandboxedCLITransport._trusted_mcp_bridge_url(
+                TRACECAT__AGENT_MCP_BRIDGE_PORT
+            )
         )
 
-    @classmethod
+    @staticmethod
     def _rewrite_trusted_mcp_bridge_config(
-        cls, config: McpServerConfig, port: int
+        config: McpServerConfig, port: int
     ) -> McpServerConfig:
-        if not cls._is_trusted_mcp_bridge_config(config):
+        if not SandboxedCLITransport._is_trusted_mcp_bridge_config(config):
             return config
         rewritten = cast(McpHttpServerConfig, dict(config))
-        rewritten["url"] = cls._trusted_mcp_bridge_url(port)
+        rewritten["url"] = SandboxedCLITransport._trusted_mcp_bridge_url(port)
         return rewritten
 
-    @classmethod
+    @staticmethod
     def _rewrite_mcp_servers_for_bridge_port(
-        cls,
         mcp_servers: dict[str, McpServerConfig] | str | Path,
         port: int,
     ) -> dict[str, McpServerConfig] | str | Path:
@@ -333,14 +335,15 @@ class SandboxedCLITransport(Transport):
         rewritten: dict[str, McpServerConfig] = {}
         changed = False
         for name, config in mcp_servers.items():
-            new_config = cls._rewrite_trusted_mcp_bridge_config(config, port)
+            new_config = SandboxedCLITransport._rewrite_trusted_mcp_bridge_config(
+                config, port
+            )
             rewritten[name] = new_config
             changed = changed or new_config is not config
         return rewritten if changed else mcp_servers
 
-    @classmethod
+    @staticmethod
     def _rewrite_agent_mcp_servers_for_bridge_port(
-        cls,
         agents: dict[str, AgentDefinition] | None,
         port: int,
     ) -> dict[str, AgentDefinition] | None:
@@ -365,9 +368,11 @@ class SandboxedCLITransport(Transport):
                 rewritten_entry: dict[str, Any] = {}
                 entry_changed = False
                 for name, config in entry.items():
-                    new_config = cls._rewrite_trusted_mcp_bridge_config(
-                        cast(McpServerConfig, config),
-                        port,
+                    new_config = (
+                        SandboxedCLITransport._rewrite_trusted_mcp_bridge_config(
+                            cast(McpServerConfig, config),
+                            port,
+                        )
                     )
                     rewritten_entry[name] = new_config
                     entry_changed = entry_changed or new_config is not config
