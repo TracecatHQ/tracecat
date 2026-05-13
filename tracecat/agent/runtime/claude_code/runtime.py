@@ -322,22 +322,6 @@ class ClaudeAgentRuntime:
             }
         )
 
-    @staticmethod
-    def _stdio_mcp_server_config(
-        config: MCPStdioServerConfig,
-    ) -> McpStdioServerConfig:
-        server_config: dict[str, Any] = {
-            "type": "stdio",
-            "command": config["command"],
-        }
-        if args := config.get("args"):
-            server_config["args"] = args
-        if env := config.get("env"):
-            server_config["env"] = env
-        if (timeout := config.get("timeout")) is not None:
-            server_config["timeout"] = timeout
-        return cast(McpStdioServerConfig, server_config)
-
     @classmethod
     def _stdio_mcp_servers(
         cls,
@@ -366,7 +350,17 @@ class ClaudeAgentRuntime:
                 suffix += 1
 
             used_names.add(server_name)
-            servers[server_name] = cls._stdio_mcp_server_config(stdio_config)
+            server_config: dict[str, Any] = {
+                "type": "stdio",
+                "command": stdio_config["command"],
+            }
+            if args := stdio_config.get("args"):
+                server_config["args"] = args
+            if env := stdio_config.get("env"):
+                server_config["env"] = env
+            if (timeout := stdio_config.get("timeout")) is not None:
+                server_config["timeout"] = timeout
+            servers[server_name] = cast(McpStdioServerConfig, server_config)
 
         return servers
 
