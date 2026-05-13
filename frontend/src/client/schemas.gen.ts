@@ -13092,6 +13092,21 @@ export const $InboxItemRead = {
   description: "Read model for inbox items.",
 } as const
 
+export const $InboxPendingCount = {
+  properties: {
+    count: {
+      type: "integer",
+      minimum: 0,
+      title: "Count",
+      description: "Number of pending inbox items",
+    },
+  },
+  type: "object",
+  required: ["count"],
+  title: "InboxPendingCount",
+  description: "Count of pending inbox items that require attention.",
+} as const
+
 export const $InboxItemStatus = {
   type: "string",
   enum: ["pending", "completed", "failed"],

@@ -4017,6 +4017,16 @@ export type InboxItemRead = {
 }
 
 /**
+ * Count of pending inbox items that require attention.
+ */
+export type InboxPendingCount = {
+  /**
+   * Number of pending inbox items
+   */
+  count: number
+}
+
+/**
  * Status of inbox items.
  */
 export type InboxItemStatus = "pending" | "completed" | "failed"
@@ -10707,6 +10717,12 @@ export type AdminRegistryPromoteRegistryVersionData = {
 export type AdminRegistryPromoteRegistryVersionResponse =
   tracecat__admin__registry__schemas__RegistryVersionPromoteResponse
 
+export type InboxGetPendingCountData = {
+  workspaceId: string
+}
+
+export type InboxGetPendingCountResponse = InboxPendingCount
+
 export type InboxListItemsData = {
   cursor?: string | null
   limit?: number
@@ -15779,6 +15795,21 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: tracecat__admin__registry__schemas__RegistryVersionPromoteResponse
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/inbox/items/pending-count": {
+    get: {
+      req: InboxGetPendingCountData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: InboxPendingCount
         /**
          * Validation Error
          */

@@ -46,6 +46,7 @@ import {
   SidebarGroupLabel,
   SidebarHeader,
   SidebarMenu,
+  SidebarMenuBadge,
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarMenuSub,
@@ -56,6 +57,8 @@ import {
 } from "@/components/ui/sidebar"
 import { useAgentPresets } from "@/hooks/use-agent-presets"
 import { useEntitlements } from "@/hooks/use-entitlements"
+import { usePendingApprovalsCount } from "@/hooks/use-pending-approvals-count"
+import { formatPendingApprovalCount } from "@/lib/approvals"
 import { shortTimeAgo } from "@/lib/utils"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
@@ -72,6 +75,8 @@ type NavItem = {
   onSelect?: () => void
   visible?: boolean
   requiredScope?: string
+  badgeCount?: number
+  badgeLabel?: string
   items?: {
     title: string
     url: string
@@ -121,7 +126,9 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const canViewMcpAccess = useScopeCheck("workspace:read")
   const canViewCases = useScopeCheck("case:read")
   const shouldLoadEntitlements =
-    canViewAgents === true || canViewServiceAccounts === true
+    canViewAgents === true ||
+    canViewServiceAccounts === true ||
+    canViewInbox === true
   const shouldLoadAgentsSection =
     canViewAgents === true && (agentsSectionOpen || isAgentsRoute)
   const { hasEntitlement, isLoading: entitlementsIsLoading } = useEntitlements({
@@ -132,6 +139,13 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const { presets, presetsIsLoading } = useAgentPresets(workspaceId, {
     enabled: shouldLoadAgentsSection && agentAddonsEnabled,
   })
+  const { data: pendingApprovalsCount = 0 } = usePendingApprovalsCount(
+    workspaceId,
+    {
+      enabled:
+        canViewInbox === true && !entitlementsIsLoading && agentAddonsEnabled,
+    }
+  )
 
   useEffect(() => {
     if (isAgentsRoute) {
@@ -243,6 +257,8 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       icon: ListChecksIcon,
       isActive: pathname?.startsWith(`${basePath}/inbox`),
       visible: canViewInbox === true,
+      badgeCount: pendingApprovalsCount,
+      badgeLabel: `${pendingApprovalsCount} pending approval${pendingApprovalsCount === 1 ? "" : "s"}`,
     },
   ]
 
@@ -339,12 +355,24 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                       .filter((item) => item.visible === true)
                       .map((item) => (
                         <SidebarMenuItem key={item.title}>
-                          <SidebarMenuButton asChild isActive={item.isActive}>
+                          <SidebarMenuButton
+                            asChild
+                            isActive={item.isActive}
+                            className={item.badgeCount ? "pr-9" : undefined}
+                          >
                             <Link href={item.url!}>
                               <item.icon />
                               <span>{item.title}</span>
                             </Link>
                           </SidebarMenuButton>
+                          {item.badgeCount ? (
+                            <SidebarMenuBadge
+                              aria-label={item.badgeLabel}
+                              className="bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-200"
+                            >
+                              {formatPendingApprovalCount(item.badgeCount)}
+                            </SidebarMenuBadge>
+                          ) : null}
                         </SidebarMenuItem>
                       ))}
                   </SidebarMenu>
