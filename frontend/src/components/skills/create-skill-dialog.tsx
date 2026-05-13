@@ -84,7 +84,12 @@ export function CreateSkillDialog({
         <Form {...form}>
           <form
             className="flex flex-col gap-4"
-            onSubmit={form.handleSubmit((values) => onCreate(values))}
+            onSubmit={form.handleSubmit((values) => {
+              if (pending) {
+                return
+              }
+              return onCreate(values)
+            })}
           >
             <div className="flex flex-col gap-3">
               <FormField

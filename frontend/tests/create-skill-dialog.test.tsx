@@ -41,6 +41,18 @@ function renderCreateSkillDialog(
   return defaults
 }
 
+function getCreateSkillForm(): HTMLFormElement {
+  const form = screen
+    .getByRole("button", { name: "Create skill" })
+    .closest("form")
+
+  if (!(form instanceof HTMLFormElement)) {
+    throw new Error("Create skill form not found")
+  }
+
+  return form
+}
+
 describe("CreateSkillDialog", () => {
   it("preserves accented Latin letters when sanitizing skill names", () => {
     renderCreateSkillDialog()
@@ -148,6 +160,19 @@ describe("CreateSkillDialog", () => {
         name: "threat-intel",
         description: "Optional details",
       })
+    })
+  })
+
+  it("does not submit while creation is pending", async () => {
+    const { onCreate } = renderCreateSkillDialog({ pending: true })
+
+    fireEvent.change(screen.getByLabelText("Name"), {
+      target: { value: "threat-intel" },
+    })
+    fireEvent.submit(getCreateSkillForm())
+
+    await waitFor(() => {
+      expect(onCreate).not.toHaveBeenCalled()
     })
   })
 })
