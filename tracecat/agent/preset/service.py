@@ -11,9 +11,10 @@ from typing import TYPE_CHECKING, Any, cast
 import sqlalchemy as sa
 from slugify import slugify
 from sqlalchemy import func, select
+from sqlalchemy.orm import selectinload
 
 from tracecat.agent.access.service import AgentModelAccessService
-from tracecat.agent.common.types import MCPHttpServerConfig
+from tracecat.agent.common.types import MCPHttpServerConfig, MCPServerConfig
 from tracecat.agent.preset.schemas import (
     AgentPresetCreate,
     AgentPresetRead,
@@ -32,7 +33,6 @@ from tracecat.agent.preset.types import SkillBindingSpec
 from tracecat.agent.skill.service import SkillService
 from tracecat.agent.types import (
     AgentConfig,
-    MCPServerConfig,
     OutputType,
 )
 from tracecat.audit.logger import audit_log
@@ -107,6 +107,7 @@ class AgentPresetService(BaseWorkspaceService):
             select(AgentPreset)
             .where(AgentPreset.workspace_id == self.workspace_id)
             .order_by(AgentPreset.created_at.desc())
+            .options(selectinload(AgentPreset.tags))
         )
         result = await self.session.execute(stmt)
         return result.scalars().all()

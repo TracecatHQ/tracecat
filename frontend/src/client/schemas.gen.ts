@@ -1671,6 +1671,239 @@ export const $AgentCustomProviderUpdate = {
   description: "Update custom provider.",
 } as const
 
+export const $AgentDirectoryResponse = {
+  properties: {
+    items: {
+      items: {
+        oneOf: [
+          {
+            $ref: "#/components/schemas/AgentPresetDirectoryItem",
+          },
+          {
+            $ref: "#/components/schemas/AgentFolderDirectoryItem",
+          },
+        ],
+        discriminator: {
+          propertyName: "type",
+          mapping: {
+            folder: "#/components/schemas/AgentFolderDirectoryItem",
+            preset: "#/components/schemas/AgentPresetDirectoryItem",
+          },
+        },
+      },
+      type: "array",
+      title: "Items",
+    },
+    next_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Next Cursor",
+      description: "Cursor for next page",
+    },
+    prev_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Prev Cursor",
+      description: "Cursor for previous page",
+    },
+    has_more: {
+      type: "boolean",
+      title: "Has More",
+      description: "Whether more items exist",
+      default: false,
+    },
+    has_previous: {
+      type: "boolean",
+      title: "Has Previous",
+      description: "Whether previous items exist",
+      default: false,
+    },
+    total_estimate: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Total Estimate",
+      description: "Estimated total count from table statistics",
+    },
+  },
+  type: "object",
+  required: ["items"],
+  title: "AgentDirectoryResponse",
+  description: "Paginated response for agent folder directory items.",
+} as const
+
+export const $AgentFolderCreate = {
+  properties: {
+    name: {
+      type: "string",
+      title: "Name",
+    },
+    parent_path: {
+      type: "string",
+      title: "Parent Path",
+      default: "/",
+    },
+  },
+  type: "object",
+  required: ["name"],
+  title: "AgentFolderCreate",
+} as const
+
+export const $AgentFolderDelete = {
+  properties: {
+    recursive: {
+      type: "boolean",
+      title: "Recursive",
+      default: false,
+    },
+  },
+  type: "object",
+  title: "AgentFolderDelete",
+} as const
+
+export const $AgentFolderDirectoryItem = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    name: {
+      type: "string",
+      title: "Name",
+    },
+    path: {
+      type: "string",
+      title: "Path",
+    },
+    workspace_id: {
+      type: "string",
+      format: "uuid",
+      title: "Workspace Id",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+    updated_at: {
+      type: "string",
+      format: "date-time",
+      title: "Updated At",
+    },
+    type: {
+      type: "string",
+      const: "folder",
+      title: "Type",
+    },
+    num_items: {
+      type: "integer",
+      title: "Num Items",
+    },
+  },
+  type: "object",
+  required: [
+    "id",
+    "name",
+    "path",
+    "workspace_id",
+    "created_at",
+    "updated_at",
+    "type",
+    "num_items",
+  ],
+  title: "AgentFolderDirectoryItem",
+} as const
+
+export const $AgentFolderMove = {
+  properties: {
+    new_parent_path: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "New Parent Path",
+    },
+  },
+  type: "object",
+  title: "AgentFolderMove",
+} as const
+
+export const $AgentFolderRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    name: {
+      type: "string",
+      title: "Name",
+    },
+    path: {
+      type: "string",
+      title: "Path",
+    },
+    workspace_id: {
+      type: "string",
+      format: "uuid",
+      title: "Workspace Id",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+    updated_at: {
+      type: "string",
+      format: "date-time",
+      title: "Updated At",
+    },
+  },
+  type: "object",
+  required: ["id", "name", "path", "workspace_id", "created_at", "updated_at"],
+  title: "AgentFolderRead",
+} as const
+
+export const $AgentFolderUpdate = {
+  properties: {
+    name: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Name",
+    },
+  },
+  type: "object",
+  title: "AgentFolderUpdate",
+} as const
+
 export const $AgentModel = {
   properties: {
     component_id: {
@@ -2013,6 +2246,112 @@ export const $AgentPresetCreate = {
   description: "Payload for creating a new agent preset.",
 } as const
 
+export const $AgentPresetDirectoryItem = {
+  properties: {
+    type: {
+      type: "string",
+      const: "preset",
+      title: "Type",
+    },
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    name: {
+      type: "string",
+      title: "Name",
+    },
+    slug: {
+      type: "string",
+      title: "Slug",
+    },
+    description: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Description",
+    },
+    model_provider: {
+      type: "string",
+      title: "Model Provider",
+    },
+    model_name: {
+      type: "string",
+      title: "Model Name",
+    },
+    folder_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Folder Id",
+    },
+    tags: {
+      items: {
+        $ref: "#/components/schemas/TagRead",
+      },
+      type: "array",
+      title: "Tags",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+    updated_at: {
+      type: "string",
+      format: "date-time",
+      title: "Updated At",
+    },
+  },
+  type: "object",
+  required: [
+    "type",
+    "id",
+    "name",
+    "slug",
+    "description",
+    "model_provider",
+    "model_name",
+    "folder_id",
+    "tags",
+    "created_at",
+    "updated_at",
+  ],
+  title: "AgentPresetDirectoryItem",
+  description: "Agent preset as a directory item.",
+} as const
+
+export const $AgentPresetMoveToFolder = {
+  properties: {
+    folder_path: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Folder Path",
+    },
+  },
+  type: "object",
+  title: "AgentPresetMoveToFolder",
+  description: "Payload for moving an agent preset to a folder.",
+} as const
+
 export const $AgentPresetRead = {
   properties: {
     instructions: {
@@ -2248,6 +2587,33 @@ export const $AgentPresetReadMinimal = {
       ],
       title: "Description",
     },
+    model_provider: {
+      type: "string",
+      title: "Model Provider",
+    },
+    model_name: {
+      type: "string",
+      title: "Model Name",
+    },
+    folder_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Folder Id",
+    },
+    tags: {
+      items: {
+        $ref: "#/components/schemas/TagRead",
+      },
+      type: "array",
+      title: "Tags",
+    },
     current_version_id: {
       anyOf: [
         {
@@ -2278,6 +2644,8 @@ export const $AgentPresetReadMinimal = {
     "name",
     "slug",
     "description",
+    "model_provider",
+    "model_name",
     "created_at",
     "updated_at",
   ],
@@ -2393,6 +2761,20 @@ export const $AgentPresetSkillBindingRead = {
   required: ["skill_id", "skill_version_id", "skill_name", "skill_version"],
   title: "AgentPresetSkillBindingRead",
   description: "Resolved preset skill binding with metadata.",
+} as const
+
+export const $AgentPresetTagCreate = {
+  properties: {
+    tag_id: {
+      type: "string",
+      format: "uuid",
+      title: "Tag Id",
+    },
+  },
+  type: "object",
+  required: ["tag_id"],
+  title: "AgentPresetTagCreate",
+  description: "Payload for adding a tag to an agent preset.",
 } as const
 
 export const $AgentPresetUpdate = {
@@ -3714,6 +4096,39 @@ export const $AgentSettingsUpdate = {
   },
   type: "object",
   title: "AgentSettingsUpdate",
+} as const
+
+export const $AgentTagRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    name: {
+      type: "string",
+      title: "Name",
+    },
+    ref: {
+      type: "string",
+      title: "Ref",
+    },
+    color: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Color",
+    },
+  },
+  type: "object",
+  required: ["id", "name", "ref", "color"],
+  title: "AgentTagRead",
+  description: "Tag data.",
 } as const
 
 export const $AppSettingsRead = {
@@ -9388,6 +9803,69 @@ export const $CursorPaginatedResponse_AdminOrgInvitationRead_ = {
   title: "CursorPaginatedResponse[AdminOrgInvitationRead]",
 } as const
 
+export const $CursorPaginatedResponse_AgentFolderRead_ = {
+  properties: {
+    items: {
+      items: {
+        $ref: "#/components/schemas/AgentFolderRead",
+      },
+      type: "array",
+      title: "Items",
+    },
+    next_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Next Cursor",
+      description: "Cursor for next page",
+    },
+    prev_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Prev Cursor",
+      description: "Cursor for previous page",
+    },
+    has_more: {
+      type: "boolean",
+      title: "Has More",
+      description: "Whether more items exist",
+      default: false,
+    },
+    has_previous: {
+      type: "boolean",
+      title: "Has Previous",
+      description: "Whether previous items exist",
+      default: false,
+    },
+    total_estimate: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Total Estimate",
+      description: "Estimated total count from table statistics",
+    },
+  },
+  type: "object",
+  required: ["items"],
+  title: "CursorPaginatedResponse[AgentFolderRead]",
+} as const
+
 export const $CursorPaginatedResponse_AgentPresetVersionReadMinimal_ = {
   properties: {
     items: {
@@ -9449,6 +9927,69 @@ export const $CursorPaginatedResponse_AgentPresetVersionReadMinimal_ = {
   type: "object",
   required: ["items"],
   title: "CursorPaginatedResponse[AgentPresetVersionReadMinimal]",
+} as const
+
+export const $CursorPaginatedResponse_AgentTagRead_ = {
+  properties: {
+    items: {
+      items: {
+        $ref: "#/components/schemas/AgentTagRead",
+      },
+      type: "array",
+      title: "Items",
+    },
+    next_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Next Cursor",
+      description: "Cursor for next page",
+    },
+    prev_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Prev Cursor",
+      description: "Cursor for previous page",
+    },
+    has_more: {
+      type: "boolean",
+      title: "Has More",
+      description: "Whether more items exist",
+      default: false,
+    },
+    has_previous: {
+      type: "boolean",
+      title: "Has Previous",
+      description: "Whether previous items exist",
+      default: false,
+    },
+    total_estimate: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Total Estimate",
+      description: "Estimated total count from table statistics",
+    },
+  },
+  type: "object",
+  required: ["items"],
+  title: "CursorPaginatedResponse[AgentTagRead]",
 } as const
 
 export const $CursorPaginatedResponse_CaseReadMinimal_ = {
