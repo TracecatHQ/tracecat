@@ -11,12 +11,14 @@ import pytest
 from tracecat.agent.preset.activities import (
     ResolveAgentPresetVersionRefActivityInput,
     ResolveAgentsConfigActivityInput,
-    ResolveAgentsConfigActivityResult,
     resolve_agent_preset_version_ref_activity,
     resolve_agents_config_activity,
     resolve_custom_model_provider_config_activity,
 )
-from tracecat.agent.preset.resolver import ResolvedSubagentConfig
+from tracecat.agent.preset.resolver import (
+    ResolvedAgentsRuntimeConfig,
+    ResolvedSubagentConfig,
+)
 from tracecat.agent.preset.service import AgentPresetService
 from tracecat.agent.subagents import AgentSubagentsConfig, ResolvedAttachedSubagentRef
 from tracecat.agent.types import AgentConfig
@@ -92,7 +94,7 @@ def test_resolve_agents_config_result_derives_session_binding() -> None:
         preset_id=uuid.uuid4(),
         preset_version_id=uuid.uuid4(),
     )
-    result = ResolveAgentsConfigActivityResult(
+    result = ResolvedAgentsRuntimeConfig(
         enabled=True,
         subagents=[
             ResolvedSubagentConfig(

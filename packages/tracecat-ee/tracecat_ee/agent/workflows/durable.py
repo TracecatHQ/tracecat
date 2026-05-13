@@ -40,12 +40,14 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.agent.preset.activities import (
         ResolveAgentPresetConfigActivityInput,
         ResolveAgentsConfigActivityInput,
-        ResolveAgentsConfigActivityResult,
         resolve_agent_preset_config_activity,
         resolve_agents_config_activity,
         resolve_custom_model_provider_config_activity,
     )
-    from tracecat.agent.preset.resolver import ResolvedSubagentConfig
+    from tracecat.agent.preset.resolver import (
+        ResolvedAgentsRuntimeConfig,
+        ResolvedSubagentConfig,
+    )
     from tracecat.agent.schemas import AgentOutput, RunAgentArgs, RunUsage, ToolFilters
     from tracecat.agent.session.activities import (
         CreateSessionInput,
@@ -450,11 +452,11 @@ class DurableAgentWorkflow:
         self,
         args: AgentWorkflowArgs,
         cfg: AgentConfig,
-    ) -> ResolveAgentsConfigActivityResult:
+    ) -> ResolvedAgentsRuntimeConfig:
         if not cfg.agents.enabled:
-            return ResolveAgentsConfigActivityResult()
+            return ResolvedAgentsRuntimeConfig()
         if not cfg.agents.subagents:
-            return ResolveAgentsConfigActivityResult(enabled=True)
+            return ResolvedAgentsRuntimeConfig(enabled=True)
         return await workflow.execute_activity(
             resolve_agents_config_activity,
             ResolveAgentsConfigActivityInput(

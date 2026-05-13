@@ -20,8 +20,6 @@ from tracecat.agent.workflow_schemas import AgentConfigPayload
 from tracecat.auth.types import Role
 from tracecat.db.models import AgentCatalog
 
-ResolveAgentsConfigActivityResult = ResolvedAgentsRuntimeConfig
-
 
 class ResolveAgentPresetConfigActivityInput(BaseModel):
     role: Role
@@ -93,7 +91,7 @@ async def resolve_agent_preset_version_ref_activity(
 @activity.defn
 async def resolve_agents_config_activity(
     args: ResolveAgentsConfigActivityInput,
-) -> ResolveAgentsConfigActivityResult:
+) -> ResolvedAgentsRuntimeConfig:
     async with AgentPresetService.with_session(role=args.role) as service:
         resolved = await resolve_agents_config(
             service,
