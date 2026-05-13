@@ -166,6 +166,7 @@ def _resolve_agent_output(
 UPSERT_TRACECAT_SEARCH_ATTRIBUTES_PATCH = (
     "durable-agent-upsert-tracecat-search-attributes-v1"
 )
+LOAD_TERMINAL_MESSAGE_HISTORY_PATCH = "durable-agent-load-terminal-message-history-v1"
 
 
 @workflow.defn
@@ -633,6 +634,9 @@ class DurableAgentWorkflow:
         """Load terminal chat history, preserving legacy activity payloads."""
         if result.messages is not None:
             return result.messages
+
+        if not workflow.patched(LOAD_TERMINAL_MESSAGE_HISTORY_PATCH):
+            return None
 
         try:
             load_result = await workflow.execute_activity(

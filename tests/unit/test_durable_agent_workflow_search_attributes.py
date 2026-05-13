@@ -11,12 +11,14 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from temporalio.common import TypedSearchAttributes
 from tracecat_ee.agent.workflows.durable import (
+    LOAD_TERMINAL_MESSAGE_HISTORY_PATCH,
     UPSERT_TRACECAT_SEARCH_ATTRIBUTES_PATCH,
     AgentWorkflowArgs,
     DurableAgentWorkflow,
     _build_approved_tool_run_input,
 )
 
+from tracecat.agent.executor.activity import AgentExecutorResult
 from tracecat.agent.executor.schemas import ApprovedToolCall
 from tracecat.agent.preset.activities import ResolveAgentPresetConfigActivityInput
 from tracecat.agent.schemas import AgentOutput, RunAgentArgs
@@ -197,6 +199,40 @@ async def test_run_skips_search_attribute_upsert_without_patch_marker() -> None:
     upsert_mock.assert_not_called()
     run_mock.assert_awaited_once_with(workflow_args, cfg)
     assert result == expected_output
+
+
+@pytest.mark.anyio
+async def test_load_terminal_message_history_skips_activity_without_patch_marker() -> (
+    None
+):
+    role = Role(
+        type="user",
+        service_id="tracecat-api",
+        workspace_id=uuid.uuid4(),
+        organization_id=uuid.uuid4(),
+        user_id=uuid.uuid4(),
+        scopes=frozenset({"agent:execute", "secret:read"}),
+    )
+    workflow_args = _build_workflow_args(role)
+    workflow_instance = DurableAgentWorkflow(workflow_args)
+
+    with (
+        patch(
+            "tracecat_ee.agent.workflows.durable.workflow.patched",
+            return_value=False,
+        ) as patched_mock,
+        patch(
+            "tracecat_ee.agent.workflows.durable.workflow.execute_activity",
+            new_callable=AsyncMock,
+        ) as execute_activity_mock,
+    ):
+        message_history = await workflow_instance._load_terminal_message_history(
+            AgentExecutorResult(success=True)
+        )
+
+    patched_mock.assert_called_once_with(LOAD_TERMINAL_MESSAGE_HISTORY_PATCH)
+    execute_activity_mock.assert_not_called()
+    assert message_history is None
 
 
 @pytest.mark.anyio
