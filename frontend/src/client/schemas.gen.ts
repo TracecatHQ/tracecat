@@ -11084,6 +11084,9 @@ export const $EditorComponent = {
     {
       $ref: "#/components/schemas/AgentModel",
     },
+    {
+      $ref: "#/components/schemas/MCPIntegration",
+    },
   ],
   title: "EditorComponent",
   discriminator: {
@@ -11095,6 +11098,7 @@ export const $EditorComponent = {
       code: "#/components/schemas/Code",
       float: "#/components/schemas/Float",
       integer: "#/components/schemas/Integer",
+      "mcp-integration": "#/components/schemas/MCPIntegration",
       select: "#/components/schemas/Select",
       "tag-input": "#/components/schemas/TagInput",
       text: "#/components/schemas/Text",
@@ -13914,6 +13918,10 @@ export const $MCPHttpServerConfig = {
       type: "integer",
       title: "Timeout",
     },
+    id: {
+      type: "string",
+      title: "Id",
+    },
   },
   type: "object",
   required: ["name", "url"],
@@ -13931,6 +13939,24 @@ Example:
         "transport": "http",
         "headers": {"Authorization": "Bearer \${{ SECRETS.internal.API_KEY }}"}
     }`,
+} as const
+
+export const $MCPIntegration = {
+  properties: {
+    component_id: {
+      type: "string",
+      const: "mcp-integration",
+      title: "Component Id",
+      default: "mcp-integration",
+    },
+    multiple: {
+      type: "boolean",
+      title: "Multiple",
+      default: true,
+    },
+  },
+  type: "object",
+  title: "MCPIntegration",
 } as const
 
 export const $MCPIntegrationCreate = {
@@ -14497,6 +14523,10 @@ export const $MCPStdioServerConfig = {
     timeout: {
       type: "integer",
       title: "Timeout",
+    },
+    id: {
+      type: "string",
+      title: "Id",
     },
   },
   type: "object",

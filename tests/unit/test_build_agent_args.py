@@ -20,6 +20,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from tracecat_ee.agent.schemas import AgentActionArgs, PresetAgentActionArgs
 
+from tracecat.agent.common.types import MCPHttpServerConfig, MCPStdioServerConfig
 from tracecat.auth.types import Role
 from tracecat.dsl.action import (
     BuildAgentArgsActivityInput,
@@ -329,6 +330,218 @@ class TestBuildAgentArgsActivity:
         result = await DSLActivities.build_agent_args_activity(input)
 
         assert result.model_settings == {"reasoning_effort": "medium"}
+
+
+class TestBuildAgentArgsMcpResolution:
+    """Tests for mcp_integration_ids → mcp_servers resolution inside build_agent_args_activity."""
+
+    @pytest.mark.anyio
+    async def test_mcp_integration_ids_resolve_to_mcp_servers(self, role: Role):
+        """mcp_integration_ids in args are resolved to partial MCPServerConfigs
+        and surfaced as mcp_servers on the result; the raw IDs are not present."""
+        integration_id = str(uuid.uuid4())
+        resolved: MCPHttpServerConfig = {
+            "type": "http",
+            "name": "my-server",
+            "url": "https://mcp.example.com",
+            "id": integration_id,
+        }
+        args = {
+            "user_prompt": "Hello",
+            "model_name": "claude-sonnet-4-5-20250929",
+            "model_provider": "anthropic",
+            "mcp_integrations": [integration_id],
+        }
+        input = BuildAgentArgsActivityInput(
+            args=args,
+            operand=_make_context(),
+            role=role,
+            task_environment=None,
+            default_environment="default",
+        )
+
+        with patch(
+            "tracecat.dsl.action._resolve_mcp_integrations",
+            new_callable=AsyncMock,
+            return_value=[resolved],
+        ) as mock_resolve:
+            result = await DSLActivities.build_agent_args_activity(input)
+
+        mock_resolve.assert_awaited_once_with([integration_id], role=role)
+        assert result.mcp_servers == [resolved]
+
+    @pytest.mark.anyio
+    async def test_mcp_integration_ids_not_present_on_result(self, role: Role):
+        """mcp_integration_ids must not appear as a field on AgentActionArgs."""
+        integration_id = str(uuid.uuid4())
+        resolved: MCPHttpServerConfig = {
+            "type": "http",
+            "name": "my-server",
+            "url": "https://mcp.example.com",
+            "id": integration_id,
+        }
+        args = {
+            "user_prompt": "Hello",
+            "model_name": "claude-sonnet-4-5-20250929",
+            "model_provider": "anthropic",
+            "mcp_integrations": [integration_id],
+        }
+        input = BuildAgentArgsActivityInput(
+            args=args,
+            operand=_make_context(),
+            role=role,
+            task_environment=None,
+            default_environment="default",
+        )
+
+        with patch(
+            "tracecat.dsl.action._resolve_mcp_integrations",
+            new_callable=AsyncMock,
+            return_value=[resolved],
+        ):
+            result = await DSLActivities.build_agent_args_activity(input)
+
+        assert not hasattr(result, "mcp_integration_ids")
+
+    @pytest.mark.anyio
+    async def test_no_mcp_integration_ids_skips_resolution(self, role: Role):
+        """When mcp_integration_ids is absent, resolution is never called and
+        mcp_servers is None."""
+        args = {
+            "user_prompt": "Hello",
+            "model_name": "claude-sonnet-4-5-20250929",
+            "model_provider": "anthropic",
+        }
+        input = BuildAgentArgsActivityInput(
+            args=args,
+            operand=_make_context(),
+            role=role,
+            task_environment=None,
+            default_environment="default",
+        )
+
+        with patch(
+            "tracecat.dsl.action._resolve_mcp_integrations",
+            new_callable=AsyncMock,
+        ) as mock_resolve:
+            result = await DSLActivities.build_agent_args_activity(input)
+
+        mock_resolve.assert_not_called()
+        assert result.mcp_servers is None
+
+    @pytest.mark.anyio
+    async def test_multiple_mcp_integration_ids_resolve(self, role: Role):
+        """All IDs in the list are forwarded to the resolver as a batch."""
+        id1, id2 = str(uuid.uuid4()), str(uuid.uuid4())
+        resolved: list[MCPHttpServerConfig] = [
+            {
+                "type": "http",
+                "name": "server-a",
+                "url": "https://a.example.com",
+                "id": id1,
+            },
+            {
+                "type": "http",
+                "name": "server-b",
+                "url": "https://b.example.com",
+                "id": id2,
+            },
+        ]
+        args = {
+            "user_prompt": "Hello",
+            "model_name": "claude-sonnet-4-5-20250929",
+            "model_provider": "anthropic",
+            "mcp_integrations": [id1, id2],
+        }
+        input = BuildAgentArgsActivityInput(
+            args=args,
+            operand=_make_context(),
+            role=role,
+            task_environment=None,
+            default_environment="default",
+        )
+
+        with patch(
+            "tracecat.dsl.action._resolve_mcp_integrations",
+            new_callable=AsyncMock,
+            return_value=resolved,
+        ) as mock_resolve:
+            result = await DSLActivities.build_agent_args_activity(input)
+
+        mock_resolve.assert_awaited_once_with([id1, id2], role=role)
+        assert result.mcp_servers == resolved
+        assert len(result.mcp_servers) == 2  # type: ignore[arg-type]
+
+    @pytest.mark.anyio
+    async def test_stdio_mcp_integration_resolves(self, role: Role):
+        """Stdio server configs are resolved the same way as HTTP ones."""
+        integration_id = str(uuid.uuid4())
+        resolved: MCPStdioServerConfig = {
+            "type": "stdio",
+            "name": "local-tools",
+            "command": "python",
+            "args": ["-m", "my_mcp_server"],
+            "id": integration_id,
+        }
+        args = {
+            "user_prompt": "Hello",
+            "model_name": "claude-sonnet-4-5-20250929",
+            "model_provider": "anthropic",
+            "mcp_integrations": [integration_id],
+        }
+        input = BuildAgentArgsActivityInput(
+            args=args,
+            operand=_make_context(),
+            role=role,
+            task_environment=None,
+            default_environment="default",
+        )
+
+        with patch(
+            "tracecat.dsl.action._resolve_mcp_integrations",
+            new_callable=AsyncMock,
+            return_value=[resolved],
+        ):
+            result = await DSLActivities.build_agent_args_activity(input)
+
+        assert result.mcp_servers == [resolved]
+        assert result.mcp_servers[0]["type"] == "stdio"  # type: ignore[index]
+
+    @pytest.mark.anyio
+    async def test_resolved_configs_carry_no_secrets(self, role: Role):
+        """Resolved HTTP configs must not contain headers (secrets are omitted
+        on the partial config that crosses Temporal boundaries)."""
+        integration_id = str(uuid.uuid4())
+        resolved: MCPHttpServerConfig = {
+            "type": "http",
+            "name": "secure-server",
+            "url": "https://secure.example.com",
+            "id": integration_id,
+            # no 'headers' key — intentionally absent
+        }
+        args = {
+            "user_prompt": "Hello",
+            "model_name": "claude-sonnet-4-5-20250929",
+            "model_provider": "anthropic",
+            "mcp_integrations": [integration_id],
+        }
+        input = BuildAgentArgsActivityInput(
+            args=args,
+            operand=_make_context(),
+            role=role,
+            task_environment=None,
+            default_environment="default",
+        )
+
+        with patch(
+            "tracecat.dsl.action._resolve_mcp_integrations",
+            new_callable=AsyncMock,
+            return_value=[resolved],
+        ):
+            result = await DSLActivities.build_agent_args_activity(input)
+
+        assert result.mcp_servers is not None
+        assert "headers" not in result.mcp_servers[0]
 
 
 class TestBuildPresetAgentArgsActivity:

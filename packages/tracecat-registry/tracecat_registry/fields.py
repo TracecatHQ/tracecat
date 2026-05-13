@@ -38,6 +38,12 @@ class ActionType:
     multiple: bool = False
 
 
+@dataclass(slots=True)
+class MCPIntegration:
+    component_id: Literal["mcp-integration"] = "mcp-integration"
+    multiple: bool = True
+
+
 class ModelSelection(BaseModel):
     """Model dropdown selection passed into registry actions.
 
@@ -59,6 +65,7 @@ __all__ = [
     "AgentModel",
     "AgentPreset",
     "Code",
+    "MCPIntegration",
     "ModelSelection",
     "TextArea",
 ]

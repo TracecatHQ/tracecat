@@ -212,3 +212,248 @@ async def test_legacy_agent_config_payload_replays_as_agent_config_payload(
             execution_timeout=timedelta(seconds=15),
         )
         assert result == "gpt-5.2"
+
+
+# ---------------------------------------------------------------------------
+# Regression tests for the MCP-ref shape rollout.
+#
+# These pin that:
+#   * the legacy MCP server shape (no ``id``, inline ``headers``) recorded in
+#     pre-rollout workflow history still decodes,
+#   * the new ref shape (carrying ``id``, no ``headers``) round-trips through
+#     the workflow boundary so trusted callers can re-resolve secrets,
+#   * a payload containing a mix of the two shapes (and a stdio server)
+#     decodes intact.
+# ---------------------------------------------------------------------------
+
+
+def _legacy_mcp_agent_config() -> TracecatAgentConfig:
+    """Pre-rollout config: inline ``headers``, no ``id`` on the MCP server."""
+    return TracecatAgentConfig(
+        model_name="gpt-5.2",
+        model_provider="openai",
+        mcp_servers=[
+            {
+                "type": "http",
+                "name": "internal-tools",
+                "url": "http://host.docker.internal:8080",
+                "transport": "http",
+                "headers": {"Authorization": "Bearer legacy-secret"},
+            }
+        ],
+        retries=3,
+    )
+
+
+def _ref_mcp_agent_config() -> TracecatAgentConfig:
+    """Post-rollout config: ``id`` set, no ``headers``."""
+    return TracecatAgentConfig(
+        model_name="gpt-5.2",
+        model_provider="openai",
+        mcp_servers=[
+            {
+                "type": "http",
+                "name": "internal-tools",
+                "url": "http://host.docker.internal:8080",
+                "transport": "http",
+                "id": "11111111-1111-1111-1111-111111111111",
+            }
+        ],
+        retries=3,
+    )
+
+
+def _mixed_mcp_agent_config() -> TracecatAgentConfig:
+    """Heterogeneous payload exercising every supported shape."""
+    return TracecatAgentConfig(
+        model_name="gpt-5.2",
+        model_provider="openai",
+        mcp_servers=[
+            # Legacy http with headers, no id
+            {
+                "type": "http",
+                "name": "legacy",
+                "url": "http://legacy.local",
+                "transport": "http",
+                "headers": {"Authorization": "Bearer legacy"},
+            },
+            # New http with id, no headers
+            {
+                "type": "http",
+                "name": "modern",
+                "url": "http://modern.local",
+                "transport": "http",
+                "id": "22222222-2222-2222-2222-222222222222",
+            },
+            # Stdio with id
+            {
+                "type": "stdio",
+                "name": "local-stdio",
+                "command": "/usr/bin/echo",
+                "args": ["hello"],
+                "id": "33333333-3333-3333-3333-333333333333",
+            },
+        ],
+        retries=3,
+    )
+
+
+@activity.defn(name="return_legacy_mcp_payload")
+async def return_legacy_mcp_payload() -> AgentConfigPayload:
+    return agent_config_to_payload(_legacy_mcp_agent_config())
+
+
+@activity.defn(name="return_ref_mcp_payload")
+async def return_ref_mcp_payload() -> AgentConfigPayload:
+    return agent_config_to_payload(_ref_mcp_agent_config())
+
+
+@activity.defn(name="return_mixed_mcp_payload")
+async def return_mixed_mcp_payload() -> AgentConfigPayload:
+    return agent_config_to_payload(_mixed_mcp_agent_config())
+
+
+@workflow.defn
+class LegacyMcpPayloadWorkflow:
+    @workflow.run
+    async def run(self, _: str) -> list[dict]:
+        payload = await workflow.execute_activity(
+            return_legacy_mcp_payload,
+            start_to_close_timeout=timedelta(seconds=10),
+        )
+        config = agent_config_from_payload(payload)
+        assert config.mcp_servers is not None
+        return [dict(server) for server in config.mcp_servers]
+
+
+@workflow.defn
+class RefMcpPayloadWorkflow:
+    @workflow.run
+    async def run(self, _: str) -> list[dict]:
+        payload = await workflow.execute_activity(
+            return_ref_mcp_payload,
+            start_to_close_timeout=timedelta(seconds=10),
+        )
+        config = agent_config_from_payload(payload)
+        assert config.mcp_servers is not None
+        return [dict(server) for server in config.mcp_servers]
+
+
+@workflow.defn
+class MixedMcpPayloadWorkflow:
+    @workflow.run
+    async def run(self, _: str) -> list[dict]:
+        payload = await workflow.execute_activity(
+            return_mixed_mcp_payload,
+            start_to_close_timeout=timedelta(seconds=10),
+        )
+        config = agent_config_from_payload(payload)
+        assert config.mcp_servers is not None
+        return [dict(server) for server in config.mcp_servers]
+
+
+@pytest.mark.anyio
+async def test_legacy_mcp_payload_decodes_without_id(
+    env: WorkflowEnvironment,
+) -> None:
+    """Pre-rollout MCP server shape (inline headers, no ``id``) must still decode."""
+    task_queue = "test-legacy-mcp-payload-decode"
+    async with Worker(
+        env.client,
+        task_queue=task_queue,
+        activities=[return_legacy_mcp_payload],
+        workflows=[LegacyMcpPayloadWorkflow],
+        workflow_runner=new_sandbox_runner(),
+    ):
+        servers = await env.client.execute_workflow(
+            LegacyMcpPayloadWorkflow.run,
+            "x",
+            id="test-legacy-mcp-payload-decode-1",
+            task_queue=task_queue,
+            execution_timeout=timedelta(seconds=15),
+        )
+    assert servers == [
+        {
+            "type": "http",
+            "name": "internal-tools",
+            "url": "http://host.docker.internal:8080",
+            "transport": "http",
+            "headers": {"Authorization": "Bearer legacy-secret"},
+        }
+    ]
+
+
+@pytest.mark.anyio
+async def test_ref_mcp_payload_preserves_id_across_boundary(
+    env: WorkflowEnvironment,
+) -> None:
+    """New ref shape must round-trip with ``id`` intact and no headers added."""
+    task_queue = "test-ref-mcp-payload-decode"
+    async with Worker(
+        env.client,
+        task_queue=task_queue,
+        activities=[return_ref_mcp_payload],
+        workflows=[RefMcpPayloadWorkflow],
+        workflow_runner=new_sandbox_runner(),
+    ):
+        servers = await env.client.execute_workflow(
+            RefMcpPayloadWorkflow.run,
+            "x",
+            id="test-ref-mcp-payload-decode-1",
+            task_queue=task_queue,
+            execution_timeout=timedelta(seconds=15),
+        )
+    assert servers == [
+        {
+            "type": "http",
+            "name": "internal-tools",
+            "url": "http://host.docker.internal:8080",
+            "transport": "http",
+            "id": "11111111-1111-1111-1111-111111111111",
+        }
+    ]
+
+
+@pytest.mark.anyio
+async def test_mixed_mcp_payload_decodes_intact(
+    env: WorkflowEnvironment,
+) -> None:
+    """Mixed legacy + ref + stdio payloads must all decode without loss."""
+    task_queue = "test-mixed-mcp-payload-decode"
+    async with Worker(
+        env.client,
+        task_queue=task_queue,
+        activities=[return_mixed_mcp_payload],
+        workflows=[MixedMcpPayloadWorkflow],
+        workflow_runner=new_sandbox_runner(),
+    ):
+        servers = await env.client.execute_workflow(
+            MixedMcpPayloadWorkflow.run,
+            "x",
+            id="test-mixed-mcp-payload-decode-1",
+            task_queue=task_queue,
+            execution_timeout=timedelta(seconds=15),
+        )
+    assert servers == [
+        {
+            "type": "http",
+            "name": "legacy",
+            "url": "http://legacy.local",
+            "transport": "http",
+            "headers": {"Authorization": "Bearer legacy"},
+        },
+        {
+            "type": "http",
+            "name": "modern",
+            "url": "http://modern.local",
+            "transport": "http",
+            "id": "22222222-2222-2222-2222-222222222222",
+        },
+        {
+            "type": "stdio",
+            "name": "local-stdio",
+            "command": "/usr/bin/echo",
+            "args": ["hello"],
+            "id": "33333333-3333-3333-3333-333333333333",
+        },
+    ]

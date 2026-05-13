@@ -1030,6 +1030,42 @@ class TestMCPIntegrationValidation:
         )
         assert result is None
 
+    async def test_resolve_mcp_integration_refs_rejects_now_disallowed_stdio_command(
+        self,
+        integration_service: IntegrationService,
+    ) -> None:
+        """Regression: resolve_mcp_integration_refs must re-validate stdio command
+        policy so rows persisted before rules tightened are rejected at resolution
+        time rather than passed through to the agent runtime."""
+        created = await integration_service.create_mcp_integration(
+            params=MCPStdioIntegrationCreate(
+                name="Npx MCP",
+                stdio_command="npx",
+                stdio_args=["@modelcontextprotocol/server-github"],
+            )
+        )
+
+        preset_service = AgentPresetService(
+            session=integration_service.session,
+            role=integration_service.role,
+        )
+
+        # Simulate tightened policy: remove 'npx' from the allowed set after the
+        # row was already persisted.
+        from tracecat.exceptions import TracecatValidationError
+        from tracecat.integrations import mcp_validation
+
+        original = mcp_validation.ALLOWED_MCP_COMMANDS
+        mcp_validation.ALLOWED_MCP_COMMANDS = frozenset(original - {"npx"})
+        try:
+            # The integration should be skipped; with no remaining refs the
+            # method raises TracecatValidationError rather than returning an
+            # empty list.
+            with pytest.raises(TracecatValidationError):
+                await preset_service.resolve_mcp_integration_refs([str(created.id)])
+        finally:
+            mcp_validation.ALLOWED_MCP_COMMANDS = original
+
 
 @pytest.mark.anyio
 class TestMCPIntegrationWorkspaceIsolation:
