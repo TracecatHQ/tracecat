@@ -10,13 +10,16 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 from temporalio.common import TypedSearchAttributes
+from tracecat_ee.agent.activities import BuildToolDefsArgs, BuildToolDefsResult
 from tracecat_ee.agent.workflows.durable import (
+    BUILD_AGENT_TOOL_DEFINITIONS_PATCH,
     UPSERT_TRACECAT_SEARCH_ATTRIBUTES_PATCH,
     AgentWorkflowArgs,
     DurableAgentWorkflow,
     _build_approved_tool_run_input,
 )
 
+from tracecat.agent.common.types import MCPToolDefinition
 from tracecat.agent.executor.schemas import ApprovedToolCall
 from tracecat.agent.preset.activities import ResolveAgentPresetConfigActivityInput
 from tracecat.agent.schemas import AgentOutput, RunAgentArgs
@@ -197,6 +200,66 @@ async def test_run_skips_search_attribute_upsert_without_patch_marker() -> None:
     upsert_mock.assert_not_called()
     run_mock.assert_awaited_once_with(workflow_args, cfg)
     assert result == expected_output
+
+
+@pytest.mark.anyio
+async def test_compile_agent_run_uses_legacy_activity_without_patch_marker() -> None:
+    role = Role(
+        type="user",
+        service_id="tracecat-api",
+        workspace_id=uuid.uuid4(),
+        organization_id=uuid.uuid4(),
+        user_id=uuid.uuid4(),
+        scopes=frozenset({"agent:execute", "secret:read"}),
+    )
+    workflow_args = _build_workflow_args(role)
+    workflow_instance = DurableAgentWorkflow(workflow_args)
+    cfg = cast(Any, workflow_args.agent_args.config)
+    build_result = BuildToolDefsResult(
+        tool_definitions={
+            "core.http_request": MCPToolDefinition(
+                name="core__http_request",
+                description="Make HTTP requests",
+                parameters_json_schema={"type": "object"},
+            )
+        },
+        registry_lock=RegistryLock(
+            origins={"tracecat_registry": "test-version"},
+            actions={"core.http_request": "tracecat_registry"},
+        ),
+    )
+
+    with (
+        patch(
+            "tracecat_ee.agent.workflows.durable.workflow.patched",
+            return_value=False,
+        ) as patched_mock,
+        patch(
+            "tracecat_ee.agent.workflows.durable.workflow.execute_activity_method",
+            AsyncMock(return_value=build_result),
+        ) as execute_activity_mock,
+        patch.object(
+            workflow_instance,
+            "_mint_scope_mcp_token",
+            return_value="mcp-token",
+        ),
+    ):
+        compiled = await workflow_instance._compile_agent_run(
+            cfg=cfg,
+            subagents=[],
+            internal_tool_context=None,
+        )
+
+    patched_mock.assert_called_once_with(BUILD_AGENT_TOOL_DEFINITIONS_PATCH)
+    execute_activity_mock.assert_awaited_once()
+    assert execute_activity_mock.await_args is not None
+    activity_args = execute_activity_mock.await_args.kwargs["arg"]
+    assert isinstance(activity_args, BuildToolDefsArgs)
+    assert activity_args.tool_filters.actions == ["core.http_request"]
+    assert compiled.root.build_result == build_result
+    assert compiled.root.mcp_auth_token == "mcp-token"
+    assert compiled.subagents == []
+    assert compiled.llm_routes == {}
 
 
 @pytest.mark.anyio

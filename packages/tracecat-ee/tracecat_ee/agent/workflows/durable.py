@@ -86,6 +86,7 @@ with workflow.unsafe.imports_passed_through():
         AgentActivities,
         BuildAgentScopeToolDefsArgs,
         BuildAgentToolDefsArgs,
+        BuildToolDefsArgs,
         BuildToolDefsResult,
         EmitSessionErrorInputs,
     )
@@ -96,6 +97,9 @@ with workflow.unsafe.imports_passed_through():
 
 AGENT_TOOL_DEFINITION_ERROR = "AgentToolDefinitionError"
 ROOT_AGENT_SCOPE = "root"
+BUILD_AGENT_TOOL_DEFINITIONS_PATCH = (
+    "tracecat_ee.agent.workflows.durable.build_agent_tool_definitions"
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -503,6 +507,43 @@ class DurableAgentWorkflow:
             config=cfg,
             internal_tool_context=internal_tool_context,
         )
+        if not workflow.patched(BUILD_AGENT_TOOL_DEFINITIONS_PATCH):
+            try:
+                legacy_build_result = await workflow.execute_activity_method(
+                    AgentActivities.build_tool_definitions,
+                    arg=BuildToolDefsArgs(
+                        role=self.role,
+                        tool_filters=ToolFilters(
+                            namespaces=cfg.namespaces,
+                            actions=cfg.actions,
+                        ),
+                        tool_approvals=cfg.tool_approvals,
+                        mcp_servers=cfg.mcp_servers,
+                        internal_tool_context=internal_tool_context,
+                    ),
+                    start_to_close_timeout=timedelta(seconds=120),
+                    retry_policy=RETRY_POLICIES["activity:fail_fast"],
+                )
+            except ActivityError as e:
+                if isinstance(e.cause, ApplicationError):
+                    raise e.cause from e
+                raise
+
+            root_scope = CompiledAgentScope(
+                spec=root_spec,
+                build_result=legacy_build_result,
+                mcp_auth_token=self._mint_scope_mcp_token(
+                    build_result=legacy_build_result,
+                    internal_tool_context=internal_tool_context,
+                ),
+            )
+            return CompiledAgentRun(
+                root=root_scope,
+                subagents=[],
+                registry_lock=legacy_build_result.registry_lock,
+                llm_routes={},
+            )
+
         subagent_specs: list[SubagentScopeSpec] = []
         scope_specs = [root_spec]
         for resolved_subagent in subagents:
