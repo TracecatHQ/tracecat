@@ -17,6 +17,7 @@ import tempfile
 import uuid
 from collections.abc import AsyncIterator, Callable
 from contextlib import suppress
+from dataclasses import dataclass
 from pathlib import Path
 from time import perf_counter
 from typing import Any, Literal, Protocol, cast
@@ -109,6 +110,13 @@ class RuntimeEventWriter(Protocol):
 
     async def send_log(self, level: str, message: str, **extra: object) -> None:
         """Send a structured runtime log event."""
+
+
+@dataclass(frozen=True, slots=True)
+class _PreparedResumeAndMCP:
+    resume_session_id: str | None
+    fork_session: bool
+    mcp_servers: dict[str, McpServerConfig]
 
 
 def _configure_claude_sdk_process_env() -> None:
@@ -485,7 +493,7 @@ class ClaudeAgentRuntime:
         payload: RuntimeInitPayload,
         *,
         write_session_file: bool = True,
-    ) -> tuple[str | None, bool, dict[str, McpServerConfig]]:
+    ) -> _PreparedResumeAndMCP:
         """Prepare resume state and root registry MCP server config."""
         resume_session_id: str | None = None
         fork_session = False
@@ -520,7 +528,11 @@ class ClaudeAgentRuntime:
                 payload.mcp_auth_token
             )
 
-        return resume_session_id, fork_session, mcp_servers
+        return _PreparedResumeAndMCP(
+            resume_session_id=resume_session_id,
+            fork_session=fork_session,
+            mcp_servers=mcp_servers,
+        )
 
     def _canonicalize_sdk_session_data(self, sdk_session_data: str) -> str:
         """Canonicalize legacy registry MCP aliases in JSONL session history."""
@@ -1238,14 +1250,13 @@ class ClaudeAgentRuntime:
 
         # Write session file locally if resuming or forking
         try:
-            (
-                resume_session_id,
-                fork_session,
-                mcp_servers,
-            ) = await self._prepare_resume_and_mcp(
+            prepared_resume = await self._prepare_resume_and_mcp(
                 payload,
                 write_session_file=True,
             )
+            resume_session_id = prepared_resume.resume_session_id
+            fork_session = prepared_resume.fork_session
+            mcp_servers = prepared_resume.mcp_servers
             log_benchmark_phase(
                 "runtime_resume_ready",
                 resumed=resume_session_id is not None,
