@@ -48,6 +48,21 @@ def _raise_skill_validation_error(exc: TracecatValidationError) -> Never:
     ) from exc
 
 
+async def _resolve_skill_id(
+    service: SkillService, skill_id: str | uuid.UUID
+) -> uuid.UUID:
+    try:
+        skill = await service.get_skill_by_identifier(skill_id)
+    except TracecatValidationError as exc:
+        _raise_skill_validation_error(exc)
+    if skill is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Skill '{skill_id}' not found",
+        )
+    return skill.id
+
+
 @router.get("", response_model=CursorPaginatedResponse[SkillReadMinimal])
 @require_scope("agent:read")
 async def list_skills(
@@ -104,10 +119,11 @@ async def upload_skill(
 @router.get("/{skill_id}", response_model=SkillRead)
 @require_scope("agent:read")
 async def get_skill(
-    *, skill_id: uuid.UUID, role: ExecutorWorkspaceRole, session: AsyncDBSession
+    *, skill_id: str, role: ExecutorWorkspaceRole, session: AsyncDBSession
 ) -> SkillRead:
     service = SkillService(session, role=role)
-    if (skill := await service.get_skill_read(skill_id)) is None:
+    resolved_skill_id = await _resolve_skill_id(service, skill_id)
+    if (skill := await service.get_skill_read(resolved_skill_id)) is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Skill '{skill_id}' not found",
@@ -119,14 +135,15 @@ async def get_skill(
 @require_scope("agent:update")
 async def patch_skill_draft(
     *,
-    skill_id: uuid.UUID,
+    skill_id: str,
     params: SkillDraftPatch,
     role: ExecutorWorkspaceRole,
     session: AsyncDBSession,
 ) -> SkillDraftRead:
     service = SkillService(session, role=role)
+    resolved_skill_id = await _resolve_skill_id(service, skill_id)
     try:
-        return await service.patch_draft(skill_id=skill_id, params=params)
+        return await service.patch_draft(skill_id=resolved_skill_id, params=params)
     except TracecatValidationError as exc:
         _raise_skill_validation_error(exc)
     except TracecatNotFoundError as exc:
@@ -138,11 +155,12 @@ async def patch_skill_draft(
 @router.post("/{skill_id}/publish", response_model=SkillVersionRead)
 @require_scope("agent:update")
 async def publish_skill(
-    *, skill_id: uuid.UUID, role: ExecutorWorkspaceRole, session: AsyncDBSession
+    *, skill_id: str, role: ExecutorWorkspaceRole, session: AsyncDBSession
 ) -> SkillVersionRead:
     service = SkillService(session, role=role)
+    resolved_skill_id = await _resolve_skill_id(service, skill_id)
     try:
-        return await service.publish_skill(skill_id)
+        return await service.publish_skill(resolved_skill_id)
     except TracecatValidationError as exc:
         _raise_skill_validation_error(exc)
     except TracecatNotFoundError as exc:
@@ -159,14 +177,17 @@ async def publish_skill(
 @require_scope("agent:update")
 async def publish_skill_version(
     *,
-    skill_id: uuid.UUID,
+    skill_id: str,
     params: SkillVersionPublish,
     role: ExecutorWorkspaceRole,
     session: AsyncDBSession,
 ) -> SkillVersionRead:
     service = SkillService(session, role=role)
+    resolved_skill_id = await _resolve_skill_id(service, skill_id)
     try:
-        return await service.publish_skill_version(skill_id=skill_id, params=params)
+        return await service.publish_skill_version(
+            skill_id=resolved_skill_id, params=params
+        )
     except TracecatValidationError as exc:
         _raise_skill_validation_error(exc)
     except TracecatNotFoundError as exc:
@@ -178,10 +199,11 @@ async def publish_skill_version(
 @router.get("/{skill_id}/draft", response_model=SkillDraftRead)
 @require_scope("agent:read")
 async def get_skill_draft(
-    *, skill_id: uuid.UUID, role: ExecutorWorkspaceRole, session: AsyncDBSession
+    *, skill_id: str, role: ExecutorWorkspaceRole, session: AsyncDBSession
 ) -> SkillDraftRead:
     service = SkillService(session, role=role)
-    if (draft := await service.get_draft(skill_id)) is None:
+    resolved_skill_id = await _resolve_skill_id(service, skill_id)
+    if (draft := await service.get_draft(resolved_skill_id)) is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Skill '{skill_id}' not found",
@@ -193,14 +215,15 @@ async def get_skill_draft(
 @require_scope("agent:read")
 async def get_skill_draft_file(
     *,
-    skill_id: uuid.UUID,
+    skill_id: str,
     path: str = Query(...),
     role: ExecutorWorkspaceRole,
     session: AsyncDBSession,
 ) -> SkillDraftFileRead:
     service = SkillService(session, role=role)
+    resolved_skill_id = await _resolve_skill_id(service, skill_id)
     try:
-        draft_file = await service.get_draft_file(skill_id=skill_id, path=path)
+        draft_file = await service.get_draft_file(skill_id=resolved_skill_id, path=path)
     except TracecatValidationError as exc:
         _raise_skill_validation_error(exc)
     if draft_file is None:
@@ -218,7 +241,7 @@ async def get_skill_draft_file(
 @require_scope("agent:read")
 async def list_skill_versions(
     *,
-    skill_id: uuid.UUID,
+    skill_id: str,
     role: ExecutorWorkspaceRole,
     session: AsyncDBSession,
     limit: int = Query(
@@ -230,14 +253,10 @@ async def list_skill_versions(
     reverse: bool = Query(default=False),
 ) -> CursorPaginatedResponse[SkillVersionReadMinimal]:
     service = SkillService(session, role=role)
-    if await service.get_skill(skill_id) is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Skill '{skill_id}' not found",
-        )
+    resolved_skill_id = await _resolve_skill_id(service, skill_id)
     try:
         return await service.list_versions(
-            skill_id=skill_id,
+            skill_id=resolved_skill_id,
             params=CursorPaginationParams(limit=limit, cursor=cursor, reverse=reverse),
         )
     except TracecatValidationError as exc:
@@ -248,14 +267,17 @@ async def list_skill_versions(
 @require_scope("agent:read")
 async def get_skill_version(
     *,
-    skill_id: uuid.UUID,
+    skill_id: str,
     version_id: uuid.UUID,
     role: ExecutorWorkspaceRole,
     session: AsyncDBSession,
 ) -> SkillVersionRead:
     service = SkillService(session, role=role)
+    resolved_skill_id = await _resolve_skill_id(service, skill_id)
     try:
-        return await service.get_version_read(skill_id=skill_id, version_id=version_id)
+        return await service.get_version_read(
+            skill_id=resolved_skill_id, version_id=version_id
+        )
     except TracecatNotFoundError as exc:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)
@@ -268,14 +290,17 @@ async def get_skill_version(
 @require_scope("agent:update")
 async def restore_skill_version(
     *,
-    skill_id: uuid.UUID,
+    skill_id: str,
     version_id: uuid.UUID,
     role: ExecutorWorkspaceRole,
     session: AsyncDBSession,
 ) -> SkillReadMinimal:
     service = SkillService(session, role=role)
+    resolved_skill_id = await _resolve_skill_id(service, skill_id)
     try:
-        return await service.restore_version(skill_id=skill_id, version_id=version_id)
+        return await service.restore_version(
+            skill_id=resolved_skill_id, version_id=version_id
+        )
     except TracecatNotFoundError as exc:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)
@@ -285,11 +310,12 @@ async def restore_skill_version(
 @router.delete("/{skill_id}", status_code=status.HTTP_204_NO_CONTENT)
 @require_scope("agent:delete")
 async def archive_skill(
-    *, skill_id: uuid.UUID, role: ExecutorWorkspaceRole, session: AsyncDBSession
+    *, skill_id: str, role: ExecutorWorkspaceRole, session: AsyncDBSession
 ) -> None:
     service = SkillService(session, role=role)
+    resolved_skill_id = await _resolve_skill_id(service, skill_id)
     try:
-        await service.archive_skill(skill_id)
+        await service.archive_skill(resolved_skill_id)
     except TracecatValidationError as exc:
         _raise_skill_validation_error(exc)
     except TracecatNotFoundError as exc:

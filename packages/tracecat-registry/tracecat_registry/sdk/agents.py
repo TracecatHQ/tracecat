@@ -68,6 +68,10 @@ class SkillPublishFile(TypedDict):
     content_type: NotRequired[str | None]
 
 
+def _skill_identifier(skill_id: str, skill_uuid: str | uuid.UUID | None = None) -> str:
+    return str(skill_uuid) if skill_uuid is not None else skill_id
+
+
 class RankableItem(TypedDict):
     id: str | int
     text: str
@@ -500,26 +504,75 @@ class AgentsClient:
             data["description"] = description
         return await self._client.post("/agent/skills", json=data)
 
-    async def get_skill(self, skill_id: str) -> dict[str, Any]:
-        return await self._client.get(f"/agent/skills/{skill_id}")
+    async def get_skill(
+        self, skill_id: str, *, skill_uuid: str | uuid.UUID | None = None
+    ) -> dict[str, Any]:
+        identifier = _skill_identifier(skill_id, skill_uuid)
+        return await self._client.get(f"/agent/skills/{identifier}")
+
+    async def list_skill_versions(
+        self,
+        *,
+        skill_id: str,
+        skill_uuid: str | uuid.UUID | None = None,
+        limit: int = 20,
+        cursor: str | None = None,
+        reverse: bool = False,
+    ) -> CursorPage:
+        identifier = _skill_identifier(skill_id, skill_uuid)
+        params: dict[str, Any] = {"limit": limit, "reverse": reverse}
+        if cursor is not None:
+            params["cursor"] = cursor
+        return await self._client.get(
+            f"/agent/skills/{identifier}/versions", params=params
+        )
+
+    async def get_skill_version(
+        self,
+        *,
+        skill_id: str,
+        version_id: str | uuid.UUID,
+        skill_uuid: str | uuid.UUID | None = None,
+    ) -> dict[str, Any]:
+        identifier = _skill_identifier(skill_id, skill_uuid)
+        return await self._client.get(
+            f"/agent/skills/{identifier}/versions/{version_id}"
+        )
 
     async def publish_skill_version(
         self,
         *,
         skill_id: str,
         files: list[SkillPublishFile] | list[dict[str, Any]],
+        skill_uuid: str | uuid.UUID | None = None,
         base_version_id: str | None = None,
     ) -> dict[str, Any]:
+        identifier = _skill_identifier(skill_id, skill_uuid)
         data: dict[str, Any] = {"files": files}
         if base_version_id is not None:
             data["base_version_id"] = base_version_id
         return await self._client.post(
-            f"/agent/skills/{skill_id}/versions",
+            f"/agent/skills/{identifier}/versions",
             json=data,
         )
 
-    async def archive_skill(self, skill_id: str) -> None:
-        await self._client.delete(f"/agent/skills/{skill_id}")
+    async def restore_skill_version(
+        self,
+        *,
+        skill_id: str,
+        version_id: str | uuid.UUID,
+        skill_uuid: str | uuid.UUID | None = None,
+    ) -> dict[str, Any]:
+        identifier = _skill_identifier(skill_id, skill_uuid)
+        return await self._client.post(
+            f"/agent/skills/{identifier}/versions/{version_id}/restore"
+        )
+
+    async def archive_skill(
+        self, skill_id: str, *, skill_uuid: str | uuid.UUID | None = None
+    ) -> None:
+        identifier = _skill_identifier(skill_id, skill_uuid)
+        await self._client.delete(f"/agent/skills/{identifier}")
 
     # --- Preset methods ---
 

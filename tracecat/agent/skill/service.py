@@ -1095,6 +1095,40 @@ class SkillService(BaseWorkspaceService):
         )
         return (await self.session.execute(stmt)).scalar_one_or_none()
 
+    @requires_entitlement(Entitlement.AGENT_ADDONS)
+    async def get_skill_by_identifier(
+        self, skill_id: str | uuid.UUID, *, include_archived: bool = False
+    ) -> Skill | None:
+        """Return a skill by UUID or kebab-case skill name."""
+
+        if isinstance(skill_id, uuid.UUID):
+            return await self.get_skill(skill_id, include_archived=include_archived)
+        try:
+            parsed_skill_id = uuid.UUID(skill_id)
+        except ValueError:
+            try:
+                skill_name = SKILL_NAME_ADAPTER.validate_python(skill_id)
+            except ValidationError:
+                return None
+            predicates = [
+                Skill.workspace_id == self.workspace_id,
+                Skill.name == skill_name,
+            ]
+            if not include_archived:
+                predicates.append(Skill.archived_at.is_(None))
+            stmt = select(Skill).where(*predicates)
+            skills = (await self.session.execute(stmt)).scalars().all()
+            if len(skills) > 1:
+                raise TracecatValidationError(
+                    "Skill identifier is ambiguous",
+                    detail={
+                        "code": "ambiguous_skill_id",
+                        "skill_id": skill_name,
+                    },
+                ) from None
+            return skills[0] if skills else None
+        return await self.get_skill(parsed_skill_id, include_archived=include_archived)
+
     async def _get_active_version(
         self, *, skill_id: uuid.UUID, version_id: uuid.UUID
     ) -> SkillVersion | None:

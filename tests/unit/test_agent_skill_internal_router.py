@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from types import SimpleNamespace
 from typing import Any, cast
 from unittest.mock import AsyncMock, patch
 
@@ -8,6 +9,7 @@ import pytest
 from fastapi import HTTPException
 
 from tracecat.agent.skill.internal_router import (
+    get_skill,
     list_skill_versions,
     list_skills,
     publish_skill_version,
@@ -55,7 +57,7 @@ async def test_list_skills_converts_invalid_cursor_to_http_400() -> None:
 async def test_list_skill_versions_converts_invalid_cursor_to_http_400() -> None:
     skill_id = uuid.uuid4()
     mock_service = AsyncMock()
-    mock_service.get_skill.return_value = object()
+    mock_service.get_skill_by_identifier.return_value = SimpleNamespace(id=skill_id)
     mock_service.list_versions.side_effect = TracecatValidationError(
         "Invalid cursor for skill versions"
     )
@@ -80,6 +82,31 @@ async def test_list_skill_versions_converts_invalid_cursor_to_http_400() -> None
 
 
 @pytest.mark.anyio
+async def test_get_skill_resolves_slug_identifier() -> None:
+    resolved_skill_id = uuid.uuid4()
+    mock_service = AsyncMock()
+    mock_service.get_skill_by_identifier.return_value = SimpleNamespace(
+        id=resolved_skill_id
+    )
+    mock_service.get_skill_read.return_value = {"id": str(resolved_skill_id)}
+
+    with patch(
+        "tracecat.agent.skill.internal_router.SkillService",
+        return_value=mock_service,
+    ):
+        raw_get_skill = cast(Any, get_skill).__wrapped__
+        result = await raw_get_skill(
+            skill_id="triage-helper",
+            role=_executor_role(),
+            session=AsyncMock(),
+        )
+
+    assert result == {"id": str(resolved_skill_id)}
+    mock_service.get_skill_by_identifier.assert_awaited_once_with("triage-helper")
+    mock_service.get_skill_read.assert_awaited_once_with(resolved_skill_id)
+
+
+@pytest.mark.anyio
 async def test_publish_skill_version_converts_version_conflict_to_http_409() -> None:
     current_version_id = uuid.uuid4()
     detail = {
@@ -87,6 +114,7 @@ async def test_publish_skill_version_converts_version_conflict_to_http_409() -> 
         "current_version_id": str(current_version_id),
     }
     mock_service = AsyncMock()
+    mock_service.get_skill_by_identifier.return_value = SimpleNamespace(id=uuid.uuid4())
     mock_service.publish_skill_version.side_effect = TracecatValidationError(
         "Skill version conflict",
         detail=detail,

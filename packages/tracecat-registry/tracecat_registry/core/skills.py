@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import uuid
 from typing import Annotated, Any
 
 from typing_extensions import Doc
@@ -47,12 +48,65 @@ async def create_skill(
 @registry.register(
     default_title="Get agent skill",
     display_group="Agent Skills",
-    description="Get one workspace agent skill by ID.",
+    description="Get one workspace agent skill by skill ID, with an optional UUID override.",
     namespace="ai.skill",
     required_entitlements=["agent_addons"],
 )
-async def get_skill(skill_id: Annotated[str, Doc("Skill UUID.")]) -> dict[str, Any]:
-    return await get_context().agents.get_skill(skill_id)
+async def get_skill(
+    skill_id: Annotated[str, Doc("Skill ID/name in kebab-case.")],
+    skill_uuid: Annotated[
+        uuid.UUID | None, Doc("Optional canonical skill UUID.")
+    ] = None,
+) -> dict[str, Any]:
+    return await get_context().agents.get_skill(skill_id, skill_uuid=skill_uuid)
+
+
+@registry.register(
+    default_title="List agent skill versions",
+    display_group="Agent Skills",
+    description="List immutable published versions for a workspace agent skill.",
+    namespace="ai.skill",
+    required_entitlements=["agent_addons"],
+)
+async def list_skill_versions(
+    skill_id: Annotated[str, Doc("Skill ID/name in kebab-case.")],
+    skill_uuid: Annotated[
+        uuid.UUID | None, Doc("Optional canonical skill UUID.")
+    ] = None,
+    limit: Annotated[int, Doc("Page size.")] = 20,
+    cursor: Annotated[
+        str | None, Doc("Optional cursor from a previous response.")
+    ] = None,
+    reverse: Annotated[bool, Doc("Whether to reverse sort order.")] = False,
+) -> CursorPage:
+    return await get_context().agents.list_skill_versions(
+        skill_id=skill_id,
+        skill_uuid=skill_uuid,
+        limit=limit,
+        cursor=cursor,
+        reverse=reverse,
+    )
+
+
+@registry.register(
+    default_title="Get agent skill version",
+    display_group="Agent Skills",
+    description="Get one immutable published skill version by ID.",
+    namespace="ai.skill",
+    required_entitlements=["agent_addons"],
+)
+async def get_skill_version(
+    skill_id: Annotated[str, Doc("Skill ID/name in kebab-case.")],
+    version_id: Annotated[uuid.UUID, Doc("Skill version UUID.")],
+    skill_uuid: Annotated[
+        uuid.UUID | None, Doc("Optional canonical skill UUID.")
+    ] = None,
+) -> dict[str, Any]:
+    return await get_context().agents.get_skill_version(
+        skill_id=skill_id,
+        skill_uuid=skill_uuid,
+        version_id=version_id,
+    )
 
 
 @registry.register(
@@ -63,7 +117,7 @@ async def get_skill(skill_id: Annotated[str, Doc("Skill UUID.")]) -> dict[str, A
     required_entitlements=["agent_addons"],
 )
 async def publish_skill_version(
-    skill_id: Annotated[str, Doc("Skill UUID.")],
+    skill_id: Annotated[str, Doc("Skill ID/name in kebab-case.")],
     files: Annotated[
         list[dict[str, Any]],
         Doc(
@@ -76,11 +130,36 @@ async def publish_skill_version(
             "Current version UUID observed before publishing. Omit or use null for the first version."
         ),
     ] = None,
+    skill_uuid: Annotated[
+        uuid.UUID | None, Doc("Optional canonical skill UUID.")
+    ] = None,
 ) -> dict[str, Any]:
     return await get_context().agents.publish_skill_version(
         skill_id=skill_id,
+        skill_uuid=skill_uuid,
         base_version_id=base_version_id,
         files=files,
+    )
+
+
+@registry.register(
+    default_title="Restore agent skill version",
+    display_group="Agent Skills",
+    description="Restore a historical published version as the current skill version.",
+    namespace="ai.skill",
+    required_entitlements=["agent_addons"],
+)
+async def restore_skill_version(
+    skill_id: Annotated[str, Doc("Skill ID/name in kebab-case.")],
+    version_id: Annotated[uuid.UUID, Doc("Skill version UUID.")],
+    skill_uuid: Annotated[
+        uuid.UUID | None, Doc("Optional canonical skill UUID.")
+    ] = None,
+) -> dict[str, Any]:
+    return await get_context().agents.restore_skill_version(
+        skill_id=skill_id,
+        skill_uuid=skill_uuid,
+        version_id=version_id,
     )
 
 
@@ -91,5 +170,10 @@ async def publish_skill_version(
     namespace="ai.skill",
     required_entitlements=["agent_addons"],
 )
-async def archive_skill(skill_id: Annotated[str, Doc("Skill UUID.")]) -> None:
-    await get_context().agents.archive_skill(skill_id)
+async def archive_skill(
+    skill_id: Annotated[str, Doc("Skill ID/name in kebab-case.")],
+    skill_uuid: Annotated[
+        uuid.UUID | None, Doc("Optional canonical skill UUID.")
+    ] = None,
+) -> None:
+    await get_context().agents.archive_skill(skill_id, skill_uuid=skill_uuid)

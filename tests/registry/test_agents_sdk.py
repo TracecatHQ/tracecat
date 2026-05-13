@@ -13,6 +13,7 @@ from tracecat_registry.sdk.agents import AgentConfig, AgentsClient
 @pytest.fixture
 def mock_tracecat_client() -> MagicMock:
     client = MagicMock()
+    client.get = AsyncMock()
     client.post = AsyncMock()
     return client
 
@@ -90,3 +91,85 @@ def test_agent_config_rejects_agents_option() -> None:
 
     with pytest.raises(TypeError, match="agents"):
         AgentConfig(**config_kwargs)
+
+
+@pytest.mark.anyio
+async def test_list_skill_versions_builds_cursor_params(
+    agents_client: AgentsClient,
+    mock_tracecat_client: MagicMock,
+) -> None:
+    mock_tracecat_client.get.return_value = {
+        "items": [],
+        "next_cursor": None,
+        "has_more": False,
+    }
+
+    result = await agents_client.list_skill_versions(
+        skill_id="skill-id",
+        limit=50,
+        cursor="cursor-1",
+        reverse=True,
+    )
+
+    assert result == {"items": [], "next_cursor": None, "has_more": False}
+    mock_tracecat_client.get.assert_awaited_once_with(
+        "/agent/skills/skill-id/versions",
+        params={"limit": 50, "reverse": True, "cursor": "cursor-1"},
+    )
+
+
+@pytest.mark.anyio
+async def test_list_skill_versions_prefers_skill_uuid(
+    agents_client: AgentsClient,
+    mock_tracecat_client: MagicMock,
+) -> None:
+    skill_uuid = uuid.uuid4()
+    mock_tracecat_client.get.return_value = {
+        "items": [],
+        "next_cursor": None,
+        "has_more": False,
+    }
+
+    await agents_client.list_skill_versions(
+        skill_id="skill-id",
+        skill_uuid=skill_uuid,
+    )
+
+    mock_tracecat_client.get.assert_awaited_once_with(
+        f"/agent/skills/{skill_uuid}/versions",
+        params={"limit": 20, "reverse": False},
+    )
+
+
+@pytest.mark.anyio
+async def test_get_skill_version_uses_version_endpoint(
+    agents_client: AgentsClient,
+    mock_tracecat_client: MagicMock,
+) -> None:
+    mock_tracecat_client.get.return_value = {"id": "version-id"}
+
+    result = await agents_client.get_skill_version(
+        skill_id="skill-id", version_id="version-id"
+    )
+
+    assert result == {"id": "version-id"}
+    mock_tracecat_client.get.assert_awaited_once_with(
+        "/agent/skills/skill-id/versions/version-id"
+    )
+
+
+@pytest.mark.anyio
+async def test_restore_skill_version_uses_restore_endpoint(
+    agents_client: AgentsClient,
+    mock_tracecat_client: MagicMock,
+) -> None:
+    mock_tracecat_client.post.return_value = {"current_version_id": "version-id"}
+
+    result = await agents_client.restore_skill_version(
+        skill_id="skill-id", version_id="version-id"
+    )
+
+    assert result == {"current_version_id": "version-id"}
+    mock_tracecat_client.post.assert_awaited_once_with(
+        "/agent/skills/skill-id/versions/version-id/restore"
+    )

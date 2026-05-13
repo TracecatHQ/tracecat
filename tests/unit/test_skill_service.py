@@ -525,6 +525,38 @@ class TestSkillService:
         assert listing.items[0].id == active.id
         assert listing.items[0].name == active.name
 
+    async def test_get_skill_by_identifier_accepts_uuid_or_name(
+        self,
+        skill_service: SkillService,
+    ) -> None:
+        created = await skill_service.create_skill(SkillCreate(name="lookup-skill"))
+
+        by_uuid = await skill_service.get_skill_by_identifier(created.id)
+        by_uuid_string = await skill_service.get_skill_by_identifier(str(created.id))
+        by_name = await skill_service.get_skill_by_identifier("lookup-skill")
+
+        assert by_uuid is not None
+        assert by_uuid.id == created.id
+        assert by_uuid_string is not None
+        assert by_uuid_string.id == created.id
+        assert by_name is not None
+        assert by_name.id == created.id
+
+    async def test_get_skill_by_identifier_rejects_ambiguous_names(
+        self,
+        skill_service: SkillService,
+    ) -> None:
+        await skill_service.create_skill(SkillCreate(name="duplicate-skill"))
+        await skill_service.create_skill(SkillCreate(name="duplicate-skill"))
+
+        with pytest.raises(TracecatValidationError) as exc_info:
+            await skill_service.get_skill_by_identifier("duplicate-skill")
+
+        assert exc_info.value.detail == {
+            "code": "ambiguous_skill_id",
+            "skill_id": "duplicate-skill",
+        }
+
     async def test_patch_draft_enforces_revision(
         self,
         skill_service: SkillService,
