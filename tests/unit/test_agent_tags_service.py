@@ -50,6 +50,9 @@ def _agent_tag(name: str, created_at: datetime, workspace_id: object) -> AgentTa
     [
         lambda service: service.list_tags(),
         lambda service: service.list_tags_paginated(CursorPaginationParams()),
+        lambda service: service.list_tags_for_preset_paginated(
+            uuid4(), CursorPaginationParams()
+        ),
         lambda service: service.get_tag(uuid4()),
     ],
 )
@@ -73,6 +76,12 @@ async def test_agent_tag_read_methods_require_agent_read_scope(
     [
         (
             lambda service: service.list_tags_for_preset(uuid4()),
+            frozenset({"agent:read"}),
+        ),
+        (
+            lambda service: service.list_tags_for_preset_paginated(
+                uuid4(), CursorPaginationParams()
+            ),
             frozenset({"agent:read"}),
         ),
         (
@@ -199,6 +208,64 @@ async def test_list_tags_paginated_reverse_pages_use_canonical_order(
     )
     assert page.has_more is True
     assert page.has_previous is True
+
+
+@pytest.mark.anyio
+async def test_list_tags_for_preset_paginated_uses_cursor_pages(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Paginated preset tag listing should return stable bounded pages."""
+    workspace_id = uuid4()
+    preset_id = uuid4()
+    base_time = datetime(2026, 1, 1, tzinfo=UTC)
+    rows = [
+        _agent_tag("newer", base_time + timedelta(minutes=3), workspace_id),
+        _agent_tag("middle", base_time + timedelta(minutes=2), workspace_id),
+        _agent_tag("older", base_time + timedelta(minutes=1), workspace_id),
+    ]
+    result = MagicMock()
+    result.scalars.return_value.all.return_value = rows
+    session = AsyncMock()
+    session.scalar.return_value = True
+    session.execute.return_value = result
+    service = AgentTagsService(
+        session=session,
+        role=_role_with_scopes(frozenset({"agent:read"})),
+    )
+    monkeypatch.setattr(service, "has_entitlement", AsyncMock(return_value=True))
+
+    page = await service.list_tags_for_preset_paginated(
+        preset_id, CursorPaginationParams(limit=2)
+    )
+
+    assert [tag.id for tag in page.items] == [rows[0].id, rows[1].id]
+    assert page.next_cursor == BaseCursorPaginator.encode_cursor(
+        rows[1].id,
+        sort_column="created_at",
+        sort_value=rows[1].created_at,
+    )
+    assert page.has_more is True
+    assert page.has_previous is False
+
+
+@pytest.mark.anyio
+async def test_list_tags_for_preset_paginated_invalid_cursor_raises_validation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Invalid preset tag cursors should surface app-level validation errors."""
+    service = AgentTagsService(
+        session=AsyncMock(),
+        role=_role_with_scopes(frozenset({"agent:read"})),
+    )
+    monkeypatch.setattr(service, "has_entitlement", AsyncMock(return_value=True))
+    monkeypatch.setattr(service, "_require_preset_in_workspace", AsyncMock())
+
+    with pytest.raises(
+        TracecatValidationError, match="Invalid cursor for agent preset tags"
+    ):
+        await service.list_tags_for_preset_paginated(
+            uuid4(), CursorPaginationParams(cursor="invalid")
+        )
 
 
 @pytest.mark.anyio

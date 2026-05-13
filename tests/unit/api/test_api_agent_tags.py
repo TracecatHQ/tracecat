@@ -16,7 +16,7 @@ from tracecat.exceptions import (
     TracecatConflictError,
     TracecatNotFoundError,
 )
-from tracecat.pagination import CursorPaginatedResponse
+from tracecat.pagination import CursorPaginatedResponse, CursorPaginationParams
 
 # Fixed UUID for parametrized test IDs — uuid.uuid4() at module level causes
 # pytest-xdist collection mismatches because each worker generates a different value.
@@ -49,7 +49,7 @@ async def test_list_preset_tags_requires_agent_addons_entitlement(
 
     with patch.object(agent_tags_router, "AgentTagsService") as mock_service_cls:
         mock_service = _mock_service_with_async_method(
-            "list_tags_for_preset",
+            "list_tags_for_preset_paginated",
             side_effect=EntitlementRequired("agent_addons"),
         )
         mock_service_cls.return_value = mock_service
@@ -72,7 +72,7 @@ async def test_list_preset_tags_missing_preset_returns_404(
 
     with patch.object(agent_tags_router, "AgentTagsService") as mock_service_cls:
         mock_service = _mock_service_with_async_method(
-            "list_tags_for_preset",
+            "list_tags_for_preset_paginated",
             side_effect=TracecatNotFoundError("Agent preset not found"),
         )
         mock_service_cls.return_value = mock_service
@@ -81,6 +81,49 @@ async def test_list_preset_tags_missing_preset_returns_404(
 
     assert response.status_code == status.HTTP_404_NOT_FOUND
     assert response.json()["detail"] == "Agent preset not found"
+
+
+@pytest.mark.anyio
+async def test_list_preset_tags_returns_paginated_response(
+    client: TestClient,
+    test_admin_role: Role,
+) -> None:
+    """Preset tag listing should use the cursor-paginated API shape."""
+    preset_id = uuid.uuid4()
+
+    with patch.object(agent_tags_router, "AgentTagsService") as mock_service_cls:
+        mock_service = _mock_service_with_async_method(
+            "list_tags_for_preset_paginated",
+            return_value=CursorPaginatedResponse(items=[], has_more=True),
+        )
+        mock_service_cls.return_value = mock_service
+
+        response = client.get(
+            f"/agent/presets/{preset_id}/tags",
+            params={
+                "limit": 2,
+                "cursor": "encoded-cursor",
+                "reverse": True,
+            },
+        )
+
+    assert response.status_code == status.HTTP_200_OK
+    assert response.json() == {
+        "items": [],
+        "next_cursor": None,
+        "prev_cursor": None,
+        "has_more": True,
+        "has_previous": False,
+        "total_estimate": None,
+    }
+    mock_service.list_tags_for_preset_paginated.assert_awaited_once_with(
+        preset_id,
+        CursorPaginationParams(
+            limit=2,
+            cursor="encoded-cursor",
+            reverse=True,
+        ),
+    )
 
 
 @pytest.mark.anyio

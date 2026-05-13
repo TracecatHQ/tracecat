@@ -5638,7 +5638,10 @@ export const agentPresetsMoveAgentPresetToFolder = (
  * @param data The data for the request.
  * @param data.presetId
  * @param data.workspaceId
- * @returns AgentTagRead Successful Response
+ * @param data.limit
+ * @param data.cursor
+ * @param data.reverse
+ * @returns CursorPaginatedResponse_AgentTagRead_ Successful Response
  * @throws ApiError
  */
 export const agentPresetsListPresetTags = (
@@ -5650,6 +5653,11 @@ export const agentPresetsListPresetTags = (
     path: {
       preset_id: data.presetId,
       workspace_id: data.workspaceId,
+    },
+    query: {
+      limit: data.limit,
+      cursor: data.cursor,
+      reverse: data.reverse,
     },
     errors: {
       422: "Validation Error",

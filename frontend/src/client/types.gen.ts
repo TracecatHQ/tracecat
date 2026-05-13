@@ -10348,11 +10348,15 @@ export type AgentPresetsMoveAgentPresetToFolderData = {
 export type AgentPresetsMoveAgentPresetToFolderResponse = void
 
 export type AgentPresetsListPresetTagsData = {
+  cursor?: string | null
+  limit?: number
   presetId: string
+  reverse?: boolean
   workspaceId: string
 }
 
-export type AgentPresetsListPresetTagsResponse = Array<AgentTagRead>
+export type AgentPresetsListPresetTagsResponse =
+  CursorPaginatedResponse_AgentTagRead_
 
 export type AgentPresetsAddPresetTagData = {
   presetId: string
@@ -15135,7 +15139,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        200: Array<AgentTagRead>
+        200: CursorPaginatedResponse_AgentTagRead_
         /**
          * Validation Error
          */

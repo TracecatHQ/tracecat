@@ -1,35 +1,63 @@
 """HTTP routes for agent preset tag associations."""
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, Query, status
 from pydantic import UUID4
 
+from tracecat import config
 from tracecat.agent.tags.schemas import AgentPresetTagCreate, AgentTagRead
 from tracecat.agent.tags.service import AgentTagsService
 from tracecat.auth.dependencies import WorkspaceUserRouteRole
 from tracecat.authz.controls import require_scope
 from tracecat.db.dependencies import AsyncDBSession
-from tracecat.exceptions import TracecatNotFoundError
+from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
+from tracecat.pagination import CursorPaginatedResponse, CursorPaginationParams
 
 router = APIRouter(prefix="/agent/presets", tags=["agent-presets"])
 
 
-@router.get("/{preset_id}/tags", response_model=list[AgentTagRead])
+@router.get("/{preset_id}/tags", response_model=CursorPaginatedResponse[AgentTagRead])
 @require_scope("agent:read")
 async def list_preset_tags(
     role: WorkspaceUserRouteRole,
     session: AsyncDBSession,
     preset_id: UUID4,
-) -> list[AgentTagRead]:
+    limit: int = Query(
+        default=config.TRACECAT__LIMIT_DEFAULT,
+        ge=config.TRACECAT__LIMIT_MIN,
+        le=config.TRACECAT__LIMIT_CURSOR_MAX,
+    ),
+    cursor: str | None = Query(default=None),
+    reverse: bool = Query(default=False),
+) -> CursorPaginatedResponse[AgentTagRead]:
     """List all tags for an agent preset."""
     service = AgentTagsService(session, role=role)
     try:
-        db_tags = await service.list_tags_for_preset(preset_id)
+        page = await service.list_tags_for_preset_paginated(
+            preset_id,
+            CursorPaginationParams(
+                limit=limit,
+                cursor=cursor,
+                reverse=reverse,
+            ),
+        )
     except TracecatNotFoundError as e:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=str(e),
         ) from e
-    return AgentTagRead.list_adapter().validate_python(db_tags)
+    except TracecatValidationError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        ) from e
+    return CursorPaginatedResponse(
+        items=AgentTagRead.list_adapter().validate_python(page.items),
+        next_cursor=page.next_cursor,
+        prev_cursor=page.prev_cursor,
+        has_more=page.has_more,
+        has_previous=page.has_previous,
+        total_estimate=page.total_estimate,
+    )
 
 
 @router.post("/{preset_id}/tags", status_code=status.HTTP_201_CREATED)
