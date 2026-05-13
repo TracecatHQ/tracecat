@@ -60,7 +60,7 @@ export function WorkspaceSettingsContainer({
         <div className="flex flex-1 items-center justify-center py-12">
           <EntitlementRequiredEmptyState
             title="Upgrade required"
-            description="Workspace AI model controls are unavailable on your current plan."
+            description="Workspace AI model subset controls are unavailable on your current plan."
           >
             <Button
               variant="link"

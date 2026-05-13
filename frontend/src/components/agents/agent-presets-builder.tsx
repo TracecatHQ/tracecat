@@ -592,15 +592,12 @@ function AgentPresetChatPane({
     { enabled: Boolean(preset && workspaceId) }
   )
   const selectedVersionId = chat?.agent_preset_version_id ?? null
-  const currentVersionId =
-    preset?.current_version_id ?? versions?.[0]?.id ?? null
   const {
     presetVersion: selectedVersionConfig,
     presetVersionIsLoading: selectedVersionConfigIsLoading,
   } = useAgentPresetVersion(workspaceId, preset?.id, selectedVersionId, {
     enabled: Boolean(workspaceId && preset?.id && selectedVersionId),
   })
-  const newChatVersionId = selectedVersionId ?? currentVersionId
   const effectiveModelConfig = selectedVersionId
     ? (selectedVersionConfig ?? null)
     : preset
@@ -655,7 +652,7 @@ function AgentPresetChatPane({
         entity_id: preset.id,
         tools: selectedVersionConfig?.actions ?? preset.actions ?? undefined,
         agent_preset_id: preset.id,
-        agent_preset_version_id: newChatVersionId,
+        agent_preset_version_id: selectedVersionId,
       })
       setSelectedChatId(newChat.id)
       await refetchChats()

@@ -10,7 +10,7 @@ from __future__ import annotations
 import uuid
 from typing import Any
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
@@ -95,7 +95,9 @@ class LoadSessionResult(BaseModel):
 
     found: bool
     sdk_session_id: str | None = None
-    sdk_session_data: str | None = None
+    # Legacy replay compatibility only. New activity executions do not populate
+    # SDK JSONL across Temporal boundaries.
+    sdk_session_data: str | None = Field(default=None, deprecated=True)
     is_fork: bool = False  # If True, runtime should use fork_session=True with SDK
     error: str | None = None
 
@@ -210,10 +212,11 @@ async def create_session_activity(input: CreateSessionInput) -> CreateSessionRes
 
 @activity.defn
 async def load_session_activity(input: LoadSessionInput) -> LoadSessionResult:
-    """Load agent session history for resume.
+    """Load lightweight agent session resume metadata.
 
-    Retrieves the stored SDK session data (JSONL) so the runtime
-    can resume from where it left off.
+    The full SDK JSONL history is loaded inside run_agent_activity. Keeping this
+    activity metadata-only avoids carrying joined session history through
+    Temporal workflow/activity payloads while preserving workflow command shape.
     """
     ctx_role.set(input.role)
 
@@ -224,21 +227,33 @@ async def load_session_activity(input: LoadSessionInput) -> LoadSessionResult:
             if agent_session is None:
                 return LoadSessionResult(found=False)
 
-            # Load the session history
-            history = await service.load_session_history(input.session_id)
+            is_fork = False
+            sdk_session_id = agent_session.sdk_session_id
 
-            if history is None:
-                return LoadSessionResult(
-                    found=True,
-                    sdk_session_id=None,
-                    sdk_session_data=None,
+            # For forked sessions, only fork on the first turn (when child has
+            # no sdk_session_id yet). Subsequent turns resume the child's own
+            # SDK session normally.
+            if (
+                agent_session.parent_session_id is not None
+                and agent_session.sdk_session_id is None
+            ):
+                parent_session = await service.get_session(
+                    agent_session.parent_session_id
                 )
+                if parent_session is None:
+                    logger.warning(
+                        "Forked session references non-existent parent",
+                        session_id=input.session_id,
+                        parent_session_id=agent_session.parent_session_id,
+                    )
+                    return LoadSessionResult(found=True)
+                is_fork = True
+                sdk_session_id = parent_session.sdk_session_id
 
             return LoadSessionResult(
                 found=True,
-                sdk_session_id=history.sdk_session_id,
-                sdk_session_data=history.sdk_session_data,
-                is_fork=history.is_fork,
+                sdk_session_id=sdk_session_id,
+                is_fork=is_fork,
             )
 
     except Exception as e:

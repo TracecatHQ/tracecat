@@ -26,9 +26,9 @@ TRACECAT_MCP__TOOL_TIMEOUT_SECONDS: int = int(
 """Maximum execution time in seconds for a single tool call."""
 
 TRACECAT_MCP__MAX_INPUT_SIZE_BYTES: int = int(
-    os.environ.get("TRACECAT_MCP__MAX_INPUT_SIZE_BYTES", "524288")
+    os.environ.get("TRACECAT_MCP__MAX_INPUT_SIZE_BYTES") or 4 * 1024 * 1024
 )
-"""Maximum size in bytes for any single string argument to a tool call (default 512KB)."""
+"""Maximum size in bytes for any single string argument to a tool call (default 4MB)."""
 
 TRACECAT_MCP__FILE_TRANSFER_URL_EXPIRY_SECONDS: int = int(
     os.environ.get("TRACECAT_MCP__FILE_TRANSFER_URL_EXPIRY_SECONDS") or "300"

@@ -30,6 +30,7 @@ from tracecat.agent.executor.activity import (
     AgentExecutorInput,
     AgentExecutorResult,
     SandboxedAgentExecutor,
+    _hydrate_sdk_session_history,
     run_agent_activity,
 )
 from tracecat.agent.schemas import ToolFilters
@@ -695,11 +696,12 @@ class TestLoadSessionActivity:
         )
 
         mock_agent_session = MagicMock()
+        mock_agent_session.sdk_session_id = None
+        mock_agent_session.parent_session_id = None
 
         # Set up the mock service
         mock_service = AsyncMock()
         mock_service.get_session.return_value = mock_agent_session
-        mock_service.load_session_history.return_value = None
 
         # Set up the context manager's __aenter__ to return the mock service
         mock_ctx = AsyncMock()
@@ -711,6 +713,7 @@ class TestLoadSessionActivity:
         assert result.found is True
         assert result.sdk_session_id is None
         assert result.sdk_session_data is None
+        assert result.is_fork is False
 
     @pytest.mark.anyio
     @patch("tracecat.agent.session.activities.AgentSessionService.with_session")
@@ -724,15 +727,12 @@ class TestLoadSessionActivity:
         )
 
         mock_agent_session = MagicMock()
-
-        mock_history = MagicMock()
-        mock_history.sdk_session_id = "sdk-session-123"
-        mock_history.sdk_session_data = '{"messages": []}'
+        mock_agent_session.sdk_session_id = "sdk-session-123"
+        mock_agent_session.parent_session_id = None
 
         # Set up the mock service
         mock_service = AsyncMock()
         mock_service.get_session.return_value = mock_agent_session
-        mock_service.load_session_history.return_value = mock_history
 
         # Set up the context manager's __aenter__ to return the mock service
         mock_ctx = AsyncMock()
@@ -743,7 +743,43 @@ class TestLoadSessionActivity:
 
         assert result.found is True
         assert result.sdk_session_id == "sdk-session-123"
-        assert result.sdk_session_data == '{"messages": []}'
+        assert result.sdk_session_data is None
+        assert result.is_fork is False
+
+    @pytest.mark.anyio
+    @patch("tracecat.agent.session.activities.AgentSessionService.with_session")
+    async def test_loads_forked_parent_session_metadata(
+        self, mock_with_session, mock_role: Role, mock_session_id: uuid.UUID
+    ):
+        """Forked first turns resume from parent metadata without SDK JSONL."""
+        parent_session_id = uuid.uuid4()
+        input = LoadSessionInput(
+            role=mock_role,
+            session_id=mock_session_id,
+        )
+
+        mock_agent_session = MagicMock()
+        mock_agent_session.sdk_session_id = None
+        mock_agent_session.parent_session_id = parent_session_id
+        mock_parent_session = MagicMock()
+        mock_parent_session.sdk_session_id = "parent-sdk-session"
+
+        mock_service = AsyncMock()
+        mock_service.get_session.side_effect = [
+            mock_agent_session,
+            mock_parent_session,
+        ]
+
+        mock_ctx = AsyncMock()
+        mock_ctx.__aenter__.return_value = mock_service
+        mock_with_session.return_value = mock_ctx
+
+        result = await load_session_activity(input)
+
+        assert result.found is True
+        assert result.sdk_session_id == "parent-sdk-session"
+        assert result.sdk_session_data is None
+        assert result.is_fork is True
 
 
 class TestRunAgentActivity:
@@ -896,6 +932,45 @@ class TestSandboxedAgentExecutorHelpers:
         assert payload.mcp_auth_token == executor_input.mcp_auth_token
         assert payload.llm_gateway_auth_token == executor_input.llm_gateway_auth_token
         assert payload.config.model_name == executor_input.config.model_name
+
+    @pytest.mark.anyio
+    @patch("tracecat.agent.executor.activity.AgentSessionService.with_session")
+    async def test_hydrates_session_history_for_runtime(
+        self,
+        mock_with_session,
+        executor_input: AgentExecutorInput,
+    ) -> None:
+        executor_input.sdk_session_id = "sdk-session-123"
+        mock_history = MagicMock()
+        mock_history.sdk_session_id = "sdk-session-123"
+        mock_history.sdk_session_data = '{"type":"user"}\n'
+        mock_history.is_fork = True
+        mock_service = AsyncMock()
+        mock_service.load_session_history.return_value = mock_history
+        mock_ctx = AsyncMock()
+        mock_ctx.__aenter__.return_value = mock_service
+        mock_with_session.return_value = mock_ctx
+
+        hydrated = await _hydrate_sdk_session_history(executor_input)
+
+        assert hydrated.sdk_session_id == "sdk-session-123"
+        assert hydrated.sdk_session_data == '{"type":"user"}\n'
+        assert hydrated.is_fork is True
+
+    @pytest.mark.anyio
+    @patch("tracecat.agent.executor.activity.AgentSessionService.with_session")
+    async def test_preserves_legacy_session_data(
+        self,
+        mock_with_session,
+        executor_input: AgentExecutorInput,
+    ) -> None:
+        executor_input.sdk_session_id = "legacy-sdk-session"
+        executor_input.sdk_session_data = '{"type":"legacy"}\n'
+
+        hydrated = await _hydrate_sdk_session_history(executor_input)
+
+        assert hydrated is executor_input
+        mock_with_session.assert_not_called()
 
 
 class TestSandboxedAgentExecutorSkillCaching:

@@ -70,6 +70,12 @@ class AgentStream:
     async def reset_for_new_turn(self) -> None:
         """Delete the persisted stream buffer and reset the saved cursor."""
         await self.client.delete(self._stream_key)
+        # Write "0-0" immediately so a reconnect during the turn has a valid cursor.
+        await self._set_last_stream_id("0-0")
+
+    async def abort_new_turn(self) -> None:
+        """Clear stream state after startup fails before a turn can produce events."""
+        await self.client.delete(self._stream_key)
         await self._set_last_stream_id(None)
 
     async def _expire_completed_stream(self) -> None:

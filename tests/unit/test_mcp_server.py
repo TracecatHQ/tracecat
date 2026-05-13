@@ -2551,11 +2551,6 @@ async def test_get_workflow_returns_inline_definition_when_requested(monkeypatch
     )
     monkeypatch.setattr(
         mcp_server,
-        "_get_workflow_folder_path",
-        lambda **_kwargs: asyncio.sleep(0, result=None),
-    )
-    monkeypatch.setattr(
-        mcp_server,
         "_build_workflow_yaml_envelope",
         lambda **_kwargs: asyncio.sleep(
             0, result={"definition": {"title": "Inline workflow"}}
@@ -2576,7 +2571,7 @@ async def test_get_workflow_returns_inline_definition_when_requested(monkeypatch
 
 
 @pytest.mark.anyio
-async def test_get_workflow_returns_staged_metadata_when_inline_is_too_large(
+async def test_get_workflow_returns_too_large_metadata_when_inline_is_too_large(
     monkeypatch,
 ):
     async def _resolve(_workspace_id):
@@ -2600,14 +2595,15 @@ async def test_get_workflow_returns_staged_metadata_when_inline_is_too_large(
     )
     monkeypatch.setattr(
         mcp_server,
-        "_get_workflow_folder_path",
-        lambda **_kwargs: asyncio.sleep(0, result="/detections/high/"),
-    )
-    monkeypatch.setattr(
-        mcp_server,
         "_build_workflow_yaml_envelope",
         lambda **_kwargs: asyncio.sleep(
-            0, result={"definition": {"description": "x" * 200_000}}
+            0,
+            result={
+                "definition": {
+                    "description": "x"
+                    * (mcp_server._inline_workflow_yaml_max_bytes() + 1024)
+                }
+            },
         ),
     )
 
@@ -2618,11 +2614,9 @@ async def test_get_workflow_returns_staged_metadata_when_inline_is_too_large(
             include_definition_yaml=True,
         )
     )
-    assert payload["definition_transport"] == "staged_required"
+    assert payload["definition_transport"] == "too_large"
     assert payload["definition_size_bytes"] > payload["inline_limit_bytes"]
     assert "definition_yaml" not in payload
-    assert payload["suggested_relative_path"].endswith(".yaml")
-    assert payload["suggested_relative_path"].startswith("detections/high/")
 
 
 @pytest.mark.anyio
@@ -2675,7 +2669,7 @@ async def test_create_workflow_rejects_oversized_inline_definition_yaml(monkeypa
 
     monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
 
-    with pytest.raises(ToolError, match="prepare_workflow_file_upload"):
+    with pytest.raises(ToolError, match="edit_workflow"):
         await _tool(mcp_server.create_workflow)(
             workspace_id=str(uuid.uuid4()),
             title="Example",
@@ -2717,7 +2711,7 @@ async def test_update_workflow_rejects_oversized_inline_definition_yaml(monkeypa
 
     monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
 
-    with pytest.raises(ToolError, match="prepare_workflow_file_upload"):
+    with pytest.raises(ToolError, match="edit_workflow"):
         await _tool(mcp_server.update_workflow)(
             workspace_id=str(uuid.uuid4()),
             workflow_id=str(uuid.uuid4()),
@@ -2784,738 +2778,6 @@ async def test_publish_workflow_builtin_registry_not_ready_returns_validation_fa
     assert error["type"] == "dsl"
     assert "retry shortly" in error["message"]
     assert error["details"][0]["type"] == "registry.builtin_sync_pending"
-
-
-@pytest.mark.anyio
-async def test_get_workflow_file_rejects_stdio_transport(monkeypatch):
-    workspace_id = uuid.uuid4()
-    workflow_id = uuid.uuid4()
-    role = SimpleNamespace(workspace_id=workspace_id, organization_id=uuid.uuid4())
-    workflow = SimpleNamespace(
-        id=workflow_id,
-        title="Collision workflow",
-        description=None,
-        status="offline",
-        version=None,
-        alias=None,
-        entrypoint=None,
-        folder_id=None,
-        trigger_position_x=0.0,
-        trigger_position_y=0.0,
-        viewport_x=0.0,
-        viewport_y=0.0,
-        viewport_zoom=1.0,
-        actions=[],
-        schedules=[],
-    )
-
-    class _WorkflowService:
-        def __init__(self) -> None:
-            self.session = object()
-
-        async def get_workflow(self, _wf_id):
-            return workflow
-
-        async def build_dsl_from_workflow(self, _workflow):
-            return SimpleNamespace(model_dump=lambda **_kwargs: {"title": "Collision"})
-
-    class _CaseTriggerService:
-        def __init__(self, _session, *, role):
-            self.role = role
-
-        async def get_case_trigger(self, _workflow_id):
-            raise mcp_server.TracecatNotFoundError("not found")
-
-    monkeypatch.setattr(
-        mcp_server,
-        "_resolve_workspace_role",
-        lambda _workspace_id: asyncio.sleep(0, result=(workspace_id, role)),
-    )
-    monkeypatch.setattr(
-        mcp_server.WorkflowsManagementService,
-        "with_session",
-        lambda role: _AsyncContext(_WorkflowService()),
-    )
-    monkeypatch.setattr(mcp_server, "CaseTriggersService", _CaseTriggerService)
-
-    with pytest.raises(
-        ToolError, match="only supported for remote streamable-http MCP clients"
-    ):
-        await _tool(mcp_server.get_workflow_file)(
-            workspace_id=str(workspace_id),
-            workflow_id=str(workflow_id),
-            ctx=_fake_ctx(transport="stdio"),
-        )
-
-
-@pytest.mark.anyio
-async def test_get_workflow_file_remote_returns_download_metadata(monkeypatch):
-    workspace_id = uuid.uuid4()
-    workflow_id = uuid.uuid4()
-    role = SimpleNamespace(workspace_id=workspace_id, organization_id=uuid.uuid4())
-    uploaded: dict[str, Any] = {}
-    workflow = SimpleNamespace(
-        id=workflow_id,
-        title="Remote workflow",
-        description=None,
-        status="offline",
-        version=None,
-        alias=None,
-        entrypoint=None,
-        folder_id=None,
-        trigger_position_x=0.0,
-        trigger_position_y=0.0,
-        viewport_x=0.0,
-        viewport_y=0.0,
-        viewport_zoom=1.0,
-        actions=[],
-        schedules=[],
-    )
-
-    class _WorkflowService:
-        def __init__(self) -> None:
-            self.session = object()
-
-        async def get_workflow(self, _wf_id):
-            return workflow
-
-        async def build_dsl_from_workflow(self, _workflow):
-            return SimpleNamespace(model_dump=lambda **_kwargs: {"title": "Remote"})
-
-    class _CaseTriggerService:
-        def __init__(self, _session, *, role):
-            self.role = role
-
-        async def get_case_trigger(self, _workflow_id):
-            raise mcp_server.TracecatNotFoundError("not found")
-
-    async def _upload_file(
-        content: bytes, key: str, bucket: str, content_type: str | None = None
-    ):
-        uploaded["content"] = content
-        uploaded["key"] = key
-        uploaded["bucket"] = bucket
-        uploaded["content_type"] = content_type
-
-    async def _download_url(
-        *,
-        key: str,
-        bucket: str,
-        expiry: int | None = None,
-        override_content_type: str | None = None,
-    ):
-        uploaded["download_args"] = {
-            "key": key,
-            "bucket": bucket,
-            "expiry": expiry,
-            "override_content_type": override_content_type,
-        }
-        return "https://example.test/download"
-
-    monkeypatch.setattr(
-        mcp_server,
-        "_resolve_workspace_role",
-        lambda _workspace_id: asyncio.sleep(0, result=(workspace_id, role)),
-    )
-    monkeypatch.setattr(
-        mcp_server.WorkflowsManagementService,
-        "with_session",
-        lambda role: _AsyncContext(_WorkflowService()),
-    )
-    monkeypatch.setattr(mcp_server, "CaseTriggersService", _CaseTriggerService)
-    monkeypatch.setattr(mcp_server.blob, "upload_file", _upload_file)
-    monkeypatch.setattr(
-        mcp_server.blob,
-        "generate_presigned_download_url",
-        _download_url,
-    )
-
-    result = await _tool(mcp_server.get_workflow_file)(
-        workspace_id=str(workspace_id),
-        workflow_id=str(workflow_id),
-        ctx=_fake_ctx(session_id="remote-session"),
-    )
-
-    payload = _payload(result)
-    assert payload["download_url"] == "https://example.test/download"
-    assert payload["transport"] == "streamable-http"
-    assert "definition_yaml" not in payload
-    assert uploaded["content_type"] == "application/yaml"
-    assert (
-        uploaded["download_args"]["expiry"]
-        == mcp_server.TRACECAT_MCP__FILE_TRANSFER_URL_EXPIRY_SECONDS
-    )
-    assert uploaded["key"].startswith(
-        f"{workspace_id}/mcp/workflow-files/remote-session/"
-    )
-
-
-@pytest.mark.anyio
-async def test_get_workflow_file_draft_false_uses_published_definition(
-    monkeypatch,
-):
-    workspace_id = uuid.uuid4()
-    workflow_id = uuid.uuid4()
-    role = SimpleNamespace(workspace_id=workspace_id, organization_id=uuid.uuid4())
-    uploaded: dict[str, Any] = {}
-    workflow = SimpleNamespace(
-        id=workflow_id,
-        title="Published workflow",
-        description="Example description",
-        status="offline",
-        version=None,
-        alias=None,
-        entrypoint=None,
-        folder_id=None,
-        trigger_position_x=1.0,
-        trigger_position_y=2.0,
-        viewport_x=3.0,
-        viewport_y=4.0,
-        viewport_zoom=0.5,
-        actions=[],
-        schedules=[],
-    )
-
-    class _WorkflowService:
-        def __init__(self) -> None:
-            self.session = object()
-
-        async def get_workflow(self, _wf_id):
-            return workflow
-
-        async def build_dsl_from_workflow(self, _workflow):
-            raise AssertionError("draft export should not build DSL from workflow")
-
-    class _DefinitionService:
-        def __init__(self, _session, *, role):
-            self.role = role
-
-        async def get_definition_by_workflow_id(self, _workflow_id, *, version=None):
-            _ = version
-            return SimpleNamespace(
-                version=3,
-                content={
-                    "title": "Published definition",
-                    "description": "Published description",
-                    "entrypoint": {"ref": "step_a"},
-                    "actions": [
-                        {
-                            "ref": "step_a",
-                            "action": "core.workflow.execute",
-                            "args": {},
-                        }
-                    ],
-                },
-            )
-
-    class _CaseTriggerService:
-        def __init__(self, _session, *, role):
-            self.role = role
-
-        async def get_case_trigger(self, _workflow_id):
-            raise mcp_server.TracecatNotFoundError("not found")
-
-    async def _upload_file(
-        content: bytes, key: str, bucket: str, content_type: str | None = None
-    ):
-        uploaded["content"] = content
-        uploaded["key"] = key
-        uploaded["bucket"] = bucket
-        uploaded["content_type"] = content_type
-
-    async def _download_url(
-        *,
-        key: str,
-        bucket: str,
-        expiry: int | None = None,
-        override_content_type: str | None = None,
-    ):
-        uploaded["download_args"] = {
-            "key": key,
-            "bucket": bucket,
-            "expiry": expiry,
-            "override_content_type": override_content_type,
-        }
-        return "https://example.test/published.yaml"
-
-    monkeypatch.setattr(
-        mcp_server,
-        "_resolve_workspace_role",
-        lambda _workspace_id: asyncio.sleep(0, result=(workspace_id, role)),
-    )
-    monkeypatch.setattr(
-        mcp_server.WorkflowsManagementService,
-        "with_session",
-        lambda role: _AsyncContext(_WorkflowService()),
-    )
-    monkeypatch.setattr(mcp_server, "WorkflowDefinitionsService", _DefinitionService)
-    monkeypatch.setattr(mcp_server, "CaseTriggersService", _CaseTriggerService)
-    monkeypatch.setattr(mcp_server.blob, "upload_file", _upload_file)
-    monkeypatch.setattr(
-        mcp_server.blob,
-        "generate_presigned_download_url",
-        _download_url,
-    )
-
-    result = await _tool(mcp_server.get_workflow_file)(
-        workspace_id=str(workspace_id),
-        workflow_id=str(workflow_id),
-        draft=False,
-        ctx=_fake_ctx(session_id="published-session"),
-    )
-
-    payload = _payload(result)
-    exported = yaml.safe_load(uploaded["content"].decode("utf-8"))
-    assert payload["draft"] is False
-    assert payload["download_url"] == "https://example.test/published.yaml"
-    assert (
-        uploaded["download_args"]["expiry"]
-        == mcp_server.TRACECAT_MCP__FILE_TRANSFER_URL_EXPIRY_SECONDS
-    )
-    assert exported["version"] == 3
-    assert exported["definition"]["title"] == "Published definition"
-
-
-@pytest.mark.anyio
-async def test_prepare_workflow_file_upload_stores_artifact_metadata(monkeypatch):
-    workspace_id = uuid.uuid4()
-    organization_id = uuid.uuid4()
-    role = SimpleNamespace(workspace_id=workspace_id, organization_id=organization_id)
-    fake_redis = _FakeRedis()
-
-    async def _resolve(_workspace_id):
-        return workspace_id, role
-
-    upload_args: dict[str, Any] = {}
-
-    async def _upload_url(
-        *,
-        key: str,
-        bucket: str,
-        expiry: int | None = None,
-        content_type: str | None = None,
-    ):
-        upload_args.update(
-            {
-                "key": key,
-                "bucket": bucket,
-                "expiry": expiry,
-                "content_type": content_type,
-            }
-        )
-        return f"https://example.test/upload/{key}"
-
-    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
-    monkeypatch.setattr(mcp_server, "_get_workflow_artifact_redis", lambda: fake_redis)
-    monkeypatch.setattr(mcp_server, "_current_mcp_client_id", lambda: "client-a")
-    monkeypatch.setattr(mcp_server.blob, "generate_presigned_upload_url", _upload_url)
-
-    result = await _tool(mcp_server.prepare_workflow_file_upload)(
-        workspace_id=str(workspace_id),
-        relative_path="detections/high/workflow.yaml",
-        operation="update",
-        workflow_id=str(uuid.uuid4()),
-        ctx=_fake_ctx(session_id="session-a"),
-    )
-
-    payload = _payload(result)
-    assert payload["relative_path"] == "detections/high/workflow.yaml"
-    assert payload["folder_path"] == "/detections/high/"
-    stored = await mcp_server._load_workflow_file_artifact(payload["artifact_id"])
-    assert stored is not None
-    assert stored.client_id == "client-a"
-    assert stored.session_id == "session-a"
-    assert stored.workspace_id == workspace_id
-    assert (
-        upload_args["expiry"]
-        == mcp_server.TRACECAT_MCP__FILE_TRANSFER_URL_EXPIRY_SECONDS
-    )
-
-
-@pytest.mark.anyio
-async def test_create_workflow_from_uploaded_file_rejects_expired_artifact(monkeypatch):
-    workspace_id = uuid.uuid4()
-    organization_id = uuid.uuid4()
-    role = SimpleNamespace(workspace_id=workspace_id, organization_id=organization_id)
-    fake_redis = _FakeRedis()
-    artifact = mcp_server.WorkflowFileArtifact(
-        artifact_id=uuid.uuid4(),
-        organization_id=organization_id,
-        workspace_id=workspace_id,
-        client_id="client-a",
-        session_id="session-a",
-        operation=mcp_server.WorkflowFileOperation.CREATE,
-        relative_path="workflow.yaml",
-        folder_path=None,
-        blob_key="blob-key",
-        expires_at=datetime.now(UTC) - timedelta(seconds=10),
-    )
-
-    async def _resolve(_workspace_id):
-        return workspace_id, role
-
-    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
-    monkeypatch.setattr(mcp_server, "_get_workflow_artifact_redis", lambda: fake_redis)
-    monkeypatch.setattr(mcp_server, "_current_mcp_client_id", lambda: "client-a")
-    await mcp_server._store_workflow_file_artifact(artifact)
-
-    with pytest.raises(ToolError, match="has expired"):
-        await _tool(mcp_server.create_workflow_from_uploaded_file)(
-            workspace_id=str(workspace_id),
-            artifact_id=str(artifact.artifact_id),
-            ctx=_fake_ctx(session_id="session-a"),
-        )
-
-
-@pytest.mark.anyio
-async def test_create_workflow_from_uploaded_file_rejects_stdio_transport(monkeypatch):
-    async def _resolve(_workspace_id):
-        return uuid.uuid4(), SimpleNamespace()
-
-    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
-
-    with pytest.raises(
-        ToolError, match="only supported for remote streamable-http MCP clients"
-    ):
-        await _tool(mcp_server.create_workflow_from_uploaded_file)(
-            workspace_id=str(uuid.uuid4()),
-            artifact_id=str(uuid.uuid4()),
-            ctx=_fake_ctx(transport="stdio"),
-        )
-
-
-@pytest.mark.anyio
-async def test_create_workflow_from_uploaded_file_rejects_client_mismatch(monkeypatch):
-    workspace_id = uuid.uuid4()
-    organization_id = uuid.uuid4()
-    role = SimpleNamespace(workspace_id=workspace_id, organization_id=organization_id)
-    fake_redis = _FakeRedis()
-    artifact = mcp_server.WorkflowFileArtifact(
-        artifact_id=uuid.uuid4(),
-        organization_id=organization_id,
-        workspace_id=workspace_id,
-        client_id="client-a",
-        session_id="session-a",
-        operation=mcp_server.WorkflowFileOperation.CREATE,
-        relative_path="workflow.yaml",
-        folder_path=None,
-        blob_key="blob-key",
-        expires_at=datetime.now(UTC) + timedelta(minutes=5),
-    )
-
-    async def _resolve(_workspace_id):
-        return workspace_id, role
-
-    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
-    monkeypatch.setattr(mcp_server, "_get_workflow_artifact_redis", lambda: fake_redis)
-    monkeypatch.setattr(mcp_server, "_current_mcp_client_id", lambda: "client-b")
-    await mcp_server._store_workflow_file_artifact(artifact)
-
-    with pytest.raises(ToolError, match="not valid for this MCP client"):
-        await _tool(mcp_server.create_workflow_from_uploaded_file)(
-            workspace_id=str(workspace_id),
-            artifact_id=str(artifact.artifact_id),
-            ctx=_fake_ctx(session_id="session-a"),
-        )
-
-
-@pytest.mark.anyio
-async def test_create_workflow_from_uploaded_file_imports_and_assigns_folder(
-    monkeypatch,
-):
-    workspace_id = uuid.uuid4()
-    organization_id = uuid.uuid4()
-    role = SimpleNamespace(workspace_id=workspace_id, organization_id=organization_id)
-    fake_redis = _FakeRedis()
-    assigned: dict[str, Any] = {}
-    created_workflow = SimpleNamespace(
-        id=uuid.uuid4(),
-        title="Created workflow",
-        description="Created description",
-        status="offline",
-    )
-    artifact = mcp_server.WorkflowFileArtifact(
-        artifact_id=uuid.uuid4(),
-        organization_id=organization_id,
-        workspace_id=workspace_id,
-        client_id="client-a",
-        session_id="session-a",
-        operation=mcp_server.WorkflowFileOperation.CREATE,
-        relative_path="detections/workflow.yaml",
-        folder_path="/detections/",
-        blob_key="blob-key",
-        expires_at=datetime.now(UTC) + timedelta(minutes=5),
-    )
-
-    async def _resolve(_workspace_id):
-        return workspace_id, role
-
-    async def _download_file(_key: str, _bucket: str) -> bytes:
-        return (
-            b"definition:\n"
-            b"  title: Uploaded workflow\n"
-            b"  description: Uploaded description\n"
-            b"  entrypoint:\n"
-            b"    ref: manual\n"
-            b"  actions:\n"
-            b"    - ref: step_a\n"
-            b"      action: core.transform.reshape\n"
-            b"      args: {}\n"
-        )
-
-    async def _create_from_import(
-        *, role: Any, import_data: dict[str, Any], use_workflow_id: bool = False
-    ):
-        assigned["import_data"] = import_data
-        assigned["use_workflow_id"] = use_workflow_id
-        return created_workflow
-
-    async def _assign_folder(
-        *, role: Any, session: Any, workflow_id: Any, folder_path: str | None
-    ):
-        assigned["workflow_id"] = workflow_id
-        assigned["folder_path"] = folder_path
-
-    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
-    monkeypatch.setattr(mcp_server, "_get_workflow_artifact_redis", lambda: fake_redis)
-    monkeypatch.setattr(mcp_server, "_current_mcp_client_id", lambda: "client-a")
-    monkeypatch.setattr(
-        mcp_server.blob,
-        "file_exists",
-        lambda *_args, **_kwargs: asyncio.sleep(0, result=True),
-    )
-    monkeypatch.setattr(mcp_server.blob, "download_file", _download_file)
-    monkeypatch.setattr(
-        mcp_server, "_create_workflow_from_import_data", _create_from_import
-    )
-    monkeypatch.setattr(mcp_server, "_assign_workflow_to_folder", _assign_folder)
-    monkeypatch.setattr(
-        mcp_server.WorkflowsManagementService,
-        "with_session",
-        lambda role: _AsyncContext(SimpleNamespace(session=object())),
-    )
-    await mcp_server._store_workflow_file_artifact(artifact)
-
-    result = await _tool(mcp_server.create_workflow_from_uploaded_file)(
-        workspace_id=str(workspace_id),
-        artifact_id=str(artifact.artifact_id),
-        ctx=_fake_ctx(session_id="session-a"),
-    )
-
-    payload = _payload(result)
-    assert payload["id"] == str(created_workflow.id)
-    assert assigned["folder_path"] == "/detections/"
-    stored = await mcp_server._load_workflow_file_artifact(artifact.artifact_id)
-    assert stored is not None
-    assert stored.used is True
-    assert stored.sha256 is not None
-
-
-@pytest.mark.anyio
-async def test_update_workflow_from_uploaded_file_updates_and_rejects_replay(
-    monkeypatch,
-):
-    workspace_id = uuid.uuid4()
-    organization_id = uuid.uuid4()
-    workflow_id = uuid.uuid4()
-    role = SimpleNamespace(workspace_id=workspace_id, organization_id=organization_id)
-    fake_redis = _FakeRedis()
-    captured: dict[str, Any] = {}
-    workflow = SimpleNamespace(id=workflow_id)
-    artifact = mcp_server.WorkflowFileArtifact(
-        artifact_id=uuid.uuid4(),
-        organization_id=organization_id,
-        workspace_id=workspace_id,
-        client_id="client-a",
-        session_id="session-a",
-        operation=mcp_server.WorkflowFileOperation.UPDATE,
-        relative_path="detections/critical/workflow.yaml",
-        folder_path="/detections/critical/",
-        blob_key="blob-key",
-        workflow_id=mcp_server.WorkflowUUID.new(workflow_id),
-        update_mode="replace",
-        expires_at=datetime.now(UTC) + timedelta(minutes=5),
-    )
-
-    async def _resolve(_workspace_id):
-        return workspace_id, role
-
-    class _WorkflowService:
-        def __init__(self) -> None:
-            self.session = object()
-            self.for_update_calls: list[bool] = []
-
-        async def get_workflow(self, wf_id, *, for_update: bool = False):
-            assert wf_id == mcp_server.WorkflowUUID.new(workflow_id)
-            self.for_update_calls.append(for_update)
-            return workflow
-
-    workflow_service = _WorkflowService()
-
-    async def _download_file(_key: str, _bucket: str) -> bytes:
-        return (
-            b"definition:\n"
-            b"  title: Uploaded workflow\n"
-            b"  description: Uploaded description\n"
-            b"  entrypoint:\n"
-            b"    ref: manual\n"
-            b"  actions:\n"
-            b"    - ref: step_a\n"
-            b"      action: core.transform.reshape\n"
-            b"      args: {}\n"
-        )
-
-    async def _apply_update(**kwargs):
-        captured["update"] = kwargs
-
-    async def _assign_folder(
-        *, role: Any, session: Any, workflow_id: Any, folder_path: str | None
-    ):
-        captured["folder_path"] = folder_path
-        captured["workflow_id"] = workflow_id
-
-    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
-    monkeypatch.setattr(mcp_server, "_get_workflow_artifact_redis", lambda: fake_redis)
-    monkeypatch.setattr(mcp_server, "_current_mcp_client_id", lambda: "client-a")
-    monkeypatch.setattr(
-        mcp_server.blob,
-        "file_exists",
-        lambda *_args, **_kwargs: asyncio.sleep(0, result=True),
-    )
-    monkeypatch.setattr(mcp_server.blob, "download_file", _download_file)
-    monkeypatch.setattr(mcp_server, "_apply_workflow_yaml_update", _apply_update)
-    monkeypatch.setattr(mcp_server, "_assign_workflow_to_folder", _assign_folder)
-    monkeypatch.setattr(
-        mcp_server.WorkflowsManagementService,
-        "with_session",
-        lambda role: _AsyncContext(workflow_service),
-    )
-    await mcp_server._store_workflow_file_artifact(artifact)
-
-    result = await _tool(mcp_server.update_workflow_from_uploaded_file)(
-        workspace_id=str(workspace_id),
-        workflow_id=str(workflow_id),
-        artifact_id=str(artifact.artifact_id),
-        ctx=_fake_ctx(session_id="session-a"),
-    )
-
-    payload = _payload(result)
-    assert payload["mode"] == "replace"
-    assert captured["folder_path"] == "/detections/critical/"
-    assert captured["workflow_id"] == mcp_server.WorkflowUUID.new(workflow_id)
-    assert captured["update"]["update_mode"] == "replace"
-    assert workflow_service.for_update_calls == [True]
-
-    with pytest.raises(ToolError, match="already been consumed"):
-        await _tool(mcp_server.update_workflow_from_uploaded_file)(
-            workspace_id=str(workspace_id),
-            workflow_id=str(workflow_id),
-            artifact_id=str(artifact.artifact_id),
-            ctx=_fake_ctx(session_id="session-a"),
-        )
-
-
-@pytest.mark.anyio
-async def test_update_workflow_from_uploaded_file_rejects_stdio_transport(monkeypatch):
-    async def _resolve(_workspace_id):
-        return uuid.uuid4(), SimpleNamespace()
-
-    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
-
-    with pytest.raises(
-        ToolError, match="only supported for remote streamable-http MCP clients"
-    ):
-        await _tool(mcp_server.update_workflow_from_uploaded_file)(
-            workspace_id=str(uuid.uuid4()),
-            workflow_id=str(uuid.uuid4()),
-            artifact_id=str(uuid.uuid4()),
-            ctx=_fake_ctx(transport="stdio"),
-        )
-
-
-@pytest.mark.anyio
-async def test_update_workflow_from_uploaded_file_rejects_update_mode_mismatch(
-    monkeypatch,
-):
-    workspace_id = uuid.uuid4()
-    organization_id = uuid.uuid4()
-    workflow_id = uuid.uuid4()
-    role = SimpleNamespace(workspace_id=workspace_id, organization_id=organization_id)
-    fake_redis = _FakeRedis()
-    artifact = mcp_server.WorkflowFileArtifact(
-        artifact_id=uuid.uuid4(),
-        organization_id=organization_id,
-        workspace_id=workspace_id,
-        client_id="client-a",
-        session_id="session-a",
-        operation=mcp_server.WorkflowFileOperation.UPDATE,
-        relative_path="workflow.yaml",
-        folder_path=None,
-        blob_key="blob-key",
-        workflow_id=mcp_server.WorkflowUUID.new(workflow_id),
-        update_mode="replace",
-        expires_at=datetime.now(UTC) + timedelta(minutes=5),
-    )
-
-    async def _resolve(_workspace_id):
-        return workspace_id, role
-
-    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
-    monkeypatch.setattr(mcp_server, "_get_workflow_artifact_redis", lambda: fake_redis)
-    monkeypatch.setattr(mcp_server, "_current_mcp_client_id", lambda: "client-a")
-    await mcp_server._store_workflow_file_artifact(artifact)
-
-    with pytest.raises(
-        ToolError, match="update_mode does not match the prepared upload artifact"
-    ):
-        await _tool(mcp_server.update_workflow_from_uploaded_file)(
-            workspace_id=str(workspace_id),
-            workflow_id=str(workflow_id),
-            artifact_id=str(artifact.artifact_id),
-            update_mode="patch",
-            ctx=_fake_ctx(session_id="session-a"),
-        )
-
-
-@pytest.mark.anyio
-async def test_update_workflow_from_uploaded_file_rejects_cross_workspace_target(
-    monkeypatch,
-):
-    workspace_id = uuid.uuid4()
-    other_workspace_id = uuid.uuid4()
-    organization_id = uuid.uuid4()
-    workflow_id = uuid.uuid4()
-    role = SimpleNamespace(workspace_id=workspace_id, organization_id=organization_id)
-    fake_redis = _FakeRedis()
-    artifact = mcp_server.WorkflowFileArtifact(
-        artifact_id=uuid.uuid4(),
-        organization_id=organization_id,
-        workspace_id=other_workspace_id,
-        client_id="client-a",
-        session_id="session-a",
-        operation=mcp_server.WorkflowFileOperation.UPDATE,
-        relative_path="workflow.yaml",
-        folder_path=None,
-        blob_key="blob-key",
-        workflow_id=mcp_server.WorkflowUUID.new(workflow_id),
-        expires_at=datetime.now(UTC) + timedelta(minutes=5),
-    )
-
-    async def _resolve(_workspace_id):
-        return workspace_id, role
-
-    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
-    monkeypatch.setattr(mcp_server, "_get_workflow_artifact_redis", lambda: fake_redis)
-    monkeypatch.setattr(mcp_server, "_current_mcp_client_id", lambda: "client-a")
-    await mcp_server._store_workflow_file_artifact(artifact)
-
-    with pytest.raises(ToolError, match="not valid for this workspace"):
-        await _tool(mcp_server.update_workflow_from_uploaded_file)(
-            workspace_id=str(workspace_id),
-            workflow_id=str(workflow_id),
-            artifact_id=str(artifact.artifact_id),
-            ctx=_fake_ctx(session_id="session-a"),
-        )
 
 
 def test_evaluate_configuration_reports_missing_workspace_secret_keys():
@@ -6994,6 +6256,18 @@ def test_import_csv_tool_removed():
     assert not hasattr(mcp_server, "import_csv")
 
 
+def test_workflow_file_tools_removed():
+    removed_tools = {
+        "get_workflow_file",
+        "prepare_workflow_file_upload",
+        "create_workflow_from_uploaded_file",
+        "update_workflow_from_uploaded_file",
+    }
+    assert removed_tools.isdisjoint(mcp_server._TOOL_NAMESPACE_BY_NAME)
+    for tool_name in removed_tools:
+        assert not hasattr(mcp_server, tool_name)
+
+
 @pytest.mark.anyio
 async def test_export_csv_remote_returns_download_metadata(monkeypatch):
     async def _resolve(_workspace_id):
@@ -8576,6 +7850,25 @@ def test_mcp_instructions_include_agent_preset_authoring_tools() -> None:
     assert "list_integrations" in mcp_server._MCP_INSTRUCTIONS
     assert "create_agent_preset" in mcp_server._MCP_INSTRUCTIONS
     assert "update_agent_preset" in mcp_server._MCP_INSTRUCTIONS
+
+
+def test_mcp_instructions_prefer_edit_workflow_for_existing_workflows() -> None:
+    assert "Prefer `edit_workflow` for existing workflow changes" in (
+        mcp_server._MCP_INSTRUCTIONS
+    )
+    assert "already in context when you know they are current" in (
+        mcp_server._MCP_INSTRUCTIONS
+    )
+    assert "Call `get_workflow` only when the latest draft is missing" in (
+        mcp_server._MCP_INSTRUCTIONS
+    )
+    assert "conflict says the draft changed" in mcp_server._MCP_INSTRUCTIONS
+    assert "instead of resending full YAML" in mcp_server._MCP_INSTRUCTIONS
+    assert "Use `update_workflow` without `definition_yaml`" in (
+        mcp_server._MCP_INSTRUCTIONS
+    )
+    assert "only when intentionally replacing" in mcp_server._MCP_INSTRUCTIONS
+    assert "bulk-updating the workflow definition" in mcp_server._MCP_INSTRUCTIONS
 
 
 @pytest.mark.anyio

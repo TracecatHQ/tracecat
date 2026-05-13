@@ -68,11 +68,7 @@ from .schemas import (
 
 
 class AgentExecutorInput(BaseModel):
-    """Input for the agent executor activity.
-
-    On resume after approval, sdk_session_data already includes the reconciled
-    user tool_result entry.
-    """
+    """Input for the agent executor activity."""
 
     # ``extra="ignore"`` keeps Temporal activity replay working after the
     # legacy ``use_workspace_credentials`` field was removed: activity input
@@ -97,7 +93,9 @@ class AgentExecutorInput(BaseModel):
     subagents: list[SandboxSubagentConfig] = Field(default_factory=list)
     # Session resume data from previous runs
     sdk_session_id: str | None = None
-    sdk_session_data: str | None = None
+    # Legacy replay compatibility only. New executions hydrate this inside
+    # run_agent_activity instead of passing it over Temporal boundaries.
+    sdk_session_data: str | None = Field(default=None, deprecated=True)
     # True when resuming after an approval decision.
     is_approval_continuation: bool = False
     # True when forking from parent session (SDK should use fork_session=True)
@@ -628,9 +626,7 @@ class SandboxedAgentExecutor:
 
 
 @activity.defn
-async def run_agent_activity(
-    input: AgentExecutorInput,
-) -> AgentExecutorResult:
+async def run_agent_activity(input: AgentExecutorInput) -> AgentExecutorResult:
     """Temporal activity that runs one brokered agent turn.
 
     This activity:
@@ -656,6 +652,7 @@ async def run_agent_activity(
         f"Starting agent execution ({sandbox_mode} mode): {input.session_id}"
     )
 
+    input = await _hydrate_sdk_session_history(input)
     executor = SandboxedAgentExecutor(input=input)
     result = await executor.run()
 
@@ -675,3 +672,37 @@ async def run_agent_activity(
         activity.heartbeat(f"Agent execution failed: {result.error}")
 
     return result
+
+
+async def _hydrate_sdk_session_history(input: AgentExecutorInput) -> AgentExecutorInput:
+    """Inject SDK JSONL into activity input before runtime startup."""
+    # sdk_session_data is deprecated for new Temporal payloads, but old
+    # scheduled/replayed activity inputs may still carry it and must remain
+    # executable.
+    if input.sdk_session_id and input.sdk_session_data:
+        return input
+
+    if input.sdk_session_id is None:
+        return input.model_copy(
+            update={"sdk_session_data": None, "is_fork": False},
+        )
+
+    async with AgentSessionService.with_session(role=input.role) as svc:
+        history = await svc.load_session_history(input.session_id)
+
+    if history is None:
+        return input.model_copy(
+            update={
+                "sdk_session_id": None,
+                "sdk_session_data": None,
+                "is_fork": False,
+            },
+        )
+
+    return input.model_copy(
+        update={
+            "sdk_session_id": history.sdk_session_id,
+            "sdk_session_data": history.sdk_session_data,
+            "is_fork": history.is_fork,
+        },
+    )

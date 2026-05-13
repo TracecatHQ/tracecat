@@ -374,8 +374,8 @@ Profiles:
   prod      docker-compose.yml
 
 Tenant mode:
-  Defaults to TRACECAT__EE_MULTI_TENANT from the environment/.env when set,
-  otherwise true for cluster development.
+  Always defaults to TRACECAT__EE_MULTI_TENANT=true for cluster development.
+  .env and shell values are ignored; only the flags below override it.
   --single-tenant                 Set TRACECAT__EE_MULTI_TENANT=false
   --multi-tenant                  Set TRACECAT__EE_MULTI_TENANT=true
   --ee-multi-tenant true|false    Set TRACECAT__EE_MULTI_TENANT explicitly
@@ -519,9 +519,11 @@ build_env() {
     # Default to direct executor backend for development
     export TRACECAT__EXECUTOR_BACKEND="${TRACECAT__EXECUTOR_BACKEND:-direct}"
 
-    # Default cluster development to multi-tenant mode, but let .env/shell
-    # configuration override it unless an explicit cluster flag was provided.
-    export TRACECAT__EE_MULTI_TENANT="${CLUSTER_EE_MULTI_TENANT:-${TRACECAT__EE_MULTI_TENANT:-true}}"
+    # Cluster development always defaults to multi-tenant mode. Only the
+    # explicit cluster flags (--single-tenant / --multi-tenant /
+    # --ee-multi-tenant) override it; .env and shell values are ignored so
+    # fresh worktrees behave consistently.
+    export TRACECAT__EE_MULTI_TENANT="${CLUSTER_EE_MULTI_TENANT:-true}"
     FEATURE_FLAGS=$(cd "$REPO_ROOT" && uv run python -c "from tracecat.feature_flags.enums import FeatureFlag; print(','.join(f.value for f in FeatureFlag))" 2>/dev/null) || FEATURE_FLAGS=""
     if [[ -n "$FEATURE_FLAGS" ]]; then
         export TRACECAT__FEATURE_FLAGS="$FEATURE_FLAGS"

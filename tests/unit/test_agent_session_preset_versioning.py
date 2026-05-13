@@ -34,14 +34,51 @@ def _build_service() -> tuple[AgentSessionService, SimpleNamespace, Role]:
 
 
 @pytest.mark.anyio
-async def test_create_session_derives_agents_binding_from_preset_version() -> None:
+async def test_create_session_preserves_null_preset_version_for_current() -> None:
     service, session, _role = _build_service()
     preset_id = uuid.uuid4()
-    resolved_version_id = uuid.uuid4()
+    agent_session_id = uuid.uuid4()
+    validate_mock = AsyncMock(return_value=None)
+    agents_binding_mock = AsyncMock(return_value=None)
+    service._validate_preset_version_for_assignment = validate_mock
+    service._resolve_agents_binding_for_preset_version_id = agents_binding_mock
+
+    created = await service.create_session(
+        AgentSessionCreate(
+            id=agent_session_id,
+            title="Chat",
+            entity_type=AgentSessionEntity.AGENT_PRESET,
+            entity_id=preset_id,
+            agent_preset_version_id=None,
+        )
+    )
+
+    validate_mock.assert_awaited_once_with(
+        entity_type=AgentSessionEntity.AGENT_PRESET,
+        entity_id=preset_id,
+        agent_preset_id=None,
+        agent_preset_version_id=None,
+    )
+    agents_binding_mock.assert_awaited_once_with(None)
+    assert created.agent_preset_id == preset_id
+    assert created.agent_preset_version_id is None
+    assert created.agents_binding is None
+    session.add.assert_called_once_with(created)
+    session.commit.assert_awaited_once()
+    session.refresh.assert_awaited_once_with(created)
+
+
+@pytest.mark.anyio
+async def test_create_session_derives_agents_binding_from_pinned_preset_version() -> (
+    None
+):
+    service, session, _role = _build_service()
+    preset_id = uuid.uuid4()
+    pinned_version_id = uuid.uuid4()
     agents_binding = {"enabled": True, "subagents": []}
-    resolve_mock = AsyncMock(return_value=resolved_version_id)
+    validate_mock = AsyncMock(return_value=pinned_version_id)
     agents_binding_mock = AsyncMock(return_value=agents_binding)
-    service._resolve_preset_version_for_assignment = resolve_mock
+    service._validate_preset_version_for_assignment = validate_mock
     service._resolve_agents_binding_for_preset_version_id = agents_binding_mock
 
     created = await service.create_session(
@@ -50,19 +87,20 @@ async def test_create_session_derives_agents_binding_from_preset_version() -> No
             entity_type=AgentSessionEntity.CASE,
             entity_id=uuid.uuid4(),
             agent_preset_id=preset_id,
+            agent_preset_version_id=pinned_version_id,
         )
     )
 
-    resolve_mock.assert_awaited_once_with(
+    validate_mock.assert_awaited_once_with(
         entity_type=AgentSessionEntity.CASE,
         entity_id=created.entity_id,
         agent_preset_id=preset_id,
-        agent_preset_version_id=None,
+        agent_preset_version_id=pinned_version_id,
     )
     assert created.agent_preset_id == preset_id
-    assert created.agent_preset_version_id == resolved_version_id
+    assert created.agent_preset_version_id == pinned_version_id
     assert created.agents_binding == agents_binding
-    agents_binding_mock.assert_awaited_once_with(resolved_version_id)
+    agents_binding_mock.assert_awaited_once_with(pinned_version_id)
     session.commit.assert_awaited_once()
     session.refresh.assert_awaited_once_with(created)
 
@@ -70,9 +108,9 @@ async def test_create_session_derives_agents_binding_from_preset_version() -> No
 @pytest.mark.anyio
 async def test_create_session_persists_internal_agents_binding_without_preset() -> None:
     service, session, _role = _build_service()
-    resolve_mock = AsyncMock(return_value=None)
+    validate_mock = AsyncMock(return_value=None)
     agents_binding_mock = AsyncMock(return_value=None)
-    service._resolve_preset_version_for_assignment = resolve_mock
+    service._validate_preset_version_for_assignment = validate_mock
     service._resolve_agents_binding_for_preset_version_id = agents_binding_mock
     agents_binding = ResolvedAgentsConfig.model_validate(
         {"enabled": True, "subagents": []}
@@ -94,12 +132,11 @@ async def test_create_session_persists_internal_agents_binding_without_preset() 
 
 
 @pytest.mark.anyio
-async def test_update_session_resolves_current_version_when_preset_changes() -> None:
+async def test_update_session_preserves_null_version_when_preset_changes() -> None:
     service, session, role = _build_service()
     old_preset_id = uuid.uuid4()
     new_preset_id = uuid.uuid4()
     old_version_id = uuid.uuid4()
-    resolved_version_id = uuid.uuid4()
     agent_session = AgentSession(
         workspace_id=role.workspace_id,
         title="Chat",
@@ -108,10 +145,11 @@ async def test_update_session_resolves_current_version_when_preset_changes() -> 
         entity_id=uuid.uuid4(),
         agent_preset_id=old_preset_id,
         agent_preset_version_id=old_version_id,
+        agents_binding={"enabled": True, "subagents": []},
     )
-    resolve_mock = AsyncMock(return_value=resolved_version_id)
-    agents_binding_mock = AsyncMock(return_value={"enabled": True, "subagents": []})
-    service._resolve_preset_version_for_assignment = resolve_mock
+    validate_mock = AsyncMock(return_value=None)
+    agents_binding_mock = AsyncMock(return_value=None)
+    service._validate_preset_version_for_assignment = validate_mock
     service._resolve_agents_binding_for_preset_version_id = agents_binding_mock
 
     updated = await service.update_session(
@@ -119,16 +157,16 @@ async def test_update_session_resolves_current_version_when_preset_changes() -> 
         params=AgentSessionUpdate(agent_preset_id=new_preset_id),
     )
 
-    resolve_mock.assert_awaited_once_with(
+    validate_mock.assert_awaited_once_with(
         entity_type=AgentSessionEntity.CASE,
         entity_id=agent_session.entity_id,
         agent_preset_id=new_preset_id,
         agent_preset_version_id=None,
     )
     assert updated.agent_preset_id == new_preset_id
-    assert updated.agent_preset_version_id == resolved_version_id
-    assert updated.agents_binding == {"enabled": True, "subagents": []}
-    agents_binding_mock.assert_awaited_once_with(resolved_version_id)
+    assert updated.agent_preset_version_id is None
+    assert updated.agents_binding is None
+    agents_binding_mock.assert_awaited_once_with(None)
     session.commit.assert_awaited_once()
     session.refresh.assert_awaited_once_with(agent_session)
 
@@ -162,25 +200,15 @@ async def test_update_session_clears_agents_binding_when_preset_removed() -> Non
 
 
 @pytest.mark.anyio
-async def test_ensure_session_preset_version_id_uses_current_version() -> None:
-    service, session, role = _build_service()
+async def test_validate_preset_assignment_preserves_null_without_resolving_current() -> (
+    None
+):
+    service, _session, _role = _build_service()
     preset_id = uuid.uuid4()
-    resolved_version_id = uuid.uuid4()
-    agent_session = AgentSession(
-        workspace_id=role.workspace_id,
-        title="Chat",
-        created_by=uuid.uuid4(),
-        entity_type="case",
-        entity_id=uuid.uuid4(),
-        agent_preset_id=preset_id,
-        agent_preset_version_id=None,
-    )
-    resolve_agent_preset_version = AsyncMock(
-        return_value=SimpleNamespace(id=resolved_version_id)
-    )
 
     preset_service = Mock()
-    preset_service.resolve_agent_preset_version = resolve_agent_preset_version
+    preset_service.get_preset = AsyncMock(return_value=SimpleNamespace(id=preset_id))
+    preset_service.resolve_agent_preset_version = AsyncMock()
 
     with pytest.MonkeyPatch.context() as mp:
         mp.setattr(
@@ -188,15 +216,16 @@ async def test_ensure_session_preset_version_id_uses_current_version() -> None:
             Mock(return_value=preset_service),
         )
 
-        resolved = await service._ensure_session_preset_version_id(agent_session)
+        pinned_version_id = await service._validate_preset_version_for_assignment(
+            entity_type=AgentSessionEntity.AGENT_PRESET,
+            entity_id=preset_id,
+            agent_preset_id=None,
+            agent_preset_version_id=None,
+        )
 
-    assert resolved == resolved_version_id
-    assert agent_session.agent_preset_version_id == resolved_version_id
-    resolve_agent_preset_version.assert_awaited_once_with(
-        preset_id=preset_id,
-    )
-    session.add.assert_called_with(agent_session)
-    session.commit.assert_awaited_once()
+    assert pinned_version_id is None
+    preset_service.get_preset.assert_awaited_once_with(preset_id)
+    preset_service.resolve_agent_preset_version.assert_not_awaited()
 
 
 @pytest.mark.anyio
@@ -213,9 +242,9 @@ async def test_update_session_allows_version_only_repin_for_preset_sessions() ->
         agent_preset_id=None,
         agent_preset_version_id=uuid.uuid4(),
     )
-    resolve_mock = AsyncMock(return_value=new_version_id)
+    validate_mock = AsyncMock(return_value=new_version_id)
     agents_binding_mock = AsyncMock(return_value={"enabled": True, "subagents": []})
-    service._resolve_preset_version_for_assignment = resolve_mock
+    service._validate_preset_version_for_assignment = validate_mock
     service._resolve_agents_binding_for_preset_version_id = agents_binding_mock
 
     updated = await service.update_session(
@@ -223,7 +252,7 @@ async def test_update_session_allows_version_only_repin_for_preset_sessions() ->
         params=AgentSessionUpdate(agent_preset_version_id=new_version_id),
     )
 
-    resolve_mock.assert_awaited_once_with(
+    validate_mock.assert_awaited_once_with(
         entity_type=AgentSessionEntity.AGENT_PRESET,
         entity_id=preset_id,
         agent_preset_id=None,
@@ -233,6 +262,39 @@ async def test_update_session_allows_version_only_repin_for_preset_sessions() ->
     assert updated.agent_preset_version_id == new_version_id
     assert updated.agents_binding == {"enabled": True, "subagents": []}
     agents_binding_mock.assert_awaited_once_with(new_version_id)
+    session.commit.assert_awaited_once()
+    session.refresh.assert_awaited_once_with(agent_session)
+
+
+@pytest.mark.anyio
+async def test_update_session_clears_pinned_version_to_follow_current() -> None:
+    service, session, role = _build_service()
+    preset_id = uuid.uuid4()
+    agent_session = AgentSession(
+        workspace_id=role.workspace_id,
+        title="Chat",
+        created_by=uuid.uuid4(),
+        entity_type="agent_preset",
+        entity_id=preset_id,
+        agent_preset_id=preset_id,
+        agent_preset_version_id=uuid.uuid4(),
+        agents_binding={"enabled": True, "subagents": []},
+    )
+    validate_mock = AsyncMock()
+    agents_binding_mock = AsyncMock(return_value=None)
+    service._validate_preset_version_for_assignment = validate_mock
+    service._resolve_agents_binding_for_preset_version_id = agents_binding_mock
+
+    updated = await service.update_session(
+        agent_session,
+        params=AgentSessionUpdate(agent_preset_version_id=None),
+    )
+
+    validate_mock.assert_not_awaited()
+    assert updated.agent_preset_id == preset_id
+    assert updated.agent_preset_version_id is None
+    assert updated.agents_binding is None
+    agents_binding_mock.assert_awaited_once_with(None)
     session.commit.assert_awaited_once()
     session.refresh.assert_awaited_once_with(agent_session)
 
@@ -254,9 +316,9 @@ async def test_update_session_ignores_mismatched_preset_id_for_preset_sessions()
         agent_preset_id=preset_id,
         agent_preset_version_id=uuid.uuid4(),
     )
-    resolve_mock = AsyncMock(return_value=new_version_id)
+    validate_mock = AsyncMock(return_value=new_version_id)
     agents_binding_mock = AsyncMock(return_value={"enabled": True, "subagents": []})
-    service._resolve_preset_version_for_assignment = resolve_mock
+    service._validate_preset_version_for_assignment = validate_mock
     service._resolve_agents_binding_for_preset_version_id = agents_binding_mock
 
     updated = await service.update_session(
@@ -267,7 +329,7 @@ async def test_update_session_ignores_mismatched_preset_id_for_preset_sessions()
         ),
     )
 
-    resolve_mock.assert_awaited_once_with(
+    validate_mock.assert_awaited_once_with(
         entity_type=AgentSessionEntity.AGENT_PRESET,
         entity_id=preset_id,
         agent_preset_id=mismatched_preset_id,

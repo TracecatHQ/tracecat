@@ -51,7 +51,10 @@ class AgentSessionCreate(BaseModel):
     )
     agent_preset_version_id: uuid.UUID | None = Field(
         default=None,
-        description="Pinned preset version used for this session (if any)",
+        description=(
+            "Pinned preset version used for this session. "
+            "If null, the session follows the preset's current version."
+        ),
     )
     # Harness fields
     harness_type: HarnessType = Field(
@@ -73,7 +76,10 @@ class AgentSessionUpdate(BaseModel):
     )
     agent_preset_version_id: uuid.UUID | None = Field(
         default=None,
-        description="Pinned preset version to use for this session",
+        description=(
+            "Pinned preset version to use for this session. "
+            "Set null to follow the preset's current version."
+        ),
     )
     harness_type: HarnessType | None = Field(
         default=None, description="Agent harness type"

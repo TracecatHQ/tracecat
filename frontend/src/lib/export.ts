@@ -15,11 +15,13 @@ export async function exportWorkflow({
   })
 
   // Extract the filename from the Content-Disposition header
-  const contentDisposition = response.headers["content-disposition"]
+  const contentDisposition = headerValueToString(
+    response.headers["content-disposition"]
+  )
 
   const filename =
     filenameFromHeader(contentDisposition) || `${workflowId}.${format}`
-  const contentType = response.headers["content-type"]
+  const contentType = headerValueToString(response.headers["content-type"])
 
   console.log("Downloading workflow definition:", filename)
   // If the format is YAML, make sure the conversion doesn't introduce issues
@@ -44,7 +46,25 @@ export async function exportWorkflow({
   }
 }
 
-function filenameFromHeader(contentDisposition: string): string | null {
+function headerValueToString(value: unknown): string | undefined {
+  if (typeof value === "string") {
+    return value
+  }
+  if (Array.isArray(value)) {
+    return value.join(", ")
+  }
+  if (value === null || value === undefined) {
+    return undefined
+  }
+  return String(value)
+}
+
+function filenameFromHeader(
+  contentDisposition: string | undefined
+): string | null {
+  if (!contentDisposition) {
+    return null
+  }
   const filenameMatch = contentDisposition.match(/filename="?(.+)"?/)
   if (filenameMatch && filenameMatch.length > 1) {
     return filenameMatch[1]

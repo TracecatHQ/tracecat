@@ -265,7 +265,11 @@ class AgentWorkflowArgs(BaseModel):
         default=None, description="Agent preset used for this session"
     )
     agent_preset_version_id: uuid.UUID | None = Field(
-        default=None, description="Pinned preset version used for this session"
+        default=None,
+        description=(
+            "Pinned preset version used for this workflow run. "
+            "If null, the run follows the preset's current version."
+        ),
     )
     harness_type: HarnessType | None = Field(
         default=None,
@@ -321,9 +325,6 @@ class DurableAgentWorkflow:
         self.approvals = ApprovalManager(role=self.role)
         self.max_requests = args.agent_args.max_requests
         self.max_tool_calls = args.agent_args.max_tool_calls
-        # Session state for Claude SDK resume
-        self._sdk_session_id: str | None = None
-        self._sdk_session_data: str | None = None
 
     def _upsert_tracecat_search_attributes(self) -> None:
         """Ensure direct agent runs have core Tracecat search attributes.
@@ -747,7 +748,8 @@ class DurableAgentWorkflow:
             registry_lock_origins=list(root_registry_lock.origins.keys()),
         )
 
-        # Load existing session state for resume
+        # Load existing session metadata for resume. sdk_session_data is legacy
+        # replay compatibility only; new activity executions leave it unset.
         load_result = await workflow.execute_activity(
             load_session_activity,
             LoadSessionInput(role=self.role, session_id=self.session_id),
@@ -755,17 +757,14 @@ class DurableAgentWorkflow:
             retry_policy=RETRY_POLICIES["activity:fail_fast"],
         )
 
-        is_fork = False
-        if load_result.found and load_result.sdk_session_data:
-            self._sdk_session_id = load_result.sdk_session_id
-            self._sdk_session_data = load_result.sdk_session_data
-            is_fork = load_result.is_fork
+        if load_result.found and load_result.sdk_session_id:
             logger.info(
                 "Resuming from existing session",
-                sdk_session_id=self._sdk_session_id,
-                is_fork=is_fork,
+                sdk_session_id=load_result.sdk_session_id,
+                is_fork=load_result.is_fork,
             )
 
+        info = workflow.info()
         # Mint the LLM gateway token after compiling subagent routes. MCP tokens
         # are scoped and minted as part of the compiled agent run.
         llm_gateway_auth_token = mint_llm_token(
@@ -791,12 +790,10 @@ class DurableAgentWorkflow:
             llm_gateway_auth_token=llm_gateway_auth_token,
             allowed_actions=allowed_actions,
             subagents=compiled_run.sandbox_subagents,
-            sdk_session_id=self._sdk_session_id,
-            sdk_session_data=self._sdk_session_data,
-            is_fork=is_fork,
+            sdk_session_id=load_result.sdk_session_id,
+            sdk_session_data=load_result.sdk_session_data,
+            is_fork=load_result.is_fork,
         )
-
-        info = workflow.info()
 
         # Run the executor activity
         while True:
@@ -864,20 +861,14 @@ class DurableAgentWorkflow:
                         session_id=self.session_id,
                     )
 
-                # Reload session data from DB to get lines persisted during previous turn
+                # Reload session metadata after reconciliation. Full SDK history
+                # is loaded inside run_agent_activity.
                 reload_result = await workflow.execute_activity(
                     load_session_activity,
                     LoadSessionInput(role=self.role, session_id=self.session_id),
                     start_to_close_timeout=timedelta(seconds=30),
                     retry_policy=RETRY_POLICIES["activity:fail_fast"],
                 )
-                if reload_result.found and reload_result.sdk_session_data:
-                    self._sdk_session_id = reload_result.sdk_session_id
-                    self._sdk_session_data = reload_result.sdk_session_data
-                    logger.info(
-                        "Reloaded session data for continuation",
-                        sdk_session_id=self._sdk_session_id,
-                    )
 
                 # Update executor input for resume. Reconcile has replaced the
                 # interrupt artifacts with the real tool_result entry; the
@@ -892,8 +883,9 @@ class DurableAgentWorkflow:
                     llm_gateway_auth_token=llm_gateway_auth_token,
                     allowed_actions=allowed_actions,
                     subagents=compiled_run.sandbox_subagents,
-                    sdk_session_id=self._sdk_session_id,
-                    sdk_session_data=self._sdk_session_data,
+                    sdk_session_id=reload_result.sdk_session_id,
+                    sdk_session_data=reload_result.sdk_session_data,
+                    is_fork=reload_result.is_fork,
                     is_approval_continuation=True,
                 )
                 self._turn += 1

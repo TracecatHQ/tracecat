@@ -72,6 +72,7 @@ _CLOUD_PROVIDER_TARGET_KEYS: dict[CloudProviderSlug, tuple[CloudTargetKey, ...]]
     "bedrock": (
         CloudTargetKey("inference_profile_id", "AWS_INFERENCE_PROFILE_ID"),
         CloudTargetKey("model_id", "AWS_MODEL_ID"),
+        CloudTargetKey("use_converse", "AWS_BEDROCK_USE_CONVERSE"),
     ),
     "azure_openai": (CloudTargetKey("deployment_name", "AZURE_DEPLOYMENT_NAME"),),
     "azure_ai": (CloudTargetKey("azure_ai_model_name", "AZURE_AI_MODEL_NAME"),),
@@ -522,7 +523,9 @@ class AgentManagementService(BaseOrgService):
         credentials: dict[str, str] = {}
         for spec in target_keys:
             value = metadata.get(spec.metadata_key)
-            if isinstance(value, str) and value:
+            if isinstance(value, bool):
+                credentials[spec.credential_key] = "true" if value else "false"
+            elif isinstance(value, str) and value:
                 credentials[spec.credential_key] = value
         return credentials
 
