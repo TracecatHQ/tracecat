@@ -9,6 +9,7 @@ import {
   fileToUploadEntry,
   getLanguageForPath,
   validateSkillDraftPath,
+  validateSkillName,
 } from "@/lib/skills-studio"
 
 const mockRouterPush = jest.fn()
@@ -259,6 +260,15 @@ Updated body`)
     expect(validateSkillDraftPath("docs\\notes.md")).toBe(
       "Use forward slashes instead of backslashes."
     )
+  })
+
+  it("validates skill names with the Zod-backed schema", () => {
+    expect(validateSkillName("threat-intel")).toBeNull()
+    expect(validateSkillName("threat--intel")).toBe(
+      "Use lowercase letters, numbers, and single hyphens (e.g. threat-intel)."
+    )
+    expect(validateSkillName("threat-")).toBe("Name cannot end with a hyphen.")
+    expect(validateSkillName("")).toBe("Name is required.")
   })
 })
 
