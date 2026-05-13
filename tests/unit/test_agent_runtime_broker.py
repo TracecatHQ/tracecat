@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import socket
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, cast
@@ -272,25 +271,20 @@ def test_transport_rewrites_resolved_bundled_claude_path_for_jail(
     ]
 
 
-def test_mcp_bridge_binding_uses_fixed_port_for_jailed_runtime() -> None:
-    with open_mcp_bridge_binding(use_jailed_paths=True) as binding:
+def test_mcp_bridge_binding_uses_fixed_port_for_jailed_runtime(tmp_path: Path) -> None:
+    with open_mcp_bridge_binding(use_jailed_paths=True, job_dir=tmp_path) as binding:
         assert binding.port == transport_module.TRACECAT__AGENT_MCP_BRIDGE_PORT
-        assert binding.inherited_fds == ()
-        assert binding.listener_fd is None
+        assert binding.ready_path is None
 
 
-def test_mcp_bridge_binding_uses_inherited_listener_for_direct_runtime() -> None:
-    with open_mcp_bridge_binding(use_jailed_paths=False) as binding:
-        assert binding.port > 0
-        assert binding.listener_fd is not None
-        assert binding.inherited_fds == (binding.listener_fd,)
+def test_mcp_bridge_binding_uses_ready_file_for_direct_runtime(tmp_path: Path) -> None:
+    ready_path = tmp_path / "mcp-bridge-ready.json"
+    ready_path.write_text("stale")
 
-        probe = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        try:
-            with pytest.raises(OSError):
-                probe.bind(("127.0.0.1", binding.port))
-        finally:
-            probe.close()
+    with open_mcp_bridge_binding(use_jailed_paths=False, job_dir=tmp_path) as binding:
+        assert binding.port == 0
+        assert binding.ready_path == ready_path
+        assert not ready_path.exists()
 
 
 def test_transport_rewrites_trusted_mcp_bridge_urls_for_selected_port(
@@ -396,6 +390,10 @@ async def test_transport_connect_applies_selected_direct_port_to_sdk_options(
         **kwargs: object,
     ) -> transport_module.SpawnedRuntime:
         captured_spawn_kwargs.update(kwargs)
+        init_payload_path = cast(Path, kwargs["init_payload_path"])
+        init_payload = orjson.loads(init_payload_path.read_bytes())
+        ready_path = Path(init_payload["mcp_bridge_ready_path"])
+        ready_path.write_bytes(orjson.dumps({"mcp_bridge_port": 54321}))
         return transport_module.SpawnedRuntime(
             process=cast(Any, _FakeSandboxProcess()),
             job_dir=None,
@@ -413,18 +411,17 @@ async def test_transport_connect_applies_selected_direct_port_to_sdk_options(
 
     init_payload_path = cast(Path, captured_spawn_kwargs["init_payload_path"])
     init_payload = orjson.loads(init_payload_path.read_bytes())
-    selected_port = init_payload["mcp_bridge_port"]
-    assert selected_port > 0
-    assert init_payload["mcp_bridge_fd"] is not None
-    assert captured_spawn_kwargs["inherited_fds"] == (init_payload["mcp_bridge_fd"],)
+    assert init_payload["mcp_bridge_port"] == 0
+    assert init_payload["mcp_bridge_ready_path"] == str(
+        tmp_path / "mcp-bridge-ready.json"
+    )
+    assert "inherited_fds" not in captured_spawn_kwargs
 
     mcp_servers = cast(dict[str, Any], options.mcp_servers)
-    assert mcp_servers["tracecat-registry"]["url"] == (
-        f"http://127.0.0.1:{selected_port}/mcp"
-    )
+    assert mcp_servers["tracecat-registry"]["url"] == ("http://127.0.0.1:54321/mcp")
     assert options.agents is not None
     agent = options.agents["analyst"]
     assert agent.mcpServers is not None
     agent_entry = cast(dict[str, Any], agent.mcpServers[0])
     child_server = cast(dict[str, Any], agent_entry["tracecat-registry-analyst"])
-    assert child_server["url"] == f"http://127.0.0.1:{selected_port}/mcp"
+    assert child_server["url"] == "http://127.0.0.1:54321/mcp"

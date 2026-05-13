@@ -135,7 +135,6 @@ async def spawn_jailed_runtime(
     session_project_dir: Path | None = None,
     enable_internet_access: bool = False,
     skills_dir: Path | None = None,
-    inherited_fds: tuple[int, ...] = (),
 ) -> SpawnedRuntime:
     """Spawn the Claude shim inside an NSJail sandbox or direct subprocess.
 
@@ -207,7 +206,6 @@ async def spawn_jailed_runtime(
             session_home_dir=session_home_dir,
             session_project_dir=session_project_dir,
             skills_dir=skills_dir,
-            inherited_fds=inherited_fds,
         )
 
     # NSJail mode for production - isolated runs require the per-job LLM socket.
@@ -268,7 +266,6 @@ async def _spawn_direct_runtime(
     session_home_dir: Path | None,
     session_project_dir: Path | None,
     skills_dir: Path | None,
-    inherited_fds: tuple[int, ...] = (),
 ) -> SpawnedRuntime:
     """Spawn the Claude shim as a direct subprocess (for development/testing).
 
@@ -339,7 +336,6 @@ async def _spawn_direct_runtime(
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
         env=env,
-        pass_fds=inherited_fds,
         limit=CLAUDE_SHIM_STDIO_LIMIT_BYTES,
     )
 
