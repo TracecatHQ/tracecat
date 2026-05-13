@@ -7,7 +7,7 @@ import uuid
 from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any, Literal
 
-from sqlalchemy import and_, or_, select
+from sqlalchemy import and_, distinct, func, or_, select
 from temporalio.client import WorkflowExecutionStatus
 
 from tracecat.agent.approvals.enums import ApprovalStatus
@@ -268,6 +268,23 @@ class ApprovalsInboxProvider(BaseCursorPaginator):
             has_previous=cursor is not None,
             total_estimate=None,
         )
+
+    async def count_pending_items(self) -> int:
+        """Count pending approval inbox items for sessions shown in the inbox."""
+        stmt = (
+            select(func.count(distinct(AgentSession.id)))
+            .select_from(AgentSession)
+            .join(Approval, Approval.session_id == AgentSession.id)
+            .where(
+                Approval.workspace_id == self.workspace_id,
+                Approval.status == ApprovalStatus.PENDING,
+                AgentSession.workspace_id == self.workspace_id,
+                AgentSession.parent_session_id.is_(None),
+                AgentSession.entity_type.in_(["workflow", "external_channel"]),
+            )
+        )
+        count = await self.session.scalar(stmt)
+        return int(count or 0)
 
     async def _enrich_sessions(
         self,

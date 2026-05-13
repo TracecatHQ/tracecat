@@ -986,6 +986,7 @@ class DSLWorkflow:
                                 actions=action_args.actions,
                                 tool_approvals=action_args.tool_approvals,
                                 agents=action_args.agents,
+                                mcp_servers=action_args.mcp_servers,
                             ),
                             max_requests=action_args.max_requests,
                             max_tool_calls=action_args.max_tool_calls,

@@ -48,11 +48,29 @@ MCP_REQUIRED_CLAIMS = (
 
 
 class UserMCPServerClaim(BaseModel):
-    """User MCP server configuration in JWT claims."""
+    """User MCP server reference in JWT claims.
+
+    Carries only non-secret identifiers. Headers (OAuth bearers, custom
+    auth) are resolved fresh by the trusted MCP server at call time via the
+    source ``id``.
+
+    The legacy ``url``/``transport``/``headers``/``timeout`` fields are
+    kept here so in-flight JWTs and Temporal activity outputs serialized
+    before this change still validate on replay. New mint paths set only
+    ``(name, id)``; trusted-server code paths use ``id``.
+    """
+
+    model_config = ConfigDict(extra="ignore")
 
     name: str
     """Unique identifier for the server."""
-    url: str
+    id: uuid.UUID | None = None
+    """UUID of the source ``mcp_integrations`` row. Required on new tokens;
+    optional only to support replay of pre-rollout tokens that lack it."""
+
+    # --- Legacy fields kept for replay of in-flight tokens. ---
+    # New mint paths leave these unset. Trusted server reads only (name, id).
+    url: str | None = None
     """HTTP/SSE endpoint URL."""
     transport: Literal["http", "sse"] = "http"
     """Transport type: 'http' or 'sse'."""

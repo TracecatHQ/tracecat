@@ -64,11 +64,14 @@ from tracecat.agent.session.activities import (
     CreateSessionInput,
     CreateSessionResult,
     LoadSessionInput,
+    LoadSessionMessagesInput,
+    LoadSessionMessagesResult,
     LoadSessionResult,
     ReconcileToolResultsInput,
     ReconcileToolResultsResult,
     create_session_activity,
     load_session_activity,
+    load_session_messages_activity,
     reconcile_tool_results_activity,
 )
 from tracecat.agent.session.service import AgentSessionService
@@ -76,6 +79,7 @@ from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.agent.types import AgentConfig
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
+from tracecat.chat.schemas import ChatMessage
 from tracecat.db.models import AgentSessionHistory, User
 from tracecat.dsl.common import RETRY_POLICIES
 from tracecat.dsl.schemas import RunActionInput
@@ -130,7 +134,27 @@ def create_mock_load_session_activity() -> Callable[..., Any]:
     return mock_load_session_activity
 
 
-def create_mock_build_agent_tool_definitions_activity(
+def create_mock_load_session_messages_activity(
+    *,
+    captured_inputs: list[LoadSessionMessagesInput] | None = None,
+    messages: list[ChatMessage] | None = None,
+    error: str | None = None,
+) -> Callable[..., Any]:
+    """Create a mock load_session_messages_activity for terminal history."""
+
+    @activity.defn(name="load_session_messages_activity")
+    async def mock_load_session_messages_activity(
+        input: LoadSessionMessagesInput,
+    ) -> LoadSessionMessagesResult:
+        if captured_inputs is not None:
+            captured_inputs.append(input)
+        result_messages = None if error is not None else messages or []
+        return LoadSessionMessagesResult(messages=result_messages, error=error)
+
+    return mock_load_session_messages_activity
+
+
+def create_mock_build_tool_definitions_activity(
     tool_definitions: dict[str, MCPToolDefinition] | None = None,
 ) -> Callable[..., Any]:
     """Create a mock build_agent_tool_definitions activity."""
@@ -244,6 +268,8 @@ def create_activities_with_mock_executor(
     tool_exec_callback: Callable[[RunActionInput], InlineObject[dict[str, str]]]
     | None = None,
     tool_definitions: dict[str, MCPToolDefinition] | None = None,
+    message_load_inputs: list[LoadSessionMessagesInput] | None = None,
+    session_messages: list[ChatMessage] | None = None,
 ) -> Sequence[Callable[..., Any]]:
     """Create a full activity list with mocked agent executor.
 
@@ -258,7 +284,11 @@ def create_activities_with_mock_executor(
     activities: list[Callable[..., Any]] = [
         create_mock_create_session_activity(),
         create_mock_load_session_activity(),
-        create_mock_build_agent_tool_definitions_activity(tool_definitions),
+        create_mock_load_session_messages_activity(
+            captured_inputs=message_load_inputs,
+            messages=session_messages,
+        ),
+        create_mock_build_tool_definitions_activity(tool_definitions),
         create_mock_run_agent_activity(response_callback),
         create_mock_execute_action_activity(tool_exec_callback),
         create_mock_reconcile_tool_results_activity(),
@@ -517,7 +547,13 @@ async def test_agent_workflow_simple_execution(
     ) -> AgentExecutorResult:
         return AgentExecutorResult(success=True, approval_requested=False)
 
-    activities = create_activities_with_mock_executor(mock_executor)
+    message_load_inputs: list[LoadSessionMessagesInput] = []
+    session_messages = [ChatMessage(id="msg-1")]
+    activities = create_activities_with_mock_executor(
+        mock_executor,
+        message_load_inputs=message_load_inputs,
+        session_messages=session_messages,
+    )
 
     async with agent_worker_factory(
         temporal_client, task_queue=queue, custom_activities=activities
@@ -533,6 +569,56 @@ async def test_agent_workflow_simple_execution(
 
         result = await wf_handle.result()
         assert result.session_id == mock_session_id
+        assert result.message_history == session_messages
+
+    assert [input.session_id for input in message_load_inputs] == [mock_session_id]
+
+
+@pytest.mark.anyio
+@pytest.mark.integration
+async def test_agent_workflow_preserves_legacy_activity_message_history(
+    svc_role: Role,
+    temporal_client: Client,
+    agent_worker_factory,
+    agent_workflow_args: AgentWorkflowArgs,
+    mock_session_id: uuid.UUID,
+) -> None:
+    """Existing activity payloads with messages should not schedule a new load."""
+    queue = f"test-agent-queue-{mock_session_id}"
+    legacy_messages = [ChatMessage(id="legacy-msg")]
+
+    def mock_executor(
+        call_count: int, input: AgentExecutorInput
+    ) -> AgentExecutorResult:
+        return AgentExecutorResult(
+            success=True,
+            approval_requested=False,
+            messages=legacy_messages,
+        )
+
+    message_load_inputs: list[LoadSessionMessagesInput] = []
+    activities = create_activities_with_mock_executor(
+        mock_executor,
+        message_load_inputs=message_load_inputs,
+    )
+
+    async with agent_worker_factory(
+        temporal_client, task_queue=queue, custom_activities=activities
+    ):
+        wf_handle = await temporal_client.start_workflow(
+            DurableAgentWorkflow.run,
+            agent_workflow_args,
+            id=AgentWorkflowID(mock_session_id),
+            task_queue=queue,
+            retry_policy=RETRY_POLICIES["workflow:fail_fast"],
+            execution_timeout=timedelta(seconds=30),
+        )
+
+        result = await wf_handle.result()
+        assert result.session_id == mock_session_id
+        assert result.message_history == legacy_messages
+
+    assert message_load_inputs == []
 
 
 @pytest.mark.anyio
@@ -815,6 +901,7 @@ async def test_agent_workflow_routes_approved_tools_to_executor_and_reconciles_h
         activities=[
             create_session_activity,
             load_session_activity,
+            load_session_messages_activity,
             reconcile_tool_results_activity,
             mock_build_tool_definitions,
             mock_record_approval_requests,
@@ -1113,6 +1200,7 @@ async def test_agent_workflow_plumbs_forked_session_through_approval_continuatio
         activities=[
             mock_create_session_activity,
             mock_load_session_activity,
+            create_mock_load_session_messages_activity(),
             mock_build_tool_definitions,
             mock_record_approval_requests,
             mock_apply_approval_decisions,
@@ -1302,7 +1390,8 @@ async def test_agent_workflow_replays_suspended_legacy_sdk_session_data_history(
     activities = [
         create_mock_create_session_activity(),
         mock_load_session_activity,
-        create_mock_build_agent_tool_definitions_activity(),
+        create_mock_load_session_messages_activity(),
+        create_mock_build_tool_definitions_activity(),
         mock_run_agent_activity,
         create_mock_execute_action_activity(),
         create_mock_reconcile_tool_results_activity(),
@@ -1555,6 +1644,7 @@ async def test_agent_workflow_does_not_retry_approved_tool_failures(
         activities=[
             create_session_activity,
             load_session_activity,
+            load_session_messages_activity,
             reconcile_tool_results_activity,
             mock_build_tool_definitions,
             mock_record_approval_requests,

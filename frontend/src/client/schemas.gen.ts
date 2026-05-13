@@ -11326,6 +11326,9 @@ export const $EditorComponent = {
     {
       $ref: "#/components/schemas/AgentModel",
     },
+    {
+      $ref: "#/components/schemas/MCPIntegration",
+    },
   ],
   title: "EditorComponent",
   discriminator: {
@@ -11337,6 +11340,7 @@ export const $EditorComponent = {
       code: "#/components/schemas/Code",
       float: "#/components/schemas/Float",
       integer: "#/components/schemas/Integer",
+      "mcp-integration": "#/components/schemas/MCPIntegration",
       select: "#/components/schemas/Select",
       "tag-input": "#/components/schemas/TagInput",
       text: "#/components/schemas/Text",
@@ -13348,6 +13352,21 @@ export const $InboxItemType = {
   description: "Types of inbox items.",
 } as const
 
+export const $InboxPendingCount = {
+  properties: {
+    count: {
+      type: "integer",
+      minimum: 0,
+      title: "Count",
+      description: "Number of pending inbox items",
+    },
+  },
+  type: "object",
+  required: ["count"],
+  title: "InboxPendingCount",
+  description: "Count of pending inbox items that require attention.",
+} as const
+
 export const $InferredColumn = {
   properties: {
     csv_header: {
@@ -14141,6 +14160,10 @@ export const $MCPHttpServerConfig = {
       type: "integer",
       title: "Timeout",
     },
+    id: {
+      type: "string",
+      title: "Id",
+    },
   },
   type: "object",
   required: ["name", "url"],
@@ -14158,6 +14181,24 @@ Example:
         "transport": "http",
         "headers": {"Authorization": "Bearer \${{ SECRETS.internal.API_KEY }}"}
     }`,
+} as const
+
+export const $MCPIntegration = {
+  properties: {
+    component_id: {
+      type: "string",
+      const: "mcp-integration",
+      title: "Component Id",
+      default: "mcp-integration",
+    },
+    multiple: {
+      type: "boolean",
+      title: "Multiple",
+      default: true,
+    },
+  },
+  type: "object",
+  title: "MCPIntegration",
 } as const
 
 export const $MCPIntegrationCreate = {
@@ -14724,6 +14765,10 @@ export const $MCPStdioServerConfig = {
     timeout: {
       type: "integer",
       title: "Timeout",
+    },
+    id: {
+      type: "string",
+      title: "Id",
     },
   },
   type: "object",

@@ -89,7 +89,7 @@ title: Incident triage
 Body`)
 
     expect(parsed).not.toBeNull()
-    expect(parsed?.body).toBe("\n    # Incident triage\n\nBody")
+    expect(parsed?.body).toBe("    # Incident triage\n\nBody")
   })
 
   it("preserves indentation on the first retained line after removing a duplicate heading", () => {

@@ -3335,6 +3335,7 @@ export type EditorComponent =
   | WorkflowAlias
   | AgentPreset
   | AgentModel
+  | MCPIntegration
 
 export type EditorFunctionRead = {
   name: string
@@ -4089,6 +4090,16 @@ export type InboxItemStatus = "pending" | "completed" | "failed"
 export type InboxItemType = "approval"
 
 /**
+ * Count of pending inbox items that require attention.
+ */
+export type InboxPendingCount = {
+  /**
+   * Number of pending inbox items
+   */
+  count: number
+}
+
+/**
  * Inferred column mapping between CSV headers and table columns.
  */
 export type InferredColumn = {
@@ -4399,9 +4410,15 @@ export type MCPHttpServerConfig = {
   }
   transport?: "http" | "sse"
   timeout?: number
+  id?: string
 }
 
 export type transport = "http" | "sse"
+
+export type MCPIntegration = {
+  component_id?: "mcp-integration"
+  multiple?: boolean
+}
 
 export type MCPIntegrationCreate =
   | MCPHttpIntegrationCreate
@@ -4534,6 +4551,7 @@ export type MCPStdioServerConfig = {
     [key: string]: string
   }
   timeout?: number
+  id?: string
 }
 
 /**
@@ -10790,6 +10808,12 @@ export type AdminRegistryPromoteRegistryVersionData = {
 export type AdminRegistryPromoteRegistryVersionResponse =
   tracecat__admin__registry__schemas__RegistryVersionPromoteResponse
 
+export type InboxGetPendingCountData = {
+  workspaceId: string
+}
+
+export type InboxGetPendingCountResponse = InboxPendingCount
+
 export type InboxListItemsData = {
   cursor?: string | null
   limit?: number
@@ -15862,6 +15886,21 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: tracecat__admin__registry__schemas__RegistryVersionPromoteResponse
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/inbox/items/pending-count": {
+    get: {
+      req: InboxGetPendingCountData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: InboxPendingCount
         /**
          * Validation Error
          */

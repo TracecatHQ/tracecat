@@ -41,6 +41,10 @@ class MCPHttpServerConfigPayload(BaseModel):
     headers: dict[str, str] | None = Field(default=None)
     transport: Literal["http", "sse"] | None = Field(default=None)
     timeout: int | None = Field(default=None)
+    id: str | None = Field(default=None)
+    """UUID of the source ``mcp_integrations`` row. Lets trusted callers
+    re-resolve secrets per use without carrying them through workflow
+    history."""
 
 
 class MCPStdioServerConfigPayload(BaseModel):
@@ -54,6 +58,9 @@ class MCPStdioServerConfigPayload(BaseModel):
     args: list[str] | None = Field(default=None)
     env: dict[str, str] | None = Field(default=None)
     timeout: int | None = Field(default=None)
+    id: str | None = Field(default=None)
+    """UUID of the source ``mcp_integrations`` row. See
+    :class:`MCPHttpServerConfigPayload.id`."""
 
 
 type MCPServerConfigPayload = Annotated[

@@ -143,6 +143,7 @@ import { useSkills, useSkillVersions } from "@/hooks/use-skills"
 import {
   type AgentPresetFormMode,
   buildDuplicateAgentPresetPayload,
+  buildSkillCommandItemValue,
 } from "@/lib/agent-presets"
 import type { ModelInfo } from "@/lib/chat"
 import { getApiErrorDetail } from "@/lib/errors"
@@ -2311,7 +2312,7 @@ function AgentPresetSkillsPanel({
             {availableSkillsToAdd.map((skill) => (
               <CommandItem
                 key={skill.id}
-                value={`${skill.name} ${skill.description ?? ""}`}
+                value={buildSkillCommandItemValue(skill)}
                 onSelect={() => handleAddSkill(skill.id)}
               >
                 <div className="flex min-w-0 flex-col gap-0.5">

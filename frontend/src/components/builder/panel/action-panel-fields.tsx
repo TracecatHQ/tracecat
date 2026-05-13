@@ -69,7 +69,11 @@ import {
   useAgentPresetVersions,
 } from "@/hooks/use-agent-presets"
 import { isExpression } from "@/lib/expressions"
-import { useBuilderRegistryActions, useWorkspaceAgentModels } from "@/lib/hooks"
+import {
+  useBuilderRegistryActions,
+  useListMcpIntegrations,
+  useWorkspaceAgentModels,
+} from "@/lib/hooks"
 import { getType } from "@/lib/jsonschema"
 import {
   type ExpressionComponent,
@@ -337,6 +341,25 @@ export function PolymorphicField({
             )}
           />
         )
+      case "mcp-integration":
+        return (
+          <Controller
+            name={fieldName}
+            control={methods.control}
+            render={({ field }) => (
+              <FormItem>
+                <FormLabelComponent
+                  label={label}
+                  description={formattedDescription}
+                  deprecated={deprecated}
+                  type={type}
+                />
+                <FormMessage className="whitespace-pre-line" />
+                <MCPIntegrationField field={field} />
+              </FormItem>
+            )}
+          />
+        )
     }
   }
 
@@ -594,6 +617,8 @@ function ComponentContent({
           component={component}
         />
       )
+    case "mcp-integration":
+      return <MCPIntegrationField field={field} />
     // Expression, workflow alias, and other fields fallback to expression
     case "workflow-alias":
     case "expression":
@@ -867,6 +892,7 @@ const COMPONENT_LABELS: Record<TracecatComponentId, string> = {
   "workflow-alias": "Workflow Alias",
   "agent-preset": "Agent Preset",
   "agent-model": "Agent Model",
+  "mcp-integration": "MCP Integrations",
 }
 
 const COMPONENT_ICONS: Record<TracecatComponentId, LucideIcon> = {
@@ -884,6 +910,7 @@ const COMPONENT_ICONS: Record<TracecatComponentId, LucideIcon> = {
   "workflow-alias": WorkflowIcon,
   "agent-preset": WorkflowIcon,
   "agent-model": WorkflowIcon,
+  "mcp-integration": ListIcon,
 }
 
 function AgentPresetSelect({
@@ -1213,6 +1240,86 @@ function AgentModelSelect({
         ))}
       </SelectContent>
     </Select>
+  )
+}
+
+/**
+ * Maps an MCP integration slug to its provider icon ID, mirroring the
+ * mapping used by the agent presets builder. Falls back to "custom".
+ */
+function getMcpProviderId(slug: string): string | undefined {
+  const slugMap: Record<string, string> = {
+    "github-copilot": "github_mcp",
+    github: "github_mcp",
+    sentry: "sentry_mcp",
+    notion: "notion_mcp",
+    linear: "linear_mcp",
+    jira: "jira_mcp",
+    runreveal: "runreveal_mcp",
+    "secure-annex": "secureannex_mcp",
+    secureannex: "secureannex_mcp",
+    wiz: "wiz_mcp",
+  }
+  const normalized = slug.toLowerCase()
+  if (slugMap[normalized]) {
+    return slugMap[normalized]
+  }
+  const match = normalized.match(/^([a-z0-9-]+?)[-_]?mcp$/)
+  if (match) {
+    return `${match[1].replace(/-/g, "")}_mcp`
+  }
+  return undefined
+}
+
+/**
+ * Multi-select picker for saved MCP integrations. Stores selected
+ * integration UUIDs on the field; integration metadata is fetched via
+ * `useListMcpIntegrations`.
+ */
+function MCPIntegrationField({
+  field,
+}: {
+  field: ControllerRenderProps<FieldValues>
+}) {
+  const workspaceId = useWorkspaceId()
+  const { mcpIntegrations, mcpIntegrationsIsLoading } = useListMcpIntegrations(
+    workspaceId ?? ""
+  )
+
+  const suggestions: Suggestion[] = useMemo(() => {
+    if (!mcpIntegrations) {
+      return []
+    }
+    return mcpIntegrations
+      .map((integration) => ({
+        id: integration.id,
+        label: integration.name,
+        value: integration.id,
+        description: integration.description || "MCP integration",
+        icon: (
+          <ProviderIcon
+            providerId={getMcpProviderId(integration.slug) ?? "custom"}
+            className="size-3 bg-transparent p-0 mx-1"
+          />
+        ),
+      }))
+      .sort((a, b) => a.label.localeCompare(b.label))
+  }, [mcpIntegrations])
+
+  const value = Array.isArray(field.value) ? (field.value as string[]) : []
+
+  return (
+    <MultiTagCommandInput
+      value={value}
+      onChange={(next) => field.onChange(next)}
+      suggestions={suggestions}
+      searchKeys={["label", "value"]}
+      placeholder={
+        mcpIntegrationsIsLoading
+          ? "Loading integrations..."
+          : "Select MCP integrations"
+      }
+    />
   )
 }
 

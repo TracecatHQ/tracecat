@@ -26,9 +26,11 @@ from tracecat.agent.common.exceptions import AgentSandboxExecutionError
 from tracecat.agent.common.protocol import RuntimeInitPayload
 from tracecat.agent.common.stream_types import ToolCallContent
 from tracecat.agent.common.types import (
+    MCPServerConfig,
     MCPToolDefinition,
     SandboxAgentConfig,
     SandboxSubagentConfig,
+    is_stdio_mcp_server,
 )
 from tracecat.agent.executor.loopback import (
     LoopbackHandler,
@@ -36,6 +38,7 @@ from tracecat.agent.executor.loopback import (
     LoopbackResult,
 )
 from tracecat.agent.llm_routing import get_litellm_route_model
+from tracecat.agent.preset.service import AgentPresetService
 from tracecat.agent.runtime.claude_code.broker import (
     ClaudeTurnRequest,
     ConcurrentSessionTurnError,
@@ -109,6 +112,8 @@ class AgentExecutorResult(BaseModel):
     error: str | None = None
     approval_requested: bool = False
     approval_items: list[ToolCallContent] | None = None
+    # Legacy replay compatibility only. New executions load terminal message
+    # history in the durable workflow after the final executor turn completes.
     messages: list[ChatMessage] | None = None
     output: Any = Field(
         default=None,
@@ -379,7 +384,10 @@ class SandboxedAgentExecutor:
         result.error = loopback_result.error
         result.approval_requested = loopback_result.approval_requested
         result.approval_items = loopback_result.approval_items or None
-        result.output = loopback_result.output
+        # Approval turns pause before a final answer exists. Preserve the
+        # existing output until the continuation completes and returns one.
+        if not loopback_result.approval_requested:
+            result.output = loopback_result.output
         result.result_usage = loopback_result.result_usage
         result.result_num_turns = loopback_result.result_num_turns
 
@@ -625,6 +633,43 @@ class SandboxedAgentExecutor:
                 )
 
 
+async def _hydrate_stdio_env(
+    mcp_servers: list[MCPServerConfig] | None, *, role: Role
+) -> list[MCPServerConfig] | None:
+    """Resolve stdio ``env`` secrets and return a new list before the runtime starts.
+
+    HTTP MCP servers route through the trusted MCP server, which re-resolves
+    secrets per call. Stdio servers are spawned directly by the Claude
+    runtime from ``payload.config.mcp_servers``, so there's no later
+    rehydration hook — env secrets must be present on the config dict when
+    the runtime reads it.
+
+    Returns a new list with hydrated stdio configs; HTTP configs are passed
+    through unchanged. Secret data lives only for the lifetime of this
+    activity frame.
+    """
+    if not mcp_servers:
+        return mcp_servers
+
+    result: list[MCPServerConfig] = []
+    async with AgentPresetService.with_session(role=role) as svc:
+        for cfg in mcp_servers:
+            if not is_stdio_mcp_server(cfg):
+                result.append(cfg)
+            else:
+                cfg_id = cfg.get("id")
+                if not cfg_id:
+                    raise ValueError(
+                        f"Stdio MCP server {cfg.get('name')!r} is missing a source integration id"
+                    )
+                try:
+                    env = await svc.resolve_mcp_integration_secrets(uuid.UUID(cfg_id))
+                except ValueError:
+                    env = None
+                result.append({**cfg, "env": env} if env else cfg)
+    return result
+
+
 @activity.defn
 async def run_agent_activity(input: AgentExecutorInput) -> AgentExecutorResult:
     """Temporal activity that runs one brokered agent turn.
@@ -632,7 +677,7 @@ async def run_agent_activity(input: AgentExecutorInput) -> AgentExecutorResult:
     This activity:
     1. Creates a SandboxedAgentExecutor
     2. Dispatches the turn through the worker-global runtime broker
-    3. Returns the result with session updates
+    3. Returns runtime status, approval state, usage, and terminal output
 
     The broker-owned transport decides whether the runtime shim runs with nsjail
     or as a direct subprocess based on TRACECAT__DISABLE_NSJAIL.
@@ -645,7 +690,7 @@ async def run_agent_activity(input: AgentExecutorInput) -> AgentExecutorResult:
         input: Agent executor configuration and tokens.
 
     Returns:
-        AgentExecutorResult with execution status and session data.
+        AgentExecutorResult with execution status and terminal output.
     """
     sandbox_mode = "direct" if TRACECAT__DISABLE_NSJAIL else "nsjail"
     activity.heartbeat(
@@ -653,21 +698,21 @@ async def run_agent_activity(input: AgentExecutorInput) -> AgentExecutorResult:
     )
 
     input = await _hydrate_sdk_session_history(input)
+
+    # Stdio MCP servers are spawned directly by the runtime; unlike HTTP
+    # servers they have no per-call secret resolution hook downstream. The
+    # configs in ``input.config.mcp_servers`` arrive in refs-only shape
+    # (no ``env``) — hydrate from the DB here so the spawned process gets
+    # its credentials.
+    input.config.mcp_servers = await _hydrate_stdio_env(
+        input.config.mcp_servers, role=input.role
+    )
+
     executor = SandboxedAgentExecutor(input=input)
     result = await executor.run()
 
     if result.success:
         activity.heartbeat(f"Agent execution completed: {input.session_id}")
-        # Fetch messages from database to include in result
-        try:
-            async with AgentSessionService.with_session(role=input.role) as svc:
-                result.messages = await svc.list_messages(input.session_id)
-        except Exception as e:
-            logger.warning(
-                "Failed to fetch session messages",
-                session_id=str(input.session_id),
-                error=str(e),
-            )
     else:
         activity.heartbeat(f"Agent execution failed: {result.error}")
 

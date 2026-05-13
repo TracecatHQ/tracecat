@@ -9,6 +9,7 @@ import {
   fileToUploadEntry,
   getLanguageForPath,
   validateSkillDraftPath,
+  validateSkillName,
 } from "@/lib/skills-studio"
 
 const mockRouterPush = jest.fn()
@@ -240,6 +241,33 @@ title: Incident triage
 Updated body`)
   })
 
+  it("does not include the frontmatter separator blank line in the editable body", () => {
+    const split = splitMarkdownFrontmatter(`---
+name: incident-triage
+description: Handles incidents.
+---
+
+Use this skill for triage.`)
+
+    expect(split?.body).toBe("Use this skill for triage.")
+  })
+
+  it("preserves intentional extra leading blank lines after frontmatter", () => {
+    const markdown = `---
+name: incident-triage
+description: Handles incidents.
+---
+
+
+Use this skill for triage.`
+    const split = splitMarkdownFrontmatter(markdown)
+
+    expect(split?.body).toBe("\nUse this skill for triage.")
+    expect(
+      composeMarkdownFrontmatter(split?.frontmatter ?? "", split?.body ?? "")
+    ).toBe(markdown)
+  })
+
   it("keeps language selection for non-markdown code files", () => {
     expect(getLanguageForPath("script.py")).toBe("python")
   })
@@ -259,6 +287,15 @@ Updated body`)
     expect(validateSkillDraftPath("docs\\notes.md")).toBe(
       "Use forward slashes instead of backslashes."
     )
+  })
+
+  it("validates skill names with the Zod-backed schema", () => {
+    expect(validateSkillName("threat-intel")).toBeNull()
+    expect(validateSkillName("threat--intel")).toBe(
+      "Use lowercase letters, numbers, and single hyphens (e.g. threat-intel)."
+    )
+    expect(validateSkillName("threat-")).toBe("Name cannot end with a hyphen.")
+    expect(validateSkillName("")).toBe("Name is required.")
   })
 })
 

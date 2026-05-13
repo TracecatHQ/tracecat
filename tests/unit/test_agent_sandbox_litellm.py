@@ -635,7 +635,7 @@ async def _run_full_claude_harness_runtime_case(
     assert result.error is None
     assert result.output == "fake claude response"
     assert result.result_num_turns == 1
-    assert result.messages == []
+    assert result.messages is None
 
     assert len(_FakeLLMSocketProxy.instances) == 1
     proxy = _FakeLLMSocketProxy.instances[0]
@@ -1025,7 +1025,7 @@ async def test_run_agent_activity_with_fake_runtime_exercises_loopback_approval_
             input={"url": "https://example.com", "method": "GET"},
         )
     ]
-    assert result.messages == []
+    assert result.messages is None
 
     assert [event.type for event in stream_sink.events] == [
         StreamEventType.APPROVAL_REQUEST
@@ -1113,7 +1113,7 @@ async def test_run_agent_activity_with_fake_runtime_plumbs_resume_flags_to_loopb
     assert result.output == {"status": "continued"}
     assert result.result_usage == {"input_tokens": 3, "output_tokens": 5}
     assert result.result_num_turns == 2
-    assert result.messages == []
+    assert result.messages is None
 
     assert [event.type for event in stream_sink.events] == [StreamEventType.TEXT_DELTA]
     assert stream_sink.errors == []

@@ -23,6 +23,7 @@ with workflow.unsafe.imports_passed_through():
     )
     from tracecat.agent.executor.activity import (
         AgentExecutorInput,
+        AgentExecutorResult,
         ApprovedToolCall,
         DeniedToolCall,
         run_agent_activity,
@@ -52,10 +53,12 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.agent.session.activities import (
         CreateSessionInput,
         LoadSessionInput,
+        LoadSessionMessagesInput,
         PendingToolResult,
         ReconcileToolResultsInput,
         create_session_activity,
         load_session_activity,
+        load_session_messages_activity,
         reconcile_tool_results_activity,
     )
     from tracecat.agent.session.types import AgentSessionEntity
@@ -69,6 +72,7 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.agent.types import AgentConfig
     from tracecat.agent.workflow_config import agent_config_from_payload
     from tracecat.auth.types import Role
+    from tracecat.chat.schemas import ChatMessage
     from tracecat.contexts import ctx_role
     from tracecat.dsl.common import RETRY_POLICIES
     from tracecat.executor.activities import ExecutorActivities
@@ -304,6 +308,12 @@ def _resolve_agent_output(
 UPSERT_TRACECAT_SEARCH_ATTRIBUTES_PATCH = (
     "durable-agent-upsert-tracecat-search-attributes-v1"
 )
+# Temporal patch IDs are persisted in each workflow execution's history. Use a
+# stable, unique ID for every command-producing workflow change, and never reuse
+# an ID for another change. Keep both branches until old histories that lack the
+# marker have aged out, then use workflow.deprecate_patch(...) before removing
+# the marker entirely in a later cleanup.
+LOAD_TERMINAL_MESSAGE_HISTORY_PATCH = "durable-agent-load-terminal-message-history-v1"
 
 
 @workflow.defn
@@ -936,9 +946,10 @@ class DurableAgentWorkflow:
             output = _resolve_agent_output(
                 output=result.output,
             )
+            message_history = await self._load_terminal_message_history(result)
             return AgentOutput(
                 output=output,
-                message_history=result.messages,  # Messages fetched from DB by activity
+                message_history=message_history,
                 duration=(datetime.now(UTC) - info.start_time).total_seconds(),
                 usage=RunUsage(
                     requests=result.result_num_turns or 0,
@@ -947,6 +958,53 @@ class DurableAgentWorkflow:
                 ),
                 session_id=self.session_id,
             )
+
+    async def _load_terminal_message_history(
+        self,
+        result: AgentExecutorResult,
+    ) -> list[ChatMessage] | None:
+        """Load terminal chat history in a replay-compatible way.
+
+        Legacy histories may already contain a completed run_agent_activity
+        result with messages populated. Preserve that payload and avoid
+        scheduling another activity.
+
+        If a legacy history has messages=None, it also lacks the patch marker
+        for the new load_session_messages_activity command. In that case,
+        workflow.patched(...) returns False during replay, so the workflow keeps
+        the old behavior and returns no terminal history.
+
+        New executions record the patch marker, schedule the message-loading
+        activity, and replay through the same branch later.
+        """
+        if result.messages is not None:
+            return result.messages
+
+        if not workflow.patched(LOAD_TERMINAL_MESSAGE_HISTORY_PATCH):
+            return None
+
+        try:
+            load_result = await workflow.execute_activity(
+                load_session_messages_activity,
+                LoadSessionMessagesInput(role=self.role, session_id=self.session_id),
+                start_to_close_timeout=timedelta(seconds=30),
+                retry_policy=RETRY_POLICIES["activity:fail_fast"],
+            )
+        except ActivityError as e:
+            logger.warning(
+                "Failed to load terminal agent message history",
+                session_id=str(self.session_id),
+                error=str(e),
+            )
+            return None
+
+        if load_result.error is not None:
+            logger.warning(
+                "Terminal agent message history unavailable",
+                session_id=str(self.session_id),
+                error=load_result.error,
+            )
+        return load_result.messages
 
     def _build_tool_lists_from_approvals(
         self,

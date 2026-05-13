@@ -26,7 +26,11 @@ from fastmcp.utilities.versions import VersionSpec
 from pydantic import Field
 from pydantic.json_schema import SkipJsonSchema
 
-from tracecat.agent.common.types import MCPHttpServerConfig, MCPToolDefinition
+from tracecat.agent.common.types import (
+    MCPHttpServerConfig,
+    MCPToolDefinition,
+    is_http_mcp_server,
+)
 from tracecat.agent.mcp.executor import (
     ActionExecutionError,
     ActionNotAllowedError,
@@ -51,6 +55,7 @@ from tracecat.agent.mcp.utils import (
     mcp_tool_name_to_action_name,
     normalize_mcp_tool_name,
 )
+from tracecat.agent.preset.service import AgentPresetService
 from tracecat.agent.tokens import MCPTokenClaims, UserMCPServerClaim, verify_mcp_token
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
@@ -59,6 +64,8 @@ from tracecat.exceptions import (
     BuiltinRegistryHasNoSelectionError,
     EntitlementRequired,
     ExecutionError,
+    TracecatNotFoundError,
+    TracecatValidationError,
 )
 from tracecat.logger import logger
 from tracecat.registry.lock.service import RegistryLockService
@@ -209,7 +216,9 @@ def _user_mcp_tool_names(claims: MCPTokenClaims) -> set[str]:
     }
 
 
-def _user_mcp_config(server: UserMCPServerClaim) -> MCPHttpServerConfig:
+def _legacy_user_mcp_config(server: UserMCPServerClaim) -> MCPHttpServerConfig:
+    if not server.url:
+        raise ToolError(f"User MCP server '{server.name}' missing url")
     config: MCPHttpServerConfig = {
         "type": "http",
         "name": server.name,
@@ -219,6 +228,54 @@ def _user_mcp_config(server: UserMCPServerClaim) -> MCPHttpServerConfig:
     }
     if server.timeout is not None:
         config["timeout"] = server.timeout
+    return config
+
+
+async def _resolve_user_mcp_config(
+    ref: UserMCPServerClaim,
+    role: Role,
+) -> MCPHttpServerConfig:
+    """Resolve a user MCP claim into an executable HTTP config."""
+    if ref.id is None:
+        # Legacy replay path: in-flight tokens minted before the refs-only
+        # cutover. Use the inline url/headers from the claim. New tokens
+        # carry ``id`` and re-resolve secrets below.
+        return _legacy_user_mcp_config(ref)
+
+    try:
+        async with AgentPresetService.with_session(role=role) as svc:
+            refs = await svc.resolve_mcp_integration_refs([str(ref.id)])
+            if not refs:
+                raise ToolError(f"MCP integration {ref.id} not found")
+            metadata = refs[0]
+            if not is_http_mcp_server(metadata):
+                raise ToolError(f"User MCP server '{ref.name}' is not an HTTP server")
+            secrets = await svc.resolve_mcp_integration_secrets(ref.id)
+    except ToolError:
+        raise
+    except (TracecatValidationError, TracecatNotFoundError) as e:
+        raise ToolError(f"MCP integration {ref.id} is unavailable: {e}") from None
+    except Exception:
+        logger.exception(
+            "Unexpected error resolving MCP integration",
+            mcp_integration_id=str(ref.id),
+            server_name=ref.name,
+        )
+        raise ToolError(f"MCP integration {ref.id} could not be resolved") from None
+
+    config: MCPHttpServerConfig = {
+        "type": "http",
+        # Keep the runtime routing key stable. The DB row's display name may
+        # change after tool discovery, but the runtime still calls the claimed
+        # server name.
+        "name": ref.name,
+        "url": metadata["url"],
+        "transport": metadata.get("transport", "http"),
+        "headers": secrets or {},
+    }
+    timeout = metadata.get("timeout")
+    if timeout is not None:
+        config["timeout"] = timeout
     return config
 
 
@@ -250,9 +307,12 @@ async def _discover_allowed_user_mcp_tools(
     if not allowed_user_tools or not claims.user_mcp_servers:
         return {}
 
-    client = UserMCPClient(
-        [_user_mcp_config(server) for server in claims.user_mcp_servers]
-    )
+    role = _set_role_context(claims)
+    configs = [
+        await _resolve_user_mcp_config(server, role)
+        for server in claims.user_mcp_servers
+    ]
+    client = UserMCPClient(configs)
     discovered = await client.discover_tools()
     return {
         name: definition
@@ -401,7 +461,6 @@ async def _execute_user_mcp(
     claims: MCPTokenClaims,
 ) -> str:
     """Execute one authorized user MCP tool and return JSON text."""
-    _set_role_context(claims)
     scoped_tool_name = f"mcp__{server_name}__{tool_name}"
     if scoped_tool_name not in claims.allowed_actions:
         logger.warning(
@@ -412,13 +471,13 @@ async def _execute_user_mcp(
         )
         raise ToolError(f"Tool '{scoped_tool_name}' not authorized")
 
-    server_config = None
-    for cfg in claims.user_mcp_servers:
-        if cfg.name == server_name:
-            server_config = cfg
-            break
+    role = _set_role_context(claims)
 
-    if server_config is None:
+    ref = next(
+        (s for s in claims.user_mcp_servers if s.name == server_name),
+        None,
+    )
+    if ref is None:
         logger.warning(
             "User MCP server not found in claims",
             server_name=server_name,
@@ -427,7 +486,8 @@ async def _execute_user_mcp(
         raise ToolError(f"User MCP server '{server_name}' not authorized") from None
 
     try:
-        client = UserMCPClient([_user_mcp_config(server_config)])
+        config_dict = await _resolve_user_mcp_config(ref, role)
+        client = UserMCPClient([config_dict])
         result = await client.call_tool(server_name, tool_name, args)
 
         logger.info(

@@ -40,3 +40,9 @@ class InboxItemRead(BaseModel):
     metadata: dict[str, Any] | None = Field(
         default=None, description="Type-specific metadata"
     )
+
+
+class InboxPendingCount(BaseModel):
+    """Count of pending inbox items that require attention."""
+
+    count: int = Field(..., ge=0, description="Number of pending inbox items")

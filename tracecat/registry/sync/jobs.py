@@ -7,8 +7,10 @@ to prevent race conditions when multiple API processes start simultaneously.
 
 from __future__ import annotations
 
+import re
+
 import tracecat_registry
-from packaging.version import Version
+from packaging.version import InvalidVersion, Version
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -29,13 +31,53 @@ from tracecat.registry.versions.service import PlatformRegistryVersionsService
 
 MAX_SYNC_RETRIES = 3
 PLATFORM_SYNC_LOCK_KEY = derive_lock_key_from_parts("platform_registry_sync")
+_RELEASE_TAG_PATTERN = re.compile(
+    r"^(?P<major>\d+)\.(?P<minor>\d+)\.(?P<patch>\d+)"
+    r"(?:-(?P<stage>alpha|a|beta|b|rc|dev|post)\.(?P<number>\d+)"
+    r"(?:-(?P<sub_stage>alpha|a|beta|b|rc|dev|post)\.(?P<sub_number>\d+))?)?$"
+)
+_STAGE_RANK = {
+    "dev": 0,
+    "alpha": 1,
+    "a": 1,
+    "beta": 2,
+    "b": 2,
+    "rc": 3,
+    "final": 4,
+    "post": 5,
+}
+
+
+def _release_tag_key(version: str) -> tuple[int, int, int, int, int, int, int]:
+    """Return a sortable key for Tracecat release/image tag versions."""
+    match = _RELEASE_TAG_PATTERN.fullmatch(version)
+    if match is None:
+        raise InvalidVersion(f"Invalid Tracecat release tag: {version!r}")
+
+    stage = match.group("stage") or "final"
+    number = int(match.group("number") or 0)
+    sub_stage = match.group("sub_stage") or "final"
+    sub_number = int(match.group("sub_number") or 0)
+
+    return (
+        int(match.group("major")),
+        int(match.group("minor")),
+        int(match.group("patch")),
+        _STAGE_RANK[stage],
+        number,
+        _STAGE_RANK[sub_stage],
+        sub_number,
+    )
 
 
 def _is_downgrade(current_version: PlatformRegistryVersion | None, target: str) -> bool:
     """Check if target version would be a downgrade from current."""
     if current_version is None:
         return False
-    return Version(target) < Version(current_version.version)
+    try:
+        return Version(target) < Version(current_version.version)
+    except InvalidVersion:
+        return _release_tag_key(target) < _release_tag_key(current_version.version)
 
 
 async def sync_platform_registry_on_startup() -> None:

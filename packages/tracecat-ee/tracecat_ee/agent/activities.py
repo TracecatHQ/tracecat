@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Callable
-from typing import Any, TypeGuard
+from typing import Any
 
 from pydantic import (
     UUID4,
@@ -15,6 +15,7 @@ from tracecat.agent.common.types import (
     MCPHttpServerConfig,
     MCPServerConfig,
     MCPToolDefinition,
+    is_http_mcp_server,
 )
 from tracecat.agent.mcp.internal_tools import (
     BUILDER_BUNDLED_ACTIONS,
@@ -115,10 +116,6 @@ class EmitSessionErrorInputs(BaseModel):
 class AgentActivities:
     """Activities for agent execution."""
 
-    @staticmethod
-    def _is_http_server(config: MCPServerConfig) -> TypeGuard[MCPHttpServerConfig]:
-        return config.get("type", "http") == "http"
-
     def get_activities(self) -> list[Callable[..., Any]]:
         return all_activities(self)
 
@@ -135,6 +132,8 @@ class AgentActivities:
     async def _build_scope_tool_definitions(
         self,
         args: BuildAgentScopeToolDefsArgs,
+        *,
+        role: Role,
     ) -> BuildToolDefsResult:
         # Check if this is a builder assistant session
         is_builder = (
@@ -189,45 +188,84 @@ class AgentActivities:
         user_mcp_claims: list[UserMCPServerClaim] | None = None
         if args.mcp_servers:
             from tracecat.agent.mcp.user_client import discover_user_mcp_tools
+            from tracecat.agent.preset.service import AgentPresetService
 
-            http_servers = [
-                cfg for cfg in args.mcp_servers if self._is_http_server(cfg)
-            ]
+            http_servers = [cfg for cfg in args.mcp_servers if is_http_mcp_server(cfg)]
             if not http_servers:
                 logger.info("No HTTP MCP servers configured for discovery")
                 http_servers = []
 
+            # Hydrate headers from the DB for the duration of this activity.
+            # Configs that arrive here carry ``id`` but no ``headers`` (the
+            # boundary-safe shape produced by ``resolve_mcp_integration_refs``).
+            # Fetch secrets per server, attach for ``tools/list``, and drop
+            # them before returning so they never enter ``BuildToolDefsResult``
+            # or leak across the Temporal boundary.
+            hydrated_servers: list[MCPHttpServerConfig] = []
+            async with AgentPresetService.with_session(role=role) as svc:
+                for cfg in http_servers:
+                    hydrated: MCPHttpServerConfig = {**cfg}
+                    integration_id_str = cfg.get("id")
+                    if integration_id_str:
+                        try:
+                            secrets = await svc.resolve_mcp_integration_secrets(
+                                uuid.UUID(integration_id_str)
+                            )
+                        except ValueError:
+                            secrets = None
+                        if secrets:
+                            hydrated["headers"] = secrets
+                    hydrated_servers.append(hydrated)
+
             try:
                 user_mcp_tools = await discover_user_mcp_tools(
-                    http_servers,
+                    hydrated_servers,
                     fail_on_error=args.fail_on_mcp_discovery_error,
                 )
                 # Add user MCP tools to definitions
                 for tool_name, tool_def in user_mcp_tools.items():
                     defs[tool_name] = tool_def
 
-                # Build claims for JWT (headers NOT resolved here - done by caller)
-                user_mcp_claims = [
-                    UserMCPServerClaim(
-                        name=cfg["name"],
-                        url=cfg["url"],
-                        transport=cfg.get("transport", "http"),
-                        headers=cfg.get("headers", {}),
-                        timeout=cfg.get("timeout"),
+                # JWT claims carry the source integration id when available so
+                # the trusted MCP server can re-resolve headers per call. For
+                # legacy in-flight payloads that don't carry ``id`` (recorded
+                # before the refs-only cutover), fall back to the pre-rollout
+                # inline shape — otherwise discovery would add ``mcp__*`` tools
+                # that the trusted server can't authorize at call time.
+                user_mcp_claims = []
+                for cfg in http_servers:
+                    integration_id_str = cfg.get("id")
+                    if integration_id_str:
+                        user_mcp_claims.append(
+                            UserMCPServerClaim(
+                                name=cfg["name"],
+                                id=uuid.UUID(integration_id_str),
+                            )
+                        )
+                        continue
+                    # Legacy replay path: no id → trusted server uses inline
+                    # url/headers from the claim itself. ``execute_user_mcp_tool``
+                    # has the matching read-side branch.
+                    user_mcp_claims.append(
+                        UserMCPServerClaim(
+                            name=cfg["name"],
+                            url=cfg["url"],
+                            transport=cfg.get("transport", "http"),
+                            headers=cfg.get("headers", {}),
+                            timeout=cfg.get("timeout"),
+                        )
                     )
-                    for cfg in http_servers
-                ]
 
                 logger.info(
                     "Discovered user MCP tools",
                     tool_count=len(user_mcp_tools),
-                    server_count=len(http_servers),
+                    server_count=len(hydrated_servers),
                 )
             except Exception as e:
                 logger.error(
                     "Failed to discover user MCP tools",
                     error_type=type(e).__name__,
-                    server_count=len(http_servers),
+                    server_count=len(hydrated_servers),
                 )
                 if args.fail_on_mcp_discovery_error:
                     raise ApplicationError(
@@ -237,6 +275,11 @@ class AgentActivities:
                         non_retryable=True,
                     ) from e
                 # Continue without user MCP tools - don't fail the whole operation
+            finally:
+                # Defensive: ensure hydrated configs (with headers) drop out
+                # of scope before this activity returns. Local variable; this
+                # is documentation more than enforcement.
+                hydrated_servers = []
 
         # Resolve registry lock for these actions
         # This provides origin→version mappings needed for action execution
@@ -286,7 +329,8 @@ class AgentActivities:
                 mcp_servers=args.mcp_servers,
                 internal_tool_context=args.internal_tool_context,
                 fail_on_mcp_discovery_error=args.fail_on_mcp_discovery_error,
-            )
+            ),
+            role=args.role,
         )
 
     @activity.defn
@@ -307,7 +351,10 @@ class AgentActivities:
                     f"Duplicate agent compile scope '{scope.scope}'",
                     non_retryable=True,
                 )
-            results[scope.scope] = await self._build_scope_tool_definitions(scope)
+            results[scope.scope] = await self._build_scope_tool_definitions(
+                scope,
+                role=args.role,
+            )
 
         return BuildAgentToolDefsResult(scopes=results)
 

@@ -813,6 +813,7 @@ class AgentPresetService(BaseWorkspaceService):
                     "type": "stdio",
                     "name": mcp_integration.slug,
                     "command": mcp_integration.stdio_command,
+                    "id": str(mcp_integration.id),
                 }
                 if mcp_integration.stdio_args:
                     command_config["args"] = mcp_integration.stdio_args
@@ -971,6 +972,7 @@ class AgentPresetService(BaseWorkspaceService):
                 "name": mcp_integration.name,
                 "url": mcp_integration.server_uri,
                 "headers": headers,
+                "id": str(mcp_integration.id),
             }
             if mcp_integration.timeout is not None:
                 http_config["timeout"] = mcp_integration.timeout
@@ -982,6 +984,236 @@ class AgentPresetService(BaseWorkspaceService):
             )
 
         return mcp_servers
+
+    async def resolve_mcp_integration_refs(
+        self, mcp_integrations: list[str] | None
+    ) -> list[MCPServerConfig] | None:
+        """Resolve MCP integration IDs into ``MCPServerConfig``s without secrets.
+
+        Returns metadata only — ``headers`` and stdio ``env`` are intentionally
+        omitted. Each config carries its source ``id`` so trusted callers can
+        re-resolve secrets per use via :meth:`resolve_mcp_integration_secrets`.
+
+        Safe to serialize across Temporal boundaries.
+
+        Returns ``None`` when ``mcp_integrations`` is empty. Raises
+        ``TracecatValidationError`` when at least one integration was
+        requested but none could be resolved — mirrors the behavior of
+        :meth:`resolve_mcp_integrations`.
+        """
+        if not mcp_integrations:
+            return None
+
+        integrations_service = IntegrationService(self.session, role=self.role)
+        available = await integrations_service.list_mcp_integrations()
+        by_id = {integration.id: integration for integration in available}
+
+        refs: list[MCPServerConfig] = []
+        for mcp_id_str in mcp_integrations:
+            try:
+                mcp_integration_id = uuid.UUID(mcp_id_str)
+            except ValueError:
+                logger.warning(
+                    "Invalid MCP integration ID format, skipping: %r",
+                    mcp_id_str,
+                    extra={
+                        "workspace_id": str(self.workspace_id),
+                        "mcp_id": mcp_id_str,
+                    },
+                )
+                continue
+
+            mcp_integration = by_id.get(mcp_integration_id)
+            if mcp_integration is None:
+                logger.warning(
+                    "MCP integration not found, skipping: %r",
+                    mcp_integration_id,
+                    extra={
+                        "workspace_id": str(self.workspace_id),
+                        "mcp_integration_id": str(mcp_integration_id),
+                    },
+                )
+                continue
+
+            if mcp_integration.server_type == "stdio":
+                if not mcp_integration.stdio_command:
+                    logger.warning(
+                        "Stdio MCP integration %r has no stdio_command, skipping",
+                        mcp_integration.name,
+                        extra={
+                            "workspace_id": str(self.workspace_id),
+                            "mcp_integration_id": str(mcp_integration.id),
+                        },
+                    )
+                    continue
+                # Re-validate command policy at resolution time so rows that
+                # predate tighter rules are rejected here rather than at spawn.
+                try:
+                    validate_mcp_command_config(
+                        command=mcp_integration.stdio_command,
+                        args=mcp_integration.stdio_args,
+                        env=None,
+                        name=mcp_integration.slug,
+                    )
+                except MCPValidationError as e:
+                    logger.warning(
+                        "Stdio MCP integration %r failed command validation, skipping: %s",
+                        mcp_integration.name,
+                        str(e),
+                        extra={
+                            "workspace_id": str(self.workspace_id),
+                            "mcp_integration_id": str(mcp_integration.id),
+                        },
+                    )
+                    continue
+                stdio_ref: MCPServerConfig = {
+                    "type": "stdio",
+                    "name": mcp_integration.slug,
+                    "command": mcp_integration.stdio_command,
+                    "id": str(mcp_integration.id),
+                }
+                if mcp_integration.stdio_args:
+                    stdio_ref["args"] = mcp_integration.stdio_args
+                if mcp_integration.timeout is not None:
+                    stdio_ref["timeout"] = mcp_integration.timeout
+                refs.append(stdio_ref)
+                continue
+
+            if not mcp_integration.server_uri:
+                logger.warning(
+                    "HTTP MCP integration %r has no server_uri, skipping",
+                    mcp_integration.name,
+                    extra={
+                        "workspace_id": str(self.workspace_id),
+                        "mcp_integration_id": str(mcp_integration.id),
+                    },
+                )
+                continue
+            http_ref: MCPHttpServerConfig = {
+                "type": "http",
+                "name": mcp_integration.name,
+                "url": mcp_integration.server_uri,
+                "id": str(mcp_integration.id),
+            }
+            if mcp_integration.timeout is not None:
+                http_ref["timeout"] = mcp_integration.timeout
+            refs.append(http_ref)
+
+        if not refs:
+            raise TracecatValidationError(
+                "No matching MCP integrations found in the workspace"
+            )
+
+        return refs
+
+    async def resolve_mcp_integration_secrets(
+        self, mcp_integration_id: uuid.UUID
+    ) -> dict[str, str] | None:
+        """Resolve the secret material for a single MCP integration.
+
+        Returns the headers/env dict (depending on server type) freshly
+        decrypted, with OAuth tokens refreshed if applicable. Returns
+        ``None`` if the integration cannot be authenticated or is not found.
+
+        Call this at the trusted edge per use — never propagate the result
+        across a Temporal boundary.
+        """
+        integrations_service = IntegrationService(self.session, role=self.role)
+        available = await integrations_service.list_mcp_integrations()
+        mcp_integration = next(
+            (i for i in available if i.id == mcp_integration_id), None
+        )
+        if mcp_integration is None:
+            logger.warning(
+                "MCP integration not found",
+                extra={
+                    "workspace_id": str(self.workspace_id),
+                    "mcp_integration_id": str(mcp_integration_id),
+                },
+            )
+            return None
+
+        if mcp_integration.server_type == "stdio":
+            stdio_env = integrations_service.decrypt_stdio_env(mcp_integration)
+            if not stdio_env:
+                return None
+            try:
+                return await self._resolve_stdio_env(
+                    stdio_env=stdio_env,
+                    mcp_integration_id=mcp_integration.id,
+                    mcp_integration_slug=mcp_integration.slug,
+                )
+            except Exception as e:
+                logger.warning(
+                    "Stdio env resolution failed for MCP integration %r: %s",
+                    mcp_integration.name,
+                    str(e),
+                    extra={
+                        "workspace_id": str(self.workspace_id),
+                        "mcp_integration_id": str(mcp_integration.id),
+                    },
+                )
+                return None
+
+        # HTTP server — resolve headers per auth type.
+        encryption_key = get_db_encryption_key()
+        headers: dict[str, str] = {}
+
+        if mcp_integration.auth_type == MCPAuthType.OAUTH2:
+            if not mcp_integration.oauth_integration_id:
+                return None
+            stmt = select(OAuthIntegration).where(
+                OAuthIntegration.id == mcp_integration.oauth_integration_id,
+                OAuthIntegration.workspace_id == self.workspace_id,
+            )
+            result = await self.session.execute(stmt)
+            oauth_integration = result.scalars().first()
+            if not oauth_integration:
+                return None
+            await integrations_service.refresh_token_if_needed(oauth_integration)
+            access_token = await integrations_service.get_access_token(
+                oauth_integration
+            )
+            if not access_token:
+                return None
+            token_type = oauth_integration.token_type or "Bearer"
+            headers["Authorization"] = f"{token_type} {access_token.get_secret_value()}"
+
+            if mcp_integration.encrypted_headers:
+                custom_headers = self._decrypt_mcp_headers(
+                    encrypted_headers=mcp_integration.encrypted_headers,
+                    encryption_key=encryption_key,
+                    mcp_integration_id=mcp_integration.id,
+                    mcp_integration_name=mcp_integration.name,
+                )
+                if custom_headers:
+                    # Drop any user-supplied Authorization header — the OAuth
+                    # one wins.
+                    for key in list(custom_headers):
+                        if key.strip().casefold() == "authorization":
+                            custom_headers.pop(key, None)
+                    headers.update(custom_headers)
+
+        elif mcp_integration.auth_type == MCPAuthType.CUSTOM:
+            if not mcp_integration.encrypted_headers:
+                return None
+            custom_headers = self._decrypt_mcp_headers(
+                encrypted_headers=mcp_integration.encrypted_headers,
+                encryption_key=encryption_key,
+                mcp_integration_id=mcp_integration.id,
+                mcp_integration_name=mcp_integration.name,
+            )
+            if not custom_headers:
+                return None
+            headers.update(custom_headers)
+
+        elif mcp_integration.auth_type == MCPAuthType.NONE:
+            pass
+
+        else:
+            return None
+
+        return headers
 
     async def _resolve_stdio_env(
         self,
@@ -1555,7 +1787,11 @@ class AgentPresetService(BaseWorkspaceService):
     async def _version_to_agent_config(
         self, version: AgentPresetVersion
     ) -> AgentConfig:
-        mcp_servers = await self.resolve_mcp_integrations(version.mcp_integrations)
+        # Resolve refs only — no headers / stdio env. The resulting
+        # AgentConfig is safe to cross Temporal boundaries. Trusted callers
+        # (build_tool_definitions, trusted MCP server) re-resolve secrets
+        # per use via resolve_mcp_integration_secrets.
+        mcp_servers = await self.resolve_mcp_integration_refs(version.mcp_integrations)
         model_settings: dict[str, Any] = {}
         resolved_skills = await self.skills.get_resolved_skill_refs_for_preset_version(
             version.id

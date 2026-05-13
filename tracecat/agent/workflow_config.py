@@ -34,6 +34,7 @@ def _mcp_server_to_payload(
                 args=server.get("args"),
                 env=server.get("env"),
                 timeout=server.get("timeout"),
+                id=server.get("id"),
             )
         case {
             "name": str(name),
@@ -46,6 +47,7 @@ def _mcp_server_to_payload(
                 headers=server.get("headers"),
                 transport=server.get("transport"),
                 timeout=server.get("timeout"),
+                id=server.get("id"),
             )
         case _:
             raise ValueError(f"Unsupported MCP server config: {server!r}")
@@ -65,6 +67,8 @@ def _mcp_server_from_payload(server: MCPServerConfigPayload) -> MCPServerConfig:
                 stdio_server["env"] = server.env
             if server.timeout is not None:
                 stdio_server["timeout"] = server.timeout
+            if server.id is not None:
+                stdio_server["id"] = server.id
             return stdio_server
         case MCPHttpServerConfigPayload():
             http_server: MCPHttpServerConfig = {
@@ -78,6 +82,8 @@ def _mcp_server_from_payload(server: MCPServerConfigPayload) -> MCPServerConfig:
                 http_server["transport"] = server.transport
             if server.timeout is not None:
                 http_server["timeout"] = server.timeout
+            if server.id is not None:
+                http_server["id"] = server.id
             return http_server
 
 

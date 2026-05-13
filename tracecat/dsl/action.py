@@ -12,6 +12,8 @@ from temporalio.exceptions import ApplicationError
 from tracecat_ee.agent.schemas import AgentActionArgs, PresetAgentActionArgs
 
 from tracecat import config
+from tracecat.agent.common.types import MCPServerConfig
+from tracecat.agent.preset.service import AgentPresetService
 from tracecat.auth.types import Role
 from tracecat.common import is_iterable
 from tracecat.dsl.common import (
@@ -35,7 +37,7 @@ from tracecat.dsl.schemas import (
 )
 from tracecat.dsl.types import ActionErrorInfo, ActionErrorInfoAdapter
 from tracecat.dsl.validation import normalize_trigger_inputs
-from tracecat.exceptions import TracecatExpressionError
+from tracecat.exceptions import TracecatExpressionError, TracecatValidationError
 from tracecat.executor.service import get_workspace_variables
 from tracecat.expressions.common import ExprContext
 from tracecat.expressions.core import TemplateExpression
@@ -47,6 +49,7 @@ from tracecat.expressions.eval import (
 )
 from tracecat.expressions.schemas import ExpectedField
 from tracecat.identifiers.workflow import WorkflowUUID
+from tracecat.integrations.mcp_validation import MCPValidationError
 from tracecat.logger import logger
 from tracecat.registry.lock.types import RegistryLock
 from tracecat.storage.collection import (
@@ -67,6 +70,18 @@ from tracecat.temporal.exceptions import UserError
 from tracecat.validation.schemas import ValidationDetail
 
 _thread_local = threading.local()
+
+
+async def _resolve_mcp_integrations(
+    mcp_integration_ids: list[str], *, role: Role
+) -> list[MCPServerConfig]:
+    try:
+        async with AgentPresetService.with_session(role=role) as svc:
+            await svc.validate_mcp_integrations(mcp_integration_ids)
+            servers = await svc.resolve_mcp_integration_refs(mcp_integration_ids)
+    except (MCPValidationError, TracecatValidationError) as e:
+        raise ApplicationError(str(e), non_retryable=True) from e
+    return servers or []
 
 
 def _strip_string_values(args: dict[str, Any]) -> dict[str, Any]:
@@ -656,6 +671,11 @@ class DSLActivities:
         evaled_args = await asyncio.to_thread(
             eval_templated_object, args, operand=materialized
         )
+        mcp_integration_ids = evaled_args.pop("mcp_integrations", None)
+        if mcp_integration_ids:
+            evaled_args["mcp_servers"] = await _resolve_mcp_integrations(
+                mcp_integration_ids, role=input.role
+            )
         return AgentActionArgs(**evaled_args)
 
     @staticmethod

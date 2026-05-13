@@ -1,0 +1,48 @@
+type: action
+definition:
+  title: Set assistant thread status
+  description: Set the status for a Slack AI assistant thread.
+  display_group: Slack
+  doc_url: https://docs.slack.dev/reference/methods/assistant.threads.setStatus/
+  namespace: tools.slack
+  name: set_assistant_thread_status
+  expects:
+    channel_id:
+      type: str
+      description: Channel ID containing the assistant thread.
+    thread_ts:
+      type: str
+      description: Message timestamp of the assistant thread.
+    status:
+      type: str
+      description: Status to display for the bot user. Use an empty string to clear it.
+    loading_messages:
+      type: list[str]
+      description: Loading indicator messages to rotate through, up to 10 messages.
+      default: []
+    icon_emoji:
+      type: str | None
+      description: Emoji to use as the icon for this message.
+      default: null
+    icon_url:
+      type: str | None
+      description: Image URL to use as the icon for this message.
+      default: null
+    username:
+      type: str | None
+      description: Bot username to display.
+      default: null
+  steps:
+    - ref: set_assistant_thread_status
+      action: tools.slack_sdk.call_method
+      args:
+        sdk_method: assistant.threads.setStatus
+        params:
+          channel_id: ${{ inputs.channel_id }}
+          thread_ts: ${{ inputs.thread_ts }}
+          status: ${{ inputs.status }}
+          loading_messages: ${{ inputs.loading_messages }}
+          icon_emoji: ${{ inputs.icon_emoji }}
+          icon_url: ${{ inputs.icon_url }}
+          username: ${{ inputs.username }}
+  returns: ${{ steps.set_assistant_thread_status.result }}

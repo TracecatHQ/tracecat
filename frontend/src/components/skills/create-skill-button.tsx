@@ -9,7 +9,10 @@ import {
   useRef,
   useState,
 } from "react"
-import { CreateSkillDialog } from "@/components/skills/create-skill-dialog"
+import {
+  CreateSkillDialog,
+  type CreateSkillDialogValues,
+} from "@/components/skills/create-skill-dialog"
 import { UploadSkillConfirmDialog } from "@/components/skills/upload-skill-confirm-dialog"
 import { UploadSkillDialog } from "@/components/skills/upload-skill-dialog"
 import { Button } from "@/components/ui/button"
@@ -44,8 +47,6 @@ export function CreateSkillButton() {
   const { uploadSkill, uploadSkillPending } = useUploadSkill(workspaceId)
 
   const [showNewSkillDialog, setShowNewSkillDialog] = useState(false)
-  const [newSkillName, setNewSkillName] = useState("")
-  const [newSkillDescription, setNewSkillDescription] = useState("")
 
   const [showUploadSkillDialog, setShowUploadSkillDialog] = useState(false)
   const [isDragOver, setIsDragOver] = useState(false)
@@ -57,21 +58,21 @@ export function CreateSkillButton() {
   const [uploadConfirmPending, setUploadConfirmPending] = useState(false)
   const uploadConfirmPendingRef = useRef(false)
 
-  const handleCreateSkill = useCallback(async () => {
-    const name = slugify(newSkillName.trim(), "-") || "skill"
-    try {
-      const created = await createSkill({
-        name,
-        description: newSkillDescription.trim() || null,
-      })
-      setShowNewSkillDialog(false)
-      setNewSkillName("")
-      setNewSkillDescription("")
-      router.push(`/workspaces/${workspaceId}/skills/${created.id}`)
-    } catch {
-      // toast handled in mutation onError
-    }
-  }, [createSkill, newSkillDescription, newSkillName, router, workspaceId])
+  const handleCreateSkill = useCallback(
+    async ({ name, description }: CreateSkillDialogValues) => {
+      try {
+        const created = await createSkill({
+          name,
+          description: description || null,
+        })
+        setShowNewSkillDialog(false)
+        router.push(`/workspaces/${workspaceId}/skills/${created.id}`)
+      } catch {
+        // toast handled in mutation onError
+      }
+    },
+    [createSkill, router, workspaceId]
+  )
 
   const handleDragOver = useCallback((event: DragEvent<HTMLDivElement>) => {
     event.preventDefault()
@@ -211,10 +212,6 @@ export function CreateSkillButton() {
       <CreateSkillDialog
         open={showNewSkillDialog}
         onOpenChange={setShowNewSkillDialog}
-        name={newSkillName}
-        onNameChange={setNewSkillName}
-        description={newSkillDescription}
-        onDescriptionChange={setNewSkillDescription}
         pending={createSkillPending}
         onCreate={handleCreateSkill}
       />

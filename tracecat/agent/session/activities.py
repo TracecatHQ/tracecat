@@ -22,6 +22,7 @@ from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.agent.stream.connector import AgentStream
 from tracecat.agent.subagents import ResolvedAgentsConfig
 from tracecat.auth.types import Role
+from tracecat.chat.schemas import ChatMessage
 from tracecat.contexts import ctx_role
 from tracecat.logger import logger
 from tracecat.storage.object import StoredObject, retrieve_stored_object
@@ -99,6 +100,20 @@ class LoadSessionResult(BaseModel):
     # SDK JSONL across Temporal boundaries.
     sdk_session_data: str | None = Field(default=None, deprecated=True)
     is_fork: bool = False  # If True, runtime should use fork_session=True with SDK
+    error: str | None = None
+
+
+class LoadSessionMessagesInput(BaseModel):
+    """Input for load_session_messages_activity."""
+
+    role: Role
+    session_id: uuid.UUID
+
+
+class LoadSessionMessagesResult(BaseModel):
+    """Result from load_session_messages_activity."""
+
+    messages: list[ChatMessage] | None = None
     error: str | None = None
 
 
@@ -262,6 +277,27 @@ async def load_session_activity(input: LoadSessionInput) -> LoadSessionResult:
 
 
 @activity.defn
+async def load_session_messages_activity(
+    input: LoadSessionMessagesInput,
+) -> LoadSessionMessagesResult:
+    """Load the full chat message history for a completed agent session."""
+    ctx_role.set(input.role)
+
+    try:
+        async with AgentSessionService.with_session(role=input.role) as service:
+            messages = await service.list_messages(input.session_id)
+        return LoadSessionMessagesResult(messages=messages)
+
+    except Exception as e:
+        logger.warning(
+            "Failed to load agent session messages",
+            session_id=str(input.session_id),
+            error=str(e),
+        )
+        raise
+
+
+@activity.defn
 async def reconcile_tool_results_activity(
     input: ReconcileToolResultsInput,
 ) -> ReconcileToolResultsResult:
@@ -321,5 +357,6 @@ def get_session_activities() -> list:
     return [
         create_session_activity,
         load_session_activity,
+        load_session_messages_activity,
         reconcile_tool_results_activity,
     ]
