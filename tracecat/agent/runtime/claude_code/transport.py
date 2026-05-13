@@ -104,7 +104,7 @@ class SandboxedCLITransport(Transport):
         self._logged_first_message = False
         self._log_benchmark_phase("broker_transport_connect_start")
         mcp_bridge_port = self._mcp_bridge_port_for_runtime()
-        runtime_options = self._options_for_mcp_bridge_port(mcp_bridge_port)
+        runtime_options = self._options_with_runtime_bridge_port(mcp_bridge_port)
         original_options = self._options
         if runtime_options is not original_options:
             original_options.mcp_servers = runtime_options.mcp_servers
@@ -296,6 +296,7 @@ class SandboxedCLITransport(Transport):
 
     @staticmethod
     def _is_trusted_mcp_bridge_config(config: object) -> bool:
+        """Return whether a config points at Tracecat's local MCP bridge."""
         if not isinstance(config, dict) or config.get("type") != "http":
             return False
         url = config.get("url")
@@ -315,9 +316,16 @@ class SandboxedCLITransport(Transport):
         )
 
     @staticmethod
-    def _rewrite_trusted_mcp_bridge_config(
+    def _trusted_mcp_bridge_config_with_runtime_port(
         config: McpServerConfig, port: int
     ) -> McpServerConfig:
+        """Return trusted Tracecat MCP bridge config updated for this runtime port.
+
+        The executor builds Claude options with the canonical bridge URL. Direct
+        mode uses port 0 so the shim can bind an available port, while jailed mode
+        keeps the fixed sandbox-local port. Only Tracecat's trusted bridge config
+        should be updated; user-provided external HTTP MCP servers keep their URL.
+        """
         if not SandboxedCLITransport._is_trusted_mcp_bridge_config(config):
             return config
         rewritten = cast(McpHttpServerConfig, dict(config))
@@ -325,28 +333,32 @@ class SandboxedCLITransport(Transport):
         return rewritten
 
     @staticmethod
-    def _rewrite_mcp_servers_for_bridge_port(
+    def _mcp_servers_with_runtime_bridge_port(
         mcp_servers: dict[str, McpServerConfig] | str | Path,
         port: int,
     ) -> dict[str, McpServerConfig] | str | Path:
+        """Return root MCP servers with trusted bridge URLs using the runtime port."""
         if not isinstance(mcp_servers, dict):
             return mcp_servers
 
         rewritten: dict[str, McpServerConfig] = {}
         changed = False
         for name, config in mcp_servers.items():
-            new_config = SandboxedCLITransport._rewrite_trusted_mcp_bridge_config(
-                config, port
+            new_config = (
+                SandboxedCLITransport._trusted_mcp_bridge_config_with_runtime_port(
+                    config, port
+                )
             )
             rewritten[name] = new_config
             changed = changed or new_config is not config
         return rewritten if changed else mcp_servers
 
     @staticmethod
-    def _rewrite_agent_mcp_servers_for_bridge_port(
+    def _agents_with_runtime_bridge_port(
         agents: dict[str, AgentDefinition] | None,
         port: int,
     ) -> dict[str, AgentDefinition] | None:
+        """Return subagent definitions with trusted bridge URLs using the runtime port."""
         if agents is None:
             return agents
 
@@ -368,11 +380,9 @@ class SandboxedCLITransport(Transport):
                 rewritten_entry: dict[str, Any] = {}
                 entry_changed = False
                 for name, config in entry.items():
-                    new_config = (
-                        SandboxedCLITransport._rewrite_trusted_mcp_bridge_config(
-                            cast(McpServerConfig, config),
-                            port,
-                        )
+                    new_config = SandboxedCLITransport._trusted_mcp_bridge_config_with_runtime_port(
+                        cast(McpServerConfig, config),
+                        port,
                     )
                     rewritten_entry[name] = new_config
                     entry_changed = entry_changed or new_config is not config
@@ -387,16 +397,16 @@ class SandboxedCLITransport(Transport):
 
         return rewritten_agents if changed else agents
 
-    def _options_for_mcp_bridge_port(
+    def _options_with_runtime_bridge_port(
         self,
         mcp_bridge_port: int,
     ) -> ClaudeAgentOptions:
-        """Return SDK options whose trusted MCP URLs use the selected bridge port."""
-        mcp_servers = self._rewrite_mcp_servers_for_bridge_port(
+        """Return SDK options whose Tracecat bridge URLs use this runtime port."""
+        mcp_servers = self._mcp_servers_with_runtime_bridge_port(
             self._options.mcp_servers,
             mcp_bridge_port,
         )
-        agents = self._rewrite_agent_mcp_servers_for_bridge_port(
+        agents = self._agents_with_runtime_bridge_port(
             self._options.agents,
             mcp_bridge_port,
         )

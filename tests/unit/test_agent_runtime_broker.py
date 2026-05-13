@@ -314,7 +314,7 @@ def test_transport_rewrites_trusted_mcp_bridge_urls_for_selected_port(
         },
     )
 
-    rewritten = transport._options_for_mcp_bridge_port(54321)
+    rewritten = transport._options_with_runtime_bridge_port(54321)
 
     mcp_servers = cast(dict[str, Any], rewritten.mcp_servers)
     registry_server = cast(dict[str, Any], mcp_servers["tracecat-registry"])
@@ -346,7 +346,7 @@ def test_transport_mcp_bridge_url_rewrite_keeps_original_options(
     )
     transport._options = original_options
 
-    rewritten = transport._options_for_mcp_bridge_port(54321)
+    rewritten = transport._options_with_runtime_bridge_port(54321)
 
     original_mcp_servers = cast(dict[str, Any], original_options.mcp_servers)
     rewritten_mcp_servers = cast(dict[str, Any], rewritten.mcp_servers)
