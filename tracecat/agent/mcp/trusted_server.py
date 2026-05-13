@@ -38,6 +38,8 @@ from tracecat.exceptions import (
     BuiltinRegistryHasNoSelectionError,
     EntitlementRequired,
     ExecutionError,
+    TracecatNotFoundError,
+    TracecatValidationError,
 )
 from tracecat.logger import logger
 from tracecat.registry.lock.service import RegistryLockService
@@ -196,16 +198,28 @@ async def execute_user_mcp_tool(
         if ref.timeout is not None:
             config_dict["timeout"] = ref.timeout
     else:
-        async with AgentPresetService.with_session(role=role) as svc:
-            refs = await svc.resolve_mcp_integration_refs([str(ref.id)])
-            if not refs:
-                raise ToolError(f"MCP integration {ref.id} not found")
-            metadata = refs[0]
-            if not is_http_mcp_server(metadata):
-                raise ToolError(
-                    f"User MCP server '{server_name}' is not an HTTP server"
-                )
-            secrets = await svc.resolve_mcp_integration_secrets(ref.id)
+        try:
+            async with AgentPresetService.with_session(role=role) as svc:
+                refs = await svc.resolve_mcp_integration_refs([str(ref.id)])
+                if not refs:
+                    raise ToolError(f"MCP integration {ref.id} not found")
+                metadata = refs[0]
+                if not is_http_mcp_server(metadata):
+                    raise ToolError(
+                        f"User MCP server '{server_name}' is not an HTTP server"
+                    )
+                secrets = await svc.resolve_mcp_integration_secrets(ref.id)
+        except ToolError:
+            raise
+        except (TracecatValidationError, TracecatNotFoundError) as e:
+            raise ToolError(f"MCP integration {ref.id} is unavailable: {e}") from None
+        except Exception:
+            logger.exception(
+                "Unexpected error resolving MCP integration",
+                mcp_integration_id=str(ref.id),
+                server_name=server_name,
+            )
+            raise ToolError(f"MCP integration {ref.id} could not be resolved") from None
         config_dict = {
             "type": "http",
             # Keep the call-time routing key stable. The DB row's display name
