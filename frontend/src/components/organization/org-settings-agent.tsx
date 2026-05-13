@@ -911,7 +911,7 @@ function CustomProviderDialog({
           </DialogTitle>
           <DialogDescription>
             Configure a user-defined OpenAI-compatible endpoint. Discovery reads
-            the source&apos;s `/models` endpoint.
+            the source&apos;s <code>/models</code> endpoint.
           </DialogDescription>
         </DialogHeader>
 
@@ -976,7 +976,7 @@ function CustomProviderDialog({
                           placeholder={
                             provider
                               ? "Leave blank to keep saved value"
-                              : "Bearer sk-…"
+                              : "sk-••••••••"
                           }
                         />
                       </FormControl>
