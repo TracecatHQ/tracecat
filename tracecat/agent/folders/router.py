@@ -1,0 +1,224 @@
+"""HTTP routes for agent folder management."""
+
+from uuid import UUID
+
+from fastapi import APIRouter, HTTPException, Query, status
+
+from tracecat import config
+from tracecat.agent.folders.schemas import (
+    AgentDirectoryResponse,
+    AgentFolderCreate,
+    AgentFolderDelete,
+    AgentFolderMove,
+    AgentFolderRead,
+    AgentFolderUpdate,
+)
+from tracecat.agent.folders.service import (
+    AgentFolderErrorCode,
+    AgentFolderService,
+)
+from tracecat.auth.dependencies import WorkspaceUserRouteRole
+from tracecat.authz.controls import require_scope
+from tracecat.db.dependencies import AsyncDBSession
+from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
+from tracecat.pagination import CursorPaginatedResponse, CursorPaginationParams
+
+router = APIRouter(prefix="/agent-folders", tags=["agent-folders"])
+
+
+def _folder_http_exception(err: TracecatValidationError) -> HTTPException:
+    detail = err.detail if isinstance(err.detail, dict) else {}
+    raw_code = detail.get("code") if isinstance(detail, dict) else None
+    try:
+        code = AgentFolderErrorCode(raw_code)
+    except (TypeError, ValueError):
+        code = None
+
+    if code in {AgentFolderErrorCode.NOT_FOUND, AgentFolderErrorCode.PARENT_NOT_FOUND}:
+        return HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(err))
+    if code == AgentFolderErrorCode.CONFLICT:
+        return HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(err))
+    return HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(err))
+
+
+@router.get("/directory", response_model=AgentDirectoryResponse)
+@require_scope("agent:read")
+async def get_directory(
+    role: WorkspaceUserRouteRole,
+    session: AsyncDBSession,
+    path: str = Query(default="/", description="Folder path"),
+    limit: int = Query(
+        default=config.TRACECAT__LIMIT_DEFAULT,
+        ge=config.TRACECAT__LIMIT_MIN,
+        le=config.TRACECAT__LIMIT_CURSOR_MAX,
+    ),
+    cursor: str | None = Query(default=None),
+    reverse: bool = Query(default=False),
+) -> AgentDirectoryResponse:
+    """Get directory items (presets and folders) in the given path."""
+    service = AgentFolderService(session, role=role)
+    try:
+        page = await service.get_directory_items_paginated(
+            path,
+            CursorPaginationParams(
+                limit=limit,
+                cursor=cursor,
+                reverse=reverse,
+            ),
+        )
+    except TracecatNotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
+    except TracecatValidationError as e:
+        raise _folder_http_exception(e) from e
+    return AgentDirectoryResponse(
+        items=page.items,
+        next_cursor=page.next_cursor,
+        prev_cursor=page.prev_cursor,
+        has_more=page.has_more,
+        has_previous=page.has_previous,
+        total_estimate=page.total_estimate,
+    )
+
+
+@router.get("", response_model=CursorPaginatedResponse[AgentFolderRead])
+@require_scope("agent:read")
+async def list_folders(
+    role: WorkspaceUserRouteRole,
+    session: AsyncDBSession,
+    parent_path: str = Query(default="/", description="Parent folder path"),
+    limit: int = Query(
+        default=config.TRACECAT__LIMIT_DEFAULT,
+        ge=config.TRACECAT__LIMIT_MIN,
+        le=config.TRACECAT__LIMIT_CURSOR_MAX,
+    ),
+    cursor: str | None = Query(default=None),
+    reverse: bool = Query(default=False),
+) -> CursorPaginatedResponse[AgentFolderRead]:
+    """List folders under the specified parent path."""
+    service = AgentFolderService(session, role=role)
+    try:
+        page = await service.list_folders_paginated(
+            parent_path=parent_path,
+            params=CursorPaginationParams(
+                limit=limit,
+                cursor=cursor,
+                reverse=reverse,
+            ),
+        )
+    except TracecatValidationError as e:
+        raise _folder_http_exception(e) from e
+    return CursorPaginatedResponse(
+        items=AgentFolderRead.list_adapter().validate_python(page.items),
+        next_cursor=page.next_cursor,
+        prev_cursor=page.prev_cursor,
+        has_more=page.has_more,
+        has_previous=page.has_previous,
+        total_estimate=page.total_estimate,
+    )
+
+
+@router.post("", status_code=status.HTTP_201_CREATED)
+@require_scope("agent:create")
+async def create_folder(
+    role: WorkspaceUserRouteRole,
+    session: AsyncDBSession,
+    params: AgentFolderCreate,
+) -> AgentFolderRead:
+    """Create a new agent folder."""
+    service = AgentFolderService(session, role=role)
+    try:
+        folder = await service.create_folder(
+            name=params.name, parent_path=params.parent_path
+        )
+        return AgentFolderRead.model_validate(folder, from_attributes=True)
+    except TracecatValidationError as e:
+        raise _folder_http_exception(e) from e
+
+
+@router.get("/{folder_id}")
+@require_scope("agent:read")
+async def get_folder(
+    role: WorkspaceUserRouteRole,
+    session: AsyncDBSession,
+    folder_id: UUID,
+) -> AgentFolderRead:
+    """Get folder details by ID."""
+    service = AgentFolderService(session, role=role)
+    folder = await service.get_folder(folder_id)
+    if not folder:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Folder not found"
+        )
+    return AgentFolderRead.model_validate(folder, from_attributes=True)
+
+
+@router.patch("/{folder_id}")
+@require_scope("agent:update")
+async def update_folder(
+    role: WorkspaceUserRouteRole,
+    session: AsyncDBSession,
+    folder_id: UUID,
+    params: AgentFolderUpdate,
+) -> AgentFolderRead:
+    """Update a folder (rename)."""
+    service = AgentFolderService(session, role=role)
+    if params.name is None:
+        folder = await service.get_folder(folder_id)
+        if not folder:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Folder not found"
+            )
+        return AgentFolderRead.model_validate(folder, from_attributes=True)
+
+    try:
+        folder = await service.rename_folder(folder_id, params.name)
+    except TracecatValidationError as e:
+        raise _folder_http_exception(e) from e
+    else:
+        return AgentFolderRead.model_validate(folder, from_attributes=True)
+
+
+@router.delete("/{folder_id}", status_code=status.HTTP_204_NO_CONTENT)
+@require_scope("agent:delete")
+async def delete_folder(
+    role: WorkspaceUserRouteRole,
+    session: AsyncDBSession,
+    folder_id: UUID,
+    params: AgentFolderDelete | None = None,
+) -> None:
+    """Delete an agent folder."""
+    service = AgentFolderService(session, role=role)
+    try:
+        recursive = params.recursive if params is not None else False
+        await service.delete_folder(folder_id, recursive=recursive)
+    except TracecatValidationError as e:
+        raise _folder_http_exception(e) from e
+
+
+@router.post("/{folder_id}/move")
+@require_scope("agent:update")
+async def move_folder(
+    role: WorkspaceUserRouteRole,
+    session: AsyncDBSession,
+    folder_id: UUID,
+    params: AgentFolderMove,
+) -> AgentFolderRead:
+    """Move a folder to a new parent folder."""
+    service = AgentFolderService(session, role=role)
+    new_parent_id: UUID | None = None
+
+    if params.new_parent_path and params.new_parent_path != "/":
+        parent_folder = await service.get_folder_by_path(params.new_parent_path)
+        if not parent_folder:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Parent folder with path {params.new_parent_path} not found",
+            )
+        new_parent_id = parent_folder.id
+
+    try:
+        folder = await service.move_folder(folder_id, new_parent_id)
+    except TracecatValidationError as e:
+        raise _folder_http_exception(e) from e
+    else:
+        return AgentFolderRead.model_validate(folder, from_attributes=True)

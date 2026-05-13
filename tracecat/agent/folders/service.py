@@ -1,0 +1,825 @@
+"""Service for managing agent preset folders using materialized path pattern."""
+
+from __future__ import annotations
+
+import uuid
+from collections.abc import Sequence
+from datetime import datetime
+from enum import StrEnum
+from typing import Literal
+
+import sqlalchemy as sa
+from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import selectinload
+
+from tracecat.agent.folders.schemas import (
+    AgentFolderDirectoryItem,
+    AgentPresetDirectoryItem,
+    DirectoryItem,
+)
+from tracecat.authz.controls import require_scope
+from tracecat.db.models import AgentFolder, AgentPreset
+from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
+from tracecat.pagination import (
+    BaseCursorPaginator,
+    CursorPaginatedResponse,
+    CursorPaginationParams,
+)
+from tracecat.service import BaseWorkspaceService, requires_entitlement
+from tracecat.tags.schemas import TagRead
+from tracecat.tiers.enums import Entitlement
+
+
+class AgentFolderErrorCode(StrEnum):
+    """Machine-readable agent folder validation error codes."""
+
+    CONFLICT = "agent_folder_conflict"
+    NOT_FOUND = "agent_folder_not_found"
+    PARENT_NOT_FOUND = "agent_folder_parent_not_found"
+    INVALID = "agent_folder_invalid"
+
+
+class AgentFolderService(BaseWorkspaceService):
+    """Service for managing agent preset folders using materialized path pattern."""
+
+    service_name = "agent_folders"
+
+    @staticmethod
+    def _normalize_folder_path(path: str) -> str:
+        """Normalize folder paths to materialized-path format."""
+        if not path or path == "/":
+            return "/"
+        return path if path.endswith("/") else f"{path}/"
+
+    @staticmethod
+    def _folder_validation_error(
+        message: str,
+        *,
+        code: AgentFolderErrorCode,
+    ) -> TracecatValidationError:
+        return TracecatValidationError(message, detail={"code": code.value})
+
+    @staticmethod
+    def _normalize_folder_name(name: str) -> str:
+        """Trim folder names and reject blank values."""
+        normalized_name = name.strip()
+        if not normalized_name:
+            raise AgentFolderService._folder_validation_error(
+                "Folder name cannot be empty",
+                code=AgentFolderErrorCode.INVALID,
+            )
+        if "/" in normalized_name:
+            raise AgentFolderService._folder_validation_error(
+                "Folder name cannot contain slashes",
+                code=AgentFolderErrorCode.INVALID,
+            )
+        return normalized_name
+
+    @classmethod
+    def _get_parent_path(cls, path: str) -> str:
+        """Return the immediate parent path for a normalized folder path."""
+        path = cls._normalize_folder_path(path)
+        if path == "/":
+            return "/"
+
+        parent_path, _, _ = path.rstrip("/").rpartition("/")
+        return f"{parent_path}/" if parent_path else "/"
+
+    async def _write_folder_change(
+        self,
+        *,
+        conflict_path: str,
+        commit: bool,
+    ) -> None:
+        """Persist a folder write and translate unique conflicts cleanly."""
+        try:
+            if commit:
+                await self.session.commit()
+            else:
+                await self.session.flush()
+        except IntegrityError as exc:
+            await self.session.rollback()
+            raise self._folder_validation_error(
+                f"Folder {conflict_path} already exists",
+                code=AgentFolderErrorCode.CONFLICT,
+            ) from exc
+
+    @require_scope("agent:create")
+    @requires_entitlement(Entitlement.AGENT_ADDONS)
+    async def create_folder(
+        self, name: str, parent_path: str = "/", commit: bool = True
+    ) -> AgentFolder:
+        """Create a new agent folder."""
+        normalized_name = self._normalize_folder_name(name)
+
+        parent_path = self._normalize_folder_path(parent_path)
+
+        if parent_path != "/":
+            parent_exists = await self._folder_path_exists(parent_path)
+            if not parent_exists:
+                raise self._folder_validation_error(
+                    f"Parent path {parent_path} not found",
+                    code=AgentFolderErrorCode.PARENT_NOT_FOUND,
+                )
+
+        full_path = (
+            f"{parent_path}{normalized_name}/"
+            if parent_path != "/"
+            else f"/{normalized_name}/"
+        )
+
+        path_exists = await self._folder_path_exists(full_path)
+        if path_exists:
+            raise self._folder_validation_error(
+                f"Folder {full_path} already exists",
+                code=AgentFolderErrorCode.CONFLICT,
+            )
+
+        folder = AgentFolder(
+            name=normalized_name,
+            path=full_path,
+            workspace_id=self.workspace_id,
+        )
+        self.session.add(folder)
+        await self._write_folder_change(conflict_path=full_path, commit=commit)
+        await self.session.refresh(folder)
+        return folder
+
+    async def _get_folder(self, folder_id: uuid.UUID) -> AgentFolder | None:
+        statement = select(AgentFolder).where(
+            AgentFolder.workspace_id == self.workspace_id,
+            AgentFolder.id == folder_id,
+        )
+        result = await self.session.execute(statement)
+        return result.scalar_one_or_none()
+
+    async def _get_folder_by_path(self, path: str) -> AgentFolder | None:
+        path = self._normalize_folder_path(path)
+
+        statement = select(AgentFolder).where(
+            AgentFolder.workspace_id == self.workspace_id,
+            AgentFolder.path == path,
+        )
+        result = await self.session.execute(statement)
+        return result.scalar_one_or_none()
+
+    @require_scope("agent:read")
+    @requires_entitlement(Entitlement.AGENT_ADDONS)
+    async def get_folder(self, folder_id: uuid.UUID) -> AgentFolder | None:
+        """Get a folder by ID."""
+        return await self._get_folder(folder_id)
+
+    @require_scope("agent:read")
+    @requires_entitlement(Entitlement.AGENT_ADDONS)
+    async def get_folder_by_path(self, path: str) -> AgentFolder | None:
+        """Get a folder by its path."""
+        return await self._get_folder_by_path(path)
+
+    async def _require_existing_parent_path(self, parent_path: str) -> str:
+        parent_path = self._normalize_folder_path(parent_path)
+        if parent_path != "/":
+            parent_exists = await self._folder_path_exists(parent_path)
+            if not parent_exists:
+                raise self._folder_validation_error(
+                    f"Parent path {parent_path} not found",
+                    code=AgentFolderErrorCode.PARENT_NOT_FOUND,
+                )
+        return parent_path
+
+    @require_scope("agent:read")
+    @requires_entitlement(Entitlement.AGENT_ADDONS)
+    async def list_folders(self, parent_path: str = "/") -> Sequence[AgentFolder]:
+        """List all folders within the specified parent path subtree."""
+        parent_path = await self._require_existing_parent_path(parent_path)
+
+        statement = select(AgentFolder).where(
+            AgentFolder.workspace_id == self.workspace_id,
+            AgentFolder.path.startswith(parent_path, autoescape=True),
+        )
+        result = await self.session.execute(statement)
+        return result.scalars().all()
+
+    @require_scope("agent:read")
+    @requires_entitlement(Entitlement.AGENT_ADDONS)
+    async def list_folders_paginated(
+        self,
+        parent_path: str = "/",
+        params: CursorPaginationParams | None = None,
+    ) -> CursorPaginatedResponse[AgentFolder]:
+        """List folders within a parent path subtree with cursor pagination."""
+        params = params or CursorPaginationParams()
+        parent_path = await self._require_existing_parent_path(parent_path)
+        paginator = BaseCursorPaginator(self.session)
+        statement = select(AgentFolder).where(
+            AgentFolder.workspace_id == self.workspace_id,
+            AgentFolder.path.startswith(parent_path, autoescape=True),
+            AgentFolder.path != parent_path,
+        )
+
+        if params.cursor:
+            try:
+                cursor_data = paginator.decode_cursor(params.cursor)
+                cursor_id = uuid.UUID(cursor_data.id)
+            except ValueError as err:
+                raise TracecatValidationError(
+                    "Invalid cursor for agent folders"
+                ) from err
+
+            cursor_created_at = cursor_data.sort_value
+            if not isinstance(cursor_created_at, datetime):
+                raise TracecatValidationError("Invalid cursor for agent folders")
+
+            predicate = sa.or_(
+                AgentFolder.created_at < cursor_created_at,
+                sa.and_(
+                    AgentFolder.created_at == cursor_created_at,
+                    AgentFolder.id < cursor_id,
+                ),
+            )
+            if params.reverse:
+                predicate = sa.or_(
+                    AgentFolder.created_at > cursor_created_at,
+                    sa.and_(
+                        AgentFolder.created_at == cursor_created_at,
+                        AgentFolder.id > cursor_id,
+                    ),
+                )
+            statement = statement.where(predicate)
+
+        if params.reverse:
+            statement = statement.order_by(
+                AgentFolder.created_at.asc(), AgentFolder.id.asc()
+            )
+        else:
+            statement = statement.order_by(
+                AgentFolder.created_at.desc(), AgentFolder.id.desc()
+            )
+        statement = statement.limit(params.limit + 1)
+
+        folders = (await self.session.execute(statement)).scalars().all()
+        has_more = len(folders) > params.limit
+        items = list(folders[: params.limit])
+
+        next_cursor = None
+        if has_more and items:
+            last = items[-1]
+            next_cursor = paginator.encode_cursor(
+                last.id,
+                sort_column="created_at",
+                sort_value=last.created_at,
+            )
+
+        prev_cursor = None
+        if params.cursor and items:
+            first = items[0]
+            prev_cursor = paginator.encode_cursor(
+                first.id,
+                sort_column="created_at",
+                sort_value=first.created_at,
+            )
+
+        if params.reverse:
+            items.reverse()
+            next_cursor, prev_cursor = prev_cursor, next_cursor
+            has_more, has_previous = params.cursor is not None, has_more
+        else:
+            has_previous = params.cursor is not None
+
+        return CursorPaginatedResponse(
+            items=items,
+            next_cursor=next_cursor,
+            prev_cursor=prev_cursor,
+            has_more=has_more,
+            has_previous=has_previous,
+        )
+
+    @require_scope("agent:update")
+    @requires_entitlement(Entitlement.AGENT_ADDONS)
+    async def move_preset(
+        self, preset_id: uuid.UUID, folder: AgentFolder | None = None
+    ) -> AgentPreset:
+        """Move an agent preset to a different folder."""
+        statement = select(AgentPreset).where(
+            AgentPreset.workspace_id == self.workspace_id,
+            AgentPreset.id == preset_id,
+        )
+        result = await self.session.execute(statement)
+        preset = result.scalar_one_or_none()
+        if not preset:
+            raise TracecatNotFoundError(f"Agent preset {preset_id} not found")
+
+        preset.folder_id = folder.id if folder else None
+        self.session.add(preset)
+        await self.session.commit()
+        await self.session.refresh(preset)
+        return preset
+
+    @require_scope("agent:update")
+    @requires_entitlement(Entitlement.AGENT_ADDONS)
+    async def rename_folder(self, folder_id: uuid.UUID, new_name: str) -> AgentFolder:
+        """Rename a folder. Updates the folder name and path."""
+        normalized_name = self._normalize_folder_name(new_name)
+
+        folder = await self.get_folder(folder_id)
+        if not folder:
+            raise self._folder_validation_error(
+                f"Folder {folder_id} not found",
+                code=AgentFolderErrorCode.NOT_FOUND,
+            )
+
+        old_path = folder.path
+        parent_path = self._get_parent_path(folder.path)
+        new_path = (
+            f"{parent_path}{normalized_name}/"
+            if parent_path != "/"
+            else f"/{normalized_name}/"
+        )
+
+        if new_path != old_path:
+            path_exists = await self._folder_path_exists(new_path)
+            if path_exists:
+                raise self._folder_validation_error(
+                    f"Folder {new_path} already exists",
+                    code=AgentFolderErrorCode.CONFLICT,
+                )
+
+        folder.name = normalized_name
+        folder.path = new_path
+        self.session.add(folder)
+
+        if new_path != old_path:
+            await self._update_descendant_paths(old_path, new_path)
+
+        await self._write_folder_change(conflict_path=new_path, commit=True)
+        await self.session.refresh(folder)
+        return folder
+
+    @require_scope("agent:update")
+    @requires_entitlement(Entitlement.AGENT_ADDONS)
+    async def move_folder(
+        self, folder_id: uuid.UUID, new_parent_id: uuid.UUID | None
+    ) -> AgentFolder:
+        """Move a folder to a different parent."""
+        folder = await self.get_folder(folder_id)
+        if not folder:
+            raise self._folder_validation_error(
+                f"Folder {folder_id} not found",
+                code=AgentFolderErrorCode.NOT_FOUND,
+            )
+
+        new_parent_path = "/"
+        if new_parent_id is not None:
+            new_parent = await self.get_folder(new_parent_id)
+            if not new_parent:
+                raise self._folder_validation_error(
+                    f"Parent folder {new_parent_id} not found",
+                    code=AgentFolderErrorCode.PARENT_NOT_FOUND,
+                )
+            new_parent_path = new_parent.path
+
+            if folder.path == new_parent_path:
+                raise self._folder_validation_error(
+                    "Cannot make a folder its own child",
+                    code=AgentFolderErrorCode.INVALID,
+                )
+            if new_parent.path.startswith(folder.path):
+                raise self._folder_validation_error(
+                    "Cannot create cyclic folder structure",
+                    code=AgentFolderErrorCode.INVALID,
+                )
+
+        old_path = folder.path
+        old_name = folder.name
+        new_path = (
+            f"{new_parent_path}{old_name}/"
+            if new_parent_path != "/"
+            else f"/{old_name}/"
+        )
+
+        if new_path != old_path:
+            path_exists = await self._folder_path_exists(new_path)
+            if path_exists:
+                raise self._folder_validation_error(
+                    f"Folder {new_path} already exists",
+                    code=AgentFolderErrorCode.CONFLICT,
+                )
+
+        folder.path = new_path
+        self.session.add(folder)
+
+        if new_path != old_path:
+            await self._update_descendant_paths(old_path, new_path)
+
+        await self._write_folder_change(conflict_path=new_path, commit=True)
+        await self.session.refresh(folder)
+        return folder
+
+    @require_scope("agent:delete")
+    @requires_entitlement(Entitlement.AGENT_ADDONS)
+    async def delete_folder(
+        self, folder_id: uuid.UUID, recursive: bool = False
+    ) -> None:
+        """Delete a folder."""
+        folder = await self._get_folder(folder_id)
+        if not folder:
+            raise self._folder_validation_error(
+                f"Folder {folder_id} not found",
+                code=AgentFolderErrorCode.NOT_FOUND,
+            )
+
+        if folder.path == "/":
+            raise self._folder_validation_error(
+                "Cannot delete root folder",
+                code=AgentFolderErrorCode.INVALID,
+            )
+
+        if not recursive:
+            has_children = await self._has_children(folder.path)
+            has_presets = await self._has_presets(folder_id)
+            if has_children or has_presets:
+                raise self._folder_validation_error(
+                    "Folder is not empty. Please move or delete its contents first.",
+                    code=AgentFolderErrorCode.INVALID,
+                )
+        else:
+            folder_ids = select(AgentFolder.id).where(
+                AgentFolder.workspace_id == self.workspace_id,
+                AgentFolder.path.startswith(folder.path, autoescape=True),
+            )
+            await self.session.execute(
+                sa.update(AgentPreset)
+                .where(
+                    AgentPreset.workspace_id == self.workspace_id,
+                    AgentPreset.folder_id.in_(folder_ids),
+                )
+                .values(folder_id=None)
+                .execution_options(synchronize_session=False)
+            )
+            await self.session.execute(
+                sa.delete(AgentFolder)
+                .where(
+                    AgentFolder.workspace_id == self.workspace_id,
+                    AgentFolder.path.startswith(folder.path, autoescape=True),
+                    AgentFolder.path != folder.path,
+                )
+                .execution_options(synchronize_session=False)
+            )
+
+        await self.session.delete(folder)
+        await self.session.commit()
+
+    @require_scope("agent:read")
+    @requires_entitlement(Entitlement.AGENT_ADDONS)
+    async def get_directory_items(
+        self, path: str = "/", *, order_by: Literal["asc", "desc"] = "desc"
+    ) -> Sequence[DirectoryItem]:
+        """Get all directory items (presets and folders) in the given path."""
+        path, folder_id = await self._get_directory_context(path)
+
+        preset_statement = (
+            select(AgentPreset)
+            .where(
+                AgentPreset.workspace_id == self.workspace_id,
+                AgentPreset.folder_id == folder_id,
+            )
+            .order_by(
+                AgentPreset.created_at.desc()
+                if order_by == "desc"
+                else AgentPreset.created_at.asc()
+            )
+            .options(selectinload(AgentPreset.tags))
+        )
+        preset_result = await self.session.execute(preset_statement)
+        presets = preset_result.scalars().all()
+
+        folder_statement = self._directory_folders_statement(path)
+        folder_result = await self.session.execute(folder_statement)
+        folders = folder_result.scalars().all()
+
+        return await self._build_directory_items(
+            folders=folders, presets=presets, path=path
+        )
+
+    @require_scope("agent:read")
+    @requires_entitlement(Entitlement.AGENT_ADDONS)
+    async def get_directory_items_paginated(
+        self,
+        path: str = "/",
+        params: CursorPaginationParams | None = None,
+    ) -> CursorPaginatedResponse[DirectoryItem]:
+        """Get directory items in the given path with cursor pagination."""
+        params = params or CursorPaginationParams()
+        path, folder_id = await self._get_directory_context(path)
+        paginator = BaseCursorPaginator(self.session)
+
+        folder_statement = self._directory_folders_statement(path)
+        preset_statement = (
+            select(AgentPreset)
+            .where(
+                AgentPreset.workspace_id == self.workspace_id,
+                AgentPreset.folder_id == folder_id,
+            )
+            .options(selectinload(AgentPreset.tags))
+        )
+
+        if params.cursor:
+            try:
+                cursor_data = paginator.decode_cursor(params.cursor)
+                cursor_id = uuid.UUID(cursor_data.id)
+            except ValueError as err:
+                raise TracecatValidationError(
+                    "Invalid cursor for agent folder directory"
+                ) from err
+
+            cursor_created_at = cursor_data.sort_value
+            if not isinstance(cursor_created_at, datetime):
+                raise TracecatValidationError(
+                    "Invalid cursor for agent folder directory"
+                )
+
+            folder_statement = folder_statement.where(
+                self._directory_cursor_predicate(
+                    AgentFolder,
+                    cursor_created_at=cursor_created_at,
+                    cursor_id=cursor_id,
+                    reverse=params.reverse,
+                )
+            )
+            preset_statement = preset_statement.where(
+                self._directory_cursor_predicate(
+                    AgentPreset,
+                    cursor_created_at=cursor_created_at,
+                    cursor_id=cursor_id,
+                    reverse=params.reverse,
+                )
+            )
+
+        if params.reverse:
+            folder_statement = folder_statement.order_by(
+                AgentFolder.created_at.asc(), AgentFolder.id.asc()
+            )
+            preset_statement = preset_statement.order_by(
+                AgentPreset.created_at.asc(), AgentPreset.id.asc()
+            )
+        else:
+            folder_statement = folder_statement.order_by(
+                AgentFolder.created_at.desc(), AgentFolder.id.desc()
+            )
+            preset_statement = preset_statement.order_by(
+                AgentPreset.created_at.desc(), AgentPreset.id.desc()
+            )
+
+        folder_result = await self.session.execute(
+            folder_statement.limit(params.limit + 1)
+        )
+        preset_result = await self.session.execute(
+            preset_statement.limit(params.limit + 1)
+        )
+        folder_rows = folder_result.scalars().all()
+        preset_rows = preset_result.scalars().all()
+
+        rows = sorted(
+            [*folder_rows, *preset_rows],
+            key=lambda row: (row.created_at, row.id),
+            reverse=not params.reverse,
+        )
+        has_more = len(rows) > params.limit
+        page_rows = rows[: params.limit]
+
+        next_cursor = None
+        if has_more and page_rows:
+            last = page_rows[-1]
+            next_cursor = paginator.encode_cursor(
+                last.id,
+                sort_column="created_at",
+                sort_value=last.created_at,
+            )
+
+        prev_cursor = None
+        if params.cursor and page_rows:
+            first = page_rows[0]
+            prev_cursor = paginator.encode_cursor(
+                first.id,
+                sort_column="created_at",
+                sort_value=first.created_at,
+            )
+
+        if params.reverse:
+            page_rows.reverse()
+            next_cursor, prev_cursor = prev_cursor, next_cursor
+            has_more, has_previous = params.cursor is not None, has_more
+        else:
+            has_previous = params.cursor is not None
+
+        folders = [row for row in page_rows if isinstance(row, AgentFolder)]
+        presets = [row for row in page_rows if isinstance(row, AgentPreset)]
+        items = await self._build_directory_items(
+            folders=folders,
+            presets=presets,
+            path=path,
+            preserve_order=page_rows,
+        )
+
+        return CursorPaginatedResponse(
+            items=items,
+            next_cursor=next_cursor,
+            prev_cursor=prev_cursor,
+            has_more=has_more,
+            has_previous=has_previous,
+        )
+
+    async def _get_directory_context(self, path: str) -> tuple[str, uuid.UUID | None]:
+        path = self._normalize_folder_path(path)
+
+        if path != "/":
+            folder = await self._get_folder_by_path(path)
+            if not folder:
+                raise TracecatNotFoundError(f"Folder {path} not found")
+            return path, folder.id
+
+        return path, None
+
+    def _directory_folders_statement(self, path: str) -> sa.Select[tuple[AgentFolder]]:
+        path_depth = path.count("/") + 1
+        return select(AgentFolder).where(
+            AgentFolder.workspace_id == self.workspace_id,
+            AgentFolder.path.startswith(path, autoescape=True),
+            AgentFolder.path != path,
+            func.length(AgentFolder.path)
+            - func.length(func.replace(AgentFolder.path, "/", ""))
+            == path_depth,
+        )
+
+    @staticmethod
+    def _directory_cursor_predicate(
+        model: type[AgentFolder] | type[AgentPreset],
+        *,
+        cursor_created_at: datetime,
+        cursor_id: uuid.UUID,
+        reverse: bool,
+    ) -> sa.ColumnElement[bool]:
+        if reverse:
+            return sa.or_(
+                model.created_at > cursor_created_at,
+                sa.and_(model.created_at == cursor_created_at, model.id > cursor_id),
+            )
+        return sa.or_(
+            model.created_at < cursor_created_at,
+            sa.and_(model.created_at == cursor_created_at, model.id < cursor_id),
+        )
+
+    async def _build_directory_items(
+        self,
+        *,
+        folders: Sequence[AgentFolder],
+        presets: Sequence[AgentPreset],
+        path: str,
+        preserve_order: Sequence[AgentFolder | AgentPreset] | None = None,
+    ) -> list[DirectoryItem]:
+        directory_items: list[DirectoryItem] = []
+        path_depth = path.count("/") + 1
+        folder_ids = [folder.id for folder in folders]
+        folder_paths = {folder.path for folder in folders}
+        preset_counts_by_folder_id: dict[uuid.UUID, int] = {}
+        child_folder_counts_by_path: dict[str, int] = {}
+
+        if folder_ids:
+            preset_folder_result = await self.session.execute(
+                select(AgentPreset.folder_id, func.count(AgentPreset.id))
+                .where(
+                    AgentPreset.workspace_id == self.workspace_id,
+                    AgentPreset.folder_id.in_(folder_ids),
+                )
+                .group_by(AgentPreset.folder_id)
+            )
+            preset_counts_by_folder_id = {
+                folder_id: preset_count
+                for folder_id, preset_count in preset_folder_result.tuples().all()
+                if folder_id is not None
+            }
+
+            child_depth = path_depth + 1
+            child_path_result = await self.session.execute(
+                select(AgentFolder.path).where(
+                    AgentFolder.workspace_id == self.workspace_id,
+                    AgentFolder.path.startswith(path, autoescape=True),
+                    AgentFolder.path != path,
+                    func.length(AgentFolder.path)
+                    - func.length(func.replace(AgentFolder.path, "/", ""))
+                    == child_depth,
+                )
+            )
+            for child_path in child_path_result.scalars().all():
+                parent_path = self._get_parent_path(child_path)
+                if parent_path in folder_paths:
+                    child_folder_counts_by_path[parent_path] = (
+                        child_folder_counts_by_path.get(parent_path, 0) + 1
+                    )
+
+        items_by_id: dict[uuid.UUID, DirectoryItem] = {}
+        for f in folders:
+            num_items = child_folder_counts_by_path.get(
+                f.path, 0
+            ) + preset_counts_by_folder_id.get(f.id, 0)
+            items_by_id[f.id] = AgentFolderDirectoryItem(
+                type="folder",
+                num_items=num_items,
+                id=f.id,
+                name=f.name,
+                path=f.path,
+                workspace_id=f.workspace_id,
+                created_at=f.created_at,
+                updated_at=f.updated_at,
+            )
+
+        for preset in presets:
+            items_by_id[preset.id] = AgentPresetDirectoryItem(
+                type="preset",
+                id=preset.id,
+                name=preset.name,
+                slug=preset.slug,
+                description=preset.description,
+                model_provider=preset.model_provider,
+                model_name=preset.model_name,
+                folder_id=preset.folder_id,
+                tags=[
+                    TagRead.model_validate(tag, from_attributes=True)
+                    for tag in preset.tags
+                ],
+                created_at=preset.created_at,
+                updated_at=preset.updated_at,
+            )
+
+        if preserve_order is not None:
+            return [items_by_id[row.id] for row in preserve_order]
+
+        for f in folders:
+            directory_items.append(items_by_id[f.id])
+
+        for preset in presets:
+            directory_items.append(items_by_id[preset.id])
+
+        return directory_items
+
+    @require_scope("agent:read")
+    @requires_entitlement(Entitlement.AGENT_ADDONS)
+    async def get_folder_tree(self, root_path: str = "/") -> Sequence[AgentFolder]:
+        """Get the full folder tree starting from the given root path."""
+        root_path = self._normalize_folder_path(root_path)
+
+        statement = (
+            select(AgentFolder)
+            .where(
+                AgentFolder.workspace_id == self.workspace_id,
+                AgentFolder.path.startswith(root_path, autoescape=True),
+            )
+            .order_by(AgentFolder.path)
+        )
+        result = await self.session.execute(statement)
+        return result.scalars().all()
+
+    # Private helpers
+
+    async def _folder_path_exists(self, path: str) -> bool:
+        path = self._normalize_folder_path(path)
+        exists_clause = sa.exists().where(
+            AgentFolder.workspace_id == self.workspace_id,
+            AgentFolder.path == path,
+        )
+        return bool(await self.session.scalar(select(exists_clause)))
+
+    async def _update_descendant_paths(self, old_path: str, new_path: str) -> None:
+        old_path = self._normalize_folder_path(old_path)
+        new_path = self._normalize_folder_path(new_path)
+        await self.session.execute(
+            sa.update(AgentFolder)
+            .where(
+                AgentFolder.workspace_id == self.workspace_id,
+                AgentFolder.path.startswith(old_path, autoescape=True),
+                AgentFolder.path != old_path,
+            )
+            .values(
+                path=func.concat(
+                    new_path,
+                    func.substring(AgentFolder.path, len(old_path) + 1),
+                )
+            )
+            .execution_options(synchronize_session=False)
+        )
+
+    async def _has_children(self, path: str) -> bool:
+        path = self._normalize_folder_path(path)
+        exists_clause = sa.exists().where(
+            AgentFolder.workspace_id == self.workspace_id,
+            AgentFolder.path.startswith(path, autoescape=True),
+            AgentFolder.path != path,
+        )
+        return bool(await self.session.scalar(select(exists_clause)))
+
+    async def _has_presets(self, folder_id: uuid.UUID) -> bool:
+        exists_clause = sa.exists().where(
+            AgentPreset.workspace_id == self.workspace_id,
+            AgentPreset.folder_id == folder_id,
+        )
+        return bool(await self.session.scalar(select(exists_clause)))

@@ -13,6 +13,7 @@ from tracecat.agent.subagents import AgentSubagentsConfig, has_manual_tool_appro
 from tracecat.agent.types import AgentConfig, OutputType
 from tracecat.core.schemas import Schema
 from tracecat.identifiers import WorkspaceID
+from tracecat.tags.schemas import TagRead
 
 if TYPE_CHECKING:
     from tracecat.db.models import AgentPreset
@@ -125,6 +126,12 @@ class AgentPresetCreate(AgentPresetBase):
     slug: PresetSlug | None = None
 
 
+class AgentPresetMoveToFolder(BaseModel):
+    """Payload for moving an agent preset to a folder."""
+
+    folder_path: str | None = None
+
+
 class AgentPresetUpdate(BaseModel):
     """Payload for updating an existing agent preset."""
 
@@ -156,6 +163,10 @@ class AgentPresetReadMinimal(Schema):
     name: str
     slug: str
     description: str | None
+    model_provider: str
+    model_name: str
+    folder_id: uuid.UUID | None = None
+    tags: list[TagRead] = Field(default_factory=list)
     current_version_id: uuid.UUID | None = None
     capabilities: list[AgentPresetCapability] = Field(default_factory=list)
     current_version_subagent_eligibility: AgentPresetSubagentEligibility = Field(

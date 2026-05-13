@@ -3,8 +3,10 @@ import uuid
 from fastapi import APIRouter, HTTPException, Query, status
 
 from tracecat import config
+from tracecat.agent.folders.service import AgentFolderService
 from tracecat.agent.preset.schemas import (
     AgentPresetCreate,
+    AgentPresetMoveToFolder,
     AgentPresetRead,
     AgentPresetReadMinimal,
     AgentPresetUpdate,
@@ -17,7 +19,7 @@ from tracecat.agent.preset.service import AgentPresetService
 from tracecat.auth.dependencies import WorkspaceUserRouteRole
 from tracecat.authz.controls import require_scope
 from tracecat.db.dependencies import AsyncDBSession
-from tracecat.exceptions import TracecatValidationError
+from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
 from tracecat.pagination import CursorPaginatedResponse, CursorPaginationParams
 
 router = APIRouter(prefix="/agent/presets", tags=["agent-presets"])
@@ -250,3 +252,34 @@ async def restore_agent_preset_version(
             detail=str(exc),
         ) from exc
     return await service.build_preset_read(restored)
+
+
+@router.post(
+    "/{preset_id}/move",
+    status_code=status.HTTP_204_NO_CONTENT,
+    tags=["agent-presets"],
+)
+@require_scope("agent:update")
+async def move_agent_preset_to_folder(
+    *,
+    role: WorkspaceUserRouteRole,
+    session: AsyncDBSession,
+    preset_id: uuid.UUID,
+    params: AgentPresetMoveToFolder,
+) -> None:
+    """Move an agent preset to a folder."""
+    folder_service = AgentFolderService(session, role=role)
+    if params.folder_path and params.folder_path != "/":
+        folder = await folder_service.get_folder_by_path(params.folder_path)
+        if not folder:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Folder with path '{params.folder_path}' not found",
+            )
+    else:
+        folder = None
+
+    try:
+        await folder_service.move_preset(preset_id, folder)
+    except TracecatNotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
