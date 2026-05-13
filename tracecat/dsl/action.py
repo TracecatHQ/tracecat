@@ -12,6 +12,8 @@ from temporalio.exceptions import ApplicationError
 from tracecat_ee.agent.schemas import AgentActionArgs, PresetAgentActionArgs
 
 from tracecat import config
+from tracecat.agent.common.types import MCPServerConfig
+from tracecat.agent.preset.service import AgentPresetService
 from tracecat.auth.types import Role
 from tracecat.common import is_iterable
 from tracecat.dsl.common import (
@@ -67,6 +69,15 @@ from tracecat.temporal.exceptions import UserError
 from tracecat.validation.schemas import ValidationDetail
 
 _thread_local = threading.local()
+
+
+async def _resolve_mcp_integration_ids(
+    mcp_integration_ids: list[str], *, role: Role
+) -> list[MCPServerConfig]:
+    async with AgentPresetService.with_session(role=role) as svc:
+        await svc.validate_mcp_integrations(mcp_integration_ids)
+        servers = await svc.resolve_mcp_integration_refs(mcp_integration_ids)
+    return servers or []
 
 
 def _strip_string_values(args: dict[str, Any]) -> dict[str, Any]:
@@ -656,6 +667,11 @@ class DSLActivities:
         evaled_args = await asyncio.to_thread(
             eval_templated_object, args, operand=materialized
         )
+        mcp_integration_ids = evaled_args.pop("mcp_integrations", None)
+        if mcp_integration_ids:
+            evaled_args["mcp_servers"] = await _resolve_mcp_integration_ids(
+                mcp_integration_ids, role=input.role
+            )
         return AgentActionArgs(**evaled_args)
 
     @staticmethod

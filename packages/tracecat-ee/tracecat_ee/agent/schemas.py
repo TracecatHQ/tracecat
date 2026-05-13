@@ -4,6 +4,7 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from tracecat import config
+from tracecat.agent.common.types import MCPServerConfig
 from tracecat.agent.types import OutputType
 
 # ``extra="ignore"`` keeps Temporal activity replay working after the legacy
@@ -45,7 +46,7 @@ class AgentActionArgs(BaseModel):
         return values
 
     actions: list[str] | None = None
-    mcp_integrations: list[str] | None = None
+    mcp_servers: list[MCPServerConfig] | None = None
     instructions: str | None = None
     output_type: OutputType | None = None
     session_id: uuid.UUID | None = None
