@@ -634,7 +634,6 @@ async def upload_tarball_venv(
     logger.info(
         "Tarball venv uploaded successfully",
         key=key,
-        zstd_key=zstd_key,
         bucket=bucket,
         s3_uri=s3_uri,
         size=len(content),
