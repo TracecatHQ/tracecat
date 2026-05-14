@@ -749,13 +749,11 @@ export function useAgentDirectoryItems(
   } = useQuery<AgentDirectoryItem[], TracecatApiError>({
     enabled: enabled && !!workspaceId,
     queryKey: ["agent-directory-items", workspaceId, path],
-    queryFn: async () => {
-      const response = await agentFoldersGetDirectory({
+    queryFn: async () =>
+      await agentFoldersGetDirectory({
         path,
         workspaceId: workspaceId ?? "",
-      })
-      return response.items
-    },
+      }),
     staleTime: 5 * 60 * 1000,
     refetchOnWindowFocus: false,
   })
