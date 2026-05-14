@@ -219,7 +219,23 @@ just gen-functions
   `just cluster ports`, and prefer `uv run alembic revision --autogenerate`
   before manually editing a new migration.
 
-## Pull request descriptions
+## Pull requests
+
+### Titles
+
+- Always use conventional commit prefixes: `feat:`, `fix:`, `chore:`, `docs:`,
+  `refactor:`, `test:`, `ci:`, `perf:`, etc.
+- Keep the first line under 72 characters.
+- Optionally include a scope, e.g. `fix(agent): ...`, `feat(ui): ...`.
+
+### Labels
+
+- Always label PRs on a best-effort basis. Do not skip labeling.
+- Before labeling, list existing repo labels with `gh label list` and pick from
+  that set. Do not invent new labels unless the user explicitly asks for one.
+- Apply labels with `gh pr edit <pr-number> --add-label "<label>"`.
+
+### Descriptions
 
 - Never use `gh pr create --body "..."` when the body includes Markdown or
   backticks.
