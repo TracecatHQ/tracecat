@@ -2,7 +2,9 @@ import asyncio
 import importlib
 import os
 import socket
-import threading
+import subprocess
+import sys
+import tempfile
 import time
 import urllib.request
 import uuid
@@ -1236,9 +1238,11 @@ def inprocess_api_server(
     redis_server: None,
     monkeysession: pytest.MonkeyPatch,
 ) -> Iterator[str]:
-    """Run the real Tracecat API on localhost without building the Docker image."""
-    import uvicorn
+    """Run the real Tracecat API on localhost without building the Docker image.
 
+    The API runs in a separate local process instead of a thread so SQLAlchemy's
+    async engine/pool is never shared across the pytest and Uvicorn event loops.
+    """
     port = _get_free_tcp_port()
     api_url = f"http://127.0.0.1:{port}"
     monkeysession.setattr(config, "TRACECAT__API_URL", api_url)
@@ -1246,36 +1250,57 @@ def inprocess_api_server(
     monkeysession.setattr(config, "TRACECAT__PUBLIC_API_URL", f"{api_url}/api")
     monkeysession.setenv("TRACECAT__PUBLIC_API_URL", f"{api_url}/api")
 
-    # Import after env_sandbox overrides so the module-level FastAPI app sees the
-    # same config as the tests. The decorated health/internal routes live there.
-    from tracecat.api.app import app as api_app
+    api_env = os.environ.copy()
+    api_env["TRACECAT__API_URL"] = api_url
+    api_env["TRACECAT__PUBLIC_API_URL"] = f"{api_url}/api"
 
-    server = uvicorn.Server(
-        uvicorn.Config(
-            api_app,
-            host="127.0.0.1",
-            port=port,
-            log_level="warning",
-            access_log=False,
-        )
+    log_file = tempfile.NamedTemporaryFile(
+        mode="w+",
+        prefix=f"tracecat-api-{WORKER_ID}-",
+        suffix=".log",
+        delete=True,
     )
-    thread = threading.Thread(
-        target=server.run,
-        name=f"tracecat-inprocess-api-{WORKER_ID}",
-        daemon=True,
+    process = subprocess.Popen(
+        [
+            sys.executable,
+            "-m",
+            "uvicorn",
+            "tracecat.api.app:app",
+            "--host",
+            "127.0.0.1",
+            "--port",
+            str(port),
+            "--log-level",
+            "warning",
+            "--no-access-log",
+        ],
+        env=api_env,
+        stdout=log_file,
+        stderr=subprocess.STDOUT,
+        text=True,
     )
-    thread.start()
     try:
         _wait_for_http_ok(f"{api_url}/health")
-    except Exception:
-        server.should_exit = True
-        thread.join(timeout=10)
-        raise
-
-    yield api_url
-
-    server.should_exit = True
-    thread.join(timeout=10)
+        yield api_url
+    except Exception as exc:
+        process.terminate()
+        try:
+            process.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait(timeout=10)
+        log_file.seek(0)
+        logs = log_file.read()[-4000:]
+        raise RuntimeError(f"Tracecat API test server failed. Logs:\n{logs}") from exc
+    finally:
+        if process.poll() is None:
+            process.terminate()
+            try:
+                process.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait(timeout=10)
+        log_file.close()
 
 
 @pytest.fixture(autouse=True)
