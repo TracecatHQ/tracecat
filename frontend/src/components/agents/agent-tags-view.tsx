@@ -2,6 +2,7 @@
 
 import { TagIcon } from "lucide-react"
 import type { TagUpdate } from "@/client"
+import { useScopeCheck } from "@/components/auth/scope-guard"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { AlertNotification } from "@/components/notifications"
 import { TagCatalogTable } from "@/components/tags/tag-catalog-table"
@@ -17,6 +18,8 @@ import { useWorkspaceId } from "@/providers/workspace-id"
 
 export function AgentTagsView() {
   const workspaceId = useWorkspaceId()
+  const canUpdateAgent = useScopeCheck("agent:update") === true
+  const canDeleteAgent = useScopeCheck("agent:delete") === true
 
   const {
     agentTags,
@@ -72,6 +75,8 @@ export function AgentTagsView() {
               onUpdateTag={handleUpdateTag}
               isDeleting={deleteAgentTagIsPending}
               isUpdating={updateAgentTagIsPending}
+              canUpdateTag={canUpdateAgent}
+              canDeleteTag={canDeleteAgent}
               resourceLabel="agents"
             />
           </div>

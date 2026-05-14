@@ -87,6 +87,8 @@ interface TagCatalogTableProps {
   onUpdateTag: (tagId: string, params: TagUpdate) => Promise<void>
   isDeleting?: boolean
   isUpdating?: boolean
+  canUpdateTag?: boolean
+  canDeleteTag?: boolean
   /** Resource label used in the delete confirmation, e.g. "workflows", "cases", "agents". */
   resourceLabel: string
 }
@@ -97,6 +99,8 @@ export function TagCatalogTable({
   onUpdateTag,
   isDeleting,
   isUpdating,
+  canUpdateTag = true,
+  canDeleteTag = true,
   resourceLabel,
 }: TagCatalogTableProps) {
   const [selectedTag, setSelectedTag] = useState<TagItem | null>(null)
@@ -207,29 +211,33 @@ export function TagCatalogTable({
                       <CopyIcon className="mr-2 size-3" />
                       Copy reference
                     </DropdownMenuItem>
-                    <AlertDialogTrigger asChild>
-                      <DropdownMenuItem
-                        onClick={() => {
-                          setSelectedTag(row.original)
-                          setAction(TagItemAction.Edit)
-                        }}
-                      >
-                        <PencilIcon className="mr-2 size-3" />
-                        Edit tag
-                      </DropdownMenuItem>
-                    </AlertDialogTrigger>
-                    <AlertDialogTrigger asChild>
-                      <DropdownMenuItem
-                        className="text-rose-500 focus:text-rose-600"
-                        onClick={() => {
-                          setSelectedTag(row.original)
-                          setAction(TagItemAction.Delete)
-                        }}
-                      >
-                        <Trash2Icon className="mr-2 size-3" />
-                        Delete tag
-                      </DropdownMenuItem>
-                    </AlertDialogTrigger>
+                    {canUpdateTag ? (
+                      <AlertDialogTrigger asChild>
+                        <DropdownMenuItem
+                          onClick={() => {
+                            setSelectedTag(row.original)
+                            setAction(TagItemAction.Edit)
+                          }}
+                        >
+                          <PencilIcon className="mr-2 size-3" />
+                          Edit tag
+                        </DropdownMenuItem>
+                      </AlertDialogTrigger>
+                    ) : null}
+                    {canDeleteTag ? (
+                      <AlertDialogTrigger asChild>
+                        <DropdownMenuItem
+                          className="text-rose-500 focus:text-rose-600"
+                          onClick={() => {
+                            setSelectedTag(row.original)
+                            setAction(TagItemAction.Delete)
+                          }}
+                        >
+                          <Trash2Icon className="mr-2 size-3" />
+                          Delete tag
+                        </DropdownMenuItem>
+                      </AlertDialogTrigger>
+                    ) : null}
                   </DropdownMenuContent>
                 </DropdownMenu>
               </div>
