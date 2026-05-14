@@ -3,12 +3,18 @@
 This module provides pure utility functions for MCP tool name conversion
 that can be imported without pulling in heavy dependencies (DB, logging).
 
-The fetch_tool_definitions() function requires DB access and uses lazy imports.
+The tool definition fetchers require DB access and use lazy imports.
 """
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from tracecat.agent.common.types import MCPToolDefinition
+
+if TYPE_CHECKING:
+    from tracecat.identifiers import OrganizationID
+    from tracecat.registry.lock.types import RegistryLock
 
 REGISTRY_MCP_SERVER_NAME = "tracecat-registry"
 LEGACY_REGISTRY_MCP_SERVER_NAME = "tracecat_registry"
@@ -186,4 +192,47 @@ async def fetch_tool_definitions(
         action_names=list(definitions.keys()),
     )
 
+    return definitions
+
+
+async def fetch_tool_definitions_for_lock(
+    action_names: list[str],
+    registry_lock: RegistryLock,
+    organization_id: OrganizationID,
+) -> dict[str, MCPToolDefinition]:
+    """Fetch tool definitions from the versions pinned in a registry lock."""
+    from tracecat.executor import registry_resolver
+    from tracecat.logger import logger
+
+    definitions: dict[str, MCPToolDefinition] = {}
+    await registry_resolver.prefetch_lock(registry_lock, organization_id)
+
+    for action_name in action_names:
+        try:
+            manifest_action = await registry_resolver.resolve_manifest_action(
+                action_name,
+                registry_lock,
+                organization_id,
+            )
+            definitions[action_name] = MCPToolDefinition(
+                name=action_name,
+                description=manifest_action.description or f"Execute {action_name}",
+                parameters_json_schema=manifest_action.interface["expects"],
+            )
+            logger.debug(
+                "Fetched tool definition from registry lock",
+                action_name=action_name,
+            )
+        except Exception as e:
+            logger.warning(
+                "Failed to build locked tool definition",
+                action_name=action_name,
+                error=str(e),
+            )
+
+    logger.info(
+        "Fetched tool definitions from registry lock",
+        count=len(definitions),
+        action_names=list(definitions.keys()),
+    )
     return definitions

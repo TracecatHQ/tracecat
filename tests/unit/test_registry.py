@@ -102,6 +102,17 @@ async def test_registry_actions_include_locked_shows_agent_preset_crud(
     assert actions["ai.agent.delete_preset"].missing_entitlements == ("agent_addons",)
 
 
+def test_ai_agent_registry_schema_hides_unsupported_agents_config() -> None:
+    """The workflow UI must not expose subagents for the legacy runner."""
+    repo = Repository()
+    repo.init(include_base=True, include_templates=False)
+
+    interface = repo.get("ai.agent").get_interface()
+    properties = interface["expects"]["properties"]
+
+    assert "agents" not in properties
+
+
 @pytest.fixture
 def mock_package(tmp_path):
     """Pytest fixture that creates a mock package with files and cleans up after the test."""

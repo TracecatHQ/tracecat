@@ -8,6 +8,19 @@ from tracecat.agent.tokens import (
     mint_mcp_token,
     verify_mcp_token,
 )
+from tracecat.registry.lock.types import RegistryLock
+
+
+def _registry_lock() -> RegistryLock:
+    return RegistryLock(
+        origins={"tracecat_registry": "test-version"},
+        actions={"core.http_request": "tracecat_registry"},
+    )
+
+
+def _setup_service_key(monkeypatch) -> tuple[uuid.UUID, uuid.UUID, uuid.UUID]:
+    monkeypatch.setattr(config, "TRACECAT__SERVICE_KEY", "test-service-key")
+    return uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
 
 
 def test_mcp_token_round_trips_parent_agent_workflow_metadata(
@@ -28,6 +41,7 @@ def test_mcp_token_round_trips_parent_agent_workflow_metadata(
         session_id=session_id,
         parent_agent_workflow_id=f"agent/{session_id}",
         parent_agent_run_id="run-123",
+        registry_lock=_registry_lock(),
     )
 
     claims = verify_mcp_token(token)
@@ -37,11 +51,7 @@ def test_mcp_token_round_trips_parent_agent_workflow_metadata(
     assert claims.user_id == user_id
     assert claims.parent_agent_workflow_id == f"agent/{session_id}"
     assert claims.parent_agent_run_id == "run-123"
-
-
-def _setup_service_key(monkeypatch) -> tuple[uuid.UUID, uuid.UUID, uuid.UUID]:
-    monkeypatch.setattr(config, "TRACECAT__SERVICE_KEY", "test-service-key")
-    return uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+    assert claims.registry_lock == _registry_lock()
 
 
 def test_mcp_token_accepts_legacy_user_mcp_server_claim_shape(monkeypatch) -> None:
@@ -56,6 +66,7 @@ def test_mcp_token_accepts_legacy_user_mcp_server_claim_shape(monkeypatch) -> No
         organization_id=organization_id,
         allowed_actions=["core.http_request"],
         session_id=session_id,
+        registry_lock=_registry_lock(),
         user_mcp_servers=[
             UserMCPServerClaim(
                 name="legacy-mcp",
@@ -90,6 +101,7 @@ def test_mcp_token_round_trips_refs_only_user_mcp_server_claim(monkeypatch) -> N
         organization_id=organization_id,
         allowed_actions=["core.http_request"],
         session_id=session_id,
+        registry_lock=_registry_lock(),
         user_mcp_servers=[UserMCPServerClaim(name="modern-mcp", id=integration_id)],
     )
 
@@ -114,6 +126,7 @@ def test_mcp_token_accepts_mixed_legacy_and_refs_user_mcp_servers(monkeypatch) -
         organization_id=organization_id,
         allowed_actions=["core.http_request"],
         session_id=session_id,
+        registry_lock=_registry_lock(),
         user_mcp_servers=[
             UserMCPServerClaim(
                 name="legacy",

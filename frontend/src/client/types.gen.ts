@@ -521,6 +521,11 @@ export type AgentPreset = {
   component_id?: "agent-preset"
 }
 
+export type AgentPresetCapability =
+  | "approvals"
+  | "subagents"
+  | "internet_access"
+
 /**
  * Payload for creating a new agent preset.
  */
@@ -537,6 +542,7 @@ export type AgentPresetCreate = {
     [key: string]: boolean
   } | null
   mcp_integrations?: Array<string> | null
+  agents?: AgentSubagentsConfig_Input
   retries?: number
   enable_thinking?: boolean
   enable_internet_access?: boolean
@@ -586,6 +592,7 @@ export type AgentPresetRead = {
     [key: string]: boolean
   } | null
   mcp_integrations?: Array<string> | null
+  agents?: AgentSubagentsConfig_Output
   retries?: number
   enable_thinking?: boolean
   enable_internet_access?: boolean
@@ -614,6 +621,8 @@ export type AgentPresetReadMinimal = {
   folder_id?: string | null
   tags?: Array<TagRead>
   current_version_id?: string | null
+  capabilities?: Array<AgentPresetCapability>
+  current_version_subagent_eligibility?: AgentPresetSubagentEligibility
   created_at: string
   updated_at: string
 }
@@ -649,6 +658,19 @@ export type AgentPresetSkillBindingRead = {
 }
 
 /**
+ * Whether a preset version can be attached as a preset-backed subagent.
+ */
+export type AgentPresetSubagentEligibility = {
+  eligible?: boolean
+  reasons?: Array<AgentPresetSubagentEligibilityReason>
+  message?: string | null
+}
+
+export type AgentPresetSubagentEligibilityReason =
+  | "agents_enabled"
+  | "tool_approvals"
+
+/**
  * Payload for adding a tag to an agent preset.
  */
 export type AgentPresetTagCreate = {
@@ -674,6 +696,7 @@ export type AgentPresetUpdate = {
     [key: string]: boolean
   } | null
   mcp_integrations?: Array<string> | null
+  agents?: AgentSubagentsConfig_Input | null
   retries?: number | null
   enable_thinking?: boolean | null
   enable_internet_access?: boolean | null
@@ -714,6 +737,7 @@ export type AgentPresetVersionRead = {
     [key: string]: boolean
   } | null
   mcp_integrations?: Array<string> | null
+  agents?: AgentSubagentsConfig_Output
   retries?: number
   enable_thinking?: boolean
   enable_internet_access?: boolean
@@ -721,6 +745,8 @@ export type AgentPresetVersionRead = {
   preset_id: string
   workspace_id: string
   version: number
+  capabilities?: Array<AgentPresetCapability>
+  subagent_eligibility?: AgentPresetSubagentEligibility
   skills?: Array<AgentPresetSkillBindingRead>
   created_at: string
   updated_at: string
@@ -734,6 +760,8 @@ export type AgentPresetVersionReadMinimal = {
   preset_id: string
   workspace_id: string
   version: number
+  capabilities?: Array<AgentPresetCapability>
+  subagent_eligibility?: AgentPresetSubagentEligibility
   created_at: string
   updated_at: string
 }
@@ -827,6 +855,7 @@ export type AgentSessionRead = {
   tools: Array<string> | null
   agent_preset_id: string | null
   agent_preset_version_id: string | null
+  agents_binding?: ResolvedAgentsConfig | null
   harness_type: string | null
   last_stream_id?: string | null
   parent_session_id?: string | null
@@ -850,6 +879,7 @@ export type AgentSessionReadVercel = {
   tools: Array<string> | null
   agent_preset_id: string | null
   agent_preset_version_id: string | null
+  agents_binding?: ResolvedAgentsConfig | null
   harness_type: string | null
   last_stream_id?: string | null
   parent_session_id?: string | null
@@ -877,6 +907,7 @@ export type AgentSessionReadWithMessages = {
   tools: Array<string> | null
   agent_preset_id: string | null
   agent_preset_version_id: string | null
+  agents_binding?: ResolvedAgentsConfig | null
   harness_type: string | null
   last_stream_id?: string | null
   parent_session_id?: string | null
@@ -941,6 +972,22 @@ export type AgentSettingsUpdate = {
 }
 
 /**
+ * User-facing agents toggle and optional preset-backed subagents.
+ */
+export type AgentSubagentsConfig_Input = {
+  enabled?: boolean
+  subagents?: Array<AnyAttachedSubagentRef>
+}
+
+/**
+ * User-facing agents toggle and optional preset-backed subagents.
+ */
+export type AgentSubagentsConfig_Output = {
+  enabled?: boolean
+  subagents?: Array<AnyAttachedSubagentRef>
+}
+
+/**
  * Tag data.
  */
 export type AgentTagRead = {
@@ -949,6 +996,10 @@ export type AgentTagRead = {
   ref: string
   color: string | null
 }
+
+export type AnyAttachedSubagentRef =
+  | ResolvedAttachedSubagentRef
+  | AttachedSubagentRef
 
 /**
  * Settings for the app.
@@ -1118,6 +1169,17 @@ export type AssistantMessage = {
   stop_reason?: string | null
   session_id?: string | null
   uuid?: string | null
+}
+
+/**
+ * User-facing reference to a preset-backed subagent.
+ */
+export type AttachedSubagentRef = {
+  preset: string
+  preset_version?: number | null
+  name?: string | null
+  description?: string | null
+  max_turns?: number | null
 }
 
 /**
@@ -5605,6 +5667,27 @@ export type RepositorySyncResult = {
   error?: string | null
   version?: string | null
   actions_count?: number | null
+}
+
+/**
+ * Persisted agents toggle with immutable resolved child refs.
+ */
+export type ResolvedAgentsConfig = {
+  enabled?: boolean
+  subagents?: Array<ResolvedAttachedSubagentRef>
+}
+
+/**
+ * Persisted subagent ref with immutable preset/version identifiers.
+ */
+export type ResolvedAttachedSubagentRef = {
+  preset: string
+  preset_version?: number | null
+  name?: string | null
+  description?: string | null
+  max_turns?: number | null
+  preset_id: string
+  preset_version_id: string
 }
 
 /**

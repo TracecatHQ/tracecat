@@ -51,14 +51,27 @@ async def _resolve_run_config(
     if params.preset_slug:
         if agent_svc.presets is None:
             raise ValueError("Preset-based runs require workspace context.")
-        return await agent_svc.presets.resolve_agent_preset_config(
+        config = await agent_svc.presets.resolve_agent_preset_config(
             slug=params.preset_slug,
             preset_version=params.preset_version,
         )
+        _reject_unsupported_agents_config(config)
+        return config
 
     if params.config is None:
         raise ValueError("Either 'config' or 'preset_slug' must be provided")
-    return AgentConfig(**params.config.model_dump())
+    config = AgentConfig(**params.config.model_dump())
+    _reject_unsupported_agents_config(config)
+    return config
+
+
+def _reject_unsupported_agents_config(config: AgentConfig) -> None:
+    """Reject subagent config on the legacy internal agent runner."""
+    if config.agents.enabled:
+        raise ValueError(
+            "Subagents are not supported by the internal agent run endpoint yet. "
+            "Use agent sessions for subagent-enabled runs."
+        )
 
 
 @asynccontextmanager

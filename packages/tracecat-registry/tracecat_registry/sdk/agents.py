@@ -328,7 +328,9 @@ class AgentsClient:
             "max_requests": max_requests,
         }
         if config is not None:
-            config_data = asdict(config)
+            config_data = {
+                key: value for key, value in asdict(config).items() if value is not None
+            }
             if config.catalog_id is not None:
                 config_data["catalog_id"] = str(config.catalog_id)
             data["config"] = config_data

@@ -5,6 +5,7 @@ into Vercel AI SDK SSE frames.
 """
 
 import json
+from typing import cast
 
 import pytest
 
@@ -453,6 +454,47 @@ async def test_tool_result_without_tracked_tool_call_id():
     assert output_frame.toolCallId == "untracked_call_id"
     assert "errorText" in output_frame.output
     assert "General error message" in output_frame.output["errorText"]
+
+
+@pytest.mark.anyio
+async def test_tool_result_without_tool_metadata_is_skipped():
+    """Uncorrelated Claude tool results should not render as generic `tool`."""
+    ctx = VercelStreamContext(message_id="msg_test")
+
+    events = [
+        UnifiedStreamEvent(
+            type=StreamEventType.TOOL_RESULT,
+            tool_call_id="nested_subagent_call",
+            tool_output="Nested tool output",
+            is_error=False,
+        ),
+    ]
+
+    frames = await collect_frames(ctx, events)
+
+    assert frames == []
+
+
+@pytest.mark.anyio
+async def test_correlated_tool_result_without_tool_metadata_uses_tool_fallback():
+    """Correlated tool results should never emit the literal string `None`."""
+    ctx = VercelStreamContext(message_id="msg_test")
+    ctx.approval_tool_name["toolu_123"] = cast(str, None)
+
+    events = [
+        UnifiedStreamEvent(
+            type=StreamEventType.TOOL_RESULT,
+            tool_call_id="toolu_123",
+            tool_output="Tool output",
+            is_error=False,
+        ),
+    ]
+
+    frames = await collect_frames(ctx, events)
+
+    assert isinstance(frames[0], ToolInputAvailableEventPayload)
+    assert frames[0].toolName == "tool"
+    assert isinstance(frames[1], ToolOutputAvailableEventPayload)
 
 
 @pytest.mark.anyio

@@ -45,6 +45,20 @@ class BuildToolDefsArgs(BaseModel):
     """User-defined MCP server configurations to discover tools from."""
     internal_tool_context: InternalToolContext | None = None
     """Context for internal tools (e.g., preset_id for builder assistant)."""
+    fail_on_mcp_discovery_error: bool = False
+    """If true, fail closed when configured user MCP tools cannot be discovered."""
+
+
+class BuildAgentScopeToolDefsArgs(BaseModel):
+    scope: str
+    tool_filters: ToolFilters
+    tool_approvals: dict[str, bool] | None = None
+    mcp_servers: list[MCPServerConfig] | None = None
+    """User-defined MCP server configurations to discover tools from."""
+    internal_tool_context: InternalToolContext | None = None
+    """Context for internal tools (e.g., preset_id for builder assistant)."""
+    fail_on_mcp_discovery_error: bool = False
+    """If true, fail closed when configured user MCP tools cannot be discovered."""
 
 
 class BuildToolDefsResult(BaseModel):
@@ -56,10 +70,20 @@ class BuildToolDefsResult(BaseModel):
     """List of allowed internal tool names for JWT claims."""
 
 
+class BuildAgentToolDefsArgs(BaseModel):
+    role: Role
+    scopes: list[BuildAgentScopeToolDefsArgs]
+
+
+class BuildAgentToolDefsResult(BaseModel):
+    scopes: dict[str, BuildToolDefsResult]
+
+
 class ToolApprovalPayload(BaseModel):
     tool_call_id: str
     tool_name: str
     args: dict[str, Any] | str | None = None
+    metadata: dict[str, Any] | None = None
 
 
 class PersistApprovalsActivityInputs(BaseModel):
@@ -95,27 +119,22 @@ class AgentActivities:
     def get_activities(self) -> list[Callable[..., Any]]:
         return all_activities(self)
 
-    @activity.defn
-    async def build_tool_definitions(
+    @staticmethod
+    async def _check_tool_approval_entitlement(role: Role) -> None:
+        if role.organization_id is None:
+            raise ValueError("Role must have organization_id to validate entitlements")
+        async with TierService.with_session() as tier_service:
+            entitlement_service = EntitlementService(tier_service)
+            await entitlement_service.check_entitlement(
+                role.organization_id, Entitlement.AGENT_ADDONS
+            )
+
+    async def _build_scope_tool_definitions(
         self,
-        args: BuildToolDefsArgs,
+        args: BuildAgentScopeToolDefsArgs,
+        *,
+        role: Role,
     ) -> BuildToolDefsResult:
-        # Set role context for services that require organization context
-        ctx_role.set(args.role)
-
-        # Runtime guard for approval-gated agent flows. This ensures direct
-        # workflow execution paths still enforce entitlements.
-        if args.tool_approvals:
-            if args.role.organization_id is None:
-                raise ValueError(
-                    "Role must have organization_id to validate entitlements"
-                )
-            async with TierService.with_session() as tier_service:
-                entitlement_service = EntitlementService(tier_service)
-                await entitlement_service.check_entitlement(
-                    args.role.organization_id, Entitlement.AGENT_ADDONS
-                )
-
         # Check if this is a builder assistant session
         is_builder = (
             args.internal_tool_context is not None
@@ -182,12 +201,16 @@ class AgentActivities:
             # Fetch secrets per server, attach for ``tools/list``, and drop
             # them before returning so they never enter ``BuildToolDefsResult``
             # or leak across the Temporal boundary.
-            hydrated_servers: list[MCPHttpServerConfig] = []
-            async with AgentPresetService.with_session(role=args.role) as svc:
-                for cfg in http_servers:
-                    hydrated: MCPHttpServerConfig = {**cfg}
-                    integration_id_str = cfg.get("id")
-                    if integration_id_str:
+            hydrated_servers: list[MCPHttpServerConfig] = [
+                {**cfg} for cfg in http_servers
+            ]
+            configs_with_integration_id: list[tuple[MCPHttpServerConfig, str]] = []
+            for hydrated in hydrated_servers:
+                if integration_id_str := hydrated.get("id"):
+                    configs_with_integration_id.append((hydrated, integration_id_str))
+            if configs_with_integration_id:
+                async with AgentPresetService.with_session(role=role) as svc:
+                    for hydrated, integration_id_str in configs_with_integration_id:
                         try:
                             secrets = await svc.resolve_mcp_integration_secrets(
                                 uuid.UUID(integration_id_str)
@@ -196,10 +219,12 @@ class AgentActivities:
                             secrets = None
                         if secrets:
                             hydrated["headers"] = secrets
-                    hydrated_servers.append(hydrated)
 
             try:
-                user_mcp_tools = await discover_user_mcp_tools(hydrated_servers)
+                user_mcp_tools = await discover_user_mcp_tools(
+                    hydrated_servers,
+                    fail_on_error=args.fail_on_mcp_discovery_error,
+                )
                 # Add user MCP tools to definitions
                 for tool_name, tool_def in user_mcp_tools.items():
                     defs[tool_name] = tool_def
@@ -245,6 +270,13 @@ class AgentActivities:
                     error_type=type(e).__name__,
                     server_count=len(hydrated_servers),
                 )
+                if args.fail_on_mcp_discovery_error:
+                    raise ApplicationError(
+                        "Failed to discover configured MCP tools for agent scope",
+                        str(e),
+                        type="AgentToolDefinitionError",
+                        non_retryable=True,
+                    ) from e
                 # Continue without user MCP tools - don't fail the whole operation
             finally:
                 # Defensive: ensure hydrated configs (with headers) drop out
@@ -278,6 +310,56 @@ class AgentActivities:
             user_mcp_claims=user_mcp_claims,
             allowed_internal_tools=allowed_internal_tools,
         )
+
+    @activity.defn
+    async def build_tool_definitions(
+        self,
+        args: BuildToolDefsArgs,
+    ) -> BuildToolDefsResult:
+        # Set role context for services that require organization context
+        ctx_role.set(args.role)
+
+        # Runtime guard for approval-gated agent flows. This ensures direct
+        # workflow execution paths still enforce entitlements.
+        if args.tool_approvals:
+            await self._check_tool_approval_entitlement(args.role)
+
+        return await self._build_scope_tool_definitions(
+            BuildAgentScopeToolDefsArgs(
+                scope="root",
+                tool_filters=args.tool_filters,
+                tool_approvals=args.tool_approvals,
+                mcp_servers=args.mcp_servers,
+                internal_tool_context=args.internal_tool_context,
+                fail_on_mcp_discovery_error=args.fail_on_mcp_discovery_error,
+            ),
+            role=args.role,
+        )
+
+    @activity.defn
+    async def build_agent_tool_definitions(
+        self,
+        args: BuildAgentToolDefsArgs,
+    ) -> BuildAgentToolDefsResult:
+        # Compile all agent scopes in one activity while preserving partitioned
+        # outputs for MCP tokens, approvals, user MCP claims, and registry locks.
+        ctx_role.set(args.role)
+        if any(scope.tool_approvals for scope in args.scopes):
+            await self._check_tool_approval_entitlement(args.role)
+
+        results: dict[str, BuildToolDefsResult] = {}
+        for scope in args.scopes:
+            if scope.scope in results:
+                raise ApplicationError(
+                    f"Duplicate agent compile scope '{scope.scope}'",
+                    non_retryable=True,
+                )
+            results[scope.scope] = await self._build_scope_tool_definitions(
+                scope,
+                role=args.role,
+            )
+
+        return BuildAgentToolDefsResult(scopes=results)
 
     @activity.defn
     async def emit_session_error(self, args: EmitSessionErrorInputs) -> None:

@@ -3,16 +3,28 @@ from __future__ import annotations
 import uuid
 from collections.abc import Iterator
 from types import SimpleNamespace
+from typing import Any, cast
 from unittest.mock import AsyncMock
 
 import pytest
 
 from tracecat.agent.preset.activities import (
     ResolveAgentPresetVersionRefActivityInput,
+    ResolveAgentsConfigActivityInput,
     resolve_agent_preset_version_ref_activity,
+    resolve_agents_config_activity,
     resolve_custom_model_provider_config_activity,
 )
+from tracecat.agent.preset.resolver import (
+    ResolvedAgentsRuntimeConfig,
+    ResolvedSubagentConfig,
+)
+from tracecat.agent.preset.service import AgentPresetService
+from tracecat.agent.subagents import AgentSubagentsConfig, ResolvedAttachedSubagentRef
+from tracecat.agent.types import AgentConfig
+from tracecat.agent.workflow_schemas import AgentConfigPayload
 from tracecat.auth.types import Role
+from tracecat.exceptions import TracecatValidationError
 
 
 class _AsyncContext:
@@ -70,6 +82,227 @@ async def test_resolve_agent_preset_version_ref_activity_returns_ids(
     )
     assert result.preset_id == version.preset_id
     assert result.preset_version_id == version.id
+
+
+def test_resolve_agents_config_result_derives_session_binding() -> None:
+    binding = ResolvedAttachedSubagentRef(
+        preset="analyst",
+        preset_version=3,
+        name=None,
+        description=None,
+        max_turns=5,
+        preset_id=uuid.uuid4(),
+        preset_version_id=uuid.uuid4(),
+    )
+    result = ResolvedAgentsRuntimeConfig(
+        enabled=True,
+        subagents=[
+            ResolvedSubagentConfig(
+                binding=binding,
+                description="Runtime fallback description",
+                prompt="Subagent prompt",
+                config=AgentConfigPayload(
+                    model_name="gpt-4o-mini",
+                    model_provider="openai",
+                    retries=3,
+                ),
+            )
+        ],
+    )
+
+    assert result.subagents[0].alias == "analyst"
+    assert result.subagents[0].max_turns == 5
+    agents_binding = result.to_agents_binding()
+    assert agents_binding.enabled is True
+    assert agents_binding.subagents == [binding]
+
+
+@pytest.mark.anyio
+async def test_resolve_preset_subagent_configs_resolves_version_id_ref() -> None:
+    role = Role(
+        type="service",
+        service_id="tracecat-api",
+        workspace_id=uuid.uuid4(),
+        organization_id=uuid.uuid4(),
+    )
+    service = AgentPresetService(cast(Any, SimpleNamespace()), role)
+    preset_id = uuid.uuid4()
+    preset_version_id = uuid.uuid4()
+    version = SimpleNamespace(
+        id=preset_version_id,
+        preset_id=preset_id,
+        version=8,
+        agents={"enabled": False},
+        tool_approvals={},
+    )
+    service.resolve_agent_preset_version = AsyncMock(return_value=version)
+
+    result = await service._resolve_preset_subagent_configs(
+        AgentSubagentsConfig(
+            enabled=True,
+            subagents=[
+                ResolvedAttachedSubagentRef(
+                    preset="old-analyst-slug",
+                    preset_version=2,
+                    name="analyst",
+                    description=None,
+                    max_turns=3,
+                    preset_id=preset_id,
+                    preset_version_id=preset_version_id,
+                )
+            ],
+        ),
+        parent_preset_id=uuid.uuid4(),
+        parent_slug="parent",
+    )
+
+    service.resolve_agent_preset_version.assert_awaited_once_with(
+        preset_version_id=preset_version_id,
+    )
+    assert result["subagents"][0]["preset_version_id"] == str(preset_version_id)
+    assert result["subagents"][0]["preset_version"] == 8
+
+
+@pytest.mark.anyio
+async def test_resolve_agents_config_resolves_pinned_ref_by_version_id(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    preset_id = uuid.uuid4()
+    preset_version_id = uuid.uuid4()
+    version = SimpleNamespace(
+        id=preset_version_id,
+        preset_id=preset_id,
+        version=4,
+        agents={"enabled": False},
+        tool_approvals={},
+    )
+    service = SimpleNamespace(
+        resolve_agent_preset_version=AsyncMock(return_value=version),
+        get_preset=AsyncMock(return_value=SimpleNamespace(description="Child preset")),
+        resolve_agent_preset_config=AsyncMock(
+            return_value=AgentConfig(
+                model_name="gpt-4o-mini",
+                model_provider="openai",
+                retries=3,
+            )
+        ),
+    )
+    role = Role(
+        type="service",
+        service_id="tracecat-api",
+        workspace_id=uuid.uuid4(),
+        organization_id=uuid.uuid4(),
+    )
+
+    monkeypatch.setattr(
+        "tracecat.agent.preset.activities.AgentPresetService.with_session",
+        lambda **_: _AsyncContext(service),
+    )
+
+    result = await resolve_agents_config_activity(
+        ResolveAgentsConfigActivityInput(
+            role=role,
+            agents=AgentSubagentsConfig(
+                enabled=True,
+                subagents=[
+                    ResolvedAttachedSubagentRef(
+                        preset="old-analyst-slug",
+                        preset_version=2,
+                        name="analyst",
+                        description=None,
+                        max_turns=None,
+                        preset_id=preset_id,
+                        preset_version_id=preset_version_id,
+                    )
+                ],
+            ),
+        )
+    )
+
+    service.resolve_agent_preset_version.assert_awaited_once_with(
+        preset_version_id=preset_version_id,
+    )
+    assert result.subagents[0].binding.preset_version_id == preset_version_id
+    assert result.subagents[0].binding.preset_version == 4
+
+
+@pytest.mark.anyio
+async def test_resolve_agents_config_rejects_subagent_with_tool_approvals(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    version = SimpleNamespace(
+        id=uuid.uuid4(),
+        preset_id=uuid.uuid4(),
+        version=1,
+        agents={"enabled": False},
+        tool_approvals={"core.http_request": True},
+    )
+    service = SimpleNamespace(
+        resolve_agent_preset_version=AsyncMock(return_value=version),
+    )
+    role = Role(
+        type="service",
+        service_id="tracecat-api",
+        workspace_id=uuid.uuid4(),
+        organization_id=uuid.uuid4(),
+    )
+
+    monkeypatch.setattr(
+        "tracecat.agent.preset.activities.AgentPresetService.with_session",
+        lambda **_: _AsyncContext(service),
+    )
+
+    with pytest.raises(
+        TracecatValidationError,
+        match=(
+            "Subagent preset 'approval-child' uses manual approvals, "
+            "which are not supported for subagents yet."
+        ),
+    ):
+        await resolve_agents_config_activity(
+            ResolveAgentsConfigActivityInput(
+                role=role,
+                agents=AgentSubagentsConfig.model_validate(
+                    {
+                        "enabled": True,
+                        "subagents": [{"preset": "approval-child"}],
+                    }
+                ),
+            )
+        )
+
+
+@pytest.mark.anyio
+async def test_resolve_agents_config_rejects_invalid_fallback_alias(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    role = Role(
+        type="service",
+        service_id="tracecat-api",
+        workspace_id=uuid.uuid4(),
+        organization_id=uuid.uuid4(),
+    )
+
+    monkeypatch.setattr(
+        "tracecat.agent.preset.activities.AgentPresetService.with_session",
+        lambda **_: _AsyncContext(SimpleNamespace()),
+    )
+
+    with pytest.raises(
+        TracecatValidationError,
+        match="Invalid subagent alias 'Bad Alias'",
+    ):
+        await resolve_agents_config_activity(
+            ResolveAgentsConfigActivityInput(
+                role=role,
+                agents=AgentSubagentsConfig.model_validate(
+                    {
+                        "enabled": True,
+                        "subagents": [{"preset": "Bad Alias"}],
+                    }
+                ),
+            )
+        )
 
 
 @pytest.mark.anyio

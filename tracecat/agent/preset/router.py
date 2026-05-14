@@ -13,6 +13,7 @@ from tracecat.agent.preset.schemas import (
     AgentPresetVersionDiff,
     AgentPresetVersionRead,
     AgentPresetVersionReadMinimal,
+    build_agent_preset_read_minimal,
 )
 from tracecat.agent.preset.service import AgentPresetService
 from tracecat.auth.dependencies import WorkspaceUserRouteRole
@@ -34,7 +35,7 @@ async def list_agent_presets(
     """List all agent presets for the current workspace."""
     service = AgentPresetService(session, role=role)
     presets = await service.list_presets()
-    return [AgentPresetReadMinimal.model_validate(preset) for preset in presets]
+    return [build_agent_preset_read_minimal(preset) for preset in presets]
 
 
 @router.post(

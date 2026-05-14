@@ -66,6 +66,8 @@ class ToolCallContent:
     """Fully-qualified tool name."""
     input: dict[str, Any] = field(default_factory=dict)
     """Arguments for the tool call."""
+    metadata: dict[str, Any] | None = None
+    """Trusted runtime metadata about the tool call scope."""
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> ToolCallContent:
@@ -75,16 +77,20 @@ class ToolCallContent:
             id=data["id"],
             name=data["name"],
             input=data.get("input", {}),
+            metadata=data.get("metadata"),
         )
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to dict for orjson serialization."""
-        return {
+        result: dict[str, Any] = {
             "type": self.type,
             "id": self.id,
             "name": self.name,
             "input": self.input,
         }
+        if self.metadata is not None:
+            result["metadata"] = self.metadata
+        return result
 
 
 @dataclass(kw_only=True, slots=True)

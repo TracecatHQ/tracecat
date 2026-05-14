@@ -14,8 +14,9 @@ import re
 import time
 import uuid
 from collections.abc import AsyncIterable, Callable
+from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import Any, TypedDict
+from typing import Any, Literal, TypedDict
 from uuid import uuid4
 
 import httpx
@@ -33,7 +34,7 @@ from tracecat.logger import logger
 # OpenAI-compatible "/v1" form (so catalog discovery can hit
 # ``{base_url}/models`` → ``/v1/models``). In passthrough mode the SDK
 # clients (Claude Code SDK, pydantic-ai) emit fully-qualified paths like
-# ``/v1/messages``, so we strip the version suffix from ``upstream_url``
+# ``/v1/messages``, so we strip the version suffix from direct route ``base_url``
 # to avoid producing ``/v1/v1/messages``, which the upstream rejects with
 # a 404 "model not found".
 _PASSTHROUGH_VERSION_SUFFIX_RE = re.compile(r"/v\d+/?$")
@@ -68,6 +69,12 @@ _ERROR_MESSAGES = {
 _ERROR_BODY_PREVIEW_BYTES = 2048
 _proxy_load_tracker = get_load_tracker("llm_socket_proxy")
 _TRACE_REQUEST_ID_HEADER = "x-request-id"
+_ANTHROPIC_ONLY_FIELDS = (
+    "anthropic_beta",
+    "context_management",
+    "output_config",
+    "output_format",
+)
 
 
 class ParsedRequest(TypedDict):
@@ -75,6 +82,346 @@ class ParsedRequest(TypedDict):
     path: str
     headers: dict[str, str]
     body: bytes
+
+
+@dataclass(frozen=True, slots=True)
+class LLMForwardRequest:
+    """Prepared upstream request after route-specific handling.
+
+    Attributes:
+        url: Full upstream URL for the selected route.
+        headers: Headers to send upstream.
+        body: Request body to send upstream.
+    """
+
+    url: str
+    headers: dict[str, str]
+    body: bytes
+
+
+@dataclass(frozen=True, slots=True)
+class LLMRoute:
+    """One upstream target the proxy can forward a request to.
+
+    The executor builds logical routes from agent configs, materializes direct
+    routes with credentials before proxy startup, then the socket proxy selects
+    a route and asks it to prepare the outbound request.
+
+    Attributes:
+        base_url: Host root for the upstream. Direct routes are normalized to
+            remove a trailing OpenAI version segment such as `/v1`.
+        model_provider: Provider behind the route.
+        upstream_model_name: Optional provider-facing model name to send
+            upstream when the local route key is synthetic.
+        mode: `managed` preserves managed gateway auth; `direct` applies
+            passthrough auth behavior.
+        catalog_id: Optional custom-provider catalog row used to resolve direct
+            route credentials.
+        authorization: Optional materialized Authorization header value. Hidden
+            from repr so credentials are not logged through dataclass rendering.
+        local_provider_cleanup: Whether this route can safely apply
+            provider-specific body cleanup before forwarding. Managed fallback
+            routes that may represent synthetic subagent models should defer
+            that cleanup to LiteLLM.
+    """
+
+    base_url: str
+    model_provider: str
+    upstream_model_name: str | None = None
+    mode: Literal["managed", "direct"] = "direct"
+    catalog_id: uuid.UUID | None = None
+    authorization: str | None = field(default=None, repr=False)
+    local_provider_cleanup: bool = True
+
+    @property
+    def is_direct(self) -> bool:
+        """Return whether this route bypasses the managed gateway.
+
+        Returns:
+            True when the route forwards directly to a custom provider.
+        """
+        return self.mode == "direct"
+
+    async def resolve_api_key(self, svc: AgentManagementService) -> str | None:
+        """Resolve the API key needed by this route.
+
+        Managed routes use the sandbox's existing managed gateway token and do
+        not resolve a route-level credential. Direct routes resolve the
+        custom-provider API key from their catalog entry or the legacy workspace
+        secret.
+
+        Args:
+            svc: Agent management service scoped to the execution role.
+
+        Returns:
+            API key for direct passthrough routes, or None when no route-level
+            key is needed or available.
+        """
+        if not self.is_direct:
+            return None
+        if self.catalog_id is not None:
+            creds = await svc.get_catalog_credentials(self.catalog_id)
+        else:
+            creds = await svc.get_runtime_provider_credentials(
+                "custom-model-provider",
+            )
+            if creds is None:
+                creds = await svc.get_workspace_provider_credentials(
+                    "custom-model-provider",
+                )
+        if creds is None:
+            return None
+        return creds.get("CUSTOM_MODEL_PROVIDER_API_KEY") or None
+
+    def forward_url(self, path: str) -> str:
+        """Build the upstream URL for a sandbox request path.
+
+        Args:
+            path: Request path emitted by the sandbox SDK.
+
+        Returns:
+            Full upstream URL for this route.
+        """
+        return f"{self.base_url}{path}"
+
+    def forward_headers(self, headers: dict[str, str]) -> dict[str, str]:
+        """Build outbound headers for this route.
+
+        Managed routes preserve the sandbox's managed gateway Authorization
+        header. Direct routes remove that managed token; materialized direct
+        routes add their resolved custom-provider Authorization header.
+
+        Args:
+            headers: Parsed inbound request headers from the sandbox.
+
+        Returns:
+            Headers to forward upstream.
+        """
+        excluded_headers = {"host", "connection", "transfer-encoding"}
+        if self.is_direct:
+            excluded_headers.add("authorization")
+        return {
+            key: value
+            for key, value in headers.items()
+            if key.lower() not in excluded_headers
+        }
+
+    def forward_body_and_headers(
+        self,
+        *,
+        body: bytes,
+        data: dict[str, Any] | None,
+        headers: dict[str, str],
+    ) -> tuple[bytes, dict[str, str]]:
+        """Build outbound body and headers for this route.
+
+        Direct routes know the destination provider locally, so they can remove
+        fields that only Anthropic accepts before forwarding to non-Anthropic
+        providers. Managed routes only do this when the route represents a
+        single known provider; synthetic gateway routes defer provider cleanup to
+        LiteLLM.
+
+        Args:
+            body: Raw inbound request body.
+            data: Parsed JSON body, if the request body was a JSON object.
+            headers: Current outbound headers.
+
+        Returns:
+            Body bytes and headers to forward upstream.
+        """
+        if data is None:
+            return body, headers
+
+        forward_data = self._forward_data(data)
+        if forward_data is None:
+            return body, headers
+
+        body = orjson.dumps(forward_data)
+        headers = {
+            key: value
+            for key, value in headers.items()
+            if key.lower() != "content-length"
+        }
+        headers["Content-Length"] = str(len(body))
+        return body, headers
+
+    def _forward_data(self, data: dict[str, Any]) -> dict[str, Any] | None:
+        """Return rewritten request JSON, or None when the original can pass through."""
+        forward_data = dict(data)
+        if self.upstream_model_name is not None:
+            forward_data["model"] = self.upstream_model_name
+        if self.local_provider_cleanup and self.model_provider != "anthropic":
+            for field_name in _ANTHROPIC_ONLY_FIELDS:
+                forward_data.pop(field_name, None)
+        return forward_data if forward_data != data else None
+
+    def prepare_forward_request(
+        self,
+        *,
+        path: str,
+        headers: dict[str, str],
+        body: bytes,
+        data: dict[str, Any] | None,
+    ) -> LLMForwardRequest:
+        """Prepare a sandbox request for this route's upstream.
+
+        The proxy's job is to pick the route. The route's job is to shape the
+        outbound URL, headers, auth, and provider-specific request body.
+
+        Args:
+            path: Request path emitted by the sandbox SDK.
+            headers: Parsed inbound request headers from the sandbox.
+            body: Raw inbound request body.
+            data: Parsed JSON body, if the request body was a JSON object.
+
+        Returns:
+            Prepared request for the upstream HTTP client.
+        """
+        body, headers = self.forward_body_and_headers(
+            body=body,
+            data=data,
+            headers=headers,
+        )
+        headers = self.forward_headers(headers)
+        if self.is_direct and self.authorization:
+            headers["Authorization"] = self.authorization
+        return LLMForwardRequest(
+            url=self.forward_url(path),
+            headers=headers,
+            body=body,
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class LLMRoutingPlan:
+    """Route requests by exact model key, falling back to managed LiteLLM.
+
+    The proxy does not know whether a model belongs to a root agent or a
+    subagent. The executor converts agent configs into this table before the
+    sandbox starts.
+
+    Attributes:
+        managed_route: Fallback route for every request model that does not
+            have an exact direct route match.
+        direct_routes: Direct passthrough routes keyed by exact request model.
+    """
+
+    managed_route: LLMRoute
+    direct_routes: dict[str, LLMRoute]
+
+    def __post_init__(self) -> None:
+        # Direct routes are stored in catalog-friendly OpenAI-compatible form
+        # (`.../v1`) but forwarded against SDK-emitted paths (`/v1/messages`).
+        # Normalize them once when the plan is built so request forwarding does
+        # not need to care about URL shape.
+        object.__setattr__(
+            self,
+            "direct_routes",
+            {
+                model_key: _normalize_direct_route(route)
+                for model_key, route in self.direct_routes.items()
+            },
+        )
+
+    async def materialize(self, role: Role | None) -> LLMRoutingPlan:
+        """Return a copy of this plan with direct-route credentials bound.
+
+        Args:
+            role: Role used to fetch custom provider API keys for direct routes.
+
+        Returns:
+            Routing plan containing routes ready for request forwarding.
+        """
+        direct_authorizations: dict[str, str | None] = {}
+
+        if self.direct_routes and role is not None:
+            async with AgentManagementService.with_session(role) as svc:
+                for route_key, route in self.direct_routes.items():
+                    # Credentials follow the selected route, not the root execution.
+                    # This is what lets a passthrough root and passthrough subagent
+                    # use different custom-provider catalog entries in one run.
+                    api_key = await route.resolve_api_key(svc)
+                    authorization = f"Bearer {api_key}" if api_key else None
+                    if authorization is None:
+                        logger.warning(
+                            "Passthrough credentials not found",
+                            route_key=route_key,
+                            catalog_id=(
+                                str(route.catalog_id) if route.catalog_id else None
+                            ),
+                        )
+                    else:
+                        logger.info(
+                            "Resolved passthrough upstream credentials",
+                            route_key=route_key,
+                            has_upstream_api_key=True,
+                            catalog_id=(
+                                str(route.catalog_id) if route.catalog_id else None
+                            ),
+                        )
+                    direct_authorizations[route_key] = authorization
+        elif self.direct_routes:
+            for route_key, route in self.direct_routes.items():
+                logger.warning(
+                    "Passthrough credentials not found",
+                    route_key=route_key,
+                    catalog_id=str(route.catalog_id) if route.catalog_id else None,
+                )
+                direct_authorizations[route_key] = None
+
+        return LLMRoutingPlan(
+            managed_route=replace(self.managed_route, authorization=None),
+            direct_routes={
+                route_key: replace(
+                    route, authorization=direct_authorizations.get(route_key)
+                )
+                for route_key, route in self.direct_routes.items()
+            },
+        )
+
+    def resolve(self, request_model: object) -> LLMRoute:
+        """Return the route for one request model.
+
+        Args:
+            request_model: Raw model value from the request body, if present.
+
+        Returns:
+            Route for request forwarding.
+        """
+        if isinstance(request_model, str) and (
+            route := self.direct_routes.get(request_model)
+        ):
+            return route
+        return self.managed_route
+
+
+def _normalize_passthrough_base_url(base_url: str) -> str:
+    trimmed = base_url.rstrip("/")
+    return _PASSTHROUGH_VERSION_SUFFIX_RE.sub("", trimmed)
+
+
+def _normalize_direct_route(route: LLMRoute) -> LLMRoute:
+    """Normalize direct passthrough routes to host roots.
+
+    Stored custom-provider URLs use OpenAI-compatible `/v1` form for catalog
+    discovery. Runtime SDK requests already include `/v1/...` paths, so direct
+    passthrough routes must strip the trailing version segment.
+
+    Args:
+        route: Direct route to normalize.
+
+    Returns:
+        Equivalent direct route with a normalized `base_url`.
+    """
+    return LLMRoute(
+        base_url=_normalize_passthrough_base_url(route.base_url),
+        model_provider=route.model_provider,
+        upstream_model_name=route.upstream_model_name,
+        mode="direct",
+        catalog_id=route.catalog_id,
+        authorization=route.authorization,
+        local_provider_cleanup=route.local_provider_cleanup,
+    )
 
 
 def _load_fields() -> dict[str, int]:
@@ -165,81 +512,23 @@ class LLMSocketProxy:
     def __init__(
         self,
         socket_path: Path,
-        upstream_url: str | None = None,
+        routing_plan: LLMRoutingPlan,
         on_error: Callable[[str], None] | None = None,
-        passthrough: bool = False,
-        role: Role | None = None,
-        model_provider: str | None = None,
-        catalog_id: uuid.UUID | None = None,
     ):
         """Initialize the LLM socket proxy.
 
         Args:
             socket_path: Path where the Unix socket will be created.
-            upstream_url: Selected upstream base URL. Defaults to the managed gateway.
+            routing_plan: Request routing plan. Direct passthrough routes should
+                already have their route credentials materialized.
             on_error: Callback invoked when an error (e.g., auth failure) is detected.
-            passthrough: When True, strip managed auth headers before forwarding
-                directly to the configured upstream.
-            role: Role used to fetch the custom provider API key in passthrough mode.
-            model_provider: Selected model provider. Used to decide whether to strip
-                Anthropic-only request fields from outbound payloads.
-            catalog_id: Optional v2 catalog row backing this workflow. When
-                set, passthrough credential resolution reads the matching
-                ``AgentCustomProvider`` row's ``encrypted_config`` instead of
-                the legacy ``agent-custom-model-provider-credentials`` secret.
         """
         self.socket_path = socket_path
-        if upstream_url is not None:
-            trimmed = upstream_url.rstrip("/")
-            if passthrough:
-                trimmed = _PASSTHROUGH_VERSION_SUFFIX_RE.sub("", trimmed)
-            self.upstream_url = trimmed
-        else:
-            self.upstream_url = app_config.TRACECAT__LITELLM_BASE_URL.rstrip("/")
+        self.routing_plan = routing_plan
         self._server: asyncio.Server | None = None
         self._client: httpx.AsyncClient | None = None
         self._on_error = on_error
         self._error_emitted = False  # Only call callback once
-        self._is_passthrough = passthrough
-        self._role = role
-        self._upstream_api_key: str | None = None
-        self._model_provider = model_provider
-        self._catalog_id = catalog_id
-
-    async def _resolve_passthrough_api_key(self) -> None:
-        """Fetch the custom provider API key for passthrough mode.
-
-        Prefers the v2 catalog-backed path when ``catalog_id`` is set (reads
-        the row's ``AgentCustomProvider.encrypted_config``); otherwise falls
-        back to the legacy ``agent-custom-model-provider-credentials``
-        secret so in-flight workflows without a catalog_id keep working.
-
-        The key is cached on the instance and never logged. If credentials
-        or the key are missing, the proxy forwards without an Authorization
-        header and the upstream will respond with its normal auth error.
-        """
-        if not self._is_passthrough or self._role is None:
-            return
-        async with AgentManagementService.with_session(self._role) as svc:
-            if self._catalog_id is not None:
-                creds = await svc.get_catalog_credentials(self._catalog_id)
-            else:
-                creds = await svc.get_runtime_provider_credentials(
-                    "custom-model-provider",
-                )
-                if creds is None:
-                    creds = await svc.get_workspace_provider_credentials(
-                        "custom-model-provider",
-                    )
-        if creds is None:
-            logger.warning("Passthrough credentials not found")
-            return
-        self._upstream_api_key = creds.get("CUSTOM_MODEL_PROVIDER_API_KEY") or None
-        logger.info(
-            "Resolved passthrough upstream credentials",
-            has_upstream_api_key=bool(self._upstream_api_key),
-            catalog_id=str(self._catalog_id) if self._catalog_id else None,
-        )
 
     async def start(self) -> None:
         """Start the Unix socket server.
@@ -247,8 +536,6 @@ class LLMSocketProxy:
         Creates the socket file and begins accepting connections.
         The socket permissions are set to 0o600 for security.
         """
-        await self._resolve_passthrough_api_key()
-
         # Ensure parent directory exists
         self.socket_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -318,28 +605,6 @@ class LLMSocketProxy:
             logger.error("LLM proxy error", error=message, **_load_fields())
             if self._on_error:
                 self._on_error(message)
-
-    _ANTHROPIC_ONLY_FIELDS = (
-        "anthropic_beta",
-        "context_management",
-        "output_config",
-        "output_format",
-    )
-
-    @staticmethod
-    def _strip_anthropic_only_fields_from_request(
-        data: dict[str, Any], headers: dict[str, str]
-    ) -> tuple[dict[str, Any], dict[str, str]]:
-        """Remove Anthropic-only request fields for non-Anthropic upstreams.
-
-        Strips ``thinking`` and Anthropic-only top-level keys
-        (``anthropic_beta``, ``context_management``, ``output_config``,
-        ``output_format``). The caller is responsible for re-serializing the
-        body and setting ``Content-Length`` accordingly.
-        """
-        for field in LLMSocketProxy._ANTHROPIC_ONLY_FIELDS:
-            data.pop(field, None)
-        return data, headers
 
     @staticmethod
     def _is_client_disconnect_error(exc: Exception) -> bool:
@@ -545,31 +810,22 @@ class LLMSocketProxy:
             if isinstance(parsed, dict):
                 data = parsed
 
-        if data is not None and self._model_provider != "anthropic":
-            data, headers = self._strip_anthropic_only_fields_from_request(
-                data, headers
-            )
-            body = orjson.dumps(data)
-            headers["Content-Length"] = str(len(body))
-
-        url = f"{self.upstream_url}{path}"
-        excluded_headers = {"host", "connection", "transfer-encoding"}
-        if self._is_passthrough:
-            excluded_headers.add("authorization")
-        forward_headers = {
-            key: value
-            for key, value in headers.items()
-            if key.lower() not in excluded_headers
-        }
-        if self._is_passthrough and self._upstream_api_key:
-            forward_headers["Authorization"] = f"Bearer {self._upstream_api_key}"
+        route = self.routing_plan.resolve(
+            data.get("model") if data is not None else None
+        )
+        upstream_request = route.prepare_forward_request(
+            path=path,
+            headers=headers,
+            body=body,
+            data=data,
+        )
 
         try:
             async with self._client.stream(
                 method=method,
-                url=url,
-                headers=forward_headers,
-                content=body if body else None,
+                url=upstream_request.url,
+                headers=upstream_request.headers,
+                content=upstream_request.body if upstream_request.body else None,
             ) as response:
                 body_chunks: AsyncIterable[bytes] | list[bytes]
                 if response.status_code >= 400 and not _is_non_critical_path(path):

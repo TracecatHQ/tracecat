@@ -29,6 +29,7 @@ from tracecat.agent.common.types import (
     MCPServerConfig,
     MCPToolDefinition,
     SandboxAgentConfig,
+    SandboxSubagentConfig,
     is_stdio_mcp_server,
 )
 from tracecat.agent.executor.loopback import (
@@ -36,13 +37,19 @@ from tracecat.agent.executor.loopback import (
     LoopbackInput,
     LoopbackResult,
 )
+from tracecat.agent.llm_routing import get_litellm_route_model
 from tracecat.agent.preset.service import AgentPresetService
 from tracecat.agent.runtime.claude_code.broker import (
     ClaudeTurnRequest,
     ConcurrentSessionTurnError,
 )
 from tracecat.agent.runtime_services import get_claude_runtime_broker
-from tracecat.agent.sandbox.llm_proxy import LLM_SOCKET_NAME, LLMSocketProxy
+from tracecat.agent.sandbox.llm_proxy import (
+    LLM_SOCKET_NAME,
+    LLMRoute,
+    LLMRoutingPlan,
+    LLMSocketProxy,
+)
 from tracecat.agent.session.service import AgentSessionService
 from tracecat.agent.skill.service import SkillService
 from tracecat.agent.types import AgentConfig
@@ -85,6 +92,8 @@ class AgentExecutorInput(BaseModel):
     )
     # Resolved tool definitions
     allowed_actions: dict[str, MCPToolDefinition] | None = None
+    # Fully resolved subagent definitions, each with scoped tools/tokens/routes.
+    subagents: list[SandboxSubagentConfig] = Field(default_factory=list)
     # Session resume data from previous runs
     sdk_session_id: str | None = None
     # Legacy replay compatibility only. New executions hydrate this inside
@@ -176,36 +185,129 @@ class SandboxedAgentExecutor:
             **extra,
         )
 
-    def _create_llm_socket_proxy(self, socket_path: Path) -> LLMSocketProxy:
+    async def _create_llm_socket_proxy(self, socket_path: Path) -> LLMSocketProxy:
         """Create the host-side LiteLLM transport proxy for this execution."""
 
         def on_error(error_msg: str) -> None:
             self._fatal_error = error_msg
             self._fatal_error_event.set()
 
-        if self.input.config.passthrough:
-            if self.input.config.base_url is None:
-                raise AgentSandboxExecutionError(
-                    "Custom model provider passthrough requires a resolved base_url."
-                )
-            upstream_url = self.input.config.base_url
-        else:
-            upstream_url = app_config.TRACECAT__LITELLM_BASE_URL
+        routing_plan = self._llm_routing_plan()
+        runtime_routing_plan = await routing_plan.materialize(self.input.role)
 
         logger.info(
             "Creating LLM socket proxy",
-            has_upstream_url=bool(upstream_url),
-            passthrough=self.input.config.passthrough,
+            passthrough=bool(routing_plan.direct_routes),
         )
 
         return LLMSocketProxy(
             socket_path=socket_path,
-            upstream_url=upstream_url,
+            routing_plan=runtime_routing_plan,
             on_error=on_error,
-            passthrough=self.input.config.passthrough,
-            role=self.input.role,
-            model_provider=self.input.config.model_provider,
-            catalog_id=self.input.config.catalog_id,
+        )
+
+    def _llm_routing_plan(self) -> LLMRoutingPlan:
+        """Build the socket proxy routing table from each agent's model config.
+
+        Agent config decides routing, not root/subagent position. The managed
+        route is the fallback for every request model that does not have a
+        direct passthrough entry. Direct passthrough traffic bypasses managed
+        LiteLLM, so each passthrough root/subagent needs its own exact-model
+        route to preserve its custom provider base URL, credentials, and
+        upstream model name.
+
+        Returns:
+            Routing plan for the host-side LLM socket proxy.
+        """
+        # Keep all root/subagent semantics on the executor side. The proxy only
+        # receives model-key routes and does not know which agent emitted them.
+        return LLMRoutingPlan(
+            managed_route=LLMRoute(
+                base_url=app_config.TRACECAT__LITELLM_BASE_URL.rstrip("/"),
+                model_provider=self.input.config.model_provider,
+                mode="managed",
+                # Managed subagent requests use synthetic LiteLLM route keys, so
+                # the proxy should let LiteLLM do provider-specific body cleanup.
+                local_provider_cleanup=not self.input.subagents,
+            ),
+            direct_routes=self._direct_passthrough_routes(),
+        )
+
+    def _direct_passthrough_routes(self) -> dict[str, LLMRoute]:
+        """Build direct passthrough routes from each agent's own model config.
+
+        Each entry is keyed by the exact model string the runtime will send in
+        the request body. The proxy can then make a local routing decision
+        without needing to know which agent produced the request.
+
+        A single execution can include a passthrough root agent and multiple
+        passthrough subagents. Since passthrough skips the managed LiteLLM
+        fallback, the shared proxy needs one direct route per exact runtime
+        model key rather than one global passthrough destination.
+
+        Returns:
+            Direct passthrough routes keyed by request model.
+        """
+        routes: dict[str, LLMRoute] = {}
+        if self.input.config.passthrough:
+            # Root routing is keyed by the model string the root agent sends.
+            routes[self.input.config.model_name] = self._direct_passthrough_route(
+                self.input.config.base_url,
+                model_provider=self.input.config.model_provider,
+                catalog_id=self.input.config.catalog_id,
+            )
+
+        for subagent in self.input.subagents:
+            config = subagent.config
+            if not config.passthrough:
+                continue
+            # Subagents usually send a synthetic scoped model key. If that subagent
+            # is passthrough, the scoped key should direct-route to its own gateway.
+            request_model = subagent.model_route or get_litellm_route_model(
+                model_provider=config.model_provider,
+                model_name=config.model_name,
+                passthrough=True,
+            )
+            routes[request_model] = self._direct_passthrough_route(
+                config.base_url,
+                model_provider=config.model_provider,
+                catalog_id=config.catalog_id,
+                upstream_model_name=config.model_name,
+            )
+        return routes
+
+    @staticmethod
+    def _direct_passthrough_route(
+        base_url: str | None,
+        *,
+        model_provider: str,
+        catalog_id: uuid.UUID | None,
+        upstream_model_name: str | None = None,
+    ) -> LLMRoute:
+        """Create one direct passthrough route.
+
+        Args:
+            base_url: Resolved custom provider base URL.
+            model_provider: Provider behind the custom route.
+            catalog_id: Optional custom-provider catalog row for credentials.
+            upstream_model_name: Optional model name to send to the upstream.
+
+        Returns:
+            Direct route for the model config.
+
+        Raises:
+            AgentSandboxExecutionError: If passthrough is enabled without a
+                resolved base URL.
+        """
+        if base_url is None:
+            raise AgentSandboxExecutionError(
+                "Custom model provider passthrough requires a resolved base_url."
+            )
+        return LLMRoute(
+            base_url=base_url,
+            model_provider=model_provider,
+            catalog_id=catalog_id,
+            upstream_model_name=upstream_model_name,
         )
 
     def _build_runtime_init_payload(self) -> RuntimeInitPayload:
@@ -217,6 +319,7 @@ class SandboxedAgentExecutor:
             user_prompt=self.input.user_prompt,
             llm_gateway_auth_token=self.input.llm_gateway_auth_token,
             allowed_actions=self.input.allowed_actions,
+            subagents=self.input.subagents,
             sdk_session_id=self.input.sdk_session_id,
             sdk_session_data=self.input.sdk_session_data,
             is_approval_continuation=self.input.is_approval_continuation,
@@ -251,7 +354,7 @@ class SandboxedAgentExecutor:
             handler = LoopbackHandler(input=loopback_input)
 
             llm_socket_path = socket_dir / LLM_SOCKET_NAME
-            self._llm_proxy = self._create_llm_socket_proxy(llm_socket_path)
+            self._llm_proxy = await self._create_llm_socket_proxy(llm_socket_path)
 
             await self._run_with_broker(
                 result=result,

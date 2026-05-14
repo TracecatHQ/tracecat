@@ -282,6 +282,30 @@ async def resolve_action(
     return impl_index[action_name]
 
 
+async def resolve_manifest_action(
+    action_name: str,
+    lock: RegistryLock,
+    organization_id: OrganizationID,
+) -> RegistryVersionManifestAction:
+    """Resolve an action's frozen manifest entry from a registry lock."""
+    origin = lock.actions.get(action_name)
+    if origin is None:
+        raise RegistryError(f"Action '{action_name}' not bound in registry_lock")
+
+    version = lock.origins.get(origin)
+    if version is None:
+        raise RegistryError(f"Origin '{origin}' not found in registry_lock")
+
+    manifest, _ = await _get_manifest_entry(origin, version, organization_id)
+    manifest_action = manifest.actions.get(action_name)
+    if manifest_action is None:
+        raise RegistryError(
+            f"Action '{action_name}' not found in manifest for "
+            f"origin={origin!r}, version={version!r}"
+        )
+    return manifest_action
+
+
 async def collect_action_secrets_from_manifest(
     action_name: str,
     lock: RegistryLock,

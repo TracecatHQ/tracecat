@@ -26,6 +26,7 @@ from tracecat.agent.session.schemas import (
     AgentSessionRead,
     AgentSessionReadWithMessages,
 )
+from tracecat.agent.subagents import ResolvedAgentsConfig
 from tracecat.agent.tokens import InternalToolContext, MCPTokenClaims
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
@@ -462,6 +463,11 @@ async def get_session(args: dict[str, Any], claims: MCPTokenClaims) -> dict[str,
                 raise InternalToolError(f"Session {session_id} not found.")
 
             messages = await service.list_messages(session.id)
+            agents_binding = (
+                ResolvedAgentsConfig.model_validate(session.agents_binding)
+                if session.agents_binding is not None
+                else None
+            )
 
             return AgentSessionReadWithMessages(
                 id=session.id,
@@ -474,6 +480,7 @@ async def get_session(args: dict[str, Any], claims: MCPTokenClaims) -> dict[str,
                 tools=session.tools,
                 agent_preset_id=session.agent_preset_id,
                 agent_preset_version_id=session.agent_preset_version_id,
+                agents_binding=agents_binding,
                 harness_type=session.harness_type,
                 created_at=session.created_at,
                 updated_at=session.updated_at,

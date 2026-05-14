@@ -15,6 +15,10 @@ from fastmcp import Client
 from fastmcp.client.transports import SSETransport, StreamableHttpTransport
 
 from tracecat.agent.common.types import MCPHttpServerConfig, MCPToolDefinition
+from tracecat.agent.mcp.utils import (
+    LEGACY_REGISTRY_MCP_SERVER_NAME,
+    REGISTRY_MCP_SERVER_NAME,
+)
 from tracecat.logger import logger
 
 
@@ -51,7 +55,11 @@ class UserMCPClient:
         """
         self._configs = {cfg["name"]: cfg for cfg in configs}
 
-    async def discover_tools(self) -> dict[str, MCPToolDefinition]:
+    async def discover_tools(
+        self,
+        *,
+        fail_on_error: bool = False,
+    ) -> dict[str, MCPToolDefinition]:
         """Connect to all configured servers and discover their tools.
 
         Returns:
@@ -70,6 +78,10 @@ class UserMCPClient:
                     server_name=server_name,
                     error=str(e),
                 )
+                if fail_on_error:
+                    raise RuntimeError(
+                        f"Failed to discover tools from user MCP server '{server_name}'"
+                    ) from e
 
         logger.info(
             "Discovered user MCP tools",
@@ -177,6 +189,14 @@ class UserMCPClient:
             return ""
 
     @staticmethod
+    def _is_tracecat_registry_server_name(server_name: str) -> bool:
+        return (
+            server_name in {REGISTRY_MCP_SERVER_NAME, LEGACY_REGISTRY_MCP_SERVER_NAME}
+            or server_name.startswith(f"{REGISTRY_MCP_SERVER_NAME}-")
+            or server_name.startswith(f"{LEGACY_REGISTRY_MCP_SERVER_NAME}_")
+        )
+
+    @staticmethod
     def parse_user_mcp_tool_name(tool_name: str) -> tuple[str, str] | None:
         """Parse a user MCP tool name into (server_name, tool_name).
 
@@ -189,19 +209,14 @@ class UserMCPClient:
             Tuple of (server_name, original_tool_name), or None if not a user MCP tool.
 
         """
-        # Skip tracecat registry-reserved prefixes (handled separately).
-        # Support both alias forms.
-        if tool_name.startswith("mcp__tracecat-registry__") or tool_name.startswith(
-            "mcp__tracecat_registry__"
-        ):
-            return None
-
         # Check for user MCP pattern
         if not tool_name.startswith("mcp__"):
             return None
 
         parts = tool_name.split("__", 2)
         if len(parts) < 3:
+            return None
+        if UserMCPClient._is_tracecat_registry_server_name(parts[1]):
             return None
 
         # parts[0] = "mcp", parts[1] = server_name, parts[2] = tool_name
@@ -210,6 +225,8 @@ class UserMCPClient:
 
 async def discover_user_mcp_tools(
     configs: list[MCPHttpServerConfig],
+    *,
+    fail_on_error: bool = False,
 ) -> dict[str, MCPToolDefinition]:
     """Discover tools from all configured user MCP servers.
 
@@ -226,7 +243,7 @@ async def discover_user_mcp_tools(
         return {}
 
     client = UserMCPClient(configs)
-    return await client.discover_tools()
+    return await client.discover_tools(fail_on_error=fail_on_error)
 
 
 async def call_user_mcp_tool(

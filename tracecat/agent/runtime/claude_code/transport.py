@@ -4,10 +4,13 @@ from __future__ import annotations
 
 import asyncio
 import os
-from collections.abc import AsyncIterator
+import socket
+from collections.abc import AsyncIterator, Iterator
+from contextlib import contextmanager
+from dataclasses import dataclass, replace
 from pathlib import Path
 from time import perf_counter
-from typing import Any, TypedDict
+from typing import Any, TypedDict, cast
 
 import claude_agent_sdk
 import orjson
@@ -19,7 +22,9 @@ from claude_agent_sdk._errors import (
 from claude_agent_sdk._errors import CLIJSONDecodeError as SDKJSONDecodeError
 from claude_agent_sdk._internal.transport.subprocess_cli import SubprocessCLITransport
 from claude_agent_sdk._version import __version__
+from claude_agent_sdk.types import AgentDefinition, McpHttpServerConfig, McpServerConfig
 
+from tracecat.agent.common.config import TRACECAT__AGENT_MCP_BRIDGE_PORT
 from tracecat.agent.runtime.claude_code.session_paths import ClaudeSandboxPathMapping
 from tracecat.agent.sandbox.nsjail import (
     SpawnedRuntime,
@@ -28,6 +33,8 @@ from tracecat.agent.sandbox.nsjail import (
 )
 from tracecat.logger import logger
 
+_TRUSTED_MCP_BRIDGE_PATH = "/mcp"
+
 
 class ClaudeShimInitPayload(TypedDict):
     """Init payload consumed by the sandbox shim process."""
@@ -35,6 +42,39 @@ class ClaudeShimInitPayload(TypedDict):
     command: list[str]
     env: dict[str, str]
     cwd: str
+    mcp_bridge_port: int
+    mcp_bridge_fd: int | None
+
+
+@dataclass(frozen=True, slots=True)
+class MCPBridgeBinding:
+    """Host-side MCP bridge endpoint prepared for one runtime process."""
+
+    port: int
+    inherited_fds: tuple[int, ...] = ()
+    listener_fd: int | None = None
+
+
+@contextmanager
+def open_mcp_bridge_binding(*, use_jailed_paths: bool) -> Iterator[MCPBridgeBinding]:
+    """Open the MCP bridge binding appropriate for the runtime isolation mode."""
+    if use_jailed_paths:
+        yield MCPBridgeBinding(port=TRACECAT__AGENT_MCP_BRIDGE_PORT)
+        return
+
+    listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        listener.bind(("127.0.0.1", 0))
+        listener.listen()
+        listener.set_inheritable(True)
+        listener_fd = listener.fileno()
+        yield MCPBridgeBinding(
+            port=int(listener.getsockname()[1]),
+            inherited_fds=(listener_fd,),
+            listener_fd=listener_fd,
+        )
+    finally:
+        listener.close()
 
 
 class SandboxedCLITransport(Transport):
@@ -97,33 +137,49 @@ class SandboxedCLITransport(Transport):
         self._connect_started_at = perf_counter()
         self._logged_first_message = False
         self._log_benchmark_phase("broker_transport_connect_start")
-        command = await self._build_claude_command()
-        init_payload: ClaudeShimInitPayload = {
-            "command": command,
-            "env": self._build_claude_env_overlay(),
-            "cwd": str(self._path_mapping.runtime_cwd),
-        }
-        init_payload_path = self._job_dir / "claude-shim-init.json"
-        await asyncio.to_thread(
-            init_payload_path.write_bytes, orjson.dumps(init_payload)
-        )
-        self._log_benchmark_phase(
-            "broker_transport_init_written",
-            init_payload_path=str(init_payload_path),
-        )
+        with open_mcp_bridge_binding(
+            use_jailed_paths=self._use_jailed_paths
+        ) as mcp_binding:
+            runtime_options = self._options_with_runtime_bridge_port(mcp_binding.port)
+            original_options = self._options
+            if runtime_options is not original_options:
+                original_options.mcp_servers = runtime_options.mcp_servers
+                original_options.agents = runtime_options.agents
+            try:
+                self._options = runtime_options
+                command = await self._build_claude_command()
+                env = self._build_claude_env_overlay()
+            finally:
+                self._options = original_options
+            init_payload: ClaudeShimInitPayload = {
+                "command": command,
+                "env": env,
+                "cwd": str(self._path_mapping.runtime_cwd),
+                "mcp_bridge_port": mcp_binding.port,
+                "mcp_bridge_fd": mcp_binding.listener_fd,
+            }
+            init_payload_path = self._job_dir / "claude-shim-init.json"
+            await asyncio.to_thread(
+                init_payload_path.write_bytes, orjson.dumps(init_payload)
+            )
+            self._log_benchmark_phase(
+                "broker_transport_init_written",
+                init_payload_path=str(init_payload_path),
+            )
 
-        self._spawned_runtime = await spawn_jailed_runtime(
-            socket_dir=self._socket_dir,
-            init_payload_path=init_payload_path,
-            llm_socket_path=self._llm_socket_path,
-            control_socket_required=False,
-            pipe_stdin=True,
-            job_dir=self._job_dir,
-            session_home_dir=self._path_mapping.host_home_dir,
-            session_project_dir=self._path_mapping.host_project_dir,
-            enable_internet_access=self._enable_internet_access,
-            skills_dir=self._skills_dir,
-        )
+            self._spawned_runtime = await spawn_jailed_runtime(
+                socket_dir=self._socket_dir,
+                init_payload_path=init_payload_path,
+                llm_socket_path=self._llm_socket_path,
+                control_socket_required=False,
+                pipe_stdin=True,
+                job_dir=self._job_dir,
+                session_home_dir=self._path_mapping.host_home_dir,
+                session_project_dir=self._path_mapping.host_project_dir,
+                enable_internet_access=self._enable_internet_access,
+                skills_dir=self._skills_dir,
+                inherited_fds=mcp_binding.inherited_fds,
+            )
         self._process = self._spawned_runtime.process
         if self._process.stdin is None or self._process.stdout is None:
             raise CLIConnectionError("Sandbox shim stdio was not initialized")
@@ -259,6 +315,130 @@ class SandboxedCLITransport(Transport):
             command,
             use_jailed_paths=self._use_jailed_paths,
         )
+
+    @staticmethod
+    def _trusted_mcp_bridge_url(port: int) -> str:
+        return f"http://127.0.0.1:{port}{_TRUSTED_MCP_BRIDGE_PATH}"
+
+    @staticmethod
+    def _is_trusted_mcp_bridge_config(config: object) -> bool:
+        """Return whether a config points at Tracecat's local MCP bridge."""
+        if not isinstance(config, dict) or config.get("type") != "http":
+            return False
+        url = config.get("url")
+        if not isinstance(url, str):
+            return False
+        headers = config.get("headers")
+        if not isinstance(headers, dict):
+            return False
+        authorization = headers.get("Authorization")
+        return (
+            isinstance(authorization, str)
+            and authorization.startswith("Bearer ")
+            and url
+            == SandboxedCLITransport._trusted_mcp_bridge_url(
+                TRACECAT__AGENT_MCP_BRIDGE_PORT
+            )
+        )
+
+    @staticmethod
+    def _trusted_mcp_bridge_config_with_runtime_port(
+        config: McpServerConfig, port: int
+    ) -> McpServerConfig:
+        """Return trusted Tracecat MCP bridge config updated for this runtime port.
+
+        The executor builds Claude options with the canonical bridge URL. Direct
+        mode uses port 0 so the shim can bind an available port, while jailed mode
+        keeps the fixed sandbox-local port. Only Tracecat's trusted bridge config
+        should be updated; user-provided external HTTP MCP servers keep their URL.
+        """
+        if not SandboxedCLITransport._is_trusted_mcp_bridge_config(config):
+            return config
+        rewritten = cast(McpHttpServerConfig, dict(config))
+        rewritten["url"] = SandboxedCLITransport._trusted_mcp_bridge_url(port)
+        return rewritten
+
+    @staticmethod
+    def _mcp_servers_with_runtime_bridge_port(
+        mcp_servers: dict[str, McpServerConfig] | str | Path,
+        port: int,
+    ) -> dict[str, McpServerConfig] | str | Path:
+        """Return root MCP servers with trusted bridge URLs using the runtime port."""
+        if not isinstance(mcp_servers, dict):
+            return mcp_servers
+
+        rewritten: dict[str, McpServerConfig] = {}
+        changed = False
+        for name, config in mcp_servers.items():
+            new_config = (
+                SandboxedCLITransport._trusted_mcp_bridge_config_with_runtime_port(
+                    config, port
+                )
+            )
+            rewritten[name] = new_config
+            changed = changed or new_config is not config
+        return rewritten if changed else mcp_servers
+
+    @staticmethod
+    def _agents_with_runtime_bridge_port(
+        agents: dict[str, AgentDefinition] | None,
+        port: int,
+    ) -> dict[str, AgentDefinition] | None:
+        """Return subagent definitions with trusted bridge URLs using the runtime port."""
+        if agents is None:
+            return agents
+
+        rewritten_agents: dict[str, AgentDefinition] = {}
+        changed = False
+        for alias, agent in agents.items():
+            mcp_servers = agent.mcpServers
+            if mcp_servers is None:
+                rewritten_agents[alias] = agent
+                continue
+
+            rewritten_entries: list[str | dict[str, Any]] = []
+            entries_changed = False
+            for entry in mcp_servers:
+                if not isinstance(entry, dict):
+                    rewritten_entries.append(entry)
+                    continue
+
+                rewritten_entry: dict[str, Any] = {}
+                entry_changed = False
+                for name, config in entry.items():
+                    new_config = SandboxedCLITransport._trusted_mcp_bridge_config_with_runtime_port(
+                        cast(McpServerConfig, config),
+                        port,
+                    )
+                    rewritten_entry[name] = new_config
+                    entry_changed = entry_changed or new_config is not config
+                rewritten_entries.append(rewritten_entry if entry_changed else entry)
+                entries_changed = entries_changed or entry_changed
+
+            if entries_changed:
+                rewritten_agents[alias] = replace(agent, mcpServers=rewritten_entries)
+                changed = True
+            else:
+                rewritten_agents[alias] = agent
+
+        return rewritten_agents if changed else agents
+
+    def _options_with_runtime_bridge_port(
+        self,
+        mcp_bridge_port: int,
+    ) -> ClaudeAgentOptions:
+        """Return SDK options whose Tracecat bridge URLs use this runtime port."""
+        mcp_servers = self._mcp_servers_with_runtime_bridge_port(
+            self._options.mcp_servers,
+            mcp_bridge_port,
+        )
+        agents = self._agents_with_runtime_bridge_port(
+            self._options.agents,
+            mcp_bridge_port,
+        )
+        if mcp_servers is self._options.mcp_servers and agents is self._options.agents:
+            return self._options
+        return replace(self._options, mcp_servers=mcp_servers, agents=agents)
 
     @classmethod
     def _prepare_command_for_runtime(

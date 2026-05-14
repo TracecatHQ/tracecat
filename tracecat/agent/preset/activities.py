@@ -3,13 +3,18 @@ from __future__ import annotations
 import uuid
 
 import sqlalchemy as sa
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel, Field, model_validator
 from sqlalchemy import select
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
+from tracecat.agent.preset.resolver import (
+    ResolvedAgentsRuntimeConfig,
+    resolve_agents_config,
+)
 from tracecat.agent.preset.service import AgentPresetService
 from tracecat.agent.service import AgentManagementService
+from tracecat.agent.subagents import AgentSubagentsConfig
 from tracecat.agent.workflow_config import agent_config_to_payload
 from tracecat.agent.workflow_schemas import AgentConfigPayload
 from tracecat.auth.types import Role
@@ -47,6 +52,13 @@ class AgentPresetVersionRef(BaseModel):
     preset_version_id: uuid.UUID
 
 
+class ResolveAgentsConfigActivityInput(BaseModel):
+    role: Role
+    agents: AgentSubagentsConfig = Field(default_factory=AgentSubagentsConfig)
+    parent_preset_id: uuid.UUID | None = None
+    parent_slug: str | None = None
+
+
 @activity.defn
 async def resolve_agent_preset_config_activity(
     args: ResolveAgentPresetConfigActivityInput,
@@ -74,6 +86,21 @@ async def resolve_agent_preset_version_ref_activity(
             preset_id=version.preset_id,
             preset_version_id=version.id,
         )
+
+
+@activity.defn
+async def resolve_agents_config_activity(
+    args: ResolveAgentsConfigActivityInput,
+) -> ResolvedAgentsRuntimeConfig:
+    async with AgentPresetService.with_session(role=args.role) as service:
+        resolved = await resolve_agents_config(
+            service,
+            agents=args.agents,
+            parent_preset_id=args.parent_preset_id,
+            parent_slug=args.parent_slug,
+            include_runtime_config=True,
+        )
+        return resolved.to_runtime_config()
 
 
 class CustomModelProviderConfigResult(BaseModel):

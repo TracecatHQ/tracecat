@@ -12,16 +12,20 @@ import contextlib
 import json
 import logging
 import os
+import socket
 import sys
 from pathlib import Path
-from typing import BinaryIO, TypedDict
+from typing import BinaryIO, NotRequired, TypedDict
 
 LOGGER = logging.getLogger(__name__)
 
 INIT_PAYLOAD_ENV_VAR = "TRACECAT__AGENT_INIT_PAYLOAD_PATH"
 LLM_SOCKET_ENV_VAR = "TRACECAT__AGENT_LLM_SOCKET_PATH"
+MCP_SOCKET_ENV_VAR = "TRACECAT__AGENT_MCP_SOCKET_PATH"
 DEFAULT_LLM_SOCKET_PATH = "/var/run/tracecat/llm.sock"
+DEFAULT_MCP_SOCKET_PATH = "/var/run/tracecat/mcp.sock"
 LLM_BRIDGE_HOST = "127.0.0.1"
+TRUSTED_MCP_BRIDGE_PATH = "/mcp"
 MAX_BODY_SIZE = 10 * 1024 * 1024
 
 
@@ -31,25 +35,42 @@ class ClaudeShimInitPayload(TypedDict):
     command: list[str]
     env: dict[str, str]
     cwd: str
+    mcp_bridge_port: int
+    mcp_bridge_fd: NotRequired[int | None]
 
 
 class LLMBridge:
     """HTTP bridge that forwards localhost traffic to a Unix socket."""
 
-    def __init__(self, *, socket_path: Path, port: int = 0) -> None:
+    def __init__(
+        self,
+        *,
+        socket_path: Path,
+        port: int = 0,
+        listener_fd: int | None = None,
+    ) -> None:
         self.socket_path = socket_path
         self._requested_port = port
+        self._listener_fd = listener_fd
         self._actual_port: int | None = None
         self._server: asyncio.Server | None = None
         self._serve_task: asyncio.Task[None] | None = None
 
     async def start(self) -> int:
         """Start the bridge and return the bound localhost port."""
-        self._server = await asyncio.start_server(
-            self._handle_connection,
-            host=LLM_BRIDGE_HOST,
-            port=self._requested_port,
-        )
+        if self._listener_fd is None:
+            self._server = await asyncio.start_server(
+                self._handle_connection,
+                host=LLM_BRIDGE_HOST,
+                port=self._requested_port,
+            )
+        else:
+            listener = socket.socket(fileno=self._listener_fd)
+            listener.setblocking(False)
+            self._server = await asyncio.start_server(
+                self._handle_connection,
+                sock=listener,
+            )
         if not self._server.sockets:
             raise RuntimeError("LLM bridge did not expose a listening socket")
         actual_port = int(self._server.sockets[0].getsockname()[1])
@@ -211,9 +232,29 @@ class LLMBridge:
         await writer.drain()
 
 
+def _trusted_mcp_bridge_url(port: int) -> str:
+    return f"http://{LLM_BRIDGE_HOST}:{port}{TRUSTED_MCP_BRIDGE_PATH}"
+
+
+def _rewrite_mcp_bridge_command_port(
+    command: list[str],
+    *,
+    requested_port: int,
+    actual_port: int,
+) -> list[str]:
+    """Rewrite trusted MCP bridge URLs after dynamic port binding."""
+    if requested_port == actual_port:
+        return command
+
+    requested_url = _trusted_mcp_bridge_url(requested_port)
+    actual_url = _trusted_mcp_bridge_url(actual_port)
+    return [arg.replace(requested_url, actual_url) for arg in command]
+
+
 async def run_sandboxed_claude_shim() -> None:
     """Read shim config, start the LLM bridge, and proxy Claude stdio."""
     llm_bridge: LLMBridge | None = None
+    mcp_bridge: LLMBridge | None = None
     process: asyncio.subprocess.Process | None = None
     stdout_task: asyncio.Task[None] | None = None
     stderr_task: asyncio.Task[None] | None = None
@@ -223,12 +264,28 @@ async def run_sandboxed_claude_shim() -> None:
         llm_bridge = LLMBridge(socket_path=_resolve_llm_socket_path(), port=0)
         bridge_port = await llm_bridge.start()
         LOGGER.info("LLM bridge started for shim on port %s", bridge_port)
+        mcp_bridge = LLMBridge(
+            socket_path=_resolve_mcp_socket_path(),
+            port=init_payload["mcp_bridge_port"],
+            listener_fd=init_payload.get("mcp_bridge_fd"),
+        )
+        mcp_bridge_port = await mcp_bridge.start()
+        LOGGER.info("MCP bridge started for shim on port %s", mcp_bridge_port)
+        command = _rewrite_mcp_bridge_command_port(
+            init_payload["command"],
+            requested_port=init_payload["mcp_bridge_port"],
+            actual_port=mcp_bridge_port,
+        )
 
-        child_env = {**os.environ, **init_payload["env"]}
+        child_env = {
+            **os.environ,
+            **init_payload["env"],
+        }
         child_env["TRACECAT__LLM_BRIDGE_PORT"] = str(bridge_port)
+        child_env["TRACECAT__MCP_BRIDGE_PORT"] = str(mcp_bridge_port)
         child_env["ANTHROPIC_BASE_URL"] = f"http://127.0.0.1:{bridge_port}"
         process = await asyncio.create_subprocess_exec(
-            *init_payload["command"],
+            *command,
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
@@ -245,7 +302,10 @@ async def run_sandboxed_claude_shim() -> None:
             _pump_stream(process.stderr, sys.stderr.buffer)
         )
 
-        return_code = await _wait_for_process_with_stdin(process, process.stdin)
+        return_code = await _wait_for_process_with_stdin(
+            process,
+            process.stdin,
+        )
         await stdout_task
         await stderr_task
         if return_code != 0:
@@ -266,15 +326,13 @@ async def run_sandboxed_claude_shim() -> None:
                 await process.wait()
         if llm_bridge is not None:
             await llm_bridge.stop()
+        if mcp_bridge is not None:
+            await mcp_bridge.stop()
 
 
 async def _read_init_payload(init_path: Path) -> ClaudeShimInitPayload:
     """Read the shim init payload from the mounted init file."""
-
-    def _read_bytes() -> bytes:
-        return init_path.read_bytes()
-
-    payload_bytes = await asyncio.to_thread(_read_bytes)
+    payload_bytes = await asyncio.to_thread(init_path.read_bytes)
     data = json.loads(payload_bytes)
     if not isinstance(data, dict):
         raise ValueError("Shim payload must be an object")
@@ -282,6 +340,8 @@ async def _read_init_payload(init_path: Path) -> ClaudeShimInitPayload:
     command = data.get("command")
     env = data.get("env")
     cwd = data.get("cwd")
+    mcp_bridge_port = data.get("mcp_bridge_port")
+    mcp_bridge_fd = data.get("mcp_bridge_fd")
 
     if not isinstance(command, list) or not all(
         isinstance(item, str) for item in command
@@ -293,8 +353,22 @@ async def _read_init_payload(init_path: Path) -> ClaudeShimInitPayload:
         raise ValueError("Shim payload env must be a dict[str, str]")
     if not isinstance(cwd, str):
         raise ValueError("Shim payload cwd must be a string")
+    if not isinstance(mcp_bridge_port, int) or mcp_bridge_port < 0:
+        raise ValueError("Shim payload mcp_bridge_port must be a non-negative integer")
+    if mcp_bridge_fd is not None and (
+        not isinstance(mcp_bridge_fd, int) or mcp_bridge_fd < 0
+    ):
+        raise ValueError("Shim payload mcp_bridge_fd must be a non-negative integer")
 
-    return {"command": command, "env": env, "cwd": cwd}
+    payload: ClaudeShimInitPayload = {
+        "command": command,
+        "env": env,
+        "cwd": cwd,
+        "mcp_bridge_port": mcp_bridge_port,
+    }
+    if mcp_bridge_fd is not None:
+        payload["mcp_bridge_fd"] = mcp_bridge_fd
+    return payload
 
 
 def _resolve_init_payload_path() -> Path:
@@ -307,6 +381,11 @@ def _resolve_init_payload_path() -> Path:
 def _resolve_llm_socket_path() -> Path:
     """Resolve the mounted LLM socket path."""
     return Path(os.environ.get(LLM_SOCKET_ENV_VAR) or DEFAULT_LLM_SOCKET_PATH)
+
+
+def _resolve_mcp_socket_path() -> Path:
+    """Resolve the mounted trusted MCP socket path."""
+    return Path(os.environ.get(MCP_SOCKET_ENV_VAR) or DEFAULT_MCP_SOCKET_PATH)
 
 
 async def _wait_for_process_with_stdin(
@@ -324,7 +403,9 @@ async def _wait_for_process_with_stdin(
             await stdin_task
 
 
-async def _pump_stdin_to_process(process_stdin: asyncio.StreamWriter) -> None:
+async def _pump_stdin_to_process(
+    process_stdin: asyncio.StreamWriter,
+) -> None:
     """Proxy shim stdin into the Claude subprocess stdin."""
     try:
         while chunk := await _wait_for_stdin_chunk(65536):
@@ -371,15 +452,13 @@ def _read_stdin_chunk(chunk_size: int) -> bytes:
 
 async def _pump_stream(
     reader: asyncio.StreamReader,
-    destination: BinaryIO,
+    dst: BinaryIO,
 ) -> None:
     """Pump bytes from a subprocess pipe to a binary destination."""
     loop = asyncio.get_running_loop()
-    writer = destination.write
-    flush = destination.flush
     while chunk := await reader.read(65536):
-        await loop.run_in_executor(None, writer, chunk)
-        await loop.run_in_executor(None, flush)
+        await loop.run_in_executor(None, dst.write, chunk)
+        await loop.run_in_executor(None, dst.flush)
 
 
 def main() -> None:
