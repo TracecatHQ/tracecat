@@ -170,6 +170,7 @@ jobs:
         run: |
           uv run python - <<'PY'
           import asyncio
+          import time
 
           from temporalio.api.workflowservice.v1 import GetSearchAttributesRequest
 
@@ -189,14 +190,20 @@ jobs:
           async def main() -> None:
               await add_temporal_search_attributes()
               client = await get_temporal_client()
-              attrs = await client.workflow_service.get_search_attributes(
-                  GetSearchAttributesRequest()
-              )
-              missing = REQUIRED_ATTRS - set(attrs.keys)
-              if missing:
-                  raise RuntimeError(
-                      f"Temporal search attributes were not registered: {sorted(missing)}"
+              deadline = time.monotonic() + 60
+              while True:
+                  attrs = await client.workflow_service.get_search_attributes(
+                      GetSearchAttributesRequest()
                   )
+                  missing = REQUIRED_ATTRS - set(attrs.keys)
+                  if not missing:
+                      return
+                  if time.monotonic() >= deadline:
+                      raise RuntimeError(
+                          "Temporal search attributes were not registered: "
+                          f"{sorted(missing)}"
+                      )
+                  await asyncio.sleep(2)
 
           asyncio.run(main())
           PY
