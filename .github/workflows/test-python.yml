@@ -62,7 +62,7 @@ jobs:
 
       - name: Install dependencies
         working-directory: custom-integrations-starter-kit
-        run: uv sync --frozen
+        run: uv sync
 
   test-all:
     runs-on: blacksmith-8vcpu-ubuntu-2204
