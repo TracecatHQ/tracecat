@@ -715,6 +715,9 @@ async def test_agent_workflow_routes_approved_tools_to_executor_and_reconciles_h
         async def append(self, event: Any) -> None:
             del event
 
+        async def reset_for_new_turn(self) -> None:
+            return None
+
     async def fake_agent_stream_new(
         *,
         session_id: uuid.UUID,
@@ -1463,6 +1466,9 @@ async def test_agent_workflow_does_not_retry_approved_tool_failures(
     class _FakeStream:
         async def append(self, event: Any) -> None:
             del event
+
+        async def reset_for_new_turn(self) -> None:
+            return None
 
     async def fake_agent_stream_new(
         *,
