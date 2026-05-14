@@ -123,7 +123,7 @@ jobs:
           trap cleanup_uv_sync EXIT
 
           if [ "${{ matrix.test_group }}" = "temporal" ]; then
-            services=(temporal api postgres_db minio redis)
+            services=(temporal postgres_db minio redis)
             cat > /tmp/tracecat-ci-postgres.yml <<'YAML'
           services:
             postgres_db:
@@ -162,6 +162,50 @@ jobs:
           wait "$uv_sync_pid"
           trap - EXIT
 
+      - name: Register Temporal search attributes
+        if: matrix.test_group == 'temporal'
+        run: |
+          set -euo pipefail
+
+          attrs=(
+            TracecatTriggerType
+            TracecatTriggeredByUserId
+            TracecatWorkspaceId
+            TracecatAlias
+            TracecatCorrelationId
+            TracecatExecutionType
+          )
+
+          add_args=()
+          for attr in "${attrs[@]}"; do
+            add_args+=(--name "$attr" --type Keyword)
+          done
+
+          docker compose -f docker-compose.dev.yml exec -T temporal \
+            tctl --address temporal:7233 --namespace default --auto_confirm \
+            admin cluster add-search-attributes "${add_args[@]}"
+
+          for _ in {1..30}; do
+            output=$(docker compose -f docker-compose.dev.yml exec -T temporal \
+              tctl --address temporal:7233 --namespace default \
+              admin cluster get-search-attributes --print_json true)
+            missing=()
+            for attr in "${attrs[@]}"; do
+              if [[ "$output" != *"$attr"* ]]; then
+                missing+=("$attr")
+              fi
+            done
+            if [ "${#missing[@]}" -eq 0 ]; then
+              echo "Temporal search attributes registered"
+              exit 0
+            fi
+            echo "Waiting for Temporal search attributes: ${missing[*]}"
+            sleep 2
+          done
+
+          echo "Timed out waiting for Temporal search attributes: ${missing[*]}"
+          exit 1
+
       - name: Run tests
         env:
           TRACECAT__SYSTEM_PATH: "/usr/local/bin:/usr/bin:/bin"
@@ -178,6 +222,7 @@ jobs:
           elif [ "${{ matrix.test_group }}" = "temporal" ]; then
             # Temporal tests run with compression enabled and parallelization
             # Worker-specific task queues in conftest.py enable safe parallel execution
+            TRACECAT_TEST_API_MODE=inprocess \
             TRACECAT__CONTEXT_COMPRESSION_ENABLED=true \
             TRACECAT__CONTEXT_COMPRESSION_THRESHOLD_KB=0 \
             uv run pytest tests/temporal -m "not live_secret" -n auto -ra -o faulthandler_timeout=300
@@ -203,10 +248,4 @@ jobs:
           if [ "${{ matrix.test_group }}" = "temporal" ]; then
             echo "=== Temporal Logs ==="
             docker compose -f docker-compose.dev.yml logs temporal --tail=200
-
-            echo "=== Migrations Logs ==="
-            docker compose -f docker-compose.dev.yml logs migrations --tail=200
-
-            echo "=== API Logs ==="
-            docker compose -f docker-compose.dev.yml logs api --tail=200
           fi

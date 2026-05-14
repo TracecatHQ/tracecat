@@ -195,6 +195,7 @@ markers = [
     "live_secret: marks tests that require real environment-backed third-party secrets",
     "ollama: mark tests that require Ollama",
     "temporal: marks tests that require Temporal server",
+    "requires_api: marks tests that require a live Tracecat API endpoint",
     "regression: marks regression tests",
 ]
 

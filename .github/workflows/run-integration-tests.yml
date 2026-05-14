@@ -7,6 +7,7 @@ on:
       - tracecat/**
       - registry/**
       - tests/integration/**
+      - tests/temporal/**
       - pyproject.toml
       - uv.lock
       - Dockerfile
@@ -21,6 +22,7 @@ on:
       - tracecat/**
       - registry/**
       - tests/integration/**
+      - tests/temporal/**
       - pyproject.toml
       - uv.lock
       - Dockerfile
@@ -212,6 +214,15 @@ jobs:
           # Worker-specific task queues in conftest.py ensure isolation
           # faulthandler_timeout=300: dump thread state after 5min for extra debugging
           uv run --no-sync pytest tests/integration --ignore=tests/integration/test_pool_integration.py -m "not live_secret" -n auto -ra -v -o faulthandler_timeout=300
+
+      - name: Run API-backed temporal tests against compose
+        env:
+          TRACECAT_TEST_API_MODE: "external"
+          TRACECAT__API_URL: "http://localhost:8000"
+          TEMPORAL__CLUSTER_URL: "localhost:7233"
+          TRACECAT__DISABLE_NSJAIL: "true"
+        run: |
+          uv run --no-sync pytest tests/temporal -m "requires_api and not live_secret" -n auto -ra -v -o faulthandler_timeout=300
 
       - name: Show Docker logs on failure
         if: failure()

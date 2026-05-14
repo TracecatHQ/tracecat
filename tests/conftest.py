@@ -1,7 +1,10 @@
 import asyncio
 import importlib
 import os
+import socket
+import threading
 import time
+import urllib.request
 import uuid
 from collections.abc import AsyncGenerator, Callable, Iterator
 from concurrent.futures import ThreadPoolExecutor
@@ -144,6 +147,26 @@ def _lock_test_db_setup(conn: Any, db_uri: str) -> None:
         text("SELECT pg_advisory_xact_lock(hashtext(:lock_key)::bigint)"),
         {"lock_key": f"tests:db-setup:{db_name}"},
     )
+
+
+def _get_free_tcp_port() -> int:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind(("127.0.0.1", 0))
+        return int(sock.getsockname()[1])
+
+
+def _wait_for_http_ok(url: str, *, timeout: float = 45.0) -> None:
+    deadline = time.monotonic() + timeout
+    last_error: Exception | None = None
+    while time.monotonic() < deadline:
+        try:
+            with urllib.request.urlopen(url, timeout=1.0) as response:
+                if 200 <= response.getcode() < 300:
+                    return
+        except Exception as exc:
+            last_error = exc
+        time.sleep(0.2)
+    raise RuntimeError(f"Timed out waiting for {url}: {last_error}")
 
 
 PG_PORT = int(os.environ.get("PG_PORT", "5432"))
@@ -1203,6 +1226,78 @@ def env_sandbox(monkeysession: pytest.MonkeyPatch):
 
     yield
     logger.info("Environment variables cleaned up")
+
+
+@pytest.fixture(scope="session")
+def inprocess_api_server(
+    env_sandbox: None,
+    default_org: None,
+    workflow_bucket: None,
+    redis_server: None,
+    monkeysession: pytest.MonkeyPatch,
+) -> Iterator[str]:
+    """Run the real Tracecat API on localhost without building the Docker image."""
+    import uvicorn
+
+    port = _get_free_tcp_port()
+    api_url = f"http://127.0.0.1:{port}"
+    monkeysession.setattr(config, "TRACECAT__API_URL", api_url)
+    monkeysession.setenv("TRACECAT__API_URL", api_url)
+    monkeysession.setattr(config, "TRACECAT__PUBLIC_API_URL", f"{api_url}/api")
+    monkeysession.setenv("TRACECAT__PUBLIC_API_URL", f"{api_url}/api")
+
+    # Import after env_sandbox overrides so the module-level FastAPI app sees the
+    # same config as the tests. The decorated health/internal routes live there.
+    from tracecat.api.app import app as api_app
+
+    server = uvicorn.Server(
+        uvicorn.Config(
+            api_app,
+            host="127.0.0.1",
+            port=port,
+            log_level="warning",
+            access_log=False,
+        )
+    )
+    thread = threading.Thread(
+        target=server.run,
+        name=f"tracecat-inprocess-api-{WORKER_ID}",
+        daemon=True,
+    )
+    thread.start()
+    try:
+        _wait_for_http_ok(f"{api_url}/health")
+    except Exception:
+        server.should_exit = True
+        thread.join(timeout=10)
+        raise
+
+    yield api_url
+
+    server.should_exit = True
+    thread.join(timeout=10)
+
+
+@pytest.fixture(autouse=True)
+def api_server_for_requires_api_tests(request: pytest.FixtureRequest) -> None:
+    """Select the API harness for tests marked ``requires_api``.
+
+    PR CI uses an in-process uvicorn server to keep behavioral coverage without
+    building the API image. Full integration jobs keep using the external API.
+    """
+    if request.node.get_closest_marker("requires_api") is None:
+        return
+
+    mode = os.environ.get("TRACECAT_TEST_API_MODE", "external")
+    if mode == "inprocess":
+        request.getfixturevalue("inprocess_api_server")
+    elif mode == "external":
+        return
+    else:
+        pytest.fail(
+            "TRACECAT_TEST_API_MODE must be either 'inprocess' or 'external', "
+            f"got {mode!r}"
+        )
 
 
 @pytest.fixture(scope="session")
