@@ -9,6 +9,7 @@ on:
       - alembic/**
       - tests/**
       - pyproject.toml
+      - uv.lock
       - .github/workflows/lint-python.yml
   pull_request:
     branches: [ "main", "staging" ]
@@ -18,6 +19,7 @@ on:
       - alembic/**
       - tests/**
       - pyproject.toml
+      - uv.lock
       - .github/workflows/lint-python.yml
 
 permissions:
@@ -52,6 +54,9 @@ jobs:
         uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6
         with:
           enable-cache: true
+          cache-dependency-glob: |
+            pyproject.toml
+            uv.lock
 
       - name: Install dependencies
         run: uv sync --no-install-project --group lint
