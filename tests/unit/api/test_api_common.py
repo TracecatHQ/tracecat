@@ -1,9 +1,11 @@
+import pytest
 from starlette.requests import Request
 
 from tracecat.api.common import generic_exception_handler
 
 
-def test_generic_exception_handler_logs_with_exception(mocker):
+@pytest.mark.anyio
+async def test_generic_exception_handler_logs_with_exception(mocker):
     logger = mocker.patch("tracecat.api.common.logger")
     exc = RuntimeError("boom")
     request = Request(
@@ -19,7 +21,7 @@ def test_generic_exception_handler_logs_with_exception(mocker):
         }
     )
 
-    response = generic_exception_handler(request, exc)
+    response = await generic_exception_handler(request, exc)
 
     logger.exception.assert_called_once()
     logger.error.assert_not_called()
