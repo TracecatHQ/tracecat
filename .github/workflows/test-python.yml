@@ -164,49 +164,47 @@ jobs:
 
       - name: Register Temporal search attributes
         if: matrix.test_group == 'temporal'
-        env:
-          TEMPORAL__CLUSTER_URL: "localhost:7233"
-          TEMPORAL__CLUSTER_NAMESPACE: "default"
         run: |
-          uv run python - <<'PY'
-          import asyncio
-          import time
+          set -euo pipefail
 
-          from temporalio.api.workflowservice.v1 import GetSearchAttributesRequest
+          attrs=(
+            TracecatTriggerType
+            TracecatTriggeredByUserId
+            TracecatWorkspaceId
+            TracecatAlias
+            TracecatCorrelationId
+            TracecatExecutionType
+          )
 
-          from tracecat.api.common import add_temporal_search_attributes
-          from tracecat.dsl.client import get_temporal_client
-          from tracecat.workflow.executions.enums import TemporalSearchAttr
+          add_args=()
+          for attr in "${attrs[@]}"; do
+            add_args+=(--name "$attr" --type Keyword)
+          done
 
-          REQUIRED_ATTRS = {
-              TemporalSearchAttr.TRIGGER_TYPE.value,
-              TemporalSearchAttr.TRIGGERED_BY_USER_ID.value,
-              TemporalSearchAttr.WORKSPACE_ID.value,
-              TemporalSearchAttr.ALIAS.value,
-              TemporalSearchAttr.CORRELATION_ID.value,
-              TemporalSearchAttr.EXECUTION_TYPE.value,
-          }
+          docker compose -f docker-compose.dev.yml exec -T temporal \
+            tctl --address temporal:7233 --namespace default \
+            admin cluster add-search-attributes "${add_args[@]}"
 
-          async def main() -> None:
-              await add_temporal_search_attributes()
-              client = await get_temporal_client()
-              deadline = time.monotonic() + 60
-              while True:
-                  attrs = await client.workflow_service.get_search_attributes(
-                      GetSearchAttributesRequest()
-                  )
-                  missing = REQUIRED_ATTRS - set(attrs.keys)
-                  if not missing:
-                      return
-                  if time.monotonic() >= deadline:
-                      raise RuntimeError(
-                          "Temporal search attributes were not registered: "
-                          f"{sorted(missing)}"
-                      )
-                  await asyncio.sleep(2)
+          for _ in {1..30}; do
+            output=$(docker compose -f docker-compose.dev.yml exec -T temporal \
+              tctl --address temporal:7233 --namespace default \
+              admin cluster get-search-attributes --print_json true)
+            missing=()
+            for attr in "${attrs[@]}"; do
+              if [[ "$output" != *"$attr"* ]]; then
+                missing+=("$attr")
+              fi
+            done
+            if [ "${#missing[@]}" -eq 0 ]; then
+              echo "Temporal search attributes registered"
+              exit 0
+            fi
+            echo "Waiting for Temporal search attributes: ${missing[*]}"
+            sleep 2
+          done
 
-          asyncio.run(main())
-          PY
+          echo "Timed out waiting for Temporal search attributes: ${missing[*]}"
+          exit 1
 
       - name: Run tests
         env:
