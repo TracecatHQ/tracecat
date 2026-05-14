@@ -4,6 +4,8 @@ from typing import Any
 from temporalio import activity, workflow
 from temporalio.exceptions import ApplicationError
 from temporalio.worker import (
+    ActivityInboundInterceptor,
+    ExecuteActivityInput,
     ExecuteWorkflowInput,
     Interceptor,
     WorkflowInboundInterceptor,
@@ -18,6 +20,19 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.dsl.common import DSLRunArgs, get_trigger_type
     from tracecat.logger import logger
     from tracecat.workflow.executions.enums import TriggerType
+
+_USER_FACING_APPLICATION_ERROR_TYPES = frozenset(
+    {
+        "EntitlementRequired",
+        "ExecutionError",
+        "LoopExecutionError",
+        "RegistryActionValidationError",
+        "ScopeDeniedError",
+        "TracecatExpressionError",
+        "TracecatValidationError",
+        "UserError",
+    }
+)
 
 
 def _set_common_workflow_tags(info: workflow.Info | activity.Info) -> None:
@@ -117,8 +132,7 @@ class _SentryWorkflowInterceptor(WorkflowInboundInterceptor):
                 sentry.set_context("temporal.workflow.info", workflow.info().__dict__)
 
                 if not workflow.unsafe.is_replaying():
-                    # NOTE: We log here instead of capturing the exception because of metaclass issues with ApplicationError
-                    # Related issue: https://temporalio.slack.com/archives/CTT84RS0P/p1720730740608279?thread_ts=1720727238.727909&cid=CTT84RS0P
+                    sentry.capture_exception(e)
                     logger.error(
                         "Unexpected workflow error, likely a platform issue",
                         error=str(e),
@@ -129,8 +143,61 @@ class _SentryWorkflowInterceptor(WorkflowInboundInterceptor):
                 raise ApplicationError(str(e)) from e
 
 
+class _SentryActivityInboundInterceptor(ActivityInboundInterceptor):
+    async def execute_activity(self, input: ExecuteActivityInput) -> Any:
+        with sentry.isolation_scope():
+            info = activity.info()
+            sentry.set_tag("temporal.execution_type", "activity")
+            sentry.set_tag("module", input.fn.__module__ + "." + input.fn.__qualname__)
+            _set_common_workflow_tags(info)
+            sentry.set_user({"id": info.workflow_namespace})
+            sentry.set_tag("temporal.activity.type", info.activity_type)
+            sentry.set_tag("temporal.activity.id", info.activity_id)
+            sentry.set_tag("temporal.activity.attempt", info.attempt)
+            sentry.set_tag("temporal.activity.task_queue", info.task_queue)
+            sentry.set_tag("temporal.workflow.namespace", info.workflow_namespace)
+            sentry.set_tag("temporal.workflow.run_id", info.workflow_run_id)
+            if (role := ctx_role.get()) and role.workspace_id:
+                sentry.set_tag("tracecat.workspace_id", str(role.workspace_id))
+            try:
+                return await super().execute_activity(input)
+            except Exception as e:
+                if _should_capture_activity_exception(e):
+                    sentry.set_context(
+                        "temporal.activity.info",
+                        _activity_info_context(info),
+                    )
+                    sentry.capture_exception(e)
+                raise
+
+
+def _should_capture_activity_exception(exc: Exception) -> bool:
+    if isinstance(exc, ApplicationError):
+        return exc.type not in _USER_FACING_APPLICATION_ERROR_TYPES
+    return True
+
+
+def _activity_info_context(info: activity.Info) -> dict[str, Any]:
+    return {
+        "activity_id": info.activity_id,
+        "activity_type": info.activity_type,
+        "attempt": info.attempt,
+        "is_local": info.is_local,
+        "task_queue": info.task_queue,
+        "workflow_id": info.workflow_id,
+        "workflow_namespace": info.workflow_namespace,
+        "workflow_run_id": info.workflow_run_id,
+        "workflow_type": info.workflow_type,
+    }
+
+
 class SentryInterceptor(Interceptor):
     """Temporal Interceptor class which will report workflow & activity exceptions to Sentry"""
+
+    def intercept_activity(
+        self, next: ActivityInboundInterceptor
+    ) -> ActivityInboundInterceptor:
+        return _SentryActivityInboundInterceptor(next)
 
     def workflow_interceptor_class(
         self, input: WorkflowInterceptorClassInput

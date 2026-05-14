@@ -12,10 +12,7 @@ from temporalio.worker.workflow_sandbox import (
     SandboxRestrictions,
 )
 
-from tracecat import __version__ as APP_VERSION
-
 with workflow.unsafe.imports_passed_through():
-    import sentry_sdk
     import uvloop
 
     from tracecat import config
@@ -33,6 +30,7 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.dsl.workflow import DSLWorkflow
     from tracecat.ee.interactions.service import InteractionService
     from tracecat.logger import logger
+    from tracecat.observability.sentry import init_sentry
     from tracecat.storage.collection import CollectionActivities
     from tracecat.temporal.worker_lifecycle import run_worker_entrypoint
     from tracecat.tiers.activities import TierActivities
@@ -114,24 +112,7 @@ async def main(shutdown_event: asyncio.Event | None = None) -> None:
     client = await get_temporal_client(plugins=[TracecatPydanticAIPlugin()])
 
     interceptors = []
-    if sentry_dsn := os.environ.get("SENTRY_DSN"):
-        logger.info("Initializing Sentry interceptor")
-        app_env = config.TRACECAT__APP_ENV
-        temporal_namespace = config.TEMPORAL__CLUSTER_NAMESPACE
-        sentry_environment: str = (
-            config.SENTRY_ENVIRONMENT_OVERRIDE or f"{app_env}-{temporal_namespace}"
-        )
-        sentry_sdk.init(
-            dsn=sentry_dsn,
-            environment=sentry_environment,
-            release=f"tracecat@{APP_VERSION}",
-        )
-        logger.info(
-            "Sentry initialized",
-            environment=sentry_environment,
-            app_env=app_env,
-            temporal_namespace=temporal_namespace,
-        )
+    if init_sentry("worker"):
         interceptors.append(SentryInterceptor())
 
     # Run a worker for the activities and workflow

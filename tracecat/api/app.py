@@ -17,6 +17,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import ORJSONResponse
 from pydantic import BaseModel
 from pydantic_core import to_jsonable_python
+from sentry_sdk.integrations.fastapi import FastApiIntegration
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat_ee.admin.router import router as admin_router
@@ -142,6 +143,7 @@ from tracecat.middleware import (
     RequestLoggingMiddleware,
 )
 from tracecat.middleware.security import SecurityHeadersMiddleware
+from tracecat.observability.sentry import init_sentry
 from tracecat.organization.management import (
     ensure_default_organization,
     get_default_organization_id,
@@ -190,6 +192,8 @@ from tracecat.workflow.store.router import router as workflow_store_router
 from tracecat.workflow.tags.router import router as workflow_tags_router
 from tracecat.workspaces.router import router as workspaces_router
 from tracecat.workspaces.service import WorkspaceService
+
+init_sentry("api", integrations=[FastApiIntegration(transaction_style="endpoint")])
 
 
 @asynccontextmanager

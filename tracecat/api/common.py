@@ -23,10 +23,26 @@ from tracecat.dsl.client import get_temporal_client
 from tracecat.exceptions import TracecatException
 from tracecat.identifiers import OrganizationID
 from tracecat.logger import logger
+from tracecat.observability.sentry import capture_exception
 from tracecat.workflow.executions.enums import TemporalSearchAttr
 
 
 async def generic_exception_handler(request: Request, exc: Exception) -> Response:
+    role = ctx_role.get()
+    capture_exception(
+        exc,
+        tags={
+            "http.method": request.method,
+            "http.route": request.url.path,
+        },
+        contexts={
+            "tracecat.request": {
+                "path": request.url.path,
+                "query_params": dict(request.query_params),
+            },
+            "tracecat.role": role.model_dump(mode="json") if role else None,
+        },
+    )
     logger.exception(
         "Unexpected error",
         exc=exc,
@@ -109,6 +125,23 @@ def tracecat_exception_handler(request: Request, exc: Exception) -> Response:
     """
     tracecat_exc = (
         exc if isinstance(exc, TracecatException) else TracecatException(str(exc))
+    )
+    role = ctx_role.get()
+    capture_exception(
+        tracecat_exc,
+        tags={
+            "http.method": request.method,
+            "http.route": request.url.path,
+            "tracecat.exception_type": type(exc).__name__,
+        },
+        contexts={
+            "tracecat.request": {
+                "path": request.url.path,
+                "query_params": dict(request.query_params),
+            },
+            "tracecat.role": role.model_dump(mode="json") if role else None,
+            "tracecat.exception": {"detail": tracecat_exc.detail},
+        },
     )
     msg = str(tracecat_exc)
     logger.error(

@@ -4,6 +4,7 @@ import asyncio
 from collections.abc import Iterator, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
+from typing import Any
 from unittest.mock import AsyncMock
 
 import pytest
@@ -120,12 +121,19 @@ async def test_agent_executor_worker_treats_empty_numeric_env_vars_as_defaults(
             task_queue: str,
             activities: Sequence[object],
             workflow_runner: object,
+            interceptors: Sequence[Any],
             max_concurrent_activities: int,
             disable_eager_activity_execution: bool,
             activity_executor: ThreadPoolExecutor,
             graceful_shutdown_timeout: timedelta,
         ) -> None:
-            del client, activities, workflow_runner, disable_eager_activity_execution
+            del (
+                client,
+                activities,
+                workflow_runner,
+                interceptors,
+                disable_eager_activity_execution,
+            )
             captured["task_queue"] = task_queue
             captured["max_concurrent_activities"] = max_concurrent_activities
             captured["threadpool_max_workers"] = activity_executor._max_workers
