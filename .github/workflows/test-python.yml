@@ -182,7 +182,7 @@ jobs:
           done
 
           docker compose -f docker-compose.dev.yml exec -T temporal \
-            tctl --address temporal:7233 --namespace default \
+            tctl --address temporal:7233 --namespace default --auto_confirm \
             admin cluster add-search-attributes "${add_args[@]}"
 
           for _ in {1..30}; do
