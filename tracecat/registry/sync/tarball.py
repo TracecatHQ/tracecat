@@ -43,8 +43,8 @@ class TarballVenvBuildResult:
     tarball_name: str
     content_hash: str
     compressed_size_bytes: int
-    zstd_tarball_path: Path | None = None
-    zstd_compressed_size_bytes: int | None = None
+    zstd_tarball_path: Path
+    zstd_compressed_size_bytes: int
 
 
 def _zstd_tarball_path_for(tarball_path: Path) -> Path:
@@ -77,12 +77,11 @@ def _create_zstd_tarball(
     filter: Callable[[tarfile.TarInfo], tarfile.TarInfo | None] | None = None,
 ) -> None:
     """Create a zstd-compressed tarball from path entries."""
-    with tarball_path.open("wb") as raw:
-        compressor = zstd.ZstdCompressor(level=3)
-        with compressor.stream_writer(raw, closefd=False) as compressed:
-            with tarfile.open(fileobj=compressed, mode="w|") as tar:
-                for path, arcname in entries:
-                    tar.add(path, arcname=arcname, filter=filter)
+    compressor = zstd.ZstdCompressor(level=3)
+    with zstd.open(tarball_path, "wb", cctx=compressor) as compressed:
+        with tarfile.open(fileobj=compressed, mode="w|") as tar:
+            for path, arcname in entries:
+                tar.add(path, arcname=arcname, filter=filter)
 
 
 def _slugify_origin(origin: str) -> str:
@@ -589,17 +588,17 @@ def get_tarball_venv_s3_key(
 
 async def upload_tarball_venv(
     tarball_path: Path,
+    zstd_tarball_path: Path,
     key: str,
     bucket: str,
-    zstd_tarball_path: Path | None = None,
 ) -> str:
     """Upload a tarball venv file to S3/MinIO.
 
     Args:
         tarball_path: Local path to the tarball file
+        zstd_tarball_path: Local path to the zstd tarball sidecar
         key: The S3 object key
         bucket: Bucket name
-        zstd_tarball_path: Optional sibling zstd tarball to upload alongside gzip
 
     Returns:
         The S3 URI of the uploaded tarball (s3://{bucket}/{key})
@@ -609,12 +608,12 @@ async def upload_tarball_venv(
     """
     if not tarball_path.exists():
         raise FileNotFoundError(f"Tarball file not found: {tarball_path}")
-    if zstd_tarball_path is None:
-        candidate = _zstd_tarball_path_for(tarball_path)
-        zstd_tarball_path = candidate if candidate.exists() else None
+    if not zstd_tarball_path.exists():
+        raise FileNotFoundError(f"Zstd tarball file not found: {zstd_tarball_path}")
 
     # Use asyncio.to_thread to avoid blocking the event loop for large files
     content = await asyncio.to_thread(tarball_path.read_bytes)
+    zstd_content = await asyncio.to_thread(zstd_tarball_path.read_bytes)
 
     await blob.upload_file(
         content=content,
@@ -623,32 +622,23 @@ async def upload_tarball_venv(
         content_type="application/gzip",
     )
 
-    if zstd_tarball_path is not None:
-        if not zstd_tarball_path.exists():
-            raise FileNotFoundError(f"Zstd tarball file not found: {zstd_tarball_path}")
-
-        zstd_key = _zstd_key_for(key)
-        zstd_content = await asyncio.to_thread(zstd_tarball_path.read_bytes)
-        await blob.upload_file(
-            content=zstd_content,
-            key=zstd_key,
-            bucket=bucket,
-            content_type="application/zstd",
-        )
-        logger.info(
-            "Zstd tarball venv uploaded successfully",
-            key=zstd_key,
-            bucket=bucket,
-            size=len(zstd_content),
-        )
+    zstd_key = _zstd_key_for(key)
+    await blob.upload_file(
+        content=zstd_content,
+        key=zstd_key,
+        bucket=bucket,
+        content_type="application/zstd",
+    )
 
     s3_uri = f"s3://{bucket}/{key}"
     logger.info(
         "Tarball venv uploaded successfully",
         key=key,
+        zstd_key=zstd_key,
         bucket=bucket,
         s3_uri=s3_uri,
         size=len(content),
+        zstd_size=len(zstd_content),
     )
     return s3_uri
 

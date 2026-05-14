@@ -341,12 +341,10 @@ class ActionRunner:
 
         def _do_extract() -> None:
             if tarball_path.name.endswith(".tar.zst"):
-                with tarball_path.open("rb") as raw:
-                    decompressor = zstd.ZstdDecompressor()
-                    with decompressor.stream_reader(raw, closefd=False) as stream:
-                        with tarfile.open(fileobj=stream, mode="r|") as tar:
-                            # Use filter='data' to prevent path traversal attacks (CVE-2007-4559)
-                            tar.extractall(path=target_dir, filter="data")
+                with zstd.open(tarball_path, "rb") as stream:
+                    with tarfile.open(fileobj=stream, mode="r|") as tar:
+                        # Use filter='data' to prevent path traversal attacks (CVE-2007-4559)
+                        tar.extractall(path=target_dir, filter="data")
                 return
 
             if tarball_path.name.endswith(".tar.gz"):

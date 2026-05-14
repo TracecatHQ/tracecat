@@ -75,8 +75,6 @@ async def test_build_tarball_from_installed_environment_includes_platlib_content
 
     assert "pure_only.py" in tar_names
     assert "plat_only.so" in tar_names
-    assert result.zstd_tarball_path is not None
-    assert result.zstd_compressed_size_bytes is not None
     assert result.zstd_compressed_size_bytes > 0
     zstd_tar_names = _zstd_tar_names(result.zstd_tarball_path)
     assert "pure_only.py" in zstd_tar_names
@@ -193,6 +191,7 @@ async def test_upload_tarball_venv_uploads_zstd_sidecar(
 
     uri = await upload_tarball_venv(
         tarball_path=tarball_path,
+        zstd_tarball_path=zstd_tarball_path,
         key="org/tarball-venvs/tracecat_registry/v1/site-packages.tar.gz",
         bucket="tracecat-registry",
     )
