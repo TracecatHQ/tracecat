@@ -459,6 +459,9 @@ export function useRestoreAgentPresetVersion(workspaceId: string) {
       queryClient.invalidateQueries({
         queryKey: ["agent-preset-versions", workspaceId, preset.id],
       })
+      queryClient.invalidateQueries({
+        queryKey: ["agent-directory-items", workspaceId],
+      })
       toast({
         title: "Version restored",
         description: `${preset.name} now points to the selected version.`,
