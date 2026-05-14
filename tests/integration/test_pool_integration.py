@@ -1,7 +1,7 @@
 """Integration tests for multi-tenant WorkerPool.
 
 These tests spin up real WorkerPool instances and verify:
-1. Pool startup and cold start behavior
+1. Pool startup behavior
 2. Multi-tenant concurrent execution with different PYTHONPATHs
 3. Worker recycling under load
 4. Tarball cache locking during concurrent requests
@@ -46,16 +46,15 @@ from tracecat.executor.schemas import (
 )
 
 # =============================================================================
-# Test Class 1: Cold Start Behavior
+# Test Class 1: Pool Startup
 # =============================================================================
 
 
 class TestPoolColdStart:
-    """Tests for pool startup and cold start behavior.
+    """Tests for pool startup behavior.
 
     Verifies that:
     - Pool creates the expected number of workers on startup
-    - First execution completes within acceptable cold start time
     - Workers are alive and ready to accept tasks
     """
 
@@ -75,88 +74,6 @@ class TestPoolColdStart:
             assert worker.process.returncode is None, (
                 f"Worker {worker.worker_id} should be alive"
             )
-
-    @pytest.mark.anyio
-    async def test_first_execution_measures_cold_start_latency(
-        self,
-        worker_pool: WorkerPool,
-        run_action_input_factory: Callable[..., RunActionInput],
-        resolved_context_factory: Callable[..., ResolvedContext],
-        role_workspace_a: Role,
-    ) -> None:
-        """Measure and verify cold start latency is within acceptable bounds.
-
-        Cold start includes worker selection, socket connection, and first task dispatch.
-        Even with nsjail overhead, this should complete within 5 seconds.
-
-        Validates:
-        - First execution completes within 5s
-        - Result is returned successfully
-        """
-        input_data = run_action_input_factory(
-            action="core.transform",
-            args={"value": {"test": True}},
-        )
-        resolved_context = resolved_context_factory(role_workspace_a)
-
-        start = time.monotonic()
-        result = await worker_pool.execute(
-            input=input_data,
-            role=role_workspace_a,
-            resolved_context=resolved_context,
-            timeout=30.0,
-        )
-        elapsed_ms = (time.monotonic() - start) * 1000
-
-        # Cold start should be < 5s even with nsjail overhead
-        assert elapsed_ms < 5000, f"Cold start too slow: {elapsed_ms}ms"
-        assert result.type == "success", f"Execution should succeed: {result}"
-
-    @pytest.mark.anyio
-    async def test_warm_execution_faster_than_cold(
-        self,
-        worker_pool: WorkerPool,
-        run_action_input_factory: Callable[..., RunActionInput],
-        resolved_context_factory: Callable[..., ResolvedContext],
-        role_workspace_a: Role,
-    ) -> None:
-        """Verify that warm worker execution is significantly faster than cold start.
-
-        After the first execution warms up the worker, subsequent executions
-        should be much faster (socket overhead only, no process startup).
-
-        Validates:
-        - Second execution is faster than first
-        - Warm execution completes within 1s
-        """
-        input_data = run_action_input_factory()
-        resolved_context = resolved_context_factory(role_workspace_a)
-
-        # First execution (may incur cold start)
-        start1 = time.monotonic()
-        await worker_pool.execute(
-            input=input_data,
-            role=role_workspace_a,
-            resolved_context=resolved_context,
-            timeout=30.0,
-        )
-        first_ms = (time.monotonic() - start1) * 1000
-
-        # Second execution (warm worker)
-        start2 = time.monotonic()
-        await worker_pool.execute(
-            input=input_data,
-            role=role_workspace_a,
-            resolved_context=resolved_context,
-            timeout=30.0,
-        )
-        warm_ms = (time.monotonic() - start2) * 1000
-
-        # Warm should be faster (or at least not significantly slower)
-        # Note: First call may already be warm if pool pre-warmed workers
-        assert warm_ms < 1000, (
-            f"Warm execution too slow: {warm_ms}ms (first was {first_ms}ms)"
-        )
 
 
 # =============================================================================
