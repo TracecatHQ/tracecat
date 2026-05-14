@@ -542,6 +542,18 @@ class TestSkillService:
         assert by_name is not None
         assert by_name.id == created.id
 
+    async def test_get_skill_by_identifier_falls_back_to_uuid_like_name(
+        self,
+        skill_service: SkillService,
+    ) -> None:
+        uuid_like_name = "00000000-0000-4000-8000-000000000001"
+        created = await skill_service.create_skill(SkillCreate(name=uuid_like_name))
+
+        by_uuid_like_name = await skill_service.get_skill_by_identifier(uuid_like_name)
+
+        assert by_uuid_like_name is not None
+        assert by_uuid_like_name.id == created.id
+
     async def test_get_skill_by_identifier_rejects_ambiguous_names(
         self,
         skill_service: SkillService,

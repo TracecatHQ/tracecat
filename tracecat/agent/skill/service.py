@@ -1106,28 +1106,34 @@ class SkillService(BaseWorkspaceService):
         try:
             parsed_skill_id = uuid.UUID(skill_id)
         except ValueError:
-            try:
-                skill_name = SKILL_NAME_ADAPTER.validate_python(skill_id)
-            except ValidationError:
-                return None
-            predicates = [
-                Skill.workspace_id == self.workspace_id,
-                Skill.name == skill_name,
-            ]
-            if not include_archived:
-                predicates.append(Skill.archived_at.is_(None))
-            stmt = select(Skill).where(*predicates)
-            skills = (await self.session.execute(stmt)).scalars().all()
-            if len(skills) > 1:
-                raise TracecatValidationError(
-                    "Skill identifier is ambiguous",
-                    detail={
-                        "code": "ambiguous_skill_id",
-                        "skill_id": skill_name,
-                    },
-                ) from None
-            return skills[0] if skills else None
-        return await self.get_skill(parsed_skill_id, include_archived=include_archived)
+            parsed_skill_id = None
+        if parsed_skill_id is not None and (
+            skill := await self.get_skill(
+                parsed_skill_id, include_archived=include_archived
+            )
+        ):
+            return skill
+        try:
+            skill_name = SKILL_NAME_ADAPTER.validate_python(skill_id)
+        except ValidationError:
+            return None
+        predicates = [
+            Skill.workspace_id == self.workspace_id,
+            Skill.name == skill_name,
+        ]
+        if not include_archived:
+            predicates.append(Skill.archived_at.is_(None))
+        stmt = select(Skill).where(*predicates)
+        skills = (await self.session.execute(stmt)).scalars().all()
+        if len(skills) > 1:
+            raise TracecatValidationError(
+                "Skill identifier is ambiguous",
+                detail={
+                    "code": "ambiguous_skill_id",
+                    "skill_id": skill_name,
+                },
+            ) from None
+        return skills[0] if skills else None
 
     async def _get_active_version(
         self, *, skill_id: uuid.UUID, version_id: uuid.UUID
