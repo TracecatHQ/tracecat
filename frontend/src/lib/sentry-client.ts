@@ -1,7 +1,7 @@
 import * as Sentry from "@sentry/nextjs"
 import { beforeSend } from "@/lib/sentry"
 
-type PublicEnvKey = `NEXT_PUBLIC_${string}`
+export type PublicEnvKey = "NEXT_PUBLIC_SENTRY_DSN" | "NEXT_PUBLIC_APP_ENV"
 
 export function initBrowserSentry(): boolean {
   if (Sentry.getClient()) {
@@ -24,9 +24,18 @@ export function initBrowserSentry(): boolean {
   return true
 }
 
-function readPublicEnv(key: PublicEnvKey): string | undefined {
+export function readPublicEnv(key: PublicEnvKey): string | undefined {
   if (typeof window !== "undefined") {
-    return window.__ENV?.[key] ?? process.env[key]
+    return window.__ENV?.[key] ?? readBundledPublicEnv(key)
   }
-  return process.env[key]
+  return readBundledPublicEnv(key)
+}
+
+function readBundledPublicEnv(key: PublicEnvKey): string | undefined {
+  switch (key) {
+    case "NEXT_PUBLIC_SENTRY_DSN":
+      return process.env.NEXT_PUBLIC_SENTRY_DSN
+    case "NEXT_PUBLIC_APP_ENV":
+      return process.env.NEXT_PUBLIC_APP_ENV
+  }
 }
