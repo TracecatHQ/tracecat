@@ -62,7 +62,10 @@ jobs:
 
       - name: Install dependencies
         working-directory: custom-integrations-starter-kit
-        run: uv sync --no-dev
+        run: |
+          uv venv
+          uv pip install .
+          .venv/bin/python -c "import custom_actions"
 
   test-all:
     runs-on: blacksmith-8vcpu-ubuntu-2204
