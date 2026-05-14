@@ -151,7 +151,8 @@ class AgentSessionService(BaseWorkspaceService):
         Args:
             args: Session creation parameters.
             channel_context: Trusted external channel metadata to bind to session.
-            agents_binding: Internal resolved subagent binding for non-preset runs.
+            agents_binding: Already-resolved internal subagent binding from the
+                workflow.
 
         Returns:
             The created AgentSession model.
@@ -171,13 +172,14 @@ class AgentSessionService(BaseWorkspaceService):
             agent_preset_id=args.agent_preset_id,
             agent_preset_version_id=args.agent_preset_version_id,
         )
-        resolved_agents_binding = (
-            await self._resolve_agents_binding_for_preset_version_id(
-                pinned_preset_version_id
-            )
-        )
-        if resolved_agents_binding is None and agents_binding is not None:
+        if agents_binding is not None:
             resolved_agents_binding = agents_binding.model_dump(mode="json")
+        else:
+            resolved_agents_binding = (
+                await self._resolve_agents_binding_for_preset_version_id(
+                    pinned_preset_version_id
+                )
+            )
 
         agent_session = AgentSession(
             workspace_id=self.workspace_id,

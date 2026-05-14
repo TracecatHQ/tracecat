@@ -106,6 +106,60 @@ async def test_create_session_derives_agents_binding_from_pinned_preset_version(
 
 
 @pytest.mark.anyio
+async def test_create_session_prefers_provided_agents_binding_for_pinned_preset() -> (
+    None
+):
+    service, session, _role = _build_service()
+    preset_id = uuid.uuid4()
+    pinned_version_id = uuid.uuid4()
+    child_preset_id = uuid.uuid4()
+    child_version_id = uuid.uuid4()
+    validate_mock = AsyncMock(return_value=pinned_version_id)
+    agents_binding_mock = AsyncMock(
+        side_effect=AssertionError("should not derive binding when provided")
+    )
+    service._validate_preset_version_for_assignment = validate_mock
+    service._resolve_agents_binding_for_preset_version_id = agents_binding_mock
+    agents_binding = ResolvedAgentsConfig.model_validate(
+        {
+            "enabled": True,
+            "subagents": [
+                {
+                    "preset": "child",
+                    "preset_version": 1,
+                    "preset_id": child_preset_id,
+                    "preset_version_id": child_version_id,
+                }
+            ],
+        }
+    )
+
+    created = await service.create_session(
+        AgentSessionCreate(
+            title="Chat",
+            entity_type=AgentSessionEntity.CASE,
+            entity_id=uuid.uuid4(),
+            agent_preset_id=preset_id,
+            agent_preset_version_id=pinned_version_id,
+        ),
+        agents_binding=agents_binding,
+    )
+
+    validate_mock.assert_awaited_once_with(
+        entity_type=AgentSessionEntity.CASE,
+        entity_id=created.entity_id,
+        agent_preset_id=preset_id,
+        agent_preset_version_id=pinned_version_id,
+    )
+    assert created.agent_preset_id == preset_id
+    assert created.agent_preset_version_id == pinned_version_id
+    assert created.agents_binding == agents_binding.model_dump(mode="json")
+    agents_binding_mock.assert_not_called()
+    session.commit.assert_awaited_once()
+    session.refresh.assert_awaited_once_with(created)
+
+
+@pytest.mark.anyio
 async def test_create_session_persists_internal_agents_binding_without_preset() -> None:
     service, session, _role = _build_service()
     validate_mock = AsyncMock(return_value=None)
@@ -126,7 +180,7 @@ async def test_create_session_persists_internal_agents_binding_without_preset() 
     )
 
     assert created.agents_binding == {"enabled": True, "subagents": []}
-    agents_binding_mock.assert_awaited_once_with(None)
+    agents_binding_mock.assert_not_called()
     session.commit.assert_awaited_once()
     session.refresh.assert_awaited_once_with(created)
 
