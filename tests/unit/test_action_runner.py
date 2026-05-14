@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import tarfile
 import tempfile
 import threading
 import uuid
@@ -17,6 +18,7 @@ from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+import zstandard as zstd
 
 from tracecat import config
 from tracecat.auth.types import Role
@@ -220,6 +222,85 @@ class TestActionRunner:
         key2 = runner.compute_tarball_cache_key("  s3://bucket/file.tar.gz  ")
 
         assert key1 == key2
+
+    @pytest.mark.anyio
+    async def test_resolve_preferred_tarball_uri_uses_zstd_sidecar(
+        self, temp_cache_dir
+    ):
+        """Test that gzip tarballs prefer a sibling zstd sidecar when present."""
+        runner = ActionRunner(cache_dir=temp_cache_dir)
+
+        with patch(
+            "tracecat.executor.action_runner.blob.file_exists",
+            new_callable=AsyncMock,
+            return_value=True,
+        ) as file_exists:
+            uri = await runner._resolve_preferred_tarball_uri(
+                "s3://bucket/path/site-packages.tar.gz"
+            )
+
+        assert uri == "s3://bucket/path/site-packages.tar.zst"
+        file_exists.assert_awaited_once_with(
+            key="path/site-packages.tar.zst",
+            bucket="bucket",
+        )
+
+    @pytest.mark.anyio
+    async def test_resolve_preferred_tarball_uri_falls_back_to_gzip(
+        self, temp_cache_dir
+    ):
+        """Test that gzip tarballs are used when no zstd sidecar exists."""
+        runner = ActionRunner(cache_dir=temp_cache_dir)
+
+        with patch(
+            "tracecat.executor.action_runner.blob.file_exists",
+            new_callable=AsyncMock,
+            return_value=False,
+        ):
+            uri = await runner._resolve_preferred_tarball_uri(
+                "s3://bucket/path/site-packages.tar.gz"
+            )
+
+        assert uri == "s3://bucket/path/site-packages.tar.gz"
+
+    @pytest.mark.anyio
+    async def test_resolve_preferred_tarball_uri_skips_non_registry_tarballs(
+        self, temp_cache_dir
+    ):
+        """Test that arbitrary gzip tarballs do not trigger a zstd sidecar lookup."""
+        runner = ActionRunner(cache_dir=temp_cache_dir)
+
+        with patch(
+            "tracecat.executor.action_runner.blob.file_exists",
+            new_callable=AsyncMock,
+        ) as file_exists:
+            uri = await runner._resolve_preferred_tarball_uri(
+                "s3://bucket/path/custom.tar.gz"
+            )
+
+        assert uri == "s3://bucket/path/custom.tar.gz"
+        file_exists.assert_not_awaited()
+
+    @pytest.mark.anyio
+    async def test_extract_tarball_supports_zstd(self, temp_cache_dir):
+        """Test extracting a zstd-compressed registry tarball."""
+        runner = ActionRunner(cache_dir=temp_cache_dir)
+        source = temp_cache_dir / "source"
+        source.mkdir()
+        (source / "module.py").write_text("VALUE = 1")
+        tarball_path = temp_cache_dir / "site-packages.tar.zst"
+        target_dir = temp_cache_dir / "target"
+        target_dir.mkdir()
+
+        with tarball_path.open("wb") as raw:
+            compressor = zstd.ZstdCompressor(level=3)
+            with compressor.stream_writer(raw, closefd=False) as compressed:
+                with tarfile.open(fileobj=compressed, mode="w|") as tar:
+                    tar.add(source / "module.py", arcname="module.py")
+
+        await runner._extract_tarball(tarball_path, target_dir)
+
+        assert (target_dir / "module.py").read_text() == "VALUE = 1"
 
     @pytest.mark.anyio
     async def test_ensure_tarball_extracted_caches_result(self, temp_cache_dir):

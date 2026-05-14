@@ -6,8 +6,18 @@ import tarfile
 from pathlib import Path
 
 import pytest
+import zstandard as zstd
 
 from tracecat.registry.sync import tarball
+from tracecat.registry.sync.tarball import upload_tarball_venv
+
+
+def _zstd_tar_names(path: Path) -> set[str]:
+    decompressor = zstd.ZstdDecompressor()
+    with path.open("rb") as raw:
+        with decompressor.stream_reader(raw, closefd=False) as stream:
+            with tarfile.open(fileobj=stream, mode="r|") as archive:
+                return {member.name for member in archive}
 
 
 def test_get_installed_site_packages_paths_includes_platlib(
@@ -36,7 +46,7 @@ async def test_build_tarball_from_installed_environment_includes_platlib_content
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Include both purelib and platlib files in the produced tarball."""
+    """Include both purelib and platlib files in the produced tarballs."""
     purelib = tmp_path / "purelib"
     platlib = tmp_path / "platlib"
     purelib.mkdir()
@@ -65,6 +75,12 @@ async def test_build_tarball_from_installed_environment_includes_platlib_content
 
     assert "pure_only.py" in tar_names
     assert "plat_only.so" in tar_names
+    assert result.zstd_tarball_path is not None
+    assert result.zstd_compressed_size_bytes is not None
+    assert result.zstd_compressed_size_bytes > 0
+    zstd_tar_names = _zstd_tar_names(result.zstd_tarball_path)
+    assert "pure_only.py" in zstd_tar_names
+    assert "plat_only.so" in zstd_tar_names
 
 
 @pytest.mark.anyio
@@ -159,3 +175,46 @@ async def test_build_tarball_from_installed_environment_skips_unrelated_symlink_
     assert (extract_dir / "dependency.py").exists()
     assert (extract_dir / "tracecat_registry" / "__init__.py").exists()
     assert not (extract_dir / "linked_dependency").exists()
+
+
+@pytest.mark.anyio
+async def test_upload_tarball_venv_uploads_zstd_sidecar(
+    tmp_path: Path,
+    mocker,
+) -> None:
+    tarball_path = tmp_path / "site-packages.tar.gz"
+    zstd_tarball_path = tmp_path / "site-packages.tar.zst"
+    tarball_path.write_bytes(b"gzip")
+    zstd_tarball_path.write_bytes(b"zstd")
+    upload_file = mocker.patch(
+        "tracecat.registry.sync.tarball.blob.upload_file",
+        mocker.AsyncMock(),
+    )
+
+    uri = await upload_tarball_venv(
+        tarball_path=tarball_path,
+        key="org/tarball-venvs/tracecat_registry/v1/site-packages.tar.gz",
+        bucket="tracecat-registry",
+    )
+
+    assert uri == (
+        "s3://tracecat-registry/org/tarball-venvs/tracecat_registry/v1/"
+        "site-packages.tar.gz"
+    )
+    assert upload_file.await_count == 2
+    upload_file.assert_has_awaits(
+        [
+            mocker.call(
+                content=b"gzip",
+                key="org/tarball-venvs/tracecat_registry/v1/site-packages.tar.gz",
+                bucket="tracecat-registry",
+                content_type="application/gzip",
+            ),
+            mocker.call(
+                content=b"zstd",
+                key="org/tarball-venvs/tracecat_registry/v1/site-packages.tar.zst",
+                bucket="tracecat-registry",
+                content_type="application/zstd",
+            ),
+        ]
+    )

@@ -14,12 +14,14 @@ import re
 import sysconfig
 import tarfile
 import tempfile
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 import aiofiles
 import tracecat_registry
+import zstandard as zstd
 
 from tracecat import config
 from tracecat.logger import logger
@@ -41,6 +43,22 @@ class TarballVenvBuildResult:
     tarball_name: str
     content_hash: str
     compressed_size_bytes: int
+    zstd_tarball_path: Path | None = None
+    zstd_compressed_size_bytes: int | None = None
+
+
+def _zstd_tarball_path_for(tarball_path: Path) -> Path:
+    """Return the sibling zstd path for a gzip tarball path."""
+    if tarball_path.name.endswith(".tar.gz"):
+        return tarball_path.with_suffix(".zst")
+    return tarball_path.with_name(f"{tarball_path.name}.zst")
+
+
+def _zstd_key_for(key: str) -> str:
+    """Return the sibling zstd key for a gzip tarball S3 key."""
+    if key.endswith(".tar.gz"):
+        return key.removesuffix(".tar.gz") + ".tar.zst"
+    return f"{key}.zst"
 
 
 def _compute_file_hash(file_path: Path) -> str:
@@ -50,6 +68,21 @@ def _compute_file_hash(file_path: Path) -> str:
         for chunk in iter(lambda: f.read(8192), b""):
             sha256_hash.update(chunk)
     return sha256_hash.hexdigest()
+
+
+def _create_zstd_tarball(
+    tarball_path: Path,
+    entries: list[tuple[Path, str]],
+    *,
+    filter: Callable[[tarfile.TarInfo], tarfile.TarInfo | None] | None = None,
+) -> None:
+    """Create a zstd-compressed tarball from path entries."""
+    with tarball_path.open("wb") as raw:
+        compressor = zstd.ZstdCompressor(level=3)
+        with compressor.stream_writer(raw, closefd=False) as compressed:
+            with tarfile.open(fileobj=compressed, mode="w|") as tar:
+                for path, arcname in entries:
+                    tar.add(path, arcname=arcname, filter=filter)
 
 
 def _slugify_origin(origin: str) -> str:
@@ -173,6 +206,7 @@ async def build_tarball_venv_from_installed_environment(
 
     tarball_name = "site-packages.tar.gz"
     tarball_path = output_dir / tarball_name
+    zstd_tarball_path = _zstd_tarball_path_for(tarball_path)
 
     logger.info(
         "Building tarball from installed environment",
@@ -195,36 +229,42 @@ async def build_tarball_venv_from_installed_environment(
         return member
 
     def _create_tarball() -> None:
-        with tarfile.open(tarball_path, "w:gz", compresslevel=6) as tar:
-            for site_packages in site_packages_paths:
-                for item in site_packages.iterdir():
-                    tar.add(item, arcname=item.name, filter=_filter_link_entries)
+        entries: list[tuple[Path, str]] = []
+        for site_packages in site_packages_paths:
+            entries.extend((item, item.name) for item in site_packages.iterdir())
 
-            # Editable installs put package source outside site-packages.
-            if not package_in_site_packages:
-                if not should_overlay_editable_package:
-                    logger.warning(
-                        "Skipping editable package overlay because package already exists in site-packages",
-                        package_name=package_name,
-                        site_packages=str(primary_site_packages),
-                    )
-                else:
-                    tar.add(
-                        package_dir,
-                        arcname=package_name,
-                        filter=_filter_link_entries,
-                    )
+        if not package_in_site_packages and should_overlay_editable_package:
+            entries.append((package_dir, package_name))
+
+        with tarfile.open(tarball_path, "w:gz", compresslevel=6) as tar:
+            for path, arcname in entries:
+                tar.add(path, arcname=arcname, filter=_filter_link_entries)
+
+        _create_zstd_tarball(
+            zstd_tarball_path,
+            entries,
+            filter=_filter_link_entries,
+        )
+
+        if not package_in_site_packages and not should_overlay_editable_package:
+            logger.warning(
+                "Skipping editable package overlay because package already exists in site-packages",
+                package_name=package_name,
+                site_packages=str(primary_site_packages),
+            )
 
     await asyncio.to_thread(_create_tarball)
 
     content_hash = await asyncio.to_thread(_compute_file_hash, tarball_path)
     compressed_size = tarball_path.stat().st_size
+    zstd_compressed_size = zstd_tarball_path.stat().st_size
 
     logger.info(
         "Installed environment tarball built successfully",
         tarball_name=tarball_name,
         content_hash=content_hash[:16],
         compressed_size_bytes=compressed_size,
+        zstd_compressed_size_bytes=zstd_compressed_size,
     )
 
     return TarballVenvBuildResult(
@@ -232,6 +272,8 @@ async def build_tarball_venv_from_installed_environment(
         tarball_name=tarball_name,
         content_hash=content_hash,
         compressed_size_bytes=compressed_size,
+        zstd_tarball_path=zstd_tarball_path,
+        zstd_compressed_size_bytes=zstd_compressed_size,
     )
 
 
@@ -353,34 +395,41 @@ async def build_tarball_venv_from_path(
     # Ignore errors - bytecode compilation is optional optimization
 
     # Step 5: Create compressed tarball of site-packages
-    # Use gzip compression (zstd would be faster but less portable)
+    # Keep gzip for backwards compatibility and add a zstd sidecar for faster
+    # executor cold starts.
     tarball_name = "site-packages.tar.gz"
     tarball_path = output_dir / tarball_name
+    zstd_tarball_path = _zstd_tarball_path_for(tarball_path)
 
     logger.info(
-        "Compressing site-packages to tarball",
+        "Compressing site-packages to tarballs",
         site_packages=str(site_packages),
         tarball_path=str(tarball_path),
+        zstd_tarball_path=str(zstd_tarball_path),
     )
 
     # Run tar compression in a thread to not block async loop
     def _create_tarball() -> None:
+        entries = [(item, item.name) for item in site_packages.iterdir()]
         with tarfile.open(tarball_path, "w:gz", compresslevel=6) as tar:
             # Add site-packages contents with relative paths
-            for item in site_packages.iterdir():
-                tar.add(item, arcname=item.name)
+            for path, arcname in entries:
+                tar.add(path, arcname=arcname)
+        _create_zstd_tarball(zstd_tarball_path, entries)
 
     await asyncio.to_thread(_create_tarball)
 
     # Step 6: Compute content hash
     content_hash = await asyncio.to_thread(_compute_file_hash, tarball_path)
     compressed_size = tarball_path.stat().st_size
+    zstd_compressed_size = zstd_tarball_path.stat().st_size
 
     logger.info(
         "Tarball venv built successfully",
         tarball_name=tarball_name,
         content_hash=content_hash[:16],
         compressed_size_bytes=compressed_size,
+        zstd_compressed_size_bytes=zstd_compressed_size,
     )
 
     return TarballVenvBuildResult(
@@ -388,6 +437,8 @@ async def build_tarball_venv_from_path(
         tarball_name=tarball_name,
         content_hash=content_hash,
         compressed_size_bytes=compressed_size,
+        zstd_tarball_path=zstd_tarball_path,
+        zstd_compressed_size_bytes=zstd_compressed_size,
     )
 
 
@@ -540,6 +591,7 @@ async def upload_tarball_venv(
     tarball_path: Path,
     key: str,
     bucket: str,
+    zstd_tarball_path: Path | None = None,
 ) -> str:
     """Upload a tarball venv file to S3/MinIO.
 
@@ -547,6 +599,7 @@ async def upload_tarball_venv(
         tarball_path: Local path to the tarball file
         key: The S3 object key
         bucket: Bucket name
+        zstd_tarball_path: Optional sibling zstd tarball to upload alongside gzip
 
     Returns:
         The S3 URI of the uploaded tarball (s3://{bucket}/{key})
@@ -556,6 +609,9 @@ async def upload_tarball_venv(
     """
     if not tarball_path.exists():
         raise FileNotFoundError(f"Tarball file not found: {tarball_path}")
+    if zstd_tarball_path is None:
+        candidate = _zstd_tarball_path_for(tarball_path)
+        zstd_tarball_path = candidate if candidate.exists() else None
 
     # Use asyncio.to_thread to avoid blocking the event loop for large files
     content = await asyncio.to_thread(tarball_path.read_bytes)
@@ -566,6 +622,25 @@ async def upload_tarball_venv(
         bucket=bucket,
         content_type="application/gzip",
     )
+
+    if zstd_tarball_path is not None:
+        if not zstd_tarball_path.exists():
+            raise FileNotFoundError(f"Zstd tarball file not found: {zstd_tarball_path}")
+
+        zstd_key = _zstd_key_for(key)
+        zstd_content = await asyncio.to_thread(zstd_tarball_path.read_bytes)
+        await blob.upload_file(
+            content=zstd_content,
+            key=zstd_key,
+            bucket=bucket,
+            content_type="application/zstd",
+        )
+        logger.info(
+            "Zstd tarball venv uploaded successfully",
+            key=zstd_key,
+            bucket=bucket,
+            size=len(zstd_content),
+        )
 
     s3_uri = f"s3://{bucket}/{key}"
     logger.info(

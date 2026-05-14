@@ -30,6 +30,7 @@ from urllib.parse import urlparse
 
 import httpx
 import orjson
+import zstandard as zstd
 from pydantic_core import to_json
 
 from tracecat import config
@@ -119,6 +120,22 @@ def _parse_s3_uri(uri: str) -> tuple[str, str]:
     return bucket, key
 
 
+def _zstd_sidecar_uri(tarball_uri: str) -> str | None:
+    """Return the sibling .tar.zst URI for registry site-packages tarballs."""
+    if not tarball_uri.endswith("site-packages.tar.gz"):
+        return None
+    return tarball_uri.removesuffix(".tar.gz") + ".tar.zst"
+
+
+def _tarball_extension(tarball_uri: str) -> str:
+    """Return the local file extension to use for a tarball URI."""
+    if tarball_uri.endswith(".tar.zst"):
+        return ".tar.zst"
+    if tarball_uri.endswith(".tar.gz"):
+        return ".tar.gz"
+    return ".tar"
+
+
 class ActionRunner:
     """Runs registry actions in subprocesses with tarball venv caching.
 
@@ -158,6 +175,33 @@ class ActionRunner:
         )
         logger.debug("Generated presigned URL for tarball", s3_uri=s3_uri)
         return url
+
+    async def _resolve_preferred_tarball_uri(self, tarball_uri: str) -> str:
+        """Prefer a zstd sidecar when present, otherwise use the given tarball URI."""
+        zstd_uri = _zstd_sidecar_uri(tarball_uri)
+        if zstd_uri is None:
+            return tarball_uri
+
+        bucket, key = _parse_s3_uri(zstd_uri)
+        try:
+            exists = await blob.file_exists(key=key, bucket=bucket)
+        except Exception as e:
+            logger.warning(
+                "Failed to check for zstd tarball sidecar, falling back to gzip",
+                tarball_uri=tarball_uri,
+                zstd_uri=zstd_uri,
+                error=str(e),
+            )
+            return tarball_uri
+
+        if exists:
+            logger.debug(
+                "Using zstd registry tarball sidecar",
+                tarball_uri=tarball_uri,
+                zstd_uri=zstd_uri,
+            )
+            return zstd_uri
+        return tarball_uri
 
     def compute_tarball_cache_key(self, tarball_uri: str) -> str:
         """Compute cache key from tarball URI."""
@@ -210,14 +254,23 @@ class ActionRunner:
                 )
                 return target_dir
 
-            logger.info("Downloading and extracting tarball", cache_key=cache_key)
+            preferred_tarball_uri = await self._resolve_preferred_tarball_uri(
+                tarball_uri
+            )
+            tarball_ext = _tarball_extension(preferred_tarball_uri)
+
+            logger.info(
+                "Downloading and extracting tarball",
+                cache_key=cache_key,
+                artifact_format=tarball_ext.removeprefix("."),
+            )
             start_time = time.monotonic()
 
             # Use PID + unique ID in temp names to avoid conflicts
             # PID handles cross-process conflicts, unique_id handles concurrent async tasks
             unique_id = id(asyncio.current_task())
-            temp_tarball = (
-                self.cache_dir / f"{cache_key}.{os.getpid()}.{unique_id}.tar.gz"
+            temp_tarball = self.cache_dir / (
+                f"{cache_key}.{os.getpid()}.{unique_id}{tarball_ext}"
             )
             temp_dir = self.cache_dir / f"{cache_key}.{os.getpid()}.{unique_id}.tmp"
 
@@ -227,7 +280,7 @@ class ActionRunner:
 
                 # Download tarball
                 download_start = time.monotonic()
-                http_url = await self._tarball_uri_to_http_url(tarball_uri)
+                http_url = await self._tarball_uri_to_http_url(preferred_tarball_uri)
                 await self._download_file(http_url, temp_tarball)
                 download_elapsed = (time.monotonic() - download_start) * 1000
 
@@ -244,6 +297,7 @@ class ActionRunner:
                     logger.info(
                         "Tarball extracted and cached",
                         cache_key=cache_key,
+                        artifact_format=tarball_ext.removeprefix("."),
                         download_ms=f"{download_elapsed:.1f}",
                         extract_ms=f"{extract_elapsed:.1f}",
                         total_ms=f"{total_elapsed:.1f}",
@@ -283,16 +337,32 @@ class ActionRunner:
         )
 
     async def _extract_tarball(self, tarball_path: Path, target_dir: Path) -> None:
-        """Extract a gzipped tarball to target directory."""
+        """Extract a supported registry tarball to target directory."""
 
         def _do_extract() -> None:
-            with tarfile.open(tarball_path, "r:gz") as tar:
-                # Extract all contents to target directory
-                # Use filter='data' to prevent path traversal attacks (CVE-2007-4559)
-                tar.extractall(path=target_dir, filter="data")
+            if tarball_path.name.endswith(".tar.zst"):
+                with tarball_path.open("rb") as raw:
+                    decompressor = zstd.ZstdDecompressor()
+                    with decompressor.stream_reader(raw, closefd=False) as stream:
+                        with tarfile.open(fileobj=stream, mode="r|") as tar:
+                            # Use filter='data' to prevent path traversal attacks (CVE-2007-4559)
+                            tar.extractall(path=target_dir, filter="data")
+                return
+
+            if tarball_path.name.endswith(".tar.gz"):
+                with tarfile.open(tarball_path, "r:gz") as tar:
+                    # Use filter='data' to prevent path traversal attacks (CVE-2007-4559)
+                    tar.extractall(path=target_dir, filter="data")
+                return
+
+            raise ValueError(f"Unsupported tarball format: {tarball_path}")
 
         await asyncio.to_thread(_do_extract)
-        logger.debug("Tarball extracted", target=str(target_dir))
+        logger.debug(
+            "Tarball extracted",
+            target=str(target_dir),
+            artifact_format=_tarball_extension(str(tarball_path)).removeprefix("."),
+        )
 
     async def execute_action(
         self,
