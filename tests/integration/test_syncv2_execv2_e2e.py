@@ -80,7 +80,7 @@ from tracecat.storage import blob
 
 # MinIO test configuration - uses docker-compose services (port 9000)
 # Credentials are read from env to match docker-compose/.env in CI and local dev.
-MINIO_ENDPOINT = "localhost:9000"
+MINIO_ENDPOINT = f"localhost:{os.environ.get('MINIO_PORT') or '9000'}"
 TEST_BUCKET = "test-tracecat-registry"
 
 
@@ -917,7 +917,14 @@ class TestFailureScenarios:
         assert tarball_uris, (
             "Expected resolved tarball URIs for locked registry version"
         )
+        deleted_tarball_uris = set(tarball_uris)
         for tarball_uri in tarball_uris:
+            if tarball_uri.endswith(".tar.gz"):
+                deleted_tarball_uris.add(
+                    tarball_uri.removesuffix(".tar.gz") + ".tar.zst"
+                )
+
+        for tarball_uri in deleted_tarball_uris:
             uri_parts = tarball_uri.replace("s3://", "").split("/", 1)
             bucket = uri_parts[0]
             key = uri_parts[1]
