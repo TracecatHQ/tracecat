@@ -303,6 +303,37 @@ class TestActionRunner:
         assert (target_dir / "module.py").read_text() == "VALUE = 1"
 
     @pytest.mark.anyio
+    async def test_ensure_tarball_extracted_treats_unknown_suffix_as_gzip(
+        self, temp_cache_dir
+    ):
+        """Test that existing gzip artifacts can use arbitrary S3 key suffixes."""
+        runner = ActionRunner(cache_dir=temp_cache_dir)
+        source = temp_cache_dir / "source"
+        source.mkdir()
+        (source / "module.py").write_text("VALUE = 1")
+
+        async def mock_download(_url, path):
+            assert path.name.endswith(".tar.gz")
+            with tarfile.open(path, "w:gz") as tar:
+                tar.add(source / "module.py", arcname="module.py")
+
+        with (
+            patch.object(runner, "_download_file", mock_download),
+            patch.object(
+                runner,
+                "_tarball_uri_to_http_url",
+                new_callable=AsyncMock,
+                return_value="http://test",
+            ),
+        ):
+            target_dir = await runner.ensure_tarball_extracted(
+                "custom-key-test",
+                "s3://bucket/path/custom-key",
+            )
+
+        assert (target_dir / "module.py").read_text() == "VALUE = 1"
+
+    @pytest.mark.anyio
     async def test_ensure_tarball_extracted_caches_result(self, temp_cache_dir):
         """Test that tarball extraction is cached."""
         runner = ActionRunner(cache_dir=temp_cache_dir)

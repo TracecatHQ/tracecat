@@ -131,9 +131,7 @@ def _tarball_extension(tarball_uri: str) -> str:
     """Return the local file extension to use for a tarball URI."""
     if tarball_uri.endswith(".tar.zst"):
         return ".tar.zst"
-    if tarball_uri.endswith(".tar.gz"):
-        return ".tar.gz"
-    return ".tar"
+    return ".tar.gz"
 
 
 class ActionRunner:
