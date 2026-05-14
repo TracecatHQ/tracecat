@@ -40,7 +40,7 @@ class Role(BaseModel):
     """The service's role name, or None if the role is a user."""
     is_platform_superuser: bool = Field(default=False, frozen=True)
     """Whether this role is currently executing platform-superuser privileges."""
-    scopes: frozenset[str] | None = Field(default=None, frozen=True)
+    scopes: frozenset[str] | None = Field(default=None, frozen=True, repr=False)
     """Effective scopes for this role. None means unresolved/unset."""
 
     @model_validator(mode="after")

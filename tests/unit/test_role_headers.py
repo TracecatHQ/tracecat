@@ -15,6 +15,22 @@ class MockHeaders(dict):
 
 
 class TestRoleToHeaders:
+    def test_role_repr_omits_scopes_without_affecting_serialization(self) -> None:
+        role = Role(
+            type="service",
+            service_id="tracecat-runner",
+            scopes=frozenset({"workflow:read", "cases:write"}),
+        )
+
+        assert "scopes" not in repr(role)
+        assert "scopes" not in str(role)
+        assert role.model_dump()["scopes"] == frozenset(
+            {"workflow:read", "cases:write"}
+        )
+        assert role.to_headers()["x-tracecat-role-scopes"] == (
+            "cases:write,workflow:read"
+        )
+
     def test_to_headers_includes_all_fields(self) -> None:
         workspace_id = uuid4()
         organization_id = uuid4()
