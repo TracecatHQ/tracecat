@@ -32,6 +32,7 @@ import {
   updateCustomProvider,
   type VertexAICatalogCreate,
   validateCustomProviderConnection,
+  workspacesListWorkspaces,
 } from "@/client"
 import { ProviderIcon } from "@/components/icons"
 import { CenteredSpinner } from "@/components/loading/spinner"
@@ -348,16 +349,19 @@ function buildCatalogCreatePayload(
   }
 }
 
-function buildBedrockCatalogTestPayload(values: CloudCatalogModelFormValues) {
+function buildBedrockCatalogTestPayload(
+  values: CloudCatalogModelFormValues,
+  workspaceId: string | null
+) {
   if (values.provider !== "bedrock") {
     throw new Error("Bedrock verification requires a Bedrock model.")
   }
   return {
     model_provider: "bedrock" as const,
-    inference_profile_id: values.inference_profile_id || null,
-    model_id: values.model_id || null,
+    inference_profile_id: values.inference_profile_id?.trim() || null,
+    model_id: values.model_id?.trim() || null,
     use_converse: values.use_converse,
-    workspace_id: Cookies.get("__tracecat:workspaces:last-viewed") || null,
+    workspace_id: workspaceId,
   }
 }
 
@@ -1630,6 +1634,13 @@ function CloudCatalogModelDialog({
 }: CloudCatalogModelDialogProps) {
   const queryClient = useQueryClient()
   const activeProvider = provider ?? "bedrock"
+  const { data: workspaces } = useQuery({
+    queryKey: ["workspaces"],
+    queryFn: async () => await workspacesListWorkspaces(),
+    staleTime: 5 * 60 * 1000,
+    retry: retryHandler,
+  })
+  const firstWorkspaceId = workspaces?.[0]?.id ?? null
   const form = useForm<CloudCatalogModelFormValues>({
     resolver: zodResolver(cloudCatalogModelSchema),
     mode: "onBlur",
@@ -1679,7 +1690,7 @@ function CloudCatalogModelDialog({
   const verifyMutation = useMutation({
     mutationFn: async (values: CloudCatalogModelFormValues) =>
       await testBedrockCatalogTarget({
-        requestBody: buildBedrockCatalogTestPayload(values),
+        requestBody: buildBedrockCatalogTestPayload(values, firstWorkspaceId),
       }),
     onSuccess: (result) => {
       if (result.success) {

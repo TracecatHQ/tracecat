@@ -102,7 +102,7 @@ async def create_catalog_entry(
     "/organization/agent-catalog/bedrock/test",
     response_model=BedrockCatalogTestResponse,
 )
-@require_scope("agent:update")
+@require_scope("agent:create", "agent:update", require_all=False)
 async def test_bedrock_catalog_target(
     role: OrgUserRole,
     session: AsyncDBSession,

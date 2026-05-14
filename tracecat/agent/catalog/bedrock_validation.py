@@ -22,19 +22,6 @@ class BedrockVerificationError(Exception):
     """Raised when Bedrock target verification fails."""
 
 
-def _get_required_region(credentials: dict[str, str]) -> str:
-    if region := credentials.get("AWS_REGION"):
-        return region
-    raise BedrockVerificationError("AWS_REGION is required to verify Bedrock models.")
-
-
-def _get_aws_role_session_name(credentials: dict[str, str]) -> str:
-    if session_name := credentials.get("AWS_ROLE_SESSION_NAME"):
-        if session_name := session_name.strip():
-            return session_name
-    return _DEFAULT_AWS_ROLE_SESSION_NAME
-
-
 def _assume_bedrock_role(credentials: dict[str, str]) -> dict[str, str]:
     role_arn = credentials["AWS_ROLE_ARN"]
     external_id = credentials.get(_AWS_ASSUME_ROLE_EXTERNAL_ID_SECRET_KEY)
@@ -42,11 +29,14 @@ def _assume_bedrock_role(credentials: dict[str, str]) -> dict[str, str]:
         raise BedrockVerificationError(
             "Bedrock role credentials require a workspace to build the AWS External ID."
         )
-
+    session_name = (
+        credentials.get("AWS_ROLE_SESSION_NAME", "").strip()
+        or _DEFAULT_AWS_ROLE_SESSION_NAME
+    )
     sts_client = boto3.Session().client("sts")
     response = sts_client.assume_role(
         RoleArn=role_arn,
-        RoleSessionName=_get_aws_role_session_name(credentials),
+        RoleSessionName=session_name,
         ExternalId=external_id,
     )
     session_credentials = response["Credentials"]
@@ -86,15 +76,6 @@ async def _resolve_bedrock_credentials(
 
     raise BedrockVerificationError(
         "Bedrock requires AWS_ROLE_ARN, AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY, or AWS_BEARER_TOKEN_BEDROCK."
-    )
-
-
-def _boto3_session(credentials: dict[str, str], region: str) -> boto3.Session:
-    return boto3.Session(
-        aws_access_key_id=credentials["AWS_ACCESS_KEY_ID"],
-        aws_secret_access_key=credentials["AWS_SECRET_ACCESS_KEY"],
-        aws_session_token=credentials.get("AWS_SESSION_TOKEN"),
-        region_name=region,
     )
 
 
@@ -146,19 +127,22 @@ def _verify_with_boto3(
     is_inference_profile: bool,
     use_converse: bool,
 ) -> dict[str, Any]:
-    session = _boto3_session(credentials, region)
+    session = boto3.Session(
+        aws_access_key_id=credentials["AWS_ACCESS_KEY_ID"],
+        aws_secret_access_key=credentials["AWS_SECRET_ACCESS_KEY"],
+        aws_session_token=credentials.get("AWS_SESSION_TOKEN"),
+        region_name=region,
+    )
     bedrock = session.client("bedrock", region_name=region)
     runtime = session.client("bedrock-runtime", region_name=region)
     if is_inference_profile:
-        control_response = bedrock.get_inference_profile(
-            inferenceProfileIdentifier=target_id,
+        details = _check_profile_response(
+            bedrock.get_inference_profile(inferenceProfileIdentifier=target_id)
         )
-        details = _check_profile_response(control_response)
     else:
-        control_response = bedrock.get_foundation_model_availability(
-            modelId=target_id,
+        details = _check_model_availability_response(
+            bedrock.get_foundation_model_availability(modelId=target_id)
         )
-        details = _check_model_availability_response(control_response)
 
     if not use_converse:
         raise BedrockVerificationError(
@@ -171,14 +155,6 @@ def _verify_with_boto3(
         inferenceConfig=_PING_INFERENCE_CONFIG,
     )
     return details | {"runtime_test": "converse"}
-
-
-def _bedrock_url(region: str, path: str) -> str:
-    return f"https://bedrock.{region}.amazonaws.com{path}"
-
-
-def _bedrock_runtime_url(region: str, path: str) -> str:
-    return f"https://bedrock-runtime.{region}.amazonaws.com{path}"
 
 
 def _extract_http_error(response: httpx.Response) -> str:
@@ -207,8 +183,15 @@ async def _request_bedrock_api_key(
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
     }
-    async with httpx.AsyncClient(timeout=15.0) as client:
-        response = await client.request(method, url, headers=headers, json=json)
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            response = await client.request(method, url, headers=headers, json=json)
+    except httpx.TimeoutException as exc:
+        raise BedrockVerificationError(
+            "Bedrock API request timed out. Check connectivity and try again."
+        ) from exc
+    except httpx.RequestError as exc:
+        raise BedrockVerificationError(f"Bedrock API request failed: {exc}") from exc
     if response.is_error:
         raise BedrockVerificationError(_extract_http_error(response))
     if not response.content:
@@ -227,21 +210,21 @@ async def _verify_with_api_key(
 ) -> dict[str, Any]:
     encoded_target = quote(target_id, safe="")
     if is_inference_profile:
-        response = await _request_bedrock_api_key(
-            method="GET",
-            url=_bedrock_url(region, f"/inference-profiles/{encoded_target}"),
-            api_key=api_key,
+        details = _check_profile_response(
+            await _request_bedrock_api_key(
+                method="GET",
+                url=f"https://bedrock.{region}.amazonaws.com/inference-profiles/{encoded_target}",
+                api_key=api_key,
+            )
         )
-        details = _check_profile_response(response)
     else:
-        response = await _request_bedrock_api_key(
-            method="GET",
-            url=_bedrock_url(
-                region, f"/foundation-model-availability/{encoded_target}"
-            ),
-            api_key=api_key,
+        details = _check_model_availability_response(
+            await _request_bedrock_api_key(
+                method="GET",
+                url=f"https://bedrock.{region}.amazonaws.com/foundation-model-availability/{encoded_target}",
+                api_key=api_key,
+            )
         )
-        details = _check_model_availability_response(response)
 
     if not use_converse:
         raise BedrockVerificationError(
@@ -250,7 +233,7 @@ async def _verify_with_api_key(
 
     await _request_bedrock_api_key(
         method="POST",
-        url=_bedrock_runtime_url(region, f"/model/{encoded_target}/converse"),
+        url=f"https://bedrock-runtime.{region}.amazonaws.com/model/{encoded_target}/converse",
         api_key=api_key,
         json={
             "messages": _PING_MESSAGES,
@@ -268,7 +251,11 @@ async def verify_bedrock_catalog_target(
     use_converse: bool,
 ) -> dict[str, Any]:
     """Verify a Bedrock catalog target with control-plane and runtime calls."""
-    region = _get_required_region(credentials)
+    region = credentials.get("AWS_REGION")
+    if not region:
+        raise BedrockVerificationError(
+            "AWS_REGION is required to verify Bedrock models."
+        )
     target_id = inference_profile_id or model_id
     if target_id is None:
         raise BedrockVerificationError(
@@ -278,13 +265,18 @@ async def verify_bedrock_catalog_target(
     resolved = await _resolve_bedrock_credentials(credentials)
     is_inference_profile = inference_profile_id is not None
     if api_key := resolved.get("AWS_BEARER_TOKEN_BEDROCK"):
-        return await _verify_with_api_key(
-            api_key=api_key,
-            region=region,
-            target_id=target_id,
-            is_inference_profile=is_inference_profile,
-            use_converse=use_converse,
-        )
+        try:
+            return await _verify_with_api_key(
+                api_key=api_key,
+                region=region,
+                target_id=target_id,
+                is_inference_profile=is_inference_profile,
+                use_converse=use_converse,
+            )
+        except BedrockVerificationError:
+            raise
+        except Exception as exc:
+            raise BedrockVerificationError(str(exc)) from exc
 
     try:
         return await asyncio.to_thread(
@@ -305,4 +297,6 @@ async def verify_bedrock_catalog_target(
             raise BedrockVerificationError(f"{code}: {message}") from exc
         raise BedrockVerificationError(str(exc)) from exc
     except BotoCoreError as exc:
+        raise BedrockVerificationError(str(exc)) from exc
+    except Exception as exc:
         raise BedrockVerificationError(str(exc)) from exc
