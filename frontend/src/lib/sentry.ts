@@ -52,6 +52,12 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function shouldRedactKey(key: string): boolean {
-  const normalizedKey = key.toLowerCase()
-  return SENSITIVE_KEY_PARTS.some((part) => normalizedKey.includes(part))
+  const normalizedKey = normalizeSensitiveKey(key)
+  return SENSITIVE_KEY_PARTS.some((part) =>
+    normalizedKey.includes(normalizeSensitiveKey(part))
+  )
+}
+
+function normalizeSensitiveKey(key: string): string {
+  return key.toLowerCase().replace(/[^a-z0-9]/g, "")
 }
