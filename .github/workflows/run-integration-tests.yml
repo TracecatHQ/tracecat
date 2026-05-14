@@ -1,21 +1,6 @@
 name: Integration Tests
 
 on:
-  push:
-    branches: ["main"]
-    paths:
-      - tracecat/**
-      - registry/**
-      - tests/integration/**
-      - tests/temporal/**
-      - pyproject.toml
-      - uv.lock
-      - Dockerfile
-      - .github/docker-compose.integration.yml
-      - docker-compose.yml
-      - docker-compose.dev.yml
-      - docker-compose.local.yml
-      - .github/workflows/run-integration-tests.yml
   schedule:
     # Full compose coverage is intentionally off the PR critical path.
     - cron: "17 * * * *"
@@ -25,10 +10,40 @@ permissions:
   contents: read
 
 jobs:
+  authorize-run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Authorize privileged manual run
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          ACTOR: ${{ github.actor }}
+          TRIGGERING_ACTOR: ${{ github.triggering_actor || github.actor }}
+          TRUSTED_CI_ACTORS_JSON: ${{ vars.TRUSTED_CI_ACTORS_JSON || '[]' }}
+        run: |
+          set -euo pipefail
+
+          if [ "$EVENT_NAME" != "workflow_dispatch" ] || [ "$ACTOR" = "github-actions[bot]" ]; then
+            exit 0
+          fi
+
+          python - <<'PY'
+          import json
+          import os
+          import sys
+
+          trusted_actors = json.loads(os.environ["TRUSTED_CI_ACTORS_JSON"])
+          triggering_actor = os.environ["TRIGGERING_ACTOR"]
+          if triggering_actor not in trusted_actors:
+              print(f"Manual integration run is not trusted for actor: {triggering_actor}", file=sys.stderr)
+              sys.exit(1)
+          PY
+
   # ──────────────────────────────────────────────────────────────────
   # 1.  LIGHTWEIGHT SSH / INSTALL SMOKE-TEST
   # ──────────────────────────────────────────────────────────────────
   ssh-sanity:
+    needs: authorize-run
     environment: internal-registry-ci
     runs-on: ubuntu-latest
     timeout-minutes: 5 # short fail-fast window
