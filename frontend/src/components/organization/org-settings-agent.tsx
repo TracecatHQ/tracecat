@@ -828,9 +828,19 @@ function CustomProviderDialog({
     defaultValues: getProviderDialogDefaults(provider),
   })
 
+  const [advancedOpen, setAdvancedOpen] = useState(false)
+  const hasCustomHeadersError = !!form.formState.errors.customHeadersJson
+
   useEffect(() => {
     form.reset(getProviderDialogDefaults(provider))
+    setAdvancedOpen(false)
   }, [form, provider, open])
+
+  useEffect(() => {
+    if (hasCustomHeadersError) {
+      setAdvancedOpen(true)
+    }
+  }, [hasCustomHeadersError])
 
   const saveMutation = useMutation({
     mutationFn: async (values: CustomProviderFormValues) => {
@@ -893,6 +903,9 @@ function CustomProviderDialog({
   async function handleValidate() {
     const valid = await form.trigger()
     if (!valid) {
+      if (form.formState.errors.customHeadersJson) {
+        setAdvancedOpen(true)
+      }
       return
     }
     await validateMutation.mutateAsync(form.getValues())
@@ -917,7 +930,9 @@ function CustomProviderDialog({
 
         <Form {...form}>
           <form
-            onSubmit={form.handleSubmit(handleSubmit)}
+            onSubmit={form.handleSubmit(handleSubmit, () => {
+              if (form.formState.errors.customHeadersJson) setAdvancedOpen(true)
+            })}
             className="space-y-4"
           >
             <FormField
@@ -1017,7 +1032,7 @@ function CustomProviderDialog({
               )}
             />
 
-            <Collapsible>
+            <Collapsible open={advancedOpen} onOpenChange={setAdvancedOpen}>
               <CollapsibleTrigger className="text-muted-foreground hover:text-foreground flex items-center gap-1 text-sm [&[data-state=open]>svg]:rotate-180">
                 <ChevronDown className="size-4 transition-transform duration-200" />
                 Advanced
