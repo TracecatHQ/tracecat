@@ -16,6 +16,10 @@ on:
       - docker-compose.dev.yml
       - docker-compose.local.yml
       - .github/workflows/run-integration-tests.yml
+  schedule:
+    # Full compose coverage is intentionally off the PR critical path.
+    - cron: "17 * * * *"
+  workflow_dispatch:
   pull_request:
     branches: ["main", "staging"]
     paths:
@@ -41,7 +45,7 @@ jobs:
   # ──────────────────────────────────────────────────────────────────
   ssh-sanity:
     if: >-
-      github.event_name == 'push' ||
+      github.event_name != 'pull_request' ||
       (
         github.event_name == 'pull_request' &&
         github.event.pull_request.head.repo.full_name == github.repository
@@ -87,11 +91,7 @@ jobs:
   # ──────────────────────────────────────────────────────────────────
   test-integration:
     if: >-
-      github.event_name == 'push' ||
-      (
-        github.event_name == 'pull_request' &&
-        github.event.pull_request.head.repo.full_name == github.repository
-      )
+      github.event_name != 'pull_request'
     needs: ssh-sanity # only start if key check passed
     environment: internal-registry-ci
     runs-on: blacksmith-8vcpu-ubuntu-2204
@@ -218,7 +218,7 @@ jobs:
       - name: Run API-backed temporal tests against compose
         env:
           TRACECAT_TEST_API_MODE: "external"
-          TRACECAT__API_URL: "http://localhost:8000"
+          TRACECAT_TEST_EXTERNAL_API_URL: "http://localhost/api"
           TEMPORAL__CLUSTER_URL: "localhost:7233"
           TRACECAT__DISABLE_NSJAIL: "true"
         run: |

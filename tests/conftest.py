@@ -1304,7 +1304,10 @@ def inprocess_api_server(
 
 
 @pytest.fixture(autouse=True)
-def api_server_for_requires_api_tests(request: pytest.FixtureRequest) -> None:
+def api_server_for_requires_api_tests(
+    request: pytest.FixtureRequest,
+    monkeysession: pytest.MonkeyPatch,
+) -> None:
     """Select the API harness for tests marked ``requires_api``.
 
     PR CI uses an in-process uvicorn server to keep behavioral coverage without
@@ -1317,6 +1320,9 @@ def api_server_for_requires_api_tests(request: pytest.FixtureRequest) -> None:
     if mode == "inprocess":
         request.getfixturevalue("inprocess_api_server")
     elif mode == "external":
+        if api_url := os.environ.get("TRACECAT_TEST_EXTERNAL_API_URL"):
+            monkeysession.setattr(config, "TRACECAT__API_URL", api_url)
+            monkeysession.setenv("TRACECAT__API_URL", api_url)
         return
     else:
         pytest.fail(
