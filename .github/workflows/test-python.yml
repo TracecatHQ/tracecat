@@ -165,7 +165,7 @@ jobs:
       - name: Register Temporal search attributes
         if: matrix.test_group == 'temporal'
         env:
-          TEMPORAL__CLUSTER_URL: "http://localhost:7233"
+          TEMPORAL__CLUSTER_URL: "localhost:7233"
           TEMPORAL__CLUSTER_NAMESPACE: "default"
         run: |
           uv run python - <<'PY'
