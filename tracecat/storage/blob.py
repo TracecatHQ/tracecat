@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING
 
 import aioboto3
 import aiofiles
+from boto3.s3.transfer import TransferConfig
 from botocore.exceptions import ClientError
 
 from tracecat import config
@@ -26,6 +27,9 @@ if TYPE_CHECKING:
 
 
 DEFAULT_DOWNLOAD_CHUNK_SIZE_BYTES = 8 * 1024 * 1024  # 8MB
+DEFAULT_UPLOAD_CHUNK_SIZE_BYTES = 8 * 1024 * 1024  # 8MB
+DEFAULT_UPLOAD_MAX_CONCURRENCY = 4
+DEFAULT_UPLOAD_MAX_IO_QUEUE_SIZE = 2
 
 
 @asynccontextmanager
@@ -375,6 +379,12 @@ async def upload_file_from_path(
         raise FileNotFoundError(f"File not found: {path}")
 
     extra_args = {"ContentType": content_type} if content_type else None
+    transfer_config = TransferConfig(
+        multipart_threshold=DEFAULT_UPLOAD_CHUNK_SIZE_BYTES,
+        multipart_chunksize=DEFAULT_UPLOAD_CHUNK_SIZE_BYTES,
+        max_concurrency=DEFAULT_UPLOAD_MAX_CONCURRENCY,
+        max_io_queue=DEFAULT_UPLOAD_MAX_IO_QUEUE_SIZE,
+    )
 
     try:
         async with get_storage_client() as s3_client:
@@ -383,6 +393,7 @@ async def upload_file_from_path(
                 Bucket=bucket,
                 Key=key,
                 ExtraArgs=extra_args,
+                Config=transfer_config,
             )
             logger.info(
                 "File uploaded successfully",
