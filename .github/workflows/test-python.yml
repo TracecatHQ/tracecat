@@ -137,7 +137,10 @@ jobs:
           echo "Waiting for services to become healthy..."
           deadline=$((SECONDS + 300))
           while true; do
-            statuses=$(docker compose "${compose_files[@]}" ps --format json | jq -s -r ".[] | select(.Health != null and .Health != \"\") | .Health")
+            statuses=$(
+              docker compose "${compose_files[@]}" ps --format json |
+                jq -r 'if type == "array" then .[] else . end | select(.Health != null and .Health != "") | .Health'
+            )
             total=$(echo "$statuses" | grep -c . || true)
             healthy=$(echo "$statuses" | grep -c "^healthy$" || true)
 
