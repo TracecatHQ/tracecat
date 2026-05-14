@@ -42,6 +42,7 @@ import {
   agentPresetsRemovePresetTag,
 } from "@/client"
 import { AgentApprovalsDialog } from "@/components/agents/agent-approvals-dialog"
+import { useScopeCheck } from "@/components/auth/scope-guard"
 import { CollapsibleSection } from "@/components/collapsible-section"
 import { CopyButton } from "@/components/copy-button"
 import {
@@ -1377,6 +1378,9 @@ function AgentPresetContextActions({
   areTagsLoading = false,
   onDuplicate,
   duplicateDisabled = false,
+  canUpdateAgent,
+  canDeleteAgent,
+  canDuplicateAgent,
 }: {
   item: AgentPresetDirectoryItem | AgentPresetReadMinimal
   setActiveDialog: (dialog: AgentActiveDialog | null) => void
@@ -1389,6 +1393,9 @@ function AgentPresetContextActions({
     item: AgentPresetDirectoryItem | AgentPresetReadMinimal
   ) => void
   duplicateDisabled?: boolean
+  canUpdateAgent: boolean
+  canDeleteAgent: boolean
+  canDuplicateAgent: boolean
 }) {
   const workspaceId = useWorkspaceId()
   const queryClient = useQueryClient()
@@ -1408,111 +1415,115 @@ function AgentPresetContextActions({
           Open in new tab
         </Link>
       </ContextMenuItem>
-      <ContextMenuItem
-        className="text-xs"
-        onClick={(e) => e.stopPropagation()}
-        onSelect={(e) => {
-          e.stopPropagation()
-          setSelectedPreset(item)
-          setActiveDialog(AgentActiveDialog.PresetMove)
-        }}
-      >
-        <FolderKanban className="mr-2 size-3.5" />
-        Move to folder
-      </ContextMenuItem>
-      {availableTags && availableTags.length > 0 ? (
-        <ContextMenuSub>
-          <ContextMenuSubTrigger
-            className="text-xs"
+      {canUpdateAgent ? (
+        <ContextMenuItem
+          className="text-xs"
+          onClick={(e) => e.stopPropagation()}
+          onSelect={(e) => {
+            e.stopPropagation()
+            setSelectedPreset(item)
+            setActiveDialog(AgentActiveDialog.PresetMove)
+          }}
+        >
+          <FolderKanban className="mr-2 size-3.5" />
+          Move to folder
+        </ContextMenuItem>
+      ) : null}
+      {canUpdateAgent ? (
+        availableTags && availableTags.length > 0 ? (
+          <ContextMenuSub>
+            <ContextMenuSubTrigger
+              className="text-xs"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <TagsIcon className="mr-2 size-3.5" />
+              Tags
+            </ContextMenuSubTrigger>
+            <ContextMenuPortal>
+              <ContextMenuSubContent>
+                {availableTags.map((tag) => {
+                  const hasTag = item.tags?.some((t) => t.id === tag.id)
+                  return (
+                    <ContextMenuCheckboxItem
+                      key={tag.id}
+                      className="text-xs"
+                      checked={hasTag}
+                      onClick={async (e) => {
+                        e.stopPropagation()
+                        try {
+                          if (hasTag) {
+                            await agentPresetsRemovePresetTag({
+                              presetId: item.id,
+                              tagId: tag.id,
+                              workspaceId,
+                            })
+                            toast({
+                              title: "Tag removed",
+                              description: `Removed tag "${tag.name}" from agent`,
+                            })
+                          } else {
+                            await agentPresetsAddPresetTag({
+                              presetId: item.id,
+                              workspaceId,
+                              requestBody: { tag_id: tag.id },
+                            })
+                            toast({
+                              title: "Tag added",
+                              description: `Added tag "${tag.name}" to agent`,
+                            })
+                          }
+                          await Promise.all([
+                            queryClient.invalidateQueries({
+                              queryKey: ["agent-presets", workspaceId],
+                            }),
+                            queryClient.invalidateQueries({
+                              queryKey: ["agent-directory-items", workspaceId],
+                            }),
+                            queryClient.invalidateQueries({
+                              queryKey: ["agent-preset", workspaceId, item.id],
+                            }),
+                          ])
+                        } catch (error) {
+                          console.error("Failed to modify tag:", error)
+                          toast({
+                            title: "Error",
+                            description: `Failed to ${hasTag ? "remove" : "add"} tag`,
+                            variant: "destructive",
+                          })
+                        }
+                      }}
+                    >
+                      <div
+                        className="mr-2 flex size-2 rounded-full"
+                        style={{
+                          backgroundColor: tag.color || undefined,
+                        }}
+                      />
+                      <span>{tag.name}</span>
+                    </ContextMenuCheckboxItem>
+                  )
+                })}
+              </ContextMenuSubContent>
+            </ContextMenuPortal>
+          </ContextMenuSub>
+        ) : areTagsLoading ? (
+          <ContextMenuItem
+            className="!bg-transparent text-xs !text-muted-foreground"
             onClick={(e) => e.stopPropagation()}
           >
             <TagsIcon className="mr-2 size-3.5" />
-            Tags
-          </ContextMenuSubTrigger>
-          <ContextMenuPortal>
-            <ContextMenuSubContent>
-              {availableTags.map((tag) => {
-                const hasTag = item.tags?.some((t) => t.id === tag.id)
-                return (
-                  <ContextMenuCheckboxItem
-                    key={tag.id}
-                    className="text-xs"
-                    checked={hasTag}
-                    onClick={async (e) => {
-                      e.stopPropagation()
-                      try {
-                        if (hasTag) {
-                          await agentPresetsRemovePresetTag({
-                            presetId: item.id,
-                            tagId: tag.id,
-                            workspaceId,
-                          })
-                          toast({
-                            title: "Tag removed",
-                            description: `Removed tag "${tag.name}" from agent`,
-                          })
-                        } else {
-                          await agentPresetsAddPresetTag({
-                            presetId: item.id,
-                            workspaceId,
-                            requestBody: { tag_id: tag.id },
-                          })
-                          toast({
-                            title: "Tag added",
-                            description: `Added tag "${tag.name}" to agent`,
-                          })
-                        }
-                        await Promise.all([
-                          queryClient.invalidateQueries({
-                            queryKey: ["agent-presets", workspaceId],
-                          }),
-                          queryClient.invalidateQueries({
-                            queryKey: ["agent-directory-items", workspaceId],
-                          }),
-                          queryClient.invalidateQueries({
-                            queryKey: ["agent-preset", workspaceId, item.id],
-                          }),
-                        ])
-                      } catch (error) {
-                        console.error("Failed to modify tag:", error)
-                        toast({
-                          title: "Error",
-                          description: `Failed to ${hasTag ? "remove" : "add"} tag`,
-                          variant: "destructive",
-                        })
-                      }
-                    }}
-                  >
-                    <div
-                      className="mr-2 flex size-2 rounded-full"
-                      style={{
-                        backgroundColor: tag.color || undefined,
-                      }}
-                    />
-                    <span>{tag.name}</span>
-                  </ContextMenuCheckboxItem>
-                )
-              })}
-            </ContextMenuSubContent>
-          </ContextMenuPortal>
-        </ContextMenuSub>
-      ) : areTagsLoading ? (
-        <ContextMenuItem
-          className="!bg-transparent text-xs !text-muted-foreground"
-          onClick={(e) => e.stopPropagation()}
-        >
-          <TagsIcon className="mr-2 size-3.5" />
-          <span>Loading tags...</span>
-        </ContextMenuItem>
-      ) : (
-        <ContextMenuItem
-          className="!bg-transparent text-xs !text-muted-foreground hover:cursor-not-allowed"
-          onClick={(e) => e.stopPropagation()}
-        >
-          <TagsIcon className="mr-2 size-3.5" />
-          <span>No tags available</span>
-        </ContextMenuItem>
-      )}
+            <span>Loading tags...</span>
+          </ContextMenuItem>
+        ) : (
+          <ContextMenuItem
+            className="!bg-transparent text-xs !text-muted-foreground hover:cursor-not-allowed"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <TagsIcon className="mr-2 size-3.5" />
+            <span>No tags available</span>
+          </ContextMenuItem>
+        )
+      ) : null}
       <ContextMenuItem
         className="text-xs"
         onClick={(e) => e.stopPropagation()}
@@ -1525,7 +1536,7 @@ function AgentPresetContextActions({
         <Copy className="mr-2 size-3.5" />
         Copy agent ID
       </ContextMenuItem>
-      {onDuplicate && (
+      {onDuplicate && canDuplicateAgent ? (
         <ContextMenuItem
           className="text-xs"
           disabled={duplicateDisabled}
@@ -1537,20 +1548,24 @@ function AgentPresetContextActions({
           <CopyPlus className="mr-2 size-3.5" />
           Duplicate agent
         </ContextMenuItem>
-      )}
-      <ContextMenuSeparator />
-      <ContextMenuItem
-        className="text-xs text-rose-500 focus:text-rose-600"
-        onClick={(e) => e.stopPropagation()}
-        onSelect={(e) => {
-          e.stopPropagation()
-          setSelectedPreset(item)
-          setActiveDialog(AgentActiveDialog.PresetDelete)
-        }}
-      >
-        <Trash2 className="mr-2 size-3.5" />
-        Delete agent
-      </ContextMenuItem>
+      ) : null}
+      {canDeleteAgent ? (
+        <>
+          <ContextMenuSeparator />
+          <ContextMenuItem
+            className="text-xs text-rose-500 focus:text-rose-600"
+            onClick={(e) => e.stopPropagation()}
+            onSelect={(e) => {
+              e.stopPropagation()
+              setSelectedPreset(item)
+              setActiveDialog(AgentActiveDialog.PresetDelete)
+            }}
+          >
+            <Trash2 className="mr-2 size-3.5" />
+            Delete agent
+          </ContextMenuItem>
+        </>
+      ) : null}
     </ContextMenuGroup>
   )
 }
@@ -1568,6 +1583,9 @@ function AgentCatalogRow({
   areTagsLoading,
   onDuplicate,
   duplicateDisabled,
+  canUpdateAgent,
+  canDeleteAgent,
+  canDuplicateAgent,
 }: {
   item: AgentDirectoryItem
   onOpenPreset: (presetId: string) => void
@@ -1583,6 +1601,9 @@ function AgentCatalogRow({
     item: AgentPresetDirectoryItem | AgentPresetReadMinimal
   ) => void
   duplicateDisabled?: boolean
+  canUpdateAgent: boolean
+  canDeleteAgent: boolean
+  canDuplicateAgent: boolean
 }) {
   const [isContextMenuOpen, setIsContextMenuOpen] = useState(false)
 
@@ -1706,6 +1727,9 @@ function AgentCatalogRow({
           areTagsLoading={areTagsLoading}
           onDuplicate={onDuplicate}
           duplicateDisabled={duplicateDisabled}
+          canUpdateAgent={canUpdateAgent}
+          canDeleteAgent={canDeleteAgent}
+          canDuplicateAgent={canDuplicateAgent}
         />
       </ContextMenuContent>
     </ContextMenu>
@@ -1857,6 +1881,10 @@ export function AgentsDashboard() {
   const queryClient = useQueryClient()
   const workspaceId = useWorkspaceId()
   const searchParams = useSearchParams()
+  const canCreateAgent = useScopeCheck("agent:create") === true
+  const canUpdateAgent = useScopeCheck("agent:update") === true
+  const canDeleteAgent = useScopeCheck("agent:delete") === true
+  const canDuplicateAgent = canCreateAgent && canUpdateAgent
 
   const view = parseAgentsViewMode(searchParams?.get("view"))
   const currentPath = normalizeAgentFolderPath(searchParams?.get("path"))
@@ -2106,6 +2134,9 @@ export function AgentsDashboard() {
                   availableTags={agentTags}
                   areTagsLoading={agentTagsIsLoading}
                   onDuplicate={handleDuplicatePreset}
+                  canUpdateAgent={canUpdateAgent}
+                  canDeleteAgent={canDeleteAgent}
+                  canDuplicateAgent={canDuplicateAgent}
                   duplicateDisabled={
                     createAgentPresetIsPending ||
                     (item.type === "preset" &&
