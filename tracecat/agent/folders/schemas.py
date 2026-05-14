@@ -7,7 +7,6 @@ from typing import Annotated, Literal
 from pydantic import BaseModel, Field, TypeAdapter
 
 from tracecat.core.schemas import Schema
-from tracecat.pagination import CursorPaginatedResponse
 from tracecat.tags.schemas import TagRead
 
 
@@ -63,7 +62,3 @@ DirectoryItem = Annotated[
     Field(discriminator="type"),
 ]
 DirectoryItemAdapter: TypeAdapter[DirectoryItem] = TypeAdapter(DirectoryItem)
-
-
-class AgentDirectoryResponse(CursorPaginatedResponse[DirectoryItem]):
-    """Paginated response for agent folder directory items."""

@@ -11,9 +11,11 @@ import {
   FileUpIcon,
   Flag,
   Flame,
+  FolderIcon,
   ListIcon,
   Lock,
   MessageSquare,
+  MousePointerClickIcon,
   PanelRight,
   PenLine,
   Plus,
@@ -40,6 +42,12 @@ import {
   casesGetCase,
   casesUpdateCase,
 } from "@/client"
+import {
+  AgentsCatalogViewMode,
+  AgentsCatalogViewToggle,
+} from "@/components/agents/agents-catalog-view-toggle"
+import { AgentFolderCreateDialog } from "@/components/agents/agents-dashboard"
+import { CreateAgentDialog } from "@/components/agents/create-agent-dialog"
 import { useScopeCheck } from "@/components/auth/scope-guard"
 import { AddCaseDropdown } from "@/components/cases/add-case-dropdown"
 import { AddCaseDuration } from "@/components/cases/add-case-duration"
@@ -83,6 +91,7 @@ import { CreateTableDialog } from "@/components/tables/table-create-dialog"
 import { TableImportTableDialog } from "@/components/tables/table-import-table-dialog"
 import { TableInsertButton } from "@/components/tables/table-insert-button"
 import { TableLinkRowsToCaseCommand } from "@/components/tables/table-link-rows-to-case-command"
+import { CreateTagDialog } from "@/components/tags/create-tag-dialog"
 
 const SimpleEditor = dynamic(
   () =>
@@ -144,7 +153,7 @@ import {
   NewVariableDialogTrigger,
 } from "@/components/workspaces/add-workspace-variable"
 import { CreateCredentialDialog } from "@/components/workspaces/create-credential-dialog"
-import { useAgentPreset } from "@/hooks/use-agent-presets"
+import { useAgentPreset, useAgentTagCatalog } from "@/hooks/use-agent-presets"
 import { useEntitlements } from "@/hooks/use-entitlements"
 import { useSkill } from "@/hooks/use-skills"
 import { useWorkspaceDetails, useWorkspaceMembers } from "@/hooks/use-workspace"
@@ -421,16 +430,150 @@ function SkillsBreadcrumb({
   )
 }
 
+function normalizeAgentActionPath(rawPath: string | null): string {
+  if (!rawPath || rawPath === "/") {
+    return "/"
+  }
+  const withLeadingSlash = rawPath.startsWith("/") ? rawPath : `/${rawPath}`
+  return withLeadingSlash.endsWith("/") && withLeadingSlash !== "/"
+    ? withLeadingSlash.slice(0, -1)
+    : withLeadingSlash
+}
+
 function AgentsActions() {
+  const pathname = usePathname()
   const workspaceId = useWorkspaceId()
+  const searchParams = useSearchParams()
+  const { hasEntitlement, isLoading: entitlementsLoading } = useEntitlements()
+  const canCreateAgent = useScopeCheck("agent:create")
+  const [createDialogOpen, setCreateDialogOpen] = useState(false)
+  const [createTagDialogOpen, setCreateTagDialogOpen] = useState(false)
+  const [folderDialogOpen, setFolderDialogOpen] = useState(false)
+
+  const catalogView = pathname?.includes("/agents/tags")
+    ? AgentsCatalogViewMode.Tags
+    : AgentsCatalogViewMode.Agents
+  const agentsHref = `/workspaces/${workspaceId}/agents`
+  const tagsHref = `/workspaces/${workspaceId}/agents/tags`
+  const isFoldersView = searchParams?.get("view") !== "list"
+  const currentPath = normalizeAgentActionPath(
+    searchParams?.get("path") ?? null
+  )
+  const agentAddonsEnabled = hasEntitlement("agent_addons")
+  const canUseAgentActions =
+    !entitlementsLoading && agentAddonsEnabled && canCreateAgent === true
+  let agentActionControls: ReactNode = null
+
+  if (canUseAgentActions) {
+    if (catalogView === AgentsCatalogViewMode.Tags) {
+      agentActionControls = (
+        <AddAgentTag
+          open={createTagDialogOpen}
+          onOpenChange={setCreateTagDialogOpen}
+        />
+      )
+    } else {
+      agentActionControls = (
+        <>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" size="sm" className="h-7 bg-white">
+                <Plus className="mr-1 h-3.5 w-3.5" />
+                Create new
+                <ChevronDown className="ml-1 h-3.5 w-3.5" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent
+              align="end"
+              className="
+                [&_[data-radix-collection-item]]:flex
+                [&_[data-radix-collection-item]]:items-center
+                [&_[data-radix-collection-item]]:gap-2
+              "
+            >
+              <DropdownMenuItem onSelect={() => setCreateDialogOpen(true)}>
+                <MousePointerClickIcon className="size-4 text-foreground/80" />
+                <div className="flex flex-col text-xs">
+                  <span>Agent</span>
+                  <span className="text-xs text-muted-foreground">
+                    Start from scratch
+                  </span>
+                </div>
+              </DropdownMenuItem>
+              {isFoldersView && (
+                <DropdownMenuItem onSelect={() => setFolderDialogOpen(true)}>
+                  <FolderIcon className="size-4 text-foreground/80" />
+                  <div className="flex flex-col text-xs">
+                    <span>Folder</span>
+                    <span className="text-xs text-muted-foreground">
+                      Create a new folder
+                    </span>
+                  </div>
+                </DropdownMenuItem>
+              )}
+            </DropdownMenuContent>
+          </DropdownMenu>
+          <CreateAgentDialog
+            open={createDialogOpen}
+            onOpenChange={setCreateDialogOpen}
+            currentPath={isFoldersView ? currentPath : null}
+          />
+          <AgentFolderCreateDialog
+            open={folderDialogOpen}
+            onOpenChange={setFolderDialogOpen}
+            currentPath={currentPath}
+          />
+        </>
+      )
+    }
+  }
 
   return (
-    <Button variant="outline" size="sm" className="h-7 bg-white" asChild>
-      <Link href={`/workspaces/${workspaceId}/agents/new`}>
+    <>
+      <AgentsCatalogViewToggle
+        view={catalogView}
+        agentsHref={agentsHref}
+        tagsHref={tagsHref}
+      />
+      {agentActionControls}
+    </>
+  )
+}
+
+function AddAgentTag({
+  open,
+  onOpenChange,
+}: {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+}) {
+  const workspaceId = useWorkspaceId()
+  const { agentTags, createAgentTag } = useAgentTagCatalog(workspaceId, {
+    enabled: open,
+  })
+
+  return (
+    <>
+      <Button
+        variant="outline"
+        size="sm"
+        className="h-7 bg-white"
+        onClick={() => onOpenChange(true)}
+      >
         <Plus className="mr-1 h-3.5 w-3.5" />
-        New agent
-      </Link>
-    </Button>
+        Create tag
+      </Button>
+      <CreateTagDialog
+        open={open}
+        onOpenChange={onOpenChange}
+        existingTags={agentTags}
+        onCreateTag={async (params) => {
+          await createAgentTag(params)
+        }}
+        title="Create new agent tag"
+        description="Enter a name for your new agent tag."
+      />
+    </>
   )
 }
 
@@ -1703,17 +1846,18 @@ function getPageConfig(
   }
 
   if (pagePath.startsWith("/agents")) {
-    // Check if this is an agent preset detail page
+    // Tags page
+    if (pagePath === "/agents/tags") {
+      return {
+        title: "Agents",
+        actions: <AgentsActions />,
+      }
+    }
+
+    // Agent preset detail page
     const agentPresetMatch = pagePath.match(/^\/agents\/([^/]+)$/)
     if (agentPresetMatch) {
       const presetId = agentPresetMatch[1]
-      // Don't show breadcrumb for "new" preset - it's the create page
-      if (presetId === "new") {
-        return {
-          title: "Agents",
-          actions: <AgentsActions />,
-        }
-      }
       return {
         title: (
           <AgentPresetBreadcrumb

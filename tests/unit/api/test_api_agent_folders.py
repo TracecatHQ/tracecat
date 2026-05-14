@@ -157,44 +157,27 @@ async def test_list_folders_returns_paginated_response(
 
 
 @pytest.mark.anyio
-async def test_get_directory_returns_paginated_response(
+async def test_get_directory_returns_directory_items(
     client: TestClient,
     test_admin_role: Role,
 ) -> None:
-    """Directory listing should use the cursor-paginated API shape."""
+    """Directory listing should return the full directory array."""
     with patch.object(agent_folder_router, "AgentFolderService") as mock_service_cls:
         mock_service = _mock_service_with_async_method(
-            "get_directory_items_paginated",
-            return_value=CursorPaginatedResponse(items=[], has_more=True),
+            "get_directory_items",
+            return_value=[],
         )
         mock_service_cls.return_value = mock_service
 
         response = client.get(
             "/agent-folders/directory",
-            params={
-                "path": "/agents/",
-                "limit": 2,
-                "cursor": "encoded-cursor",
-                "reverse": True,
-            },
+            params={"path": "/agents/"},
         )
 
     assert response.status_code == status.HTTP_200_OK
-    assert response.json() == {
-        "items": [],
-        "next_cursor": None,
-        "prev_cursor": None,
-        "has_more": True,
-        "has_previous": False,
-        "total_estimate": None,
-    }
-    mock_service.get_directory_items_paginated.assert_awaited_once_with(
-        "/agents/",
-        CursorPaginationParams(
-            limit=2,
-            cursor="encoded-cursor",
-            reverse=True,
-        ),
+    assert response.json() == []
+    mock_service.get_directory_items.assert_awaited_once_with(
+        "/agents/", order_by="desc"
     )
 
 
@@ -358,7 +341,7 @@ async def test_get_directory_requires_agent_addons_entitlement(
     """Folder directory reads should preserve the AGENT_ADDONS gate at HTTP level."""
     with patch.object(agent_folder_router, "AgentFolderService") as mock_service_cls:
         mock_service = _mock_service_with_async_method(
-            "get_directory_items_paginated",
+            "get_directory_items",
             side_effect=EntitlementRequired("agent_addons"),
         )
         mock_service_cls.return_value = mock_service

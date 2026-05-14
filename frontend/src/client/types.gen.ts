@@ -442,33 +442,6 @@ export type AgentCustomProviderUpdate = {
   } | null
 }
 
-/**
- * Paginated response for agent folder directory items.
- */
-export type AgentDirectoryResponse = {
-  items: Array<AgentPresetDirectoryItem | AgentFolderDirectoryItem>
-  /**
-   * Cursor for next page
-   */
-  next_cursor?: string | null
-  /**
-   * Cursor for previous page
-   */
-  prev_cursor?: string | null
-  /**
-   * Whether more items exist
-   */
-  has_more?: boolean
-  /**
-   * Whether previous items exist
-   */
-  has_previous?: boolean
-  /**
-   * Estimated total count from table statistics
-   */
-  total_estimate?: number | null
-}
-
 export type AgentFolderCreate = {
   name: string
   parent_path?: string
@@ -10375,17 +10348,16 @@ export type AgentPresetsRemovePresetTagData = {
 export type AgentPresetsRemovePresetTagResponse = void
 
 export type AgentFoldersGetDirectoryData = {
-  cursor?: string | null
-  limit?: number
   /**
    * Folder path
    */
   path?: string
-  reverse?: boolean
   workspaceId: string
 }
 
-export type AgentFoldersGetDirectoryResponse = AgentDirectoryResponse
+export type AgentFoldersGetDirectoryResponse = Array<
+  AgentPresetDirectoryItem | AgentFolderDirectoryItem
+>
 
 export type AgentFoldersListFoldersData = {
   cursor?: string | null
@@ -15182,7 +15154,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        200: AgentDirectoryResponse
+        200: Array<AgentPresetDirectoryItem | AgentFolderDirectoryItem>
         /**
          * Validation Error
          */

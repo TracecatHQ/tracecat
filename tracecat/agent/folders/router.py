@@ -6,12 +6,12 @@ from fastapi import APIRouter, HTTPException, Query, status
 
 from tracecat import config
 from tracecat.agent.folders.schemas import (
-    AgentDirectoryResponse,
     AgentFolderCreate,
     AgentFolderDelete,
     AgentFolderMove,
     AgentFolderRead,
     AgentFolderUpdate,
+    DirectoryItem,
 )
 from tracecat.agent.folders.service import (
     AgentFolderErrorCode,
@@ -41,43 +41,21 @@ def _folder_http_exception(err: TracecatValidationError) -> HTTPException:
     return HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(err))
 
 
-@router.get("/directory", response_model=AgentDirectoryResponse)
+@router.get("/directory", response_model=list[DirectoryItem])
 @require_scope("agent:read")
 async def get_directory(
     role: WorkspaceUserRouteRole,
     session: AsyncDBSession,
     path: str = Query(default="/", description="Folder path"),
-    limit: int = Query(
-        default=config.TRACECAT__LIMIT_DEFAULT,
-        ge=config.TRACECAT__LIMIT_MIN,
-        le=config.TRACECAT__LIMIT_CURSOR_MAX,
-    ),
-    cursor: str | None = Query(default=None),
-    reverse: bool = Query(default=False),
-) -> AgentDirectoryResponse:
+) -> list[DirectoryItem]:
     """Get directory items (presets and folders) in the given path."""
     service = AgentFolderService(session, role=role)
     try:
-        page = await service.get_directory_items_paginated(
-            path,
-            CursorPaginationParams(
-                limit=limit,
-                cursor=cursor,
-                reverse=reverse,
-            ),
-        )
+        return list(await service.get_directory_items(path, order_by="desc"))
     except TracecatNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
     except TracecatValidationError as e:
         raise _folder_http_exception(e) from e
-    return AgentDirectoryResponse(
-        items=page.items,
-        next_cursor=page.next_cursor,
-        prev_cursor=page.prev_cursor,
-        has_more=page.has_more,
-        has_previous=page.has_previous,
-        total_estimate=page.total_estimate,
-    )
 
 
 @router.get("", response_model=CursorPaginatedResponse[AgentFolderRead])
