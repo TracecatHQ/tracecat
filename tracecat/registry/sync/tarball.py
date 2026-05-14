@@ -182,7 +182,6 @@ async def build_tarball_venv_from_installed_environment(
     output_dir.mkdir(parents=True, exist_ok=True)
 
     site_packages_paths = get_installed_site_packages_paths()
-    primary_site_packages = site_packages_paths[0]
     package_dir = package_dir.resolve()
     package_in_site_packages = any(
         package_dir.parent == site_packages.resolve()
@@ -249,7 +248,6 @@ async def build_tarball_venv_from_installed_environment(
             logger.warning(
                 "Skipping editable package overlay because package already exists in site-packages",
                 package_name=package_name,
-                site_packages=str(primary_site_packages),
             )
 
     await asyncio.to_thread(_create_tarball)
