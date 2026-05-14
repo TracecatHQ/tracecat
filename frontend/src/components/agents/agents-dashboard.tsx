@@ -1322,10 +1322,14 @@ function AgentFolderContextActions({
   item,
   setActiveDialog,
   setSelectedFolder,
+  canUpdateAgent,
+  canDeleteAgent,
 }: {
   item: AgentFolderDirectoryItem
   setActiveDialog: (dialog: AgentActiveDialog | null) => void
   setSelectedFolder: (folder: AgentFolderDirectoryItem | null) => void
+  canUpdateAgent: boolean
+  canDeleteAgent: boolean
 }) {
   return (
     <ContextMenuGroup>
@@ -1341,31 +1345,37 @@ function AgentFolderContextActions({
         <Copy className="mr-2 size-3.5" />
         Copy folder ID
       </ContextMenuItem>
-      <ContextMenuItem
-        className="text-xs"
-        onClick={(e) => e.stopPropagation()}
-        onSelect={(e) => {
-          e.stopPropagation()
-          setSelectedFolder(item)
-          setActiveDialog(AgentActiveDialog.FolderRename)
-        }}
-      >
-        <Pencil className="mr-2 size-3.5" />
-        Rename folder
-      </ContextMenuItem>
-      <ContextMenuSeparator />
-      <ContextMenuItem
-        className="text-xs text-rose-500 focus:text-rose-600"
-        onClick={(e) => e.stopPropagation()}
-        onSelect={(e) => {
-          e.stopPropagation()
-          setSelectedFolder(item)
-          setActiveDialog(AgentActiveDialog.FolderDelete)
-        }}
-      >
-        <Trash2 className="mr-2 size-3.5" />
-        Delete folder
-      </ContextMenuItem>
+      {canUpdateAgent ? (
+        <ContextMenuItem
+          className="text-xs"
+          onClick={(e) => e.stopPropagation()}
+          onSelect={(e) => {
+            e.stopPropagation()
+            setSelectedFolder(item)
+            setActiveDialog(AgentActiveDialog.FolderRename)
+          }}
+        >
+          <Pencil className="mr-2 size-3.5" />
+          Rename folder
+        </ContextMenuItem>
+      ) : null}
+      {canDeleteAgent ? (
+        <>
+          <ContextMenuSeparator />
+          <ContextMenuItem
+            className="text-xs text-rose-500 focus:text-rose-600"
+            onClick={(e) => e.stopPropagation()}
+            onSelect={(e) => {
+              e.stopPropagation()
+              setSelectedFolder(item)
+              setActiveDialog(AgentActiveDialog.FolderDelete)
+            }}
+          >
+            <Trash2 className="mr-2 size-3.5" />
+            Delete folder
+          </ContextMenuItem>
+        </>
+      ) : null}
     </ContextMenuGroup>
   )
 }
@@ -1659,6 +1669,8 @@ function AgentCatalogRow({
             item={item}
             setActiveDialog={setActiveDialog}
             setSelectedFolder={setSelectedFolder}
+            canUpdateAgent={canUpdateAgent}
+            canDeleteAgent={canDeleteAgent}
           />
         </ContextMenuContent>
       </ContextMenu>
