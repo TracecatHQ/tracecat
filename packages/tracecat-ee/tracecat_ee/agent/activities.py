@@ -201,12 +201,16 @@ class AgentActivities:
             # Fetch secrets per server, attach for ``tools/list``, and drop
             # them before returning so they never enter ``BuildToolDefsResult``
             # or leak across the Temporal boundary.
-            hydrated_servers: list[MCPHttpServerConfig] = []
-            async with AgentPresetService.with_session(role=role) as svc:
-                for cfg in http_servers:
-                    hydrated: MCPHttpServerConfig = {**cfg}
-                    integration_id_str = cfg.get("id")
-                    if integration_id_str:
+            hydrated_servers: list[MCPHttpServerConfig] = [
+                {**cfg} for cfg in http_servers
+            ]
+            configs_with_integration_id: list[tuple[MCPHttpServerConfig, str]] = []
+            for hydrated in hydrated_servers:
+                if integration_id_str := hydrated.get("id"):
+                    configs_with_integration_id.append((hydrated, integration_id_str))
+            if configs_with_integration_id:
+                async with AgentPresetService.with_session(role=role) as svc:
+                    for hydrated, integration_id_str in configs_with_integration_id:
                         try:
                             secrets = await svc.resolve_mcp_integration_secrets(
                                 uuid.UUID(integration_id_str)
@@ -215,7 +219,6 @@ class AgentActivities:
                             secrets = None
                         if secrets:
                             hydrated["headers"] = secrets
-                    hydrated_servers.append(hydrated)
 
             try:
                 user_mcp_tools = await discover_user_mcp_tools(

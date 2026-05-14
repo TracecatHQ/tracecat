@@ -1752,9 +1752,12 @@ async def test_executor_routes_passthrough_subagent_by_its_own_model_config(
 class _DummyBridge:
     instances: list[_DummyBridge] = []
 
-    def __init__(self, socket_path: Path, port: int) -> None:
+    def __init__(
+        self, socket_path: Path, port: int, listener_fd: int | None = None
+    ) -> None:
         self.socket_path = socket_path
         self.port = port
+        self.listener_fd = listener_fd
         self.started = False
         self.stopped = False
         type(self).instances.append(self)

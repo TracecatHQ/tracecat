@@ -36,6 +36,8 @@ def make_agent_preset(
         name=name,
         slug=slug,
         description=None,
+        model_provider="openai",
+        model_name="gpt-4o-mini",
         current_version_id=None,
         tool_approvals=tool_approvals,
         agents=agents or {"enabled": False},
