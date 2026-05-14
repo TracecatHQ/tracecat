@@ -7,12 +7,14 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 from fastapi import HTTPException
+from fastapi.routing import APIRoute
 
 from tracecat.agent.skill.internal_router import (
     get_skill,
     list_skill_versions,
     list_skills,
     publish_skill_version,
+    router,
 )
 from tracecat.auth.types import Role
 from tracecat.exceptions import TracecatValidationError
@@ -26,6 +28,18 @@ def _executor_role() -> Role:
         organization_id=uuid.uuid4(),
         scopes=frozenset({"agent:read"}),
     )
+
+
+def test_internal_router_does_not_expose_draft_publish() -> None:
+    routes = {
+        (route.path, method)
+        for route in router.routes
+        if isinstance(route, APIRoute)
+        for method in route.methods
+    }
+
+    assert ("/internal/agent/skills/{skill_id}/publish", "POST") not in routes
+    assert ("/internal/agent/skills/{skill_id}/versions", "POST") in routes
 
 
 @pytest.mark.anyio
