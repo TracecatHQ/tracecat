@@ -217,13 +217,6 @@ def _run_search(
     raise RuntimeError("Failed to execute LDAP search")
 
 
-def test_live_search_all_attributes(
-    ldap_test_data: dict[str, str], configure_ldap_secrets
-) -> None:
-    results = _run_search(ldap_test_data)
-    assert results and results[0]["attributes"]["uid"] == ["tracecat.test"]
-
-
 def test_live_search_returns_all_attributes(
     ldap_test_data: dict[str, str], configure_ldap_secrets
 ) -> None:
