@@ -162,6 +162,45 @@ jobs:
           wait "$uv_sync_pid"
           trap - EXIT
 
+      - name: Register Temporal search attributes
+        if: matrix.test_group == 'temporal'
+        env:
+          TEMPORAL__CLUSTER_URL: "http://localhost:7233"
+          TEMPORAL__CLUSTER_NAMESPACE: "default"
+        run: |
+          uv run python - <<'PY'
+          import asyncio
+
+          from temporalio.api.workflowservice.v1 import GetSearchAttributesRequest
+
+          from tracecat.api.common import add_temporal_search_attributes
+          from tracecat.dsl.client import get_temporal_client
+          from tracecat.workflow.executions.enums import TemporalSearchAttr
+
+          REQUIRED_ATTRS = {
+              TemporalSearchAttr.TRIGGER_TYPE.value,
+              TemporalSearchAttr.TRIGGERED_BY_USER_ID.value,
+              TemporalSearchAttr.WORKSPACE_ID.value,
+              TemporalSearchAttr.ALIAS.value,
+              TemporalSearchAttr.CORRELATION_ID.value,
+              TemporalSearchAttr.EXECUTION_TYPE.value,
+          }
+
+          async def main() -> None:
+              await add_temporal_search_attributes()
+              client = await get_temporal_client()
+              attrs = await client.workflow_service.get_search_attributes(
+                  GetSearchAttributesRequest()
+              )
+              missing = REQUIRED_ATTRS - set(attrs.keys)
+              if missing:
+                  raise RuntimeError(
+                      f"Temporal search attributes were not registered: {sorted(missing)}"
+                  )
+
+          asyncio.run(main())
+          PY
+
       - name: Run tests
         env:
           TRACECAT__SYSTEM_PATH: "/usr/local/bin:/usr/bin:/bin"
