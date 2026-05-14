@@ -237,7 +237,7 @@ class BaseRegistrySyncService[
     def _generate_collision_version(self, base_version: str) -> str:
         """Generate a unique dev version for same-version manifest changes."""
         suffix = datetime.now(UTC).strftime("%Y%m%d%H%M%S%f")
-        tiebreaker = uuid.uuid4().int % 1_000_000
+        tiebreaker = cast(int, uuid.uuid4().int) % 1_000_000
         return f"{base_version}.dev{suffix}{tiebreaker:06d}"
 
     def _build_validation_failure_message(
@@ -520,11 +520,13 @@ class BaseRegistrySyncService[
                 tarball_path=tarball_result.tarball_path,
                 key=tarball_s3_key,
                 bucket=bucket,
+                zstd_tarball_path=tarball_result.zstd_tarball_path,
             )
             self.logger.info(
                 "Tarball venv uploaded",
                 tarball_uri=tarball_uri,
                 compressed_size_bytes=tarball_result.compressed_size_bytes,
+                zstd_compressed_size_bytes=tarball_result.zstd_compressed_size_bytes,
             )
 
             return ArtifactsBuildResult(tarball_uri=tarball_uri)

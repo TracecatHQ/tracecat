@@ -51,7 +51,9 @@ async def test_runner_passes_resolved_commit_sha_to_discovery(
     )
 
     tarball_path = tmp_path / "site-packages.tar.gz"
+    zstd_tarball_path = tmp_path / "site-packages.tar.zst"
     tarball_path.write_bytes(b"tarball")
+    zstd_tarball_path.write_bytes(b"zstd")
 
     clone_repository = mocker.patch.object(
         runner,
@@ -72,6 +74,8 @@ async def test_runner_passes_resolved_commit_sha_to_discovery(
                 tarball_name="site-packages.tar.gz",
                 content_hash="hash",
                 compressed_size_bytes=7,
+                zstd_tarball_path=zstd_tarball_path,
+                zstd_compressed_size_bytes=4,
             )
         ),
     )
@@ -145,7 +149,9 @@ async def test_runner_raises_before_upload_on_validation_errors(
     )
 
     tarball_path = tmp_path / "site-packages.tar.gz"
+    zstd_tarball_path = tmp_path / "site-packages.tar.zst"
     tarball_path.write_bytes(b"tarball")
+    zstd_tarball_path.write_bytes(b"zstd")
 
     mocker.patch.object(
         runner,
@@ -161,6 +167,8 @@ async def test_runner_raises_before_upload_on_validation_errors(
                 tarball_name="site-packages.tar.gz",
                 content_hash="hash",
                 compressed_size_bytes=7,
+                zstd_tarball_path=zstd_tarball_path,
+                zstd_compressed_size_bytes=4,
             )
         ),
     )
