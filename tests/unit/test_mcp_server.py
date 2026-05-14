@@ -5157,6 +5157,16 @@ def _make_tool_context(
     )
 
 
+def test_sentry_middleware_runs_inside_error_handling_middleware():
+    middleware_names = [
+        type(middleware).__name__ for middleware in mcp_server.mcp.middleware
+    ]
+
+    assert middleware_names.index("ErrorHandlingMiddleware") < middleware_names.index(
+        "SentryMCPMiddleware"
+    )
+
+
 @pytest.mark.anyio
 async def test_input_size_limit_allows_normal_input():
     from tracecat.mcp.middleware import MCPInputSizeLimitMiddleware
