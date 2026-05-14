@@ -10,6 +10,7 @@ class PlatformAction(StrEnum):
     AI_AGENT = "ai.agent"
     AI_PRESET_AGENT = "ai.preset_agent"
     AI_ACTION = "ai.action"
+    AI_SLACKBOT = "ai.slackbot"
     RUN_PYTHON = "core.script.run_python"
 
     @classmethod
@@ -18,6 +19,7 @@ class PlatformAction(StrEnum):
             cls.AI_AGENT,
             cls.AI_PRESET_AGENT,
             cls.AI_ACTION,
+            cls.AI_SLACKBOT,
         )
 
     @classmethod
@@ -32,6 +34,7 @@ class PlatformAction(StrEnum):
                 cls.AI_AGENT,
                 cls.AI_PRESET_AGENT,
                 cls.AI_ACTION,
+                cls.AI_SLACKBOT,
                 cls.RUN_PYTHON,
             )
         )

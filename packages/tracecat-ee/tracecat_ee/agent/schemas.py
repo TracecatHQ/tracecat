@@ -69,6 +69,51 @@ class AgentActionArgs(BaseModel):
     tool_approvals: dict[str, bool] | None = None
 
 
+class SlackbotActionArgs(BaseModel):
+    model_config = _BASE_CONFIG
+
+    # Slack event fields (passed to pre-processing activity)
+    event: dict[str, Any] | None = None
+    prompt: str = ""
+    channel_id: str = ""
+    instructions: str = ""
+    limit_messages: int = 5
+
+    # Agent config
+    model_name: str
+    model_provider: str
+    catalog_id: uuid.UUID | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _unpack_model_selection(cls, values: Any) -> Any:
+        if isinstance(values, dict):
+            values = dict(values)
+            nested = values.get("model")
+            if isinstance(nested, BaseModel):
+                nested = nested.model_dump(mode="python")
+            if not isinstance(nested, dict):
+                return values
+            for key in ("model_name", "model_provider", "catalog_id"):
+                if key in nested:
+                    values[key] = nested[key]
+        return values
+
+    actions: list[str] | None = None
+    model_settings: dict[str, Any] | None = None
+    retries: int = 6
+    max_tool_calls: int = Field(
+        default=15,
+        ge=1,
+        le=config.TRACECAT__AGENT_MAX_TOOL_CALLS,
+    )
+    max_requests: int = Field(
+        default=45,
+        ge=1,
+        le=config.TRACECAT__AGENT_MAX_REQUESTS,
+    )
+
+
 class PresetAgentActionArgs(BaseModel):
     model_config = _BASE_CONFIG
 

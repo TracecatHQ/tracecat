@@ -54,10 +54,13 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.dsl.action import (
         BuildAgentArgsActivityInput,
         BuildPresetAgentArgsActivityInput,
+        BuildSlackbotArgsActivityInput,
         DSLActivities,
         EvaluateTemplatedObjectActivityInput,
         NormalizeTriggerInputsActivityInputs,
         PrepareSubflowActivityInput,
+        SlackbotPostProcessingActivityInput,
+        SlackbotPrepareActivityInput,
         SynchronizeCollectionObjectActivityInput,
     )
     from tracecat.dsl.common import (
@@ -836,6 +839,108 @@ class DSLWorkflow:
                 return False
             current = nested
 
+    async def _execute_slackbot(
+        self,
+        task: ActionStatement,
+        agent_operand: Any,
+        stream_id: StreamID | None,
+    ) -> Any:
+        slackbot_args = await workflow.execute_activity(
+            DSLActivities.build_slackbot_args_activity,
+            arg=BuildSlackbotArgsActivityInput(
+                args=dict(task.args),
+                operand=agent_operand,
+                role=self.role,
+                task_environment=task.environment,
+                default_environment=self.run_context.environment,
+            ),
+            start_to_close_timeout=timedelta(seconds=60),
+            retry_policy=RETRY_POLICIES["activity:fail_fast"],
+        )
+        pre = await workflow.execute_activity(
+            DSLActivities.slackbot_prepare_activity,
+            arg=SlackbotPrepareActivityInput(
+                role=self.role,
+                event=slackbot_args.event,
+                prompt=slackbot_args.prompt,
+                channel_id=slackbot_args.channel_id,
+                instructions=slackbot_args.instructions,
+                limit_messages=slackbot_args.limit_messages,
+            ),
+            start_to_close_timeout=timedelta(seconds=30),
+            retry_policy=RETRY_POLICIES["activity:fail_fast"],
+        )
+        wf_info = workflow.info()
+        child_search_attributes = _build_agent_child_search_attributes(
+            wf_info, task.ref
+        )
+        session_id = workflow.uuid4()
+        default_bot_actions = [
+            "tools.slack.post_message",
+            "tools.slack.update_message",
+            "tools.slack_sdk.post_response",
+        ]
+        bot_actions = default_bot_actions + [
+            a for a in (slackbot_args.actions or []) if a not in default_bot_actions
+        ]
+        arg = AgentWorkflowArgs(
+            role=self.role,
+            agent_args=RunAgentArgs(
+                user_prompt=pre.user_prompt,
+                session_id=session_id,
+                config=AgentConfig(
+                    model_name=slackbot_args.model_name,
+                    model_provider=slackbot_args.model_provider,
+                    catalog_id=slackbot_args.catalog_id,
+                    instructions=pre.instructions,
+                    actions=bot_actions,
+                    model_settings=slackbot_args.model_settings,
+                    retries=slackbot_args.retries,
+                ),
+                max_requests=slackbot_args.max_requests,
+                max_tool_calls=slackbot_args.max_tool_calls,
+            ),
+            title=self.dsl.title,
+            entity_type=AgentSessionEntity.WORKFLOW,
+            entity_id=self.run_context.wf_id,
+        )
+        finalize_input = SlackbotPostProcessingActivityInput(
+            role=self.role,
+            channel_id=pre.channel_id,
+            ts=pre.ts,
+            thread_ts=pre.thread_ts,
+            success=True,
+        )
+        try:
+            result = await workflow.execute_child_workflow(
+                DurableAgentWorkflow.run,
+                arg=arg,
+                id=AgentWorkflowID(session_id),
+                retry_policy=RETRY_POLICIES["workflow:fail_fast"],
+                task_queue=config.TRACECAT__AGENT_QUEUE,
+                execution_timeout=wf_info.execution_timeout,
+                task_timeout=wf_info.task_timeout,
+                search_attributes=child_search_attributes,
+                memo=AgentActionMemo(
+                    action_ref=task.ref,
+                    action_title=task.title,
+                    stream_id=stream_id or ROOT_STREAM,
+                    mask_output=task.mask_output,
+                ).model_dump(),
+            )
+        except Exception:
+            finalize_input = finalize_input.model_copy(update={"success": False})
+            raise
+        finally:
+            if pre.ts:
+                await workflow.execute_activity(
+                    DSLActivities.slackbot_finalize_activity,
+                    arg=finalize_input,
+                    start_to_close_timeout=timedelta(seconds=30),
+                    retry_policy=RETRY_POLICIES["activity:fail_fast"],
+                )
+        return result
+
     @maybe_interactive
     async def _execute_task(self, task: ActionStatement) -> TaskResult:
         """Purely execute a task and manage the results.
@@ -1158,6 +1263,13 @@ class DSLWorkflow:
                             stream_id=stream_id or ROOT_STREAM,
                             mask_output=task.mask_output,
                         ).model_dump(),
+                    )
+                case PlatformAction.AI_SLACKBOT:
+                    self.logger.debug("Executing Slackbot agent", task=task)
+                    agent_operand = self._build_action_context(task, stream_id)
+                    self._set_logical_time_context()
+                    action_result = await self._execute_slackbot(
+                        task, agent_operand, stream_id
                     )
                 case _:
                     # Below this point, we're executing the task

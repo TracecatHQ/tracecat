@@ -6,16 +6,24 @@ from collections.abc import Callable, Coroutine, Mapping
 from typing import Any, cast
 
 import dateparser
+import orjson
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from slack_sdk.errors import SlackApiError
+from slack_sdk.web.async_client import AsyncWebClient
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
-from tracecat_ee.agent.schemas import AgentActionArgs, PresetAgentActionArgs
+from tracecat_ee.agent.schemas import (
+    AgentActionArgs,
+    PresetAgentActionArgs,
+    SlackbotActionArgs,
+)
 
 from tracecat import config
 from tracecat.agent.common.types import MCPServerConfig
 from tracecat.agent.preset.service import AgentPresetService
 from tracecat.auth.types import Role
 from tracecat.common import is_iterable
+from tracecat.contexts import ctx_role
 from tracecat.dsl.common import (
     MAX_LOOP_ITERATIONS,
     DSLInput,
@@ -52,6 +60,8 @@ from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.integrations.mcp_validation import MCPValidationError
 from tracecat.logger import logger
 from tracecat.registry.lock.types import RegistryLock
+from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
+from tracecat.secrets.service import SecretsService
 from tracecat.storage.collection import (
     materialize_collection_values,
     store_collection,
@@ -180,6 +190,39 @@ class BuildPresetAgentArgsActivityInput(BaseModel):
     role: Role
     task_environment: str | None
     default_environment: str
+
+
+class BuildSlackbotArgsActivityInput(BaseModel):
+    args: dict[str, Any]
+    operand: ExecutionContext
+    role: Role
+    task_environment: str | None
+    default_environment: str
+
+
+class SlackbotPrepareActivityInput(BaseModel):
+    role: Role
+    event: dict[str, Any] | None
+    prompt: str
+    channel_id: str
+    instructions: str
+    limit_messages: int
+
+
+class SlackbotPrepareActivityResult(BaseModel):
+    user_prompt: str
+    instructions: str
+    channel_id: str
+    ts: str | None
+    thread_ts: str | None
+
+
+class SlackbotPostProcessingActivityInput(BaseModel):
+    role: Role
+    channel_id: str
+    ts: str | None
+    thread_ts: str | None
+    success: bool
 
 
 class EvaluateTemplatedObjectActivityInput(BaseModel):
@@ -713,6 +756,336 @@ class DSLActivities:
             eval_templated_object, args, operand=materialized
         )
         return PresetAgentActionArgs(**evaled_args)
+
+    @staticmethod
+    @activity.defn
+    async def build_slackbot_args_activity(
+        input: BuildSlackbotArgsActivityInput,
+    ) -> SlackbotActionArgs:
+        """Resolve and evaluate templated slackbot action args. No I/O."""
+        ctx_role.set(input.role)
+        operand = input.operand
+        materialized = await materialize_context(operand)
+        environment = await asyncio.to_thread(
+            _resolve_environment,
+            input.task_environment,
+            input.default_environment,
+            materialized,
+        )
+        collected = await asyncio.to_thread(collect_expressions, input.args)
+        if collected.variables:
+            workspace_variables = await get_workspace_variables(
+                variable_exprs=collected.variables,
+                environment=environment,
+                role=input.role,
+            )
+            if workspace_variables:
+                operand["VARS"] = workspace_variables
+                materialized = await materialize_context(operand)
+        args = _strip_string_values(input.args)
+        evaled_args = await asyncio.to_thread(
+            eval_templated_object, args, operand=materialized
+        )
+        return SlackbotActionArgs(**evaled_args)
+
+    @staticmethod
+    @activity.defn
+    async def slackbot_prepare_activity(
+        input: SlackbotPrepareActivityInput,
+    ) -> SlackbotPrepareActivityResult:
+        """Ack the Slack event, fetch thread/channel history, build prompts.
+
+        All Slack I/O side effects happen here. Returns the resolved
+        user_prompt and instructions (via Slack*Prompts) plus cleanup context.
+        """
+        ctx_role.set(input.role)
+        async with SecretsService.with_session(role=input.role) as secrets_svc:
+            secret = await secrets_svc.get_secret_by_name(
+                "slack", DEFAULT_SECRETS_ENVIRONMENT
+            )
+            kv = {
+                k.key: k.value.get_secret_value()
+                for k in secrets_svc.decrypt_keys(secret.encrypted_keys)
+            }
+        client = AsyncWebClient(token=kv["SLACK_BOT_TOKEN"])
+
+        event = input.event
+        channel_id = input.channel_id
+        limit_messages = input.limit_messages
+        ts: str | None = None
+        thread_ts: str | None = None
+
+        import textwrap
+        from datetime import UTC, datetime
+
+        import yaml
+
+        def _ts_to_dt(ts: str | None) -> str:
+            if not ts:
+                return "unknown"
+            try:
+                return datetime.fromtimestamp(float(ts), tz=UTC).isoformat()
+            except (TypeError, ValueError):
+                return "unknown"
+
+        def _format_messages(msgs: list[dict]) -> str:
+            lines = []
+            for m in msgs:
+                ts_iso = _ts_to_dt(m.get("ts"))
+                user = (
+                    m.get("user") or m.get("username") or m.get("bot_id") or "unknown"
+                )
+                text = m.get("text") or ""
+                line = f"{user} [{ts_iso}]: {text}".strip()
+                if line:
+                    lines.append(line)
+            return "\n".join(reversed(lines))
+
+        now = datetime.now(tz=UTC).isoformat()
+        user_prompt: str
+        instructions: str
+
+        if event and ("event" in event or "payload" in event):
+            if event.get("event", {}).get("type") == "app_mention":
+                event_body = event["event"]
+                ts = event_body["ts"]
+                thread_ts = event_body.get("thread_ts")
+                channel_id = event_body["channel"]
+                trigger_user = event_body.get("user") or "unknown"
+                try:
+                    await client.api_call(
+                        "reactions.add",
+                        params={"channel": channel_id, "timestamp": ts, "name": "eyes"},
+                    )
+                except SlackApiError as e:
+                    if e.response.get("error") == "already_reacted":
+                        raise ApplicationError(
+                            "Another agent has already reacted to this message.",
+                            non_retryable=True,
+                        ) from e
+                    raise
+                if thread_ts:
+                    resp = await client.api_call(
+                        "conversations.replies",
+                        params={
+                            "channel": channel_id,
+                            "ts": thread_ts,
+                            "limit": limit_messages,
+                        },
+                    )
+                else:
+                    resp = await client.api_call(
+                        "conversations.history",
+                        params={"channel": channel_id, "limit": limit_messages},
+                    )
+                    thread_ts = ts
+                messages = resp.get("messages", [])
+                user_prompt = _format_messages(messages)
+                instructions = textwrap.dedent(f"""
+                    You are an expert Slackbot responding to a user who mentioned you in channel <ChannelID>{channel_id}</ChannelID>.
+                    The conversation transcript is attached for context.
+
+                    Steps:
+                    1. Review the transcript to understand the situation and the latest app mention that triggered you at <TriggerTS>{_ts_to_dt(ts)}</TriggerTS>.
+                    2. Check if you're already responded to the most recent message in the thread. If you have, stop and summarize what you've posted as the final agent output.
+                    3. Formulate a concise, helpful reply that resolves the user's request.
+                    4. Call `tools.slack.post_message` exactly once with `channel` set to `{channel_id}` and `thread_ts` set to `{thread_ts}` so your reply stays in the thread.
+                    5. Immediately after the tool call, output the single token `DONE` as your final assistant message (not via a Slack tool) and halt.
+
+                    <ThreadTS>{thread_ts}</ThreadTS>
+                    <TriggerTS>{_ts_to_dt(ts)}</TriggerTS>
+                    <MentionedUser>{trigger_user}</MentionedUser>
+                    <TimeRightNow>{now}</TimeRightNow>
+
+                    <IMPORTANT>
+                    - Respond only once and stop immediately after the tool call.
+                    - Address the newest user message directly; do not repeat earlier bot output or loop on prior prompts.
+                    - Keep the tone friendly, confident, and appropriately brief.
+                    - After posting, do not call any other tools; the `DONE` message ends the run.
+                    </IMPORTANT>
+
+                    <TaggingUsers>
+                    You can tag users in the channel by using their user ID in the format `<@some-user-id>`.
+                    </TaggingUsers>
+
+                    <instructions>
+                    {input.instructions}
+                    </instructions>
+                """)
+
+            elif "payload" in event:
+                payload = orjson.loads(event["payload"])
+                container = payload["container"]
+                channel_id = container["channel_id"]
+                ts = container["message_ts"]
+                thread_ts = container.get("thread_ts", ts)
+                response_url = payload.get("response_url") or (
+                    payload.get("response_urls", [{}])[0].get("response_url", "")
+                )
+                acting_user = payload.get("user", {}).get("id") or "unknown"
+                callback = payload.get("callback_id") or "n/a"
+                actions = payload.get("actions", [])
+                actions_yaml = yaml.safe_dump(actions, sort_keys=False).strip()
+                try:
+                    await client.api_call(
+                        "reactions.add",
+                        params={"channel": channel_id, "timestamp": ts, "name": "eyes"},
+                    )
+                except SlackApiError as e:
+                    if e.response.get("error") == "already_reacted":
+                        raise ApplicationError(
+                            "Another agent has already reacted to this message.",
+                            non_retryable=True,
+                        ) from e
+                    raise
+                if thread_ts:
+                    resp = await client.api_call(
+                        "conversations.replies",
+                        params={
+                            "channel": channel_id,
+                            "ts": thread_ts,
+                            "limit": limit_messages,
+                        },
+                    )
+                else:
+                    resp = await client.api_call(
+                        "conversations.history",
+                        params={"channel": channel_id, "limit": limit_messages},
+                    )
+                    thread_ts = ts
+                messages = resp.get("messages", [])
+                user_prompt = _format_messages(messages)
+                instructions = textwrap.dedent(f"""
+                    You are handling a Slack interaction payload inside channel <ChannelID>{channel_id}</ChannelID>.
+                    The current conversation context and action summary are provided.
+
+                    Steps:
+                    1. Review the transcript and payload details to understand what the user needs.
+                    2. Check if you've already responded to the most recent message in the thread. If you have, stop and summarize what you've posted as the final agent output.
+                    3. Use `tools.slack_sdk.post_response` once to update the interactive message via <ResponseURL>{response_url}</ResponseURL>. Set `replace_original` to true. Update the message to show who performed the action and what action they took.
+                    4. After updating the interactive message, call `tools.slack.post_message` exactly once with `thread_ts` set to `{thread_ts}` and `channel` set to `{channel_id}` to provide a follow-up response that explains:
+                       - Who did what (reference the acting user and their specific action)
+                       - What happens next (clear next steps or outcomes)
+                    5. Immediately after the confirmation reply, output the literal word `DONE` as your final assistant message (not via Slack) to finish the run.
+
+                    <ThreadTS>{thread_ts}</ThreadTS>
+                    <TriggerTS>{_ts_to_dt(ts)}</TriggerTS>
+                    <CallbackID>{callback}</CallbackID>
+                    <ActingUser>{acting_user}</ActingUser>
+                    <TimeRightNow>{now}</TimeRightNow>
+
+                    Interaction actions:
+                    ```yaml
+                    {actions_yaml}
+                    ```
+
+                    <IMPORTANT>
+                    - Maintain the order: update the interactive message first, then post exactly one confirmation reply in the thread.
+                    - Do not call `tools.slack.update_message` unless the injected instructions explicitly require it.
+                    - Stop immediately after the confirmation reply and emit the standalone `DONE` message to close the run.
+                    </IMPORTANT>
+
+                    <TaggingUsers>
+                    You can tag users in the channel by using their user ID in the format `<@some-user-id>`.
+                    </TaggingUsers>
+
+                    <instructions>
+                    {input.instructions}
+                    </instructions>
+                """)
+            else:
+                raise ApplicationError(
+                    "Unsupported Slack event type.", non_retryable=True
+                )
+        else:
+            user_prompt = input.prompt
+            instructions = textwrap.dedent(f"""
+                You are an expert Slackbot preparing a proactive update for channel <ChannelID>{channel_id}</ChannelID>.
+
+                Steps:
+                1. Study the planning instructions block.
+                2. Check if you're already responded to the most recent message in the thread. If you have, stop and summarize what you've posted as the final agent output.
+                3. Compose exactly one Slack message that satisfies those instructions.
+                4. Call `tools.slack.post_message` once with `channel` set to `{channel_id}` and do not provide `thread_ts`.
+                5. Immediately after the tool call, end the run by emitting the literal word `DONE` as your final assistant message (do not send it to Slack).
+
+                <TimeRightNow>{now}</TimeRightNow>
+
+                <IMPORTANT>
+                - Post only once; after the tool call, stop.
+                - Do not fabricate additional context beyond what the instructions provide.
+                - Keep the tone clear, professional, and tailored to the audience described.
+                - Never call any additional tools after you've posted once; the closing `DONE` text completes the run.
+                </IMPORTANT>
+
+                <TaggingUsers>
+                You can tag users in the channel by using their user ID in the format `<@some-user-id>`.
+                </TaggingUsers>
+
+                <instructions>
+                {input.instructions}
+                </instructions>
+            """)
+
+        return SlackbotPrepareActivityResult(
+            user_prompt=user_prompt,
+            instructions=instructions,
+            channel_id=channel_id,
+            ts=ts,
+            thread_ts=thread_ts,
+        )
+
+    @staticmethod
+    @activity.defn
+    async def slackbot_finalize_activity(
+        input: SlackbotPostProcessingActivityInput,
+    ) -> None:
+        """Remove the ack reaction and optionally post an error notification."""
+        ctx_role.set(input.role)
+        async with SecretsService.with_session(role=input.role) as secrets_svc:
+            secret = await secrets_svc.get_secret_by_name(
+                "slack", DEFAULT_SECRETS_ENVIRONMENT
+            )
+            kv = {
+                k.key: k.value.get_secret_value()
+                for k in secrets_svc.decrypt_keys(secret.encrypted_keys)
+            }
+        client = AsyncWebClient(token=kv["SLACK_BOT_TOKEN"])
+
+        if input.ts:
+            try:
+                await client.api_call(
+                    "reactions.remove",
+                    params={
+                        "channel": input.channel_id,
+                        "timestamp": input.ts,
+                        "name": "eyes",
+                    },
+                )
+            except Exception:
+                pass
+
+        if not input.success:
+            if input.ts:
+                try:
+                    await client.api_call(
+                        "reactions.add",
+                        params={
+                            "channel": input.channel_id,
+                            "timestamp": input.ts,
+                            "name": "warning",
+                        },
+                    )
+                except Exception:
+                    pass
+            await client.api_call(
+                "chat.postMessage",
+                params={
+                    "channel": input.channel_id,
+                    "text": "I'm having trouble responding to your message. Please try again.",
+                    "thread_ts": input.thread_ts,
+                },
+            )
 
     @staticmethod
     @activity.defn
