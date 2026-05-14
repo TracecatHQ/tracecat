@@ -28,7 +28,7 @@ export function beforeSend(
 
 function scrubValue(value: unknown, depth = 0): unknown {
   if (depth > MAX_SCRUB_DEPTH) {
-    return value
+    return REDACTED_VALUE
   }
   if (Array.isArray(value)) {
     return value.map((item) => scrubValue(item, depth + 1))

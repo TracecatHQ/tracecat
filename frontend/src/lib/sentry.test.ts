@@ -26,4 +26,38 @@ describe("beforeSend", () => {
     expect(request.privateKey).toBe("[Filtered]")
     expect(request.safe).toBe("visible")
   })
+
+  it("redacts values beyond the scrub depth limit", () => {
+    const event = {
+      contexts: {
+        payload: {
+          d1: {
+            d2: {
+              d3: {
+                d4: {
+                  d5: {
+                    d6: {
+                      d7: {
+                        d8: {
+                          d9: {
+                            safeLookingField: "deep-secret",
+                          },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    } as unknown as ErrorEvent
+
+    const result = beforeSend(event, {} as EventHint)
+    const serialized = JSON.stringify(result)
+
+    expect(serialized).toContain("[Filtered]")
+    expect(serialized).not.toContain("deep-secret")
+  })
 })
