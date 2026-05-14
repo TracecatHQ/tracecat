@@ -20,21 +20,6 @@ on:
     # Full compose coverage is intentionally off the PR critical path.
     - cron: "17 * * * *"
   workflow_dispatch:
-  pull_request:
-    branches: ["main", "staging"]
-    paths:
-      - tracecat/**
-      - registry/**
-      - tests/integration/**
-      - tests/temporal/**
-      - pyproject.toml
-      - uv.lock
-      - Dockerfile
-      - .github/docker-compose.integration.yml
-      - docker-compose.yml
-      - docker-compose.dev.yml
-      - docker-compose.local.yml
-      - .github/workflows/run-integration-tests.yml
 
 permissions:
   contents: read
@@ -44,12 +29,6 @@ jobs:
   # 1.  LIGHTWEIGHT SSH / INSTALL SMOKE-TEST
   # ──────────────────────────────────────────────────────────────────
   ssh-sanity:
-    if: >-
-      github.event_name != 'pull_request' ||
-      (
-        github.event_name == 'pull_request' &&
-        github.event.pull_request.head.repo.full_name == github.repository
-      )
     environment: internal-registry-ci
     runs-on: ubuntu-latest
     timeout-minutes: 5 # short fail-fast window
@@ -90,8 +69,6 @@ jobs:
   #     Uses worker-specific task queues from conftest.py for isolation
   # ──────────────────────────────────────────────────────────────────
   test-integration:
-    if: >-
-      github.event_name != 'pull_request'
     needs: ssh-sanity # only start if key check passed
     environment: internal-registry-ci
     runs-on: blacksmith-8vcpu-ubuntu-2204
