@@ -5505,18 +5505,6 @@ export const $BedrockCatalogTest = {
       title: "Use Converse",
       default: true,
     },
-    workspace_id: {
-      anyOf: [
-        {
-          type: "string",
-          format: "uuid",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Workspace Id",
-    },
   },
   additionalProperties: false,
   type: "object",

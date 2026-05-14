@@ -29,7 +29,7 @@ async def test_verify_bedrock_catalog_target_requires_region() -> None:
 
 @pytest.mark.anyio
 async def test_verify_bedrock_catalog_target_requires_external_id_for_role() -> None:
-    with pytest.raises(BedrockVerificationError, match="workspace"):
+    with pytest.raises(BedrockVerificationError, match="AWS External ID"):
         await verify_bedrock_catalog_target(
             credentials={
                 "AWS_ROLE_ARN": "arn:aws:iam::123456789012:role/customer-role",

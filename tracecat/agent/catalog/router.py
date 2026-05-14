@@ -3,7 +3,6 @@
 from uuid import UUID
 
 from fastapi import APIRouter, Body, HTTPException, Query, status
-from sqlalchemy import select
 
 from tracecat.agent.access.service import AgentModelAccessService
 from tracecat.agent.catalog.bedrock_validation import (
@@ -23,9 +22,8 @@ from tracecat.agent.service import AgentManagementService
 from tracecat.auth.dependencies import OrgUserRole, WorkspaceUserPathRole
 from tracecat.authz.controls import require_scope
 from tracecat.db.dependencies import AsyncDBSession
-from tracecat.db.models import Workspace
 from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
-from tracecat.integrations.aws_assume_role import build_workspace_external_id
+from tracecat.integrations.aws_assume_role import build_organization_external_id
 from tracecat.pagination import CursorPaginationParams
 
 router = APIRouter()
@@ -102,7 +100,7 @@ async def create_catalog_entry(
     "/organization/agent-catalog/bedrock/test",
     response_model=BedrockCatalogTestResponse,
 )
-@require_scope("agent:create", "agent:update", require_all=False)
+@require_scope("agent:execute")
 async def test_bedrock_catalog_target(
     role: OrgUserRole,
     session: AsyncDBSession,
@@ -119,20 +117,11 @@ async def test_bedrock_catalog_target(
             error="Configure AWS Bedrock credentials before verifying a model.",
         )
 
-    if params.workspace_id is not None:
-        workspace_id = await session.scalar(
-            select(Workspace.id).where(
-                Workspace.id == params.workspace_id,
-                Workspace.organization_id == role.organization_id,
-            )
-        )
-        if workspace_id is None:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Workspace {params.workspace_id} not found",
-            )
+    if "AWS_ROLE_ARN" in credentials and "TRACECAT_AWS_EXTERNAL_ID" not in credentials:
         credentials = credentials | {
-            "TRACECAT_AWS_EXTERNAL_ID": build_workspace_external_id(params.workspace_id)
+            "TRACECAT_AWS_EXTERNAL_ID": build_organization_external_id(
+                role.organization_id
+            )
         }
 
     try:

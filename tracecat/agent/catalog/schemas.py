@@ -147,7 +147,6 @@ class BedrockCatalogTest(BaseModel):
     inference_profile_id: str | None = Field(default=None, min_length=1)
     model_id: str | None = Field(default=None, min_length=1)
     use_converse: bool = True
-    workspace_id: UUID | None = None
 
     @model_validator(mode="after")
     def _require_one_model_ref(self) -> "BedrockCatalogTest":

@@ -27,7 +27,7 @@ def _assume_bedrock_role(credentials: dict[str, str]) -> dict[str, str]:
     external_id = credentials.get(_AWS_ASSUME_ROLE_EXTERNAL_ID_SECRET_KEY)
     if not external_id:
         raise BedrockVerificationError(
-            "Bedrock role credentials require a workspace to build the AWS External ID."
+            "Bedrock role credentials require a Tracecat-provided AWS External ID."
         )
     session_name = (
         credentials.get("AWS_ROLE_SESSION_NAME", "").strip()
