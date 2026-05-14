@@ -1,49 +1,96 @@
 name: Integration Tests
 
 on:
-  push:
-    branches: ["main"]
-    paths:
-      - tracecat/**
-      - registry/**
-      - tests/integration/**
-      - pyproject.toml
-      - uv.lock
-      - Dockerfile
-      - .github/docker-compose.integration.yml
-      - docker-compose.yml
-      - docker-compose.dev.yml
-      - docker-compose.local.yml
-      - .github/workflows/run-integration-tests.yml
-  pull_request:
-    branches: ["main", "staging"]
-    paths:
-      - tracecat/**
-      - registry/**
-      - tests/integration/**
-      - pyproject.toml
-      - uv.lock
-      - Dockerfile
-      - .github/docker-compose.integration.yml
-      - docker-compose.yml
-      - docker-compose.dev.yml
-      - docker-compose.local.yml
-      - .github/workflows/run-integration-tests.yml
+  schedule:
+    # GitHub cron is UTC. The plan-run job enforces 10:00-18:00 America/New_York.
+    - cron: "*/30 14-23 * * 1-5"
+  workflow_dispatch:
 
 permissions:
   contents: read
 
+concurrency:
+  group: integration-tests-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
+  plan-run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      should_run: ${{ steps.decision.outputs.should_run }}
+      cache_hit: ${{ steps.decision.outputs.cache_hit }}
+    steps:
+      - name: Check trigger policy
+        id: trigger-policy
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          ACTOR: ${{ github.actor }}
+          TRIGGERING_ACTOR: ${{ github.triggering_actor || github.actor }}
+          TRUSTED_CI_ACTORS_JSON: ${{ vars.TRUSTED_CI_ACTORS_JSON || '[]' }}
+        run: |
+          set -euo pipefail
+
+          echo "candidate=false" >> "$GITHUB_OUTPUT"
+
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            if [ "$ACTOR" != "github-actions[bot]" ] &&
+              ! jq -e --arg actor "$TRIGGERING_ACTOR" 'index($actor)' <<< "$TRUSTED_CI_ACTORS_JSON" >/dev/null; then
+              echo "Manual integration run is not trusted for actor: $TRIGGERING_ACTOR" >&2
+              exit 1
+            fi
+            echo "candidate=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          local_dow=$(TZ=America/New_York date +%u)
+          local_hhmm=$(TZ=America/New_York date +%H%M)
+          if [ "$local_dow" -gt 5 ] || [[ "$local_hhmm" < "1000" || "$local_hhmm" > "1800" ]]; then
+            echo "Outside integration window in America/New_York: weekday=$local_dow time=$local_hhmm"
+            exit 0
+          fi
+
+          echo "candidate=true" >> "$GITHUB_OUTPUT"
+
+      - name: Check prior successful integration for this commit
+        id: integration-success
+        if: steps.trigger-policy.outputs.candidate == 'true'
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: .integration-success
+          key: integration-tests-success-v1-${{ github.sha }}
+          lookup-only: true
+
+      - name: Decide whether integration should run
+        id: decision
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          CANDIDATE: ${{ steps.trigger-policy.outputs.candidate }}
+          CACHE_HIT: ${{ steps.integration-success.outputs.cache-hit || 'false' }}
+        run: |
+          set -euo pipefail
+
+          echo "cache_hit=$CACHE_HIT" >> "$GITHUB_OUTPUT"
+
+          if [ "$CANDIDATE" != "true" ]; then
+            echo "should_run=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if [ "$EVENT_NAME" = "schedule" ] && [ "$CACHE_HIT" = "true" ]; then
+            echo "Integration already passed for this commit; skipping scheduled run."
+            echo "should_run=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "should_run=true" >> "$GITHUB_OUTPUT"
+
   # ──────────────────────────────────────────────────────────────────
   # 1.  LIGHTWEIGHT SSH / INSTALL SMOKE-TEST
   # ──────────────────────────────────────────────────────────────────
   ssh-sanity:
-    if: >-
-      github.event_name == 'push' ||
-      (
-        github.event_name == 'pull_request' &&
-        github.event.pull_request.head.repo.full_name == github.repository
-      )
+    needs: plan-run
+    if: needs.plan-run.outputs.should_run == 'true'
     environment: internal-registry-ci
     runs-on: ubuntu-latest
     timeout-minutes: 5 # short fail-fast window
@@ -84,13 +131,8 @@ jobs:
   #     Uses worker-specific task queues from conftest.py for isolation
   # ──────────────────────────────────────────────────────────────────
   test-integration:
-    if: >-
-      github.event_name == 'push' ||
-      (
-        github.event_name == 'pull_request' &&
-        github.event.pull_request.head.repo.full_name == github.repository
-      )
-    needs: ssh-sanity # only start if key check passed
+    needs: [plan-run, ssh-sanity] # only start if key check passed
+    if: needs.plan-run.outputs.should_run == 'true' && needs.ssh-sanity.result == 'success'
     environment: internal-registry-ci
     runs-on: blacksmith-8vcpu-ubuntu-2204
     timeout-minutes: 30
@@ -116,8 +158,8 @@ jobs:
           sudo sysctl -w net.ipv6.conf.all.disable_ipv6=1
           sudo sysctl -w net.ipv6.conf.default.disable_ipv6=1
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+      - name: Set up Docker builder
+        uses: useblacksmith/setup-docker-builder@78f41686563c732ccc097f7baac2f092f67538f0 # v1
 
       - name: Run environment setup script
         run: |
@@ -126,7 +168,15 @@ jobs:
           n
           test@tracecat.com" | bash env.sh
 
-      - name: Build image and start core Docker services
+      - name: Build CI image
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: .
+          target: production
+          load: true
+          tags: tracecat-ci:integration-${{ github.run_id }}-${{ github.run_attempt }}
+
+      - name: Start core Docker services
         env:
           TRACECAT__CI_IMAGE_TAG: integration-${{ github.run_id }}-${{ github.run_attempt }}
           TRACECAT__UNSAFE_DISABLE_SM_MASKING: "true"
@@ -138,9 +188,8 @@ jobs:
           set -euo pipefail
 
           compose_files=(-f docker-compose.local.yml -f .github/docker-compose.integration.yml)
-          image="tracecat-ci:${TRACECAT__CI_IMAGE_TAG}"
 
-          # Overlap host dependency setup with the Docker image build and service startup.
+          # Overlap host dependency setup with service startup.
           uv sync --locked --group dev &
           uv_sync_pid=$!
           cleanup_uv_sync() {
@@ -150,7 +199,6 @@ jobs:
           }
           trap cleanup_uv_sync EXIT
 
-          docker buildx build --load --target production -t "$image" .
           docker compose "${compose_files[@]}" up --no-build -d temporal api worker executor postgres_db caddy minio redis
 
           # Wait for services with health checks to become healthy
@@ -159,9 +207,10 @@ jobs:
             while true; do
               # Get health status of all services, filter to those with health checks
               # A service is ready when Health is exactly "healthy" (not empty, null, or starting)
-              # Note: docker compose ps --format json outputs JSON Lines (one object per line),
-              # so we use jq -s to slurp them into an array first
-              statuses=$(docker compose -f docker-compose.local.yml -f .github/docker-compose.integration.yml ps --format json | jq -s -r ".[] | select(.Health != null and .Health != \"\") | .Health")
+              statuses=$(
+                docker compose -f docker-compose.local.yml -f .github/docker-compose.integration.yml ps --format json |
+                  jq -r "if type == \"array\" then .[] else . end | select(.Health != null and .Health != \"\") | .Health"
+              )
 
               # Count healthy vs total services with health checks
               total=$(echo "$statuses" | grep -c . || true)
@@ -207,6 +256,15 @@ jobs:
           # faulthandler_timeout=300: dump thread state after 5min for extra debugging
           uv run --no-sync pytest tests/integration --ignore=tests/integration/test_pool_integration.py -m "not live_secret" -n auto -ra -v -o faulthandler_timeout=300
 
+      - name: Run API-backed temporal tests against compose
+        env:
+          TRACECAT_TEST_API_MODE: "external"
+          TRACECAT_TEST_EXTERNAL_API_URL: "http://localhost/api"
+          TEMPORAL__CLUSTER_URL: "localhost:7233"
+          TRACECAT__DISABLE_NSJAIL: "true"
+        run: |
+          uv run --no-sync pytest tests/temporal -m "requires_api and not live_secret" -n auto -ra -v -o faulthandler_timeout=300
+
       - name: Show Docker logs on failure
         if: failure()
         env:
@@ -245,3 +303,16 @@ jobs:
           TRACECAT__CI_IMAGE_TAG: integration-${{ github.run_id }}-${{ github.run_attempt }}
         run: |
           docker compose -f docker-compose.local.yml -f .github/docker-compose.integration.yml down -v
+
+      - name: Create integration success marker
+        if: success() && needs.plan-run.outputs.cache_hit != 'true'
+        run: |
+          mkdir -p .integration-success
+          printf '%s\n' "$GITHUB_SHA" > .integration-success/head-sha
+
+      - name: Save integration success marker
+        if: success() && needs.plan-run.outputs.cache_hit != 'true'
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: .integration-success
+          key: integration-tests-success-v1-${{ github.sha }}

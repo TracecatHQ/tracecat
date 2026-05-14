@@ -1,7 +1,12 @@
 import asyncio
 import importlib
 import os
+import socket
+import subprocess
+import sys
+import tempfile
 import time
+import urllib.request
 import uuid
 from collections.abc import AsyncGenerator, Callable, Iterator
 from concurrent.futures import ThreadPoolExecutor
@@ -144,6 +149,26 @@ def _lock_test_db_setup(conn: Any, db_uri: str) -> None:
         text("SELECT pg_advisory_xact_lock(hashtext(:lock_key)::bigint)"),
         {"lock_key": f"tests:db-setup:{db_name}"},
     )
+
+
+def _get_free_tcp_port() -> int:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind(("127.0.0.1", 0))
+        return int(sock.getsockname()[1])
+
+
+def _wait_for_http_ok(url: str, *, timeout: float = 45.0) -> None:
+    deadline = time.monotonic() + timeout
+    last_error: Exception | None = None
+    while time.monotonic() < deadline:
+        try:
+            with urllib.request.urlopen(url, timeout=1.0) as response:
+                if 200 <= response.getcode() < 300:
+                    return
+        except Exception as exc:
+            last_error = exc
+        time.sleep(0.2)
+    raise RuntimeError(f"Timed out waiting for {url}: {last_error}")
 
 
 PG_PORT = int(os.environ.get("PG_PORT", "5432"))
@@ -1206,6 +1231,107 @@ def env_sandbox(monkeysession: pytest.MonkeyPatch):
 
 
 @pytest.fixture(scope="session")
+def inprocess_api_server(
+    env_sandbox: None,
+    default_org: None,
+    workflow_bucket: None,
+    redis_server: None,
+    monkeysession: pytest.MonkeyPatch,
+) -> Iterator[str]:
+    """Run the real Tracecat API on localhost without building the Docker image.
+
+    The API runs in a separate local process instead of a thread so SQLAlchemy's
+    async engine/pool is never shared across the pytest and Uvicorn event loops.
+    """
+    port = _get_free_tcp_port()
+    api_url = f"http://127.0.0.1:{port}"
+    monkeysession.setattr(config, "TRACECAT__API_URL", api_url)
+    monkeysession.setenv("TRACECAT__API_URL", api_url)
+    monkeysession.setattr(config, "TRACECAT__PUBLIC_API_URL", f"{api_url}/api")
+    monkeysession.setenv("TRACECAT__PUBLIC_API_URL", f"{api_url}/api")
+
+    api_env = os.environ.copy()
+    api_env["TRACECAT__API_URL"] = api_url
+    api_env["TRACECAT__PUBLIC_API_URL"] = f"{api_url}/api"
+
+    log_file = tempfile.NamedTemporaryFile(
+        mode="w+",
+        prefix=f"tracecat-api-{WORKER_ID}-",
+        suffix=".log",
+        delete=True,
+    )
+    process = subprocess.Popen(
+        [
+            sys.executable,
+            "-m",
+            "uvicorn",
+            "tracecat.api.app:app",
+            "--host",
+            "127.0.0.1",
+            "--port",
+            str(port),
+            "--log-level",
+            "warning",
+            "--no-access-log",
+        ],
+        env=api_env,
+        stdout=log_file,
+        stderr=subprocess.STDOUT,
+        text=True,
+    )
+    try:
+        _wait_for_http_ok(f"{api_url}/health")
+        yield api_url
+    except Exception as exc:
+        process.terminate()
+        try:
+            process.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait(timeout=10)
+        log_file.seek(0)
+        logs = log_file.read()[-4000:]
+        raise RuntimeError(f"Tracecat API test server failed. Logs:\n{logs}") from exc
+    finally:
+        if process.poll() is None:
+            process.terminate()
+            try:
+                process.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait(timeout=10)
+        log_file.close()
+
+
+@pytest.fixture(autouse=True)
+def api_server_for_requires_api_tests(
+    request: pytest.FixtureRequest,
+    monkeysession: pytest.MonkeyPatch,
+) -> None:
+    """Select the API harness for tests marked ``requires_api``.
+
+    PR CI uses an in-process uvicorn server to keep behavioral coverage without
+    building the API image. Full integration jobs keep using the external API.
+    """
+    if request.node.get_closest_marker("requires_api") is None:
+        return
+
+    mode = os.environ.get("TRACECAT_TEST_API_MODE", "external")
+    if mode == "inprocess":
+        request.getfixturevalue("inprocess_api_server")
+    elif mode == "external":
+        if api_url := os.environ.get("TRACECAT_TEST_EXTERNAL_API_URL"):
+            monkeysession.setattr(config, "TRACECAT__API_URL", api_url)
+            monkeysession.setenv("TRACECAT__API_URL", api_url)
+        return
+    else:
+        pytest.fail(
+            "TRACECAT_TEST_API_MODE must be either 'inprocess' or 'external', "
+            f"got {mode!r}"
+        )
+
+
+@pytest.fixture(scope="session")
 def mock_user_id() -> uuid.UUID:
     # Predictable uuid4 for testing
     return uuid.UUID("44444444-aaaa-4444-aaaa-444444444444")
@@ -1576,12 +1702,13 @@ def minio_server():
 
 @pytest.fixture(scope="session", autouse=True)
 def workflow_bucket(minio_server, env_sandbox):
-    """Create the workflow bucket for result externalization and reset object storage.
+    """Create test storage buckets and reset object storage.
 
     This fixture:
     1. Creates the bucket used by S3ObjectStorage for StoredObject externalization
-    2. Reloads the blob module to pick up the test config
-    3. Resets the object storage singleton so it uses S3ObjectStorage
+    2. Creates API-owned buckets that are needed when tests run without API startup
+    3. Reloads the blob module to pick up the test config
+    4. Resets the object storage singleton so it uses S3ObjectStorage
 
     Session-scoped and autouse to ensure all tests use S3-backed object storage.
     Depends on env_sandbox to ensure config is set before we create the bucket.
@@ -1592,7 +1719,6 @@ def workflow_bucket(minio_server, env_sandbox):
     # Reload blob module to pick up MinIO config
     importlib.reload(blob)
 
-    # Create workflow bucket if it doesn't exist
     access_key, secret_key = _minio_credentials()
     client = Minio(
         f"localhost:{MINIO_PORT}",
@@ -1600,13 +1726,20 @@ def workflow_bucket(minio_server, env_sandbox):
         secret_key=secret_key,
         secure=False,
     )
-    try:
-        if not client.bucket_exists(MINIO_WORKFLOW_BUCKET):
-            client.make_bucket(MINIO_WORKFLOW_BUCKET)
-            logger.info(f"Created workflow bucket: {MINIO_WORKFLOW_BUCKET}")
-    except S3Error as e:
-        if e.code != "BucketAlreadyOwnedByYou":
-            raise
+    bucket_names = {
+        config.TRACECAT__BLOB_STORAGE_BUCKET_ATTACHMENTS,
+        config.TRACECAT__BLOB_STORAGE_BUCKET_REGISTRY,
+        config.TRACECAT__BLOB_STORAGE_BUCKET_SKILLS,
+        config.TRACECAT__BLOB_STORAGE_BUCKET_WORKFLOW,
+    }
+    for bucket_name in sorted(bucket_names):
+        try:
+            if not client.bucket_exists(bucket_name):
+                client.make_bucket(bucket_name)
+                logger.info(f"Created MinIO bucket: {bucket_name}")
+        except S3Error as e:
+            if e.code != "BucketAlreadyOwnedByYou":
+                raise
 
     # Reset object storage singleton so it picks up the test config (S3ObjectStorage)
     object_module.reset_object_storage()

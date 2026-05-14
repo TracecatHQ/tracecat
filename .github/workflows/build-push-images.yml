@@ -87,6 +87,8 @@ jobs:
           platforms: ${{ matrix.platform }}
           labels: ${{ steps.meta.outputs.labels }}
           outputs: type=image,name=ghcr.io/tracecathq/tracecat,push-by-digest=true,name-canonical=true,push=true
+          cache-from: type=registry,ref=ghcr.io/tracecathq/tracecat:buildcache-${{ matrix.platform_tag }}
+          cache-to: type=registry,ref=ghcr.io/tracecathq/tracecat:buildcache-${{ matrix.platform_tag }},mode=max,ignore-error=true
 
       - name: Export digest
         run: |
@@ -239,6 +241,8 @@ jobs:
             NODE_ENV=${{ env.NODE_ENV }}
           labels: ${{ steps.meta.outputs.labels }}
           outputs: type=image,name=ghcr.io/tracecathq/tracecat-ui,push-by-digest=true,name-canonical=true,push=true
+          cache-from: type=registry,ref=ghcr.io/tracecathq/tracecat-ui:buildcache-${{ matrix.platform_tag }}
+          cache-to: type=registry,ref=ghcr.io/tracecathq/tracecat-ui:buildcache-${{ matrix.platform_tag }},mode=max,ignore-error=true
 
       - name: Export digest
         run: |

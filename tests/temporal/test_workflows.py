@@ -3815,6 +3815,7 @@ async def test_workflow_error_handler_invalid_handler_fail_no_match(
 
 @pytest.mark.anyio
 @pytest.mark.integration
+@pytest.mark.requires_api
 async def test_workflow_lookup_table_success(
     test_role: Role,
     temporal_client: Client,
@@ -3877,6 +3878,7 @@ async def test_workflow_lookup_table_success(
 
 @pytest.mark.anyio
 @pytest.mark.integration
+@pytest.mark.requires_api
 async def test_workflow_lookup_table_missing_value(
     test_role: Role,
     temporal_client: Client,
@@ -3942,6 +3944,7 @@ async def test_workflow_lookup_table_missing_value(
 
 @pytest.mark.anyio
 @pytest.mark.integration
+@pytest.mark.requires_api
 async def test_workflow_insert_table_row_success(
     test_role: Role,
     temporal_client: Client,
@@ -4016,6 +4019,7 @@ async def test_workflow_insert_table_row_success(
 
 @pytest.mark.anyio
 @pytest.mark.integration
+@pytest.mark.requires_api
 async def test_workflow_table_actions_in_loop(
     test_role: Role,
     temporal_client: Client,

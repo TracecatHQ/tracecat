@@ -11,10 +11,9 @@ on:
       - packages/tracecat-registry/**
       - pyproject.toml
       - uv.lock
-      - Dockerfile
-      - docker-compose.yml
       - docker-compose.dev.yml
-      - docker-compose.local.yml
+      - .env.example
+      - env.sh
       - .github/workflows/test-python.yml
   pull_request:
     branches: ["main", "staging"]
@@ -26,10 +25,9 @@ on:
       - packages/tracecat-registry/**
       - pyproject.toml
       - uv.lock
-      - Dockerfile
-      - docker-compose.yml
       - docker-compose.dev.yml
-      - docker-compose.local.yml
+      - .env.example
+      - env.sh
       - .github/workflows/test-python.yml
 
 permissions:
@@ -49,6 +47,10 @@ jobs:
         uses: useblacksmith/setup-uv@f4588471335f14dcb60198856207b916701a9e9f # v4
         with:
           version: "0.9.7"
+          enable-cache: true
+          cache-dependency-glob: |
+            pyproject.toml
+            uv.lock
 
       - name: Set up Python 3.12
         uses: useblacksmith/setup-python@943b05a7c4ca70c2360391137527a37bee33fb1d # v6
@@ -56,12 +58,14 @@ jobs:
           python-version: "3.12"
 
       - name: Clone custom registry starter
-        run: |
-          git clone https://github.com/TracecatHQ/custom-integrations-starter-kit
-          cd custom-integrations-starter-kit
+        run: git clone https://github.com/TracecatHQ/custom-integrations-starter-kit
 
       - name: Install dependencies
-        run: uv sync --frozen
+        working-directory: custom-integrations-starter-kit
+        run: |
+          uv venv
+          env -u UV_SYSTEM_PYTHON uv pip install --python .venv/bin/python .
+          .venv/bin/python -c "import custom_actions"
 
   test-all:
     runs-on: blacksmith-8vcpu-ubuntu-2204
@@ -81,7 +85,9 @@ jobs:
         with:
           version: "0.9.7"
           enable-cache: true
-          cache-dependency-glob: "pyproject.toml"
+          cache-dependency-glob: |
+            pyproject.toml
+            uv.lock
 
       - name: Set up Python 3.12
         uses: useblacksmith/setup-python@943b05a7c4ca70c2360391137527a37bee33fb1d # v6
@@ -93,9 +99,6 @@ jobs:
           sudo sysctl -w net.ipv6.conf.all.disable_ipv6=1
           sudo sysctl -w net.ipv6.conf.default.disable_ipv6=1
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
-
       - name: Run environment setup script
         run: |
           echo "y
@@ -103,14 +106,24 @@ jobs:
           n
           test@tracecat.com" | bash env.sh
 
-      - name: Start core Docker services
-        env:
-          COMPOSE_BAKE: "true"
-          TRACECAT__UNSAFE_DISABLE_SM_MASKING: "true"
+      - name: Start core Docker services and install dependencies
         run: |
+          set -euo pipefail
+
           compose_files=(-f docker-compose.dev.yml)
+          services=(postgres_db minio redis)
+
+          uv sync --frozen &
+          uv_sync_pid=$!
+          cleanup_uv_sync() {
+            if kill -0 "$uv_sync_pid" 2>/dev/null; then
+              kill "$uv_sync_pid" 2>/dev/null || true
+            fi
+          }
+          trap cleanup_uv_sync EXIT
 
           if [ "${{ matrix.test_group }}" = "temporal" ]; then
+            services=(temporal postgres_db minio redis)
             cat > /tmp/tracecat-ci-postgres.yml <<'YAML'
           services:
             postgres_db:
@@ -119,10 +132,82 @@ jobs:
             compose_files+=(-f /tmp/tracecat-ci-postgres.yml)
           fi
 
-          docker compose "${compose_files[@]}" up -d temporal api postgres_db caddy minio
+          docker compose "${compose_files[@]}" up -d "${services[@]}"
 
-      - name: Install dependencies
-        run: uv sync --frozen
+          echo "Waiting for services to become healthy..."
+          deadline=$((SECONDS + 300))
+          while true; do
+            statuses=$(
+              docker compose "${compose_files[@]}" ps --format json |
+                jq -r 'if type == "array" then .[] else . end | select(.Health != null and .Health != "") | .Health'
+            )
+            total=$(echo "$statuses" | grep -c . || true)
+            healthy=$(echo "$statuses" | grep -c "^healthy$" || true)
+
+            if [ "$total" -eq 0 ]; then
+              echo "No services with health checks found yet, waiting..."
+            elif [ "$healthy" -lt "$total" ]; then
+              echo "Waiting for services to be healthy ($healthy/$total ready)..."
+            else
+              echo "All $total services with health checks are healthy"
+              break
+            fi
+
+            if [ "$SECONDS" -ge "$deadline" ]; then
+              echo "Timed out waiting for Docker services to become healthy"
+              docker compose "${compose_files[@]}" ps
+              exit 124
+            fi
+            sleep 5
+          done
+
+          echo "Waiting for Python environment sync..."
+          wait "$uv_sync_pid"
+          trap - EXIT
+
+      - name: Register Temporal search attributes
+        if: matrix.test_group == 'temporal'
+        run: |
+          set -euo pipefail
+
+          attrs=(
+            TracecatTriggerType
+            TracecatTriggeredByUserId
+            TracecatWorkspaceId
+            TracecatAlias
+            TracecatCorrelationId
+            TracecatExecutionType
+          )
+
+          add_args=()
+          for attr in "${attrs[@]}"; do
+            add_args+=(--name "$attr" --type Keyword)
+          done
+
+          docker compose -f docker-compose.dev.yml exec -T temporal \
+            tctl --address temporal:7233 --namespace default --auto_confirm \
+            admin cluster add-search-attributes "${add_args[@]}"
+
+          for _ in {1..30}; do
+            output=$(docker compose -f docker-compose.dev.yml exec -T temporal \
+              tctl --address temporal:7233 --namespace default \
+              admin cluster get-search-attributes --print_json true)
+            missing=()
+            for attr in "${attrs[@]}"; do
+              if [[ "$output" != *"$attr"* ]]; then
+                missing+=("$attr")
+              fi
+            done
+            if [ "${#missing[@]}" -eq 0 ]; then
+              echo "Temporal search attributes registered"
+              exit 0
+            fi
+            echo "Waiting for Temporal search attributes: ${missing[*]}"
+            sleep 2
+          done
+
+          echo "Timed out waiting for Temporal search attributes: ${missing[*]}"
+          exit 1
 
       - name: Run tests
         env:
@@ -140,9 +225,17 @@ jobs:
           elif [ "${{ matrix.test_group }}" = "temporal" ]; then
             # Temporal tests run with compression enabled and parallelization
             # Worker-specific task queues in conftest.py enable safe parallel execution
+            TRACECAT_TEST_API_MODE=inprocess \
             TRACECAT__CONTEXT_COMPRESSION_ENABLED=true \
             TRACECAT__CONTEXT_COMPRESSION_THRESHOLD_KB=0 \
-            uv run pytest tests/temporal -m "not live_secret" -n auto -ra -o faulthandler_timeout=300
+            uv run pytest tests/temporal -m "not live_secret and not requires_api" -n auto -ra -o faulthandler_timeout=300
+
+            # API-backed temporal tests start a local API process against the
+            # test DB. Run them serially to avoid startup races under xdist.
+            TRACECAT_TEST_API_MODE=inprocess \
+            TRACECAT__CONTEXT_COMPRESSION_ENABLED=true \
+            TRACECAT__CONTEXT_COMPRESSION_THRESHOLD_KB=0 \
+            uv run pytest tests/temporal -m "requires_api and not live_secret" -ra -o faulthandler_timeout=300
           else
             uv run pytest tests/${{ matrix.test_group }} -m "not live_secret" -n auto -ra -o faulthandler_timeout=300
           fi
@@ -153,14 +246,16 @@ jobs:
           echo "=== Docker Service Status ==="
           docker compose -f docker-compose.dev.yml ps
 
-          echo "=== Temporal Logs ==="
-          docker compose -f docker-compose.dev.yml logs temporal --tail=200
-
-          echo "=== Migrations Logs ==="
-          docker compose -f docker-compose.dev.yml logs migrations --tail=200
-
-          echo "=== API Logs ==="
-          docker compose -f docker-compose.dev.yml logs api --tail=200
-
           echo "=== Postgres Logs ==="
           docker compose -f docker-compose.dev.yml logs postgres_db --tail=200
+
+          echo "=== MinIO Logs ==="
+          docker compose -f docker-compose.dev.yml logs minio --tail=200
+
+          echo "=== Redis Logs ==="
+          docker compose -f docker-compose.dev.yml logs redis --tail=200
+
+          if [ "${{ matrix.test_group }}" = "temporal" ]; then
+            echo "=== Temporal Logs ==="
+            docker compose -f docker-compose.dev.yml logs temporal --tail=200
+          fi
