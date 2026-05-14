@@ -350,6 +350,56 @@ async def upload_file(
         raise
 
 
+async def upload_file_from_path(
+    path: Path,
+    key: str,
+    bucket: str,
+    content_type: str | None = None,
+) -> None:
+    """Stream a file from disk to S3 using multipart upload.
+
+    Avoids loading the entire file into memory, which matters for large
+    artifacts like registry venv tarballs.
+
+    Args:
+        path: Local file to upload
+        key: S3 object key
+        bucket: Bucket name (required)
+        content_type: Optional MIME type
+
+    Raises:
+        FileNotFoundError: If `path` does not exist
+        ClientError: If the upload fails
+    """
+    if not path.exists():
+        raise FileNotFoundError(f"File not found: {path}")
+
+    extra_args = {"ContentType": content_type} if content_type else None
+
+    try:
+        async with get_storage_client() as s3_client:
+            await s3_client.upload_file(
+                Filename=str(path),
+                Bucket=bucket,
+                Key=key,
+                ExtraArgs=extra_args,
+            )
+            logger.info(
+                "File uploaded successfully",
+                key=key,
+                bucket=bucket,
+                size=path.stat().st_size,
+            )
+    except ClientError as e:
+        logger.error(
+            "Failed to upload file",
+            key=key,
+            bucket=bucket,
+            error=str(e),
+        )
+        raise
+
+
 async def copy_file(
     *,
     source_key: str,
