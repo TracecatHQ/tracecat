@@ -64,7 +64,7 @@ jobs:
         working-directory: custom-integrations-starter-kit
         run: |
           uv venv
-          uv pip install .
+          env -u UV_SYSTEM_PYTHON uv pip install --python .venv/bin/python .
           .venv/bin/python -c "import custom_actions"
 
   test-all:
