@@ -763,8 +763,17 @@ async def check_health() -> HealthResponse:
     return HealthResponse(status="ok")
 
 
-@app.get("/ready", tags=["public"])
-async def check_ready(session: AsyncDBSession) -> ReadinessResponse:
+@app.get(
+    "/ready",
+    tags=["public"],
+    responses={
+        status.HTTP_503_SERVICE_UNAVAILABLE: {
+            "model": ReadinessResponse,
+            "description": "API startup or platform registry sync is incomplete.",
+        },
+    },
+)
+async def check_ready(response: Response, session: AsyncDBSession) -> ReadinessResponse:
     """Readiness check - returns 200 only after startup and registry sync complete.
 
     Use this endpoint for Docker healthchecks to ensure the API has finished
@@ -793,12 +802,10 @@ async def check_ready(session: AsyncDBSession) -> ReadinessResponse:
 
     # Not ready if registry is not synced
     if not registry_status.synced:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=ReadinessResponse(
-                status="not_ready",
-                registry=registry_status,
-            ).model_dump(),
+        response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+        return ReadinessResponse(
+            status="not_ready",
+            registry=registry_status,
         )
 
     return ReadinessResponse(

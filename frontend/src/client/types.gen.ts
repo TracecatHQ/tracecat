@@ -19062,6 +19062,10 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: ReadinessResponse
+        /**
+         * API startup or platform registry sync is incomplete.
+         */
+        503: ReadinessResponse
       }
     }
   }

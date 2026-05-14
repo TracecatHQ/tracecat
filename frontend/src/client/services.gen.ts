@@ -12654,5 +12654,8 @@ export const publicCheckReady =
     return __request(OpenAPI, {
       method: "GET",
       url: "/ready",
+      errors: {
+        503: "API startup or platform registry sync is incomplete.",
+      },
     })
   }
