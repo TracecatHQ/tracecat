@@ -96,6 +96,7 @@ from tracecat.identifiers import OrganizationID
 from tracecat.invitations.enums import InvitationStatus
 from tracecat.logger import logger
 from tracecat.organization.domains import normalize_domain
+from tracecat.organization.service import accept_invitation_for_user
 from tracecat.settings.service import get_setting
 
 router = APIRouter(prefix="/auth/saml", tags=["auth"])
@@ -926,6 +927,33 @@ async def sso_acs(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Authentication failed",
         )
+
+    # Accept a pending org invitation so the user receives the role the inviter
+    # intended. This is idempotent: if single-tenant defaults already created an
+    # organization-member assignment (e.g. SSO auto-provisioning ran first), the
+    # upsert in accept_invitation_for_user upgrades the role to invitation.role_id.
+    if pending_invitation is not None:
+        try:
+            await accept_invitation_for_user(
+                db_session,
+                user_id=user.id,  # pyright: ignore[reportArgumentType]
+                token=pending_invitation.token,
+            )
+            logger.info(
+                "Accepted pending org invitation during SAML login",
+                user_id=str(user.id),
+                email=email,
+                org_id=str(organization_id),
+                role_id=str(pending_invitation.role_id),
+            )
+        except Exception:
+            await db_session.rollback()
+            logger.warning(
+                "Failed to accept org invitation during SAML login",
+                user_id=str(user.id),
+                email=email,
+                exc_info=True,
+            )
 
     # Ensure user can access this organization.
     membership_stmt = select(OrganizationMembership).where(

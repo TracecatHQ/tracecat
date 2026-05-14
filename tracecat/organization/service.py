@@ -8,6 +8,7 @@ from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import and_, cast, func, select, update
 from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import contains_eager, selectinload
 
@@ -141,21 +142,54 @@ async def accept_invitation_for_user(
             # Shouldn't reach here, but handle gracefully
             raise TracecatAuthorizationError("Invitation is no longer valid")
 
-        # Create membership (still needed for org membership existence checks)
-        membership = OrganizationMembership(
-            user_id=user_id,
-            organization_id=invitation.organization_id,
+        # Upsert membership — idempotent if single-tenant defaults already ran.
+        membership_stmt = (
+            pg_insert(OrganizationMembership)
+            .values(
+                user_id=user_id,
+                organization_id=invitation.organization_id,
+            )
+            .on_conflict_do_nothing(
+                index_elements=[
+                    OrganizationMembership.user_id,
+                    OrganizationMembership.organization_id,
+                ]
+            )
+            .returning(OrganizationMembership)
         )
-        session.add(membership)
+        membership_result = await session.execute(membership_stmt)
+        membership = membership_result.scalar_one_or_none()
+        if membership is None:
+            # Row already existed; fetch it.
+            existing = await session.execute(
+                select(OrganizationMembership).where(
+                    OrganizationMembership.user_id == user_id,
+                    OrganizationMembership.organization_id
+                    == invitation.organization_id,
+                )
+            )
+            membership = existing.scalar_one()
 
-        # Create RBAC role assignment from invitation's role_id
-        assignment = UserRoleAssignment(
-            organization_id=invitation.organization_id,
-            user_id=user_id,
-            workspace_id=None,
-            role_id=invitation.role_id,
+        # Upsert the org-wide role assignment to the invitation's role.
+        # Uses on_conflict_do_update so a pre-existing organization-member row
+        # (written by single-tenant defaults during SSO auto-provisioning) is
+        # upgraded to the role the invitation granted.
+        assignment_stmt = (
+            pg_insert(UserRoleAssignment)
+            .values(
+                organization_id=invitation.organization_id,
+                user_id=user_id,
+                workspace_id=None,
+                role_id=invitation.role_id,
+            )
+            .on_conflict_do_update(
+                index_elements=[UserRoleAssignment.user_id],
+                index_where=UserRoleAssignment.workspace_id.is_(None),
+                set_={"role_id": invitation.role_id},
+                where=UserRoleAssignment.organization_id == invitation.organization_id,
+            )
         )
-        session.add(assignment)
+        await session.execute(assignment_stmt)
 
         await session.commit()
         await session.refresh(membership)
