@@ -110,7 +110,7 @@ function getSentryConnectSources(dsn) {
   ])
 
   if (!dsn) {
-    return []
+    return Array.from(sources)
   }
 
   try {
