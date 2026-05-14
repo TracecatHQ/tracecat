@@ -2,7 +2,10 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { StrictMode } from "react"
 import type { AgentSessionReadVercel } from "@/client"
-import { ChatSessionPane } from "@/components/chat/chat-session-pane"
+import {
+  ChatSessionPane,
+  MessagePart,
+} from "@/components/chat/chat-session-pane"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { useUpdateChat, useVercelChat } from "@/hooks/use-chat"
 import { useBuilderRegistryActions } from "@/lib/hooks"
@@ -100,6 +103,7 @@ const createChatFixture = (
   channel_context: null,
   tools: [],
   agent_preset_id: null,
+  agents_binding: null,
   harness_type: null,
   created_at: new Date("2024-01-01T00:00:00.000Z").toISOString(),
   updated_at: new Date("2024-01-01T00:00:00.000Z").toISOString(),
@@ -136,6 +140,37 @@ describe("ChatSessionPane", () => {
   afterEach(() => {
     jest.restoreAllMocks()
     jest.clearAllMocks()
+  })
+
+  it("labels Agent tool calls with the invoked subagent type", () => {
+    const agentToolPart = {
+      type: "tool-Agent",
+      toolCallId: "tc-agent-1",
+      state: "output-available",
+      input: {
+        args: {
+          subagent_type: "case-management",
+          description: "List all Tracecat cases",
+          prompt: "Please list all the cases we currently have.",
+        },
+      },
+      output: { cases: [] },
+    } as unknown as Parameters<typeof MessagePart>[0]["part"]
+
+    render(
+      <TooltipProvider>
+        <MessagePart
+          part={agentToolPart}
+          partIdx={0}
+          id="msg-agent-tool"
+          role="assistant"
+          isLastMessage
+          status="ready"
+        />
+      </TooltipProvider>
+    )
+
+    expect(screen.getByText("Agent: case-management")).toBeInTheDocument()
   })
 
   function mockUseVercelChatStatus(status: "ready" | "submitted") {

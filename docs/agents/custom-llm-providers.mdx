@@ -1,0 +1,61 @@
+---
+title: "Custom LLM providers"
+description: "Configure custom LLM providers for agents and preset agents, including direct passthrough routing for root agents and subagents."
+icon: "route"
+---
+
+Use a custom LLM provider when an agent should call your own OpenAI-compatible gateway instead of Tracecat's managed LiteLLM gateway.
+
+## Routing model
+
+Each agent uses its own model configuration to decide where its LLM requests go.
+
+| Agent model configuration | Request route |
+| --- | --- |
+| `passthrough: true` | Direct to that agent's configured `base_url` |
+| `passthrough: false` or unset | Tracecat's managed LiteLLM gateway |
+
+Root agents and subagents follow the same rule. A root agent can use a custom passthrough gateway while a subagent uses managed LiteLLM, or a subagent can use its own passthrough gateway while the root agent uses managed LiteLLM.
+
+## Root agents
+
+For a root agent, Tracecat keys direct passthrough routing by the model string the root agent sends.
+
+```yaml
+model_name: customer-alias
+model_provider: custom-model-provider
+base_url: https://customer-litellm.example/v1
+passthrough: true
+```
+
+Requests with `model: customer-alias` go directly to `https://customer-litellm.example`.
+
+## Subagents
+
+For a subagent, Tracecat keys direct passthrough routing by the subagent's scoped model route. This lets Tracecat route each preset agent independently, even when several agents share the same sandbox process.
+
+```yaml
+model_name: child-alias
+model_provider: custom-model-provider
+base_url: https://child-litellm.example/v1
+passthrough: true
+```
+
+Requests for that subagent go directly to `https://child-litellm.example`. Requests for other subagents fall back to managed LiteLLM unless those subagents also enable passthrough.
+
+## Base URL format
+
+Store custom provider base URLs in OpenAI-compatible form, such as `https://gateway.example/v1`.
+
+Tracecat strips the trailing version segment before forwarding sandbox requests because SDK clients send paths such as `/v1/messages`. This prevents doubled paths such as `/v1/v1/messages`.
+
+## Credentials
+
+Tracecat resolves passthrough credentials from the custom provider selected by the agent's model configuration. If a root agent and subagent use different passthrough providers, each route uses its own provider credentials.
+
+Managed LiteLLM requests keep the sandbox's managed gateway token.
+
+## Related pages
+
+- See [AI agent](/agents/ai-agent) for the `ai.agent` and `ai.preset_agent` action reference.
+- See [Secrets and variables](/agents/secrets-variables) for agent secret handling.

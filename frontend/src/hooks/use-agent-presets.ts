@@ -1,4 +1,10 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import {
+  useMutation,
+  useQueries,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query"
+import { useMemo } from "react"
 import {
   type AgentFolderCreate,
   type AgentFolderDirectoryItem,
@@ -125,21 +131,7 @@ export function useAgentPresetVersions(
       if (!workspaceId || !presetId) {
         throw new Error("workspaceId and presetId are required")
       }
-      const versions: AgentPresetVersionReadMinimal[] = []
-      let cursor: string | undefined
-
-      do {
-        const response = await agentPresetsListAgentPresetVersions({
-          workspaceId,
-          presetId,
-          limit: 200,
-          cursor,
-        })
-        versions.push(...response.items)
-        cursor = response.next_cursor ?? undefined
-      } while (cursor)
-
-      return versions
+      return await fetchAgentPresetVersions(workspaceId, presetId)
     },
     enabled: enabled && Boolean(workspaceId) && Boolean(presetId),
     retry: retryHandler,
@@ -150,6 +142,43 @@ export function useAgentPresetVersions(
     versionsIsLoading,
     versionsError,
     refetchVersions,
+  }
+}
+
+export function useAgentPresetVersionsByPresetIds(
+  workspaceId: string,
+  presetIds: string[],
+  { enabled = true }: { enabled?: boolean } = {}
+) {
+  const uniquePresetIds = useMemo(
+    () => Array.from(new Set(presetIds.filter(Boolean))).sort(),
+    [presetIds]
+  )
+  const results = useQueries({
+    queries: uniquePresetIds.map((presetId) => ({
+      queryKey: ["agent-preset-versions", workspaceId, presetId],
+      queryFn: async () =>
+        await fetchAgentPresetVersions(workspaceId, presetId),
+      enabled: enabled && Boolean(workspaceId) && Boolean(presetId),
+      retry: retryHandler,
+    })),
+  })
+  const versionsByPresetId = useMemo(() => {
+    const versions = new Map<string, AgentPresetVersionReadMinimal[]>()
+    uniquePresetIds.forEach((presetId, index) => {
+      const data = results[index]?.data
+      if (data) {
+        versions.set(presetId, data)
+      }
+    })
+    return versions
+  }, [results, uniquePresetIds])
+
+  return {
+    versionsByPresetId,
+    versionsByPresetIdIsLoading: results.some((result) => result.isLoading),
+    versionsByPresetIdError:
+      results.find((result) => result.error)?.error ?? null,
   }
 }
 
@@ -181,6 +210,27 @@ export function useAgentPreset(
     presetError,
     refetchPreset,
   }
+}
+
+async function fetchAgentPresetVersions(
+  workspaceId: string,
+  presetId: string
+): Promise<AgentPresetVersionReadMinimal[]> {
+  const versions: AgentPresetVersionReadMinimal[] = []
+  let cursor: string | undefined
+
+  do {
+    const response = await agentPresetsListAgentPresetVersions({
+      workspaceId,
+      presetId,
+      limit: 200,
+      cursor,
+    })
+    versions.push(...response.items)
+    cursor = response.next_cursor ?? undefined
+  } while (cursor)
+
+  return versions
 }
 
 export function useAgentPresetVersion(

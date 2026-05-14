@@ -127,6 +127,7 @@ const chatFixture = {
   tools: [],
   agent_preset_id: null,
   agent_preset_version_id: null,
+  agents_binding: null,
   harness_type: null,
   created_at: new Date().toISOString(),
   updated_at: new Date().toISOString(),
