@@ -155,9 +155,6 @@ jobs:
             sleep 5
           done
 
-          echo "Creating storage buckets..."
-          docker compose "${compose_files[@]}" exec -T minio mc mb --ignore-existing local/tracecat-attachments
-
           echo "Waiting for Python environment sync..."
           wait "$uv_sync_pid"
           trap - EXIT

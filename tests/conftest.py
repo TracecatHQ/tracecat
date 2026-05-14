@@ -1576,12 +1576,13 @@ def minio_server():
 
 @pytest.fixture(scope="session", autouse=True)
 def workflow_bucket(minio_server, env_sandbox):
-    """Create the workflow bucket for result externalization and reset object storage.
+    """Create test storage buckets and reset object storage.
 
     This fixture:
     1. Creates the bucket used by S3ObjectStorage for StoredObject externalization
-    2. Reloads the blob module to pick up the test config
-    3. Resets the object storage singleton so it uses S3ObjectStorage
+    2. Creates API-owned buckets that are needed when tests run without API startup
+    3. Reloads the blob module to pick up the test config
+    4. Resets the object storage singleton so it uses S3ObjectStorage
 
     Session-scoped and autouse to ensure all tests use S3-backed object storage.
     Depends on env_sandbox to ensure config is set before we create the bucket.
@@ -1592,7 +1593,6 @@ def workflow_bucket(minio_server, env_sandbox):
     # Reload blob module to pick up MinIO config
     importlib.reload(blob)
 
-    # Create workflow bucket if it doesn't exist
     access_key, secret_key = _minio_credentials()
     client = Minio(
         f"localhost:{MINIO_PORT}",
@@ -1600,13 +1600,20 @@ def workflow_bucket(minio_server, env_sandbox):
         secret_key=secret_key,
         secure=False,
     )
-    try:
-        if not client.bucket_exists(MINIO_WORKFLOW_BUCKET):
-            client.make_bucket(MINIO_WORKFLOW_BUCKET)
-            logger.info(f"Created workflow bucket: {MINIO_WORKFLOW_BUCKET}")
-    except S3Error as e:
-        if e.code != "BucketAlreadyOwnedByYou":
-            raise
+    bucket_names = {
+        config.TRACECAT__BLOB_STORAGE_BUCKET_ATTACHMENTS,
+        config.TRACECAT__BLOB_STORAGE_BUCKET_REGISTRY,
+        config.TRACECAT__BLOB_STORAGE_BUCKET_SKILLS,
+        config.TRACECAT__BLOB_STORAGE_BUCKET_WORKFLOW,
+    }
+    for bucket_name in sorted(bucket_names):
+        try:
+            if not client.bucket_exists(bucket_name):
+                client.make_bucket(bucket_name)
+                logger.info(f"Created MinIO bucket: {bucket_name}")
+        except S3Error as e:
+            if e.code != "BucketAlreadyOwnedByYou":
+                raise
 
     # Reset object storage singleton so it picks up the test config (S3ObjectStorage)
     object_module.reset_object_storage()
