@@ -223,6 +223,22 @@ def _split_runtime_error_details(
     return payload_details, runtime_details
 
 
+def _wrap_activity_application_error(
+    message: str,
+    app_error: ApplicationError,
+    *,
+    fallback_type: str,
+) -> ApplicationError:
+    """Translate an activity failure while preserving its runtime classification."""
+    _, runtime_details = _split_runtime_error_details(app_error.details)
+    return ApplicationError(
+        message,
+        *runtime_details,
+        non_retryable=app_error.non_retryable,
+        type=app_error.type or fallback_type,
+    )
+
+
 @workflow.defn
 class DSLWorkflow:
     """Manage only the state and execution of the DSL workflow.
@@ -606,6 +622,16 @@ class DSLWorkflow:
                             *runtime_details,
                             non_retryable=True,
                             type=ValidationError.__name__,
+                        ) from cause
+                    case ApplicationError() as app_error:
+                        self.logger.warning(
+                            "Application error when normalizing trigger inputs",
+                            error=e,
+                        )
+                        raise _wrap_activity_application_error(
+                            "Failed to normalize trigger inputs",
+                            app_error,
+                            fallback_type=e.__class__.__name__,
                         ) from cause
                     case _:
                         self.logger.warning(
