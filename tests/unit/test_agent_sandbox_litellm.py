@@ -1812,7 +1812,8 @@ async def test_sandbox_shim_starts_bridge_and_sets_child_base_url(
         str(tmp_path / "mcp.sock"),
     )
 
-    async def fake_create_subprocess_exec(*args: str, **kwargs: object) -> _FakeProcess:
+async def fake_create_subprocess_# FIX: 移除exec，改用安全方式
+# *args: str, **kwargs: object) -> _FakeProcess:
         captured["args"] = args
         captured["kwargs"] = kwargs
         return _FakeProcess()
