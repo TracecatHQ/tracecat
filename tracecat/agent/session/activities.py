@@ -214,6 +214,20 @@ async def create_session_activity(input: CreateSessionInput) -> CreateSessionRes
                 session_id=input.session_id,
             )
 
+        # Initialize the Redis stream cursor so GET /stream returns events
+        # instead of 204. Chat sessions do this in send_message before the
+        # SSE response starts; workflow-based ai.* sessions must do it here,
+        # before the executor activity runs, so the frontend can connect as
+        # soon as it sees the session ID in the workflow history.
+        # Skip for require_existing (approval continuations) — they resume
+        # mid-stream and must not clear the existing Redis buffer.
+        if not input.require_existing and input.role.workspace_id is not None:
+            stream = await AgentStream.new(
+                session_id=input.session_id,
+                workspace_id=input.role.workspace_id,
+            )
+            await stream.reset_for_new_turn()
+
         return CreateSessionResult(session_id=input.session_id, success=True)
 
     except ApplicationError:
