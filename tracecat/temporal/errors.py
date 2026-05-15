@@ -28,8 +28,8 @@ def runtime_error_detail(
     return {RUNTIME_ERROR_DETAILS_KEY: {ref: envelope}}
 
 
-class ActivityRuntimeError:
-    """Build Temporal activity failures from first-class runtime errors."""
+class TemporalRuntimeError:
+    """Build Temporal failures from first-class runtime errors."""
 
     @classmethod
     def _runtime_error_ref(
@@ -270,6 +270,14 @@ class ActivityRuntimeError:
             non_retryable=platform_non_retryable,
             ref=ref,
         )
+
+
+class ActivityRuntimeError(TemporalRuntimeError):
+    """Build Temporal activity failures from first-class runtime errors."""
+
+
+class WorkflowRuntimeError(TemporalRuntimeError):
+    """Build Temporal workflow failures from first-class runtime errors."""
 
 
 def _validate_envelope(value: Any) -> RuntimeErrorEnvelope | None:

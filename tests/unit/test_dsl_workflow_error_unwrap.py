@@ -8,6 +8,7 @@ from tracecat.runtime.errors import (
     RuntimeErrorPhase,
 )
 from tracecat.temporal.errors import (
+    WorkflowRuntimeError,
     extract_runtime_error_from_details,
     runtime_error_detail,
 )
@@ -86,3 +87,27 @@ def test_wrap_activity_application_error_preserves_runtime_classification() -> N
     assert extracted.kind == RuntimeErrorKind.INFRA
     assert extracted.code == "dsl.trigger_inputs.retrieve_failed"
     assert extracted.retryable is True
+
+
+def test_workflow_runtime_error_classifies_in_workflow_failure() -> None:
+    root = RuntimeError("schedule missing")
+
+    workflow_error = WorkflowRuntimeError.user(
+        code="dsl.trigger_inputs.schedule_not_found",
+        message="Failed to fetch trigger inputs as the schedule was not found",
+        origin=RuntimeErrorOrigin.DSL,
+        phase=RuntimeErrorPhase.PREPARE,
+        error_type="TracecatNotFoundError",
+        root=root,
+        workflow_exec_id="wf_test/exec_test",
+        metadata={"schedule_id": "sched_test"},
+    )
+
+    assert workflow_error.type == "TracecatNotFoundError"
+    assert workflow_error.non_retryable is True
+    envelope = extract_runtime_error_from_details(workflow_error.details)
+    assert envelope is not None
+    assert envelope.kind == RuntimeErrorKind.USER
+    assert envelope.code == "dsl.trigger_inputs.schedule_not_found"
+    assert envelope.workflow_exec_id == "wf_test/exec_test"
+    assert envelope.metadata == {"schedule_id": "sched_test"}

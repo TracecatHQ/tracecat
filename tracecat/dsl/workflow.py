@@ -129,7 +129,7 @@ with workflow.unsafe.imports_passed_through():
         return_key,
         trigger_key,
     )
-    from tracecat.temporal.errors import RUNTIME_ERROR_DETAILS_KEY
+    from tracecat.temporal.errors import RUNTIME_ERROR_DETAILS_KEY, WorkflowRuntimeError
     from tracecat.temporal.exceptions import UserError
     from tracecat.tiers.activities import (
         AcquireActionPermitInput,
@@ -576,10 +576,17 @@ class DSLWorkflow:
                     schedule_id=args.schedule_id, worflow_id=args.wf_id
                 )
             except TracecatNotFoundError as e:
-                raise ApplicationError(
-                    "Failed to fetch trigger inputs as the schedule was not found",
-                    non_retryable=True,
-                    type=e.__class__.__name__,
+                raise WorkflowRuntimeError.user(
+                    code="dsl.trigger_inputs.schedule_not_found",
+                    message=(
+                        "Failed to fetch trigger inputs as the schedule was not found"
+                    ),
+                    origin=RuntimeErrorOrigin.DSL,
+                    phase=RuntimeErrorPhase.PREPARE,
+                    error_type=e.__class__.__name__,
+                    root=e,
+                    workflow_exec_id=self.wf_exec_id,
+                    metadata={"schedule_id": str(args.schedule_id)},
                 ) from e
         else:
             self.logger.debug("Using provided trigger inputs")
