@@ -1719,6 +1719,21 @@ class TestSkillService:
             "SKILL.md",
             "references/guide.md",
         ]
+        assert not hasattr(detailed_version.files[0], "content_base64")
+
+        snapshot = await skill_service.get_version_snapshot_read(
+            skill_id=created.id,
+            version_id=published.id,
+        )
+        snapshot_files = {file.path: file for file in snapshot.files}
+        assert sorted(snapshot_files) == ["SKILL.md", "references/guide.md"]
+        assert (
+            base64.b64decode(snapshot_files["references/guide.md"].content_base64)
+            == b"Version one"
+        )
+        assert snapshot_files["references/guide.md"].content_type.startswith(
+            "text/plain"
+        )
 
     async def test_archived_skill_hides_published_version_reads(
         self,

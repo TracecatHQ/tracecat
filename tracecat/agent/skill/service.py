@@ -40,9 +40,11 @@ from tracecat.agent.skill.schemas import (
     SkillUploadSessionCreate,
     SkillUploadSessionRead,
     SkillValidationErrorDetail,
+    SkillVersionFileContent,
     SkillVersionPublish,
     SkillVersionRead,
     SkillVersionReadMinimal,
+    SkillVersionSnapshotRead,
 )
 from tracecat.agent.skill.types import ResolvedSkillRef
 from tracecat.authz.controls import require_scope
@@ -1999,6 +2001,46 @@ class SkillService(BaseWorkspaceService):
                 )
                 for version_file, blob_row in rows
             ],
+        )
+
+    @requires_entitlement(Entitlement.AGENT_ADDONS)
+    async def get_version_snapshot_read(
+        self, *, skill_id: uuid.UUID, version_id: uuid.UUID
+    ) -> SkillVersionSnapshotRead:
+        """Return a published skill version with publish-compatible file contents."""
+
+        version = await self._get_active_version(
+            skill_id=skill_id, version_id=version_id
+        )
+        if version is None:
+            raise TracecatNotFoundError(f"Skill version '{version_id}' not found")
+        rows = await self._list_version_rows(version.id)
+        files: list[SkillVersionFileContent] = []
+        for version_file, blob_row in rows:
+            content = await blob.download_file(key=blob_row.key, bucket=blob_row.bucket)
+            files.append(
+                SkillVersionFileContent(
+                    path=version_file.path,
+                    content_base64=base64.b64encode(content).decode("ascii"),
+                    content_type=version_file.content_type,
+                    sha256=blob_row.sha256,
+                    size_bytes=blob_row.size_bytes,
+                    blob_id=blob_row.id,
+                )
+            )
+        return SkillVersionSnapshotRead(
+            id=version.id,
+            skill_id=version.skill_id,
+            workspace_id=version.workspace_id,
+            version=version.version,
+            manifest_sha256=version.manifest_sha256,
+            file_count=version.file_count,
+            total_size_bytes=version.total_size_bytes,
+            name=version.name,
+            description=version.description,
+            created_at=version.created_at,
+            updated_at=version.updated_at,
+            files=files,
         )
 
     @require_scope("agent:update")

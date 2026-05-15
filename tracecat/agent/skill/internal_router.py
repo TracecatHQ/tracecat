@@ -19,6 +19,7 @@ from tracecat.agent.skill.schemas import (
     SkillVersionPublish,
     SkillVersionRead,
     SkillVersionReadMinimal,
+    SkillVersionSnapshotRead,
 )
 from tracecat.agent.skill.service import SkillService
 from tracecat.auth.dependencies import ExecutorWorkspaceRole
@@ -246,7 +247,9 @@ async def list_skill_versions(
         _raise_skill_validation_error(exc)
 
 
-@router.get("/{skill_id}/versions/{version_id}", response_model=SkillVersionRead)
+@router.get(
+    "/{skill_id}/versions/{version_id}", response_model=SkillVersionSnapshotRead
+)
 @require_scope("agent:read")
 async def get_skill_version(
     *,
@@ -254,11 +257,11 @@ async def get_skill_version(
     version_id: uuid.UUID,
     role: ExecutorWorkspaceRole,
     session: AsyncDBSession,
-) -> SkillVersionRead:
+) -> SkillVersionSnapshotRead:
     service = SkillService(session, role=role)
     resolved_skill_id = await _resolve_skill_id(service, skill_id)
     try:
-        return await service.get_version_read(
+        return await service.get_version_snapshot_read(
             skill_id=resolved_skill_id, version_id=version_id
         )
     except TracecatNotFoundError as exc:

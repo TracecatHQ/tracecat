@@ -91,7 +91,7 @@ async def list_skill_versions(
 @registry.register(
     default_title="Get agent skill version",
     display_group="Agent Skills",
-    description="Get one immutable published skill version by ID.",
+    description="Get one immutable published skill version by ID, including publish-compatible file contents.",
     namespace="ai.skill",
     required_entitlements=["agent_addons"],
 )

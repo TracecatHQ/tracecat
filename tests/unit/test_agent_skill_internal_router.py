@@ -11,6 +11,7 @@ from fastapi.routing import APIRoute
 
 from tracecat.agent.skill.internal_router import (
     get_skill,
+    get_skill_version,
     list_skill_versions,
     list_skills,
     publish_skill_version,
@@ -118,6 +119,37 @@ async def test_get_skill_resolves_slug_identifier() -> None:
     assert result == {"id": str(resolved_skill_id)}
     mock_service.get_skill_by_identifier.assert_awaited_once_with("triage-helper")
     mock_service.get_skill_read.assert_awaited_once_with(resolved_skill_id)
+
+
+@pytest.mark.anyio
+async def test_get_skill_version_returns_snapshot_for_udfs() -> None:
+    resolved_skill_id = uuid.uuid4()
+    version_id = uuid.uuid4()
+    snapshot = {"id": str(version_id), "files": [{"content_base64": "dmVyc2lvbg=="}]}
+    mock_service = AsyncMock()
+    mock_service.get_skill_by_identifier.return_value = SimpleNamespace(
+        id=resolved_skill_id
+    )
+    mock_service.get_version_snapshot_read.return_value = snapshot
+
+    with patch(
+        "tracecat.agent.skill.internal_router.SkillService",
+        return_value=mock_service,
+    ):
+        raw_get_skill_version = cast(Any, get_skill_version).__wrapped__
+        result = await raw_get_skill_version(
+            skill_id="triage-helper",
+            version_id=version_id,
+            role=_executor_role(),
+            session=AsyncMock(),
+        )
+
+    assert result == snapshot
+    mock_service.get_skill_by_identifier.assert_awaited_once_with("triage-helper")
+    mock_service.get_version_snapshot_read.assert_awaited_once_with(
+        skill_id=resolved_skill_id,
+        version_id=version_id,
+    )
 
 
 @pytest.mark.anyio
