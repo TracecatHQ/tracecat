@@ -6468,10 +6468,6 @@ export const agentSessionsCreateSession = (
 
 /**
  * List Sessions
- * List agent sessions for the current workspace with optional filtering.
- *
- * Returns a list of sessions including both active AgentSessions and legacy
- * Chat records. Legacy chats have is_readonly=True.
  * @param data The data for the request.
  * @param data.workspaceId
  * @param data.entityType Filter by entity type
@@ -6479,7 +6475,7 @@ export const agentSessionsCreateSession = (
  * @param data.excludeEntityTypes Entity types to exclude from results
  * @param data.parentSessionId Filter by parent session ID (for finding forked sessions)
  * @param data.limit Maximum number of sessions to return
- * @returns unknown Successful Response
+ * @returns AgentSessionRead Successful Response
  * @throws ApiError
  */
 export const agentSessionsListSessions = (
@@ -6506,13 +6502,11 @@ export const agentSessionsListSessions = (
 
 /**
  * Get Session
- * Get an agent session or legacy chat with its message history.
- *
- * Legacy chats have is_readonly=True.
+ * Get an agent session with its message history.
  * @param data The data for the request.
  * @param data.sessionId
  * @param data.workspaceId
- * @returns unknown Successful Response
+ * @returns AgentSessionReadWithMessages Successful Response
  * @throws ApiError
  */
 export const agentSessionsGetSession = (
@@ -6586,13 +6580,11 @@ export const agentSessionsDeleteSession = (
 
 /**
  * Get Session Vercel
- * Get an agent session or legacy chat with message history in Vercel format.
- *
- * Legacy chats have is_readonly=True.
+ * Get an agent session with message history in Vercel UI format.
  * @param data The data for the request.
  * @param data.sessionId
  * @param data.workspaceId
- * @returns unknown Successful Response
+ * @returns AgentSessionReadVercel Successful Response
  * @throws ApiError
  */
 export const agentSessionsGetSessionVercel = (
@@ -6613,13 +6605,10 @@ export const agentSessionsGetSessionVercel = (
 
 /**
  * Send Message
- * Send a message to the agent session with streaming response.
+ * Send a message to the agent session and stream the response.
  *
- * This endpoint combines message sending with streaming response,
- * compatible with Vercel's AI SDK useChat hook. It:
- * 1. Accepts Vercel UI message format or continuation requests
- * 2. Starts the agent execution
- * 3. Streams the response back in Vercel's data protocol format
+ * Compatible with Vercel's AI SDK useChat hook. Starts agent execution
+ * and streams the response in Vercel's data protocol format.
  * @param data The data for the request.
  * @param data.sessionId
  * @param data.workspaceId
@@ -6647,11 +6636,7 @@ export const agentSessionsSendMessage = (
 
 /**
  * Stream Session Events
- * Stream session events via Server-Sent Events (SSE).
- *
- * This endpoint provides real-time streaming of AI agent execution steps
- * using Server-Sent Events. It supports automatic reconnection via the
- * Last-Event-ID header.
+ * Stream session events via Server-Sent Events.
  * @param data The data for the request.
  * @param data.sessionId
  * @param data.workspaceId
@@ -6681,11 +6666,6 @@ export const agentSessionsStreamSessionEvents = (
 /**
  * Fork Session
  * Fork an existing session to continue conversation post-decision.
- *
- * Creates a new session linked to the parent session, allowing users
- * to ask the agent for context after making approval decisions.
- *
- * Set entity_type to 'approval' for inbox forks to hide from main chat list.
  * @param data The data for the request.
  * @param data.sessionId
  * @param data.workspaceId

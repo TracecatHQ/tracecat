@@ -2378,178 +2378,6 @@ export type ChatMessage = {
 }
 
 /**
- * Model for chat metadata with message history.
- */
-export type ChatRead = {
-  /**
-   * Unique chat identifier
-   */
-  id: string
-  /**
-   * Human-readable title for the chat
-   */
-  title: string
-  /**
-   * ID of the user who owns the chat
-   */
-  user_id: string
-  /**
-   * Type of entity this chat is associated with
-   */
-  entity_type: string
-  /**
-   * ID of the associated entity
-   */
-  entity_id: string
-  /**
-   * Tools available to the agent
-   */
-  tools: Array<string>
-  /**
-   * Agent preset used for this chat, if any
-   */
-  agent_preset_id?: string | null
-  /**
-   * Pinned preset version used for this chat, if any
-   */
-  agent_preset_version_id?: string | null
-  /**
-   * When the chat was created
-   */
-  created_at: string
-  /**
-   * When the chat was last updated
-   */
-  updated_at: string
-  /**
-   * Last processed Redis stream ID for this chat
-   */
-  last_stream_id?: string | null
-  /**
-   * Whether this chat is read-only (legacy chats cannot be modified)
-   */
-  is_readonly?: boolean
-  /**
-   * Chat messages from Redis stream
-   */
-  messages?: Array<ChatMessage>
-}
-
-/**
- * Model for chat metadata without messages.
- *
- * Note: Legacy Chat records are read-only (is_readonly=True).
- */
-export type ChatReadMinimal = {
-  /**
-   * Unique chat identifier
-   */
-  id: string
-  /**
-   * Human-readable title for the chat
-   */
-  title: string
-  /**
-   * ID of the user who owns the chat
-   */
-  user_id: string
-  /**
-   * Type of entity this chat is associated with
-   */
-  entity_type: string
-  /**
-   * ID of the associated entity
-   */
-  entity_id: string
-  /**
-   * Tools available to the agent
-   */
-  tools: Array<string>
-  /**
-   * Agent preset used for this chat, if any
-   */
-  agent_preset_id?: string | null
-  /**
-   * Pinned preset version used for this chat, if any
-   */
-  agent_preset_version_id?: string | null
-  /**
-   * When the chat was created
-   */
-  created_at: string
-  /**
-   * When the chat was last updated
-   */
-  updated_at: string
-  /**
-   * Last processed Redis stream ID for this chat
-   */
-  last_stream_id?: string | null
-  /**
-   * Whether this chat is read-only (legacy chats cannot be modified)
-   */
-  is_readonly?: boolean
-}
-
-/**
- * Model for chat metadata with message history in Vercel format.
- */
-export type ChatReadVercel = {
-  /**
-   * Unique chat identifier
-   */
-  id: string
-  /**
-   * Human-readable title for the chat
-   */
-  title: string
-  /**
-   * ID of the user who owns the chat
-   */
-  user_id: string
-  /**
-   * Type of entity this chat is associated with
-   */
-  entity_type: string
-  /**
-   * ID of the associated entity
-   */
-  entity_id: string
-  /**
-   * Tools available to the agent
-   */
-  tools: Array<string>
-  /**
-   * Agent preset used for this chat, if any
-   */
-  agent_preset_id?: string | null
-  /**
-   * Pinned preset version used for this chat, if any
-   */
-  agent_preset_version_id?: string | null
-  /**
-   * When the chat was created
-   */
-  created_at: string
-  /**
-   * When the chat was last updated
-   */
-  updated_at: string
-  /**
-   * Last processed Redis stream ID for this chat
-   */
-  last_stream_id?: string | null
-  /**
-   * Whether this chat is read-only (legacy chats cannot be modified)
-   */
-  is_readonly?: boolean
-  /**
-   * Chat messages from Redis stream
-   */
-  messages?: Array<UIMessage>
-}
-
-/**
  * Event for when a case is closed.
  */
 export type ClosedEventRead = {
@@ -10705,18 +10533,14 @@ export type AgentSessionsListSessionsData = {
   workspaceId: string
 }
 
-export type AgentSessionsListSessionsResponse = Array<
-  AgentSessionRead | ChatReadMinimal
->
+export type AgentSessionsListSessionsResponse = Array<AgentSessionRead>
 
 export type AgentSessionsGetSessionData = {
   sessionId: string
   workspaceId: string
 }
 
-export type AgentSessionsGetSessionResponse =
-  | AgentSessionReadWithMessages
-  | ChatRead
+export type AgentSessionsGetSessionResponse = AgentSessionReadWithMessages
 
 export type AgentSessionsUpdateSessionData = {
   requestBody: AgentSessionUpdate
@@ -10738,9 +10562,7 @@ export type AgentSessionsGetSessionVercelData = {
   workspaceId: string
 }
 
-export type AgentSessionsGetSessionVercelResponse =
-  | AgentSessionReadVercel
-  | ChatReadVercel
+export type AgentSessionsGetSessionVercelResponse = AgentSessionReadVercel
 
 export type AgentSessionsSendMessageData = {
   requestBody: VercelChatRequest | ContinueRunRequest
@@ -15665,7 +15487,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        200: Array<AgentSessionRead | ChatReadMinimal>
+        200: Array<AgentSessionRead>
         /**
          * Validation Error
          */
@@ -15680,7 +15502,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        200: AgentSessionReadWithMessages | ChatRead
+        200: AgentSessionReadWithMessages
         /**
          * Validation Error
          */
@@ -15721,7 +15543,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        200: AgentSessionReadVercel | ChatReadVercel
+        200: AgentSessionReadVercel
         /**
          * Validation Error
          */

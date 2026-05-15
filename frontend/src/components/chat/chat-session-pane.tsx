@@ -36,7 +36,6 @@ import type {
   AgentSessionEntity,
   AgentSessionReadVercel,
   ApprovalDecision,
-  ChatReadVercel,
 } from "@/client"
 import { Action, Actions } from "@/components/ai-elements/actions"
 import {
@@ -182,7 +181,7 @@ type ChatPresetSelector = {
 }
 
 export interface ChatSessionPaneProps {
-  chat?: AgentSessionReadVercel | ChatReadVercel
+  chat?: AgentSessionReadVercel
   workspaceId: string
   entityType?: AgentSessionEntity
   entityId?: string
@@ -268,7 +267,9 @@ export function ChatSessionPane({
     useBuilderRegistryActions()
 
   // Check if this is a legacy read-only session
-  const isReadonly = chat ? "is_readonly" in chat && chat.is_readonly : false
+  const isReadonly = chat
+    ? "is_readonly" in chat && chat.is_readonly === true
+    : false
 
   const uiMessages = useMemo(
     () => (chat?.messages || []).map(toUIMessage),
