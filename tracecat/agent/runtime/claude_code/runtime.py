@@ -124,6 +124,13 @@ def _preview_text(text: str, *, limit: int = LOG_PREVIEW_CHARS) -> str:
     return f"{text[:limit]}... [truncated]"
 
 
+async def _iter_sdk_user_prompt_messages(
+    messages: list[dict[str, Any]],
+) -> AsyncIterator[dict[str, Any]]:
+    for message in messages:
+        yield dict(message)
+
+
 class RuntimeEventWriter(Protocol):
     """Protocol for runtime event delivery."""
 
@@ -1693,7 +1700,7 @@ class ClaudeAgentRuntime:
                     prompt_length=len(APPROVAL_CONTINUATION_PROMPT),
                     prompt_preview=_preview_text(APPROVAL_CONTINUATION_PROMPT),
                 )
-            else:
+            elif isinstance(payload.user_prompt, str):
                 query_input = payload.user_prompt
                 query_log_extra = {"prompt_length": len(query_input)}
                 logger.info(
@@ -1702,6 +1709,20 @@ class ClaudeAgentRuntime:
                     is_continuation=False,
                     is_meta=False,
                     prompt_length=len(query_input),
+                )
+            else:
+                query_input = _iter_sdk_user_prompt_messages(payload.user_prompt)
+                query_log_extra = {
+                    "prompt_message_count": len(payload.user_prompt),
+                    "is_multimodal": True,
+                }
+                logger.info(
+                    "Claude runtime user prompt prepared",
+                    session_id=str(payload.session_id),
+                    is_continuation=False,
+                    is_meta=False,
+                    prompt_message_count=len(payload.user_prompt),
+                    is_multimodal=True,
                 )
 
             transport = self._transport_factory(options)

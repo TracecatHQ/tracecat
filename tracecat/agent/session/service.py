@@ -57,7 +57,7 @@ from tracecat.agent.common.stream_types import (
     ToolCallContent,
     UnifiedStreamEvent,
 )
-from tracecat.agent.common.types import MCPServerConfig
+from tracecat.agent.common.types import AgentUserPrompt, MCPServerConfig
 from tracecat.agent.llm import LLMCompletionError
 from tracecat.agent.mcp.metadata import sanitize_message_tool_inputs
 from tracecat.agent.preset.prompts import AgentPresetBuilderPrompt
@@ -193,6 +193,66 @@ def _finalize_auto_title_task(
             error=str(exc),
             error_type=type(exc).__name__,
         )
+
+
+def _data_url_source(url: str, fallback_media_type: str) -> dict[str, str] | None:
+    header, separator, data = url.partition(",")
+    if not separator or not header.startswith("data:") or ";base64" not in header:
+        return None
+
+    media_type = header.removeprefix("data:").split(";", 1)[0]
+    return {
+        "type": "base64",
+        "media_type": media_type or fallback_media_type,
+        "data": data,
+    }
+
+
+def _vercel_file_part_to_content_block(part: Any) -> dict[str, Any]:
+    media_type = part["mediaType"]
+    source = _data_url_source(part["url"], media_type)
+    if source is None:
+        source = {"type": "url", "url": part["url"]}
+
+    if media_type.startswith("image/"):
+        return {"type": "image", "source": source}
+
+    block: dict[str, Any] = {"type": "document", "source": source}
+    if filename := part.get("filename"):
+        block["title"] = filename
+    return block
+
+
+def _extract_vercel_user_prompt(
+    ui_message: Any,
+) -> tuple[AgentUserPrompt | None, str | None]:
+    from tracecat.agent.adapter.vercel import is_file_ui_part, is_text_ui_part
+
+    text_parts: list[str] = []
+    content_blocks: list[dict[str, Any]] = []
+    has_file_part = False
+
+    for part in ui_message.parts:
+        if is_text_ui_part(part):
+            text = part["text"]
+            text_parts.append(text)
+            content_blocks.append({"type": "text", "text": text})
+        elif is_file_ui_part(part):
+            has_file_part = True
+            content_blocks.append(_vercel_file_part_to_content_block(part))
+
+    text_prompt = "\n".join(text_parts) if text_parts else None
+    if has_file_part:
+        if not content_blocks:
+            return None, text_prompt
+        return [
+            {
+                "type": "user",
+                "message": {"role": "user", "content": content_blocks},
+                "parent_tool_use_id": None,
+            }
+        ], text_prompt
+    return text_prompt, text_prompt
 
 
 @dataclass
@@ -1765,7 +1825,8 @@ class AgentSessionService(BaseWorkspaceService):
         )
 
         # Parse request to extract user prompt
-        user_prompt: str | None = None
+        user_prompt: AgentUserPrompt | None = None
+        prompt_text: str | None = None
         request_instructions: str | None = None
         is_continuation = False
 
@@ -1773,20 +1834,22 @@ class AgentSessionService(BaseWorkspaceService):
             case ContinueRunRequest():
                 is_continuation = True
             case VercelChatRequest(message=ui_message):
-                from tracecat.agent.adapter.vercel import is_text_ui_part
-
-                text_parts = [p["text"] for p in ui_message.parts if is_text_ui_part(p)]
-                if not text_parts:
-                    raise ValueError("VercelChatRequest contained no text parts")
-                user_prompt = "\n".join(text_parts)
+                user_prompt, prompt_text = _extract_vercel_user_prompt(ui_message)
+                if user_prompt is None:
+                    raise ValueError(
+                        "VercelChatRequest contained no supported user content parts"
+                    )
             case BasicChatRequest(message=prompt, instructions=instructions):
                 user_prompt = prompt
+                prompt_text = prompt
                 request_instructions = instructions
             case _:
                 raise ValueError(f"Unsupported request type: {type(request)}")
 
-        if user_prompt is not None:
+        if isinstance(user_prompt, str):
             logger.info("Received user prompt", prompt_length=len(user_prompt))
+        elif user_prompt is not None:
+            logger.info("Received multimodal user prompt", messages=len(user_prompt))
 
         # Handle continuation (approval submission) vs new turn
         if is_continuation and isinstance(request, ContinueRunRequest):
@@ -1798,7 +1861,7 @@ class AgentSessionService(BaseWorkspaceService):
         # surface, so first-prompt history is the signal, not the title text.
         if is_first_prompt is None:
             is_first_prompt = await self.is_first_prompt_for_session(session_id)
-        should_auto_title = user_prompt is not None and is_first_prompt
+        should_auto_title = prompt_text is not None and is_first_prompt
         # Snapshot here so the detached task cannot overwrite a mid-flight rename.
         expected_title = agent_session.title
 
@@ -1885,11 +1948,11 @@ class AgentSessionService(BaseWorkspaceService):
 
             # Spawn after the workflow starts so a rejected/failed turn never
             # renames the session.
-            if should_auto_title and user_prompt is not None:
+            if should_auto_title and prompt_text is not None:
                 task = asyncio.create_task(
                     _auto_title_session(
                         session_id=session_id,
-                        user_prompt=user_prompt,
+                        user_prompt=prompt_text,
                         expected_title=expected_title,
                         role=self.role,
                     )

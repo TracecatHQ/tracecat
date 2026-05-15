@@ -18,7 +18,6 @@ from tracecat.contexts import (
     ctx_interaction,
     ctx_logical_time,
     ctx_role,
-    ctx_run,
 )
 from tracecat.db.engine import get_async_session_bypass_rls_context_manager
 from tracecat.db.models import (
@@ -52,10 +51,9 @@ from tracecat.executor.schemas import (
     ResolvedContext,
 )
 from tracecat.executor.secret_preprocessors import (
-    SecretEnvProjection,
     project_secret_env,
 )
-from tracecat.expressions.common import ExprContext, ExprOperand
+from tracecat.expressions.common import ExprContext
 from tracecat.expressions.eval import (
     collect_expressions,
     eval_templated_object,
@@ -64,9 +62,7 @@ from tracecat.expressions.eval import (
 from tracecat.expressions.expectations import create_expectation_model
 from tracecat.identifiers import OrganizationID
 from tracecat.logger import logger
-from tracecat.registry.actions.bound import BoundRegistryAction
 from tracecat.registry.actions.schemas import TemplateActionDefinition
-from tracecat.registry.actions.service import RegistryActionsService
 from tracecat.registry.constants import DEFAULT_REGISTRY_ORIGIN
 from tracecat.secrets import secrets_manager
 from tracecat.secrets.common import apply_masks_object
@@ -243,138 +239,6 @@ async def get_registry_artifacts_for_lock(
     # Combine cached and fetched artifacts
     all_artifacts = cached_artifacts + fetched_artifacts
     return sorted(all_artifacts, key=lambda x: x.origin)
-
-
-async def _run_action_direct(*, action: BoundRegistryAction, args: ArgsT) -> Any:
-    """Execute the UDF directly.
-
-    At this point, the UDF cannot be a template.
-    """
-    if action.is_template:
-        # This should not be reachable
-        raise ValueError("Templates cannot be executed directly")
-
-    validated_args = action.validate_args(args=args, mode="python")
-    try:
-        if action.is_async:
-            logger.trace("Running UDF async")
-            return await action.fn(**validated_args)
-        logger.trace("Running UDF sync")
-        return await asyncio.to_thread(action.fn, **validated_args)
-    except Exception as e:
-        logger.error(
-            f"Error running UDF {action.action!r}", error=e, type=type(e).__name__
-        )
-        raise e
-
-
-async def run_template_action(
-    *,
-    action: BoundRegistryAction,
-    args: ArgsT,
-    context: ExecutionContext | None = None,
-) -> Any:
-    """Handle template execution."""
-    if not action.template_action:
-        raise ValueError(
-            "Attempted to run a non-template UDF as a template. "
-            "UDFs should be executed directly via the executor backend."
-        )
-    defn = action.template_action.definition
-
-    # Validate arguments and apply defaults
-    logger.trace(
-        "Validating template action arguments", expects=defn.expects, args=args
-    )
-    validated_args: dict[str, Any] = {}
-    if defn.expects:
-        validated_args = action.validate_args(args=args)
-
-    secrets_context = {}
-    env_context = DSLEnvironment()
-    vars_context = {}
-    if context is not None:
-        secrets_context = context.get("SECRETS", {})
-        env_context = context.get("ENV", DSLEnvironment())
-        vars_context = context.get("VARS", {})
-
-    template_context = TemplateExecutionContext(
-        SECRETS=secrets_context,
-        ENV=env_context,
-        VARS=vars_context,
-        inputs=validated_args,
-        steps={},
-    )
-    logger.info("Running template action", action=defn.action)
-    return await _run_template_steps(defn, template_context)
-
-
-async def _run_template_steps(
-    defn: TemplateActionDefinition, template_context: TemplateExecutionContext
-) -> Any:
-    for step in defn.steps:
-        evaled_args = cast(
-            ArgsT,
-            eval_templated_object(
-                step.args, operand=cast(ExprOperand[str], template_context)
-            ),
-        )
-        async with RegistryActionsService.with_session() as service:
-            step_action = await service.load_action_impl(
-                action_name=step.action, mode="execution"
-            )
-        logger.trace("Running action step", step_action=step_action.action)
-        result = await _run_single_template_step(
-            action=step_action,
-            args=evaled_args,
-            context=template_context,
-        )
-        # Store the result of the step
-        logger.trace("Storing step result", step=step.ref, result=result)
-        template_context["steps"][step.ref] = TaskResult.from_result(
-            result
-        ).to_materialized_dict()
-
-    # Handle returns
-    return eval_templated_object(
-        defn.returns, operand=cast(ExprOperand[str], template_context)
-    )
-
-
-async def _run_single_template_step(
-    *,
-    action: BoundRegistryAction,
-    args: ArgsT,
-    context: TemplateExecutionContext,
-) -> Any:
-    """Run a UDF async."""
-    if action.is_template:
-        logger.info("Running template action async", action=action.name)
-        if not action.template_action:
-            raise ValueError("Template action missing template_action")
-        defn = action.template_action.definition
-
-        # Validate args against nested template's expects and create fresh context
-        # with nested template's own inputs, but reuse parent's SECRETS/ENV/VARS
-        validated_args: dict[str, Any] = {}
-        if defn.expects:
-            validated_args = action.validate_args(args=args)
-
-        nested_context = TemplateExecutionContext(
-            SECRETS=context.get("SECRETS", {}),
-            ENV=context.get("ENV", DSLEnvironment()),
-            VARS=context.get("VARS", {}),
-            inputs=validated_args,
-            steps={},
-        )
-        result = await _run_template_steps(defn, nested_context)
-    else:
-        logger.trace("Running UDF async", action=action.name)
-        secret_projection = await _get_template_secret_projection(context)
-        with secrets_manager.env_sandbox(secret_projection.env):
-            result = await _run_action_direct(action=action, args=args)
-
-    return result
 
 
 async def _prepare_step_context(
@@ -615,27 +479,6 @@ class PreparedContext:
 
     resolved_context: ResolvedContext
     mask_values: set[str] | None
-
-
-async def _get_template_secret_projection(
-    context: TemplateExecutionContext,
-) -> SecretEnvProjection:
-    secrets = context.get("SECRETS", {})
-    role = ctx_role.get()
-    run_context = ctx_run.get()
-    if role is None or run_context is None:
-        flat_secrets = secrets_manager.flatten_secrets(secrets)
-        mask_values = {
-            value
-            for value in flat_secrets.values()
-            if isinstance(value, str) and len(value) > 1
-        }
-        return SecretEnvProjection(env=flat_secrets, mask_values=mask_values)
-    return await project_secret_env(
-        secrets=secrets,
-        role=role,
-        run_context=run_context,
-    )
 
 
 async def prepare_resolved_context(

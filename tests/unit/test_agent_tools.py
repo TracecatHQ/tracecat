@@ -2,15 +2,11 @@
 
 Tests the harness-agnostic tool creation and execution:
 - Tool dataclass construction
-- ToolExecutionError exception
 - denormalize_tool_name utility
 - create_tool_from_registry
 """
 
-import pytest
-
 from tracecat.agent.tools import (
-    ToolExecutionError,
     denormalize_tool_name,
 )
 from tracecat.agent.types import Tool
@@ -85,34 +81,6 @@ class TestToolDataclass:
 
         assert tool.parameters_json_schema == schema
         assert "required" in tool.parameters_json_schema
-
-
-# =============================================================================
-# ToolExecutionError Tests
-# =============================================================================
-
-
-class TestToolExecutionError:
-    """Tests for ToolExecutionError exception."""
-
-    def test_error_with_message(self):
-        """Test ToolExecutionError with a message."""
-        error = ToolExecutionError("Action execution failed: timeout")
-
-        assert str(error) == "Action execution failed: timeout"
-        assert isinstance(error, Exception)
-
-    def test_error_can_be_raised_and_caught(self):
-        """Test that ToolExecutionError can be raised and caught."""
-        with pytest.raises(ToolExecutionError) as exc_info:
-            raise ToolExecutionError("Something went wrong")
-
-        assert "Something went wrong" in str(exc_info.value)
-
-    def test_error_inheritance(self):
-        """Test that ToolExecutionError inherits from Exception."""
-        error = ToolExecutionError("test")
-        assert isinstance(error, Exception)
 
 
 # =============================================================================
