@@ -4218,6 +4218,21 @@ export const $AgentTagRead = {
   description: "Tag data.",
 } as const
 
+export const $AgentUserPrompt = {
+  anyOf: [
+    {
+      type: "string",
+    },
+    {
+      items: {
+        additionalProperties: true,
+        type: "object",
+      },
+      type: "array",
+    },
+  ],
+} as const
+
 export const $AnyAttachedSubagentRef = {
   anyOf: [
     {

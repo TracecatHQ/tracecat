@@ -661,14 +661,22 @@ class DurableAgentWorkflow:
         """Run the agent until completion. The agent will call tools until it needs human approval."""
         if workflow.patched(UPSERT_TRACECAT_SEARCH_ATTRIBUTES_PATCH):
             self._upsert_tracecat_search_attributes()
-        logger.debug(
-            "DurableAgentWorkflow run", args=args, harness_type=self.harness_type
-        )
+        logger.debug("DurableAgentWorkflow run", harness_type=self.harness_type)
         logger.debug("AGENT CONTEXT", agent_context=AgentContext.get())
         if workflow.unsafe.is_replaying():
             logger.debug("Workflow is replaying")
         else:
-            logger.debug("Starting agent", prompt=args.agent_args.user_prompt)
+            if isinstance(args.agent_args.user_prompt, str):
+                logger.debug(
+                    "Starting agent",
+                    prompt_length=len(args.agent_args.user_prompt),
+                )
+            else:
+                logger.debug(
+                    "Starting agent",
+                    prompt_message_count=len(args.agent_args.user_prompt),
+                    is_multimodal=True,
+                )
 
         try:
             cfg = await self._build_config(args)
@@ -778,7 +786,11 @@ class DurableAgentWorkflow:
                 agents_binding=agents_result.to_agents_binding(),
                 harness_type=HarnessType(self.harness_type),
                 curr_run_id=curr_run_id,
-                initial_user_prompt=args.agent_args.user_prompt,
+                initial_user_prompt=(
+                    args.agent_args.user_prompt
+                    if isinstance(args.agent_args.user_prompt, str)
+                    else None
+                ),
             ),
             start_to_close_timeout=timedelta(seconds=30),
             retry_policy=RETRY_POLICIES["activity:fail_fast"],

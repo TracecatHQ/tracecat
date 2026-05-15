@@ -997,6 +997,12 @@ export type AgentTagRead = {
   color: string | null
 }
 
+export type AgentUserPrompt =
+  | string
+  | Array<{
+      [key: string]: unknown
+    }>
+
 export type AnyAttachedSubagentRef =
   | ResolvedAttachedSubagentRef
   | AttachedSubagentRef

@@ -172,6 +172,10 @@ class AgentStream:
         format: StreamFormat,
     ) -> AsyncIterable[str]:
         match format:
+            case "vercel":
+                from tracecat.agent.adapter.vercel import sse_vercel
+
+                return sse_vercel(self.stream_events(stop_condition, last_id))
             case "basic":
                 return self.simple_sse(stop_condition, last_id)
             case _:
