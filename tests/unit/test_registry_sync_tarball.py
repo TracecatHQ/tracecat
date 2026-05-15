@@ -184,8 +184,8 @@ async def test_upload_tarball_venv_uploads_zstd_sidecar(
     zstd_tarball_path = tmp_path / "site-packages.tar.zst"
     tarball_path.write_bytes(b"gzip")
     zstd_tarball_path.write_bytes(b"zstd")
-    upload_file = mocker.patch(
-        "tracecat.registry.sync.tarball.blob.upload_file",
+    upload_file_from_path = mocker.patch(
+        "tracecat.registry.sync.tarball.blob.upload_file_from_path",
         mocker.AsyncMock(),
     )
 
@@ -200,17 +200,17 @@ async def test_upload_tarball_venv_uploads_zstd_sidecar(
         "s3://tracecat-registry/org/tarball-venvs/tracecat_registry/v1/"
         "site-packages.tar.gz"
     )
-    assert upload_file.await_count == 2
-    upload_file.assert_has_awaits(
+    assert upload_file_from_path.await_count == 2
+    upload_file_from_path.assert_has_awaits(
         [
             mocker.call(
-                content=b"gzip",
+                path=tarball_path,
                 key="org/tarball-venvs/tracecat_registry/v1/site-packages.tar.gz",
                 bucket="tracecat-registry",
                 content_type="application/gzip",
             ),
             mocker.call(
-                content=b"zstd",
+                path=zstd_tarball_path,
                 key="org/tarball-venvs/tracecat_registry/v1/site-packages.tar.zst",
                 bucket="tracecat-registry",
                 content_type="application/zstd",

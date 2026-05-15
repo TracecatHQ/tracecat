@@ -609,20 +609,18 @@ async def upload_tarball_venv(
     if not zstd_tarball_path.exists():
         raise FileNotFoundError(f"Zstd tarball file not found: {zstd_tarball_path}")
 
-    # Use asyncio.to_thread to avoid blocking the event loop for large files
-    content = await asyncio.to_thread(tarball_path.read_bytes)
-    zstd_content = await asyncio.to_thread(zstd_tarball_path.read_bytes)
-
-    await blob.upload_file(
-        content=content,
+    # Stream from disk via multipart upload so we don't hold hundreds of MB
+    # of tarball bytes in the API process memory at once.
+    await blob.upload_file_from_path(
+        path=tarball_path,
         key=key,
         bucket=bucket,
         content_type="application/gzip",
     )
 
     zstd_key = _zstd_key_for(key)
-    await blob.upload_file(
-        content=zstd_content,
+    await blob.upload_file_from_path(
+        path=zstd_tarball_path,
         key=zstd_key,
         bucket=bucket,
         content_type="application/zstd",
@@ -634,8 +632,8 @@ async def upload_tarball_venv(
         key=key,
         bucket=bucket,
         s3_uri=s3_uri,
-        size=len(content),
-        zstd_size=len(zstd_content),
+        size=tarball_path.stat().st_size,
+        zstd_size=zstd_tarball_path.stat().st_size,
     )
     return s3_uri
 
