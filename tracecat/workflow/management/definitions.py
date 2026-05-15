@@ -3,7 +3,6 @@ from __future__ import annotations
 from sqlalchemy import case, select
 from sqlalchemy.orm import selectinload
 from temporalio import activity
-from temporalio.exceptions import ApplicationError
 
 from tracecat.authz.controls import require_scope
 from tracecat.db.models import Workflow, WorkflowDefinition
@@ -13,7 +12,9 @@ from tracecat.identifiers.workflow import WorkflowID
 from tracecat.logger import logger
 from tracecat.registry.lock.service import RegistryLockService
 from tracecat.registry.lock.types import RegistryLock
+from tracecat.runtime.errors import RuntimeErrorOrigin, RuntimeErrorPhase
 from tracecat.service import BaseWorkspaceService
+from tracecat.temporal.errors import ActivityRuntimeError
 from tracecat.workflow.management.schemas import (
     GetWorkflowDefinitionActivityInputs,
     ResolveRegistryLockActivityInputs,
@@ -132,7 +133,14 @@ async def get_workflow_definition_activity(
         if not defn:
             msg = f"Workflow definition not found for {input.workflow_id.short()}, version={input.version}"
             logger.error(msg)
-            raise ApplicationError(msg, non_retryable=True)
+            raise ActivityRuntimeError.user(
+                code="workflow.definition.not_found",
+                message=msg,
+                origin=RuntimeErrorOrigin.DSL,
+                phase=RuntimeErrorPhase.PREPARE,
+                error_type="WorkflowDefinitionNotFound",
+                ref=input.workflow_id.short(),
+            )
         dsl = DSLInput(**defn.content)
     # Convert from DB dict type to RegistryLock (JSONB deserializes to dict)
     registry_lock = (
@@ -154,17 +162,26 @@ async def resolve_registry_lock_activity(
         async with RegistryLockService.with_session(role=input.role) as service:
             lock = await service.resolve_lock_with_bindings(input.action_names)
     except BuiltinRegistryHasNoSelectionError as e:
-        raise ApplicationError(
-            str(e),
-            e.detail,
-            type=e.__class__.__name__,
+        raise ActivityRuntimeError.platform(
+            code="workflow.registry_lock.builtin_selection_unavailable",
+            message=str(e),
+            origin=RuntimeErrorOrigin.DSL,
+            phase=RuntimeErrorPhase.PREPARE,
+            error_type=e.__class__.__name__,
+            root=e,
+            details=(e.detail,),
+            retryable=True,
+            non_retryable=False,
         ) from e
     except EntitlementRequired as e:
-        raise ApplicationError(
-            str(e),
-            e.detail,
-            non_retryable=True,
-            type=e.__class__.__name__,
+        raise ActivityRuntimeError.user(
+            code="workflow.registry_lock.entitlement_required",
+            message=str(e),
+            origin=RuntimeErrorOrigin.DSL,
+            phase=RuntimeErrorPhase.PREPARE,
+            error_type=e.__class__.__name__,
+            root=e,
+            details=(e.detail,),
         ) from e
     logger.info(
         "Resolved registry lock",

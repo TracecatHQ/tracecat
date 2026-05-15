@@ -10,7 +10,10 @@ from tracecat.dsl.action import (
     materialize_context,
 )
 from tracecat.dsl.schemas import ExecutionContext, TaskResult
+from tracecat.expressions.schemas import ExpectedField
+from tracecat.runtime.errors import RuntimeErrorKind, RuntimeErrorPhase
 from tracecat.storage.object import CollectionObject, InlineObject, ObjectRef
+from tracecat.temporal.errors import extract_runtime_error_from_details
 
 
 @pytest.mark.anyio
@@ -70,6 +73,41 @@ def test_normalize_trigger_inputs_storage_retrieve_failure_is_retryable(
     app_error = exc_info.value
     assert app_error.type == "OSError"
     assert app_error.non_retryable is False
+    envelope = extract_runtime_error_from_details(app_error.details)
+    assert envelope is not None
+    assert envelope.kind == RuntimeErrorKind.INFRA
+    assert envelope.phase == RuntimeErrorPhase.PREPARE
+    assert envelope.retryable is True
+
+
+def test_normalize_trigger_inputs_validation_failure_has_user_envelope(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class Storage:
+        async def retrieve(self, _stored: InlineObject) -> object:
+            return {}
+
+        async def store(self, *_args: object, **_kwargs: object) -> object:
+            raise AssertionError("store should not be called")
+
+    monkeypatch.setattr(action, "get_object_storage", lambda: Storage())
+
+    with pytest.raises(ApplicationError) as exc_info:
+        DSLActivities.normalize_trigger_inputs_activity(
+            NormalizeTriggerInputsActivityInputs(
+                input_schema={"count": ExpectedField(type="int")},
+                trigger_inputs=InlineObject(data={}),
+                key="wf/normalized-trigger-inputs",
+            )
+        )
+
+    app_error = exc_info.value
+    assert app_error.type == "ValidationError"
+    assert app_error.non_retryable is True
+    envelope = extract_runtime_error_from_details(app_error.details)
+    assert envelope is not None
+    assert envelope.kind == RuntimeErrorKind.USER
+    assert envelope.code == "dsl.trigger_inputs.validation_failed"
 
 
 @pytest.mark.anyio

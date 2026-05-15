@@ -26,6 +26,8 @@ from tracecat.agent.types import AgentConfig
 from tracecat.agent.workflow_schemas import AgentConfigPayload
 from tracecat.auth.types import Role
 from tracecat.exceptions import TracecatValidationError
+from tracecat.runtime.errors import RuntimeErrorKind
+from tracecat.temporal.errors import extract_runtime_error_from_details
 
 
 class _AsyncContext:
@@ -366,6 +368,10 @@ async def test_resolve_custom_model_provider_config_missing_credentials_non_retr
     app_error = exc_info.value
     assert app_error.type == "InvalidCustomModelProviderCredentials"
     assert app_error.non_retryable is True
+    envelope = extract_runtime_error_from_details(app_error.details)
+    assert envelope is not None
+    assert envelope.kind == RuntimeErrorKind.USER
+    assert envelope.code == "agent.custom_model_provider.credentials_missing"
 
 
 @pytest.mark.anyio
@@ -395,3 +401,7 @@ async def test_resolve_custom_model_provider_config_missing_base_url_non_retryab
     app_error = exc_info.value
     assert app_error.type == "CustomModelProviderBaseURLRequired"
     assert app_error.non_retryable is True
+    envelope = extract_runtime_error_from_details(app_error.details)
+    assert envelope is not None
+    assert envelope.kind == RuntimeErrorKind.USER
+    assert envelope.code == "agent.custom_model_provider.base_url_required"

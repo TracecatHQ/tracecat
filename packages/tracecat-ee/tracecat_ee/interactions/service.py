@@ -17,7 +17,9 @@ from tracecat.identifiers.workflow import WorkflowExecutionID
 from tracecat.interactions.enums import InteractionStatus, InteractionType
 from tracecat.interactions.schemas import InteractionInput, InteractionResult
 from tracecat.interactions.types import InteractionState
+from tracecat.runtime.errors import RuntimeErrorOrigin, RuntimeErrorPhase
 from tracecat.service import BaseWorkspaceService
+from tracecat.temporal.errors import ActivityRuntimeError
 
 if TYPE_CHECKING:
     from tracecat.dsl.workflow import DSLWorkflow
@@ -373,6 +375,13 @@ class InteractionService(BaseWorkspaceService):
         async with InteractionService.with_session(role=input.role) as service:
             interaction = await service.get_interaction(input.interaction_id)
             if interaction is None:
-                raise ApplicationError("Interaction not found", non_retryable=True)
+                raise ActivityRuntimeError.user(
+                    code="interaction.not_found",
+                    message="Interaction not found",
+                    origin=RuntimeErrorOrigin.DSL,
+                    phase=RuntimeErrorPhase.USER_CODE,
+                    error_type="InteractionNotFound",
+                    ref=str(input.interaction_id),
+                )
             await service.update_interaction(interaction, input.params)
             return interaction.id

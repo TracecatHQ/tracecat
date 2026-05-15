@@ -6,7 +6,6 @@ import sqlalchemy as sa
 from pydantic import BaseModel, Field, model_validator
 from sqlalchemy import select
 from temporalio import activity
-from temporalio.exceptions import ApplicationError
 
 from tracecat.agent.preset.resolver import (
     ResolvedAgentsRuntimeConfig,
@@ -19,6 +18,8 @@ from tracecat.agent.workflow_config import agent_config_to_payload
 from tracecat.agent.workflow_schemas import AgentConfigPayload
 from tracecat.auth.types import Role
 from tracecat.db.models import AgentCatalog
+from tracecat.runtime.errors import RuntimeErrorOrigin, RuntimeErrorPhase
+from tracecat.temporal.errors import ActivityRuntimeError
 
 
 class ResolveAgentPresetConfigActivityInput(BaseModel):
@@ -144,10 +145,12 @@ async def resolve_custom_model_provider_config_activity(
 
     if creds is None:
         activity.logger.error("Custom model provider credentials not found")
-        raise ApplicationError(
-            "Invalid custom model provider credentials",
-            non_retryable=True,
-            type="InvalidCustomModelProviderCredentials",
+        raise ActivityRuntimeError.user(
+            code="agent.custom_model_provider.credentials_missing",
+            message="Invalid custom model provider credentials",
+            origin=RuntimeErrorOrigin.UNKNOWN,
+            phase=RuntimeErrorPhase.PREPARE,
+            error_type="InvalidCustomModelProviderCredentials",
         )
     if not (base_url := creds.get("CUSTOM_MODEL_PROVIDER_BASE_URL")):
         activity.logger.error(
@@ -159,10 +162,12 @@ async def resolve_custom_model_provider_config_activity(
                 "has_api_key": bool(creds.get("CUSTOM_MODEL_PROVIDER_API_KEY")),
             },
         )
-        raise ApplicationError(
-            "Custom model provider base URL is required",
-            non_retryable=True,
-            type="CustomModelProviderBaseURLRequired",
+        raise ActivityRuntimeError.user(
+            code="agent.custom_model_provider.base_url_required",
+            message="Custom model provider base URL is required",
+            origin=RuntimeErrorOrigin.UNKNOWN,
+            phase=RuntimeErrorPhase.PREPARE,
+            error_type="CustomModelProviderBaseURLRequired",
         )
     passthrough = creds.get("CUSTOM_MODEL_PROVIDER_PASSTHROUGH", "").lower() in {
         "1",

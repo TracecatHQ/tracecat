@@ -58,6 +58,8 @@ from tracecat.chat.schemas import ChatMessage
 from tracecat.exceptions import BuiltinRegistryHasNoSelectionError
 from tracecat.registry.lock.service import RegistryLockService
 from tracecat.registry.lock.types import RegistryLock
+from tracecat.runtime.errors import RuntimeErrorKind
+from tracecat.temporal.errors import extract_runtime_error_from_details
 
 
 @pytest.fixture
@@ -138,6 +140,10 @@ class TestBuildToolDefinitionsActivity:
         assert app_error.type == "AgentToolDefinitionError"
         assert app_error.non_retryable is True
         assert app_error.message == "Cannot request more than 100 tools"
+        envelope = extract_runtime_error_from_details(app_error.details)
+        assert envelope is not None
+        assert envelope.kind == RuntimeErrorKind.USER
+        assert envelope.code == "agent.tool_definitions.invalid"
 
     @pytest.mark.anyio
     async def test_maps_builtin_sync_pending_to_application_error(
@@ -184,6 +190,10 @@ class TestBuildToolDefinitionsActivity:
         assert app_error.type == "BuiltinRegistryHasNoSelectionError"
         assert app_error.non_retryable is False
         assert app_error.details[0] == {"origin": "tracecat_registry"}
+        envelope = extract_runtime_error_from_details(app_error.details)
+        assert envelope is not None
+        assert envelope.kind == RuntimeErrorKind.PLATFORM
+        assert envelope.retryable is True
 
     @pytest.mark.anyio
     async def test_strict_mcp_discovery_failure_fails_scope_compilation(
@@ -257,6 +267,10 @@ class TestBuildToolDefinitionsActivity:
         )
         assert exc_info.value.type == "AgentToolDefinitionError"
         assert exc_info.value.non_retryable is True
+        envelope = extract_runtime_error_from_details(exc_info.value.details)
+        assert envelope is not None
+        assert envelope.kind == RuntimeErrorKind.USER
+        assert envelope.code == "agent.tool_definitions.mcp_discovery_failed"
 
     @pytest.mark.anyio
     async def test_build_agent_tool_definitions_returns_partitioned_scopes(
@@ -509,6 +523,10 @@ class TestCreateSessionActivity:
                 "Agent session was created with a different agents binding"
             )
             assert exc_info.value.non_retryable is True
+            envelope = extract_runtime_error_from_details(exc_info.value.details)
+            assert envelope is not None
+            assert envelope.kind == RuntimeErrorKind.USER
+            assert envelope.code == "agent.session.agents_binding_mismatch"
         mock_service.session.add.assert_not_called()
         mock_service.session.commit.assert_not_awaited()
 
@@ -567,6 +585,10 @@ class TestCreateSessionActivity:
 
         assert str(mock_session_id) in exc_info.value.message
         assert exc_info.value.non_retryable is True
+        envelope = extract_runtime_error_from_details(exc_info.value.details)
+        assert envelope is not None
+        assert envelope.kind == RuntimeErrorKind.USER
+        assert envelope.code == "agent.session.missing"
         mock_service.get_session.assert_awaited_once_with(mock_session_id)
         mock_service.get_or_create_session.assert_not_called()
 

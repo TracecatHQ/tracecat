@@ -28,7 +28,6 @@ from __future__ import annotations
 from datetime import timedelta
 
 from temporalio import activity, workflow
-from temporalio.exceptions import ApplicationError
 
 with workflow.unsafe.imports_passed_through():
     from tracecat.logger import logger
@@ -40,6 +39,8 @@ with workflow.unsafe.imports_passed_through():
         RegistrySyncRequest,
         RegistrySyncResult,
     )
+    from tracecat.runtime.errors import RuntimeErrorOrigin, RuntimeErrorPhase
+    from tracecat.temporal.errors import ActivityRuntimeError
 
 
 @workflow.defn
@@ -120,10 +121,14 @@ async def sync_registry_activity(request: RegistrySyncRequest) -> RegistrySyncRe
     try:
         result = await runner.run(request)
     except RegistrySyncValidationError as exc:
-        raise ApplicationError(
-            str(exc),
-            non_retryable=True,
-            type="RegistrySyncValidationError",
+        raise ActivityRuntimeError.user(
+            code="registry.sync.validation_failed",
+            message=str(exc),
+            origin=RuntimeErrorOrigin.UNKNOWN,
+            phase=RuntimeErrorPhase.USER_CODE,
+            error_type="RegistrySyncValidationError",
+            root=exc,
+            ref=str(request.repository_id),
         ) from exc
 
     if result.validation_errors:
@@ -135,14 +140,17 @@ async def sync_registry_activity(request: RegistrySyncRequest) -> RegistrySyncRe
             if first_error is not None and first_error.details
             else ""
         )
-        raise ApplicationError(
-            (
+        raise ActivityRuntimeError.user(
+            code="registry.sync.validation_failed",
+            message=(
                 "Registry sync validation failed: "
                 f"{error_count} validation error(s). "
                 f"First error in '{first_action}': {first_detail}"
             ),
-            non_retryable=True,
-            type="RegistrySyncValidationError",
+            origin=RuntimeErrorOrigin.UNKNOWN,
+            phase=RuntimeErrorPhase.USER_CODE,
+            error_type="RegistrySyncValidationError",
+            ref=str(request.repository_id),
         )
 
     logger.info(

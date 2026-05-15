@@ -4,10 +4,11 @@ from __future__ import annotations
 
 from pydantic import BaseModel
 from temporalio import activity
-from temporalio.exceptions import ApplicationError
 
 from tracecat.identifiers import OrganizationID
 from tracecat.logger import logger
+from tracecat.runtime.errors import RuntimeErrorOrigin, RuntimeErrorPhase
+from tracecat.temporal.errors import ActivityRuntimeError
 from tracecat.tiers.exceptions import InvalidOrganizationConcurrencyCapError
 from tracecat.tiers.permits import TierPermitService
 from tracecat.tiers.schemas import EffectiveLimits
@@ -98,10 +99,14 @@ async def acquire_workflow_permit_activity(
             workflow_id=input.workflow_id,
         )
     except InvalidOrganizationConcurrencyCapError as e:
-        raise ApplicationError(
-            str(e),
-            non_retryable=True,
-            type="InvalidOrganizationConcurrencyCap",
+        raise ActivityRuntimeError.platform(
+            code="tiers.workflow_concurrency.invalid_cap",
+            message=str(e),
+            origin=RuntimeErrorOrigin.UNKNOWN,
+            phase=RuntimeErrorPhase.PREPARE,
+            error_type="InvalidOrganizationConcurrencyCap",
+            root=e,
+            workflow_exec_id=input.workflow_id,
         ) from e
 
     logger.info(
@@ -171,10 +176,14 @@ async def acquire_action_permit_activity(
             action_id=input.action_id,
         )
     except InvalidOrganizationConcurrencyCapError as e:
-        raise ApplicationError(
-            str(e),
-            non_retryable=True,
-            type="InvalidOrganizationConcurrencyCap",
+        raise ActivityRuntimeError.platform(
+            code="tiers.action_concurrency.invalid_cap",
+            message=str(e),
+            origin=RuntimeErrorOrigin.UNKNOWN,
+            phase=RuntimeErrorPhase.PREPARE,
+            error_type="InvalidOrganizationConcurrencyCap",
+            root=e,
+            action_ref=input.action_id,
         ) from e
 
     logger.info(

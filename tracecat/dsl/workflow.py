@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import re
 import uuid
-from collections.abc import Awaitable, Callable, Coroutine, Iterator
+from collections.abc import Awaitable, Callable, Coroutine, Iterator, Sequence
 from datetime import UTC, datetime, timedelta
 from typing import Any, Self
 
@@ -207,6 +207,20 @@ type WorkflowFailureRuntimeDetails = dict[str, dict[str, RuntimeErrorEnvelope]]
 type WorkflowFailureDetails = (
     WorkflowFailureActionDetails | WorkflowFailureRuntimeDetails
 )
+
+
+def _split_runtime_error_details(
+    details: Sequence[Any],
+) -> tuple[list[Any], list[WorkflowFailureRuntimeDetails]]:
+    payload_details: list[Any] = []
+    runtime_details: list[WorkflowFailureRuntimeDetails] = []
+    for detail in details:
+        match detail:
+            case dict() as detail_map if RUNTIME_ERROR_DETAILS_KEY in detail_map:
+                runtime_details.append(detail_map)
+            case _:
+                payload_details.append(detail)
+    return payload_details, runtime_details
 
 
 @workflow.defn
@@ -581,11 +595,15 @@ class DSLWorkflow:
                             error=e,
                             details=details,
                         )
-                        [val_detail] = details
+                        payload_details, runtime_details = _split_runtime_error_details(
+                            details
+                        )
+                        [val_detail] = payload_details
                         validated = ValidationDetailListTA.validate_python(val_detail)
                         raise ApplicationError(
                             format_input_schema_validation_error(validated),
-                            details,
+                            val_detail,
+                            *runtime_details,
                             non_retryable=True,
                             type=ValidationError.__name__,
                         ) from cause

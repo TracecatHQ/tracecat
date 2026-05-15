@@ -8,7 +8,6 @@ from typing import Any, cast
 import dateparser
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from temporalio import activity
-from temporalio.exceptions import ApplicationError
 from tracecat_ee.agent.schemas import AgentActionArgs, PresetAgentActionArgs
 
 from tracecat import config
@@ -52,6 +51,7 @@ from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.integrations.mcp_validation import MCPValidationError
 from tracecat.logger import logger
 from tracecat.registry.lock.types import RegistryLock
+from tracecat.runtime.errors import RuntimeErrorOrigin, RuntimeErrorPhase
 from tracecat.storage.collection import (
     materialize_collection_values,
     store_collection,
@@ -66,6 +66,7 @@ from tracecat.storage.object import (
     get_object_storage,
     retrieve_stored_object,
 )
+from tracecat.temporal.errors import ActivityRuntimeError
 from tracecat.temporal.exceptions import UserError
 from tracecat.validation.schemas import ValidationDetail
 
@@ -80,7 +81,14 @@ async def _resolve_mcp_integrations(
             await svc.validate_mcp_integrations(mcp_integration_ids)
             servers = await svc.resolve_mcp_integration_refs(mcp_integration_ids)
     except (MCPValidationError, TracecatValidationError) as e:
-        raise ApplicationError(str(e), non_retryable=True) from e
+        raise ActivityRuntimeError.user(
+            code="dsl.agent.mcp_integrations.invalid",
+            message=str(e),
+            origin=RuntimeErrorOrigin.DSL,
+            phase=RuntimeErrorPhase.PREPARE,
+            error_type=e.__class__.__name__,
+            root=e,
+        ) from e
     return servers or []
 
 
@@ -618,9 +626,12 @@ class DSLActivities:
                 # Caller is responsible for raising if errors are present.
                 results, errors = _partition_errors(values)
             case _:
-                raise ApplicationError(
-                    f"Invalid error handling strategy: {input.error_strategy}",
-                    non_retryable=True,
+                raise ActivityRuntimeError.platform(
+                    code="dsl.gather.invalid_error_strategy",
+                    message=f"Invalid error handling strategy: {input.error_strategy}",
+                    origin=RuntimeErrorOrigin.DSL,
+                    phase=RuntimeErrorPhase.COLLECT,
+                    error_type="InvalidGatherErrorStrategy",
                 )
 
         # Guard CollectionObject: only use chunked storage when externalization
@@ -737,41 +748,53 @@ class DSLActivities:
                 value = run_sync(storage.retrieve(inputs.trigger_inputs))
         except Exception as e:
             logger.warning("Failed to retrieve trigger inputs", error=e)
-            raise ApplicationError(
-                "Failed to retrieve trigger inputs",
-                non_retryable=False,
-                type=e.__class__.__name__,
+            raise ActivityRuntimeError.platform_or_infra(
+                code="dsl.trigger_inputs.retrieve_failed",
+                message="Failed to retrieve trigger inputs",
+                origin=RuntimeErrorOrigin.DSL,
+                phase=RuntimeErrorPhase.PREPARE,
+                error_type=e.__class__.__name__,
+                root=e,
             ) from e
 
         try:
             normalized = normalize_trigger_inputs(inputs.input_schema, value)
         except ValidationError as e:
             logger.info("Validation error when normalizing trigger inputs", error=e)
-            raise ApplicationError(
-                "Failed to validate trigger inputs",
-                ValidationDetail.list_from_pydantic(e),
-                non_retryable=True,
-                type=e.__class__.__name__,
+            raise ActivityRuntimeError.user(
+                code="dsl.trigger_inputs.validation_failed",
+                message="Failed to validate trigger inputs",
+                origin=RuntimeErrorOrigin.DSL,
+                phase=RuntimeErrorPhase.PREPARE,
+                error_type=e.__class__.__name__,
+                root=e,
+                details=(ValidationDetail.list_from_pydantic(e),),
             ) from e
         except Exception as e:
             logger.warning(
                 "Unexpected error cause when normalizing trigger inputs",
                 error=e,
             )
-            raise ApplicationError(
-                "Unexpected error when normalizing trigger inputs",
-                non_retryable=True,
-                type=e.__class__.__name__,
+            raise ActivityRuntimeError.platform(
+                code="dsl.trigger_inputs.normalization_failed",
+                message="Unexpected error when normalizing trigger inputs",
+                origin=RuntimeErrorOrigin.DSL,
+                phase=RuntimeErrorPhase.PREPARE,
+                error_type=e.__class__.__name__,
+                root=e,
             ) from e
 
         try:
             return run_sync(storage.store(inputs.key, normalized))
         except Exception as e:
             logger.warning("Failed to store normalized trigger inputs", error=e)
-            raise ApplicationError(
-                "Failed to store normalized trigger inputs",
-                non_retryable=False,
-                type=e.__class__.__name__,
+            raise ActivityRuntimeError.platform_or_infra(
+                code="dsl.trigger_inputs.store_failed",
+                message="Failed to store normalized trigger inputs",
+                origin=RuntimeErrorOrigin.DSL,
+                phase=RuntimeErrorPhase.PREPARE,
+                error_type=e.__class__.__name__,
+                root=e,
             ) from e
 
     @staticmethod
@@ -805,9 +828,12 @@ def _evaluate_scatter_input(input: ScatterActionInput) -> StoredObject:
     if result is None:
         result = []
     elif not is_iterable(result):
-        raise ApplicationError(
-            f"Scatter collection is not iterable: {type(result)}: {result}",
-            non_retryable=True,
+        raise ActivityRuntimeError.user(
+            code="dsl.scatter.collection_not_iterable",
+            message=f"Scatter collection is not iterable: {type(result)}: {result}",
+            origin=RuntimeErrorOrigin.DSL,
+            phase=RuntimeErrorPhase.USER_CODE,
+            error_type="ScatterCollectionNotIterable",
         )
 
     items = list(result)
@@ -896,9 +922,12 @@ def _resolve_subflow_batch(
     task = input.task
 
     if not task.for_each:
-        raise ApplicationError(
-            "ResolveSubflowBatchActivityInput requires task.for_each",
-            non_retryable=True,
+        raise ActivityRuntimeError.platform(
+            code="dsl.subflow_batch.missing_for_each",
+            message="ResolveSubflowBatchActivityInput requires task.for_each",
+            origin=RuntimeErrorOrigin.DSL,
+            phase=RuntimeErrorPhase.PREPARE,
+            error_type="SubflowBatchForEachRequired",
         )
 
     # Materialize any StoredObjects in operand
@@ -912,9 +941,15 @@ def _resolve_subflow_batch(
     batch_items = all_items[input.batch_start : input.batch_start + input.batch_size]
 
     if not batch_items:
-        raise ApplicationError(
-            f"Empty batch: start={input.batch_start}, size={input.batch_size}, total={len(all_items)}",
-            non_retryable=True,
+        raise ActivityRuntimeError.platform(
+            code="dsl.subflow_batch.empty",
+            message=(
+                f"Empty batch: start={input.batch_start}, "
+                f"size={input.batch_size}, total={len(all_items)}"
+            ),
+            origin=RuntimeErrorOrigin.DSL,
+            phase=RuntimeErrorPhase.PREPARE,
+            error_type="EmptySubflowBatch",
         )
 
     # Evaluate args for each iteration in the batch

@@ -25,7 +25,9 @@ from tracecat.auth.types import Role
 from tracecat.chat.schemas import ChatMessage
 from tracecat.contexts import ctx_role
 from tracecat.logger import logger
+from tracecat.runtime.errors import RuntimeErrorOrigin, RuntimeErrorPhase
 from tracecat.storage.object import StoredObject, retrieve_stored_object
+from tracecat.temporal.errors import ActivityRuntimeError
 
 
 class CreateSessionInput(BaseModel):
@@ -135,9 +137,12 @@ async def create_session_activity(input: CreateSessionInput) -> CreateSessionRes
             if input.require_existing:
                 agent_session = await service.get_session(input.session_id)
                 if agent_session is None:
-                    raise ApplicationError(
-                        f"Session {input.session_id} does not exist",
-                        non_retryable=True,
+                    raise ActivityRuntimeError.user(
+                        code="agent.session.missing",
+                        message=f"Session {input.session_id} does not exist",
+                        origin=RuntimeErrorOrigin.UNKNOWN,
+                        phase=RuntimeErrorPhase.PREPARE,
+                        error_type="AgentSessionNotFound",
                     )
                 created = False
             else:
@@ -176,9 +181,14 @@ async def create_session_activity(input: CreateSessionInput) -> CreateSessionRes
                 if stored_agents_binding != requested_agents_binding:
                     # Non-retryable: retrying with the same mismatched input
                     # will deterministically fail; surface to the caller.
-                    raise ApplicationError(
-                        "Agent session was created with a different agents binding",
-                        non_retryable=True,
+                    raise ActivityRuntimeError.user(
+                        code="agent.session.agents_binding_mismatch",
+                        message=(
+                            "Agent session was created with a different agents binding"
+                        ),
+                        origin=RuntimeErrorOrigin.UNKNOWN,
+                        phase=RuntimeErrorPhase.PREPARE,
+                        error_type="AgentSessionAgentsBindingMismatch",
                     )
                 if should_backfill_agents_binding:
                     agent_session.agents_binding = stored_agents_binding.model_dump(
