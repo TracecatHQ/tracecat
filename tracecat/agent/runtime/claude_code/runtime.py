@@ -103,8 +103,8 @@ def _claude_project_dir_name(cwd: Path) -> str:
     return sanitized
 
 
-def _validate_claude_project_dir_name(cwd: Path) -> None:
-    """Validate that Claude can persist sessions under the runtime cwd."""
+def _ensure_supported_claude_project_dir_name(cwd: Path) -> None:
+    """Ensure Claude can persist sessions under the runtime cwd."""
     _claude_project_dir_name(cwd)
 
 
@@ -1077,7 +1077,7 @@ class ClaudeAgentRuntime:
         """Create the stable Claude cwd used for session resume."""
         if self._cwd is None:
             self._cwd = Path(tempfile.gettempdir()) / f"tracecat-agent-{session_id}"
-        _validate_claude_project_dir_name(self._cwd)
+        _ensure_supported_claude_project_dir_name(self._cwd)
         cwd_setup_path = self._cwd_setup_path or self._cwd
         cwd_setup_path.mkdir(parents=True, exist_ok=True)
 
