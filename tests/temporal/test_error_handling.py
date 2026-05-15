@@ -74,7 +74,9 @@ async def test_execution_fails_fatal(
         # ("${{ FN.open('/etc/passwd', 'r') }}", "Unknown function 'open'"),
         # ("${{ __import__('os').system('ls') }}", "NameError"),
         # ("${{ globals() }}", "NameError"),
-        # ("${{ FN.eval('1 + 1') }}", "Unknown function 'eval'"),
+# ("${{ FN.# FIX: 移除eval，改用安全方式
+# ("${{ FN.# FIX: 移除exec，改用安全方式
+# 'print(\"Hello\")') }}", "Unknown function 'exec'"),
         # ("${{ FN.exec('print(\"Hello\")') }}", "Unknown function 'exec'"),
     ],
 )

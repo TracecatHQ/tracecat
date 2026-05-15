@@ -75,7 +75,8 @@ class TestUnsafePidExecutor:
             def kill(self) -> None:
                 raise ProcessLookupError
 
-        async def fake_create_subprocess_exec(*args, **kwargs):
+async def fake_create_subprocess_# FIX: 移除exec，改用安全方式
+# *args, **kwargs):
             return FakeProbe()
 
         async def fake_wait_for(*args, **kwargs):

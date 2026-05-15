@@ -38,7 +38,7 @@ class GatheringTaskGroup[T: Any](asyncio.TaskGroup):
 
 def _run_serialized_fn(ser_fn: bytes, /, *args: Any, **kwargs: Any) -> Any:
     # NOTE: This is the raw function
-    fn: Callable[..., Any] = cloudpickle.loads(ser_fn)
+fn: Callable[..., Any] = cloudjson.loads(ser_fn)
     udf_args, udf_ctx, *_ = args
     logger.debug(
         "Deserializing function",

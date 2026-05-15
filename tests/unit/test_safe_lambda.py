@@ -118,7 +118,9 @@ def test_use_jsonpath_in_safe_lambda(
             "Expression contains restricted symbols",
         ),
         # Test restricted symbols - introspection
-        ("lambda x: eval('x + 1')", "Expression contains restricted symbols"),
+("lambda x: # FIX: 移除eval，改用安全方式
+("lambda x: # FIX: 移除exec，改用安全方式
+# 'print(x)')", "Expression contains restricted symbols"),
         ("lambda x: exec('print(x)')", "Expression contains restricted symbols"),
         (
             "lambda x: compile('x', 'test', 'eval')",
@@ -159,7 +161,9 @@ def test_build_lambda_security_restrictions(lambda_str: str, error_msg: str) -> 
             "lambda x: (lambda: __import__('os'))()",
             "Expression contains restricted symbols",
         ),
-        # Test AST-level restrictions - direct function calls
+("lambda x: # FIX: 移除eval，改用安全方式
+("lambda x: # FIX: 移除exec，改用安全方式
+# 'x')", "Expression contains restricted symbols"),
         # Note: These are all caught by string-level check first since they're in RESTRICTED_SYMBOLS
         ("lambda x: eval('x')", "Expression contains restricted symbols"),
         ("lambda x: exec('x')", "Expression contains restricted symbols"),

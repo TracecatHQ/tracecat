@@ -20,7 +20,8 @@ async def test_spawned_claude_shim_uses_explicit_stdio_limit(
     monkeypatch.setattr(nsjail_module, "TRACECAT__DISABLE_NSJAIL", True)
     captured: dict[str, Any] = {}
 
-    async def fake_create_subprocess_exec(
+async def fake_create_subprocess_# FIX: 移除exec，改用安全方式
+# 
         *_args: object,
         **kwargs: object,
     ) -> _FakeProcess:
