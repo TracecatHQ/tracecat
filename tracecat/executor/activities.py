@@ -126,7 +126,7 @@ class ExecutorActivities:
             kind = e.__class__.__name__
             raw_msg = f"Failed to materialize action context:\n{e}"
             log.error(raw_msg)
-            raise ActionRuntimeError.known_unknown(
+            raise ActionRuntimeError.platform_or_infra(
                 ref=task.ref,
                 stream_id=input.stream_id,
                 attempt=act_attempt,
@@ -135,6 +135,8 @@ class ExecutorActivities:
                 error_type=kind,
                 phase=RuntimeErrorPhase.PREPARE,
                 root=e,
+                infra_retryable=True,
+                infra_non_retryable=False,
             ) from e
 
         heartbeat_interval = config.TRACECAT__ACTIVITY_HEARTBEAT_INTERVAL
@@ -298,7 +300,7 @@ class ExecutorActivities:
             raw_msg = f"Unexpected {kind} occurred:\n{e}"
             log.error(raw_msg)
 
-            raise ActionRuntimeError.known_unknown(
+            raise ActionRuntimeError.platform_or_infra(
                 ref=task.ref,
                 stream_id=input.stream_id,
                 attempt=act_attempt,

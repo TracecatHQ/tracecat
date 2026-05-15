@@ -155,7 +155,7 @@ class ActionRuntimeError:
         )
 
     @classmethod
-    def known_unknown(
+    def platform_or_infra(
         cls,
         *,
         ref: str,
@@ -167,9 +167,26 @@ class ActionRuntimeError:
         phase: RuntimeErrorPhase,
         root: BaseException,
         operation: str = "execute_action",
+        infra_retryable: bool = False,
+        infra_non_retryable: bool = True,
+        platform_retryable: bool = False,
+        platform_non_retryable: bool = True,
     ) -> ApplicationError:
-        build = cls.infra if is_known_infra_exception(root) else cls.platform
-        return build(
+        if is_known_infra_exception(root):
+            return cls.infra(
+                ref=ref,
+                stream_id=stream_id,
+                attempt=attempt,
+                code=code,
+                message=message,
+                error_type=error_type,
+                phase=phase,
+                root=root,
+                operation=operation,
+                retryable=infra_retryable,
+                non_retryable=infra_non_retryable,
+            )
+        return cls.platform(
             ref=ref,
             stream_id=stream_id,
             attempt=attempt,
@@ -179,6 +196,8 @@ class ActionRuntimeError:
             phase=phase,
             root=root,
             operation=operation,
+            retryable=platform_retryable,
+            non_retryable=platform_non_retryable,
         )
 
     @classmethod

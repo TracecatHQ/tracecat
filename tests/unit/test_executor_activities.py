@@ -23,7 +23,7 @@ from tracecat.executor.activities import ExecutorActivities
 from tracecat.executor.schemas import ExecutorActionErrorInfo
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.registry.lock.types import RegistryLock
-from tracecat.runtime.errors import RuntimeErrorKind
+from tracecat.runtime.errors import RuntimeErrorKind, RuntimeErrorPhase
 from tracecat.storage.object import InlineObject
 from tracecat.temporal.errors import extract_runtime_error_from_details
 
@@ -175,6 +175,34 @@ class TestExecuteActionActivity:
             envelope = extract_runtime_error_from_details(app_error.details)
             assert envelope is not None
             assert envelope.kind == RuntimeErrorKind.USER
+
+    @pytest.mark.anyio
+    async def test_materialize_context_infra_failure_is_retryable_prepare_error(
+        self, mock_run_action_input, mock_role
+    ):
+        with (
+            patch("tracecat.executor.activities.activity") as mock_activity,
+            patch(
+                "tracecat.executor.activities.materialize_context",
+                new_callable=AsyncMock,
+            ) as mock_materialize,
+        ):
+            mock_activity.info.return_value = MagicMock(attempt=1)
+            mock_materialize.side_effect = OSError("object storage unavailable")
+
+            with pytest.raises(ApplicationError) as exc_info:
+                await ExecutorActivities.execute_action_activity(
+                    mock_run_action_input, mock_role
+                )
+
+            app_error = exc_info.value
+            assert app_error.type == "OSError"
+            assert app_error.non_retryable is False
+            envelope = extract_runtime_error_from_details(app_error.details)
+            assert envelope is not None
+            assert envelope.kind == RuntimeErrorKind.INFRA
+            assert envelope.phase == RuntimeErrorPhase.PREPARE
+            assert envelope.retryable is True
 
     @pytest.mark.anyio
     async def test_loop_execution_error_raises_application_error(

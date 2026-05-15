@@ -1,9 +1,14 @@
 from __future__ import annotations
 
 import pytest
+from temporalio.exceptions import ApplicationError
 
 from tracecat.dsl import action
-from tracecat.dsl.action import materialize_context
+from tracecat.dsl.action import (
+    DSLActivities,
+    NormalizeTriggerInputsActivityInputs,
+    materialize_context,
+)
 from tracecat.dsl.schemas import ExecutionContext, TaskResult
 from tracecat.storage.object import CollectionObject, InlineObject, ObjectRef
 
@@ -25,6 +30,46 @@ async def test_materialize_context_rehydrates_task_result_dicts() -> None:
     assert materialized["ACTIONS"]["a1"]["result"] == {"ok": True}
     assert materialized["ACTIONS"]["a1"]["result_typename"] == "dict"
     assert materialized["TRIGGER"] == {"trigger": 1}
+
+
+@pytest.mark.anyio
+async def test_materialize_context_preserves_storage_root_exception(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def storage_failure(_stored: InlineObject) -> object:
+        raise OSError("object storage unavailable")
+
+    monkeypatch.setattr(action, "retrieve_stored_object", storage_failure)
+    ctx = ExecutionContext(ACTIONS={}, TRIGGER=InlineObject(data={"trigger": 1}))
+
+    with pytest.raises(OSError, match="object storage unavailable"):
+        await materialize_context(ctx)
+
+
+def test_normalize_trigger_inputs_storage_retrieve_failure_is_retryable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class Storage:
+        async def retrieve(self, _stored: InlineObject) -> object:
+            raise OSError("object storage unavailable")
+
+        async def store(self, *_args: object, **_kwargs: object) -> object:
+            raise AssertionError("store should not be called")
+
+    monkeypatch.setattr(action, "get_object_storage", lambda: Storage())
+
+    with pytest.raises(ApplicationError) as exc_info:
+        DSLActivities.normalize_trigger_inputs_activity(
+            NormalizeTriggerInputsActivityInputs(
+                input_schema={},
+                trigger_inputs=InlineObject(data={"trigger": 1}),
+                key="wf/normalized-trigger-inputs",
+            )
+        )
+
+    app_error = exc_info.value
+    assert app_error.type == "OSError"
+    assert app_error.non_retryable is False
 
 
 @pytest.mark.anyio

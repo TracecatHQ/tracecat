@@ -353,15 +353,9 @@ async def materialize_context(ctx: ExecutionContext) -> MaterializedExecutionCon
         validated = StoredObjectValidator.validate_python(trigger)
         coros.append(retrieve_stored_object(validated))
 
-    # Collect results and map back to their refs
-    try:
-        materialized_results = await asyncio.gather(*coros)
-    except Exception as e:
-        logger.warning("Error materializing context", error=e)
-        raise ApplicationError(
-            "Failed to materialize context",
-            non_retryable=True,
-        ) from e
+    # Collect results and map back to their refs. Let the real root exception
+    # escape so Temporal activity boundaries can classify retry safety.
+    materialized_results = await asyncio.gather(*coros)
 
     # Reconstruct ACTIONS dict with materialized results
     if action_refs:
@@ -736,14 +730,21 @@ class DSLActivities:
         inputs: NormalizeTriggerInputsActivityInputs,
     ) -> StoredObject:
         """Return trigger inputs with defaults applied according to DSL expects."""
+        storage = get_object_storage()
         try:
             value = {}
-            storage = get_object_storage()
             if inputs.trigger_inputs is not None:
                 value = run_sync(storage.retrieve(inputs.trigger_inputs))
+        except Exception as e:
+            logger.warning("Failed to retrieve trigger inputs", error=e)
+            raise ApplicationError(
+                "Failed to retrieve trigger inputs",
+                non_retryable=False,
+                type=e.__class__.__name__,
+            ) from e
+
+        try:
             normalized = normalize_trigger_inputs(inputs.input_schema, value)
-            stored = run_sync(storage.store(inputs.key, normalized))
-            return stored
         except ValidationError as e:
             logger.info("Validation error when normalizing trigger inputs", error=e)
             raise ApplicationError(
@@ -760,6 +761,16 @@ class DSLActivities:
             raise ApplicationError(
                 "Unexpected error when normalizing trigger inputs",
                 non_retryable=True,
+                type=e.__class__.__name__,
+            ) from e
+
+        try:
+            return run_sync(storage.store(inputs.key, normalized))
+        except Exception as e:
+            logger.warning("Failed to store normalized trigger inputs", error=e)
+            raise ApplicationError(
+                "Failed to store normalized trigger inputs",
+                non_retryable=False,
                 type=e.__class__.__name__,
             ) from e
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Iterator
 from enum import StrEnum
 from typing import Any, ClassVar
 
@@ -162,10 +163,28 @@ class RuntimeInfraError(_TypedRuntimeError):
     affects_workflow_by_default = True
 
 
+def _error_chain(error: BaseException) -> Iterator[BaseException]:
+    current: BaseException | None = error
+    seen: set[int] = set()
+    while current is not None:
+        current_id = id(current)
+        if current_id in seen:
+            return
+        seen.add(current_id)
+        yield current
+        nested = getattr(current, "cause", None) or getattr(current, "__cause__", None)
+        current = nested if isinstance(nested, BaseException) else None
+
+
 def is_known_infra_exception(error: BaseException) -> bool:
-    match error:
-        case TimeoutError() | OSError() | ConnectionError():
-            return True
-        case _:
-            module = error.__class__.__module__
-            return module.startswith(("botocore", "boto3", "aiohttp", "httpx", "redis"))
+    for current in _error_chain(error):
+        match current:
+            case TimeoutError() | OSError() | ConnectionError():
+                return True
+            case _:
+                module = current.__class__.__module__
+                if module.startswith(
+                    ("botocore", "boto3", "aiohttp", "httpx", "redis")
+                ):
+                    return True
+    return False

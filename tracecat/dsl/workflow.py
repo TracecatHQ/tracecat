@@ -569,7 +569,7 @@ class DSLWorkflow:
                         key=trigger_key(str(self.workspace_id), self.wf_exec_id),
                     ),
                     start_to_close_timeout=timedelta(seconds=10),
-                    retry_policy=RETRY_POLICIES["activity:fail_fast"],
+                    retry_policy=RETRY_POLICIES["activity:fail_slow"],
                 )
             except ActivityError as e:
                 match cause := e.cause:
