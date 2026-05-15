@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import re
 import tempfile
 import uuid
 from collections.abc import AsyncIterator, Callable
@@ -80,6 +81,31 @@ from tracecat.agent.runtime.claude_code.session_lines import (
     is_synthetic_session_line,
 )
 from tracecat.logger import logger
+
+CLAUDE_PROJECT_DIR_MAX_LENGTH = 200
+CLAUDE_PROJECT_DIR_SANITIZE_RE = re.compile(r"[^a-zA-Z0-9]")
+
+
+def _claude_project_dir_name(cwd: Path) -> str:
+    """Return the project directory name Claude uses for a runtime cwd.
+
+    This mirrors claude-agent-sdk's private ``_sanitize_path`` helper for short
+    paths. Long paths are rejected because Claude CLI and SDK hash suffixes can
+    diverge, which would make session persistence non-deterministic.
+    """
+    sanitized = CLAUDE_PROJECT_DIR_SANITIZE_RE.sub("-", str(cwd))
+    if len(sanitized) > CLAUDE_PROJECT_DIR_MAX_LENGTH:
+        raise AgentSandboxValidationError(
+            "Claude runtime cwd is too long for deterministic session persistence: "
+            f"sanitized path length {len(sanitized)} exceeds "
+            f"{CLAUDE_PROJECT_DIR_MAX_LENGTH}. Shorten TMPDIR or the runtime cwd."
+        )
+    return sanitized
+
+
+def _ensure_supported_claude_project_dir_name(cwd: Path) -> None:
+    """Ensure Claude can persist sessions under the runtime cwd."""
+    _claude_project_dir_name(cwd)
 
 
 class RuntimeEventWriter(Protocol):
@@ -466,7 +492,7 @@ class ClaudeAgentRuntime:
 
         if self._cwd is None:
             raise RuntimeError("Runtime working directory is not configured")
-        encoded_cwd = str(self._cwd).replace("/", "-")
+        encoded_cwd = _claude_project_dir_name(self._cwd)
         claude_home_dir = self._session_home_dir or Path.home()
         claude_dir = claude_home_dir / ".claude" / "projects" / encoded_cwd
         return claude_dir / f"{sdk_session_id}.jsonl"
@@ -1051,6 +1077,7 @@ class ClaudeAgentRuntime:
         """Create the stable Claude cwd used for session resume."""
         if self._cwd is None:
             self._cwd = Path(tempfile.gettempdir()) / f"tracecat-agent-{session_id}"
+        _ensure_supported_claude_project_dir_name(self._cwd)
         cwd_setup_path = self._cwd_setup_path or self._cwd
         cwd_setup_path.mkdir(parents=True, exist_ok=True)
 
