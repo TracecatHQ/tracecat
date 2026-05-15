@@ -974,6 +974,10 @@ class DSLScheduler:
             self.logger.debug("`run_if` condition", run_if=run_if)
             try:
                 expr_result = await self.resolve_expression(run_if, context)
+            except ApplicationError:
+                raise
+            except ActivityError:
+                raise
             except Exception as e:
                 raise ApplicationError(
                     f"Error evaluating `run_if` condition: {e}",
@@ -1077,6 +1081,10 @@ class DSLScheduler:
             context = self.build_stream_aware_context(stmt, task.stream_id)
             try:
                 expr_result = await self.resolve_expression(args.condition, context)
+            except ApplicationError:
+                raise
+            except ActivityError:
+                raise
             except Exception as e:
                 raise ApplicationError(
                     f"Error evaluating `condition` in `core.loop.end`: {e}",
@@ -1458,11 +1466,12 @@ class DSLScheduler:
                 start_to_close_timeout=timedelta(seconds=60),
                 retry_policy=RETRY_POLICIES["activity:fail_fast"],
             )
-        except Exception as e:
-            raise ApplicationError(
-                f"Error evaluating `items` expression in `core.transform.gather`: {e}",
-                non_retryable=True,
-            ) from e
+        except ActivityError as e:
+            match cause := e.cause:
+                case ApplicationError():
+                    raise cause from None
+                case _:
+                    raise
 
         # XXX(concurrency): It's important we only decrement open_streams after
         # await block. If not, streams at the current level will observe 0
