@@ -116,7 +116,7 @@ WORKDIR /app
 # ====================
 FROM base AS development
 
-ENV TMPDIR=/tmp TEMP=/tmp TMP=/tmp
+ENV TMPDIR="/home/apiuser/.cache/tmp" TEMP="/home/apiuser/.cache/tmp" TMP="/home/apiuser/.cache/tmp"
 
 # Set sandbox cache permissions for apiuser
 RUN chown -R 1001:1001 /var/lib/tracecat/sandbox-cache && \

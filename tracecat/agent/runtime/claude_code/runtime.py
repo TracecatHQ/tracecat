@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import re
 import tempfile
 import uuid
 from collections.abc import AsyncIterator, Callable
@@ -80,6 +81,46 @@ from tracecat.agent.runtime.claude_code.session_lines import (
     is_synthetic_session_line,
 )
 from tracecat.logger import logger
+
+CLAUDE_PROJECT_DIR_MAX_LENGTH = 200
+CLAUDE_PROJECT_DIR_SANITIZE_RE = re.compile(r"[^a-zA-Z0-9]")
+
+
+def _base36(value: int) -> str:
+    if value == 0:
+        return "0"
+    digits = "0123456789abcdefghijklmnopqrstuvwxyz"
+    out: list[str] = []
+    while value > 0:
+        value, digit = divmod(value, 36)
+        out.append(digits[digit])
+    return "".join(reversed(out))
+
+
+def _claude_project_dir_hash(value: str) -> str:
+    """Return Claude's 32-bit signed path hash encoded as base36."""
+    hash_value = 0
+    for char in value:
+        hash_value = ((hash_value << 5) - hash_value + ord(char)) & 0xFFFFFFFF
+        if hash_value >= 0x80000000:
+            hash_value -= 0x100000000
+    return _base36(abs(hash_value))
+
+
+def _claude_project_dir_name(cwd: Path) -> str:
+    """Return the project directory name Claude uses for a runtime cwd.
+
+    This mirrors claude-agent-sdk's private ``_sanitize_path`` helper. Keep the
+    parity test updated if Claude changes how it stores ``~/.claude/projects``.
+    """
+    cwd_str = str(cwd)
+    sanitized = CLAUDE_PROJECT_DIR_SANITIZE_RE.sub("-", cwd_str)
+    if len(sanitized) <= CLAUDE_PROJECT_DIR_MAX_LENGTH:
+        return sanitized
+    return (
+        f"{sanitized[:CLAUDE_PROJECT_DIR_MAX_LENGTH]}-"
+        f"{_claude_project_dir_hash(cwd_str)}"
+    )
 
 
 class RuntimeEventWriter(Protocol):
@@ -466,7 +507,7 @@ class ClaudeAgentRuntime:
 
         if self._cwd is None:
             raise RuntimeError("Runtime working directory is not configured")
-        encoded_cwd = str(self._cwd).replace("/", "-")
+        encoded_cwd = _claude_project_dir_name(self._cwd)
         claude_home_dir = self._session_home_dir or Path.home()
         claude_dir = claude_home_dir / ".claude" / "projects" / encoded_cwd
         return claude_dir / f"{sdk_session_id}.jsonl"

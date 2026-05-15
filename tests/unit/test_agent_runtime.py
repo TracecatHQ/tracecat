@@ -45,6 +45,7 @@ from tracecat.agent.runtime.claude_code.runtime import (
     CLAUDE_SDK_MAX_BUFFER_SIZE_BYTES,
     TRUSTED_MCP_BRIDGE_URL,
     ClaudeAgentRuntime,
+    _claude_project_dir_name,
 )
 from tracecat.agent.subagents import AgentSubagentsConfig
 from tracecat.agent.types import AgentConfig
@@ -1856,7 +1857,7 @@ class TestClaudeAgentRuntimeRun:
             session_home_dir
             / ".claude"
             / "projects"
-            / str(runtime_cwd).replace("/", "-")
+            / _claude_project_dir_name(runtime_cwd)
             / "eed8297f-26fb-4e00-905f-a10f0cf20704.jsonl"
         )
         assert session_file.exists()
@@ -2432,6 +2433,79 @@ class TestClaudeAgentRuntimeSessionLineFlushing:
     @staticmethod
     def _line_bytes(line: dict[str, Any]) -> bytes:
         return orjson.dumps(line) + b"\n"
+
+    @pytest.mark.parametrize(
+        "cwd",
+        [
+            Path("/tmp/tracecat-agent-session/claude-project"),
+            Path("/home/apiuser/.cache/tmp/tracecat-agent-session/claude-project"),
+            Path("/work/claude-project"),
+            Path("/tmp/tracecat agent_session/claude.project"),
+            Path("/tmp/tracecat_agent.session+prod@2026/claude project"),
+            Path("/tmp/Tracecat Agent (prod)/claude.project#session"),
+            Path("/tmp/\u7528\u6237/tracecat/claude-project"),
+            Path("/tmp/tracecat/emoji-\U0001f680/claude-project"),
+            Path("/tmp/tracecat/combining-e\u0301/claude-project"),
+            Path("C:/Users/apiuser/AppData/Local/Temp/tracecat-agent/claude-project"),
+            Path(r"C:\Users\apiuser\AppData\Local\Temp\tracecat-agent\claude-project"),
+            Path("/var/folders/zz/abc.def_ghi-jkl/T/tracecat-agent/claude-project"),
+            Path("/" + "very-long.segment_" * 30 + "/claude-project"),
+            Path("/" + "prod path.with_symbols_@2026!" * 18 + "/claude.project"),
+        ],
+    )
+    def test_claude_project_dir_name_matches_sdk_sanitizer(self, cwd: Path) -> None:
+        """Tracecat must derive the same project directory name as Claude."""
+        from claude_agent_sdk._internal.sessions import _sanitize_path
+
+        assert _claude_project_dir_name(cwd) == _sanitize_path(str(cwd))
+
+    @pytest.mark.anyio
+    async def test_emit_new_session_lines_finds_sdk_sanitized_direct_mode_path(
+        self,
+        mock_socket_writer: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """Direct mode should find JSONL files under Claude's sanitized cwd."""
+        from claude_agent_sdk._internal.sessions import _sanitize_path
+
+        session_root = (
+            tmp_path / "home" / "apiuser" / ".cache" / "tmp" / "tracecat-agent-session"
+        )
+        session_home_dir = session_root / "claude-home"
+        cwd = session_root / "claude-project"
+        runtime = ClaudeAgentRuntime(
+            mock_socket_writer,
+            transport_factory=lambda _: MagicMock(),
+            session_home_dir=session_home_dir,
+            cwd=cwd,
+        )
+        sdk_session_id = "eed8297f-26fb-4e00-905f-a10f0cf20704"
+        runtime._sdk_session_id = sdk_session_id
+        line_bytes = self._line_bytes(
+            {
+                "type": "user",
+                "uuid": "prod-direct-line",
+                "message": {"role": "user", "content": "hello"},
+            }
+        )
+        session_file = (
+            session_home_dir
+            / ".claude"
+            / "projects"
+            / _sanitize_path(str(cwd))
+            / f"{sdk_session_id}.jsonl"
+        )
+        session_file.parent.mkdir(parents=True, exist_ok=True)
+        session_file.write_bytes(line_bytes)
+
+        await runtime._emit_new_session_lines()
+
+        mock_socket_writer.send_session_line.assert_awaited_once_with(
+            sdk_session_id,
+            line_bytes.rstrip(b"\n").decode("utf-8"),
+            internal=False,
+        )
+        assert runtime._last_seen_byte_offset == len(line_bytes)
 
     @pytest.mark.anyio
     async def test_emit_new_session_lines_tails_by_byte_offset(
