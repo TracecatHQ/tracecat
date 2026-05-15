@@ -7,8 +7,6 @@ from typing import (
     Annotated,
     Any,
     Literal,
-    Protocol,
-    runtime_checkable,
 )
 
 import pydantic
@@ -24,8 +22,6 @@ from tracecat.config import TRACECAT__AGENT_MAX_RETRIES
 if TYPE_CHECKING:
     from pydantic_ai.messages import ModelMessage
     from pydantic_ai.tools import Tool as _PATool
-
-    from tracecat.agent.stream.writers import StreamWriter
 
     CustomToolList = list[_PATool[Any]]
 else:
@@ -91,11 +87,6 @@ ModelResponseTA: Any = _LazyTypeAdapter("pydantic_ai", "ModelResponse")
 # Union type for messages from either harness
 # At runtime, ModelMessage is Any so this is effectively Any | ClaudeSDKMessage
 UnifiedMessage = ModelMessage | ClaudeSDKMessage
-
-
-@runtime_checkable
-class StreamingAgentDeps(Protocol):
-    stream_writer: StreamWriter
 
 
 type OutputType = (

@@ -6,8 +6,6 @@ import type {
   AgentSessionReadVercel,
   ApprovalRead,
   ApprovalStatus,
-  ChatReadMinimal,
-  ChatReadVercel,
   UIMessage,
 } from "@/client"
 import { invalidateCaseActivityQueries } from "@/lib/cases/invalidation"
@@ -120,25 +118,18 @@ export function isAgentSessionEntity(
 }
 
 /**
- * Either arm of a session/chat union, in list (`*Read`) or Vercel
- * (`*ReadVercel`) shape. Only the AgentSession arms carry `last_error`; the
- * legacy Chat arms do not, which is what lets `getSessionLastError` narrow.
+ * An agent session in list (`*Read`) or Vercel (`*ReadVercel`) shape.
  */
-export type SessionOrChat =
-  | AgentSessionRead
-  | AgentSessionReadVercel
-  | ChatReadMinimal
-  | ChatReadVercel
+export type SessionOrChat = AgentSessionRead | AgentSessionReadVercel
 
 /**
  * Read the persisted terminal error of a session's most recent run.
  *
  * Present iff the last run errored (errors are run-ending and clear on the next
- * turn). Lives only on the AgentSession arms of the union — legacy Chat rows
- * have no such field — so this returns null for those arms.
+ * turn).
  */
 export function getSessionLastError(session: SessionOrChat): string | null {
-  return "last_error" in session ? (session.last_error ?? null) : null
+  return session.last_error ?? null
 }
 
 /**

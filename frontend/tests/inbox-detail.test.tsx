@@ -29,11 +29,17 @@ const mockUseChatReadiness = useChatReadiness as jest.MockedFunction<
 
 const chat = {
   id: "session-1",
+  workspace_id: "workspace-1",
   title: "Approval session",
-  user_id: "user-1",
+  created_by: "user-1",
   entity_type: "approval",
   entity_id: "approval-1",
+  channel_context: null,
   tools: [],
+  mcp_integrations: null,
+  agent_preset_id: null,
+  agent_preset_version_id: null,
+  harness_type: null,
   created_at: "2026-01-01T00:00:00Z",
   updated_at: "2026-01-01T00:00:00Z",
 } as AgentSessionsGetSessionVercelResponse

@@ -113,11 +113,10 @@ async def test_list_sessions_filter_created_by_none_excludes_legacy_chats() -> N
 
 
 @pytest.mark.anyio
-async def test_list_sessions_excludes_legacy_workspace_chats() -> None:
+async def test_list_sessions_queries_only_agent_sessions() -> None:
     service, session, role = _build_service()
     assert role.user_id is not None
     session.execute.side_effect = [
-        _mock_scalar_result([]),
         _mock_scalar_result([]),
     ]
 
@@ -128,6 +127,6 @@ async def test_list_sessions_excludes_legacy_workspace_chats() -> None:
     )
 
     assert results == []
-    assert session.execute.await_count == 2
-    chat_stmt = session.execute.await_args_list[1].args[0]
-    assert "chat.entity_type NOT IN" in str(chat_stmt)
+    assert session.execute.await_count == 1
+    session_stmt = session.execute.await_args_list[0].args[0]
+    assert "agent_session.entity_type not in" in str(session_stmt).lower()
