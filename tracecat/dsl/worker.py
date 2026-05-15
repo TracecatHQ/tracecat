@@ -30,7 +30,7 @@ with workflow.unsafe.imports_passed_through():
     )
     from tracecat.dsl.interceptor import SentryInterceptor
     from tracecat.dsl.plugins import TracecatPydanticAIPlugin
-    from tracecat.dsl.workflow import DSLWorkflow
+    from tracecat.dsl.workflow import DSLWorkflow, DSLWorkflowV2
     from tracecat.ee.interactions.service import InteractionService
     from tracecat.logger import logger
     from tracecat.storage.collection import CollectionActivities
@@ -146,7 +146,7 @@ async def main() -> None:
     )
 
     with ThreadPoolExecutor(max_workers=threadpool_max_workers) as executor:
-        workflows: list[type] = [DSLWorkflow]
+        workflows: list[type] = [DSLWorkflow, DSLWorkflowV2]
 
         async with Worker(
             client,

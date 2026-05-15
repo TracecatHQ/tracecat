@@ -39,7 +39,7 @@ from tracecat.dsl.common import RETRY_POLICIES, DSLInput, DSLRunArgs
 from tracecat.dsl.enums import PlatformAction
 from tracecat.dsl.schemas import TriggerInputs
 from tracecat.dsl.types import Task
-from tracecat.dsl.workflow import DSLWorkflow
+from tracecat.dsl.workflow import DSLWorkflow, dsl_workflow_run_method_for_new_execution
 from tracecat.ee.interactions.schemas import InteractionInput
 from tracecat.ee.interactions.service import InteractionService
 from tracecat.identifiers import UserID, WorkspaceID
@@ -251,7 +251,7 @@ class WorkflowExecutionsService:
 
     def handle(
         self, wf_exec_id: WorkflowExecutionID
-    ) -> WorkflowHandle[DSLWorkflow, StoredObject]:
+    ) -> WorkflowHandle[DSLWorkflow, Any]:
         return self._client.get_workflow_handle_for(DSLWorkflow.run, wf_exec_id)
 
     async def _resolve_execution_timeout(
@@ -1634,7 +1634,7 @@ class WorkflowExecutionsService:
         search_attrs = TypedSearchAttributes(search_attributes=pairs)
         try:
             result = await self._client.execute_workflow(
-                DSLWorkflow.run,
+                dsl_workflow_run_method_for_new_execution(),
                 DSLRunArgs(
                     dsl=dsl,
                     role=self.role,
@@ -1787,7 +1787,7 @@ class WorkflowExecutionsService:
         try:
             await asyncio.wait_for(
                 self._client.start_workflow(
-                    DSLWorkflow.run,
+                    dsl_workflow_run_method_for_new_execution(),
                     DSLRunArgs(
                         dsl=dsl,
                         role=self.role,

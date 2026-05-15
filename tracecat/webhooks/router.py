@@ -21,9 +21,8 @@ from tracecat.concurrency import cooperative
 from tracecat.contexts import ctx_role
 from tracecat.dsl.client import get_temporal_client
 from tracecat.dsl.common import DSLInput
-from tracecat.dsl.workflow import DSLWorkflow
 from tracecat.ee.interactions.enums import InteractionCategory
-from tracecat.ee.interactions.schemas import InteractionInput
+from tracecat.ee.interactions.schemas import InteractionInput, InteractionResult
 from tracecat.identifiers.workflow import AnyWorkflowIDPath, generate_exec_id
 from tracecat.logger import logger
 from tracecat.registry.lock.types import RegistryLock
@@ -513,11 +512,13 @@ async def receive_interaction(
     try:
         # Get temporal client and workflow handle
         client = await get_temporal_client()
-        handle = client.get_workflow_handle_for(DSLWorkflow.run, input.execution_id)
+        handle = client.get_workflow_handle(input.execution_id)
 
         # Convert to internal interaction format
         # Execute workflow interaction handler
-        result = await handle.execute_update(DSLWorkflow.interaction_handler, input)
+        result = await handle.execute_update(
+            "interaction_handler", input, result_type=InteractionResult
+        )
         logger.info("Interaction processed", result=result)
 
         return ReceiveInteractionResponse(

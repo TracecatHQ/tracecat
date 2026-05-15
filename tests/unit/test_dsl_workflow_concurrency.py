@@ -333,6 +333,10 @@ async def test_prepare_subflow_activity_failure_in_scatter_fails_workflow() -> N
     assert task_exceptions is not None
     assert "call_child" in task_exceptions
     assert "prepare failed" in task_exceptions["call_child"].details.message
+    runtime_error = task_exceptions["call_child"].runtime_error
+    assert runtime_error is not None
+    assert runtime_error.kind == "platform"
+    assert runtime_error.code == "dsl.prepare_subflow.failed"
     assert executed_refs == []
     assert not scheduler.stream_exceptions
 

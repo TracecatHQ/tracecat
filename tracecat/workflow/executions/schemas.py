@@ -47,6 +47,7 @@ from tracecat.dsl.schemas import (
     StreamID,
     TriggerInputs,
 )
+from tracecat.dsl.workflow import is_dsl_workflow_type_name
 from tracecat.ee.interactions.schemas import (
     InteractionInput,
     InteractionRead,
@@ -489,7 +490,7 @@ class EventGroup[T: EventInput](BaseModel):
         attrs = event.start_child_workflow_execution_initiated_event_attributes
         logger.debug("Child workflow initiated event", attrs=attrs.workflow_type)
         match attrs.workflow_type.name:
-            case "DSLWorkflow":
+            case workflow_type if is_dsl_workflow_type_name(workflow_type):
                 wf_exec_id: WorkflowExecutionID = attrs.workflow_id
                 memo = await _child_workflow_memo_from_temporal_or_default(attrs.memo)
                 input = await extract_first(attrs.input)
@@ -932,7 +933,7 @@ class WorkflowExecutionEventCompact[TInput: Any, TResult: Any, TSessionEvent: An
         attrs = event.start_child_workflow_execution_initiated_event_attributes
         wf_exec_id: WorkflowExecutionID = attrs.workflow_id
         match attrs.workflow_type.name:
-            case "DSLWorkflow":
+            case workflow_type if is_dsl_workflow_type_name(workflow_type):
                 memo = await _child_workflow_memo_from_temporal_or_default(attrs.memo)
 
                 if (

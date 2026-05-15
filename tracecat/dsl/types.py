@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Any, Literal, NotRequired, TypedDict
 from pydantic import TypeAdapter
 
 from tracecat.expressions.common import ExprContext
+from tracecat.runtime.errors import RuntimeErrorEnvelope
 
 
 class ActionEdge(TypedDict):
@@ -40,6 +41,7 @@ def _root_stream_factory() -> StreamID:
 class TaskExceptionInfo:
     exception: Exception
     details: ActionErrorInfo
+    runtime_error: RuntimeErrorEnvelope | None = None
 
 
 @dataclass(frozen=True, slots=True)

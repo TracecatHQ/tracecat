@@ -5,6 +5,9 @@ from typing import Any, ClassVar
 
 from temporalio.exceptions import ApplicationError
 
+from tracecat.runtime.errors import RuntimeErrorEnvelope, RuntimeErrorKind
+from tracecat.temporal.errors import extract_runtime_error
+
 
 class UserError(ApplicationError):
     """Temporal application error for user-attributable workflow failures."""
@@ -31,4 +34,11 @@ class UserError(ApplicationError):
 
     @classmethod
     def matches(cls, error: BaseException) -> bool:
-        return isinstance(error, ApplicationError) and error.type == cls.ERROR_TYPE
+        match extract_runtime_error(error):
+            case RuntimeErrorEnvelope(kind=RuntimeErrorKind.USER):
+                return True
+        match error:
+            case ApplicationError(type=error_type) if error_type == cls.ERROR_TYPE:
+                return True
+            case _:
+                return False

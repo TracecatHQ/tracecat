@@ -3,9 +3,9 @@ from __future__ import annotations
 import asyncio
 import re
 import uuid
-from collections.abc import Awaitable, Coroutine, Iterator
+from collections.abc import Awaitable, Callable, Coroutine, Iterator
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, Self
 
 from temporalio import workflow
 from temporalio.common import (
@@ -105,12 +105,19 @@ with workflow.unsafe.imports_passed_through():
         TracecatNotFoundError,
     )
     from tracecat.expressions.eval import is_template_only
+    from tracecat.feature_flags import FeatureFlag, is_feature_enabled
     from tracecat.identifiers.workflow import (
         WorkflowExecutionID,
         WorkflowID,
         exec_id_to_parts,
     )
     from tracecat.registry.lock.types import RegistryLock
+    from tracecat.runtime.errors import (
+        RuntimeErrorEnvelope,
+        RuntimeErrorKind,
+        RuntimeErrorOrigin,
+        RuntimeErrorPhase,
+    )
     from tracecat.storage.object import (
         CollectionObject,
         ExternalObject,
@@ -122,6 +129,7 @@ with workflow.unsafe.imports_passed_through():
         return_key,
         trigger_key,
     )
+    from tracecat.temporal.errors import RUNTIME_ERROR_DETAILS_KEY
     from tracecat.temporal.exceptions import UserError
     from tracecat.tiers.activities import (
         AcquireActionPermitInput,
@@ -191,6 +199,14 @@ def _build_agent_child_search_attributes(
         ) from e
     alias = build_agent_alias(parent_wf_id, action_ref)
     return _inherit_search_attributes_with_alias(info.typed_search_attributes, alias)
+
+
+type DSLWorkflowRunMethod = Callable[[Any, DSLRunArgs], Awaitable[StoredObject]]
+type WorkflowFailureActionDetails = dict[str, ActionErrorInfo]
+type WorkflowFailureRuntimeDetails = dict[str, dict[str, RuntimeErrorEnvelope]]
+type WorkflowFailureDetails = (
+    WorkflowFailureActionDetails | WorkflowFailureRuntimeDetails
+)
 
 
 @workflow.defn
@@ -664,16 +680,26 @@ class DSLWorkflow:
         if task_exceptions:
             n_exc = len(task_exceptions)
             formatted_exc = "\n".join(
-                f"{'=' * 10} ({i + 1}/{n_exc}) {details.expr_context}.{ref} {'=' * 10}\n\n{info.exception!s}"
+                f"{'=' * 10} ({i + 1}/{n_exc}) {action_details.expr_context}.{ref} {'=' * 10}\n\n{info.exception!s}"
                 for i, (ref, info) in enumerate(task_exceptions.items())
-                if (details := info.details)
+                if (action_details := info.details)
             )
             # NOTE: This error is shown in the final activity in the workflow history
+            error_details: list[WorkflowFailureDetails] = [
+                {ref: info.details for ref, info in task_exceptions.items()}
+            ]
+            runtime_errors: dict[str, RuntimeErrorEnvelope] = {
+                ref: runtime_error
+                for ref, info in task_exceptions.items()
+                if (runtime_error := info.runtime_error) is not None
+            }
+            if runtime_errors:
+                error_details.append({RUNTIME_ERROR_DETAILS_KEY: runtime_errors})
             raise ApplicationError(
                 f"Workflow failed with {n_exc} error(s)\n\n{formatted_exc}",
                 # We should add the details of the exceptions to the error message because this will get captured
                 # in the error handler workflow
-                {ref: info.details for ref, info in task_exceptions.items()},
+                *error_details,
                 non_retryable=True,
                 type=ApplicationError.__name__,
             )
@@ -922,7 +948,21 @@ class DSLWorkflow:
                         task_result = task_result.with_error(
                             root_message, platform_error.__class__.__name__
                         )
-                        raise PlatformExecutionError(platform_error) from e
+                        raise PlatformExecutionError(
+                            platform_error,
+                            RuntimeErrorEnvelope.build(
+                                kind=RuntimeErrorKind.PLATFORM,
+                                code="dsl.prepare_subflow.failed",
+                                message=root_message,
+                                origin=RuntimeErrorOrigin.DSL,
+                                phase=RuntimeErrorPhase.PREPARE,
+                                affects_workflow=True,
+                                root=platform_error,
+                                action_ref=task.ref,
+                                stream_id=stream_id,
+                                workflow_exec_id=self.wf_exec_id,
+                            ),
+                        ) from e
                     self.logger.trace("Child workflow prepared", prepared=prepared)
                     # Execute child workflow (handles both single and looped)
                     stored_result = await self._execute_child_workflow_prepared(
@@ -1465,7 +1505,7 @@ class DSLWorkflow:
 
         async def dispatch_child(
             *, loop_index: int, run_args: DSLRunArgs
-        ) -> workflow.ChildWorkflowHandle[DSLWorkflow, StoredObject]:
+        ) -> workflow.ChildWorkflowHandle[Self, StoredObject]:
             async with dispatch_semaphore:
                 return await self._dispatch_child_workflow(
                     task,
@@ -1474,9 +1514,7 @@ class DSLWorkflow:
                     wait_strategy=wait_strategy,
                 )
 
-        coros: list[
-            Awaitable[workflow.ChildWorkflowHandle[DSLWorkflow, StoredObject]]
-        ] = []
+        coros: list[Awaitable[workflow.ChildWorkflowHandle[Self, StoredObject]]] = []
         async for loop_index, run_args in cooperative(
             iter_run_args(),
             delay=0.1,
@@ -1513,7 +1551,7 @@ class DSLWorkflow:
     async def _gather_dispatched_child_results(
         self,
         launched_handles: list[
-            workflow.ChildWorkflowHandle[DSLWorkflow, StoredObject] | BaseException
+            workflow.ChildWorkflowHandle[Self, StoredObject] | BaseException
         ],
         wait_strategy: WaitStrategy,
     ) -> list[StoredObject | BaseException]:
@@ -1531,7 +1569,7 @@ class DSLWorkflow:
         # Await successful handles and pass through dispatch-time failures,
         # preserving the original order in a single gather call.
         async def _resolve(
-            h: workflow.ChildWorkflowHandle[DSLWorkflow, StoredObject] | BaseException,
+            h: workflow.ChildWorkflowHandle[Self, StoredObject] | BaseException,
         ) -> StoredObject | BaseException:
             return h if isinstance(h, BaseException) else await h
 
@@ -1818,7 +1856,7 @@ class DSLWorkflow:
         *,
         wait_strategy: WaitStrategy,
         loop_index: int | None = None,
-    ) -> workflow.ChildWorkflowHandle[DSLWorkflow, StoredObject]:
+    ) -> workflow.ChildWorkflowHandle[Self, StoredObject]:
         wf_exec_id = identifiers.workflow.generate_exec_id(run_args.wf_id)
         wf_info = workflow.info()
         stream_id = ctx_stream_id.get()
@@ -1835,7 +1873,7 @@ class DSLWorkflow:
             memo=memo,
         )
         return await workflow.start_child_workflow(
-            DSLWorkflow.run,
+            type(self).run,
             run_args,
             id=wf_exec_id,
             retry_policy=RETRY_POLICIES["workflow:fail_fast"],
@@ -1951,7 +1989,7 @@ class DSLWorkflow:
         # Use Temporal memo to store the action ref in the child workflow run
         memo = ChildWorkflowMemo(action_ref=identifiers.action.ref(args.dsl.title))
         await workflow.execute_child_workflow(
-            DSLWorkflow.run,
+            type(self).run,
             args,
             id=wf_exec_id,
             retry_policy=RETRY_POLICIES["workflow:fail_fast"],
@@ -2296,3 +2334,35 @@ class DSLWorkflow:
                 non_retryable=True,
                 type="ActionExecutionLimitExceeded",
             )
+
+
+@workflow.defn(name="DSLWorkflowV2")
+class DSLWorkflowV2(DSLWorkflow):
+    """V2 workflow type for runtime error model cutover."""
+
+    @workflow.init
+    def __init__(self, args: DSLRunArgs) -> None:
+        super().__init__(args)
+
+    @workflow.run
+    async def run(self, args: DSLRunArgs) -> StoredObject:
+        return await super().run(args)
+
+
+DSL_WORKFLOW_TYPE_NAMES = frozenset({"DSLWorkflow", "DSLWorkflowV2"})
+
+
+def is_dsl_workflow_type_name(workflow_type: str) -> bool:
+    return workflow_type in DSL_WORKFLOW_TYPE_NAMES
+
+
+def dsl_workflow_run_method_for_new_execution() -> DSLWorkflowRunMethod:
+    if is_feature_enabled(FeatureFlag.DSL_WORKFLOW_V2):
+        return DSLWorkflowV2.run
+    return DSLWorkflow.run
+
+
+def dsl_workflow_type_name_for_new_execution() -> str:
+    if is_feature_enabled(FeatureFlag.DSL_WORKFLOW_V2):
+        return "DSLWorkflowV2"
+    return "DSLWorkflow"

@@ -55,8 +55,7 @@ async def create_schedule(
     timeout: float | None = None,
     status: Literal["online", "offline"] = "online",
 ) -> temporalio.client.ScheduleHandle:
-    # Importing here to avoid circular imports...
-    from tracecat.dsl.workflow import DSLWorkflow
+    from tracecat.dsl.workflow import dsl_workflow_run_method_for_new_execution
 
     client = await get_temporal_client()
 
@@ -88,7 +87,7 @@ async def create_schedule(
         id=temporal_schedule_id,
         schedule=temporalio.client.Schedule(
             action=temporalio.client.ScheduleActionStartWorkflow(
-                DSLWorkflow.run,
+                dsl_workflow_run_method_for_new_execution(),
                 # Scheduled workflow only needs to know the workflow ID
                 # and the role of the user who scheduled it. Everything else
                 # is pulled inside the workflow itself.
@@ -142,6 +141,8 @@ async def update_schedule(schedule_id: AnyScheduleID, params: ScheduleUpdate) ->
         if "status" in set_fields:
             state.paused = set_fields["status"] != "online"
         if isinstance(action, temporalio.client.ScheduleActionStartWorkflow):
+            from tracecat.dsl.workflow import dsl_workflow_type_name_for_new_execution
+
             # Extract role from existing schedule to rebuild search attributes
             from tracecat.workflow.executions.common import extract_first
 
@@ -160,6 +161,7 @@ async def update_schedule(schedule_id: AnyScheduleID, params: ScheduleUpdate) ->
                     scopes=SERVICE_PRINCIPAL_SCOPES["tracecat-schedule-runner"],
                 )
             action.typed_search_attributes = build_schedule_search_attributes(role)
+            action.workflow = dsl_workflow_type_name_for_new_execution()
             if "inputs" in set_fields:
                 action.args[0].dsl.trigger_inputs = set_fields["inputs"]  # type: ignore
         else:

@@ -23,6 +23,9 @@ from tracecat.executor.activities import ExecutorActivities
 from tracecat.executor.schemas import ExecutorActionErrorInfo
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.registry.lock.types import RegistryLock
+from tracecat.runtime.errors import RuntimeErrorKind
+from tracecat.storage.object import InlineObject
+from tracecat.temporal.errors import extract_runtime_error_from_details
 
 
 @pytest.fixture
@@ -110,6 +113,7 @@ class TestExecuteActionActivity:
                 "tracecat.executor.activities.materialize_context",
                 new_callable=AsyncMock,
             ) as mock_materialize,
+            patch("tracecat.executor.activities.get_object_storage") as mock_storage,
         ):
             mock_activity.info.return_value = MagicMock(attempt=1)
             mock_activity.heartbeat = MagicMock()
@@ -117,6 +121,9 @@ class TestExecuteActionActivity:
             mock_dispatch.return_value = expected_result
             # Return the same exec_context to preserve the input
             mock_materialize.return_value = mock_run_action_input.exec_context
+            mock_storage.return_value.store = AsyncMock(
+                return_value=InlineObject(data=expected_result)
+            )
 
             result = await ExecutorActivities.execute_action_activity(
                 mock_run_action_input, mock_role
@@ -165,6 +172,9 @@ class TestExecuteActionActivity:
             assert app_error.type == "ExecutionError"
             # Check that the error info is in the details
             assert len(app_error.details) > 0
+            envelope = extract_runtime_error_from_details(app_error.details)
+            assert envelope is not None
+            assert envelope.kind == RuntimeErrorKind.USER
 
     @pytest.mark.anyio
     async def test_loop_execution_error_raises_application_error(
@@ -296,12 +306,16 @@ class TestExecuteActionActivity:
                 "tracecat.executor.activities.dispatch_action",
                 new_callable=AsyncMock,
             ) as mock_dispatch,
+            patch("tracecat.executor.activities.get_object_storage") as mock_storage,
             patch("tracecat.executor.activities.ctx_run") as mock_ctx_run,
             patch("tracecat.executor.activities.ctx_role") as mock_ctx_role,
         ):
             mock_activity.info.return_value = MagicMock(attempt=1)
             mock_backend.return_value = MagicMock()
             mock_dispatch.return_value = {"result": "ok"}
+            mock_storage.return_value.store = AsyncMock(
+                return_value=InlineObject(data={"result": "ok"})
+            )
 
             await ExecutorActivities.execute_action_activity(
                 mock_run_action_input, mock_role
@@ -350,3 +364,33 @@ class TestExecuteActionActivity:
             action_error_info = app_error.details[0]
             assert isinstance(action_error_info, ActionErrorInfo)
             assert action_error_info.stream_id == "test-stream-123"
+
+    @pytest.mark.anyio
+    async def test_storage_failure_is_classified_as_infra(
+        self, mock_run_action_input, mock_role
+    ):
+        with (
+            patch("tracecat.executor.activities.activity") as mock_activity,
+            patch("tracecat.executor.activities.get_executor_backend") as mock_backend,
+            patch(
+                "tracecat.executor.activities.dispatch_action",
+                new_callable=AsyncMock,
+            ) as mock_dispatch,
+            patch("tracecat.executor.activities.get_object_storage") as mock_storage,
+        ):
+            mock_activity.info.return_value = MagicMock(attempt=1)
+            mock_backend.return_value = MagicMock()
+            mock_dispatch.return_value = {"result": "ok"}
+            mock_storage.return_value.store = AsyncMock(
+                side_effect=OSError("disk full")
+            )
+
+            with pytest.raises(ApplicationError) as exc_info:
+                await ExecutorActivities.execute_action_activity(
+                    mock_run_action_input, mock_role
+                )
+
+            envelope = extract_runtime_error_from_details(exc_info.value.details)
+            assert envelope is not None
+            assert envelope.kind == RuntimeErrorKind.INFRA
+            assert envelope.code == "executor.result_storage.failed"
