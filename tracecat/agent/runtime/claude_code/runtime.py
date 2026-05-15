@@ -86,41 +86,26 @@ CLAUDE_PROJECT_DIR_MAX_LENGTH = 200
 CLAUDE_PROJECT_DIR_SANITIZE_RE = re.compile(r"[^a-zA-Z0-9]")
 
 
-def _base36(value: int) -> str:
-    if value == 0:
-        return "0"
-    digits = "0123456789abcdefghijklmnopqrstuvwxyz"
-    out: list[str] = []
-    while value > 0:
-        value, digit = divmod(value, 36)
-        out.append(digits[digit])
-    return "".join(reversed(out))
-
-
-def _claude_project_dir_hash(value: str) -> str:
-    """Return Claude's 32-bit signed path hash encoded as base36."""
-    hash_value = 0
-    for char in value:
-        hash_value = ((hash_value << 5) - hash_value + ord(char)) & 0xFFFFFFFF
-        if hash_value >= 0x80000000:
-            hash_value -= 0x100000000
-    return _base36(abs(hash_value))
-
-
 def _claude_project_dir_name(cwd: Path) -> str:
     """Return the project directory name Claude uses for a runtime cwd.
 
-    This mirrors claude-agent-sdk's private ``_sanitize_path`` helper. Keep the
-    parity test updated if Claude changes how it stores ``~/.claude/projects``.
+    This mirrors claude-agent-sdk's private ``_sanitize_path`` helper for short
+    paths. Long paths are rejected because Claude CLI and SDK hash suffixes can
+    diverge, which would make session persistence non-deterministic.
     """
-    cwd_str = str(cwd)
-    sanitized = CLAUDE_PROJECT_DIR_SANITIZE_RE.sub("-", cwd_str)
-    if len(sanitized) <= CLAUDE_PROJECT_DIR_MAX_LENGTH:
-        return sanitized
-    return (
-        f"{sanitized[:CLAUDE_PROJECT_DIR_MAX_LENGTH]}-"
-        f"{_claude_project_dir_hash(cwd_str)}"
-    )
+    sanitized = CLAUDE_PROJECT_DIR_SANITIZE_RE.sub("-", str(cwd))
+    if len(sanitized) > CLAUDE_PROJECT_DIR_MAX_LENGTH:
+        raise AgentSandboxValidationError(
+            "Claude runtime cwd is too long for deterministic session persistence: "
+            f"sanitized path length {len(sanitized)} exceeds "
+            f"{CLAUDE_PROJECT_DIR_MAX_LENGTH}. Shorten TMPDIR or the runtime cwd."
+        )
+    return sanitized
+
+
+def _validate_claude_project_dir_name(cwd: Path) -> None:
+    """Validate that Claude can persist sessions under the runtime cwd."""
+    _claude_project_dir_name(cwd)
 
 
 class RuntimeEventWriter(Protocol):
@@ -1092,6 +1077,7 @@ class ClaudeAgentRuntime:
         """Create the stable Claude cwd used for session resume."""
         if self._cwd is None:
             self._cwd = Path(tempfile.gettempdir()) / f"tracecat-agent-{session_id}"
+        _validate_claude_project_dir_name(self._cwd)
         cwd_setup_path = self._cwd_setup_path or self._cwd
         cwd_setup_path.mkdir(parents=True, exist_ok=True)
 

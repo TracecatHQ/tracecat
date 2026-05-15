@@ -26,6 +26,7 @@ from claude_agent_sdk.types import (
 )
 
 import tracecat.agent.runtime.claude_code.runtime as runtime_module
+from tracecat.agent.common.exceptions import AgentSandboxValidationError
 from tracecat.agent.common.protocol import RuntimeInitPayload
 from tracecat.agent.common.socket_io import SocketStreamWriter
 from tracecat.agent.common.stream_types import StreamEventType, UnifiedStreamEvent
@@ -2449,15 +2450,49 @@ class TestClaudeAgentRuntimeSessionLineFlushing:
             Path("C:/Users/apiuser/AppData/Local/Temp/tracecat-agent/claude-project"),
             Path(r"C:\Users\apiuser\AppData\Local\Temp\tracecat-agent\claude-project"),
             Path("/var/folders/zz/abc.def_ghi-jkl/T/tracecat-agent/claude-project"),
+        ],
+    )
+    def test_claude_project_dir_name_matches_sdk_sanitizer(self, cwd: Path) -> None:
+        """Tracecat must derive the same short-path project directory as Claude."""
+        from claude_agent_sdk._internal.sessions import _sanitize_path
+
+        assert _claude_project_dir_name(cwd) == _sanitize_path(str(cwd))
+
+    @pytest.mark.parametrize(
+        "cwd",
+        [
             Path("/" + "very-long.segment_" * 30 + "/claude-project"),
             Path("/" + "prod path.with_symbols_@2026!" * 18 + "/claude.project"),
         ],
     )
-    def test_claude_project_dir_name_matches_sdk_sanitizer(self, cwd: Path) -> None:
-        """Tracecat must derive the same project directory name as Claude."""
-        from claude_agent_sdk._internal.sessions import _sanitize_path
+    def test_claude_project_dir_name_rejects_long_sanitized_paths(
+        self,
+        cwd: Path,
+    ) -> None:
+        """Long paths are rejected instead of guessing Claude's hash suffix."""
+        with pytest.raises(
+            AgentSandboxValidationError,
+            match="runtime cwd is too long",
+        ):
+            _claude_project_dir_name(cwd)
 
-        assert _claude_project_dir_name(cwd) == _sanitize_path(str(cwd))
+    def test_ensure_working_directory_rejects_long_cwd(
+        self,
+        mock_socket_writer: MagicMock,
+    ) -> None:
+        """Runtime setup should fail before Claude writes an ambiguous path."""
+        cwd = Path("/" + "very-long.segment_" * 30 + "/claude-project")
+        runtime = ClaudeAgentRuntime(
+            mock_socket_writer,
+            transport_factory=lambda _: MagicMock(),
+            cwd=cwd,
+        )
+
+        with pytest.raises(
+            AgentSandboxValidationError,
+            match="runtime cwd is too long",
+        ):
+            runtime._ensure_working_directory(uuid.uuid4())
 
     @pytest.mark.anyio
     async def test_emit_new_session_lines_finds_sdk_sanitized_direct_mode_path(
