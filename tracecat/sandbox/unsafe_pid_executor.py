@@ -35,11 +35,22 @@ from tracecat.sandbox.types import SandboxResult
 module_logger = logging.getLogger(__name__)
 
 SAFE_WRAPPER_SCRIPT = '''
+import asyncio
 import inspect
 import json
 import sys
 import traceback
 from pathlib import Path
+
+def _init_tracecat_context():
+    try:
+        from tracecat_registry.context import init_context_from_env
+    except ImportError:
+        return
+    try:
+        init_context_from_env()
+    except ValueError:
+        return
 
 def main():
     """Execute user script and capture results."""
@@ -72,6 +83,7 @@ def main():
         # Read and execute the user script
         script_path = Path(work_dir) / "script.py"
         script_code = script_path.read_text()
+        _init_tracecat_context()
         script_globals = {{"__name__": "__main__", "__file__": str(script_path)}}
         exec(script_code, script_globals)
 
@@ -88,9 +100,13 @@ def main():
 
         # Call the function with inputs
         if inputs:
-            output = main_func(**inputs)
+            call = main_func(**inputs)
         else:
-            output = main_func()
+            call = main_func()
+        if inspect.isawaitable(call):
+            output = asyncio.run(call)
+        else:
+            output = call
 
         result["success"] = True
         result["output"] = output

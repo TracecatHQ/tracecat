@@ -204,6 +204,8 @@ class NsjailExecutor:
         # Validate inputs to prevent injection into protobuf config
         _validate_path(job_dir, "job_dir")
         _validate_path(self.rootfs, "rootfs")
+        for i, python_path_mount in enumerate(config.python_path_mounts):
+            _validate_path(python_path_mount, f"python_path_mount_{i}")
         if cache_key:
             _validate_cache_key(cache_key)
 
@@ -311,6 +313,10 @@ class NsjailExecutor:
                     lines.append(
                         f'mount {{ src: "{cache_path}" dst: "/packages" is_bind: true rw: false }}'
                     )
+            for i, python_path_mount in enumerate(config.python_path_mounts):
+                lines.append(
+                    f'mount {{ src: "{python_path_mount}" dst: "/pythonpath/{i}" is_bind: true rw: false }}'
+                )
             lines.append(
                 f'mount {{ src: "{job_dir}" dst: "/work" is_bind: true rw: true }}'
             )
@@ -350,6 +356,7 @@ class NsjailExecutor:
     ) -> dict[str, str]:
         """Construct a sanitized environment for the nsjail process."""
         env_map: dict[str, str] = {**SANDBOX_BASE_ENV}
+        user_pythonpath = config.env_vars.get("PYTHONPATH")
 
         if phase == "install":
             env_map["UV_CACHE_DIR"] = "/uv-cache"
@@ -359,12 +366,24 @@ class NsjailExecutor:
                 env_map["UV_EXTRA_INDEX_URL"] = ",".join(
                     TRACECAT__SANDBOX_PYPI_EXTRA_INDEX_URLS
                 )
-        elif cache_key:
-            cache_path = self.package_cache / cache_key / "site-packages"
-            if cache_path.exists():
-                env_map["PYTHONPATH"] = "/packages"
+        else:
+            pythonpath_parts = [
+                f"/pythonpath/{i}"
+                for i, python_path_mount in enumerate(config.python_path_mounts)
+                if python_path_mount.exists()
+            ]
+            if cache_key:
+                cache_path = self.package_cache / cache_key / "site-packages"
+                if cache_path.exists():
+                    pythonpath_parts.append("/packages")
+            if user_pythonpath:
+                pythonpath_parts.append(user_pythonpath)
+            if pythonpath_parts:
+                env_map["PYTHONPATH"] = ":".join(pythonpath_parts)
 
         for key, value in config.env_vars.items():
+            if key == "PYTHONPATH":
+                continue
             _validate_env_key(key)
             env_map[key] = value
 

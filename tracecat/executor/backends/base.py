@@ -15,6 +15,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING
 
+from tracecat import config
 from tracecat.dsl.enums import PlatformAction
 from tracecat.executor.schemas import (
     ExecutorActionErrorInfo,
@@ -77,7 +78,7 @@ class ExecutorBackend(ABC):
 
         # Platform actions with special execution requirements
         if action_name == PlatformAction.RUN_PYTHON:
-            return await self._execute_run_python(resolved_context)
+            return await self._execute_run_python(input, resolved_context)
 
         # Normal UDF execution via backend-specific implementation
         return await self._execute(input, role, resolved_context, timeout)
@@ -98,6 +99,7 @@ class ExecutorBackend(ABC):
 
     async def _execute_run_python(
         self,
+        input: RunActionInput,
         resolved_context: ResolvedContext,
     ) -> ExecutorResult:
         """Execute run_python action using host sandbox.
@@ -121,6 +123,11 @@ class ExecutorBackend(ABC):
             return ExecutorResultFailure(error=error_info)
 
         service = SandboxService()
+        env_vars = self._build_run_python_env_vars(
+            input,
+            resolved_context,
+            user_env_vars=args.get("env_vars"),
+        )
 
         try:
             result = await service.run_python(
@@ -129,7 +136,7 @@ class ExecutorBackend(ABC):
                 dependencies=args.get("dependencies"),
                 timeout_seconds=args.get("timeout_seconds", 300),
                 allow_network=args.get("allow_network", False),
-                env_vars=args.get("env_vars"),
+                env_vars=env_vars,
                 workspace_id=resolved_context.workspace_id,
             )
             return ExecutorResultSuccess(result=result)
@@ -147,6 +154,29 @@ class ExecutorBackend(ABC):
                 function="_execute_run_python",
             )
             return ExecutorResultFailure(error=error_info)
+
+    def _build_run_python_env_vars(
+        self,
+        input: RunActionInput,
+        resolved_context: ResolvedContext,
+        *,
+        user_env_vars: dict[str, str] | None,
+    ) -> dict[str, str]:
+        """Build run_python environment with Tracecat SDK context always enabled."""
+
+        env_vars = dict(user_env_vars or {})
+        env_vars.update(
+            {
+                "TRACECAT__API_URL": config.TRACECAT__API_URL,
+                "TRACECAT__WORKSPACE_ID": resolved_context.workspace_id,
+                "TRACECAT__WORKFLOW_ID": resolved_context.workflow_id,
+                "TRACECAT__RUN_ID": resolved_context.run_id,
+                "TRACECAT__WF_EXEC_ID": str(input.run_context.wf_exec_id),
+                "TRACECAT__ENVIRONMENT": input.run_context.environment,
+                "TRACECAT__EXECUTOR_TOKEN": resolved_context.executor_token,
+            }
+        )
+        return env_vars
 
     async def start(self) -> None:  # noqa: B027
         """Initialize the backend.

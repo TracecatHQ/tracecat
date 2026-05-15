@@ -5,12 +5,14 @@ import json
 import os
 import re
 import shutil
+import sysconfig
 import tempfile
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
+from tracecat import config
 from tracecat.config import (
     TRACECAT__DISABLE_NSJAIL,
     TRACECAT__SANDBOX_CACHE_DIR,
@@ -42,7 +44,7 @@ def validate_run_python_script(script: str) -> tuple[bool, str | None]:
     Returns:
         A tuple of (is_valid, error_message). If valid, error_message is None.
     """
-    function_pattern = r"def\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*\("
+    function_pattern = r"(?:async\s+)?def\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*\("
     functions = re.findall(function_pattern, script)
 
     if not functions:
@@ -154,6 +156,53 @@ class SandboxService:
         else:
             hash_input = "\n".join(normalized)
         return hashlib.sha256(hash_input.encode()).hexdigest()[:16]
+
+    def _get_sdk_python_path_mounts(self) -> list[Path]:
+        """Return host paths needed for run_python scripts to import the SDK."""
+
+        paths: list[Path] = []
+        seen: set[Path] = set()
+
+        def add_path(path: Path | None) -> None:
+            if path is None:
+                return
+            resolved = path.resolve()
+            if resolved.exists() and resolved not in seen:
+                paths.append(resolved)
+                seen.add(resolved)
+
+        source_path = Path(config.TRACECAT__BUILTIN_REGISTRY_SOURCE_PATH)
+        add_path(source_path)
+
+        try:
+            import tracecat_registry
+
+            registry_package_root = Path(tracecat_registry.__file__).resolve().parent
+            add_path(registry_package_root.parent)
+        except ImportError:
+            logger.warning("tracecat_registry is not importable from run_python host")
+
+        if config.TRACECAT__EXECUTOR_SITE_PACKAGES_DIR:
+            add_path(Path(config.TRACECAT__EXECUTOR_SITE_PACKAGES_DIR))
+        else:
+            purelib = sysconfig.get_path("purelib")
+            add_path(Path(purelib) if purelib else None)
+
+        return paths
+
+    def _with_host_sdk_pythonpath(
+        self,
+        env_vars: dict[str, str] | None,
+    ) -> dict[str, str]:
+        """Add SDK import paths for direct/PID run_python execution."""
+
+        merged = dict(env_vars or {})
+        pythonpath_parts = [str(path) for path in self._get_sdk_python_path_mounts()]
+        if existing_pythonpath := merged.get("PYTHONPATH"):
+            pythonpath_parts.append(existing_pythonpath)
+        if pythonpath_parts:
+            merged["PYTHONPATH"] = os.pathsep.join(pythonpath_parts)
+        return merged
 
     async def _install_packages(
         self,
@@ -348,7 +397,7 @@ class SandboxService:
                 dependencies=dependencies,
                 timeout_seconds=timeout_seconds,
                 allow_network=allow_network,
-                env_vars=env_vars,
+                env_vars=self._with_host_sdk_pythonpath(env_vars),
                 workspace_id=workspace_id,
             )
 
@@ -437,6 +486,7 @@ class SandboxService:
                 ),
                 env_vars=env_vars or {},
                 dependencies=dependencies or [],
+                python_path_mounts=self._get_sdk_python_path_mounts(),
             )
 
             await self._prepare_execution(job_dir, script, inputs)
