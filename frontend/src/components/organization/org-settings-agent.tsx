@@ -2543,97 +2543,95 @@ export function OrgSettingsAgentForm() {
         />
       ) : null}
 
-      {agentAddonsEnabled ? (
-        <section className="space-y-4">
-          <div className="space-y-1">
-            <h3 className="text-lg font-semibold tracking-tight">
-              Default model
-            </h3>
-            <p className="text-sm text-muted-foreground">
-              Choose the organization-wide default from the models enabled for
-              this organization.
-            </p>
-          </div>
+      <section className="space-y-4">
+        <div className="space-y-1">
+          <h3 className="text-lg font-semibold tracking-tight">
+            Default model
+          </h3>
+          <p className="text-sm text-muted-foreground">
+            Choose the organization-wide default from the models enabled for
+            this organization.
+          </p>
+        </div>
 
-          {defaultModelSectionLoading ? (
-            <CenteredSpinner />
-          ) : !defaultModelOptions.length ? (
-            <p className="text-sm text-muted-foreground">
-              Enable at least one model below to choose a default.
-            </p>
-          ) : (
-            <Select
-              disabled={isSelectionUpdating}
-              onValueChange={(catalogId) => {
-                if (catalogId === defaultModelSelection?.catalog_id) {
-                  return
-                }
-                void handleDefaultModelChange(catalogId)
-              }}
-              value={currentDefaultModelOption?.catalog_id ?? ""}
-            >
-              <SelectTrigger className="h-12 px-4 [&>svg]:shrink-0">
-                {currentDefaultModelOption ? (
-                  <div className="flex min-w-0 items-center gap-3 text-left">
-                    <ProviderIcon
-                      className="size-5 rounded-sm p-0.5"
-                      providerId={getProviderIconId(
-                        currentDefaultModelOption.model_provider
-                      )}
-                    />
-                    <div className="min-w-0 space-y-0.5">
-                      <span className="block truncate text-sm font-medium text-foreground">
-                        {currentDefaultModelOption.model_name}
-                      </span>
-                      <span className="block truncate text-xs text-muted-foreground">
-                        {currentDefaultModelOption.source_label}
-                      </span>
-                    </div>
+        {defaultModelSectionLoading ? (
+          <CenteredSpinner />
+        ) : !defaultModelOptions.length ? (
+          <p className="text-sm text-muted-foreground">
+            Enable at least one model below to choose a default.
+          </p>
+        ) : (
+          <Select
+            disabled={isSelectionUpdating}
+            onValueChange={(catalogId) => {
+              if (catalogId === defaultModelSelection?.catalog_id) {
+                return
+              }
+              void handleDefaultModelChange(catalogId)
+            }}
+            value={currentDefaultModelOption?.catalog_id ?? ""}
+          >
+            <SelectTrigger className="h-12 px-4 [&>svg]:shrink-0">
+              {currentDefaultModelOption ? (
+                <div className="flex min-w-0 items-center gap-3 text-left">
+                  <ProviderIcon
+                    className="size-5 rounded-sm p-0.5"
+                    providerId={getProviderIconId(
+                      currentDefaultModelOption.model_provider
+                    )}
+                  />
+                  <div className="min-w-0 space-y-0.5">
+                    <span className="block truncate text-sm font-medium text-foreground">
+                      {currentDefaultModelOption.model_name}
+                    </span>
+                    <span className="block truncate text-xs text-muted-foreground">
+                      {currentDefaultModelOption.source_label}
+                    </span>
                   </div>
-                ) : (
-                  <SelectValue placeholder="Choose a default model" />
-                )}
-              </SelectTrigger>
-              <SelectContent>
-                {defaultModelOptions.map((model) => {
-                  const isSelected =
-                    model.catalog_id === defaultModelSelection?.catalog_id
+                </div>
+              ) : (
+                <SelectValue placeholder="Choose a default model" />
+              )}
+            </SelectTrigger>
+            <SelectContent>
+              {defaultModelOptions.map((model) => {
+                const isSelected =
+                  model.catalog_id === defaultModelSelection?.catalog_id
 
-                  return (
-                    <SelectItem key={model.catalog_id} value={model.catalog_id}>
-                      <div className="flex min-w-0 items-start gap-3 py-1">
-                        <ProviderIcon
-                          className="mt-0.5 size-5 rounded-sm p-0.5"
-                          providerId={getProviderIconId(model.model_provider)}
-                        />
-                        <div className="min-w-0 space-y-1">
-                          <div className="flex min-w-0 items-center gap-2">
-                            <span className="truncate text-sm font-medium">
-                              {model.model_name}
+                return (
+                  <SelectItem key={model.catalog_id} value={model.catalog_id}>
+                    <div className="flex min-w-0 items-start gap-3 py-1">
+                      <ProviderIcon
+                        className="mt-0.5 size-5 rounded-sm p-0.5"
+                        providerId={getProviderIconId(model.model_provider)}
+                      />
+                      <div className="min-w-0 space-y-1">
+                        <div className="flex min-w-0 items-center gap-2">
+                          <span className="truncate text-sm font-medium">
+                            {model.model_name}
+                          </span>
+                          {isSelected ? (
+                            <span className="shrink-0 text-xs text-muted-foreground">
+                              Current default
                             </span>
-                            {isSelected ? (
-                              <span className="shrink-0 text-xs text-muted-foreground">
-                                Current default
-                              </span>
-                            ) : null}
-                          </div>
-                          <p className="truncate text-xs text-muted-foreground">
-                            {model.source_label}
-                          </p>
+                          ) : null}
                         </div>
+                        <p className="truncate text-xs text-muted-foreground">
+                          {model.source_label}
+                        </p>
                       </div>
-                    </SelectItem>
-                  )
-                })}
-              </SelectContent>
-            </Select>
-          )}
+                    </div>
+                  </SelectItem>
+                )
+              })}
+            </SelectContent>
+          </Select>
+        )}
 
-          {isSelectionUpdating ? (
-            <p className="text-xs text-muted-foreground">Saving changes…</p>
-          ) : null}
-        </section>
-      ) : null}
+        {isSelectionUpdating ? (
+          <p className="text-xs text-muted-foreground">Saving changes…</p>
+        ) : null}
+      </section>
 
       <section className="space-y-4">
         <div className="flex items-start justify-between gap-4">
