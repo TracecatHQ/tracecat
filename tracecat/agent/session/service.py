@@ -802,7 +802,7 @@ class AgentSessionService(BaseWorkspaceService):
         agent_session: AgentSession,
         user_prompt: str,
     ) -> None:
-        """Best-effort auto-title on first prompt via direct PydanticAI call."""
+        """Best-effort auto-title on first prompt via the lightweight LLM client."""
         prompt = user_prompt.strip()
         entity_type = agent_session.entity_type
         old_title = agent_session.title

@@ -130,6 +130,9 @@ class ActionImplementation(BaseModel):
     origin: str | None = None
     """Origin URL for the action's registry (e.g., 'tracecat_registry' or 'git+ssh://...')."""
 
+    deprecated: str | None = None
+    """Deprecation message if this action is deprecated, else None."""
+
 
 class ResolvedContext(BaseModel):
     """Pre-resolved context for untrusted execution mode.

@@ -154,6 +154,10 @@ function isLockedAction(action: RegistryActionReadMinimal): boolean {
   return action.availability?.locked ?? false
 }
 
+function isDeprecatedAction(action: RegistryActionReadMinimal): boolean {
+  return !!action.deprecated
+}
+
 const WORKFLOW_EXTRA_ACTIONS = new Set([
   "core.transform.scatter",
   "core.transform.gather",
@@ -381,6 +385,9 @@ function ToolbarCategoryDropdown({
         setLockedFeatureOpen(true)
         return
       }
+      if (isDeprecatedAction(action)) {
+        return
+      }
       onAddAction(action)
       setOpen(false)
       setSearch("")
@@ -410,15 +417,17 @@ function ToolbarCategoryDropdown({
 
   function renderActionItem(action: RegistryActionReadMinimal) {
     const isLocked = isLockedAction(action)
+    const isDeprecated = isDeprecatedAction(action)
 
-    return (
+    const item = (
       <CommandItem
         key={action.action}
         value={action.action}
         onSelect={() => handleSelect(action)}
         className={cn(
-          "flex w-full cursor-pointer items-center gap-3 py-2",
-          isLocked && "text-muted-foreground"
+          "flex w-full items-center gap-3 py-2",
+          isLocked && "text-muted-foreground",
+          isDeprecated ? "cursor-not-allowed opacity-50" : "cursor-pointer"
         )}
       >
         {renderActionIcon(action)}
@@ -432,6 +441,18 @@ function ToolbarCategoryDropdown({
         </div>
       </CommandItem>
     )
+
+    if (isDeprecated) {
+      return (
+        <Tooltip key={action.action}>
+          <TooltipTrigger asChild>{item}</TooltipTrigger>
+          <TooltipContent side="right" className="max-w-48 text-xs">
+            {action.deprecated}
+          </TooltipContent>
+        </Tooltip>
+      )
+    }
+    return item
   }
 
   return (

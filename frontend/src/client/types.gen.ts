@@ -5466,6 +5466,10 @@ export type RegistryActionReadMinimal = {
    */
   availability?: RegistryActionAvailability
   /**
+   * Deprecation message if this action is deprecated
+   */
+  deprecated?: string | null
+  /**
    * The full action identifier.
    */
   readonly action: string
