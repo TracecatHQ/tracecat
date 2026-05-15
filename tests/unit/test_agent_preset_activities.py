@@ -7,6 +7,7 @@ from typing import Any, cast
 from unittest.mock import AsyncMock
 
 import pytest
+from temporalio.exceptions import ApplicationError
 
 from tracecat.agent.preset.activities import (
     ResolveAgentPresetVersionRefActivityInput,
@@ -338,3 +339,59 @@ async def test_resolve_custom_model_provider_config_activity_returns_base_url(
     assert result.base_url == "https://customer.example"
     assert result.model_name == "provider/custom-model"
     assert result.passthrough is True
+
+
+@pytest.mark.anyio
+async def test_resolve_custom_model_provider_config_missing_credentials_non_retryable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = SimpleNamespace(
+        get_workspace_provider_credentials=AsyncMock(return_value=None)
+    )
+    role = Role(
+        type="service",
+        service_id="tracecat-api",
+        workspace_id=uuid.uuid4(),
+        organization_id=uuid.uuid4(),
+    )
+
+    monkeypatch.setattr(
+        "tracecat.agent.preset.activities.AgentManagementService.with_session",
+        lambda *_args, **_kwargs: _AsyncContext(service),
+    )
+
+    with pytest.raises(ApplicationError) as exc_info:
+        await resolve_custom_model_provider_config_activity(role)
+
+    app_error = exc_info.value
+    assert app_error.type == "InvalidCustomModelProviderCredentials"
+    assert app_error.non_retryable is True
+
+
+@pytest.mark.anyio
+async def test_resolve_custom_model_provider_config_missing_base_url_non_retryable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = SimpleNamespace(
+        get_workspace_provider_credentials=AsyncMock(
+            return_value={"CUSTOM_MODEL_PROVIDER_MODEL_NAME": "provider/custom-model"}
+        )
+    )
+    role = Role(
+        type="service",
+        service_id="tracecat-api",
+        workspace_id=uuid.uuid4(),
+        organization_id=uuid.uuid4(),
+    )
+
+    monkeypatch.setattr(
+        "tracecat.agent.preset.activities.AgentManagementService.with_session",
+        lambda *_args, **_kwargs: _AsyncContext(service),
+    )
+
+    with pytest.raises(ApplicationError) as exc_info:
+        await resolve_custom_model_provider_config_activity(role)
+
+    app_error = exc_info.value
+    assert app_error.type == "CustomModelProviderBaseURLRequired"
+    assert app_error.non_retryable is True

@@ -572,6 +572,22 @@ class TestCreateSessionActivity:
 
     @pytest.mark.anyio
     @patch("tracecat.agent.session.activities.AgentSessionService.with_session")
+    async def test_unexpected_create_session_failure_raises_for_temporal_retry(
+        self, mock_with_session, mock_role: Role, mock_session_id: uuid.UUID
+    ):
+        input = CreateSessionInput(
+            role=mock_role,
+            session_id=mock_session_id,
+            entity_type=AgentSessionEntity.WORKFLOW,
+            entity_id=uuid.uuid4(),
+        )
+        mock_with_session.side_effect = OSError("database unavailable")
+
+        with pytest.raises(OSError, match="database unavailable"):
+            await create_session_activity(input)
+
+    @pytest.mark.anyio
+    @patch("tracecat.agent.session.activities.AgentSessionService.with_session")
     async def test_sets_correct_harness_type(
         self, mock_with_session, mock_role: Role, mock_session_id: uuid.UUID
     ):

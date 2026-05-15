@@ -144,7 +144,11 @@ async def resolve_custom_model_provider_config_activity(
 
     if creds is None:
         activity.logger.error("Custom model provider credentials not found")
-        raise ApplicationError("Invalid custom model provider credentials")
+        raise ApplicationError(
+            "Invalid custom model provider credentials",
+            non_retryable=True,
+            type="InvalidCustomModelProviderCredentials",
+        )
     if not (base_url := creds.get("CUSTOM_MODEL_PROVIDER_BASE_URL")):
         activity.logger.error(
             "Custom model provider base URL missing",
@@ -155,7 +159,11 @@ async def resolve_custom_model_provider_config_activity(
                 "has_api_key": bool(creds.get("CUSTOM_MODEL_PROVIDER_API_KEY")),
             },
         )
-        raise ApplicationError("Custom model provider base URL is required")
+        raise ApplicationError(
+            "Custom model provider base URL is required",
+            non_retryable=True,
+            type="CustomModelProviderBaseURLRequired",
+        )
     passthrough = creds.get("CUSTOM_MODEL_PROVIDER_PASSTHROUGH", "").lower() in {
         "1",
         "true",
