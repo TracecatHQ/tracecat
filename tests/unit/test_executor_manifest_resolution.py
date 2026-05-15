@@ -8,6 +8,7 @@ import pytest
 from tracecat.db.models import RegistryAction, RegistryRepository, RegistryVersion
 from tracecat.dsl.common import create_default_execution_context
 from tracecat.dsl.schemas import ActionStatement, RunActionInput, RunContext
+from tracecat.exceptions import DeprecatedActionError
 from tracecat.executor.schemas import ActionImplementation
 from tracecat.executor.secret_preprocessors import SecretEnvProjection
 from tracecat.executor.service import _prepare_step_context, prepare_resolved_context
@@ -314,3 +315,106 @@ async def test_prepare_resolved_context_includes_projected_secret_masks(
     assert "ASIA_TEMP_KEY" in prepared.resolved_context.secret_projection.mask_values
     assert "temp_secret" in prepared.resolved_context.secret_projection.mask_values
     assert "temp_token" in prepared.resolved_context.secret_projection.mask_values
+
+
+@pytest.mark.anyio
+async def test_prepare_resolved_context_raises_on_deprecated_action(test_role, mocker):
+    """DeprecatedActionError is raised before secrets/vars are fetched."""
+    action_name = "core.echo"
+    wf_id = WorkflowUUID.new_uuid4()
+    run_ctx = RunContext(
+        wf_id=wf_id,
+        wf_exec_id=generate_exec_id(wf_id),
+        wf_run_id=uuid.uuid4(),
+        environment="default",
+        logical_time=datetime.now(UTC),
+    )
+    input = RunActionInput(
+        task=ActionStatement(ref="a", action=action_name, args={}),
+        exec_context=create_default_execution_context(),
+        run_context=run_ctx,
+        registry_lock=RegistryLock(
+            origins={"core-registry": "v1"},
+            actions={action_name: "core-registry"},
+        ),
+    )
+
+    mocker.patch(
+        "tracecat.executor.service.registry_resolver.resolve_action",
+        return_value=ActionImplementation(
+            type="udf",
+            module="manifest.module",
+            name="manifest_fn",
+            deprecated="Use core.transform instead.",
+        ),
+    )
+    # These must NOT be called if we raise before reaching them.
+    mock_secrets = mocker.patch(
+        "tracecat.executor.service.registry_resolver.collect_action_secrets_from_manifest",
+    )
+    mock_get_secrets = mocker.patch(
+        "tracecat.executor.service.secrets_manager.get_action_secrets",
+    )
+
+    with pytest.raises(DeprecatedActionError) as exc_info:
+        await prepare_resolved_context(input=input, role=test_role)
+
+    assert action_name in str(exc_info.value)
+    assert "Use core.transform instead." in str(exc_info.value)
+    mock_secrets.assert_not_called()
+    mock_get_secrets.assert_not_called()
+
+
+@pytest.mark.anyio
+async def test_prepare_step_context_raises_on_deprecated_action(test_role, mocker):
+    """DeprecatedActionError is raised from _prepare_step_context for deprecated template steps."""
+    step_action = "core.echo"
+    wf_id = WorkflowUUID.new_uuid4()
+    run_ctx = RunContext(
+        wf_id=wf_id,
+        wf_exec_id=generate_exec_id(wf_id),
+        wf_run_id=uuid.uuid4(),
+        environment="default",
+        logical_time=datetime.now(UTC),
+    )
+    input = RunActionInput(
+        task=ActionStatement(ref="parent", action=step_action, args={}),
+        exec_context=create_default_execution_context(),
+        run_context=run_ctx,
+        registry_lock=RegistryLock(
+            origins={"core-registry": "v1"},
+            actions={step_action: "core-registry"},
+        ),
+    )
+
+    mocker.patch(
+        "tracecat.executor.service.registry_resolver.resolve_action",
+        return_value=ActionImplementation(
+            type="udf",
+            module="manifest.module",
+            name="manifest_fn",
+            deprecated="Use core.transform instead.",
+        ),
+    )
+
+    parent_resolved = SimpleNamespace(
+        secrets={},
+        variables={},
+        workspace_id=str(test_role.workspace_id),
+        workflow_id=str(wf_id),
+        run_id=str(uuid.uuid4()),
+        logical_time=datetime.now(UTC),
+        secret_projection=SecretEnvProjection(env={}, mask_values=set()),
+    )
+
+    with pytest.raises(DeprecatedActionError) as exc_info:
+        await _prepare_step_context(
+            step_action=step_action,
+            evaluated_args={},
+            parent_resolved=parent_resolved,  # type: ignore[arg-type]
+            input=input,
+            role=test_role,
+        )
+
+    assert step_action in str(exc_info.value)
+    assert "Use core.transform instead." in str(exc_info.value)

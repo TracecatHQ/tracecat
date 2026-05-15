@@ -98,6 +98,7 @@ class _IndexSelectRow(NamedTuple):
     default_title: str | None
     display_group: str | None
     options: dict
+    deprecated: str | None
     origin: str
     source: str
 
@@ -276,6 +277,7 @@ class RegistryActionsService(BaseOrgService):
                 RegistryIndex.default_title,
                 RegistryIndex.display_group,
                 RegistryIndex.options,
+                RegistryIndex.deprecated,
                 RegistryRepository.origin,
                 literal("org", type_=String).label("source"),
             )
@@ -304,6 +306,7 @@ class RegistryActionsService(BaseOrgService):
                 PlatformRegistryIndex.default_title,
                 PlatformRegistryIndex.display_group,
                 PlatformRegistryIndex.options,
+                PlatformRegistryIndex.deprecated,
                 PlatformRegistryRepository.origin,
                 literal("platform", type_=String).label("source"),
             )
@@ -387,6 +390,7 @@ class RegistryActionsService(BaseOrgService):
                 default_title=row.default_title,
                 display_group=row.display_group,
                 options=row.options or {},
+                deprecated=row.deprecated,
             )
             entries.append((entry, row.origin))
         return await self._filter_index_entries_by_entitlements(
