@@ -105,12 +105,22 @@ def _create_zstd_tarball(
 
 def _copy_squashfs_entry(path: Path, dest: Path) -> None:
     """Stage one artifact entry for SquashFS."""
+
+    def _remove_existing_entry() -> None:
+        if dest.is_symlink() or dest.is_file():
+            dest.unlink()
+        elif dest.is_dir():
+            shutil.rmtree(dest)
+
     if path.is_symlink():
         dest.parent.mkdir(parents=True, exist_ok=True)
+        _remove_existing_entry()
         dest.symlink_to(os.readlink(path))
         return
 
     if path.is_dir():
+        if dest.is_symlink() or dest.is_file():
+            dest.unlink()
         dest.mkdir(parents=True, exist_ok=True)
         for child in path.iterdir():
             _copy_squashfs_entry(child, dest / child.name)
@@ -118,6 +128,7 @@ def _copy_squashfs_entry(path: Path, dest: Path) -> None:
 
     if path.is_file():
         dest.parent.mkdir(parents=True, exist_ok=True)
+        _remove_existing_entry()
         try:
             os.link(path, dest)
         except OSError:

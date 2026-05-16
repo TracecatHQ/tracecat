@@ -175,12 +175,32 @@ async def test_build_tarball_from_installed_environment_overlays_symlinked_packa
         "get_installed_site_packages_paths",
         lambda: [purelib],
     )
+    monkeypatch.setattr(
+        tarball.config, "TRACECAT__REGISTRY_SYNC_SQUASHFS_ENABLED", True
+    )
+    monkeypatch.setattr(tarball.shutil, "which", lambda _name: "/usr/bin/mksquashfs")
+
+    output_dir = tmp_path / "out"
+    squashfs_path = output_dir / "site-packages.squashfs"
+
+    def fake_subprocess_run(cmd: list[str]) -> subprocess.CompletedProcess[str]:
+        staging_dir = Path(cmd[1])
+        staged_package = staging_dir / "tracecat_registry"
+        assert staged_package.is_dir()
+        assert not staged_package.is_symlink()
+        assert (staged_package / "__init__.py").read_text() == "__version__ = '0.0.0'\n"
+        squashfs_path.write_bytes(b"squashfs")
+        return subprocess.CompletedProcess(cmd, 0, "", "")
+
+    monkeypatch.setattr(tarball, "subprocess_run", fake_subprocess_run)
 
     result = await tarball.build_tarball_venv_from_installed_environment(
         package_name="tracecat_registry",
         package_dir=package_dir,
-        output_dir=tmp_path / "out",
+        output_dir=output_dir,
     )
+
+    assert result.squashfs_path == squashfs_path
 
     with tarfile.open(result.tarball_path, "r:gz") as archive:
         tracecat_members = [
