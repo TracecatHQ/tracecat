@@ -164,14 +164,28 @@ def _run_sync_artifact_sandbox_smoke_in_docker_or_skip(
     compose_env.setdefault("PUBLIC_APP_PORT", "80")
     compose_env.setdefault("BASE_DOMAIN", ":80")
     compose_env.setdefault("ADDRESS", "0.0.0.0")
-    compose_env.setdefault("LOG_LEVEL", "INFO")
-    compose_env.setdefault("TRACECAT__APP_ENV", "development")
-    compose_env.setdefault("TRACECAT__SERVICE_KEY", "test-service-key")
+    compose_env["LOG_LEVEL"] = "INFO"
+    compose_env["TRACECAT__APP_ENV"] = "development"
+    compose_env["TRACECAT__SERVICE_KEY"] = "test-service-key"
     compose_env["TRACECAT__DB_URI"] = docker_db_uri
     compose_env["TRACECAT__BLOB_STORAGE_ENDPOINT"] = docker_minio_endpoint
     compose_env["TRACECAT__BLOB_STORAGE_BUCKET_REGISTRY"] = bucket
     compose_env["AWS_ACCESS_KEY_ID"] = access_key
     compose_env["AWS_SECRET_ACCESS_KEY"] = secret_key
+    compose_env[_SYNC_ARTIFACT_SANDBOX_CHILD_ENV] = "1"
+    compose_env["TRACECAT__LOCAL_REPOSITORY_ENABLED"] = "false"
+    compose_env["TRACECAT__REGISTRY_SYNC_SANDBOX_ENABLED"] = "false"
+    compose_env["TRACECAT__REGISTRY_SYNC_SQUASHFS_ENABLED"] = "true"
+    compose_env["TRACECAT__REGISTRY_SYNC_BUILTIN_USE_INSTALLED_SITE_PACKAGES"] = "true"
+    compose_env["TRACECAT__EXECUTOR_REGISTRY_SQUASHFS_ENABLED"] = "true"
+    compose_env["TRACECAT__DISABLE_NSJAIL"] = "false"
+    compose_env["TRACECAT__EXECUTOR_SANDBOX_ENABLED"] = "true"
+    compose_env["TRACECAT__SANDBOX_NSJAIL_PATH"] = "/usr/local/bin/nsjail"
+    compose_env["TRACECAT__SANDBOX_ROOTFS_PATH"] = "/var/lib/tracecat/sandbox-rootfs"
+    compose_env["TRACECAT__BUILTIN_REGISTRY_SOURCE_PATH"] = (
+        "/app/packages/tracecat-registry"
+    )
+    compose_env["PYTHONDONTWRITEBYTECODE"] = "1"
 
     override_path = Path(
         tempfile.mkstemp(prefix="tracecat-sync-artifact-sandbox-", suffix=".yml")[1]
@@ -190,25 +204,25 @@ def _run_sync_artifact_sandbox_smoke_in_docker_or_skip(
                 "    extra_hosts:",
                 '      - "host.docker.internal:host-gateway"',
                 "    environment:",
-                f'      {_SYNC_ARTIFACT_SANDBOX_CHILD_ENV}: "1"',
-                f'      TRACECAT__DB_URI: "{docker_db_uri}"',
-                f'      TRACECAT__BLOB_STORAGE_ENDPOINT: "{docker_minio_endpoint}"',
-                f'      TRACECAT__BLOB_STORAGE_BUCKET_REGISTRY: "{bucket}"',
-                f'      AWS_ACCESS_KEY_ID: "{access_key}"',
-                f'      AWS_SECRET_ACCESS_KEY: "{secret_key}"',
-                '      TRACECAT__APP_ENV: "development"',
-                '      TRACECAT__SERVICE_KEY: "test-service-key"',
-                '      TRACECAT__LOCAL_REPOSITORY_ENABLED: "false"',
-                '      TRACECAT__REGISTRY_SYNC_SANDBOX_ENABLED: "false"',
-                '      TRACECAT__REGISTRY_SYNC_SQUASHFS_ENABLED: "true"',
-                '      TRACECAT__REGISTRY_SYNC_BUILTIN_USE_INSTALLED_SITE_PACKAGES: "true"',
-                '      TRACECAT__EXECUTOR_REGISTRY_SQUASHFS_ENABLED: "true"',
-                '      TRACECAT__DISABLE_NSJAIL: "false"',
-                '      TRACECAT__EXECUTOR_SANDBOX_ENABLED: "true"',
-                '      TRACECAT__SANDBOX_NSJAIL_PATH: "/usr/local/bin/nsjail"',
-                '      TRACECAT__SANDBOX_ROOTFS_PATH: "/var/lib/tracecat/sandbox-rootfs"',
-                '      TRACECAT__BUILTIN_REGISTRY_SOURCE_PATH: "/app/packages/tracecat-registry"',
-                '      PYTHONDONTWRITEBYTECODE: "1"',
+                f"      - {_SYNC_ARTIFACT_SANDBOX_CHILD_ENV}",
+                "      - TRACECAT__DB_URI",
+                "      - TRACECAT__BLOB_STORAGE_ENDPOINT",
+                "      - TRACECAT__BLOB_STORAGE_BUCKET_REGISTRY",
+                "      - AWS_ACCESS_KEY_ID",
+                "      - AWS_SECRET_ACCESS_KEY",
+                "      - TRACECAT__APP_ENV",
+                "      - TRACECAT__SERVICE_KEY",
+                "      - TRACECAT__LOCAL_REPOSITORY_ENABLED",
+                "      - TRACECAT__REGISTRY_SYNC_SANDBOX_ENABLED",
+                "      - TRACECAT__REGISTRY_SYNC_SQUASHFS_ENABLED",
+                "      - TRACECAT__REGISTRY_SYNC_BUILTIN_USE_INSTALLED_SITE_PACKAGES",
+                "      - TRACECAT__EXECUTOR_REGISTRY_SQUASHFS_ENABLED",
+                "      - TRACECAT__DISABLE_NSJAIL",
+                "      - TRACECAT__EXECUTOR_SANDBOX_ENABLED",
+                "      - TRACECAT__SANDBOX_NSJAIL_PATH",
+                "      - TRACECAT__SANDBOX_ROOTFS_PATH",
+                "      - TRACECAT__BUILTIN_REGISTRY_SOURCE_PATH",
+                "      - PYTHONDONTWRITEBYTECODE",
                 "",
             ]
         )
