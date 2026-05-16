@@ -28,6 +28,9 @@ from tracecat.registry.lock.types import RegistryLock
 from tracecat.sandbox import SandboxService, validate_run_python_script
 from tracecat.sandbox.executor import NsjailExecutor
 from tracecat.sandbox.types import SandboxConfig
+from tracecat.sandbox.unsafe_pid_executor import (
+    SAFE_WRAPPER_SCRIPT as UNSAFE_PID_WRAPPER_SCRIPT,
+)
 from tracecat.sandbox.unsafe_pid_executor import UnsafePidExecutor
 from tracecat.sandbox.wrapper import WRAPPER_SCRIPT
 
@@ -72,6 +75,28 @@ def _run_wrapper_source(
     rewritten_wrapper = wrapper_source.replace('"/work/', f'"{work_dir}/')
     wrapper_path = tmp_path / "wrapper.py"
     wrapper_path.write_text(rewritten_wrapper)
+
+    subprocess.run(
+        [sys.executable, str(wrapper_path)],
+        check=False,
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+    )
+    return json.loads((work_dir / "result.json").read_text())
+
+
+def _run_unsafe_pid_wrapper_source(
+    tmp_path: Path,
+    script: str,
+) -> dict[str, Any]:
+    work_dir = tmp_path / "work"
+    work_dir.mkdir()
+    (work_dir / "script.py").write_text(script)
+    (work_dir / "inputs.json").write_text("{}")
+
+    wrapper_path = tmp_path / "wrapper.py"
+    wrapper_path.write_text(UNSAFE_PID_WRAPPER_SCRIPT.format(work_dir=str(work_dir)))
 
     subprocess.run(
         [sys.executable, str(wrapper_path)],
@@ -209,6 +234,27 @@ def test_unsafe_pid_pythonpath_prefers_installed_dependencies_over_sdk_paths(
 def test_nsjail_wrapper_resolves_non_coroutine_awaitable(tmp_path: Path) -> None:
     result = _run_wrapper_source(
         WRAPPER_SCRIPT,
+        tmp_path,
+        """
+class ValueAwaitable:
+    def __await__(self):
+        async def resolve():
+            return {"ok": True}
+        return resolve().__await__()
+
+def main():
+    return ValueAwaitable()
+""",
+    )
+
+    assert result["success"] is True
+    assert result["output"] == {"ok": True}
+
+
+def test_unsafe_pid_wrapper_resolves_non_coroutine_awaitable(
+    tmp_path: Path,
+) -> None:
+    result = _run_unsafe_pid_wrapper_source(
         tmp_path,
         """
 class ValueAwaitable:

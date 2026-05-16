@@ -52,6 +52,9 @@ def _init_tracecat_context():
     except ValueError:
         return
 
+async def _await_value(awaitable):
+    return await awaitable
+
 def main():
     """Execute user script and capture results."""
     work_dir = "{work_dir}"
@@ -104,7 +107,7 @@ def main():
         else:
             call = main_func()
         if inspect.isawaitable(call):
-            output = asyncio.run(call)
+            output = asyncio.run(_await_value(call))
         else:
             output = call
 
