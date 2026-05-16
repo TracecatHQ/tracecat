@@ -211,6 +211,7 @@ from tracecat.storage import blob
 from tracecat.tables.enums import SqlType
 from tracecat.tables.schemas import (
     TableColumnCreate,
+    TableColumnUpdate,
     TableCreate,
     TableRowInsert,
     TableUpdate,
@@ -7701,7 +7702,7 @@ async def create_column_index(
         _, role = await _resolve_workspace_role(workspace_id)
         async with TablesService.with_session(role=role) as svc:
             column = await svc.get_column(table_id, column_id)
-            await svc.create_unique_index(column.table, column.name)
+            await svc.update_column(column, TableColumnUpdate(is_index=True))
             return {"status": "ok", "column": column.name}
     except ToolError:
         raise
@@ -7726,7 +7727,7 @@ async def drop_column_index(
         _, role = await _resolve_workspace_role(workspace_id)
         async with TablesService.with_session(role=role) as svc:
             column = await svc.get_column(table_id, column_id)
-            await svc.drop_unique_index(column.table, column.name)
+            await svc.update_column(column, TableColumnUpdate(is_index=False))
             return {"status": "ok", "column": column.name}
     except ToolError:
         raise

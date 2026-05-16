@@ -790,7 +790,8 @@ class BaseTablesService(BaseWorkspaceService):
             for idx in inspector.get_indexes(table.name, schema=schema_name):
                 cols = idx["column_names"]
                 if (
-                    len(cols) == 1
+                    idx.get("unique") is True
+                    and len(cols) == 1
                     and isinstance(cols[0], str)
                     and cols[0] == sanitized_column
                 ):

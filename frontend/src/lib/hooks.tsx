@@ -3139,7 +3139,7 @@ export function useUpdateColumn() {
     },
     onError: (error: TracecatApiError, variables) => {
       const requestedIsIndex = variables.requestBody?.is_index
-      const isIndexOperation = requestedIsIndex !== undefined
+      const isIndexOperation = typeof requestedIsIndex === "boolean"
       const indexErrorTitle =
         requestedIsIndex === false
           ? "Error removing unique index"
