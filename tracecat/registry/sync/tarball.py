@@ -104,9 +104,10 @@ def _create_zstd_tarball(
 
 
 def _copy_squashfs_entry(path: Path, dest: Path) -> None:
-    """Stage one artifact entry for SquashFS, skipping symlinks."""
+    """Stage one artifact entry for SquashFS."""
     if path.is_symlink():
-        logger.info("Skipping link entry while staging SquashFS", path=str(path))
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.symlink_to(os.readlink(path))
         return
 
     if path.is_dir():

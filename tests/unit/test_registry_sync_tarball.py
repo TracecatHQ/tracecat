@@ -120,6 +120,41 @@ def test_create_squashfs_image_makes_mount_root_traversable(
     )
 
 
+def test_create_squashfs_image_preserves_symlinks(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Preserve symlink entries so SquashFS matches tarball semantics."""
+    source = tmp_path / "source"
+    source.mkdir()
+    (source / "target.py").write_text("VALUE = 1\n")
+    (source / "linked.py").symlink_to("target.py")
+    image_path = tmp_path / "site-packages.squashfs"
+
+    monkeypatch.setattr(
+        tarball.config, "TRACECAT__REGISTRY_SYNC_SQUASHFS_ENABLED", True
+    )
+    monkeypatch.setattr(tarball.shutil, "which", lambda _name: "/usr/bin/mksquashfs")
+
+    def fake_subprocess_run(cmd: list[str]) -> subprocess.CompletedProcess[str]:
+        staging_dir = Path(cmd[1])
+        staged_link = staging_dir / "linked.py"
+        assert staged_link.is_symlink()
+        assert staged_link.readlink() == Path("target.py")
+        image_path.write_bytes(b"squashfs")
+        return subprocess.CompletedProcess(cmd, 0, "", "")
+
+    monkeypatch.setattr(tarball, "subprocess_run", fake_subprocess_run)
+
+    assert tarball._create_squashfs_image(
+        image_path,
+        [
+            (source / "target.py", "target.py"),
+            (source / "linked.py", "linked.py"),
+        ],
+    )
+
+
 @pytest.mark.anyio
 async def test_build_tarball_from_installed_environment_overlays_symlinked_package(
     tmp_path: Path,
