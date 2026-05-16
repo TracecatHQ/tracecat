@@ -432,6 +432,8 @@ class DSLScheduler:
     ) -> None:
         ref = task.ref
         runtime_error = extract_runtime_error(exc, ref=ref)
+        if runtime_error is not None and runtime_error.affects_workflow:
+            fail_workflow = True
 
         self.logger.info(
             "Handling error path",

@@ -14,6 +14,7 @@ from tracecat.dsl.schemas import (
     ActionStatement,
     ExecutionContext,
     RunContext,
+    StreamID,
 )
 from tracecat.dsl.types import Task
 from tracecat.identifiers.workflow import WorkflowUUID
@@ -91,3 +92,44 @@ async def test_handle_error_path_ignores_runtime_metadata_when_building_action_e
     assert "Child workflow error details" not in task_exception.details.message
     assert task_exception.runtime_error is not None
     assert task_exception.runtime_error.code == "dsl.scatter.collection_not_iterable"
+
+
+@pytest.mark.anyio
+async def test_handle_error_path_honors_runtime_error_affects_workflow() -> None:
+    scheduler = _build_scheduler()
+    child_stream = StreamID.new("scatter", 0, base_stream_id=ROOT_STREAM)
+    message = "Failed to materialize action context"
+    envelope = RuntimeErrorEnvelope.build(
+        kind=RuntimeErrorKind.INFRA,
+        code="executor.materialize_context.failed",
+        message=message,
+        origin=RuntimeErrorOrigin.EXECUTOR,
+        phase=RuntimeErrorPhase.PREPARE,
+        affects_workflow=True,
+        retryable=True,
+        action_ref="scatter",
+        stream_id=child_stream,
+        workflow_exec_id=scheduler.wf_exec_id,
+    )
+    app_error = ApplicationError(
+        message,
+        {
+            "ref": "scatter",
+            "message": message,
+            "type": "OSError",
+            "stream_id": child_stream,
+        },
+        runtime_error_detail("scatter", envelope),
+        type="OSError",
+        non_retryable=False,
+    )
+
+    await scheduler._handle_error_path(
+        Task(ref="scatter", stream_id=child_stream), app_error
+    )
+
+    assert child_stream not in scheduler.stream_exceptions
+    task_exception = scheduler.task_exceptions["scatter"]
+    assert task_exception.runtime_error is not None
+    assert task_exception.runtime_error.affects_workflow is True
+    assert task_exception.runtime_error.code == "executor.materialize_context.failed"
