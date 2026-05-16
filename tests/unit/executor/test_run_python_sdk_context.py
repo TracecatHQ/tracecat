@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import json
 import os
+import subprocess
+import sys
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
@@ -26,6 +29,7 @@ from tracecat.sandbox import SandboxService, validate_run_python_script
 from tracecat.sandbox.executor import NsjailExecutor
 from tracecat.sandbox.types import SandboxConfig
 from tracecat.sandbox.unsafe_pid_executor import UnsafePidExecutor
+from tracecat.sandbox.wrapper import WRAPPER_SCRIPT
 
 if TYPE_CHECKING:
     from tracecat_registry import types as registry_types
@@ -53,6 +57,30 @@ class _FakeTracecatClient:
     @property
     def cases(self) -> _FakeCasesClient:
         return _FakeCasesClient()
+
+
+def _run_wrapper_source(
+    wrapper_source: str,
+    tmp_path: Path,
+    script: str,
+) -> dict[str, Any]:
+    work_dir = tmp_path / "work"
+    work_dir.mkdir()
+    (work_dir / "script.py").write_text(script)
+    (work_dir / "inputs.json").write_text("{}")
+
+    rewritten_wrapper = wrapper_source.replace('"/work/', f'"{work_dir}/')
+    wrapper_path = tmp_path / "wrapper.py"
+    wrapper_path.write_text(rewritten_wrapper)
+
+    subprocess.run(
+        [sys.executable, str(wrapper_path)],
+        check=False,
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+    )
+    return json.loads((work_dir / "result.json").read_text())
 
 
 def _make_run_python_input() -> RunActionInput:
@@ -176,6 +204,26 @@ def test_unsafe_pid_pythonpath_prefers_installed_dependencies_over_sdk_paths(
     assert env_vars["PYTHONPATH"] == os.pathsep.join(
         [str(site_packages), "/sdk", "/host/site-packages"]
     )
+
+
+def test_nsjail_wrapper_resolves_non_coroutine_awaitable(tmp_path: Path) -> None:
+    result = _run_wrapper_source(
+        WRAPPER_SCRIPT,
+        tmp_path,
+        """
+class ValueAwaitable:
+    def __await__(self):
+        async def resolve():
+            return {"ok": True}
+        return resolve().__await__()
+
+def main():
+    return ValueAwaitable()
+""",
+    )
+
+    assert result["success"] is True
+    assert result["output"] == {"ok": True}
 
 
 def test_tracecat_registry_ctx_runs_async_sdk_methods_synchronously() -> None:
