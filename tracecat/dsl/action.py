@@ -741,8 +741,8 @@ class DSLActivities:
         inputs: NormalizeTriggerInputsActivityInputs,
     ) -> StoredObject:
         """Return trigger inputs with defaults applied according to DSL expects."""
-        storage = get_object_storage()
         try:
+            storage = get_object_storage()
             value = {}
             if inputs.trigger_inputs is not None:
                 value = run_sync(storage.retrieve(inputs.trigger_inputs))

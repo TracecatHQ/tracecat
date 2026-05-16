@@ -80,6 +80,33 @@ def test_normalize_trigger_inputs_storage_retrieve_failure_is_retryable(
     assert envelope.retryable is True
 
 
+def test_normalize_trigger_inputs_storage_factory_failure_is_retryable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def storage_failure() -> object:
+        raise OSError("object storage unavailable")
+
+    monkeypatch.setattr(action, "get_object_storage", storage_failure)
+
+    with pytest.raises(ApplicationError) as exc_info:
+        DSLActivities.normalize_trigger_inputs_activity(
+            NormalizeTriggerInputsActivityInputs(
+                input_schema={},
+                trigger_inputs=None,
+                key="wf/normalized-trigger-inputs",
+            )
+        )
+
+    app_error = exc_info.value
+    assert app_error.type == "OSError"
+    assert app_error.non_retryable is False
+    envelope = extract_runtime_error_from_details(app_error.details)
+    assert envelope is not None
+    assert envelope.kind == RuntimeErrorKind.INFRA
+    assert envelope.code == "dsl.trigger_inputs.retrieve_failed"
+    assert envelope.retryable is True
+
+
 def test_normalize_trigger_inputs_validation_failure_has_user_envelope(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

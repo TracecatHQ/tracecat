@@ -25,7 +25,6 @@ from tracecat.agent.subagents import AgentSubagentsConfig, ResolvedAttachedSubag
 from tracecat.agent.types import AgentConfig
 from tracecat.agent.workflow_schemas import AgentConfigPayload
 from tracecat.auth.types import Role
-from tracecat.exceptions import TracecatValidationError
 from tracecat.runtime.errors import RuntimeErrorKind
 from tracecat.temporal.errors import extract_runtime_error_from_details
 
@@ -255,13 +254,7 @@ async def test_resolve_agents_config_rejects_subagent_with_tool_approvals(
         lambda **_: _AsyncContext(service),
     )
 
-    with pytest.raises(
-        TracecatValidationError,
-        match=(
-            "Subagent preset 'approval-child' uses manual approvals, "
-            "which are not supported for subagents yet."
-        ),
-    ):
+    with pytest.raises(ApplicationError) as exc_info:
         await resolve_agents_config_activity(
             ResolveAgentsConfigActivityInput(
                 role=role,
@@ -273,6 +266,18 @@ async def test_resolve_agents_config_rejects_subagent_with_tool_approvals(
                 ),
             )
         )
+
+    app_error = exc_info.value
+    assert app_error.type == "TracecatValidationError"
+    assert app_error.non_retryable is True
+    assert (
+        "Subagent preset 'approval-child' uses manual approvals, "
+        "which are not supported for subagents yet."
+    ) in app_error.message
+    envelope = extract_runtime_error_from_details(app_error.details)
+    assert envelope is not None
+    assert envelope.kind == RuntimeErrorKind.USER
+    assert envelope.code == "agent.subagents.config_invalid"
 
 
 @pytest.mark.anyio
@@ -291,10 +296,7 @@ async def test_resolve_agents_config_rejects_invalid_fallback_alias(
         lambda **_: _AsyncContext(SimpleNamespace()),
     )
 
-    with pytest.raises(
-        TracecatValidationError,
-        match="Invalid subagent alias 'Bad Alias'",
-    ):
+    with pytest.raises(ApplicationError) as exc_info:
         await resolve_agents_config_activity(
             ResolveAgentsConfigActivityInput(
                 role=role,
@@ -306,6 +308,15 @@ async def test_resolve_agents_config_rejects_invalid_fallback_alias(
                 ),
             )
         )
+
+    app_error = exc_info.value
+    assert app_error.type == "TracecatValidationError"
+    assert app_error.non_retryable is True
+    assert "Invalid subagent alias 'Bad Alias'" in app_error.message
+    envelope = extract_runtime_error_from_details(app_error.details)
+    assert envelope is not None
+    assert envelope.kind == RuntimeErrorKind.USER
+    assert envelope.code == "agent.subagents.config_invalid"
 
 
 @pytest.mark.anyio

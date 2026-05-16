@@ -18,6 +18,7 @@ from tracecat.agent.workflow_config import agent_config_to_payload
 from tracecat.agent.workflow_schemas import AgentConfigPayload
 from tracecat.auth.types import Role
 from tracecat.db.models import AgentCatalog
+from tracecat.exceptions import TracecatValidationError
 from tracecat.runtime.errors import RuntimeErrorOrigin, RuntimeErrorPhase
 from tracecat.temporal.errors import ActivityRuntimeError
 
@@ -93,15 +94,29 @@ async def resolve_agent_preset_version_ref_activity(
 async def resolve_agents_config_activity(
     args: ResolveAgentsConfigActivityInput,
 ) -> ResolvedAgentsRuntimeConfig:
-    async with AgentPresetService.with_session(role=args.role) as service:
-        resolved = await resolve_agents_config(
-            service,
-            agents=args.agents,
-            parent_preset_id=args.parent_preset_id,
-            parent_slug=args.parent_slug,
-            include_runtime_config=True,
+    try:
+        async with AgentPresetService.with_session(role=args.role) as service:
+            resolved = await resolve_agents_config(
+                service,
+                agents=args.agents,
+                parent_preset_id=args.parent_preset_id,
+                parent_slug=args.parent_slug,
+                include_runtime_config=True,
+            )
+            return resolved.to_runtime_config()
+    except TracecatValidationError as e:
+        activity.logger.info(
+            "Validation error resolving agents config",
+            extra={"error": str(e)},
         )
-        return resolved.to_runtime_config()
+        raise ActivityRuntimeError.user(
+            code="agent.subagents.config_invalid",
+            message=str(e),
+            origin=RuntimeErrorOrigin.UNKNOWN,
+            phase=RuntimeErrorPhase.PREPARE,
+            error_type=e.__class__.__name__,
+            root=e,
+        ) from e
 
 
 class CustomModelProviderConfigResult(BaseModel):

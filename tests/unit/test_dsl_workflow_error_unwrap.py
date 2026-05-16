@@ -1,6 +1,10 @@
 from temporalio.exceptions import ApplicationError
 
-from tracecat.dsl.workflow import DSLWorkflow, _wrap_activity_application_error
+from tracecat.dsl.workflow import (
+    DSLWorkflow,
+    _first_payload_detail,
+    _wrap_activity_application_error,
+)
 from tracecat.runtime.errors import (
     RuntimeErrorEnvelope,
     RuntimeErrorKind,
@@ -87,6 +91,25 @@ def test_wrap_activity_application_error_preserves_runtime_classification() -> N
     assert extracted.kind == RuntimeErrorKind.INFRA
     assert extracted.code == "dsl.trigger_inputs.retrieve_failed"
     assert extracted.retryable is True
+
+
+def test_first_payload_detail_skips_runtime_metadata() -> None:
+    envelope = RuntimeErrorEnvelope.build(
+        kind=RuntimeErrorKind.INFRA,
+        code="dsl.trigger_inputs.retrieve_failed",
+        message="Failed to retrieve trigger inputs",
+        origin=RuntimeErrorOrigin.DSL,
+        phase=RuntimeErrorPhase.PREPARE,
+        retryable=True,
+        root=OSError("object storage unavailable"),
+    )
+    payload = {"action": {"message": "failed"}}
+
+    assert _first_payload_detail((runtime_error_detail("trigger", envelope),)) is None
+    assert (
+        _first_payload_detail((runtime_error_detail("trigger", envelope), payload))
+        is payload
+    )
 
 
 def test_workflow_runtime_error_classifies_in_workflow_failure() -> None:

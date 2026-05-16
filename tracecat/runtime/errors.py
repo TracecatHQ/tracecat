@@ -172,7 +172,13 @@ def _error_chain(error: BaseException) -> Iterator[BaseException]:
             return
         seen.add(current_id)
         yield current
-        nested = getattr(current, "cause", None) or getattr(current, "__cause__", None)
+        nested = getattr(current, "cause", None)
+        if not isinstance(nested, BaseException):
+            nested = getattr(current, "__cause__", None)
+        if not isinstance(nested, BaseException) and not getattr(
+            current, "__suppress_context__", False
+        ):
+            nested = getattr(current, "__context__", None)
         current = nested if isinstance(nested, BaseException) else None
 
 

@@ -223,6 +223,11 @@ def _split_runtime_error_details(
     return payload_details, runtime_details
 
 
+def _first_payload_detail(details: Sequence[Any]) -> Any | None:
+    payload_details, _ = _split_runtime_error_details(details)
+    return payload_details[0] if payload_details else None
+
+
 def _wrap_activity_application_error(
     message: str,
     app_error: ApplicationError,
@@ -465,10 +470,15 @@ class DSLWorkflow:
                 self.logger.warning("No error handler workflow ID found, raising error")
                 raise e
 
+            errors: list[ActionErrorInfo] | None = None
             if e.details:
-                err_info_map = e.details[0]
-                self.logger.info("Raising error info", err_info_data=err_info_map)
-                if not isinstance(err_info_map, dict):
+                err_info_map = _first_payload_detail(e.details)
+                if err_info_map is None:
+                    self.logger.info(
+                        "Application error has no action error details",
+                        details=e.details,
+                    )
+                elif not isinstance(err_info_map, dict):
                     self.logger.error(
                         "Unexpected error info object",
                         err_info_map=err_info_map,
@@ -484,12 +494,11 @@ class DSLWorkflow:
                         )
                     ]
                 else:
+                    self.logger.info("Raising error info", err_info_data=err_info_map)
                     errors = [
                         ActionErrorInfoAdapter.validate_python(data)
                         for data in err_info_map.values()
                     ]
-            else:
-                errors = None
 
             trigger_type = get_trigger_type(workflow.info())
             try:
