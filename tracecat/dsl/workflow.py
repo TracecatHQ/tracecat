@@ -129,7 +129,12 @@ with workflow.unsafe.imports_passed_through():
         return_key,
         trigger_key,
     )
-    from tracecat.temporal.errors import RUNTIME_ERROR_DETAILS_KEY, WorkflowRuntimeError
+    from tracecat.temporal.errors import (
+        RUNTIME_ERROR_DETAILS_KEY,
+        RuntimeErrorDetails,
+        WorkflowRuntimeError,
+        coerce_runtime_error_details,
+    )
     from tracecat.temporal.exceptions import UserError
     from tracecat.tiers.activities import (
         AcquireActionPermitInput,
@@ -203,39 +208,10 @@ def _build_agent_child_search_attributes(
 
 type DSLWorkflowRunMethod = Callable[[Any, DSLRunArgs], Awaitable[StoredObject]]
 type WorkflowFailureActionDetails = dict[str, ActionErrorInfo]
-type WorkflowFailureRuntimeDetails = dict[str, dict[str, RuntimeErrorEnvelope]]
+type WorkflowFailureRuntimeDetails = RuntimeErrorDetails
 type WorkflowFailureDetails = (
     WorkflowFailureActionDetails | WorkflowFailureRuntimeDetails
 )
-
-
-def _coerce_runtime_error_details(detail: Any) -> WorkflowFailureRuntimeDetails | None:
-    match detail:
-        case dict() as detail_map if set(detail_map) == {RUNTIME_ERROR_DETAILS_KEY}:
-            match detail_map[RUNTIME_ERROR_DETAILS_KEY]:
-                case dict() as raw_runtime_errors if raw_runtime_errors:
-                    runtime_errors: dict[str, RuntimeErrorEnvelope] = {}
-                    for ref, envelope in raw_runtime_errors.items():
-                        match ref, envelope:
-                            case (
-                                str() as runtime_ref,
-                                RuntimeErrorEnvelope() as runtime_error,
-                            ):
-                                runtime_errors[runtime_ref] = runtime_error
-                            case str() as runtime_ref, dict() as envelope_data:
-                                try:
-                                    runtime_errors[runtime_ref] = (
-                                        RuntimeErrorEnvelope.model_validate(
-                                            envelope_data
-                                        )
-                                    )
-                                except ValidationError:
-                                    return None
-                            case _:
-                                return None
-                    return {RUNTIME_ERROR_DETAILS_KEY: runtime_errors}
-        case _:
-            return None
 
 
 def _split_runtime_error_details(
@@ -244,7 +220,7 @@ def _split_runtime_error_details(
     payload_details: list[Any] = []
     runtime_details: list[WorkflowFailureRuntimeDetails] = []
     for detail in details:
-        if runtime_detail := _coerce_runtime_error_details(detail):
+        if runtime_detail := coerce_runtime_error_details(detail):
             runtime_details.append(runtime_detail)
         else:
             payload_details.append(detail)

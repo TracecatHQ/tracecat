@@ -77,18 +77,16 @@ with workflow.unsafe.imports_passed_through():
         action_key,
     )
     from tracecat.temporal.errors import (
-        RUNTIME_ERROR_DETAILS_KEY,
+        coerce_runtime_error_details,
         extract_runtime_error,
     )
 
 
 def _first_application_error_payload_detail(details: Sequence[Any]) -> Any | None:
     for detail in details:
-        match detail:
-            case dict() as detail_map if RUNTIME_ERROR_DETAILS_KEY in detail_map:
-                continue
-            case _:
-                return detail
+        if coerce_runtime_error_details(detail) is not None:
+            continue
+        return detail
     return None
 
 

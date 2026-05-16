@@ -17,6 +17,7 @@ from tracecat.runtime.errors import (
 )
 
 RUNTIME_ERROR_DETAILS_KEY = "runtime_errors"
+type RuntimeErrorDetails = dict[str, dict[str, RuntimeErrorEnvelope]]
 type RuntimeErrorFactory = (
     type[RuntimeUserError] | type[RuntimePlatformError] | type[RuntimeInfraError]
 )
@@ -24,7 +25,7 @@ type RuntimeErrorFactory = (
 
 def runtime_error_detail(
     ref: str, envelope: RuntimeErrorEnvelope
-) -> dict[str, dict[str, RuntimeErrorEnvelope]]:
+) -> RuntimeErrorDetails:
     return {RUNTIME_ERROR_DETAILS_KEY: {ref: envelope}}
 
 
@@ -289,6 +290,26 @@ def _validate_envelope(value: Any) -> RuntimeErrorEnvelope | None:
                 return RuntimeErrorEnvelope.model_validate(value)
             except Exception:
                 return None
+        case _:
+            return None
+
+
+def coerce_runtime_error_details(detail: Any) -> RuntimeErrorDetails | None:
+    match detail:
+        case dict() as detail_map if set(detail_map) == {RUNTIME_ERROR_DETAILS_KEY}:
+            match detail_map[RUNTIME_ERROR_DETAILS_KEY]:
+                case dict() as raw_runtime_errors if raw_runtime_errors:
+                    runtime_errors: dict[str, RuntimeErrorEnvelope] = {}
+                    for ref, envelope_data in raw_runtime_errors.items():
+                        match ref, _validate_envelope(envelope_data):
+                            case (
+                                str() as runtime_ref,
+                                RuntimeErrorEnvelope() as envelope,
+                            ):
+                                runtime_errors[runtime_ref] = envelope
+                            case _:
+                                return None
+                    return {RUNTIME_ERROR_DETAILS_KEY: runtime_errors}
         case _:
             return None
 

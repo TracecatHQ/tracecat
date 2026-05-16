@@ -27,7 +27,7 @@ from tracecat.runtime.errors import (
 from tracecat.temporal.errors import runtime_error_detail
 
 
-def _build_scheduler() -> DSLScheduler:
+def _build_scheduler(action_ref: str = "scatter") -> DSLScheduler:
     async def executor(_: ActionStatement) -> None:
         return None
 
@@ -35,8 +35,8 @@ def _build_scheduler() -> DSLScheduler:
     dsl = DSLInput(
         title="test",
         description="test",
-        entrypoint=DSLEntrypoint(ref="scatter"),
-        actions=[ActionStatement(ref="scatter", action="core.transform.scatter")],
+        entrypoint=DSLEntrypoint(ref=action_ref),
+        actions=[ActionStatement(ref=action_ref, action="core.transform.scatter")],
     )
     return DSLScheduler(
         executor=executor,
@@ -92,6 +92,34 @@ async def test_handle_error_path_ignores_runtime_metadata_when_building_action_e
     assert "Child workflow error details" not in task_exception.details.message
     assert task_exception.runtime_error is not None
     assert task_exception.runtime_error.code == "dsl.scatter.collection_not_iterable"
+
+
+@pytest.mark.anyio
+async def test_handle_error_path_preserves_child_error_for_runtime_errors_ref() -> None:
+    scheduler = _build_scheduler(action_ref="runtime_errors")
+    message = "Child action failed"
+    app_error = ApplicationError(
+        message,
+        {
+            "runtime_errors": {
+                "ref": "runtime_errors",
+                "message": message,
+                "type": "ValueError",
+                "stream_id": ROOT_STREAM,
+            }
+        },
+        type="ApplicationError",
+        non_retryable=True,
+    )
+
+    await scheduler._handle_error_path(
+        Task(ref="runtime_errors", stream_id=ROOT_STREAM), app_error
+    )
+
+    task_exception = scheduler.task_exceptions["runtime_errors"]
+    assert task_exception.details.ref == "runtime_errors"
+    assert task_exception.details.message == message
+    assert task_exception.details.type == "ValueError"
 
 
 @pytest.mark.anyio
