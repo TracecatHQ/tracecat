@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from collections import defaultdict
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass, replace
 from datetime import timedelta
 from typing import Any
@@ -76,7 +76,20 @@ with workflow.unsafe.imports_passed_through():
         action_collection_prefix,
         action_key,
     )
-    from tracecat.temporal.errors import extract_runtime_error
+    from tracecat.temporal.errors import (
+        RUNTIME_ERROR_DETAILS_KEY,
+        extract_runtime_error,
+    )
+
+
+def _first_application_error_payload_detail(details: Sequence[Any]) -> Any | None:
+    for detail in details:
+        match detail:
+            case dict() as detail_map if RUNTIME_ERROR_DETAILS_KEY in detail_map:
+                continue
+            case _:
+                return detail
+    return None
 
 
 def _get_collection_size(stored: StoredObject) -> int:
@@ -452,8 +465,15 @@ class DSLScheduler:
                     exc=exc,
                     details=exc.details,
                 )
-                details = exc.details[0]
-                if not isinstance(details, dict):
+                details = _first_application_error_payload_detail(exc.details)
+                if details is None:
+                    details = ActionErrorInfo(
+                        ref=ref,
+                        message=getattr(exc, "message", None) or str(exc),
+                        type=exc.type or exc.__class__.__name__,
+                        stream_id=task.stream_id,
+                    )
+                elif not isinstance(details, dict):
                     self.logger.info(
                         "Application error details are not a dictionary",
                         ref=ref,

@@ -834,6 +834,8 @@ def _evaluate_scatter_input(input: ScatterActionInput) -> StoredObject:
             origin=RuntimeErrorOrigin.DSL,
             phase=RuntimeErrorPhase.USER_CODE,
             error_type="ScatterCollectionNotIterable",
+            action_ref=input.task.ref,
+            stream_id=input.stream_id,
         )
 
     items = list(result)
