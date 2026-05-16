@@ -158,6 +158,62 @@ class TestRegistryArtifactCache:
         )
 
     @pytest.mark.anyio
+    async def test_resolve_preferred_artifact_squashfs_fallback_uses_zstd(
+        self, temp_cache_dir
+    ):
+        """Test direct SquashFS URIs fall back through tarball sidecars."""
+        cache = RegistryArtifactCache(temp_cache_dir)
+
+        with (
+            patch(
+                "tracecat.executor.registry_artifacts.blob.file_exists",
+                new_callable=AsyncMock,
+                return_value=True,
+            ) as file_exists,
+            patch.object(cache, "_can_try_squashfs") as can_try_squashfs,
+        ):
+            artifact = await cache._resolve_preferred_artifact(
+                "s3://bucket/path/site-packages.squashfs",
+                allow_squashfs=False,
+            )
+
+        assert artifact.uri == "s3://bucket/path/site-packages.tar.zst"
+        assert artifact.format == RegistryArtifactFormat.TAR_ZST
+        file_exists.assert_awaited_once_with(
+            key="path/site-packages.tar.zst",
+            bucket="bucket",
+        )
+        can_try_squashfs.assert_not_called()
+
+    @pytest.mark.anyio
+    async def test_resolve_preferred_artifact_squashfs_fallback_uses_gzip(
+        self, temp_cache_dir
+    ):
+        """Test direct SquashFS URIs fall back to gzip when no zstd sidecar exists."""
+        cache = RegistryArtifactCache(temp_cache_dir)
+
+        with (
+            patch(
+                "tracecat.executor.registry_artifacts.blob.file_exists",
+                new_callable=AsyncMock,
+                return_value=False,
+            ) as file_exists,
+            patch.object(cache, "_can_try_squashfs") as can_try_squashfs,
+        ):
+            artifact = await cache._resolve_preferred_artifact(
+                "s3://bucket/path/site-packages.squashfs",
+                allow_squashfs=False,
+            )
+
+        assert artifact.uri == "s3://bucket/path/site-packages.tar.gz"
+        assert artifact.format == RegistryArtifactFormat.TAR_GZ
+        file_exists.assert_awaited_once_with(
+            key="path/site-packages.tar.zst",
+            bucket="bucket",
+        )
+        can_try_squashfs.assert_not_called()
+
+    @pytest.mark.anyio
     async def test_resolve_preferred_artifact_falls_back_to_gzip(self, temp_cache_dir):
         """Test that gzip tarballs are used when no sidecar exists."""
         cache = RegistryArtifactCache(temp_cache_dir)

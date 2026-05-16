@@ -69,6 +69,13 @@ def _squashfs_sidecar_uri(tarball_uri: str) -> str | None:
     return tarball_uri.removesuffix(".tar.gz") + ".squashfs"
 
 
+def _tarball_uri_for_squashfs(squashfs_uri: str) -> str | None:
+    """Return the sibling gzip tarball URI for registry SquashFS artifacts."""
+    if not squashfs_uri.endswith("site-packages.squashfs"):
+        return None
+    return squashfs_uri.removesuffix(".squashfs") + ".tar.gz"
+
+
 def _artifact_format(artifact_uri: str) -> RegistryArtifactFormat:
     """Return the materialization format for an artifact URI."""
     if artifact_uri.endswith(".squashfs"):
@@ -201,6 +208,13 @@ class RegistryArtifactCache:
         allow_squashfs: bool = True,
     ) -> RegistryArtifact:
         """Prefer SquashFS/zstd sidecars when present, otherwise use gzip."""
+        if (
+            not allow_squashfs
+            and _artifact_format(artifact_uri) == RegistryArtifactFormat.SQUASHFS
+            and (tarball_uri := _tarball_uri_for_squashfs(artifact_uri))
+        ):
+            artifact_uri = tarball_uri
+
         if allow_squashfs and self._can_try_squashfs():
             squashfs_uri = _squashfs_sidecar_uri(artifact_uri)
             if squashfs_uri and await self._sidecar_exists(
