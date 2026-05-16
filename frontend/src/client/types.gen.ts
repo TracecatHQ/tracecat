@@ -2071,7 +2071,7 @@ export type CaseFieldUpdate = {
    */
   default?: unknown | null
   /**
-   * Whether the column is an index
+   * True creates a unique index, False drops it, None leaves unchanged.
    */
   is_index?: boolean | null
   options?: Array<string> | null
@@ -6713,7 +6713,7 @@ export type TableColumnUpdate = {
    */
   default?: unknown | null
   /**
-   * Whether the column is an index
+   * True creates a unique index, False drops it, None leaves unchanged.
    */
   is_index?: boolean | null
   options?: Array<string> | null
