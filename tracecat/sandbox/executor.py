@@ -367,15 +367,16 @@ class NsjailExecutor:
                     TRACECAT__SANDBOX_PYPI_EXTRA_INDEX_URLS
                 )
         else:
-            pythonpath_parts = [
-                f"/pythonpath/{i}"
-                for i, python_path_mount in enumerate(config.python_path_mounts)
-                if python_path_mount.exists()
-            ]
+            pythonpath_parts = []
             if cache_key:
                 cache_path = self.package_cache / cache_key / "site-packages"
                 if cache_path.exists():
                     pythonpath_parts.append("/packages")
+            pythonpath_parts.extend(
+                f"/pythonpath/{i}"
+                for i, python_path_mount in enumerate(config.python_path_mounts)
+                if python_path_mount.exists()
+            )
             if user_pythonpath:
                 pythonpath_parts.append(user_pythonpath)
             if pythonpath_parts:

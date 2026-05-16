@@ -173,6 +173,29 @@ class UnsafePidExecutor:
             hash_input = "\n".join(normalized)
         return hashlib.sha256(hash_input.encode()).hexdigest()[:16]
 
+    @staticmethod
+    def _venv_site_packages(venv_path: Path) -> Path | None:
+        for candidate in sorted((venv_path / "lib").glob("python*/site-packages")):
+            if candidate.exists():
+                return candidate
+        return None
+
+    def _with_venv_site_packages_pythonpath(
+        self,
+        env_vars: dict[str, str] | None,
+        venv_path: Path,
+    ) -> dict[str, str]:
+        merged = dict(env_vars or {})
+        site_packages = self._venv_site_packages(venv_path)
+        if site_packages is None:
+            return merged
+
+        pythonpath_parts = [str(site_packages)]
+        if existing_pythonpath := merged.get("PYTHONPATH"):
+            pythonpath_parts.append(existing_pythonpath)
+        merged["PYTHONPATH"] = os.pathsep.join(pythonpath_parts)
+        return merged
+
     async def _is_pid_namespace_available(self) -> bool:
         if self._pid_namespace_available is not None:
             return self._pid_namespace_available
@@ -318,6 +341,7 @@ class UnsafePidExecutor:
 
         try:
             python_path = shutil.which("python3") or "python3"
+            execution_env_vars = dict(env_vars or {})
             if dependencies:
                 cache_key = self._compute_cache_key(dependencies, workspace_id)
                 cached_venv = self.package_cache / cache_key
@@ -346,6 +370,10 @@ class UnsafePidExecutor:
                             shutil.rmtree(temp_venv, ignore_errors=True)
 
                 python_path = str(cached_venv / "bin" / "python")
+                execution_env_vars = self._with_venv_site_packages_pythonpath(
+                    execution_env_vars,
+                    cached_venv,
+                )
 
             (work_dir / "script.py").write_text(script)
             (work_dir / "inputs.json").write_text(json.dumps(inputs or {}))
@@ -360,8 +388,8 @@ class UnsafePidExecutor:
                 "LANG": "C.UTF-8",
                 "LC_ALL": "C.UTF-8",
             }
-            if env_vars:
-                exec_env.update(env_vars)
+            if execution_env_vars:
+                exec_env.update(execution_env_vars)
 
             cmd = await self._build_execution_cmd(python_path, wrapper_path)
             process = await asyncio.create_subprocess_exec(

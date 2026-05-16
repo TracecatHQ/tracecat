@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
@@ -24,6 +25,7 @@ from tracecat.registry.lock.types import RegistryLock
 from tracecat.sandbox import SandboxService, validate_run_python_script
 from tracecat.sandbox.executor import NsjailExecutor
 from tracecat.sandbox.types import SandboxConfig
+from tracecat.sandbox.unsafe_pid_executor import UnsafePidExecutor
 
 if TYPE_CHECKING:
     from tracecat_registry import types as registry_types
@@ -134,6 +136,46 @@ def test_nsjail_env_map_adds_sdk_pythonpath(tmp_path: Path) -> None:
 
     assert env_map["PYTHONPATH"] == "/pythonpath/0:/work/lib"
     assert env_map["CUSTOM_VALUE"] == "kept"
+
+
+def test_nsjail_env_map_prefers_installed_dependencies_over_sdk_mounts(
+    tmp_path: Path,
+) -> None:
+    sdk_path = tmp_path / "sdk"
+    sdk_path.mkdir()
+    executor = NsjailExecutor(cache_dir=str(tmp_path / "cache"))
+    cache_key = "abc123"
+    (executor.package_cache / cache_key / "site-packages").mkdir(parents=True)
+    sandbox_config = SandboxConfig(
+        env_vars={"PYTHONPATH": "/work/lib"},
+        python_path_mounts=[sdk_path],
+    )
+
+    env_map = executor._build_env_map(
+        sandbox_config,
+        phase="execute",
+        cache_key=cache_key,
+    )
+
+    assert env_map["PYTHONPATH"] == "/packages:/pythonpath/0:/work/lib"
+
+
+def test_unsafe_pid_pythonpath_prefers_installed_dependencies_over_sdk_paths(
+    tmp_path: Path,
+) -> None:
+    executor = UnsafePidExecutor(cache_dir=str(tmp_path / "cache"))
+    cached_venv = tmp_path / "venv"
+    site_packages = cached_venv / "lib" / "python3.12" / "site-packages"
+    site_packages.mkdir(parents=True)
+
+    env_vars = executor._with_venv_site_packages_pythonpath(
+        {"PYTHONPATH": os.pathsep.join(["/sdk", "/host/site-packages"])},
+        cached_venv,
+    )
+
+    assert env_vars["PYTHONPATH"] == os.pathsep.join(
+        [str(site_packages), "/sdk", "/host/site-packages"]
+    )
 
 
 def test_tracecat_registry_ctx_runs_async_sdk_methods_synchronously() -> None:
