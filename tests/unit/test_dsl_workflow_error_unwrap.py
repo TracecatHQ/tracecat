@@ -112,6 +112,18 @@ def test_first_payload_detail_skips_runtime_metadata() -> None:
     )
 
 
+def test_first_payload_detail_preserves_action_error_ref_named_runtime_errors() -> None:
+    payload = {
+        "runtime_errors": {
+            "ref": "runtime_errors",
+            "message": "Action failed",
+            "type": "ValueError",
+        }
+    }
+
+    assert _first_payload_detail((payload,)) is payload
+
+
 def test_workflow_runtime_error_classifies_in_workflow_failure() -> None:
     root = RuntimeError("schedule missing")
 

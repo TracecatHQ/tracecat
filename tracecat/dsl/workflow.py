@@ -209,17 +209,45 @@ type WorkflowFailureDetails = (
 )
 
 
+def _coerce_runtime_error_details(detail: Any) -> WorkflowFailureRuntimeDetails | None:
+    match detail:
+        case dict() as detail_map if set(detail_map) == {RUNTIME_ERROR_DETAILS_KEY}:
+            match detail_map[RUNTIME_ERROR_DETAILS_KEY]:
+                case dict() as raw_runtime_errors if raw_runtime_errors:
+                    runtime_errors: dict[str, RuntimeErrorEnvelope] = {}
+                    for ref, envelope in raw_runtime_errors.items():
+                        match ref, envelope:
+                            case (
+                                str() as runtime_ref,
+                                RuntimeErrorEnvelope() as runtime_error,
+                            ):
+                                runtime_errors[runtime_ref] = runtime_error
+                            case str() as runtime_ref, dict() as envelope_data:
+                                try:
+                                    runtime_errors[runtime_ref] = (
+                                        RuntimeErrorEnvelope.model_validate(
+                                            envelope_data
+                                        )
+                                    )
+                                except ValidationError:
+                                    return None
+                            case _:
+                                return None
+                    return {RUNTIME_ERROR_DETAILS_KEY: runtime_errors}
+        case _:
+            return None
+
+
 def _split_runtime_error_details(
     details: Sequence[Any],
 ) -> tuple[list[Any], list[WorkflowFailureRuntimeDetails]]:
     payload_details: list[Any] = []
     runtime_details: list[WorkflowFailureRuntimeDetails] = []
     for detail in details:
-        match detail:
-            case dict() as detail_map if RUNTIME_ERROR_DETAILS_KEY in detail_map:
-                runtime_details.append(detail_map)
-            case _:
-                payload_details.append(detail)
+        if runtime_detail := _coerce_runtime_error_details(detail):
+            runtime_details.append(runtime_detail)
+        else:
+            payload_details.append(detail)
     return payload_details, runtime_details
 
 
