@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import subprocess
 import tarfile
 from pathlib import Path
 
@@ -64,6 +65,12 @@ async def test_build_tarball_from_installed_environment_includes_platlib_content
         lambda: [purelib, platlib],
     )
 
+    def fake_create_squashfs(path: Path, _entries: object) -> bool:
+        path.write_bytes(b"squashfs")
+        return True
+
+    monkeypatch.setattr(tarball, "_create_squashfs_image", fake_create_squashfs)
+
     result = await tarball.build_tarball_venv_from_installed_environment(
         package_name="tracecat_registry",
         package_dir=package_dir,
@@ -79,6 +86,38 @@ async def test_build_tarball_from_installed_environment_includes_platlib_content
     zstd_tar_names = _zstd_tar_names(result.zstd_tarball_path)
     assert "pure_only.py" in zstd_tar_names
     assert "plat_only.so" in zstd_tar_names
+    assert result.squashfs_path is not None
+    assert result.squashfs_path.read_bytes() == b"squashfs"
+    assert result.squashfs_size_bytes == len(b"squashfs")
+
+
+def test_create_squashfs_image_makes_mount_root_traversable(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Make the mounted SquashFS root readable by non-root executors."""
+    source = tmp_path / "source"
+    source.mkdir()
+    (source / "module.py").write_text("VALUE = 1\n")
+    image_path = tmp_path / "site-packages.squashfs"
+
+    monkeypatch.setattr(
+        tarball.config, "TRACECAT__REGISTRY_SYNC_SQUASHFS_ENABLED", True
+    )
+    monkeypatch.setattr(tarball.shutil, "which", lambda _name: "/usr/bin/mksquashfs")
+
+    def fake_subprocess_run(cmd: list[str]) -> subprocess.CompletedProcess[str]:
+        staging_dir = Path(cmd[1])
+        assert staging_dir.stat().st_mode & 0o777 == 0o755
+        image_path.write_bytes(b"squashfs")
+        return subprocess.CompletedProcess(cmd, 0, "", "")
+
+    monkeypatch.setattr(tarball, "subprocess_run", fake_subprocess_run)
+
+    assert tarball._create_squashfs_image(
+        image_path,
+        [(source / "module.py", "module.py")],
+    )
 
 
 @pytest.mark.anyio
@@ -182,8 +221,10 @@ async def test_upload_tarball_venv_uploads_zstd_sidecar(
 ) -> None:
     tarball_path = tmp_path / "site-packages.tar.gz"
     zstd_tarball_path = tmp_path / "site-packages.tar.zst"
+    squashfs_path = tmp_path / "site-packages.squashfs"
     tarball_path.write_bytes(b"gzip")
     zstd_tarball_path.write_bytes(b"zstd")
+    squashfs_path.write_bytes(b"squashfs")
     upload_file_from_path = mocker.patch(
         "tracecat.registry.sync.tarball.blob.upload_file_from_path",
         mocker.AsyncMock(),
@@ -192,6 +233,7 @@ async def test_upload_tarball_venv_uploads_zstd_sidecar(
     uri = await upload_tarball_venv(
         tarball_path=tarball_path,
         zstd_tarball_path=zstd_tarball_path,
+        squashfs_path=squashfs_path,
         key="org/tarball-venvs/tracecat_registry/v1/site-packages.tar.gz",
         bucket="tracecat-registry",
     )
@@ -200,7 +242,7 @@ async def test_upload_tarball_venv_uploads_zstd_sidecar(
         "s3://tracecat-registry/org/tarball-venvs/tracecat_registry/v1/"
         "site-packages.tar.gz"
     )
-    assert upload_file_from_path.await_count == 2
+    assert upload_file_from_path.await_count == 3
     upload_file_from_path.assert_has_awaits(
         [
             mocker.call(
@@ -214,6 +256,12 @@ async def test_upload_tarball_venv_uploads_zstd_sidecar(
                 key="org/tarball-venvs/tracecat_registry/v1/site-packages.tar.zst",
                 bucket="tracecat-registry",
                 content_type="application/zstd",
+            ),
+            mocker.call(
+                path=squashfs_path,
+                key="org/tarball-venvs/tracecat_registry/v1/site-packages.squashfs",
+                bucket="tracecat-registry",
+                content_type="application/vnd.squashfs",
             ),
         ]
     )

@@ -189,6 +189,7 @@ class RegistrySyncRunner:
                 tarball_path=str(tarball_result.tarball_path),
                 compressed_size_bytes=tarball_result.compressed_size_bytes,
                 zstd_compressed_size_bytes=tarball_result.zstd_compressed_size_bytes,
+                squashfs_size_bytes=tarball_result.squashfs_size_bytes,
             )
 
             # Phase 3: Discover actions from the installed packages
@@ -216,6 +217,7 @@ class RegistrySyncRunner:
             tarball_uri = await self._upload_tarball(
                 tarball_path=tarball_result.tarball_path,
                 zstd_tarball_path=tarball_result.zstd_tarball_path,
+                squashfs_path=tarball_result.squashfs_path,
                 repository_origin=request.origin,
                 commit_sha=commit_sha,
                 storage_namespace=request.storage_namespace,
@@ -487,6 +489,7 @@ class RegistrySyncRunner:
         self,
         tarball_path: Path,
         zstd_tarball_path: Path,
+        squashfs_path: Path | None,
         repository_origin: str,
         commit_sha: str | None,
         storage_namespace: str | None,
@@ -496,6 +499,7 @@ class RegistrySyncRunner:
         Args:
             tarball_path: Local path to the tarball.
             zstd_tarball_path: Local path to the zstd tarball sidecar.
+            squashfs_path: Optional local path to the SquashFS sidecar.
             repository_origin: Repository origin for S3 key generation.
             commit_sha: Commit SHA for version string (or timestamp if None).
             storage_namespace: Namespace prefix for tarball storage.
@@ -526,6 +530,7 @@ class RegistrySyncRunner:
         return await upload_tarball_venv(
             tarball_path=tarball_path,
             zstd_tarball_path=zstd_tarball_path,
+            squashfs_path=squashfs_path,
             key=s3_key,
             bucket=bucket,
         )

@@ -60,10 +60,17 @@ RUN ln -s ../lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm && \
 # Install runtime packages
 RUN apt-get update && apt-get install -y --no-install-recommends \
     acl git openssh-client xmlsec1 libmagic1 curl ca-certificates \
-    libnl-route-3-200 libprotobuf32 \
-    passt \
+    libnl-route-3-200 libprotobuf32 libcap2-bin \
+    passt squashfs-tools \
     && apt-get -y upgrade \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
+
+# Allow the non-root executor process to invoke mount/umount when the container
+# runtime grants the needed bounding capabilities. Without these file caps,
+# privileged Docker containers still run apiuser with no effective capabilities.
+RUN chmod u-s /usr/bin/mount /usr/bin/umount && \
+    setcap cap_sys_admin,cap_dac_override+ep /usr/bin/mount && \
+    setcap cap_sys_admin,cap_dac_override+ep /usr/bin/umount
 
 # Copy sandbox rootfs
 COPY --from=sandbox-rootfs /usr /var/lib/tracecat/sandbox-rootfs/usr

@@ -168,13 +168,17 @@ services:
       dockerfile: Dockerfile
       target: development
     restart: unless-stopped
-    # Required for nsjail sandbox (when enabled)
+    # Required for nsjail sandbox (when enabled).
     # cap_add:
     #   - SYS_ADMIN
     # security_opt:
     #   - seccomp:unconfined
+    #   - systempaths=unconfined
     # devices:
     #   - /dev/net/tun:/dev/net/tun
+    # SquashFS registry artifact mounts additionally need loop-device access;
+    # Docker's device cgroup blocks /dev/loop* with SYS_ADMIN alone.
+    # privileged: true
     environment:
       # Common
       LOG_LEVEL: ${LOG_LEVEL}
@@ -344,12 +348,12 @@ services:
       dockerfile: Dockerfile
       target: development
     restart: unless-stopped
-    # Required for nsjail sandbox (agent runtime isolation)
+    # Required for nsjail sandbox (agent runtime isolation).
     # cap_add:
     #   - SYS_ADMIN
     # security_opt:
     #   - seccomp:unconfined
-    # Required for pasta userspace networking (creates TAP device in sandbox netns)
+    #   - systempaths=unconfined
     # devices:
     #   - /dev/net/tun:/dev/net/tun
     environment:

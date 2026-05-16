@@ -149,6 +149,11 @@ TRACECAT__EXECUTOR_REGISTRY_CACHE_DIR = os.environ.get(
 )
 """Directory for caching extracted registry tarballs in subprocess mode. Uses /tmp for ephemeral storage."""
 
+TRACECAT__EXECUTOR_REGISTRY_SQUASHFS_ENABLED = os.environ.get(
+    "TRACECAT__EXECUTOR_REGISTRY_SQUASHFS_ENABLED", "true"
+).lower() in ("true", "1")
+"""Prefer SquashFS registry artifacts when sidecars and mount support are available."""
+
 TRACECAT__AGENT_SKILL_CACHE_DIR = os.environ.get(
     "TRACECAT__AGENT_SKILL_CACHE_DIR", "/tmp/tracecat/agent-skill-cache"
 )
@@ -1132,6 +1137,11 @@ When True (default), builtin tracecat_registry sync packages the current
 interpreter's installed site-packages into a tarball. This avoids creating
 a fresh venv and re-installing dependencies from package indexes at runtime.
 """
+
+TRACECAT__REGISTRY_SYNC_SQUASHFS_ENABLED = os.environ.get(
+    "TRACECAT__REGISTRY_SYNC_SQUASHFS_ENABLED", "true"
+).lower() in ("true", "1")
+"""Build SquashFS sidecars for registry tarball venvs when mksquashfs is available."""
 
 TRACECAT__BUILTIN_REGISTRY_SOURCE_PATH = os.environ.get(
     "TRACECAT__BUILTIN_REGISTRY_SOURCE_PATH", "/app/packages/tracecat-registry"
