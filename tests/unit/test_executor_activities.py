@@ -16,16 +16,57 @@ from tests.shared import to_data
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.dsl.common import create_default_execution_context
-from tracecat.dsl.schemas import ActionStatement, RunActionInput, RunContext
+from tracecat.dsl.schemas import ActionStatement, RunActionInput, RunContext, StreamID
 from tracecat.dsl.types import ActionErrorInfo
 from tracecat.exceptions import EntitlementRequired, ExecutionError, LoopExecutionError
 from tracecat.executor.activities import ExecutorActivities
+from tracecat.executor.errors import ActionRuntimeError
 from tracecat.executor.schemas import ExecutorActionErrorInfo
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.registry.lock.types import RegistryLock
 from tracecat.runtime.errors import RuntimeErrorKind, RuntimeErrorPhase
 from tracecat.storage.object import InlineObject
 from tracecat.temporal.errors import extract_runtime_error_from_details
+
+
+def test_action_runtime_infra_error_is_retryable_by_default() -> None:
+    app_error = ActionRuntimeError.infra(
+        ref="test_action",
+        stream_id=StreamID("test-stream"),
+        attempt=1,
+        code="executor.result_storage.failed",
+        message="Failed to store action result",
+        error_type="OSError",
+        phase=RuntimeErrorPhase.COLLECT,
+        root=OSError("disk full"),
+    )
+
+    envelope = extract_runtime_error_from_details(app_error.details)
+    assert app_error.non_retryable is False
+    assert envelope is not None
+    assert envelope.kind == RuntimeErrorKind.INFRA
+    assert envelope.retryable is True
+
+
+def test_action_runtime_platform_or_infra_error_keeps_infra_retryable_by_default() -> (
+    None
+):
+    app_error = ActionRuntimeError.platform_or_infra(
+        ref="test_action",
+        stream_id=StreamID("test-stream"),
+        attempt=1,
+        code="runtime.unknown_platform_error",
+        message="Unexpected OSError occurred",
+        error_type="OSError",
+        phase=RuntimeErrorPhase.USER_CODE,
+        root=OSError("connection reset"),
+    )
+
+    envelope = extract_runtime_error_from_details(app_error.details)
+    assert app_error.non_retryable is False
+    assert envelope is not None
+    assert envelope.kind == RuntimeErrorKind.INFRA
+    assert envelope.retryable is True
 
 
 @pytest.fixture
@@ -419,6 +460,8 @@ class TestExecuteActionActivity:
                 )
 
             envelope = extract_runtime_error_from_details(exc_info.value.details)
+            assert exc_info.value.non_retryable is False
             assert envelope is not None
             assert envelope.kind == RuntimeErrorKind.INFRA
             assert envelope.code == "executor.result_storage.failed"
+            assert envelope.retryable is True

@@ -132,8 +132,8 @@ class ActionRuntimeError:
         phase: RuntimeErrorPhase,
         root: BaseException,
         operation: str = "execute_action",
-        retryable: bool = False,
-        non_retryable: bool = True,
+        retryable: bool = True,
+        non_retryable: bool = False,
     ) -> ApplicationError:
         return cls._application_error(
             RuntimeInfraError(
@@ -167,8 +167,8 @@ class ActionRuntimeError:
         phase: RuntimeErrorPhase,
         root: BaseException,
         operation: str = "execute_action",
-        infra_retryable: bool = False,
-        infra_non_retryable: bool = True,
+        infra_retryable: bool = True,
+        infra_non_retryable: bool = False,
         platform_retryable: bool = False,
         platform_non_retryable: bool = True,
     ) -> ApplicationError:
