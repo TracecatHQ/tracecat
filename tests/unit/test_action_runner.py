@@ -367,14 +367,14 @@ class TestActionRunner:
         assert captured_env["TRACECAT__EXECUTOR_TOKEN"] == "test-executor-token"
 
     @pytest.mark.anyio
-    async def test_execute_action_drops_linux_capabilities_for_direct_subprocess(
+    async def test_execute_action_disables_new_privileges_for_direct_subprocess(
         self,
         temp_cache_dir,
         mock_run_action_input,
         mock_role,
         monkeypatch: pytest.MonkeyPatch,
     ):
-        """Test direct subprocess execution drops Linux capabilities before action code."""
+        """Test direct subprocess execution disables new Linux privileges."""
         runner = ActionRunner(cache_dir=temp_cache_dir)
         base_dir = temp_cache_dir / "base"
         base_dir.mkdir()
@@ -412,10 +412,9 @@ class TestActionRunner:
             )
 
         assert result == {"data": "test"}
-        assert captured_args[:5] == [
+        assert captured_args[:4] == [
             "/usr/bin/setpriv",
             "--no-new-privs",
-            "--bounding-set=-all",
             "--inh-caps=-all",
             "--ambient-caps=-all",
         ]

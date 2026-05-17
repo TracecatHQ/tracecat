@@ -105,7 +105,7 @@ def _is_sandbox_available() -> bool:
 
 
 def _direct_subprocess_command(minimal_runner_path: Path) -> list[str]:
-    """Build the direct action subprocess command with Linux capabilities dropped."""
+    """Build the direct action subprocess command with new privileges disabled."""
     runner_command = [sys.executable, str(minimal_runner_path)]
     if sys.platform != "linux":
         return runner_command
@@ -117,7 +117,6 @@ def _direct_subprocess_command(minimal_runner_path: Path) -> list[str]:
     return [
         setpriv,
         "--no-new-privs",
-        "--bounding-set=-all",
         "--inh-caps=-all",
         "--ambient-caps=-all",
         *runner_command,
