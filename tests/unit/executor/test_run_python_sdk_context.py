@@ -4,6 +4,7 @@ import json
 import os
 import subprocess
 import sys
+import sysconfig
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
@@ -27,7 +28,7 @@ from tracecat.identifiers.workflow import ExecutionUUID, WorkflowUUID
 from tracecat.registry.lock.types import RegistryLock
 from tracecat.sandbox import SandboxService, validate_run_python_script
 from tracecat.sandbox.executor import NsjailExecutor
-from tracecat.sandbox.types import SandboxConfig
+from tracecat.sandbox.types import PythonPathMount, SandboxConfig
 from tracecat.sandbox.unsafe_pid_executor import (
     SAFE_WRAPPER_SCRIPT as UNSAFE_PID_WRAPPER_SCRIPT,
 )
@@ -182,13 +183,36 @@ def test_nsjail_env_map_adds_sdk_pythonpath(tmp_path: Path) -> None:
     sdk_path.mkdir()
     sandbox_config = SandboxConfig(
         env_vars={"PYTHONPATH": "/work/lib", "CUSTOM_VALUE": "kept"},
-        python_path_mounts=[sdk_path],
+        python_path_mounts=[PythonPathMount(src=sdk_path, dst="tracecat_registry")],
     )
 
     env_map = NsjailExecutor()._build_env_map(sandbox_config, phase="execute")
 
-    assert env_map["PYTHONPATH"] == "/pythonpath/0:/work/lib"
+    assert env_map["PYTHONPATH"] == "/pythonpath:/work/lib"
     assert env_map["CUSTOM_VALUE"] == "kept"
+
+
+def test_nsjail_config_mounts_sdk_paths_under_pythonpath_root(
+    tmp_path: Path,
+) -> None:
+    sdk_path = tmp_path / "tracecat_registry"
+    sdk_path.mkdir()
+    sandbox_config = SandboxConfig(
+        python_path_mounts=[
+            PythonPathMount(src=sdk_path, dst="tracecat_registry"),
+        ],
+    )
+
+    config_text = NsjailExecutor(rootfs_path=str(tmp_path))._build_config(
+        tmp_path,
+        "execute",
+        sandbox_config,
+    )
+
+    assert (
+        f'mount {{ src: "{sdk_path}" dst: "/pythonpath/tracecat_registry" '
+        "is_bind: true rw: false }"
+    ) in config_text
 
 
 def test_nsjail_env_map_prefers_installed_dependencies_over_sdk_mounts(
@@ -201,7 +225,7 @@ def test_nsjail_env_map_prefers_installed_dependencies_over_sdk_mounts(
     (executor.package_cache / cache_key / "site-packages").mkdir(parents=True)
     sandbox_config = SandboxConfig(
         env_vars={"PYTHONPATH": "/work/lib"},
-        python_path_mounts=[sdk_path],
+        python_path_mounts=[PythonPathMount(src=sdk_path, dst="tracecat_registry")],
     )
 
     env_map = executor._build_env_map(
@@ -210,7 +234,89 @@ def test_nsjail_env_map_prefers_installed_dependencies_over_sdk_mounts(
         cache_key=cache_key,
     )
 
-    assert env_map["PYTHONPATH"] == "/packages:/pythonpath/0:/work/lib"
+    assert env_map["PYTHONPATH"] == "/packages:/pythonpath:/work/lib"
+
+
+def test_sdk_python_path_mounts_do_not_include_executor_site_packages(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    source_root = tmp_path / "registry-source"
+    package_root = source_root / "tracecat_registry"
+    package_root.mkdir(parents=True)
+    (package_root / "__init__.py").write_text("")
+    monkeypatch.setattr(
+        "tracecat.sandbox.service.config.TRACECAT__BUILTIN_REGISTRY_SOURCE_PATH",
+        str(source_root),
+    )
+    monkeypatch.setattr(
+        "tracecat.sandbox.service.config.TRACECAT__EXECUTOR_SITE_PACKAGES_DIR",
+        "",
+    )
+
+    mounts = SandboxService(
+        cache_dir=str(tmp_path / "cache")
+    )._get_sdk_python_path_mounts()
+    purelib = Path(sysconfig.get_path("purelib")).resolve()
+
+    assert (
+        PythonPathMount(src=package_root.resolve(), dst="tracecat_registry") in mounts
+    )
+    assert all(mount.src != purelib for mount in mounts)
+    assert any(mount.dst == "pydantic" for mount in mounts)
+    assert any(mount.dst == "typing_extensions.py" for mount in mounts)
+
+
+def test_sdk_python_path_mounts_can_import_ctx_without_site_packages(
+    tmp_path: Path,
+) -> None:
+    executor = UnsafePidExecutor(cache_dir=str(tmp_path / "cache"))
+    work_dir = tmp_path / "work"
+    work_dir.mkdir()
+    env_vars = executor._with_python_path_mounts(
+        {},
+        work_dir,
+        SandboxService(
+            cache_dir=str(tmp_path / "sandbox-cache")
+        )._get_sdk_python_path_mounts(),
+    )
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-S",
+            "-c",
+            "from tracecat_registry import ctx; print(ctx.__name__)",
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+        env={
+            "PYTHONPATH": env_vars["PYTHONPATH"],
+            "PYTHONDONTWRITEBYTECODE": "1",
+        },
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "tracecat_registry.ctx"
+
+
+def test_unsafe_pid_sdk_pythonpath_uses_link_tree(tmp_path: Path) -> None:
+    sdk_path = tmp_path / "tracecat_registry"
+    sdk_path.mkdir()
+    executor = UnsafePidExecutor(cache_dir=str(tmp_path / "cache"))
+    work_dir = tmp_path / "work"
+    work_dir.mkdir()
+
+    env_vars = executor._with_python_path_mounts(
+        {"PYTHONPATH": "/work/lib"},
+        work_dir,
+        [PythonPathMount(src=sdk_path, dst="tracecat_registry")],
+    )
+
+    pythonpath_dir = work_dir / "pythonpath"
+    assert env_vars["PYTHONPATH"] == os.pathsep.join([str(pythonpath_dir), "/work/lib"])
+    assert (pythonpath_dir / "tracecat_registry").is_symlink()
 
 
 def test_unsafe_pid_pythonpath_prefers_installed_dependencies_over_sdk_paths(

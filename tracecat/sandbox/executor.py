@@ -6,7 +6,7 @@ import os
 import re
 import time
 from dataclasses import dataclass, field
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Literal
 
 from tracecat.config import (
@@ -141,6 +141,18 @@ def _validate_path(path: Path, name: str) -> None:
         )
 
 
+def _validate_pythonpath_mount_dst(dst: str, name: str) -> None:
+    """Validate a relative mount destination under /pythonpath."""
+    dst_path = PurePosixPath(dst)
+    dangerous_chars = {'"', "'", "\n", "\r", "\\"}
+    found_chars = [c for c in dangerous_chars if c in dst]
+    if not dst or dst_path.is_absolute() or ".." in dst_path.parts or found_chars:
+        raise SandboxValidationError(
+            f"Invalid {name} destination: {dst!r}. "
+            "Destinations must be relative paths under /pythonpath."
+        )
+
+
 def _validate_cache_key(cache_key: str) -> None:
     """Validate cache key is a safe hex string.
 
@@ -205,7 +217,11 @@ class NsjailExecutor:
         _validate_path(job_dir, "job_dir")
         _validate_path(self.rootfs, "rootfs")
         for i, python_path_mount in enumerate(config.python_path_mounts):
-            _validate_path(python_path_mount, f"python_path_mount_{i}")
+            _validate_path(python_path_mount.src, f"python_path_mount_{i}.src")
+            _validate_pythonpath_mount_dst(
+                python_path_mount.dst,
+                f"python_path_mount_{i}.dst",
+            )
         if cache_key:
             _validate_cache_key(cache_key)
 
@@ -313,9 +329,9 @@ class NsjailExecutor:
                     lines.append(
                         f'mount {{ src: "{cache_path}" dst: "/packages" is_bind: true rw: false }}'
                     )
-            for i, python_path_mount in enumerate(config.python_path_mounts):
+            for python_path_mount in config.python_path_mounts:
                 lines.append(
-                    f'mount {{ src: "{python_path_mount}" dst: "/pythonpath/{i}" is_bind: true rw: false }}'
+                    f'mount {{ src: "{python_path_mount.src}" dst: "/pythonpath/{python_path_mount.dst}" is_bind: true rw: false }}'
                 )
             lines.append(
                 f'mount {{ src: "{job_dir}" dst: "/work" is_bind: true rw: true }}'
@@ -372,11 +388,8 @@ class NsjailExecutor:
                 cache_path = self.package_cache / cache_key / "site-packages"
                 if cache_path.exists():
                     pythonpath_parts.append("/packages")
-            pythonpath_parts.extend(
-                f"/pythonpath/{i}"
-                for i, python_path_mount in enumerate(config.python_path_mounts)
-                if python_path_mount.exists()
-            )
+            if any(mount.src.exists() for mount in config.python_path_mounts):
+                pythonpath_parts.append("/pythonpath")
             if user_pythonpath:
                 pythonpath_parts.append(user_pythonpath)
             if pythonpath_parts:
