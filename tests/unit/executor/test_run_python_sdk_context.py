@@ -28,7 +28,9 @@ from tracecat.dsl.schemas import (
     RunActionInput,
     RunContext,
 )
+from tracecat.executor.backends.base import ExecutorBackend
 from tracecat.executor.backends.direct import DirectBackend
+from tracecat.executor.backends.ephemeral import EphemeralBackend
 from tracecat.executor.schemas import ActionImplementation, ResolvedContext
 from tracecat.identifiers.workflow import ExecutionUUID, WorkflowUUID
 from tracecat.registry.lock.types import RegistryLock
@@ -288,8 +290,9 @@ async def _run_sandbox_registry_ctx_smoke(
     )
 
 
-async def _run_direct_backend_registry_ctx_smoke(
+async def _run_backend_registry_ctx_smoke(
     *,
+    backend: ExecutorBackend,
     monkeypatch: pytest.MonkeyPatch,
     cache_dir: Path,
 ) -> dict[str, Any]:
@@ -313,7 +316,7 @@ async def _run_direct_backend_registry_ctx_smoke(
         }
     )
 
-    result = await DirectBackend().execute(
+    result = await backend.execute(
         input=input_data,
         role=_make_role(),
         resolved_context=resolved_context,
@@ -329,6 +332,20 @@ async def _run_direct_backend_registry_ctx_smoke(
         token=resolved_context.executor_token,
     )
     return result.result
+
+
+async def _run_backend_registry_ctx_smoke_matrix(
+    *,
+    monkeypatch: pytest.MonkeyPatch,
+    cache_dir: Path,
+) -> None:
+    for backend in (DirectBackend(), EphemeralBackend()):
+        result = await _run_backend_registry_ctx_smoke(
+            backend=backend,
+            monkeypatch=monkeypatch,
+            cache_dir=cache_dir / backend.__class__.__name__,
+        )
+        assert isinstance(result, dict)
 
 
 def _run_nsjail_sdk_context_harness_in_docker_or_skip() -> None:
@@ -434,11 +451,10 @@ def _run_nsjail_sdk_context_smoke_from_cli() -> None:
         tmp_path = Path(tempfile.mkdtemp(prefix="tracecat-run-python-nsjail-"))
         try:
             _set_run_python_nsjail_mode(monkeypatch, disable_nsjail=False)
-            result = await _run_direct_backend_registry_ctx_smoke(
+            await _run_backend_registry_ctx_smoke_matrix(
                 monkeypatch=monkeypatch,
                 cache_dir=tmp_path / "sandbox-cache",
             )
-            assert isinstance(result, dict)
         finally:
             monkeypatch.undo()
             shutil.rmtree(tmp_path, ignore_errors=True)
@@ -778,13 +794,13 @@ async def test_run_python_subprocess_can_import_registry_ctx(
 
 
 @pytest.mark.anyio
-async def test_run_python_direct_backend_can_import_registry_ctx_in_pid_mode(
+async def test_run_python_backends_can_import_registry_ctx_in_pid_mode(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
     _set_run_python_nsjail_mode(monkeypatch, disable_nsjail=True)
 
-    await _run_direct_backend_registry_ctx_smoke(
+    await _run_backend_registry_ctx_smoke_matrix(
         monkeypatch=monkeypatch,
         cache_dir=tmp_path / "sandbox-cache",
     )
@@ -800,12 +816,10 @@ async def test_run_python_nsjail_can_import_registry_ctx_with_sdk_path(
         return
 
     _set_run_python_nsjail_mode(monkeypatch, disable_nsjail=False)
-    result = await _run_direct_backend_registry_ctx_smoke(
+    await _run_backend_registry_ctx_smoke_matrix(
         monkeypatch=monkeypatch,
         cache_dir=tmp_path / "sandbox-cache",
     )
-
-    assert isinstance(result, dict)
 
 
 if __name__ == "__main__":
