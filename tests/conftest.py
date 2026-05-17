@@ -90,6 +90,22 @@ else:
     # Extract number from "gwN" format
     WORKER_OFFSET = int(WORKER_ID.replace("gw", ""))
 
+MAX_AUTO_XDIST_WORKERS = 15
+
+
+@pytest.hookimpl(tryfirst=True)
+def pytest_xdist_auto_num_workers(config: pytest.Config) -> int:
+    """Cap auto xdist workers to the Redis DBs reserved for tests."""
+    del config
+    requested = os.environ.get("PYTEST_XDIST_AUTO_NUM_WORKERS")
+    if requested is not None:
+        try:
+            return min(int(requested), MAX_AUTO_XDIST_WORKERS)
+        except ValueError:
+            pass
+    return min(os.cpu_count() or 1, MAX_AUTO_XDIST_WORKERS)
+
+
 # Port configuration - reads from environment for worktree cluster support
 # Default ports are for cluster 1, override with PG_PORT, TEMPORAL_PORT, MINIO_PORT, REDIS_PORT
 
