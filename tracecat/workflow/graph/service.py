@@ -3,7 +3,8 @@
 Implements the canonical graph API with optimistic concurrency.
 """
 
-from typing import Any
+from dataclasses import dataclass
+from typing import Any, Literal
 
 from fastapi import HTTPException, status
 from sqlalchemy import column, delete, func, literal, select, update
@@ -27,6 +28,16 @@ from tracecat.workflow.management.schemas import (
     UpdateTriggerPositionPayload,
     UpdateViewportPayload,
 )
+
+type EdgeSourceType = Literal["trigger", "udf"]
+type EdgeHandle = Literal["success", "error"]
+
+
+@dataclass(frozen=True, slots=True)
+class EdgeDedupKey:
+    source_id: str
+    source_type: EdgeSourceType
+    source_handle: EdgeHandle | None
 
 
 class WorkflowGraphService(BaseWorkspaceService):
@@ -293,8 +304,10 @@ class WorkflowGraphService(BaseWorkspaceService):
 
     @staticmethod
     def _edge_dedup_key(
-        source_id: str, source_type: str, source_handle: str | None
-    ) -> tuple[str, str, str | None]:
+        source_id: str,
+        source_type: EdgeSourceType,
+        source_handle: EdgeHandle | None,
+    ) -> EdgeDedupKey:
         """Canonical key used to dedupe upstream edges.
 
         Trigger edges have no handle; udf edges with a missing handle are
@@ -302,8 +315,34 @@ class WorkflowGraphService(BaseWorkspaceService):
         correctly against newly-written edges.
         """
         if source_type == "udf":
-            return (source_id, source_type, source_handle or "success")
-        return (source_id, source_type, None)
+            return EdgeDedupKey(source_id, source_type, source_handle or "success")
+        return EdgeDedupKey(source_id, source_type, None)
+
+    @classmethod
+    def _stored_edge_dedup_key(cls, edge: dict[str, Any]) -> EdgeDedupKey | None:
+        source_id = edge.get("source_id")
+        if not isinstance(source_id, str):
+            return None
+
+        source_type: EdgeSourceType
+        match edge.get("source_type"):
+            case "trigger":
+                source_type = "trigger"
+            case "udf":
+                source_type = "udf"
+            case _:
+                source_type = "trigger" if source_id.startswith("trigger-") else "udf"
+
+        source_handle: EdgeHandle | None
+        match edge.get("source_handle"):
+            case "success":
+                source_handle = "success"
+            case "error":
+                source_handle = "error"
+            case _:
+                source_handle = None
+
+        return cls._edge_dedup_key(source_id, source_type, source_handle)
 
     async def _add_edge(self, workflow: Workflow, payload: AddEdgePayload) -> None:
         """Add an edge between two nodes.
@@ -354,19 +393,10 @@ class WorkflowGraphService(BaseWorkspaceService):
             "source_type": payload.source_type,
         }
         if payload.source_type == "udf":
-            new_edge["source_handle"] = new_key[2]
+            new_edge["source_handle"] = new_key.source_handle
 
         edges = target_action.upstream_edges or []
-        filtered_edges = [
-            e
-            for e in edges
-            if self._edge_dedup_key(
-                str(e.get("source_id", "")),
-                str(e.get("source_type", "")),
-                e.get("source_handle"),
-            )
-            != new_key
-        ]
+        filtered_edges = [e for e in edges if self._stored_edge_dedup_key(e) != new_key]
         filtered_edges.append(new_edge)
 
         target_action.upstream_edges = filtered_edges
@@ -398,14 +428,7 @@ class WorkflowGraphService(BaseWorkspaceService):
 
         edges = target_action.upstream_edges or []
         target_action.upstream_edges = [
-            e
-            for e in edges
-            if self._edge_dedup_key(
-                str(e.get("source_id", "")),
-                str(e.get("source_type", "")),
-                e.get("source_handle"),
-            )
-            != target_key
+            e for e in edges if self._stored_edge_dedup_key(e) != target_key
         ]
         self.session.add(target_action)
 
