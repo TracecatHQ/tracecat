@@ -730,10 +730,9 @@ async def upload_tarball_venv(
         raise FileNotFoundError(f"Tarball file not found: {tarball_path}")
 
     squashfs_key = _squashfs_key_for(key)
-    if squashfs_path is None:
-        await blob.delete_file(key=squashfs_key, bucket=bucket)
-    elif not squashfs_path.exists():
+    if squashfs_path is not None and not squashfs_path.exists():
         raise FileNotFoundError(f"SquashFS file not found: {squashfs_path}")
+    await blob.delete_file(key=squashfs_key, bucket=bucket)
 
     # Stream from disk via multipart upload so we don't hold hundreds of MB
     # of tarball bytes in the API process memory at once.

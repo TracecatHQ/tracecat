@@ -373,9 +373,23 @@ async def test_upload_tarball_venv_uploads_squashfs_sidecar(
     squashfs_path = tmp_path / "site-packages.squashfs"
     tarball_path.write_bytes(b"gzip")
     squashfs_path.write_bytes(b"squashfs")
+    events: list[tuple[str, str]] = []
+
+    async def record_upload(**kwargs: object) -> None:
+        events.append(("upload", str(kwargs["key"])))
+
+    async def record_delete(**kwargs: object) -> None:
+        events.append(("delete", str(kwargs["key"])))
+
+    upload_file_from_path = mocker.AsyncMock(side_effect=record_upload)
+    delete_file = mocker.AsyncMock(side_effect=record_delete)
     upload_file_from_path = mocker.patch(
         "tracecat.registry.sync.tarball.blob.upload_file_from_path",
-        mocker.AsyncMock(),
+        upload_file_from_path,
+    )
+    delete_file = mocker.patch(
+        "tracecat.registry.sync.tarball.blob.delete_file",
+        delete_file,
     )
 
     uri = await upload_tarball_venv(
@@ -388,6 +402,10 @@ async def test_upload_tarball_venv_uploads_squashfs_sidecar(
     assert uri == (
         "s3://tracecat-registry/org/tarball-venvs/tracecat_registry/v1/"
         "site-packages.tar.gz"
+    )
+    delete_file.assert_awaited_once_with(
+        key="org/tarball-venvs/tracecat_registry/v1/site-packages.squashfs",
+        bucket="tracecat-registry",
     )
     assert upload_file_from_path.await_count == 2
     upload_file_from_path.assert_has_awaits(
@@ -406,3 +424,8 @@ async def test_upload_tarball_venv_uploads_squashfs_sidecar(
             ),
         ]
     )
+    assert events == [
+        ("delete", "org/tarball-venvs/tracecat_registry/v1/site-packages.squashfs"),
+        ("upload", "org/tarball-venvs/tracecat_registry/v1/site-packages.tar.gz"),
+        ("upload", "org/tarball-venvs/tracecat_registry/v1/site-packages.squashfs"),
+    ]
