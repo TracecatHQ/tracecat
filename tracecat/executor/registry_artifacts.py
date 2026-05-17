@@ -147,6 +147,12 @@ class RegistryArtifactCache:
                 return cached_path
 
             artifact = await self._resolve_preferred_artifact(artifact_uri)
+            logger.info(
+                "Resolved registry artifact",
+                cache_key=cache_key,
+                artifact_uri=artifact.uri,
+                artifact_format=artifact.format.value,
+            )
             if artifact.format == RegistryArtifactFormat.SQUASHFS:
                 try:
                     return await self._materialize_squashfs(
@@ -160,11 +166,19 @@ class RegistryArtifactCache:
                     logger.warning(
                         "Failed to mount SquashFS registry artifact, falling back",
                         cache_key=cache_key,
+                        artifact_uri=artifact.uri,
+                        artifact_format=artifact.format.value,
                         error=str(e),
                     )
                     artifact = await self._resolve_preferred_artifact(
                         artifact_uri,
                         allow_squashfs=False,
+                    )
+                    logger.info(
+                        "Resolved registry artifact fallback",
+                        cache_key=cache_key,
+                        artifact_uri=artifact.uri,
+                        artifact_format=artifact.format.value,
                     )
 
             return await self._materialize_tarball(
@@ -293,6 +307,7 @@ class RegistryArtifactCache:
         logger.info(
             "Downloading and mounting SquashFS registry artifact",
             cache_key=cache_key,
+            artifact_uri=artifact.uri,
             artifact_format=artifact.format.value,
         )
         start_time = time.monotonic()
@@ -323,6 +338,7 @@ class RegistryArtifactCache:
         logger.info(
             "SquashFS registry artifact mounted",
             cache_key=cache_key,
+            artifact_uri=artifact.uri,
             artifact_format=artifact.format.value,
             download_ms=f"{download_elapsed:.1f}",
             mount_ms=f"{mount_elapsed:.1f}",
@@ -342,6 +358,7 @@ class RegistryArtifactCache:
         logger.info(
             "Downloading and extracting tarball",
             cache_key=cache_key,
+            artifact_uri=artifact.uri,
             artifact_format=artifact.format.value,
         )
         start_time = time.monotonic()
@@ -368,6 +385,7 @@ class RegistryArtifactCache:
                 logger.info(
                     "Tarball extracted and cached",
                     cache_key=cache_key,
+                    artifact_uri=artifact.uri,
                     artifact_format=artifact.format.value,
                     download_ms=f"{download_elapsed:.1f}",
                     extract_ms=f"{extract_elapsed:.1f}",
@@ -378,6 +396,8 @@ class RegistryArtifactCache:
                     logger.debug(
                         "Tarball already extracted by another process",
                         cache_key=cache_key,
+                        artifact_uri=artifact.uri,
+                        artifact_format=artifact.format.value,
                     )
                 else:
                     raise
