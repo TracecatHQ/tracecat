@@ -49,6 +49,7 @@ _SDK_RUNTIME_IMPORTS = (
     "typing_extensions",
     "typing_inspection",
 )
+_SDK_CACHE_READY_FILE = ".ready"
 _SDK_PYTHON_PATH_PREPARE_LOCK = threading.Lock()
 
 
@@ -232,29 +233,85 @@ class SandboxService:
         if not entries:
             return None
 
+        cache_key = self._compute_sdk_python_path_cache_key(entries)
+        prepared_path = self.sdk_python_path / cache_key
+        ready_file = prepared_path / _SDK_CACHE_READY_FILE
+        if ready_file.exists():
+            return prepared_path
+
         with self._locked_sdk_python_path():
-            expected = set(entries)
-            for child in self.sdk_python_path.iterdir():
-                if child.name not in expected:
-                    if child.is_dir() and not child.is_symlink():
-                        shutil.rmtree(child, ignore_errors=True)
-                    else:
-                        child.unlink(missing_ok=True)
+            if ready_file.exists():
+                return prepared_path
+            if prepared_path.exists():
+                shutil.rmtree(prepared_path, ignore_errors=True)
 
-            for name, source in entries.items():
-                target = self.sdk_python_path / name
-                if target.exists() or target.is_symlink():
-                    if target.is_dir() and not target.is_symlink():
-                        shutil.rmtree(target, ignore_errors=True)
+            temp_path = Path(
+                tempfile.mkdtemp(
+                    prefix=f".{cache_key}.",
+                    suffix=".tmp",
+                    dir=self.sdk_python_path,
+                )
+            )
+            try:
+                for name, source in entries.items():
+                    target = temp_path / name
+                    if source.is_dir():
+                        shutil.copytree(source, target, symlinks=True)
                     else:
-                        target.unlink(missing_ok=True)
-                if source.is_dir():
-                    shutil.copytree(source, target, symlinks=True)
-                else:
-                    target.parent.mkdir(parents=True, exist_ok=True)
-                    shutil.copy2(source, target)
+                        target.parent.mkdir(parents=True, exist_ok=True)
+                        shutil.copy2(source, target)
+                (temp_path / _SDK_CACHE_READY_FILE).write_text("")
+                os.rename(temp_path, prepared_path)
+            finally:
+                if temp_path.exists():
+                    shutil.rmtree(temp_path, ignore_errors=True)
 
-        return self.sdk_python_path
+        return prepared_path
+
+    def _compute_sdk_python_path_cache_key(self, entries: dict[str, Path]) -> str:
+        digest = hashlib.sha256()
+        for name, source in sorted(entries.items()):
+            digest.update(name.encode())
+            digest.update(b"\0")
+            digest.update(str(source).encode())
+            digest.update(b"\0")
+            for part in self._iter_sdk_path_fingerprint_parts(source):
+                digest.update(part.encode())
+                digest.update(b"\0")
+        return digest.hexdigest()[:16]
+
+    def _iter_sdk_path_fingerprint_parts(self, source: Path) -> Iterator[str]:
+        try:
+            source_stat = source.lstat()
+        except FileNotFoundError:
+            return
+
+        yield f".:{source_stat.st_mode}:{source_stat.st_size}:{source_stat.st_mtime_ns}"
+        if not source.is_dir():
+            return
+
+        for path in sorted(source.rglob("*")):
+            rel_path = path.relative_to(source)
+            if "__pycache__" in rel_path.parts:
+                continue
+            try:
+                path_stat = path.lstat()
+            except FileNotFoundError:
+                continue
+
+            if path.is_symlink():
+                kind = "l"
+                target = os.readlink(path)
+            elif path.is_dir():
+                kind = "d"
+                target = ""
+            else:
+                kind = "f"
+                target = ""
+            yield (
+                f"{rel_path.as_posix()}:{kind}:{path_stat.st_mode}:"
+                f"{path_stat.st_size}:{path_stat.st_mtime_ns}:{target}"
+            )
 
     @contextmanager
     def _locked_sdk_python_path(self) -> Iterator[None]:

@@ -579,7 +579,10 @@ def test_sdk_python_path_refreshes_when_source_changes(
 
     assert first_sdk_python_path is not None
     assert second_sdk_python_path is not None
-    assert first_sdk_python_path == second_sdk_python_path
+    assert first_sdk_python_path != second_sdk_python_path
+    assert (
+        first_sdk_python_path / "tracecat_registry" / "ctx.py"
+    ).read_text() == "VERSION = 'old'\n"
     assert (
         second_sdk_python_path / "tracecat_registry" / "ctx.py"
     ).read_text() == "VERSION = 'newer-source'\n"
