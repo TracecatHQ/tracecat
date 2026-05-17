@@ -312,6 +312,45 @@ async def test_build_tarball_from_installed_environment_skips_unrelated_symlink_
 
 
 @pytest.mark.anyio
+async def test_upload_tarball_venv_deletes_stale_squashfs_sidecar(
+    tmp_path: Path,
+    mocker,
+) -> None:
+    tarball_path = tmp_path / "site-packages.tar.gz"
+    tarball_path.write_bytes(b"gzip")
+    upload_file_from_path = mocker.patch(
+        "tracecat.registry.sync.tarball.blob.upload_file_from_path",
+        mocker.AsyncMock(),
+    )
+    delete_file = mocker.patch(
+        "tracecat.registry.sync.tarball.blob.delete_file",
+        mocker.AsyncMock(),
+    )
+
+    uri = await upload_tarball_venv(
+        tarball_path=tarball_path,
+        squashfs_path=None,
+        key="org/tarball-venvs/tracecat_registry/v1/site-packages.tar.gz",
+        bucket="tracecat-registry",
+    )
+
+    assert uri == (
+        "s3://tracecat-registry/org/tarball-venvs/tracecat_registry/v1/"
+        "site-packages.tar.gz"
+    )
+    upload_file_from_path.assert_awaited_once_with(
+        path=tarball_path,
+        key="org/tarball-venvs/tracecat_registry/v1/site-packages.tar.gz",
+        bucket="tracecat-registry",
+        content_type="application/gzip",
+    )
+    delete_file.assert_awaited_once_with(
+        key="org/tarball-venvs/tracecat_registry/v1/site-packages.squashfs",
+        bucket="tracecat-registry",
+    )
+
+
+@pytest.mark.anyio
 async def test_upload_tarball_venv_uploads_squashfs_sidecar(
     tmp_path: Path,
     mocker,

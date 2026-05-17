@@ -738,11 +738,13 @@ async def upload_tarball_venv(
         content_type="application/gzip",
     )
 
-    if squashfs_path is not None:
+    squashfs_key = _squashfs_key_for(key)
+    if squashfs_path is None:
+        await blob.delete_file(key=squashfs_key, bucket=bucket)
+    else:
         if not squashfs_path.exists():
             raise FileNotFoundError(f"SquashFS file not found: {squashfs_path}")
 
-        squashfs_key = _squashfs_key_for(key)
         await blob.upload_file_from_path(
             path=squashfs_path,
             key=squashfs_key,
