@@ -112,6 +112,38 @@ def test_create_squashfs_image_makes_mount_root_traversable(
     )
 
 
+def test_create_squashfs_image_makes_restrictive_files_readable(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Make restrictive files readable after SquashFS -all-root ownership."""
+    source = tmp_path / "source"
+    source.mkdir()
+    module = source / "module.py"
+    module.write_text("VALUE = 1\n")
+    module.chmod(0o600)
+    image_path = tmp_path / "site-packages.squashfs"
+
+    monkeypatch.setattr(
+        tarball.config, "TRACECAT__REGISTRY_SYNC_SQUASHFS_ENABLED", True
+    )
+    monkeypatch.setattr(tarball.shutil, "which", lambda _name: "/usr/bin/mksquashfs")
+
+    def fake_subprocess_run(cmd: list[str]) -> subprocess.CompletedProcess[str]:
+        staged_module = Path(cmd[1]) / "module.py"
+        assert staged_module.stat().st_mode & 0o777 == 0o644
+        assert module.stat().st_mode & 0o777 == 0o600
+        image_path.write_bytes(b"squashfs")
+        return subprocess.CompletedProcess(cmd, 0, "", "")
+
+    monkeypatch.setattr(tarball, "subprocess_run", fake_subprocess_run)
+
+    assert tarball._create_squashfs_image(
+        image_path,
+        [(module, "module.py")],
+    )
+
+
 def test_create_squashfs_image_preserves_symlinks(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

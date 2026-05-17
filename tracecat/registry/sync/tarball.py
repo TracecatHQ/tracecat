@@ -12,6 +12,7 @@ import hashlib
 import os
 import re
 import shutil
+import stat
 import subprocess
 import sysconfig
 import tarfile
@@ -79,6 +80,16 @@ def _copy_squashfs_entry(
 ) -> None:
     """Stage one artifact entry for SquashFS."""
 
+    def _normalized_file_mode(mode: int) -> int:
+        mode = stat.S_IMODE(mode)
+        normalized = mode | 0o444
+        if mode & 0o111:
+            normalized |= 0o111
+        return normalized
+
+    def _normalized_dir_mode(mode: int) -> int:
+        return stat.S_IMODE(mode) | 0o555
+
     def _remove_existing_entry() -> None:
         if dest.is_symlink() or dest.is_file():
             dest.unlink()
@@ -108,15 +119,22 @@ def _copy_squashfs_entry(
                 dest / child.name,
                 preserve_symlinks=preserve_symlinks,
             )
+        dest.chmod(_normalized_dir_mode(path.stat().st_mode))
         return
 
     if path.is_file():
         dest.parent.mkdir(parents=True, exist_ok=True)
         _remove_existing_entry()
-        try:
-            os.link(path, dest)
-        except OSError:
+        source_mode = stat.S_IMODE(path.stat().st_mode)
+        normalized_mode = _normalized_file_mode(source_mode)
+        if normalized_mode == source_mode:
+            try:
+                os.link(path, dest)
+            except OSError:
+                shutil.copy2(path, dest)
+        else:
             shutil.copy2(path, dest)
+            dest.chmod(normalized_mode)
         return
 
     logger.info("Skipping non-file entry while staging SquashFS", path=str(path))
