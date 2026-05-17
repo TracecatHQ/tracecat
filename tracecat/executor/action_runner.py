@@ -104,6 +104,26 @@ def _is_sandbox_available() -> bool:
     return True
 
 
+def _direct_subprocess_command(minimal_runner_path: Path) -> list[str]:
+    """Build the direct action subprocess command with Linux capabilities dropped."""
+    runner_command = [sys.executable, str(minimal_runner_path)]
+    if sys.platform != "linux":
+        return runner_command
+
+    setpriv = shutil.which("setpriv")
+    if setpriv is None:
+        raise RuntimeError("setpriv is required for direct action subprocess isolation")
+
+    return [
+        setpriv,
+        "--no-new-privs",
+        "--bounding-set=-all",
+        "--inh-caps=-all",
+        "--ambient-caps=-all",
+        *runner_command,
+    ]
+
+
 class ActionRunner:
     """Runs registry actions in subprocesses with registry artifact caching.
 
@@ -412,6 +432,17 @@ class ActionRunner:
         from tracecat.executor import minimal_runner as minimal_runner_module
 
         minimal_runner_path = Path(minimal_runner_module.__file__)
+        try:
+            command = _direct_subprocess_command(minimal_runner_path)
+        except RuntimeError as e:
+            logger.error("Failed to prepare direct action subprocess", error=str(e))
+            return ExecutorActionErrorInfo(
+                type="SubprocessError",
+                message=str(e),
+                action_name=input.task.action,
+                filename="<subprocess>",
+                function="execute_action",
+            )
 
         logger.debug(
             "Executing action in subprocess",
@@ -421,8 +452,7 @@ class ActionRunner:
 
         start_time = time.monotonic()
         proc = await asyncio.create_subprocess_exec(
-            sys.executable,
-            str(minimal_runner_path),
+            *command,
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,

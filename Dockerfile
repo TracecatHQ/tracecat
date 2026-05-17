@@ -60,7 +60,7 @@ RUN ln -s ../lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm && \
 # Install runtime packages
 RUN apt-get update && apt-get install -y --no-install-recommends \
     acl git openssh-client xmlsec1 libmagic1 curl ca-certificates \
-    libnl-route-3-200 libprotobuf32 libcap2-bin \
+    libnl-route-3-200 libprotobuf32 libcap2-bin util-linux \
     passt squashfs-tools \
     && apt-get -y upgrade \
     && apt-get clean && rm -rf /var/lib/apt/lists/*

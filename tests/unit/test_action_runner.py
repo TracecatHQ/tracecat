@@ -23,6 +23,7 @@ from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.dsl.common import create_default_execution_context
 from tracecat.dsl.schemas import ActionStatement, RunActionInput, RunContext
+from tracecat.executor import action_runner
 from tracecat.executor.action_runner import ActionRunner
 from tracecat.executor.schemas import (
     ActionImplementation,
@@ -364,6 +365,62 @@ class TestActionRunner:
             == mock_run_action_input.run_context.environment
         )
         assert captured_env["TRACECAT__EXECUTOR_TOKEN"] == "test-executor-token"
+
+    @pytest.mark.anyio
+    async def test_execute_action_drops_linux_capabilities_for_direct_subprocess(
+        self,
+        temp_cache_dir,
+        mock_run_action_input,
+        mock_role,
+        monkeypatch: pytest.MonkeyPatch,
+    ):
+        """Test direct subprocess execution drops Linux capabilities before action code."""
+        runner = ActionRunner(cache_dir=temp_cache_dir)
+        base_dir = temp_cache_dir / "base"
+        base_dir.mkdir()
+
+        import orjson
+
+        success_response = orjson.dumps({"success": True, "result": {"data": "test"}})
+        captured_args: list[str] = []
+
+        async def create_subprocess_exec_side_effect(*args, **kwargs):  # noqa: ARG001
+            captured_args[:] = list(args)
+
+            mock_proc = AsyncMock()
+            mock_proc.returncode = 0
+            mock_proc.communicate = AsyncMock(return_value=(success_response, b""))
+            return mock_proc
+
+        monkeypatch.setattr(action_runner.sys, "platform", "linux")
+        monkeypatch.setattr(
+            action_runner.shutil,
+            "which",
+            lambda name: "/usr/bin/setpriv" if name == "setpriv" else None,
+        )
+
+        with patch(
+            "asyncio.create_subprocess_exec",
+            side_effect=create_subprocess_exec_side_effect,
+        ):
+            result = await runner._execute_direct(
+                input=mock_run_action_input,
+                role=mock_role,
+                registry_paths=[base_dir],
+                secret_projection=_empty_secret_projection(),
+                timeout=10.0,
+            )
+
+        assert result == {"data": "test"}
+        assert captured_args[:5] == [
+            "/usr/bin/setpriv",
+            "--no-new-privs",
+            "--bounding-set=-all",
+            "--inh-caps=-all",
+            "--ambient-caps=-all",
+        ]
+        assert captured_args[-2] == action_runner.sys.executable
+        assert captured_args[-1].endswith("minimal_runner.py")
 
     @pytest.mark.anyio
     async def test_execute_action_registry_sdk_call_succeeds(
