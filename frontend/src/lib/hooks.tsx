@@ -3138,25 +3138,29 @@ export function useUpdateColumn() {
       )
     },
     onError: (error: TracecatApiError, variables) => {
-      const isIndexOperation =
-        typeof variables.requestBody?.is_index === "boolean"
+      const requestedIsIndex = variables.requestBody?.is_index
+      const isIndexOperation = typeof requestedIsIndex === "boolean"
+      const indexErrorTitle =
+        requestedIsIndex === false
+          ? "Error dropping unique index"
+          : "Error creating unique index"
 
       if (isIndexOperation) {
         // Handle unique index specific errors
         if (error.status === 409) {
           toast({
-            title: "Error creating unique index",
+            title: indexErrorTitle,
             description:
               "Column contains duplicate values. All values must be unique.",
           })
         } else if (error.status === 400) {
           toast({
-            title: "Error creating unique index",
+            title: indexErrorTitle,
             description: String(error.body.detail),
           })
         } else {
           toast({
-            title: "Error creating unique index",
+            title: indexErrorTitle,
             description: error.message || "An unexpected error occurred",
           })
         }
