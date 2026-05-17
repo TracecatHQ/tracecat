@@ -1,0 +1,28 @@
+# Optional local sandbox privileges for nsjail and SquashFS registry mounts.
+# Usage:
+#   docker compose -f docker-compose.dev.yml -f docker-compose.sandbox.yml up
+#   just cluster --sandbox up -d
+
+services:
+  executor:
+    # Required for nsjail sandbox execution.
+    cap_add:
+      - SYS_ADMIN
+    security_opt:
+      - seccomp:unconfined
+      - systempaths=unconfined
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    # SquashFS registry artifact mounts additionally need loop-device access;
+    # Docker's device cgroup blocks /dev/loop* with SYS_ADMIN alone.
+    privileged: true
+
+  agent-executor:
+    # Required for nsjail sandbox execution.
+    cap_add:
+      - SYS_ADMIN
+    security_opt:
+      - seccomp:unconfined
+      - systempaths=unconfined
+    devices:
+      - /dev/net/tun:/dev/net/tun

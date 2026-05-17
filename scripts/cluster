@@ -39,6 +39,7 @@ ENV_FILE="${REPO_ROOT}/.env"
 # Default profile
 PROFILE="dev"
 CLUSTER_EE_MULTI_TENANT=""
+CLUSTER_USE_SANDBOX_COMPOSE=false
 
 # Get worktree identifier for namespacing clusters
 # Returns "main" for the main worktree, or a sanitized branch/directory name for worktrees
@@ -379,6 +380,8 @@ Tenant mode:
   --single-tenant                 Set TRACECAT__EE_MULTI_TENANT=false
   --multi-tenant                  Set TRACECAT__EE_MULTI_TENANT=true
   --ee-multi-tenant true|false    Set TRACECAT__EE_MULTI_TENANT explicitly
+  --sandbox                       Layer docker-compose.sandbox.yml for nsjail
+                                  and SquashFS device privileges
 
 Commands:
   up [args]     Start the cluster (e.g., up -d)
@@ -415,6 +418,7 @@ Examples:
                                   Start cluster with multi-tenancy disabled
   ./cluster --ee-multi-tenant false up -d
                                   Start cluster with explicit tenant mode
+  ./cluster --sandbox up -d       Start cluster with sandbox device privileges
   ./cluster up -d --new          Force a new cluster on next available number
   ./cluster up -d --no-seed      Start cluster without creating dev tenant user
   ./cluster up -d --default-tier-entitlements none
@@ -641,6 +645,10 @@ while [[ $# -gt 0 ]]; do
             CLUSTER_EE_MULTI_TENANT=$(normalize_bool "${1#*=}")
             shift
             ;;
+        --sandbox)
+            CLUSTER_USE_SANDBOX_COMPOSE=true
+            shift
+            ;;
         *)
             break
             ;;
@@ -706,6 +714,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --ee-multi-tenant=*)
             CLUSTER_EE_MULTI_TENANT=$(normalize_bool "${1#*=}")
+            shift
+            ;;
+        --sandbox)
+            CLUSTER_USE_SANDBOX_COMPOSE=true
             shift
             ;;
         *)
@@ -790,6 +802,10 @@ fi
 
 # Get compose file for profile
 COMPOSE_FILE=$(get_compose_file "$PROFILE")
+COMPOSE_FILES=(-f "$COMPOSE_FILE")
+if [[ "$CLUSTER_USE_SANDBOX_COMPOSE" == "true" ]]; then
+    COMPOSE_FILES+=(-f "${REPO_ROOT}/docker-compose.sandbox.yml")
+fi
 
 # Handle 'ports' command
 if [[ "$COMMAND" == "ports" ]]; then
@@ -856,28 +872,28 @@ if [[ "$COMMAND" == "attach" ]]; then
     build_env "$CLUSTER_NUM"
 
     # Try bash first, fall back to sh
-    exec docker compose -f "$COMPOSE_FILE" -p "tracecat-${WORKTREE_ID}-${CLUSTER_NUM}" exec "$SERVICE" /bin/bash "$@" 2>/dev/null \
-        || exec docker compose -f "$COMPOSE_FILE" -p "tracecat-${WORKTREE_ID}-${CLUSTER_NUM}" exec "$SERVICE" /bin/sh "$@"
+    exec docker compose "${COMPOSE_FILES[@]}" -p "tracecat-${WORKTREE_ID}-${CLUSTER_NUM}" exec "$SERVICE" /bin/bash "$@" 2>/dev/null \
+        || exec docker compose "${COMPOSE_FILES[@]}" -p "tracecat-${WORKTREE_ID}-${CLUSTER_NUM}" exec "$SERVICE" /bin/sh "$@"
 fi
 
 # Handle 'restart' command
 if [[ "$COMMAND" == "restart" ]]; then
     build_env "$CLUSTER_NUM"
-    exec docker compose -f "$COMPOSE_FILE" -p "tracecat-${WORKTREE_ID}-${CLUSTER_NUM}" restart "$@"
+    exec docker compose "${COMPOSE_FILES[@]}" -p "tracecat-${WORKTREE_ID}-${CLUSTER_NUM}" restart "$@"
 fi
 
 # Handle 'rm' command - down + remove volumes
 if [[ "$COMMAND" == "rm" ]]; then
     build_env "$CLUSTER_NUM"
     portless_enabled && portless_unregister "$CLUSTER_NUM"
-    exec docker compose -f "$COMPOSE_FILE" -p "tracecat-${WORKTREE_ID}-${CLUSTER_NUM}" down --volumes --remove-orphans "$@"
+    exec docker compose "${COMPOSE_FILES[@]}" -p "tracecat-${WORKTREE_ID}-${CLUSTER_NUM}" down --volumes --remove-orphans "$@"
 fi
 
 # Handle 'down' command - stop containers and remove the stale portless alias.
 if [[ "$COMMAND" == "down" ]]; then
     build_env "$CLUSTER_NUM"
     portless_enabled && portless_unregister "$CLUSTER_NUM"
-    exec docker compose -f "$COMPOSE_FILE" -p "tracecat-${WORKTREE_ID}-${CLUSTER_NUM}" down "$@"
+    exec docker compose "${COMPOSE_FILES[@]}" -p "tracecat-${WORKTREE_ID}-${CLUSTER_NUM}" down "$@"
 fi
 
 # Handle 'nuke' command - destroy cluster and optionally volumes/images
@@ -985,7 +1001,7 @@ if [[ "$COMMAND" == "nuke" ]]; then
     echo ""
     echo "Stopping containers..."
     portless_enabled && portless_unregister "$CLUSTER_NUM"
-    docker compose -f "$COMPOSE_FILE" -p "$PROJECT_NAME" down --remove-orphans
+    docker compose "${COMPOSE_FILES[@]}" -p "$PROJECT_NAME" down --remove-orphans
 
     echo ""
     echo "Removing volumes..."
@@ -1162,13 +1178,13 @@ seed_dev_user() {
 # Run docker compose with the configured environment
 if [[ "$SEED_USER" == "true" && "$COMMAND" == "up" ]]; then
     if [[ "$DETACHED_UP" == "true" ]]; then
-        docker compose -f "$COMPOSE_FILE" -p "tracecat-${WORKTREE_ID}-${CLUSTER_NUM}" "$COMMAND" "$@"
+        docker compose "${COMPOSE_FILES[@]}" -p "tracecat-${WORKTREE_ID}-${CLUSTER_NUM}" "$COMMAND" "$@"
         seed_dev_user
     else
         # Keep compose attached while a background seeder waits for API readiness.
         seed_dev_user &
-        exec docker compose -f "$COMPOSE_FILE" -p "tracecat-${WORKTREE_ID}-${CLUSTER_NUM}" "$COMMAND" "$@"
+        exec docker compose "${COMPOSE_FILES[@]}" -p "tracecat-${WORKTREE_ID}-${CLUSTER_NUM}" "$COMMAND" "$@"
     fi
 else
-    exec docker compose -f "$COMPOSE_FILE" -p "tracecat-${WORKTREE_ID}-${CLUSTER_NUM}" "$COMMAND" "$@"
+    exec docker compose "${COMPOSE_FILES[@]}" -p "tracecat-${WORKTREE_ID}-${CLUSTER_NUM}" "$COMMAND" "$@"
 fi
