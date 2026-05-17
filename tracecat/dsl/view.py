@@ -118,9 +118,14 @@ class RFEdge(TSObject):
 
     @model_validator(mode="before")
     def generate_id(cls, values: dict[str, Any]) -> dict[str, Any]:
-        """Generate the ID as a concatenation of source and target with a prefix."""
+        """Generate the ID from the React Flow edge identity."""
         if (source := values.get("source")) and (target := values.get("target")):
-            values["id"] = "-".join(("reactflow__edge", str(source), str(target)))
+            edge_id_parts = ["reactflow__edge", str(source), str(target)]
+            if source_handle := values.get("source_handle") or values.get(
+                "sourceHandle"
+            ):
+                edge_id_parts.append(str(source_handle))
+            values["id"] = "-".join(edge_id_parts)
         return values
 
 

@@ -1489,6 +1489,48 @@ def test_from_actions_error_edge():
     assert edge_to_c.source_handle == EdgeType.ERROR
 
 
+def test_from_actions_same_pair_edges_have_distinct_ids() -> None:
+    """Success and error edges for the same action pair must have unique RF IDs."""
+    workflow = MockWorkflow(id=WORKFLOW_UUID)
+    trigger_id = f"trigger-{WORKFLOW_UUID}"
+
+    action_a = MockAction(
+        id=UUID_A,
+        type="udf",
+        title="Action A",
+        upstream_edges=[
+            {"source_id": trigger_id, "source_type": "trigger"},
+        ],
+    )
+    action_b = MockAction(
+        id=UUID_B,
+        type="udf",
+        title="Action B",
+        upstream_edges=[
+            {
+                "source_id": str(UUID_A),
+                "source_type": "udf",
+                "source_handle": "success",
+            },
+            {"source_id": str(UUID_A), "source_type": "udf", "source_handle": "error"},
+        ],
+    )
+
+    graph = RFGraph.from_actions(
+        cast("Workflow", workflow),
+        cast("list[Action]", [action_a, action_b]),
+    )
+
+    edges_by_handle = {edge.source_handle: edge for edge in graph.action_edges()}
+    assert set(edges_by_handle) == {EdgeType.SUCCESS, EdgeType.ERROR}
+    assert edges_by_handle[EdgeType.SUCCESS].id == (
+        f"reactflow__edge-{UUID_A}-{UUID_B}-success"
+    )
+    assert edges_by_handle[EdgeType.ERROR].id == (
+        f"reactflow__edge-{UUID_A}-{UUID_B}-error"
+    )
+
+
 def test_from_actions_empty_graph():
     """Test RFGraph.from_actions with no actions (only trigger)."""
     workflow = MockWorkflow(id=WORKFLOW_UUID)
