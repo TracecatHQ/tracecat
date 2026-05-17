@@ -56,7 +56,12 @@ async def test_build_tarball_from_installed_environment_includes_platlib_content
         lambda: [purelib, platlib],
     )
 
-    def fake_create_squashfs(path: Path, _entries: object) -> bool:
+    def fake_create_squashfs(
+        path: Path,
+        _entries: object,
+        *,
+        preserve_symlinks: bool = True,  # noqa: ARG001
+    ) -> bool:
         path.write_bytes(b"squashfs")
         return True
 
@@ -212,7 +217,7 @@ async def test_build_tarball_from_installed_environment_skips_unrelated_symlink_
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Skip unrelated symlink entries to keep tarballs extractable and small."""
+    """Skip unrelated symlink entries in installed-environment artifacts."""
     purelib = tmp_path / "purelib"
     purelib.mkdir()
     (purelib / "dependency.py").write_text("DEP = True\n")
@@ -231,11 +236,28 @@ async def test_build_tarball_from_installed_environment_skips_unrelated_symlink_
         "get_installed_site_packages_paths",
         lambda: [purelib],
     )
+    monkeypatch.setattr(
+        tarball.config, "TRACECAT__REGISTRY_SYNC_SQUASHFS_ENABLED", True
+    )
+    monkeypatch.setattr(tarball.shutil, "which", lambda _name: "/usr/bin/mksquashfs")
+
+    output_dir = tmp_path / "out"
+    squashfs_path = output_dir / "site-packages.squashfs"
+
+    def fake_subprocess_run(cmd: list[str]) -> subprocess.CompletedProcess[str]:
+        staging_dir = Path(cmd[1])
+        assert (staging_dir / "dependency.py").exists()
+        assert (staging_dir / "tracecat_registry" / "__init__.py").exists()
+        assert not (staging_dir / "linked_dependency").exists()
+        squashfs_path.write_bytes(b"squashfs")
+        return subprocess.CompletedProcess(cmd, 0, "", "")
+
+    monkeypatch.setattr(tarball, "subprocess_run", fake_subprocess_run)
 
     result = await tarball.build_tarball_venv_from_installed_environment(
         package_name="tracecat_registry",
         package_dir=package_dir,
-        output_dir=tmp_path / "out",
+        output_dir=output_dir,
     )
 
     with tarfile.open(result.tarball_path, "r:gz") as archive:
@@ -254,6 +276,7 @@ async def test_build_tarball_from_installed_environment_skips_unrelated_symlink_
     assert (extract_dir / "dependency.py").exists()
     assert (extract_dir / "tracecat_registry" / "__init__.py").exists()
     assert not (extract_dir / "linked_dependency").exists()
+    assert result.squashfs_path == squashfs_path
 
 
 @pytest.mark.anyio

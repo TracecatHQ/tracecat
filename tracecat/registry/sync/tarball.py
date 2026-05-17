@@ -71,7 +71,12 @@ def _compute_file_hash(file_path: Path) -> str:
     return sha256_hash.hexdigest()
 
 
-def _copy_squashfs_entry(path: Path, dest: Path) -> None:
+def _copy_squashfs_entry(
+    path: Path,
+    dest: Path,
+    *,
+    preserve_symlinks: bool,
+) -> None:
     """Stage one artifact entry for SquashFS."""
 
     def _remove_existing_entry() -> None:
@@ -81,6 +86,13 @@ def _copy_squashfs_entry(path: Path, dest: Path) -> None:
             shutil.rmtree(dest)
 
     if path.is_symlink():
+        if not preserve_symlinks:
+            logger.info(
+                "Skipping link entry while staging SquashFS",
+                path=str(path),
+                link_target=os.readlink(path),
+            )
+            return
         dest.parent.mkdir(parents=True, exist_ok=True)
         _remove_existing_entry()
         dest.symlink_to(os.readlink(path))
@@ -91,7 +103,11 @@ def _copy_squashfs_entry(path: Path, dest: Path) -> None:
             dest.unlink()
         dest.mkdir(parents=True, exist_ok=True)
         for child in path.iterdir():
-            _copy_squashfs_entry(child, dest / child.name)
+            _copy_squashfs_entry(
+                child,
+                dest / child.name,
+                preserve_symlinks=preserve_symlinks,
+            )
         return
 
     if path.is_file():
@@ -109,6 +125,8 @@ def _copy_squashfs_entry(path: Path, dest: Path) -> None:
 def _create_squashfs_image(
     squashfs_path: Path,
     entries: list[tuple[Path, str]],
+    *,
+    preserve_symlinks: bool = True,
 ) -> bool:
     """Create a SquashFS image from path entries when mksquashfs is available."""
     if not config.TRACECAT__REGISTRY_SYNC_SQUASHFS_ENABLED:
@@ -125,7 +143,11 @@ def _create_squashfs_image(
         # SquashFS unreadable to non-root executor processes after -all-root.
         staging_dir.chmod(0o755)
         for path, arcname in entries:
-            _copy_squashfs_entry(path, staging_dir / arcname)
+            _copy_squashfs_entry(
+                path,
+                staging_dir / arcname,
+                preserve_symlinks=preserve_symlinks,
+            )
 
         cmd = [
             mksquashfs,
@@ -148,9 +170,15 @@ def _create_squashfs_image(
 def _create_squashfs_sidecar(
     squashfs_path: Path,
     entries: list[tuple[Path, str]],
+    *,
+    preserve_symlinks: bool = True,
 ) -> None:
     """Create a SquashFS sidecar when enabled, otherwise leave no file behind."""
-    if not _create_squashfs_image(squashfs_path, entries):
+    if not _create_squashfs_image(
+        squashfs_path,
+        entries,
+        preserve_symlinks=preserve_symlinks,
+    ):
         squashfs_path.unlink(missing_ok=True)
 
 
@@ -317,7 +345,11 @@ async def build_tarball_venv_from_installed_environment(
             for path, arcname in entries:
                 tar.add(path, arcname=arcname, filter=_filter_link_entries)
 
-        _create_squashfs_sidecar(squashfs_path, entries)
+        _create_squashfs_sidecar(
+            squashfs_path,
+            entries,
+            preserve_symlinks=False,
+        )
 
         if not package_in_site_packages and not should_overlay_editable_package:
             logger.warning(
