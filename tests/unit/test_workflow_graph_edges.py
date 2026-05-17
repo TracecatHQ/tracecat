@@ -9,6 +9,7 @@ Regression for https://github.com/TracecatHQ/tracecat/issues/2619.
 
 import uuid
 from collections.abc import AsyncGenerator
+from typing import Literal
 
 import pytest
 from sqlalchemy import select
@@ -17,7 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat.auth.types import Role
 from tracecat.db.models import Action, Workflow, Workspace
 from tracecat.identifiers.workflow import WorkflowUUID
-from tracecat.workflow.graph.service import WorkflowGraphService
+from tracecat.workflow.graph.service import EdgeDedupKey, WorkflowGraphService
 from tracecat.workflow.management.schemas import (
     AddEdgePayload,
     DeleteEdgePayload,
@@ -26,6 +27,8 @@ from tracecat.workflow.management.schemas import (
 )
 
 pytestmark = pytest.mark.usefixtures("db")
+
+type EdgeHandle = Literal["success", "error"]
 
 
 @pytest.fixture
@@ -87,7 +90,7 @@ async def workflow_pair(
 
 
 def _add_edge_op(
-    source_id: uuid.UUID, target_id: uuid.UUID, handle: str
+    source_id: uuid.UUID, target_id: uuid.UUID, handle: EdgeHandle
 ) -> GraphOperation:
     return GraphOperation(
         type=GraphOperationType.ADD_EDGE,
@@ -95,13 +98,13 @@ def _add_edge_op(
             source_id=str(source_id),
             source_type="udf",
             target_id=target_id,
-            source_handle=handle,  # type: ignore[arg-type]
+            source_handle=handle,
         ).model_dump(mode="json"),
     )
 
 
 def _delete_edge_op(
-    source_id: uuid.UUID, target_id: uuid.UUID, handle: str
+    source_id: uuid.UUID, target_id: uuid.UUID, handle: EdgeHandle
 ) -> GraphOperation:
     return GraphOperation(
         type=GraphOperationType.DELETE_EDGE,
@@ -109,7 +112,7 @@ def _delete_edge_op(
             source_id=str(source_id),
             source_type="udf",
             target_id=target_id,
-            source_handle=handle,  # type: ignore[arg-type]
+            source_handle=handle,
         ).model_dump(mode="json"),
     )
 
@@ -124,34 +127,28 @@ def _handles_for(action: Action, source_id: uuid.UUID) -> list[str]:
 
 def test_edge_dedup_key_udf_defaults_to_success() -> None:
     """Missing handle on a udf edge canonicalises to 'success'."""
-    assert WorkflowGraphService._edge_dedup_key("a", "udf", None) == (
-        "a",
-        "udf",
-        "success",
+    assert WorkflowGraphService._edge_dedup_key("a", "udf", None) == EdgeDedupKey(
+        "a", "udf", "success"
     )
-    assert WorkflowGraphService._edge_dedup_key("a", "udf", "success") == (
-        "a",
-        "udf",
-        "success",
+    assert WorkflowGraphService._edge_dedup_key("a", "udf", "success") == EdgeDedupKey(
+        "a", "udf", "success"
     )
-    assert WorkflowGraphService._edge_dedup_key("a", "udf", "error") == (
-        "a",
-        "udf",
-        "error",
+    assert WorkflowGraphService._edge_dedup_key("a", "udf", "error") == EdgeDedupKey(
+        "a", "udf", "error"
     )
 
 
 def test_edge_dedup_key_trigger_ignores_handle() -> None:
     """Trigger edges have no handle concept."""
-    assert WorkflowGraphService._edge_dedup_key("trigger-x", "trigger", None) == (
+    assert WorkflowGraphService._edge_dedup_key(
+        "trigger-x", "trigger", None
+    ) == EdgeDedupKey(
         "trigger-x",
         "trigger",
         None,
     )
     assert WorkflowGraphService._edge_dedup_key("trigger-x", "trigger", "success") == (
-        "trigger-x",
-        "trigger",
-        None,
+        EdgeDedupKey("trigger-x", "trigger", None)
     )
 
 
