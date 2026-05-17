@@ -112,7 +112,7 @@ class TableColumnUpdate(BaseModel):
     )
     is_index: bool | None = Field(
         default=None,
-        description="Whether the column is an index",
+        description="True creates a unique index, False drops it, None leaves unchanged.",
     )
     options: list[str] | None = Field(default=None)
 

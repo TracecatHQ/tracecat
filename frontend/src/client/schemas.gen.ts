@@ -7780,7 +7780,8 @@ export const $CaseFieldUpdate = {
         },
       ],
       title: "Is Index",
-      description: "Whether the column is an index",
+      description:
+        "True creates a unique index, False drops it, None leaves unchanged.",
     },
     options: {
       anyOf: [
@@ -22211,7 +22212,8 @@ export const $TableColumnUpdate = {
         },
       ],
       title: "Is Index",
-      description: "Whether the column is an index",
+      description:
+        "True creates a unique index, False drops it, None leaves unchanged.",
     },
     options: {
       anyOf: [

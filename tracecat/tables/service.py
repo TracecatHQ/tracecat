@@ -627,12 +627,13 @@ class BaseTablesService(BaseWorkspaceService):
                 self._assert_user_column_name_allowed(requested_name)
         full_table_name = self._full_table_name(column.table.name)
         conn = await self.session.connection()
-        is_index = set_fields.pop("is_index", False)
+        is_index = set_fields.pop("is_index", None)
         requested_options = set_fields.pop("options", None)
 
-        # Create index if requested
-        if is_index:
+        if is_index is True:
             await self.create_unique_index(column.table, column.name)
+        elif is_index is False:
+            await self.drop_unique_index(column.table, column.name)
 
         # Handle options for SELECT/MULTI_SELECT columns
         target_type = (
@@ -772,6 +773,39 @@ class BaseTablesService(BaseWorkspaceService):
         )
 
         # Commit the transaction
+        await self.session.flush()
+
+    async def drop_unique_index(self, table: Table, column_name: str) -> None:
+        """Drop the unique index on the specified column."""
+
+        schema_name = self._get_schema_name()
+
+        resolved_column_name = self._resolve_external_column_name(table, column_name)
+        sanitized_column = self._sanitize_identifier(resolved_column_name)
+
+        conn = await self.session.connection()
+
+        def find_index_name(sync_conn: sa.Connection) -> str | None:
+            inspector = sa.inspect(sync_conn)
+            for idx in inspector.get_indexes(table.name, schema=schema_name):
+                cols = idx["column_names"]
+                if (
+                    idx.get("unique") is True
+                    and len(cols) == 1
+                    and isinstance(cols[0], str)
+                    and cols[0] == sanitized_column
+                ):
+                    return idx.get("name")
+            return None
+
+        index_name = await conn.run_sync(find_index_name)
+        if index_name is None:
+            raise ValueError(f"No unique index exists on column '{column_name}'")
+
+        qualified_index = f'"{schema_name}"."{index_name}"'
+
+        await conn.execute(sa.DDL("DROP INDEX %s", (qualified_index,)))
+
         await self.session.flush()
 
     @audit_log(resource_type="table_column", action="delete")

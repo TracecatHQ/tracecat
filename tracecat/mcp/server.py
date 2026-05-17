@@ -211,6 +211,7 @@ from tracecat.storage import blob
 from tracecat.tables.enums import SqlType
 from tracecat.tables.schemas import (
     TableColumnCreate,
+    TableColumnUpdate,
     TableCreate,
     TableRowInsert,
     TableUpdate,
@@ -3877,6 +3878,8 @@ _TOOL_NAMESPACE_BY_NAME: dict[str, str] = {
     "update_table_row": "tables",
     "search_table_rows": "tables",
     "export_csv": "tables",
+    "create_column_index": "tables",
+    "drop_column_index": "tables",
     "list_variables": "variables",
     "get_variable": "variables",
     "list_secrets_metadata": "secrets",
@@ -7683,6 +7686,56 @@ async def export_csv(
     except Exception as e:
         logger.error("Failed to export CSV", error=str(e))
         raise ToolError(f"Failed to export CSV: {e}") from None
+
+
+@mcp.tool()
+async def create_column_index(
+    workspace_id: uuid.UUID,
+    table_id: uuid.UUID,
+    column_id: uuid.UUID,
+) -> dict[str, str]:
+    """Create a unique index on a table column. Only one unique index per table is allowed."""
+
+    try:
+        table_id = _coerce_uuid_arg(table_id, "table_id")
+        column_id = _coerce_uuid_arg(column_id, "column_id")
+        _, role = await _resolve_workspace_role(workspace_id)
+        async with TablesService.with_session(role=role) as svc:
+            column = await svc.get_column(table_id, column_id)
+            await svc.update_column(column, TableColumnUpdate(is_index=True))
+            return {"status": "ok", "column": column.name}
+    except ToolError:
+        raise
+    except ValueError as e:
+        raise ToolError(str(e)) from e
+    except Exception as e:
+        logger.error("Failed to create column index", error=str(e))
+        raise ToolError(f"Failed to create column index: {e}") from None
+
+
+@mcp.tool()
+async def drop_column_index(
+    workspace_id: uuid.UUID,
+    table_id: uuid.UUID,
+    column_id: uuid.UUID,
+) -> dict[str, str]:
+    """Drop the unique index on a table column."""
+
+    try:
+        table_id = _coerce_uuid_arg(table_id, "table_id")
+        column_id = _coerce_uuid_arg(column_id, "column_id")
+        _, role = await _resolve_workspace_role(workspace_id)
+        async with TablesService.with_session(role=role) as svc:
+            column = await svc.get_column(table_id, column_id)
+            await svc.update_column(column, TableColumnUpdate(is_index=False))
+            return {"status": "ok", "column": column.name}
+    except ToolError:
+        raise
+    except ValueError as e:
+        raise ToolError(str(e)) from e
+    except Exception as e:
+        logger.error("Failed to drop column index", error=str(e))
+        raise ToolError(f"Failed to drop column index: {e}") from None
 
 
 @mcp.tool()

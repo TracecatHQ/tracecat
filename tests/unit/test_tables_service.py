@@ -1081,6 +1081,44 @@ class TestTableColumns:
 
         assert "Table cannot have multiple unique indexes" in str(exc_info.value)
 
+    async def test_drop_unique_index_removes_index(
+        self, tables_service: TablesService, table: Table
+    ) -> None:
+        """Test that dropping a unique index removes it from the table."""
+        await tables_service.create_unique_index(table, "name")
+        assert "name" in await tables_service.get_index(table)
+
+        await tables_service.drop_unique_index(table, "name")
+        assert await tables_service.get_index(table) == []
+
+    async def test_drop_unique_index_fails_when_no_index(
+        self, tables_service: TablesService, table: Table
+    ) -> None:
+        """Test that dropping a unique index fails when none exists on the column."""
+        with pytest.raises(ValueError) as exc_info:
+            await tables_service.drop_unique_index(table, "name")
+
+        assert "No unique index exists on column 'name'" in str(exc_info.value)
+
+    async def test_update_column_can_drop_unique_index(
+        self, tables_service: TablesService, table: Table, session: AsyncSession
+    ) -> None:
+        """Calling update_column with is_index=False drops the existing unique index."""
+        await tables_service.create_unique_index(table, "name")
+
+        name_column_id = await session.scalar(
+            select(TableColumn.id).where(
+                TableColumn.table_id == table.id,
+                TableColumn.name == "name",
+            )
+        )
+        assert name_column_id is not None
+        column = await tables_service.get_column(table.id, name_column_id)
+
+        await tables_service.update_column(column, TableColumnUpdate(is_index=False))
+
+        assert await tables_service.get_index(table) == []
+
 
 @pytest.mark.anyio
 class TestTableRows:
