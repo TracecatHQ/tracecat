@@ -8,6 +8,7 @@ import tempfile
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
+import httpx
 import pytest
 
 from tracecat.executor.registry_artifacts import (
@@ -104,6 +105,28 @@ class TestRegistryArtifactCache:
             bucket="bucket",
             output_path=output_path,
         )
+
+    @pytest.mark.anyio
+    async def test_download_artifact_normalizes_missing_objects_to_http_404(
+        self, temp_cache_dir
+    ):
+        """Preserve the missing-artifact error contract from presigned downloads."""
+        cache = RegistryArtifactCache(temp_cache_dir)
+        output_path = temp_cache_dir / "artifact.tar.gz"
+
+        with patch(
+            "tracecat.executor.registry_artifacts.blob.download_file_to_path",
+            new_callable=AsyncMock,
+            side_effect=FileNotFoundError,
+        ):
+            with pytest.raises(httpx.HTTPStatusError) as exc_info:
+                await cache._download_artifact(
+                    "s3://bucket/path/site-packages.tar.gz",
+                    output_path,
+                )
+
+        assert exc_info.value.response.status_code == 404
+        assert isinstance(exc_info.value.__cause__, FileNotFoundError)
 
     @pytest.mark.anyio
     async def test_resolve_preferred_artifact_uses_squashfs_sidecar(

@@ -12,6 +12,8 @@ from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
 
+import httpx
+
 from tracecat import config
 from tracecat.logger import logger
 from tracecat.storage import blob
@@ -423,11 +425,20 @@ class RegistryArtifactCache:
     async def _download_artifact(self, artifact_uri: str, output_path: Path) -> None:
         """Download an S3 registry artifact to a local path."""
         bucket, key = parse_s3_uri(artifact_uri)
-        await blob.download_file_to_path(
-            key=key,
-            bucket=bucket,
-            output_path=output_path,
-        )
+        try:
+            await blob.download_file_to_path(
+                key=key,
+                bucket=bucket,
+                output_path=output_path,
+            )
+        except FileNotFoundError as e:
+            request = httpx.Request("GET", artifact_uri)
+            response = httpx.Response(status_code=404, request=request)
+            raise httpx.HTTPStatusError(
+                f"Registry artifact not found: {artifact_uri}",
+                request=request,
+                response=response,
+            ) from e
 
     async def _extract_tarball(self, tarball_path: Path, target_dir: Path) -> None:
         """Extract a supported registry tarball to target directory."""
