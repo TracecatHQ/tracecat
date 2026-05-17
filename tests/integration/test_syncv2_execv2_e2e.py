@@ -1124,18 +1124,20 @@ class TestFailureScenarios:
             executor_token="mock-token-for-testing",
         )
 
-        # Resolve and delete the exact tarball URI(s) the executor will use.
+        # Resolve and delete the exact artifact URI(s) the executor will use.
         # For tracecat_registry, this may resolve to platform-scoped artifacts.
         backend = EphemeralBackend()
         tarball_uris = await backend._get_tarball_uris(input_data, test_role)
         assert tarball_uris, (
             "Expected resolved tarball URIs for locked registry version"
         )
-        deleted_tarball_uris = set(tarball_uris)
-        for tarball_uri in deleted_tarball_uris:
-            uri_parts = tarball_uri.replace("s3://", "").split("/", 1)
-            bucket = uri_parts[0]
-            key = uri_parts[1]
+        deleted_artifact_keys: set[tuple[str, str]] = set()
+        for tarball_uri in tarball_uris:
+            bucket, _ = _parse_s3_uri(tarball_uri)
+            deleted_artifact_keys.update(
+                (bucket, key) for key in _artifact_keys_for_tarball_uri(tarball_uri)
+            )
+        for bucket, key in deleted_artifact_keys:
             minio_client.remove_object(bucket, key)
 
         # Create test runner
