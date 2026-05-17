@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import os
+import platform
+import shutil
 import subprocess
 import sys
 import sysconfig
+import tempfile
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
@@ -14,6 +18,8 @@ import pytest
 from tracecat_registry import ctx as registry_ctx
 from tracecat_registry.context import RegistryContext, clear_context, set_context
 
+import tracecat.executor.backends.base as executor_backend_module
+import tracecat.sandbox.service as sandbox_service_module
 from tracecat.auth.types import Role
 from tracecat.dsl.enums import PlatformAction
 from tracecat.dsl.schemas import (
@@ -50,6 +56,21 @@ if TYPE_CHECKING:
         )
 
     _ = _check_registry_ctx_aio_types
+
+
+@pytest.fixture(autouse=True, scope="session")
+def default_org() -> None:
+    pass
+
+
+@pytest.fixture(autouse=True, scope="session")
+def workflow_bucket() -> None:
+    pass
+
+
+@pytest.fixture(autouse=True)
+def clean_redis_db() -> None:
+    pass
 
 
 class _FakeCasesClient:
@@ -167,6 +188,262 @@ def _make_run_python_context() -> ResolvedContext:
         executor_token="executor-token",
         logical_time=datetime.now(UTC),
     )
+
+
+def _run_python_nsjail_available() -> bool:
+    nsjail_path = Path(sandbox_service_module.TRACECAT__SANDBOX_NSJAIL_PATH)
+    rootfs_path = Path(sandbox_service_module.TRACECAT__SANDBOX_ROOTFS_PATH)
+    return (
+        platform.system() == "Linux"
+        and nsjail_path.is_file()
+        and os.access(nsjail_path, os.X_OK)
+        and rootfs_path.is_dir()
+    )
+
+
+def _docker_nsjail_fallback_enabled() -> bool:
+    return (
+        os.environ.get("TRACECAT__RUN_PYTHON_NSJAIL_DOCKER_FALLBACK_CHILD") != "1"
+        and shutil.which("docker") is not None
+    )
+
+
+def _set_run_python_nsjail_mode(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    disable_nsjail: bool,
+) -> None:
+    monkeypatch.setattr(
+        sandbox_service_module,
+        "TRACECAT__DISABLE_NSJAIL",
+        disable_nsjail,
+    )
+
+
+def _registry_ctx_smoke_script() -> str:
+    return """
+from tracecat_registry import ctx
+
+def main():
+    return {
+        "workspace_id": ctx.workspace_id,
+        "workflow_id": ctx.workflow_id,
+        "run_id": ctx.run_id,
+        "wf_exec_id": ctx.wf_exec_id,
+        "environment": ctx.environment,
+        "api_url": ctx.api_url,
+        "token": ctx.token,
+        "has_sync_list_cases": callable(ctx.cases.list_cases),
+        "has_async_list_cases": callable(ctx.cases.aio.list_cases),
+        "has_modal_style_method_aio": hasattr(ctx.cases.list_cases, "aio"),
+    }
+"""
+
+
+def _registry_ctx_env_vars() -> dict[str, str]:
+    return {
+        "TRACECAT__API_URL": "http://api.test:8000",
+        "TRACECAT__WORKSPACE_ID": "workspace-id",
+        "TRACECAT__WORKFLOW_ID": "workflow-id",
+        "TRACECAT__RUN_ID": "run-id",
+        "TRACECAT__WF_EXEC_ID": "workflow-id/execution-id",
+        "TRACECAT__ENVIRONMENT": "testing",
+        "TRACECAT__EXECUTOR_TOKEN": "executor-token",
+    }
+
+
+def _expected_registry_ctx_smoke_result(
+    *,
+    workspace_id: str = "workspace-id",
+    workflow_id: str = "workflow-id",
+    run_id: str = "run-id",
+    wf_exec_id: str = "workflow-id/execution-id",
+    environment: str = "testing",
+    api_url: str = "http://api.test:8000",
+    token: str = "executor-token",
+) -> dict[str, Any]:
+    return {
+        "workspace_id": workspace_id,
+        "workflow_id": workflow_id,
+        "run_id": run_id,
+        "wf_exec_id": wf_exec_id,
+        "environment": environment,
+        "api_url": api_url,
+        "token": token,
+        "has_sync_list_cases": True,
+        "has_async_list_cases": True,
+        "has_modal_style_method_aio": False,
+    }
+
+
+async def _run_sandbox_registry_ctx_smoke(
+    *,
+    cache_dir: Path,
+    timeout_seconds: int = 60,
+) -> Any:
+    return await SandboxService(cache_dir=str(cache_dir)).run_python(
+        script=_registry_ctx_smoke_script(),
+        env_vars=_registry_ctx_env_vars(),
+        timeout_seconds=timeout_seconds,
+    )
+
+
+async def _run_direct_backend_registry_ctx_smoke(
+    *,
+    monkeypatch: pytest.MonkeyPatch,
+    cache_dir: Path,
+) -> dict[str, Any]:
+    monkeypatch.setattr(
+        executor_backend_module,
+        "SandboxService",
+        lambda: SandboxService(cache_dir=str(cache_dir)),
+    )
+    monkeypatch.setattr(
+        executor_backend_module.config,
+        "TRACECAT__API_URL",
+        "http://api.test:8000",
+    )
+
+    input_data = _make_run_python_input()
+    resolved_context = _make_run_python_context()
+    resolved_context.evaluated_args.update(
+        {
+            "script": _registry_ctx_smoke_script(),
+            "timeout_seconds": 60,
+        }
+    )
+
+    result = await DirectBackend().execute(
+        input=input_data,
+        role=_make_role(),
+        resolved_context=resolved_context,
+    )
+
+    assert result.type == "success"
+    assert result.result == _expected_registry_ctx_smoke_result(
+        workspace_id=resolved_context.workspace_id,
+        workflow_id=resolved_context.workflow_id,
+        run_id=resolved_context.run_id,
+        wf_exec_id=str(input_data.run_context.wf_exec_id),
+        environment=input_data.run_context.environment,
+        token=resolved_context.executor_token,
+    )
+    return result.result
+
+
+def _run_nsjail_sdk_context_harness_in_docker_or_skip() -> None:
+    if os.environ.get("TRACECAT__RUN_PYTHON_NSJAIL_DOCKER_FALLBACK_CHILD") == "1":
+        pytest.skip("run_python nsjail unavailable inside Docker fallback child")
+    if not _docker_nsjail_fallback_enabled():
+        pytest.skip("Docker CLI unavailable for run_python nsjail fallback")
+
+    docker_info = subprocess.run(
+        ["docker", "info"],
+        capture_output=True,
+        text=True,
+        timeout=10,
+        check=False,
+    )
+    if docker_info.returncode != 0:
+        pytest.skip("Docker daemon unavailable for run_python nsjail fallback")
+
+    repo_root = Path(__file__).resolve().parents[3]
+    compose_env = os.environ.copy()
+    compose_env.setdefault(
+        "TRACECAT__LOCAL_REPOSITORY_PATH",
+        str(repo_root / "packages"),
+    )
+    compose_env.setdefault("TRACECAT__LOCAL_REPOSITORY_ENABLED", "false")
+    compose_env.setdefault("PUBLIC_APP_PORT", "80")
+    compose_env.setdefault("BASE_DOMAIN", ":80")
+    compose_env.setdefault("ADDRESS", "0.0.0.0")
+    compose_env.setdefault("LOG_LEVEL", "INFO")
+    compose_env.setdefault("TRACECAT__APP_ENV", "development")
+    tests_mount = f"{repo_root / 'tests'}:/app/tests:ro"
+    fd, override_name = tempfile.mkstemp(
+        prefix="tracecat-run-python-nsjail-test-",
+        suffix=".yml",
+    )
+    os.close(fd)
+    override_path = Path(override_name)
+    override_path.write_text(
+        "\n".join(
+            [
+                "services:",
+                "  api:",
+                "    build:",
+                "      target: test",
+                "    cap_add:",
+                "      - SYS_ADMIN",
+                "    security_opt:",
+                "      - seccomp:unconfined",
+                "      - systempaths=unconfined",
+                "    volumes:",
+                f"      - {json.dumps(tests_mount)}",
+                "    environment:",
+                '      TRACECAT__RUN_PYTHON_NSJAIL_DOCKER_FALLBACK_CHILD: "1"',
+                '      TRACECAT__DISABLE_NSJAIL: "false"',
+                '      TRACECAT__SANDBOX_NSJAIL_PATH: "/usr/local/bin/nsjail"',
+                '      TRACECAT__SANDBOX_ROOTFS_PATH: "/var/lib/tracecat/sandbox-rootfs"',
+                '      PYTHONDONTWRITEBYTECODE: "1"',
+                "",
+            ]
+        )
+    )
+    try:
+        result = subprocess.run(
+            [
+                "docker",
+                "compose",
+                "-f",
+                str(repo_root / "docker-compose.dev.yml"),
+                "-f",
+                str(override_path),
+                "run",
+                "--rm",
+                "--no-deps",
+                "--build",
+                "-T",
+                "--entrypoint",
+                "sh",
+                "api",
+                "-lc",
+                "uv run python -m tests.unit.executor.test_run_python_sdk_context "
+                "--run-nsjail-sdk-context-smoke",
+            ],
+            cwd=repo_root,
+            env=compose_env,
+            capture_output=True,
+            text=True,
+            timeout=180,
+            check=False,
+        )
+    finally:
+        override_path.unlink(missing_ok=True)
+
+    if result.returncode != 0:
+        pytest.fail(
+            "Dockerized run_python nsjail SDK-context fallback failed."
+            f"\n\nstdout:\n{result.stdout}\n\nstderr:\n{result.stderr}"
+        )
+
+
+def _run_nsjail_sdk_context_smoke_from_cli() -> None:
+    async def run() -> None:
+        monkeypatch = pytest.MonkeyPatch()
+        tmp_path = Path(tempfile.mkdtemp(prefix="tracecat-run-python-nsjail-"))
+        try:
+            _set_run_python_nsjail_mode(monkeypatch, disable_nsjail=False)
+            result = await _run_direct_backend_registry_ctx_smoke(
+                monkeypatch=monkeypatch,
+                cache_dir=tmp_path / "sandbox-cache",
+            )
+            assert isinstance(result, dict)
+        finally:
+            monkeypatch.undo()
+            shutil.rmtree(tmp_path, ignore_errors=True)
+
+    asyncio.run(run())
 
 
 def test_validate_run_python_script_allows_async_main() -> None:
@@ -493,34 +770,49 @@ async def test_run_python_subprocess_can_import_registry_ctx(
 ) -> None:
     monkeypatch.setattr(SandboxService, "_is_nsjail_available", lambda self: False)
 
-    script = """
-from tracecat_registry import ctx
-
-def main():
-    return {
-        "workspace_id": ctx.workspace_id,
-        "workflow_id": ctx.workflow_id,
-        "run_id": ctx.run_id,
-        "api_url": ctx.api_url,
-        "token": ctx.token,
-    }
-"""
-
-    result = await SandboxService(cache_dir=str(tmp_path / "sandbox-cache")).run_python(
-        script=script,
-        env_vars={
-            "TRACECAT__API_URL": "http://api.test:8000",
-            "TRACECAT__WORKSPACE_ID": "workspace-id",
-            "TRACECAT__WORKFLOW_ID": "workflow-id",
-            "TRACECAT__RUN_ID": "run-id",
-            "TRACECAT__EXECUTOR_TOKEN": "executor-token",
-        },
+    result = await _run_sandbox_registry_ctx_smoke(
+        cache_dir=tmp_path / "sandbox-cache",
     )
 
-    assert result == {
-        "workspace_id": "workspace-id",
-        "workflow_id": "workflow-id",
-        "run_id": "run-id",
-        "api_url": "http://api.test:8000",
-        "token": "executor-token",
-    }
+    assert result == _expected_registry_ctx_smoke_result()
+
+
+@pytest.mark.anyio
+async def test_run_python_direct_backend_can_import_registry_ctx_in_pid_mode(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _set_run_python_nsjail_mode(monkeypatch, disable_nsjail=True)
+
+    await _run_direct_backend_registry_ctx_smoke(
+        monkeypatch=monkeypatch,
+        cache_dir=tmp_path / "sandbox-cache",
+    )
+
+
+@pytest.mark.anyio
+async def test_run_python_nsjail_can_import_registry_ctx_with_sdk_path(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    if not _run_python_nsjail_available():
+        _run_nsjail_sdk_context_harness_in_docker_or_skip()
+        return
+
+    _set_run_python_nsjail_mode(monkeypatch, disable_nsjail=False)
+    result = await _run_direct_backend_registry_ctx_smoke(
+        monkeypatch=monkeypatch,
+        cache_dir=tmp_path / "sandbox-cache",
+    )
+
+    assert isinstance(result, dict)
+
+
+if __name__ == "__main__":
+    if sys.argv[1:] == ["--run-nsjail-sdk-context-smoke"]:
+        _run_nsjail_sdk_context_smoke_from_cli()
+    else:
+        raise SystemExit(
+            "Usage: python -m tests.unit.executor.test_run_python_sdk_context "
+            "[--run-nsjail-sdk-context-smoke]"
+        )
