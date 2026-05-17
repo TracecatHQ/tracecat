@@ -318,13 +318,23 @@ async def test_upload_tarball_venv_deletes_stale_squashfs_sidecar(
 ) -> None:
     tarball_path = tmp_path / "site-packages.tar.gz"
     tarball_path.write_bytes(b"gzip")
+    events: list[tuple[str, str]] = []
+
+    async def record_upload(**kwargs: object) -> None:
+        events.append(("upload", str(kwargs["key"])))
+
+    async def record_delete(**kwargs: object) -> None:
+        events.append(("delete", str(kwargs["key"])))
+
+    upload_file_from_path = mocker.AsyncMock(side_effect=record_upload)
+    delete_file = mocker.AsyncMock(side_effect=record_delete)
     upload_file_from_path = mocker.patch(
         "tracecat.registry.sync.tarball.blob.upload_file_from_path",
-        mocker.AsyncMock(),
+        upload_file_from_path,
     )
     delete_file = mocker.patch(
         "tracecat.registry.sync.tarball.blob.delete_file",
-        mocker.AsyncMock(),
+        delete_file,
     )
 
     uri = await upload_tarball_venv(
@@ -348,6 +358,10 @@ async def test_upload_tarball_venv_deletes_stale_squashfs_sidecar(
         key="org/tarball-venvs/tracecat_registry/v1/site-packages.squashfs",
         bucket="tracecat-registry",
     )
+    assert events == [
+        ("delete", "org/tarball-venvs/tracecat_registry/v1/site-packages.squashfs"),
+        ("upload", "org/tarball-venvs/tracecat_registry/v1/site-packages.tar.gz"),
+    ]
 
 
 @pytest.mark.anyio
