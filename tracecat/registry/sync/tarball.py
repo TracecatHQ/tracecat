@@ -11,17 +11,18 @@ import asyncio
 import hashlib
 import os
 import re
+import shutil
+import stat
+import subprocess
 import sysconfig
 import tarfile
 import tempfile
-from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 import aiofiles
 import tracecat_registry
-import zstandard as zstd
 
 from tracecat import config
 from tracecat.logger import logger
@@ -43,22 +44,23 @@ class TarballVenvBuildResult:
     tarball_name: str
     content_hash: str
     compressed_size_bytes: int
-    zstd_tarball_path: Path
-    zstd_compressed_size_bytes: int
+    squashfs_path: Path | None = None
+    squashfs_size_bytes: int | None = None
 
 
-def _zstd_tarball_path_for(tarball_path: Path) -> Path:
-    """Return the sibling zstd path for a gzip tarball path."""
+def _squashfs_path_for(tarball_path: Path) -> Path:
+    """Return the sibling SquashFS path for a gzip tarball path."""
     if tarball_path.name.endswith(".tar.gz"):
-        return tarball_path.with_suffix(".zst")
-    return tarball_path.with_name(f"{tarball_path.name}.zst")
+        squashfs_name = tarball_path.name.removesuffix(".tar.gz") + ".squashfs"
+        return tarball_path.with_name(squashfs_name)
+    return tarball_path.with_name(f"{tarball_path.name}.squashfs")
 
 
-def _zstd_key_for(key: str) -> str:
-    """Return the sibling zstd key for a gzip tarball S3 key."""
+def _squashfs_key_for(key: str) -> str:
+    """Return the sibling SquashFS key for a gzip tarball S3 key."""
     if key.endswith(".tar.gz"):
-        return key.removesuffix(".tar.gz") + ".tar.zst"
-    return f"{key}.zst"
+        return key.removesuffix(".tar.gz") + ".squashfs"
+    return f"{key}.squashfs"
 
 
 def _compute_file_hash(file_path: Path) -> str:
@@ -70,18 +72,141 @@ def _compute_file_hash(file_path: Path) -> str:
     return sha256_hash.hexdigest()
 
 
-def _create_zstd_tarball(
-    tarball_path: Path,
+def _copy_squashfs_entry(
+    path: Path,
+    dest: Path,
+    *,
+    preserve_symlinks: bool,
+) -> None:
+    """Stage one artifact entry for SquashFS."""
+
+    def _normalized_file_mode(mode: int) -> int:
+        mode = stat.S_IMODE(mode)
+        normalized = mode | 0o444
+        if mode & 0o111:
+            normalized |= 0o111
+        return normalized
+
+    def _normalized_dir_mode(mode: int) -> int:
+        return stat.S_IMODE(mode) | 0o555
+
+    def _remove_existing_entry() -> None:
+        if dest.is_symlink() or dest.is_file():
+            dest.unlink()
+        elif dest.is_dir():
+            shutil.rmtree(dest)
+
+    if path.is_symlink():
+        if not preserve_symlinks:
+            logger.info(
+                "Skipping link entry while staging SquashFS",
+                path=str(path),
+                link_target=os.readlink(path),
+            )
+            return
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        _remove_existing_entry()
+        dest.symlink_to(os.readlink(path))
+        return
+
+    if path.is_dir():
+        if dest.is_symlink() or dest.is_file():
+            dest.unlink()
+        dest.mkdir(parents=True, exist_ok=True)
+        for child in path.iterdir():
+            _copy_squashfs_entry(
+                child,
+                dest / child.name,
+                preserve_symlinks=preserve_symlinks,
+            )
+        dest.chmod(_normalized_dir_mode(path.stat().st_mode))
+        return
+
+    if path.is_file():
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        _remove_existing_entry()
+        source_mode = stat.S_IMODE(path.stat().st_mode)
+        normalized_mode = _normalized_file_mode(source_mode)
+        if normalized_mode == source_mode:
+            try:
+                os.link(path, dest)
+            except OSError:
+                shutil.copy2(path, dest)
+        else:
+            shutil.copy2(path, dest)
+            dest.chmod(normalized_mode)
+        return
+
+    logger.info("Skipping non-file entry while staging SquashFS", path=str(path))
+
+
+def _create_squashfs_image(
+    squashfs_path: Path,
     entries: list[tuple[Path, str]],
     *,
-    filter: Callable[[tarfile.TarInfo], tarfile.TarInfo | None] | None = None,
+    preserve_symlinks: bool = True,
+) -> bool:
+    """Create a SquashFS image from path entries when mksquashfs is available."""
+    if not config.TRACECAT__REGISTRY_SYNC_SQUASHFS_ENABLED:
+        return False
+
+    mksquashfs = shutil.which("mksquashfs")
+    if mksquashfs is None:
+        logger.warning("Skipping SquashFS sidecar build; mksquashfs is not installed")
+        return False
+
+    with tempfile.TemporaryDirectory(prefix="tracecat_squashfs_root_") as staging:
+        staging_dir = Path(staging)
+        # TemporaryDirectory creates a 0700 root, which would make the mounted
+        # SquashFS unreadable to non-root executor processes after -all-root.
+        staging_dir.chmod(0o755)
+        for path, arcname in entries:
+            _copy_squashfs_entry(
+                path,
+                staging_dir / arcname,
+                preserve_symlinks=preserve_symlinks,
+            )
+
+        cmd = [
+            mksquashfs,
+            str(staging_dir),
+            str(squashfs_path),
+            "-noappend",
+            "-comp",
+            "gzip",
+            "-no-xattrs",
+            "-all-root",
+        ]
+        result = subprocess_run(cmd)
+        if result.returncode != 0:
+            error = result.stderr.strip() or result.stdout.strip()
+            raise TarballBuildError(f"Failed to build SquashFS sidecar: {error}")
+
+    return True
+
+
+def _create_squashfs_sidecar(
+    squashfs_path: Path,
+    entries: list[tuple[Path, str]],
+    *,
+    preserve_symlinks: bool = True,
 ) -> None:
-    """Create a zstd-compressed tarball from path entries."""
-    compressor = zstd.ZstdCompressor(level=3)
-    with zstd.open(tarball_path, "wb", cctx=compressor) as compressed:
-        with tarfile.open(fileobj=compressed, mode="w|") as tar:
-            for path, arcname in entries:
-                tar.add(path, arcname=arcname, filter=filter)
+    """Create a SquashFS sidecar when enabled, otherwise leave no file behind."""
+    if not _create_squashfs_image(
+        squashfs_path,
+        entries,
+        preserve_symlinks=preserve_symlinks,
+    ):
+        squashfs_path.unlink(missing_ok=True)
+
+
+def subprocess_run(cmd: list[str]) -> subprocess.CompletedProcess[str]:
+    """Run a subprocess command.
+
+    Kept as a small wrapper so tests can monkeypatch SquashFS creation without
+    shelling out.
+    """
+    return subprocess.run(cmd, capture_output=True, text=True, check=False)
 
 
 def _slugify_origin(origin: str) -> str:
@@ -204,7 +329,7 @@ async def build_tarball_venv_from_installed_environment(
 
     tarball_name = "site-packages.tar.gz"
     tarball_path = output_dir / tarball_name
-    zstd_tarball_path = _zstd_tarball_path_for(tarball_path)
+    squashfs_path = _squashfs_path_for(tarball_path)
 
     logger.info(
         "Building tarball from installed environment",
@@ -238,10 +363,10 @@ async def build_tarball_venv_from_installed_environment(
             for path, arcname in entries:
                 tar.add(path, arcname=arcname, filter=_filter_link_entries)
 
-        _create_zstd_tarball(
-            zstd_tarball_path,
+        _create_squashfs_sidecar(
+            squashfs_path,
             entries,
-            filter=_filter_link_entries,
+            preserve_symlinks=False,
         )
 
         if not package_in_site_packages and not should_overlay_editable_package:
@@ -254,14 +379,14 @@ async def build_tarball_venv_from_installed_environment(
 
     content_hash = await asyncio.to_thread(_compute_file_hash, tarball_path)
     compressed_size = tarball_path.stat().st_size
-    zstd_compressed_size = zstd_tarball_path.stat().st_size
+    squashfs_size = squashfs_path.stat().st_size if squashfs_path.exists() else None
 
     logger.info(
         "Installed environment tarball built successfully",
         tarball_name=tarball_name,
         content_hash=content_hash[:16],
         compressed_size_bytes=compressed_size,
-        zstd_compressed_size_bytes=zstd_compressed_size,
+        squashfs_size_bytes=squashfs_size,
     )
 
     return TarballVenvBuildResult(
@@ -269,8 +394,8 @@ async def build_tarball_venv_from_installed_environment(
         tarball_name=tarball_name,
         content_hash=content_hash,
         compressed_size_bytes=compressed_size,
-        zstd_tarball_path=zstd_tarball_path,
-        zstd_compressed_size_bytes=zstd_compressed_size,
+        squashfs_path=squashfs_path if squashfs_path.exists() else None,
+        squashfs_size_bytes=squashfs_size,
     )
 
 
@@ -392,17 +517,14 @@ async def build_tarball_venv_from_path(
     # Ignore errors - bytecode compilation is optional optimization
 
     # Step 5: Create compressed tarball of site-packages
-    # Keep gzip for backwards compatibility and add a zstd sidecar for faster
-    # executor cold starts.
     tarball_name = "site-packages.tar.gz"
     tarball_path = output_dir / tarball_name
-    zstd_tarball_path = _zstd_tarball_path_for(tarball_path)
+    squashfs_path = _squashfs_path_for(tarball_path)
 
     logger.info(
-        "Compressing site-packages to tarballs",
+        "Compressing site-packages to tarball",
         site_packages=str(site_packages),
         tarball_path=str(tarball_path),
-        zstd_tarball_path=str(zstd_tarball_path),
     )
 
     # Run tar compression in a thread to not block async loop
@@ -412,21 +534,21 @@ async def build_tarball_venv_from_path(
             # Add site-packages contents with relative paths
             for path, arcname in entries:
                 tar.add(path, arcname=arcname)
-        _create_zstd_tarball(zstd_tarball_path, entries)
+        _create_squashfs_sidecar(squashfs_path, entries)
 
     await asyncio.to_thread(_create_tarball)
 
     # Step 6: Compute content hash
     content_hash = await asyncio.to_thread(_compute_file_hash, tarball_path)
     compressed_size = tarball_path.stat().st_size
-    zstd_compressed_size = zstd_tarball_path.stat().st_size
+    squashfs_size = squashfs_path.stat().st_size if squashfs_path.exists() else None
 
     logger.info(
         "Tarball venv built successfully",
         tarball_name=tarball_name,
         content_hash=content_hash[:16],
         compressed_size_bytes=compressed_size,
-        zstd_compressed_size_bytes=zstd_compressed_size,
+        squashfs_size_bytes=squashfs_size,
     )
 
     return TarballVenvBuildResult(
@@ -434,8 +556,8 @@ async def build_tarball_venv_from_path(
         tarball_name=tarball_name,
         content_hash=content_hash,
         compressed_size_bytes=compressed_size,
-        zstd_tarball_path=zstd_tarball_path,
-        zstd_compressed_size_bytes=zstd_compressed_size,
+        squashfs_path=squashfs_path if squashfs_path.exists() else None,
+        squashfs_size_bytes=squashfs_size,
     )
 
 
@@ -586,7 +708,7 @@ def get_tarball_venv_s3_key(
 
 async def upload_tarball_venv(
     tarball_path: Path,
-    zstd_tarball_path: Path,
+    squashfs_path: Path | None,
     key: str,
     bucket: str,
 ) -> str:
@@ -594,7 +716,7 @@ async def upload_tarball_venv(
 
     Args:
         tarball_path: Local path to the tarball file
-        zstd_tarball_path: Local path to the zstd tarball sidecar
+        squashfs_path: Optional local path to the SquashFS sidecar
         key: The S3 object key
         bucket: Bucket name
 
@@ -606,8 +728,11 @@ async def upload_tarball_venv(
     """
     if not tarball_path.exists():
         raise FileNotFoundError(f"Tarball file not found: {tarball_path}")
-    if not zstd_tarball_path.exists():
-        raise FileNotFoundError(f"Zstd tarball file not found: {zstd_tarball_path}")
+
+    squashfs_key = _squashfs_key_for(key)
+    if squashfs_path is not None and not squashfs_path.exists():
+        raise FileNotFoundError(f"SquashFS file not found: {squashfs_path}")
+    await blob.delete_file(key=squashfs_key, bucket=bucket)
 
     # Stream from disk via multipart upload so we don't hold hundreds of MB
     # of tarball bytes in the API process memory at once.
@@ -618,13 +743,13 @@ async def upload_tarball_venv(
         content_type="application/gzip",
     )
 
-    zstd_key = _zstd_key_for(key)
-    await blob.upload_file_from_path(
-        path=zstd_tarball_path,
-        key=zstd_key,
-        bucket=bucket,
-        content_type="application/zstd",
-    )
+    if squashfs_path is not None:
+        await blob.upload_file_from_path(
+            path=squashfs_path,
+            key=squashfs_key,
+            bucket=bucket,
+            content_type="application/vnd.squashfs",
+        )
 
     s3_uri = f"s3://{bucket}/{key}"
     logger.info(
@@ -633,7 +758,7 @@ async def upload_tarball_venv(
         bucket=bucket,
         s3_uri=s3_uri,
         size=tarball_path.stat().st_size,
-        zstd_size=zstd_tarball_path.stat().st_size,
+        squashfs_size=squashfs_path.stat().st_size if squashfs_path else None,
     )
     return s3_uri
 

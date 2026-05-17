@@ -520,13 +520,13 @@ class BaseRegistrySyncService[
                 tarball_path=tarball_result.tarball_path,
                 key=tarball_s3_key,
                 bucket=bucket,
-                zstd_tarball_path=tarball_result.zstd_tarball_path,
+                squashfs_path=tarball_result.squashfs_path,
             )
             self.logger.info(
                 "Tarball venv uploaded",
                 tarball_uri=tarball_uri,
                 compressed_size_bytes=tarball_result.compressed_size_bytes,
-                zstd_compressed_size_bytes=tarball_result.zstd_compressed_size_bytes,
+                squashfs_size_bytes=tarball_result.squashfs_size_bytes,
             )
 
             return ArtifactsBuildResult(tarball_uri=tarball_uri)

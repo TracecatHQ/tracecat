@@ -31,7 +31,7 @@ import shutil
 import time
 from collections.abc import Awaitable, Callable
 from pathlib import Path
-from unittest.mock import AsyncMock, patch
+from unittest.mock import patch
 
 import pytest
 
@@ -421,19 +421,18 @@ class TestCacheBehavior:
     ) -> None:
         """Verify concurrent requests for same tarball only download once.
 
-        Uses ActionRunner's ensure_tarball_extracted with mocked download
-        to verify the locking behavior.
+        Uses RegistryArtifactCache with mocked download to verify locking behavior.
 
         Validates:
         - Single download despite concurrent requests
         - All requests return same path
         """
-        from tracecat.executor.action_runner import ActionRunner
+        from tracecat.executor.registry_artifacts import RegistryArtifactCache
 
-        runner = ActionRunner(cache_dir=temp_registry_cache)
+        cache = RegistryArtifactCache(temp_registry_cache)
         download_count = [0]
 
-        async def mock_download(url: str, path: Path) -> None:
+        async def mock_download(_uri: str, path: Path) -> None:
             download_count[0] += 1
             await asyncio.sleep(0.1)  # Simulate network latency
             path.write_bytes(b"mock tarball")
@@ -446,23 +445,21 @@ class TestCacheBehavior:
             )
 
         with (
-            patch.object(runner, "_download_file", mock_download),
-            patch.object(runner, "_extract_tarball", mock_extract),
             patch.object(
-                runner,
-                "_tarball_uri_to_http_url",
-                new_callable=AsyncMock,
-                return_value="http://mock-url",
+                cache,
+                "_download_artifact",
+                mock_download,
             ),
+            patch.object(cache, "_extract_tarball", mock_extract),
         ):
             cache_key = "concurrent-test"
             tarball_uri = "s3://bucket/concurrent.tar.gz"
 
             # Launch concurrent requests
             results = await asyncio.gather(
-                runner.ensure_tarball_extracted(cache_key, tarball_uri),
-                runner.ensure_tarball_extracted(cache_key, tarball_uri),
-                runner.ensure_tarball_extracted(cache_key, tarball_uri),
+                cache.materialize(cache_key, tarball_uri),
+                cache.materialize(cache_key, tarball_uri),
+                cache.materialize(cache_key, tarball_uri),
             )
 
         assert download_count[0] == 1, (
