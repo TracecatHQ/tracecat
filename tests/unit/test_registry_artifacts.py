@@ -6,12 +6,12 @@ import asyncio
 import tarfile
 import tempfile
 from pathlib import Path
-from unittest.mock import AsyncMock, call, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
-import zstandard as zstd
 
 from tracecat.executor.registry_artifacts import (
+    SQUASHFS_MOUNT_OPTIONS,
     RegistryArtifactCache,
     RegistryArtifactFormat,
     compute_registry_artifact_cache_key,
@@ -132,74 +132,13 @@ class TestRegistryArtifactCache:
         )
 
     @pytest.mark.anyio
-    async def test_resolve_preferred_artifact_uses_zstd_sidecar(self, temp_cache_dir):
-        """Test that gzip tarballs prefer zstd when no SquashFS sidecar exists."""
-        cache = RegistryArtifactCache(temp_cache_dir)
-
-        with (
-            patch(
-                "tracecat.executor.registry_artifacts.blob.file_exists",
-                new_callable=AsyncMock,
-                side_effect=[False, True],
-            ) as file_exists,
-            patch.object(cache, "_can_try_squashfs", return_value=True),
-        ):
-            artifact = await cache._resolve_preferred_artifact(
-                "s3://bucket/path/site-packages.tar.gz"
-            )
-
-        assert artifact.uri == "s3://bucket/path/site-packages.tar.zst"
-        assert artifact.format == RegistryArtifactFormat.TAR_ZST
-        file_exists.assert_has_awaits(
-            [
-                call(key="path/site-packages.squashfs", bucket="bucket"),
-                call(key="path/site-packages.tar.zst", bucket="bucket"),
-            ]
-        )
-
-    @pytest.mark.anyio
-    async def test_resolve_preferred_artifact_squashfs_fallback_uses_zstd(
-        self, temp_cache_dir
-    ):
-        """Test direct SquashFS URIs fall back through tarball sidecars."""
-        cache = RegistryArtifactCache(temp_cache_dir)
-
-        with (
-            patch(
-                "tracecat.executor.registry_artifacts.blob.file_exists",
-                new_callable=AsyncMock,
-                return_value=True,
-            ) as file_exists,
-            patch.object(cache, "_can_try_squashfs") as can_try_squashfs,
-        ):
-            artifact = await cache._resolve_preferred_artifact(
-                "s3://bucket/path/site-packages.squashfs",
-                allow_squashfs=False,
-            )
-
-        assert artifact.uri == "s3://bucket/path/site-packages.tar.zst"
-        assert artifact.format == RegistryArtifactFormat.TAR_ZST
-        file_exists.assert_awaited_once_with(
-            key="path/site-packages.tar.zst",
-            bucket="bucket",
-        )
-        can_try_squashfs.assert_not_called()
-
-    @pytest.mark.anyio
     async def test_resolve_preferred_artifact_squashfs_fallback_uses_gzip(
         self, temp_cache_dir
     ):
-        """Test direct SquashFS URIs fall back to gzip when no zstd sidecar exists."""
+        """Test direct SquashFS URIs fall back to sibling gzip tarballs."""
         cache = RegistryArtifactCache(temp_cache_dir)
 
-        with (
-            patch(
-                "tracecat.executor.registry_artifacts.blob.file_exists",
-                new_callable=AsyncMock,
-                return_value=False,
-            ) as file_exists,
-            patch.object(cache, "_can_try_squashfs") as can_try_squashfs,
-        ):
+        with patch.object(cache, "_can_try_squashfs") as can_try_squashfs:
             artifact = await cache._resolve_preferred_artifact(
                 "s3://bucket/path/site-packages.squashfs",
                 allow_squashfs=False,
@@ -207,10 +146,6 @@ class TestRegistryArtifactCache:
 
         assert artifact.uri == "s3://bucket/path/site-packages.tar.gz"
         assert artifact.format == RegistryArtifactFormat.TAR_GZ
-        file_exists.assert_awaited_once_with(
-            key="path/site-packages.tar.zst",
-            bucket="bucket",
-        )
         can_try_squashfs.assert_not_called()
 
     @pytest.mark.anyio
@@ -222,7 +157,7 @@ class TestRegistryArtifactCache:
             patch(
                 "tracecat.executor.registry_artifacts.blob.file_exists",
                 new_callable=AsyncMock,
-                side_effect=[False, False],
+                return_value=False,
             ),
             patch.object(cache, "_can_try_squashfs", return_value=True),
         ):
@@ -251,27 +186,6 @@ class TestRegistryArtifactCache:
         assert artifact.uri == "s3://bucket/path/custom.tar.gz"
         assert artifact.format == RegistryArtifactFormat.TAR_GZ
         file_exists.assert_not_awaited()
-
-    @pytest.mark.anyio
-    async def test_extract_tarball_supports_zstd(self, temp_cache_dir):
-        """Test extracting a zstd-compressed registry tarball."""
-        cache = RegistryArtifactCache(temp_cache_dir)
-        source = temp_cache_dir / "source"
-        source.mkdir()
-        (source / "module.py").write_text("VALUE = 1")
-        tarball_path = temp_cache_dir / "site-packages.tar.zst"
-        target_dir = temp_cache_dir / "target"
-        target_dir.mkdir()
-
-        with tarball_path.open("wb") as raw:
-            compressor = zstd.ZstdCompressor(level=3)
-            with compressor.stream_writer(raw, closefd=False) as compressed:
-                with tarfile.open(fileobj=compressed, mode="w|") as tar:
-                    tar.add(source / "module.py", arcname="module.py")
-
-        await cache._extract_tarball(tarball_path, target_dir)
-
-        assert (target_dir / "module.py").read_text() == "VALUE = 1"
 
     @pytest.mark.anyio
     async def test_materialize_mounts_squashfs_sidecar(self, temp_cache_dir):
@@ -306,10 +220,44 @@ class TestRegistryArtifactCache:
         extract.assert_not_awaited()
 
     @pytest.mark.anyio
+    async def test_mount_squashfs_uses_hardened_read_only_options(
+        self,
+        temp_cache_dir,
+    ):
+        """Test that SquashFS images are mounted read-only without device/setuid bits."""
+        cache = RegistryArtifactCache(temp_cache_dir)
+        image_path = temp_cache_dir / "site-packages.squashfs"
+        target_dir = temp_cache_dir / "squashfs-cache-key"
+        image_path.write_bytes(b"squashfs")
+        target_dir.mkdir()
+        process = AsyncMock()
+        process.communicate.return_value = (b"", b"")
+        process.returncode = 0
+
+        with patch(
+            "tracecat.executor.registry_artifacts.asyncio.create_subprocess_exec",
+            new_callable=AsyncMock,
+            return_value=process,
+        ) as create_subprocess_exec:
+            await cache._mount_squashfs(image_path, target_dir)
+
+        create_subprocess_exec.assert_awaited_once_with(
+            "mount",
+            "-t",
+            "squashfs",
+            "-o",
+            SQUASHFS_MOUNT_OPTIONS,
+            str(image_path),
+            str(target_dir),
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+
+    @pytest.mark.anyio
     async def test_materialize_falls_back_when_squashfs_mount_fails(
         self, temp_cache_dir
     ):
-        """Test that SquashFS mount failures fall back to zstd/gzip extraction."""
+        """Test that SquashFS mount failures fall back to gzip extraction."""
         cache = RegistryArtifactCache(temp_cache_dir)
         source = temp_cache_dir / "source"
         source.mkdir()

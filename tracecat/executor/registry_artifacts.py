@@ -12,8 +12,6 @@ from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
 
-import zstandard as zstd
-
 from tracecat import config
 from tracecat.logger import logger
 from tracecat.storage import blob
@@ -23,8 +21,16 @@ class RegistryArtifactFormat(StrEnum):
     """Executor-supported registry artifact encodings."""
 
     SQUASHFS = "squashfs"
-    TAR_ZST = "tar.zst"
     TAR_GZ = "tar.gz"
+
+
+SQUASHFS_MOUNT_OPTIONS = "loop,ro,nodev,nosuid"
+"""Mount options for executor-managed SquashFS registry artifacts.
+
+The image must stay read-only and should not expose device nodes or setuid bits
+from registry package contents. Avoid noexec because Python packages may include
+native extension modules that need to be loaded from the mounted artifact.
+"""
 
 
 @dataclass(frozen=True, slots=True)
@@ -55,13 +61,6 @@ def compute_registry_artifact_cache_key(artifact_uri: str) -> str:
     return hashlib.sha256(content.encode()).hexdigest()[:16]
 
 
-def _zstd_sidecar_uri(tarball_uri: str) -> str | None:
-    """Return the sibling .tar.zst URI for registry site-packages tarballs."""
-    if not tarball_uri.endswith("site-packages.tar.gz"):
-        return None
-    return tarball_uri.removesuffix(".tar.gz") + ".tar.zst"
-
-
 def _squashfs_sidecar_uri(tarball_uri: str) -> str | None:
     """Return the sibling SquashFS URI for registry site-packages tarballs."""
     if not tarball_uri.endswith("site-packages.tar.gz"):
@@ -80,15 +79,11 @@ def _artifact_format(artifact_uri: str) -> RegistryArtifactFormat:
     """Return the materialization format for an artifact URI."""
     if artifact_uri.endswith(".squashfs"):
         return RegistryArtifactFormat.SQUASHFS
-    if artifact_uri.endswith(".tar.zst"):
-        return RegistryArtifactFormat.TAR_ZST
     return RegistryArtifactFormat.TAR_GZ
 
 
 def _tarball_suffix(artifact: RegistryArtifact) -> str:
     """Return a local filename suffix for tarball artifacts."""
-    if artifact.format == RegistryArtifactFormat.TAR_ZST:
-        return ".tar.zst"
     if artifact.format == RegistryArtifactFormat.TAR_GZ:
         return ".tar.gz"
     raise ValueError(f"Unsupported tarball artifact format: {artifact.format}")
@@ -221,7 +216,7 @@ class RegistryArtifactCache:
         *,
         allow_squashfs: bool = True,
     ) -> RegistryArtifact:
-        """Prefer SquashFS/zstd sidecars when present, otherwise use gzip."""
+        """Prefer SquashFS sidecars when present, otherwise use gzip."""
         if (
             not allow_squashfs
             and _artifact_format(artifact_uri) == RegistryArtifactFormat.SQUASHFS
@@ -240,14 +235,6 @@ class RegistryArtifactCache:
                     uri=squashfs_uri,
                     format=RegistryArtifactFormat.SQUASHFS,
                 )
-
-        zstd_uri = _zstd_sidecar_uri(artifact_uri)
-        if zstd_uri and await self._sidecar_exists(
-            base_uri=artifact_uri,
-            sidecar_uri=zstd_uri,
-            artifact_format=RegistryArtifactFormat.TAR_ZST,
-        ):
-            return RegistryArtifact(uri=zstd_uri, format=RegistryArtifactFormat.TAR_ZST)
 
         return RegistryArtifact(uri=artifact_uri, format=_artifact_format(artifact_uri))
 
@@ -419,7 +406,7 @@ class RegistryArtifactCache:
             "-t",
             "squashfs",
             "-o",
-            "loop,ro",
+            SQUASHFS_MOUNT_OPTIONS,
             str(image_path),
             str(target_dir),
             stdout=asyncio.subprocess.PIPE,
@@ -446,12 +433,6 @@ class RegistryArtifactCache:
         """Extract a supported registry tarball to target directory."""
 
         def _do_extract() -> None:
-            if tarball_path.name.endswith(".tar.zst"):
-                with zstd.open(tarball_path, "rb") as stream:
-                    with tarfile.open(fileobj=stream, mode="r|") as tar:
-                        tar.extractall(path=target_dir, filter="data")
-                return
-
             if tarball_path.name.endswith(".tar.gz"):
                 with tarfile.open(tarball_path, "r:gz") as tar:
                     tar.extractall(path=target_dir, filter="data")

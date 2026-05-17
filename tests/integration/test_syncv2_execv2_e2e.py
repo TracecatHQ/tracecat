@@ -121,7 +121,6 @@ def _artifact_keys_for_tarball_uri(tarball_uri: str) -> list[str]:
         raise ValueError(f"Unexpected registry artifact URI: {tarball_uri}")
     return [
         key,
-        key.removesuffix(".tar.gz") + ".tar.zst",
         key.removesuffix(".tar.gz") + ".squashfs",
     ]
 
@@ -1133,12 +1132,6 @@ class TestFailureScenarios:
             "Expected resolved tarball URIs for locked registry version"
         )
         deleted_tarball_uris = set(tarball_uris)
-        for tarball_uri in tarball_uris:
-            if tarball_uri.endswith(".tar.gz"):
-                deleted_tarball_uris.add(
-                    tarball_uri.removesuffix(".tar.gz") + ".tar.zst"
-                )
-
         for tarball_uri in deleted_tarball_uris:
             uri_parts = tarball_uri.replace("s3://", "").split("/", 1)
             bucket = uri_parts[0]

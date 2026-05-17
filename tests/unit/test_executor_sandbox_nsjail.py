@@ -18,7 +18,6 @@ from typing import NoReturn
 from unittest.mock import patch
 
 import pytest
-import zstandard as zstd
 
 from tracecat import config
 from tracecat.auth.types import Role
@@ -46,7 +45,6 @@ _SMOKE_URI = "s3://tracecat-test-registry/smoke/site-packages.tar.gz"
 
 class SmokeCase(StrEnum):
     DIRECT = "direct"
-    NSJAIL_ZST = "nsjail-zst"
     NSJAIL_GZ = "nsjail-gz"
     NSJAIL_SQUASHFS = "nsjail-squashfs"
 
@@ -56,8 +54,6 @@ class SmokeCase(StrEnum):
 
     @property
     def preferred_format(self) -> RegistryArtifactFormat:
-        if self == SmokeCase.NSJAIL_ZST:
-            return RegistryArtifactFormat.TAR_ZST
         if self == SmokeCase.NSJAIL_SQUASHFS:
             return RegistryArtifactFormat.SQUASHFS
         return RegistryArtifactFormat.TAR_GZ
@@ -298,12 +294,6 @@ def _build_tar_gz(source_dir: Path, tarball_path: Path) -> None:
         _add_source_dir_to_tar(tar, source_dir)
 
 
-def _build_tar_zst(source_dir: Path, tarball_path: Path) -> None:
-    with zstd.open(tarball_path, "wb") as stream:
-        with tarfile.open(fileobj=stream, mode="w|") as tar:
-            _add_source_dir_to_tar(tar, source_dir)
-
-
 def _build_squashfs_image(source_dir: Path, image_path: Path) -> None:
     result = subprocess.run(
         [
@@ -356,13 +346,10 @@ async def _run_executor_action_smoke_case(
 
     source_dir = tmp_path / "site-packages"
     tar_gz_path = tmp_path / "site-packages.tar.gz"
-    tar_zst_path = tmp_path / "site-packages.tar.zst"
     squashfs_path = tmp_path / "site-packages.squashfs"
     cache_dir = tmp_path / "registry-cache"
     _write_registry_artifact_source(source_dir)
     _build_tar_gz(source_dir, tar_gz_path)
-    if smoke_case == SmokeCase.NSJAIL_ZST:
-        _build_tar_zst(source_dir, tar_zst_path)
     if smoke_case == SmokeCase.NSJAIL_SQUASHFS:
         _build_squashfs_image(source_dir, squashfs_path)
 
@@ -380,9 +367,7 @@ async def _run_executor_action_smoke_case(
         return base_uri == _SMOKE_URI and artifact_format == smoke_case.preferred_format
 
     async def download_artifact(artifact_uri: str, output_path: Path) -> None:
-        if artifact_uri.endswith(".tar.zst"):
-            shutil.copy2(tar_zst_path, output_path)
-        elif artifact_uri.endswith(".squashfs"):
+        if artifact_uri.endswith(".squashfs"):
             shutil.copy2(squashfs_path, output_path)
         else:
             shutil.copy2(tar_gz_path, output_path)
@@ -438,7 +423,6 @@ async def _run_executor_action_smoke_case(
     "smoke_case",
     [
         pytest.param(SmokeCase.DIRECT, id=SmokeCase.DIRECT.value),
-        pytest.param(SmokeCase.NSJAIL_ZST, id=SmokeCase.NSJAIL_ZST.value),
         pytest.param(SmokeCase.NSJAIL_GZ, id=SmokeCase.NSJAIL_GZ.value),
         pytest.param(SmokeCase.NSJAIL_SQUASHFS, id=SmokeCase.NSJAIL_SQUASHFS.value),
     ],

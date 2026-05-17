@@ -7,18 +7,9 @@ import tarfile
 from pathlib import Path
 
 import pytest
-import zstandard as zstd
 
 from tracecat.registry.sync import tarball
 from tracecat.registry.sync.tarball import upload_tarball_venv
-
-
-def _zstd_tar_names(path: Path) -> set[str]:
-    decompressor = zstd.ZstdDecompressor()
-    with path.open("rb") as raw:
-        with decompressor.stream_reader(raw, closefd=False) as stream:
-            with tarfile.open(fileobj=stream, mode="r|") as archive:
-                return {member.name for member in archive}
 
 
 def test_get_installed_site_packages_paths_includes_platlib(
@@ -82,10 +73,6 @@ async def test_build_tarball_from_installed_environment_includes_platlib_content
 
     assert "pure_only.py" in tar_names
     assert "plat_only.so" in tar_names
-    assert result.zstd_compressed_size_bytes > 0
-    zstd_tar_names = _zstd_tar_names(result.zstd_tarball_path)
-    assert "pure_only.py" in zstd_tar_names
-    assert "plat_only.so" in zstd_tar_names
     assert result.squashfs_path is not None
     assert result.squashfs_path.read_bytes() == b"squashfs"
     assert result.squashfs_size_bytes == len(b"squashfs")
@@ -270,15 +257,13 @@ async def test_build_tarball_from_installed_environment_skips_unrelated_symlink_
 
 
 @pytest.mark.anyio
-async def test_upload_tarball_venv_uploads_zstd_sidecar(
+async def test_upload_tarball_venv_uploads_squashfs_sidecar(
     tmp_path: Path,
     mocker,
 ) -> None:
     tarball_path = tmp_path / "site-packages.tar.gz"
-    zstd_tarball_path = tmp_path / "site-packages.tar.zst"
     squashfs_path = tmp_path / "site-packages.squashfs"
     tarball_path.write_bytes(b"gzip")
-    zstd_tarball_path.write_bytes(b"zstd")
     squashfs_path.write_bytes(b"squashfs")
     upload_file_from_path = mocker.patch(
         "tracecat.registry.sync.tarball.blob.upload_file_from_path",
@@ -287,7 +272,6 @@ async def test_upload_tarball_venv_uploads_zstd_sidecar(
 
     uri = await upload_tarball_venv(
         tarball_path=tarball_path,
-        zstd_tarball_path=zstd_tarball_path,
         squashfs_path=squashfs_path,
         key="org/tarball-venvs/tracecat_registry/v1/site-packages.tar.gz",
         bucket="tracecat-registry",
@@ -297,7 +281,7 @@ async def test_upload_tarball_venv_uploads_zstd_sidecar(
         "s3://tracecat-registry/org/tarball-venvs/tracecat_registry/v1/"
         "site-packages.tar.gz"
     )
-    assert upload_file_from_path.await_count == 3
+    assert upload_file_from_path.await_count == 2
     upload_file_from_path.assert_has_awaits(
         [
             mocker.call(
@@ -305,12 +289,6 @@ async def test_upload_tarball_venv_uploads_zstd_sidecar(
                 key="org/tarball-venvs/tracecat_registry/v1/site-packages.tar.gz",
                 bucket="tracecat-registry",
                 content_type="application/gzip",
-            ),
-            mocker.call(
-                path=zstd_tarball_path,
-                key="org/tarball-venvs/tracecat_registry/v1/site-packages.tar.zst",
-                bucket="tracecat-registry",
-                content_type="application/zstd",
             ),
             mocker.call(
                 path=squashfs_path,

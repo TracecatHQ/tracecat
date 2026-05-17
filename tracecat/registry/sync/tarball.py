@@ -16,14 +16,12 @@ import subprocess
 import sysconfig
 import tarfile
 import tempfile
-from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 import aiofiles
 import tracecat_registry
-import zstandard as zstd
 
 from tracecat import config
 from tracecat.logger import logger
@@ -45,24 +43,8 @@ class TarballVenvBuildResult:
     tarball_name: str
     content_hash: str
     compressed_size_bytes: int
-    zstd_tarball_path: Path
-    zstd_compressed_size_bytes: int
     squashfs_path: Path | None = None
     squashfs_size_bytes: int | None = None
-
-
-def _zstd_tarball_path_for(tarball_path: Path) -> Path:
-    """Return the sibling zstd path for a gzip tarball path."""
-    if tarball_path.name.endswith(".tar.gz"):
-        return tarball_path.with_suffix(".zst")
-    return tarball_path.with_name(f"{tarball_path.name}.zst")
-
-
-def _zstd_key_for(key: str) -> str:
-    """Return the sibling zstd key for a gzip tarball S3 key."""
-    if key.endswith(".tar.gz"):
-        return key.removesuffix(".tar.gz") + ".tar.zst"
-    return f"{key}.zst"
 
 
 def _squashfs_path_for(tarball_path: Path) -> Path:
@@ -87,20 +69,6 @@ def _compute_file_hash(file_path: Path) -> str:
         for chunk in iter(lambda: f.read(8192), b""):
             sha256_hash.update(chunk)
     return sha256_hash.hexdigest()
-
-
-def _create_zstd_tarball(
-    tarball_path: Path,
-    entries: list[tuple[Path, str]],
-    *,
-    filter: Callable[[tarfile.TarInfo], tarfile.TarInfo | None] | None = None,
-) -> None:
-    """Create a zstd-compressed tarball from path entries."""
-    compressor = zstd.ZstdCompressor(level=3)
-    with zstd.open(tarball_path, "wb", cctx=compressor) as compressed:
-        with tarfile.open(fileobj=compressed, mode="w|") as tar:
-            for path, arcname in entries:
-                tar.add(path, arcname=arcname, filter=filter)
 
 
 def _copy_squashfs_entry(path: Path, dest: Path) -> None:
@@ -315,7 +283,6 @@ async def build_tarball_venv_from_installed_environment(
 
     tarball_name = "site-packages.tar.gz"
     tarball_path = output_dir / tarball_name
-    zstd_tarball_path = _zstd_tarball_path_for(tarball_path)
     squashfs_path = _squashfs_path_for(tarball_path)
 
     logger.info(
@@ -350,11 +317,6 @@ async def build_tarball_venv_from_installed_environment(
             for path, arcname in entries:
                 tar.add(path, arcname=arcname, filter=_filter_link_entries)
 
-        _create_zstd_tarball(
-            zstd_tarball_path,
-            entries,
-            filter=_filter_link_entries,
-        )
         _create_squashfs_sidecar(squashfs_path, entries)
 
         if not package_in_site_packages and not should_overlay_editable_package:
@@ -367,7 +329,6 @@ async def build_tarball_venv_from_installed_environment(
 
     content_hash = await asyncio.to_thread(_compute_file_hash, tarball_path)
     compressed_size = tarball_path.stat().st_size
-    zstd_compressed_size = zstd_tarball_path.stat().st_size
     squashfs_size = squashfs_path.stat().st_size if squashfs_path.exists() else None
 
     logger.info(
@@ -375,7 +336,6 @@ async def build_tarball_venv_from_installed_environment(
         tarball_name=tarball_name,
         content_hash=content_hash[:16],
         compressed_size_bytes=compressed_size,
-        zstd_compressed_size_bytes=zstd_compressed_size,
         squashfs_size_bytes=squashfs_size,
     )
 
@@ -384,8 +344,6 @@ async def build_tarball_venv_from_installed_environment(
         tarball_name=tarball_name,
         content_hash=content_hash,
         compressed_size_bytes=compressed_size,
-        zstd_tarball_path=zstd_tarball_path,
-        zstd_compressed_size_bytes=zstd_compressed_size,
         squashfs_path=squashfs_path if squashfs_path.exists() else None,
         squashfs_size_bytes=squashfs_size,
     )
@@ -509,18 +467,14 @@ async def build_tarball_venv_from_path(
     # Ignore errors - bytecode compilation is optional optimization
 
     # Step 5: Create compressed tarball of site-packages
-    # Keep gzip for backwards compatibility and add a zstd sidecar for faster
-    # executor cold starts.
     tarball_name = "site-packages.tar.gz"
     tarball_path = output_dir / tarball_name
-    zstd_tarball_path = _zstd_tarball_path_for(tarball_path)
     squashfs_path = _squashfs_path_for(tarball_path)
 
     logger.info(
-        "Compressing site-packages to tarballs",
+        "Compressing site-packages to tarball",
         site_packages=str(site_packages),
         tarball_path=str(tarball_path),
-        zstd_tarball_path=str(zstd_tarball_path),
     )
 
     # Run tar compression in a thread to not block async loop
@@ -530,7 +484,6 @@ async def build_tarball_venv_from_path(
             # Add site-packages contents with relative paths
             for path, arcname in entries:
                 tar.add(path, arcname=arcname)
-        _create_zstd_tarball(zstd_tarball_path, entries)
         _create_squashfs_sidecar(squashfs_path, entries)
 
     await asyncio.to_thread(_create_tarball)
@@ -538,7 +491,6 @@ async def build_tarball_venv_from_path(
     # Step 6: Compute content hash
     content_hash = await asyncio.to_thread(_compute_file_hash, tarball_path)
     compressed_size = tarball_path.stat().st_size
-    zstd_compressed_size = zstd_tarball_path.stat().st_size
     squashfs_size = squashfs_path.stat().st_size if squashfs_path.exists() else None
 
     logger.info(
@@ -546,7 +498,6 @@ async def build_tarball_venv_from_path(
         tarball_name=tarball_name,
         content_hash=content_hash[:16],
         compressed_size_bytes=compressed_size,
-        zstd_compressed_size_bytes=zstd_compressed_size,
         squashfs_size_bytes=squashfs_size,
     )
 
@@ -555,8 +506,6 @@ async def build_tarball_venv_from_path(
         tarball_name=tarball_name,
         content_hash=content_hash,
         compressed_size_bytes=compressed_size,
-        zstd_tarball_path=zstd_tarball_path,
-        zstd_compressed_size_bytes=zstd_compressed_size,
         squashfs_path=squashfs_path if squashfs_path.exists() else None,
         squashfs_size_bytes=squashfs_size,
     )
@@ -709,7 +658,6 @@ def get_tarball_venv_s3_key(
 
 async def upload_tarball_venv(
     tarball_path: Path,
-    zstd_tarball_path: Path,
     squashfs_path: Path | None,
     key: str,
     bucket: str,
@@ -718,7 +666,6 @@ async def upload_tarball_venv(
 
     Args:
         tarball_path: Local path to the tarball file
-        zstd_tarball_path: Local path to the zstd tarball sidecar
         squashfs_path: Optional local path to the SquashFS sidecar
         key: The S3 object key
         bucket: Bucket name
@@ -731,8 +678,6 @@ async def upload_tarball_venv(
     """
     if not tarball_path.exists():
         raise FileNotFoundError(f"Tarball file not found: {tarball_path}")
-    if not zstd_tarball_path.exists():
-        raise FileNotFoundError(f"Zstd tarball file not found: {zstd_tarball_path}")
 
     # Stream from disk via multipart upload so we don't hold hundreds of MB
     # of tarball bytes in the API process memory at once.
@@ -741,14 +686,6 @@ async def upload_tarball_venv(
         key=key,
         bucket=bucket,
         content_type="application/gzip",
-    )
-
-    zstd_key = _zstd_key_for(key)
-    await blob.upload_file_from_path(
-        path=zstd_tarball_path,
-        key=zstd_key,
-        bucket=bucket,
-        content_type="application/zstd",
     )
 
     if squashfs_path is not None:
@@ -770,7 +707,6 @@ async def upload_tarball_venv(
         bucket=bucket,
         s3_uri=s3_uri,
         size=tarball_path.stat().st_size,
-        zstd_size=zstd_tarball_path.stat().st_size,
         squashfs_size=squashfs_path.stat().st_size if squashfs_path else None,
     )
     return s3_uri
