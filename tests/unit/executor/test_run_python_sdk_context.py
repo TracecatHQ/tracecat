@@ -28,7 +28,7 @@ from tracecat.identifiers.workflow import ExecutionUUID, WorkflowUUID
 from tracecat.registry.lock.types import RegistryLock
 from tracecat.sandbox import SandboxService, validate_run_python_script
 from tracecat.sandbox.executor import NsjailExecutor
-from tracecat.sandbox.types import PythonPathMount, SandboxConfig
+from tracecat.sandbox.types import SandboxConfig
 from tracecat.sandbox.unsafe_pid_executor import (
     SAFE_WRAPPER_SCRIPT as UNSAFE_PID_WRAPPER_SCRIPT,
 )
@@ -183,7 +183,7 @@ def test_nsjail_env_map_adds_sdk_pythonpath(tmp_path: Path) -> None:
     sdk_path.mkdir()
     sandbox_config = SandboxConfig(
         env_vars={"PYTHONPATH": "/work/lib", "CUSTOM_VALUE": "kept"},
-        python_path_mounts=[PythonPathMount(src=sdk_path, dst="tracecat_registry")],
+        python_path_dir=sdk_path,
     )
 
     env_map = NsjailExecutor()._build_env_map(sandbox_config, phase="execute")
@@ -195,13 +195,9 @@ def test_nsjail_env_map_adds_sdk_pythonpath(tmp_path: Path) -> None:
 def test_nsjail_config_mounts_sdk_paths_under_pythonpath_root(
     tmp_path: Path,
 ) -> None:
-    sdk_path = tmp_path / "tracecat_registry"
+    sdk_path = tmp_path / "run-python-sdk"
     sdk_path.mkdir()
-    sandbox_config = SandboxConfig(
-        python_path_mounts=[
-            PythonPathMount(src=sdk_path, dst="tracecat_registry"),
-        ],
-    )
+    sandbox_config = SandboxConfig(python_path_dir=sdk_path)
 
     config_text = NsjailExecutor(rootfs_path=str(tmp_path))._build_config(
         tmp_path,
@@ -210,8 +206,7 @@ def test_nsjail_config_mounts_sdk_paths_under_pythonpath_root(
     )
 
     assert (
-        f'mount {{ src: "{sdk_path}" dst: "/pythonpath/tracecat_registry" '
-        "is_bind: true rw: false }"
+        f'mount {{ src: "{sdk_path}" dst: "/pythonpath" is_bind: true rw: false }}'
     ) in config_text
 
 
@@ -225,7 +220,7 @@ def test_nsjail_env_map_prefers_installed_dependencies_over_sdk_mounts(
     (executor.package_cache / cache_key / "site-packages").mkdir(parents=True)
     sandbox_config = SandboxConfig(
         env_vars={"PYTHONPATH": "/work/lib"},
-        python_path_mounts=[PythonPathMount(src=sdk_path, dst="tracecat_registry")],
+        python_path_dir=sdk_path,
     )
 
     env_map = executor._build_env_map(
@@ -237,7 +232,7 @@ def test_nsjail_env_map_prefers_installed_dependencies_over_sdk_mounts(
     assert env_map["PYTHONPATH"] == "/packages:/pythonpath:/work/lib"
 
 
-def test_sdk_python_path_mounts_do_not_include_executor_site_packages(
+def test_sdk_python_path_does_not_include_executor_site_packages(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -254,39 +249,41 @@ def test_sdk_python_path_mounts_do_not_include_executor_site_packages(
         "",
     )
 
-    mounts = SandboxService(
+    sdk_python_path = SandboxService(
         cache_dir=str(tmp_path / "cache")
-    )._get_sdk_python_path_mounts()
+    )._prepare_sdk_python_path()
     purelib = Path(sysconfig.get_path("purelib")).resolve()
 
-    assert (
-        PythonPathMount(src=package_root.resolve(), dst="tracecat_registry") in mounts
-    )
-    assert all(mount.src != purelib for mount in mounts)
-    assert any(mount.dst == "pydantic" for mount in mounts)
-    assert any(mount.dst == "typing_extensions.py" for mount in mounts)
+    assert sdk_python_path is not None
+    assert sdk_python_path.resolve() != purelib
+    assert (sdk_python_path / "tracecat_registry" / "__init__.py").exists()
+    assert (sdk_python_path / "pydantic").exists()
+    assert (sdk_python_path / "typing_extensions.py").exists()
+    assert all(child.resolve() != purelib for child in sdk_python_path.iterdir())
 
 
 def test_sdk_python_path_mounts_can_import_ctx_without_site_packages(
     tmp_path: Path,
 ) -> None:
     executor = UnsafePidExecutor(cache_dir=str(tmp_path / "cache"))
-    work_dir = tmp_path / "work"
-    work_dir.mkdir()
-    env_vars = executor._with_python_path_mounts(
+    sdk_python_path = SandboxService(
+        cache_dir=str(tmp_path / "sandbox-cache")
+    )._prepare_sdk_python_path()
+    env_vars = executor._with_python_path(
         {},
-        work_dir,
-        SandboxService(
-            cache_dir=str(tmp_path / "sandbox-cache")
-        )._get_sdk_python_path_mounts(),
+        sdk_python_path,
     )
 
+    assert sdk_python_path is not None
     result = subprocess.run(
         [
             sys.executable,
             "-S",
             "-c",
-            "from tracecat_registry import ctx; print(ctx.__name__)",
+            "from tracecat_registry import ctx; "
+            "from tracecat_registry.context import RegistryContext; "
+            "print(ctx.__name__, type(RegistryContext("
+            "workspace_id='w', workflow_id='wf', run_id='r').client).__name__)",
         ],
         check=False,
         capture_output=True,
@@ -298,25 +295,20 @@ def test_sdk_python_path_mounts_can_import_ctx_without_site_packages(
     )
 
     assert result.returncode == 0, result.stderr
-    assert result.stdout.strip() == "tracecat_registry.ctx"
+    assert result.stdout.strip() == "tracecat_registry.ctx TracecatClient"
 
 
-def test_unsafe_pid_sdk_pythonpath_uses_link_tree(tmp_path: Path) -> None:
-    sdk_path = tmp_path / "tracecat_registry"
+def test_unsafe_pid_sdk_pythonpath_uses_prepared_sdk_dir(tmp_path: Path) -> None:
+    sdk_path = tmp_path / "run-python-sdk"
     sdk_path.mkdir()
     executor = UnsafePidExecutor(cache_dir=str(tmp_path / "cache"))
-    work_dir = tmp_path / "work"
-    work_dir.mkdir()
 
-    env_vars = executor._with_python_path_mounts(
+    env_vars = executor._with_python_path(
         {"PYTHONPATH": "/work/lib"},
-        work_dir,
-        [PythonPathMount(src=sdk_path, dst="tracecat_registry")],
+        sdk_path,
     )
 
-    pythonpath_dir = work_dir / "pythonpath"
-    assert env_vars["PYTHONPATH"] == os.pathsep.join([str(pythonpath_dir), "/work/lib"])
-    assert (pythonpath_dir / "tracecat_registry").is_symlink()
+    assert env_vars["PYTHONPATH"] == os.pathsep.join([str(sdk_path), "/work/lib"])
 
 
 def test_unsafe_pid_pythonpath_prefers_installed_dependencies_over_sdk_paths(

@@ -27,19 +27,6 @@ class ResourceLimits:
 
 
 @dataclass
-class PythonPathMount:
-    """Host path mounted under the sandbox SDK PYTHONPATH root.
-
-    Attributes:
-        src: Host path to mount read-only or link into the runtime.
-        dst: Relative path under the sandbox PYTHONPATH root.
-    """
-
-    src: Path
-    dst: str
-
-
-@dataclass
 class SandboxConfig:
     """Configuration for sandbox execution.
 
@@ -48,15 +35,14 @@ class SandboxConfig:
         resources: Resource limits for the sandbox.
         env_vars: Environment variables to inject into the sandbox.
         dependencies: Python packages to install before execution.
-        python_path_mounts: Host paths to mount read-only under the sandbox
-            PYTHONPATH root.
+        python_path_dir: Host directory to mount read-only and add to PYTHONPATH.
     """
 
     network_enabled: bool = False
     resources: ResourceLimits = field(default_factory=ResourceLimits)
     env_vars: dict[str, str] = field(default_factory=dict)
     dependencies: list[str] = field(default_factory=list)
-    python_path_mounts: list[PythonPathMount] = field(default_factory=list)
+    python_path_dir: Path | None = None
 
 
 @dataclass

@@ -27,7 +27,7 @@ from tracecat.sandbox.exceptions import (
     SandboxExecutionError,
 )
 from tracecat.sandbox.executor import NsjailExecutor
-from tracecat.sandbox.types import PythonPathMount, ResourceLimits, SandboxConfig
+from tracecat.sandbox.types import ResourceLimits, SandboxConfig
 from tracecat.sandbox.unsafe_pid_executor import UnsafePidExecutor
 from tracecat.sandbox.wrapper import INSTALL_SCRIPT, WRAPPER_SCRIPT
 
@@ -96,6 +96,7 @@ class SandboxService:
         self.cache_dir = Path(cache_dir)
         self.package_cache = self.cache_dir / "packages"
         self.uv_cache = self.cache_dir / "uv-cache"
+        self.sdk_python_path = self.cache_dir / "run-python-sdk"
 
         # Ensure cache directories exist
         self.package_cache.mkdir(parents=True, exist_ok=True)
@@ -174,26 +175,26 @@ class SandboxService:
             hash_input = "\n".join(normalized)
         return hashlib.sha256(hash_input.encode()).hexdigest()[:16]
 
-    def _get_sdk_python_path_mounts(self) -> list[PythonPathMount]:
-        """Return host paths needed for run_python scripts to import the SDK."""
+    def _prepare_sdk_python_path(self) -> Path | None:
+        """Prepare a narrow PYTHONPATH root for the registry SDK facade."""
 
-        mounts: list[PythonPathMount] = []
+        entries: dict[str, Path] = {}
         seen: set[str] = set()
 
-        def add_mount(path: Path | None, dst: str) -> None:
+        def add_entry(path: Path | None, dst: str) -> None:
             if path is None:
                 return
             resolved = path.resolve()
             if resolved.exists() and dst not in seen:
-                mounts.append(PythonPathMount(src=resolved, dst=dst))
+                entries[dst] = resolved
                 seen.add(dst)
 
         def add_registry_package_from_base(path: Path) -> None:
             package_dir = path / "tracecat_registry"
             if (package_dir / "__init__.py").exists():
-                add_mount(package_dir, "tracecat_registry")
+                add_entry(package_dir, "tracecat_registry")
 
-        def add_import_mount(import_name: str) -> None:
+        def add_import_entry(import_name: str) -> None:
             spec = importlib.util.find_spec(import_name)
             if spec is None:
                 logger.warning(
@@ -203,10 +204,10 @@ class SandboxService:
                 return
             if spec.submodule_search_locations:
                 package_path = Path(next(iter(spec.submodule_search_locations)))
-                add_mount(package_path, import_name)
+                add_entry(package_path, import_name)
             elif spec.origin and spec.origin not in {"built-in", "frozen"}:
                 module_path = Path(spec.origin)
-                add_mount(module_path, module_path.name)
+                add_entry(module_path, module_path.name)
 
         source_path = Path(config.TRACECAT__BUILTIN_REGISTRY_SOURCE_PATH)
         add_registry_package_from_base(source_path)
@@ -218,14 +219,38 @@ class SandboxService:
                 registry_package_root = (
                     Path(tracecat_registry.__file__).resolve().parent
                 )
-                add_mount(registry_package_root, "tracecat_registry")
+                add_entry(registry_package_root, "tracecat_registry")
         except ImportError:
             logger.warning("tracecat_registry is not importable from run_python host")
 
         for import_name in _SDK_RUNTIME_IMPORTS:
-            add_import_mount(import_name)
+            add_import_entry(import_name)
 
-        return mounts
+        if not entries:
+            return None
+
+        self.sdk_python_path.mkdir(parents=True, exist_ok=True)
+        expected = set(entries)
+        for child in self.sdk_python_path.iterdir():
+            if child.name not in expected:
+                if child.is_dir() and not child.is_symlink():
+                    shutil.rmtree(child, ignore_errors=True)
+                else:
+                    child.unlink(missing_ok=True)
+
+        for name, source in entries.items():
+            target = self.sdk_python_path / name
+            if target.exists() or target.is_symlink():
+                if target.is_symlink():
+                    target.unlink(missing_ok=True)
+                else:
+                    continue
+            if source.is_dir():
+                shutil.copytree(source, target, symlinks=True)
+            else:
+                shutil.copy2(source, target)
+
+        return self.sdk_python_path
 
     async def _install_packages(
         self,
@@ -421,7 +446,7 @@ class SandboxService:
                 timeout_seconds=timeout_seconds,
                 allow_network=allow_network,
                 env_vars=env_vars,
-                python_path_mounts=self._get_sdk_python_path_mounts(),
+                python_path_dir=self._prepare_sdk_python_path(),
                 workspace_id=workspace_id,
             )
 
@@ -510,7 +535,7 @@ class SandboxService:
                 ),
                 env_vars=env_vars or {},
                 dependencies=dependencies or [],
-                python_path_mounts=self._get_sdk_python_path_mounts(),
+                python_path_dir=self._prepare_sdk_python_path(),
             )
 
             await self._prepare_execution(job_dir, script, inputs)

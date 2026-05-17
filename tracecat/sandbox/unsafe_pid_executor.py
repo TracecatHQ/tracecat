@@ -15,7 +15,7 @@ import subprocess
 import tempfile
 import time
 from contextlib import suppress
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 from typing import Any
 
 from tracecat.config import (
@@ -30,7 +30,7 @@ from tracecat.sandbox.exceptions import (
     SandboxExecutionError,
     SandboxTimeoutError,
 )
-from tracecat.sandbox.types import PythonPathMount, SandboxResult
+from tracecat.sandbox.types import SandboxResult
 
 module_logger = logging.getLogger(__name__)
 
@@ -199,31 +199,16 @@ class UnsafePidExecutor:
         merged["PYTHONPATH"] = os.pathsep.join(pythonpath_parts)
         return merged
 
-    def _with_python_path_mounts(
+    def _with_python_path(
         self,
         env_vars: dict[str, str] | None,
-        work_dir: Path,
-        mounts: list[PythonPathMount],
+        python_path_dir: Path | None,
     ) -> dict[str, str]:
         merged = dict(env_vars or {})
-        if not mounts:
+        if python_path_dir is None or not python_path_dir.exists():
             return merged
 
-        pythonpath_dir = work_dir / "pythonpath"
-        pythonpath_dir.mkdir(parents=True, exist_ok=True)
-        for mount in mounts:
-            dst_path = PurePosixPath(mount.dst)
-            if dst_path.is_absolute() or ".." in dst_path.parts:
-                raise SandboxExecutionError(
-                    f"Invalid python path mount destination: {mount.dst!r}"
-                )
-            target = pythonpath_dir / mount.dst
-            if target.exists() or target.is_symlink():
-                continue
-            target.parent.mkdir(parents=True, exist_ok=True)
-            target.symlink_to(mount.src, target_is_directory=mount.src.is_dir())
-
-        pythonpath_parts = [str(pythonpath_dir)]
+        pythonpath_parts = [str(python_path_dir)]
         if existing_pythonpath := merged.get("PYTHONPATH"):
             pythonpath_parts.append(existing_pythonpath)
         merged["PYTHONPATH"] = os.pathsep.join(pythonpath_parts)
@@ -358,7 +343,7 @@ class UnsafePidExecutor:
         timeout_seconds: int | None = None,
         allow_network: bool = False,
         env_vars: dict[str, str] | None = None,
-        python_path_mounts: list[PythonPathMount] | None = None,
+        python_path_dir: Path | None = None,
         workspace_id: str | None = None,
     ) -> SandboxResult:
         if timeout_seconds is None:
@@ -375,10 +360,9 @@ class UnsafePidExecutor:
 
         try:
             python_path = shutil.which("python3") or "python3"
-            execution_env_vars = self._with_python_path_mounts(
+            execution_env_vars = self._with_python_path(
                 env_vars,
-                work_dir,
-                python_path_mounts or [],
+                python_path_dir,
             )
             if dependencies:
                 cache_key = self._compute_cache_key(dependencies, workspace_id)
