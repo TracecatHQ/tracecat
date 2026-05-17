@@ -1,5 +1,6 @@
 """High-level sandbox service for Python script execution."""
 
+import fcntl
 import hashlib
 import importlib.util
 import json
@@ -7,8 +8,9 @@ import os
 import re
 import shutil
 import tempfile
-from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
+import threading
+from collections.abc import AsyncIterator, Iterator
+from contextlib import asynccontextmanager, contextmanager
 from pathlib import Path
 from typing import Any
 
@@ -47,6 +49,7 @@ _SDK_RUNTIME_IMPORTS = (
     "typing_extensions",
     "typing_inspection",
 )
+_SDK_PYTHON_PATH_PREPARE_LOCK = threading.Lock()
 
 
 def validate_run_python_script(script: str) -> tuple[bool, str | None]:
@@ -229,28 +232,40 @@ class SandboxService:
         if not entries:
             return None
 
-        self.sdk_python_path.mkdir(parents=True, exist_ok=True)
-        expected = set(entries)
-        for child in self.sdk_python_path.iterdir():
-            if child.name not in expected:
-                if child.is_dir() and not child.is_symlink():
-                    shutil.rmtree(child, ignore_errors=True)
-                else:
-                    child.unlink(missing_ok=True)
+        with self._locked_sdk_python_path():
+            expected = set(entries)
+            for child in self.sdk_python_path.iterdir():
+                if child.name not in expected:
+                    if child.is_dir() and not child.is_symlink():
+                        shutil.rmtree(child, ignore_errors=True)
+                    else:
+                        child.unlink(missing_ok=True)
 
-        for name, source in entries.items():
-            target = self.sdk_python_path / name
-            if target.exists() or target.is_symlink():
-                if target.is_symlink():
-                    target.unlink(missing_ok=True)
+            for name, source in entries.items():
+                target = self.sdk_python_path / name
+                if target.exists() or target.is_symlink():
+                    if target.is_dir() and not target.is_symlink():
+                        shutil.rmtree(target, ignore_errors=True)
+                    else:
+                        target.unlink(missing_ok=True)
+                if source.is_dir():
+                    shutil.copytree(source, target, symlinks=True)
                 else:
-                    continue
-            if source.is_dir():
-                shutil.copytree(source, target, symlinks=True)
-            else:
-                shutil.copy2(source, target)
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(source, target)
 
         return self.sdk_python_path
+
+    @contextmanager
+    def _locked_sdk_python_path(self) -> Iterator[None]:
+        self.sdk_python_path.mkdir(parents=True, exist_ok=True)
+        lock_path = self.cache_dir / "run-python-sdk.lock"
+        with _SDK_PYTHON_PATH_PREPARE_LOCK, lock_path.open("w") as lock_file:
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+            try:
+                yield
+            finally:
+                fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
 
     async def _install_packages(
         self,

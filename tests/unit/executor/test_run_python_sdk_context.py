@@ -10,6 +10,7 @@ import sys
 import sysconfig
 import tempfile
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, assert_type
@@ -553,6 +554,64 @@ def test_sdk_python_path_does_not_include_executor_site_packages(
     assert (sdk_python_path / "pydantic").exists()
     assert (sdk_python_path / "typing_extensions.py").exists()
     assert all(child.resolve() != purelib for child in sdk_python_path.iterdir())
+
+
+def test_sdk_python_path_refreshes_when_source_changes(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    source_root = tmp_path / "registry-source"
+    package_root = source_root / "tracecat_registry"
+    package_root.mkdir(parents=True)
+    (package_root / "__init__.py").write_text("")
+    ctx_file = package_root / "ctx.py"
+    ctx_file.write_text("VERSION = 'old'\n")
+    monkeypatch.setattr(
+        "tracecat.sandbox.service.config.TRACECAT__BUILTIN_REGISTRY_SOURCE_PATH",
+        str(source_root),
+    )
+    monkeypatch.setattr(sandbox_service_module, "_SDK_RUNTIME_IMPORTS", ())
+
+    service = SandboxService(cache_dir=str(tmp_path / "cache"))
+    first_sdk_python_path = service._prepare_sdk_python_path()
+    ctx_file.write_text("VERSION = 'newer-source'\n")
+    second_sdk_python_path = service._prepare_sdk_python_path()
+
+    assert first_sdk_python_path is not None
+    assert second_sdk_python_path is not None
+    assert first_sdk_python_path == second_sdk_python_path
+    assert (
+        second_sdk_python_path / "tracecat_registry" / "ctx.py"
+    ).read_text() == "VERSION = 'newer-source'\n"
+
+
+def test_sdk_python_path_preparation_is_concurrency_safe(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    source_root = tmp_path / "registry-source"
+    package_root = source_root / "tracecat_registry"
+    package_root.mkdir(parents=True)
+    (package_root / "__init__.py").write_text("")
+    (package_root / "ctx.py").write_text("VALUE = 1\n")
+    monkeypatch.setattr(
+        "tracecat.sandbox.service.config.TRACECAT__BUILTIN_REGISTRY_SOURCE_PATH",
+        str(source_root),
+    )
+    monkeypatch.setattr(sandbox_service_module, "_SDK_RUNTIME_IMPORTS", ())
+
+    service = SandboxService(cache_dir=str(tmp_path / "cache"))
+    with ThreadPoolExecutor(max_workers=4) as executor:
+        sdk_python_paths = list(
+            executor.map(lambda _: service._prepare_sdk_python_path(), range(4))
+        )
+
+    first_sdk_python_path = sdk_python_paths[0]
+    assert first_sdk_python_path is not None
+    assert all(path == first_sdk_python_path for path in sdk_python_paths)
+    assert (
+        first_sdk_python_path / "tracecat_registry" / "ctx.py"
+    ).read_text() == "VALUE = 1\n"
 
 
 def test_sdk_python_path_mounts_can_import_ctx_without_site_packages(
