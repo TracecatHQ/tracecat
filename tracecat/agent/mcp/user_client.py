@@ -29,6 +29,11 @@ def _create_transport(
     timeout: int | None = None,
 ) -> StreamableHttpTransport | SSETransport:
     """Create the appropriate transport for the MCP server."""
+    # FastMCP forwards inbound authorization as lowercase from request context.
+    # Normalize configured headers so outbound auth overrides it instead of
+    # producing duplicate Authorization headers with different casing.
+    if headers is not None:
+        headers = {name.lower(): value for name, value in headers.items()}
     if transport_type == "sse":
         return SSETransport(url=url, headers=headers, sse_read_timeout=timeout)
     # Default to HTTP (Streamable HTTP transport)
