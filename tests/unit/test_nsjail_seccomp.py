@@ -93,3 +93,20 @@ def test_worker_pool_config_includes_seccomp_policy(tmp_path: Path):
     )
 
     _assert_seccomp_config(config_text)
+
+
+def test_worker_pool_config_mounts_action_gateway_socket(tmp_path: Path):
+    """Warm nsjail workers should mount the action gateway socket when enabled."""
+    pool = WorkerPool()
+    action_gateway_socket = tmp_path / "action-gateway.sock"
+
+    config_text = pool._build_nsjail_config(
+        worker_id=1,
+        work_dir=tmp_path / "work",
+        action_gateway_socket=action_gateway_socket,
+    )
+
+    assert (
+        f'mount {{ src: "{action_gateway_socket}" dst: "/var/run/tracecat/action-gateway.sock" '
+        "is_bind: true rw: false }"
+    ) in config_text

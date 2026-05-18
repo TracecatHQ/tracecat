@@ -40,6 +40,9 @@ class ActionSandboxConfig:
         tracecat_app_dir: Directory containing tracecat package (not mounted in untrusted mode).
         site_packages_dir: Directory containing Python site-packages (not mounted in untrusted mode).
         env_vars: Environment variables to inject (SDK context, NOT DB credentials).
+        action_gateway_socket: Optional host-side action gateway Unix socket to bind
+            into the sandbox for SDK calls.
+        action_gateway_socket_mount_path: Socket path visible inside the sandbox.
         resources: Resource limits for the sandbox.
         timeout_seconds: Maximum execution time in seconds.
     """
@@ -48,6 +51,10 @@ class ActionSandboxConfig:
     tracecat_app_dir: Path
     site_packages_dir: Path | None = None
     env_vars: dict[str, str] = field(default_factory=dict)
+    action_gateway_socket: Path | None = None
+    action_gateway_socket_mount_path: Path = Path(
+        "/var/run/tracecat/action-gateway.sock"
+    )
     resources: ResourceLimits = field(default_factory=ResourceLimits)
     timeout_seconds: float = 300
 
@@ -633,6 +640,12 @@ class NsjailExecutor:
         _validate_path(config.tracecat_app_dir, "tracecat_app_dir")
         if config.site_packages_dir:
             _validate_path(config.site_packages_dir, "site_packages_dir")
+        if config.action_gateway_socket is not None:
+            _validate_path(config.action_gateway_socket, "action_gateway_socket")
+            _validate_path(
+                config.action_gateway_socket_mount_path,
+                "action_gateway_socket_mount_path",
+            )
 
         lines = [
             'name: "action_sandbox"',
@@ -705,6 +718,15 @@ class NsjailExecutor:
                 lines.append(
                     f'mount {{ src: "{registry_path}" dst: "/packages/{i}" is_bind: true rw: false }}'
                 )
+
+        if config.action_gateway_socket is not None:
+            lines.extend(
+                [
+                    "",
+                    "# Action Gateway socket for SDK calls",
+                    f'mount {{ src: "{config.action_gateway_socket}" dst: "{config.action_gateway_socket_mount_path}" is_bind: true rw: false }}',
+                ]
+            )
 
         # NOTE: /app and /site-packages are NOT mounted in untrusted mode
         # Untrusted mode uses minimal_runner.py copied to /work, no tracecat imports

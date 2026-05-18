@@ -39,6 +39,7 @@ class RegistryContext:
         wf_exec_id: The full workflow execution ID (for correlation).
         environment: The execution environment (e.g., "default").
         api_url: The Tracecat API URL.
+        action_gateway_socket: Optional local action gateway Unix socket for SDK requests.
         executor_url: The Tracecat executor service URL (sandbox execution).
         token: The executor JWT for authentication.
     """
@@ -49,6 +50,7 @@ class RegistryContext:
     wf_exec_id: str | None = None
     environment: str = "default"
     api_url: str = "http://api:8000"
+    action_gateway_socket: str | None = None
     executor_url: str = "http://executor:8000"
     token: str = ""
     # Lazily initialized SDK client
@@ -65,6 +67,7 @@ class RegistryContext:
         - TRACECAT__WF_EXEC_ID: Full workflow execution ID (for correlation)
         - TRACECAT__ENVIRONMENT: Execution environment (default: "default")
         - TRACECAT__API_URL: API URL (default: "http://api:8000")
+        - TRACECAT__ACTION_GATEWAY_SOCKET: Action Gateway socket for internal SDK requests
         - TRACECAT__EXECUTOR_URL: Executor URL (default: "http://executor:8000")
         - TRACECAT__EXECUTOR_TOKEN: JWT token for authentication
 
@@ -92,6 +95,8 @@ class RegistryContext:
             wf_exec_id=os.environ.get("TRACECAT__WF_EXEC_ID"),
             environment=os.environ.get("TRACECAT__ENVIRONMENT", "default"),
             api_url=os.environ.get("TRACECAT__API_URL", "http://api:8000"),
+            action_gateway_socket=os.environ.get("TRACECAT__ACTION_GATEWAY_SOCKET")
+            or None,
             executor_url=os.environ.get(
                 "TRACECAT__EXECUTOR_URL", "http://executor:8000"
             ),
@@ -105,6 +110,7 @@ class RegistryContext:
 
         return TracecatClient(
             api_url=self.api_url,
+            action_gateway_socket=self.action_gateway_socket,
             token=self.token,
             workspace_id=self.workspace_id,
         )

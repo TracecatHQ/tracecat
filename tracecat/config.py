@@ -622,6 +622,18 @@ TRACECAT__EXECUTOR_CLIENT_TIMEOUT = float(
 )
 """Default timeout in seconds for executor client operations (default: 300s)."""
 
+# === Action Gateway === #
+TRACECAT__ACTION_GATEWAY_ENABLED = os.environ.get(
+    "TRACECAT__ACTION_GATEWAY_ENABLED", "false"
+).lower() in ("true", "1")
+"""Enable the executor-local action gateway for action SDK calls."""
+
+TRACECAT__ACTION_GATEWAY_SOCKET = os.environ.get(
+    "TRACECAT__ACTION_GATEWAY_SOCKET",
+    "/var/run/tracecat/action-gateway.sock",
+)
+"""Unix socket path for the executor-local action gateway."""
+
 # === Action Executor Sandbox === #
 TRACECAT__EXECUTOR_SANDBOX_ENABLED = os.environ.get(
     "TRACECAT__EXECUTOR_SANDBOX_ENABLED", "false"

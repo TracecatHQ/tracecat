@@ -32,6 +32,7 @@ class TracecatClient:
 
     Configuration is read from environment variables:
     - TRACECAT__API_URL: Base URL of the Tracecat API
+    - TRACECAT__ACTION_GATEWAY_SOCKET: Local gateway socket for internal SDK requests
     - TRACECAT__EXECUTOR_TOKEN: JWT token for authentication
     - TRACECAT__WORKSPACE_ID: Current workspace ID (added to requests)
     """
@@ -40,6 +41,7 @@ class TracecatClient:
         self,
         *,
         api_url: str | None = None,
+        action_gateway_socket: str | None = None,
         token: str | None = None,
         workspace_id: str | None = None,
         timeout: float = 120.0,
@@ -48,15 +50,18 @@ class TracecatClient:
 
         Args:
             api_url: Base URL of the Tracecat API. Defaults to TRACECAT__API_URL env var.
+            action_gateway_socket: Optional action gateway Unix socket path for
+                internal SDK requests. Defaults to TRACECAT__ACTION_GATEWAY_SOCKET.
             token: JWT token for authentication. Defaults to TRACECAT__EXECUTOR_TOKEN env var.
             workspace_id: Workspace ID. Defaults to TRACECAT__WORKSPACE_ID env var.
             timeout: Request timeout in seconds.
         """
-        base_url = api_url or os.environ.get("TRACECAT__API_URL", "http://api:8000")
-        # Ensure /internal suffix is present
-        if not base_url.endswith("/internal"):
-            base_url = base_url.rstrip("/") + "/internal"
-        self._api_url = base_url
+        self._api_url = self._normalize_internal_url(
+            api_url or os.environ.get("TRACECAT__API_URL", "http://api:8000")
+        )
+        self._action_gateway_socket = action_gateway_socket or os.environ.get(
+            "TRACECAT__ACTION_GATEWAY_SOCKET"
+        )
 
         self._token = token or os.environ.get("TRACECAT__EXECUTOR_TOKEN", "")
         self._workspace_id = workspace_id or os.environ.get(
@@ -72,10 +77,29 @@ class TracecatClient:
         self._variables: VariablesClient | None = None
         self._workflows: WorkflowsClient | None = None
 
+    @staticmethod
+    def _normalize_internal_url(base_url: str) -> str:
+        """Normalize a base URL so SDK paths resolve under /internal."""
+        if base_url.endswith("/internal"):
+            return base_url
+        return base_url.rstrip("/") + "/internal"
+
     @property
     def api_url(self) -> str:
         """Base URL of the Tracecat API."""
         return self._api_url
+
+    def _request_url_and_transport(
+        self,
+        path: str,
+    ) -> tuple[str, httpx.AsyncHTTPTransport | None]:
+        """Return the target URL and transport for an internal SDK request."""
+        if self._action_gateway_socket is None:
+            return f"{self._api_url}{path}", None
+        return (
+            f"http://tracecat-action-gateway/internal{path}",
+            httpx.AsyncHTTPTransport(uds=self._action_gateway_socket),
+        )
 
     @property
     def workspace_id(self) -> str:
@@ -202,12 +226,15 @@ class TracecatClient:
             TracecatValidationError: For 400/422 responses
             TracecatAPIError: For other error responses
         """
-        url = f"{self._api_url}{path}"
+        url, transport = self._request_url_and_transport(path)
         request_headers = self._get_headers()
         if headers:
             request_headers.update(headers)
 
-        async with httpx.AsyncClient(timeout=self._timeout) as client:
+        async with httpx.AsyncClient(
+            transport=transport,
+            timeout=self._timeout,
+        ) as client:
             response = await client.request(
                 method,
                 url,

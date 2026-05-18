@@ -367,6 +367,78 @@ class TestActionRunner:
         assert captured_env["TRACECAT__EXECUTOR_TOKEN"] == "test-executor-token"
 
     @pytest.mark.anyio
+    async def test_execute_action_sets_action_gateway_env_when_enabled(
+        self,
+        temp_cache_dir,
+        mock_run_action_input,
+        mock_role,
+        monkeypatch: pytest.MonkeyPatch,
+    ):
+        """Action gateway mode injects the local socket path into action SDK env."""
+        runner = ActionRunner(cache_dir=temp_cache_dir)
+        base_dir = temp_cache_dir / "base"
+        base_dir.mkdir()
+
+        import orjson
+
+        monkeypatch.setattr(
+            action_runner.config, "TRACECAT__ACTION_GATEWAY_ENABLED", True
+        )
+        monkeypatch.setattr(
+            action_runner.config,
+            "TRACECAT__ACTION_GATEWAY_SOCKET",
+            "/var/run/tracecat/action-gateway.sock",
+        )
+
+        success_response = orjson.dumps({"success": True, "result": {"data": "test"}})
+        captured_env: dict[str, str] = {}
+
+        resolved_context = ResolvedContext(
+            secrets={},
+            variables={},
+            action_impl=ActionImplementation(
+                type="udf",
+                action_name="core.table.search_rows",
+                module="tracecat_registry.core.table",
+                name="search_rows",
+            ),
+            evaluated_args={"table": "customers"},
+            workspace_id=str(mock_role.workspace_id),
+            workflow_id=str(mock_run_action_input.run_context.wf_id),
+            run_id=str(mock_run_action_input.run_context.wf_run_id),
+            executor_token="test-executor-token",
+        )
+
+        async def create_subprocess_exec_side_effect(*args, **kwargs):  # noqa: ARG001
+            env = kwargs.get("env")
+            assert isinstance(env, dict)
+            captured_env.update(env)
+
+            mock_proc = AsyncMock()
+            mock_proc.returncode = 0
+            mock_proc.communicate = AsyncMock(return_value=(success_response, b""))
+            return mock_proc
+
+        with patch(
+            "asyncio.create_subprocess_exec",
+            side_effect=create_subprocess_exec_side_effect,
+        ):
+            result = await runner._execute_direct(
+                input=mock_run_action_input,
+                role=mock_role,
+                registry_paths=[base_dir],
+                secret_projection=_empty_secret_projection(),
+                timeout=10.0,
+                resolved_context=resolved_context,
+            )
+
+        assert result == {"data": "test"}
+        assert (
+            captured_env["TRACECAT__ACTION_GATEWAY_SOCKET"]
+            == "/var/run/tracecat/action-gateway.sock"
+        )
+
+    @pytest.mark.anyio
     async def test_execute_action_disables_new_privileges_for_direct_subprocess(
         self,
         temp_cache_dir,

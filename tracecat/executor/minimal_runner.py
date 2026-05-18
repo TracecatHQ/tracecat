@@ -60,6 +60,7 @@ except ImportError:
 
 # Static config (read once at module load, immutable)
 _API_URL = os.environ.get("TRACECAT__API_URL", "http://api:8000")
+_ACTION_GATEWAY_SOCKET = os.environ.get("TRACECAT__ACTION_GATEWAY_SOCKET") or None
 _CAPTURED_OUTPUT_CHAR_LIMIT = 8192
 _SUPPRESSED_OUTPUT_PREVIEW_CHAR_LIMIT = 500
 
@@ -236,6 +237,7 @@ async def _run_udf_async(
             workflow_id=workflow_id,
             run_id=run_id,
             api_url=_API_URL,  # Static, immutable
+            action_gateway_socket=_ACTION_GATEWAY_SOCKET,
             token=executor_token,
         )
         set_context(registry_ctx)
@@ -301,6 +303,7 @@ def _run_udf(
             workflow_id=os.environ.get("TRACECAT__WORKFLOW_ID", ""),
             run_id=os.environ.get("TRACECAT__RUN_ID", ""),
             api_url=_API_URL,
+            action_gateway_socket=_ACTION_GATEWAY_SOCKET,
             token=os.environ.get("TRACECAT__EXECUTOR_TOKEN", ""),
         )
         set_context(registry_ctx)
