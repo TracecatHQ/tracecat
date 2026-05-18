@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import time
+from collections.abc import Awaitable, Callable
+
 from fastapi import APIRouter, FastAPI, Request, Response, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import ORJSONResponse
@@ -20,6 +23,27 @@ router = APIRouter(
 @router.get("/health")
 async def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+async def request_logging_middleware(
+    request: Request,
+    call_next: Callable[[Request], Awaitable[Response]],
+) -> Response:
+    """Log action gateway requests without query strings."""
+    started_at = time.perf_counter()
+    response: Response | None = None
+    try:
+        response = await call_next(request)
+        return response
+    finally:
+        status_code = response.status_code if response is not None else 500
+        logger.info(
+            "Action Gateway request",
+            method=request.method,
+            path=request.url.path,
+            status_code=status_code,
+            elapsed_ms=round((time.perf_counter() - started_at) * 1000, 2),
+        )
 
 
 def validation_exception_handler(request: Request, exc: Exception) -> Response:
@@ -156,6 +180,7 @@ def create_app(**kwargs) -> FastAPI:
         **kwargs,
     )
 
+    app.middleware("http")(request_logging_middleware)
     app.include_router(router)
     _include_internal_routers(app)
     _add_exception_handlers(app)
