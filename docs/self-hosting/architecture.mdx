@@ -1,11 +1,11 @@
 ---
 title: Architecture
-description: "Architecture overview for self-hosted Tracecat: services, networking, authentication boundaries, and dependencies between API, executor, worker, and frontend."
+description: "Architecture overview for self-hosted Tracecat: services, networking, authentication boundaries, and dependencies between API, executor, worker, LiteLLM, and frontend."
 ---
 
 ## Services
 
-The Docker Compose stack runs 15 containers. Only `caddy` is exposed externally; all other ports are internal to the Docker network.
+The Docker Compose stack runs 16 containers. Only `caddy` is exposed externally; all other ports are internal to the Docker network.
 
 | Service | Port | Description |
 | :------ | :--- | :---------- |
@@ -16,6 +16,7 @@ The Docker Compose stack runs 15 containers. Only `caddy` is exposed externally;
 | `executor` | — | Action executor with optional sandbox |
 | `agent-worker` | — | AI agent orchestrator |
 | `agent-executor` | — | AI agent action executor |
+| `litellm` | 4000 | Managed LiteLLM gateway for AI model requests |
 | `mcp` | 8099 | MCP server for IDE integrations |
 | `postgres_db` | 5432 | Application database (PostgreSQL 16) |
 | `temporal` | 7233 | Workflow engine |
@@ -45,7 +46,13 @@ The browser connects to Caddy, which proxies to the API or UI. The UI server als
 
 External systems send webhooks to `/api/webhooks/...`, which Caddy forwards to the API service.
 
-The API submits workflow runs to the Temporal server on port 7233. Workers pull tasks from Temporal's task queue and dispatch actions to executors. Executors run individual action steps, optionally inside an nsjail sandbox. Agent workers and agent executors follow the same Temporal-based pattern for AI agent workflows.
+The API submits workflow runs to the Temporal server on port 7233. Workers pull tasks from Temporal's task queue and dispatch actions to executors. Executors run individual action steps, optionally inside an nsjail sandbox.
+
+Agent workers and agent executors follow the same Temporal-based pattern for AI agent workflows.
+
+### LiteLLM request path
+
+The `litellm` container runs Tracecat's managed LiteLLM gateway on port 4000. It is an internal service, not a public API endpoint. When an agent workflow reaches a model call, `agent-executor` sends the request to `http://litellm:4000` by default. The LiteLLM gateway validates the request, resolves the selected model provider, injects the provider credentials, and forwards the request upstream. This keeps provider credentials out of the sandboxed agent process while giving all managed model requests one internal routing point. Custom provider configurations can bypass the managed gateway when passthrough mode is enabled. Otherwise, root agents and subagents use the internal LiteLLM gateway.
 
 ### Docker networks
 
@@ -53,8 +60,8 @@ Four networks isolate traffic between service groups:
 
 | Network | Scope | Services |
 | :------ | :---- | :------- |
-| `core` | default | caddy, api, ui, worker, executor, agent-worker, agent-executor, mcp, redis, minio, temporal, temporal_ui, migrations |
-| `core-db` | internal | api, worker, executor, agent-worker, agent-executor, mcp, migrations, postgres_db |
+| `core` | default | caddy, api, ui, worker, executor, agent-worker, agent-executor, litellm, mcp, redis, minio, temporal, temporal_ui, migrations |
+| `core-db` | internal | api, worker, executor, agent-worker, agent-executor, litellm, mcp, migrations, postgres_db |
 | `temporal` | default | temporal, temporal_ui, worker, executor, agent-worker, agent-executor, mcp |
 | `temporal-db` | internal | temporal, temporal_postgres_db |
 
