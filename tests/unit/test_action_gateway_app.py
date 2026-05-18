@@ -1,9 +1,14 @@
 from __future__ import annotations
 
 from fastapi import FastAPI
+from fastapi.exceptions import RequestValidationError
 from fastapi.routing import APIRoute
+from fastapi.testclient import TestClient
 
-from tracecat.executor.action_gateway.app import create_app
+from tracecat.executor.action_gateway.app import (
+    create_app,
+    validation_exception_handler,
+)
 
 
 def _route_keys(app: FastAPI) -> set[tuple[str, str]]:
@@ -35,3 +40,29 @@ def test_action_gateway_mounts_internal_routes() -> None:
     assert not any(
         path.startswith("/internal/capabilities") for path, _ in gateway_routes
     )
+
+
+def test_action_gateway_validation_errors_are_json_safe() -> None:
+    app = FastAPI()
+    app.add_exception_handler(RequestValidationError, validation_exception_handler)
+
+    async def boom() -> None:
+        raise RequestValidationError(
+            [
+                {
+                    "type": "value_error",
+                    "loc": ("body", "field"),
+                    "msg": "Value error, bad value",
+                    "input": "x",
+                    "ctx": {"error": ValueError("bad value")},
+                }
+            ]
+        )
+
+    app.add_api_route("/boom", boom, methods=["GET"])
+
+    with TestClient(app, raise_server_exceptions=False) as client:
+        response = client.get("/boom")
+
+    assert response.status_code == 422
+    assert response.json()["detail"][0]["ctx"]["error"] == "bad value"

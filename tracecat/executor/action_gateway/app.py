@@ -5,6 +5,7 @@ from __future__ import annotations
 from fastapi import APIRouter, FastAPI, Request, Response, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import ORJSONResponse
+from pydantic_core import to_jsonable_python
 
 from tracecat.contexts import ctx_role
 from tracecat.logger import logger
@@ -23,7 +24,11 @@ async def health() -> dict[str, str]:
 
 def validation_exception_handler(request: Request, exc: Exception) -> Response:
     """Handle validation errors for action gateway-served internal routes."""
-    errors = exc.errors() if isinstance(exc, RequestValidationError) else str(exc)
+    errors = (
+        to_jsonable_python(exc.errors(), fallback=str)
+        if isinstance(exc, RequestValidationError)
+        else str(exc)
+    )
     logger.error(
         "Action Gateway validation error",
         method=request.method,
