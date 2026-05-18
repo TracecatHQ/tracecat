@@ -16,6 +16,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import orjson
 import pytest
 
 from tracecat import config
@@ -378,8 +379,6 @@ class TestActionRunner:
         runner = ActionRunner(cache_dir=temp_cache_dir)
         base_dir = temp_cache_dir / "base"
         base_dir.mkdir()
-
-        import orjson
 
         monkeypatch.setattr(
             action_runner.config, "TRACECAT__ACTION_GATEWAY_ENABLED", True
