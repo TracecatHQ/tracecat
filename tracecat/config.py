@@ -1143,6 +1143,16 @@ TRACECAT__REGISTRY_SYNC_SQUASHFS_ENABLED = os.environ.get(
 ).lower() in ("true", "1")
 """Build SquashFS sidecars for registry tarball venvs when mksquashfs is available."""
 
+TRACECAT__REGISTRY_SYNC_SQUASHFS_PROCESSORS = int(
+    os.environ.get("TRACECAT__REGISTRY_SYNC_SQUASHFS_PROCESSORS") or 1
+)
+"""Number of processors mksquashfs may use for registry SquashFS sidecar builds."""
+
+TRACECAT__REGISTRY_SYNC_SQUASHFS_MEM = os.environ.get(
+    "TRACECAT__REGISTRY_SYNC_SQUASHFS_MEM", "200M"
+)
+"""Memory budget passed to mksquashfs for registry SquashFS sidecar builds."""
+
 TRACECAT__BUILTIN_REGISTRY_SOURCE_PATH = os.environ.get(
     "TRACECAT__BUILTIN_REGISTRY_SOURCE_PATH", "/app/packages/tracecat-registry"
 )
