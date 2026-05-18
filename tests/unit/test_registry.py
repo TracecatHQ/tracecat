@@ -18,6 +18,7 @@ from tracecat.registry.repository import Repository
 
 
 @pytest.mark.anyio
+@pytest.mark.usefixtures("registry_version_with_manifest")
 async def test_list_registry_actions(test_role):
     """Test that list_actions_from_index returns actions."""
     async with RegistryActionsService.with_session(test_role) as service:
@@ -53,6 +54,7 @@ async def test_registry_actions_filtered_by_entitlements(test_role, monkeypatch)
 
 
 @pytest.mark.anyio
+@pytest.mark.usefixtures("registry_version_with_manifest")
 async def test_registry_actions_include_locked_marks_missing_entitlements(
     test_role, monkeypatch
 ):
@@ -76,6 +78,7 @@ async def test_registry_actions_include_locked_marks_missing_entitlements(
 
 
 @pytest.mark.anyio
+@pytest.mark.usefixtures("registry_version_with_manifest")
 async def test_registry_actions_include_locked_shows_agent_preset_crud(
     test_role,
     monkeypatch,
