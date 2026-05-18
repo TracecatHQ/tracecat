@@ -96,12 +96,16 @@ def test_create_squashfs_image_makes_mount_root_traversable(
     monkeypatch.setattr(
         tarball.config, "TRACECAT__REGISTRY_SYNC_SQUASHFS_ENABLED", True
     )
+    monkeypatch.setattr(
+        tarball.config, "TRACECAT__REGISTRY_SYNC_SQUASHFS_PROCESSORS", 2
+    )
+    monkeypatch.setattr(tarball.config, "TRACECAT__REGISTRY_SYNC_SQUASHFS_MEM", "256M")
     monkeypatch.setattr(tarball.shutil, "which", lambda _name: "/usr/bin/mksquashfs")
 
     def fake_subprocess_run(cmd: list[str]) -> subprocess.CompletedProcess[str]:
         staging_dir = Path(cmd[1])
         assert staging_dir.stat().st_mode & 0o777 == 0o755
-        assert cmd[-4:] == ["-processors", "1", "-mem", "200M"]
+        assert cmd[-4:] == ["-processors", "2", "-mem", "256M"]
         image_path.write_bytes(b"squashfs")
         return subprocess.CompletedProcess(cmd, 0, "", "")
 
