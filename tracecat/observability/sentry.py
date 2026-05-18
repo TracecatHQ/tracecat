@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 from collections.abc import Mapping, Sequence
 from typing import Any, cast
 
@@ -16,6 +17,8 @@ from tracecat.logger import logger
 
 REDACTED_VALUE = "[Filtered]"
 _MAX_SCRUB_DEPTH = 8
+_CAMEL_CASE_BOUNDARY_RE = re.compile(r"(?<=[a-z0-9])(?=[A-Z])")
+_NON_ALNUM_RE = re.compile(r"[^A-Za-z0-9]+")
 _SENSITIVE_KEY_PARTS = frozenset(
     {
         "api_key",
@@ -134,5 +137,10 @@ def _scrub(value: Any, *, depth: int = 0) -> Any:
 
 
 def _is_sensitive_key(key: str) -> bool:
-    normalized = key.lower().replace("-", "_")
+    normalized = _normalize_sensitive_key(key)
     return any(part in normalized for part in _SENSITIVE_KEY_PARTS)
+
+
+def _normalize_sensitive_key(key: str) -> str:
+    camel_split = _CAMEL_CASE_BOUNDARY_RE.sub("_", key)
+    return _NON_ALNUM_RE.sub("_", camel_split).casefold().strip("_")

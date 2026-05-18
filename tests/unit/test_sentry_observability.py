@@ -49,6 +49,30 @@ def test_sentry_scrubber_redacts_nested_sensitive_fields() -> None:
     }
 
 
+def test_sentry_scrubber_redacts_camel_case_sensitive_fields() -> None:
+    event = {
+        "extra": {
+            "payload": {
+                "apiKey": "secret-key",
+                "privateKey": "secret-private-key",
+                "safe": "kept",
+            }
+        }
+    }
+
+    scrubbed = sentry_observability._scrub(event)
+
+    assert scrubbed == {
+        "extra": {
+            "payload": {
+                "apiKey": sentry_observability.REDACTED_VALUE,
+                "privateKey": sentry_observability.REDACTED_VALUE,
+                "safe": "kept",
+            }
+        }
+    }
+
+
 def test_activity_interceptor_skips_known_user_facing_application_errors() -> None:
     exc = ApplicationError("action failed", type="ExecutionError")
 
