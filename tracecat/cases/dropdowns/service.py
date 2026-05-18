@@ -365,20 +365,50 @@ class CaseDropdownValuesService(BaseWorkspaceService):
         result = await self.session.execute(stmt)
         rows = result.scalars().all()
 
-        return [
-            CaseDropdownValueRead(
-                id=row.id,
-                definition_id=row.definition_id,
-                definition_ref=row.definition.ref,
-                definition_name=row.definition.name,
-                option_id=row.option.id if row.option else None,
-                option_label=row.option.label if row.option else None,
-                option_ref=row.option.ref if row.option else None,
-                option_icon_name=row.option.icon_name if row.option else None,
-                option_color=row.option.color if row.option else None,
+        return [self._serialize_value(row) for row in rows]
+
+    @requires_entitlement(Entitlement.CASE_ADDONS)
+    async def list_values_for_cases(
+        self, case_ids: Sequence[uuid.UUID]
+    ) -> dict[uuid.UUID, list[CaseDropdownValueRead]]:
+        """Batch list dropdown values for workspace-scoped cases."""
+        unique_case_ids = list(dict.fromkeys(case_ids))
+        if not unique_case_ids:
+            return {}
+
+        stmt = (
+            select(CaseDropdownValue)
+            .join(Case, Case.id == CaseDropdownValue.case_id)
+            .where(
+                Case.workspace_id == self.workspace_id,
+                CaseDropdownValue.case_id.in_(unique_case_ids),
             )
-            for row in rows
-        ]
+            .options(
+                selectinload(CaseDropdownValue.definition).selectinload(
+                    CaseDropdownDefinition.options
+                ),
+                selectinload(CaseDropdownValue.option),
+            )
+        )
+        result = await self.session.execute(stmt)
+        grouped = {case_id: [] for case_id in unique_case_ids}
+        for row in result.scalars().all():
+            grouped.setdefault(row.case_id, []).append(self._serialize_value(row))
+        return grouped
+
+    @staticmethod
+    def _serialize_value(row: CaseDropdownValue) -> CaseDropdownValueRead:
+        return CaseDropdownValueRead(
+            id=row.id,
+            definition_id=row.definition_id,
+            definition_ref=row.definition.ref,
+            definition_name=row.definition.name,
+            option_id=row.option.id if row.option else None,
+            option_label=row.option.label if row.option else None,
+            option_ref=row.option.ref if row.option else None,
+            option_icon_name=row.option.icon_name if row.option else None,
+            option_color=row.option.color if row.option else None,
+        )
 
     async def _set_value(
         self,

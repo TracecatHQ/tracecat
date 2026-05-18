@@ -8,6 +8,7 @@ import pytest
 from fastapi import status
 from fastapi.testclient import TestClient
 
+from tracecat import config
 from tracecat.auth.types import Role
 from tracecat.db.models import Table, Workspace
 from tracecat.tables import internal_router as internal_tables_router
@@ -68,3 +69,29 @@ async def test_internal_update_table_row_invalid_integer_value_returns_400(
 
     assert response.status_code == status.HTTP_400_BAD_REQUEST
     assert response.json()["detail"] == "Invalid integer value: '1.5'"
+
+
+@pytest.mark.anyio
+async def test_internal_lookup_rows_applies_default_limit(
+    client: TestClient,
+    test_admin_role: Role,
+    mock_table: Table,
+) -> None:
+    with patch.object(internal_tables_router, "TablesService") as MockService:
+        mock_svc = AsyncMock()
+        mock_svc.lookup_rows.return_value = []
+        MockService.return_value = mock_svc
+
+        response = client.post(
+            f"/internal/tables/{mock_table.name}/lookup",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
+            json={"columns": ["email"], "values": ["alice@example.com"]},
+        )
+
+    assert response.status_code == status.HTTP_200_OK
+    mock_svc.lookup_rows.assert_awaited_once_with(
+        mock_table.name,
+        columns=["email"],
+        values=["alice@example.com"],
+        limit=config.TRACECAT__LIMIT_TABLE_LOOKUP_DEFAULT,
+    )

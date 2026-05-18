@@ -47,8 +47,8 @@ class TableCreateRequest(BaseModel):
 class TableLookupRequest(BaseModel):
     columns: list[str]
     values: list[Any]
-    limit: int | None = Field(
-        default=None,
+    limit: int = Field(
+        default=config.TRACECAT__LIMIT_TABLE_LOOKUP_DEFAULT,
         ge=config.TRACECAT__LIMIT_MIN,
         le=config.TRACECAT__LIMIT_CURSOR_MAX,
     )
@@ -186,7 +186,7 @@ async def lookup_rows(
     params: TableLookupRequest,
 ) -> list[dict[str, Any]]:
     """Lookup rows matching column/value pairs."""
-    if params.limit is not None and params.limit > config.TRACECAT__LIMIT_CURSOR_MAX:
+    if params.limit > config.TRACECAT__LIMIT_CURSOR_MAX:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=(
