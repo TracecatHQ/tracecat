@@ -519,6 +519,7 @@ class TestActionRunner:
 
         with _mock_tracecat_api_server("test-executor-token") as (api_url, state):
             monkeypatch.setattr(config, "TRACECAT__API_URL", api_url)
+            monkeypatch.setattr(config, "TRACECAT__ACTION_GATEWAY_ENABLED", False)
             result = await runner._execute_direct(
                 input=mock_run_action_input,
                 role=mock_role,
