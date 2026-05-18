@@ -176,6 +176,10 @@ def _create_squashfs_image(
             "gzip",
             "-no-xattrs",
             "-all-root",
+            "-processors",
+            str(config.TRACECAT__REGISTRY_SYNC_SQUASHFS_PROCESSORS),
+            "-mem",
+            config.TRACECAT__REGISTRY_SYNC_SQUASHFS_MEM,
         ]
         result = subprocess_run(cmd)
         if result.returncode != 0:
