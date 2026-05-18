@@ -6,10 +6,21 @@ import {
   Trash2Icon,
   WorkflowIcon,
 } from "lucide-react"
+import { useState } from "react"
 import {
   EventCreatedAt,
   EventUpdatedAt,
 } from "@/components/cases/cases-feed-event"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import { Badge } from "@/components/ui/badge"
 import type { InboxSessionItem } from "@/lib/agents"
 import { cn } from "@/lib/utils"
@@ -75,7 +86,8 @@ export function ActivityItem({
   onClick,
   onDelete,
 }: ActivityItemProps) {
-  // Display name: prefer workflow alias, then parent workflow title, then session title
+  const [confirmOpen, setConfirmOpen] = useState(false)
+
   const displayName =
     session.parent_workflow?.alias ||
     session.parent_workflow?.title ||
@@ -85,61 +97,79 @@ export function ActivityItem({
   const sourceConfig = SOURCE_CONFIGS[sourceType]
   const SourceIcon = sourceConfig.icon
 
-  const handleDelete = (e: React.MouseEvent) => {
-    e.stopPropagation()
-    onDelete?.()
-  }
-
   return (
-    <div
-      className={cn(
-        "-ml-[18px] group/item flex w-[calc(100%+18px)] items-center gap-3 py-2 pl-3 pr-3 transition-colors",
-        "hover:bg-muted/50",
-        isSelected && "bg-muted"
-      )}
-    >
-      <button
-        type="button"
-        onClick={onClick}
-        className="flex min-w-0 flex-1 items-center gap-3 text-left"
-      >
-        {/* Spacer to align with accordion chevron (h-7 w-7) */}
-        <div className="h-7 w-7 shrink-0" />
-
-        {/* Agent name + badge */}
-        <div className="flex min-w-0 flex-1 items-center gap-2">
-          <span className="truncate text-xs">{displayName}</span>
-          <Badge
-            variant="secondary"
-            className="shrink-0 gap-1 text-[10px] px-1.5 py-0 h-5 font-normal"
-          >
-            <SourceIcon className="size-3" />
-            {sourceConfig.label}
-          </Badge>
-        </div>
-
-        {/* Timestamps */}
-        <div className="flex shrink-0 items-center gap-2">
-          <EventCreatedAt createdAt={session.created_at} />
-          <EventUpdatedAt updatedAt={session.updated_at} />
-        </div>
-      </button>
-
-      {/* Delete button — visible on row hover */}
-      <button
-        type="button"
-        onClick={handleDelete}
-        disabled={isDeleting}
+    <>
+      <div
         className={cn(
-          "flex size-6 shrink-0 items-center justify-center rounded text-muted-foreground transition-colors",
-          "opacity-0 group-hover/item:opacity-100",
-          "hover:bg-destructive/10 hover:text-destructive",
-          isDeleting && "cursor-not-allowed opacity-50"
+          "-ml-[18px] group/item flex w-[calc(100%+18px)] items-center gap-3 py-2 pl-3 pr-3 transition-colors",
+          "hover:bg-muted/50",
+          isSelected && "bg-muted"
         )}
-        aria-label="Delete approval"
       >
-        <Trash2Icon className="size-3.5" />
-      </button>
-    </div>
+        <button
+          type="button"
+          onClick={onClick}
+          className="flex min-w-0 flex-1 items-center gap-3 text-left"
+        >
+          <div className="h-7 w-7 shrink-0" />
+          <div className="flex min-w-0 flex-1 items-center gap-2">
+            <span className="truncate text-xs">{displayName}</span>
+            <Badge
+              variant="secondary"
+              className="shrink-0 gap-1 text-[10px] px-1.5 py-0 h-5 font-normal"
+            >
+              <SourceIcon className="size-3" />
+              {sourceConfig.label}
+            </Badge>
+          </div>
+          <div className="flex shrink-0 items-center gap-2">
+            <EventCreatedAt createdAt={session.created_at} />
+            <EventUpdatedAt updatedAt={session.updated_at} />
+          </div>
+        </button>
+
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation()
+            setConfirmOpen(true)
+          }}
+          disabled={isDeleting}
+          className={cn(
+            "flex size-6 shrink-0 items-center justify-center rounded text-muted-foreground transition-colors",
+            "opacity-0 group-hover/item:opacity-100",
+            "hover:bg-destructive/10 hover:text-destructive",
+            isDeleting && "cursor-not-allowed opacity-50"
+          )}
+          aria-label="Delete approval"
+        >
+          <Trash2Icon className="size-3.5" />
+        </button>
+      </div>
+
+      <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete approval</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will deny all pending tool calls and remove this approval
+              from the inbox.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              onClick={() => {
+                setConfirmOpen(false)
+                onDelete?.()
+              }}
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
   )
 }

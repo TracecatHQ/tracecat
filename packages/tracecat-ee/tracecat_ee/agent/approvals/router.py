@@ -72,6 +72,7 @@ def _to_approval_decisions(approvals: ApprovalMap) -> list[ApprovalDecision]:
 
 
 @router.post("/{session_id}", status_code=status.HTTP_204_NO_CONTENT)
+@require_scope("agent:update")
 async def submit_approvals(
     *,
     role: WorkspaceUserRouteRole,
@@ -151,7 +152,7 @@ async def submit_approvals(
 
 
 @router.delete("/{session_id}", status_code=status.HTTP_204_NO_CONTENT)
-@require_scope("agent:execute")
+@require_scope("agent:delete")
 async def delete_approval(
     *,
     role: WorkspaceUserRouteRole,
@@ -203,10 +204,13 @@ async def delete_approval(
             session_id,
             ContinueRunRequest(decisions=decisions, source="inbox"),
         )
+        return
     except Exception:
         logger.warning(
-            "Workflow handle dead or unavailable; deleting approval records directly",
+            "run_turn failed; deleting approval records directly",
             session_id=str(session_id),
+            exc_info=True,
         )
-        for approval in pending:
-            await approval_service.delete_approval(approval)
+
+    for approval in pending:
+        await approval_service.delete_approval(approval)

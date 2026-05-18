@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect } from "react"
+import { useEffect, useRef } from "react"
 import { useInboxChat } from "@/app/workspaces/[workspaceId]/inbox/layout"
 import type { AgentSessionEntity } from "@/client"
 import { CenteredSpinner } from "@/components/loading/spinner"
@@ -42,8 +42,18 @@ export function ActivityLayout({
   onCreatedAfterChange,
 }: ActivityLayoutProps) {
   const { setSelectedSession, setChatOpen, registerOnClose } = useInboxChat()
-  const { mutateAsync: deleteApproval, variables: deletingId } =
-    useDeleteApproval()
+  const {
+    mutateAsync: deleteApproval,
+    variables,
+    isPending: isDeletePending,
+  } = useDeleteApproval()
+  const deletingId = isDeletePending ? (variables ?? null) : null
+
+  // Always reflects the current selectedId without closing over a stale value.
+  const selectedIdRef = useRef(selectedId)
+  useEffect(() => {
+    selectedIdRef.current = selectedId
+  }, [selectedId])
 
   // Sync selected session with layout context
   const selectedSession = sessions.find((s) => s.id === selectedId) ?? null
@@ -65,7 +75,7 @@ export function ActivityLayout({
   const handleDeleteItem = async (id: string) => {
     try {
       await deleteApproval(id)
-      if (selectedId === id) {
+      if (selectedIdRef.current === id) {
         onSelect(null)
       }
     } catch {
