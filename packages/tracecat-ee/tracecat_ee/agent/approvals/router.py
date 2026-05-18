@@ -6,14 +6,16 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from tracecat.agent.approvals.enums import ApprovalStatus
 from tracecat.agent.session.service import AgentSessionService
 from tracecat.agent.types import ToolApproved, ToolDenied
 from tracecat.auth.dependencies import WorkspaceUserRouteRole
+from tracecat.authz.controls import require_scope
 from tracecat.chat.schemas import ApprovalDecision, ContinueRunRequest
 from tracecat.db.engine import get_async_session
 from tracecat.exceptions import TracecatNotFoundError
 from tracecat.logger import logger
-from tracecat_ee.agent.approvals.service import ApprovalMap
+from tracecat_ee.agent.approvals.service import ApprovalMap, ApprovalService
 
 router = APIRouter(prefix="/approvals", tags=["approvals"])
 
@@ -146,3 +148,65 @@ async def submit_approvals(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to submit approvals",
         ) from exc
+
+
+@router.delete("/{session_id}", status_code=status.HTTP_204_NO_CONTENT)
+@require_scope("agent:execute")
+async def delete_approval(
+    *,
+    role: WorkspaceUserRouteRole,
+    session_id: uuid.UUID,
+    session: AsyncSession = Depends(get_async_session),
+) -> None:
+    """Dismiss all pending approvals for a session.
+
+    If the Temporal workflow is alive, deny the approvals so it fails at the
+    agent step. If the workflow is already gone, delete the approval records
+    directly. The session itself is left intact in both cases.
+    """
+    workspace_id = role.workspace_id
+    if workspace_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Workspace access required",
+        )
+
+    session_service = AgentSessionService(session, role)
+    approval_service = ApprovalService(session=session, role=role)
+
+    agent_session = await session_service.get_session(session_id)
+    if agent_session is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Agent session not found",
+        )
+
+    pending = [
+        a
+        for a in await approval_service.list_approvals_for_session(session_id)
+        if a.status == ApprovalStatus.PENDING
+    ]
+
+    if not pending:
+        return
+
+    decisions = [
+        ApprovalDecision(
+            tool_call_id=a.tool_call_id,
+            action="deny",
+            reason="Dismissed from approvals inbox",
+        )
+        for a in pending
+    ]
+    try:
+        await session_service.run_turn(
+            session_id,
+            ContinueRunRequest(decisions=decisions, source="inbox"),
+        )
+    except Exception:
+        logger.warning(
+            "Workflow handle dead or unavailable; deleting approval records directly",
+            session_id=str(session_id),
+        )
+        for approval in pending:
+            await approval_service.delete_approval(approval)

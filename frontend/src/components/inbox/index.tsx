@@ -4,7 +4,12 @@ import { useEffect } from "react"
 import { useInboxChat } from "@/app/workspaces/[workspaceId]/inbox/layout"
 import type { AgentSessionEntity } from "@/client"
 import { CenteredSpinner } from "@/components/loading/spinner"
-import type { DateFilterValue, UseInboxFilters } from "@/hooks/use-inbox"
+import { toast } from "@/components/ui/use-toast"
+import {
+  type DateFilterValue,
+  type UseInboxFilters,
+  useDeleteApproval,
+} from "@/hooks/use-inbox"
 import type { InboxSessionItem } from "@/lib/agents"
 import { ActivityAccordion } from "./activity-accordion"
 import { InboxHeader } from "./inbox-header"
@@ -37,6 +42,8 @@ export function ActivityLayout({
   onCreatedAfterChange,
 }: ActivityLayoutProps) {
   const { setSelectedSession, setChatOpen, registerOnClose } = useInboxChat()
+  const { mutateAsync: deleteApproval, variables: deletingId } =
+    useDeleteApproval()
 
   // Sync selected session with layout context
   const selectedSession = sessions.find((s) => s.id === selectedId) ?? null
@@ -53,6 +60,21 @@ export function ActivityLayout({
 
   const handleSelectItem = (id: string) => {
     onSelect(id)
+  }
+
+  const handleDeleteItem = async (id: string) => {
+    try {
+      await deleteApproval(id)
+      if (selectedId === id) {
+        onSelect(null)
+      }
+    } catch {
+      toast({
+        title: "Failed to delete approval",
+        description: "Could not delete this approval. Please try again.",
+        variant: "destructive",
+      })
+    }
   }
 
   if (isLoading) {
@@ -119,7 +141,9 @@ export function ActivityLayout({
         <ActivityAccordion
           sessions={sessions}
           selectedId={selectedId}
+          deletingId={deletingId ?? null}
           onSelect={handleSelectItem}
+          onDelete={handleDeleteItem}
         />
       </div>
     </div>

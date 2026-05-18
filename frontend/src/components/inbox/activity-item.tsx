@@ -3,6 +3,7 @@ import {
   FlaskConicalIcon,
   LayersIcon,
   MessageSquareIcon,
+  Trash2Icon,
   WorkflowIcon,
 } from "lucide-react"
 import {
@@ -16,7 +17,9 @@ import { cn } from "@/lib/utils"
 interface ActivityItemProps {
   session: InboxSessionItem
   isSelected: boolean
+  isDeleting?: boolean
   onClick: () => void
+  onDelete?: () => void
 }
 
 type SourceType = "workflow" | "case" | "chat" | "test" | "assistant"
@@ -68,7 +71,9 @@ function getSourceType(entityType: string): SourceType {
 export function ActivityItem({
   session,
   isSelected,
+  isDeleting,
   onClick,
+  onDelete,
 }: ActivityItemProps) {
   // Display name: prefer workflow alias, then parent workflow title, then session title
   const displayName =
@@ -80,37 +85,61 @@ export function ActivityItem({
   const sourceConfig = SOURCE_CONFIGS[sourceType]
   const SourceIcon = sourceConfig.icon
 
+  const handleDelete = (e: React.MouseEvent) => {
+    e.stopPropagation()
+    onDelete?.()
+  }
+
   return (
-    <button
-      type="button"
-      onClick={onClick}
+    <div
       className={cn(
-        // Use negative margins to extend hover to full width
-        "-ml-[18px] flex w-[calc(100%+18px)] items-center gap-3 py-2 pl-3 pr-3 text-left transition-colors",
+        "-ml-[18px] group/item flex w-[calc(100%+18px)] items-center gap-3 py-2 pl-3 pr-3 transition-colors",
         "hover:bg-muted/50",
         isSelected && "bg-muted"
       )}
     >
-      {/* Spacer to align with accordion chevron (h-7 w-7) */}
-      <div className="h-7 w-7 shrink-0" />
+      <button
+        type="button"
+        onClick={onClick}
+        className="flex min-w-0 flex-1 items-center gap-3 text-left"
+      >
+        {/* Spacer to align with accordion chevron (h-7 w-7) */}
+        <div className="h-7 w-7 shrink-0" />
 
-      {/* Agent name + badge */}
-      <div className="flex min-w-0 flex-1 items-center gap-2">
-        <span className="truncate text-xs">{displayName}</span>
-        <Badge
-          variant="secondary"
-          className="shrink-0 gap-1 text-[10px] px-1.5 py-0 h-5 font-normal"
-        >
-          <SourceIcon className="size-3" />
-          {sourceConfig.label}
-        </Badge>
-      </div>
+        {/* Agent name + badge */}
+        <div className="flex min-w-0 flex-1 items-center gap-2">
+          <span className="truncate text-xs">{displayName}</span>
+          <Badge
+            variant="secondary"
+            className="shrink-0 gap-1 text-[10px] px-1.5 py-0 h-5 font-normal"
+          >
+            <SourceIcon className="size-3" />
+            {sourceConfig.label}
+          </Badge>
+        </div>
 
-      {/* Timestamps */}
-      <div className="flex shrink-0 items-center gap-2">
-        <EventCreatedAt createdAt={session.created_at} />
-        <EventUpdatedAt updatedAt={session.updated_at} />
-      </div>
-    </button>
+        {/* Timestamps */}
+        <div className="flex shrink-0 items-center gap-2">
+          <EventCreatedAt createdAt={session.created_at} />
+          <EventUpdatedAt updatedAt={session.updated_at} />
+        </div>
+      </button>
+
+      {/* Delete button — visible on row hover */}
+      <button
+        type="button"
+        onClick={handleDelete}
+        disabled={isDeleting}
+        className={cn(
+          "flex size-6 shrink-0 items-center justify-center rounded text-muted-foreground transition-colors",
+          "opacity-0 group-hover/item:opacity-100",
+          "hover:bg-destructive/10 hover:text-destructive",
+          isDeleting && "cursor-not-allowed opacity-50"
+        )}
+        aria-label="Delete approval"
+      >
+        <Trash2Icon className="size-3.5" />
+      </button>
+    </div>
   )
 }

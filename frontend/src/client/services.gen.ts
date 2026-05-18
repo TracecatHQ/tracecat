@@ -221,6 +221,8 @@ import type {
   AgentTagsUpdateAgentTagResponse,
   AgentUpdateProviderCredentialsData,
   AgentUpdateProviderCredentialsResponse,
+  ApprovalsDeleteApprovalData,
+  ApprovalsDeleteApprovalResponse,
   ApprovalsSubmitApprovalsData,
   ApprovalsSubmitApprovalsResponse,
   AuthAuthDatabaseLoginData,
@@ -6743,6 +6745,35 @@ export const approvalsSubmitApprovals = (
     },
     body: data.requestBody,
     mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Delete Approval
+ * Dismiss all pending approvals for a session.
+ *
+ * If the Temporal workflow is alive, deny the approvals so it fails at the
+ * agent step. If the workflow is already gone, delete the approval records
+ * directly. The session itself is left intact in both cases.
+ * @param data The data for the request.
+ * @param data.sessionId
+ * @param data.workspaceId
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const approvalsDeleteApproval = (
+  data: ApprovalsDeleteApprovalData
+): CancelablePromise<ApprovalsDeleteApprovalResponse> => {
+  return __request(OpenAPI, {
+    method: "DELETE",
+    url: "/workspaces/{workspace_id}/approvals/{session_id}",
+    path: {
+      session_id: data.sessionId,
+      workspace_id: data.workspaceId,
+    },
     errors: {
       422: "Validation Error",
     },
