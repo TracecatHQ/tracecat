@@ -59,8 +59,10 @@ class TracecatClient:
         self._api_url = self._normalize_internal_url(
             api_url or os.environ.get("TRACECAT__API_URL", "http://api:8000")
         )
-        self._action_gateway_socket = action_gateway_socket or os.environ.get(
-            "TRACECAT__ACTION_GATEWAY_SOCKET"
+        self._action_gateway_socket = (
+            action_gateway_socket
+            or os.environ.get("TRACECAT__ACTION_GATEWAY_SOCKET")
+            or None
         )
 
         self._token = token or os.environ.get("TRACECAT__EXECUTOR_TOKEN", "")

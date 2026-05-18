@@ -73,6 +73,63 @@ async def test_request_uses_action_gateway_unix_socket(
 
 
 @pytest.mark.anyio
+async def test_empty_action_gateway_socket_env_uses_api_url(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("TRACECAT__ACTION_GATEWAY_SOCKET", "")
+    captured: dict[str, Any] = {}
+
+    class FakeAsyncClient:
+        def __init__(
+            self,
+            *,
+            transport: object | None,
+            timeout: float,
+        ) -> None:
+            captured["transport"] = transport
+            captured["timeout"] = timeout
+
+        async def __aenter__(self) -> FakeAsyncClient:
+            return self
+
+        async def __aexit__(self, *args: object) -> None:
+            return None
+
+        async def request(
+            self,
+            method: str,
+            url: str,
+            *,
+            params: dict[str, Any] | None,
+            json: Any | None,
+            headers: dict[str, str],
+        ) -> httpx.Response:
+            captured["method"] = method
+            captured["url"] = url
+            captured["params"] = params
+            captured["json"] = json
+            captured["headers"] = headers
+            return httpx.Response(200, json={"ok": True})
+
+    monkeypatch.setattr(httpx, "AsyncClient", FakeAsyncClient)
+
+    client = TracecatClient(
+        api_url="http://api:8000",
+        token="executor-token",
+        timeout=12.0,
+    )
+
+    result = await client.get("/cases/case-id")
+
+    assert result == {"ok": True}
+    assert captured["transport"] is None
+    assert captured["timeout"] == 12.0
+    assert captured["method"] == "GET"
+    assert captured["url"] == "http://api:8000/internal/cases/case-id"
+    assert captured["headers"]["Authorization"] == "Bearer executor-token"
+
+
+@pytest.mark.anyio
 async def test_request_uses_api_url_without_action_gateway(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
