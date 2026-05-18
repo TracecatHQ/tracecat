@@ -628,9 +628,9 @@ TRACECAT__ACTION_GATEWAY_ENABLED = os.environ.get(
 ).lower() in ("true", "1")
 """Enable the executor-local action gateway for action SDK calls."""
 
-TRACECAT__ACTION_GATEWAY_SOCKET = os.environ.get(
-    "TRACECAT__ACTION_GATEWAY_SOCKET",
-    "/var/run/tracecat/action-gateway.sock",
+TRACECAT__ACTION_GATEWAY_SOCKET = (
+    os.environ.get("TRACECAT__ACTION_GATEWAY_SOCKET")
+    or "/var/run/tracecat/action-gateway.sock"
 )
 """Unix socket path for the executor-local action gateway."""
 

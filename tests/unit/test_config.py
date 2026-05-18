@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import importlib
+
 import pytest
 
+import tracecat.config as tracecat_config
 from tracecat.config import bound_env
 
 
@@ -45,6 +48,23 @@ def test_bound_env_uses_default_for_empty_string(
     result = bound_env("TEST_BOUND_ENV", 10, lower=8)
 
     assert result == 10
+
+
+def test_action_gateway_socket_uses_default_for_empty_string(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    try:
+        with monkeypatch.context() as env:
+            env.setenv("TRACECAT__ACTION_GATEWAY_SOCKET", "")
+
+            reloaded_config = importlib.reload(tracecat_config)
+
+            assert (
+                reloaded_config.TRACECAT__ACTION_GATEWAY_SOCKET
+                == "/var/run/tracecat/action-gateway.sock"
+            )
+    finally:
+        importlib.reload(tracecat_config)
 
 
 def test_bound_env_rejects_invalid_numeric_value(
