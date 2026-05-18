@@ -106,6 +106,7 @@ function getScriptSrc() {
 function getSentryConnectSources(dsn) {
   const sources = new Set([
     "https://*.ingest.sentry.io",
+    "https://*.ingest.de.sentry.io",
     "https://*.ingest.us.sentry.io",
   ])
 
