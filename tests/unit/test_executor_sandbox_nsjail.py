@@ -24,6 +24,8 @@ from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.dsl.common import create_default_execution_context
 from tracecat.dsl.schemas import ActionStatement, RunActionInput, RunContext
+from tracecat.executor.action_gateway.config import ACTION_GATEWAY_SANDBOX_SOCKET
+from tracecat.executor.action_gateway.server import ActionGateway
 from tracecat.executor.action_runner import ActionRunner
 from tracecat.executor.registry_artifacts import (
     RegistryArtifactFormat,
@@ -47,6 +49,7 @@ class SmokeCase(StrEnum):
     DIRECT = "direct"
     NSJAIL_GZ = "nsjail-gz"
     NSJAIL_SQUASHFS = "nsjail-squashfs"
+    NSJAIL_GATEWAY = "nsjail-gateway"
 
     @property
     def force_sandbox(self) -> bool:
@@ -284,6 +287,59 @@ def _write_registry_artifact_source(source_dir: Path) -> None:
     )
 
 
+def _write_gateway_artifact_source(source_dir: Path) -> None:
+    source_dir.mkdir(parents=True)
+    (source_dir / "registry_artifact_smoke_action.py").write_text(
+        "\n".join(
+            [
+                "import json",
+                "import os",
+                "import socket",
+                "",
+                "",
+                "def _gateway_health() -> dict:",
+                '    socket_path = os.environ["TRACECAT__ACTION_GATEWAY_SOCKET"]',
+                "    client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)",
+                "    client.settimeout(5)",
+                "    try:",
+                "        client.connect(socket_path)",
+                "        request = (",
+                '            b"GET /internal/health HTTP/1.1\\r\\n"',
+                '            b"Host: tracecat-action-gateway\\r\\n"',
+                '            b"Connection: close\\r\\n\\r\\n"',
+                "        )",
+                "        client.sendall(request)",
+                "        chunks = []",
+                "        while True:",
+                "            chunk = client.recv(4096)",
+                "            if not chunk:",
+                "                break",
+                "            chunks.append(chunk)",
+                "    finally:",
+                "        client.close()",
+                "",
+                '    raw = b"".join(chunks).decode("utf-8")',
+                '    headers, body = raw.split("\\r\\n\\r\\n", 1)',
+                '    status_line = headers.split("\\r\\n", 1)[0]',
+                '    status_code = int(status_line.split(" ", 2)[1])',
+                "    return {",
+                '        "status_code": status_code,',
+                '        "body": json.loads(body),',
+                '        "socket_path": socket_path,',
+                "    }",
+                "",
+                "",
+                "def run(value: str) -> dict:",
+                "    return {",
+                '        "value": value,',
+                '        "gateway": _gateway_health(),',
+                "    }",
+                "",
+            ]
+        )
+    )
+
+
 def _add_source_dir_to_tar(tar: tarfile.TarFile, source_dir: Path) -> None:
     for path in sorted(source_dir.iterdir()):
         tar.add(path, arcname=path.name)
@@ -343,12 +399,23 @@ async def _run_executor_action_smoke_case(
     monkeypatch.setattr(config, "TRACECAT__EXECUTOR_SANDBOX_ENABLED", True)
     monkeypatch.setattr(config, "TRACECAT__EXECUTOR_REGISTRY_SQUASHFS_ENABLED", True)
     monkeypatch.setattr(config, "TRACECAT__EXECUTOR_CLIENT_TIMEOUT", 30.0)
+    monkeypatch.setattr(config, "TRACECAT__ACTION_GATEWAY_ENABLED", False)
+    if smoke_case is SmokeCase.NSJAIL_GATEWAY:
+        monkeypatch.setattr(config, "TRACECAT__ACTION_GATEWAY_ENABLED", True)
+        monkeypatch.setattr(
+            config,
+            "TRACECAT__ACTION_GATEWAY_SOCKET",
+            str(tmp_path / "action-gateway.sock"),
+        )
 
     source_dir = tmp_path / "site-packages"
     tar_gz_path = tmp_path / "site-packages.tar.gz"
     squashfs_path = tmp_path / "site-packages.squashfs"
     cache_dir = tmp_path / "registry-cache"
-    _write_registry_artifact_source(source_dir)
+    if smoke_case is SmokeCase.NSJAIL_GATEWAY:
+        _write_gateway_artifact_source(source_dir)
+    else:
+        _write_registry_artifact_source(source_dir)
     _build_tar_gz(source_dir, tar_gz_path)
     if smoke_case == SmokeCase.NSJAIL_SQUASHFS:
         _build_squashfs_image(source_dir, squashfs_path)
@@ -380,8 +447,13 @@ async def _run_executor_action_smoke_case(
         input=action_input,
         role=role,
     )
+    action_gateway: ActionGateway | None = None
 
     try:
+        if smoke_case is SmokeCase.NSJAIL_GATEWAY:
+            action_gateway = ActionGateway()
+            await action_gateway.start()
+
         with (
             patch.object(runner.registry_artifacts, "_sidecar_exists", sidecar_exists),
             patch.object(
@@ -404,6 +476,15 @@ async def _run_executor_action_smoke_case(
 
         assert isinstance(result, dict)
         assert result["value"] == "from-registry-artifact"
+        if smoke_case is SmokeCase.NSJAIL_GATEWAY:
+            assert result["gateway"] == {
+                "status_code": 200,
+                "body": {"status": "ok"},
+                "socket_path": str(ACTION_GATEWAY_SANDBOX_SOCKET),
+            }
+            assert tarball_dir.exists()
+            return
+
         assert result["marker"] == "registry-artifact"
         if smoke_case == SmokeCase.DIRECT:
             assert tarball_dir.exists()
@@ -416,6 +497,8 @@ async def _run_executor_action_smoke_case(
             else:
                 assert tarball_dir.exists()
     finally:
+        if action_gateway is not None:
+            await action_gateway.stop()
         _unmount_if_needed(mount_dir)
 
 
@@ -425,6 +508,7 @@ async def _run_executor_action_smoke_case(
         pytest.param(SmokeCase.DIRECT, id=SmokeCase.DIRECT.value),
         pytest.param(SmokeCase.NSJAIL_GZ, id=SmokeCase.NSJAIL_GZ.value),
         pytest.param(SmokeCase.NSJAIL_SQUASHFS, id=SmokeCase.NSJAIL_SQUASHFS.value),
+        pytest.param(SmokeCase.NSJAIL_GATEWAY, id=SmokeCase.NSJAIL_GATEWAY.value),
     ],
 )
 @pytest.mark.anyio
