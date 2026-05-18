@@ -2,15 +2,11 @@
 
 from __future__ import annotations
 
-import time
-from collections.abc import Awaitable, Callable
-from typing import Any
-
 from fastapi import APIRouter, FastAPI, Request, Response, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import ORJSONResponse
 
-from tracecat.contexts import ctx_role, ctx_run
+from tracecat.contexts import ctx_role
 from tracecat.logger import logger
 
 router = APIRouter(
@@ -18,79 +14,6 @@ router = APIRouter(
     tags=["action-gateway"],
     include_in_schema=False,
 )
-
-
-def _request_size_bytes(request: Request) -> int | None:
-    """Parse the request size from Content-Length when the client sends it."""
-    content_length = request.headers.get("content-length")
-    if content_length is None:
-        return None
-    try:
-        return int(content_length)
-    except ValueError:
-        return None
-
-
-def _request_uri(request: Request) -> str:
-    """Return the raw request URI path plus query string."""
-    if request.url.query:
-        return f"{request.url.path}?{request.url.query}"
-    return request.url.path
-
-
-def _runtime_log_context() -> dict[str, Any]:
-    """Collect request-scoped runtime identifiers when dependencies set them."""
-    role = ctx_role.get()
-    run = ctx_run.get()
-    context: dict[str, Any] = {}
-    if role is not None:
-        context["role_type"] = role.type
-        context["service_id"] = role.service_id
-        if role.workspace_id is not None:
-            context["workspace_id"] = str(role.workspace_id)
-        if role.organization_id is not None:
-            context["organization_id"] = str(role.organization_id)
-    if run is not None:
-        context["workflow_id"] = str(run.wf_id)
-        context["workflow_run_id"] = str(run.wf_run_id)
-        context["workflow_execution_id"] = str(run.wf_exec_id)
-        context["environment"] = run.environment
-    return context
-
-
-def _log_request(
-    *,
-    request: Request,
-    started_at: float,
-    request_size: int | None,
-    response: Response | None = None,
-    error: Exception | None = None,
-) -> None:
-    """Log a completed or failed action gateway request."""
-    elapsed_ms = round((time.perf_counter() - started_at) * 1000, 2)
-    status_code = response.status_code if response is not None else 500
-    log_context = {
-        "method": request.method,
-        "uri": _request_uri(request),
-        "status_code": status_code,
-        "elapsed_ms": elapsed_ms,
-        "request_size_bytes": request_size,
-        **_runtime_log_context(),
-    }
-
-    if error is not None:
-        logger.opt(exception=error).error(
-            "Action Gateway request failed",
-            **log_context,
-        )
-        return
-
-    if status_code >= 500:
-        logger.error("Action Gateway request completed", **log_context)
-    elif status_code >= 400:
-        logger.warning("Action Gateway request completed", **log_context)
-    else:
-        logger.debug("Action Gateway request completed", **log_context)
 
 
 @router.get("/health")
@@ -153,37 +76,6 @@ def scope_denied_exception_handler(request: Request, exc: Exception) -> Response
             }
         },
     )
-
-
-async def _log_requests(
-    request: Request,
-    call_next: Callable[[Request], Awaitable[Response]],
-) -> Response:
-    """Log action gateway requests after routing has produced a response."""
-    started_at = time.perf_counter()
-    request_size = _request_size_bytes(request)
-    response: Response | None = None
-    error: Exception | None = None
-    try:
-        response = await call_next(request)
-        return response
-    except Exception as exc:
-        error = exc
-        _log_request(
-            request=request,
-            started_at=started_at,
-            request_size=request_size,
-            error=exc,
-        )
-        raise
-    finally:
-        if error is None:
-            _log_request(
-                request=request,
-                started_at=started_at,
-                request_size=request_size,
-                response=response,
-            )
 
 
 def _include_internal_routers(app: FastAPI) -> None:
@@ -259,7 +151,6 @@ def create_app(**kwargs) -> FastAPI:
         **kwargs,
     )
 
-    app.middleware("http")(_log_requests)
     app.include_router(router)
     _include_internal_routers(app)
     _add_exception_handlers(app)
