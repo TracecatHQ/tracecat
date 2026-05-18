@@ -165,3 +165,25 @@ def test_action_sandbox_config_enables_pasta(tmp_path: Path) -> None:
     assert f'src: "{tmp_path}/job/resolv.conf"' in config_text
     assert 'src: "/proc"' not in config_text
     assert 'dst: "/proc" fstype: "proc"' in config_text
+
+
+def test_action_sandbox_config_mounts_action_gateway_socket(tmp_path: Path) -> None:
+    executor = NsjailExecutor(rootfs_path=str(tmp_path / "rootfs"))
+    action_gateway_socket = tmp_path / "action-gateway.sock"
+
+    config_text = executor._build_action_config(
+        job_dir=tmp_path / "job",
+        config=ActionSandboxConfig(
+            registry_paths=[tmp_path / "registry"],
+            tracecat_app_dir=tmp_path / "app",
+            action_gateway_socket=action_gateway_socket,
+            action_gateway_socket_mount_path=Path(
+                "/var/run/tracecat/action-gateway.sock"
+            ),
+        ),
+    )
+
+    assert (
+        f'mount {{ src: "{action_gateway_socket}" dst: "/var/run/tracecat/action-gateway.sock" '
+        "is_bind: true rw: false }"
+    ) in config_text

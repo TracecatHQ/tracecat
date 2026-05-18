@@ -2,7 +2,11 @@
 	"python.testing.pytestArgs": ["tests"],
 	"python.testing.unittestEnabled": false,
 	"python.testing.pytestEnabled": true,
-	"python.analysis.extraPaths": ["./registry"],
+	"python.analysis.extraPaths": [
+		"./packages/tracecat-registry",
+		"./packages/tracecat-admin",
+		"./packages/tracecat-ee"
+	],
 	"biome.configurationPath": "./frontend/biome.json",
 	"biome.enabled": true,
 	"biome.lsp.bin": "./frontend/node_modules/.bin/biome",

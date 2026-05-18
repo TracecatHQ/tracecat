@@ -56,6 +56,7 @@ with workflow.unsafe.imports_passed_through():
 
     from tracecat import config
     from tracecat.dsl.client import get_temporal_client
+    from tracecat.executor.action_gateway.server import ActionGateway
     from tracecat.executor.activities import ExecutorActivities
     from tracecat.executor.backends import (
         initialize_executor_backend,
@@ -118,11 +119,16 @@ async def main() -> None:
         threadpool_max_workers=threadpool_max_workers,
         executor_backend=config.TRACECAT__EXECUTOR_BACKEND,
     )
-
-    # Initialize the executor backend before accepting tasks
-    await initialize_executor_backend()
+    action_gateway = ActionGateway()
 
     try:
+        # Start the local action gateway before sandbox workers are spawned so its
+        # socket path is available in their immutable process environment.
+        await action_gateway.start()
+
+        # Initialize the executor backend before accepting tasks
+        await initialize_executor_backend()
+
         client = await get_temporal_client()
 
         # Collect all activities from executor and registry sync
@@ -169,6 +175,7 @@ async def main() -> None:
     finally:
         logger.info("Shutting down executor backend")
         await shutdown_executor_backend()
+        await action_gateway.stop()
 
 
 def _signal_handler(sig: int, _frame: object) -> None:
