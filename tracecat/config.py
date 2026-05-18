@@ -1148,8 +1148,8 @@ TRACECAT__REGISTRY_SYNC_SQUASHFS_PROCESSORS = int(
 )
 """Number of processors mksquashfs may use for registry SquashFS sidecar builds."""
 
-TRACECAT__REGISTRY_SYNC_SQUASHFS_MEM = os.environ.get(
-    "TRACECAT__REGISTRY_SYNC_SQUASHFS_MEM", "200M"
+TRACECAT__REGISTRY_SYNC_SQUASHFS_MEM = (
+    os.environ.get("TRACECAT__REGISTRY_SYNC_SQUASHFS_MEM") or "200M"
 )
 """Memory budget passed to mksquashfs for registry SquashFS sidecar builds."""
 
