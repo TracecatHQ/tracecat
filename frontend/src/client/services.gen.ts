@@ -444,6 +444,8 @@ import type {
   McpIntegrationsGetMcpIntegrationResponse,
   McpIntegrationsListMcpIntegrationsData,
   McpIntegrationsListMcpIntegrationsResponse,
+  McpIntegrationsTestMcpConnectionData,
+  McpIntegrationsTestMcpConnectionResponse,
   McpIntegrationsUpdateMcpIntegrationData,
   McpIntegrationsUpdateMcpIntegrationResponse,
   McpPersonalAccessTokensCreateMcpPersonalAccessTokenData,
@@ -11480,6 +11482,31 @@ export const mcpIntegrationsDeleteMcpIntegration = (
   return __request(OpenAPI, {
     method: "DELETE",
     url: "/workspaces/{workspace_id}/mcp-integrations/{mcp_integration_id}",
+    path: {
+      mcp_integration_id: data.mcpIntegrationId,
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Test Mcp Connection
+ * Test connectivity for an HTTP MCP integration by discovering its tools.
+ * @param data The data for the request.
+ * @param data.mcpIntegrationId
+ * @param data.workspaceId
+ * @returns MCPTestConnectionResponse Successful Response
+ * @throws ApiError
+ */
+export const mcpIntegrationsTestMcpConnection = (
+  data: McpIntegrationsTestMcpConnectionData
+): CancelablePromise<McpIntegrationsTestMcpConnectionResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/workspaces/{workspace_id}/mcp-integrations/{mcp_integration_id}/test",
     path: {
       mcp_integration_id: data.mcpIntegrationId,
       workspace_id: data.workspaceId,

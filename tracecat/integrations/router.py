@@ -43,6 +43,7 @@ from tracecat.integrations.schemas import (
     MCPIntegrationCreate,
     MCPIntegrationRead,
     MCPIntegrationUpdate,
+    MCPTestConnectionResponse,
     ProviderKey,
     ProviderRead,
     ProviderReadMinimal,
@@ -929,6 +930,96 @@ async def get_mcp_integration(
         stdio_args=integration.stdio_args,
         has_stdio_env=bool(integration.encrypted_stdio_env),
         timeout=integration.timeout,
+    )
+
+
+@mcp_router.post("/{mcp_integration_id}/test")
+@require_scope("integration:read")
+async def test_mcp_connection(
+    role: WorkspaceActorRouteRole,
+    session: AsyncDBSession,
+    mcp_integration_id: uuid.UUID,
+) -> MCPTestConnectionResponse:
+    """Test connectivity for an HTTP MCP integration by discovering its tools."""
+    if role.workspace_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Workspace ID is required",
+        )
+
+    svc = IntegrationService(session, role=role)
+    integration = await svc.get_mcp_integration(mcp_integration_id=mcp_integration_id)
+    if integration is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="MCP integration not found",
+        )
+
+    if integration.server_type != "http":
+        return MCPTestConnectionResponse(
+            success=False,
+            tool_count=0,
+            tools=[],
+            message="Connection testing is only supported for HTTP/SSE servers",
+            error="stdio servers are validated at agent runtime",
+        )
+
+    if not integration.server_uri:
+        return MCPTestConnectionResponse(
+            success=False,
+            tool_count=0,
+            tools=[],
+            message="MCP server URI is not configured",
+            error="server_uri is required",
+        )
+
+    from tracecat.agent.common.types import MCPHttpServerConfig
+    from tracecat.agent.mcp.user_client import UserMCPClient
+
+    try:
+        headers = await svc.resolve_mcp_http_headers(integration)
+    except ValueError as exc:
+        return MCPTestConnectionResponse(
+            success=False,
+            tool_count=0,
+            tools=[],
+            message="Failed to resolve MCP server credentials",
+            error=str(exc),
+        )
+
+    config: MCPHttpServerConfig = {
+        "type": "http",
+        "name": integration.slug,
+        "url": integration.server_uri,
+        "headers": headers,
+        "id": str(integration.id),
+    }
+    if integration.timeout is not None:
+        config["timeout"] = integration.timeout
+
+    client = UserMCPClient([config])
+    try:
+        tools = await client._discover_server_tools(integration.slug, config)
+    except Exception as exc:
+        logger.warning(
+            "MCP test connection failed",
+            mcp_integration_id=mcp_integration_id,
+            error=str(exc),
+        )
+        return MCPTestConnectionResponse(
+            success=False,
+            tool_count=0,
+            tools=[],
+            message="Failed to connect to MCP server",
+            error=str(exc),
+        )
+
+    tool_names = [t.name.split("__")[-1] for t in tools.values()]
+    return MCPTestConnectionResponse(
+        success=True,
+        tool_count=len(tool_names),
+        tools=tool_names,
+        message=f"Successfully connected. Discovered {len(tool_names)} tool(s).",
     )
 
 

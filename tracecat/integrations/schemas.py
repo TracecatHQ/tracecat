@@ -235,6 +235,31 @@ class IntegrationTestConnectionResponse(BaseModel):
     )
 
 
+class MCPTestConnectionResponse(BaseModel):
+    """Response for testing an MCP integration connection."""
+
+    success: bool = Field(
+        ...,
+        description="Whether the connection test was successful",
+    )
+    tool_count: int = Field(
+        default=0,
+        description="Number of tools discovered from the MCP server",
+    )
+    tools: list[str] = Field(
+        default_factory=list,
+        description="Names of tools discovered from the MCP server",
+    )
+    message: str = Field(
+        ...,
+        description="Message describing the test result",
+    )
+    error: str | None = Field(
+        default=None,
+        description="Error message if the test failed",
+    )
+
+
 class ProviderMetadata(BaseModel):
     """Metadata for a provider."""
 

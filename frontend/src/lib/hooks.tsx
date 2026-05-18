@@ -148,6 +148,7 @@ import {
   mcpIntegrationsDeleteMcpIntegration,
   mcpIntegrationsGetMcpIntegration,
   mcpIntegrationsListMcpIntegrations,
+  mcpIntegrationsTestMcpConnection,
   mcpIntegrationsUpdateMcpIntegration,
   type OAuthGrantType,
   type OrganizationDeleteOrgMemberData,
@@ -4750,6 +4751,27 @@ export function useDeleteMcpIntegration(workspaceId: string) {
     deleteMcpIntegration,
     deleteMcpIntegrationIsPending,
     deleteMcpIntegrationError,
+  }
+}
+
+export function useTestMcpConnection(workspaceId: string) {
+  const {
+    mutateAsync: testMcpConnection,
+    isPending: testMcpConnectionIsPending,
+    reset: resetTestMcpConnection,
+  } = useMutation({
+    mutationFn: async (mcpIntegrationId: string) => {
+      return await mcpIntegrationsTestMcpConnection({
+        workspaceId,
+        mcpIntegrationId,
+      })
+    },
+  })
+
+  return {
+    testMcpConnection,
+    testMcpConnectionIsPending,
+    resetTestMcpConnection,
   }
 }
 

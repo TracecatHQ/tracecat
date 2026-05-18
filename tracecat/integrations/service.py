@@ -1348,6 +1348,82 @@ class IntegrationService(BaseWorkspaceService):
 
         return mcp_integration
 
+    @require_scope("integration:read")
+    async def resolve_mcp_http_headers(
+        self, mcp_integration: MCPIntegration
+    ) -> dict[str, str]:
+        """Resolve auth headers for an HTTP MCP integration.
+
+        Decrypts and returns the headers dict needed to connect to the server.
+        Raises ValueError for misconfigurations (missing OAuth token, etc.).
+        """
+        headers: dict[str, str] = {}
+
+        if mcp_integration.auth_type == MCPAuthType.OAUTH2:
+            if not mcp_integration.oauth_integration_id:
+                raise ValueError(
+                    "OAUTH2 auth type requires an OAuth integration to be linked"
+                )
+            stmt = select(OAuthIntegration).where(
+                OAuthIntegration.id == mcp_integration.oauth_integration_id,
+                OAuthIntegration.workspace_id == self.workspace_id,
+            )
+            result = await self.session.execute(stmt)
+            oauth_integration = result.scalars().first()
+            if not oauth_integration:
+                raise ValueError("Linked OAuth integration not found")
+
+            await self.refresh_token_if_needed(oauth_integration)
+            access_token = await self.get_access_token(oauth_integration)
+            if not access_token:
+                raise ValueError(
+                    "No access token available — OAuth integration may be disconnected"
+                )
+
+            token_type = oauth_integration.token_type or "Bearer"
+            headers["Authorization"] = f"{token_type} {access_token.get_secret_value()}"
+
+            if mcp_integration.encrypted_headers:
+                extra = self._decrypt_mcp_custom_headers(mcp_integration)
+                if extra:
+                    for key in list(extra.keys()):
+                        if key.strip().casefold() == "authorization":
+                            extra.pop(key)
+                    headers.update(extra)
+
+        elif mcp_integration.auth_type == MCPAuthType.CUSTOM:
+            if not mcp_integration.encrypted_headers:
+                raise ValueError(
+                    "CUSTOM auth type requires credentials to be configured"
+                )
+            custom = self._decrypt_mcp_custom_headers(mcp_integration)
+            if custom is None:
+                raise ValueError("Failed to decrypt custom credentials")
+            headers.update(custom)
+
+        return headers
+
+    def _decrypt_mcp_custom_headers(
+        self, mcp_integration: MCPIntegration
+    ) -> dict[str, str] | None:
+        """Decrypt the encrypted_headers field into a headers dict."""
+        if not mcp_integration.encrypted_headers:
+            return None
+        if not is_set(mcp_integration.encrypted_headers):
+            return None
+        raw = self._decrypt_token(mcp_integration.encrypted_headers)
+        if not raw:
+            return None
+        try:
+            parsed = orjson.loads(raw)
+        except Exception:
+            return None
+        if not isinstance(parsed, dict):
+            return None
+        return {
+            k: v for k, v in parsed.items() if isinstance(k, str) and isinstance(v, str)
+        }
+
     @require_scope("integration:delete")
     async def delete_mcp_integration(self, *, mcp_integration_id: uuid.UUID) -> bool:
         """Delete an MCP integration."""

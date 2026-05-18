@@ -4685,6 +4685,32 @@ export type MCPStdioServerConfig = {
 }
 
 /**
+ * Response for testing an MCP integration connection.
+ */
+export type MCPTestConnectionResponse = {
+  /**
+   * Whether the connection test was successful
+   */
+  success: boolean
+  /**
+   * Number of tools discovered from the MCP server
+   */
+  tool_count?: number
+  /**
+   * Names of tools discovered from the MCP server
+   */
+  tools?: Array<string>
+  /**
+   * Message describing the test result
+   */
+  message: string
+  /**
+   * Error message if the test failed
+   */
+  error?: string | null
+}
+
+/**
  * The type/kind of message stored in the chat.
  */
 export type MessageKind =
@@ -12300,6 +12326,13 @@ export type McpIntegrationsDeleteMcpIntegrationData = {
 
 export type McpIntegrationsDeleteMcpIntegrationResponse = void
 
+export type McpIntegrationsTestMcpConnectionData = {
+  mcpIntegrationId: string
+  workspaceId: string
+}
+
+export type McpIntegrationsTestMcpConnectionResponse = MCPTestConnectionResponse
+
 export type FeatureFlagsGetFeatureFlagsResponse = FeatureFlagsRead
 
 export type VcsGetGithubAppManifestResponse = GitHubAppManifestResponse
@@ -18331,6 +18364,21 @@ export type $OpenApiTs = {
          * Successful Response
          */
         204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/mcp-integrations/{mcp_integration_id}/test": {
+    post: {
+      req: McpIntegrationsTestMcpConnectionData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: MCPTestConnectionResponse
         /**
          * Validation Error
          */

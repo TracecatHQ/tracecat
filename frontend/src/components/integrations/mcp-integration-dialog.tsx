@@ -44,8 +44,10 @@ import {
   useCreateMcpIntegration,
   useGetMcpIntegration,
   useIntegrations,
+  useTestMcpConnection,
   useUpdateMcpIntegration,
 } from "@/lib/hooks"
+import { toast } from "@/components/ui/use-toast"
 import { cn } from "@/lib/utils"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
@@ -296,6 +298,8 @@ export function MCPIntegrationDialog({
     useCreateMcpIntegration(workspaceId)
   const { updateMcpIntegration, updateMcpIntegrationIsPending } =
     useUpdateMcpIntegration(workspaceId)
+  const { testMcpConnection, testMcpConnectionIsPending } =
+    useTestMcpConnection(workspaceId)
   const { integrations, providers, integrationsIsLoading } =
     useIntegrations(workspaceId)
   const { mcpIntegration, mcpIntegrationIsLoading } = useGetMcpIntegration(
@@ -1046,25 +1050,75 @@ export function MCPIntegrationDialog({
                   )}
 
                 <DialogFooter className="flex flex-col gap-2 sm:flex-row">
-                  <div className="flex w-full items-center justify-end gap-2">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      onClick={() => handleOpenChange(false)}
-                      disabled={isPending}
-                    >
-                      Cancel
-                    </Button>
-                    <Button
-                      type="submit"
-                      className="gap-2"
-                      disabled={isPending}
-                    >
-                      {isPending && (
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                      )}
-                      {isEditMode ? "Update integration" : "Save integration"}
-                    </Button>
+                  <div className="flex w-full items-center gap-2">
+                    {serverType === "http" && (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        disabled={
+                          !isEditMode ||
+                          !mcpIntegrationId ||
+                          testMcpConnectionIsPending ||
+                          isPending
+                        }
+                        title={
+                          !isEditMode
+                            ? "Save the integration first to test the connection"
+                            : undefined
+                        }
+                        onClick={async () => {
+                          if (!mcpIntegrationId) return
+                          try {
+                            const result =
+                              await testMcpConnection(mcpIntegrationId)
+                            if (result.success) {
+                              toast({
+                                title: "Connection successful",
+                                description: result.message,
+                              })
+                            } else {
+                              toast({
+                                title: "Connection failed",
+                                description: result.error ?? result.message,
+                                variant: "default",
+                              })
+                            }
+                          } catch {
+                            toast({
+                              title: "Connection failed",
+                              description: "Could not reach the MCP server.",
+                              variant: "default",
+                            })
+                          }
+                        }}
+                      >
+                        {testMcpConnectionIsPending ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        ) : null}
+                        Test connection
+                      </Button>
+                    )}
+                    <div className="ml-auto flex items-center gap-2">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => handleOpenChange(false)}
+                        disabled={isPending}
+                      >
+                        Cancel
+                      </Button>
+                      <Button
+                        type="submit"
+                        className="gap-2"
+                        disabled={isPending}
+                      >
+                        {isPending && (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        )}
+                        {isEditMode ? "Update integration" : "Save integration"}
+                      </Button>
+                    </div>
                   </div>
                 </DialogFooter>
               </form>

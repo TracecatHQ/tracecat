@@ -15241,6 +15241,51 @@ export const $MCPStdioServerConfig = {
   description: "Configuration for a stdio MCP server.",
 } as const
 
+export const $MCPTestConnectionResponse = {
+  properties: {
+    success: {
+      type: "boolean",
+      title: "Success",
+      description: "Whether the connection test was successful",
+    },
+    tool_count: {
+      type: "integer",
+      title: "Tool Count",
+      description: "Number of tools discovered from the MCP server",
+      default: 0,
+    },
+    tools: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Tools",
+      description: "Names of tools discovered from the MCP server",
+    },
+    message: {
+      type: "string",
+      title: "Message",
+      description: "Message describing the test result",
+    },
+    error: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Error",
+      description: "Error message if the test failed",
+    },
+  },
+  type: "object",
+  required: ["success", "message"],
+  title: "MCPTestConnectionResponse",
+  description: "Response for testing an MCP integration connection.",
+} as const
+
 export const $MessageKind = {
   type: "string",
   enum: [
