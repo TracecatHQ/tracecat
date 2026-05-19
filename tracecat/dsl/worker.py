@@ -16,6 +16,7 @@ from tracecat import __version__ as APP_VERSION
 
 with workflow.unsafe.imports_passed_through():
     import sentry_sdk
+    import uvloop
 
     from tracecat import config
     from tracecat.agent.preset.activities import (
@@ -170,4 +171,5 @@ async def main(shutdown_event: asyncio.Event | None = None) -> None:
 
 
 if __name__ == "__main__":
+    asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
     run_worker_entrypoint(main)
