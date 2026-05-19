@@ -128,23 +128,25 @@ export function ActivityItem({
           </div>
         </button>
 
-        <button
-          type="button"
-          onClick={(e) => {
-            e.stopPropagation()
-            setConfirmOpen(true)
-          }}
-          disabled={isDeleting}
-          className={cn(
-            "flex size-6 shrink-0 items-center justify-center rounded text-muted-foreground transition-colors",
-            "opacity-0 group-hover/item:opacity-100",
-            "hover:bg-destructive/10 hover:text-destructive",
-            isDeleting && "cursor-not-allowed opacity-50"
-          )}
-          aria-label="Delete approval"
-        >
-          <Trash2Icon className="size-3.5" />
-        </button>
+        {onDelete && (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation()
+              setConfirmOpen(true)
+            }}
+            disabled={isDeleting}
+            className={cn(
+              "flex size-6 shrink-0 items-center justify-center rounded text-muted-foreground transition-colors",
+              "opacity-0 group-hover/item:opacity-100",
+              "hover:bg-destructive/10 hover:text-destructive",
+              isDeleting && "cursor-not-allowed opacity-50"
+            )}
+            aria-label="Delete approval"
+          >
+            <Trash2Icon className="size-3.5" />
+          </button>
+        )}
       </div>
 
       <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>

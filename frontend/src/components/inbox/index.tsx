@@ -3,6 +3,7 @@
 import { useEffect, useRef } from "react"
 import { useInboxChat } from "@/app/workspaces/[workspaceId]/inbox/layout"
 import type { AgentSessionEntity } from "@/client"
+import { useScopeCheck } from "@/components/auth/scope-guard"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { toast } from "@/components/ui/use-toast"
 import {
@@ -42,6 +43,7 @@ export function ActivityLayout({
   onCreatedAfterChange,
 }: ActivityLayoutProps) {
   const { setSelectedSession, setChatOpen, registerOnClose } = useInboxChat()
+  const canDeleteApproval = useScopeCheck("agent:delete")
   const {
     mutateAsync: deleteApproval,
     variables,
@@ -153,7 +155,7 @@ export function ActivityLayout({
           selectedId={selectedId}
           deletingId={deletingId ?? null}
           onSelect={handleSelectItem}
-          onDelete={handleDeleteItem}
+          onDelete={canDeleteApproval ? handleDeleteItem : undefined}
         />
       </div>
     </div>

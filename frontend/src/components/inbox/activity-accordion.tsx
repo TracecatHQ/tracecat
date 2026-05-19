@@ -64,7 +64,7 @@ interface ActivityAccordionProps {
   selectedId: string | null
   deletingId: string | null
   onSelect: (id: string) => void
-  onDelete: (id: string) => void
+  onDelete?: (id: string) => void
 }
 
 export function ActivityAccordion({
@@ -170,7 +170,11 @@ export function ActivityAccordion({
                       isSelected={selectedId === session.id}
                       isDeleting={deletingId === session.id}
                       onClick={() => onSelect(session.id)}
-                      onDelete={() => onDelete(session.id)}
+                      onDelete={
+                        onDelete && groupKey === "review_required"
+                          ? () => onDelete(session.id)
+                          : undefined
+                      }
                     />
                   ))}
                 </div>
