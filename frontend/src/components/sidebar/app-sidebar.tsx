@@ -146,13 +146,6 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
         visible: canViewWorkflows === true,
       },
       {
-        title: "Runs",
-        url: `${basePath}/runs`,
-        icon: ListVideoIcon,
-        isActive: pathname?.startsWith(`${basePath}/runs`),
-        visible: canViewWorkflows === true,
-      },
-      {
         title: "Cases",
         url: `${basePath}/cases`,
         icon: LayersIcon,
