@@ -32,6 +32,7 @@ async def test_list_registry_actions(test_role):
 
 
 @pytest.mark.anyio
+@pytest.mark.usefixtures("registry_version_with_manifest")
 async def test_registry_actions_filtered_by_entitlements(test_role, monkeypatch):
     """Ensure registry listings respect entitlement-gated UDFs."""
     from tracecat.tiers import defaults as tier_defaults

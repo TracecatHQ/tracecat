@@ -35,11 +35,31 @@ from tracecat.sandbox.types import SandboxResult
 module_logger = logging.getLogger(__name__)
 
 SAFE_WRAPPER_SCRIPT = '''
+import asyncio
 import inspect
 import json
 import sys
 import traceback
 from pathlib import Path
+
+def _init_tracecat_context():
+    try:
+        from tracecat_registry.context import init_context_from_env
+    except ImportError:
+        return
+    try:
+        init_context_from_env()
+    except ValueError:
+        return
+
+def _resolve_output(value):
+    if not inspect.isawaitable(value):
+        return value
+
+    async def await_value():
+        return await value
+
+    return asyncio.run(await_value())
 
 def main():
     """Execute user script and capture results."""
@@ -72,6 +92,7 @@ def main():
         # Read and execute the user script
         script_path = Path(work_dir) / "script.py"
         script_code = script_path.read_text()
+        _init_tracecat_context()
         script_globals = {{"__name__": "__main__", "__file__": str(script_path)}}
         exec(script_code, script_globals)
 
@@ -88,9 +109,10 @@ def main():
 
         # Call the function with inputs
         if inputs:
-            output = main_func(**inputs)
+            call = main_func(**inputs)
         else:
-            output = main_func()
+            call = main_func()
+        output = _resolve_output(call)
 
         result["success"] = True
         result["output"] = output
@@ -156,6 +178,43 @@ class UnsafePidExecutor:
         else:
             hash_input = "\n".join(normalized)
         return hashlib.sha256(hash_input.encode()).hexdigest()[:16]
+
+    @staticmethod
+    def _venv_site_packages(venv_path: Path) -> Path | None:
+        for candidate in sorted((venv_path / "lib").glob("python*/site-packages")):
+            if candidate.exists():
+                return candidate
+        return None
+
+    def _with_venv_site_packages_pythonpath(
+        self,
+        env_vars: dict[str, str] | None,
+        venv_path: Path,
+    ) -> dict[str, str]:
+        merged = dict(env_vars or {})
+        site_packages = self._venv_site_packages(venv_path)
+        if site_packages is None:
+            return merged
+
+        pythonpath_parts = [str(site_packages)]
+        if existing_pythonpath := merged.get("PYTHONPATH"):
+            pythonpath_parts.append(existing_pythonpath)
+        merged["PYTHONPATH"] = os.pathsep.join(pythonpath_parts)
+        return merged
+
+    def _with_python_paths(
+        self,
+        env_vars: dict[str, str] | None,
+        python_path_dirs: list[Path],
+    ) -> dict[str, str]:
+        merged = dict(env_vars or {})
+        pythonpath_parts = [str(path) for path in python_path_dirs if path.exists()]
+        if not pythonpath_parts:
+            return merged
+        if existing_pythonpath := merged.get("PYTHONPATH"):
+            pythonpath_parts.append(existing_pythonpath)
+        merged["PYTHONPATH"] = os.pathsep.join(pythonpath_parts)
+        return merged
 
     async def _is_pid_namespace_available(self) -> bool:
         if self._pid_namespace_available is not None:
@@ -286,6 +345,7 @@ class UnsafePidExecutor:
         timeout_seconds: int | None = None,
         allow_network: bool = False,
         env_vars: dict[str, str] | None = None,
+        python_path_dirs: list[Path] | None = None,
         workspace_id: str | None = None,
     ) -> SandboxResult:
         if timeout_seconds is None:
@@ -302,6 +362,10 @@ class UnsafePidExecutor:
 
         try:
             python_path = shutil.which("python3") or "python3"
+            execution_env_vars = self._with_python_paths(
+                env_vars,
+                python_path_dirs or [],
+            )
             if dependencies:
                 cache_key = self._compute_cache_key(dependencies, workspace_id)
                 cached_venv = self.package_cache / cache_key
@@ -330,6 +394,10 @@ class UnsafePidExecutor:
                             shutil.rmtree(temp_venv, ignore_errors=True)
 
                 python_path = str(cached_venv / "bin" / "python")
+                execution_env_vars = self._with_venv_site_packages_pythonpath(
+                    execution_env_vars,
+                    cached_venv,
+                )
 
             (work_dir / "script.py").write_text(script)
             (work_dir / "inputs.json").write_text(json.dumps(inputs or {}))
@@ -344,8 +412,8 @@ class UnsafePidExecutor:
                 "LANG": "C.UTF-8",
                 "LC_ALL": "C.UTF-8",
             }
-            if env_vars:
-                exec_env.update(env_vars)
+            if execution_env_vars:
+                exec_env.update(execution_env_vars)
 
             cmd = await self._build_execution_cmd(python_path, wrapper_path)
             process = await asyncio.create_subprocess_exec(

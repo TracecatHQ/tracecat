@@ -42,7 +42,7 @@ def validate_run_python_script(script: str) -> tuple[bool, str | None]:
     Returns:
         A tuple of (is_valid, error_message). If valid, error_message is None.
     """
-    function_pattern = r"def\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*\("
+    function_pattern = r"(?:async\s+)?def\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*\("
     functions = re.findall(function_pattern, script)
 
     if not functions:
@@ -291,6 +291,7 @@ class SandboxService:
         timeout_seconds: int | None = None,
         allow_network: bool = False,
         env_vars: dict[str, str] | None = None,
+        python_path_dirs: list[Path] | None = None,
         workspace_id: str | None = None,
     ) -> Any:
         """Execute a Python script in a sandbox.
@@ -308,6 +309,7 @@ class SandboxService:
             allow_network: Whether to allow network access during execution.
                 Note: Without nsjail, this is best-effort and not OS-enforced.
             env_vars: Environment variables to set in the sandbox.
+            python_path_dirs: Read-only Python path roots to expose to the sandbox.
             workspace_id: Optional workspace ID for multi-tenant cache isolation.
                 When provided, package caches are scoped to the workspace,
                 preventing cross-workspace package poisoning attacks.
@@ -333,6 +335,7 @@ class SandboxService:
                 timeout_seconds=timeout_seconds,
                 allow_network=allow_network,
                 env_vars=env_vars,
+                python_path_dirs=python_path_dirs,
                 workspace_id=workspace_id,
             )
         else:
@@ -349,6 +352,7 @@ class SandboxService:
                 timeout_seconds=timeout_seconds,
                 allow_network=allow_network,
                 env_vars=env_vars,
+                python_path_dirs=python_path_dirs,
                 workspace_id=workspace_id,
             )
 
@@ -372,6 +376,7 @@ class SandboxService:
         timeout_seconds: int | None = None,
         allow_network: bool = False,
         env_vars: dict[str, str] | None = None,
+        python_path_dirs: list[Path] | None = None,
         workspace_id: str | None = None,
     ) -> Any:
         """Execute a Python script using the nsjail sandbox.
@@ -389,6 +394,7 @@ class SandboxService:
             timeout_seconds: Maximum execution time.
             allow_network: Whether to allow network access during execution.
             env_vars: Environment variables to set in the sandbox.
+            python_path_dirs: Read-only Python path roots to expose to the sandbox.
             workspace_id: Optional workspace ID for multi-tenant cache isolation.
 
         Returns:
@@ -437,6 +443,7 @@ class SandboxService:
                 ),
                 env_vars=env_vars or {},
                 dependencies=dependencies or [],
+                python_path_dirs=python_path_dirs or [],
             )
 
             await self._prepare_execution(job_dir, script, inputs)

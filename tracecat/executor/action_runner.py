@@ -155,6 +155,26 @@ class ActionRunner:
         """
         return await self.registry_artifacts.ensure_environment(tarball_uri)
 
+    async def resolve_registry_paths(
+        self, tarball_uris: list[str] | None = None
+    ) -> list[Path]:
+        """Materialize registry artifacts and return importable Python paths."""
+        registry_paths: list[Path] = []
+        if tarball_uris:
+            for tarball_uri in tarball_uris:
+                if target_dir := await self.ensure_registry_environment(tarball_uri):
+                    registry_paths.append(target_dir)
+            logger.info(
+                "Using registry artifact environments",
+                count=len(registry_paths),
+            )
+            return registry_paths
+
+        base_dir = self.cache_dir / "base"
+        base_dir.mkdir(parents=True, exist_ok=True)
+        logger.info("No tarball URIs provided, using base PYTHONPATH")
+        return [base_dir]
+
     async def execute_action(
         self,
         input: RunActionInput,
@@ -186,21 +206,7 @@ class ActionRunner:
         timeout = timeout or config.TRACECAT__EXECUTOR_CLIENT_TIMEOUT
 
         # Download and extract each tarball venv, collect paths in deterministic order
-        registry_paths: list[Path] = []
-        if tarball_uris:
-            for tarball_uri in tarball_uris:
-                if target_dir := await self.ensure_registry_environment(tarball_uri):
-                    registry_paths.append(target_dir)
-            logger.info(
-                "Using registry artifact environments",
-                count=len(registry_paths),
-            )
-        else:
-            # No tarballs available - use empty base dir
-            base_dir = self.cache_dir / "base"
-            base_dir.mkdir(parents=True, exist_ok=True)
-            registry_paths = [base_dir]
-            logger.info("No tarball URIs provided, using base PYTHONPATH")
+        registry_paths = await self.resolve_registry_paths(tarball_uris)
 
         # Check if sandbox execution is enabled and available
         # force_sandbox=True overrides config (used by ephemeral backend)

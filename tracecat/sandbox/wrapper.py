@@ -10,11 +10,31 @@ The wrapper script is executed inside the nsjail sandbox and handles:
 # The wrapper script content is embedded as a string constant
 # to be written to the job directory before execution
 WRAPPER_SCRIPT = '''
+import asyncio
 import inspect
 import json
 import sys
 import traceback
 from pathlib import Path
+
+def _init_tracecat_context():
+    try:
+        from tracecat_registry.context import init_context_from_env
+    except ImportError:
+        return
+    try:
+        init_context_from_env()
+    except ValueError:
+        return
+
+def _resolve_output(value):
+    if not inspect.isawaitable(value):
+        return value
+
+    async def await_value():
+        return await value
+
+    return asyncio.run(await_value())
 
 def main():
     """Execute user script and capture results."""
@@ -46,7 +66,9 @@ def main():
         script_path = Path("/work/script.py")
         script_code = script_path.read_text()
 
-        script_globals = {"__name__": "__main__"}
+        _init_tracecat_context()
+
+        script_globals = {"__name__": "__main__", "__file__": str(script_path)}
         exec(script_code, script_globals)
 
         # Find the callable function
@@ -65,9 +87,10 @@ def main():
 
         # Call the function with inputs
         if inputs:
-            output = main_func(**inputs)
+            call = main_func(**inputs)
         else:
-            output = main_func()
+            call = main_func()
+        output = _resolve_output(call)
 
         result["success"] = True
         result["output"] = output
