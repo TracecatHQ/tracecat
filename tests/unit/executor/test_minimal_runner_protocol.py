@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import io
 import sys
 import types
@@ -8,11 +9,130 @@ from decimal import Decimal
 from typing import Any
 from uuid import UUID
 
+import httpx
 import orjson
 import pytest
 from pydantic import BaseModel
 
 from tracecat.executor import minimal_runner
+
+
+def test_action_gateway_sdk_transport_patches_legacy_tracecat_client(
+    monkeypatch,
+) -> None:
+    captured: dict[str, Any] = {}
+    sdk_client: Any = types.ModuleType("tracecat_registry.sdk.client")
+
+    class LegacyTracecatClient:
+        def __init__(self) -> None:
+            self._timeout = 12.0
+
+        def _get_headers(self) -> dict[str, str]:
+            return {"Authorization": "Bearer executor-token"}
+
+        def _handle_error_response(self, response: httpx.Response) -> None:
+            raise AssertionError(response.status_code)
+
+        async def request(self, *_args: Any, **_kwargs: Any) -> Any:
+            raise AssertionError("original request should be patched")
+
+    class FakeTransport:
+        def __init__(self, *, uds: str) -> None:
+            captured["uds"] = uds
+
+    class FakeAsyncClient:
+        def __init__(
+            self,
+            *,
+            transport: FakeTransport,
+            timeout: float,
+        ) -> None:
+            captured["transport"] = transport
+            captured["timeout"] = timeout
+
+        async def __aenter__(self) -> FakeAsyncClient:
+            return self
+
+        async def __aexit__(self, *args: object) -> None:
+            return None
+
+        async def request(
+            self,
+            method: str,
+            url: str,
+            *,
+            params: dict[str, Any] | None,
+            json: Any | None,
+            headers: dict[str, str],
+        ) -> httpx.Response:
+            captured["method"] = method
+            captured["url"] = url
+            captured["params"] = params
+            captured["json"] = json
+            captured["headers"] = headers
+            return httpx.Response(200, json={"ok": True})
+
+    def import_module(name: str) -> Any:
+        if name == "tracecat_registry.sdk.client":
+            return sdk_client
+        raise ImportError(name)
+
+    sdk_client.TracecatClient = LegacyTracecatClient
+    monkeypatch.setattr(
+        minimal_runner,
+        "_ACTION_GATEWAY_SOCKET",
+        "/var/run/tracecat/action-gateway.sock",
+    )
+    monkeypatch.setattr(minimal_runner.importlib, "import_module", import_module)
+    monkeypatch.setattr(httpx, "AsyncHTTPTransport", FakeTransport)
+    monkeypatch.setattr(httpx, "AsyncClient", FakeAsyncClient)
+
+    minimal_runner._install_action_gateway_sdk_transport()
+    result = asyncio.run(
+        LegacyTracecatClient().request(
+            "GET",
+            "/cases",
+            params={"limit": 1},
+        )
+    )
+
+    assert result == {"ok": True}
+    assert captured["uds"] == "/var/run/tracecat/action-gateway.sock"
+    assert captured["timeout"] == 12.0
+    assert captured["method"] == "GET"
+    assert captured["url"] == "http://tracecat-action-gateway/internal/cases"
+    assert captured["params"] == {"limit": 1}
+    assert captured["headers"]["Authorization"] == "Bearer executor-token"
+
+
+def test_action_gateway_sdk_transport_leaves_current_tracecat_client_unpatched(
+    monkeypatch,
+) -> None:
+    sdk_client: Any = types.ModuleType("tracecat_registry.sdk.client")
+
+    class CurrentTracecatClient:
+        def _request_url_and_transport(self) -> None:
+            return None
+
+        async def request(self) -> str:
+            return "original"
+
+    def import_module(name: str) -> Any:
+        if name == "tracecat_registry.sdk.client":
+            return sdk_client
+        raise ImportError(name)
+
+    sdk_client.TracecatClient = CurrentTracecatClient
+    monkeypatch.setattr(
+        minimal_runner,
+        "_ACTION_GATEWAY_SOCKET",
+        "/var/run/tracecat/action-gateway.sock",
+    )
+    monkeypatch.setattr(minimal_runner.importlib, "import_module", import_module)
+
+    minimal_runner._install_action_gateway_sdk_transport()
+
+    assert asyncio.run(CurrentTracecatClient().request()) == "original"
 
 
 def test_main_minimal_suppresses_action_stdout_and_stderr(monkeypatch) -> None:

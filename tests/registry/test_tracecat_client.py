@@ -13,6 +13,10 @@ from tracecat_registry.sdk.client import TracecatClient
 async def test_request_uses_action_gateway_unix_socket(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.setenv(
+        "TRACECAT__ACTION_GATEWAY_SOCKET",
+        "/var/run/tracecat/action-gateway.sock",
+    )
     captured: dict[str, Any] = {}
 
     class FakeTransport:
@@ -56,7 +60,6 @@ async def test_request_uses_action_gateway_unix_socket(
 
     client = TracecatClient(
         api_url="http://api:8000",
-        action_gateway_socket="/var/run/tracecat/action-gateway.sock",
         token="executor-token",
         timeout=12.0,
     )
@@ -172,7 +175,6 @@ async def test_request_uses_api_url_without_action_gateway(
 
     client = TracecatClient(
         api_url="http://api:8000",
-        action_gateway_socket=None,
         token="executor-token",
         timeout=12.0,
     )

@@ -20,15 +20,3 @@ def test_registry_context_preserves_positional_executor_url_token_compat() -> No
     assert context.api_url == "http://api:8000"
     assert context.executor_url == "http://executor:8000"
     assert context.token == "executor-token"
-    assert context.action_gateway_socket is None
-
-
-def test_registry_context_accepts_action_gateway_socket_as_keyword_only() -> None:
-    context = RegistryContext(
-        "workspace-id",
-        "workflow-id",
-        "run-id",
-        action_gateway_socket="/var/run/tracecat/action-gateway.sock",
-    )
-
-    assert context.action_gateway_socket == "/var/run/tracecat/action-gateway.sock"
