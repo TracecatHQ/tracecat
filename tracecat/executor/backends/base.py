@@ -12,6 +12,8 @@ Available backends:
 
 from __future__ import annotations
 
+import os
+import sysconfig
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -169,16 +171,66 @@ class ExecutorBackend(ABC):
     ) -> list[Path] | ExecutorActionErrorInfo:
         """Resolve registry artifact paths for run_python SDK imports."""
         tarball_uris = await self._get_run_python_tarball_uris(input, role)
-        if not tarball_uris and not config.TRACECAT__LOCAL_REPOSITORY_ENABLED:
+        if not tarball_uris:
+            if config.TRACECAT__LOCAL_REPOSITORY_ENABLED:
+                if local_registry_paths := self._get_run_python_local_registry_paths():
+                    return local_registry_paths
+                message = (
+                    "No local registry paths available for run_python execution. "
+                    "Check TRACECAT__BUILTIN_REGISTRY_SOURCE_PATH, "
+                    "TRACECAT__LOCAL_REPOSITORY_CONTAINER_PATH, and PYTHONUSERBASE."
+                )
+            else:
+                message = (
+                    "No registry tarballs available for run_python execution. "
+                    "Check that the registry is synced and the registry_lock is valid."
+                )
+
             return ExecutorActionErrorInfo(
                 action_name=PlatformAction.RUN_PYTHON,
                 type="RegistryError",
-                message="No registry tarballs available for run_python execution. "
-                "Check that the registry is synced and the registry_lock is valid.",
+                message=message,
                 filename="base.py",
                 function="_execute_run_python",
             )
         return await get_action_runner().resolve_registry_paths(tarball_uris)
+
+    def _get_run_python_local_registry_paths(self) -> list[Path]:
+        """Return local registry import roots for run_python local-repository mode."""
+        repo_root = Path(__file__).resolve().parents[3]
+        builtin_source_path = Path(config.TRACECAT__BUILTIN_REGISTRY_SOURCE_PATH)
+        candidates = [builtin_source_path]
+        if not builtin_source_path.exists():
+            candidates.append(repo_root / "packages" / "tracecat-registry")
+        custom_registry_target = Path(
+            os.getenv("PYTHONUSERBASE") or Path.home().joinpath(".local")
+        )
+        candidates.extend(
+            [
+                Path(config.TRACECAT__LOCAL_REPOSITORY_CONTAINER_PATH),
+                custom_registry_target,
+                *(
+                    Path(site_path)
+                    for site_path in (
+                        sysconfig.get_path("purelib"),
+                        sysconfig.get_path("platlib"),
+                    )
+                    if site_path
+                ),
+            ]
+        )
+
+        paths: list[Path] = []
+        seen: set[Path] = set()
+        for path in candidates:
+            if not path.exists():
+                continue
+            resolved_path = path.resolve()
+            if resolved_path in seen:
+                continue
+            seen.add(resolved_path)
+            paths.append(path)
+        return paths
 
     async def _get_run_python_tarball_uris(
         self,

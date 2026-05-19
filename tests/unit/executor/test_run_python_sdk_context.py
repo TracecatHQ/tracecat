@@ -832,6 +832,86 @@ async def test_run_python_backend_fails_without_registry_artifacts(
 
 
 @pytest.mark.anyio
+async def test_run_python_backend_uses_local_registry_paths(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    captured: dict[str, Any] = {}
+    builtin_path = tmp_path / "builtin-registry"
+    local_path = tmp_path / "local-registry"
+    custom_target = tmp_path / "custom-target"
+    purelib = tmp_path / "purelib"
+    platlib = tmp_path / "platlib"
+    for path in (builtin_path, local_path, custom_target, purelib, platlib):
+        path.mkdir()
+
+    async def _get_tarball_uris(_input: RunActionInput, _role: Role) -> list[str]:
+        return []
+
+    class FakeSandboxService:
+        async def run_python(self, **kwargs: Any) -> dict[str, bool]:
+            captured.update(kwargs)
+            return {"ok": True}
+
+    class FailingRegistryPathRunner:
+        async def resolve_registry_paths(
+            self, tarball_uris: list[str] | None = None
+        ) -> list[Path]:
+            raise AssertionError(
+                f"local repository mode should not resolve {tarball_uris=}"
+            )
+
+    def _get_site_path(name: str) -> str | None:
+        return {
+            "purelib": str(purelib),
+            "platlib": str(platlib),
+        }.get(name)
+
+    monkeypatch.setattr(executor_backend_module, "SandboxService", FakeSandboxService)
+    monkeypatch.setattr(
+        executor_backend_module,
+        "get_action_runner",
+        lambda: FailingRegistryPathRunner(),
+    )
+    monkeypatch.setattr(
+        executor_backend_module.config,
+        "TRACECAT__LOCAL_REPOSITORY_ENABLED",
+        True,
+    )
+    monkeypatch.setattr(
+        executor_backend_module.config,
+        "TRACECAT__BUILTIN_REGISTRY_SOURCE_PATH",
+        str(builtin_path),
+    )
+    monkeypatch.setattr(
+        executor_backend_module.config,
+        "TRACECAT__LOCAL_REPOSITORY_CONTAINER_PATH",
+        str(local_path),
+    )
+    monkeypatch.setattr(executor_backend_module.sysconfig, "get_path", _get_site_path)
+    monkeypatch.setenv("PYTHONUSERBASE", str(custom_target))
+
+    backend = DirectBackend()
+    monkeypatch.setattr(backend, "_get_run_python_tarball_uris", _get_tarball_uris)
+
+    result = await backend.execute(
+        input=_make_run_python_input(),
+        role=_make_role(),
+        resolved_context=_make_run_python_context(),
+    )
+
+    assert result.type == "success"
+    assert result.result == {"ok": True}
+    assert captured["python_path_dirs"] == [
+        builtin_path,
+        local_path,
+        custom_target,
+        purelib,
+        platlib,
+    ]
+
+
+@pytest.mark.anyio
 async def test_run_python_subprocess_can_import_registry_ctx(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
