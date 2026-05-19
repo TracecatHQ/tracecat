@@ -91,23 +91,6 @@ def _tarball_suffix(artifact: RegistryArtifact) -> str:
     raise ValueError(f"Unsupported tarball artifact format: {artifact.format}")
 
 
-def _kernel_supports_squashfs() -> bool:
-    """Return whether the kernel advertises SquashFS filesystem support."""
-    filesystems_path = Path("/proc/filesystems")
-    if not filesystems_path.exists():
-        return True
-
-    try:
-        return any(
-            split_line[-1] == "squashfs"
-            for line in filesystems_path.read_text().splitlines()
-            if (split_line := line.split())
-        )
-    except OSError:
-        logger.debug("Could not inspect kernel filesystems")
-        return True
-
-
 class RegistryArtifactCache:
     """Materializes registry artifacts into executor-local Python paths."""
 
@@ -271,11 +254,13 @@ class RegistryArtifactCache:
 
     def _can_try_squashfs(self) -> bool:
         """Return whether this process should attempt SquashFS registry mounts."""
+        # /proc/filesystems only lists currently registered filesystems. On EKS
+        # AL2023, SquashFS may be available as a loadable module and appear only
+        # after the first successful mount attempt.
         return (
             config.TRACECAT__EXECUTOR_REGISTRY_SQUASHFS_ENABLED
             and not self._squashfs_mount_disabled
             and shutil.which("mount") is not None
-            and _kernel_supports_squashfs()
         )
 
     async def _materialize_squashfs(
