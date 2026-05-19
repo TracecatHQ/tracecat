@@ -4,6 +4,12 @@ from tracecat_registry.context import RegistryContext
 
 
 def test_registry_context_preserves_positional_executor_url_token_compat() -> None:
+    """Adding gateway support must not shift RegistryContext positional slots.
+
+    Registry artifacts can instantiate this dataclass positionally. The gateway
+    socket must stay out of this constructor contract so `executor_url` and
+    `token` keep their historical slots.
+    """
     context = RegistryContext(
         "workspace-id",
         "workflow-id",
@@ -20,15 +26,3 @@ def test_registry_context_preserves_positional_executor_url_token_compat() -> No
     assert context.api_url == "http://api:8000"
     assert context.executor_url == "http://executor:8000"
     assert context.token == "executor-token"
-    assert context.action_gateway_socket is None
-
-
-def test_registry_context_accepts_action_gateway_socket_as_keyword_only() -> None:
-    context = RegistryContext(
-        "workspace-id",
-        "workflow-id",
-        "run-id",
-        action_gateway_socket="/var/run/tracecat/action-gateway.sock",
-    )
-
-    assert context.action_gateway_socket == "/var/run/tracecat/action-gateway.sock"

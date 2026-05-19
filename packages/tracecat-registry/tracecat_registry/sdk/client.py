@@ -32,7 +32,6 @@ class TracecatClient:
 
     Configuration is read from environment variables:
     - TRACECAT__API_URL: Base URL of the Tracecat API
-    - TRACECAT__ACTION_GATEWAY_SOCKET: Local gateway socket for internal SDK requests
     - TRACECAT__EXECUTOR_TOKEN: JWT token for authentication
     - TRACECAT__WORKSPACE_ID: Current workspace ID (added to requests)
     """
@@ -50,8 +49,8 @@ class TracecatClient:
 
         Args:
             api_url: Base URL of the Tracecat API. Defaults to TRACECAT__API_URL env var.
-            action_gateway_socket: Optional action gateway Unix socket path for
-                internal SDK requests. Defaults to TRACECAT__ACTION_GATEWAY_SOCKET.
+            action_gateway_socket: Compatibility override for the executor-local
+                gateway socket. Defaults to TRACECAT__ACTION_GATEWAY_SOCKET.
             token: JWT token for authentication. Defaults to TRACECAT__EXECUTOR_TOKEN env var.
             workspace_id: Workspace ID. Defaults to TRACECAT__WORKSPACE_ID env var.
             timeout: Request timeout in seconds.
@@ -59,11 +58,11 @@ class TracecatClient:
         self._api_url = self._normalize_internal_url(
             api_url or os.environ.get("TRACECAT__API_URL", "http://api:8000")
         )
-        self._action_gateway_socket = (
-            action_gateway_socket
-            or os.environ.get("TRACECAT__ACTION_GATEWAY_SOCKET")
-            or None
+        self._action_gateway_socket = action_gateway_socket or os.environ.get(
+            "TRACECAT__ACTION_GATEWAY_SOCKET"
         )
+        if not self._action_gateway_socket:
+            self._action_gateway_socket = None
 
         self._token = token or os.environ.get("TRACECAT__EXECUTOR_TOKEN", "")
         self._workspace_id = workspace_id or os.environ.get(
