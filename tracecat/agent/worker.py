@@ -35,8 +35,8 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.dsl.interceptor import SentryInterceptor
     from tracecat.dsl.plugins import TracecatPydanticAIPlugin
     from tracecat.logger import logger
-    from tracecat.temporal.worker_lifecycle import run_worker_entrypoint
     from tracecat.observability.sentry import init_sentry
+    from tracecat.temporal.worker_lifecycle import run_worker_entrypoint
 
 
 def new_sandbox_runner() -> SandboxedWorkflowRunner:

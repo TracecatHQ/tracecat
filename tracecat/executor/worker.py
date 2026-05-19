@@ -55,8 +55,8 @@ with workflow.unsafe.imports_passed_through():
 
     from tracecat import config
     from tracecat.dsl.client import get_temporal_client
-    from tracecat.executor.action_gateway.server import ActionGateway
     from tracecat.dsl.interceptor import SentryInterceptor
+    from tracecat.executor.action_gateway.server import ActionGateway
     from tracecat.executor.activities import ExecutorActivities
     from tracecat.executor.backends import (
         initialize_executor_backend,

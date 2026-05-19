@@ -116,13 +116,7 @@ class SentryMCPMiddleware(Middleware):
     ) -> Any:
         try:
             return await call_next(context)
-        except ToolError as exc:
-            if isinstance(exc.__cause__, Exception):
-                capture_exception(
-                    exc.__cause__,
-                    tags=_sentry_mcp_tags(context),
-                    contexts={"tracecat.mcp": _sentry_mcp_context(context)},
-                )
+        except ToolError:
             raise
         except Exception as exc:
             capture_exception(

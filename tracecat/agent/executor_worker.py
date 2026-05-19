@@ -23,8 +23,8 @@ from tracecat.agent.worker import new_sandbox_runner
 from tracecat.dsl.client import get_temporal_client
 from tracecat.dsl.interceptor import SentryInterceptor
 from tracecat.logger import logger
-from tracecat.temporal.worker_lifecycle import run_worker_entrypoint
 from tracecat.observability.sentry import init_sentry
+from tracecat.temporal.worker_lifecycle import run_worker_entrypoint
 
 if TYPE_CHECKING:
     from temporalio.client import Client

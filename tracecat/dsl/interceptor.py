@@ -18,8 +18,11 @@ with workflow.unsafe.imports_passed_through():
 
     from tracecat.contexts import ctx_role
     from tracecat.dsl.common import DSLRunArgs, get_trigger_type
+    from tracecat.exceptions import TracecatException
     from tracecat.logger import logger
     from tracecat.workflow.executions.enums import TriggerType
+
+_USER_FACING_EXCEPTION_CLASSES = (TracecatException,)
 
 _USER_FACING_APPLICATION_ERROR_TYPES = frozenset(
     {
@@ -28,6 +31,7 @@ _USER_FACING_APPLICATION_ERROR_TYPES = frozenset(
         "LoopExecutionError",
         "RegistryActionValidationError",
         "ScopeDeniedError",
+        "TracecatException",
         "TracecatExpressionError",
         "TracecatValidationError",
         "UserError",
@@ -172,6 +176,8 @@ class _SentryActivityInboundInterceptor(ActivityInboundInterceptor):
 
 
 def _should_capture_activity_exception(exc: Exception) -> bool:
+    if isinstance(exc, _USER_FACING_EXCEPTION_CLASSES):
+        return False
     if isinstance(exc, ApplicationError):
         return exc.type not in _USER_FACING_APPLICATION_ERROR_TYPES
     return True

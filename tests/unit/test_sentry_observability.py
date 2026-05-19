@@ -4,6 +4,7 @@ import pytest
 from temporalio.exceptions import ApplicationError
 
 from tracecat.dsl.interceptor import _should_capture_activity_exception
+from tracecat.exceptions import TracecatException, TracecatExpressionError
 from tracecat.observability import sentry as sentry_observability
 
 
@@ -77,6 +78,24 @@ def test_activity_interceptor_skips_known_user_facing_application_errors() -> No
     exc = ApplicationError("action failed", type="ExecutionError")
 
     assert _should_capture_activity_exception(exc) is False
+
+
+def test_activity_interceptor_skips_base_tracecat_application_errors() -> None:
+    exc = ApplicationError("user-facing failure", type="TracecatException")
+
+    assert _should_capture_activity_exception(exc) is False
+
+
+def test_activity_interceptor_skips_direct_tracecat_exceptions() -> None:
+    assert (
+        _should_capture_activity_exception(TracecatException("invalid input")) is False
+    )
+    assert (
+        _should_capture_activity_exception(
+            TracecatExpressionError("Expression cannot be empty")
+        )
+        is False
+    )
 
 
 def test_activity_interceptor_captures_platform_application_errors() -> None:
