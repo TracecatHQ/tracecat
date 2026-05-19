@@ -72,12 +72,12 @@ class PoolBackend(ExecutorBackend):
             timeout=timeout,
         )
 
-    async def _get_run_python_tarball_uris(
+    async def _get_tarball_uris(
         self,
         input: RunActionInput,
         role: Role,
     ) -> list[str]:
-        """Get tarball URIs for run_python registry imports."""
+        """Get tarball URIs for registry environment (deterministic ordering)."""
         return await get_registry_tarball_uris(input=input, role=role)
 
     async def start(self) -> None:

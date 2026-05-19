@@ -170,7 +170,7 @@ class ExecutorBackend(ABC):
         role: Role,
     ) -> list[Path] | ExecutorActionErrorInfo:
         """Resolve registry artifact paths for run_python SDK imports."""
-        tarball_uris = await self._get_run_python_tarball_uris(input, role)
+        tarball_uris = await self._get_tarball_uris(input, role)
         if not tarball_uris:
             if config.TRACECAT__LOCAL_REPOSITORY_ENABLED:
                 if local_registry_paths := self._get_run_python_local_registry_paths():
@@ -232,13 +232,14 @@ class ExecutorBackend(ABC):
             paths.append(path)
         return paths
 
-    async def _get_run_python_tarball_uris(
+    @abstractmethod
+    async def _get_tarball_uris(
         self,
         input: RunActionInput,
         role: Role,
     ) -> list[str]:
-        """Get registry tarball URIs for run_python execution."""
-        return []
+        """Get registry tarball URIs for this backend."""
+        ...
 
     def _build_run_python_env_vars(
         self,

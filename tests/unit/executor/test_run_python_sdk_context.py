@@ -326,7 +326,7 @@ async def _run_backend_registry_ctx_smoke(
         "SandboxService",
         lambda: SandboxService(cache_dir=str(cache_dir)),
     )
-    monkeypatch.setattr(backend, "_get_run_python_tarball_uris", _get_tarball_uris)
+    monkeypatch.setattr(backend, "_get_tarball_uris", _get_tarball_uris)
     monkeypatch.setattr(
         executor_backend_module,
         "get_action_runner",
@@ -775,7 +775,7 @@ async def test_run_python_backend_always_injects_sdk_context(
         "http://api.test:8000",
     )
     backend = DirectBackend()
-    monkeypatch.setattr(backend, "_get_run_python_tarball_uris", _get_tarball_uris)
+    monkeypatch.setattr(backend, "_get_tarball_uris", _get_tarball_uris)
     monkeypatch.setattr(
         "tracecat.executor.backends.base.get_action_runner",
         lambda: fake_runner,
@@ -819,7 +819,7 @@ async def test_run_python_backend_fails_without_registry_artifacts(
         False,
     )
     backend = DirectBackend()
-    monkeypatch.setattr(backend, "_get_run_python_tarball_uris", _get_tarball_uris)
+    monkeypatch.setattr(backend, "_get_tarball_uris", _get_tarball_uris)
 
     result = await backend.execute(
         input=_make_run_python_input(),
@@ -892,7 +892,7 @@ async def test_run_python_backend_uses_local_registry_paths(
     monkeypatch.setenv("PYTHONUSERBASE", str(custom_target))
 
     backend = DirectBackend()
-    monkeypatch.setattr(backend, "_get_run_python_tarball_uris", _get_tarball_uris)
+    monkeypatch.setattr(backend, "_get_tarball_uris", _get_tarball_uris)
 
     result = await backend.execute(
         input=_make_run_python_input(),
