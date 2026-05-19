@@ -50,9 +50,9 @@ class RegistryContext:
     wf_exec_id: str | None = None
     environment: str = "default"
     api_url: str = "http://api:8000"
-    action_gateway_socket: str | None = None
     executor_url: str = "http://executor:8000"
     token: str = ""
+    action_gateway_socket: str | None = field(default=None, kw_only=True)
     # Lazily initialized SDK client
     _client: TracecatClient | None = field(default=None, repr=False)
 
