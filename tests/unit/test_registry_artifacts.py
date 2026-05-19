@@ -191,6 +191,31 @@ class TestRegistryArtifactCache:
         assert artifact.uri == "s3://bucket/path/site-packages.tar.gz"
         assert artifact.format == RegistryArtifactFormat.TAR_GZ
 
+    def test_can_try_squashfs_does_not_require_preloaded_filesystem(
+        self, temp_cache_dir
+    ):
+        """Attempt SquashFS even when the kernel module is not registered yet."""
+        cache = RegistryArtifactCache(temp_cache_dir)
+
+        with (
+            patch(
+                "tracecat.executor.registry_artifacts.shutil.which",
+                return_value="/usr/bin/mount",
+            ),
+            patch(
+                "tracecat.executor.registry_artifacts.config.TRACECAT__EXECUTOR_REGISTRY_SQUASHFS_ENABLED",
+                True,
+            ),
+            patch("tracecat.executor.registry_artifacts.Path") as path_cls,
+        ):
+            filesystems_path = path_cls.return_value
+            filesystems_path.exists.return_value = True
+            filesystems_path.read_text.return_value = "nodev\tproc\nnodev\ttmpfs\n"
+
+            assert cache._can_try_squashfs() is True
+
+        filesystems_path.read_text.assert_not_called()
+
     @pytest.mark.anyio
     async def test_resolve_preferred_artifact_skips_non_registry_tarballs(
         self, temp_cache_dir
