@@ -1,7 +1,6 @@
 import asyncio
 import dataclasses
 import os
-import signal
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
@@ -34,6 +33,7 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.ee.interactions.service import InteractionService
     from tracecat.logger import logger
     from tracecat.storage.collection import CollectionActivities
+    from tracecat.temporal.shutdown import install_worker_shutdown_signal_handlers
     from tracecat.tiers.activities import TierActivities
     from tracecat.workflow.management.definitions import (
         get_workflow_definition_activity,
@@ -83,9 +83,6 @@ def new_sandbox_runner() -> SandboxedWorkflowRunner:
     )
 
 
-interrupt_event = asyncio.Event()
-
-
 def get_activities() -> list[Callable]:
     activities: list[Callable] = [
         *DSLActivities.load(),
@@ -104,7 +101,10 @@ def get_activities() -> list[Callable]:
     return activities
 
 
-async def main() -> None:
+async def main(shutdown_event: asyncio.Event | None = None) -> None:
+    if shutdown_event is None:
+        shutdown_event = asyncio.Event()
+
     # Enable workflow replay log filtering for this process
     from tracecat.logger import _logger
 
@@ -164,31 +164,23 @@ async def main() -> None:
                 disable_eager_activity_execution=config.TEMPORAL__DISABLE_EAGER_ACTIVITY_EXECUTION,
                 threadpool_max_workers=threadpool_max_workers,
             )
-            # Wait until interrupted
-            await interrupt_event.wait()
-            logger.info("Shutting down")
+            await shutdown_event.wait()
+            logger.info("Worker shutdown requested")
+        logger.info("Temporal Worker context exited")
 
 
-def _signal_handler(sig: int, _frame: object) -> None:
-    """Handle shutdown signals gracefully.
-
-    This mirrors the executor Temporal worker so the DSL worker can shut down
-    cleanly on SIGINT/SIGTERM (e.g. `docker stop`, Kubernetes termination).
-    """
-    logger.info("Received shutdown signal", signal=sig)
-    interrupt_event.set()
+async def _run_until_shutdown() -> None:
+    shutdown_event = asyncio.Event()
+    with install_worker_shutdown_signal_handlers(shutdown_event):
+        await main(shutdown_event=shutdown_event)
 
 
 if __name__ == "__main__":
-    # Install signal handlers before starting the event loop.
-    signal.signal(signal.SIGINT, _signal_handler)
-    signal.signal(signal.SIGTERM, _signal_handler)
-
     loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
     loop.set_task_factory(asyncio.eager_task_factory)
     try:
-        loop.run_until_complete(main())
-    except KeyboardInterrupt:
-        interrupt_event.set()
+        loop.run_until_complete(_run_until_shutdown())
     finally:
         loop.run_until_complete(loop.shutdown_asyncgens())
+        loop.close()

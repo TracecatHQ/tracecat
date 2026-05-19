@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Iterator, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
@@ -71,8 +72,6 @@ async def test_agent_executor_worker_cleans_up_runtime_services_on_startup_failu
     )
     monkeypatch.setattr(executor_worker, "stop_mcp_server", stop_mcp_server)
     monkeypatch.setattr(executor_worker, "stop_claude_runtime_broker", stop_broker)
-    executor_worker.interrupt_event.clear()
-
     with pytest.raises(RuntimeError, match="boom"):
         await executor_worker.main()
 
@@ -97,8 +96,6 @@ async def test_agent_executor_worker_runs_runtime_service_hooks_on_startup_failu
     )
     monkeypatch.setattr(executor_worker, "stop_mcp_server", AsyncMock())
     monkeypatch.setattr(executor_worker, "stop_claude_runtime_broker", stop_broker)
-    executor_worker.interrupt_event.clear()
-
     with pytest.raises(RuntimeError, match="boom"):
         await executor_worker.main()
 
@@ -113,6 +110,7 @@ async def test_agent_executor_worker_treats_empty_numeric_env_vars_as_defaults(
     from tracecat.agent import executor_worker
 
     captured: dict[str, int | str | timedelta] = {}
+    shutdown_event = asyncio.Event()
 
     class _FakeWorker:
         def __init__(
@@ -134,7 +132,7 @@ async def test_agent_executor_worker_treats_empty_numeric_env_vars_as_defaults(
             captured["graceful_shutdown_timeout"] = graceful_shutdown_timeout
 
         async def __aenter__(self) -> _FakeWorker:
-            executor_worker.interrupt_event.set()
+            shutdown_event.set()
             return self
 
         async def __aexit__(
@@ -158,9 +156,7 @@ async def test_agent_executor_worker_treats_empty_numeric_env_vars_as_defaults(
         "TRACECAT__AGENT_EXECUTOR_QUEUE",
         "test-agent-executor-queue",
     )
-    executor_worker.interrupt_event.clear()
-
-    await executor_worker.main()
+    await executor_worker.main(shutdown_event=shutdown_event)
 
     assert captured == {
         "task_queue": "test-agent-executor-queue",
@@ -193,7 +189,6 @@ async def test_agent_executor_worker_raises_when_runtime_service_reports_failure
 
     async def fake_start_runtime_services() -> object:
         executor_worker.runtime_failure_reason = "LLM gateway became unhealthy"
-        executor_worker.interrupt_event.set()
         return object()
 
     monkeypatch.setattr(
@@ -202,8 +197,9 @@ async def test_agent_executor_worker_raises_when_runtime_service_reports_failure
     monkeypatch.setattr(executor_worker, "_stop_runtime_services", AsyncMock())
     monkeypatch.setattr(executor_worker, "Worker", _FakeWorker)
     monkeypatch.setattr(executor_worker, "new_sandbox_runner", lambda: object())
-    executor_worker.interrupt_event.clear()
+    shutdown_event = asyncio.Event()
+    shutdown_event.set()
     executor_worker.runtime_failure_reason = None
 
     with pytest.raises(RuntimeError, match="LLM gateway became unhealthy"):
-        await executor_worker.main()
+        await executor_worker.main(shutdown_event=shutdown_event)
