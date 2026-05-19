@@ -216,14 +216,6 @@ class UnsafePidExecutor:
         merged["PYTHONPATH"] = os.pathsep.join(pythonpath_parts)
         return merged
 
-    def _with_python_path(
-        self,
-        env_vars: dict[str, str] | None,
-        python_path_dir: Path | None,
-    ) -> dict[str, str]:
-        python_path_dirs = [python_path_dir] if python_path_dir is not None else []
-        return self._with_python_paths(env_vars, python_path_dirs)
-
     async def _is_pid_namespace_available(self) -> bool:
         if self._pid_namespace_available is not None:
             return self._pid_namespace_available
