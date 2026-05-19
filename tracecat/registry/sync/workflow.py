@@ -29,7 +29,7 @@ from datetime import timedelta
 
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
-from temporalio.exceptions import ApplicationError
+from temporalio.exceptions import ActivityError, ApplicationError
 
 with workflow.unsafe.imports_passed_through():
     import tempfile
@@ -120,15 +120,31 @@ class RegistryArtifactsBackfillWorkflow:
 
         results: list[RegistryArtifactsBackfillItemResult] = []
         for item in request.items:
-            result = await workflow.execute_activity(
-                backfill_registry_artifacts_activity,
-                item,
-                start_to_close_timeout=timedelta(minutes=20),
-                retry_policy=RetryPolicy(
-                    maximum_attempts=2,
-                    initial_interval=timedelta(seconds=5),
-                ),
-            )
+            try:
+                result = await workflow.execute_activity(
+                    backfill_registry_artifacts_activity,
+                    item,
+                    start_to_close_timeout=timedelta(minutes=20),
+                    retry_policy=RetryPolicy(
+                        maximum_attempts=2,
+                        initial_interval=timedelta(seconds=5),
+                    ),
+                )
+            except ActivityError as exc:
+                workflow.logger.warning(
+                    "Registry artifact backfill item failed",
+                    version_id=str(item.version_id),
+                    version=item.version,
+                    tarball_uri=item.tarball_uri,
+                    error=str(exc.cause or exc),
+                )
+                result = RegistryArtifactsBackfillItemResult(
+                    version_id=item.version_id,
+                    status="failed",
+                    error=f"{type(exc.cause).__name__}: {exc.cause}"
+                    if exc.cause
+                    else str(exc),
+                )
             results.append(result)
 
         workflow.logger.info(

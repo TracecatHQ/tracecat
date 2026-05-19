@@ -3,19 +3,24 @@
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
+from typing import Any
 from uuid import uuid4
 
 import pytest
-from temporalio.exceptions import ApplicationError
+from temporalio.exceptions import ActivityError, ApplicationError
 
 from tracecat.registry.actions.enums import TemplateActionValidationErrorType
 from tracecat.registry.actions.schemas import RegistryActionValidationErrorInfo
 from tracecat.registry.sync.runner import RegistrySyncValidationError
 from tracecat.registry.sync.schemas import (
     RegistryArtifactsBackfillItem,
+    RegistryArtifactsBackfillItemResult,
+    RegistryArtifactsBackfillRequest,
     RegistrySyncRequest,
 )
 from tracecat.registry.sync.workflow import (
+    RegistryArtifactsBackfillWorkflow,
     backfill_registry_artifacts_activity,
     sync_registry_activity,
 )
@@ -193,3 +198,72 @@ async def test_backfill_registry_artifacts_activity_reraises_unexpected_errors(
                 ),
             )
         )
+
+
+@pytest.mark.anyio
+async def test_backfill_workflow_continues_after_item_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    failed_version_id = uuid4()
+    next_version_id = uuid4()
+
+    async def fake_execute_activity(
+        _activity: Any,
+        item: RegistryArtifactsBackfillItem,
+        **_kwargs: Any,
+    ) -> RegistryArtifactsBackfillItemResult:
+        if item.version_id == failed_version_id:
+            try:
+                raise RuntimeError("corrupt tarball")
+            except RuntimeError as exc:
+                raise ActivityError(
+                    "Activity task failed",
+                    scheduled_event_id=1,
+                    started_event_id=2,
+                    identity="test",
+                    activity_type="backfill_registry_artifacts_activity",
+                    activity_id="activity-id",
+                    retry_state=None,
+                ) from exc
+        return RegistryArtifactsBackfillItemResult(
+            version_id=item.version_id,
+            status="created",
+        )
+
+    monkeypatch.setattr(
+        "tracecat.registry.sync.workflow.workflow.execute_activity",
+        fake_execute_activity,
+    )
+    monkeypatch.setattr(
+        "tracecat.registry.sync.workflow.workflow.logger",
+        SimpleNamespace(
+            info=lambda *_args, **_kwargs: None,
+            warning=lambda *_args, **_kwargs: None,
+        ),
+    )
+
+    result = await RegistryArtifactsBackfillWorkflow().run(
+        RegistryArtifactsBackfillRequest(
+            items=[
+                RegistryArtifactsBackfillItem(
+                    version_id=failed_version_id,
+                    version="1.0.0",
+                    tarball_uri="s3://registry-artifacts/platform/v1/site-packages.tar.gz",
+                ),
+                RegistryArtifactsBackfillItem(
+                    version_id=next_version_id,
+                    version="2.0.0",
+                    tarball_uri="s3://registry-artifacts/platform/v2/site-packages.tar.gz",
+                ),
+            ],
+        )
+    )
+
+    assert result.requested_count == 2
+    assert [item.version_id for item in result.results] == [
+        failed_version_id,
+        next_version_id,
+    ]
+    assert result.results[0].status == "failed"
+    assert result.results[0].error == "RuntimeError: corrupt tarball"
+    assert result.results[1].status == "created"
