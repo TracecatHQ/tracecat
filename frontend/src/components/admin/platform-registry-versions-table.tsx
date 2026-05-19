@@ -130,6 +130,7 @@ export function PlatformRegistryVersionsTable() {
       </div>
       <DataTable
         data={versions ?? []}
+        getRowId={(version) => version.id}
         initialSortingState={[{ id: "created_at", desc: true }]}
         columns={[
           {
