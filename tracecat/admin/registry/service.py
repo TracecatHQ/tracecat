@@ -9,17 +9,10 @@ from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, ClassVar
 
 from sqlalchemy import (
-    String,
     and_,
-    case,
-    column,
     func,
-    literal,
     select,
-    true,
-    values,
 )
-from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.exc import IntegrityError
 
 from tracecat import config
@@ -388,35 +381,103 @@ class AdminRegistryService(BasePlatformService):
         limit: int = 50,
     ) -> Sequence[RegistryVersionRead]:
         """List registry versions."""
-        stmt = select(
-            PlatformRegistryVersion,
-            PlatformRegistryRepository.origin,
-            PlatformRegistryRepository.current_version_id,
+        latest_definition_version = (
+            select(
+                WorkflowDefinition.workflow_id,
+                func.max(WorkflowDefinition.version).label("latest_version"),
+            )
+            .where(WorkflowDefinition.workflow_id.is_not(None))
+            .group_by(WorkflowDefinition.workflow_id)
+            .subquery()
+        )
+        latest_definition = (
+            select(
+                WorkflowDefinition.id.label("definition_id"),
+                WorkflowDefinition.registry_lock.label("registry_lock"),
+            )
+            .join(
+                latest_definition_version,
+                and_(
+                    WorkflowDefinition.workflow_id
+                    == latest_definition_version.c.workflow_id,
+                    WorkflowDefinition.version
+                    == latest_definition_version.c.latest_version,
+                ),
+            )
+            .subquery()
+        )
+        workflow_definition_count = func.count(latest_definition.c.definition_id).label(
+            "workflow_definition_count"
+        )
+        version_page = select(
+            PlatformRegistryVersion.surrogate_id.label("version_surrogate_id"),
+            PlatformRegistryRepository.origin.label("origin"),
+            PlatformRegistryRepository.current_version_id.label("current_version_id"),
         ).join(
             PlatformRegistryRepository,
             PlatformRegistryVersion.repository_id == PlatformRegistryRepository.id,
         )
         if repository_id:
-            stmt = stmt.where(PlatformRegistryVersion.repository_id == repository_id)
-        stmt = stmt.order_by(
+            version_page = version_page.where(
+                PlatformRegistryVersion.repository_id == repository_id
+            )
+        version_page = (
+            version_page.order_by(
+                PlatformRegistryVersion.created_at.desc(),
+                PlatformRegistryVersion.id.desc(),
+            )
+            .limit(limit)
+            .subquery()
+        )
+
+        stmt = (
+            select(
+                PlatformRegistryVersion,
+                version_page.c.origin,
+                version_page.c.current_version_id,
+                workflow_definition_count,
+            )
+            .join(
+                version_page,
+                PlatformRegistryVersion.surrogate_id
+                == version_page.c.version_surrogate_id,
+            )
+            .outerjoin(
+                latest_definition,
+                and_(
+                    latest_definition.c.registry_lock.is_not(None),
+                    func.jsonb_extract_path_text(
+                        latest_definition.c.registry_lock,
+                        "origins",
+                        version_page.c.origin,
+                    )
+                    == PlatformRegistryVersion.version,
+                ),
+            )
+        )
+        stmt = stmt.group_by(
+            PlatformRegistryVersion.surrogate_id,
+            version_page.c.origin,
+            version_page.c.current_version_id,
+        ).order_by(
             PlatformRegistryVersion.created_at.desc(),
             PlatformRegistryVersion.id.desc(),
-        ).limit(limit)
+        )
 
         result = await self.session.execute(stmt)
         rows = result.all()
-        usage_counts = await self._workflow_definition_usage_counts(
-            [(origin, version.version) for version, origin, _ in rows]
-        )
         artifact_statuses = await asyncio.gather(
-            *[self._artifacts_ready(version.tarball_uri) for version, _, _ in rows]
+            *[self._artifacts_ready(version.tarball_uri) for version, _, _, _ in rows]
         )
 
         versions: list[RegistryVersionRead] = []
-        for (version, origin, current_version_id), artifacts_ready in zip(
-            rows, artifact_statuses, strict=True
-        ):
-            workflow_definition_count = usage_counts.get((origin, version.version), 0)
+        for (
+            version,
+            _origin,
+            current_version_id,
+            definition_count,
+        ), artifacts_ready in zip(rows, artifact_statuses, strict=True):
+            count = int(definition_count)
             is_current = version.id == current_version_id
             versions.append(
                 RegistryVersionRead(
@@ -428,70 +489,11 @@ class AdminRegistryService(BasePlatformService):
                     created_at=version.created_at,
                     is_current=is_current,
                     artifacts_ready=artifacts_ready,
-                    workflow_definition_count=workflow_definition_count,
-                    in_use=is_current or workflow_definition_count > 0,
+                    workflow_definition_count=count,
+                    in_use=is_current or count > 0,
                 )
             )
         return versions
-
-    async def _workflow_definition_usage_counts(
-        self,
-        pairs: Sequence[tuple[str, str]],
-    ) -> dict[tuple[str, str], int]:
-        """Count workflow definitions pinned to each origin/version pair."""
-        unique_pairs = list(dict.fromkeys(pairs))
-        if not unique_pairs:
-            return {}
-
-        requested_pairs = (
-            values(
-                column("origin", String),
-                column("registry_version", String),
-                name="requested_pair",
-            )
-            .data(unique_pairs)
-            .alias("requested_pair")
-        )
-        origins = WorkflowDefinition.registry_lock["origins"]
-        lock_origins = case(
-            (func.jsonb_typeof(origins) == "object", origins),
-            else_=literal({}, type_=JSONB),
-        )
-        lock_entry = (
-            func.jsonb_each_text(lock_origins)
-            .table_valued("key", "value")
-            .lateral("lock_entry")
-        )
-
-        stmt = (
-            select(
-                lock_entry.c.key.label("origin"),
-                lock_entry.c.value.label("registry_version"),
-                func.count().label("definition_count"),
-            )
-            .select_from(WorkflowDefinition)
-            .join(lock_entry, true())
-            .join(
-                requested_pairs,
-                and_(
-                    requested_pairs.c.origin == lock_entry.c.key,
-                    requested_pairs.c.registry_version == lock_entry.c.value,
-                ),
-            )
-            .where(WorkflowDefinition.registry_lock.is_not(None))
-            .group_by(lock_entry.c.key, lock_entry.c.value)
-        )
-        result = await self.session.execute(stmt)
-        counts: dict[tuple[str, str], int] = {}
-        for row in result:
-            mapping = row._mapping
-            counts[
-                (
-                    str(mapping["origin"]),
-                    str(mapping["registry_version"]),
-                )
-            ] = int(mapping["definition_count"])
-        return counts
 
     async def _artifacts_ready(
         self,

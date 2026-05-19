@@ -71,17 +71,29 @@ async def test_list_versions_includes_artifact_and_usage_status(
     session.add(workflow)
     await session.flush()
 
-    session.add(
-        WorkflowDefinition(
-            workflow_id=workflow.id,
-            workspace_id=svc_workspace.id,
-            version=1,
-            content={},
-            registry_lock={
-                "origins": {"tracecat_registry": "1.0.0"},
-                "actions": {},
-            },
-        )
+    session.add_all(
+        [
+            WorkflowDefinition(
+                workflow_id=workflow.id,
+                workspace_id=svc_workspace.id,
+                version=1,
+                content={},
+                registry_lock={
+                    "origins": {"tracecat_registry": "1.0.0"},
+                    "actions": {},
+                },
+            ),
+            WorkflowDefinition(
+                workflow_id=workflow.id,
+                workspace_id=svc_workspace.id,
+                version=2,
+                content={},
+                registry_lock={
+                    "origins": {"tracecat_registry": "2.0.0"},
+                    "actions": {},
+                },
+            ),
+        ]
     )
     malformed_lock_workflow = Workflow(
         workspace_id=svc_workspace.id,
@@ -123,13 +135,13 @@ async def test_list_versions_includes_artifact_and_usage_status(
     versions_by_number = {version.version: version for version in versions}
 
     old_version = versions_by_number["1.0.0"]
-    assert old_version.workflow_definition_count == 1
-    assert old_version.in_use is True
+    assert old_version.workflow_definition_count == 0
+    assert old_version.in_use is False
     assert old_version.is_current is False
     assert old_version.artifacts_ready is False
 
     new_version = versions_by_number["2.0.0"]
-    assert new_version.workflow_definition_count == 0
+    assert new_version.workflow_definition_count == 1
     assert new_version.in_use is True
     assert new_version.is_current is True
     assert new_version.artifacts_ready is True
