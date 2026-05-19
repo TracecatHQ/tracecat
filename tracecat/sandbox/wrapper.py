@@ -27,8 +27,14 @@ def _init_tracecat_context():
     except ValueError:
         return
 
-async def _await_value(awaitable):
-    return await awaitable
+def _resolve_output(value):
+    if not inspect.isawaitable(value):
+        return value
+
+    async def await_value():
+        return await value
+
+    return asyncio.run(await_value())
 
 def main():
     """Execute user script and capture results."""
@@ -84,10 +90,7 @@ def main():
             call = main_func(**inputs)
         else:
             call = main_func()
-        if inspect.isawaitable(call):
-            output = asyncio.run(_await_value(call))
-        else:
-            output = call
+        output = _resolve_output(call)
 
         result["success"] = True
         result["output"] = output
