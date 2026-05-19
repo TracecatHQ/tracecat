@@ -251,7 +251,7 @@ class WorkflowExecutionsService:
 
     def handle(
         self, wf_exec_id: WorkflowExecutionID
-    ) -> WorkflowHandle[DSLWorkflow, Any]:
+    ) -> WorkflowHandle[DSLWorkflow, StoredObject]:
         return self._client.get_workflow_handle_for(DSLWorkflow.run, wf_exec_id)
 
     async def _resolve_execution_timeout(
