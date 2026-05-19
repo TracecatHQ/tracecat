@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import timedelta
+from typing import cast
 from unittest.mock import AsyncMock
 
 import pytest
@@ -19,6 +20,7 @@ from tracecat.db.models import (
     WorkflowDefinition,
     Workspace,
 )
+from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
 
 pytestmark = pytest.mark.usefixtures("db")
 
@@ -177,3 +179,51 @@ async def test_start_artifacts_backfill_scales_workflow_timeout(
     assert fake_client.start_workflow.await_args.kwargs[
         "execution_timeout"
     ] == timedelta(minutes=135)
+
+
+@pytest.mark.anyio
+async def test_start_artifacts_backfill_missing_version_raises_not_found(
+    session: AsyncSession,
+    platform_role: PlatformRole,
+) -> None:
+    service = AdminRegistryService(session, platform_role)
+    missing_version_id = uuid.uuid4()
+
+    with pytest.raises(TracecatNotFoundError, match="Registry versions not found"):
+        await service.start_artifacts_backfill(
+            RegistryArtifactsBackfillStartRequest(version_ids=[missing_version_id])
+        )
+
+
+@pytest.mark.anyio
+async def test_start_artifacts_backfill_version_without_tarball_raises_validation(
+    platform_role: PlatformRole,
+) -> None:
+    version_id = uuid.uuid4()
+    version = PlatformRegistryVersion(
+        repository_id=uuid.uuid4(),
+        version="1.0.0",
+        manifest={"schema_version": "1.0", "actions": {}},
+        tarball_uri="s3://registry-artifacts/platform/v1/site-packages.tar.gz",
+    )
+    object.__setattr__(version, "id", version_id)
+    object.__setattr__(version, "tarball_uri", None)
+
+    class FakeScalars:
+        def all(self) -> list[PlatformRegistryVersion]:
+            return [version]
+
+    class FakeResult:
+        def scalars(self) -> FakeScalars:
+            return FakeScalars()
+
+    session = AsyncMock(spec=AsyncSession)
+    session.execute.return_value = FakeResult()
+
+    service = AdminRegistryService(cast(AsyncSession, session), platform_role)
+    with pytest.raises(
+        TracecatValidationError, match="Registry versions do not have tarballs"
+    ):
+        await service.start_artifacts_backfill(
+            RegistryArtifactsBackfillStartRequest(version_ids=[version_id])
+        )

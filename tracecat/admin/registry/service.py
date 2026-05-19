@@ -39,6 +39,7 @@ from tracecat.db.models import (
     PlatformRegistryVersion,
     WorkflowDefinition,
 )
+from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
 from tracecat.parse import safe_url
 from tracecat.registry.actions.schemas import RegistryActionRead
 from tracecat.registry.actions.types import IndexEntry
@@ -537,7 +538,7 @@ class AdminRegistryService(BasePlatformService):
             version_id for version_id in version_ids if version_id not in found_ids
         ]
         if missing_ids:
-            raise ValueError(
+            raise TracecatNotFoundError(
                 "Registry versions not found: "
                 + ", ".join(str(version_id) for version_id in missing_ids)
             )
@@ -546,7 +547,7 @@ class AdminRegistryService(BasePlatformService):
             version.id for version in versions if version.tarball_uri is None
         ]
         if missing_tarballs:
-            raise ValueError(
+            raise TracecatValidationError(
                 "Registry versions do not have tarballs: "
                 + ", ".join(str(version_id) for version_id in missing_tarballs)
             )

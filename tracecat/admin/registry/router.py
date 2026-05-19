@@ -18,6 +18,7 @@ from tracecat.admin.registry.schemas import (
 from tracecat.admin.registry.service import AdminRegistryService
 from tracecat.auth.credentials import SuperuserRole
 from tracecat.db.dependencies import AsyncDBSessionBypass
+from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
 from tracecat.registry.repositories.schemas import (
     RegistryRepositoryRead,
     RegistryRepositoryReadMinimal,
@@ -115,7 +116,9 @@ async def start_registry_artifacts_backfill(
     service = AdminRegistryService(session, role)
     try:
         return await service.start_artifacts_backfill(params)
-    except ValueError as e:
+    except TracecatNotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
+    except TracecatValidationError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)
         ) from e
