@@ -3708,6 +3708,7 @@ export type FeatureFlag =
   | "ai-ranking"
   | "workflow-concurrency-limits"
   | "agent-channels"
+  | "dsl-workflow-v2"
 
 /**
  * Response model for feature flags.

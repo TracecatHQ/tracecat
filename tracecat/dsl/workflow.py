@@ -3,9 +3,9 @@ from __future__ import annotations
 import asyncio
 import re
 import uuid
-from collections.abc import Awaitable, Coroutine, Iterator
+from collections.abc import Awaitable, Callable, Coroutine, Iterator, Sequence
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, Self
 
 from temporalio import workflow
 from temporalio.common import (
@@ -105,12 +105,19 @@ with workflow.unsafe.imports_passed_through():
         TracecatNotFoundError,
     )
     from tracecat.expressions.eval import is_template_only
+    from tracecat.feature_flags import FeatureFlag, is_feature_enabled
     from tracecat.identifiers.workflow import (
         WorkflowExecutionID,
         WorkflowID,
         exec_id_to_parts,
     )
     from tracecat.registry.lock.types import RegistryLock
+    from tracecat.runtime.errors import (
+        RuntimeErrorEnvelope,
+        RuntimeErrorKind,
+        RuntimeErrorOrigin,
+        RuntimeErrorPhase,
+    )
     from tracecat.storage.object import (
         CollectionObject,
         ExternalObject,
@@ -121,6 +128,12 @@ with workflow.unsafe.imports_passed_through():
         action_key,
         return_key,
         trigger_key,
+    )
+    from tracecat.temporal.errors import (
+        RUNTIME_ERROR_DETAILS_KEY,
+        RuntimeErrorDetails,
+        WorkflowRuntimeError,
+        coerce_runtime_error_details,
     )
     from tracecat.temporal.exceptions import UserError
     from tracecat.tiers.activities import (
@@ -191,6 +204,52 @@ def _build_agent_child_search_attributes(
         ) from e
     alias = build_agent_alias(parent_wf_id, action_ref)
     return _inherit_search_attributes_with_alias(info.typed_search_attributes, alias)
+
+
+type DSLWorkflowRunMethod = Callable[[Any, DSLRunArgs], Awaitable[StoredObject]]
+type WorkflowFailureActionDetails = dict[str, ActionErrorInfo]
+type WorkflowFailureRuntimeDetails = RuntimeErrorDetails
+type WorkflowFailureDetails = (
+    WorkflowFailureActionDetails | WorkflowFailureRuntimeDetails
+)
+
+
+def _split_runtime_error_details(
+    details: Sequence[Any],
+) -> tuple[list[Any], list[WorkflowFailureRuntimeDetails]]:
+    payload_details: list[Any] = []
+    runtime_details: list[WorkflowFailureRuntimeDetails] = []
+    for detail in details:
+        if runtime_detail := coerce_runtime_error_details(detail):
+            runtime_details.append(runtime_detail)
+        else:
+            payload_details.append(detail)
+    return payload_details, runtime_details
+
+
+def _first_payload_detail(details: Sequence[Any]) -> Any | None:
+    payload_details, _ = _split_runtime_error_details(details)
+    return payload_details[0] if payload_details else None
+
+
+def _format_trigger_input_validation_error(
+    app_error: ApplicationError,
+    *,
+    workflow_exec_id: str,
+) -> ApplicationError:
+    val_detail = _first_payload_detail(app_error.details)
+    validated = ValidationDetailListTA.validate_python(val_detail)
+    return WorkflowRuntimeError.user(
+        code="dsl.trigger_inputs.validation_failed",
+        message=format_input_schema_validation_error(validated),
+        origin=RuntimeErrorOrigin.DSL,
+        phase=RuntimeErrorPhase.PREPARE,
+        error_type=app_error.type or ValidationError.__name__,
+        root=app_error,
+        details=(val_detail,),
+        workflow_exec_id=workflow_exec_id,
+        non_retryable=app_error.non_retryable,
+    )
 
 
 @workflow.defn
@@ -419,10 +478,15 @@ class DSLWorkflow:
                 self.logger.warning("No error handler workflow ID found, raising error")
                 raise e
 
+            errors: list[ActionErrorInfo] | None = None
             if e.details:
-                err_info_map = e.details[0]
-                self.logger.info("Raising error info", err_info_data=err_info_map)
-                if not isinstance(err_info_map, dict):
+                err_info_map = _first_payload_detail(e.details)
+                if err_info_map is None:
+                    self.logger.info(
+                        "Application error has no action error details",
+                        details=e.details,
+                    )
+                elif not isinstance(err_info_map, dict):
                     self.logger.error(
                         "Unexpected error info object",
                         err_info_map=err_info_map,
@@ -438,12 +502,11 @@ class DSLWorkflow:
                         )
                     ]
                 else:
+                    self.logger.info("Raising error info", err_info_data=err_info_map)
                     errors = [
                         ActionErrorInfoAdapter.validate_python(data)
                         for data in err_info_map.values()
                     ]
-            else:
-                errors = None
 
             trigger_type = get_trigger_type(workflow.info())
             try:
@@ -530,10 +593,17 @@ class DSLWorkflow:
                     schedule_id=args.schedule_id, worflow_id=args.wf_id
                 )
             except TracecatNotFoundError as e:
-                raise ApplicationError(
-                    "Failed to fetch trigger inputs as the schedule was not found",
-                    non_retryable=True,
-                    type=e.__class__.__name__,
+                raise WorkflowRuntimeError.user(
+                    code="dsl.trigger_inputs.schedule_not_found",
+                    message=(
+                        "Failed to fetch trigger inputs as the schedule was not found"
+                    ),
+                    origin=RuntimeErrorOrigin.DSL,
+                    phase=RuntimeErrorPhase.PREPARE,
+                    error_type=e.__class__.__name__,
+                    root=e,
+                    workflow_exec_id=self.wf_exec_id,
+                    metadata={"schedule_id": str(args.schedule_id)},
                 ) from e
         else:
             self.logger.debug("Using provided trigger inputs")
@@ -553,36 +623,41 @@ class DSLWorkflow:
                         key=trigger_key(str(self.workspace_id), self.wf_exec_id),
                     ),
                     start_to_close_timeout=timedelta(seconds=10),
-                    retry_policy=RETRY_POLICIES["activity:fail_fast"],
+                    retry_policy=RETRY_POLICIES["activity:fail_slow"],
                 )
             except ActivityError as e:
-                match cause := e.cause:
-                    case ApplicationError(type=t, details=details) if (
-                        t == ValidationError.__name__
-                    ):
+                cause = e.cause
+                if isinstance(cause, ApplicationError):
+                    if cause.type == ValidationError.__name__:
                         self.logger.warning(
                             "Validation error when normalizing trigger inputs",
                             error=e,
-                            details=details,
+                            details=cause.details,
                         )
-                        [val_detail] = details
-                        validated = ValidationDetailListTA.validate_python(val_detail)
-                        raise ApplicationError(
-                            format_input_schema_validation_error(validated),
-                            details,
-                            non_retryable=True,
-                            type=ValidationError.__name__,
+                        raise _format_trigger_input_validation_error(
+                            cause,
+                            workflow_exec_id=self.wf_exec_id,
                         ) from cause
-                    case _:
-                        self.logger.warning(
-                            "Unexpected error cause when normalizing trigger inputs",
-                            error=e,
-                        )
-                        raise ApplicationError(
-                            "Failed to normalize trigger inputs",
-                            non_retryable=True,
-                            type=e.__class__.__name__,
-                        ) from cause
+                    self.logger.warning(
+                        "Application error when normalizing trigger inputs",
+                        error=e,
+                    )
+                    raise cause from None
+
+                root = cause if isinstance(cause, BaseException) else e
+                self.logger.warning(
+                    "Unexpected error cause when normalizing trigger inputs",
+                    error=e,
+                )
+                raise WorkflowRuntimeError.platform_or_infra(
+                    code="dsl.trigger_inputs.normalization_failed",
+                    message="Failed to normalize trigger inputs",
+                    origin=RuntimeErrorOrigin.DSL,
+                    phase=RuntimeErrorPhase.PREPARE,
+                    error_type=root.__class__.__name__,
+                    root=root,
+                    workflow_exec_id=self.wf_exec_id,
+                ) from root
 
         # Store workflow start time for computing elapsed time
         self.wf_start_time = wf_info.start_time
@@ -664,16 +739,26 @@ class DSLWorkflow:
         if task_exceptions:
             n_exc = len(task_exceptions)
             formatted_exc = "\n".join(
-                f"{'=' * 10} ({i + 1}/{n_exc}) {details.expr_context}.{ref} {'=' * 10}\n\n{info.exception!s}"
+                f"{'=' * 10} ({i + 1}/{n_exc}) {action_details.expr_context}.{ref} {'=' * 10}\n\n{info.exception!s}"
                 for i, (ref, info) in enumerate(task_exceptions.items())
-                if (details := info.details)
+                if (action_details := info.details)
             )
             # NOTE: This error is shown in the final activity in the workflow history
+            error_details: list[WorkflowFailureDetails] = [
+                {ref: info.details for ref, info in task_exceptions.items()}
+            ]
+            runtime_errors: dict[str, RuntimeErrorEnvelope] = {
+                ref: runtime_error
+                for ref, info in task_exceptions.items()
+                if (runtime_error := info.runtime_error) is not None
+            }
+            if runtime_errors:
+                error_details.append({RUNTIME_ERROR_DETAILS_KEY: runtime_errors})
             raise ApplicationError(
                 f"Workflow failed with {n_exc} error(s)\n\n{formatted_exc}",
                 # We should add the details of the exceptions to the error message because this will get captured
                 # in the error handler workflow
-                {ref: info.details for ref, info in task_exceptions.items()},
+                *error_details,
                 non_retryable=True,
                 type=ApplicationError.__name__,
             )
@@ -922,7 +1007,21 @@ class DSLWorkflow:
                         task_result = task_result.with_error(
                             root_message, platform_error.__class__.__name__
                         )
-                        raise PlatformExecutionError(platform_error) from e
+                        raise PlatformExecutionError(
+                            platform_error,
+                            RuntimeErrorEnvelope.build(
+                                kind=RuntimeErrorKind.PLATFORM,
+                                code="dsl.prepare_subflow.failed",
+                                message=root_message,
+                                origin=RuntimeErrorOrigin.DSL,
+                                phase=RuntimeErrorPhase.PREPARE,
+                                affects_workflow=True,
+                                root=platform_error,
+                                action_ref=task.ref,
+                                stream_id=stream_id,
+                                workflow_exec_id=self.wf_exec_id,
+                            ),
+                        ) from e
                     self.logger.trace("Child workflow prepared", prepared=prepared)
                     # Execute child workflow (handles both single and looped)
                     stored_result = await self._execute_child_workflow_prepared(
@@ -1465,7 +1564,7 @@ class DSLWorkflow:
 
         async def dispatch_child(
             *, loop_index: int, run_args: DSLRunArgs
-        ) -> workflow.ChildWorkflowHandle[DSLWorkflow, StoredObject]:
+        ) -> workflow.ChildWorkflowHandle[Self, StoredObject]:
             async with dispatch_semaphore:
                 return await self._dispatch_child_workflow(
                     task,
@@ -1474,9 +1573,7 @@ class DSLWorkflow:
                     wait_strategy=wait_strategy,
                 )
 
-        coros: list[
-            Awaitable[workflow.ChildWorkflowHandle[DSLWorkflow, StoredObject]]
-        ] = []
+        coros: list[Awaitable[workflow.ChildWorkflowHandle[Self, StoredObject]]] = []
         async for loop_index, run_args in cooperative(
             iter_run_args(),
             delay=0.1,
@@ -1513,7 +1610,7 @@ class DSLWorkflow:
     async def _gather_dispatched_child_results(
         self,
         launched_handles: list[
-            workflow.ChildWorkflowHandle[DSLWorkflow, StoredObject] | BaseException
+            workflow.ChildWorkflowHandle[Self, StoredObject] | BaseException
         ],
         wait_strategy: WaitStrategy,
     ) -> list[StoredObject | BaseException]:
@@ -1531,7 +1628,7 @@ class DSLWorkflow:
         # Await successful handles and pass through dispatch-time failures,
         # preserving the original order in a single gather call.
         async def _resolve(
-            h: workflow.ChildWorkflowHandle[DSLWorkflow, StoredObject] | BaseException,
+            h: workflow.ChildWorkflowHandle[Self, StoredObject] | BaseException,
         ) -> StoredObject | BaseException:
             return h if isinstance(h, BaseException) else await h
 
@@ -1818,7 +1915,7 @@ class DSLWorkflow:
         *,
         wait_strategy: WaitStrategy,
         loop_index: int | None = None,
-    ) -> workflow.ChildWorkflowHandle[DSLWorkflow, StoredObject]:
+    ) -> workflow.ChildWorkflowHandle[Self, StoredObject]:
         wf_exec_id = identifiers.workflow.generate_exec_id(run_args.wf_id)
         wf_info = workflow.info()
         stream_id = ctx_stream_id.get()
@@ -1835,7 +1932,7 @@ class DSLWorkflow:
             memo=memo,
         )
         return await workflow.start_child_workflow(
-            DSLWorkflow.run,
+            type(self).run,
             run_args,
             id=wf_exec_id,
             retry_policy=RETRY_POLICIES["workflow:fail_fast"],
@@ -1951,7 +2048,7 @@ class DSLWorkflow:
         # Use Temporal memo to store the action ref in the child workflow run
         memo = ChildWorkflowMemo(action_ref=identifiers.action.ref(args.dsl.title))
         await workflow.execute_child_workflow(
-            DSLWorkflow.run,
+            type(self).run,
             args,
             id=wf_exec_id,
             retry_policy=RETRY_POLICIES["workflow:fail_fast"],
@@ -2296,3 +2393,35 @@ class DSLWorkflow:
                 non_retryable=True,
                 type="ActionExecutionLimitExceeded",
             )
+
+
+@workflow.defn(name="DSLWorkflowV2")
+class DSLWorkflowV2(DSLWorkflow):
+    """V2 workflow type for runtime error model cutover."""
+
+    @workflow.init
+    def __init__(self, args: DSLRunArgs) -> None:
+        super().__init__(args)
+
+    @workflow.run
+    async def run(self, args: DSLRunArgs) -> StoredObject:
+        return await super().run(args)
+
+
+DSL_WORKFLOW_TYPE_NAMES = frozenset({"DSLWorkflow", "DSLWorkflowV2"})
+
+
+def is_dsl_workflow_type_name(workflow_type: str) -> bool:
+    return workflow_type in DSL_WORKFLOW_TYPE_NAMES
+
+
+def dsl_workflow_run_method_for_new_execution() -> DSLWorkflowRunMethod:
+    if is_feature_enabled(FeatureFlag.DSL_WORKFLOW_V2):
+        return DSLWorkflowV2.run
+    return DSLWorkflow.run
+
+
+def dsl_workflow_type_name_for_new_execution() -> str:
+    if is_feature_enabled(FeatureFlag.DSL_WORKFLOW_V2):
+        return "DSLWorkflowV2"
+    return "DSLWorkflow"

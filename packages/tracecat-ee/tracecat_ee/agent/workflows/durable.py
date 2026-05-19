@@ -481,7 +481,7 @@ class DurableAgentWorkflow:
                 parent_slug=args.agent_args.preset_slug,
             ),
             start_to_close_timeout=timedelta(seconds=30),
-            retry_policy=RETRY_POLICIES["activity:fail_fast"],
+            retry_policy=RETRY_POLICIES["activity:fail_slow"],
         )
 
     def _mint_scope_mcp_token(

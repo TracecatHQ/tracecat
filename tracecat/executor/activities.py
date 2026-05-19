@@ -25,7 +25,6 @@ from tracecat.authz.scopes import backfill_legacy_role_scopes
 from tracecat.contexts import ctx_logger, ctx_role, ctx_run
 from tracecat.dsl.action import materialize_context
 from tracecat.dsl.schemas import RunActionInput
-from tracecat.dsl.types import ActionErrorInfo
 from tracecat.exceptions import (
     EntitlementRequired,
     ExecutionError,
@@ -34,9 +33,12 @@ from tracecat.exceptions import (
     ScopeDeniedError,
 )
 from tracecat.executor.backends import get_executor_backend
+from tracecat.executor.errors import ActionRuntimeError
 from tracecat.executor.service import dispatch_action
 from tracecat.logger import logger
+from tracecat.runtime.errors import RuntimeErrorPhase
 from tracecat.storage.object import StoredObject, action_key, get_object_storage
+from tracecat.temporal.errors import extract_runtime_error
 
 
 async def _heartbeat_loop(interval: int, task_ref: str, action_name: str) -> None:
@@ -116,9 +118,26 @@ class ExecutorActivities:
             retry_policy=task.retry_policy,
             input=input,
         )
-        materialized_input = input.model_copy(
-            update={"exec_context": await materialize_context(input.exec_context)}
-        )
+        try:
+            materialized_input = input.model_copy(
+                update={"exec_context": await materialize_context(input.exec_context)}
+            )
+        except Exception as e:
+            kind = e.__class__.__name__
+            raw_msg = f"Failed to materialize action context:\n{e}"
+            log.error(raw_msg)
+            raise ActionRuntimeError.platform_or_infra(
+                ref=task.ref,
+                stream_id=input.stream_id,
+                attempt=act_attempt,
+                code="executor.materialize_context.failed",
+                message=raw_msg,
+                error_type=kind,
+                phase=RuntimeErrorPhase.PREPARE,
+                root=e,
+                infra_retryable=True,
+                infra_non_retryable=False,
+            ) from e
 
         heartbeat_interval = config.TRACECAT__ACTIVITY_HEARTBEAT_INTERVAL
 
@@ -163,7 +182,22 @@ class ExecutorActivities:
                         stream_id=input.stream_id,
                         ref=task.ref,
                     )
-                    stored = await get_object_storage().store(key, result)
+                    try:
+                        stored = await get_object_storage().store(key, result)
+                    except Exception as e:
+                        kind = e.__class__.__name__
+                        raw_msg = f"Failed to store action result:\n{e}"
+                        log.error(raw_msg)
+                        raise ActionRuntimeError.infra(
+                            ref=task.ref,
+                            stream_id=input.stream_id,
+                            attempt=act_attempt,
+                            code="executor.result_storage.failed",
+                            message=raw_msg,
+                            error_type=kind,
+                            phase=RuntimeErrorPhase.COLLECT,
+                            root=e,
+                        ) from e
                     return stored
         except ScopeDeniedError as e:
             # ScopeDeniedError from dispatch_action (user lacks action permission)
@@ -175,78 +209,90 @@ class ExecutorActivities:
                 required_scopes=e.required_scopes,
                 missing_scopes=e.missing_scopes,
             )
-            err_info = ActionErrorInfo(
-                ref=task.ref,
-                message=msg,
-                type=kind,
-                attempt=act_attempt,
-                stream_id=input.stream_id,
-            )
-            err_msg = err_info.format("execute_action")
             # Non-retryable: retrying won't help if user lacks permission
-            raise ApplicationError(
-                err_msg, err_info, type=kind, non_retryable=True
+            raise ActionRuntimeError.user(
+                ref=task.ref,
+                stream_id=input.stream_id,
+                attempt=act_attempt,
+                code="executor.scope_denied",
+                message=msg,
+                error_type=kind,
+                phase=RuntimeErrorPhase.USER_CODE,
+                root=e,
             ) from e
         except EntitlementRequired as e:
             # Entitlement errors are user-facing and non-retryable
             kind = e.__class__.__name__
             msg = str(e)
             log.warning("Action entitlement denied", action=action_name, error=msg)
-            err_info = ActionErrorInfo(
+            raise ActionRuntimeError.user(
                 ref=task.ref,
-                message=msg,
-                type=kind,
-                attempt=act_attempt,
                 stream_id=input.stream_id,
-            )
-            err_msg = err_info.format("execute_action")
-            raise ApplicationError(
-                err_msg,
-                err_info,
-                type=kind,
-                non_retryable=True,
+                attempt=act_attempt,
+                code="executor.entitlement_required",
+                message=msg,
+                error_type=kind,
+                phase=RuntimeErrorPhase.USER_CODE,
+                root=e,
             ) from e
         except ExecutionError as e:
             # ExecutionError from dispatch_action (single action failure)
             kind = e.__class__.__name__
             msg = str(e)
             log.info("Execution error", error=msg, info=e.info)
-            err_info = ActionErrorInfo(
+            raise ActionRuntimeError.user(
                 ref=task.ref,
-                message=msg,
-                type=kind,
-                attempt=act_attempt,
                 stream_id=input.stream_id,
-            )
-            err_msg = err_info.format("execute_action")
-            raise ApplicationError(err_msg, err_info, type=kind) from e
+                attempt=act_attempt,
+                code="executor.execution_error",
+                message=msg,
+                error_type=kind,
+                phase=RuntimeErrorPhase.USER_CODE,
+                retryable=True,
+                root=e,
+                non_retryable=False,
+            ) from e
         except LoopExecutionError as e:
             # LoopExecutionError from dispatch_action (for_each loop failure)
             kind = e.__class__.__name__
             msg = str(e)
             log.info("Loop execution error", error=msg, loop_errors=e.loop_errors)
-            err_info = ActionErrorInfo(
+            raise ActionRuntimeError.user(
                 ref=task.ref,
-                message=msg,
-                type=kind,
-                attempt=act_attempt,
                 stream_id=input.stream_id,
-            )
-            err_msg = err_info.format("execute_action")
-            raise ApplicationError(err_msg, err_info, type=kind) from e
+                attempt=act_attempt,
+                code="executor.loop_execution_error",
+                message=msg,
+                error_type=kind,
+                phase=RuntimeErrorPhase.USER_CODE,
+                retryable=True,
+                root=e,
+                non_retryable=False,
+            ) from e
         except ApplicationError as e:
             # Pass through ApplicationError
             log.error("ApplicationError occurred", error=e)
-            err_info = ActionErrorInfo(
+            envelope = extract_runtime_error(e, ref=task.ref)
+            if envelope is not None:
+                raise ActionRuntimeError.existing(
+                    envelope,
+                    ref=task.ref,
+                    stream_id=input.stream_id,
+                    attempt=act_attempt,
+                    error_type=e.type or e.__class__.__name__,
+                    non_retryable=e.non_retryable,
+                ) from e
+            raise ActionRuntimeError.platform(
                 ref=task.ref,
-                message=str(e),
-                type=e.type or e.__class__.__name__,
-                attempt=act_attempt,
                 stream_id=input.stream_id,
-            )
-            err_msg = err_info.format("execute_action")
-            raise ApplicationError(
-                err_msg, err_info, non_retryable=e.non_retryable, type=e.type
+                attempt=act_attempt,
+                code="executor.application_error",
+                message=str(e),
+                error_type=e.type or e.__class__.__name__,
+                phase=RuntimeErrorPhase.USER_CODE,
+                retryable=not e.non_retryable,
+                root=e,
+                non_retryable=e.non_retryable,
             ) from e
         except Exception as e:
             # Unexpected errors - non-retryable
@@ -254,16 +300,15 @@ class ExecutorActivities:
             raw_msg = f"Unexpected {kind} occurred:\n{e}"
             log.error(raw_msg)
 
-            err_info = ActionErrorInfo(
+            raise ActionRuntimeError.platform_or_infra(
                 ref=task.ref,
-                message=raw_msg,
-                type=kind,
-                attempt=act_attempt,
                 stream_id=input.stream_id,
-            )
-            err_msg = err_info.format("execute_action")
-            raise ApplicationError(
-                err_msg, err_info, type=kind, non_retryable=True
+                attempt=act_attempt,
+                code="runtime.unknown_platform_error",
+                message=raw_msg,
+                error_type=kind,
+                phase=RuntimeErrorPhase.USER_CODE,
+                root=e,
             ) from e
         finally:
             if heartbeat_task is not None:

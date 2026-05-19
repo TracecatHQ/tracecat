@@ -12,7 +12,6 @@ from pydantic import ValidationError
 from sqlalchemy import and_, or_, select
 from sqlalchemy.orm import selectinload
 from temporalio import activity
-from temporalio.exceptions import ApplicationError
 
 from tracecat.audit.logger import audit_log
 from tracecat.authz.controls import require_scope
@@ -50,7 +49,9 @@ from tracecat.pagination import (
     CursorPaginationParams,
 )
 from tracecat.registry.lock.service import RegistryLockService
+from tracecat.runtime.errors import RuntimeErrorOrigin, RuntimeErrorPhase
 from tracecat.service import BaseWorkspaceService
+from tracecat.temporal.errors import ActivityRuntimeError
 from tracecat.validation.schemas import (
     DSLValidationResult,
     ValidationDetail,
@@ -1280,9 +1281,11 @@ class WorkflowsManagementService(BaseWorkspaceService):
                     id_or_alias, use_committed=use_committed
                 )
             if not handler_wf_id:
-                raise ApplicationError(
-                    f"Couldn't find matching workflow for alias {id_or_alias!r}",
-                    non_retryable=True,
-                    type="WorkflowAliasResolutionError",
+                raise ActivityRuntimeError.user(
+                    code="workflow.error_handler.alias_not_found",
+                    message=f"Couldn't find matching workflow for alias {id_or_alias!r}",
+                    origin=RuntimeErrorOrigin.DSL,
+                    phase=RuntimeErrorPhase.ROUTE,
+                    error_type="WorkflowAliasResolutionError",
                 )
         return handler_wf_id

@@ -7,6 +7,7 @@ from typing import Any, cast
 from unittest.mock import AsyncMock
 
 import pytest
+from temporalio.exceptions import ApplicationError
 
 from tracecat.agent.preset.activities import (
     ResolveAgentPresetVersionRefActivityInput,
@@ -24,7 +25,8 @@ from tracecat.agent.subagents import AgentSubagentsConfig, ResolvedAttachedSubag
 from tracecat.agent.types import AgentConfig
 from tracecat.agent.workflow_schemas import AgentConfigPayload
 from tracecat.auth.types import Role
-from tracecat.exceptions import TracecatValidationError
+from tracecat.runtime.errors import RuntimeErrorKind
+from tracecat.temporal.errors import extract_runtime_error_from_details
 
 
 class _AsyncContext:
@@ -252,13 +254,7 @@ async def test_resolve_agents_config_rejects_subagent_with_tool_approvals(
         lambda **_: _AsyncContext(service),
     )
 
-    with pytest.raises(
-        TracecatValidationError,
-        match=(
-            "Subagent preset 'approval-child' uses manual approvals, "
-            "which are not supported for subagents yet."
-        ),
-    ):
+    with pytest.raises(ApplicationError) as exc_info:
         await resolve_agents_config_activity(
             ResolveAgentsConfigActivityInput(
                 role=role,
@@ -270,6 +266,18 @@ async def test_resolve_agents_config_rejects_subagent_with_tool_approvals(
                 ),
             )
         )
+
+    app_error = exc_info.value
+    assert app_error.type == "TracecatValidationError"
+    assert app_error.non_retryable is True
+    assert (
+        "Subagent preset 'approval-child' uses manual approvals, "
+        "which are not supported for subagents yet."
+    ) in app_error.message
+    envelope = extract_runtime_error_from_details(app_error.details)
+    assert envelope is not None
+    assert envelope.kind == RuntimeErrorKind.USER
+    assert envelope.code == "agent.subagents.config_invalid"
 
 
 @pytest.mark.anyio
@@ -288,10 +296,7 @@ async def test_resolve_agents_config_rejects_invalid_fallback_alias(
         lambda **_: _AsyncContext(SimpleNamespace()),
     )
 
-    with pytest.raises(
-        TracecatValidationError,
-        match="Invalid subagent alias 'Bad Alias'",
-    ):
+    with pytest.raises(ApplicationError) as exc_info:
         await resolve_agents_config_activity(
             ResolveAgentsConfigActivityInput(
                 role=role,
@@ -303,6 +308,15 @@ async def test_resolve_agents_config_rejects_invalid_fallback_alias(
                 ),
             )
         )
+
+    app_error = exc_info.value
+    assert app_error.type == "TracecatValidationError"
+    assert app_error.non_retryable is True
+    assert "Invalid subagent alias 'Bad Alias'" in app_error.message
+    envelope = extract_runtime_error_from_details(app_error.details)
+    assert envelope is not None
+    assert envelope.kind == RuntimeErrorKind.USER
+    assert envelope.code == "agent.subagents.config_invalid"
 
 
 @pytest.mark.anyio
@@ -338,3 +352,67 @@ async def test_resolve_custom_model_provider_config_activity_returns_base_url(
     assert result.base_url == "https://customer.example"
     assert result.model_name == "provider/custom-model"
     assert result.passthrough is True
+
+
+@pytest.mark.anyio
+async def test_resolve_custom_model_provider_config_missing_credentials_non_retryable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = SimpleNamespace(
+        get_workspace_provider_credentials=AsyncMock(return_value=None)
+    )
+    role = Role(
+        type="service",
+        service_id="tracecat-api",
+        workspace_id=uuid.uuid4(),
+        organization_id=uuid.uuid4(),
+    )
+
+    monkeypatch.setattr(
+        "tracecat.agent.preset.activities.AgentManagementService.with_session",
+        lambda *_args, **_kwargs: _AsyncContext(service),
+    )
+
+    with pytest.raises(ApplicationError) as exc_info:
+        await resolve_custom_model_provider_config_activity(role)
+
+    app_error = exc_info.value
+    assert app_error.type == "InvalidCustomModelProviderCredentials"
+    assert app_error.non_retryable is True
+    envelope = extract_runtime_error_from_details(app_error.details)
+    assert envelope is not None
+    assert envelope.kind == RuntimeErrorKind.USER
+    assert envelope.code == "agent.custom_model_provider.credentials_missing"
+
+
+@pytest.mark.anyio
+async def test_resolve_custom_model_provider_config_missing_base_url_non_retryable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = SimpleNamespace(
+        get_workspace_provider_credentials=AsyncMock(
+            return_value={"CUSTOM_MODEL_PROVIDER_MODEL_NAME": "provider/custom-model"}
+        )
+    )
+    role = Role(
+        type="service",
+        service_id="tracecat-api",
+        workspace_id=uuid.uuid4(),
+        organization_id=uuid.uuid4(),
+    )
+
+    monkeypatch.setattr(
+        "tracecat.agent.preset.activities.AgentManagementService.with_session",
+        lambda *_args, **_kwargs: _AsyncContext(service),
+    )
+
+    with pytest.raises(ApplicationError) as exc_info:
+        await resolve_custom_model_provider_config_activity(role)
+
+    app_error = exc_info.value
+    assert app_error.type == "CustomModelProviderBaseURLRequired"
+    assert app_error.non_retryable is True
+    envelope = extract_runtime_error_from_details(app_error.details)
+    assert envelope is not None
+    assert envelope.kind == RuntimeErrorKind.USER
+    assert envelope.code == "agent.custom_model_provider.base_url_required"

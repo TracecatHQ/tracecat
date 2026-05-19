@@ -12,6 +12,8 @@ from tracecat.auth.types import Role
 from tracecat.dsl.common import DSLRunArgs
 from tracecat.dsl.workflow import DSLWorkflow
 from tracecat.identifiers.workflow import WorkflowUUID
+from tracecat.runtime.errors import RuntimeErrorKind
+from tracecat.temporal.errors import extract_runtime_error_from_details
 from tracecat.workspaces.activities import get_workspace_organization_id_activity
 
 
@@ -59,8 +61,15 @@ async def test_get_workspace_organization_id_activity_raises_when_missing(
         fake_session_manager,
     )
 
-    with pytest.raises(ApplicationError, match="not found or has no organization"):
+    with pytest.raises(
+        ApplicationError, match="not found or has no organization"
+    ) as exc_info:
         await get_workspace_organization_id_activity(workspace_id)
+
+    envelope = extract_runtime_error_from_details(exc_info.value.details)
+    assert envelope is not None
+    assert envelope.kind == RuntimeErrorKind.USER
+    assert envelope.code == "workspace.organization.not_found"
 
 
 @pytest.mark.anyio

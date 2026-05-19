@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from collections import defaultdict
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass, replace
 from datetime import timedelta
 from typing import Any
@@ -61,6 +61,13 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.exceptions import TaskUnreachable
     from tracecat.expressions.common import ExprContext
     from tracecat.expressions.core import extract_expressions
+    from tracecat.runtime.errors import (
+        RuntimeErrorEnvelope,
+        RuntimeErrorKind,
+        RuntimeErrorOrigin,
+        RuntimeErrorPhase,
+        TracecatRuntimeError,
+    )
     from tracecat.storage.object import (
         CollectionObject,
         InlineObject,
@@ -69,6 +76,18 @@ with workflow.unsafe.imports_passed_through():
         action_collection_prefix,
         action_key,
     )
+    from tracecat.temporal.errors import (
+        coerce_runtime_error_details,
+        extract_runtime_error,
+    )
+
+
+def _first_application_error_payload_detail(details: Sequence[Any]) -> Any | None:
+    for detail in details:
+        if coerce_runtime_error_details(detail) is not None:
+            continue
+        return detail
+    return None
 
 
 def _get_collection_size(stored: StoredObject) -> int:
@@ -116,9 +135,12 @@ class LoopRegion:
 class PlatformExecutionError(Exception):
     """Marks platform work that should fail the workflow, even inside a stream."""
 
-    def __init__(self, error: Exception) -> None:
+    def __init__(
+        self, error: Exception, runtime_error: RuntimeErrorEnvelope | None = None
+    ) -> None:
         super().__init__(str(error))
         self.error = error
+        self.runtime_error = runtime_error
 
 
 class DSLScheduler:
@@ -407,6 +429,9 @@ class DSLScheduler:
         self, task: Task, exc: Exception, *, fail_workflow: bool = False
     ) -> None:
         ref = task.ref
+        runtime_error = extract_runtime_error(exc, ref=ref)
+        if runtime_error is not None and runtime_error.affects_workflow:
+            fail_workflow = True
 
         self.logger.info(
             "Handling error path",
@@ -440,8 +465,15 @@ class DSLScheduler:
                     exc=exc,
                     details=exc.details,
                 )
-                details = exc.details[0]
-                if not isinstance(details, dict):
+                details = _first_application_error_payload_detail(exc.details)
+                if details is None:
+                    details = ActionErrorInfo(
+                        ref=ref,
+                        message=getattr(exc, "message", None) or str(exc),
+                        type=exc.type or exc.__class__.__name__,
+                        stream_id=task.stream_id,
+                    )
+                elif not isinstance(details, dict):
                     self.logger.info(
                         "Application error details are not a dictionary",
                         ref=ref,
@@ -546,9 +578,22 @@ class DSLScheduler:
                     stream_id=task.stream_id,
                 )
             if task.stream_id == ROOT_STREAM or fail_workflow:
+                if runtime_error is None and fail_workflow:
+                    runtime_error = RuntimeErrorEnvelope.build(
+                        kind=RuntimeErrorKind.PLATFORM,
+                        code="runtime.unknown_platform_error",
+                        message=details.message,
+                        origin=RuntimeErrorOrigin.DSL,
+                        phase=RuntimeErrorPhase.ROUTE,
+                        affects_workflow=True,
+                        root=exc,
+                        action_ref=ref,
+                        stream_id=task.stream_id,
+                        workflow_exec_id=self.wf_exec_id,
+                    )
                 self.logger.debug("Setting task exception", task=task, details=details)
                 self.task_exceptions[ref] = TaskExceptionInfo(
-                    exception=exc, details=details
+                    exception=exc, details=details, runtime_error=runtime_error
                 )
                 # After this point we gracefully handle the error in the root stream which will be handled by Temporal.
             else:
@@ -558,7 +603,7 @@ class DSLScheduler:
                     details=details,
                 )
                 self.stream_exceptions[task.stream_id] = TaskExceptionInfo(
-                    exception=exc, details=details
+                    exception=exc, details=details, runtime_error=runtime_error
                 )
                 # To "throw" we need to trigger a skip stream
                 all_edges = {
@@ -748,8 +793,13 @@ class DSLScheduler:
             # NOTE: Moved this here to handle single success path
             await self._handle_success_path(task)
         except Exception as e:
-            exc = e.error if isinstance(e, PlatformExecutionError) else e
-            fail_workflow = isinstance(e, PlatformExecutionError)
+            match e:
+                case PlatformExecutionError(error=exc, runtime_error=runtime_error):
+                    fail_workflow = True
+                case _:
+                    exc = e
+                    fail_workflow = False
+                    runtime_error = None
             kind = e.__class__.__name__
             non_retryable = getattr(exc, "non_retryable", True)
             self.logger.warning(
@@ -758,6 +808,9 @@ class DSLScheduler:
                 error=exc,
                 non_retryable=non_retryable,
             )
+            match runtime_error:
+                case RuntimeErrorEnvelope():
+                    exc = TracecatRuntimeError(runtime_error)
             await self._handle_error_path(task, exc, fail_workflow=fail_workflow)
         finally:
             # 5) Regardless of the outcome, the task is now complete
@@ -941,6 +994,10 @@ class DSLScheduler:
             self.logger.debug("`run_if` condition", run_if=run_if)
             try:
                 expr_result = await self.resolve_expression(run_if, context)
+            except ApplicationError:
+                raise
+            except ActivityError:
+                raise
             except Exception as e:
                 raise ApplicationError(
                     f"Error evaluating `run_if` condition: {e}",
@@ -1044,6 +1101,10 @@ class DSLScheduler:
             context = self.build_stream_aware_context(stmt, task.stream_id)
             try:
                 expr_result = await self.resolve_expression(args.condition, context)
+            except ApplicationError:
+                raise
+            except ActivityError:
+                raise
             except Exception as e:
                 raise ApplicationError(
                     f"Error evaluating `condition` in `core.loop.end`: {e}",
@@ -1425,11 +1486,12 @@ class DSLScheduler:
                 start_to_close_timeout=timedelta(seconds=60),
                 retry_policy=RETRY_POLICIES["activity:fail_fast"],
             )
-        except Exception as e:
-            raise ApplicationError(
-                f"Error evaluating `items` expression in `core.transform.gather`: {e}",
-                non_retryable=True,
-            ) from e
+        except ActivityError as e:
+            match cause := e.cause:
+                case ApplicationError():
+                    raise cause from None
+                case _:
+                    raise
 
         # XXX(concurrency): It's important we only decrement open_streams after
         # await block. If not, streams at the current level will observe 0
@@ -1555,6 +1617,17 @@ class DSLScheduler:
             self.task_exceptions[gather_ref] = TaskExceptionInfo(
                 exception=app_error,
                 details=gather_error,
+                runtime_error=RuntimeErrorEnvelope.build(
+                    kind=RuntimeErrorKind.USER,
+                    code="dsl.gather.errors_raised",
+                    message=message,
+                    origin=RuntimeErrorOrigin.DSL,
+                    phase=RuntimeErrorPhase.ROUTE,
+                    affects_workflow=True,
+                    action_ref=gather_ref,
+                    stream_id=parent_stream_id,
+                    workflow_exec_id=self.wf_exec_id,
+                ),
             )
             raise app_error
 

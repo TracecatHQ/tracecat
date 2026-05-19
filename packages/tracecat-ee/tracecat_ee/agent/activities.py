@@ -9,7 +9,6 @@ from pydantic import (
     BaseModel,
 )
 from temporalio import activity
-from temporalio.exceptions import ApplicationError
 
 from tracecat.agent.common.types import (
     MCPHttpServerConfig,
@@ -33,6 +32,8 @@ from tracecat.exceptions import BuiltinRegistryHasNoSelectionError
 from tracecat.logger import logger
 from tracecat.registry.lock.service import RegistryLockService
 from tracecat.registry.lock.types import RegistryLock
+from tracecat.runtime.errors import RuntimeErrorOrigin, RuntimeErrorPhase
+from tracecat.temporal.errors import ActivityRuntimeError
 from tracecat.tiers.entitlements import Entitlement, EntitlementService
 from tracecat.tiers.service import TierService
 
@@ -156,10 +157,13 @@ class AgentActivities:
                 tool_approvals=args.tool_approvals,
             )
         except ValueError as e:
-            raise ApplicationError(
-                str(e),
-                type="AgentToolDefinitionError",
-                non_retryable=True,
+            raise ActivityRuntimeError.user(
+                code="agent.tool_definitions.invalid",
+                message=str(e),
+                origin=RuntimeErrorOrigin.UNKNOWN,
+                phase=RuntimeErrorPhase.PREPARE,
+                error_type="AgentToolDefinitionError",
+                root=e,
             ) from e
         # Convert to dict[str, MCPToolDefinition] keyed by canonical action name
         # Tools already have canonical names (with dots, e.g., "core.cases.list_cases")
@@ -271,11 +275,16 @@ class AgentActivities:
                     server_count=len(hydrated_servers),
                 )
                 if args.fail_on_mcp_discovery_error:
-                    raise ApplicationError(
-                        "Failed to discover configured MCP tools for agent scope",
-                        str(e),
-                        type="AgentToolDefinitionError",
-                        non_retryable=True,
+                    raise ActivityRuntimeError.user(
+                        code="agent.tool_definitions.mcp_discovery_failed",
+                        message=(
+                            "Failed to discover configured MCP tools for agent scope"
+                        ),
+                        origin=RuntimeErrorOrigin.UNKNOWN,
+                        phase=RuntimeErrorPhase.PREPARE,
+                        error_type="AgentToolDefinitionError",
+                        root=e,
+                        details=(str(e),),
                     ) from e
                 # Continue without user MCP tools - don't fail the whole operation
             finally:
@@ -298,10 +307,16 @@ class AgentActivities:
                     registry_action_names
                 )
         except BuiltinRegistryHasNoSelectionError as e:
-            raise ApplicationError(
-                str(e),
-                e.detail,
-                type=e.__class__.__name__,
+            raise ActivityRuntimeError.platform(
+                code="agent.tool_definitions.registry_lock_unavailable",
+                message=str(e),
+                origin=RuntimeErrorOrigin.UNKNOWN,
+                phase=RuntimeErrorPhase.PREPARE,
+                error_type=e.__class__.__name__,
+                root=e,
+                details=(e.detail,),
+                retryable=True,
+                non_retryable=False,
             ) from e
 
         return BuildToolDefsResult(
@@ -350,9 +365,12 @@ class AgentActivities:
         results: dict[str, BuildToolDefsResult] = {}
         for scope in args.scopes:
             if scope.scope in results:
-                raise ApplicationError(
-                    f"Duplicate agent compile scope '{scope.scope}'",
-                    non_retryable=True,
+                raise ActivityRuntimeError.platform(
+                    code="agent.tool_definitions.duplicate_scope",
+                    message=f"Duplicate agent compile scope '{scope.scope}'",
+                    origin=RuntimeErrorOrigin.UNKNOWN,
+                    phase=RuntimeErrorPhase.PREPARE,
+                    error_type="DuplicateAgentCompileScope",
                 )
             results[scope.scope] = await self._build_scope_tool_definitions(
                 scope,

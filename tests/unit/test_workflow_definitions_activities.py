@@ -9,6 +9,8 @@ from temporalio.exceptions import ApplicationError
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.exceptions import BuiltinRegistryHasNoSelectionError, EntitlementRequired
+from tracecat.runtime.errors import RuntimeErrorKind
+from tracecat.temporal.errors import extract_runtime_error_from_details
 from tracecat.workflow.management.definitions import resolve_registry_lock_activity
 from tracecat.workflow.management.schemas import ResolveRegistryLockActivityInputs
 
@@ -54,6 +56,10 @@ async def test_resolve_registry_lock_activity_maps_entitlement_error(
     detail = app_error.details[0]
     assert isinstance(detail, dict)
     assert detail["entitlement"] == "custom_registry"
+    envelope = extract_runtime_error_from_details(app_error.details)
+    assert envelope is not None
+    assert envelope.kind == RuntimeErrorKind.USER
+    assert envelope.code == "workflow.registry_lock.entitlement_required"
 
 
 @pytest.mark.anyio
@@ -88,3 +94,7 @@ async def test_resolve_registry_lock_activity_maps_builtin_sync_pending_as_retry
     detail = app_error.details[0]
     assert isinstance(detail, dict)
     assert detail["origin"] == "tracecat_registry"
+    envelope = extract_runtime_error_from_details(app_error.details)
+    assert envelope is not None
+    assert envelope.kind == RuntimeErrorKind.PLATFORM
+    assert envelope.retryable is True

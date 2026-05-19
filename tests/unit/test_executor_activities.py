@@ -16,13 +16,57 @@ from tests.shared import to_data
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.dsl.common import create_default_execution_context
-from tracecat.dsl.schemas import ActionStatement, RunActionInput, RunContext
+from tracecat.dsl.schemas import ActionStatement, RunActionInput, RunContext, StreamID
 from tracecat.dsl.types import ActionErrorInfo
 from tracecat.exceptions import EntitlementRequired, ExecutionError, LoopExecutionError
 from tracecat.executor.activities import ExecutorActivities
+from tracecat.executor.errors import ActionRuntimeError
 from tracecat.executor.schemas import ExecutorActionErrorInfo
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.registry.lock.types import RegistryLock
+from tracecat.runtime.errors import RuntimeErrorKind, RuntimeErrorPhase
+from tracecat.storage.object import InlineObject
+from tracecat.temporal.errors import extract_runtime_error_from_details
+
+
+def test_action_runtime_infra_error_is_retryable_by_default() -> None:
+    app_error = ActionRuntimeError.infra(
+        ref="test_action",
+        stream_id=StreamID("test-stream"),
+        attempt=1,
+        code="executor.result_storage.failed",
+        message="Failed to store action result",
+        error_type="OSError",
+        phase=RuntimeErrorPhase.COLLECT,
+        root=OSError("disk full"),
+    )
+
+    envelope = extract_runtime_error_from_details(app_error.details)
+    assert app_error.non_retryable is False
+    assert envelope is not None
+    assert envelope.kind == RuntimeErrorKind.INFRA
+    assert envelope.retryable is True
+
+
+def test_action_runtime_platform_or_infra_error_keeps_infra_retryable_by_default() -> (
+    None
+):
+    app_error = ActionRuntimeError.platform_or_infra(
+        ref="test_action",
+        stream_id=StreamID("test-stream"),
+        attempt=1,
+        code="runtime.unknown_platform_error",
+        message="Unexpected OSError occurred",
+        error_type="OSError",
+        phase=RuntimeErrorPhase.USER_CODE,
+        root=OSError("connection reset"),
+    )
+
+    envelope = extract_runtime_error_from_details(app_error.details)
+    assert app_error.non_retryable is False
+    assert envelope is not None
+    assert envelope.kind == RuntimeErrorKind.INFRA
+    assert envelope.retryable is True
 
 
 @pytest.fixture
@@ -110,6 +154,7 @@ class TestExecuteActionActivity:
                 "tracecat.executor.activities.materialize_context",
                 new_callable=AsyncMock,
             ) as mock_materialize,
+            patch("tracecat.executor.activities.get_object_storage") as mock_storage,
         ):
             mock_activity.info.return_value = MagicMock(attempt=1)
             mock_activity.heartbeat = MagicMock()
@@ -117,6 +162,9 @@ class TestExecuteActionActivity:
             mock_dispatch.return_value = expected_result
             # Return the same exec_context to preserve the input
             mock_materialize.return_value = mock_run_action_input.exec_context
+            mock_storage.return_value.store = AsyncMock(
+                return_value=InlineObject(data=expected_result)
+            )
 
             result = await ExecutorActivities.execute_action_activity(
                 mock_run_action_input, mock_role
@@ -165,6 +213,37 @@ class TestExecuteActionActivity:
             assert app_error.type == "ExecutionError"
             # Check that the error info is in the details
             assert len(app_error.details) > 0
+            envelope = extract_runtime_error_from_details(app_error.details)
+            assert envelope is not None
+            assert envelope.kind == RuntimeErrorKind.USER
+
+    @pytest.mark.anyio
+    async def test_materialize_context_infra_failure_is_retryable_prepare_error(
+        self, mock_run_action_input, mock_role
+    ):
+        with (
+            patch("tracecat.executor.activities.activity") as mock_activity,
+            patch(
+                "tracecat.executor.activities.materialize_context",
+                new_callable=AsyncMock,
+            ) as mock_materialize,
+        ):
+            mock_activity.info.return_value = MagicMock(attempt=1)
+            mock_materialize.side_effect = OSError("object storage unavailable")
+
+            with pytest.raises(ApplicationError) as exc_info:
+                await ExecutorActivities.execute_action_activity(
+                    mock_run_action_input, mock_role
+                )
+
+            app_error = exc_info.value
+            assert app_error.type == "OSError"
+            assert app_error.non_retryable is False
+            envelope = extract_runtime_error_from_details(app_error.details)
+            assert envelope is not None
+            assert envelope.kind == RuntimeErrorKind.INFRA
+            assert envelope.phase == RuntimeErrorPhase.PREPARE
+            assert envelope.retryable is True
 
     @pytest.mark.anyio
     async def test_loop_execution_error_raises_application_error(
@@ -296,12 +375,16 @@ class TestExecuteActionActivity:
                 "tracecat.executor.activities.dispatch_action",
                 new_callable=AsyncMock,
             ) as mock_dispatch,
+            patch("tracecat.executor.activities.get_object_storage") as mock_storage,
             patch("tracecat.executor.activities.ctx_run") as mock_ctx_run,
             patch("tracecat.executor.activities.ctx_role") as mock_ctx_role,
         ):
             mock_activity.info.return_value = MagicMock(attempt=1)
             mock_backend.return_value = MagicMock()
             mock_dispatch.return_value = {"result": "ok"}
+            mock_storage.return_value.store = AsyncMock(
+                return_value=InlineObject(data={"result": "ok"})
+            )
 
             await ExecutorActivities.execute_action_activity(
                 mock_run_action_input, mock_role
@@ -350,3 +433,35 @@ class TestExecuteActionActivity:
             action_error_info = app_error.details[0]
             assert isinstance(action_error_info, ActionErrorInfo)
             assert action_error_info.stream_id == "test-stream-123"
+
+    @pytest.mark.anyio
+    async def test_storage_failure_is_classified_as_infra(
+        self, mock_run_action_input, mock_role
+    ):
+        with (
+            patch("tracecat.executor.activities.activity") as mock_activity,
+            patch("tracecat.executor.activities.get_executor_backend") as mock_backend,
+            patch(
+                "tracecat.executor.activities.dispatch_action",
+                new_callable=AsyncMock,
+            ) as mock_dispatch,
+            patch("tracecat.executor.activities.get_object_storage") as mock_storage,
+        ):
+            mock_activity.info.return_value = MagicMock(attempt=1)
+            mock_backend.return_value = MagicMock()
+            mock_dispatch.return_value = {"result": "ok"}
+            mock_storage.return_value.store = AsyncMock(
+                side_effect=OSError("disk full")
+            )
+
+            with pytest.raises(ApplicationError) as exc_info:
+                await ExecutorActivities.execute_action_activity(
+                    mock_run_action_input, mock_role
+                )
+
+            envelope = extract_runtime_error_from_details(exc_info.value.details)
+            assert exc_info.value.non_retryable is False
+            assert envelope is not None
+            assert envelope.kind == RuntimeErrorKind.INFRA
+            assert envelope.code == "executor.result_storage.failed"
+            assert envelope.retryable is True

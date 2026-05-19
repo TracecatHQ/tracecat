@@ -1309,6 +1309,37 @@ class TestWorkflowExecutionEvents:
         assert event.action_ref == "masked_child"
         assert event.should_mask_output is True
 
+    async def test_compact_child_workflow_accepts_v2_workflow_type(self) -> None:
+        initiated = create_mock_child_workflow_initiated_event(
+            event_id=1,
+            workflow_type_name="DSLWorkflowV2",
+        )
+        unreadable = UnreadableTemporalPayload(
+            error_type="decode_error",
+            encoding="json/plain",
+            payload_size_bytes=0,
+        )
+
+        with (
+            patch(
+                "tracecat.workflow.executions.schemas.ChildWorkflowMemo.from_temporal",
+                new_callable=AsyncMock,
+            ) as mock_memo,
+            patch(
+                "tracecat.workflow.executions.schemas.extract_first",
+                new_callable=AsyncMock,
+            ) as mock_extract_first,
+        ):
+            mock_memo.return_value = ChildWorkflowMemo(action_ref="v2_child")
+            mock_extract_first.return_value = unreadable
+
+            event = await WorkflowExecutionEventCompact.from_initiated_child_workflow(
+                initiated
+            )
+
+        assert event is not None
+        assert event.action_ref == "v2_child"
+
     async def test_compact_child_workflow_defaults_masked_when_memo_parse_fails(
         self,
     ) -> None:

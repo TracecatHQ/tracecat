@@ -6,7 +6,6 @@ import sqlalchemy as sa
 from pydantic import BaseModel, Field, model_validator
 from sqlalchemy import select
 from temporalio import activity
-from temporalio.exceptions import ApplicationError
 
 from tracecat.agent.preset.resolver import (
     ResolvedAgentsRuntimeConfig,
@@ -19,6 +18,9 @@ from tracecat.agent.workflow_config import agent_config_to_payload
 from tracecat.agent.workflow_schemas import AgentConfigPayload
 from tracecat.auth.types import Role
 from tracecat.db.models import AgentCatalog
+from tracecat.exceptions import TracecatValidationError
+from tracecat.runtime.errors import RuntimeErrorOrigin, RuntimeErrorPhase
+from tracecat.temporal.errors import ActivityRuntimeError
 
 
 class ResolveAgentPresetConfigActivityInput(BaseModel):
@@ -92,15 +94,29 @@ async def resolve_agent_preset_version_ref_activity(
 async def resolve_agents_config_activity(
     args: ResolveAgentsConfigActivityInput,
 ) -> ResolvedAgentsRuntimeConfig:
-    async with AgentPresetService.with_session(role=args.role) as service:
-        resolved = await resolve_agents_config(
-            service,
-            agents=args.agents,
-            parent_preset_id=args.parent_preset_id,
-            parent_slug=args.parent_slug,
-            include_runtime_config=True,
+    try:
+        async with AgentPresetService.with_session(role=args.role) as service:
+            resolved = await resolve_agents_config(
+                service,
+                agents=args.agents,
+                parent_preset_id=args.parent_preset_id,
+                parent_slug=args.parent_slug,
+                include_runtime_config=True,
+            )
+            return resolved.to_runtime_config()
+    except TracecatValidationError as e:
+        activity.logger.info(
+            "Validation error resolving agents config",
+            extra={"error": str(e)},
         )
-        return resolved.to_runtime_config()
+        raise ActivityRuntimeError.user(
+            code="agent.subagents.config_invalid",
+            message=str(e),
+            origin=RuntimeErrorOrigin.UNKNOWN,
+            phase=RuntimeErrorPhase.PREPARE,
+            error_type=e.__class__.__name__,
+            root=e,
+        ) from e
 
 
 class CustomModelProviderConfigResult(BaseModel):
@@ -144,7 +160,13 @@ async def resolve_custom_model_provider_config_activity(
 
     if creds is None:
         activity.logger.error("Custom model provider credentials not found")
-        raise ApplicationError("Invalid custom model provider credentials")
+        raise ActivityRuntimeError.user(
+            code="agent.custom_model_provider.credentials_missing",
+            message="Invalid custom model provider credentials",
+            origin=RuntimeErrorOrigin.UNKNOWN,
+            phase=RuntimeErrorPhase.PREPARE,
+            error_type="InvalidCustomModelProviderCredentials",
+        )
     if not (base_url := creds.get("CUSTOM_MODEL_PROVIDER_BASE_URL")):
         activity.logger.error(
             "Custom model provider base URL missing",
@@ -155,7 +177,13 @@ async def resolve_custom_model_provider_config_activity(
                 "has_api_key": bool(creds.get("CUSTOM_MODEL_PROVIDER_API_KEY")),
             },
         )
-        raise ApplicationError("Custom model provider base URL is required")
+        raise ActivityRuntimeError.user(
+            code="agent.custom_model_provider.base_url_required",
+            message="Custom model provider base URL is required",
+            origin=RuntimeErrorOrigin.UNKNOWN,
+            phase=RuntimeErrorPhase.PREPARE,
+            error_type="CustomModelProviderBaseURLRequired",
+        )
     passthrough = creds.get("CUSTOM_MODEL_PROVIDER_PASSTHROUGH", "").lower() in {
         "1",
         "true",
