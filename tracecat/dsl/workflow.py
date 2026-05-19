@@ -232,19 +232,23 @@ def _first_payload_detail(details: Sequence[Any]) -> Any | None:
     return payload_details[0] if payload_details else None
 
 
-def _wrap_activity_application_error(
-    message: str,
+def _format_trigger_input_validation_error(
     app_error: ApplicationError,
     *,
-    fallback_type: str,
+    workflow_exec_id: str,
 ) -> ApplicationError:
-    """Translate an activity failure while preserving its runtime classification."""
-    _, runtime_details = _split_runtime_error_details(app_error.details)
-    return ApplicationError(
-        message,
-        *runtime_details,
+    val_detail = _first_payload_detail(app_error.details)
+    validated = ValidationDetailListTA.validate_python(val_detail)
+    return WorkflowRuntimeError.user(
+        code="dsl.trigger_inputs.validation_failed",
+        message=format_input_schema_validation_error(validated),
+        origin=RuntimeErrorOrigin.DSL,
+        phase=RuntimeErrorPhase.PREPARE,
+        error_type=app_error.type or ValidationError.__name__,
+        root=app_error,
+        details=(val_detail,),
+        workflow_exec_id=workflow_exec_id,
         non_retryable=app_error.non_retryable,
-        type=app_error.type or fallback_type,
     )
 
 
@@ -622,47 +626,38 @@ class DSLWorkflow:
                     retry_policy=RETRY_POLICIES["activity:fail_slow"],
                 )
             except ActivityError as e:
-                match cause := e.cause:
-                    case ApplicationError(type=t, details=details) if (
-                        t == ValidationError.__name__
-                    ):
+                cause = e.cause
+                if isinstance(cause, ApplicationError):
+                    if cause.type == ValidationError.__name__:
                         self.logger.warning(
                             "Validation error when normalizing trigger inputs",
                             error=e,
-                            details=details,
+                            details=cause.details,
                         )
-                        payload_details, runtime_details = _split_runtime_error_details(
-                            details
-                        )
-                        [val_detail] = payload_details
-                        validated = ValidationDetailListTA.validate_python(val_detail)
-                        raise ApplicationError(
-                            format_input_schema_validation_error(validated),
-                            val_detail,
-                            *runtime_details,
-                            non_retryable=True,
-                            type=ValidationError.__name__,
+                        raise _format_trigger_input_validation_error(
+                            cause,
+                            workflow_exec_id=self.wf_exec_id,
                         ) from cause
-                    case ApplicationError() as app_error:
-                        self.logger.warning(
-                            "Application error when normalizing trigger inputs",
-                            error=e,
-                        )
-                        raise _wrap_activity_application_error(
-                            "Failed to normalize trigger inputs",
-                            app_error,
-                            fallback_type=e.__class__.__name__,
-                        ) from cause
-                    case _:
-                        self.logger.warning(
-                            "Unexpected error cause when normalizing trigger inputs",
-                            error=e,
-                        )
-                        raise ApplicationError(
-                            "Failed to normalize trigger inputs",
-                            non_retryable=True,
-                            type=e.__class__.__name__,
-                        ) from cause
+                    self.logger.warning(
+                        "Application error when normalizing trigger inputs",
+                        error=e,
+                    )
+                    raise cause from None
+
+                root = cause if isinstance(cause, BaseException) else e
+                self.logger.warning(
+                    "Unexpected error cause when normalizing trigger inputs",
+                    error=e,
+                )
+                raise WorkflowRuntimeError.platform_or_infra(
+                    code="dsl.trigger_inputs.normalization_failed",
+                    message="Failed to normalize trigger inputs",
+                    origin=RuntimeErrorOrigin.DSL,
+                    phase=RuntimeErrorPhase.PREPARE,
+                    error_type=root.__class__.__name__,
+                    root=root,
+                    workflow_exec_id=self.wf_exec_id,
+                ) from root
 
         # Store workflow start time for computing elapsed time
         self.wf_start_time = wf_info.start_time

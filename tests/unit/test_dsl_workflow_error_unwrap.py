@@ -3,7 +3,7 @@ from temporalio.exceptions import ApplicationError
 from tracecat.dsl.workflow import (
     DSLWorkflow,
     _first_payload_detail,
-    _wrap_activity_application_error,
+    _format_trigger_input_validation_error,
 )
 from tracecat.runtime.errors import (
     RuntimeErrorEnvelope,
@@ -16,6 +16,7 @@ from tracecat.temporal.errors import (
     extract_runtime_error_from_details,
     runtime_error_detail,
 )
+from tracecat.validation.schemas import ValidationDetail
 
 
 class CauseError(Exception):
@@ -58,39 +59,46 @@ def test_unwrap_temporal_failure_cause_handles_cyclic_causes() -> None:
     assert message == "first"
 
 
-def test_wrap_activity_application_error_preserves_runtime_classification() -> None:
+def test_format_trigger_input_validation_error_preserves_runtime_classification() -> (
+    None
+):
     envelope = RuntimeErrorEnvelope.build(
-        kind=RuntimeErrorKind.INFRA,
-        code="dsl.trigger_inputs.retrieve_failed",
-        message="Failed to retrieve trigger inputs",
+        kind=RuntimeErrorKind.USER,
+        code="dsl.trigger_inputs.validation_failed",
+        message="Failed to validate trigger inputs",
         origin=RuntimeErrorOrigin.DSL,
         phase=RuntimeErrorPhase.PREPARE,
-        retryable=True,
-        root=OSError("object storage unavailable"),
+        root=ValueError("invalid input"),
     )
+    validation_details = [
+        ValidationDetail(
+            type="pydantic.missing",
+            msg="Field required",
+            loc=("customer_id",),
+        )
+    ]
     activity_error = ApplicationError(
-        "Failed to retrieve trigger inputs",
-        {"legacy_payload": True},
+        "Failed to validate trigger inputs",
+        validation_details,
         runtime_error_detail("trigger", envelope),
-        type="OSError",
-        non_retryable=False,
+        type="ValidationError",
+        non_retryable=True,
     )
 
-    wrapped = _wrap_activity_application_error(
-        "Failed to normalize trigger inputs",
+    wrapped = _format_trigger_input_validation_error(
         activity_error,
-        fallback_type="ActivityError",
+        workflow_exec_id="wf_test/exec_test",
     )
 
-    assert wrapped.message == "Failed to normalize trigger inputs"
-    assert wrapped.type == "OSError"
-    assert wrapped.non_retryable is False
-    assert {"legacy_payload": True} not in wrapped.details
+    assert "Missing required field(s): 'customer_id'" in wrapped.message
+    assert wrapped.type == "ValidationError"
+    assert wrapped.non_retryable is True
+    assert validation_details in wrapped.details
     extracted = extract_runtime_error_from_details(wrapped.details)
     assert extracted is not None
-    assert extracted.kind == RuntimeErrorKind.INFRA
-    assert extracted.code == "dsl.trigger_inputs.retrieve_failed"
-    assert extracted.retryable is True
+    assert extracted.kind == RuntimeErrorKind.USER
+    assert extracted.code == "dsl.trigger_inputs.validation_failed"
+    assert extracted.workflow_exec_id == "wf_test/exec_test"
 
 
 def test_first_payload_detail_skips_runtime_metadata() -> None:

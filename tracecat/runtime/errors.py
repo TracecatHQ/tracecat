@@ -163,6 +163,15 @@ class RuntimeInfraError(_TypedRuntimeError):
     affects_workflow_by_default = True
 
 
+def _next_error_in_chain(error: BaseException) -> BaseException | None:
+    for attr in ("cause", "__cause__"):
+        if isinstance(nested := getattr(error, attr, None), BaseException):
+            return nested
+    if not error.__suppress_context__ and isinstance(error.__context__, BaseException):
+        return error.__context__
+    return None
+
+
 def _error_chain(error: BaseException) -> Iterator[BaseException]:
     current: BaseException | None = error
     seen: set[int] = set()
@@ -172,14 +181,7 @@ def _error_chain(error: BaseException) -> Iterator[BaseException]:
             return
         seen.add(current_id)
         yield current
-        nested = getattr(current, "cause", None)
-        if not isinstance(nested, BaseException):
-            nested = getattr(current, "__cause__", None)
-        if not isinstance(nested, BaseException) and not getattr(
-            current, "__suppress_context__", False
-        ):
-            nested = getattr(current, "__context__", None)
-        current = nested if isinstance(nested, BaseException) else None
+        current = _next_error_in_chain(current)
 
 
 def is_known_infra_exception(error: BaseException) -> bool:
