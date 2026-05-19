@@ -61,4 +61,5 @@ def run_worker_entrypoint(main: WorkerMain) -> None:
         loop.run_until_complete(run_worker_until_shutdown(main))
     finally:
         loop.run_until_complete(loop.shutdown_asyncgens())
+        loop.run_until_complete(loop.shutdown_default_executor())
         loop.close()
