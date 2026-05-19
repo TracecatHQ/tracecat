@@ -840,10 +840,16 @@ async def test_run_python_backend_uses_local_registry_paths(
     builtin_path = tmp_path / "builtin-registry"
     local_path = tmp_path / "local-registry"
     custom_target = tmp_path / "custom-target"
-    purelib = tmp_path / "purelib"
-    platlib = tmp_path / "platlib"
-    for path in (builtin_path, local_path, custom_target, purelib, platlib):
+    for path in (builtin_path, local_path, custom_target):
         path.mkdir()
+    host_site_packages = {
+        Path(site_path).resolve()
+        for site_path in (
+            sysconfig.get_path("purelib"),
+            sysconfig.get_path("platlib"),
+        )
+        if site_path
+    }
 
     async def _get_tarball_uris(_input: RunActionInput, _role: Role) -> list[str]:
         return []
@@ -860,12 +866,6 @@ async def test_run_python_backend_uses_local_registry_paths(
             raise AssertionError(
                 f"local repository mode should not resolve {tarball_uris=}"
             )
-
-    def _get_site_path(name: str) -> str | None:
-        return {
-            "purelib": str(purelib),
-            "platlib": str(platlib),
-        }.get(name)
 
     monkeypatch.setattr(executor_backend_module, "SandboxService", FakeSandboxService)
     monkeypatch.setattr(
@@ -888,7 +888,6 @@ async def test_run_python_backend_uses_local_registry_paths(
         "TRACECAT__LOCAL_REPOSITORY_CONTAINER_PATH",
         str(local_path),
     )
-    monkeypatch.setattr(executor_backend_module.sysconfig, "get_path", _get_site_path)
     monkeypatch.setenv("PYTHONUSERBASE", str(custom_target))
 
     backend = DirectBackend()
@@ -906,9 +905,11 @@ async def test_run_python_backend_uses_local_registry_paths(
         builtin_path,
         local_path,
         custom_target,
-        purelib,
-        platlib,
     ]
+    assert (
+        not {path.resolve() for path in captured["python_path_dirs"]}
+        & host_site_packages
+    )
 
 
 @pytest.mark.anyio

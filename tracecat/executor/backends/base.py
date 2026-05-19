@@ -13,7 +13,6 @@ Available backends:
 from __future__ import annotations
 
 import os
-import sysconfig
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -209,14 +208,6 @@ class ExecutorBackend(ABC):
             [
                 Path(config.TRACECAT__LOCAL_REPOSITORY_CONTAINER_PATH),
                 custom_registry_target,
-                *(
-                    Path(site_path)
-                    for site_path in (
-                        sysconfig.get_path("purelib"),
-                        sysconfig.get_path("platlib"),
-                    )
-                    if site_path
-                ),
             ]
         )
 
