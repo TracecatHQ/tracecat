@@ -1,20 +1,16 @@
 """High-level sandbox service for Python script execution."""
 
-import fcntl
 import hashlib
-import importlib.util
 import json
 import os
 import re
 import shutil
 import tempfile
-import threading
-from collections.abc import AsyncIterator, Iterator
-from contextlib import asynccontextmanager, contextmanager
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
-from tracecat import config
 from tracecat.config import (
     TRACECAT__DISABLE_NSJAIL,
     TRACECAT__SANDBOX_CACHE_DIR,
@@ -32,25 +28,6 @@ from tracecat.sandbox.executor import NsjailExecutor
 from tracecat.sandbox.types import ResourceLimits, SandboxConfig
 from tracecat.sandbox.unsafe_pid_executor import UnsafePidExecutor
 from tracecat.sandbox.wrapper import INSTALL_SCRIPT, WRAPPER_SCRIPT
-
-# Keep this narrow: run_python should get the registry SDK facade and its
-# runtime HTTP/type dependencies, not the executor's full site-packages root.
-_SDK_RUNTIME_IMPORTS = (
-    "annotated_types",
-    "anyio",
-    "certifi",
-    "h11",
-    "httpcore",
-    "httpx",
-    "idna",
-    "pydantic",
-    "pydantic_core",
-    "sniffio",
-    "typing_extensions",
-    "typing_inspection",
-)
-_SDK_CACHE_READY_FILE = ".ready"
-_SDK_PYTHON_PATH_PREPARE_LOCK = threading.Lock()
 
 
 def validate_run_python_script(script: str) -> tuple[bool, str | None]:
@@ -100,7 +77,6 @@ class SandboxService:
         self.cache_dir = Path(cache_dir)
         self.package_cache = self.cache_dir / "packages"
         self.uv_cache = self.cache_dir / "uv-cache"
-        self.sdk_python_path = self.cache_dir / "run-python-sdk"
 
         # Ensure cache directories exist
         self.package_cache.mkdir(parents=True, exist_ok=True)
@@ -178,151 +154,6 @@ class SandboxService:
         else:
             hash_input = "\n".join(normalized)
         return hashlib.sha256(hash_input.encode()).hexdigest()[:16]
-
-    def _prepare_sdk_python_path(self) -> Path | None:
-        """Prepare a narrow PYTHONPATH root for the registry SDK facade."""
-
-        entries: dict[str, Path] = {}
-        seen: set[str] = set()
-
-        def add_entry(path: Path | None, dst: str) -> None:
-            if path is None:
-                return
-            resolved = path.resolve()
-            if resolved.exists() and dst not in seen:
-                entries[dst] = resolved
-                seen.add(dst)
-
-        def add_registry_package_from_base(path: Path) -> None:
-            package_dir = path / "tracecat_registry"
-            if (package_dir / "__init__.py").exists():
-                add_entry(package_dir, "tracecat_registry")
-
-        def add_import_entry(import_name: str) -> None:
-            spec = importlib.util.find_spec(import_name)
-            if spec is None:
-                logger.warning(
-                    "SDK runtime dependency is not importable",
-                    import_name=import_name,
-                )
-                return
-            if spec.submodule_search_locations:
-                package_path = Path(next(iter(spec.submodule_search_locations)))
-                add_entry(package_path, import_name)
-            elif spec.origin and spec.origin not in {"built-in", "frozen"}:
-                module_path = Path(spec.origin)
-                add_entry(module_path, module_path.name)
-
-        source_path = Path(config.TRACECAT__BUILTIN_REGISTRY_SOURCE_PATH)
-        add_registry_package_from_base(source_path)
-
-        try:
-            import tracecat_registry
-
-            if tracecat_registry.__file__:
-                registry_package_root = (
-                    Path(tracecat_registry.__file__).resolve().parent
-                )
-                add_entry(registry_package_root, "tracecat_registry")
-        except ImportError:
-            logger.warning("tracecat_registry is not importable from run_python host")
-
-        for import_name in _SDK_RUNTIME_IMPORTS:
-            add_import_entry(import_name)
-
-        if not entries:
-            return None
-
-        cache_key = self._compute_sdk_python_path_cache_key(entries)
-        prepared_path = self.sdk_python_path / cache_key
-        ready_file = prepared_path / _SDK_CACHE_READY_FILE
-        if ready_file.exists():
-            return prepared_path
-
-        with self._locked_sdk_python_path():
-            if ready_file.exists():
-                return prepared_path
-            if prepared_path.exists():
-                shutil.rmtree(prepared_path, ignore_errors=True)
-
-            temp_path = Path(
-                tempfile.mkdtemp(
-                    prefix=f".{cache_key}.",
-                    suffix=".tmp",
-                    dir=self.sdk_python_path,
-                )
-            )
-            try:
-                for name, source in entries.items():
-                    target = temp_path / name
-                    if source.is_dir():
-                        shutil.copytree(source, target, symlinks=True)
-                    else:
-                        target.parent.mkdir(parents=True, exist_ok=True)
-                        shutil.copy2(source, target)
-                (temp_path / _SDK_CACHE_READY_FILE).write_text("")
-                os.rename(temp_path, prepared_path)
-            finally:
-                if temp_path.exists():
-                    shutil.rmtree(temp_path, ignore_errors=True)
-
-        return prepared_path
-
-    def _compute_sdk_python_path_cache_key(self, entries: dict[str, Path]) -> str:
-        digest = hashlib.sha256()
-        for name, source in sorted(entries.items()):
-            digest.update(name.encode())
-            digest.update(b"\0")
-            digest.update(str(source).encode())
-            digest.update(b"\0")
-            for part in self._iter_sdk_path_fingerprint_parts(source):
-                digest.update(part.encode())
-                digest.update(b"\0")
-        return digest.hexdigest()[:16]
-
-    def _iter_sdk_path_fingerprint_parts(self, source: Path) -> Iterator[str]:
-        try:
-            source_stat = source.lstat()
-        except FileNotFoundError:
-            return
-
-        yield f".:{source_stat.st_mode}:{source_stat.st_size}:{source_stat.st_mtime_ns}"
-        if not source.is_dir():
-            return
-
-        for path in sorted(source.rglob("*")):
-            rel_path = path.relative_to(source)
-            if "__pycache__" in rel_path.parts:
-                continue
-            try:
-                path_stat = path.lstat()
-            except FileNotFoundError:
-                continue
-
-            if path.is_symlink():
-                kind = "l"
-                target = os.readlink(path)
-            elif path.is_dir():
-                kind = "d"
-                target = ""
-            else:
-                kind = "f"
-                target = ""
-            yield (
-                f"{rel_path.as_posix()}:{kind}:{path_stat.st_mode}:"
-                f"{path_stat.st_size}:{path_stat.st_mtime_ns}:{target}"
-            )
-
-    @contextmanager
-    def _locked_sdk_python_path(self) -> Iterator[None]:
-        self.sdk_python_path.mkdir(parents=True, exist_ok=True)
-        lock_path = self.cache_dir / "run-python-sdk.lock"
-        with _SDK_PYTHON_PATH_PREPARE_LOCK, lock_path.open("w") as lock_file:
-            fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
-            try:
-                yield
-            finally:
-                fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
 
     async def _install_packages(
         self,
@@ -460,6 +291,7 @@ class SandboxService:
         timeout_seconds: int | None = None,
         allow_network: bool = False,
         env_vars: dict[str, str] | None = None,
+        python_path_dirs: list[Path] | None = None,
         workspace_id: str | None = None,
     ) -> Any:
         """Execute a Python script in a sandbox.
@@ -477,6 +309,7 @@ class SandboxService:
             allow_network: Whether to allow network access during execution.
                 Note: Without nsjail, this is best-effort and not OS-enforced.
             env_vars: Environment variables to set in the sandbox.
+            python_path_dirs: Read-only Python path roots to expose to the sandbox.
             workspace_id: Optional workspace ID for multi-tenant cache isolation.
                 When provided, package caches are scoped to the workspace,
                 preventing cross-workspace package poisoning attacks.
@@ -502,6 +335,7 @@ class SandboxService:
                 timeout_seconds=timeout_seconds,
                 allow_network=allow_network,
                 env_vars=env_vars,
+                python_path_dirs=python_path_dirs,
                 workspace_id=workspace_id,
             )
         else:
@@ -518,7 +352,7 @@ class SandboxService:
                 timeout_seconds=timeout_seconds,
                 allow_network=allow_network,
                 env_vars=env_vars,
-                python_path_dir=self._prepare_sdk_python_path(),
+                python_path_dirs=python_path_dirs,
                 workspace_id=workspace_id,
             )
 
@@ -542,6 +376,7 @@ class SandboxService:
         timeout_seconds: int | None = None,
         allow_network: bool = False,
         env_vars: dict[str, str] | None = None,
+        python_path_dirs: list[Path] | None = None,
         workspace_id: str | None = None,
     ) -> Any:
         """Execute a Python script using the nsjail sandbox.
@@ -559,6 +394,7 @@ class SandboxService:
             timeout_seconds: Maximum execution time.
             allow_network: Whether to allow network access during execution.
             env_vars: Environment variables to set in the sandbox.
+            python_path_dirs: Read-only Python path roots to expose to the sandbox.
             workspace_id: Optional workspace ID for multi-tenant cache isolation.
 
         Returns:
@@ -607,7 +443,7 @@ class SandboxService:
                 ),
                 env_vars=env_vars or {},
                 dependencies=dependencies or [],
-                python_path_dir=self._prepare_sdk_python_path(),
+                python_path_dirs=python_path_dirs or [],
             )
 
             await self._prepare_execution(job_dir, script, inputs)

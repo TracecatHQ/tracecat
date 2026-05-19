@@ -204,8 +204,8 @@ class NsjailExecutor:
         # Validate inputs to prevent injection into protobuf config
         _validate_path(job_dir, "job_dir")
         _validate_path(self.rootfs, "rootfs")
-        if config.python_path_dir:
-            _validate_path(config.python_path_dir, "python_path_dir")
+        for i, python_path_dir in enumerate(config.python_path_dirs):
+            _validate_path(python_path_dir, f"python_path_dir_{i}")
         if cache_key:
             _validate_cache_key(cache_key)
 
@@ -313,9 +313,11 @@ class NsjailExecutor:
                     lines.append(
                         f'mount {{ src: "{cache_path}" dst: "/packages" is_bind: true rw: false }}'
                     )
-            if config.python_path_dir and config.python_path_dir.exists():
+            for i, python_path_dir in enumerate(config.python_path_dirs):
+                if not python_path_dir.exists():
+                    continue
                 lines.append(
-                    f'mount {{ src: "{config.python_path_dir}" dst: "/pythonpath" is_bind: true rw: false }}'
+                    f'mount {{ src: "{python_path_dir}" dst: "/pythonpath/{i}" is_bind: true rw: false }}'
                 )
             lines.append(
                 f'mount {{ src: "{job_dir}" dst: "/work" is_bind: true rw: true }}'
@@ -372,8 +374,9 @@ class NsjailExecutor:
                 cache_path = self.package_cache / cache_key / "site-packages"
                 if cache_path.exists():
                     pythonpath_parts.append("/packages")
-            if config.python_path_dir and config.python_path_dir.exists():
-                pythonpath_parts.append("/pythonpath")
+            for i, python_path_dir in enumerate(config.python_path_dirs):
+                if python_path_dir.exists():
+                    pythonpath_parts.append(f"/pythonpath/{i}")
             if user_pythonpath:
                 pythonpath_parts.append(user_pythonpath)
             if pythonpath_parts:

@@ -199,20 +199,27 @@ class UnsafePidExecutor:
         merged["PYTHONPATH"] = os.pathsep.join(pythonpath_parts)
         return merged
 
+    def _with_python_paths(
+        self,
+        env_vars: dict[str, str] | None,
+        python_path_dirs: list[Path],
+    ) -> dict[str, str]:
+        merged = dict(env_vars or {})
+        pythonpath_parts = [str(path) for path in python_path_dirs if path.exists()]
+        if not pythonpath_parts:
+            return merged
+        if existing_pythonpath := merged.get("PYTHONPATH"):
+            pythonpath_parts.append(existing_pythonpath)
+        merged["PYTHONPATH"] = os.pathsep.join(pythonpath_parts)
+        return merged
+
     def _with_python_path(
         self,
         env_vars: dict[str, str] | None,
         python_path_dir: Path | None,
     ) -> dict[str, str]:
-        merged = dict(env_vars or {})
-        if python_path_dir is None or not python_path_dir.exists():
-            return merged
-
-        pythonpath_parts = [str(python_path_dir)]
-        if existing_pythonpath := merged.get("PYTHONPATH"):
-            pythonpath_parts.append(existing_pythonpath)
-        merged["PYTHONPATH"] = os.pathsep.join(pythonpath_parts)
-        return merged
+        python_path_dirs = [python_path_dir] if python_path_dir is not None else []
+        return self._with_python_paths(env_vars, python_path_dirs)
 
     async def _is_pid_namespace_available(self) -> bool:
         if self._pid_namespace_available is not None:
@@ -343,7 +350,7 @@ class UnsafePidExecutor:
         timeout_seconds: int | None = None,
         allow_network: bool = False,
         env_vars: dict[str, str] | None = None,
-        python_path_dir: Path | None = None,
+        python_path_dirs: list[Path] | None = None,
         workspace_id: str | None = None,
     ) -> SandboxResult:
         if timeout_seconds is None:
@@ -360,9 +367,9 @@ class UnsafePidExecutor:
 
         try:
             python_path = shutil.which("python3") or "python3"
-            execution_env_vars = self._with_python_path(
+            execution_env_vars = self._with_python_paths(
                 env_vars,
-                python_path_dir,
+                python_path_dirs or [],
             )
             if dependencies:
                 cache_key = self._compute_cache_key(dependencies, workspace_id)

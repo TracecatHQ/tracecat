@@ -10,12 +10,12 @@ import sys
 import sysconfig
 import tempfile
 import uuid
-from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, assert_type
 
 import pytest
+import tracecat_registry
 from tracecat_registry import ctx as registry_ctx
 from tracecat_registry.context import RegistryContext, clear_context, set_context
 
@@ -279,6 +279,12 @@ def _expected_registry_ctx_smoke_result(
     }
 
 
+def _registry_python_path_dirs() -> list[Path]:
+    registry_source_root = Path(tracecat_registry.__file__).resolve().parents[1]
+    purelib = Path(sysconfig.get_path("purelib")).resolve()
+    return [registry_source_root, purelib]
+
+
 async def _run_sandbox_registry_ctx_smoke(
     *,
     cache_dir: Path,
@@ -287,8 +293,21 @@ async def _run_sandbox_registry_ctx_smoke(
     return await SandboxService(cache_dir=str(cache_dir)).run_python(
         script=_registry_ctx_smoke_script(),
         env_vars=_registry_ctx_env_vars(),
+        python_path_dirs=_registry_python_path_dirs(),
         timeout_seconds=timeout_seconds,
     )
+
+
+class _FakeRunPythonRegistryPathRunner:
+    def __init__(self, paths: list[Path]) -> None:
+        self.paths = paths
+        self.tarball_uris: list[str] | None = None
+
+    async def resolve_registry_paths(
+        self, tarball_uris: list[str] | None = None
+    ) -> list[Path]:
+        self.tarball_uris = tarball_uris
+        return self.paths
 
 
 async def _run_backend_registry_ctx_smoke(
@@ -297,10 +316,21 @@ async def _run_backend_registry_ctx_smoke(
     monkeypatch: pytest.MonkeyPatch,
     cache_dir: Path,
 ) -> dict[str, Any]:
+    fake_runner = _FakeRunPythonRegistryPathRunner(_registry_python_path_dirs())
+
+    async def _get_tarball_uris(_input: RunActionInput, _role: Role) -> list[str]:
+        return ["s3://tracecat-registry/test/site-packages.tar.gz"]
+
     monkeypatch.setattr(
         executor_backend_module,
         "SandboxService",
         lambda: SandboxService(cache_dir=str(cache_dir)),
+    )
+    monkeypatch.setattr(backend, "_get_run_python_tarball_uris", _get_tarball_uris)
+    monkeypatch.setattr(
+        executor_backend_module,
+        "get_action_runner",
+        lambda: fake_runner,
     )
     monkeypatch.setattr(
         executor_backend_module.config,
@@ -332,6 +362,9 @@ async def _run_backend_registry_ctx_smoke(
         environment=input_data.run_context.environment,
         token=resolved_context.executor_token,
     )
+    assert fake_runner.tarball_uris == [
+        "s3://tracecat-registry/test/site-packages.tar.gz"
+    ]
     return result.result
 
 
@@ -472,26 +505,30 @@ def test_validate_run_python_script_allows_async_main() -> None:
     assert error is None
 
 
-def test_nsjail_env_map_adds_sdk_pythonpath(tmp_path: Path) -> None:
-    sdk_path = tmp_path / "sdk"
-    sdk_path.mkdir()
+def test_nsjail_env_map_adds_registry_pythonpaths(tmp_path: Path) -> None:
+    registry_path = tmp_path / "registry"
+    dependency_path = tmp_path / "dependencies"
+    registry_path.mkdir()
+    dependency_path.mkdir()
     sandbox_config = SandboxConfig(
         env_vars={"PYTHONPATH": "/work/lib", "CUSTOM_VALUE": "kept"},
-        python_path_dir=sdk_path,
+        python_path_dirs=[registry_path, dependency_path],
     )
 
     env_map = NsjailExecutor()._build_env_map(sandbox_config, phase="execute")
 
-    assert env_map["PYTHONPATH"] == "/pythonpath:/work/lib"
+    assert env_map["PYTHONPATH"] == "/pythonpath/0:/pythonpath/1:/work/lib"
     assert env_map["CUSTOM_VALUE"] == "kept"
 
 
-def test_nsjail_config_mounts_sdk_paths_under_pythonpath_root(
+def test_nsjail_config_mounts_registry_paths_under_pythonpath_root(
     tmp_path: Path,
 ) -> None:
-    sdk_path = tmp_path / "run-python-sdk"
-    sdk_path.mkdir()
-    sandbox_config = SandboxConfig(python_path_dir=sdk_path)
+    registry_path = tmp_path / "registry"
+    dependency_path = tmp_path / "dependencies"
+    registry_path.mkdir()
+    dependency_path.mkdir()
+    sandbox_config = SandboxConfig(python_path_dirs=[registry_path, dependency_path])
 
     config_text = NsjailExecutor(rootfs_path=str(tmp_path))._build_config(
         tmp_path,
@@ -500,21 +537,24 @@ def test_nsjail_config_mounts_sdk_paths_under_pythonpath_root(
     )
 
     assert (
-        f'mount {{ src: "{sdk_path}" dst: "/pythonpath" is_bind: true rw: false }}'
+        f'mount {{ src: "{registry_path}" dst: "/pythonpath/0" is_bind: true rw: false }}'
+    ) in config_text
+    assert (
+        f'mount {{ src: "{dependency_path}" dst: "/pythonpath/1" is_bind: true rw: false }}'
     ) in config_text
 
 
-def test_nsjail_env_map_prefers_installed_dependencies_over_sdk_mounts(
+def test_nsjail_env_map_prefers_installed_dependencies_over_registry_mounts(
     tmp_path: Path,
 ) -> None:
-    sdk_path = tmp_path / "sdk"
-    sdk_path.mkdir()
+    registry_path = tmp_path / "registry"
+    registry_path.mkdir()
     executor = NsjailExecutor(cache_dir=str(tmp_path / "cache"))
     cache_key = "abc123"
     (executor.package_cache / cache_key / "site-packages").mkdir(parents=True)
     sandbox_config = SandboxConfig(
         env_vars={"PYTHONPATH": "/work/lib"},
-        python_path_dir=sdk_path,
+        python_path_dirs=[registry_path],
     )
 
     env_map = executor._build_env_map(
@@ -523,113 +563,18 @@ def test_nsjail_env_map_prefers_installed_dependencies_over_sdk_mounts(
         cache_key=cache_key,
     )
 
-    assert env_map["PYTHONPATH"] == "/packages:/pythonpath:/work/lib"
+    assert env_map["PYTHONPATH"] == "/packages:/pythonpath/0:/work/lib"
 
 
-def test_sdk_python_path_does_not_include_executor_site_packages(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    source_root = tmp_path / "registry-source"
-    package_root = source_root / "tracecat_registry"
-    package_root.mkdir(parents=True)
-    (package_root / "__init__.py").write_text("")
-    monkeypatch.setattr(
-        "tracecat.sandbox.service.config.TRACECAT__BUILTIN_REGISTRY_SOURCE_PATH",
-        str(source_root),
-    )
-    monkeypatch.setattr(
-        "tracecat.sandbox.service.config.TRACECAT__EXECUTOR_SITE_PACKAGES_DIR",
-        "",
-    )
-
-    sdk_python_path = SandboxService(
-        cache_dir=str(tmp_path / "cache")
-    )._prepare_sdk_python_path()
-    purelib = Path(sysconfig.get_path("purelib")).resolve()
-
-    assert sdk_python_path is not None
-    assert sdk_python_path.resolve() != purelib
-    assert (sdk_python_path / "tracecat_registry" / "__init__.py").exists()
-    assert (sdk_python_path / "pydantic").exists()
-    assert (sdk_python_path / "typing_extensions.py").exists()
-    assert all(child.resolve() != purelib for child in sdk_python_path.iterdir())
-
-
-def test_sdk_python_path_refreshes_when_source_changes(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    source_root = tmp_path / "registry-source"
-    package_root = source_root / "tracecat_registry"
-    package_root.mkdir(parents=True)
-    (package_root / "__init__.py").write_text("")
-    ctx_file = package_root / "ctx.py"
-    ctx_file.write_text("VERSION = 'old'\n")
-    monkeypatch.setattr(
-        "tracecat.sandbox.service.config.TRACECAT__BUILTIN_REGISTRY_SOURCE_PATH",
-        str(source_root),
-    )
-    monkeypatch.setattr(sandbox_service_module, "_SDK_RUNTIME_IMPORTS", ())
-
-    service = SandboxService(cache_dir=str(tmp_path / "cache"))
-    first_sdk_python_path = service._prepare_sdk_python_path()
-    ctx_file.write_text("VERSION = 'newer-source'\n")
-    second_sdk_python_path = service._prepare_sdk_python_path()
-
-    assert first_sdk_python_path is not None
-    assert second_sdk_python_path is not None
-    assert first_sdk_python_path != second_sdk_python_path
-    assert (
-        first_sdk_python_path / "tracecat_registry" / "ctx.py"
-    ).read_text() == "VERSION = 'old'\n"
-    assert (
-        second_sdk_python_path / "tracecat_registry" / "ctx.py"
-    ).read_text() == "VERSION = 'newer-source'\n"
-
-
-def test_sdk_python_path_preparation_is_concurrency_safe(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    source_root = tmp_path / "registry-source"
-    package_root = source_root / "tracecat_registry"
-    package_root.mkdir(parents=True)
-    (package_root / "__init__.py").write_text("")
-    (package_root / "ctx.py").write_text("VALUE = 1\n")
-    monkeypatch.setattr(
-        "tracecat.sandbox.service.config.TRACECAT__BUILTIN_REGISTRY_SOURCE_PATH",
-        str(source_root),
-    )
-    monkeypatch.setattr(sandbox_service_module, "_SDK_RUNTIME_IMPORTS", ())
-
-    service = SandboxService(cache_dir=str(tmp_path / "cache"))
-    with ThreadPoolExecutor(max_workers=4) as executor:
-        sdk_python_paths = list(
-            executor.map(lambda _: service._prepare_sdk_python_path(), range(4))
-        )
-
-    first_sdk_python_path = sdk_python_paths[0]
-    assert first_sdk_python_path is not None
-    assert all(path == first_sdk_python_path for path in sdk_python_paths)
-    assert (
-        first_sdk_python_path / "tracecat_registry" / "ctx.py"
-    ).read_text() == "VALUE = 1\n"
-
-
-def test_sdk_python_path_mounts_can_import_ctx_without_site_packages(
+def test_registry_pythonpaths_can_import_ctx_without_site_packages(
     tmp_path: Path,
 ) -> None:
     executor = UnsafePidExecutor(cache_dir=str(tmp_path / "cache"))
-    sdk_python_path = SandboxService(
-        cache_dir=str(tmp_path / "sandbox-cache")
-    )._prepare_sdk_python_path()
-    env_vars = executor._with_python_path(
+    env_vars = executor._with_python_paths(
         {},
-        sdk_python_path,
+        _registry_python_path_dirs(),
     )
 
-    assert sdk_python_path is not None
     result = subprocess.run(
         [
             sys.executable,
@@ -653,20 +598,24 @@ def test_sdk_python_path_mounts_can_import_ctx_without_site_packages(
     assert result.stdout.strip() == "tracecat_registry.ctx TracecatClient"
 
 
-def test_unsafe_pid_sdk_pythonpath_uses_prepared_sdk_dir(tmp_path: Path) -> None:
-    sdk_path = tmp_path / "run-python-sdk"
-    sdk_path.mkdir()
+def test_unsafe_pid_pythonpath_uses_registry_paths(tmp_path: Path) -> None:
+    registry_path = tmp_path / "registry"
+    dependency_path = tmp_path / "dependencies"
+    registry_path.mkdir()
+    dependency_path.mkdir()
     executor = UnsafePidExecutor(cache_dir=str(tmp_path / "cache"))
 
-    env_vars = executor._with_python_path(
+    env_vars = executor._with_python_paths(
         {"PYTHONPATH": "/work/lib"},
-        sdk_path,
+        [registry_path, dependency_path],
     )
 
-    assert env_vars["PYTHONPATH"] == os.pathsep.join([str(sdk_path), "/work/lib"])
+    assert env_vars["PYTHONPATH"] == os.pathsep.join(
+        [str(registry_path), str(dependency_path), "/work/lib"]
+    )
 
 
-def test_unsafe_pid_pythonpath_prefers_installed_dependencies_over_sdk_paths(
+def test_unsafe_pid_pythonpath_prefers_installed_dependencies_over_registry_paths(
     tmp_path: Path,
 ) -> None:
     executor = UnsafePidExecutor(cache_dir=str(tmp_path / "cache"))
@@ -802,8 +751,15 @@ async def test_tracecat_registry_ctx_rejects_sync_call_in_async_code() -> None:
 @pytest.mark.anyio
 async def test_run_python_backend_always_injects_sdk_context(
     monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
 ) -> None:
     captured: dict[str, Any] = {}
+    artifact_path = tmp_path / "registry-artifact"
+    artifact_path.mkdir()
+    fake_runner = _FakeRunPythonRegistryPathRunner([artifact_path])
+
+    async def _get_tarball_uris(_input: RunActionInput, _role: Role) -> list[str]:
+        return ["s3://tracecat-registry/test/site-packages.tar.gz"]
 
     class FakeSandboxService:
         async def run_python(self, **kwargs: Any) -> dict[str, bool]:
@@ -818,10 +774,16 @@ async def test_run_python_backend_always_injects_sdk_context(
         "tracecat.executor.backends.base.config.TRACECAT__API_URL",
         "http://api.test:8000",
     )
+    backend = DirectBackend()
+    monkeypatch.setattr(backend, "_get_run_python_tarball_uris", _get_tarball_uris)
+    monkeypatch.setattr(
+        "tracecat.executor.backends.base.get_action_runner",
+        lambda: fake_runner,
+    )
 
     resolved_context = _make_run_python_context()
     input_data = _make_run_python_input()
-    result = await DirectBackend().execute(
+    result = await backend.execute(
         input=input_data,
         role=_make_role(),
         resolved_context=resolved_context,
@@ -839,6 +801,34 @@ async def test_run_python_backend_always_injects_sdk_context(
         "TRACECAT__ENVIRONMENT": input_data.run_context.environment,
         "TRACECAT__EXECUTOR_TOKEN": resolved_context.executor_token,
     }
+    assert captured["python_path_dirs"] == [artifact_path]
+    assert fake_runner.tarball_uris == [
+        "s3://tracecat-registry/test/site-packages.tar.gz"
+    ]
+
+
+@pytest.mark.anyio
+async def test_run_python_backend_fails_without_registry_artifacts(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def _get_tarball_uris(_input: RunActionInput, _role: Role) -> list[str]:
+        return []
+
+    monkeypatch.setattr(
+        "tracecat.executor.backends.base.config.TRACECAT__LOCAL_REPOSITORY_ENABLED",
+        False,
+    )
+    backend = DirectBackend()
+    monkeypatch.setattr(backend, "_get_run_python_tarball_uris", _get_tarball_uris)
+
+    result = await backend.execute(
+        input=_make_run_python_input(),
+        role=_make_role(),
+        resolved_context=_make_run_python_context(),
+    )
+
+    assert result.type == "failure"
+    assert result.error.type == "RegistryError"
 
 
 @pytest.mark.anyio
@@ -869,7 +859,7 @@ async def test_run_python_backends_can_import_registry_ctx_in_pid_mode(
 
 
 @pytest.mark.anyio
-async def test_run_python_nsjail_can_import_registry_ctx_with_sdk_path(
+async def test_run_python_nsjail_can_import_registry_ctx_with_registry_paths(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:

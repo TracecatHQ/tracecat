@@ -13,10 +13,12 @@ Available backends:
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from tracecat import config
 from tracecat.dsl.enums import PlatformAction
+from tracecat.executor.action_runner import get_action_runner
 from tracecat.executor.schemas import (
     ExecutorActionErrorInfo,
     ExecutorResult,
@@ -78,7 +80,7 @@ class ExecutorBackend(ABC):
 
         # Platform actions with special execution requirements
         if action_name == PlatformAction.RUN_PYTHON:
-            return await self._execute_run_python(input, resolved_context)
+            return await self._execute_run_python(input, role, resolved_context)
 
         # Normal UDF execution via backend-specific implementation
         return await self._execute(input, role, resolved_context, timeout)
@@ -100,6 +102,7 @@ class ExecutorBackend(ABC):
     async def _execute_run_python(
         self,
         input: RunActionInput,
+        role: Role,
         resolved_context: ResolvedContext,
     ) -> ExecutorResult:
         """Execute run_python action using host sandbox.
@@ -122,13 +125,16 @@ class ExecutorBackend(ABC):
             )
             return ExecutorResultFailure(error=error_info)
 
-        service = SandboxService()
         env_vars = self._build_run_python_env_vars(
             input,
             resolved_context,
             user_env_vars=args.get("env_vars"),
         )
+        registry_paths = await self._resolve_run_python_registry_paths(input, role)
+        if isinstance(registry_paths, ExecutorActionErrorInfo):
+            return ExecutorResultFailure(error=registry_paths)
 
+        service = SandboxService()
         try:
             result = await service.run_python(
                 script=script,
@@ -137,6 +143,7 @@ class ExecutorBackend(ABC):
                 timeout_seconds=args.get("timeout_seconds", 300),
                 allow_network=args.get("allow_network", False),
                 env_vars=env_vars,
+                python_path_dirs=registry_paths,
                 workspace_id=resolved_context.workspace_id,
             )
             return ExecutorResultSuccess(result=result)
@@ -154,6 +161,32 @@ class ExecutorBackend(ABC):
                 function="_execute_run_python",
             )
             return ExecutorResultFailure(error=error_info)
+
+    async def _resolve_run_python_registry_paths(
+        self,
+        input: RunActionInput,
+        role: Role,
+    ) -> list[Path] | ExecutorActionErrorInfo:
+        """Resolve registry artifact paths for run_python SDK imports."""
+        tarball_uris = await self._get_run_python_tarball_uris(input, role)
+        if not tarball_uris and not config.TRACECAT__LOCAL_REPOSITORY_ENABLED:
+            return ExecutorActionErrorInfo(
+                action_name=PlatformAction.RUN_PYTHON,
+                type="RegistryError",
+                message="No registry tarballs available for run_python execution. "
+                "Check that the registry is synced and the registry_lock is valid.",
+                filename="base.py",
+                function="_execute_run_python",
+            )
+        return await get_action_runner().resolve_registry_paths(tarball_uris)
+
+    async def _get_run_python_tarball_uris(
+        self,
+        input: RunActionInput,
+        role: Role,
+    ) -> list[str]:
+        """Get registry tarball URIs for run_python execution."""
+        return []
 
     def _build_run_python_env_vars(
         self,
