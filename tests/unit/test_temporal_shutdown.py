@@ -6,7 +6,10 @@ from collections.abc import Callable
 
 import pytest
 
-from tracecat.temporal.shutdown import install_worker_shutdown_signal_handlers
+from tracecat.temporal.shutdown import (
+    install_worker_shutdown_signal_handlers,
+    run_worker_entrypoint,
+)
 
 
 class FakeSignalHandlingLoop:
@@ -51,3 +54,16 @@ async def test_worker_shutdown_signal_handler_respects_custom_signals() -> None:
         assert list(loop.handlers) == [signal.SIGTERM]
 
     assert loop.removed == [signal.SIGTERM]
+
+
+def test_run_worker_entrypoint_runs_main_with_shutdown_event() -> None:
+    called = False
+
+    async def main(shutdown_event: asyncio.Event) -> None:
+        nonlocal called
+        called = True
+        shutdown_event.set()
+
+    run_worker_entrypoint(main)
+
+    assert called

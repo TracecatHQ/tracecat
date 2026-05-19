@@ -22,7 +22,7 @@ from tracecat.agent.runtime_services import (
 from tracecat.agent.worker import new_sandbox_runner
 from tracecat.dsl.client import get_temporal_client
 from tracecat.logger import logger
-from tracecat.temporal.shutdown import install_worker_shutdown_signal_handlers
+from tracecat.temporal.shutdown import run_worker_entrypoint
 
 if TYPE_CHECKING:
     from temporalio.client import Client
@@ -109,19 +109,6 @@ async def main(shutdown_event: asyncio.Event | None = None) -> None:
         raise RuntimeError(runtime_failure_reason)
 
 
-async def _run_until_shutdown() -> None:
-    shutdown_event = asyncio.Event()
-    with install_worker_shutdown_signal_handlers(shutdown_event):
-        await main(shutdown_event=shutdown_event)
-
-
 if __name__ == "__main__":
     asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    loop.set_task_factory(asyncio.eager_task_factory)
-    try:
-        loop.run_until_complete(_run_until_shutdown())
-    finally:
-        loop.run_until_complete(loop.shutdown_asyncgens())
-        loop.close()
+    run_worker_entrypoint(main)
