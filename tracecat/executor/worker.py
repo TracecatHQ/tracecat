@@ -40,7 +40,6 @@ from __future__ import annotations
 import asyncio
 import dataclasses
 import os
-import signal
 from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
 
@@ -67,8 +66,7 @@ with workflow.unsafe.imports_passed_through():
         RegistrySyncActivities,
         RegistrySyncWorkflow,
     )
-
-interrupt_event = asyncio.Event()
+    from tracecat.temporal.worker_lifecycle import run_worker_entrypoint
 
 asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
 
@@ -101,8 +99,11 @@ def new_sandbox_runner() -> SandboxedWorkflowRunner:
     )
 
 
-async def main() -> None:
+async def main(shutdown_event: asyncio.Event | None = None) -> None:
     """Run the ExecutorWorker."""
+    if shutdown_event is None:
+        shutdown_event = asyncio.Event()
+
     # Get configuration
     task_queue = config.TRACECAT__EXECUTOR_QUEUE
     max_concurrent = int(
@@ -169,31 +170,14 @@ async def main() -> None:
                     num_workflows=len(workflows),
                     num_activities=len(activities),
                 )
-                # Wait until interrupted
-                await interrupt_event.wait()
-                logger.info("Shutting down ExecutorWorker")
+                await shutdown_event.wait()
+                logger.info("ExecutorWorker shutdown requested")
+            logger.info("Temporal Worker context exited")
     finally:
         logger.info("Shutting down executor backend")
         await shutdown_executor_backend()
         await action_gateway.stop()
 
 
-def _signal_handler(sig: int, _frame: object) -> None:
-    """Handle shutdown signals gracefully."""
-    logger.info("Received shutdown signal", signal=sig)
-    interrupt_event.set()
-
-
 if __name__ == "__main__":
-    # Install signal handlers before starting the event loop
-    signal.signal(signal.SIGINT, _signal_handler)
-    signal.signal(signal.SIGTERM, _signal_handler)
-
-    loop = asyncio.new_event_loop()
-    loop.set_task_factory(asyncio.eager_task_factory)
-    try:
-        loop.run_until_complete(main())
-    except KeyboardInterrupt:
-        interrupt_event.set()
-    finally:
-        loop.run_until_complete(loop.shutdown_asyncgens())
+    run_worker_entrypoint(main)

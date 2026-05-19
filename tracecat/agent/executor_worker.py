@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import os
-import signal
 from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
 from typing import TYPE_CHECKING
@@ -23,11 +22,11 @@ from tracecat.agent.runtime_services import (
 from tracecat.agent.worker import new_sandbox_runner
 from tracecat.dsl.client import get_temporal_client
 from tracecat.logger import logger
+from tracecat.temporal.worker_lifecycle import run_worker_entrypoint
 
 if TYPE_CHECKING:
     from temporalio.client import Client
 
-interrupt_event = asyncio.Event()
 runtime_failure_reason: str | None = None
 
 
@@ -68,10 +67,11 @@ async def _stop_runtime_services() -> None:
             )
 
 
-async def main() -> None:
+async def main(shutdown_event: asyncio.Event | None = None) -> None:
     """Run the AgentExecutorWorker."""
     global runtime_failure_reason
-    interrupt_event.clear()
+    if shutdown_event is None:
+        shutdown_event = asyncio.Event()
     runtime_failure_reason = None
     max_concurrent = int(
         os.environ.get("TRACECAT__AGENT_EXECUTOR_MAX_CONCURRENT_ACTIVITIES") or 1
@@ -100,30 +100,15 @@ async def main() -> None:
                 graceful_shutdown_timeout=timedelta(minutes=5),
             ):
                 logger.info("AgentExecutorWorker started, ctrl+c to exit")
-                await interrupt_event.wait()
-                logger.info("Shutting down AgentExecutorWorker")
+                await shutdown_event.wait()
+                logger.info("AgentExecutorWorker shutdown requested")
+            logger.info("Temporal Worker context exited")
     finally:
         await _stop_runtime_services()
     if runtime_failure_reason is not None:
         raise RuntimeError(runtime_failure_reason)
 
 
-def _signal_handler(sig: int, _frame: object) -> None:
-    """Handle shutdown signals gracefully."""
-    logger.info("Received shutdown signal", signal=sig)
-    interrupt_event.set()
-
-
 if __name__ == "__main__":
-    signal.signal(signal.SIGINT, _signal_handler)
-    signal.signal(signal.SIGTERM, _signal_handler)
-
     asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
-    loop = asyncio.new_event_loop()
-    loop.set_task_factory(asyncio.eager_task_factory)
-    try:
-        loop.run_until_complete(main())
-    except KeyboardInterrupt:
-        interrupt_event.set()
-    finally:
-        loop.run_until_complete(loop.shutdown_asyncgens())
+    run_worker_entrypoint(main)
