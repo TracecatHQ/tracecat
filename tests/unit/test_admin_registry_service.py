@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import uuid
+from datetime import timedelta
+from unittest.mock import AsyncMock
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from tracecat.admin.registry.schemas import RegistryArtifactsBackfillStartRequest
 from tracecat.admin.registry.service import AdminRegistryService
 from tracecat.auth.types import PlatformRole
 from tracecat.db.models import (
@@ -78,6 +81,25 @@ async def test_list_versions_includes_artifact_and_usage_status(
             },
         )
     )
+    malformed_lock_workflow = Workflow(
+        workspace_id=svc_workspace.id,
+        title="Workflow with malformed registry lock",
+        description="",
+    )
+    session.add(malformed_lock_workflow)
+    await session.flush()
+    session.add(
+        WorkflowDefinition(
+            workflow_id=malformed_lock_workflow.id,
+            workspace_id=svc_workspace.id,
+            version=1,
+            content={},
+            registry_lock={
+                "origins": ["tracecat_registry"],
+                "actions": {},
+            },
+        )
+    )
     await session.commit()
 
     async def fake_artifacts_ready(
@@ -109,3 +131,49 @@ async def test_list_versions_includes_artifact_and_usage_status(
     assert new_version.in_use is True
     assert new_version.is_current is True
     assert new_version.artifacts_ready is True
+
+
+@pytest.mark.anyio
+async def test_start_artifacts_backfill_scales_workflow_timeout(
+    session: AsyncSession,
+    platform_role: PlatformRole,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repo = PlatformRegistryRepository(origin="tracecat_registry")
+    session.add(repo)
+    await session.flush()
+
+    versions = [
+        PlatformRegistryVersion(
+            repository_id=repo.id,
+            version=f"1.0.{idx}",
+            manifest={"schema_version": "1.0", "actions": {}},
+            tarball_uri=f"s3://registry-artifacts/platform/v{idx}/site-packages.tar.gz",
+        )
+        for idx in range(3)
+    ]
+    session.add_all(versions)
+    await session.commit()
+
+    fake_client = AsyncMock()
+
+    async def fake_get_temporal_client() -> AsyncMock:
+        return fake_client
+
+    monkeypatch.setattr(
+        "tracecat.dsl.client.get_temporal_client",
+        fake_get_temporal_client,
+    )
+
+    service = AdminRegistryService(session, platform_role)
+    response = await service.start_artifacts_backfill(
+        RegistryArtifactsBackfillStartRequest(
+            version_ids=[version.id for version in versions],
+        )
+    )
+
+    assert response.requested_count == 3
+    fake_client.start_workflow.assert_awaited_once()
+    assert fake_client.start_workflow.await_args.kwargs[
+        "execution_timeout"
+    ] == timedelta(minutes=135)

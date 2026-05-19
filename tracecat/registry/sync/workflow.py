@@ -278,18 +278,14 @@ async def backfill_registry_artifacts_activity(
             version_id=item.version_id,
             status="created",
         )
-    except Exception as exc:
+    except Exception:
         logger.exception(
             "Failed to backfill registry artifacts",
             version_id=str(item.version_id),
             version=item.version,
             tarball_uri=item.tarball_uri,
         )
-        return RegistryArtifactsBackfillItemResult(
-            version_id=item.version_id,
-            status="failed",
-            error=f"{type(exc).__name__}: {exc}",
-        )
+        raise
 
 
 class RegistrySyncActivities:

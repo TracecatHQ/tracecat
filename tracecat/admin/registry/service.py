@@ -8,7 +8,18 @@ from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, ClassVar
 
-from sqlalchemy import select, text
+from sqlalchemy import (
+    String,
+    and_,
+    case,
+    column,
+    func,
+    literal,
+    select,
+    true,
+    values,
+)
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.exc import IntegrityError
 
 from tracecat import config
@@ -26,6 +37,7 @@ from tracecat.db.models import (
     PlatformRegistryIndex,
     PlatformRegistryRepository,
     PlatformRegistryVersion,
+    WorkflowDefinition,
 )
 from tracecat.parse import safe_url
 from tracecat.registry.actions.schemas import RegistryActionRead
@@ -430,37 +442,45 @@ class AdminRegistryService(BasePlatformService):
         if not unique_pairs:
             return {}
 
-        values_sql: list[str] = []
-        params: dict[str, str] = {}
-        for idx, (origin, version) in enumerate(unique_pairs):
-            origin_param = f"origin_{idx}"
-            version_param = f"version_{idx}"
-            values_sql.append(f"(:{origin_param}, :{version_param})")
-            params[origin_param] = origin
-            params[version_param] = version
-
-        stmt = text(
-            f"""
-            WITH requested(origin, registry_version) AS (
-                VALUES {", ".join(values_sql)}
+        requested_pairs = (
+            values(
+                column("origin", String),
+                column("registry_version", String),
+                name="requested_pair",
             )
-            SELECT
-                lock_entry.origin AS origin,
-                lock_entry.registry_version AS registry_version,
-                count(*)::int AS definition_count
-            FROM workflow_definition AS wd
-            JOIN LATERAL jsonb_each_text(
-                wd.registry_lock -> 'origins'
-            ) AS lock_entry(origin, registry_version) ON true
-            JOIN requested AS requested_pair
-              ON requested_pair.origin = lock_entry.origin
-             AND requested_pair.registry_version = lock_entry.registry_version
-            WHERE wd.registry_lock IS NOT NULL
-              AND jsonb_typeof(wd.registry_lock -> 'origins') = 'object'
-            GROUP BY lock_entry.origin, lock_entry.registry_version
-            """
+            .data(unique_pairs)
+            .alias("requested_pair")
         )
-        result = await self.session.execute(stmt, params)
+        origins = WorkflowDefinition.registry_lock["origins"]
+        lock_origins = case(
+            (func.jsonb_typeof(origins) == "object", origins),
+            else_=literal({}, type_=JSONB),
+        )
+        lock_entry = (
+            func.jsonb_each_text(lock_origins)
+            .table_valued("key", "value")
+            .lateral("lock_entry")
+        )
+
+        stmt = (
+            select(
+                lock_entry.c.key.label("origin"),
+                lock_entry.c.value.label("registry_version"),
+                func.count().label("definition_count"),
+            )
+            .select_from(WorkflowDefinition)
+            .join(lock_entry, true())
+            .join(
+                requested_pairs,
+                and_(
+                    requested_pairs.c.origin == lock_entry.c.key,
+                    requested_pairs.c.registry_version == lock_entry.c.value,
+                ),
+            )
+            .where(WorkflowDefinition.registry_lock.is_not(None))
+            .group_by(lock_entry.c.key, lock_entry.c.value)
+        )
+        result = await self.session.execute(stmt)
         counts: dict[tuple[str, str], int] = {}
         for row in result:
             mapping = row._mapping
@@ -547,12 +567,13 @@ class AdminRegistryService(BasePlatformService):
             f"{datetime.now(UTC).strftime('%Y%m%d%H%M%S')}-{uuid.uuid4().hex[:8]}"
         )
         client = await get_temporal_client()
+        execution_timeout = timedelta(minutes=max(120, 45 * len(request.items)))
         await client.start_workflow(
             RegistryArtifactsBackfillWorkflow.run,
             request,
             id=workflow_id,
             task_queue=config.TRACECAT__EXECUTOR_QUEUE,
-            execution_timeout=timedelta(hours=2),
+            execution_timeout=execution_timeout,
         )
         return RegistryArtifactsBackfillStartResponse(
             workflow_id=workflow_id,

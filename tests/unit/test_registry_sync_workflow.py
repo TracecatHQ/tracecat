@@ -167,3 +167,29 @@ async def test_backfill_registry_artifacts_activity_creates_sidecar(
     assert uploaded["key"] == "platform/tarball-venvs/test/1.0.0/site-packages.squashfs"
     assert uploaded["bucket"] == "registry-artifacts"
     assert uploaded["content_type"] == "application/vnd.squashfs"
+
+
+@pytest.mark.anyio
+async def test_backfill_registry_artifacts_activity_reraises_unexpected_errors(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def fake_file_exists(*, key: str, bucket: str) -> bool:
+        del key, bucket
+        raise RuntimeError("storage unavailable")
+
+    monkeypatch.setattr(
+        "tracecat.registry.sync.workflow.blob.file_exists",
+        fake_file_exists,
+    )
+
+    with pytest.raises(RuntimeError, match="storage unavailable"):
+        await backfill_registry_artifacts_activity(
+            RegistryArtifactsBackfillItem(
+                version_id=uuid4(),
+                version="1.0.0",
+                tarball_uri=(
+                    "s3://registry-artifacts/platform/tarball-venvs/test/1.0.0/"
+                    "site-packages.tar.gz"
+                ),
+            )
+        )
