@@ -73,6 +73,8 @@ import type {
   AdminRegistryListRegistryVersionsResponse,
   AdminRegistryPromoteRegistryVersionData,
   AdminRegistryPromoteRegistryVersionResponse,
+  AdminRegistryStartRegistryArtifactsBackfillData,
+  AdminRegistryStartRegistryArtifactsBackfillResponse,
   AdminRegistrySyncAllRepositoriesData,
   AdminRegistrySyncAllRepositoriesResponse,
   AdminRegistrySyncRepositoryData,
@@ -7815,6 +7817,28 @@ export const adminRegistryListRegistryVersions = (
       repository_id: data.repositoryId,
       limit: data.limit,
     },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Start Registry Artifacts Backfill
+ * Start a workflow to backfill artifacts for selected versions.
+ * @param data The data for the request.
+ * @param data.requestBody
+ * @returns RegistryArtifactsBackfillStartResponse Successful Response
+ * @throws ApiError
+ */
+export const adminRegistryStartRegistryArtifactsBackfill = (
+  data: AdminRegistryStartRegistryArtifactsBackfillData
+): CancelablePromise<AdminRegistryStartRegistryArtifactsBackfillResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/admin/registry/versions/artifacts/backfill",
+    body: data.requestBody,
+    mediaType: "application/json",
     errors: {
       422: "Validation Error",
     },

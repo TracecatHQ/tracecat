@@ -114,3 +114,34 @@ class RegistrySyncResult(BaseModel):
         default_factory=dict,
         description="Map of action name to validation errors",
     )
+
+
+class RegistryArtifactsBackfillItem(BaseModel):
+    """Registry version whose artifacts should be backfilled."""
+
+    version_id: UUID = Field(..., description="Database registry version ID")
+    version: str = Field(..., description="Registry version string")
+    tarball_uri: str = Field(..., description="S3 URI of the existing tarball venv")
+
+
+class RegistryArtifactsBackfillRequest(BaseModel):
+    """Request for backfilling registry version artifacts."""
+
+    items: list[RegistryArtifactsBackfillItem] = Field(
+        ..., min_length=1, description="Registry versions to backfill"
+    )
+
+
+class RegistryArtifactsBackfillItemResult(BaseModel):
+    """Result for one registry version artifact backfill."""
+
+    version_id: UUID
+    status: Literal["created", "exists", "skipped", "failed"]
+    error: str | None = None
+
+
+class RegistryArtifactsBackfillResult(BaseModel):
+    """Result from a registry artifact backfill workflow."""
+
+    requested_count: int
+    results: list[RegistryArtifactsBackfillItemResult]

@@ -20,6 +20,7 @@ import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
+from urllib.parse import urlparse
 
 import aiofiles
 import tracecat_registry
@@ -61,6 +62,19 @@ def _squashfs_key_for(key: str) -> str:
     if key.endswith(".tar.gz"):
         return key.removesuffix(".tar.gz") + ".squashfs"
     return f"{key}.squashfs"
+
+
+def parse_s3_uri(uri: str) -> tuple[str, str]:
+    """Parse an S3 URI into bucket and key."""
+    parsed = urlparse(uri)
+    if parsed.scheme != "s3" or not parsed.netloc or not parsed.path.strip("/"):
+        raise ValueError(f"Invalid S3 URI: {uri}")
+    return parsed.netloc, parsed.path.lstrip("/")
+
+
+def get_squashfs_sidecar_key(tarball_key: str) -> str:
+    """Return the sibling SquashFS key for a tarball S3 key."""
+    return _squashfs_key_for(tarball_key)
 
 
 def _compute_file_hash(file_path: Path) -> str:
@@ -685,6 +699,34 @@ async def build_builtin_registry_tarball_venv(
 
     package_path = get_builtin_registry_source_path()
     return await build_tarball_venv_from_path(package_path, output_dir)
+
+
+async def build_squashfs_sidecar_from_tarball(
+    *,
+    tarball_path: Path,
+    squashfs_path: Path,
+    work_dir: Path,
+) -> bool:
+    """Build a SquashFS sidecar from an existing site-packages tarball."""
+
+    def _build_sidecar() -> bool:
+        if not tarball_path.exists():
+            raise FileNotFoundError(f"Tarball file not found: {tarball_path}")
+
+        extracted_dir = work_dir / "site-packages"
+        extracted_dir.mkdir(parents=True, exist_ok=True)
+        with tarfile.open(tarball_path, "r:gz") as tar:
+            tar.extractall(path=extracted_dir, filter="data")
+
+        entries = [(item, item.name) for item in extracted_dir.iterdir()]
+        _create_squashfs_sidecar(
+            squashfs_path,
+            entries,
+            preserve_symlinks=True,
+        )
+        return squashfs_path.exists()
+
+    return await asyncio.to_thread(_build_sidecar)
 
 
 def get_tarball_venv_s3_key(

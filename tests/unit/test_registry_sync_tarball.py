@@ -12,6 +12,63 @@ from tracecat.registry.sync import tarball
 from tracecat.registry.sync.tarball import upload_tarball_venv
 
 
+def test_squashfs_sidecar_key_helpers() -> None:
+    uri = (
+        "s3://registry-artifacts/platform/tarball-venvs/test/1.0.0/site-packages.tar.gz"
+    )
+
+    assert tarball.parse_s3_uri(uri) == (
+        "registry-artifacts",
+        "platform/tarball-venvs/test/1.0.0/site-packages.tar.gz",
+    )
+    assert (
+        tarball.get_squashfs_sidecar_key(
+            "platform/tarball-venvs/test/1.0.0/site-packages.tar.gz"
+        )
+        == "platform/tarball-venvs/test/1.0.0/site-packages.squashfs"
+    )
+
+
+@pytest.mark.anyio
+async def test_build_squashfs_sidecar_from_tarball_uses_existing_tarball_contents(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    package_dir = tmp_path / "package"
+    package_dir.mkdir()
+    (package_dir / "module.py").write_text("VALUE = 1\n")
+
+    tarball_path = tmp_path / "site-packages.tar.gz"
+    with tarfile.open(tarball_path, "w:gz") as archive:
+        archive.add(package_dir / "module.py", arcname="module.py")
+
+    squashfs_path = tmp_path / "site-packages.squashfs"
+
+    def fake_create_squashfs(
+        path: Path,
+        entries: list[tuple[Path, str]],
+        *,
+        preserve_symlinks: bool = True,
+    ) -> bool:
+        assert preserve_symlinks is True
+        assert [(entry_path.name, arcname) for entry_path, arcname in entries] == [
+            ("module.py", "module.py")
+        ]
+        path.write_bytes(b"squashfs")
+        return True
+
+    monkeypatch.setattr(tarball, "_create_squashfs_image", fake_create_squashfs)
+
+    created = await tarball.build_squashfs_sidecar_from_tarball(
+        tarball_path=tarball_path,
+        squashfs_path=squashfs_path,
+        work_dir=tmp_path / "extract",
+    )
+
+    assert created is True
+    assert squashfs_path.read_bytes() == b"squashfs"
+
+
 def test_get_installed_site_packages_paths_includes_platlib(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

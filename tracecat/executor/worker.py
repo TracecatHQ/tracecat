@@ -63,6 +63,7 @@ with workflow.unsafe.imports_passed_through():
     )
     from tracecat.logger import logger
     from tracecat.registry.sync.workflow import (
+        RegistryArtifactsBackfillWorkflow,
         RegistrySyncActivities,
         RegistrySyncWorkflow,
     )
@@ -139,7 +140,7 @@ async def main(shutdown_event: asyncio.Event | None = None) -> None:
         ]
 
         # Collect all workflows
-        workflows = [RegistrySyncWorkflow]
+        workflows = [RegistrySyncWorkflow, RegistryArtifactsBackfillWorkflow]
 
         logger.debug(
             "Activities loaded",

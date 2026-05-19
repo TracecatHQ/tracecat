@@ -28,18 +28,33 @@ from __future__ import annotations
 from datetime import timedelta
 
 from temporalio import activity, workflow
-from temporalio.exceptions import ApplicationError
+from temporalio.common import RetryPolicy
+from temporalio.exceptions import ActivityError, ApplicationError
 
 with workflow.unsafe.imports_passed_through():
+    import tempfile
+    from pathlib import Path
+
     from tracecat.logger import logger
     from tracecat.registry.sync.runner import (
         RegistrySyncRunner,
         RegistrySyncValidationError,
     )
     from tracecat.registry.sync.schemas import (
+        RegistryArtifactsBackfillItem,
+        RegistryArtifactsBackfillItemResult,
+        RegistryArtifactsBackfillRequest,
+        RegistryArtifactsBackfillResult,
         RegistrySyncRequest,
         RegistrySyncResult,
     )
+    from tracecat.registry.sync.tarball import (
+        build_squashfs_sidecar_from_tarball,
+        download_tarball_venv,
+        get_squashfs_sidecar_key,
+        parse_s3_uri,
+    )
+    from tracecat.storage import blob
 
 
 @workflow.defn
@@ -86,6 +101,62 @@ class RegistrySyncWorkflow:
         )
 
         return result
+
+
+@workflow.defn
+class RegistryArtifactsBackfillWorkflow:
+    """Backfill artifacts for existing registry versions."""
+
+    @workflow.run
+    async def run(
+        self,
+        request: RegistryArtifactsBackfillRequest,
+    ) -> RegistryArtifactsBackfillResult:
+        """Build missing artifacts for selected registry versions."""
+        workflow.logger.info(
+            "Starting RegistryArtifactsBackfillWorkflow",
+            requested_count=len(request.items),
+        )
+
+        results: list[RegistryArtifactsBackfillItemResult] = []
+        for item in request.items:
+            try:
+                result = await workflow.execute_activity(
+                    backfill_registry_artifacts_activity,
+                    item,
+                    start_to_close_timeout=timedelta(minutes=20),
+                    retry_policy=RetryPolicy(
+                        maximum_attempts=2,
+                        initial_interval=timedelta(seconds=5),
+                    ),
+                )
+            except ActivityError as exc:
+                workflow.logger.warning(
+                    "Registry artifact backfill item failed",
+                    version_id=str(item.version_id),
+                    version=item.version,
+                    tarball_uri=item.tarball_uri,
+                    error=str(exc.cause or exc),
+                )
+                result = RegistryArtifactsBackfillItemResult(
+                    version_id=item.version_id,
+                    status="failed",
+                    error=f"{type(exc.cause).__name__}: {exc.cause}"
+                    if exc.cause
+                    else str(exc),
+                )
+            results.append(result)
+
+        workflow.logger.info(
+            "RegistryArtifactsBackfillWorkflow completed",
+            requested_count=len(request.items),
+            created_count=sum(1 for result in results if result.status == "created"),
+            failed_count=sum(1 for result in results if result.status == "failed"),
+        )
+        return RegistryArtifactsBackfillResult(
+            requested_count=len(request.items),
+            results=results,
+        )
 
 
 @activity.defn
@@ -156,6 +227,83 @@ async def sync_registry_activity(request: RegistrySyncRequest) -> RegistrySyncRe
     return result
 
 
+@activity.defn
+async def backfill_registry_artifacts_activity(
+    item: RegistryArtifactsBackfillItem,
+) -> RegistryArtifactsBackfillItemResult:
+    """Build and upload missing artifacts for an existing registry tarball."""
+    try:
+        bucket, tarball_key = parse_s3_uri(item.tarball_uri)
+        squashfs_key = get_squashfs_sidecar_key(tarball_key)
+        artifact_uri = f"s3://{bucket}/{squashfs_key}"
+
+        if await blob.file_exists(key=squashfs_key, bucket=bucket):
+            logger.info(
+                "Registry artifacts already exist",
+                version_id=str(item.version_id),
+                version=item.version,
+                artifact_uri=artifact_uri,
+            )
+            return RegistryArtifactsBackfillItemResult(
+                version_id=item.version_id,
+                status="exists",
+            )
+
+        with tempfile.TemporaryDirectory(
+            prefix="tracecat_registry_artifacts_backfill_"
+        ) as temp_dir:
+            work_dir = Path(temp_dir)
+            tarball_path = work_dir / "site-packages.tar.gz"
+            squashfs_path = work_dir / "site-packages.squashfs"
+            await download_tarball_venv(
+                key=tarball_key,
+                bucket=bucket,
+                output_path=tarball_path,
+            )
+            created = await build_squashfs_sidecar_from_tarball(
+                tarball_path=tarball_path,
+                squashfs_path=squashfs_path,
+                work_dir=work_dir / "extract",
+            )
+            if not created:
+                logger.info(
+                    "Registry artifact backfill skipped",
+                    version_id=str(item.version_id),
+                    version=item.version,
+                )
+                return RegistryArtifactsBackfillItemResult(
+                    version_id=item.version_id,
+                    status="skipped",
+                    error="Artifact build is disabled or the builder is unavailable.",
+                )
+
+            await blob.upload_file_from_path(
+                path=squashfs_path,
+                key=squashfs_key,
+                bucket=bucket,
+                content_type="application/vnd.squashfs",
+            )
+
+        logger.info(
+            "Registry artifacts backfilled",
+            version_id=str(item.version_id),
+            version=item.version,
+            artifact_uri=artifact_uri,
+        )
+        return RegistryArtifactsBackfillItemResult(
+            version_id=item.version_id,
+            status="created",
+        )
+    except Exception:
+        logger.exception(
+            "Failed to backfill registry artifacts",
+            version_id=str(item.version_id),
+            version=item.version,
+            tarball_uri=item.tarball_uri,
+        )
+        raise
+
+
 class RegistrySyncActivities:
     """Container for registry sync activities.
 
@@ -166,4 +314,4 @@ class RegistrySyncActivities:
     @classmethod
     def get_activities(cls) -> list:
         """Return all registry sync activities for worker registration."""
-        return [sync_registry_activity]
+        return [sync_registry_activity, backfill_registry_artifacts_activity]
