@@ -80,6 +80,24 @@ from tracecat.workflow.executions.enums import (
     TriggerType,
 )
 
+_YAML_TIMESTAMP_TAG = "tag:yaml.org,2002:timestamp"
+
+
+class _ActionInputsSafeLoader(yaml.SafeLoader):
+    """Safe YAML loader that keeps date-like action input scalars as strings."""
+
+
+_ActionInputsSafeLoader.yaml_implicit_resolvers = {
+    char: [resolver for resolver in resolvers if resolver[0] != _YAML_TIMESTAMP_TAG]
+    for char, resolvers in yaml.SafeLoader.yaml_implicit_resolvers.items()
+}
+
+
+def _load_action_inputs_yaml(inputs: str) -> Any:
+    """Parse persisted action inputs without coercing date-like strings."""
+    return yaml.load(inputs, Loader=_ActionInputsSafeLoader)
+
+
 _memo_payload_converter = PydanticPayloadConverter()
 
 
@@ -1310,7 +1328,7 @@ def build_action_statements_from_actions(
         dependencies = sorted(dependencies)
 
         control_flow = ActionControlFlow.model_validate(action.control_flow)
-        args = yaml.safe_load(action.inputs) or {}
+        args = _load_action_inputs_yaml(action.inputs) or {}
         interaction = (
             ActionInteractionValidator.validate_python(action.interaction)
             if action.is_interactive and action.interaction
