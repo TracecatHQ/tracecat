@@ -34,7 +34,7 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.ee.interactions.service import InteractionService
     from tracecat.logger import logger
     from tracecat.storage.collection import CollectionActivities
-    from tracecat.temporal.shutdown import run_worker_entrypoint
+    from tracecat.temporal.worker_lifecycle import run_worker_entrypoint
     from tracecat.tiers.activities import TierActivities
     from tracecat.workflow.management.definitions import (
         get_workflow_definition_activity,

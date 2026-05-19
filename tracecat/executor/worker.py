@@ -66,7 +66,7 @@ with workflow.unsafe.imports_passed_through():
         RegistrySyncActivities,
         RegistrySyncWorkflow,
     )
-    from tracecat.temporal.shutdown import run_worker_entrypoint
+    from tracecat.temporal.worker_lifecycle import run_worker_entrypoint
 
 asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
 

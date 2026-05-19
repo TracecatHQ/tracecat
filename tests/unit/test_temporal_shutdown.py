@@ -6,7 +6,7 @@ from collections.abc import Callable
 
 import pytest
 
-from tracecat.temporal.shutdown import (
+from tracecat.temporal.worker_lifecycle import (
     install_worker_shutdown_signal_handlers,
     run_worker_entrypoint,
 )
