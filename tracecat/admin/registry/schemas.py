@@ -5,7 +5,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class RepositorySyncResult(BaseModel):
@@ -55,6 +55,10 @@ class RegistryVersionRead(BaseModel):
     commit_sha: str | None
     tarball_uri: str | None
     created_at: datetime
+    is_current: bool = False
+    artifacts_ready: bool = False
+    workflow_definition_count: int = 0
+    in_use: bool = False
 
     model_config = {"from_attributes": True}
 
@@ -67,3 +71,16 @@ class RegistryVersionPromoteResponse(BaseModel):
     previous_version_id: uuid.UUID | None
     current_version_id: uuid.UUID
     version: str
+
+
+class RegistryArtifactsBackfillStartRequest(BaseModel):
+    """Request to start an artifact backfill workflow for selected versions."""
+
+    version_ids: list[uuid.UUID] = Field(..., min_length=1)
+
+
+class RegistryArtifactsBackfillStartResponse(BaseModel):
+    """Response after scheduling an artifact backfill workflow."""
+
+    workflow_id: str
+    requested_count: int

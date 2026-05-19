@@ -17891,6 +17891,42 @@ export const $RegistryActionValidationErrorInfo = {
   title: "RegistryActionValidationErrorInfo",
 } as const
 
+export const $RegistryArtifactsBackfillStartRequest = {
+  properties: {
+    version_ids: {
+      items: {
+        type: "string",
+        format: "uuid",
+      },
+      type: "array",
+      minItems: 1,
+      title: "Version Ids",
+    },
+  },
+  type: "object",
+  required: ["version_ids"],
+  title: "RegistryArtifactsBackfillStartRequest",
+  description:
+    "Request to start an artifact backfill workflow for selected versions.",
+} as const
+
+export const $RegistryArtifactsBackfillStartResponse = {
+  properties: {
+    workflow_id: {
+      type: "string",
+      title: "Workflow Id",
+    },
+    requested_count: {
+      type: "integer",
+      title: "Requested Count",
+    },
+  },
+  type: "object",
+  required: ["workflow_id", "requested_count"],
+  title: "RegistryArtifactsBackfillStartResponse",
+  description: "Response after scheduling an artifact backfill workflow.",
+} as const
+
 export const $RegistryLock = {
   properties: {
     origins: {
@@ -29926,6 +29962,26 @@ export const $tracecat__admin__registry__schemas__RegistryVersionRead = {
       type: "string",
       format: "date-time",
       title: "Created At",
+    },
+    is_current: {
+      type: "boolean",
+      title: "Is Current",
+      default: false,
+    },
+    artifacts_ready: {
+      type: "boolean",
+      title: "Artifacts Ready",
+      default: false,
+    },
+    workflow_definition_count: {
+      type: "integer",
+      title: "Workflow Definition Count",
+      default: 0,
+    },
+    in_use: {
+      type: "boolean",
+      title: "In Use",
+      default: false,
     },
   },
   type: "object",

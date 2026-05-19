@@ -5504,6 +5504,21 @@ export type RegistryActionValidationErrorInfo = {
 }
 
 /**
+ * Request to start an artifact backfill workflow for selected versions.
+ */
+export type RegistryArtifactsBackfillStartRequest = {
+  version_ids: Array<string>
+}
+
+/**
+ * Response after scheduling an artifact backfill workflow.
+ */
+export type RegistryArtifactsBackfillStartResponse = {
+  workflow_id: string
+  requested_count: number
+}
+
+/**
  * Registry version lock with action-level bindings for O(1) resolution.
  *
  * Attributes:
@@ -8885,6 +8900,10 @@ export type tracecat__admin__registry__schemas__RegistryVersionRead = {
   commit_sha: string | null
   tarball_uri: string | null
   created_at: string
+  is_current?: boolean
+  artifacts_ready?: boolean
+  workflow_definition_count?: number
+  in_use?: boolean
 }
 
 export type tracecat__organization__schemas__OrgDomainRead = {
@@ -11067,6 +11086,13 @@ export type AdminRegistryListRegistryVersionsData = {
 
 export type AdminRegistryListRegistryVersionsResponse =
   Array<tracecat__admin__registry__schemas__RegistryVersionRead>
+
+export type AdminRegistryStartRegistryArtifactsBackfillData = {
+  requestBody: RegistryArtifactsBackfillStartRequest
+}
+
+export type AdminRegistryStartRegistryArtifactsBackfillResponse =
+  RegistryArtifactsBackfillStartResponse
 
 export type AdminRegistryPromoteRegistryVersionData = {
   repositoryId: string
@@ -16365,6 +16391,21 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: Array<tracecat__admin__registry__schemas__RegistryVersionRead>
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/admin/registry/versions/artifacts/backfill": {
+    post: {
+      req: AdminRegistryStartRegistryArtifactsBackfillData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: RegistryArtifactsBackfillStartResponse
         /**
          * Validation Error
          */

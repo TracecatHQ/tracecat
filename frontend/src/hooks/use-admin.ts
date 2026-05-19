@@ -47,6 +47,7 @@ import {
   adminRegistryGetRegistryStatus,
   adminRegistryListRegistryVersions,
   adminRegistryPromoteRegistryVersion,
+  adminRegistryStartRegistryArtifactsBackfill,
   adminRegistrySyncAllRepositories,
   adminRegistrySyncRepository,
   adminRevokeOrganizationInvitation,
@@ -66,6 +67,8 @@ import {
   type tracecat_ee__admin__organizations__schemas__OrgRead as OrgRead,
   type OrgUpdate,
   type PlatformRegistrySettingsUpdate,
+  type RegistryArtifactsBackfillStartRequest,
+  type RegistryArtifactsBackfillStartResponse,
   type TierCreate,
   type TierRead,
   type TierUpdate,
@@ -759,6 +762,21 @@ export function useAdminRegistrySync() {
       },
     })
 
+  const {
+    mutateAsync: backfillArtifacts,
+    isPending: backfillArtifactsPending,
+  } = useMutation<
+    RegistryArtifactsBackfillStartResponse,
+    Error,
+    RegistryArtifactsBackfillStartRequest
+  >({
+    mutationFn: (data) =>
+      adminRegistryStartRegistryArtifactsBackfill({ requestBody: data }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["admin", "registry"] })
+    },
+  })
+
   return {
     syncAllRepositories,
     syncAllPending,
@@ -766,6 +784,8 @@ export function useAdminRegistrySync() {
     syncPending,
     promoteVersion,
     promotePending,
+    backfillArtifacts,
+    backfillArtifactsPending,
   }
 }
 
