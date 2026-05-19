@@ -1,7 +1,8 @@
 "use client"
 
+import type { Row } from "@tanstack/react-table"
 import { CheckIcon, RefreshCwIcon } from "lucide-react"
-import { useState } from "react"
+import { useCallback, useState } from "react"
 import type { tracecat__admin__registry__schemas__RegistryVersionRead } from "@/client"
 import {
   DataTable,
@@ -36,6 +37,24 @@ export function PlatformRegistryVersionsTable() {
     backfillArtifacts,
     backfillArtifactsPending,
   } = useAdminRegistrySync()
+
+  const handleSelectionChange = useCallback(
+    (rows: Row<RegistryVersionRead>[]) => {
+      const nextVersions = rows.map((row) => row.original)
+      setSelectedVersions((currentVersions) => {
+        if (
+          currentVersions.length === nextVersions.length &&
+          currentVersions.every(
+            (version, index) => version.id === nextVersions[index]?.id
+          )
+        ) {
+          return currentVersions
+        }
+        return nextVersions
+      })
+    },
+    []
+  )
 
   const handlePromote = async (version: RegistryVersionRead) => {
     setPromotingId(version.id)
@@ -316,9 +335,7 @@ export function PlatformRegistryVersionsTable() {
         ]}
         toolbarProps={defaultToolbarProps}
         showSelectedRows
-        onSelectionChange={(rows) =>
-          setSelectedVersions(rows.map((row) => row.original))
-        }
+        onSelectionChange={handleSelectionChange}
         clearSelectionTrigger={clearSelectionTrigger}
       />
     </div>
