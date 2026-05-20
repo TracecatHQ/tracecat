@@ -3,7 +3,7 @@ definition:
   title: List threats
   description: Query for SentinelOne threats.
   display_group: SentinelOne
-  doc_url: https://www.postman.com/api-evangelist/workspace/sentinelone/documentation/35240-8314fa61-90b8-405a-a1fa-c695b640a11a
+  doc_url: https://github.com/Sentinel-One/purple-mcp
   namespace: tools.sentinel_one
   name: list_threats
   secrets:
