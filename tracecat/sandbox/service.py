@@ -122,12 +122,24 @@ class SandboxService:
         env_socket_path: Path | None = None,
     ) -> dict[str, str] | None:
         """Return env vars with Action Gateway socket routing when configured."""
-        if socket_path is None:
+        resolved_socket_path = SandboxService._resolve_action_gateway_socket(
+            socket_path
+        )
+        if resolved_socket_path is None:
             return env_vars
 
         updated = dict(env_vars or {})
-        updated["TRACECAT__ACTION_GATEWAY_SOCKET"] = str(env_socket_path or socket_path)
+        updated["TRACECAT__ACTION_GATEWAY_SOCKET"] = str(
+            env_socket_path or resolved_socket_path
+        )
         return updated
+
+    @staticmethod
+    def _resolve_action_gateway_socket(socket_path: Path | None) -> Path | None:
+        """Return the Action Gateway socket path only when it is available."""
+        if socket_path is None or not socket_path.exists():
+            return None
+        return socket_path
 
     @asynccontextmanager
     async def _create_job_dir(self) -> AsyncIterator[Path]:
@@ -343,6 +355,9 @@ class SandboxService:
         """
         if timeout_seconds is None:
             timeout_seconds = TRACECAT__SANDBOX_DEFAULT_TIMEOUT
+        resolved_action_gateway_socket = self._resolve_action_gateway_socket(
+            action_gateway_socket
+        )
 
         # Route to appropriate executor based on nsjail availability
         if self._is_nsjail_available():
@@ -356,7 +371,7 @@ class SandboxService:
                 env_vars=env_vars,
                 python_path_dirs=python_path_dirs,
                 workspace_id=workspace_id,
-                action_gateway_socket=action_gateway_socket,
+                action_gateway_socket=resolved_action_gateway_socket,
             )
         else:
             logger.info(
@@ -367,7 +382,7 @@ class SandboxService:
             )
             resolved_env_vars = self._with_action_gateway_socket_env(
                 env_vars,
-                socket_path=action_gateway_socket,
+                socket_path=resolved_action_gateway_socket,
             )
             result = await self.unsafe_pid_executor.execute(
                 script=script,
@@ -433,6 +448,9 @@ class SandboxService:
         """
         if timeout_seconds is None:
             timeout_seconds = TRACECAT__SANDBOX_DEFAULT_TIMEOUT
+        resolved_action_gateway_socket = self._resolve_action_gateway_socket(
+            action_gateway_socket
+        )
 
         async with self._create_job_dir() as job_dir:
             cache_key = None
@@ -469,13 +487,13 @@ class SandboxService:
                 ),
                 env_vars=self._with_action_gateway_socket_env(
                     env_vars,
-                    socket_path=action_gateway_socket,
+                    socket_path=resolved_action_gateway_socket,
                     env_socket_path=RUN_PYTHON_ACTION_GATEWAY_SOCKET,
                 )
                 or {},
                 dependencies=dependencies or [],
                 python_path_dirs=python_path_dirs or [],
-                action_gateway_socket=action_gateway_socket,
+                action_gateway_socket=resolved_action_gateway_socket,
             )
 
             await self._prepare_execution(job_dir, script, inputs)
