@@ -380,8 +380,8 @@ Tenant mode:
   --single-tenant                 Set TRACECAT__EE_MULTI_TENANT=false
   --multi-tenant                  Set TRACECAT__EE_MULTI_TENANT=true
   --ee-multi-tenant true|false    Set TRACECAT__EE_MULTI_TENANT explicitly
-  --sandbox                       Layer docker-compose.sandbox.yml for nsjail
-                                  and SquashFS device privileges
+  --sandbox                       Enable nsjail sandboxing with the ephemeral
+                                  executor backend and layer sandbox privileges
 
 Commands:
   up [args]     Start the cluster (e.g., up -d)
@@ -392,6 +392,9 @@ Commands:
                 user, and all default tier entitlements by default for the dev
                 profile. Use --no-seed to skip.
                 Use --default-tier-entitlements all|none|a,b to override.
+  seed [args]   Seed or update the dev superuser, tenant user, and default tier
+                for an already running cluster. Use
+                --default-tier-entitlements all|none|a,b to override.
   down          Stop the cluster (keeps volumes)
   rm            Remove the cluster (down + remove volumes)
   restart [svc] Restart the cluster or specific service
@@ -418,11 +421,13 @@ Examples:
                                   Start cluster with multi-tenancy disabled
   ./cluster --ee-multi-tenant false up -d
                                   Start cluster with explicit tenant mode
-  ./cluster --sandbox up -d       Start cluster with sandbox device privileges
+  ./cluster --sandbox up -d       Start cluster with nsjail sandboxing
   ./cluster up -d --new          Force a new cluster on next available number
   ./cluster up -d --no-seed      Start cluster without creating dev tenant user
   ./cluster up -d --default-tier-entitlements none
   ./cluster up -d --default-tier-entitlements custom_registry,case_addons
+  ./cluster seed                 Seed dev users for a running cluster
+  ./cluster seed --default-tier-entitlements none
   ./cluster down                 Stop cluster (keeps volumes)
   ./cluster rm                   Remove cluster and volumes
   ./cluster restart api          Restart the api service
@@ -520,8 +525,13 @@ build_env() {
     # Caddy configuration
     export BASE_DOMAIN=":${PUBLIC_APP_PORT}"
 
-    # Default to direct executor backend for development
-    export TRACECAT__EXECUTOR_BACKEND="${TRACECAT__EXECUTOR_BACKEND:-direct}"
+    if [[ "$CLUSTER_USE_SANDBOX_COMPOSE" == "true" ]]; then
+        export TRACECAT__DISABLE_NSJAIL=false
+        export TRACECAT__EXECUTOR_BACKEND=ephemeral
+    else
+        # Default to direct executor backend for development
+        export TRACECAT__EXECUTOR_BACKEND="${TRACECAT__EXECUTOR_BACKEND:-direct}"
+    fi
 
     # Cluster development always defaults to multi-tenant mode. Only the
     # explicit cluster flags (--single-tenant / --multi-tenant /
@@ -1075,10 +1085,12 @@ if [[ "$COMMAND" == "up" ]]; then
     echo "EE multi-tenant: ${TRACECAT__EE_MULTI_TENANT}"
 fi
 
-# Sync dependencies before starting cluster
-if [[ "$COMMAND" == "up" ]]; then
+# Sync dependencies before starting cluster or running the standalone dev seed.
+if [[ "$COMMAND" == "up" || "$COMMAND" == "seed" ]]; then
     echo "Syncing dependencies..."
     (cd "$REPO_ROOT" && uv sync --group admin --quiet)
+fi
+if [[ "$COMMAND" == "up" ]]; then
     (cd "$REPO_ROOT" && pnpm -C frontend install > /dev/null 2>&1)
 fi
 
@@ -1125,6 +1137,27 @@ if [[ "$COMMAND" == "up" ]]; then
         esac
     done
     set -- ${UP_ARGS[@]+"${UP_ARGS[@]}"}
+elif [[ "$COMMAND" == "seed" ]]; then
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --default-tier-entitlements)
+                if [[ $# -lt 2 ]]; then
+                    echo "Error: --default-tier-entitlements requires a value" >&2
+                    exit 1
+                fi
+                DEFAULT_TIER_ENTITLEMENTS="$2"
+                shift 2
+                ;;
+            --default-tier-entitlements=*)
+                DEFAULT_TIER_ENTITLEMENTS="${1#*=}"
+                shift
+                ;;
+            *)
+                echo "Error: unknown seed argument '$1'" >&2
+                exit 1
+                ;;
+        esac
+    done
 fi
 
 # Function to seed a tenant dev user after cluster starts
@@ -1174,6 +1207,11 @@ seed_dev_user() {
             --workspace-role "$seed_workspace_role"
     )
 }
+
+if [[ "$COMMAND" == "seed" ]]; then
+    seed_dev_user
+    exit $?
+fi
 
 # Run docker compose with the configured environment
 if [[ "$SEED_USER" == "true" && "$COMMAND" == "up" ]]; then
