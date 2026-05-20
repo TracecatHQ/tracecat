@@ -166,6 +166,15 @@ portless_url_for_name() {
     echo "$url"
 }
 
+portless_registered_url() {
+    local cluster_num=$1
+    local name
+    name=$(portless_alias_name "$cluster_num")
+
+    command -v portless >/dev/null 2>&1 || return 1
+    portless get "$name" --no-worktree 2>/dev/null
+}
+
 portless_start_proxy() {
     if ! portless proxy start; then
         echo "[portless] Could not start proxy. Set TRACECAT__USE_PORTLESS=0 to disable portless integration." >&2
@@ -566,10 +575,24 @@ Cluster ${WORKTREE_ID}-${cluster_num} port mappings:
 EOF
 }
 
-# Print the UI URL for a cluster, suitable for command substitution.
+# Print the effective UI URL for a cluster, suitable for command substitution.
 show_url() {
     local cluster_num=$1
     calculate_ports "$cluster_num"
+
+    if [[ -n "${CLUSTER_PUBLIC_APP_URL_OVERRIDE:-}" ]]; then
+        echo "${CLUSTER_PUBLIC_APP_URL_OVERRIDE%/}"
+        return
+    fi
+
+    if portless_enabled; then
+        local portless_public_url
+        if portless_public_url=$(portless_registered_url "$cluster_num"); then
+            echo "${portless_public_url%/}"
+            return
+        fi
+    fi
+
     echo "http://localhost:${PUBLIC_APP_PORT}"
 }
 
