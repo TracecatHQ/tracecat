@@ -53,6 +53,7 @@ dependencies = [
     "orjson==3.11.7",
     "paramiko==3.5.0",
     "polyfile==0.5.6",
+    "prometheus-client==0.23.1",
     "protobuf==6.33.5",
     "psycopg[binary]==3.1.19",
     "pydantic-ai-slim[anthropic,bedrock,google,mcp,openai]==1.62.0",

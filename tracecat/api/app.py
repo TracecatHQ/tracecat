@@ -139,8 +139,10 @@ from tracecat.mcp.personal_access_tokens.router import (
 )
 from tracecat.middleware import (
     AuthorizationCacheMiddleware,
+    HTTPMetricsMiddleware,
     RequestLoggingMiddleware,
 )
+from tracecat.middleware.metrics import prometheus_metrics_response
 from tracecat.middleware.security import SecurityHeadersMiddleware
 from tracecat.organization.management import (
     ensure_default_organization,
@@ -676,6 +678,7 @@ def create_app(**kwargs) -> FastAPI:
     # Middleware
     # Add authorization cache middleware first so it's available for all requests
     app.add_middleware(AuthorizationCacheMiddleware)
+    app.add_middleware(HTTPMetricsMiddleware, component="api")
     app.add_middleware(RequestLoggingMiddleware)
     if config.TRACECAT__APP_ENV != "development":
         app.add_middleware(SecurityHeadersMiddleware)
@@ -761,6 +764,13 @@ async def info(session: AsyncDBSessionBypass) -> AppInfo:
 @app.get("/health", tags=["public"])
 async def check_health() -> HealthResponse:
     return HealthResponse(status="ok")
+
+
+@app.get("/metrics", include_in_schema=False)
+async def metrics(request: Request) -> Response:
+    if request.url.path != "/metrics":
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
+    return prometheus_metrics_response()
 
 
 @app.get(

@@ -42,7 +42,25 @@ general_settings:
   database_url: null
 
 litellm_settings:
+  prometheus_metrics_config:
+    - group: proxy_total_requests
+      metrics:
+        - litellm_proxy_total_requests_metric
+      include_labels:
+        - route
+        - status_code
+    - group: proxy_failed_requests
+      metrics:
+        - litellm_proxy_failed_requests_metric
+      include_labels:
+        - route
+        - exception_status
+        - exception_class
   callbacks:
     - tracecat.agent.gateway.callback_handler
+  success_callback:
+    - prometheus
+  failure_callback:
+    - prometheus
   drop_params: true
   reasoning_auto_summary: true

@@ -49,6 +49,7 @@ from slugify import slugify
 from sqlalchemy import delete, select
 from sqlalchemy.exc import NoResultFound
 from sqlalchemy.ext.asyncio import AsyncSession
+from starlette.requests import Request
 from temporalio.client import WorkflowExecutionStatus
 from tracecat_registry import RegistryOAuthSecret, RegistrySecret
 
@@ -188,6 +189,7 @@ from tracecat.mcp.schemas import (
     WorkflowSchedule,
     WorkflowYamlPayload,
 )
+from tracecat.middleware.metrics import prometheus_metrics_response
 from tracecat.pagination import CursorPaginatedResponse, CursorPaginationParams
 from tracecat.registry.actions.schemas import TemplateAction
 from tracecat.registry.actions.service import (
@@ -2908,6 +2910,12 @@ mcp.add_middleware(
 mcp.add_middleware(
     LoggingMiddleware(methods=["tools/call"], include_payload_length=True)
 )
+
+
+@mcp.custom_route("/metrics", methods=["GET"], include_in_schema=False)
+async def metrics(request: Request):
+    del request
+    return prometheus_metrics_response()
 
 
 # ---------------------------------------------------------------------------
