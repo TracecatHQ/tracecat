@@ -236,6 +236,23 @@ function getMcpProviderId(slug: string): string | undefined {
   return undefined
 }
 
+function AgentPresetLoadError({
+  title,
+  detail,
+}: {
+  title: string
+  detail: string
+}) {
+  return (
+    <div className="flex h-full items-center justify-center px-6">
+      <Alert variant="destructive" className="max-w-xl">
+        <AlertTitle>{title}</AlertTitle>
+        <AlertDescription>{detail}</AlertDescription>
+      </Alert>
+    </div>
+  )
+}
+
 const agentPresetSchema = z
   .object({
     name: z.string().trim().min(1, "Name is required"),
@@ -515,36 +532,13 @@ export function AgentPresetsBuilder({
     [activePresetId, router, workspaceId]
   )
 
-  const selectedPresetId = activePresetId
-  const { preset: selectedPreset } = useAgentPreset(
-    workspaceId,
-    selectedPresetId,
-    {
-      enabled: agentAddonsEnabled && !entitlementsLoading,
-    }
-  )
-
-  useEffect(() => {
-    if (!presetId || presetsIsLoading || !presets) {
-      return
-    }
-    const presetExists = presets.some((preset) => preset.id === presetId)
-    if (presetExists) {
-      return
-    }
-    if (presets.length > 0) {
-      handleSetSelectedPresetId(presets[0].id)
-    } else {
-      router.replace(`/workspaces/${workspaceId}/agents`)
-    }
-  }, [
-    presets,
-    handleSetSelectedPresetId,
-    presetId,
-    presetsIsLoading,
-    router,
-    workspaceId,
-  ])
+  const {
+    preset: selectedPreset,
+    presetIsLoading: selectedPresetIsLoading,
+    presetError: selectedPresetError,
+  } = useAgentPreset(workspaceId, activePresetId, {
+    enabled: agentAddonsEnabled && !entitlementsLoading,
+  })
 
   const actionSuggestions: Suggestion[] = useMemo(() => {
     if (!registryActions) {
@@ -593,17 +587,29 @@ export function AgentPresetsBuilder({
   }
 
   if (presetsError) {
-    const detail =
-      typeof presetsError.body?.detail === "string"
-        ? presetsError.body.detail
-        : presetsError.message
     return (
-      <div className="flex h-full items-center justify-center px-6">
-        <Alert variant="destructive" className="max-w-xl">
-          <AlertTitle>Unable to load agent presets</AlertTitle>
-          <AlertDescription>{detail}</AlertDescription>
-        </Alert>
-      </div>
+      <AgentPresetLoadError
+        title="Unable to load agent presets"
+        detail={
+          getApiErrorDetail(presetsError) ?? "Agent presets failed to load."
+        }
+      />
+    )
+  }
+
+  if (activePresetId && selectedPresetIsLoading) {
+    return <CenteredSpinner />
+  }
+
+  if (activePresetId && (selectedPresetError || !selectedPreset)) {
+    return (
+      <AgentPresetLoadError
+        title="Unable to load agent preset"
+        detail={
+          getApiErrorDetail(selectedPresetError) ??
+          "Agent preset was not found."
+        }
+      />
     )
   }
 
@@ -737,6 +743,7 @@ function AgentPresetChatPane({
     () =>
       effectiveModelConfig
         ? findEnabledModelOption(enabledModelOptions, {
+            catalogId: effectiveModelConfig.catalog_id,
             modelProvider: effectiveModelConfig.model_provider,
             modelName: effectiveModelConfig.model_name,
             baseUrl: effectiveModelConfig.base_url ?? null,
@@ -1184,12 +1191,22 @@ function getProviderDisplayLabel(provider: string): string {
 function findEnabledModelOption(
   options: EnabledModelOption[],
   selection: {
+    catalogId?: string | null
     sourceId?: string | null
     modelProvider?: string | null
     modelName?: string | null
     baseUrl?: string | null
   }
 ): EnabledModelOption | null {
+  if (selection.catalogId) {
+    const catalogMatch = options.find(
+      (option) => option.catalogId === selection.catalogId
+    )
+    if (catalogMatch) {
+      return catalogMatch
+    }
+  }
+
   if (!selection.modelProvider || !selection.modelName) {
     return null
   }
@@ -1354,6 +1371,7 @@ function AgentPresetForm({
   }, [form, mode, preset])
 
   const watchedName = form.watch("name")
+  const catalogId = form.watch("catalog_id")
   const sourceId = form.watch("source_id")
   const modelProvider = form.watch("model_provider")
   const modelName = form.watch("model_name")
@@ -1361,12 +1379,20 @@ function AgentPresetForm({
   const selectedModel = useMemo(
     () =>
       findEnabledModelOption(enabledModelOptions, {
+        catalogId,
         sourceId,
         modelProvider,
         modelName,
         baseUrl,
       }),
-    [baseUrl, enabledModelOptions, sourceId, modelName, modelProvider]
+    [
+      baseUrl,
+      catalogId,
+      enabledModelOptions,
+      sourceId,
+      modelName,
+      modelProvider,
+    ]
   )
 
   useEffect(() => {
@@ -1999,6 +2025,7 @@ function AgentPresetConfigurationPanel({
   onAddToolApproval: () => void
   onRemoveToolApproval: (index: number) => void
 }) {
+  const catalogId = form.watch("catalog_id")
   const sourceId = form.watch("source_id")
   const modelProvider = form.watch("model_provider")
   const modelName = form.watch("model_name")
@@ -2008,12 +2035,20 @@ function AgentPresetConfigurationPanel({
   const selectedModel = useMemo(
     () =>
       findEnabledModelOption(enabledModelOptions, {
+        catalogId,
         sourceId,
         modelProvider,
         modelName,
         baseUrl,
       }),
-    [baseUrl, enabledModelOptions, sourceId, modelName, modelProvider]
+    [
+      baseUrl,
+      catalogId,
+      enabledModelOptions,
+      sourceId,
+      modelName,
+      modelProvider,
+    ]
   )
   const hasMissingEnabledModel =
     enabledModelsLoaded && !selectedModel && Boolean(modelProvider || modelName)

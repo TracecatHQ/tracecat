@@ -336,6 +336,10 @@ export function useCreateAgentPreset(workspaceId: string) {
         requestBody: payload,
       }),
     onSuccess: (preset) => {
+      queryClient.setQueryData<AgentPresetRead>(
+        ["agent-preset", workspaceId, preset.id],
+        preset
+      )
       queryClient.invalidateQueries({
         queryKey: ["agent-presets", workspaceId],
       })

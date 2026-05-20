@@ -141,6 +141,7 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { Kbd } from "@/components/ui/kbd"
 import { SidebarTrigger } from "@/components/ui/sidebar"
+import { Skeleton } from "@/components/ui/skeleton"
 import {
   Tooltip,
   TooltipContent,
@@ -400,6 +401,20 @@ function SkillsActions() {
   return <CreateSkillButton />
 }
 
+function BreadcrumbEntityPage({
+  label,
+  skeletonClassName,
+}: {
+  label?: string | null
+  skeletonClassName: string
+}) {
+  if (!label) {
+    return <Skeleton className={skeletonClassName} />
+  }
+
+  return <BreadcrumbPage className="font-semibold">{label}</BreadcrumbPage>
+}
+
 function SkillsBreadcrumb({
   workspaceId,
   skillId,
@@ -421,9 +436,10 @@ function SkillsBreadcrumb({
           <span className="text-muted-foreground">/</span>
         </BreadcrumbSeparator>
         <BreadcrumbItem>
-          <BreadcrumbPage className="font-semibold">
-            {skill?.name || skillId}
-          </BreadcrumbPage>
+          <BreadcrumbEntityPage
+            label={skill?.name}
+            skeletonClassName="h-4 w-28"
+          />
         </BreadcrumbItem>
       </BreadcrumbList>
     </Breadcrumb>
@@ -1643,9 +1659,10 @@ function CaseBreadcrumb({
           <span className="text-muted-foreground">/</span>
         </BreadcrumbSeparator>
         <BreadcrumbItem>
-          <BreadcrumbPage className="font-semibold">
-            {caseData?.short_id || caseId}
-          </BreadcrumbPage>
+          <BreadcrumbEntityPage
+            label={caseData?.short_id}
+            skeletonClassName="h-4 w-20"
+          />
         </BreadcrumbItem>
       </BreadcrumbList>
     </Breadcrumb>
@@ -1755,9 +1772,10 @@ function TableBreadcrumb({
           <span className="text-muted-foreground">/</span>
         </BreadcrumbSeparator>
         <BreadcrumbItem>
-          <BreadcrumbPage className="font-semibold">
-            {table?.name || tableId}
-          </BreadcrumbPage>
+          <BreadcrumbEntityPage
+            label={table?.name}
+            skeletonClassName="h-4 w-28"
+          />
         </BreadcrumbItem>
       </BreadcrumbList>
     </Breadcrumb>
@@ -1795,9 +1813,10 @@ function AgentPresetBreadcrumb({
           <span className="text-muted-foreground">/</span>
         </BreadcrumbSeparator>
         <BreadcrumbItem>
-          <BreadcrumbPage className="font-semibold">
-            {preset?.name || presetId}
-          </BreadcrumbPage>
+          <BreadcrumbEntityPage
+            label={preset?.name}
+            skeletonClassName="h-4 w-32"
+          />
         </BreadcrumbItem>
       </BreadcrumbList>
     </Breadcrumb>
