@@ -13,7 +13,7 @@ from tracecat.registry.sync.runner import RegistrySyncValidationError
 from tracecat.registry.sync.schemas import RegistrySyncRequest
 from tracecat.registry.sync.workflow import sync_registry_activity
 from tracecat.runtime.errors import RuntimeErrorKind
-from tracecat.temporal.errors import extract_runtime_error_from_details
+from tracecat.temporal.errors import TemporalErrorDetails
 
 
 @pytest.mark.anyio
@@ -54,7 +54,7 @@ async def test_sync_registry_activity_raises_validation_application_error(
     ) as exc_info:
         await sync_registry_activity(request)
 
-    envelope = extract_runtime_error_from_details(exc_info.value.details)
+    envelope = TemporalErrorDetails.runtime_error_from_details(exc_info.value.details)
     assert envelope is not None
     assert envelope.kind == RuntimeErrorKind.USER
     assert envelope.code == "registry.sync.validation_failed"

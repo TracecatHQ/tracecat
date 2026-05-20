@@ -26,7 +26,7 @@ from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.registry.lock.types import RegistryLock
 from tracecat.runtime.errors import RuntimeErrorKind, RuntimeErrorPhase
 from tracecat.storage.object import InlineObject
-from tracecat.temporal.errors import extract_runtime_error_from_details
+from tracecat.temporal.errors import TemporalErrorDetails
 
 
 def test_action_runtime_infra_error_is_retryable_by_default() -> None:
@@ -41,7 +41,7 @@ def test_action_runtime_infra_error_is_retryable_by_default() -> None:
         root=OSError("disk full"),
     )
 
-    envelope = extract_runtime_error_from_details(app_error.details)
+    envelope = TemporalErrorDetails.runtime_error_from_details(app_error.details)
     assert app_error.non_retryable is False
     assert envelope is not None
     assert envelope.kind == RuntimeErrorKind.INFRA
@@ -62,7 +62,7 @@ def test_action_runtime_platform_or_infra_error_keeps_infra_retryable_by_default
         root=OSError("connection reset"),
     )
 
-    envelope = extract_runtime_error_from_details(app_error.details)
+    envelope = TemporalErrorDetails.runtime_error_from_details(app_error.details)
     assert app_error.non_retryable is False
     assert envelope is not None
     assert envelope.kind == RuntimeErrorKind.INFRA
@@ -213,7 +213,9 @@ class TestExecuteActionActivity:
             assert app_error.type == "ExecutionError"
             # Check that the error info is in the details
             assert len(app_error.details) > 0
-            envelope = extract_runtime_error_from_details(app_error.details)
+            envelope = TemporalErrorDetails.runtime_error_from_details(
+                app_error.details
+            )
             assert envelope is not None
             assert envelope.kind == RuntimeErrorKind.USER
 
@@ -239,7 +241,9 @@ class TestExecuteActionActivity:
             app_error = exc_info.value
             assert app_error.type == "OSError"
             assert app_error.non_retryable is False
-            envelope = extract_runtime_error_from_details(app_error.details)
+            envelope = TemporalErrorDetails.runtime_error_from_details(
+                app_error.details
+            )
             assert envelope is not None
             assert envelope.kind == RuntimeErrorKind.INFRA
             assert envelope.phase == RuntimeErrorPhase.PREPARE
@@ -334,7 +338,9 @@ class TestExecuteActionActivity:
             assert app_error.type == "EntitlementRequired"
             assert app_error.non_retryable is True
             assert len(app_error.details) > 0
-            detail = app_error.details[0]
+            detail = TemporalErrorDetails.from_application_error(
+                app_error
+            ).first_payload
             assert isinstance(detail, ActionErrorInfo)
             assert "custom_registry" in detail.message
 
@@ -430,7 +436,9 @@ class TestExecuteActionActivity:
             # The ActionErrorInfo in details should have the stream_id
             app_error = exc_info.value
             assert len(app_error.details) > 0
-            action_error_info = app_error.details[0]
+            action_error_info = TemporalErrorDetails.from_application_error(
+                app_error
+            ).first_payload
             assert isinstance(action_error_info, ActionErrorInfo)
             assert action_error_info.stream_id == "test-stream-123"
 
@@ -459,7 +467,9 @@ class TestExecuteActionActivity:
                     mock_run_action_input, mock_role
                 )
 
-            envelope = extract_runtime_error_from_details(exc_info.value.details)
+            envelope = TemporalErrorDetails.runtime_error_from_details(
+                exc_info.value.details
+            )
             assert exc_info.value.non_retryable is False
             assert envelope is not None
             assert envelope.kind == RuntimeErrorKind.INFRA

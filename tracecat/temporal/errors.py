@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-from collections.abc import Sequence
-from typing import Any
+from collections.abc import Mapping, Sequence
+from typing import Any, Literal
 
+from pydantic import BaseModel, ConfigDict, Field
 from temporalio.exceptions import ApplicationError
 
 from tracecat.runtime.errors import (
@@ -16,17 +17,99 @@ from tracecat.runtime.errors import (
     is_known_infra_exception,
 )
 
-RUNTIME_ERROR_DETAILS_KEY = "runtime_errors"
-type RuntimeErrorDetails = dict[str, dict[str, RuntimeErrorEnvelope]]
 type RuntimeErrorFactory = (
     type[RuntimeUserError] | type[RuntimePlatformError] | type[RuntimeInfraError]
 )
 
 
-def runtime_error_detail(
-    ref: str, envelope: RuntimeErrorEnvelope
-) -> RuntimeErrorDetails:
-    return {RUNTIME_ERROR_DETAILS_KEY: {ref: envelope}}
+class TemporalErrorDetails(BaseModel):
+    """Single V2 payload for Tracecat-owned Temporal ApplicationError details."""
+
+    model_config = ConfigDict(arbitrary_types_allowed=True, extra="forbid")
+
+    kind: Literal["tracecat.temporal_error_details.v1"] = (
+        "tracecat.temporal_error_details.v1"
+    )
+    payloads: tuple[Any, ...] = ()
+    runtime_errors: dict[str, RuntimeErrorEnvelope] = Field(default_factory=dict)
+
+    @property
+    def first_payload(self) -> Any | None:
+        return self.payloads[0] if self.payloads else None
+
+    @classmethod
+    def build(
+        cls,
+        *,
+        payloads: Sequence[Any] = (),
+        runtime_errors: Mapping[str, RuntimeErrorEnvelope] | None = None,
+    ) -> TemporalErrorDetails:
+        return cls(
+            payloads=tuple(payloads),
+            runtime_errors=dict(runtime_errors or {}),
+        )
+
+    @classmethod
+    def with_runtime_error(
+        cls,
+        ref: str,
+        envelope: RuntimeErrorEnvelope,
+        *,
+        payloads: Sequence[Any] = (),
+    ) -> TemporalErrorDetails:
+        return cls.build(payloads=payloads, runtime_errors={ref: envelope})
+
+    @classmethod
+    def from_application_error(cls, error: ApplicationError) -> TemporalErrorDetails:
+        return cls.from_details(error.details)
+
+    @classmethod
+    def from_details(cls, details: Sequence[Any]) -> TemporalErrorDetails:
+        if len(details) == 1 and (parsed := cls._from_payload(details[0])):
+            return parsed
+        return cls.build(payloads=details)
+
+    def runtime_error(self, *, ref: str | None = None) -> RuntimeErrorEnvelope | None:
+        if ref is not None and ref in self.runtime_errors:
+            return self.runtime_errors[ref]
+        return next(iter(self.runtime_errors.values()), None)
+
+    @classmethod
+    def runtime_error_from_details(
+        cls, details: Sequence[Any], *, ref: str | None = None
+    ) -> RuntimeErrorEnvelope | None:
+        parsed = cls.from_details(details)
+        if envelope := parsed.runtime_error(ref=ref):
+            return envelope
+        for payload in parsed.payloads:
+            if envelope := cls._envelope_from_payload(payload):
+                return envelope
+        return None
+
+    @classmethod
+    def _from_payload(cls, payload: Any) -> TemporalErrorDetails | None:
+        match payload:
+            case TemporalErrorDetails() as details:
+                return details
+            case dict():
+                try:
+                    return cls.model_validate(payload)
+                except Exception:
+                    return None
+        return None
+
+    @staticmethod
+    def _envelope_from_payload(value: Any) -> RuntimeErrorEnvelope | None:
+        match value:
+            case RuntimeErrorEnvelope() as envelope:
+                return envelope
+            case dict():
+                try:
+                    return RuntimeErrorEnvelope.model_validate(value)
+                except Exception:
+                    return None
+            case _:
+                return None
 
 
 class TemporalRuntimeError:
@@ -58,10 +141,10 @@ class TemporalRuntimeError:
     ) -> ApplicationError:
         return ApplicationError(
             runtime_error.envelope.message,
-            *details,
-            runtime_error_detail(
+            TemporalErrorDetails.with_runtime_error(
                 cls._runtime_error_ref(runtime_error, ref=ref),
                 runtime_error.envelope,
+                payloads=details,
             ),
             type=error_type,
             non_retryable=non_retryable,
@@ -281,62 +364,6 @@ class WorkflowRuntimeError(TemporalRuntimeError):
     """Build Temporal workflow failures from first-class runtime errors."""
 
 
-def _validate_envelope(value: Any) -> RuntimeErrorEnvelope | None:
-    match value:
-        case RuntimeErrorEnvelope() as envelope:
-            return envelope
-        case dict():
-            try:
-                return RuntimeErrorEnvelope.model_validate(value)
-            except Exception:
-                return None
-        case _:
-            return None
-
-
-def coerce_runtime_error_details(detail: Any) -> RuntimeErrorDetails | None:
-    match detail:
-        case dict() as detail_map if set(detail_map) == {RUNTIME_ERROR_DETAILS_KEY}:
-            match detail_map[RUNTIME_ERROR_DETAILS_KEY]:
-                case dict() as raw_runtime_errors if raw_runtime_errors:
-                    runtime_errors: dict[str, RuntimeErrorEnvelope] = {}
-                    for ref, envelope_data in raw_runtime_errors.items():
-                        match ref, _validate_envelope(envelope_data):
-                            case (
-                                str() as runtime_ref,
-                                RuntimeErrorEnvelope() as envelope,
-                            ):
-                                runtime_errors[runtime_ref] = envelope
-                            case _:
-                                return None
-                    return {RUNTIME_ERROR_DETAILS_KEY: runtime_errors}
-        case _:
-            return None
-
-
-def extract_runtime_error_from_details(
-    details: Sequence[Any], *, ref: str | None = None
-) -> RuntimeErrorEnvelope | None:
-    for detail in details:
-        match detail:
-            case RuntimeErrorEnvelope() as envelope:
-                return envelope
-            case dict() as detail_map:
-                match detail_map.get(RUNTIME_ERROR_DETAILS_KEY):
-                    case dict() as runtime_errors:
-                        if ref is not None and ref in runtime_errors:
-                            return _validate_envelope(runtime_errors[ref])
-                        for value in runtime_errors.values():
-                            if envelope := _validate_envelope(value):
-                                return envelope
-                    case _:
-                        if envelope := _validate_envelope(detail_map):
-                            return envelope
-            case _:
-                continue
-    return None
-
-
 def extract_runtime_error(
     error: BaseException, *, ref: str | None = None
 ) -> RuntimeErrorEnvelope | None:
@@ -351,7 +378,9 @@ def extract_runtime_error(
             case TracecatRuntimeError(envelope=envelope):
                 return envelope
             case ApplicationError(details=details) if details:
-                if envelope := extract_runtime_error_from_details(details, ref=ref):
+                if envelope := TemporalErrorDetails.runtime_error_from_details(
+                    details, ref=ref
+                ):
                     return envelope
         nested = getattr(current, "cause", None) or getattr(current, "__cause__", None)
         match nested:

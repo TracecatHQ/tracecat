@@ -24,7 +24,7 @@ from tracecat.runtime.errors import (
     RuntimeErrorOrigin,
     RuntimeErrorPhase,
 )
-from tracecat.temporal.errors import runtime_error_detail
+from tracecat.temporal.errors import TemporalErrorDetails
 
 
 def _build_scheduler(action_ref: str = "scatter") -> DSLScheduler:
@@ -77,7 +77,7 @@ async def test_handle_error_path_ignores_runtime_metadata_when_building_action_e
     )
     app_error = ApplicationError(
         message,
-        runtime_error_detail("scatter", envelope),
+        TemporalErrorDetails.with_runtime_error("scatter", envelope),
         type="ScatterCollectionNotIterable",
         non_retryable=True,
     )
@@ -100,14 +100,7 @@ async def test_handle_error_path_preserves_child_error_for_runtime_errors_ref() 
     message = "Child action failed"
     app_error = ApplicationError(
         message,
-        {
-            "runtime_errors": {
-                "ref": "runtime_errors",
-                "message": message,
-                "type": "ValueError",
-                "stream_id": ROOT_STREAM,
-            }
-        },
+        {"ref": "runtime_errors", "message": message, "type": "ValueError"},
         type="ApplicationError",
         non_retryable=True,
     )
@@ -141,13 +134,18 @@ async def test_handle_error_path_honors_runtime_error_affects_workflow() -> None
     )
     app_error = ApplicationError(
         message,
-        {
-            "ref": "scatter",
-            "message": message,
-            "type": "OSError",
-            "stream_id": child_stream,
-        },
-        runtime_error_detail("scatter", envelope),
+        TemporalErrorDetails.with_runtime_error(
+            "scatter",
+            envelope,
+            payloads=(
+                {
+                    "ref": "scatter",
+                    "message": message,
+                    "type": "OSError",
+                    "stream_id": child_stream,
+                },
+            ),
+        ),
         type="OSError",
         non_retryable=False,
     )

@@ -1,10 +1,4 @@
-from temporalio.exceptions import ApplicationError
-
-from tracecat.dsl.workflow import (
-    DSLWorkflow,
-    _first_payload_detail,
-    _format_trigger_input_validation_error,
-)
+from tracecat.dsl.workflow import DSLWorkflow
 from tracecat.runtime.errors import (
     RuntimeErrorEnvelope,
     RuntimeErrorKind,
@@ -12,11 +6,9 @@ from tracecat.runtime.errors import (
     RuntimeErrorPhase,
 )
 from tracecat.temporal.errors import (
+    TemporalErrorDetails,
     WorkflowRuntimeError,
-    extract_runtime_error_from_details,
-    runtime_error_detail,
 )
-from tracecat.validation.schemas import ValidationDetail
 
 
 class CauseError(Exception):
@@ -59,49 +51,7 @@ def test_unwrap_temporal_failure_cause_handles_cyclic_causes() -> None:
     assert message == "first"
 
 
-def test_format_trigger_input_validation_error_preserves_runtime_classification() -> (
-    None
-):
-    envelope = RuntimeErrorEnvelope.build(
-        kind=RuntimeErrorKind.USER,
-        code="dsl.trigger_inputs.validation_failed",
-        message="Failed to validate trigger inputs",
-        origin=RuntimeErrorOrigin.DSL,
-        phase=RuntimeErrorPhase.PREPARE,
-        root=ValueError("invalid input"),
-    )
-    validation_details = [
-        ValidationDetail(
-            type="pydantic.missing",
-            msg="Field required",
-            loc=("customer_id",),
-        )
-    ]
-    activity_error = ApplicationError(
-        "Failed to validate trigger inputs",
-        validation_details,
-        runtime_error_detail("trigger", envelope),
-        type="ValidationError",
-        non_retryable=True,
-    )
-
-    wrapped = _format_trigger_input_validation_error(
-        activity_error,
-        workflow_exec_id="wf_test/exec_test",
-    )
-
-    assert "Missing required field(s): 'customer_id'" in wrapped.message
-    assert wrapped.type == "ValidationError"
-    assert wrapped.non_retryable is True
-    assert validation_details in wrapped.details
-    extracted = extract_runtime_error_from_details(wrapped.details)
-    assert extracted is not None
-    assert extracted.kind == RuntimeErrorKind.USER
-    assert extracted.code == "dsl.trigger_inputs.validation_failed"
-    assert extracted.workflow_exec_id == "wf_test/exec_test"
-
-
-def test_first_payload_detail_skips_runtime_metadata() -> None:
+def test_temporal_error_details_carries_payload_and_runtime_error() -> None:
     envelope = RuntimeErrorEnvelope.build(
         kind=RuntimeErrorKind.INFRA,
         code="dsl.trigger_inputs.retrieve_failed",
@@ -112,15 +62,27 @@ def test_first_payload_detail_skips_runtime_metadata() -> None:
         root=OSError("object storage unavailable"),
     )
     payload = {"action": {"message": "failed"}}
-
-    assert _first_payload_detail((runtime_error_detail("trigger", envelope),)) is None
-    assert (
-        _first_payload_detail((runtime_error_detail("trigger", envelope), payload))
-        is payload
+    parsed = TemporalErrorDetails.from_details(
+        (
+            TemporalErrorDetails.with_runtime_error(
+                "trigger",
+                envelope,
+                payloads=(payload,),
+            ),
+        )
     )
 
+    assert (
+        TemporalErrorDetails.from_details(
+            (TemporalErrorDetails.with_runtime_error("trigger", envelope),)
+        ).first_payload
+        is None
+    )
+    assert parsed.first_payload is payload
+    assert parsed.runtime_errors == {"trigger": envelope}
 
-def test_first_payload_detail_preserves_action_error_ref_named_runtime_errors() -> None:
+
+def test_temporal_error_details_treats_plain_dict_as_payload() -> None:
     payload = {
         "runtime_errors": {
             "ref": "runtime_errors",
@@ -129,7 +91,7 @@ def test_first_payload_detail_preserves_action_error_ref_named_runtime_errors() 
         }
     }
 
-    assert _first_payload_detail((payload,)) is payload
+    assert TemporalErrorDetails.from_details((payload,)).first_payload is payload
 
 
 def test_workflow_runtime_error_classifies_in_workflow_failure() -> None:
@@ -148,7 +110,7 @@ def test_workflow_runtime_error_classifies_in_workflow_failure() -> None:
 
     assert workflow_error.type == "TracecatNotFoundError"
     assert workflow_error.non_retryable is True
-    envelope = extract_runtime_error_from_details(workflow_error.details)
+    envelope = TemporalErrorDetails.runtime_error_from_details(workflow_error.details)
     assert envelope is not None
     assert envelope.kind == RuntimeErrorKind.USER
     assert envelope.code == "dsl.trigger_inputs.schedule_not_found"

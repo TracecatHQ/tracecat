@@ -13,7 +13,7 @@ from tracecat.dsl.schemas import ExecutionContext, TaskResult
 from tracecat.expressions.schemas import ExpectedField
 from tracecat.runtime.errors import RuntimeErrorKind, RuntimeErrorPhase
 from tracecat.storage.object import CollectionObject, InlineObject, ObjectRef
-from tracecat.temporal.errors import extract_runtime_error_from_details
+from tracecat.temporal.errors import TemporalErrorDetails
 
 
 @pytest.mark.anyio
@@ -73,7 +73,7 @@ def test_normalize_trigger_inputs_storage_retrieve_failure_is_retryable(
     app_error = exc_info.value
     assert app_error.type == "OSError"
     assert app_error.non_retryable is False
-    envelope = extract_runtime_error_from_details(app_error.details)
+    envelope = TemporalErrorDetails.runtime_error_from_details(app_error.details)
     assert envelope is not None
     assert envelope.kind == RuntimeErrorKind.INFRA
     assert envelope.phase == RuntimeErrorPhase.PREPARE
@@ -100,7 +100,7 @@ def test_normalize_trigger_inputs_storage_factory_failure_is_retryable(
     app_error = exc_info.value
     assert app_error.type == "OSError"
     assert app_error.non_retryable is False
-    envelope = extract_runtime_error_from_details(app_error.details)
+    envelope = TemporalErrorDetails.runtime_error_from_details(app_error.details)
     assert envelope is not None
     assert envelope.kind == RuntimeErrorKind.INFRA
     assert envelope.code == "dsl.trigger_inputs.retrieve_failed"
@@ -125,16 +125,19 @@ def test_normalize_trigger_inputs_validation_failure_has_user_envelope(
                 input_schema={"count": ExpectedField(type="int")},
                 trigger_inputs=InlineObject(data={}),
                 key="wf/normalized-trigger-inputs",
+                workflow_exec_id="wf_test/exec_test",
             )
         )
 
     app_error = exc_info.value
+    assert "Missing required field(s): 'count'" in app_error.message
     assert app_error.type == "ValidationError"
     assert app_error.non_retryable is True
-    envelope = extract_runtime_error_from_details(app_error.details)
+    envelope = TemporalErrorDetails.runtime_error_from_details(app_error.details)
     assert envelope is not None
     assert envelope.kind == RuntimeErrorKind.USER
     assert envelope.code == "dsl.trigger_inputs.validation_failed"
+    assert envelope.workflow_exec_id == "wf_test/exec_test"
 
 
 @pytest.mark.anyio

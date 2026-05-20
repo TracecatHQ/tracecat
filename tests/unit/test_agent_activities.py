@@ -59,7 +59,7 @@ from tracecat.exceptions import BuiltinRegistryHasNoSelectionError
 from tracecat.registry.lock.service import RegistryLockService
 from tracecat.registry.lock.types import RegistryLock
 from tracecat.runtime.errors import RuntimeErrorKind
-from tracecat.temporal.errors import extract_runtime_error_from_details
+from tracecat.temporal.errors import TemporalErrorDetails
 
 
 @pytest.fixture
@@ -140,7 +140,7 @@ class TestBuildToolDefinitionsActivity:
         assert app_error.type == "AgentToolDefinitionError"
         assert app_error.non_retryable is True
         assert app_error.message == "Cannot request more than 100 tools"
-        envelope = extract_runtime_error_from_details(app_error.details)
+        envelope = TemporalErrorDetails.runtime_error_from_details(app_error.details)
         assert envelope is not None
         assert envelope.kind == RuntimeErrorKind.USER
         assert envelope.code == "agent.tool_definitions.invalid"
@@ -189,8 +189,10 @@ class TestBuildToolDefinitionsActivity:
         app_error = exc_info.value
         assert app_error.type == "BuiltinRegistryHasNoSelectionError"
         assert app_error.non_retryable is False
-        assert app_error.details[0] == {"origin": "tracecat_registry"}
-        envelope = extract_runtime_error_from_details(app_error.details)
+        assert TemporalErrorDetails.from_application_error(app_error).first_payload == {
+            "origin": "tracecat_registry"
+        }
+        envelope = TemporalErrorDetails.runtime_error_from_details(app_error.details)
         assert envelope is not None
         assert envelope.kind == RuntimeErrorKind.PLATFORM
         assert envelope.retryable is True
@@ -267,7 +269,9 @@ class TestBuildToolDefinitionsActivity:
         )
         assert exc_info.value.type == "AgentToolDefinitionError"
         assert exc_info.value.non_retryable is True
-        envelope = extract_runtime_error_from_details(exc_info.value.details)
+        envelope = TemporalErrorDetails.runtime_error_from_details(
+            exc_info.value.details
+        )
         assert envelope is not None
         assert envelope.kind == RuntimeErrorKind.USER
         assert envelope.code == "agent.tool_definitions.mcp_discovery_failed"
@@ -523,7 +527,9 @@ class TestCreateSessionActivity:
                 "Agent session was created with a different agents binding"
             )
             assert exc_info.value.non_retryable is True
-            envelope = extract_runtime_error_from_details(exc_info.value.details)
+            envelope = TemporalErrorDetails.runtime_error_from_details(
+                exc_info.value.details
+            )
             assert envelope is not None
             assert envelope.kind == RuntimeErrorKind.USER
             assert envelope.code == "agent.session.agents_binding_mismatch"
@@ -585,7 +591,9 @@ class TestCreateSessionActivity:
 
         assert str(mock_session_id) in exc_info.value.message
         assert exc_info.value.non_retryable is True
-        envelope = extract_runtime_error_from_details(exc_info.value.details)
+        envelope = TemporalErrorDetails.runtime_error_from_details(
+            exc_info.value.details
+        )
         assert envelope is not None
         assert envelope.kind == RuntimeErrorKind.USER
         assert envelope.code == "agent.session.missing"

@@ -8,7 +8,7 @@ import pytest
 from temporalio.exceptions import ApplicationError
 
 from tracecat.runtime.errors import RuntimeErrorKind
-from tracecat.temporal.errors import extract_runtime_error_from_details
+from tracecat.temporal.errors import TemporalErrorDetails
 from tracecat.tiers.activities import (
     AcquireActionPermitInput,
     AcquireWorkflowPermitInput,
@@ -78,7 +78,7 @@ async def test_acquire_workflow_permit_activity_maps_invalid_cap_error() -> None
             )
 
     assert exc_info.value.type == "InvalidOrganizationConcurrencyCap"
-    envelope = extract_runtime_error_from_details(exc_info.value.details)
+    envelope = TemporalErrorDetails.runtime_error_from_details(exc_info.value.details)
     assert envelope is not None
     assert envelope.kind == RuntimeErrorKind.PLATFORM
     assert envelope.code == "tiers.workflow_concurrency.invalid_cap"

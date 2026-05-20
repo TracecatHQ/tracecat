@@ -10,7 +10,7 @@ from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.exceptions import BuiltinRegistryHasNoSelectionError, EntitlementRequired
 from tracecat.runtime.errors import RuntimeErrorKind
-from tracecat.temporal.errors import extract_runtime_error_from_details
+from tracecat.temporal.errors import TemporalErrorDetails
 from tracecat.workflow.management.definitions import resolve_registry_lock_activity
 from tracecat.workflow.management.schemas import ResolveRegistryLockActivityInputs
 
@@ -53,10 +53,10 @@ async def test_resolve_registry_lock_activity_maps_entitlement_error(
     assert app_error.type == "EntitlementRequired"
     assert app_error.non_retryable is True
     assert len(app_error.details) > 0
-    detail = app_error.details[0]
+    detail = TemporalErrorDetails.from_application_error(app_error).first_payload
     assert isinstance(detail, dict)
     assert detail["entitlement"] == "custom_registry"
-    envelope = extract_runtime_error_from_details(app_error.details)
+    envelope = TemporalErrorDetails.runtime_error_from_details(app_error.details)
     assert envelope is not None
     assert envelope.kind == RuntimeErrorKind.USER
     assert envelope.code == "workflow.registry_lock.entitlement_required"
@@ -91,10 +91,10 @@ async def test_resolve_registry_lock_activity_maps_builtin_sync_pending_as_retry
     assert app_error.type == "BuiltinRegistryHasNoSelectionError"
     assert app_error.non_retryable is False
     assert len(app_error.details) > 0
-    detail = app_error.details[0]
+    detail = TemporalErrorDetails.from_application_error(app_error).first_payload
     assert isinstance(detail, dict)
     assert detail["origin"] == "tracecat_registry"
-    envelope = extract_runtime_error_from_details(app_error.details)
+    envelope = TemporalErrorDetails.runtime_error_from_details(app_error.details)
     assert envelope is not None
     assert envelope.kind == RuntimeErrorKind.PLATFORM
     assert envelope.retryable is True

@@ -3,7 +3,8 @@ from __future__ import annotations
 import asyncio
 import re
 import uuid
-from collections.abc import Awaitable, Callable, Coroutine, Iterator, Sequence
+from collections.abc import Awaitable, Callable, Coroutine, Iterator
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any, Self
 
@@ -94,7 +95,6 @@ with workflow.unsafe.imports_passed_through():
         TaskResult,
     )
     from tracecat.dsl.types import ActionErrorInfo, ActionErrorInfoAdapter
-    from tracecat.dsl.validation import format_input_schema_validation_error
     from tracecat.dsl.workflow_logging import get_workflow_logger
     from tracecat.ee.interactions.decorators import maybe_interactive
     from tracecat.ee.interactions.schemas import InteractionInput, InteractionResult
@@ -130,10 +130,8 @@ with workflow.unsafe.imports_passed_through():
         trigger_key,
     )
     from tracecat.temporal.errors import (
-        RUNTIME_ERROR_DETAILS_KEY,
-        RuntimeErrorDetails,
+        TemporalErrorDetails,
         WorkflowRuntimeError,
-        coerce_runtime_error_details,
     )
     from tracecat.temporal.exceptions import UserError
     from tracecat.tiers.activities import (
@@ -153,7 +151,6 @@ with workflow.unsafe.imports_passed_through():
         release_workflow_permit_activity,
     )
     from tracecat.tiers.schemas import EffectiveLimits
-    from tracecat.validation.schemas import ValidationDetailListTA
     from tracecat.workflow.executions.enums import (
         ExecutionType,
         TemporalSearchAttr,
@@ -207,49 +204,34 @@ def _build_agent_child_search_attributes(
 
 
 type DSLWorkflowRunMethod = Callable[[Any, DSLRunArgs], Awaitable[StoredObject]]
-type WorkflowFailureActionDetails = dict[str, ActionErrorInfo]
-type WorkflowFailureRuntimeDetails = RuntimeErrorDetails
-type WorkflowFailureDetails = (
-    WorkflowFailureActionDetails | WorkflowFailureRuntimeDetails
-)
 
 
-def _split_runtime_error_details(
-    details: Sequence[Any],
-) -> tuple[list[Any], list[WorkflowFailureRuntimeDetails]]:
-    payload_details: list[Any] = []
-    runtime_details: list[WorkflowFailureRuntimeDetails] = []
-    for detail in details:
-        if runtime_detail := coerce_runtime_error_details(detail):
-            runtime_details.append(runtime_detail)
-        else:
-            payload_details.append(detail)
-    return payload_details, runtime_details
+@dataclass(frozen=True, slots=True)
+class DSLWorkflowFailure:
+    message: str
+    action_errors: dict[str, ActionErrorInfo]
+    runtime_errors: dict[str, RuntimeErrorEnvelope]
+
+    @property
+    def error_handler_errors(self) -> list[ActionErrorInfo]:
+        return list(self.action_errors.values())
+
+    def to_application_error(self) -> ApplicationError:
+        return ApplicationError(
+            self.message,
+            TemporalErrorDetails.build(
+                payloads=(self.action_errors,),
+                runtime_errors=self.runtime_errors,
+            ),
+            non_retryable=True,
+            type=ApplicationError.__name__,
+        )
 
 
-def _first_payload_detail(details: Sequence[Any]) -> Any | None:
-    payload_details, _ = _split_runtime_error_details(details)
-    return payload_details[0] if payload_details else None
-
-
-def _format_trigger_input_validation_error(
-    app_error: ApplicationError,
-    *,
-    workflow_exec_id: str,
-) -> ApplicationError:
-    val_detail = _first_payload_detail(app_error.details)
-    validated = ValidationDetailListTA.validate_python(val_detail)
-    return WorkflowRuntimeError.user(
-        code="dsl.trigger_inputs.validation_failed",
-        message=format_input_schema_validation_error(validated),
-        origin=RuntimeErrorOrigin.DSL,
-        phase=RuntimeErrorPhase.PREPARE,
-        error_type=app_error.type or ValidationError.__name__,
-        root=app_error,
-        details=(val_detail,),
-        workflow_exec_id=workflow_exec_id,
-        non_retryable=app_error.non_retryable,
-    )
+class DSLWorkflowFailureError(Exception):
+    def __init__(self, failure: DSLWorkflowFailure) -> None:
+        super().__init__(failure.message)
+        self.failure = failure
 
 
 @workflow.defn
@@ -296,7 +278,16 @@ class DSLWorkflow:
         # Tracecat wf run id == Temporal wf run id
         self.wf_run_id = wf_info.run_id
         if self.role.workspace_id is None:
-            raise ApplicationError("Workspace ID is required", non_retryable=True)
+            message = "Workspace ID is required"
+            raise WorkflowRuntimeError.platform(
+                code="dsl.role.workspace_missing",
+                message=message,
+                origin=RuntimeErrorOrigin.DSL,
+                phase=RuntimeErrorPhase.PREPARE,
+                error_type=ValueError.__name__,
+                root=ValueError(message),
+                workflow_exec_id=self.wf_exec_id,
+            )
         self.workspace_id = self.role.workspace_id
         self.logger = get_workflow_logger(
             wf_id=args.wf_id,
@@ -387,10 +378,15 @@ class DSLWorkflow:
                 registry_lock = result.registry_lock
             except TracecatException as e:
                 self.logger.error("Failed to fetch workflow definition")
-                raise ApplicationError(
-                    "Failed to fetch workflow definition",
-                    non_retryable=True,
-                    type=e.__class__.__name__,
+                raise WorkflowRuntimeError.platform_or_infra(
+                    code="dsl.workflow_definition.fetch_failed",
+                    message="Failed to fetch workflow definition",
+                    origin=RuntimeErrorOrigin.DSL,
+                    phase=RuntimeErrorPhase.PREPARE,
+                    error_type=e.__class__.__name__,
+                    root=e,
+                    workflow_exec_id=self.wf_exec_id,
+                    metadata={"workflow_id": str(args.wf_id)},
                 ) from e
             self.dispatch_type = "pull"
 
@@ -416,11 +412,16 @@ class DSLWorkflow:
                         # including entitlement failures and non-retryable flags.
                         raise cause from e
                     case _:
-                        raise ApplicationError(
-                            f"Failed to resolve registry lock: {e}",
-                            non_retryable=True,
-                            type=e.__class__.__name__,
-                        ) from cause
+                        root = cause if isinstance(cause, BaseException) else e
+                        raise WorkflowRuntimeError.platform_or_infra(
+                            code="dsl.registry_lock.resolve_failed",
+                            message="Failed to resolve registry lock",
+                            origin=RuntimeErrorOrigin.DSL,
+                            phase=RuntimeErrorPhase.PREPARE,
+                            error_type=root.__class__.__name__,
+                            root=root,
+                            workflow_exec_id=self.wf_exec_id,
+                        ) from root
         else:
             self.registry_lock = registry_lock
 
@@ -466,67 +467,32 @@ class DSLWorkflow:
         # Run the workflow with error handling
         try:
             return await self._run_workflow(args)
+        except DSLWorkflowFailureError as e:
+            app_error = e.failure.to_application_error()
+            self.logger.warning(
+                "Workflow failed, running error handler",
+                type=e.__class__.__name__,
+            )
+            await self._run_configured_error_handler(
+                args,
+                message=app_error.message,
+                errors=e.failure.error_handler_errors,
+                cause=app_error,
+            )
+            raise app_error from e
         except ApplicationError as e:
             # Application error
             self.logger.warning(
                 "Error running workflow, running error handler",
                 type=e.__class__.__name__,
             )
-            # 1. Get the error handler workflow ID
-            handler_wf_id = await self._get_error_handler_workflow_id(args)
-            if handler_wf_id is None:
-                self.logger.warning("No error handler workflow ID found, raising error")
-                raise e
-
-            errors: list[ActionErrorInfo] | None = None
-            if e.details:
-                err_info_map = _first_payload_detail(e.details)
-                if err_info_map is None:
-                    self.logger.info(
-                        "Application error has no action error details",
-                        details=e.details,
-                    )
-                elif not isinstance(err_info_map, dict):
-                    self.logger.error(
-                        "Unexpected error info object",
-                        err_info_map=err_info_map,
-                        type=type(err_info_map).__name__,
-                    )
-                    # TODO: There's likely a nicer way to gracefully handle this
-                    # instead of a sentinel error value
-                    errors = [
-                        ActionErrorInfo(
-                            ref="N/A",
-                            message=f"Unexpected error info object of type {type(err_info_map).__name__}: {err_info_map}",
-                            type=type(err_info_map).__name__,
-                        )
-                    ]
-                else:
-                    self.logger.info("Raising error info", err_info_data=err_info_map)
-                    errors = [
-                        ActionErrorInfoAdapter.validate_python(data)
-                        for data in err_info_map.values()
-                    ]
-
-            trigger_type = get_trigger_type(workflow.info())
-            try:
-                err_run_args = await self._prepare_error_handler_workflow(
-                    message=e.message,
-                    handler_wf_id=handler_wf_id,
-                    orig_wf_id=args.wf_id,
-                    orig_wf_exec_id=self.wf_exec_id,
-                    orig_dsl=self.dsl,
-                    trigger_type=TriggerType(trigger_type),
-                    errors=errors,
-                )
-                await self._run_error_handler_workflow(err_run_args)
-            except Exception as err_handler_exc:
-                self.logger.error(
-                    "Failed to run error handler workflow",
-                    error=err_handler_exc,
-                )
-                raise err_handler_exc from e
-
+            errors = self._error_handler_errors_from_application_error(e)
+            await self._run_configured_error_handler(
+                args,
+                message=e.message,
+                errors=errors,
+                cause=e,
+            )
             # Finally, raise the original error
             raise e
         except Exception as e:
@@ -552,6 +518,71 @@ class DSLWorkflow:
                     self._release_workflow_permit(),
                     operation="release_workflow_permit",
                 )
+
+    def _error_handler_errors_from_application_error(
+        self, error: ApplicationError
+    ) -> list[ActionErrorInfo] | None:
+        if not error.details:
+            return None
+
+        err_info_map = TemporalErrorDetails.from_application_error(error).first_payload
+        if err_info_map is None:
+            self.logger.info(
+                "Application error has no action error details",
+                details=error.details,
+            )
+            return None
+        if not isinstance(err_info_map, dict):
+            self.logger.error(
+                "Unexpected error info object",
+                err_info_map=err_info_map,
+                type=type(err_info_map).__name__,
+            )
+            return [
+                ActionErrorInfo(
+                    ref="N/A",
+                    message=f"Unexpected error info object of type {type(err_info_map).__name__}: {err_info_map}",
+                    type=type(err_info_map).__name__,
+                )
+            ]
+
+        self.logger.info("Raising error info", err_info_data=err_info_map)
+        return [
+            ActionErrorInfoAdapter.validate_python(data)
+            for data in err_info_map.values()
+        ]
+
+    async def _run_configured_error_handler(
+        self,
+        args: DSLRunArgs,
+        *,
+        message: str,
+        errors: list[ActionErrorInfo] | None,
+        cause: ApplicationError,
+    ) -> None:
+        handler_wf_id = await self._get_error_handler_workflow_id(args)
+        if handler_wf_id is None:
+            self.logger.warning("No error handler workflow ID found, raising error")
+            raise cause
+
+        trigger_type = get_trigger_type(workflow.info())
+        try:
+            err_run_args = await self._prepare_error_handler_workflow(
+                message=message,
+                handler_wf_id=handler_wf_id,
+                orig_wf_id=args.wf_id,
+                orig_wf_exec_id=self.wf_exec_id,
+                orig_dsl=self.dsl,
+                trigger_type=TriggerType(trigger_type),
+                errors=errors,
+            )
+            await self._run_error_handler_workflow(err_run_args)
+        except Exception as err_handler_exc:
+            self.logger.error(
+                "Failed to run error handler workflow",
+                error=err_handler_exc,
+            )
+            raise err_handler_exc from cause
 
     async def _run_workflow(self, args: DSLRunArgs) -> StoredObject:
         """Actual workflow execution logic."""
@@ -621,6 +652,7 @@ class DSLWorkflow:
                         input_schema=input_schema,
                         trigger_inputs=trigger_inputs,
                         key=trigger_key(str(self.workspace_id), self.wf_exec_id),
+                        workflow_exec_id=self.wf_exec_id,
                     ),
                     start_to_close_timeout=timedelta(seconds=10),
                     retry_policy=RETRY_POLICIES["activity:fail_slow"],
@@ -628,19 +660,10 @@ class DSLWorkflow:
             except ActivityError as e:
                 cause = e.cause
                 if isinstance(cause, ApplicationError):
-                    if cause.type == ValidationError.__name__:
-                        self.logger.warning(
-                            "Validation error when normalizing trigger inputs",
-                            error=e,
-                            details=cause.details,
-                        )
-                        raise _format_trigger_input_validation_error(
-                            cause,
-                            workflow_exec_id=self.wf_exec_id,
-                        ) from cause
                     self.logger.warning(
                         "Application error when normalizing trigger inputs",
                         error=e,
+                        details=cause.details,
                     )
                     raise cause from None
 
@@ -732,8 +755,14 @@ class DSLWorkflow:
             task_exceptions = await self.scheduler.start()
         except Exception as e:
             msg = f"DSL scheduler failed with unexpected error: {e}"
-            raise ApplicationError(
-                msg, non_retryable=True, type=e.__class__.__name__
+            raise WorkflowRuntimeError.platform(
+                code="dsl.scheduler.failed",
+                message=msg,
+                origin=RuntimeErrorOrigin.DSL,
+                phase=RuntimeErrorPhase.ROUTE,
+                error_type=e.__class__.__name__,
+                root=e,
+                workflow_exec_id=self.wf_exec_id,
             ) from e
 
         if task_exceptions:
@@ -743,40 +772,42 @@ class DSLWorkflow:
                 for i, (ref, info) in enumerate(task_exceptions.items())
                 if (action_details := info.details)
             )
-            # NOTE: This error is shown in the final activity in the workflow history
-            error_details: list[WorkflowFailureDetails] = [
-                {ref: info.details for ref, info in task_exceptions.items()}
-            ]
+            action_errors = {ref: info.details for ref, info in task_exceptions.items()}
             runtime_errors: dict[str, RuntimeErrorEnvelope] = {
                 ref: runtime_error
                 for ref, info in task_exceptions.items()
                 if (runtime_error := info.runtime_error) is not None
             }
-            if runtime_errors:
-                error_details.append({RUNTIME_ERROR_DETAILS_KEY: runtime_errors})
-            raise ApplicationError(
-                f"Workflow failed with {n_exc} error(s)\n\n{formatted_exc}",
-                # We should add the details of the exceptions to the error message because this will get captured
-                # in the error handler workflow
-                *error_details,
-                non_retryable=True,
-                type=ApplicationError.__name__,
+            raise DSLWorkflowFailureError(
+                DSLWorkflowFailure(
+                    message=f"Workflow failed with {n_exc} error(s)\n\n{formatted_exc}",
+                    action_errors=action_errors,
+                    runtime_errors=runtime_errors,
+                )
             )
 
         try:
             self.logger.info("DSL workflow completed")
             return await self._handle_return()
         except TracecatExpressionError as e:
-            raise ApplicationError(
-                f"Couldn't parse return value expression: {e}",
-                non_retryable=True,
-                type=e.__class__.__name__,
+            raise WorkflowRuntimeError.user(
+                code="dsl.return_expression.invalid",
+                message=f"Couldn't parse return value expression: {e}",
+                origin=RuntimeErrorOrigin.DSL,
+                phase=RuntimeErrorPhase.COLLECT,
+                error_type=e.__class__.__name__,
+                root=e,
+                workflow_exec_id=self.wf_exec_id,
             ) from e
         except Exception as e:
-            raise ApplicationError(
-                f"Unexpected error handling return value: {e}",
-                non_retryable=True,
-                type=e.__class__.__name__,
+            raise WorkflowRuntimeError.platform_or_infra(
+                code="dsl.return_value.failed",
+                message=f"Unexpected error handling return value: {e}",
+                origin=RuntimeErrorOrigin.DSL,
+                phase=RuntimeErrorPhase.COLLECT,
+                error_type=e.__class__.__name__,
+                root=e,
+                workflow_exec_id=self.wf_exec_id,
             ) from e
 
     async def _handle_timers(self, task: ActionStatement) -> None:
@@ -791,6 +822,7 @@ class DSLWorkflow:
         # If we have a wait_until, we need to create a durable timer
         if task.wait_until:
             self.logger.debug("Creating wait until timer", wait_until=task.wait_until)
+            stream_id = ctx_stream_id.get()
 
             # Parse the delay until date
             wait_until = await workflow.execute_activity(
@@ -801,9 +833,17 @@ class DSLWorkflow:
             self.logger.debug("Parsed wait until date", wait_until=wait_until)
             if wait_until is None:
                 # Unreachable as this should have been validated at the API level
-                raise ApplicationError(
-                    "Invalid wait until date",
-                    non_retryable=True,
+                message = "Invalid wait until date"
+                raise WorkflowRuntimeError.user(
+                    code="dsl.wait_until.invalid",
+                    message=message,
+                    origin=RuntimeErrorOrigin.DSL,
+                    phase=RuntimeErrorPhase.PREPARE,
+                    error_type=ValueError.__name__,
+                    root=ValueError(message),
+                    action_ref=task.ref,
+                    stream_id=stream_id,
+                    workflow_exec_id=self.wf_exec_id,
                 )
 
             current_time = datetime.now(UTC)
@@ -865,8 +905,17 @@ class DSLWorkflow:
                 try:
                     retry_until_result = bool(retry_until_result)
                 except Exception:
-                    raise ApplicationError(
-                        "Retry until result is not a boolean", non_retryable=True
+                    message = "Retry until result is not a boolean"
+                    raise WorkflowRuntimeError.user(
+                        code="dsl.retry_until.invalid_result",
+                        message=message,
+                        origin=RuntimeErrorOrigin.DSL,
+                        phase=RuntimeErrorPhase.ROUTE,
+                        error_type=TypeError.__name__,
+                        root=TypeError(message),
+                        action_ref=task.ref,
+                        stream_id=ctx_stream_id.get(),
+                        workflow_exec_id=self.wf_exec_id,
                     ) from None
             if retry_until_result:
                 break
@@ -921,6 +970,28 @@ class DSLWorkflow:
                 return False
             current = nested
 
+    async def _start_action_permit_if_needed(
+        self, task: ActionStatement, stream_id: StreamID
+    ) -> tuple[str | None, asyncio.Task[None] | None]:
+        max_concurrent_actions = (
+            self._tier_limits.max_concurrent_actions
+            if self._tier_limits is not None
+            else None
+        )
+        if max_concurrent_actions is None or not self._is_executable_action(task):
+            return None, None
+
+        action_permit_id = self._action_permit_id(task=task, stream_id=stream_id)
+        await self._acquire_action_permit(
+            action_id=action_permit_id,
+            action_ref=task.ref,
+            limit=max_concurrent_actions,
+            stream_id=stream_id,
+        )
+        return action_permit_id, asyncio.create_task(
+            self._action_permit_heartbeat_loop(action_id=action_permit_id)
+        )
+
     @maybe_interactive
     async def _execute_task(self, task: ActionStatement) -> TaskResult:
         """Purely execute a task and manage the results.
@@ -952,23 +1023,10 @@ class DSLWorkflow:
         try:
             # Handle timing control flow logic before consuming action permits.
             await self._handle_timers(task)
-
-            max_concurrent_actions = (
-                self._tier_limits.max_concurrent_actions
-                if self._tier_limits is not None
-                else None
-            )
-            if max_concurrent_actions is not None and self._is_executable_action(task):
-                action_permit_id = self._action_permit_id(
-                    task=task, stream_id=stream_id
-                )
-                await self._acquire_action_permit(
-                    action_id=action_permit_id,
-                    limit=max_concurrent_actions,
-                )
-                action_permit_heartbeat_task = asyncio.create_task(
-                    self._action_permit_heartbeat_loop(action_id=action_permit_id)
-                )
+            (
+                action_permit_id,
+                action_permit_heartbeat_task,
+            ) = await self._start_action_permit_if_needed(task, stream_id)
 
             # Do action stuff
             match task.action:
@@ -1293,6 +1351,12 @@ class DSLWorkflow:
         # NOTE: By the time we receive an exception, we've exhausted all retry attempts
         # Note that execute_task is called by the scheduler, so we don't have to return ApplicationError
         except (ActivityError, ChildWorkflowError, FailureError) as e:
+            if isinstance(e, ApplicationError):
+                err_type = e.type or e.__class__.__name__
+                err_message = e.message or str(e)
+                task_result = task_result.with_error(err_message, err_type)
+                raise
+
             # These are deterministic and expected errors that
             err_type = e.__class__.__name__
             msg = self.ERROR_TYPE_TO_MESSAGE[err_type]
@@ -1330,8 +1394,17 @@ class DSLWorkflow:
                         root_message=root_message,
                     )
                     task_result = task_result.with_error(root_message, resolved_type)
-                    raise ApplicationError(
-                        root_message, non_retryable=True, type=resolved_type
+                    root = root_error if isinstance(root_error, Exception) else e
+                    raise WorkflowRuntimeError.platform_or_infra(
+                        code="dsl.task.temporal_failure",
+                        message=root_message,
+                        origin=RuntimeErrorOrigin.DSL,
+                        phase=RuntimeErrorPhase.USER_CODE,
+                        error_type=resolved_type,
+                        root=root,
+                        action_ref=task.ref,
+                        stream_id=stream_id,
+                        workflow_exec_id=self.wf_exec_id,
                     ) from e
 
         except PlatformExecutionError:
@@ -1340,7 +1413,17 @@ class DSLWorkflow:
         except TracecatExpressionError as e:
             err_type = e.__class__.__name__
             detail = e.detail or "Error occurred when handling an expression"
-            raise ApplicationError(detail, non_retryable=True, type=err_type) from e
+            raise WorkflowRuntimeError.user(
+                code="dsl.expression.invalid",
+                message=detail,
+                origin=RuntimeErrorOrigin.DSL,
+                phase=RuntimeErrorPhase.USER_CODE,
+                error_type=err_type,
+                root=e,
+                action_ref=task.ref,
+                stream_id=stream_id,
+                workflow_exec_id=self.wf_exec_id,
+            ) from e
 
         except ValidationError as e:
             self.logger.warning("Runtime validation error", error=e.errors())
@@ -1355,7 +1438,17 @@ class DSLWorkflow:
                 type=err_type,
             )
             task_result = task_result.with_error(msg, err_type)
-            raise ApplicationError(msg, non_retryable=True, type=err_type) from e
+            raise WorkflowRuntimeError.platform_or_infra(
+                code="dsl.task.execution_failed",
+                message=msg,
+                origin=RuntimeErrorOrigin.DSL,
+                phase=RuntimeErrorPhase.USER_CODE,
+                error_type=err_type,
+                root=e,
+                action_ref=task.ref,
+                stream_id=stream_id,
+                workflow_exec_id=self.wf_exec_id,
+            ) from e
         finally:
             if action_permit_heartbeat_task is not None:
                 await self._run_cancellation_safe_cleanup(
@@ -1879,9 +1972,28 @@ class DSLWorkflow:
         - Single InlineObject / ExternalObject
 
         """
-        wait_strategy = WaitStrategy(
-            task.args.get("wait_strategy") or WaitStrategy.DETACH
-        )
+        stream_id = ctx_stream_id.get()
+        wait_strategy_value = task.args.get("wait_strategy") or WaitStrategy.DETACH
+        wait_strategy_options = ", ".join(strategy.value for strategy in WaitStrategy)
+        try:
+            wait_strategy = WaitStrategy(wait_strategy_value)
+        except ValueError as e:
+            message = (
+                "Invalid wait strategy: "
+                f"wait_strategy must be one of {wait_strategy_options}"
+            )
+            raise WorkflowRuntimeError.user(
+                code="dsl.child_workflow.wait_strategy_invalid",
+                message=message,
+                origin=RuntimeErrorOrigin.DSL,
+                phase=RuntimeErrorPhase.ROUTE,
+                error_type=e.__class__.__name__,
+                root=e,
+                action_ref=task.ref,
+                stream_id=stream_id,
+                workflow_exec_id=self.wf_exec_id,
+                metadata={"wait_strategy": str(wait_strategy_value)},
+            ) from e
         self.logger.debug(
             "Running child workflow",
             wait_strategy=wait_strategy,
@@ -1899,13 +2011,20 @@ class DSLWorkflow:
                 result = await child_wf_handle
                 return StoredObjectValidator.validate_python(result)
             case _:
-                raise ApplicationError(
-                    (
-                        "Invalid wait strategy: "
-                        f"wait_strategy must be one of {WaitStrategy.values()}"
-                    ),
-                    non_retryable=True,
-                    type="InvalidWaitStrategy",
+                message = (
+                    "Invalid wait strategy: "
+                    f"wait_strategy must be one of {wait_strategy_options}"
+                )
+                raise WorkflowRuntimeError.platform(
+                    code="dsl.child_workflow.wait_strategy_unhandled",
+                    message=message,
+                    origin=RuntimeErrorOrigin.DSL,
+                    phase=RuntimeErrorPhase.ROUTE,
+                    error_type="InvalidWaitStrategy",
+                    root=ValueError(message),
+                    action_ref=task.ref,
+                    stream_id=stream_id,
+                    workflow_exec_id=self.wf_exec_id,
                 )
 
     async def _dispatch_child_workflow(
@@ -2243,13 +2362,19 @@ class DSLWorkflow:
             elapsed_seconds = (workflow.now() - started_at).total_seconds()
             max_wait_seconds = config.TRACECAT__WORKFLOW_PERMIT_MAX_WAIT_SECONDS
             if elapsed_seconds >= max_wait_seconds:
-                raise ApplicationError(
-                    (
-                        "Timed out waiting for workflow concurrency permit "
-                        f"({elapsed_seconds:.1f}s/{max_wait_seconds}s)"
-                    ),
-                    non_retryable=True,
-                    type="WorkflowPermitTimeoutExceeded",
+                message = (
+                    "Timed out waiting for workflow concurrency permit "
+                    f"({elapsed_seconds:.1f}s/{max_wait_seconds}s)"
+                )
+                raise WorkflowRuntimeError.platform(
+                    code="dsl.workflow_concurrency.permit_timeout",
+                    message=message,
+                    origin=RuntimeErrorOrigin.DSL,
+                    phase=RuntimeErrorPhase.PREPARE,
+                    error_type="WorkflowPermitTimeoutExceeded",
+                    root=TimeoutError(message),
+                    workflow_exec_id=self.wf_exec_id,
+                    metadata={"limit": limit},
                 )
 
             sleep_duration = min(
@@ -2270,7 +2395,14 @@ class DSLWorkflow:
             await asyncio.sleep(sleep_duration)
             attempt += 1
 
-    async def _acquire_action_permit(self, *, action_id: str, limit: int) -> None:
+    async def _acquire_action_permit(
+        self,
+        *,
+        action_id: str,
+        action_ref: str,
+        limit: int,
+        stream_id: StreamID,
+    ) -> None:
         """Acquire an action execution permit or wait with exponential backoff."""
         org_id = self.organization_id
         attempt = 0
@@ -2300,13 +2432,21 @@ class DSLWorkflow:
             elapsed_seconds = (workflow.now() - started_at).total_seconds()
             max_wait_seconds = config.TRACECAT__ACTION_PERMIT_MAX_WAIT_SECONDS
             if elapsed_seconds >= max_wait_seconds:
-                raise ApplicationError(
-                    (
-                        "Timed out waiting for action concurrency permit "
-                        f"({elapsed_seconds:.1f}s/{max_wait_seconds}s)"
-                    ),
-                    non_retryable=True,
-                    type="ActionPermitTimeoutExceeded",
+                message = (
+                    "Timed out waiting for action concurrency permit "
+                    f"({elapsed_seconds:.1f}s/{max_wait_seconds}s)"
+                )
+                raise WorkflowRuntimeError.platform(
+                    code="dsl.action_concurrency.permit_timeout",
+                    message=message,
+                    origin=RuntimeErrorOrigin.DSL,
+                    phase=RuntimeErrorPhase.PREPARE,
+                    error_type="ActionPermitTimeoutExceeded",
+                    root=TimeoutError(message),
+                    action_ref=action_ref,
+                    stream_id=stream_id,
+                    workflow_exec_id=self.wf_exec_id,
+                    metadata={"action_id": action_id, "limit": limit},
                 )
 
             sleep_duration = min(
@@ -2388,10 +2528,22 @@ class DSLWorkflow:
         self._action_execution_count += 1
 
         if self._action_execution_count > max_actions:
-            raise ApplicationError(
-                f"Action execution limit exceeded ({self._action_execution_count}/{max_actions})",
-                non_retryable=True,
-                type="ActionExecutionLimitExceeded",
+            message = (
+                "Action execution limit exceeded "
+                f"({self._action_execution_count}/{max_actions})"
+            )
+            raise WorkflowRuntimeError.user(
+                code="dsl.action_execution.limit_exceeded",
+                message=message,
+                origin=RuntimeErrorOrigin.DSL,
+                phase=RuntimeErrorPhase.PREPARE,
+                error_type="ActionExecutionLimitExceeded",
+                root=RuntimeError(message),
+                workflow_exec_id=self.wf_exec_id,
+                metadata={
+                    "current_count": self._action_execution_count,
+                    "max_actions": max_actions,
+                },
             )
 
 

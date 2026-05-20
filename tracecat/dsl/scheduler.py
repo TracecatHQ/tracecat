@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from collections import defaultdict
-from collections.abc import Awaitable, Callable, Sequence
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, replace
 from datetime import timedelta
 from typing import Any
@@ -77,17 +77,9 @@ with workflow.unsafe.imports_passed_through():
         action_key,
     )
     from tracecat.temporal.errors import (
-        coerce_runtime_error_details,
+        TemporalErrorDetails,
         extract_runtime_error,
     )
-
-
-def _first_application_error_payload_detail(details: Sequence[Any]) -> Any | None:
-    for detail in details:
-        if coerce_runtime_error_details(detail) is not None:
-            continue
-        return detail
-    return None
 
 
 def _get_collection_size(stored: StoredObject) -> int:
@@ -425,6 +417,128 @@ class DSLScheduler:
     def __repr__(self) -> str:
         return to_json(self.__dict__, fallback=str, indent=2).decode()
 
+    def _stringify_exception(self, ref: str, exc: Exception) -> str:
+        if message := getattr(exc, "message", None):
+            return str(message)
+        try:
+            return str(exc)
+        except Exception as stringify_error:
+            self.logger.info(
+                "Failed to stringify error",
+                ref=ref,
+                error=stringify_error,
+            )
+            return f"Failed to stringify error: {stringify_error}"
+
+    def _format_unexpected_error_payload(self, ref: str, payload: Any) -> str:
+        try:
+            return to_json(payload, fallback=str).decode()
+        except Exception as json_error:
+            self.logger.debug(
+                "Couldn't jsonify application error details",
+                ref=ref,
+                error=json_error,
+            )
+            return "<unserializable>"
+
+    def _fallback_action_error(
+        self,
+        task: Task,
+        exc: Exception,
+        *,
+        message: str | None = None,
+    ) -> ActionErrorInfo:
+        return ActionErrorInfo(
+            ref=task.ref,
+            message=message or self._stringify_exception(task.ref, exc),
+            type=getattr(exc, "type", None) or exc.__class__.__name__,
+            stream_id=task.stream_id,
+        )
+
+    def _coerce_action_error_payload(
+        self,
+        task: Task,
+        exc: ApplicationError,
+        payload: Any,
+    ) -> ActionErrorInfo:
+        match payload:
+            case None:
+                return self._fallback_action_error(task, exc)
+            case ActionErrorInfo() as action_error:
+                return action_error
+            case dict() as payload_map if all(
+                key in payload_map for key in ("ref", "message", "type")
+            ):
+                try:
+                    return ActionErrorInfoAdapter.validate_python(payload_map)
+                except Exception as parse_error:
+                    self.logger.info(
+                        "Failed to parse application error details",
+                        ref=task.ref,
+                        error=parse_error,
+                    )
+                    return self._fallback_action_error(
+                        task,
+                        exc,
+                        message=(
+                            "Failed to parse application error details: "
+                            f"{parse_error}.\n"
+                            f"{self._format_unexpected_error_payload(task.ref, payload)}"
+                        ),
+                    )
+            case dict() as child_error_map:
+                try:
+                    first_child_error = next(iter(child_error_map.values()))
+                    return ActionErrorInfoAdapter.validate_python(first_child_error)
+                except Exception as parse_error:
+                    self.logger.info(
+                        "Failed to parse child workflow error details",
+                        ref=task.ref,
+                        error=parse_error,
+                    )
+                    return self._fallback_action_error(
+                        task,
+                        exc,
+                        message=(
+                            "Child workflow error details are not ActionErrorInfo."
+                            f"\nGot: {self._format_unexpected_error_payload(task.ref, payload)}"
+                        ),
+                    )
+            case _:
+                self.logger.info(
+                    "Application error details are not ActionErrorInfo",
+                    ref=task.ref,
+                    details=payload,
+                )
+                return self._fallback_action_error(
+                    task,
+                    exc,
+                    message=(
+                        "Application error details are not ActionErrorInfo."
+                        f"\nGot: {self._format_unexpected_error_payload(task.ref, payload)}"
+                    ),
+                )
+
+    def _action_error_from_exception(
+        self, task: Task, exc: Exception
+    ) -> ActionErrorInfo:
+        if not isinstance(exc, ApplicationError) or not exc.details:
+            self.logger.info(
+                "Task failed with non-application error",
+                ref=task.ref,
+                exc=exc,
+            )
+            return self._fallback_action_error(task, exc)
+
+        self.logger.info(
+            "Task failed with application error",
+            ref=task.ref,
+            exc=exc,
+            details=exc.details,
+        )
+        payload = TemporalErrorDetails.from_application_error(exc).first_payload
+        return self._coerce_action_error_payload(task, exc, payload)
+
     async def _handle_error_path(
         self, task: Task, exc: Exception, *, fail_workflow: bool = False
     ) -> None:
@@ -456,127 +570,7 @@ class DSLScheduler:
                 )
             else:
                 self.logger.info("Task failed with no error paths", task=task)
-            # XXX: This can sometimes return null because the exception isn't an ApplicationError
-            # But rather a ChildWorkflowError or CancelledError
-            if isinstance(exc, ApplicationError) and exc.details:
-                self.logger.info(
-                    "Task failed with application error",
-                    ref=ref,
-                    exc=exc,
-                    details=exc.details,
-                )
-                details = _first_application_error_payload_detail(exc.details)
-                if details is None:
-                    details = ActionErrorInfo(
-                        ref=ref,
-                        message=getattr(exc, "message", None) or str(exc),
-                        type=exc.type or exc.__class__.__name__,
-                        stream_id=task.stream_id,
-                    )
-                elif not isinstance(details, dict):
-                    self.logger.info(
-                        "Application error details are not a dictionary",
-                        ref=ref,
-                        details=details,
-                    )
-                    message = "Application error details are not a dictionary."
-                    try:
-                        message += f"\nGot: {to_json(details, fallback=str).decode()}"
-                    except Exception as e:
-                        self.logger.debug(
-                            "Couldn't jsonify application error details",
-                            ref=ref,
-                            error=e,
-                        )
-                        message += "Couldn't parse error details as json."
-                    details = ActionErrorInfo(
-                        ref=ref,
-                        message=message,
-                        type=exc.__class__.__name__,
-                        stream_id=task.stream_id,
-                    )
-                elif all(k in details for k in ("ref", "message", "type")):
-                    # Regular action error
-                    # it's of shape ActionErrorInfo()
-                    try:
-                        # This is normal action error
-                        details = ActionErrorInfo(**details)
-                    except Exception as e:
-                        self.logger.info(
-                            "Failed to parse regular application error details",
-                            ref=ref,
-                            error=e,
-                        )
-                        message = (
-                            f"Failed to parse regular application error details: {e}."
-                        )
-                        try:
-                            message += f"\n{to_json(details, fallback=str).decode()}"
-                        except Exception as e:
-                            self.logger.debug(
-                                "Couldn't jsonify application error details",
-                                ref=ref,
-                                error=e,
-                            )
-                            message += "Couldn't parse error details as json."
-                        details = ActionErrorInfo(
-                            ref=ref,
-                            message=message,
-                            type=exc.__class__.__name__,
-                            stream_id=task.stream_id,
-                        )
-                else:
-                    # Child workflow error
-                    # it's of shape {ref: ActionErrorInfo(), ...}
-                    # try get the first element
-                    try:
-                        val = list(details.values())[0]
-                        details = ActionErrorInfo(**val)
-                    except Exception as e:
-                        self.logger.info(
-                            "Failed to parse child wf application error details",
-                            ref=ref,
-                            error=e,
-                        )
-                        message = "Child workflow error details are not a dictionary."
-                        try:
-                            message += (
-                                f"\nGot: {to_json(details, fallback=str).decode()}"
-                            )
-                        except Exception as e:
-                            self.logger.debug(
-                                "Couldn't jsonify child wf application error details",
-                                ref=ref,
-                                error=e,
-                            )
-                            message += "Couldn't parse error details as json."
-                        details = ActionErrorInfo(
-                            ref=ref,
-                            message=message,
-                            type=exc.__class__.__name__,
-                            stream_id=task.stream_id,
-                        )
-            else:
-                self.logger.info(
-                    "Task failed with non-application error",
-                    ref=ref,
-                    exc=exc,
-                )
-                try:
-                    message = str(exc)
-                except Exception as e:
-                    self.logger.info(
-                        "Failed to stringify non-application error",
-                        ref=ref,
-                        error=e,
-                    )
-                    message = f"Failed to stringify non-application error: {e}"
-                details = ActionErrorInfo(
-                    ref=ref,
-                    message=message,
-                    type=exc.__class__.__name__,
-                    stream_id=task.stream_id,
-                )
+            details = self._action_error_from_exception(task, exc)
             if task.stream_id == ROOT_STREAM or fail_workflow:
                 if runtime_error is None and fail_workflow:
                     runtime_error = RuntimeErrorEnvelope.build(

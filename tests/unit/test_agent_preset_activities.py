@@ -26,7 +26,7 @@ from tracecat.agent.types import AgentConfig
 from tracecat.agent.workflow_schemas import AgentConfigPayload
 from tracecat.auth.types import Role
 from tracecat.runtime.errors import RuntimeErrorKind
-from tracecat.temporal.errors import extract_runtime_error_from_details
+from tracecat.temporal.errors import TemporalErrorDetails
 
 
 class _AsyncContext:
@@ -274,7 +274,7 @@ async def test_resolve_agents_config_rejects_subagent_with_tool_approvals(
         "Subagent preset 'approval-child' uses manual approvals, "
         "which are not supported for subagents yet."
     ) in app_error.message
-    envelope = extract_runtime_error_from_details(app_error.details)
+    envelope = TemporalErrorDetails.runtime_error_from_details(app_error.details)
     assert envelope is not None
     assert envelope.kind == RuntimeErrorKind.USER
     assert envelope.code == "agent.subagents.config_invalid"
@@ -313,7 +313,7 @@ async def test_resolve_agents_config_rejects_invalid_fallback_alias(
     assert app_error.type == "TracecatValidationError"
     assert app_error.non_retryable is True
     assert "Invalid subagent alias 'Bad Alias'" in app_error.message
-    envelope = extract_runtime_error_from_details(app_error.details)
+    envelope = TemporalErrorDetails.runtime_error_from_details(app_error.details)
     assert envelope is not None
     assert envelope.kind == RuntimeErrorKind.USER
     assert envelope.code == "agent.subagents.config_invalid"
@@ -379,7 +379,7 @@ async def test_resolve_custom_model_provider_config_missing_credentials_non_retr
     app_error = exc_info.value
     assert app_error.type == "InvalidCustomModelProviderCredentials"
     assert app_error.non_retryable is True
-    envelope = extract_runtime_error_from_details(app_error.details)
+    envelope = TemporalErrorDetails.runtime_error_from_details(app_error.details)
     assert envelope is not None
     assert envelope.kind == RuntimeErrorKind.USER
     assert envelope.code == "agent.custom_model_provider.credentials_missing"
@@ -412,7 +412,7 @@ async def test_resolve_custom_model_provider_config_missing_base_url_non_retryab
     app_error = exc_info.value
     assert app_error.type == "CustomModelProviderBaseURLRequired"
     assert app_error.non_retryable is True
-    envelope = extract_runtime_error_from_details(app_error.details)
+    envelope = TemporalErrorDetails.runtime_error_from_details(app_error.details)
     assert envelope is not None
     assert envelope.kind == RuntimeErrorKind.USER
     assert envelope.code == "agent.custom_model_provider.base_url_required"

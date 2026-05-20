@@ -15,7 +15,7 @@ from tracecat.runtime.errors import (
     TracecatRuntimeError,
     is_known_infra_exception,
 )
-from tracecat.temporal.errors import runtime_error_detail
+from tracecat.temporal.errors import TemporalErrorDetails
 
 if TYPE_CHECKING:
     from tracecat.dsl.schemas import StreamID
@@ -43,8 +43,11 @@ class ActionRuntimeError:
         )
         return ApplicationError(
             err_info.format(operation),
-            err_info,
-            runtime_error_detail(ref, runtime_error.envelope),
+            TemporalErrorDetails.with_runtime_error(
+                ref,
+                runtime_error.envelope,
+                payloads=(err_info,),
+            ),
             type=error_type,
             non_retryable=non_retryable,
         )

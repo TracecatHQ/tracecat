@@ -35,7 +35,10 @@ from tracecat.dsl.schemas import (
     TaskResult,
 )
 from tracecat.dsl.types import ActionErrorInfo, ActionErrorInfoAdapter
-from tracecat.dsl.validation import normalize_trigger_inputs
+from tracecat.dsl.validation import (
+    format_input_schema_validation_error,
+    normalize_trigger_inputs,
+)
 from tracecat.exceptions import TracecatExpressionError, TracecatValidationError
 from tracecat.executor.service import get_workspace_variables
 from tracecat.expressions.common import ExprContext
@@ -208,6 +211,7 @@ class NormalizeTriggerInputsActivityInputs(BaseModel):
     input_schema: dict[str, ExpectedField]
     trigger_inputs: StoredObject | None = None
     key: str
+    workflow_exec_id: str | None = None
 
 
 class ResolveSubflowBatchActivityInput(BaseModel):
@@ -755,20 +759,23 @@ class DSLActivities:
                 phase=RuntimeErrorPhase.PREPARE,
                 error_type=e.__class__.__name__,
                 root=e,
+                workflow_exec_id=inputs.workflow_exec_id,
             ) from e
 
         try:
             normalized = normalize_trigger_inputs(inputs.input_schema, value)
         except ValidationError as e:
             logger.info("Validation error when normalizing trigger inputs", error=e)
+            details = ValidationDetail.list_from_pydantic(e)
             raise ActivityRuntimeError.user(
                 code="dsl.trigger_inputs.validation_failed",
-                message="Failed to validate trigger inputs",
+                message=format_input_schema_validation_error(details),
                 origin=RuntimeErrorOrigin.DSL,
                 phase=RuntimeErrorPhase.PREPARE,
                 error_type=e.__class__.__name__,
                 root=e,
-                details=(ValidationDetail.list_from_pydantic(e),),
+                details=(details,),
+                workflow_exec_id=inputs.workflow_exec_id,
             ) from e
         except Exception as e:
             logger.warning(
@@ -782,6 +789,7 @@ class DSLActivities:
                 phase=RuntimeErrorPhase.PREPARE,
                 error_type=e.__class__.__name__,
                 root=e,
+                workflow_exec_id=inputs.workflow_exec_id,
             ) from e
 
         try:
@@ -795,6 +803,7 @@ class DSLActivities:
                 phase=RuntimeErrorPhase.PREPARE,
                 error_type=e.__class__.__name__,
                 root=e,
+                workflow_exec_id=inputs.workflow_exec_id,
             ) from e
 
     @staticmethod
