@@ -11,6 +11,7 @@ This test suite covers MCP integration functionality including:
 import uuid
 from urllib.parse import parse_qs, urlparse
 
+import httpx
 import pytest
 from pydantic import SecretStr, TypeAdapter
 from sqlalchemy import select
@@ -23,9 +24,11 @@ from tracecat.authz.scopes import ADMIN_SCOPES
 from tracecat.db.models import AgentPreset, MCPIntegration, OAuthIntegration
 from tracecat.integrations.enums import MCPAuthType, OAuthGrantType
 from tracecat.integrations.providers.base import (
+    DynamicRegistrationResult,
     MCPAuthProvider,
     OAuthDiscoveryResult,
 )
+from tracecat.integrations.providers.runreveal.mcp import RunRevealMCPProvider
 from tracecat.integrations.providers.sentry.mcp import SentryMCPProvider
 from tracecat.integrations.providers.wiz.mcp import WizMCPProvider
 from tracecat.integrations.schemas import (
@@ -1262,6 +1265,32 @@ class TestMCPIntegrationEdgeCases:
 class TestMCPProviderOAuth:
     """Test MCP OAuth provider behavior and OAuth discovery."""
 
+    def _mock_async_discovery(
+        self, monkeypatch: pytest.MonkeyPatch, discovery_doc: dict[str, object]
+    ) -> None:
+        class FakeAsyncClient:
+            async def __aenter__(self) -> "FakeAsyncClient":
+                return self
+
+            async def __aexit__(self, *args: object) -> None:
+                _ = args
+
+            async def get(self, url: str, *, timeout: float) -> httpx.Response:
+                assert timeout == 10.0
+                assert url == (
+                    "https://api.runreveal.com/.well-known/oauth-authorization-server"
+                )
+                return httpx.Response(
+                    200,
+                    json=discovery_doc,
+                    request=httpx.Request("GET", url),
+                )
+
+        monkeypatch.setattr(
+            "tracecat.integrations.providers.base.httpx.AsyncClient",
+            FakeAsyncClient,
+        )
+
     async def test_wiz_provider_resource_uses_trailing_slash(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -1339,6 +1368,70 @@ class TestMCPProviderOAuth:
             getattr(provider.client, "token_endpoint_auth_method", None)
             == "client_secret_post"
         )
+
+    async def test_runreveal_provider_allows_discovered_www_api_oauth_host(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """RunReveal serves MCP and OAuth endpoints from separate fixed hosts."""
+        discovery_doc = {
+            "authorization_endpoint": "https://www-api.runreveal.com/oauth/authorize",
+            "token_endpoint": "https://www-api.runreveal.com/oauth/token",
+            "registration_endpoint": "https://www-api.runreveal.com/oauth/client",
+            "token_endpoint_auth_methods_supported": ["client_secret_post", "none"],
+        }
+        self._mock_async_discovery(monkeypatch, discovery_doc)
+
+        async def fake_register(
+            cls,
+            *,
+            registration_endpoint: str,
+            registration_auth_method: str | None,
+            logger_instance,
+        ) -> DynamicRegistrationResult:
+            _ = cls, logger_instance
+            assert registration_endpoint == "https://www-api.runreveal.com/oauth/client"
+            assert registration_auth_method == "client_secret_post"
+            return DynamicRegistrationResult(
+                client_id="runreveal-client",
+                client_secret="runreveal-secret",
+                auth_method=registration_auth_method,
+            )
+
+        monkeypatch.setattr(
+            RunRevealMCPProvider,
+            "_perform_dynamic_registration_async",
+            classmethod(fake_register),
+        )
+
+        provider = await RunRevealMCPProvider.instantiate()
+
+        assert provider.client_id == "runreveal-client"
+        assert provider.client_secret == "runreveal-secret"
+        assert (
+            provider.authorization_endpoint
+            == "https://www-api.runreveal.com/oauth/authorize"
+        )
+        assert provider.token_endpoint == "https://www-api.runreveal.com/oauth/token"
+        assert provider._registration_endpoint == (
+            "https://www-api.runreveal.com/oauth/client"
+        )
+
+    async def test_runreveal_provider_rejects_unallowed_discovered_oauth_host(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """RunReveal only allows its exact alternate OAuth host."""
+        discovery_doc = {
+            "authorization_endpoint": "https://evil.example/oauth/authorize",
+            "token_endpoint": "https://evil.example/oauth/token",
+            "registration_endpoint": "https://evil.example/oauth/client",
+            "token_endpoint_auth_methods_supported": ["none"],
+        }
+        self._mock_async_discovery(monkeypatch, discovery_doc)
+
+        with pytest.raises(ValueError, match="Could not discover OAuth endpoints"):
+            await RunRevealMCPProvider.instantiate()
 
     async def test_sentry_provider_uses_mcp_resource_path(
         self,
