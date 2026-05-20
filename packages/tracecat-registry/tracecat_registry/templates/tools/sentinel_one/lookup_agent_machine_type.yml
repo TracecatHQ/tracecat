@@ -3,7 +3,7 @@ definition:
   title: Lookup agents by machine type
   description: Find all SentinelOne agents filtered by machine type (laptop, desktop, server, etc.).
   display_group: SentinelOne
-  doc_url: https://github.com/sentinel-official/sentinel-python-sdk
+  doc_url: https://github.com/Sentinel-One/purple-mcp
   namespace: tools.sentinel_one
   name: lookup_agent_machine_type
   secrets:

@@ -3,7 +3,7 @@ definition:
   title: Initiate scan
   description: Initiate a scan on SentinelOne agents.
   display_group: SentinelOne
-  doc_url: https://github.com/sentinel-official/sentinel-python-sdk
+  doc_url: https://github.com/Sentinel-One/purple-mcp
   namespace: tools.sentinel_one
   name: initiate_scan
   secrets:
