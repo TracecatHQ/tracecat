@@ -93,7 +93,7 @@ jobs:
       - name: Check action documentation links
         env:
           TRACECAT_TEST_ACTION_DOC_LINKS: "1"
-        run: uv run pytest tests/registry/test_action_doc_links.py -ra
+        run: uv run pytest scripts/tests/test_action_doc_links.py -ra
 
   test-all:
     runs-on: blacksmith-8vcpu-ubuntu-2204
