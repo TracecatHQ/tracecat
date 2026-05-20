@@ -65,7 +65,9 @@ jobs:
       - name: Start Tracecat stack
         run: |
           scripts/cluster up -d --single-tenant --seed --default-tier-entitlements custom_registry
-          timeout 300 bash -c 'until curl -fsS http://localhost/api/ready; do sleep 5; done'
+          APP_URL="$(scripts/cluster url)"
+          export APP_URL
+          timeout 300 bash -c 'until curl -fsS "${APP_URL}/api/ready"; do sleep 5; done'
 
       - name: Run smoke suite
         run: |
