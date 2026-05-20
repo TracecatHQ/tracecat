@@ -3,7 +3,7 @@ definition:
   title: Get agent
   description: Retrieve a Caldera agent by PAW.
   display_group: MITRE Caldera
-  doc_url: https://caldera.readthedocs.io/en/latest/Users/REST-api.html#agents
+  doc_url: https://caldera.readthedocs.io/en/latest/The-REST-API.html
   namespace: tools.caldera
   name: get_agent
   secrets:

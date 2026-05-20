@@ -30,7 +30,7 @@ wiz_mcp_oauth_secret = RegistryOAuthSecret(
     default_title="Wiz MCP",
     description="Use AI to interact with Wiz.",
     display_group="Wiz MCP",
-    doc_url="https://mcp.app.wiz.io/",
+    doc_url="https://www.wiz.io/blog/introducing-mcp-server-for-wiz",
     namespace="tools.wiz",
     secrets=[wiz_mcp_oauth_secret, *PYDANTIC_AI_REGISTRY_SECRETS],
 )

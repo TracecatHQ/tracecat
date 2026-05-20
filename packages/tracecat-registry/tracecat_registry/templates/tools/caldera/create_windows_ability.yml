@@ -3,7 +3,7 @@ definition:
   title: Create Windows ability
   description: Create a Caldera stockpile ability that runs on Windows agents.
   display_group: MITRE Caldera
-  doc_url: https://caldera.readthedocs.io/en/latest/Users/REST-api.html#abilities
+  doc_url: https://caldera.readthedocs.io/en/latest/The-REST-API.html
   namespace: tools.caldera
   name: create_windows_ability
   secrets:
