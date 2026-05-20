@@ -19,6 +19,7 @@ from typing import TYPE_CHECKING
 
 from tracecat import config
 from tracecat.dsl.enums import PlatformAction
+from tracecat.executor.action_gateway.config import action_gateway_socket_path
 from tracecat.executor.action_runner import get_action_runner
 from tracecat.executor.schemas import (
     ExecutorActionErrorInfo,
@@ -146,6 +147,7 @@ class ExecutorBackend(ABC):
                 env_vars=env_vars,
                 python_path_dirs=registry_paths,
                 workspace_id=resolved_context.workspace_id,
+                action_gateway_socket=action_gateway_socket_path(),
             )
             return ExecutorResultSuccess(result=result)
         except (

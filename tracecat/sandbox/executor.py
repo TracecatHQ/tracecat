@@ -26,6 +26,9 @@ from tracecat.sandbox.networking import (
 from tracecat.sandbox.seccomp import build_untrusted_seccomp_policy
 from tracecat.sandbox.types import ResourceLimits, SandboxConfig, SandboxResult
 
+RUN_PYTHON_ACTION_GATEWAY_SOCKET = Path("/var/run/tracecat/action-gateway.sock")
+"""Path visible inside run_python nsjail for executor-owned SDK calls."""
+
 
 @dataclass
 class ActionSandboxConfig:
@@ -208,6 +211,8 @@ class NsjailExecutor:
             _validate_path(python_path_dir, f"python_path_dir_{i}")
         if cache_key:
             _validate_cache_key(cache_key)
+        if config.action_gateway_socket is not None:
+            _validate_path(config.action_gateway_socket, "action_gateway_socket")
 
         # Determine if network should be enabled
         # - Install phase: always enabled for package downloads
@@ -322,6 +327,16 @@ class NsjailExecutor:
             lines.append(
                 f'mount {{ src: "{job_dir}" dst: "/work" is_bind: true rw: true }}'
             )
+            if config.action_gateway_socket is not None:
+                lines.extend(
+                    [
+                        "",
+                        "# Action Gateway socket for internal Tracecat SDK calls",
+                        f'mount {{ src: "{config.action_gateway_socket}" '
+                        f'dst: "{RUN_PYTHON_ACTION_GATEWAY_SOCKET}" '
+                        "is_bind: true rw: false }",
+                    ]
+                )
 
         # Resource limits
         lines.extend(
