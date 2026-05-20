@@ -310,7 +310,10 @@ class ClaudeAgentRuntime:
         return {
             "type": "http",
             "url": TRUSTED_MCP_BRIDGE_URL,
-            "headers": {"Authorization": f"Bearer {auth_token}"},
+            "headers": {
+                "Authorization": f"Bearer {auth_token}",
+                "Accept-Encoding": "identity",
+            },
         }
 
     @staticmethod

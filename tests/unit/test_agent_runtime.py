@@ -248,6 +248,15 @@ def test_get_litellm_route_model_prefixes_provider_route(
 class TestClaudeAgentRuntimeRun:
     """Tests for ClaudeAgentRuntime.run()."""
 
+    def test_trusted_mcp_bridge_disables_response_compression(self) -> None:
+        """The MCP SDK parses bridge responses itself, so request plain JSON."""
+        server_config = ClaudeAgentRuntime._trusted_mcp_server_config("test-jwt-token")
+
+        assert server_config.get("headers") == {
+            "Authorization": "Bearer test-jwt-token",
+            "Accept-Encoding": "identity",
+        }
+
     @pytest.mark.anyio
     async def test_sends_done_on_completion(
         self,
@@ -832,7 +841,10 @@ class TestClaudeAgentRuntimeRun:
         assert mcp_servers["tracecat-registry"] == {
             "type": "http",
             "url": TRUSTED_MCP_BRIDGE_URL,
-            "headers": {"Authorization": "Bearer test-jwt-token"},
+            "headers": {
+                "Authorization": "Bearer test-jwt-token",
+                "Accept-Encoding": "identity",
+            },
         }
         assert "tracecat_registry" not in mcp_servers
 
@@ -884,7 +896,10 @@ class TestClaudeAgentRuntimeRun:
             "tracecat-registry": {
                 "type": "http",
                 "url": TRUSTED_MCP_BRIDGE_URL,
-                "headers": {"Authorization": "Bearer test-jwt-token"},
+                "headers": {
+                    "Authorization": "Bearer test-jwt-token",
+                    "Accept-Encoding": "identity",
+                },
             },
             "local-tools": {
                 "type": "stdio",
@@ -1171,7 +1186,10 @@ class TestClaudeAgentRuntimeRun:
             "tracecat-registry": {
                 "type": "http",
                 "url": TRUSTED_MCP_BRIDGE_URL,
-                "headers": {"Authorization": "Bearer test-jwt-token"},
+                "headers": {
+                    "Authorization": "Bearer test-jwt-token",
+                    "Accept-Encoding": "identity",
+                },
             }
         }
         agent_def = options.agents["analyst"]
@@ -1181,7 +1199,10 @@ class TestClaudeAgentRuntimeRun:
                 "tracecat-registry-analyst": {
                     "type": "http",
                     "url": TRUSTED_MCP_BRIDGE_URL,
-                    "headers": {"Authorization": "Bearer child-mcp-token"},
+                    "headers": {
+                        "Authorization": "Bearer child-mcp-token",
+                        "Accept-Encoding": "identity",
+                    },
                 }
             },
             {
