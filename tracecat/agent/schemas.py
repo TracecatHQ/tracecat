@@ -199,12 +199,43 @@ class RunUsage(BaseModel):
     """Total number of output tokens."""
 
 
+class RuntimeResolution(BaseModel):
+    """Diagnostic metadata describing what the runtime actually received.
+
+    Surfaced on :class:`AgentOutput` so workflow authors can answer "did my
+    override take effect?" and "why is my token usage high?" without reading
+    source or attaching a debugger. This is metadata only -- it never carries
+    the system prompt body or tool definitions, so it cannot leak secrets
+    injected via template expressions.
+    """
+
+    runtime: Literal["claude_code", "pydantic_ai"]
+    """Runtime that executed the turn."""
+
+    system_prompt_source: Literal["default", "source", "action"]
+    """Which cascade level supplied the effective system prompt."""
+
+    system_prompt_length: int = Field(ge=0)
+    """Character length of the system prompt sent to the runtime."""
+
+    system_prompt_append_count: int = Field(ge=0)
+    """Number of append-mode contributions folded into the system prompt."""
+
+    allowed_tools_source: Literal["default", "source", "action"]
+    """Which cascade level supplied the effective allowed-tools list."""
+
+    allowed_tools_count: int | None = None
+    """Number of tools exposed to the runtime. ``None`` means the runtime
+    default (the full built-in toolset) was used."""
+
+
 class AgentOutput(BaseModel):
     output: Any
     message_history: list[ChatMessage] | None = None
     duration: float
     usage: RunUsage | None = None
     session_id: uuid.UUID
+    runtime_resolution: RuntimeResolution | None = None
 
 
 class ExecuteToolCallArgs(BaseModel):

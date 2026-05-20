@@ -155,3 +155,49 @@ Default: `3`.
         - spam
         - unknown
 ```
+
+#### Output
+
+<ResponseField name="runtime_resolution" type="object | null">
+
+Diagnostic metadata describing what the runtime actually received for the
+turn. Use it to confirm whether an override took effect or to understand
+token usage, without reading source or attaching a debugger. It carries
+metadata only — never the system prompt body or tool definitions — so it
+cannot leak values injected via template expressions.
+
+It is chainable in expressions, e.g.
+`${{ ACTIONS.classify_email.result.runtime_resolution.system_prompt_source }}`.
+
+<Expandable title="runtime_resolution fields">
+
+<ResponseField name="runtime" type="string">
+Runtime that executed the turn: `claude_code` or `pydantic_ai`.
+</ResponseField>
+
+<ResponseField name="system_prompt_source" type="string">
+Which cascade level supplied the effective system prompt: `default`,
+`source`, or `action`.
+</ResponseField>
+
+<ResponseField name="system_prompt_length" type="integer">
+Character length of the system prompt sent to the runtime.
+</ResponseField>
+
+<ResponseField name="system_prompt_append_count" type="integer">
+Number of append-mode contributions folded into the system prompt.
+</ResponseField>
+
+<ResponseField name="allowed_tools_source" type="string">
+Which cascade level supplied the effective allowed-tools list: `default`,
+`source`, or `action`.
+</ResponseField>
+
+<ResponseField name="allowed_tools_count" type="integer | null">
+Number of tools exposed to the runtime. `null` means the runtime default
+(the full built-in toolset) was used.
+</ResponseField>
+
+</Expandable>
+
+</ResponseField>

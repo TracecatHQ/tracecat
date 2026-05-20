@@ -12,7 +12,12 @@ from pydantic_core import to_jsonable_python
 from tracecat.agent.exceptions import AgentRunError
 from tracecat.agent.executor.aio import AioStreamingAgentExecutor
 from tracecat.agent.parsers import try_parse_json
-from tracecat.agent.schemas import AgentOutput, RunAgentArgs, RunUsage
+from tracecat.agent.schemas import (
+    AgentOutput,
+    RunAgentArgs,
+    RuntimeResolution,
+    RunUsage,
+)
 from tracecat.agent.stream.common import PersistableStreamingAgentDeps
 from tracecat.agent.types import (
     AgentConfig,
@@ -28,6 +33,26 @@ from tracecat.config import (
 from tracecat.contexts import ctx_role, ctx_session_id
 from tracecat.exceptions import TracecatAuthorizationError
 from tracecat.logger import logger
+
+
+def _build_pydantic_ai_resolution(instructions: str | None) -> RuntimeResolution:
+    """Describe what the pydantic-ai runtime received for this turn.
+
+    The pydantic-ai harness has no notion of implicit built-in tools -- it only
+    sees the tools it is explicitly given -- so ``allowed_tools_*`` is reported
+    as the runtime default. The effective system prompt is the ``instructions``
+    string; there is no Tracecat baseline injection on this runtime.
+    """
+    instructions = instructions or ""
+    has_instructions = bool(instructions)
+    return RuntimeResolution(
+        runtime="pydantic_ai",
+        system_prompt_source="action" if has_instructions else "default",
+        system_prompt_length=len(instructions),
+        system_prompt_append_count=1 if has_instructions else 0,
+        allowed_tools_source="default",
+        allowed_tools_count=None,
+    )
 
 
 async def run_agent_sync(
@@ -225,6 +250,7 @@ async def run_agent(
             duration=end_time - start_time,
             usage=usage,
             session_id=session_id,
+            runtime_resolution=_build_pydantic_ai_resolution(instructions),
         )
 
     except Exception as e:
