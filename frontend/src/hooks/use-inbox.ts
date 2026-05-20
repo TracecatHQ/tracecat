@@ -1,9 +1,15 @@
 "use client"
 
-import { type Query, useQuery } from "@tanstack/react-query"
+import {
+  type Query,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query"
 import { useCallback, useEffect, useMemo, useState } from "react"
 import {
   type AgentSessionEntity,
+  approvalsDeleteApproval,
   type InboxItemRead,
   type InboxItemStatus,
   type InboxListItemsResponse,
@@ -362,4 +368,17 @@ export function useInbox(options: UseInboxOptions = {}): UseInboxResult {
     setUpdatedAfter,
     setCreatedAfter,
   }
+}
+
+export function useDeleteApproval() {
+  const workspaceId = useWorkspaceId()
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: (sessionId: string) =>
+      approvalsDeleteApproval({ sessionId, workspaceId }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["inbox-items"] })
+    },
+  })
 }

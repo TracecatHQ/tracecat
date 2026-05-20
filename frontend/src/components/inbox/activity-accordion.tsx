@@ -62,13 +62,17 @@ const GROUP_ORDER: StatusGroup[] = [
 interface ActivityAccordionProps {
   sessions: InboxSessionItem[]
   selectedId: string | null
+  deletingId: string | null
   onSelect: (id: string) => void
+  onDelete?: (id: string) => void
 }
 
 export function ActivityAccordion({
   sessions,
   selectedId,
+  deletingId,
   onSelect,
+  onDelete,
 }: ActivityAccordionProps) {
   // Group sessions by status category
   const groupedSessions = useMemo(() => {
@@ -164,7 +168,13 @@ export function ActivityAccordion({
                       key={session.id}
                       session={session}
                       isSelected={selectedId === session.id}
+                      isDeleting={deletingId === session.id}
                       onClick={() => onSelect(session.id)}
+                      onDelete={
+                        onDelete && groupKey === "review_required"
+                          ? () => onDelete(session.id)
+                          : undefined
+                      }
                     />
                   ))}
                 </div>

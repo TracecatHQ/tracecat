@@ -10767,6 +10767,13 @@ export type ApprovalsSubmitApprovalsData = {
 
 export type ApprovalsSubmitApprovalsResponse = void
 
+export type ApprovalsDeleteApprovalData = {
+  sessionId: string
+  workspaceId: string
+}
+
+export type ApprovalsDeleteApprovalResponse = void
+
 export type WatchtowerListWatchtowerAgentsData = {
   agentType?: WatchtowerAgentType | null
   cursor?: string | null
@@ -15760,6 +15767,19 @@ export type $OpenApiTs = {
   "/workspaces/{workspace_id}/approvals/{session_id}": {
     post: {
       req: ApprovalsSubmitApprovalsData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    delete: {
+      req: ApprovalsDeleteApprovalData
       res: {
         /**
          * Successful Response
