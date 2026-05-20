@@ -12,7 +12,7 @@ module.exports = {
       },
     ],
   },
-  testPathIgnorePatterns: ["/node_modules/", "/.next/"],
+  testPathIgnorePatterns: ["/node_modules/", "/.next/", "/e2e/"],
   transformIgnorePatterns: ["node_modules/(?!(yaml)/)"],
   moduleNameMapper: {
     "^@/(.*)$": "<rootDir>/src/$1",

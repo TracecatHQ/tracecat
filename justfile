@@ -22,6 +22,15 @@ test-file file:
 test-k keyword:
 	uv run pytest tests/unit -k "{{keyword}}" -n auto -x
 
+# Run frontend Playwright E2E tests against PLAYWRIGHT_BASE_URL (default http://localhost)
+test-e2e *args:
+	#!/usr/bin/env sh
+	set -e
+	if [ -z "${CI:-}" ] && [ -z "${PLAYWRIGHT_BROWSER_CHANNEL+x}" ]; then
+		export PLAYWRIGHT_BROWSER_CHANNEL=chrome
+	fi
+	pnpm -C frontend exec playwright test --workers="${PLAYWRIGHT_WORKERS:-1}" {{args}}
+
 # Run backend benchmarks inside Docker (required for nsjail on macOS)
 bench *args:
 	docker run --rm \
