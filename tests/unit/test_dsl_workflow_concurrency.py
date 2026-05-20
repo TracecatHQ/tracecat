@@ -29,8 +29,13 @@ from tracecat.dsl.workflow import DSLWorkflow
 from tracecat.dsl.workflow_logging import get_workflow_logger
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.registry.lock.types import RegistryLock
+from tracecat.runtime.errors import (
+    RuntimeErrorKind,
+    RuntimeErrorOrigin,
+    RuntimeErrorPhase,
+)
 from tracecat.storage.object import InlineObject
-from tracecat.temporal.exceptions import UserError
+from tracecat.temporal.errors import ActivityRuntimeError, TemporalErrorDetails
 from tracecat.tiers.schemas import EffectiveLimits
 from tracecat.workflow.executions.enums import ExecutionType
 
@@ -99,10 +104,17 @@ def _activity_error_from(
         return e
 
 
-def _user_error_from(cause: Exception, message: str) -> UserError:
+def _user_error_from(cause: Exception, message: str) -> ApplicationError:
     try:
-        raise UserError(message) from cause
-    except UserError as e:
+        raise ActivityRuntimeError.user(
+            code="test.user_error",
+            message=message,
+            origin=RuntimeErrorOrigin.DSL,
+            phase=RuntimeErrorPhase.PREPARE,
+            error_type=cause.__class__.__name__,
+            root=cause,
+        ) from cause
+    except ApplicationError as e:
         return e
 
 
@@ -383,7 +395,12 @@ async def test_prepare_subflow_user_error_in_scatter_uses_error_path() -> None:
         if activity == DSLActivities.handle_scatter_input_activity:
             return InlineObject(data=["item"], typename="list")
         if activity == DSLActivities.prepare_subflow_activity:
-            raise _activity_error_from(UserError("Workflow alias 'child' not found"))
+            raise _activity_error_from(
+                _user_error_from(
+                    ValueError("Workflow alias 'child' not found"),
+                    "Workflow alias 'child' not found",
+                )
+            )
         raise AssertionError(f"Unexpected activity: {activity}")
 
     async def run_action(task: ActionStatement) -> InlineObject:
@@ -490,12 +507,18 @@ def test_evaluate_loop_iterations_invalid_for_each_raises_user_error() -> None:
         for_each="${{ [1, 2, 3] }}",
     )
 
-    with pytest.raises(UserError, match="Error evaluating subflow for_each expression"):
+    with pytest.raises(
+        ApplicationError, match="Error evaluating subflow for_each expression"
+    ) as exc_info:
         _evaluate_loop_iterations(
             task,
             materialized=cast(Any, {"ACTIONS": {}, "TRIGGER": None}),
             dsl_config=DSLConfig(),
         )
+    envelope = TemporalErrorDetails.runtime_error_from_details(exc_info.value.details)
+    assert envelope is not None
+    assert envelope.kind == RuntimeErrorKind.USER
+    assert envelope.code == "dsl.subflow.for_each_evaluation_failed"
 
 
 @pytest.mark.anyio

@@ -79,12 +79,7 @@ class TemporalErrorDetails(BaseModel):
         cls, details: Sequence[Any], *, ref: str | None = None
     ) -> RuntimeErrorEnvelope | None:
         parsed = cls.from_details(details)
-        if envelope := parsed.runtime_error(ref=ref):
-            return envelope
-        for payload in parsed.payloads:
-            if envelope := cls._envelope_from_payload(payload):
-                return envelope
-        return None
+        return parsed.runtime_error(ref=ref)
 
     @classmethod
     def _from_payload(cls, payload: Any) -> TemporalErrorDetails | None:
@@ -97,19 +92,6 @@ class TemporalErrorDetails(BaseModel):
                 except Exception:
                     return None
         return None
-
-    @staticmethod
-    def _envelope_from_payload(value: Any) -> RuntimeErrorEnvelope | None:
-        match value:
-            case RuntimeErrorEnvelope() as envelope:
-                return envelope
-            case dict():
-                try:
-                    return RuntimeErrorEnvelope.model_validate(value)
-                except Exception:
-                    return None
-            case _:
-                return None
 
 
 class TemporalRuntimeError:
@@ -165,6 +147,7 @@ class TemporalRuntimeError:
         action_ref: str | None = None,
         stream_id: object | None = None,
         workflow_exec_id: str | None = None,
+        affects_workflow: bool | None = None,
         metadata: dict[str, Any] | None = None,
         retryable: bool = False,
         non_retryable: bool = True,
@@ -181,6 +164,7 @@ class TemporalRuntimeError:
                 action_ref=action_ref,
                 stream_id=stream_id,
                 workflow_exec_id=workflow_exec_id,
+                affects_workflow=affects_workflow,
                 metadata=metadata,
             ),
             error_type=error_type,
@@ -203,6 +187,7 @@ class TemporalRuntimeError:
         action_ref: str | None = None,
         stream_id: object | None = None,
         workflow_exec_id: str | None = None,
+        affects_workflow: bool | None = None,
         metadata: dict[str, Any] | None = None,
         retryable: bool = False,
         non_retryable: bool = True,
@@ -220,6 +205,7 @@ class TemporalRuntimeError:
             action_ref=action_ref,
             stream_id=stream_id,
             workflow_exec_id=workflow_exec_id,
+            affects_workflow=affects_workflow,
             metadata=metadata,
             retryable=retryable,
             non_retryable=non_retryable,
@@ -240,6 +226,7 @@ class TemporalRuntimeError:
         action_ref: str | None = None,
         stream_id: object | None = None,
         workflow_exec_id: str | None = None,
+        affects_workflow: bool | None = None,
         metadata: dict[str, Any] | None = None,
         retryable: bool = False,
         non_retryable: bool = True,
@@ -257,6 +244,7 @@ class TemporalRuntimeError:
             action_ref=action_ref,
             stream_id=stream_id,
             workflow_exec_id=workflow_exec_id,
+            affects_workflow=affects_workflow,
             metadata=metadata,
             retryable=retryable,
             non_retryable=non_retryable,
@@ -277,6 +265,7 @@ class TemporalRuntimeError:
         action_ref: str | None = None,
         stream_id: object | None = None,
         workflow_exec_id: str | None = None,
+        affects_workflow: bool | None = None,
         metadata: dict[str, Any] | None = None,
         retryable: bool = True,
         non_retryable: bool = False,
@@ -294,6 +283,7 @@ class TemporalRuntimeError:
             action_ref=action_ref,
             stream_id=stream_id,
             workflow_exec_id=workflow_exec_id,
+            affects_workflow=affects_workflow,
             metadata=metadata,
             retryable=retryable,
             non_retryable=non_retryable,
@@ -314,6 +304,7 @@ class TemporalRuntimeError:
         action_ref: str | None = None,
         stream_id: object | None = None,
         workflow_exec_id: str | None = None,
+        affects_workflow: bool | None = None,
         metadata: dict[str, Any] | None = None,
         infra_retryable: bool = True,
         infra_non_retryable: bool = False,
@@ -333,6 +324,7 @@ class TemporalRuntimeError:
                 action_ref=action_ref,
                 stream_id=stream_id,
                 workflow_exec_id=workflow_exec_id,
+                affects_workflow=affects_workflow,
                 metadata=metadata,
                 retryable=infra_retryable,
                 non_retryable=infra_non_retryable,
@@ -349,6 +341,7 @@ class TemporalRuntimeError:
             action_ref=action_ref,
             stream_id=stream_id,
             workflow_exec_id=workflow_exec_id,
+            affects_workflow=affects_workflow,
             metadata=metadata,
             retryable=platform_retryable,
             non_retryable=platform_non_retryable,

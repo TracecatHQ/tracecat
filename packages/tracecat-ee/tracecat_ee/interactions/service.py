@@ -9,7 +9,6 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
-from temporalio.exceptions import ApplicationError
 
 from tracecat.auth.types import Role
 from tracecat.db.models import Interaction
@@ -19,7 +18,7 @@ from tracecat.interactions.schemas import InteractionInput, InteractionResult
 from tracecat.interactions.types import InteractionState
 from tracecat.runtime.errors import RuntimeErrorOrigin, RuntimeErrorPhase
 from tracecat.service import BaseWorkspaceService
-from tracecat.temporal.errors import ActivityRuntimeError
+from tracecat.temporal.errors import ActivityRuntimeError, WorkflowRuntimeError
 
 if TYPE_CHECKING:
     from tracecat.dsl.workflow import DSLWorkflow
@@ -128,8 +127,17 @@ class InteractionManager:
                 "Received interaction for unknown action",
                 interaction_id=input.interaction_id,
             )
-            raise ApplicationError(
-                "Received interaction for unknown action", non_retryable=True
+            message = "Received interaction for unknown action"
+            raise WorkflowRuntimeError.user(
+                code="interaction.unknown",
+                message=message,
+                origin=RuntimeErrorOrigin.DSL,
+                phase=RuntimeErrorPhase.ROUTE,
+                error_type=KeyError.__name__,
+                root=KeyError(message),
+                action_ref=input.action_ref,
+                workflow_exec_id=self.wf.wf_exec_id,
+                metadata={"interaction_id": str(input.interaction_id)},
             )
 
         self.states[input.interaction_id].data = input.data
@@ -222,8 +230,17 @@ class InteractionManager:
                 interaction_id=interaction_id,
                 exc=e,
             )
-            raise ApplicationError(
-                "Timeout waiting for response", non_retryable=True
+            state = self.states[interaction_id]
+            raise WorkflowRuntimeError.user(
+                code="interaction.response_timeout",
+                message="Timeout waiting for response",
+                origin=RuntimeErrorOrigin.DSL,
+                phase=RuntimeErrorPhase.USER_CODE,
+                error_type=e.__class__.__name__,
+                root=e,
+                action_ref=state.action_ref,
+                workflow_exec_id=self.wf.wf_exec_id,
+                metadata={"interaction_id": str(interaction_id)},
             ) from e
         except Exception as e:
             await self._update_interaction(

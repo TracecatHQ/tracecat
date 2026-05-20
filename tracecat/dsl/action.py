@@ -70,7 +70,6 @@ from tracecat.storage.object import (
     retrieve_stored_object,
 )
 from tracecat.temporal.errors import ActivityRuntimeError
-from tracecat.temporal.exceptions import UserError
 from tracecat.validation.schemas import ValidationDetail
 
 _thread_local = threading.local()
@@ -898,7 +897,10 @@ def _as_error_info(detail: Any) -> ActionErrorInfo | None:
 
 
 def _evaluate_subflow_args(
-    args: Mapping[str, Any], operand: Mapping[str, Any]
+    args: Mapping[str, Any],
+    operand: Mapping[str, Any],
+    *,
+    action_ref: str | None = None,
 ) -> tuple[dict[str, Any], ExecuteSubflowArgs]:
     try:
         evaluated_args = cast(
@@ -907,11 +909,25 @@ def _evaluate_subflow_args(
         )
         return evaluated_args, ExecuteSubflowArgs.model_validate(evaluated_args)
     except TracecatExpressionError as e:
-        raise UserError(f"Error evaluating subflow arguments: {e}") from e
+        raise ActivityRuntimeError.user(
+            code="dsl.subflow.arguments_evaluation_failed",
+            message=f"Error evaluating subflow arguments: {e}",
+            origin=RuntimeErrorOrigin.DSL,
+            phase=RuntimeErrorPhase.PREPARE,
+            error_type=e.__class__.__name__,
+            root=e,
+            action_ref=action_ref,
+        ) from e
     except ValidationError as e:
-        raise UserError(
-            "Invalid subflow arguments",
-            ValidationDetail.list_from_pydantic(e),
+        raise ActivityRuntimeError.user(
+            code="dsl.subflow.arguments_invalid",
+            message="Invalid subflow arguments",
+            origin=RuntimeErrorOrigin.DSL,
+            phase=RuntimeErrorPhase.PREPARE,
+            error_type=e.__class__.__name__,
+            root=e,
+            details=(ValidationDetail.list_from_pydantic(e),),
+            action_ref=action_ref,
         ) from e
 
 
@@ -1027,18 +1043,40 @@ def _evaluate_loop_iterations(
         runtime_configs is single DSLConfig if all identical, else list.
     """
     if not task.for_each:
-        raise UserError("task.for_each is required for loop iterations")
+        raise ActivityRuntimeError.user(
+            code="dsl.subflow.loop_for_each_missing",
+            message="task.for_each is required for loop iterations",
+            origin=RuntimeErrorOrigin.DSL,
+            phase=RuntimeErrorPhase.PREPARE,
+            error_type="SubflowLoopForEachMissing",
+            action_ref=task.ref,
+        )
     try:
         iterators = get_iterables_from_expression(
             expr=task.for_each, operand=materialized
         )
     except (TracecatExpressionError, ValueError) as e:
-        raise UserError(f"Error evaluating subflow for_each expression: {e}") from e
+        raise ActivityRuntimeError.user(
+            code="dsl.subflow.for_each_evaluation_failed",
+            message=f"Error evaluating subflow for_each expression: {e}",
+            origin=RuntimeErrorOrigin.DSL,
+            phase=RuntimeErrorPhase.PREPARE,
+            error_type=e.__class__.__name__,
+            root=e,
+            action_ref=task.ref,
+        ) from e
     all_items = list(zip(*iterators, strict=False))
 
     if len(all_items) > MAX_LOOP_ITERATIONS:
-        raise UserError(
-            f"Loop exceeds max iterations: {len(all_items)} > {MAX_LOOP_ITERATIONS}"
+        raise ActivityRuntimeError.user(
+            code="dsl.subflow.loop_max_iterations_exceeded",
+            message=(
+                f"Loop exceeds max iterations: {len(all_items)} > {MAX_LOOP_ITERATIONS}"
+            ),
+            origin=RuntimeErrorOrigin.DSL,
+            phase=RuntimeErrorPhase.PREPARE,
+            error_type="SubflowLoopMaxIterationsExceeded",
+            action_ref=task.ref,
         )
 
     trigger_inputs_list: list[Any] = []
@@ -1057,7 +1095,9 @@ def _evaluate_loop_iterations(
             )
 
         # Evaluate the full task args with patched context
-        _, iter_val_args = _evaluate_subflow_args(task.args, patched_context)
+        _, iter_val_args = _evaluate_subflow_args(
+            task.args, patched_context, action_ref=task.ref
+        )
 
         # Environment precedence: args.environment > dsl.config
         resolved_environment = iter_val_args.environment or dsl_config.environment
@@ -1099,7 +1139,7 @@ async def _prepare_subflow(input: PrepareSubflowActivityInput) -> PreparedSubflo
     # Evaluate task args to get workflow_id or workflow_alias
     # Run CPU-bound expression evaluation in thread to avoid blocking event loop
     evaluated_args, val_args = await asyncio.to_thread(
-        _evaluate_subflow_args, task.args, materialized
+        _evaluate_subflow_args, task.args, materialized, action_ref=task.ref
     )
 
     # Resolve workflow ID
@@ -1112,12 +1152,27 @@ async def _prepare_subflow(input: PrepareSubflowActivityInput) -> PreparedSubflo
                 use_committed=input.use_committed,
             )
             if resolved_id is None:
-                raise UserError(f"Workflow alias '{workflow_alias}' not found")
+                raise ActivityRuntimeError.user(
+                    code="dsl.subflow.workflow_alias_not_found",
+                    message=f"Workflow alias '{workflow_alias}' not found",
+                    origin=RuntimeErrorOrigin.DSL,
+                    phase=RuntimeErrorPhase.PREPARE,
+                    error_type="WorkflowAliasNotFound",
+                    action_ref=task.ref,
+                    metadata={"workflow_alias": workflow_alias},
+                )
             wf_id = WorkflowUUID.new(resolved_id)
     elif workflow_id := val_args.workflow_id:
         wf_id = WorkflowUUID.new(workflow_id)
     else:
-        raise UserError("Either workflow_id or workflow_alias must be provided")
+        raise ActivityRuntimeError.user(
+            code="dsl.subflow.workflow_reference_missing",
+            message="Either workflow_id or workflow_alias must be provided",
+            origin=RuntimeErrorOrigin.DSL,
+            phase=RuntimeErrorPhase.PREPARE,
+            error_type="SubflowWorkflowReferenceMissing",
+            action_ref=task.ref,
+        )
 
     # Fetch workflow definition
     async with WorkflowDefinitionsService.with_session(role=input.role) as service:
@@ -1125,7 +1180,15 @@ async def _prepare_subflow(input: PrepareSubflowActivityInput) -> PreparedSubflo
             wf_id, version=evaluated_args.get("version")
         )
         if not defn:
-            raise UserError(f"Workflow definition not found for {wf_id.short()}")
+            raise ActivityRuntimeError.user(
+                code="dsl.subflow.workflow_definition_not_found",
+                message=f"Workflow definition not found for {wf_id.short()}",
+                origin=RuntimeErrorOrigin.DSL,
+                phase=RuntimeErrorPhase.PREPARE,
+                error_type="WorkflowDefinitionNotFound",
+                action_ref=task.ref,
+                metadata={"workflow_id": wf_id.short()},
+            )
     dsl = DSLInput(**defn.content)
     registry_lock = (
         RegistryLock.model_validate(defn.registry_lock) if defn.registry_lock else None
@@ -1134,7 +1197,7 @@ async def _prepare_subflow(input: PrepareSubflowActivityInput) -> PreparedSubflo
     # For single subflows (no for_each), evaluate args and return
     if not task.for_each:
         evaluated_args, val_args = await asyncio.to_thread(
-            _evaluate_subflow_args, task.args, materialized
+            _evaluate_subflow_args, task.args, materialized, action_ref=task.ref
         )
 
         runtime_config = DSLConfig(

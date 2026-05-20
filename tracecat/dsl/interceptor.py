@@ -17,6 +17,8 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.contexts import ctx_role
     from tracecat.dsl.common import DSLRunArgs, get_trigger_type
     from tracecat.logger import logger
+    from tracecat.runtime.errors import RuntimeErrorOrigin, RuntimeErrorPhase
+    from tracecat.temporal.errors import WorkflowRuntimeError
     from tracecat.workflow.executions.enums import TriggerType
 
 
@@ -87,7 +89,7 @@ class _SentryWorkflowInterceptor(WorkflowInboundInterceptor):
             try:
                 return await super().execute_workflow(input)
             except ApplicationError as e:
-                logger.warning("Caught application level workflow error", error=str(e))
+                logger.warning("Caught classified workflow failure", error=str(e))
                 # We want to raise the error so that the workflow can be retried
                 # We want to log the error if this is a scheduled workflow
                 # Get the temporal search attribute for TracecatTriggerType
@@ -105,9 +107,9 @@ class _SentryWorkflowInterceptor(WorkflowInboundInterceptor):
                             logger.error("Webhook workflow error", error=str(e))
                     case _:
                         logger.info("Not a scheduled workflow, skipping reporting")
-                raise e
+                raise
             except Exception as e:
-                logger.warning("Caught platform level workflow error", error=str(e))
+                logger.warning("Caught unclassified workflow failure", error=str(e))
                 if len(input.args) >= 1:
                     arg = input.args[0]
                     if is_dataclass(arg) and not isinstance(arg, type):
@@ -120,13 +122,24 @@ class _SentryWorkflowInterceptor(WorkflowInboundInterceptor):
                     # NOTE: We log here instead of capturing the exception because of metaclass issues with ApplicationError
                     # Related issue: https://temporalio.slack.com/archives/CTT84RS0P/p1720730740608279?thread_ts=1720727238.727909&cid=CTT84RS0P
                     logger.error(
-                        "Unexpected workflow error, likely a platform issue",
+                        "Unclassified workflow failure",
                         error=str(e),
                     )
-                logger.debug(
-                    "Reraising exception as ApplicationError to fail workflow gracefully"
+                origin = (
+                    RuntimeErrorOrigin.DSL
+                    if input.args and isinstance(input.args[0], DSLRunArgs)
+                    else RuntimeErrorOrigin.UNKNOWN
                 )
-                raise ApplicationError(str(e)) from e
+                logger.debug("Classifying unhandled workflow exception")
+                raise WorkflowRuntimeError.platform_or_infra(
+                    code="workflow.unclassified_failure",
+                    message=str(e),
+                    origin=origin,
+                    phase=RuntimeErrorPhase.UNKNOWN,
+                    error_type=e.__class__.__name__,
+                    root=e,
+                    workflow_exec_id=info.workflow_id,
+                ) from e
 
 
 class SentryInterceptor(Interceptor):

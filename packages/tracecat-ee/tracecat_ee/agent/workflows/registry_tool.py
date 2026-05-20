@@ -13,7 +13,9 @@ with workflow.unsafe.imports_passed_through():
     )
     from tracecat.dsl.common import RETRY_POLICIES
     from tracecat.executor.activities import ExecutorActivities
+    from tracecat.runtime.errors import RuntimeErrorOrigin, RuntimeErrorPhase
     from tracecat.storage.object import StoredObject, StoredObjectValidator
+    from tracecat.temporal.errors import WorkflowRuntimeError
 
 
 def _activity_error_message(error: ActivityError) -> str:
@@ -47,8 +49,16 @@ class ExecuteRegistryToolWorkflow:
                 priority=AGENT_TOOL_PRIORITY,
             )
         except ActivityError as e:
-            raise ApplicationError(
-                _activity_error_message(e),
-                non_retryable=True,
-            ) from e
+            if isinstance(e.cause, ApplicationError):
+                raise e.cause from None
+            root = e.cause if isinstance(e.cause, BaseException) else e
+            raise WorkflowRuntimeError.platform_or_infra(
+                code="agent.registry_tool.execution_failed",
+                message=_activity_error_message(e),
+                origin=RuntimeErrorOrigin.UNKNOWN,
+                phase=RuntimeErrorPhase.USER_CODE,
+                error_type=root.__class__.__name__,
+                root=root,
+                workflow_exec_id=workflow.info().workflow_id,
+            ) from root
         return StoredObjectValidator.validate_python(stored)

@@ -100,6 +100,7 @@ from tracecat.storage.utils import (
 from tracecat.tables.enums import SqlType
 from tracecat.tables.schemas import TableColumnCreate, TableCreate, TableRowInsert
 from tracecat.tables.service import TablesService
+from tracecat.temporal.errors import TemporalErrorDetails
 from tracecat.variables.schemas import VariableCreate
 from tracecat.variables.service import VariablesService
 from tracecat.workflow.executions.enums import (
@@ -1876,9 +1877,9 @@ async def test_single_child_workflow_get_correct_secret_environment(
     temporal_client: Client,
     test_worker_factory: WorkerFactory,
     test_executor_worker_factory: WorkerFactory,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    # We need to set this on the API server, as we run it in a separate process
-    # monkeysession.setattr(config, "TRACECAT__UNSAFE_DISABLE_SM_MASKING", True)
+    monkeypatch.setattr(config, "TRACECAT__UNSAFE_DISABLE_SM_MASKING", True)
     test_name = f"{test_single_child_workflow_get_correct_secret_environment.__name__}"
     test_description = "Test that a single child workflow can get a secret from the correect environment"
 
@@ -3816,6 +3817,7 @@ async def test_workflow_error_handler_invalid_handler_fail_no_match(
 @pytest.mark.anyio
 @pytest.mark.integration
 @pytest.mark.requires_api
+@pytest.mark.usefixtures("inprocess_api_server")
 async def test_workflow_lookup_table_success(
     test_role: Role,
     temporal_client: Client,
@@ -3879,6 +3881,7 @@ async def test_workflow_lookup_table_success(
 @pytest.mark.anyio
 @pytest.mark.integration
 @pytest.mark.requires_api
+@pytest.mark.usefixtures("inprocess_api_server")
 async def test_workflow_lookup_table_missing_value(
     test_role: Role,
     temporal_client: Client,
@@ -3945,6 +3948,7 @@ async def test_workflow_lookup_table_missing_value(
 @pytest.mark.anyio
 @pytest.mark.integration
 @pytest.mark.requires_api
+@pytest.mark.usefixtures("inprocess_api_server")
 async def test_workflow_insert_table_row_success(
     test_role: Role,
     temporal_client: Client,
@@ -4020,6 +4024,7 @@ async def test_workflow_insert_table_row_success(
 @pytest.mark.anyio
 @pytest.mark.integration
 @pytest.mark.requires_api
+@pytest.mark.usefixtures("inprocess_api_server")
 async def test_workflow_table_actions_in_loop(
     test_role: Role,
     temporal_client: Client,
@@ -6108,8 +6113,15 @@ async def test_workflow_gather_error_strategy_raise(
     assert "Gather 'gather1' encountered" in str(cause)
     assert cause.details, "ApplicationError should include gather error details"
 
-    # The details[0] is a dict mapping gather_ref to ActionErrorInfo
-    detail = cause.details[0]
+    details = TemporalErrorDetails.from_application_error(cause)
+    runtime_error = details.runtime_error(ref="gather1")
+    assert runtime_error is not None, "Details should contain gather1 runtime error"
+    assert runtime_error.action_ref == "gather1", (
+        "Gather runtime error should reference gather1"
+    )
+    assert runtime_error.code == "dsl.gather.errors_raised"
+
+    detail = details.first_payload
     assert isinstance(detail, Mapping)
     assert "gather1" in detail, "Details should contain gather1 error"
 

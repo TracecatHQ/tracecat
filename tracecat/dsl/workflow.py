@@ -132,8 +132,8 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.temporal.errors import (
         TemporalErrorDetails,
         WorkflowRuntimeError,
+        extract_runtime_error,
     )
-    from tracecat.temporal.exceptions import UserError
     from tracecat.tiers.activities import (
         AcquireActionPermitInput,
         AcquireWorkflowPermitInput,
@@ -962,7 +962,9 @@ class DSLWorkflow:
                 return False
             seen.add(current_id)
 
-            if UserError.matches(current):
+            if (
+                runtime_error := extract_runtime_error(current)
+            ) and runtime_error.kind == RuntimeErrorKind.USER:
                 return True
 
             nested = getattr(current, "cause", None)
@@ -1374,16 +1376,16 @@ class DSLWorkflow:
                 type=err_type,
             )
             match cause:
-                case ApplicationError(details=details) if details:
-                    err_info = details[0]
-                    err_type = cause.type or err_type
-                    task_result = task_result.with_error(err_info, err_type)
-                    # Reraise the cause, as it's wrapped by the ApplicationError
-                    raise cause from e
                 case ApplicationError() as app_err:
                     err_type = app_err.type or err_type
-                    err_message = app_err.message or root_message
-                    task_result = task_result.with_error(err_message, err_type)
+                    parsed_details = TemporalErrorDetails.from_application_error(
+                        app_err
+                    )
+                    err_payload = parsed_details.first_payload
+                    task_result = task_result.with_error(
+                        err_payload if err_payload is not None else root_message,
+                        err_type,
+                    )
                     raise app_err from e
                 case _:
                     resolved_type = root_error.__class__.__name__
@@ -1978,13 +1980,12 @@ class DSLWorkflow:
         try:
             wait_strategy = WaitStrategy(wait_strategy_value)
         except ValueError as e:
-            message = (
-                "Invalid wait strategy: "
-                f"wait_strategy must be one of {wait_strategy_options}"
-            )
             raise WorkflowRuntimeError.user(
                 code="dsl.child_workflow.wait_strategy_invalid",
-                message=message,
+                message=(
+                    "Invalid wait strategy: "
+                    f"wait_strategy must be one of {wait_strategy_options}"
+                ),
                 origin=RuntimeErrorOrigin.DSL,
                 phase=RuntimeErrorPhase.ROUTE,
                 error_type=e.__class__.__name__,

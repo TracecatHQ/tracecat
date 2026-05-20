@@ -78,6 +78,7 @@ with workflow.unsafe.imports_passed_through():
     )
     from tracecat.temporal.errors import (
         TemporalErrorDetails,
+        WorkflowRuntimeError,
         extract_runtime_error,
     )
 
@@ -488,8 +489,10 @@ class DSLScheduler:
                     )
             case dict() as child_error_map:
                 try:
-                    first_child_error = next(iter(child_error_map.values()))
-                    return ActionErrorInfoAdapter.validate_python(first_child_error)
+                    child_errors = {
+                        ref: ActionErrorInfoAdapter.validate_python(child_error)
+                        for ref, child_error in child_error_map.items()
+                    }
                 except Exception as parse_error:
                     self.logger.info(
                         "Failed to parse child workflow error details",
@@ -504,6 +507,15 @@ class DSLScheduler:
                             f"\nGot: {self._format_unexpected_error_payload(task.ref, payload)}"
                         ),
                     )
+                if set(child_errors) == {task.ref}:
+                    return child_errors[task.ref]
+                return ActionErrorInfo(
+                    ref=task.ref,
+                    message=f"Child workflow failed with {len(child_errors)} error(s)",
+                    type=exc.type or exc.__class__.__name__,
+                    children=list(child_errors.values()),
+                    stream_id=task.stream_id,
+                )
             case _:
                 self.logger.info(
                     "Application error details are not ActionErrorInfo",
@@ -993,9 +1005,16 @@ class DSLScheduler:
             except ActivityError:
                 raise
             except Exception as e:
-                raise ApplicationError(
-                    f"Error evaluating `run_if` condition: {e}",
-                    non_retryable=True,
+                raise WorkflowRuntimeError.user(
+                    code="dsl.run_if.evaluation_failed",
+                    message=f"Error evaluating `run_if` condition: {e}",
+                    origin=RuntimeErrorOrigin.DSL,
+                    phase=RuntimeErrorPhase.ROUTE,
+                    error_type=e.__class__.__name__,
+                    root=e,
+                    action_ref=task.ref,
+                    stream_id=task.stream_id,
+                    workflow_exec_id=self.wf_exec_id,
                 ) from e
 
             if not bool(expr_result):
@@ -1070,12 +1089,18 @@ class DSLScheduler:
             isinstance(raw_max_iterations, int)
             and raw_max_iterations > MAX_DO_WHILE_ITERATIONS
         ):
-            raise ApplicationError(
-                (
+            raise WorkflowRuntimeError.user(
+                code="dsl.loop.max_iterations_exceeds_platform_cap",
+                message=(
                     "Loop max_iterations exceeds platform cap: "
                     f"{raw_max_iterations} > {MAX_DO_WHILE_ITERATIONS}."
                 ),
-                non_retryable=True,
+                origin=RuntimeErrorOrigin.DSL,
+                phase=RuntimeErrorPhase.ROUTE,
+                error_type="LoopMaxIterationsExceedsPlatformCap",
+                action_ref=task.ref,
+                stream_id=task.stream_id,
+                workflow_exec_id=self.wf_exec_id,
             )
         args = LoopEndArgs(**stmt.args)
         loop_key = (region.start_ref, task.stream_id)
@@ -1100,9 +1125,16 @@ class DSLScheduler:
             except ActivityError:
                 raise
             except Exception as e:
-                raise ApplicationError(
-                    f"Error evaluating `condition` in `core.loop.end`: {e}",
-                    non_retryable=True,
+                raise WorkflowRuntimeError.user(
+                    code="dsl.loop.condition_evaluation_failed",
+                    message=f"Error evaluating `condition` in `core.loop.end`: {e}",
+                    origin=RuntimeErrorOrigin.DSL,
+                    phase=RuntimeErrorPhase.ROUTE,
+                    error_type=e.__class__.__name__,
+                    root=e,
+                    action_ref=task.ref,
+                    stream_id=task.stream_id,
+                    workflow_exec_id=self.wf_exec_id,
                 ) from e
             should_continue = bool(expr_result)
 
@@ -1115,12 +1147,18 @@ class DSLScheduler:
         if should_continue:
             next_index = current_index + 1
             if next_index >= args.max_iterations:
-                raise ApplicationError(
-                    (
+                raise WorkflowRuntimeError.user(
+                    code="dsl.loop.max_iterations_exceeded",
+                    message=(
                         f"Loop '{task.ref}' exceeded max_iterations={args.max_iterations}. "
                         "Update `condition` or increase `max_iterations`."
                     ),
-                    non_retryable=True,
+                    origin=RuntimeErrorOrigin.DSL,
+                    phase=RuntimeErrorPhase.ROUTE,
+                    error_type="LoopMaxIterationsExceeded",
+                    action_ref=task.ref,
+                    stream_id=task.stream_id,
+                    workflow_exec_id=self.wf_exec_id,
                 )
             self._reset_loop_iteration_state(region, task.stream_id)
             self.loop_indices[loop_key] = next_index
@@ -1430,7 +1468,16 @@ class DSLScheduler:
                 parent_stream_id = self._get_parent_stream_id_safe(task, stream_id)
             case _:
                 self.logger.warning("Invalid gather state", task=task)
-                raise ApplicationError("Invalid gather state")
+                raise WorkflowRuntimeError.platform(
+                    code="dsl.gather.invalid_state",
+                    message="Invalid gather state",
+                    origin=RuntimeErrorOrigin.DSL,
+                    phase=RuntimeErrorPhase.ROUTE,
+                    error_type="InvalidGatherState",
+                    action_ref=task.ref,
+                    stream_id=task.stream_id,
+                    workflow_exec_id=self.wf_exec_id,
+                )
         # =============
         # We only reach this point if we are in an execution stream.
         # =============
@@ -1597,10 +1644,19 @@ class DSLScheduler:
                 children=finalized.errors,
                 stream_id=parent_stream_id,
             )
-            app_error = ApplicationError(
-                message,
-                {gather_ref: ActionErrorInfoAdapter.dump_python(gather_error)},
-                non_retryable=True,
+            app_error = WorkflowRuntimeError.user(
+                code="dsl.gather.errors_raised",
+                message=message,
+                origin=RuntimeErrorOrigin.DSL,
+                phase=RuntimeErrorPhase.ROUTE,
+                error_type=ApplicationError.__name__,
+                details=(
+                    {gather_ref: ActionErrorInfoAdapter.dump_python(gather_error)},
+                ),
+                action_ref=gather_ref,
+                stream_id=parent_stream_id,
+                workflow_exec_id=self.wf_exec_id,
+                affects_workflow=True,
             )
             self.logger.warning(
                 "Raising gather error", errors=finalized.errors, app_error=app_error
@@ -1611,16 +1667,8 @@ class DSLScheduler:
             self.task_exceptions[gather_ref] = TaskExceptionInfo(
                 exception=app_error,
                 details=gather_error,
-                runtime_error=RuntimeErrorEnvelope.build(
-                    kind=RuntimeErrorKind.USER,
-                    code="dsl.gather.errors_raised",
-                    message=message,
-                    origin=RuntimeErrorOrigin.DSL,
-                    phase=RuntimeErrorPhase.ROUTE,
-                    affects_workflow=True,
-                    action_ref=gather_ref,
-                    stream_id=parent_stream_id,
-                    workflow_exec_id=self.wf_exec_id,
+                runtime_error=TemporalErrorDetails.runtime_error_from_details(
+                    app_error.details, ref=gather_ref
                 ),
             )
             raise app_error

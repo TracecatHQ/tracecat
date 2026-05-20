@@ -78,6 +78,8 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.executor.activities import ExecutorActivities
     from tracecat.logger import logger
     from tracecat.registry.lock.types import RegistryLock
+    from tracecat.runtime.errors import RuntimeErrorOrigin, RuntimeErrorPhase
+    from tracecat.temporal.errors import WorkflowRuntimeError
     from tracecat.workflow.executions.correlation import (
         build_agent_session_correlation_id,
     )
@@ -327,10 +329,26 @@ class DurableAgentWorkflow:
         self._status: Literal["running", "waiting_for_results", "done"] = "running"
         self._turn: int = 0
         if args.role.workspace_id is None:
-            raise ApplicationError("Role must have a workspace ID", non_retryable=True)
+            message = "Role must have a workspace ID"
+            raise WorkflowRuntimeError.platform(
+                code="agent.role.workspace_missing",
+                message=message,
+                origin=RuntimeErrorOrigin.UNKNOWN,
+                phase=RuntimeErrorPhase.PREPARE,
+                error_type=ValueError.__name__,
+                root=ValueError(message),
+                workflow_exec_id=workflow.info().workflow_id,
+            )
         if args.role.organization_id is None:
-            raise ApplicationError(
-                "Role must have an organization ID", non_retryable=True
+            message = "Role must have an organization ID"
+            raise WorkflowRuntimeError.platform(
+                code="agent.role.organization_missing",
+                message=message,
+                origin=RuntimeErrorOrigin.UNKNOWN,
+                phase=RuntimeErrorPhase.PREPARE,
+                error_type=ValueError.__name__,
+                root=ValueError(message),
+                workflow_exec_id=workflow.info().workflow_id,
             )
         self.workspace_id = args.role.workspace_id
         self.organization_id = args.role.organization_id
@@ -454,9 +472,15 @@ class DurableAgentWorkflow:
             cfg = preset_config
         else:
             if args.agent_args.config is None:
-                raise ApplicationError(
-                    "Config must be provided if preset_slug is not set",
-                    non_retryable=True,
+                message = "Config must be provided if preset_slug is not set"
+                raise WorkflowRuntimeError.user(
+                    code="agent.config.missing",
+                    message=message,
+                    origin=RuntimeErrorOrigin.UNKNOWN,
+                    phase=RuntimeErrorPhase.PREPARE,
+                    error_type=ValueError.__name__,
+                    root=ValueError(message),
+                    workflow_exec_id=workflow.info().workflow_id,
                 )
             cfg = args.agent_args.config
 
@@ -559,10 +583,19 @@ class DurableAgentWorkflow:
         for resolved_subagent in subagents:
             child_cfg = agent_config_from_payload(resolved_subagent.config)
             if has_manual_tool_approvals(child_cfg.tool_approvals):
-                raise ApplicationError(
+                message = (
                     f"Subagent preset '{resolved_subagent.binding.preset}' uses manual approvals, "
-                    "which are not supported for subagents yet.",
-                    non_retryable=True,
+                    "which are not supported for subagents yet."
+                )
+                raise WorkflowRuntimeError.user(
+                    code="agent.subagent.manual_approvals_unsupported",
+                    message=message,
+                    origin=RuntimeErrorOrigin.UNKNOWN,
+                    phase=RuntimeErrorPhase.PREPARE,
+                    error_type=ValueError.__name__,
+                    root=ValueError(message),
+                    workflow_exec_id=workflow.info().workflow_id,
+                    metadata={"preset": resolved_subagent.binding.preset},
                 )
             await self._apply_custom_model_provider_config(child_cfg)
             scope_spec = AgentScopeSpec(
@@ -597,9 +630,15 @@ class DurableAgentWorkflow:
 
         root_build_result = build_result.scopes.get(ROOT_AGENT_SCOPE)
         if root_build_result is None:
-            raise ApplicationError(
-                "Batched agent tool compilation did not return the root scope",
-                non_retryable=True,
+            message = "Batched agent tool compilation did not return the root scope"
+            raise WorkflowRuntimeError.platform(
+                code="agent.tool_compilation.root_scope_missing",
+                message=message,
+                origin=RuntimeErrorOrigin.UNKNOWN,
+                phase=RuntimeErrorPhase.PREPARE,
+                error_type=RuntimeError.__name__,
+                root=RuntimeError(message),
+                workflow_exec_id=workflow.info().workflow_id,
             )
 
         root_scope = CompiledAgentScope(
@@ -617,9 +656,19 @@ class DurableAgentWorkflow:
             scope_spec = subagent_spec.scope
             child_build_result = build_result.scopes.get(scope_spec.name)
             if child_build_result is None:
-                raise ApplicationError(
-                    f"Batched agent tool compilation did not return scope '{scope_spec.name}'",
-                    non_retryable=True,
+                message = (
+                    "Batched agent tool compilation did not return "
+                    f"scope '{scope_spec.name}'"
+                )
+                raise WorkflowRuntimeError.platform(
+                    code="agent.tool_compilation.scope_missing",
+                    message=message,
+                    origin=RuntimeErrorOrigin.UNKNOWN,
+                    phase=RuntimeErrorPhase.PREPARE,
+                    error_type=RuntimeError.__name__,
+                    root=RuntimeError(message),
+                    workflow_exec_id=workflow.info().workflow_id,
+                    metadata={"scope": scope_spec.name},
                 )
             route_resolution = _llm_route_for_config(
                 scope_spec.config,
@@ -769,9 +818,13 @@ class DurableAgentWorkflow:
             retry_policy=RETRY_POLICIES["activity:fail_fast"],
         )
         if not create_result.success:
-            raise ApplicationError(
-                f"Failed to create agent session: {create_result.error}",
-                non_retryable=True,
+            raise WorkflowRuntimeError.platform(
+                code="agent.session.create_failed",
+                message=f"Failed to create agent session: {create_result.error}",
+                origin=RuntimeErrorOrigin.UNKNOWN,
+                phase=RuntimeErrorPhase.PREPARE,
+                error_type="AgentSessionCreateFailed",
+                workflow_exec_id=workflow.info().workflow_id,
             )
 
         # Build internal tool context for builder assistant sessions
@@ -862,9 +915,13 @@ class DurableAgentWorkflow:
             )
 
             if not result.success:
-                raise ApplicationError(
-                    f"Agent execution failed: {result.error}",
-                    non_retryable=True,
+                raise WorkflowRuntimeError.user(
+                    code="agent.execution.failed",
+                    message=f"Agent execution failed: {result.error}",
+                    origin=RuntimeErrorOrigin.UNKNOWN,
+                    phase=RuntimeErrorPhase.USER_CODE,
+                    error_type="AgentExecutionFailed",
+                    workflow_exec_id=workflow.info().workflow_id,
                 )
 
             if result.approval_requested:
