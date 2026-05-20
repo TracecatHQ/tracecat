@@ -249,6 +249,7 @@ class TestCreateDevUser:
                 email=kwargs["email"],
                 superuser_email=kwargs["superuser_email"],
                 superuser_created=True,
+                superuser_org_role="organization-owner",
                 organization_id=str(uuid.uuid4()),
                 workspace_id=str(uuid.uuid4()),
                 default_tier_id=str(uuid.uuid4()),
@@ -290,7 +291,8 @@ class TestCreateDevUser:
 
         assert result.exit_code == 0
         assert (
-            "[dev-seed] Created platform superuser 'test@tracecat.com'" in result.stdout
+            "[dev-seed] Created platform superuser 'test@tracecat.com' (organization-owner)"
+            in result.stdout
         )
         assert "[dev-seed] Created dev user 'dev@example.com'" in result.stdout
         assert (
@@ -306,6 +308,51 @@ class TestCreateDevUser:
             "org_role": "organization-admin",
             "workspace_role": "workspace-editor",
         }
+
+    def test_create_dev_user_defaults_to_owner_role(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test the generic CLI default remains owner unless overridden."""
+        captured: dict[str, Any] = {}
+
+        async def fake_create_dev_user(**kwargs: Any) -> SimpleNamespace:
+            captured.update(kwargs)
+            return SimpleNamespace(
+                email=kwargs["email"],
+                superuser_email=kwargs["superuser_email"],
+                superuser_created=True,
+                superuser_org_role="organization-owner",
+                organization_id=str(uuid.uuid4()),
+                workspace_id=str(uuid.uuid4()),
+                default_tier_id=str(uuid.uuid4()),
+                default_tier_entitlements={},
+                org_role=kwargs["org_role"],
+                workspace_role=kwargs["workspace_role"],
+                created=True,
+            )
+
+        monkeypatch.setattr(
+            "tracecat_admin.services.bootstrap.create_dev_user",
+            fake_create_dev_user,
+        )
+
+        result = runner.invoke(
+            app,
+            [
+                "admin",
+                "create-dev-user",
+                "--email",
+                "dev@example.com",
+                "--password",
+                "password1234",
+                "--superuser-password",
+                "password1234",
+            ],
+        )
+
+        assert result.exit_code == 0
+        assert captured["org_role"] == "organization-owner"
+        assert captured["workspace_role"] == "workspace-admin"
 
     def test_create_dev_user_rejects_short_password(self) -> None:
         """Test password length validation."""

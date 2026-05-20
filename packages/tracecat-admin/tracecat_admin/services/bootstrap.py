@@ -65,6 +65,7 @@ class CreateDevUserResult:
     superuser_email: str
     superuser_user_id: str
     superuser_created: bool
+    superuser_org_role: str
     organization_id: str
     workspace_id: str
     default_tier_id: str
@@ -479,12 +480,23 @@ async def create_dev_user(
             organization_id=organization_id,
             slug=org_role,
         )
+        superuser_org_role = "organization-owner"
+        superuser_org_role_obj = await _get_role_by_slug(
+            session=session,
+            organization_id=organization_id,
+            slug=superuser_org_role,
+        )
         workspace_role_obj = await _get_role_by_slug(
             session=session,
             organization_id=organization_id,
             slug=workspace_role,
         )
 
+        await _ensure_org_membership(
+            session=session,
+            user_id=superuser.id,
+            organization_id=organization_id,
+        )
         await _ensure_org_membership(
             session=session,
             user_id=user.id,
@@ -494,6 +506,13 @@ async def create_dev_user(
             session=session,
             user_id=user.id,
             workspace_id=workspace.id,
+        )
+        await _ensure_role_assignment(
+            session=session,
+            user_id=superuser.id,
+            organization_id=organization_id,
+            workspace_id=None,
+            role_id=superuser_org_role_obj.id,
         )
         await _ensure_role_assignment(
             session=session,
@@ -518,6 +537,7 @@ async def create_dev_user(
             superuser_email=superuser.email,
             superuser_user_id=str(superuser.id),
             superuser_created=superuser_created,
+            superuser_org_role=superuser_org_role,
             organization_id=str(organization_id),
             workspace_id=str(workspace.id),
             default_tier_id=str(default_tier.id),

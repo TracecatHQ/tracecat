@@ -36,11 +36,11 @@ To set up your development environment, run:
 just cluster up -d --seed
 ```
 
-This starts the development environment and seeds a test user (`test@tracecat.com` / `password1234`).
+This starts the development environment and seeds a platform superuser (`test@tracecat.com` / `password1234`) and tenant admin user (`dev@tracecat.com` / `password1234`).
 You can then access the application at [http://localhost:80](http://localhost:80).
 
 > [!IMPORTANT]
-> `--seed` creates a test user only. Superadmin is determined by `TRACECAT__AUTH_SUPERADMIN_EMAIL` in `.env` (set via `./env.sh`), and the first signup/login with that email becomes the organization owner.
+> `--seed` creates `test@tracecat.com` as the platform superuser and default organization owner, and `dev@tracecat.com` as the default organization admin. For public signup, superadmin is determined by `TRACECAT__AUTH_SUPERADMIN_EMAIL` in `.env` (set via `./env.sh`), and the first signup/login with that email becomes the default organization owner.
 
 ## PR and Commit Message Guidelines
 

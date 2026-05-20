@@ -262,7 +262,7 @@ def create_dev_user(
         str,
         typer.Option(
             "--org-role",
-            help="Organization role slug to assign",
+            help="Organization role slug to assign to the dev user",
             envvar="TRACECAT__DEV_ORG_ROLE",
         ),
     ] = "organization-owner",
@@ -315,7 +315,8 @@ def create_dev_user(
         verb = "Created" if result.created else "Updated"
         superuser_verb = "Created" if result.superuser_created else "Updated"
         print_dev_seed(
-            f"{superuser_verb} platform superuser '{result.superuser_email}'"
+            f"{superuser_verb} platform superuser '{result.superuser_email}' "
+            f"({result.superuser_org_role})"
         )
         print_dev_seed(
             f"{verb} dev user '{result.email}' ({result.org_role}, {result.workspace_role})"

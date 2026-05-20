@@ -388,9 +388,9 @@ Commands:
                 Reuses existing cluster for this worktree if one is running.
                 Use --new/-n to force a new cluster instead.
                 Use --single-tenant or --multi-tenant to override tenant mode.
-                Seeds test@tracecat.com superuser, dev@tracecat.com tenant
-                user, and all default tier entitlements by default for the dev
-                profile. Use --no-seed to skip.
+                Seeds test@tracecat.com superuser/org owner,
+                dev@tracecat.com org admin, and all default tier entitlements
+                by default for the dev profile. Use --no-seed to skip.
                 Use --default-tier-entitlements all|none|a,b to override.
   down          Stop the cluster (keeps volumes)
   rm            Remove the cluster (down + remove volumes)
@@ -1155,7 +1155,7 @@ seed_dev_user() {
     local seed_password="${TRACECAT__DEV_USER_PASSWORD:-password1234}"
     local seed_superuser_email="${TRACECAT__DEV_SUPERUSER_EMAIL:-test@tracecat.com}"
     local seed_superuser_password="${TRACECAT__DEV_SUPERUSER_PASSWORD:-password1234}"
-    local seed_org_role="${TRACECAT__DEV_ORG_ROLE:-organization-owner}"
+    local seed_org_role="${TRACECAT__DEV_ORG_ROLE:-organization-admin}"
     local seed_workspace_role="${TRACECAT__DEV_WORKSPACE_ROLE:-workspace-admin}"
     local seed_default_tier_entitlements="${DEFAULT_TIER_ENTITLEMENTS}"
     local seed_db_uri="postgresql+psycopg://postgres:postgres@localhost:${PG_PORT}/postgres"
