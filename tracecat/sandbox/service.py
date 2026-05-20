@@ -365,16 +365,17 @@ class SandboxService:
                 "For full OS-level isolation, set TRACECAT__DISABLE_NSJAIL=false "
                 "and ensure nsjail is installed with the sandbox rootfs."
             )
+            resolved_env_vars = self._with_action_gateway_socket_env(
+                env_vars,
+                socket_path=action_gateway_socket,
+            )
             result = await self.unsafe_pid_executor.execute(
                 script=script,
                 inputs=inputs,
                 dependencies=dependencies,
                 timeout_seconds=timeout_seconds,
                 allow_network=allow_network,
-                env_vars=self._with_action_gateway_socket_env(
-                    env_vars,
-                    socket_path=action_gateway_socket,
-                ),
+                env_vars=resolved_env_vars,
                 python_path_dirs=python_path_dirs,
                 workspace_id=workspace_id,
             )
