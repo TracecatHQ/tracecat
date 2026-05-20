@@ -630,6 +630,7 @@ class MCPAuthProvider(AuthorizationCodeOAuthProvider):
     """
 
     mcp_server_uri: ClassVar[str]
+    oauth_endpoint_allowed_hosts: ClassVar[frozenset[str]] = frozenset()
     # Optional fallback endpoints for when discovery fails
     _fallback_auth_endpoint: ClassVar[str | None] = None
     _fallback_token_endpoint: ClassVar[str | None] = None
@@ -727,6 +728,27 @@ class MCPAuthProvider(AuthorizationCodeOAuthProvider):
 
         return f"https://{parsed.netloc}"
 
+    @classmethod
+    def _validate_discovered_oauth_endpoint(
+        cls, endpoint: str, base_domain: str | None
+    ) -> None:
+        """Validate an endpoint from MCP OAuth discovery.
+
+        By default, discovered endpoints must live on the MCP resource server host
+        or its subdomains. Some providers publish their OAuth endpoints on a
+        separate exact host; those providers can opt in with
+        ``oauth_endpoint_allowed_hosts`` without relaxing validation globally.
+        """
+
+        try:
+            validate_oauth_endpoint(endpoint, base_domain)
+        except ValueError:
+            hostname = urlparse(endpoint).hostname
+            if hostname and hostname in cls.oauth_endpoint_allowed_hosts:
+                validate_oauth_endpoint(endpoint)
+                return
+            raise
+
     def _discover_oauth_endpoints(
         self,
         *,
@@ -752,12 +774,14 @@ class MCPAuthProvider(AuthorizationCodeOAuthProvider):
 
                 # Validate discovered endpoints for security
                 base_domain = urlparse(base_url).hostname
-                validate_oauth_endpoint(auth_endpoint, base_domain)
-                validate_oauth_endpoint(token_endpoint, base_domain)
+                self._validate_discovered_oauth_endpoint(auth_endpoint, base_domain)
+                self._validate_discovered_oauth_endpoint(token_endpoint, base_domain)
 
                 registration_endpoint = discovery_doc.get("registration_endpoint")
                 if registration_endpoint:
-                    validate_oauth_endpoint(registration_endpoint, base_domain)
+                    self._validate_discovered_oauth_endpoint(
+                        registration_endpoint, base_domain
+                    )
 
                 self.logger.info(
                     "Discovered OAuth endpoints",
@@ -849,10 +873,12 @@ class MCPAuthProvider(AuthorizationCodeOAuthProvider):
 
             # Validate discovered endpoints for security
             base_domain = urlparse(base_url).hostname
-            validate_oauth_endpoint(authorization_endpoint, base_domain)
-            validate_oauth_endpoint(token_endpoint, base_domain)
+            cls._validate_discovered_oauth_endpoint(authorization_endpoint, base_domain)
+            cls._validate_discovered_oauth_endpoint(token_endpoint, base_domain)
             if registration_endpoint:
-                validate_oauth_endpoint(registration_endpoint, base_domain)
+                cls._validate_discovered_oauth_endpoint(
+                    registration_endpoint, base_domain
+                )
 
             logger_instance.info(
                 "Discovered OAuth endpoints",
