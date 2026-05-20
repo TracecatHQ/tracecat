@@ -3,7 +3,7 @@ definition:
   title: Isolate endpoint
   description: Disconnect a SentinelOne agent from the network.
   display_group: SentinelOne
-  doc_url: https://www.postman.com/api-evangelist/workspace/sentinelone/documentation/35240-8314fa61-90b8-405a-a1fa-c695b640a11a
+  doc_url: https://docs.tracecat.com/tools/sentinel_one
   namespace: tools.sentinel_one
   name: disconnect_device
   secrets:
