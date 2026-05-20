@@ -44,7 +44,7 @@ dependencies = [
     "pymongo==4.8.0",
     "pyyaml==6.0.3",
     "redis[hiredis]==7.1.0",
-    "slack-sdk==3.28.0",
+    "slack-sdk==3.41.0",
     "sqlalchemy>=2.0.0,<3.0.0",
     "tavily-python==0.7.6",
     "tenacity==8.3.0",

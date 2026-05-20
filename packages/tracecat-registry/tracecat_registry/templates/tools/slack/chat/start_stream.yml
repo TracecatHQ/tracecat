@@ -1,0 +1,64 @@
+type: action
+definition:
+  title: Start stream
+  description: Start a new Slack streaming message in a thread.
+  display_group: Slack
+  doc_url: https://docs.slack.dev/reference/methods/chat.startStream/
+  namespace: tools.slack
+  name: start_stream
+  expects:
+    channel:
+      type: str
+      description: ID of the channel, private group, or DM for the stream.
+    thread_ts:
+      type: str
+      description: Parent message timestamp to reply to with the stream.
+    markdown_text:
+      type: str | None
+      description: Initial markdown-formatted text for the stream.
+      default: null
+    chunks:
+      type: list[dict[str, Any]] | None
+      description: Initial streaming chunks, such as markdown_text, task_update, plan_update, or blocks chunks.
+      default: null
+    recipient_user_id:
+      type: str | None
+      description: ID of the user receiving the stream. Required by Slack when streaming to channels.
+      default: null
+    recipient_team_id:
+      type: str | None
+      description: ID of the recipient user's team. Required by Slack when streaming to channels.
+      default: null
+    task_display_mode:
+      type: str | None
+      description: How task chunks are displayed. Accepts timeline, plan, or dense.
+      default: null
+    icon_emoji:
+      type: str | None
+      description: Emoji to use as the icon for this message.
+      default: null
+    icon_url:
+      type: str | None
+      description: URL to an image to use as the icon for this message.
+      default: null
+    username:
+      type: str | None
+      description: Bot username to display.
+      default: null
+  steps:
+    - ref: start_stream
+      action: tools.slack_sdk.call_method
+      args:
+        sdk_method: chat_startStream
+        params:
+          channel: ${{ inputs.channel }}
+          thread_ts: ${{ inputs.thread_ts }}
+          markdown_text: ${{ inputs.markdown_text }}
+          chunks: ${{ inputs.chunks }}
+          recipient_user_id: ${{ inputs.recipient_user_id }}
+          recipient_team_id: ${{ inputs.recipient_team_id }}
+          task_display_mode: ${{ inputs.task_display_mode }}
+          icon_emoji: ${{ inputs.icon_emoji }}
+          icon_url: ${{ inputs.icon_url }}
+          username: ${{ inputs.username }}
+  returns: ${{ steps.start_stream.result }}

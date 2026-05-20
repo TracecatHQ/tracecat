@@ -1,0 +1,79 @@
+type: action
+definition:
+  title: Post ephemeral message
+  description: Send an ephemeral Slack message to a user in a channel.
+  display_group: Slack
+  doc_url: https://docs.slack.dev/reference/methods/chat.postEphemeral/
+  namespace: tools.slack
+  name: post_ephemeral
+  expects:
+    channel:
+      type: str
+      description: Channel, private group, or IM channel to send the ephemeral message to.
+    user:
+      type: str
+      description: ID of the user who will receive the ephemeral message.
+    text:
+      type: str | None
+      description: Message text. Used as fallback text when blocks are provided.
+      default: null
+    blocks:
+      type: list[dict[str, Any]] | None
+      description: List of JSON-based blocks.
+      default: null
+    attachments:
+      type: list[dict[str, Any]] | None
+      description: List of JSON-based attachments.
+      default: null
+    markdown_text:
+      type: str | None
+      description: Markdown-formatted message text. Do not use with blocks or text.
+      default: null
+    thread_ts:
+      type: str | None
+      description: Parent message timestamp for posting the ephemeral message in a thread.
+      default: null
+    parse:
+      type: str | None
+      description: How Slack should parse message text.
+      default: null
+    link_names:
+      type: bool
+      description: Whether Slack should find and link channel names and usernames.
+      default: false
+    as_user:
+      type: bool | None
+      description: Legacy option to post the message as the authenticated user.
+      default: null
+    icon_emoji:
+      type: str | None
+      description: Emoji to use as the icon for this message.
+      default: null
+    icon_url:
+      type: str | None
+      description: URL to an image to use as the icon for this message.
+      default: null
+    username:
+      type: str | None
+      description: Bot username to display.
+      default: null
+  steps:
+    - ref: post_ephemeral
+      action: tools.slack_sdk.call_method
+      args:
+        sdk_method: chat_postEphemeral
+        params:
+          channel: ${{ inputs.channel }}
+          user: ${{ inputs.user }}
+          text: ${{ inputs.text }}
+          blocks: ${{ inputs.blocks }}
+          attachments: ${{ inputs.attachments }}
+          markdown_text: ${{ inputs.markdown_text }}
+          thread_ts: ${{ inputs.thread_ts }}
+          parse: ${{ inputs.parse }}
+          link_names: ${{ inputs.link_names }}
+          as_user: ${{ inputs.as_user }}
+          icon_emoji: ${{ inputs.icon_emoji }}
+          icon_url: ${{ inputs.icon_url }}
+          username: ${{ inputs.username }}
+  returns: ${{ steps.post_ephemeral.result }}

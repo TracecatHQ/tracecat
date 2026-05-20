@@ -4113,11 +4113,11 @@ wheels = [
 
 [[package]]
 name = "slack-sdk"
-version = "3.28.0"
+version = "3.41.0"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/bb/d2/a992211856a8ac736d2a927778f1a16ac43cea68744e4ae015c73fbbfac8/slack_sdk-3.28.0.tar.gz", hash = "sha256:e6ece5cb70850492637e002e3b0d26d307939f4a33203b88cb274f7475c9a144", size = 227946, upload-time = "2024-06-10T19:55:40.93Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/22/35/fc009118a13187dd9731657c60138e5a7c2dea88681a7f04dc406af5da7d/slack_sdk-3.41.0.tar.gz", hash = "sha256:eb61eb12a65bebeca9cb5d36b3f799e836ed2be21b456d15df2627cfe34076ca", size = 250568, upload-time = "2026-03-12T16:10:11.381Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/8b/9c/63a442f9cf8f1911727b1fd02da0d26366d1348895d54b0a98fbe2a17a13/slack_sdk-3.28.0-py2.py3-none-any.whl", hash = "sha256:1a47700ae20566575ce494d1d1b6f594b011d06aad28e3b8e28c052cad1d6c4c", size = 286559, upload-time = "2024-06-10T19:55:37.928Z" },
+    { url = "https://files.pythonhosted.org/packages/a1/df/2e4be347ff98281b505cc0ccf141408cdd25eb5ca9f3830deb361b2472d3/slack_sdk-3.41.0-py2.py3-none-any.whl", hash = "sha256:bb18dcdfff1413ec448e759cf807ec3324090993d8ab9111c74081623b692a89", size = 313885, upload-time = "2026-03-12T16:10:09.811Z" },
 ]
 
 [[package]]
@@ -4649,7 +4649,7 @@ requires-dist = [
     { name = "pymongo", specifier = "==4.8.0" },
     { name = "pyyaml", specifier = "==6.0.3" },
     { name = "redis", extras = ["hiredis"], specifier = "==7.1.0" },
-    { name = "slack-sdk", specifier = "==3.28.0" },
+    { name = "slack-sdk", specifier = "==3.41.0" },
     { name = "sqlalchemy", specifier = ">=2.0.0,<3.0.0" },
     { name = "tavily-python", specifier = "==0.7.6" },
     { name = "tenacity", specifier = "==8.3.0" },
