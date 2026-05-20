@@ -37,9 +37,13 @@ from tracecat.executor.backends.ephemeral import EphemeralBackend
 from tracecat.executor.schemas import ActionImplementation, ResolvedContext
 from tracecat.identifiers.workflow import ExecutionUUID, WorkflowUUID
 from tracecat.registry.lock.types import RegistryLock
-from tracecat.sandbox import SandboxService, validate_run_python_script
+from tracecat.sandbox import (
+    SandboxExecutionError,
+    SandboxService,
+    validate_run_python_script,
+)
 from tracecat.sandbox.executor import NsjailExecutor
-from tracecat.sandbox.types import SandboxConfig
+from tracecat.sandbox.types import SandboxConfig, SandboxResult
 from tracecat.sandbox.unsafe_pid_executor import (
     SAFE_WRAPPER_SCRIPT as UNSAFE_PID_WRAPPER_SCRIPT,
 )
@@ -87,6 +91,20 @@ class _FakeTracecatClient:
     @property
     def cases(self) -> _FakeCasesClient:
         return _FakeCasesClient()
+
+
+class _CapturingNsjailExecutor:
+    def __init__(self) -> None:
+        self.config: SandboxConfig | None = None
+
+    async def execute(
+        self,
+        _job_dir: Path,
+        config: SandboxConfig,
+        _cache_key: str | None,
+    ) -> SandboxResult:
+        self.config = config
+        return SandboxResult(success=True, output={"ok": True})
 
 
 def _run_wrapper_source(
@@ -843,6 +861,7 @@ def test_nsjail_config_mounts_run_python_action_gateway_socket(
     tmp_path: Path,
 ) -> None:
     action_gateway_socket = tmp_path / "action-gateway.sock"
+    action_gateway_socket.touch()
     sandbox_config = SandboxConfig(
         action_gateway_socket=action_gateway_socket,
     )
@@ -857,6 +876,35 @@ def test_nsjail_config_mounts_run_python_action_gateway_socket(
         f'mount {{ src: "{action_gateway_socket}" '
         f'dst: "{ACTION_GATEWAY_SANDBOX_SOCKET}" is_bind: true rw: false }}'
     ) in config_text
+
+
+def test_run_python_action_gateway_env_rejects_missing_socket(tmp_path: Path) -> None:
+    env_vars = {"CUSTOM_VALUE": "kept"}
+
+    with pytest.raises(SandboxExecutionError, match="socket is unavailable"):
+        SandboxService._with_action_gateway_socket_env(
+            env_vars,
+            socket_path=tmp_path / "missing-action-gateway.sock",
+        )
+
+
+@pytest.mark.anyio
+async def test_run_python_nsjail_rejects_missing_action_gateway_socket(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    service = SandboxService(cache_dir=str(tmp_path / "sandbox-cache"))
+    nsjail_executor = _CapturingNsjailExecutor()
+    monkeypatch.setattr(service, "_nsjail_executor", nsjail_executor)
+    monkeypatch.setattr(service, "_is_nsjail_available", lambda: True)
+
+    with pytest.raises(SandboxExecutionError, match="socket is unavailable"):
+        await service.run_python(
+            script="def main():\n    return 1",
+            env_vars={"CUSTOM_VALUE": "kept"},
+            action_gateway_socket=tmp_path / "missing-action-gateway.sock",
+        )
+    assert nsjail_executor.config is None
 
 
 def test_nsjail_env_map_prefers_installed_dependencies_over_registry_mounts(
