@@ -1,0 +1,102 @@
+name: Smoke
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 13,22 * * 1-5"
+
+permissions:
+  contents: read
+
+jobs:
+  frontend-smoke:
+    runs-on: blacksmith-8vcpu-ubuntu-2204
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Install uv
+        uses: useblacksmith/setup-uv@f4588471335f14dcb60198856207b916701a9e9f # v4
+        with:
+          version: "0.9.7"
+          enable-cache: true
+          cache-dependency-glob: |
+            pyproject.toml
+            uv.lock
+
+      - name: Set up Python 3.12
+        uses: useblacksmith/setup-python@943b05a7c4ca70c2360391137527a37bee33fb1d # v6
+        with:
+          python-version: "3.12"
+
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "22"
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4
+        with:
+          version: 10
+          run_install: false
+
+      - name: Set up Docker builder
+        uses: useblacksmith/setup-docker-builder@78f41686563c732ccc097f7baac2f092f67538f0 # v1
+
+      - name: Disable IPv6
+        run: |
+          sudo sysctl -w net.ipv6.conf.all.disable_ipv6=1
+          sudo sysctl -w net.ipv6.conf.default.disable_ipv6=1
+
+      - name: Configure environment
+        run: |
+          echo "y
+          localhost
+          n
+          test@tracecat.com" | bash env.sh
+
+      - name: Install dependencies
+        run: |
+          uv sync --locked --group dev
+          pnpm --dir frontend install --frozen-lockfile
+          pnpm --dir frontend exec playwright install --with-deps chromium
+
+      - name: Start Tracecat stack
+        run: |
+          scripts/cluster up -d --single-tenant --seed --default-tier-entitlements custom_registry
+          timeout 300 bash -c 'until curl -fsS http://localhost/api/ready; do sleep 5; done'
+
+      - name: Run smoke suite
+        run: |
+          PLAYWRIGHT_BASE_URL="$(scripts/cluster url)"
+          export PLAYWRIGHT_BASE_URL
+          pnpm --dir frontend run test:smoke
+
+      - name: Upload Playwright report
+        if: always()
+        uses: actions/upload-artifact@de65e23aa2b7e23d713bb51fbfcb6d502f8667d8 # v4
+        with:
+          name: smoke-playwright-report
+          path: frontend/playwright-report
+          if-no-files-found: ignore
+
+      - name: Upload Playwright test results
+        if: always()
+        uses: actions/upload-artifact@de65e23aa2b7e23d713bb51fbfcb6d502f8667d8 # v4
+        with:
+          name: smoke-playwright-test-results
+          path: frontend/test-results
+          if-no-files-found: ignore
+
+      - name: Show service logs on failure
+        if: failure()
+        run: |
+          scripts/cluster ps
+          scripts/cluster logs api
+          scripts/cluster logs worker
+          scripts/cluster logs executor
+
+      - name: Stop Tracecat stack
+        if: always()
+        run: scripts/cluster down
