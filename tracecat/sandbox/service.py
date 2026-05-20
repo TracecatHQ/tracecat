@@ -122,7 +122,7 @@ class SandboxService:
         env_socket_path: Path | None = None,
     ) -> dict[str, str] | None:
         """Return env vars with Action Gateway socket routing when configured."""
-        resolved_socket_path = SandboxService._resolve_action_gateway_socket(
+        resolved_socket_path = SandboxService._require_action_gateway_socket(
             socket_path
         )
         if resolved_socket_path is None:
@@ -135,10 +135,14 @@ class SandboxService:
         return updated
 
     @staticmethod
-    def _resolve_action_gateway_socket(socket_path: Path | None) -> Path | None:
-        """Return the Action Gateway socket path only when it is available."""
-        if socket_path is None or not socket_path.exists():
+    def _require_action_gateway_socket(socket_path: Path | None) -> Path | None:
+        """Return a configured Action Gateway socket or fail if it is unavailable."""
+        if socket_path is None:
             return None
+        if not socket_path.exists():
+            raise SandboxExecutionError(
+                f"Action Gateway socket is unavailable: {socket_path}"
+            )
         return socket_path
 
     @asynccontextmanager
@@ -355,7 +359,7 @@ class SandboxService:
         """
         if timeout_seconds is None:
             timeout_seconds = TRACECAT__SANDBOX_DEFAULT_TIMEOUT
-        resolved_action_gateway_socket = self._resolve_action_gateway_socket(
+        resolved_action_gateway_socket = self._require_action_gateway_socket(
             action_gateway_socket
         )
 
@@ -448,7 +452,7 @@ class SandboxService:
         """
         if timeout_seconds is None:
             timeout_seconds = TRACECAT__SANDBOX_DEFAULT_TIMEOUT
-        resolved_action_gateway_socket = self._resolve_action_gateway_socket(
+        resolved_action_gateway_socket = self._require_action_gateway_socket(
             action_gateway_socket
         )
 
