@@ -37,10 +37,23 @@ definition:
       description: Base URL for the Azure Management API.
       default: https://management.azure.com
   steps:
+    - ref: normalize_ids
+      action: core.script.run_python
+      args:
+        inputs:
+          watchlist_alias: ${{ inputs.watchlist_alias }}
+        script: |
+          def leaf(value):
+              return str(value).rstrip("/").split("/")[-1]
+
+          def main(watchlist_alias):
+              return {
+                  "watchlist_alias": leaf(watchlist_alias),
+              }
     - ref: list_items
       action: core.http_request
       args:
-        url: ${{ inputs.base_url }}/subscriptions/${{ FN.url_encode(inputs.subscription_id) }}/resourceGroups/${{ FN.url_encode(inputs.resource_group_name) }}/providers/Microsoft.OperationalInsights/workspaces/${{ FN.url_encode(inputs.workspace_name) }}/providers/Microsoft.SecurityInsights/watchlists/${{ FN.url_encode(inputs.watchlist_alias) }}/watchlistItems
+        url: ${{ inputs.base_url }}/subscriptions/${{ FN.url_encode(inputs.subscription_id) }}/resourceGroups/${{ FN.url_encode(inputs.resource_group_name) }}/providers/Microsoft.OperationalInsights/workspaces/${{ FN.url_encode(inputs.workspace_name) }}/providers/Microsoft.SecurityInsights/watchlists/${{ FN.url_encode(steps.normalize_ids.result.watchlist_alias) }}/watchlistItems
         method: GET
         headers:
           Authorization: Bearer ${{ SECRETS.microsoft_sentinel_oauth.MICROSOFT_SENTINEL_USER_TOKEN || SECRETS.microsoft_sentinel_oauth.MICROSOFT_SENTINEL_SERVICE_TOKEN }}

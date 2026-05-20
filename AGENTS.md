@@ -169,6 +169,11 @@ just gen-functions
   range-based constraints.
 - Do not bypass commit signing with `--no-gpg-sign` or `--no-verify`. If
   signing is broken, stop and ask the user to fix it.
+- Never copy customer-provided identifiers, URLs, tenant IDs, subscription IDs,
+  workspace names, resource group names, incident IDs, emails, domains, tokens,
+  or other potentially sensitive values into tests, docs, fixtures, snapshots,
+  examples, logs, or committed code. Replace them with clearly synthetic values
+  before writing files, and search for the original strings before committing.
 - Do not assume PostgreSQL superuser access in migrations, queries, or scripts.
 - Never add methods to `tracecat/db/models.py`; keep database models minimal.
 - Use `pnpm` instead of `npm`, and prefer `rg` over slower text-search tools.
