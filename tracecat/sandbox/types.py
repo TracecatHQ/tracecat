@@ -36,6 +36,8 @@ class SandboxConfig:
         env_vars: Environment variables to inject into the sandbox.
         dependencies: Python packages to install before execution.
         python_path_dirs: Host directories to mount read-only and add to PYTHONPATH.
+        action_gateway_socket: Optional host-side action gateway Unix socket to
+            bind into nsjail for internal Tracecat SDK calls.
     """
 
     network_enabled: bool = False
@@ -43,6 +45,7 @@ class SandboxConfig:
     env_vars: dict[str, str] = field(default_factory=dict)
     dependencies: list[str] = field(default_factory=list)
     python_path_dirs: list[Path] = field(default_factory=list)
+    action_gateway_socket: Path | None = None
 
 
 @dataclass

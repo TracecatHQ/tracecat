@@ -24,7 +24,7 @@ from tracecat.sandbox.exceptions import (
     PackageInstallError,
     SandboxExecutionError,
 )
-from tracecat.sandbox.executor import NsjailExecutor
+from tracecat.sandbox.executor import RUN_PYTHON_ACTION_GATEWAY_SOCKET, NsjailExecutor
 from tracecat.sandbox.types import ResourceLimits, SandboxConfig
 from tracecat.sandbox.unsafe_pid_executor import UnsafePidExecutor
 from tracecat.sandbox.wrapper import INSTALL_SCRIPT, WRAPPER_SCRIPT
@@ -113,6 +113,21 @@ class SandboxService:
         if self._unsafe_pid_executor is None:
             self._unsafe_pid_executor = UnsafePidExecutor(cache_dir=str(self.cache_dir))
         return self._unsafe_pid_executor
+
+    @staticmethod
+    def _with_action_gateway_socket_env(
+        env_vars: dict[str, str] | None,
+        *,
+        socket_path: Path | None,
+        env_socket_path: Path | None = None,
+    ) -> dict[str, str] | None:
+        """Return env vars with Action Gateway socket routing when configured."""
+        if socket_path is None:
+            return env_vars
+
+        updated = dict(env_vars or {})
+        updated["TRACECAT__ACTION_GATEWAY_SOCKET"] = str(env_socket_path or socket_path)
+        return updated
 
     @asynccontextmanager
     async def _create_job_dir(self) -> AsyncIterator[Path]:
@@ -293,6 +308,7 @@ class SandboxService:
         env_vars: dict[str, str] | None = None,
         python_path_dirs: list[Path] | None = None,
         workspace_id: str | None = None,
+        action_gateway_socket: Path | None = None,
     ) -> Any:
         """Execute a Python script in a sandbox.
 
@@ -313,6 +329,9 @@ class SandboxService:
             workspace_id: Optional workspace ID for multi-tenant cache isolation.
                 When provided, package caches are scoped to the workspace,
                 preventing cross-workspace package poisoning attacks.
+            action_gateway_socket: Optional host-side action gateway Unix socket.
+                Internal Tracecat SDK calls use this socket even when outbound
+                network access is disabled.
 
         Returns:
             The return value of the script's main function.
@@ -337,6 +356,7 @@ class SandboxService:
                 env_vars=env_vars,
                 python_path_dirs=python_path_dirs,
                 workspace_id=workspace_id,
+                action_gateway_socket=action_gateway_socket,
             )
         else:
             logger.info(
@@ -351,7 +371,10 @@ class SandboxService:
                 dependencies=dependencies,
                 timeout_seconds=timeout_seconds,
                 allow_network=allow_network,
-                env_vars=env_vars,
+                env_vars=self._with_action_gateway_socket_env(
+                    env_vars,
+                    socket_path=action_gateway_socket,
+                ),
                 python_path_dirs=python_path_dirs,
                 workspace_id=workspace_id,
             )
@@ -378,6 +401,7 @@ class SandboxService:
         env_vars: dict[str, str] | None = None,
         python_path_dirs: list[Path] | None = None,
         workspace_id: str | None = None,
+        action_gateway_socket: Path | None = None,
     ) -> Any:
         """Execute a Python script using the nsjail sandbox.
 
@@ -396,6 +420,7 @@ class SandboxService:
             env_vars: Environment variables to set in the sandbox.
             python_path_dirs: Read-only Python path roots to expose to the sandbox.
             workspace_id: Optional workspace ID for multi-tenant cache isolation.
+            action_gateway_socket: Optional host-side action gateway Unix socket.
 
         Returns:
             The return value of the script's main function.
@@ -441,9 +466,15 @@ class SandboxService:
                     timeout_seconds=timeout_seconds,
                     memory_mb=TRACECAT__SANDBOX_DEFAULT_MEMORY_MB,
                 ),
-                env_vars=env_vars or {},
+                env_vars=self._with_action_gateway_socket_env(
+                    env_vars,
+                    socket_path=action_gateway_socket,
+                    env_socket_path=RUN_PYTHON_ACTION_GATEWAY_SOCKET,
+                )
+                or {},
                 dependencies=dependencies or [],
                 python_path_dirs=python_path_dirs or [],
+                action_gateway_socket=action_gateway_socket,
             )
 
             await self._prepare_execution(job_dir, script, inputs)
