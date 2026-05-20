@@ -37,10 +37,23 @@ definition:
       description: Base URL for the Azure Management API.
       default: https://management.azure.com
   steps:
+    - ref: normalize_ids
+      action: core.script.run_python
+      args:
+        inputs:
+          bookmark_id: ${{ inputs.bookmark_id }}
+        script: |
+          def leaf(value):
+              return str(value).rstrip("/").split("/")[-1]
+
+          def main(bookmark_id):
+              return {
+                  "bookmark_id": leaf(bookmark_id),
+              }
     - ref: get_bookmark
       action: core.http_request
       args:
-        url: ${{ inputs.base_url }}/subscriptions/${{ FN.url_encode(inputs.subscription_id) }}/resourceGroups/${{ FN.url_encode(inputs.resource_group_name) }}/providers/Microsoft.OperationalInsights/workspaces/${{ FN.url_encode(inputs.workspace_name) }}/providers/Microsoft.SecurityInsights/bookmarks/${{ FN.url_encode(inputs.bookmark_id) }}
+        url: ${{ inputs.base_url }}/subscriptions/${{ FN.url_encode(inputs.subscription_id) }}/resourceGroups/${{ FN.url_encode(inputs.resource_group_name) }}/providers/Microsoft.OperationalInsights/workspaces/${{ FN.url_encode(inputs.workspace_name) }}/providers/Microsoft.SecurityInsights/bookmarks/${{ FN.url_encode(steps.normalize_ids.result.bookmark_id) }}
         method: GET
         headers:
           Authorization: Bearer ${{ SECRETS.microsoft_sentinel_oauth.MICROSOFT_SENTINEL_USER_TOKEN || SECRETS.microsoft_sentinel_oauth.MICROSOFT_SENTINEL_SERVICE_TOKEN }}
