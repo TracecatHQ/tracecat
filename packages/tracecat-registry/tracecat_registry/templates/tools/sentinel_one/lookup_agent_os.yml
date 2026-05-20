@@ -3,7 +3,7 @@ definition:
   title: Lookup agents by operating system
   description: Find all SentinelOne agents filtered by operating system type, name, revision, and version information.
   display_group: SentinelOne
-  doc_url: https://<base_url>/api-doc/api-details?category=agents&api=get-agents
+  doc_url: https://www.postman.com/api-evangelist/workspace/sentinelone/documentation/35240-8314fa61-90b8-405a-a1fa-c695b640a11a
   namespace: tools.sentinel_one
   name: lookup_agent_os
   secrets:
