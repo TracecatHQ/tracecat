@@ -84,7 +84,7 @@ function CreateAgentDialogContent({
   const { moveAgentPreset, moveAgentPresetIsPending } =
     useMoveAgentPreset(workspaceId)
 
-  const defaultAgentModel = useMemo(() => {
+  const initialAgentModel = useMemo(() => {
     if (!models) return null
     return (
       (defaultModelSelection
@@ -93,18 +93,19 @@ function CreateAgentDialogContent({
       (defaultModel
         ? models.find((model) => model.model_name === defaultModel)
         : null) ??
+      models[0] ??
       null
     )
   }, [defaultModel, defaultModelSelection, models])
 
-  const defaultAgentModelBaseUrl = useMemo(() => {
-    if (!defaultAgentModel?.custom_provider_id) return null
+  const initialAgentModelBaseUrl = useMemo(() => {
+    if (!initialAgentModel?.custom_provider_id) return null
     return (
       providers?.find(
-        (provider) => provider.id === defaultAgentModel.custom_provider_id
+        (provider) => provider.id === initialAgentModel.custom_provider_id
       )?.base_url ?? null
     )
-  }, [defaultAgentModel, providers])
+  }, [initialAgentModel, providers])
 
   const methods = useForm<CreateAgentFormValues>({
     resolver: zodResolver(createAgentSchema),
@@ -115,11 +116,11 @@ function CreateAgentDialogContent({
   })
 
   const handleSubmit = async (values: CreateAgentFormValues) => {
-    if (!defaultAgentModel) {
+    if (!initialAgentModel) {
       toast({
-        title: "Default model required",
+        title: "Agent model required",
         description:
-          "Set a default agent model in organization settings before creating an agent.",
+          "Enable an agent model in organization settings before creating an agent.",
         variant: "destructive",
       })
       return
@@ -128,10 +129,10 @@ function CreateAgentDialogContent({
     try {
       const preset = await createAgentPreset({
         name: values.name,
-        model_provider: defaultAgentModel.model_provider,
-        model_name: defaultAgentModel.model_name,
-        catalog_id: defaultAgentModel.id,
-        base_url: defaultAgentModelBaseUrl || undefined,
+        model_provider: initialAgentModel.model_provider,
+        model_name: initialAgentModel.model_name,
+        catalog_id: initialAgentModel.id,
+        base_url: initialAgentModelBaseUrl ?? undefined,
         description: values.description || undefined,
       })
       const targetFolderPath =
@@ -148,9 +149,7 @@ function CreateAgentDialogContent({
       }
       methods.reset()
       onOpenChange(false)
-      router.push(
-        `/workspaces/${workspaceId}/agents/${preset.id}?tab=assistant`
-      )
+      router.push(`/workspaces/${workspaceId}/agents/${preset.id}`)
     } catch (error) {
       console.error("Failed to create agent:", error)
     }
