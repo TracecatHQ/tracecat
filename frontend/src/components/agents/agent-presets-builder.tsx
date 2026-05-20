@@ -737,6 +737,7 @@ function AgentPresetChatPane({
     () =>
       effectiveModelConfig
         ? findEnabledModelOption(enabledModelOptions, {
+            catalogId: effectiveModelConfig.catalog_id,
             modelProvider: effectiveModelConfig.model_provider,
             modelName: effectiveModelConfig.model_name,
             baseUrl: effectiveModelConfig.base_url ?? null,
@@ -1184,12 +1185,22 @@ function getProviderDisplayLabel(provider: string): string {
 function findEnabledModelOption(
   options: EnabledModelOption[],
   selection: {
+    catalogId?: string | null
     sourceId?: string | null
     modelProvider?: string | null
     modelName?: string | null
     baseUrl?: string | null
   }
 ): EnabledModelOption | null {
+  if (selection.catalogId) {
+    const catalogMatch = options.find(
+      (option) => option.catalogId === selection.catalogId
+    )
+    if (catalogMatch) {
+      return catalogMatch
+    }
+  }
+
   if (!selection.modelProvider || !selection.modelName) {
     return null
   }
@@ -1354,6 +1365,7 @@ function AgentPresetForm({
   }, [form, mode, preset])
 
   const watchedName = form.watch("name")
+  const catalogId = form.watch("catalog_id")
   const sourceId = form.watch("source_id")
   const modelProvider = form.watch("model_provider")
   const modelName = form.watch("model_name")
@@ -1361,12 +1373,20 @@ function AgentPresetForm({
   const selectedModel = useMemo(
     () =>
       findEnabledModelOption(enabledModelOptions, {
+        catalogId,
         sourceId,
         modelProvider,
         modelName,
         baseUrl,
       }),
-    [baseUrl, enabledModelOptions, sourceId, modelName, modelProvider]
+    [
+      baseUrl,
+      catalogId,
+      enabledModelOptions,
+      sourceId,
+      modelName,
+      modelProvider,
+    ]
   )
 
   useEffect(() => {
@@ -1999,6 +2019,7 @@ function AgentPresetConfigurationPanel({
   onAddToolApproval: () => void
   onRemoveToolApproval: (index: number) => void
 }) {
+  const catalogId = form.watch("catalog_id")
   const sourceId = form.watch("source_id")
   const modelProvider = form.watch("model_provider")
   const modelName = form.watch("model_name")
@@ -2008,12 +2029,20 @@ function AgentPresetConfigurationPanel({
   const selectedModel = useMemo(
     () =>
       findEnabledModelOption(enabledModelOptions, {
+        catalogId,
         sourceId,
         modelProvider,
         modelName,
         baseUrl,
       }),
-    [baseUrl, enabledModelOptions, sourceId, modelName, modelProvider]
+    [
+      baseUrl,
+      catalogId,
+      enabledModelOptions,
+      sourceId,
+      modelName,
+      modelProvider,
+    ]
   )
   const hasMissingEnabledModel =
     enabledModelsLoaded && !selectedModel && Boolean(modelProvider || modelName)

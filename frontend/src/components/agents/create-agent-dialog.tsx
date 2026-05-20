@@ -23,19 +23,13 @@ import {
   FormMessage,
 } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
+import { toast } from "@/components/ui/use-toast"
 import {
   useCreateAgentPreset,
   useMoveAgentPreset,
 } from "@/hooks/use-agent-presets"
-import { useWorkspaceAgentModels } from "@/lib/hooks"
+import { useAgentDefaultModel, useWorkspaceAgentModels } from "@/lib/hooks"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
 const createAgentSchema = z.object({
@@ -44,9 +38,6 @@ const createAgentSchema = z.object({
     .trim()
     .min(1, "Name is required")
     .max(120, "Name cannot be longer than 120 characters"),
-  model_provider: z.string().min(1, "Provider is required"),
-  model_name: z.string().min(1, "Model is required"),
-  catalog_id: z.string().optional(),
   description: z.string().max(1000).optional(),
 })
 
@@ -84,43 +75,63 @@ function CreateAgentDialogContent({
 }) {
   const workspaceId = useWorkspaceId()
   const router = useRouter()
-  const { models, modelsLoading } = useWorkspaceAgentModels(workspaceId)
+  const { models, providers, modelsLoading } =
+    useWorkspaceAgentModels(workspaceId)
+  const { defaultModel, defaultModelSelection, defaultModelLoading } =
+    useAgentDefaultModel()
   const { createAgentPreset, createAgentPresetIsPending } =
     useCreateAgentPreset(workspaceId)
   const { moveAgentPreset, moveAgentPresetIsPending } =
     useMoveAgentPreset(workspaceId)
 
-  const providers = useMemo(() => {
-    return Array.from(
-      new Set((models ?? []).map((model) => model.model_provider))
-    ).sort((a, b) => a.localeCompare(b))
-  }, [models])
+  const defaultAgentModel = useMemo(() => {
+    if (!models) return null
+    return (
+      (defaultModelSelection
+        ? models.find((model) => model.id === defaultModelSelection.catalog_id)
+        : null) ??
+      (defaultModel
+        ? models.find((model) => model.model_name === defaultModel)
+        : null) ??
+      null
+    )
+  }, [defaultModel, defaultModelSelection, models])
+
+  const defaultAgentModelBaseUrl = useMemo(() => {
+    if (!defaultAgentModel?.custom_provider_id) return null
+    return (
+      providers?.find(
+        (provider) => provider.id === defaultAgentModel.custom_provider_id
+      )?.base_url ?? null
+    )
+  }, [defaultAgentModel, providers])
 
   const methods = useForm<CreateAgentFormValues>({
     resolver: zodResolver(createAgentSchema),
     defaultValues: {
       name: "",
-      model_provider: "",
-      model_name: "",
-      catalog_id: "",
       description: "",
     },
   })
 
-  const selectedProvider = methods.watch("model_provider")
-
-  const filteredModels = useMemo(() => {
-    if (!models || !selectedProvider) return []
-    return models.filter((model) => model.model_provider === selectedProvider)
-  }, [models, selectedProvider])
-
   const handleSubmit = async (values: CreateAgentFormValues) => {
+    if (!defaultAgentModel) {
+      toast({
+        title: "Default model required",
+        description:
+          "Set a default agent model in organization settings before creating an agent.",
+        variant: "destructive",
+      })
+      return
+    }
+
     try {
       const preset = await createAgentPreset({
         name: values.name,
-        model_provider: values.model_provider,
-        model_name: values.model_name,
-        catalog_id: values.catalog_id || undefined,
+        model_provider: defaultAgentModel.model_provider,
+        model_name: defaultAgentModel.model_name,
+        catalog_id: defaultAgentModel.id,
+        base_url: defaultAgentModelBaseUrl || undefined,
         description: values.description || undefined,
       })
       const targetFolderPath =
@@ -150,7 +161,8 @@ function CreateAgentDialogContent({
       <DialogHeader>
         <DialogTitle>Create agent</DialogTitle>
         <DialogDescription>
-          Configure a new agent with a name, model, and optional description.
+          Give the agent a name and optional description. You can change its
+          model after creation.
         </DialogDescription>
       </DialogHeader>
       <Form {...methods}>
@@ -173,79 +185,6 @@ function CreateAgentDialogContent({
                 </FormItem>
               )}
             />
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              <FormField
-                control={methods.control}
-                name="model_provider"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel className="text-sm">Provider</FormLabel>
-                    <Select
-                      value={field.value}
-                      onValueChange={(value) => {
-                        field.onChange(value)
-                        methods.setValue("model_name", "")
-                        methods.setValue("catalog_id", "")
-                      }}
-                    >
-                      <FormControl>
-                        <SelectTrigger className="min-w-0 text-sm">
-                          <SelectValue placeholder="Select provider" />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        {providers.map((provider) => (
-                          <SelectItem key={provider} value={provider}>
-                            {provider}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <FormField
-                control={methods.control}
-                name="model_name"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel className="text-sm">Model</FormLabel>
-                    <Select
-                      value={methods.watch("catalog_id") || ""}
-                      onValueChange={(catalogId) => {
-                        const selectedModel = filteredModels.find(
-                          (model) => model.id === catalogId
-                        )
-                        methods.setValue("catalog_id", catalogId)
-                        if (selectedModel) {
-                          field.onChange(selectedModel.model_name)
-                          methods.setValue(
-                            "model_provider",
-                            selectedModel.model_provider
-                          )
-                        }
-                      }}
-                      disabled={!selectedProvider || modelsLoading}
-                    >
-                      <FormControl>
-                        <SelectTrigger className="min-w-0 text-sm">
-                          <SelectValue placeholder="Select model" />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        {filteredModels.map((model) => (
-                          <SelectItem key={model.id} value={model.id}>
-                            {model.model_name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-            </div>
             <FormField
               control={methods.control}
               name="description"
@@ -272,7 +211,8 @@ function CreateAgentDialogContent({
                 disabled={
                   createAgentPresetIsPending ||
                   moveAgentPresetIsPending ||
-                  modelsLoading
+                  modelsLoading ||
+                  defaultModelLoading
                 }
               >
                 Create agent
