@@ -3,7 +3,7 @@ definition:
   title: Lookup agents by IP address
   description: Find all SentinelOne agents by IP address (external IP, network interface, or gateway).
   display_group: SentinelOne
-  doc_url: https://www.postman.com/api-evangelist/workspace/sentinelone/documentation/35240-8314fa61-90b8-405a-a1fa-c695b640a11a
+  doc_url: https://github.com/sentinel-official/sentinel-python-sdk
   namespace: tools.sentinel_one
   name: lookup_agent_ip
   secrets:
