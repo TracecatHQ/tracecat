@@ -1294,6 +1294,97 @@ async def test_run_python_nsjail_sdk_calls_use_action_gateway_without_network(
     )
 
 
+@pytest.mark.anyio
+async def test_run_python_pid_sdk_calls_use_action_gateway_with_legacy_registry(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Unsafe PID fallback should patch pre-gateway SDK artifacts too."""
+    _set_run_python_nsjail_mode(monkeypatch, disable_nsjail=True)
+    action_gateway_socket = (
+        Path("/tmp") / f"tracecat-run-python-gateway-{uuid.uuid4().hex}.sock"
+    )
+    action_gateway_socket.unlink(missing_ok=True)
+    action_gateway = ActionGateway(socket_path=action_gateway_socket)
+    legacy_registry_root = _write_legacy_registry_sdk(tmp_path / "legacy-registry")
+    fake_runner = _FakeRunPythonRegistryPathRunner(
+        [legacy_registry_root, Path(sysconfig.get_path("purelib")).resolve()]
+    )
+
+    async def _get_tarball_uris(_input: RunActionInput, _role: Role) -> list[str]:
+        return ["s3://tracecat-registry/test/site-packages.tar.gz"]
+
+    monkeypatch.setattr(
+        executor_backend_module,
+        "SandboxService",
+        lambda: SandboxService(cache_dir=str(tmp_path / "sandbox-cache")),
+    )
+    monkeypatch.setattr(
+        executor_backend_module,
+        "get_action_runner",
+        lambda: fake_runner,
+    )
+    monkeypatch.setattr(
+        executor_backend_module.config,
+        "TRACECAT__API_URL",
+        "http://tracecat-api:8000",
+    )
+    monkeypatch.setattr(
+        executor_backend_module.config,
+        "TRACECAT__ACTION_GATEWAY_ENABLED",
+        True,
+    )
+    monkeypatch.setattr(
+        executor_backend_module.config,
+        "TRACECAT__ACTION_GATEWAY_SOCKET",
+        str(action_gateway_socket),
+    )
+
+    backend = DirectBackend()
+    monkeypatch.setattr(backend, "_get_tarball_uris", _get_tarball_uris)
+
+    input_data = _make_run_python_input()
+    resolved_context = _make_run_python_context()
+    resolved_context.evaluated_args.update(
+        {
+            "script": """
+from tracecat_registry import ctx
+
+
+async def main():
+    import os
+
+    return {
+        "gateway": await ctx.client.get("/health"),
+        "socket_path": os.environ.get("TRACECAT__ACTION_GATEWAY_SOCKET"),
+    }
+""",
+            "allow_network": False,
+            "timeout_seconds": 60,
+        }
+    )
+
+    try:
+        await action_gateway.start()
+        result = await backend.execute(
+            input=input_data,
+            role=_make_role(),
+            resolved_context=resolved_context,
+        )
+    finally:
+        await action_gateway.stop()
+        action_gateway_socket.unlink(missing_ok=True)
+
+    assert result.type == "success", result.error
+    assert result.result == {
+        "gateway": {"status": "ok"},
+        "socket_path": str(action_gateway_socket),
+    }
+    assert fake_runner.tarball_uris == [
+        "s3://tracecat-registry/test/site-packages.tar.gz"
+    ]
+
+
 if __name__ == "__main__":
     if sys.argv[1:] == ["--run-nsjail-sdk-context-smoke"]:
         _run_nsjail_sdk_context_smoke_from_cli()
