@@ -90,6 +90,11 @@ class _SkillVisibilityMessage(TypedDict):
     skill_text: str
 
 
+class _DuckDBSmokeMessage(TypedDict):
+    duckdb_extension_count: int
+    duckdb_path: str
+
+
 @dataclass(slots=True)
 class _FakeClaudeOptions:
     env: dict[str, str]
@@ -196,6 +201,26 @@ def _parse_skill_visibility_message(message: object) -> _SkillVisibilityMessage:
     return {
         "skill_path": skill_path,
         "skill_text": skill_text,
+    }
+
+
+def _parse_duckdb_smoke_message(message: object) -> _DuckDBSmokeMessage:
+    if not isinstance(message, dict):
+        raise AssertionError(f"expected dict DuckDB probe, got {type(message)!r}")
+
+    duckdb_path = message.get("duckdb_path")
+    if not isinstance(duckdb_path, str):
+        raise AssertionError(f"expected string duckdb_path, got {duckdb_path!r}")
+
+    extension_count = message.get("duckdb_extension_count")
+    if not isinstance(extension_count, int):
+        raise AssertionError(
+            f"expected int duckdb_extension_count, got {extension_count!r}"
+        )
+
+    return {
+        "duckdb_path": duckdb_path,
+        "duckdb_extension_count": extension_count,
     }
 
 
@@ -624,6 +649,39 @@ class _FakeRuntimeReadingTransport:
         try:
             async for message in transport.read_messages():
                 type(self).messages.append(_parse_skill_visibility_message(message))
+        finally:
+            await transport.close()
+
+
+class _FakeRuntimeReadingDuckDBTransport:
+    instances: list[_FakeRuntimeReadingDuckDBTransport] = []
+    messages: list[_DuckDBSmokeMessage] = []
+
+    def __init__(
+        self,
+        _handler: object,
+        *,
+        transport_factory: Callable[[_FakeClaudeOptions], SandboxedCLITransport],
+        session_home_dir: Path,
+        cwd: Path,
+        cwd_setup_path: Path,
+    ) -> None:
+        self.transport_factory = transport_factory
+        self.session_home_dir = session_home_dir
+        self.cwd = cwd
+        self.cwd_setup_path = cwd_setup_path
+        self.transport: SandboxedCLITransport | None = None
+        type(self).instances.append(self)
+
+    async def run(self, payload: object) -> None:
+        del payload
+        options = _make_fake_claude_options()
+        transport = self.transport_factory(options)
+        self.transport = transport
+        await transport.connect()
+        try:
+            async for message in transport.read_messages():
+                type(self).messages.append(_parse_duckdb_smoke_message(message))
         finally:
             await transport.close()
 
@@ -1209,6 +1267,23 @@ def _run_nsjail_mcp_compression_smoke_from_cli() -> None:
                 tmp_path=tmp_path,
             )
         finally:
+            shutil.rmtree(tmp_path, ignore_errors=True)
+
+    asyncio.run(run())
+
+
+def _run_nsjail_duckdb_smoke_from_cli() -> None:
+    async def run() -> None:
+        monkeypatch = pytest.MonkeyPatch()
+        tmp_path = Path(tempfile.mkdtemp(prefix="tracecat-agent-nsjail-duckdb-"))
+        try:
+            _set_disable_nsjail_mode(monkeypatch, False)
+            await _run_duckdb_cli_available_case(
+                monkeypatch=monkeypatch,
+                tmp_path=tmp_path,
+            )
+        finally:
+            monkeypatch.undo()
             shutil.rmtree(tmp_path, ignore_errors=True)
 
     asyncio.run(run())
@@ -1891,6 +1966,133 @@ async def _run_attached_skills_visible_case(
         )
 
 
+async def _run_duckdb_cli_available_case(
+    *,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _patch_agent_management_credentials(monkeypatch)
+    _FakeLLMSocketProxy.instances.clear()
+    _FakeRuntimeReadingDuckDBTransport.instances.clear()
+    _FakeRuntimeReadingDuckDBTransport.messages.clear()
+    broker = ClaudeRuntimeBroker()
+    await broker.start()
+
+    async def fake_build_claude_command(self: SandboxedCLITransport) -> list[str]:
+        del self
+        code = "\n".join(
+            [
+                "import json",
+                "import shutil",
+                "import subprocess",
+                "",
+                "duckdb_path = shutil.which('duckdb')",
+                "if duckdb_path is None:",
+                "    raise SystemExit('duckdb CLI not found')",
+                'query = """',
+                "SELECT count(*)",
+                "FROM duckdb_extensions()",
+                "WHERE extension_name IN (",
+                "    'json',",
+                "    'postgres_scanner',",
+                "    'httpfs',",
+                "    'sqlite_scanner',",
+                "    'inet'",
+                ")",
+                "AND installed",
+                "AND loaded;",
+                '"""',
+                "extension_count = subprocess.check_output(",
+                "    [duckdb_path, '-csv', '-noheader', '-c', query],",
+                "    text=True,",
+                ").strip()",
+                "print(",
+                "    json.dumps(",
+                "        {",
+                "            'duckdb_path': duckdb_path,",
+                "            'duckdb_extension_count': int(extension_count),",
+                "        },",
+                "        separators=(',', ':'),",
+                "    ),",
+                "    flush=True,",
+                ")",
+            ]
+        )
+        return ["/usr/local/bin/python3", "-c", code]
+
+    original_create_job_directory = SandboxedAgentExecutor._create_job_directory
+
+    async def fake_create_job_directory(self: SandboxedAgentExecutor) -> Path:
+        job_dir = await original_create_job_directory(self)
+        mcp_socket_path = job_dir / "sockets" / "mcp.sock"
+        mcp_socket_path.touch()
+        monkeypatch.setattr(
+            nsjail_module,
+            "TRACECAT__AGENT_MCP_SOCKET_PATH",
+            mcp_socket_path,
+        )
+        return job_dir
+
+    monkeypatch.setattr(executor_activity, "LoopbackHandler", _FakeLoopbackHandler)
+    monkeypatch.setattr(executor_activity, "LLMSocketProxy", _FakeLLMSocketProxy)
+    monkeypatch.setattr(
+        SandboxedAgentExecutor,
+        "_create_job_directory",
+        fake_create_job_directory,
+    )
+    monkeypatch.setattr(executor_activity, "get_claude_runtime_broker", lambda: broker)
+    monkeypatch.setattr(
+        broker_module,
+        "ClaudeAgentRuntime",
+        _FakeRuntimeReadingDuckDBTransport,
+    )
+    monkeypatch.setattr(
+        transport_module.SandboxedCLITransport,
+        "_build_claude_command",
+        fake_build_claude_command,
+    )
+    monkeypatch.setattr(
+        session_paths_module.tempfile,
+        "gettempdir",
+        lambda: str(tmp_path / "sessions"),
+    )
+    monkeypatch.setattr(
+        executor_activity,
+        "activity",
+        SimpleNamespace(heartbeat=lambda _message: None),
+    )
+    monkeypatch.setattr(
+        executor_activity.AgentSessionService,
+        "with_session",
+        lambda **_kwargs: _FakeAgentSessionService(),
+    )
+
+    try:
+        result = await run_agent_activity(
+            _make_passthrough_executor_input(enable_internet_access=False)
+        )
+    finally:
+        await broker.stop()
+
+    assert result.success is True
+    assert result.error is None
+
+    assert len(_FakeLLMSocketProxy.instances) == 1
+    proxy = _FakeLLMSocketProxy.instances[0]
+    assert proxy.started is True
+    assert proxy.stopped is True
+    assert proxy.request_count == 0
+
+    assert len(_FakeRuntimeReadingDuckDBTransport.instances) == 1
+    runtime = _FakeRuntimeReadingDuckDBTransport.instances[0]
+    assert runtime.transport is not None
+    assert runtime.cwd == Path("/work/claude-project")
+
+    assert _FakeRuntimeReadingDuckDBTransport.messages == [
+        {"duckdb_path": "/usr/local/bin/duckdb", "duckdb_extension_count": 5}
+    ]
+
+
 @pytest.mark.anyio
 async def test_run_agent_activity_makes_attached_skills_visible_in_each_sandbox_mode(
     full_harness_disable_nsjail_mode: bool,
@@ -1906,6 +2108,25 @@ async def test_run_agent_activity_makes_attached_skills_visible_in_each_sandbox_
 
     await _run_attached_skills_visible_case(
         disable_nsjail_mode=full_harness_disable_nsjail_mode,
+        monkeypatch=monkeypatch,
+        tmp_path=tmp_path,
+    )
+
+
+@pytest.mark.anyio
+async def test_agent_nsjail_runtime_has_duckdb_cli(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    if not _agent_nsjail_available():
+        _run_nsjail_harness_in_docker_or_skip(
+            cli_flag="--run-nsjail-duckdb-smoke",
+            failure_label="Dockerized nsjail DuckDB smoke fallback failed.",
+        )
+        return
+
+    _set_disable_nsjail_mode(monkeypatch, False)
+    await _run_duckdb_cli_available_case(
         monkeypatch=monkeypatch,
         tmp_path=tmp_path,
     )
@@ -2290,9 +2511,12 @@ if __name__ == "__main__":
         _run_nsjail_skills_smoke_from_cli()
     elif sys.argv[1:] == ["--run-nsjail-mcp-compression-smoke"]:
         _run_nsjail_mcp_compression_smoke_from_cli()
+    elif sys.argv[1:] == ["--run-nsjail-duckdb-smoke"]:
+        _run_nsjail_duckdb_smoke_from_cli()
     else:
         raise SystemExit(
             "Usage: python -m tests.unit.test_agent_sandbox_litellm "
             "[--run-nsjail-harness-smoke|--run-nsjail-pasta-smoke|"
-            "--run-nsjail-skills-smoke|--run-nsjail-mcp-compression-smoke]"
+            "--run-nsjail-skills-smoke|--run-nsjail-mcp-compression-smoke|"
+            "--run-nsjail-duckdb-smoke]"
         )
