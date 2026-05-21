@@ -2833,7 +2833,7 @@ inputs, results, and errors. This is essential for diagnosing failed runs.
 Action names like `core.http_request` are for use *inside* workflow YAML definitions \
 (in the `action:` field of a workflow action step). They are NOT MCP tool names. \
 To manage cases directly, use the MCP tools `create_case`, `list_cases`, `get_case`, \
-`update_case`, and `delete_case`. Similarly, use `create_workflow` (not \
+and `update_case`. Similarly, use `create_workflow` (not \
 `core.workflow.execute`) to create workflows via MCP.
 
 ## Tag and case field argument rules
