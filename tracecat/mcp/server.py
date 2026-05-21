@@ -3846,7 +3846,6 @@ _TOOL_NAMESPACE_BY_NAME: dict[str, str] = {
     "get_case": "cases",
     "create_case": "cases",
     "update_case": "cases",
-    "delete_case": "cases",
     "list_case_comments": "cases",
     "list_case_comment_threads": "cases",
     "create_case_comment": "cases",
@@ -3856,7 +3855,6 @@ _TOOL_NAMESPACE_BY_NAME: dict[str, str] = {
     "get_case_task": "cases",
     "create_case_task": "cases",
     "update_case_task": "cases",
-    "delete_case_task": "cases",
     "run_case_task": "cases",
     "list_case_events": "cases",
     "list_case_tags": "cases",
@@ -3869,7 +3867,6 @@ _TOOL_NAMESPACE_BY_NAME: dict[str, str] = {
     "list_case_fields": "cases",
     "create_case_field": "cases",
     "update_case_field": "cases",
-    "delete_case_field": "cases",
     "list_tables": "tables",
     "create_table": "tables",
     "get_table": "tables",
@@ -6326,37 +6323,6 @@ async def update_case(
         raise ToolError(f"Failed to update case: {e}") from None
 
 
-@mcp.tool()
-async def delete_case(
-    workspace_id: uuid.UUID, case_id: uuid.UUID
-) -> MCPMessageResponse:
-    """Delete a case.
-
-    Args:
-        workspace_id: The workspace ID.
-        case_id: Case UUID.
-
-    Returns a confirmation message.
-    """
-
-    try:
-        case_id = _coerce_uuid_arg(case_id, "case_id")
-        _, role = await _resolve_workspace_role(workspace_id)
-        async with CasesService.with_session(role=role) as svc:
-            case = await svc.get_case(case_id)
-            if case is None:
-                raise ToolError(f"Case {case_id!r} not found")
-            await svc.delete_case(case)
-            return MCPMessageResponse(message=f"Case {case_id} deleted successfully")
-    except ToolError:
-        raise
-    except ValueError as e:
-        raise ToolError(str(e)) from e
-    except Exception as e:
-        logger.error("Failed to delete case", error=str(e))
-        raise ToolError(f"Failed to delete case: {e}") from None
-
-
 # ---------------------------------------------------------------------------
 # Case Comments
 # ---------------------------------------------------------------------------
@@ -6771,43 +6737,6 @@ async def update_case_task(
     except Exception as e:
         logger.error("Failed to update case task", error=str(e))
         raise ToolError(f"Failed to update case task: {e}") from None
-
-
-@mcp.tool()
-async def delete_case_task(
-    workspace_id: uuid.UUID,
-    case_id: uuid.UUID,
-    task_id: uuid.UUID,
-) -> MCPMessageResponse:
-    """Delete a case task.
-
-    Args:
-        workspace_id: The workspace ID.
-        case_id: Case UUID (must match the task's parent case).
-        task_id: Task UUID.
-
-    Returns a confirmation message.
-    """
-
-    try:
-        case_id = _coerce_uuid_arg(case_id, "case_id")
-        task_id = _coerce_uuid_arg(task_id, "task_id")
-        _, role = await _resolve_workspace_role(workspace_id)
-        async with CaseTasksService.with_session(role=role) as svc:
-            existing = await svc.get_task(task_id)
-            if existing.case_id != case_id:
-                raise ToolError("Task not found in the specified case")
-            await svc.delete_task(task_id)
-            return MCPMessageResponse(message=f"Task {task_id} deleted successfully")
-    except ToolError:
-        raise
-    except TracecatNotFoundError as e:
-        raise ToolError(str(e)) from e
-    except ValueError as e:
-        raise ToolError(str(e)) from e
-    except Exception as e:
-        logger.error("Failed to delete case task", error=str(e))
-        raise ToolError(f"Failed to delete case task: {e}") from None
 
 
 @mcp.tool()
@@ -7357,33 +7286,6 @@ async def update_case_field(
     except Exception as e:
         logger.error("Failed to update case field", error=str(e))
         raise ToolError(f"Failed to update case field: {e}") from None
-
-
-@mcp.tool()
-async def delete_case_field(
-    workspace_id: uuid.UUID, field_id: str
-) -> MCPMessageResponse:
-    """Delete a case field definition.
-
-    Args:
-        workspace_id: The workspace ID.
-        field_id: Existing field id from `list_case_fields` (field name, not UUID).
-
-    Returns a confirmation message.
-    """
-
-    try:
-        _, role = await _resolve_workspace_role(workspace_id)
-        async with CaseFieldsService.with_session(role=role) as svc:
-            await svc.delete_field(field_id)
-            return MCPMessageResponse(
-                message=f"Case field {field_id} deleted successfully"
-            )
-    except ValueError as e:
-        raise ToolError(str(e)) from e
-    except Exception as e:
-        logger.error("Failed to delete case field", error=str(e))
-        raise ToolError(f"Failed to delete case field: {e}") from None
 
 
 @mcp.tool()
