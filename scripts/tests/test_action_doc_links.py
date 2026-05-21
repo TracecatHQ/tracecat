@@ -64,7 +64,9 @@ async def _check_url(
 ) -> tuple[int | None, str | None]:
     async with semaphore:
         try:
-            response = await client.get(url, follow_redirects=True)
+            response = await client.head(url, follow_redirects=True)
+            if response.status_code in {405, 501}:
+                response = await client.get(url, follow_redirects=True)
         except httpx.HTTPError as exc:
             return None, f"{type(exc).__name__}: {exc}"
         return response.status_code, None
