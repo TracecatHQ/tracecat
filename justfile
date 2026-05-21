@@ -39,6 +39,36 @@ test-frontend-smoke *args:
 # Open the frontend smoke Playwright report
 test-frontend-smoke-report *args:
 	pnpm -C frontend exec playwright show-report {{args}}
+# Run live agent smoke tests against TRACECAT_TEST_EXTERNAL_API_URL or the active cluster API URL
+test-agent-smoke *args:
+	#!/usr/bin/env sh
+	set -e
+	if [ -z "${TRACECAT_TEST_EXTERNAL_API_URL:-}" ]; then
+		TRACECAT_TEST_EXTERNAL_API_URL="$(./scripts/cluster ports | awk '/API:/ {print $2; exit}')"
+		if [ -z "${TRACECAT_TEST_EXTERNAL_API_URL}" ]; then
+			echo "Could not determine active cluster API URL. Set TRACECAT_TEST_EXTERNAL_API_URL explicitly." >&2
+			exit 1
+		fi
+		export TRACECAT_TEST_EXTERNAL_API_URL
+	fi
+	export TRACECAT_TEST_API_MODE="${TRACECAT_TEST_API_MODE:-external}"
+	export RUN_AGENT_SMOKE=1
+	uv run pytest tests/smoke/agent -m agent_smoke -n 3 -x -ra {{args}}
+
+# Run the live agent Playwright UX canary against PLAYWRIGHT_BASE_URL or the active cluster URL
+test-agent-smoke-ui *args:
+	#!/usr/bin/env sh
+	set -e
+	if [ -z "${PLAYWRIGHT_BASE_URL:-}" ]; then
+		PLAYWRIGHT_BASE_URL="$(./scripts/cluster ports | awk '/UI \(Caddy\):/ {print $3; exit}')"
+		if [ -z "${PLAYWRIGHT_BASE_URL}" ]; then
+			echo "Could not determine active cluster URL. Set PLAYWRIGHT_BASE_URL explicitly." >&2
+			exit 1
+		fi
+		export PLAYWRIGHT_BASE_URL
+	fi
+	export RUN_AGENT_UX_CANARY=1
+	pnpm -C frontend exec playwright test agent-ux.spec.ts --workers="${PLAYWRIGHT_WORKERS:-1}" {{args}}
 
 # Run backend benchmarks inside Docker (required for nsjail on macOS)
 bench *args:

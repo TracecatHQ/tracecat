@@ -12,5 +12,14 @@ services:
   executor:
     <<: *tracecat-ci-image
 
+  agent-worker:
+    <<: *tracecat-ci-image
+
+  litellm:
+    <<: *tracecat-ci-image
+
+  agent-executor:
+    <<: *tracecat-ci-image
+
   migrations:
     <<: *tracecat-ci-image
