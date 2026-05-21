@@ -21,11 +21,11 @@ classifiers = [
     "Topic :: System :: Systems Administration",
 ]
 dependencies = [
-    "aioboto3>=15.0.0",
+    "aioboto3>=15.5.0",
     "ansible-core>=2.18.0,<3.0.0",
     "ansible-runner==2.4.0",
-    "boto3>=1.39.0,<2.0.0",
-    "crowdstrike-falconpy==1.5.3",
+    "boto3>=1.40.61,<2.0.0",
+    "crowdstrike-falconpy==1.6.2",
     "dnspython==2.6.1",
     "docker==7.1.0",
     "duckdb==1.4.3",
@@ -44,7 +44,7 @@ dependencies = [
     "pymongo==4.8.0",
     "pyyaml==6.0.3",
     "redis[hiredis]==7.1.0",
-    "slack-sdk==3.41.0",
+    "slack-sdk==3.42.0",
     "sqlalchemy>=2.0.0,<3.0.0",
     "tavily-python==0.7.6",
     "tenacity==8.3.0",
@@ -53,8 +53,8 @@ dynamic = ["version"]
 
 [project.optional-dependencies]
 dev = [
-    "types-aioboto3[sts,s3]>=15.0.0",
-    "types-boto3[sts,s3]>=1.39.0,<2.0.0",
+    "types-aioboto3[sts,s3]>=15.5.0",
+    "types-boto3[sts,s3]>=1.40.61,<2.0.0",
 ]
 
 [project.urls]
