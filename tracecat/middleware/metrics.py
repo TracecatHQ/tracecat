@@ -6,6 +6,8 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import Response
 from starlette.types import ASGIApp
 
+from tracecat.auth.types import Role
+
 type CallNext = Callable[[Request], Awaitable[Response]]
 
 HTTP_REQUEST_TOTAL = Counter(
@@ -14,16 +16,22 @@ HTTP_REQUEST_TOTAL = Counter(
     labelnames=("component", "route", "method", "code"),
 )
 
-_EXCLUDED_METRICS_PATHS = frozenset(
-    {
-        "/metrics",
-        "/api/metrics",
-        "/health",
-        "/ready",
-        "/api/health",
-        "/api/ready",
-    }
+HTTP_REQUEST_ERROR_TOTAL = Counter(
+    "http_request_error_total",
+    "Total HTTP error responses handled by Tracecat services with tenant context.",
+    labelnames=(
+        "component",
+        "route",
+        "method",
+        "code",
+        "organization_id",
+        "workspace_id",
+    ),
 )
+
+_EXCLUDED_METRICS_PATHS = frozenset({"/metrics", "/health", "/ready"})
+
+_TENANT_ERROR_STATUS_CODES = frozenset({400, 401, 403, 422, 429})
 
 
 class HTTPMetricsMiddleware(BaseHTTPMiddleware):
@@ -43,12 +51,25 @@ class HTTPMetricsMiddleware(BaseHTTPMiddleware):
             status_code = response.status_code
             return response
         finally:
-            _record_http_request(
+            route = _route_label(request)
+            HTTP_REQUEST_TOTAL.labels(
                 component=self.component,
-                route=_route_label(request),
+                route=route,
                 method=request.method,
-                status_code=status_code,
-            )
+                code=str(status_code),
+            ).inc()
+
+            if status_code >= 500 or status_code in _TENANT_ERROR_STATUS_CODES:
+                if tenant_labels := _tenant_labels(request):
+                    organization_id, workspace_id = tenant_labels
+                    HTTP_REQUEST_ERROR_TOTAL.labels(
+                        component=self.component,
+                        route=route,
+                        method=request.method,
+                        code=str(status_code),
+                        organization_id=organization_id,
+                        workspace_id=workspace_id,
+                    ).inc()
 
 
 def prometheus_metrics_response() -> Response:
@@ -58,9 +79,18 @@ def prometheus_metrics_response() -> Response:
 
 def _should_skip_request(request: Request) -> bool:
     route = _route_label(request)
-    return (
-        request.url.path in _EXCLUDED_METRICS_PATHS or route in _EXCLUDED_METRICS_PATHS
-    )
+    path = request.scope.get("path")
+    request_path = path if isinstance(path, str) else request.url.path
+    root_path = request.scope.get("root_path")
+
+    if isinstance(root_path, str) and root_path not in {"", "/"}:
+        normalized_root = root_path.rstrip("/")
+        if request_path == normalized_root:
+            request_path = "/"
+        elif request_path.startswith(f"{normalized_root}/"):
+            request_path = request_path[len(normalized_root) :] or "/"
+
+    return request_path in _EXCLUDED_METRICS_PATHS or route in _EXCLUDED_METRICS_PATHS
 
 
 def _route_label(request: Request) -> str:
@@ -76,12 +106,11 @@ def _route_label(request: Request) -> str:
     return "unmatched"
 
 
-def _record_http_request(
-    *, component: str, route: str, method: str, status_code: int
-) -> None:
-    HTTP_REQUEST_TOTAL.labels(
-        component=component,
-        route=route,
-        method=method,
-        code=str(status_code),
-    ).inc()
+def _tenant_labels(request: Request) -> tuple[str, str] | None:
+    """Resolve tenant labels for diagnostic error metrics without database work."""
+    role = getattr(request.state, "role", None)
+    if not isinstance(role, Role):
+        return None
+    if role.organization_id is None or role.workspace_id is None:
+        return None
+    return str(role.organization_id), str(role.workspace_id)

@@ -768,7 +768,10 @@ async def check_health() -> HealthResponse:
 
 @app.get("/metrics", include_in_schema=False)
 async def metrics(request: Request) -> Response:
-    if request.url.path != "/metrics":
+    # The API runs with root_path="/api" in production. Keep the metrics endpoint
+    # available only on the direct in-cluster scrape path, not on the public
+    # root-prefixed API path such as /api/metrics.
+    if request.scope.get("path") != "/metrics":
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
     return prometheus_metrics_response()
 
