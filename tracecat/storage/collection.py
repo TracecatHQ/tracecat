@@ -28,6 +28,7 @@ from temporalio import activity
 
 from tracecat import config
 from tracecat.logger import logger
+from tracecat.runtime.errors import RuntimeErrorOrigin, RuntimeErrorPhase
 from tracecat.storage import blob
 from tracecat.storage.object import (
     CollectionObject,
@@ -41,6 +42,7 @@ from tracecat.storage.utils import (
     deserialize_object,
     serialize_object,
 )
+from tracecat.temporal import activity_errors
 
 if TYPE_CHECKING:
     pass
@@ -417,12 +419,19 @@ class CollectionActivities:
 
         Temporal activity wrapper for store_collection().
         """
-        return await store_collection(
-            prefix=prefix,
-            items=items,
-            element_kind=element_kind,
-            chunk_size=chunk_size,
-        )
+        with activity_errors.platform_or_infra_boundary(
+            origin=RuntimeErrorOrigin.DSL,
+            code="collection.store_failed",
+            message="Failed to store collection",
+            phase=RuntimeErrorPhase.COLLECT,
+            metadata={"prefix": prefix},
+        ):
+            return await store_collection(
+                prefix=prefix,
+                items=items,
+                element_kind=element_kind,
+                chunk_size=chunk_size,
+            )
 
     @staticmethod
     @activity.defn
@@ -435,7 +444,18 @@ class CollectionActivities:
 
         Temporal activity wrapper for get_collection_page().
         """
-        return await get_collection_page(collection, offset, limit)
+        with activity_errors.platform_or_infra_boundary(
+            origin=RuntimeErrorOrigin.DSL,
+            code="collection.page_failed",
+            message="Failed to fetch collection page",
+            phase=RuntimeErrorPhase.COLLECT,
+            metadata={
+                "collection_ref": collection.manifest_ref.key,
+                "offset": offset,
+                "limit": limit,
+            },
+        ):
+            return await get_collection_page(collection, offset, limit)
 
     @staticmethod
     @activity.defn
@@ -447,7 +467,17 @@ class CollectionActivities:
 
         Temporal activity wrapper for get_collection_item().
         """
-        return await get_collection_item(collection, index)
+        with activity_errors.platform_or_infra_boundary(
+            origin=RuntimeErrorOrigin.DSL,
+            code="collection.item_failed",
+            message="Failed to fetch collection item",
+            phase=RuntimeErrorPhase.COLLECT,
+            metadata={
+                "collection_ref": collection.manifest_ref.key,
+                "index": index,
+            },
+        ):
+            return await get_collection_item(collection, index)
 
     @staticmethod
     @activity.defn
@@ -460,4 +490,15 @@ class CollectionActivities:
 
         Temporal activity wrapper for materialize_collection_values().
         """
-        return await materialize_collection_values(collection, offset, limit)
+        with activity_errors.platform_or_infra_boundary(
+            origin=RuntimeErrorOrigin.DSL,
+            code="collection.materialize_failed",
+            message="Failed to materialize collection values",
+            phase=RuntimeErrorPhase.COLLECT,
+            metadata={
+                "collection_ref": collection.manifest_ref.key,
+                "offset": offset,
+                "limit": limit,
+            },
+        ):
+            return await materialize_collection_values(collection, offset, limit)

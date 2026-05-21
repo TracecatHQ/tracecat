@@ -407,7 +407,7 @@ class DSLWorkflow:
                 )
             except ActivityError as e:
                 match cause := e.cause:
-                    case ApplicationError():
+                    case ApplicationError() if extract_runtime_error(cause) is not None:
                         # Preserve structured application errors from the activity,
                         # including entitlement failures and non-retryable flags.
                         raise cause from e
@@ -1386,7 +1386,19 @@ class DSLWorkflow:
                         err_payload if err_payload is not None else root_message,
                         err_type,
                     )
-                    raise app_err from e
+                    if extract_runtime_error(app_err, ref=task.ref) is not None:
+                        raise app_err from e
+                    raise WorkflowRuntimeError.platform_or_infra(
+                        code="dsl.task.activity_application_error",
+                        message=root_message,
+                        origin=RuntimeErrorOrigin.DSL,
+                        phase=RuntimeErrorPhase.USER_CODE,
+                        error_type=err_type,
+                        root=app_err,
+                        action_ref=task.ref,
+                        stream_id=stream_id,
+                        workflow_exec_id=self.wf_exec_id,
+                    ) from e
                 case _:
                     resolved_type = root_error.__class__.__name__
                     self.logger.warning(

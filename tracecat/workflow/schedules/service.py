@@ -9,11 +9,13 @@ from temporalio import activity
 from tracecat.authz.controls import require_scope
 from tracecat.db.models import Schedule, Workflow
 from tracecat.db.session_events import add_after_commit_callback
+from tracecat.dsl import activity_errors as dsl_errors
 from tracecat.exceptions import TracecatNotFoundError
 from tracecat.identifiers import ScheduleUUID, WorkflowID
 from tracecat.identifiers.schedules import AnyScheduleID
 from tracecat.identifiers.workflow import AnyWorkflowID, WorkflowUUID
 from tracecat.logger import logger
+from tracecat.runtime.errors import RuntimeErrorPhase
 from tracecat.service import BaseWorkspaceService
 from tracecat.storage.object import InlineObject
 from tracecat.workflow.schedules import bridge
@@ -329,11 +331,27 @@ class WorkflowSchedulesService(BaseWorkspaceService):
         TracecatNotFoundError
             If the schedule is not found.
         """
-        async with WorkflowSchedulesService.with_session(role=input.role) as service:
-            try:
+        try:
+            async with WorkflowSchedulesService.with_session(
+                role=input.role
+            ) as service:
                 schedule = await service.get_schedule(input.schedule_id)
                 if schedule.inputs is None:
                     return None
                 return InlineObject(data=schedule.inputs)
-            except TracecatNotFoundError:
-                raise
+        except TracecatNotFoundError as e:
+            raise dsl_errors.user(
+                code="workflow.schedule.not_found",
+                message=str(e),
+                phase=RuntimeErrorPhase.PREPARE,
+                root=e,
+                ref=str(input.schedule_id),
+            ) from e
+        except Exception as e:
+            raise dsl_errors.platform_or_infra(
+                code="workflow.schedule.inputs_fetch_failed",
+                message="Failed to fetch schedule trigger inputs",
+                phase=RuntimeErrorPhase.PREPARE,
+                root=e,
+                ref=str(input.schedule_id),
+            ) from e

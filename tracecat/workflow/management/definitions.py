@@ -6,15 +6,15 @@ from temporalio import activity
 
 from tracecat.authz.controls import require_scope
 from tracecat.db.models import Workflow, WorkflowDefinition
+from tracecat.dsl import activity_errors as dsl_errors
 from tracecat.dsl.common import DSLInput
 from tracecat.exceptions import BuiltinRegistryHasNoSelectionError, EntitlementRequired
 from tracecat.identifiers.workflow import WorkflowID
 from tracecat.logger import logger
 from tracecat.registry.lock.service import RegistryLockService
 from tracecat.registry.lock.types import RegistryLock
-from tracecat.runtime.errors import RuntimeErrorOrigin, RuntimeErrorPhase
+from tracecat.runtime.errors import RuntimeErrorPhase
 from tracecat.service import BaseWorkspaceService
-from tracecat.temporal.errors import ActivityRuntimeError
 from tracecat.workflow.management.schemas import (
     GetWorkflowDefinitionActivityInputs,
     ResolveRegistryLockActivityInputs,
@@ -126,22 +126,36 @@ class WorkflowDefinitionsService(BaseWorkspaceService):
 async def get_workflow_definition_activity(
     input: GetWorkflowDefinitionActivityInputs,
 ) -> WorkflowDefinitionActivityResult:
-    async with WorkflowDefinitionsService.with_session(role=input.role) as service:
-        defn = await service.get_definition_by_workflow_id(
-            input.workflow_id, version=input.version
-        )
-        if not defn:
-            msg = f"Workflow definition not found for {input.workflow_id.short()}, version={input.version}"
-            logger.error(msg)
-            raise ActivityRuntimeError.user(
-                code="workflow.definition.not_found",
-                message=msg,
-                origin=RuntimeErrorOrigin.DSL,
-                phase=RuntimeErrorPhase.PREPARE,
-                error_type="WorkflowDefinitionNotFound",
-                ref=input.workflow_id.short(),
+    with dsl_errors.platform_or_infra_boundary(
+        code="workflow.definition.fetch_failed",
+        message="Failed to fetch workflow definition",
+        phase=RuntimeErrorPhase.PREPARE,
+        ref=input.workflow_id.short(),
+    ):
+        async with WorkflowDefinitionsService.with_session(role=input.role) as service:
+            defn = await service.get_definition_by_workflow_id(
+                input.workflow_id, version=input.version
             )
-        dsl = DSLInput(**defn.content)
+            if not defn:
+                msg = f"Workflow definition not found for {input.workflow_id.short()}, version={input.version}"
+                logger.error(msg)
+                raise dsl_errors.user(
+                    code="workflow.definition.not_found",
+                    message=msg,
+                    phase=RuntimeErrorPhase.PREPARE,
+                    error_type="WorkflowDefinitionNotFound",
+                    ref=input.workflow_id.short(),
+                )
+            try:
+                dsl = DSLInput(**defn.content)
+            except ValueError as e:
+                raise dsl_errors.user(
+                    code="workflow.definition.invalid",
+                    message=f"Workflow definition is invalid: {e}",
+                    phase=RuntimeErrorPhase.PREPARE,
+                    root=e,
+                    ref=input.workflow_id.short(),
+                ) from e
     # Convert from DB dict type to RegistryLock (JSONB deserializes to dict)
     registry_lock = (
         RegistryLock.model_validate(defn.registry_lock) if defn.registry_lock else None
@@ -162,26 +176,29 @@ async def resolve_registry_lock_activity(
         async with RegistryLockService.with_session(role=input.role) as service:
             lock = await service.resolve_lock_with_bindings(input.action_names)
     except BuiltinRegistryHasNoSelectionError as e:
-        raise ActivityRuntimeError.platform(
+        raise dsl_errors.platform(
             code="workflow.registry_lock.builtin_selection_unavailable",
             message=str(e),
-            origin=RuntimeErrorOrigin.DSL,
             phase=RuntimeErrorPhase.PREPARE,
-            error_type=e.__class__.__name__,
             root=e,
             details=(e.detail,),
             retryable=True,
             non_retryable=False,
         ) from e
     except EntitlementRequired as e:
-        raise ActivityRuntimeError.user(
+        raise dsl_errors.user(
             code="workflow.registry_lock.entitlement_required",
             message=str(e),
-            origin=RuntimeErrorOrigin.DSL,
             phase=RuntimeErrorPhase.PREPARE,
-            error_type=e.__class__.__name__,
             root=e,
             details=(e.detail,),
+        ) from e
+    except Exception as e:
+        raise dsl_errors.platform_or_infra(
+            code="workflow.registry_lock.resolve_failed",
+            message="Failed to resolve registry lock",
+            phase=RuntimeErrorPhase.PREPARE,
+            root=e,
         ) from e
     logger.info(
         "Resolved registry lock",

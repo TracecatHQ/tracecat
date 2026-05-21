@@ -12,6 +12,7 @@ from pydantic import ValidationError
 from sqlalchemy import and_, or_, select
 from sqlalchemy.orm import selectinload
 from temporalio import activity
+from temporalio.exceptions import ApplicationError
 
 from tracecat.audit.logger import audit_log
 from tracecat.authz.controls import require_scope
@@ -26,6 +27,7 @@ from tracecat.db.models import (
     WorkflowTag,
     WorkflowTagLink,
 )
+from tracecat.dsl import activity_errors as dsl_errors
 from tracecat.dsl.action import materialize_context
 from tracecat.dsl.common import (
     DSLEntrypoint,
@@ -49,9 +51,8 @@ from tracecat.pagination import (
     CursorPaginationParams,
 )
 from tracecat.registry.lock.service import RegistryLockService
-from tracecat.runtime.errors import RuntimeErrorOrigin, RuntimeErrorPhase
+from tracecat.runtime.errors import RuntimeErrorPhase
 from tracecat.service import BaseWorkspaceService
-from tracecat.temporal.errors import ActivityRuntimeError
 from tracecat.validation.schemas import (
     DSLValidationResult,
     ValidationDetail,
@@ -1219,22 +1220,49 @@ class WorkflowsManagementService(BaseWorkspaceService):
     ) -> WorkflowID | None:
         # Resolve expr
         # Materialize any StoredObjects in operand before evaluation
-        materialized = await materialize_context(operand)
+        with dsl_errors.platform_or_infra_boundary(
+            code="workflow.alias.materialize_context_failed",
+            message="Failed to materialize workflow alias context",
+            phase=RuntimeErrorPhase.PREPARE,
+        ):
+            materialized = await materialize_context(operand)
         token = ctx_logical_time.set(ctx.logical_time)
         try:
-            evaluated_alias = eval_templated_object(
-                input.workflow_alias, operand=materialized
-            )
+            try:
+                evaluated_alias = eval_templated_object(
+                    input.workflow_alias, operand=materialized
+                )
+            except Exception as e:
+                raise dsl_errors.user(
+                    code="workflow.alias.expression_failed",
+                    message=f"Workflow alias expression failed: {e}",
+                    phase=RuntimeErrorPhase.USER_CODE,
+                    root=e,
+                ) from e
         finally:
             ctx_logical_time.reset(token)
         if not isinstance(evaluated_alias, str):
-            raise TypeError(
-                f"Workflow alias expression must evaluate to a string. Got {type(evaluated_alias).__name__}"
+            message = (
+                "Workflow alias expression must evaluate to a string. "
+                f"Got {type(evaluated_alias).__name__}"
             )
-        async with WorkflowsManagementService.with_session(input.role) as service:
-            return await service.resolve_workflow_alias(
-                evaluated_alias, use_committed=input.use_committed
+            raise dsl_errors.user(
+                code="workflow.alias.expression_not_string",
+                message=message,
+                phase=RuntimeErrorPhase.USER_CODE,
+                error_type=TypeError.__name__,
+                root=TypeError(message),
             )
+        with dsl_errors.platform_or_infra_boundary(
+            code="workflow.alias.resolve_failed",
+            message="Failed to resolve workflow alias",
+            phase=RuntimeErrorPhase.ROUTE,
+            metadata={"alias": evaluated_alias},
+        ):
+            async with WorkflowsManagementService.with_session(input.role) as service:
+                return await service.resolve_workflow_alias(
+                    evaluated_alias, use_committed=input.use_committed
+                )
 
     @staticmethod
     @activity.defn
@@ -1243,49 +1271,61 @@ class WorkflowsManagementService(BaseWorkspaceService):
     ) -> WorkflowID | None:
         args = input.args
         id_or_alias = None
-        if args.dsl:
-            # 1. If a DSL was provided, we must use its error handler
-            if not args.dsl.error_handler:
-                activity.logger.info("DSL has no error handler")
-                return None
-            id_or_alias = args.dsl.error_handler
-        else:
-            # 2. Otherwise, get error handler from the committed definition
-            # This ensures schedules use the committed error handler
-            async with WorkflowDefinitionsService.with_session(
-                role=args.role
-            ) as defn_service:
-                defn = await defn_service.get_definition_by_workflow_id(args.wf_id)
-            if not defn:
-                activity.logger.info("No committed definition found")
-                return None
-            dsl = defn.content
-            if not dsl or not dsl.get("error_handler"):
-                activity.logger.info("Committed definition has no error handler")
-                return None
-            id_or_alias = dsl["error_handler"]
+        try:
+            if args.dsl:
+                # 1. If a DSL was provided, we must use its error handler
+                if not args.dsl.error_handler:
+                    activity.logger.info("DSL has no error handler")
+                    return None
+                id_or_alias = args.dsl.error_handler
+            else:
+                # 2. Otherwise, get error handler from the committed definition
+                # This ensures schedules use the committed error handler
+                async with WorkflowDefinitionsService.with_session(
+                    role=args.role
+                ) as defn_service:
+                    defn = await defn_service.get_definition_by_workflow_id(args.wf_id)
+                if not defn:
+                    activity.logger.info("No committed definition found")
+                    return None
+                dsl = defn.content
+                if not dsl or not dsl.get("error_handler"):
+                    activity.logger.info("Committed definition has no error handler")
+                    return None
+                id_or_alias = dsl["error_handler"]
 
-        # 3. Convert the error handler to an ID
-        if re.match(LEGACY_WF_ID_PATTERN, id_or_alias):
-            # TODO: Legacy workflow ID for backwards compatibility. Slowly deprecate.
-            handler_wf_id = WorkflowUUID.from_legacy(id_or_alias)
-        elif re.match(WF_ID_SHORT_PATTERN, id_or_alias):
-            # Short workflow ID
-            handler_wf_id = WorkflowUUID.new(id_or_alias)
-        else:
-            use_committed = args.execution_type == ExecutionType.PUBLISHED
-            async with WorkflowsManagementService.with_session(
-                role=args.role
-            ) as service:
-                handler_wf_id = await service.resolve_workflow_alias(
-                    id_or_alias, use_committed=use_committed
-                )
-            if not handler_wf_id:
-                raise ActivityRuntimeError.user(
-                    code="workflow.error_handler.alias_not_found",
-                    message=f"Couldn't find matching workflow for alias {id_or_alias!r}",
-                    origin=RuntimeErrorOrigin.DSL,
-                    phase=RuntimeErrorPhase.ROUTE,
-                    error_type="WorkflowAliasResolutionError",
-                )
-        return handler_wf_id
+            # 3. Convert the error handler to an ID
+            if re.match(LEGACY_WF_ID_PATTERN, id_or_alias):
+                # TODO: Legacy workflow ID for backwards compatibility. Slowly deprecate.
+                handler_wf_id = WorkflowUUID.from_legacy(id_or_alias)
+            elif re.match(WF_ID_SHORT_PATTERN, id_or_alias):
+                # Short workflow ID
+                handler_wf_id = WorkflowUUID.new(id_or_alias)
+            else:
+                use_committed = args.execution_type == ExecutionType.PUBLISHED
+                async with WorkflowsManagementService.with_session(
+                    role=args.role
+                ) as service:
+                    handler_wf_id = await service.resolve_workflow_alias(
+                        id_or_alias, use_committed=use_committed
+                    )
+                if not handler_wf_id:
+                    raise dsl_errors.user(
+                        code="workflow.error_handler.alias_not_found",
+                        message=(
+                            f"Couldn't find matching workflow for alias {id_or_alias!r}"
+                        ),
+                        phase=RuntimeErrorPhase.ROUTE,
+                        error_type="WorkflowAliasResolutionError",
+                    )
+            return handler_wf_id
+        except ApplicationError:
+            raise
+        except Exception as e:
+            raise dsl_errors.platform_or_infra(
+                code="workflow.error_handler.resolve_failed",
+                message="Failed to resolve error handler workflow",
+                phase=RuntimeErrorPhase.ROUTE,
+                root=e,
+                metadata={"id_or_alias": id_or_alias},
+            ) from e

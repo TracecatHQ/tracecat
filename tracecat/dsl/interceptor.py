@@ -2,7 +2,7 @@ from dataclasses import asdict, is_dataclass
 from typing import Any
 
 from temporalio import activity, workflow
-from temporalio.exceptions import ApplicationError
+from temporalio.exceptions import ActivityError, ApplicationError
 from temporalio.worker import (
     ExecuteWorkflowInput,
     Interceptor,
@@ -18,7 +18,7 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.dsl.common import DSLRunArgs, get_trigger_type
     from tracecat.logger import logger
     from tracecat.runtime.errors import RuntimeErrorOrigin, RuntimeErrorPhase
-    from tracecat.temporal.errors import WorkflowRuntimeError
+    from tracecat.temporal.errors import WorkflowRuntimeError, extract_runtime_error
     from tracecat.workflow.executions.enums import TriggerType
 
 
@@ -109,6 +109,17 @@ class _SentryWorkflowInterceptor(WorkflowInboundInterceptor):
                         logger.info("Not a scheduled workflow, skipping reporting")
                 raise
             except Exception as e:
+                origin = (
+                    RuntimeErrorOrigin.DSL
+                    if input.args and isinstance(input.args[0], DSLRunArgs)
+                    else RuntimeErrorOrigin.UNKNOWN
+                )
+                if isinstance(e, ActivityError) and origin == RuntimeErrorOrigin.DSL:
+                    root = e.cause if isinstance(e.cause, BaseException) else e
+                    if isinstance(root, ApplicationError) and extract_runtime_error(
+                        root
+                    ):
+                        raise root from None
                 logger.warning("Caught unclassified workflow failure", error=str(e))
                 if len(input.args) >= 1:
                     arg = input.args[0]
@@ -125,11 +136,6 @@ class _SentryWorkflowInterceptor(WorkflowInboundInterceptor):
                         "Unclassified workflow failure",
                         error=str(e),
                     )
-                origin = (
-                    RuntimeErrorOrigin.DSL
-                    if input.args and isinstance(input.args[0], DSLRunArgs)
-                    else RuntimeErrorOrigin.UNKNOWN
-                )
                 logger.debug("Classifying unhandled workflow exception")
                 raise WorkflowRuntimeError.platform_or_infra(
                     code="workflow.unclassified_failure",

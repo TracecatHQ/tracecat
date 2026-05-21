@@ -8,6 +8,7 @@ from typing import Any, cast
 import dateparser
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from temporalio import activity
+from temporalio.exceptions import ApplicationError
 from tracecat_ee.agent.schemas import AgentActionArgs, PresetAgentActionArgs
 
 from tracecat import config
@@ -15,6 +16,7 @@ from tracecat.agent.common.types import MCPServerConfig
 from tracecat.agent.preset.service import AgentPresetService
 from tracecat.auth.types import Role
 from tracecat.common import is_iterable
+from tracecat.dsl import activity_errors as dsl_errors
 from tracecat.dsl.common import (
     MAX_LOOP_ITERATIONS,
     DSLInput,
@@ -54,7 +56,7 @@ from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.integrations.mcp_validation import MCPValidationError
 from tracecat.logger import logger
 from tracecat.registry.lock.types import RegistryLock
-from tracecat.runtime.errors import RuntimeErrorOrigin, RuntimeErrorPhase
+from tracecat.runtime.errors import RuntimeErrorPhase
 from tracecat.storage.collection import (
     materialize_collection_values,
     store_collection,
@@ -69,7 +71,6 @@ from tracecat.storage.object import (
     get_object_storage,
     retrieve_stored_object,
 )
-from tracecat.temporal.errors import ActivityRuntimeError
 from tracecat.validation.schemas import ValidationDetail
 
 _thread_local = threading.local()
@@ -83,12 +84,10 @@ async def _resolve_mcp_integrations(
             await svc.validate_mcp_integrations(mcp_integration_ids)
             servers = await svc.resolve_mcp_integration_refs(mcp_integration_ids)
     except (MCPValidationError, TracecatValidationError) as e:
-        raise ActivityRuntimeError.user(
+        raise dsl_errors.user(
             code="dsl.agent.mcp_integrations.invalid",
             message=str(e),
-            origin=RuntimeErrorOrigin.DSL,
             phase=RuntimeErrorPhase.PREPARE,
-            error_type=e.__class__.__name__,
             root=e,
         ) from e
     return servers or []
@@ -440,9 +439,18 @@ class DSLActivities:
         """Parse the wait until datetime. We wrap this in an activity to avoid
         non-determinism errors when using the `dateparser` library
         """
-        dt = dateparser.parse(
-            wait_until, settings={"TIMEZONE": "UTC", "RETURN_AS_TIMEZONE_AWARE": True}
-        )
+        try:
+            dt = dateparser.parse(
+                wait_until,
+                settings={"TIMEZONE": "UTC", "RETURN_AS_TIMEZONE_AWARE": True},
+            )
+        except Exception as e:
+            raise dsl_errors.user(
+                code="dsl.wait_until.parse_failed",
+                message=f"Failed to parse wait_until value: {wait_until}",
+                phase=RuntimeErrorPhase.PREPARE,
+                root=e,
+            ) from e
         return dt.isoformat() if dt else None
 
     @staticmethod
@@ -456,8 +464,13 @@ class DSLActivities:
         Always returns StoredObject (InlineObject or ExternalObject depending on config/size).
         Temporal serializes Pydantic models automatically.
         """
-        storage = get_object_storage()
-        return await storage.store(key, data)
+        with dsl_errors.platform_or_infra_boundary(
+            code="dsl.workflow_payload.store_failed",
+            message="Failed to store workflow payload",
+            phase=RuntimeErrorPhase.PREPARE,
+        ):
+            storage = get_object_storage()
+            return await storage.store(key, data)
 
     @staticmethod
     @activity.defn
@@ -475,23 +488,41 @@ class DSLActivities:
         which will cause the activity to fail fast and surface an explicit error
         to the calling workflow.
         """
-        # Materialize any StoredObjects in operand
-        materialized = run_sync(materialize_context(operand))
+        with dsl_errors.platform_or_infra_boundary(
+            code="dsl.expression.materialize_context_failed",
+            message="Failed to materialize expression context",
+            phase=RuntimeErrorPhase.PREPARE,
+        ):
+            materialized = run_sync(materialize_context(operand))
 
         expr_str = expression.strip()
 
         # Fail fast on empty / whitespace‐only expressions so that users receive a
         # clear error instead of silently evaluating to ``False``.
         if not expr_str:
-            raise TracecatExpressionError("Expression cannot be empty")
+            e = TracecatExpressionError("Expression cannot be empty")
+            raise dsl_errors.user(
+                code="dsl.expression.empty",
+                message="Expression cannot be empty",
+                phase=RuntimeErrorPhase.USER_CODE,
+                root=e,
+            ) from e
 
         # Evaluate the expression. Any parsing / evaluation errors raised inside
         # ``TemplateExpression`` are propagated unchanged so that Temporal marks
         # the activity as failed.
         # Internally, this will raise a ``TracecatExpressionError`` if the expression
         # is malformed/invalid.
-        expr = TemplateExpression(expr_str, operand=materialized)
-        return expr.result()
+        try:
+            expr = TemplateExpression(expr_str, operand=materialized)
+            return expr.result()
+        except TracecatExpressionError as e:
+            raise dsl_errors.user(
+                code="dsl.expression.invalid",
+                message=str(e),
+                phase=RuntimeErrorPhase.USER_CODE,
+                root=e,
+            ) from e
 
     @staticmethod
     @activity.defn
@@ -503,10 +534,27 @@ class DSLActivities:
         Materializes any StoredObjects in operand before evaluation. This ensures
         that expressions evaluate against raw values even when results are externalized.
         """
-        # Materialize any StoredObjects in operand
-        materialized = run_sync(materialize_context(input.operand))
-        result = eval_templated_object(input.obj, operand=materialized)
-        stored = run_sync(get_object_storage().store(input.key, result))
+        with dsl_errors.platform_or_infra_boundary(
+            code="dsl.templated_object.materialize_context_failed",
+            message="Failed to materialize expression context",
+            phase=RuntimeErrorPhase.PREPARE,
+        ):
+            materialized = run_sync(materialize_context(input.operand))
+        try:
+            result = eval_templated_object(input.obj, operand=materialized)
+        except TracecatExpressionError as e:
+            raise dsl_errors.user(
+                code="dsl.templated_object.expression_failed",
+                message=str(e),
+                phase=RuntimeErrorPhase.USER_CODE,
+                root=e,
+            ) from e
+        with dsl_errors.platform_or_infra_boundary(
+            code="dsl.templated_object.store_failed",
+            message="Failed to store evaluated object",
+            phase=RuntimeErrorPhase.COLLECT,
+        ):
+            stored = run_sync(get_object_storage().store(input.key, result))
         return stored
 
     @staticmethod
@@ -524,7 +572,28 @@ class DSLActivities:
 
         Returns CollectionObject if externalized, InlineObject otherwise.
         """
-        return _evaluate_scatter_input(input)
+        try:
+            return _evaluate_scatter_input(input)
+        except ApplicationError:
+            raise
+        except (TracecatExpressionError, ValueError) as e:
+            raise dsl_errors.user(
+                code="dsl.scatter.collection_evaluation_failed",
+                message=f"Error evaluating scatter collection: {e}",
+                phase=RuntimeErrorPhase.USER_CODE,
+                root=e,
+                action_ref=input.task.ref,
+                stream_id=input.stream_id,
+            ) from e
+        except Exception as e:
+            raise dsl_errors.platform_or_infra(
+                code="dsl.scatter.collection_prepare_failed",
+                message="Failed to prepare scatter collection",
+                phase=RuntimeErrorPhase.PREPARE,
+                root=e,
+                action_ref=input.task.ref,
+                stream_id=input.stream_id,
+            ) from e
 
     @staticmethod
     @activity.defn
@@ -532,13 +601,25 @@ class DSLActivities:
         input: EvaluateLoopedSubflowInputActivityInput,
     ) -> int:
         """Evaluate for_each expression to get iteration count for looped subflows."""
-        # Materialize any StoredObjects in operand
-        materialized = run_sync(materialize_context(input.operand))
+        with dsl_errors.platform_or_infra_boundary(
+            code="dsl.looped_subflow.materialize_context_failed",
+            message="Failed to materialize looped subflow context",
+            phase=RuntimeErrorPhase.PREPARE,
+        ):
+            materialized = run_sync(materialize_context(input.operand))
 
         # Get iterables from for_each expression
-        iterators = get_iterables_from_expression(
-            expr=input.for_each, operand=materialized
-        )
+        try:
+            iterators = get_iterables_from_expression(
+                expr=input.for_each, operand=materialized
+            )
+        except (TracecatExpressionError, ValueError) as e:
+            raise dsl_errors.user(
+                code="dsl.looped_subflow.for_each_evaluation_failed",
+                message=f"Error evaluating subflow for_each expression: {e}",
+                phase=RuntimeErrorPhase.PREPARE,
+                root=e,
+            ) from e
 
         # Return total count
         return len(list(zip(*iterators, strict=False)))
@@ -558,7 +639,35 @@ class DSLActivities:
             - configs: Single config if all identical, list if varying per iteration
             - trigger_inputs: CollectionObject of evaluated trigger_inputs
         """
-        return _resolve_subflow_batch(input)
+        try:
+            return _resolve_subflow_batch(input)
+        except ApplicationError:
+            raise
+        except ValidationError as e:
+            raise dsl_errors.user(
+                code="dsl.subflow_batch.invalid",
+                message="Invalid subflow batch configuration",
+                phase=RuntimeErrorPhase.PREPARE,
+                root=e,
+                details=(ValidationDetail.list_from_pydantic(e),),
+                action_ref=input.task.ref,
+            ) from e
+        except (TracecatExpressionError, ValueError) as e:
+            raise dsl_errors.user(
+                code="dsl.subflow_batch.expression_failed",
+                message=f"Error evaluating subflow batch: {e}",
+                phase=RuntimeErrorPhase.PREPARE,
+                root=e,
+                action_ref=input.task.ref,
+            ) from e
+        except Exception as e:
+            raise dsl_errors.platform_or_infra(
+                code="dsl.subflow_batch.resolve_failed",
+                message="Failed to resolve subflow batch",
+                phase=RuntimeErrorPhase.PREPARE,
+                root=e,
+                action_ref=input.task.ref,
+            ) from e
 
     @staticmethod
     @activity.defn
@@ -573,26 +682,33 @@ class DSLActivities:
 
         Returns CollectionObject if externalized, InlineObject otherwise.
         """
-        # Guard CollectionObject: only use chunked storage when externalization
-        # is enabled. Fall back to inline list for non-externalized deployments.
-        storage = get_object_storage()
-        if config.TRACECAT__RESULT_EXTERNALIZATION_ENABLED:
-            refs: list[dict[str, Any]] = []
-            for i, obj in enumerate(input.collection):
-                value = await storage.retrieve(obj)
-                stored = await storage.store(collection_item_key(input.key, i), value)
-                refs.append(stored.model_dump())
-            return await store_collection(
-                input.key,
-                refs,
-                element_kind="stored_object",
-            )
-        else:
-            values: list[Any] = []
-            for obj in input.collection:
-                value = await storage.retrieve(obj)
-                values.append(value)
-            return InlineObject(data=values, typename="list")
+        with dsl_errors.platform_or_infra_boundary(
+            code="dsl.collection.synchronize_failed",
+            message="Failed to synchronize collection object",
+            phase=RuntimeErrorPhase.COLLECT,
+        ):
+            # Guard CollectionObject: only use chunked storage when externalization
+            # is enabled. Fall back to inline list for non-externalized deployments.
+            storage = get_object_storage()
+            if config.TRACECAT__RESULT_EXTERNALIZATION_ENABLED:
+                refs: list[dict[str, Any]] = []
+                for i, obj in enumerate(input.collection):
+                    value = await storage.retrieve(obj)
+                    stored = await storage.store(
+                        collection_item_key(input.key, i), value
+                    )
+                    refs.append(stored.model_dump())
+                return await store_collection(
+                    input.key,
+                    refs,
+                    element_kind="stored_object",
+                )
+            else:
+                values: list[Any] = []
+                for obj in input.collection:
+                    value = await storage.retrieve(obj)
+                    values.append(value)
+                return InlineObject(data=values, typename="list")
 
     @staticmethod
     @activity.defn
@@ -607,11 +723,16 @@ class DSLActivities:
 
         Returns the CollectionObject handle and any partitioned errors.
         """
-        storage = get_object_storage()
-        values: list[Any] = []
-        for obj in input.collection:
-            value = await storage.retrieve(obj)
-            values.append(value)
+        with dsl_errors.platform_or_infra_boundary(
+            code="dsl.gather.materialize_failed",
+            message="Failed to materialize gather collection",
+            phase=RuntimeErrorPhase.COLLECT,
+        ):
+            storage = get_object_storage()
+            values: list[Any] = []
+            for obj in input.collection:
+                value = await storage.retrieve(obj)
+                values.append(value)
 
         if input.drop_nulls:
             values = [v for v in values if v is not None]
@@ -629,20 +750,24 @@ class DSLActivities:
                 # Caller is responsible for raising if errors are present.
                 results, errors = _partition_errors(values)
             case _:
-                raise ActivityRuntimeError.platform(
+                raise dsl_errors.platform(
                     code="dsl.gather.invalid_error_strategy",
                     message=f"Invalid error handling strategy: {input.error_strategy}",
-                    origin=RuntimeErrorOrigin.DSL,
                     phase=RuntimeErrorPhase.COLLECT,
                     error_type="InvalidGatherErrorStrategy",
                 )
 
         # Guard CollectionObject: only use chunked storage when externalization
         # is enabled. Fall back to inline list for non-externalized deployments.
-        if config.TRACECAT__RESULT_EXTERNALIZATION_ENABLED:
-            stored = await _store_collection_as_refs(input.key, results)
-        else:
-            stored = InlineObject(data=results, typename="list")
+        with dsl_errors.platform_or_infra_boundary(
+            code="dsl.gather.store_failed",
+            message="Failed to store gather result",
+            phase=RuntimeErrorPhase.COLLECT,
+        ):
+            if config.TRACECAT__RESULT_EXTERNALIZATION_ENABLED:
+                stored = await _store_collection_as_refs(input.key, results)
+            else:
+                stored = InlineObject(data=results, typename="list")
         return FinalizeGatherActivityResult(result=stored, errors=errors)
 
     @staticmethod
@@ -658,33 +783,77 @@ class DSLActivities:
         blocking the Temporal event loop.
         """
         operand = input.operand
-        materialized = await materialize_context(operand)
-        environment = await asyncio.to_thread(
-            _resolve_environment,
-            input.task_environment,
-            input.default_environment,
-            materialized,
-        )
-        collected = await asyncio.to_thread(collect_expressions, input.args)
-        if collected.variables:
-            workspace_variables = await get_workspace_variables(
-                variable_exprs=collected.variables,
-                environment=environment,
-                role=input.role,
+        with dsl_errors.platform_or_infra_boundary(
+            code="dsl.agent_args.prepare_context_failed",
+            message="Failed to prepare agent argument context",
+            phase=RuntimeErrorPhase.PREPARE,
+        ):
+            materialized = await materialize_context(operand)
+            environment = await asyncio.to_thread(
+                _resolve_environment,
+                input.task_environment,
+                input.default_environment,
+                materialized,
             )
-            if workspace_variables:
-                operand["VARS"] = workspace_variables
-                materialized = await materialize_context(operand)
-        args = _strip_string_values(input.args)
-        evaled_args = await asyncio.to_thread(
-            eval_templated_object, args, operand=materialized
-        )
-        mcp_integration_ids = evaled_args.pop("mcp_integrations", None)
-        if mcp_integration_ids:
-            evaled_args["mcp_servers"] = await _resolve_mcp_integrations(
-                mcp_integration_ids, role=input.role
+
+        try:
+            collected = await asyncio.to_thread(collect_expressions, input.args)
+        except TracecatExpressionError as e:
+            raise dsl_errors.user(
+                code="dsl.agent_args.expression_failed",
+                message=str(e),
+                phase=RuntimeErrorPhase.PREPARE,
+                root=e,
+            ) from e
+
+        with dsl_errors.platform_or_infra_boundary(
+            code="dsl.agent_args.variables_fetch_failed",
+            message="Failed to fetch agent argument variables",
+            phase=RuntimeErrorPhase.PREPARE,
+        ):
+            if collected.variables:
+                workspace_variables = await get_workspace_variables(
+                    variable_exprs=collected.variables,
+                    environment=environment,
+                    role=input.role,
+                )
+                if workspace_variables:
+                    operand["VARS"] = workspace_variables
+                    materialized = await materialize_context(operand)
+
+        try:
+            args = _strip_string_values(input.args)
+            evaled_args = await asyncio.to_thread(
+                eval_templated_object, args, operand=materialized
             )
-        return AgentActionArgs(**evaled_args)
+        except TracecatExpressionError as e:
+            raise dsl_errors.user(
+                code="dsl.agent_args.expression_failed",
+                message=str(e),
+                phase=RuntimeErrorPhase.PREPARE,
+                root=e,
+            ) from e
+
+        if mcp_integration_ids := evaled_args.pop("mcp_integrations", None):
+            with dsl_errors.platform_or_infra_boundary(
+                code="dsl.agent_args.mcp_integrations_resolve_failed",
+                message="Failed to resolve agent MCP integrations",
+                phase=RuntimeErrorPhase.PREPARE,
+            ):
+                evaled_args["mcp_servers"] = await _resolve_mcp_integrations(
+                    mcp_integration_ids, role=input.role
+                )
+
+        try:
+            return AgentActionArgs(**evaled_args)
+        except ValidationError as e:
+            raise dsl_errors.user(
+                code="dsl.agent_args.invalid",
+                message="Invalid agent arguments",
+                phase=RuntimeErrorPhase.PREPARE,
+                root=e,
+                details=(ValidationDetail.list_from_pydantic(e),),
+            ) from e
 
     @staticmethod
     @activity.defn
@@ -699,28 +868,67 @@ class DSLActivities:
         blocking the Temporal event loop.
         """
         operand = input.operand
-        materialized = await materialize_context(operand)
-        environment = await asyncio.to_thread(
-            _resolve_environment,
-            input.task_environment,
-            input.default_environment,
-            materialized,
-        )
-        collected = await asyncio.to_thread(collect_expressions, input.args)
-        if collected.variables:
-            workspace_variables = await get_workspace_variables(
-                variable_exprs=collected.variables,
-                environment=environment,
-                role=input.role,
+        with dsl_errors.platform_or_infra_boundary(
+            code="dsl.preset_agent_args.prepare_context_failed",
+            message="Failed to prepare preset agent argument context",
+            phase=RuntimeErrorPhase.PREPARE,
+        ):
+            materialized = await materialize_context(operand)
+            environment = await asyncio.to_thread(
+                _resolve_environment,
+                input.task_environment,
+                input.default_environment,
+                materialized,
             )
-            if workspace_variables:
-                operand["VARS"] = workspace_variables
-                materialized = await materialize_context(operand)
-        args = _strip_string_values(input.args)
-        evaled_args = await asyncio.to_thread(
-            eval_templated_object, args, operand=materialized
-        )
-        return PresetAgentActionArgs(**evaled_args)
+
+        try:
+            collected = await asyncio.to_thread(collect_expressions, input.args)
+        except TracecatExpressionError as e:
+            raise dsl_errors.user(
+                code="dsl.preset_agent_args.expression_failed",
+                message=str(e),
+                phase=RuntimeErrorPhase.PREPARE,
+                root=e,
+            ) from e
+
+        with dsl_errors.platform_or_infra_boundary(
+            code="dsl.preset_agent_args.variables_fetch_failed",
+            message="Failed to fetch preset agent argument variables",
+            phase=RuntimeErrorPhase.PREPARE,
+        ):
+            if collected.variables:
+                workspace_variables = await get_workspace_variables(
+                    variable_exprs=collected.variables,
+                    environment=environment,
+                    role=input.role,
+                )
+                if workspace_variables:
+                    operand["VARS"] = workspace_variables
+                    materialized = await materialize_context(operand)
+
+        try:
+            args = _strip_string_values(input.args)
+            evaled_args = await asyncio.to_thread(
+                eval_templated_object, args, operand=materialized
+            )
+        except TracecatExpressionError as e:
+            raise dsl_errors.user(
+                code="dsl.preset_agent_args.expression_failed",
+                message=str(e),
+                phase=RuntimeErrorPhase.PREPARE,
+                root=e,
+            ) from e
+
+        try:
+            return PresetAgentActionArgs(**evaled_args)
+        except ValidationError as e:
+            raise dsl_errors.user(
+                code="dsl.preset_agent_args.invalid",
+                message="Invalid preset agent arguments",
+                phase=RuntimeErrorPhase.PREPARE,
+                root=e,
+                details=(ValidationDetail.list_from_pydantic(e),),
+            ) from e
 
     @staticmethod
     @activity.defn
@@ -732,10 +940,27 @@ class DSLActivities:
         Materializes any StoredObjects in operand before evaluation. This ensures
         that expressions evaluate against raw values even when results are externalized.
         """
-        # Materialize any StoredObjects in operand
-        materialized = run_sync(materialize_context(input.operand))
-        result = eval_templated_object(input.obj, operand=materialized)
-        stored = run_sync(get_object_storage().store(input.key, result))
+        with dsl_errors.platform_or_infra_boundary(
+            code="dsl.return_expression.materialize_context_failed",
+            message="Failed to materialize return expression context",
+            phase=RuntimeErrorPhase.PREPARE,
+        ):
+            materialized = run_sync(materialize_context(input.operand))
+        try:
+            result = eval_templated_object(input.obj, operand=materialized)
+        except TracecatExpressionError as e:
+            raise dsl_errors.user(
+                code="dsl.return_expression.expression_failed",
+                message=str(e),
+                phase=RuntimeErrorPhase.USER_CODE,
+                root=e,
+            ) from e
+        with dsl_errors.platform_or_infra_boundary(
+            code="dsl.return_expression.store_failed",
+            message="Failed to store return expression result",
+            phase=RuntimeErrorPhase.COLLECT,
+        ):
+            stored = run_sync(get_object_storage().store(input.key, result))
         return stored
 
     @staticmethod
@@ -744,66 +969,46 @@ class DSLActivities:
         inputs: NormalizeTriggerInputsActivityInputs,
     ) -> StoredObject:
         """Return trigger inputs with defaults applied according to DSL expects."""
-        try:
+        with dsl_errors.platform_or_infra_boundary(
+            code="dsl.trigger_inputs.retrieve_failed",
+            message="Failed to retrieve trigger inputs",
+            phase=RuntimeErrorPhase.PREPARE,
+            workflow_exec_id=inputs.workflow_exec_id,
+        ):
             storage = get_object_storage()
             value = {}
             if inputs.trigger_inputs is not None:
                 value = run_sync(storage.retrieve(inputs.trigger_inputs))
-        except Exception as e:
-            logger.warning("Failed to retrieve trigger inputs", error=e)
-            raise ActivityRuntimeError.platform_or_infra(
-                code="dsl.trigger_inputs.retrieve_failed",
-                message="Failed to retrieve trigger inputs",
-                origin=RuntimeErrorOrigin.DSL,
-                phase=RuntimeErrorPhase.PREPARE,
-                error_type=e.__class__.__name__,
-                root=e,
-                workflow_exec_id=inputs.workflow_exec_id,
-            ) from e
 
         try:
             normalized = normalize_trigger_inputs(inputs.input_schema, value)
         except ValidationError as e:
             logger.info("Validation error when normalizing trigger inputs", error=e)
             details = ValidationDetail.list_from_pydantic(e)
-            raise ActivityRuntimeError.user(
+            raise dsl_errors.user(
                 code="dsl.trigger_inputs.validation_failed",
                 message=format_input_schema_validation_error(details),
-                origin=RuntimeErrorOrigin.DSL,
                 phase=RuntimeErrorPhase.PREPARE,
-                error_type=e.__class__.__name__,
                 root=e,
                 details=(details,),
                 workflow_exec_id=inputs.workflow_exec_id,
             ) from e
         except Exception as e:
-            logger.warning(
-                "Unexpected error cause when normalizing trigger inputs",
-                error=e,
-            )
-            raise ActivityRuntimeError.platform(
+            raise dsl_errors.platform(
                 code="dsl.trigger_inputs.normalization_failed",
                 message="Unexpected error when normalizing trigger inputs",
-                origin=RuntimeErrorOrigin.DSL,
                 phase=RuntimeErrorPhase.PREPARE,
-                error_type=e.__class__.__name__,
                 root=e,
                 workflow_exec_id=inputs.workflow_exec_id,
             ) from e
 
-        try:
+        with dsl_errors.platform_or_infra_boundary(
+            code="dsl.trigger_inputs.store_failed",
+            message="Failed to store normalized trigger inputs",
+            phase=RuntimeErrorPhase.PREPARE,
+            workflow_exec_id=inputs.workflow_exec_id,
+        ):
             return run_sync(storage.store(inputs.key, normalized))
-        except Exception as e:
-            logger.warning("Failed to store normalized trigger inputs", error=e)
-            raise ActivityRuntimeError.platform_or_infra(
-                code="dsl.trigger_inputs.store_failed",
-                message="Failed to store normalized trigger inputs",
-                origin=RuntimeErrorOrigin.DSL,
-                phase=RuntimeErrorPhase.PREPARE,
-                error_type=e.__class__.__name__,
-                root=e,
-                workflow_exec_id=inputs.workflow_exec_id,
-            ) from e
 
     @staticmethod
     @activity.defn
@@ -820,7 +1025,35 @@ class DSLActivities:
 
         Returns PreparedSubflowResult containing all shared data needed to spawn child workflows.
         """
-        return await _prepare_subflow(input)
+        try:
+            return await _prepare_subflow(input)
+        except ApplicationError:
+            raise
+        except ValidationError as e:
+            raise dsl_errors.user(
+                code="dsl.prepare_subflow.invalid",
+                message="Invalid subflow configuration",
+                phase=RuntimeErrorPhase.PREPARE,
+                root=e,
+                details=(ValidationDetail.list_from_pydantic(e),),
+                action_ref=input.task.ref,
+            ) from e
+        except (TracecatExpressionError, ValueError) as e:
+            raise dsl_errors.user(
+                code="dsl.prepare_subflow.expression_failed",
+                message=f"Error preparing subflow: {e}",
+                phase=RuntimeErrorPhase.PREPARE,
+                root=e,
+                action_ref=input.task.ref,
+            ) from e
+        except Exception as e:
+            raise dsl_errors.platform_or_infra(
+                code="dsl.prepare_subflow.failed",
+                message="Failed to prepare subflow",
+                phase=RuntimeErrorPhase.PREPARE,
+                root=e,
+                action_ref=input.task.ref,
+            ) from e
 
 
 def _evaluate_scatter_input(input: ScatterActionInput) -> StoredObject:
@@ -836,10 +1069,9 @@ def _evaluate_scatter_input(input: ScatterActionInput) -> StoredObject:
     if result is None:
         result = []
     elif not is_iterable(result):
-        raise ActivityRuntimeError.user(
+        raise dsl_errors.user(
             code="dsl.scatter.collection_not_iterable",
             message=f"Scatter collection is not iterable: {type(result)}: {result}",
-            origin=RuntimeErrorOrigin.DSL,
             phase=RuntimeErrorPhase.USER_CODE,
             error_type="ScatterCollectionNotIterable",
             action_ref=input.task.ref,
@@ -909,22 +1141,18 @@ def _evaluate_subflow_args(
         )
         return evaluated_args, ExecuteSubflowArgs.model_validate(evaluated_args)
     except TracecatExpressionError as e:
-        raise ActivityRuntimeError.user(
+        raise dsl_errors.user(
             code="dsl.subflow.arguments_evaluation_failed",
             message=f"Error evaluating subflow arguments: {e}",
-            origin=RuntimeErrorOrigin.DSL,
             phase=RuntimeErrorPhase.PREPARE,
-            error_type=e.__class__.__name__,
             root=e,
             action_ref=action_ref,
         ) from e
     except ValidationError as e:
-        raise ActivityRuntimeError.user(
+        raise dsl_errors.user(
             code="dsl.subflow.arguments_invalid",
             message="Invalid subflow arguments",
-            origin=RuntimeErrorOrigin.DSL,
             phase=RuntimeErrorPhase.PREPARE,
-            error_type=e.__class__.__name__,
             root=e,
             details=(ValidationDetail.list_from_pydantic(e),),
             action_ref=action_ref,
@@ -949,10 +1177,9 @@ def _resolve_subflow_batch(
     task = input.task
 
     if not task.for_each:
-        raise ActivityRuntimeError.platform(
+        raise dsl_errors.platform(
             code="dsl.subflow_batch.missing_for_each",
             message="ResolveSubflowBatchActivityInput requires task.for_each",
-            origin=RuntimeErrorOrigin.DSL,
             phase=RuntimeErrorPhase.PREPARE,
             error_type="SubflowBatchForEachRequired",
         )
@@ -968,13 +1195,12 @@ def _resolve_subflow_batch(
     batch_items = all_items[input.batch_start : input.batch_start + input.batch_size]
 
     if not batch_items:
-        raise ActivityRuntimeError.platform(
+        raise dsl_errors.platform(
             code="dsl.subflow_batch.empty",
             message=(
                 f"Empty batch: start={input.batch_start}, "
                 f"size={input.batch_size}, total={len(all_items)}"
             ),
-            origin=RuntimeErrorOrigin.DSL,
             phase=RuntimeErrorPhase.PREPARE,
             error_type="EmptySubflowBatch",
         )
@@ -1043,10 +1269,9 @@ def _evaluate_loop_iterations(
         runtime_configs is single DSLConfig if all identical, else list.
     """
     if not task.for_each:
-        raise ActivityRuntimeError.user(
+        raise dsl_errors.user(
             code="dsl.subflow.loop_for_each_missing",
             message="task.for_each is required for loop iterations",
-            origin=RuntimeErrorOrigin.DSL,
             phase=RuntimeErrorPhase.PREPARE,
             error_type="SubflowLoopForEachMissing",
             action_ref=task.ref,
@@ -1056,24 +1281,21 @@ def _evaluate_loop_iterations(
             expr=task.for_each, operand=materialized
         )
     except (TracecatExpressionError, ValueError) as e:
-        raise ActivityRuntimeError.user(
+        raise dsl_errors.user(
             code="dsl.subflow.for_each_evaluation_failed",
             message=f"Error evaluating subflow for_each expression: {e}",
-            origin=RuntimeErrorOrigin.DSL,
             phase=RuntimeErrorPhase.PREPARE,
-            error_type=e.__class__.__name__,
             root=e,
             action_ref=task.ref,
         ) from e
     all_items = list(zip(*iterators, strict=False))
 
     if len(all_items) > MAX_LOOP_ITERATIONS:
-        raise ActivityRuntimeError.user(
+        raise dsl_errors.user(
             code="dsl.subflow.loop_max_iterations_exceeded",
             message=(
                 f"Loop exceeds max iterations: {len(all_items)} > {MAX_LOOP_ITERATIONS}"
             ),
-            origin=RuntimeErrorOrigin.DSL,
             phase=RuntimeErrorPhase.PREPARE,
             error_type="SubflowLoopMaxIterationsExceeded",
             action_ref=task.ref,
@@ -1152,10 +1374,9 @@ async def _prepare_subflow(input: PrepareSubflowActivityInput) -> PreparedSubflo
                 use_committed=input.use_committed,
             )
             if resolved_id is None:
-                raise ActivityRuntimeError.user(
+                raise dsl_errors.user(
                     code="dsl.subflow.workflow_alias_not_found",
                     message=f"Workflow alias '{workflow_alias}' not found",
-                    origin=RuntimeErrorOrigin.DSL,
                     phase=RuntimeErrorPhase.PREPARE,
                     error_type="WorkflowAliasNotFound",
                     action_ref=task.ref,
@@ -1165,10 +1386,9 @@ async def _prepare_subflow(input: PrepareSubflowActivityInput) -> PreparedSubflo
     elif workflow_id := val_args.workflow_id:
         wf_id = WorkflowUUID.new(workflow_id)
     else:
-        raise ActivityRuntimeError.user(
+        raise dsl_errors.user(
             code="dsl.subflow.workflow_reference_missing",
             message="Either workflow_id or workflow_alias must be provided",
-            origin=RuntimeErrorOrigin.DSL,
             phase=RuntimeErrorPhase.PREPARE,
             error_type="SubflowWorkflowReferenceMissing",
             action_ref=task.ref,
@@ -1180,10 +1400,9 @@ async def _prepare_subflow(input: PrepareSubflowActivityInput) -> PreparedSubflo
             wf_id, version=evaluated_args.get("version")
         )
         if not defn:
-            raise ActivityRuntimeError.user(
+            raise dsl_errors.user(
                 code="dsl.subflow.workflow_definition_not_found",
                 message=f"Workflow definition not found for {wf_id.short()}",
-                origin=RuntimeErrorOrigin.DSL,
                 phase=RuntimeErrorPhase.PREPARE,
                 error_type="WorkflowDefinitionNotFound",
                 action_ref=task.ref,
