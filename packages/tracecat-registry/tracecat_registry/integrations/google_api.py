@@ -4,6 +4,7 @@ from collections.abc import Callable
 from typing import Annotated, Any, Protocol, cast
 
 import orjson
+from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials as OAuthCredentials
 from google.oauth2 import service_account
 from googleapiclient.discovery import Resource, build
@@ -29,6 +30,19 @@ type GoogleAPIRequestBuilder = Callable[..., HttpRequest]
 class GoogleAPIResource(Protocol):
     def __getattr__(self, name: str) -> GoogleAPIRequestBuilder: ...
 
+
+google_api_secret = RegistrySecret(
+    name="google_api",
+    keys=["GOOGLE_API_CREDENTIALS"],
+)
+"""Google API service account credentials.
+
+- name: `google_api`
+- keys:
+    - `GOOGLE_API_CREDENTIALS` (JSON string)
+
+Note: `GOOGLE_API_CREDENTIALS` should be a JSON string of the service account credentials.
+"""
 
 google_api_optional_secret = RegistrySecret(
     name="google_api",
@@ -137,6 +151,35 @@ def _build_google_service(
             cache_discovery=False,
         ),
     )
+
+
+@registry.register(
+    default_title="Get access token",
+    description="Given service account credentials as a JSON string, retrieve a JWT token for Google API calls.",
+    display_group="Google API",
+    doc_url="https://googleapis.dev/python/google-auth/latest/reference/google.oauth2.service_account.html#google.oauth2.service_account.Credentials.from_service_account_info",
+    namespace="tools.google_api",
+    secrets=[google_api_secret],
+    deprecated="Use `tools.google_api.call_api` or `tools.google_api.call_paginated_api` for Google API calls.",
+)
+def get_access_token(
+    scopes: Annotated[
+        list[str] | None,
+        Field(
+            ...,
+            description='Google API scopes, defaults to ["https://www.googleapis.com/auth/cloud-platform"].',
+        ),
+    ] = None,
+    subject: Annotated[
+        str | None,
+        Field(..., description="Google API subject."),
+    ] = None,
+) -> str:
+    credentials = _get_service_account_credentials(scopes=scopes, subject=subject)
+    credentials.refresh(Request())
+    if not credentials.token:
+        raise ValueError("Google service account credentials did not return a token.")
+    return credentials.token
 
 
 @registry.register(
