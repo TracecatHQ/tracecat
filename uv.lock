@@ -4626,10 +4626,10 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "aioboto3", specifier = ">=15.5.0" },
+    { name = "aioboto3", specifier = "==15.5.0" },
     { name = "ansible-core", specifier = ">=2.18.0,<3.0.0" },
     { name = "ansible-runner", specifier = "==2.4.0" },
-    { name = "boto3", specifier = ">=1.40.61,<2.0.0" },
+    { name = "boto3", specifier = "==1.40.61" },
     { name = "crowdstrike-falconpy", specifier = "==1.6.2" },
     { name = "dnspython", specifier = "==2.6.1" },
     { name = "docker", specifier = "==7.1.0" },
@@ -4653,8 +4653,8 @@ requires-dist = [
     { name = "sqlalchemy", specifier = ">=2.0.0,<3.0.0" },
     { name = "tavily-python", specifier = "==0.7.6" },
     { name = "tenacity", specifier = "==8.3.0" },
-    { name = "types-aioboto3", extras = ["s3", "sts"], marker = "extra == 'dev'", specifier = ">=15.5.0" },
-    { name = "types-boto3", extras = ["s3", "sts"], marker = "extra == 'dev'", specifier = ">=1.40.61,<2.0.0" },
+    { name = "types-aioboto3", extras = ["s3", "sts"], marker = "extra == 'dev'", specifier = "==15.5.0" },
+    { name = "types-boto3", extras = ["s3", "sts"], marker = "extra == 'dev'", specifier = "==1.42.25" },
 ]
 provides-extras = ["dev"]
 
