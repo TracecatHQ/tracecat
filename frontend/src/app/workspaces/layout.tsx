@@ -48,6 +48,7 @@ export default function WorkspaceLayout({
   children: React.ReactNode
 }) {
   const router = useRouter()
+  const { user, userIsLoading } = useAuth()
   const {
     workspaces,
     workspacesLoading,
@@ -119,10 +120,20 @@ export default function WorkspaceLayout({
     workspacesLoading,
   ])
 
+  useEffect(() => {
+    if (!hasNoOrgMemberships || userIsLoading || !user?.isSuperuser) {
+      return
+    }
+    router.replace("/admin")
+  }, [hasNoOrgMemberships, router, user?.isSuperuser, userIsLoading])
+
   if (workspacesLoading) {
     return <CenteredSpinner />
   }
   if (hasNoOrgMemberships) {
+    if (userIsLoading || user?.isSuperuser) {
+      return <CenteredSpinner />
+    }
     return <NoOrganizationAccess />
   }
   if (workspacesError || !workspaces) {
