@@ -13,6 +13,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     jq \
     && rm -rf /var/lib/apt/lists/*
 
+# This rootfs is shared by run_python and agent sandboxes; CLI additions here
+# are intentionally available to both. DuckDB is not available from Bookworm
+# apt, so install the official release binary, verify it, preinstall extensions,
+# and wrap the CLI to load those extensions on each invocation.
 RUN arch="${TARGETARCH:-$(dpkg --print-architecture)}" && \
     case "${arch}" in \
         amd64) duckdb_sha256="c479794045d094058d3092e404e696508d6310b5d234a8c1945b745678f09d8d" ;; \
