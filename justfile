@@ -40,9 +40,9 @@ bench *args:
 down:
 	docker compose down --remove-orphans
 clean:
-	docker volume ls -q | xargs -r docker volume rm
+	docker volume ls -q | xargs -r -n 1 docker volume rm || true
 clean-images:
-	docker images --filter "reference=tracecat*" | awk 'NR>1 && $1 != "<none>" && $2 != "<none>" {print $1 ":" $2}' | xargs -r -n 1 docker rmi
+	docker images --filter "reference=tracecat*" | awk 'NR>1 && $1 != "<none>" && $2 != "<none>" {print $1 ":" $2}' | xargs -r -n 1 docker rmi || true
 clean-dangling:
 	docker image prune -f
 dev:
