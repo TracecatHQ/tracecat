@@ -10,11 +10,13 @@ from unittest.mock import AsyncMock, patch
 
 import httpx
 import pytest
+import tracecat_registry
 
 from tracecat.executor.registry_artifacts import (
     SQUASHFS_MOUNT_OPTIONS,
     RegistryArtifactCache,
     RegistryArtifactFormat,
+    bundled_builtin_registry_uri,
     compute_registry_artifact_cache_key,
     parse_s3_uri,
 )
@@ -105,6 +107,71 @@ class TestRegistryArtifactCache:
             bucket="bucket",
             output_path=output_path,
         )
+
+    @pytest.mark.anyio
+    async def test_ensure_environment_uses_bundled_current_builtin(
+        self, temp_cache_dir, monkeypatch: pytest.MonkeyPatch
+    ):
+        """Current builtin registry resolves to installed site-packages."""
+        version = "1.2.3"
+        site_packages = temp_cache_dir / "venv" / "site-packages"
+        package_dir = site_packages / "tracecat_registry"
+        package_dir.mkdir(parents=True)
+        package_file = package_dir / "__init__.py"
+        package_file.write_text("")
+
+        monkeypatch.setattr(tracecat_registry, "__version__", version)
+        monkeypatch.setattr(tracecat_registry, "__file__", str(package_file))
+        monkeypatch.setattr(
+            "tracecat.executor.registry_artifacts.sysconfig.get_path",
+            lambda name: str(site_packages) if name == "purelib" else None,
+        )
+
+        cache = RegistryArtifactCache(temp_cache_dir)
+        result = await cache.ensure_environment(bundled_builtin_registry_uri(version))
+
+        assert result == site_packages.resolve()
+
+    @pytest.mark.anyio
+    async def test_ensure_environment_overlays_editable_builtin(
+        self, temp_cache_dir, monkeypatch: pytest.MonkeyPatch
+    ):
+        """Editable builtin registry installs still include site-packages deps."""
+        version = "1.2.3"
+        site_packages = temp_cache_dir / "venv" / "site-packages"
+        dependency_dir = site_packages / "orjson"
+        dependency_dir.mkdir(parents=True)
+        source_root = temp_cache_dir / "src" / "tracecat-registry"
+        package_dir = source_root / "tracecat_registry"
+        package_dir.mkdir(parents=True)
+        package_file = package_dir / "__init__.py"
+        package_file.write_text("")
+
+        monkeypatch.setattr(tracecat_registry, "__version__", version)
+        monkeypatch.setattr(tracecat_registry, "__file__", str(package_file))
+        monkeypatch.setattr(
+            "tracecat.executor.registry_artifacts.sysconfig.get_path",
+            lambda name: str(site_packages) if name == "purelib" else None,
+        )
+
+        cache = RegistryArtifactCache(temp_cache_dir)
+        result = await cache.ensure_environment(bundled_builtin_registry_uri(version))
+
+        assert result is not None
+        assert result != source_root
+        assert (result / "tracecat_registry").resolve() == package_dir.resolve()
+        assert (result / "orjson").resolve() == dependency_dir.resolve()
+
+    @pytest.mark.anyio
+    async def test_ensure_environment_rejects_stale_bundled_builtin(
+        self, temp_cache_dir, monkeypatch: pytest.MonkeyPatch
+    ):
+        """Bundled pseudo-URIs must match this executor's installed package."""
+        monkeypatch.setattr(tracecat_registry, "__version__", "1.2.3")
+
+        cache = RegistryArtifactCache(temp_cache_dir)
+        with pytest.raises(RuntimeError, match="does not match installed version"):
+            await cache.ensure_environment(bundled_builtin_registry_uri("1.2.4"))
 
     @pytest.mark.anyio
     async def test_download_artifact_normalizes_missing_objects_to_http_404(

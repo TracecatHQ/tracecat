@@ -6,6 +6,7 @@ import asyncio
 import hashlib
 import os
 import shutil
+import sysconfig
 import tarfile
 import time
 from dataclasses import dataclass
@@ -13,9 +14,11 @@ from enum import StrEnum
 from pathlib import Path
 
 import httpx
+import tracecat_registry
 
 from tracecat import config
 from tracecat.logger import logger
+from tracecat.registry.constants import DEFAULT_REGISTRY_ORIGIN
 from tracecat.storage import blob
 
 
@@ -33,6 +36,9 @@ The image must stay read-only and should not expose device nodes or setuid bits
 from registry package contents. Avoid noexec because Python packages may include
 native extension modules that need to be loaded from the mounted artifact.
 """
+
+BUNDLED_BUILTIN_REGISTRY_URI_PREFIX = f"tracecat-builtin://{DEFAULT_REGISTRY_ORIGIN}/"
+"""Pseudo-URI for the builtin registry already installed in the executor image."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -61,6 +67,74 @@ def compute_registry_artifact_cache_key(artifact_uri: str) -> str:
     # S3 keys are case-sensitive, so preserve URI case when hashing.
     content = artifact_uri.strip()
     return hashlib.sha256(content.encode()).hexdigest()[:16]
+
+
+def bundled_builtin_registry_uri(version: str) -> str:
+    """Return the pseudo-URI for the installed builtin registry package."""
+    return f"{BUNDLED_BUILTIN_REGISTRY_URI_PREFIX}{version}"
+
+
+def _bundled_builtin_registry_version(artifact_uri: str) -> str | None:
+    """Return the builtin registry version encoded in a bundled pseudo-URI."""
+    if not artifact_uri.startswith(BUNDLED_BUILTIN_REGISTRY_URI_PREFIX):
+        return None
+    version = artifact_uri.removeprefix(BUNDLED_BUILTIN_REGISTRY_URI_PREFIX)
+    return version or None
+
+
+def _symlink_once(source: Path, dest: Path) -> None:
+    """Create a symlink unless another process already created it."""
+    try:
+        if dest.exists() or dest.is_symlink():
+            return
+        dest.symlink_to(source, target_is_directory=source.is_dir())
+    except FileExistsError:
+        return
+
+
+def _bundled_builtin_registry_import_path(version: str, cache_dir: Path) -> Path:
+    """Return an import path for the current builtin registry and its dependencies."""
+    installed_version = tracecat_registry.__version__
+    if version != installed_version:
+        raise RuntimeError(
+            "Bundled builtin registry version does not match installed version: "
+            f"requested={version!r}, installed={installed_version!r}"
+        )
+
+    package_file = tracecat_registry.__file__
+    if package_file is None:
+        raise RuntimeError("Installed tracecat_registry package has no __file__")
+
+    site_packages_path = sysconfig.get_path("purelib")
+    if site_packages_path is None:
+        raise RuntimeError("Could not resolve installed Python site-packages path")
+
+    site_packages = Path(site_packages_path).resolve()
+    if not site_packages.exists():
+        raise RuntimeError(
+            f"Installed Python site-packages path does not exist: {site_packages}"
+        )
+
+    package_dir = Path(package_file).resolve().parent
+    if package_dir.is_relative_to(site_packages):
+        return site_packages
+
+    cache_key = compute_registry_artifact_cache_key(
+        bundled_builtin_registry_uri(version)
+    )
+    overlay_dir = cache_dir / f"bundled-{cache_key}"
+    overlay_dir.mkdir(parents=True, exist_ok=True)
+    for child in site_packages.iterdir():
+        _symlink_once(child, overlay_dir / child.name)
+    _symlink_once(package_dir, overlay_dir / DEFAULT_REGISTRY_ORIGIN)
+    logger.info(
+        "Prepared bundled builtin registry overlay",
+        registry_version=version,
+        package_dir=str(package_dir),
+        site_packages=str(site_packages),
+        overlay_dir=str(overlay_dir),
+    )
+    return overlay_dir
 
 
 def _squashfs_sidecar_uri(tarball_uri: str) -> str | None:
@@ -105,6 +179,14 @@ class RegistryArtifactCache:
         """Materialize an optional registry artifact and return a PYTHONPATH entry."""
         if not artifact_uri:
             return None
+        if version := _bundled_builtin_registry_version(artifact_uri):
+            import_path = _bundled_builtin_registry_import_path(version, self.cache_dir)
+            logger.info(
+                "Using bundled builtin registry environment",
+                registry_version=version,
+                path=str(import_path),
+            )
+            return import_path
         cache_key = compute_registry_artifact_cache_key(artifact_uri)
         return await self.materialize(cache_key, artifact_uri)
 

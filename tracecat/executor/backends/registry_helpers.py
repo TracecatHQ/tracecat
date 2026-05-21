@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import tracecat_registry
+
 from tracecat import config
 from tracecat.auth.types import Role
 from tracecat.dsl.schemas import RunActionInput
+from tracecat.executor.registry_artifacts import bundled_builtin_registry_uri
 from tracecat.executor.service import (
     RegistryArtifactsContext,
     get_registry_artifacts_for_lock,
@@ -16,17 +19,34 @@ async def get_registry_tarball_uris(
     input: RunActionInput,
     role: Role,
 ) -> list[str]:
-    """Get tarball URIs for registry environment in deterministic order."""
+    """Get registry artifact URIs for the execution environment.
+
+    The returned list may include a pseudo-URI for the builtin registry package
+    already installed in the executor image.
+    """
     if config.TRACECAT__LOCAL_REPOSITORY_ENABLED:
         return []
+
+    origins = dict(input.registry_lock.origins)
+    artifact_uris: list[str] = []
+
+    if (
+        origins.get(DEFAULT_REGISTRY_ORIGIN) == tracecat_registry.__version__
+        and (builtin_version := origins.pop(DEFAULT_REGISTRY_ORIGIN, None)) is not None
+    ):
+        artifact_uris.append(bundled_builtin_registry_uri(builtin_version))
+
+    if not origins:
+        return artifact_uris
 
     if role.organization_id is None:
         raise ValueError("organization_id is required for registry artifacts lookup")
 
     artifacts = await get_registry_artifacts_for_lock(
-        input.registry_lock.origins, role.organization_id
+        origins,
+        role.organization_id,
     )
-    return sort_registry_tarball_uris(artifacts)
+    return artifact_uris + sort_registry_tarball_uris(artifacts)
 
 
 def sort_registry_tarball_uris(artifacts: list[RegistryArtifactsContext]) -> list[str]:
