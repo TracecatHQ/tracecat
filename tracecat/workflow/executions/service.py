@@ -49,6 +49,7 @@ from tracecat.identifiers.workflow import (
     generate_exec_id,
 )
 from tracecat.logger import logger
+from tracecat.middleware.metrics import record_workflow_dispatch_failure
 from tracecat.pagination import CursorPaginationParams
 from tracecat.registry.lock.types import RegistryLock
 from tracecat.storage.collection import (
@@ -238,15 +239,28 @@ class WorkflowExecutionsService:
         client = await get_temporal_client()
         return WorkflowExecutionsService(client=client, role=role)
 
-    def _handle_background_task_exception(self, task: asyncio.Task[Any]) -> None:
+    def _handle_background_task_exception(
+        self,
+        task: asyncio.Task[Any],
+        *,
+        trigger_type: TriggerType,
+        execution_type: ExecutionType,
+    ) -> None:
         """Handle exceptions from background workflow execution tasks."""
         if task.cancelled():
             return
         exc = task.exception()
         if exc is not None:
+            record_workflow_dispatch_failure(
+                trigger_type=trigger_type.value,
+                execution_type=execution_type.value,
+                mode="background",
+            )
             self.logger.error(
                 "Workflow dispatch task failed",
                 exception=str(exc),
+                trigger_type=trigger_type,
+                execution_type=execution_type,
             )
 
     def handle(
@@ -1385,7 +1399,13 @@ class WorkflowExecutionsService:
             execution_type=ExecutionType.PUBLISHED,
         )
         task = asyncio.ensure_future(coro)
-        task.add_done_callback(self._handle_background_task_exception)
+        task.add_done_callback(
+            lambda task: self._handle_background_task_exception(
+                task,
+                trigger_type=trigger_type,
+                execution_type=ExecutionType.PUBLISHED,
+            )
+        )
         return WorkflowExecutionCreateResponse(
             message="Workflow execution started",
             wf_id=wf_id,
@@ -1409,17 +1429,25 @@ class WorkflowExecutionsService:
         if wf_exec_id is None:
             wf_exec_id = generate_exec_id(wf_id)
 
-        await self._start_workflow(
-            dsl=dsl,
-            wf_id=wf_id,
-            wf_exec_id=wf_exec_id,
-            trigger_inputs=payload,
-            trigger_type=trigger_type,
-            execution_type=ExecutionType.PUBLISHED,
-            time_anchor=time_anchor,
-            registry_lock=registry_lock,
-            memo=memo,
-        )
+        try:
+            await self._start_workflow(
+                dsl=dsl,
+                wf_id=wf_id,
+                wf_exec_id=wf_exec_id,
+                trigger_inputs=payload,
+                trigger_type=trigger_type,
+                execution_type=ExecutionType.PUBLISHED,
+                time_anchor=time_anchor,
+                registry_lock=registry_lock,
+                memo=memo,
+            )
+        except Exception:
+            record_workflow_dispatch_failure(
+                trigger_type=trigger_type.value,
+                execution_type=ExecutionType.PUBLISHED.value,
+                mode="wait_for_start",
+            )
+            raise
 
         return WorkflowExecutionCreateResponse(
             message="Workflow execution started",
@@ -1454,7 +1482,13 @@ class WorkflowExecutionsService:
             execution_type=ExecutionType.DRAFT,
         )
         task = asyncio.ensure_future(coro)
-        task.add_done_callback(self._handle_background_task_exception)
+        task.add_done_callback(
+            lambda task: self._handle_background_task_exception(
+                task,
+                trigger_type=trigger_type,
+                execution_type=ExecutionType.DRAFT,
+            )
+        )
         return WorkflowExecutionCreateResponse(
             message="Draft workflow execution started",
             wf_id=wf_id,
@@ -1477,16 +1511,24 @@ class WorkflowExecutionsService:
         if wf_exec_id is None:
             wf_exec_id = generate_exec_id(wf_id)
 
-        await self._start_workflow(
-            dsl=dsl,
-            wf_id=wf_id,
-            wf_exec_id=wf_exec_id,
-            trigger_inputs=payload,
-            trigger_type=trigger_type,
-            execution_type=ExecutionType.DRAFT,
-            time_anchor=time_anchor,
-            registry_lock=registry_lock,
-        )
+        try:
+            await self._start_workflow(
+                dsl=dsl,
+                wf_id=wf_id,
+                wf_exec_id=wf_exec_id,
+                trigger_inputs=payload,
+                trigger_type=trigger_type,
+                execution_type=ExecutionType.DRAFT,
+                time_anchor=time_anchor,
+                registry_lock=registry_lock,
+            )
+        except Exception:
+            record_workflow_dispatch_failure(
+                trigger_type=trigger_type.value,
+                execution_type=ExecutionType.DRAFT.value,
+                mode="wait_for_start",
+            )
+            raise
 
         return WorkflowExecutionCreateResponse(
             message="Draft workflow execution started",
