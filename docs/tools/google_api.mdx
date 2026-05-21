@@ -133,37 +133,3 @@ Optional service account domain-wide delegation subject.
 Default: `null`.
 
 </ParamField>
-
-## Get access token
-
-Action ID: `tools.google_api.get_access_token`
-
-Given service account credentials as a JSON string, retrieve a JWT token for Google API calls.
-
-Reference: [https://googleapis.dev/python/google-auth/latest/reference/google.oauth2.service_account.html#google.oauth2.service_account.Credentials.from_service_account_info](https://googleapis.dev/python/google-auth/latest/reference/google.oauth2.service_account.html#google.oauth2.service_account.Credentials.from_service_account_info)
-
-**Deprecated:** Use `tools.google_api.call_api` or `tools.google_api.call_paginated_api` for Google API calls.
-
-### Secrets
-
-Required secrets:
-
-- `google_api`: required values `GOOGLE_API_CREDENTIALS`.
-
-### Input fields
-
-<ParamField path="scopes" type="array[string] | null">
-
-Google API scopes, defaults to ["https://www.googleapis.com/auth/cloud-platform"].
-
-Default: `null`.
-
-</ParamField>
-
-<ParamField path="subject" type="string | null">
-
-Google API subject.
-
-Default: `null`.
-
-</ParamField>

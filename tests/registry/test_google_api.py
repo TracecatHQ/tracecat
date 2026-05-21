@@ -235,60 +235,6 @@ def test_call_api_rejects_service_account_overrides_without_service_account_json
         )
 
 
-def test_get_access_token_is_deprecated() -> None:
-    kwargs = getattr(google_api.get_access_token, "__tracecat_udf_kwargs")
-
-    assert kwargs["deprecated"] == (
-        "Use `tools.google_api.call_api` or "
-        "`tools.google_api.call_paginated_api` for Google API calls."
-    )
-
-
-def test_get_access_token_refreshes_service_account_credentials(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    class FakeCredentials:
-        token: str | None = None
-
-        def with_subject(self, subject: str) -> "FakeCredentials":
-            captured["subject"] = subject
-            return self
-
-        def refresh(self, request: object) -> None:
-            captured["request"] = request
-            self.token = "refreshed-token"
-
-    captured: dict[str, Any] = {}
-    credentials = FakeCredentials()
-
-    def from_service_account_info(
-        info: dict[str, Any], scopes: list[str]
-    ) -> FakeCredentials:
-        captured["info"] = info
-        captured["scopes"] = scopes
-        return credentials
-
-    monkeypatch.setattr(
-        google_api.secrets, "get", lambda _key: '{"type":"service_account"}'
-    )
-    monkeypatch.setattr(
-        google_api.service_account.Credentials,
-        "from_service_account_info",
-        from_service_account_info,
-    )
-
-    result = google_api.get_access_token(
-        scopes=["scope-from-input"],
-        subject="user@example.test",
-    )
-
-    assert result == "refreshed-token"
-    assert captured["info"] == {"type": "service_account"}
-    assert captured["scopes"] == ["scope-from-input"]
-    assert captured["subject"] == "user@example.test"
-    assert isinstance(captured["request"], google_api.Request)
-
-
 def test_call_api_rejects_invalid_service_account_json(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
