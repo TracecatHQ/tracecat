@@ -198,6 +198,17 @@ INTERNET_TOOLS = [
     "WebFetch",
 ]
 
+COMMAND_LINE_TOOLS_PROMPT = (
+    "<CommandLineTools>\n"
+    "- `duckdb`: The runtime shell includes the DuckDB CLI. Use it for local "
+    "SQL and tabular data inspection over files such as CSV, JSON, Parquet, "
+    "and DuckDB database files. The CLI is configured with the `json`, "
+    "`postgres`, `httpfs`, `sqlite`, and `inet` extensions for JSON, "
+    "PostgreSQL, HTTP/S3, SQLite, and IP address workflows. This is a local "
+    "command-line capability, not a Tracecat action or MCP tool.\n"
+    "</CommandLineTools>"
+)
+
 # Registry MCP server naming.
 # We canonicalize persisted session history to the hyphen form at the
 # resume boundary so runtime configuration only exposes one logical server.
@@ -984,7 +995,10 @@ class ClaudeAgentRuntime:
         self, instructions: str | None, output_type: str | dict[str, Any] | None = None
     ) -> str:
         """Build the system prompt for the agent."""
-        base = "If asked about your identity, you are a Tracecat automation assistant."
+        base = (
+            "If asked about your identity, you are a Tracecat automation assistant."
+            f"\n\n{COMMAND_LINE_TOOLS_PROMPT}"
+        )
 
         # Only include structured output instruction if output_type is configured (not None)
         if output_type is not None:
