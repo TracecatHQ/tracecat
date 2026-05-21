@@ -257,6 +257,23 @@ class TestClaudeAgentRuntimeRun:
             "Accept-Encoding": "identity",
         }
 
+    def test_system_prompt_documents_duckdb_cli(
+        self, mock_socket_writer: MagicMock
+    ) -> None:
+        """Runtime prompt should document local CLI tools available in shell."""
+        runtime = ClaudeAgentRuntime(
+            mock_socket_writer, transport_factory=lambda _: MagicMock()
+        )
+
+        prompt = runtime._build_system_prompt("Preset instructions.")
+
+        assert "<CommandLineTools>" in prompt
+        assert "`duckdb`" in prompt
+        assert "DuckDB CLI" in prompt
+        assert "`postgres`, `httpfs`, `sqlite`, and `inet` extensions" in prompt
+        assert "not a Tracecat action or MCP tool" in prompt
+        assert prompt.endswith("Preset instructions.")
+
     @pytest.mark.anyio
     async def test_sends_done_on_completion(
         self,
