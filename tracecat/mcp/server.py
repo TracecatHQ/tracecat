@@ -50,6 +50,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.exc import NoResultFound
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.requests import Request
+from starlette.responses import Response
 from temporalio.client import WorkflowExecutionStatus
 from tracecat_registry import RegistryOAuthSecret, RegistrySecret
 
@@ -2914,7 +2915,10 @@ mcp.add_middleware(
 
 @mcp.custom_route("/metrics", methods=["GET"], include_in_schema=False)
 async def metrics(request: Request):
-    del request
+    # Keep metrics available on the direct in-cluster scrape path, but avoid
+    # exposing them through the public MCP root prefix such as /mcp/metrics.
+    if request.scope.get("path") != "/metrics":
+        return Response(status_code=404)
     return prometheus_metrics_response()
 
 
