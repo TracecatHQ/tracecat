@@ -122,6 +122,19 @@ def _resolve_resource(service: Resource, resource: str) -> GoogleAPIResource:
     return cast(GoogleAPIResource, target)
 
 
+def _get_value_by_path(data: dict[str, Any], path: str) -> Any | None:
+    current: Any = data
+    for part in path.split("."):
+        if not part:
+            raise ValueError(
+                "Next page token response path cannot contain empty segments."
+            )
+        if not isinstance(current, dict) or part not in current:
+            return None
+        current = current[part]
+    return current
+
+
 def _build_google_service(
     service_name: str,
     version: str,
@@ -242,7 +255,26 @@ def call_paginated_api(
             ..., description="Optional service account domain-wide delegation subject."
         ),
     ] = None,
+    page_token_param: Annotated[
+        str,
+        Field(
+            ...,
+            description='Request parameter name for the next page token. Defaults to "pageToken".',
+        ),
+    ] = "pageToken",
+    next_page_token_path: Annotated[
+        str,
+        Field(
+            ...,
+            description='Dot-separated response path for the next page token. Defaults to "nextPageToken".',
+        ),
+    ] = "nextPageToken",
 ) -> list[GoogleAPIResponse]:
+    if not page_token_param:
+        raise ValueError("Page token request parameter cannot be empty.")
+    if not next_page_token_path:
+        raise ValueError("Next page token response path cannot be empty.")
+
     request_params = dict(params or {})
     pages: list[GoogleAPIResponse] = []
     service = _build_google_service(
@@ -262,8 +294,8 @@ def call_paginated_api(
             )
         page = cast(GoogleAPIResponse, response)
         pages.append(page)
-        next_page_token = page.get("nextPageToken")
+        next_page_token = _get_value_by_path(page, next_page_token_path)
         if not next_page_token:
             break
-        request_params["pageToken"] = next_page_token
+        request_params[page_token_param] = next_page_token
     return pages

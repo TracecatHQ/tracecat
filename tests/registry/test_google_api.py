@@ -323,3 +323,56 @@ def test_call_paginated_api_returns_pages(monkeypatch: pytest.MonkeyPatch) -> No
         {"files": [{"id": "2"}]},
     ]
     assert calls == [{"pageSize": 1}, {"pageSize": 1, "pageToken": "next-token"}]
+
+
+def test_call_paginated_api_supports_custom_token_fields(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[dict[str, Any]] = []
+
+    def build(*_args: Any, **_kwargs: Any) -> FakeService:
+        return FakeService(
+            calls,
+            [
+                {
+                    "voidedPurchases": [{"orderId": "1"}],
+                    "tokenPagination": {"nextPageToken": "next-token"},
+                },
+                {
+                    "voidedPurchases": [{"orderId": "2"}],
+                    "tokenPagination": {},
+                },
+            ],
+        )
+
+    monkeypatch.setattr(
+        google_api.secrets,
+        "get_or_default",
+        lambda key: "service-token" if key == "GOOGLE_SERVICE_TOKEN" else None,
+    )
+    monkeypatch.setattr(google_api, "build", build)
+
+    result = google_api.call_paginated_api(
+        service_name="androidpublisher",
+        version="v3",
+        resource="files",
+        method_name="list",
+        params={"packageName": "com.example.app"},
+        page_token_param="token",
+        next_page_token_path="tokenPagination.nextPageToken",
+    )
+
+    assert result == [
+        {
+            "voidedPurchases": [{"orderId": "1"}],
+            "tokenPagination": {"nextPageToken": "next-token"},
+        },
+        {
+            "voidedPurchases": [{"orderId": "2"}],
+            "tokenPagination": {},
+        },
+    ]
+    assert calls == [
+        {"packageName": "com.example.app"},
+        {"packageName": "com.example.app", "token": "next-token"},
+    ]
