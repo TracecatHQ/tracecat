@@ -23,17 +23,22 @@ test-k keyword:
 	uv run pytest tests/unit -k "{{keyword}}" -n auto -x
 
 # Run frontend smoke tests against PLAYWRIGHT_BASE_URL or the active cluster URL
-test-smoke *args:
+test-frontend-smoke *args:
 	#!/usr/bin/env sh
 	set -e
 	if [ -z "${PLAYWRIGHT_BASE_URL:-}" ]; then
-		PLAYWRIGHT_BASE_URL="$(./scripts/cluster url)"
+		PLAYWRIGHT_BASE_URL="$(./scripts/cluster ports | awk '/UI \(Caddy\):/ {print $3; exit}')"
+		if [ -z "${PLAYWRIGHT_BASE_URL}" ]; then
+			echo "Could not determine active cluster URL. Set PLAYWRIGHT_BASE_URL explicitly." >&2
+			exit 1
+		fi
 		export PLAYWRIGHT_BASE_URL
 	fi
-	if [ -z "${CI:-}" ] && [ -z "${PLAYWRIGHT_BROWSER_CHANNEL+x}" ]; then
-		export PLAYWRIGHT_BROWSER_CHANNEL=chrome
-	fi
 	pnpm -C frontend exec playwright test --workers="${PLAYWRIGHT_WORKERS:-1}" {{args}}
+
+# Open the frontend smoke Playwright report
+test-frontend-smoke-report *args:
+	pnpm -C frontend exec playwright show-report {{args}}
 
 # Run backend benchmarks inside Docker (required for nsjail on macOS)
 bench *args:

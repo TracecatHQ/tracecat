@@ -432,7 +432,7 @@ describe("Auth UI matrix", () => {
     })
   })
 
-  it("keeps superusers with no organization memberships on the help screen", () => {
+  it("redirects superusers with no organization memberships to admin", async () => {
     mockUser = { email: "admin@example.com", isSuperuser: true }
     mockWorkspacesError = getNoOrgMembershipsError()
 
@@ -442,8 +442,12 @@ describe("Auth UI matrix", () => {
       </WorkspaceLayout>
     )
 
-    expect(screen.getByText("No organization access yet")).toBeInTheDocument()
-    expect(mockRouterReplace).not.toHaveBeenCalledWith("/admin")
+    await waitFor(() => {
+      expect(mockRouterReplace).toHaveBeenCalledWith("/admin")
+    })
+    expect(
+      screen.queryByText("No organization access yet")
+    ).not.toBeInTheDocument()
   })
 
   it("keeps regular users with no organization memberships on the help screen", () => {

@@ -1,0 +1,171 @@
+name: Frontend Smoke
+
+on:
+  workflow_dispatch:
+  schedule:
+    # Runs at 08:00 and 17:00 EST, Monday through Friday.
+    - cron: "0 13,22 * * 1-5"
+
+permissions:
+  contents: read
+
+jobs:
+  frontend-smoke:
+    if: >-
+      github.event_name != 'workflow_dispatch' ||
+      github.actor == 'github-actions[bot]' ||
+      contains(
+        fromJSON(vars.TRUSTED_CI_ACTORS_JSON || '[]'),
+        github.triggering_actor || github.actor
+      )
+    runs-on: blacksmith-8vcpu-ubuntu-2204
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+
+      - name: Install uv
+        uses: useblacksmith/setup-uv@f4588471335f14dcb60198856207b916701a9e9f # v4
+        with:
+          version: "0.9.7"
+          enable-cache: true
+          cache-dependency-glob: |
+            pyproject.toml
+            uv.lock
+
+      - name: Set up Python 3.12
+        uses: useblacksmith/setup-python@943b05a7c4ca70c2360391137527a37bee33fb1d # v6
+        with:
+          python-version: "3.12"
+
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "22"
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4
+        with:
+          version: 10
+          run_install: false
+
+      - name: Set up Docker builder
+        uses: useblacksmith/setup-docker-builder@78f41686563c732ccc097f7baac2f092f67538f0 # v1
+
+      - name: Disable IPv6
+        run: |
+          sudo sysctl -w net.ipv6.conf.all.disable_ipv6=1
+          sudo sysctl -w net.ipv6.conf.default.disable_ipv6=1
+
+      - name: Configure environment
+        run: |
+          echo "y
+          localhost
+          n
+          test@tracecat.com" | bash env.sh
+
+      - name: Install dependencies
+        run: |
+          uv sync --locked --group dev --group admin
+          pnpm --dir frontend install --frozen-lockfile
+          pnpm --dir frontend exec playwright install --with-deps chromium
+
+      - name: Build CI image
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: .
+          target: production
+          load: true
+          tags: tracecat-ci:frontend-smoke-${{ github.run_id }}-${{ github.run_attempt }}
+
+      - name: Build UI image
+        env:
+          TRACECAT__CI_IMAGE_TAG: frontend-smoke-${{ github.run_id }}-${{ github.run_attempt }}
+        run: |
+          docker compose -f docker-compose.local.yml -f .github/docker-compose.integration.yml build ui
+
+      - name: Start Tracecat stack
+        env:
+          TRACECAT__CI_IMAGE_TAG: frontend-smoke-${{ github.run_id }}-${{ github.run_attempt }}
+          TRACECAT__UNSAFE_DISABLE_SM_MASKING: "true"
+          TRACECAT__EXECUTOR_BACKEND: "direct"
+          TRACECAT__FEATURE_FLAGS: ""
+          TRACECAT__REGISTRY_SYNC_SANDBOX_ENABLED: "true"
+        run: |
+          set -euo pipefail
+
+          compose_files=(-f docker-compose.local.yml -f .github/docker-compose.integration.yml)
+          docker compose "${compose_files[@]}" up --no-build -d temporal api worker executor postgres_db caddy minio redis ui
+
+          timeout 300 bash -c 'until curl -fsS http://localhost/api/ready; do sleep 5; done'
+          timeout 120 bash -c 'until curl -fsS http://localhost; do sleep 5; done'
+
+          set -a
+          . ./.env
+          set +a
+
+          TRACECAT__DB_URI="postgresql+psycopg://postgres:postgres@localhost:5432/postgres" \
+            uv run --no-sync tracecat admin create-dev-user \
+              --email dev@tracecat.com \
+              --password password1234 \
+              --superuser-email test@tracecat.com \
+              --superuser-password password1234 \
+              --default-tier-entitlements custom_registry \
+              --org-role organization-owner \
+              --workspace-role workspace-admin
+
+      - name: Run frontend smoke suite
+        run: |
+          PLAYWRIGHT_BASE_URL="http://localhost"
+          export PLAYWRIGHT_BASE_URL
+          pnpm --dir frontend run test:frontend-smoke
+
+      - name: Upload Playwright report
+        if: always()
+        uses: actions/upload-artifact@de65e23aa2b7e23d713bb51fbfcb6d502f8667d8 # v4
+        with:
+          name: frontend-smoke-playwright-report
+          path: frontend/playwright-report
+          if-no-files-found: ignore
+
+      - name: Upload Playwright test results
+        if: always()
+        uses: actions/upload-artifact@de65e23aa2b7e23d713bb51fbfcb6d502f8667d8 # v4
+        with:
+          name: frontend-smoke-playwright-test-results
+          path: frontend/test-results
+          if-no-files-found: ignore
+
+      - name: Show service logs on failure
+        if: failure()
+        env:
+          TRACECAT__CI_IMAGE_TAG: frontend-smoke-${{ github.run_id }}-${{ github.run_attempt }}
+        run: |
+          compose_files=(-f docker-compose.local.yml -f .github/docker-compose.integration.yml)
+
+          echo "=== Docker Service Status ==="
+          docker compose "${compose_files[@]}" ps
+
+          echo "=== API Logs ==="
+          docker compose "${compose_files[@]}" logs api --tail=200
+
+          echo "=== UI Logs ==="
+          docker compose "${compose_files[@]}" logs ui --tail=200
+
+          echo "=== Worker Logs ==="
+          docker compose "${compose_files[@]}" logs worker --tail=200
+
+          echo "=== Executor Logs ==="
+          docker compose "${compose_files[@]}" logs executor --tail=200
+
+          echo "=== PostgreSQL Logs ==="
+          docker compose "${compose_files[@]}" logs postgres_db --tail=200
+
+      - name: Stop Tracecat stack
+        if: always()
+        env:
+          TRACECAT__CI_IMAGE_TAG: frontend-smoke-${{ github.run_id }}-${{ github.run_attempt }}
+        run: |
+          docker compose -f docker-compose.local.yml -f .github/docker-compose.integration.yml down -v

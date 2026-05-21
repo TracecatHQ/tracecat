@@ -22,7 +22,6 @@
 #   ./cluster attach api           # Attach shell to api service
 #   ./cluster list                 # List all running clusters
 #   ./cluster 1 ports              # Show port mappings for cluster 1
-#   ./cluster url                  # Print the active cluster UI URL
 #
 # Port allocation (offset = (cluster_num - 1) * 100):
 #   Cluster numbers are GLOBAL across all worktrees to avoid port conflicts.
@@ -164,15 +163,6 @@ portless_url_for_name() {
         url="${url}:${proxy_port}"
     fi
     echo "$url"
-}
-
-portless_registered_url() {
-    local cluster_num=$1
-    local name
-    name=$(portless_alias_name "$cluster_num")
-
-    command -v portless >/dev/null 2>&1 || return 1
-    portless get "$name" --no-worktree 2>/dev/null
 }
 
 portless_start_proxy() {
@@ -414,7 +404,6 @@ Commands:
   db            Open lazysql to the cluster's PostgreSQL database
   docs [args]   Start the Mintlify docs preview from docs/
   open          Open the cluster UI in the default browser
-  url           Print the cluster UI URL
   ports         Show port mappings for the cluster
   list          List all running Tracecat clusters
   nuke [opts]   Destroy cluster and optionally volumes/images
@@ -446,7 +435,6 @@ Examples:
   ./cluster 2 -p local up -d     Start cluster 2 with local profile
   ./cluster attach api           Attach shell to api service
   ./cluster open                 Open cluster UI in browser
-  ./cluster url                  Print cluster UI URL
   ./cluster db                   Open lazysql to the database
   ./cluster docs                 Start Mintlify docs preview
   ./cluster docs --no-open       Start docs preview without opening browser
@@ -573,27 +561,6 @@ Cluster ${WORKTREE_ID}-${cluster_num} port mappings:
   MinIO Console:   http://localhost:${MINIO_CONSOLE_PORT}
   MCP:             http://localhost:${PUBLIC_APP_PORT}/mcp
 EOF
-}
-
-# Print the effective UI URL for a cluster, suitable for command substitution.
-show_url() {
-    local cluster_num=$1
-    calculate_ports "$cluster_num"
-
-    if [[ -n "${CLUSTER_PUBLIC_APP_URL_OVERRIDE:-}" ]]; then
-        echo "${CLUSTER_PUBLIC_APP_URL_OVERRIDE%/}"
-        return
-    fi
-
-    if portless_enabled; then
-        local portless_public_url
-        if portless_public_url=$(portless_registered_url "$cluster_num"); then
-            echo "${portless_public_url%/}"
-            return
-        fi
-    fi
-
-    echo "http://localhost:${PUBLIC_APP_PORT}"
 }
 
 # List all running Tracecat clusters
@@ -858,12 +825,6 @@ if [[ "$COMMAND" == "ports" ]]; then
     else
         portless_install_tip
     fi
-    exit 0
-fi
-
-# Handle 'url' command
-if [[ "$COMMAND" == "url" ]]; then
-    show_url "$CLUSTER_NUM"
     exit 0
 fi
 
