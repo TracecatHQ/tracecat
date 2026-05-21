@@ -21,6 +21,7 @@ from tracecat_registry import (
 DEFAULT_SCOPES = ["https://www.googleapis.com/auth/cloud-platform"]
 
 type GoogleAPIResponse = dict[str, Any]
+type GoogleAPIResult = Any
 type GoogleAPIParams = dict[str, Any]
 type GoogleCredentials = OAuthCredentials | service_account.Credentials
 type GoogleAPIRequestBuilder = Callable[..., HttpRequest]
@@ -184,7 +185,7 @@ def call_api(
             ..., description="Optional service account domain-wide delegation subject."
         ),
     ] = None,
-) -> GoogleAPIResponse:
+) -> GoogleAPIResult:
     params = params or {}
     service = _build_google_service(
         service_name=service_name,
@@ -193,12 +194,7 @@ def call_api(
         subject=subject,
     )
     request = getattr(_resolve_resource(service, resource), method_name)(**params)
-    response = request.execute()
-    if not isinstance(response, dict):
-        raise ValueError(
-            f"Expected Google API response to be a dict, got {type(response).__name__}."
-        )
-    return cast(GoogleAPIResponse, response)
+    return request.execute()
 
 
 @registry.register(

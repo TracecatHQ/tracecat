@@ -268,7 +268,7 @@ def test_call_api_requires_oauth_or_service_account_json(
         )
 
 
-def test_call_api_rejects_non_dict_response(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_call_api_returns_non_dict_response(monkeypatch: pytest.MonkeyPatch) -> None:
     calls: list[dict[str, Any]] = []
 
     def build(*_args: Any, **_kwargs: Any) -> FakeService:
@@ -281,13 +281,14 @@ def test_call_api_rejects_non_dict_response(monkeypatch: pytest.MonkeyPatch) -> 
     )
     monkeypatch.setattr(google_api, "build", build)
 
-    with pytest.raises(ValueError, match="Expected Google API response"):
-        google_api.call_api(
-            service_name="drive",
-            version="v3",
-            resource="files",
-            method_name="list",
-        )
+    result = google_api.call_api(
+        service_name="drive",
+        version="v3",
+        resource="files",
+        method_name="list",
+    )
+
+    assert result == ["not-a-dict"]
 
 
 def test_call_paginated_api_returns_pages(monkeypatch: pytest.MonkeyPatch) -> None:
