@@ -6,15 +6,27 @@ from uuid import uuid4
 import pytest
 from pydantic import SecretStr
 
+from tracecat import config
 from tracecat.auth.types import Role
 from tracecat.registry.actions.enums import TemplateActionValidationErrorType
-from tracecat.registry.actions.schemas import RegistryActionValidationErrorInfo
+from tracecat.registry.actions.schemas import (
+    RegistryActionCreate,
+    RegistryActionOptions,
+    RegistryActionUDFImpl,
+    RegistryActionValidationErrorInfo,
+)
+from tracecat.registry.constants import DEFAULT_REGISTRY_ORIGIN
+from tracecat.registry.sync.prebuilt import write_prebuilt_registry_manifest
 from tracecat.registry.sync.runner import (
     RegistrySyncRunner,
     RegistrySyncValidationError,
 )
 from tracecat.registry.sync.schemas import RegistrySyncRequest
-from tracecat.registry.sync.tarball import TarballVenvBuildResult
+from tracecat.registry.sync.tarball import (
+    TarballVenvBuildResult,
+    get_tarball_venv_artifact_dir,
+)
+from tracecat.registry.versions.schemas import RegistryVersionManifest
 
 
 def test_registry_sync_request_ignores_legacy_ssh_key() -> None:
@@ -196,4 +208,100 @@ async def test_runner_raises_before_upload_on_validation_errors(
     ):
         await runner.run(request)
 
+    upload_tarball.assert_not_awaited()
+
+
+@pytest.mark.anyio
+async def test_runner_uses_prebuilt_manifest_without_discovery(
+    tmp_path,
+    mocker,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        config,
+        "TRACECAT__REGISTRY_SYNC_PREBUILT_ARTIFACTS_DIR",
+        str(tmp_path),
+    )
+    repository_id = uuid4()
+    manifest = RegistryVersionManifest.from_actions(
+        [
+            RegistryActionCreate(
+                repository_id=repository_id,
+                name="reshape",
+                description="Reshape test payload",
+                namespace="core.transform",
+                type="udf",
+                origin=DEFAULT_REGISTRY_ORIGIN,
+                interface={"expects": {}, "returns": {}},
+                implementation=RegistryActionUDFImpl(
+                    type="udf",
+                    url=DEFAULT_REGISTRY_ORIGIN,
+                    module="tracecat_registry.core.transform",
+                    name="reshape",
+                ),
+                secrets=None,
+                default_title="Prebuilt title",
+                display_group=None,
+                doc_url=None,
+                author=None,
+                deprecated=None,
+                options=RegistryActionOptions(),
+            )
+        ]
+    )
+    artifact_dir = get_tarball_venv_artifact_dir(
+        root=tmp_path,
+        organization_id="platform",
+        repository_origin=DEFAULT_REGISTRY_ORIGIN,
+        version="1.2.3",
+    )
+    write_prebuilt_registry_manifest(artifact_dir=artifact_dir, manifest=manifest)
+
+    runner = RegistrySyncRunner()
+    request = RegistrySyncRequest(
+        repository_id=repository_id,
+        origin=DEFAULT_REGISTRY_ORIGIN,
+        origin_type="builtin",
+        target_version="1.2.3",
+        storage_namespace="platform",
+        validate_actions=True,
+    )
+
+    mocker.patch.object(
+        runner,
+        "_get_builtin_package_path",
+        mocker.AsyncMock(return_value=tmp_path),
+    )
+    mocker.patch(
+        "tracecat.registry.sync.runner.reuse_or_upload_prebuilt_builtin_artifacts",
+        mocker.AsyncMock(
+            return_value=(
+                "s3://registry/platform/tarball-venvs/tracecat_registry/1.2.3/"
+                "site-packages.tar.gz"
+            )
+        ),
+    )
+    build_tarball_venv = mocker.patch.object(
+        runner,
+        "_build_tarball_venv",
+        mocker.AsyncMock(),
+    )
+    discover_actions = mocker.patch.object(
+        runner,
+        "_discover_actions",
+        mocker.AsyncMock(),
+    )
+    upload_tarball = mocker.patch.object(
+        runner,
+        "_upload_tarball",
+        mocker.AsyncMock(),
+    )
+
+    result = await runner.run(request)
+
+    assert result.tarball_uri.endswith("/1.2.3/site-packages.tar.gz")
+    assert len(result.actions) == 1
+    assert result.actions[0].default_title == "Prebuilt title"
+    build_tarball_venv.assert_not_awaited()
+    discover_actions.assert_not_awaited()
     upload_tarball.assert_not_awaited()

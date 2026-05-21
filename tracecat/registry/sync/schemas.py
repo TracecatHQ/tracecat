@@ -74,6 +74,13 @@ class RegistrySyncRequest(BaseModel):
     commit_sha: str | None = Field(
         default=None, description="Target commit SHA (git origins only)"
     )
+    target_version: str | None = Field(
+        default=None,
+        description=(
+            "Target registry version string for deterministic artifact keys. "
+            "Primarily used by builtin platform registry sync."
+        ),
+    )
     git_repo_package_name: str | None = Field(
         default=None,
         description="Optional Python package name override for git repositories",

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -21,11 +22,16 @@ from tracecat.registry.constants import (
     DEFAULT_REGISTRY_ORIGIN,
     REGISTRY_GIT_SSH_KEY_SECRET_NAME,
 )
+from tracecat.registry.repositories.platform_service import PlatformRegistryReposService
 from tracecat.registry.repositories.schemas import RegistryRepositoryCreate
 from tracecat.registry.repositories.service import RegistryReposService
 from tracecat.registry.sync.base_service import ArtifactsBuildResult
+from tracecat.registry.sync.platform_service import PlatformRegistrySyncService
+from tracecat.registry.sync.prebuilt import write_prebuilt_registry_manifest
 from tracecat.registry.sync.runner import RegistrySyncValidationError
 from tracecat.registry.sync.service import RegistrySyncError, RegistrySyncService
+from tracecat.registry.sync.tarball import get_tarball_venv_artifact_dir
+from tracecat.registry.versions.schemas import RegistryVersionManifest
 from tracecat.registry.versions.service import RegistryVersionsService
 
 
@@ -151,6 +157,177 @@ async def test_sync_creates_collision_version_for_manifest_changes(
     versions_service = RegistryVersionsService(session, role)
     versions = await versions_service.list_versions(repository_id=repo.id)
     assert len(versions) == 2
+
+
+@pytest.mark.anyio
+async def test_platform_builtin_sync_reuses_existing_artifact_objects(
+    mocker,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(config, "TRACECAT__BLOB_STORAGE_BUCKET_REGISTRY", "registry")
+    monkeypatch.setattr(config, "TRACECAT__REGISTRY_SYNC_SQUASHFS_ENABLED", True)
+
+    ensure_bucket_exists = mocker.patch(
+        "tracecat.registry.sync.prebuilt.blob.ensure_bucket_exists",
+        mocker.AsyncMock(),
+    )
+    file_exists = mocker.patch(
+        "tracecat.registry.sync.tarball.blob.file_exists",
+        mocker.AsyncMock(side_effect=[True, True]),
+    )
+    build_builtin_registry_tarball_venv = mocker.patch(
+        "tracecat.registry.sync.base_service.build_builtin_registry_tarball_venv",
+        mocker.AsyncMock(),
+    )
+    upload_prebuilt_tarball_venv = mocker.patch(
+        "tracecat.registry.sync.prebuilt.upload_prebuilt_tarball_venv",
+        mocker.AsyncMock(),
+    )
+    upload_tarball_venv = mocker.patch(
+        "tracecat.registry.sync.base_service.upload_tarball_venv",
+        mocker.AsyncMock(),
+    )
+
+    service = PlatformRegistrySyncService(mocker.Mock(spec=AsyncSession))
+
+    result = await service._build_and_upload_artifacts(
+        origin=DEFAULT_REGISTRY_ORIGIN,
+        version_string="1.2.3",
+        commit_sha=None,
+    )
+
+    assert result.tarball_uri == (
+        "s3://registry/platform/tarball-venvs/tracecat_registry/1.2.3/"
+        "site-packages.tar.gz"
+    )
+    ensure_bucket_exists.assert_awaited_once_with("registry")
+    file_exists.assert_has_awaits(
+        [
+            mocker.call(
+                key="platform/tarball-venvs/tracecat_registry/1.2.3/site-packages.tar.gz",
+                bucket="registry",
+            ),
+            mocker.call(
+                key="platform/tarball-venvs/tracecat_registry/1.2.3/site-packages.squashfs",
+                bucket="registry",
+            ),
+        ]
+    )
+    build_builtin_registry_tarball_venv.assert_not_awaited()
+    upload_prebuilt_tarball_venv.assert_not_awaited()
+    upload_tarball_venv.assert_not_awaited()
+
+
+@pytest.mark.anyio
+async def test_platform_builtin_sync_uploads_prebuilt_artifacts(
+    tmp_path: Path,
+    mocker,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(config, "TRACECAT__BLOB_STORAGE_BUCKET_REGISTRY", "registry")
+    monkeypatch.setattr(config, "TRACECAT__REGISTRY_SYNC_SQUASHFS_ENABLED", True)
+    monkeypatch.setattr(
+        config,
+        "TRACECAT__REGISTRY_SYNC_PREBUILT_ARTIFACTS_DIR",
+        str(tmp_path),
+    )
+
+    mocker.patch(
+        "tracecat.registry.sync.prebuilt.blob.ensure_bucket_exists",
+        mocker.AsyncMock(),
+    )
+    mocker.patch(
+        "tracecat.registry.sync.tarball.blob.file_exists",
+        mocker.AsyncMock(return_value=False),
+    )
+    build_builtin_registry_tarball_venv = mocker.patch(
+        "tracecat.registry.sync.base_service.build_builtin_registry_tarball_venv",
+        mocker.AsyncMock(),
+    )
+    upload_prebuilt_tarball_venv = mocker.patch(
+        "tracecat.registry.sync.prebuilt.upload_prebuilt_tarball_venv",
+        mocker.AsyncMock(
+            return_value=(
+                "s3://registry/platform/tarball-venvs/tracecat_registry/1.2.3/"
+                "site-packages.tar.gz"
+            )
+        ),
+    )
+
+    service = PlatformRegistrySyncService(mocker.Mock(spec=AsyncSession))
+
+    result = await service._build_and_upload_artifacts(
+        origin=DEFAULT_REGISTRY_ORIGIN,
+        version_string="1.2.3",
+        commit_sha=None,
+    )
+
+    assert result.tarball_uri.endswith("/1.2.3/site-packages.tar.gz")
+    upload_prebuilt_tarball_venv.assert_awaited_once_with(
+        root=tmp_path,
+        key="platform/tarball-venvs/tracecat_registry/1.2.3/site-packages.tar.gz",
+        bucket="registry",
+        require_squashfs=True,
+    )
+    build_builtin_registry_tarball_venv.assert_not_awaited()
+
+
+@pytest.mark.anyio
+async def test_platform_builtin_sync_uses_prebuilt_manifest_without_discovery(
+    session: AsyncSession,
+    tmp_path: Path,
+    mocker,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(config, "TRACECAT__REGISTRY_SYNC_SANDBOX_ENABLED", False)
+    monkeypatch.setattr(
+        config,
+        "TRACECAT__REGISTRY_SYNC_PREBUILT_ARTIFACTS_DIR",
+        str(tmp_path),
+    )
+
+    repos_service = PlatformRegistryReposService(session)
+    repo = await repos_service.get_or_create_repository(DEFAULT_REGISTRY_ORIGIN)
+    manifest = RegistryVersionManifest.from_actions(
+        [_make_action(repository_id=repo.id, default_title="Prebuilt title")]
+    )
+    artifact_dir = get_tarball_venv_artifact_dir(
+        root=tmp_path,
+        organization_id="platform",
+        repository_origin=DEFAULT_REGISTRY_ORIGIN,
+        version="1.2.3",
+    )
+    write_prebuilt_registry_manifest(artifact_dir=artifact_dir, manifest=manifest)
+
+    fetch_actions_from_subprocess = mocker.patch(
+        "tracecat.registry.sync.base_service.fetch_actions_from_subprocess",
+        mocker.AsyncMock(),
+    )
+    mocker.patch.object(
+        PlatformRegistrySyncService,
+        "_build_and_upload_artifacts",
+        mocker.AsyncMock(
+            return_value=ArtifactsBuildResult(
+                tarball_uri=(
+                    "s3://registry/platform/tarball-venvs/tracecat_registry/1.2.3/"
+                    "site-packages.tar.gz"
+                )
+            )
+        ),
+    )
+
+    sync_service = PlatformRegistrySyncService(session)
+    result = await sync_service.sync_repository_v2(
+        repo,
+        target_version="1.2.3",
+        bypass_temporal=True,
+        commit=False,
+    )
+
+    assert result.num_actions == 1
+    assert result.actions[0].default_title == "Prebuilt title"
+    assert RegistryVersionManifest.model_validate(result.version.manifest) == manifest
+    fetch_actions_from_subprocess.assert_not_awaited()
 
 
 @pytest.mark.anyio

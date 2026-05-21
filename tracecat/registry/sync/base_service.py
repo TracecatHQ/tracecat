@@ -29,6 +29,10 @@ from tracecat.registry.constants import (
     DEFAULT_REGISTRY_ORIGIN,
     REGISTRY_GIT_SSH_KEY_SECRET_NAME,
 )
+from tracecat.registry.sync.prebuilt import (
+    load_prebuilt_builtin_registry_manifest,
+    reuse_or_upload_prebuilt_builtin_artifacts,
+)
 from tracecat.registry.sync.schemas import RegistrySyncRequest
 from tracecat.registry.sync.subprocess import fetch_actions_from_subprocess
 from tracecat.registry.sync.tarball import (
@@ -297,6 +301,12 @@ class BaseRegistrySyncService[
         """
         origin = str(db_repo.origin)
         repo_id = db_repo.id
+        origin_type = self._get_origin_type(origin)
+        if target_version is None and origin_type == "builtin":
+            target_version = self._generate_version_string(
+                origin=origin,
+                commit_sha=target_commit_sha,
+            )
 
         use_temporal = (
             config.TRACECAT__REGISTRY_SYNC_SANDBOX_ENABLED and not bypass_temporal
@@ -322,30 +332,48 @@ class BaseRegistrySyncService[
                 commit=commit,
             )
 
-        # Pass organization_id to subprocess so it can access org-scoped secrets (e.g., SSH keys)
-        org_id = self.role.organization_id if isinstance(self.role, Role) else None
-        sync_result = await fetch_actions_from_subprocess(
+        # Prefer release-built builtin metadata; fall back to subprocess discovery.
+        prebuilt_manifest = load_prebuilt_builtin_registry_manifest(
             origin=origin,
-            repository_id=repo_id,
-            commit_sha=target_commit_sha,
-            validate=True,
-            git_repo_package_name=git_repo_package_name,
-            organization_id=org_id,
+            target_version=target_version,
+            storage_namespace=self._get_storage_namespace(),
         )
-        self._raise_if_validation_errors(sync_result.validation_errors)
-        actions = sync_result.actions
-        commit_sha = sync_result.commit_sha
+        if prebuilt_manifest is not None:
+            manifest = prebuilt_manifest
+            actions = manifest.to_action_creates(
+                repository_id=repo_id,
+                origin=origin,
+            )
+            commit_sha = target_commit_sha
+            self.logger.info(
+                "Loaded prebuilt builtin registry manifest",
+                num_actions=len(actions),
+                target_version=target_version,
+            )
+        else:
+            org_id = self.role.organization_id if isinstance(self.role, Role) else None
+            sync_result = await fetch_actions_from_subprocess(
+                origin=origin,
+                repository_id=repo_id,
+                commit_sha=target_commit_sha,
+                validate=True,
+                git_repo_package_name=git_repo_package_name,
+                organization_id=org_id,
+            )
+            self._raise_if_validation_errors(sync_result.validation_errors)
+            actions = sync_result.actions
+            commit_sha = sync_result.commit_sha
+
+            self.logger.info(
+                "Fetched actions from repository",
+                num_actions=len(actions),
+                commit_sha=commit_sha,
+            )
+
+            manifest = RegistryVersionManifest.from_actions(actions)
 
         if not actions:
             raise self._sync_error_cls()(f"No actions found in repository {origin}")
-
-        self.logger.info(
-            "Fetched actions from repository",
-            num_actions=len(actions),
-            commit_sha=commit_sha,
-        )
-
-        manifest = RegistryVersionManifest.from_actions(actions)
 
         if target_version is None:
             target_version = self._generate_version_string(
@@ -471,6 +499,18 @@ class BaseRegistrySyncService[
         commit_sha: str | None,
         ssh_env: SshEnv | None = None,
     ) -> ArtifactsBuildResult:
+        storage_namespace = self._get_storage_namespace()
+        if prebuilt_uri := await reuse_or_upload_prebuilt_builtin_artifacts(
+            origin=origin,
+            target_version=version_string,
+            storage_namespace=storage_namespace,
+        ):
+            self.logger.info(
+                "Using prebuilt builtin registry artifacts",
+                tarball_uri=prebuilt_uri,
+            )
+            return ArtifactsBuildResult(tarball_uri=prebuilt_uri)
+
         async with aiofiles.tempfile.TemporaryDirectory(
             prefix="tracecat_tarball_"
         ) as temp_dir:
@@ -510,9 +550,8 @@ class BaseRegistrySyncService[
 
             bucket = config.TRACECAT__BLOB_STORAGE_BUCKET_REGISTRY
             await blob.ensure_bucket_exists(bucket)
-
             tarball_s3_key = get_tarball_venv_s3_key(
-                organization_id=self._get_storage_namespace(),
+                organization_id=storage_namespace,
                 repository_origin=origin,
                 version=version_string,
             )
@@ -586,6 +625,12 @@ class BaseRegistrySyncService[
         )
 
         origin_type = self._get_origin_type(origin)
+        workflow_target_version = target_version
+        if workflow_target_version is None and origin_type == "builtin":
+            workflow_target_version = self._generate_version_string(
+                origin=origin,
+                commit_sha=target_commit_sha,
+            )
 
         if origin_type == "git":
             # Git origins require org context so the worker can fetch the SSH key.
@@ -614,6 +659,7 @@ class BaseRegistrySyncService[
             origin_type=origin_type,
             git_url=origin if origin_type == "git" else None,
             commit_sha=target_commit_sha,
+            target_version=workflow_target_version,
             git_repo_package_name=git_repo_package_name,
             validate_actions=True,
             storage_namespace=self._get_storage_namespace(),
@@ -690,7 +736,7 @@ class BaseRegistrySyncService[
         manifest = RegistryVersionManifest.from_actions(actions)
 
         if target_version is None:
-            target_version = self._generate_version_string(
+            target_version = workflow_target_version or self._generate_version_string(
                 origin=origin, commit_sha=commit_sha
             )
 

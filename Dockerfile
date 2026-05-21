@@ -123,6 +123,8 @@ WORKDIR /app
 # ====================
 FROM base AS development
 
+ARG TRACECAT__REGISTRY_SYNC_BUILD_PREBUILT_ARTIFACTS=true
+
 ENV TMPDIR="/home/apiuser/.cache/tmp" TEMP="/home/apiuser/.cache/tmp" TMP="/home/apiuser/.cache/tmp"
 
 # Set sandbox cache permissions for apiuser
@@ -139,6 +141,14 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 COPY --chown=apiuser:apiuser . /app/
 
 RUN --mount=type=cache,target=/root/.cache/uv uv sync --frozen --no-dev
+
+# Carry builtin registry execution and manifest artifacts in dev images too, so
+# local cluster startup can upload/reuse them instead of rebuilding at runtime.
+RUN if [ "$TRACECAT__REGISTRY_SYNC_BUILD_PREBUILT_ARTIFACTS" = "true" ]; then \
+      /app/.venv/bin/python -m tracecat.registry.sync.prebuild; \
+    else \
+      echo "Skipping builtin registry artifact prebuild"; \
+    fi
 
 # Fix ownership of /app (uv sync creates .venv as root)
 RUN chown -R apiuser:apiuser /app
@@ -172,6 +182,8 @@ CMD ["python", "-m", "pytest"]
 # Stage 6: Production target
 # ====================
 FROM base AS production
+
+ARG TRACECAT__REGISTRY_SYNC_BUILD_PREBUILT_ARTIFACTS=true
 
 ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy
 
@@ -210,6 +222,14 @@ RUN --mount=type=cache,target=/home/apiuser/.cache/uv,uid=1001,gid=1001 \
 ENV PATH="/app/.venv/bin:/home/apiuser/.local/bin:/usr/local/bin:/usr/bin:/bin"
 
 RUN ln -sf $(which uv) /home/apiuser/.local/bin/uv
+
+# Carry builtin registry execution artifacts in the image so platform registry
+# startup can upload/reuse them instead of rebuilding site-packages in the API.
+RUN if [ "$TRACECAT__REGISTRY_SYNC_BUILD_PREBUILT_ARTIFACTS" = "true" ]; then \
+      python -m tracecat.registry.sync.prebuild; \
+    else \
+      echo "Skipping builtin registry artifact prebuild"; \
+    fi
 
 # Verification
 RUN nsjail --help > /dev/null 2>&1 && echo "nsjail available"

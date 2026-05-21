@@ -27,6 +27,75 @@ def test_squashfs_sidecar_key_helpers() -> None:
         )
         == "platform/tarball-venvs/test/1.0.0/site-packages.squashfs"
     )
+    assert tarball.get_tarball_venv_s3_uri(
+        bucket="registry-artifacts",
+        key="platform/tarball-venvs/test/1.0.0/site-packages.tar.gz",
+    ) == (
+        "s3://registry-artifacts/platform/tarball-venvs/test/1.0.0/site-packages.tar.gz"
+    )
+    assert tarball.get_tarball_venv_artifact_dir(
+        root=Path("/prebuilt"),
+        organization_id="platform",
+        repository_origin="tracecat_registry",
+        version="1.0.0",
+    ) == Path("/prebuilt/platform/tarball-venvs/tracecat_registry/1.0.0")
+
+
+@pytest.mark.anyio
+async def test_upload_prebuilt_tarball_venv_uses_key_layout(
+    tmp_path: Path,
+    mocker,
+) -> None:
+    artifact_dir = tmp_path / "platform/tarball-venvs/tracecat_registry/v1"
+    artifact_dir.mkdir(parents=True)
+    tarball_path = artifact_dir / "site-packages.tar.gz"
+    squashfs_path = artifact_dir / "site-packages.squashfs"
+    tarball_path.write_bytes(b"gzip")
+    squashfs_path.write_bytes(b"squashfs")
+
+    upload_tarball_venv = mocker.patch(
+        "tracecat.registry.sync.tarball.upload_tarball_venv",
+        mocker.AsyncMock(return_value="s3://tracecat-registry/platform/v1.tar.gz"),
+    )
+
+    uri = await tarball.upload_prebuilt_tarball_venv(
+        root=tmp_path,
+        key="platform/tarball-venvs/tracecat_registry/v1/site-packages.tar.gz",
+        bucket="tracecat-registry",
+        require_squashfs=True,
+    )
+
+    assert uri == "s3://tracecat-registry/platform/v1.tar.gz"
+    upload_tarball_venv.assert_awaited_once_with(
+        tarball_path=tarball_path,
+        squashfs_path=squashfs_path,
+        key="platform/tarball-venvs/tracecat_registry/v1/site-packages.tar.gz",
+        bucket="tracecat-registry",
+    )
+
+
+@pytest.mark.anyio
+async def test_upload_prebuilt_tarball_venv_requires_squashfs_when_configured(
+    tmp_path: Path,
+    mocker,
+) -> None:
+    artifact_dir = tmp_path / "platform/tarball-venvs/tracecat_registry/v1"
+    artifact_dir.mkdir(parents=True)
+    (artifact_dir / "site-packages.tar.gz").write_bytes(b"gzip")
+    upload_tarball_venv = mocker.patch(
+        "tracecat.registry.sync.tarball.upload_tarball_venv",
+        mocker.AsyncMock(),
+    )
+
+    uri = await tarball.upload_prebuilt_tarball_venv(
+        root=tmp_path,
+        key="platform/tarball-venvs/tracecat_registry/v1/site-packages.tar.gz",
+        bucket="tracecat-registry",
+        require_squashfs=True,
+    )
+
+    assert uri is None
+    upload_tarball_venv.assert_not_awaited()
 
 
 @pytest.mark.anyio

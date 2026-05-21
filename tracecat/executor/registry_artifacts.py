@@ -99,6 +99,7 @@ class RegistryArtifactCache:
         self._locks: dict[str, asyncio.Lock] = {}
         self._locks_lock = asyncio.Lock()
         self._squashfs_mount_disabled = False
+        self._seed_prebuilt_squashfs_cache()
 
     async def ensure_environment(self, artifact_uri: str | None) -> Path | None:
         """Materialize an optional registry artifact and return a PYTHONPATH entry."""
@@ -126,7 +127,7 @@ class RegistryArtifactCache:
             ):
                 return cached_path
 
-            artifact = await self._resolve_preferred_artifact(artifact_uri)
+            artifact = await self._resolve_preferred_artifact(cache_key, artifact_uri)
             logger.info(
                 "Resolved registry artifact",
                 cache_key=cache_key,
@@ -138,7 +139,7 @@ class RegistryArtifactCache:
                     return await self._materialize_squashfs(
                         cache_key=cache_key,
                         artifact=artifact,
-                        image_path=self.cache_dir / f"squashfs-{cache_key}.squashfs",
+                        image_path=self._squashfs_image_path(cache_key),
                         target_dir=squashfs_mount_dir,
                     )
                 except Exception as e:
@@ -151,6 +152,7 @@ class RegistryArtifactCache:
                         error=str(e),
                     )
                     artifact = await self._resolve_preferred_artifact(
+                        cache_key,
                         artifact_uri,
                         allow_squashfs=False,
                     )
@@ -173,6 +175,54 @@ class RegistryArtifactCache:
             if cache_key not in self._locks:
                 self._locks[cache_key] = asyncio.Lock()
             return self._locks[cache_key]
+
+    def _squashfs_image_path(self, cache_key: str) -> Path:
+        """Return the expected local SquashFS image cache path."""
+        return self.cache_dir / f"squashfs-{cache_key}.squashfs"
+
+    def _seed_prebuilt_squashfs_cache(self) -> None:
+        """Symlink image-prebuilt SquashFS artifacts into the executor cache."""
+        root = Path(config.TRACECAT__REGISTRY_SYNC_PREBUILT_ARTIFACTS_DIR)
+        if not root.exists():
+            return
+
+        bucket = config.TRACECAT__BLOB_STORAGE_BUCKET_REGISTRY
+        seeded = 0
+        for squashfs_path in root.rglob("site-packages.squashfs"):
+            if not squashfs_path.is_file():
+                continue
+
+            squashfs_key = squashfs_path.relative_to(root).as_posix()
+            tarball_key = squashfs_key.removesuffix(".squashfs") + ".tar.gz"
+            tarball_uri = f"s3://{bucket}/{tarball_key}"
+            cache_key = compute_registry_artifact_cache_key(tarball_uri)
+            image_path = self._squashfs_image_path(cache_key)
+
+            try:
+                self.cache_dir.mkdir(parents=True, exist_ok=True)
+                if image_path.exists():
+                    continue
+                if image_path.is_symlink():
+                    image_path.unlink()
+                image_path.symlink_to(squashfs_path.resolve())
+                seeded += 1
+            except FileExistsError:
+                continue
+            except OSError as e:
+                logger.warning(
+                    "Failed to seed prebuilt SquashFS registry artifact",
+                    squashfs_path=str(squashfs_path),
+                    cache_path=str(image_path),
+                    error=str(e),
+                )
+
+        if seeded:
+            logger.info(
+                "Seeded prebuilt SquashFS registry artifact cache",
+                root=str(root),
+                cache_dir=str(self.cache_dir),
+                count=seeded,
+            )
 
     def _cached_path(
         self,
@@ -197,6 +247,7 @@ class RegistryArtifactCache:
 
     async def _resolve_preferred_artifact(
         self,
+        cache_key: str,
         artifact_uri: str,
         *,
         allow_squashfs: bool = True,
@@ -211,17 +262,27 @@ class RegistryArtifactCache:
 
         if allow_squashfs and self._can_try_squashfs():
             squashfs_uri = _squashfs_sidecar_uri(artifact_uri)
-            if squashfs_uri and await self._sidecar_exists(
-                base_uri=artifact_uri,
-                sidecar_uri=squashfs_uri,
-                artifact_format=RegistryArtifactFormat.SQUASHFS,
-            ):
-                return RegistryArtifact(
-                    uri=squashfs_uri,
-                    format=RegistryArtifactFormat.SQUASHFS,
-                )
+            if squashfs_uri:
+                if self._squashfs_image_path(cache_key).exists():
+                    return RegistryArtifact(
+                        uri=squashfs_uri,
+                        format=RegistryArtifactFormat.SQUASHFS,
+                    )
 
-        return RegistryArtifact(uri=artifact_uri, format=_artifact_format(artifact_uri))
+                if await self._sidecar_exists(
+                    base_uri=artifact_uri,
+                    sidecar_uri=squashfs_uri,
+                    artifact_format=RegistryArtifactFormat.SQUASHFS,
+                ):
+                    return RegistryArtifact(
+                        uri=squashfs_uri,
+                        format=RegistryArtifactFormat.SQUASHFS,
+                    )
+
+        return RegistryArtifact(
+            uri=artifact_uri,
+            format=_artifact_format(artifact_uri),
+        )
 
     async def _sidecar_exists(
         self,
@@ -279,7 +340,7 @@ class RegistryArtifactCache:
         target_dir.mkdir(parents=True, exist_ok=True)
 
         logger.info(
-            "Downloading and mounting SquashFS registry artifact",
+            "Materializing SquashFS registry artifact",
             cache_key=cache_key,
             artifact_uri=artifact.uri,
             artifact_format=artifact.format.value,
@@ -330,7 +391,7 @@ class RegistryArtifactCache:
         """Download and extract a tarball registry artifact."""
         suffix = _tarball_suffix(artifact)
         logger.info(
-            "Downloading and extracting tarball",
+            "Materializing tarball registry artifact",
             cache_key=cache_key,
             artifact_uri=artifact.uri,
             artifact_format=artifact.format.value,

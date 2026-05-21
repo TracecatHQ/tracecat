@@ -143,8 +143,11 @@ class TestRegistryArtifactCache:
             ) as file_exists,
             patch.object(cache, "_can_try_squashfs", return_value=True),
         ):
-            artifact = await cache._resolve_preferred_artifact(
+            cache_key = compute_registry_artifact_cache_key(
                 "s3://bucket/path/site-packages.tar.gz"
+            )
+            artifact = await cache._resolve_preferred_artifact(
+                cache_key, "s3://bucket/path/site-packages.tar.gz"
             )
 
         assert artifact.uri == "s3://bucket/path/site-packages.squashfs"
@@ -155,6 +158,46 @@ class TestRegistryArtifactCache:
         )
 
     @pytest.mark.anyio
+    async def test_resolve_preferred_artifact_uses_seeded_squashfs_cache(
+        self, temp_cache_dir, monkeypatch
+    ):
+        """Seeded SquashFS cache images should avoid blob lookups."""
+        root = temp_cache_dir / "prebuilt"
+        key = "platform/tarball-venvs/tracecat_registry/1.2.3"
+        local_squashfs = root / key / "site-packages.squashfs"
+        local_squashfs.parent.mkdir(parents=True)
+        local_squashfs.write_bytes(b"squashfs")
+
+        monkeypatch.setattr(
+            "tracecat.executor.registry_artifacts.config.TRACECAT__REGISTRY_SYNC_PREBUILT_ARTIFACTS_DIR",
+            str(root),
+        )
+        monkeypatch.setattr(
+            "tracecat.executor.registry_artifacts.config.TRACECAT__BLOB_STORAGE_BUCKET_REGISTRY",
+            "bucket",
+        )
+        cache = RegistryArtifactCache(temp_cache_dir)
+        tarball_uri = f"s3://bucket/{key}/site-packages.tar.gz"
+        cache_key = compute_registry_artifact_cache_key(tarball_uri)
+        seeded_image = cache._squashfs_image_path(cache_key)
+
+        assert seeded_image.is_symlink()
+        assert seeded_image.resolve() == local_squashfs.resolve()
+
+        with (
+            patch(
+                "tracecat.executor.registry_artifacts.blob.file_exists",
+                new_callable=AsyncMock,
+            ) as file_exists,
+            patch.object(cache, "_can_try_squashfs", return_value=True),
+        ):
+            artifact = await cache._resolve_preferred_artifact(cache_key, tarball_uri)
+
+        assert artifact.uri == f"s3://bucket/{key}/site-packages.squashfs"
+        assert artifact.format == RegistryArtifactFormat.SQUASHFS
+        file_exists.assert_not_awaited()
+
+    @pytest.mark.anyio
     async def test_resolve_preferred_artifact_squashfs_fallback_uses_gzip(
         self, temp_cache_dir
     ):
@@ -162,7 +205,11 @@ class TestRegistryArtifactCache:
         cache = RegistryArtifactCache(temp_cache_dir)
 
         with patch.object(cache, "_can_try_squashfs") as can_try_squashfs:
+            cache_key = compute_registry_artifact_cache_key(
+                "s3://bucket/path/site-packages.squashfs"
+            )
             artifact = await cache._resolve_preferred_artifact(
+                cache_key,
                 "s3://bucket/path/site-packages.squashfs",
                 allow_squashfs=False,
             )
@@ -184,8 +231,11 @@ class TestRegistryArtifactCache:
             ),
             patch.object(cache, "_can_try_squashfs", return_value=True),
         ):
-            artifact = await cache._resolve_preferred_artifact(
+            cache_key = compute_registry_artifact_cache_key(
                 "s3://bucket/path/site-packages.tar.gz"
+            )
+            artifact = await cache._resolve_preferred_artifact(
+                cache_key, "s3://bucket/path/site-packages.tar.gz"
             )
 
         assert artifact.uri == "s3://bucket/path/site-packages.tar.gz"
@@ -227,8 +277,11 @@ class TestRegistryArtifactCache:
             "tracecat.executor.registry_artifacts.blob.file_exists",
             new_callable=AsyncMock,
         ) as file_exists:
-            artifact = await cache._resolve_preferred_artifact(
+            cache_key = compute_registry_artifact_cache_key(
                 "s3://bucket/path/custom.tar.gz"
+            )
+            artifact = await cache._resolve_preferred_artifact(
+                cache_key, "s3://bucket/path/custom.tar.gz"
             )
 
         assert artifact.uri == "s3://bucket/path/custom.tar.gz"
@@ -265,6 +318,58 @@ class TestRegistryArtifactCache:
             )
 
         assert (target_dir / "module.py").read_text() == "VALUE = 1"
+        extract.assert_not_awaited()
+
+    @pytest.mark.anyio
+    async def test_materialize_mounts_seeded_squashfs_without_download(
+        self, temp_cache_dir, monkeypatch
+    ):
+        """Seeded SquashFS cache images should mount without S3 download."""
+        root = temp_cache_dir / "prebuilt"
+        key = "platform/tarball-venvs/tracecat_registry/1.2.3"
+        local_squashfs = root / key / "site-packages.squashfs"
+        local_squashfs.parent.mkdir(parents=True)
+        local_squashfs.write_bytes(b"squashfs")
+
+        monkeypatch.setattr(
+            "tracecat.executor.registry_artifacts.config.TRACECAT__REGISTRY_SYNC_PREBUILT_ARTIFACTS_DIR",
+            str(root),
+        )
+        monkeypatch.setattr(
+            "tracecat.executor.registry_artifacts.config.TRACECAT__BLOB_STORAGE_BUCKET_REGISTRY",
+            "bucket",
+        )
+        cache = RegistryArtifactCache(temp_cache_dir)
+        tarball_uri = f"s3://bucket/{key}/site-packages.tar.gz"
+        cache_key = compute_registry_artifact_cache_key(tarball_uri)
+        seeded_image = cache._squashfs_image_path(cache_key)
+
+        async def mock_mount(image_path, target_dir):
+            assert image_path == seeded_image
+            assert image_path.resolve() == local_squashfs.resolve()
+            target_dir.mkdir(parents=True, exist_ok=True)
+            (target_dir / "module.py").write_text("VALUE = 1")
+
+        with (
+            patch(
+                "tracecat.executor.registry_artifacts.blob.file_exists",
+                new_callable=AsyncMock,
+            ) as file_exists,
+            patch.object(cache, "_can_try_squashfs", return_value=True),
+            patch.object(
+                cache, "_download_artifact", new_callable=AsyncMock
+            ) as download,
+            patch.object(cache, "_mount_squashfs", mock_mount),
+            patch.object(cache, "_extract_tarball", new_callable=AsyncMock) as extract,
+        ):
+            target_dir = await cache.materialize(
+                cache_key,
+                tarball_uri,
+            )
+
+        assert (target_dir / "module.py").read_text() == "VALUE = 1"
+        file_exists.assert_not_awaited()
+        download.assert_not_awaited()
         extract.assert_not_awaited()
 
     @pytest.mark.anyio

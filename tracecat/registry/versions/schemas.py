@@ -11,7 +11,9 @@ from tracecat_registry import RegistrySecretType
 
 from tracecat.registry.actions.schemas import (
     RegistryActionCreate,
+    RegistryActionImplValidator,
     RegistryActionInterface,
+    RegistryActionInterfaceValidator,
     RegistryActionOptions,
     RegistryActionType,
 )
@@ -65,6 +67,33 @@ class RegistryVersionManifestAction(BaseModel):
         """Full action identifier."""
         return f"{self.namespace}.{self.name}"
 
+    def to_action_create(
+        self,
+        *,
+        repository_id: UUID,
+        origin: str,
+    ) -> RegistryActionCreate:
+        """Create registry action params from a manifest action."""
+        return RegistryActionCreate(
+            repository_id=repository_id,
+            name=self.name,
+            description=self.description,
+            namespace=self.namespace,
+            type=self.action_type,
+            origin=origin,
+            secrets=self.secrets,
+            interface=RegistryActionInterfaceValidator.validate_python(self.interface),
+            implementation=RegistryActionImplValidator.validate_python(
+                self.implementation
+            ),
+            default_title=self.default_title,
+            display_group=self.display_group,
+            doc_url=self.doc_url,
+            author=self.author,
+            deprecated=self.deprecated,
+            options=self.options,
+        )
+
 
 class RegistryVersionManifest(BaseModel):
     """The frozen manifest stored in RegistryVersion.
@@ -94,6 +123,18 @@ class RegistryVersionManifest(BaseModel):
                 RegistryVersionManifestAction.from_action_create(action)
             )
         return RegistryVersionManifest(actions=manifest_actions)
+
+    def to_action_creates(
+        self,
+        *,
+        repository_id: UUID,
+        origin: str,
+    ) -> list[RegistryActionCreate]:
+        """Create registry action params from this manifest."""
+        return [
+            action.to_action_create(repository_id=repository_id, origin=origin)
+            for action in self.actions.values()
+        ]
 
 
 class RegistryVersionCreate(BaseModel):

@@ -77,6 +77,11 @@ def get_squashfs_sidecar_key(tarball_key: str) -> str:
     return _squashfs_key_for(tarball_key)
 
 
+def get_tarball_venv_s3_uri(*, bucket: str, key: str) -> str:
+    """Return the S3 URI for a tarball venv key."""
+    return f"s3://{bucket}/{key}"
+
+
 def _compute_file_hash(file_path: Path) -> str:
     """Compute SHA256 hash of a file."""
     sha256_hash = hashlib.sha256()
@@ -112,7 +117,7 @@ def _copy_squashfs_entry(
 
     if path.is_symlink():
         if not preserve_symlinks:
-            logger.info(
+            logger.debug(
                 "Skipping link entry while staging SquashFS",
                 path=str(path),
                 link_target=os.readlink(path),
@@ -151,7 +156,7 @@ def _copy_squashfs_entry(
             dest.chmod(normalized_mode)
         return
 
-    logger.info("Skipping non-file entry while staging SquashFS", path=str(path))
+    logger.debug("Skipping non-file entry while staging SquashFS", path=str(path))
 
 
 def _create_squashfs_image(
@@ -361,7 +366,7 @@ async def build_tarball_venv_from_installed_environment(
 
     def _filter_link_entries(member: tarfile.TarInfo) -> tarfile.TarInfo | None:
         if member.issym() or member.islnk():
-            logger.info(
+            logger.debug(
                 "Skipping link entry while building installed environment tarball",
                 member_name=member.name,
                 link_target=member.linkname,
@@ -749,6 +754,71 @@ def get_tarball_venv_s3_key(
     origin_slug = _slugify_origin(repository_origin)
     return (
         f"{organization_id}/tarball-venvs/{origin_slug}/{version}/site-packages.tar.gz"
+    )
+
+
+def get_tarball_venv_artifact_dir(
+    *,
+    root: Path,
+    organization_id: str,
+    repository_origin: str,
+    version: str,
+) -> Path:
+    """Return the local artifact directory matching the tarball S3 key layout."""
+    key = get_tarball_venv_s3_key(
+        organization_id=organization_id,
+        repository_origin=repository_origin,
+        version=version,
+    )
+    return root / Path(key).parent
+
+
+async def tarball_venv_artifacts_exist(
+    *,
+    key: str,
+    bucket: str,
+    require_squashfs: bool,
+) -> bool:
+    """Return whether required registry artifact objects already exist."""
+    if not await blob.file_exists(key=key, bucket=bucket):
+        return False
+    if require_squashfs:
+        return await blob.file_exists(key=_squashfs_key_for(key), bucket=bucket)
+    return True
+
+
+async def upload_prebuilt_tarball_venv(
+    *,
+    root: Path,
+    key: str,
+    bucket: str,
+    require_squashfs: bool,
+) -> str | None:
+    """Upload prebuilt artifacts from disk when they exist.
+
+    The local directory layout mirrors the blob key layout under ``root``.
+    Returns the tarball URI when uploaded, or ``None`` when no complete prebuilt
+    artifact set is available.
+    """
+    artifact_dir = root / Path(key).parent
+    tarball_path = artifact_dir / "site-packages.tar.gz"
+    squashfs_path = artifact_dir / "site-packages.squashfs"
+
+    if not tarball_path.exists():
+        return None
+    if require_squashfs and not squashfs_path.exists():
+        logger.warning(
+            "Prebuilt registry tarball exists but SquashFS sidecar is missing",
+            tarball_path=str(tarball_path),
+            squashfs_path=str(squashfs_path),
+        )
+        return None
+
+    return await upload_tarball_venv(
+        tarball_path=tarball_path,
+        squashfs_path=squashfs_path if squashfs_path.exists() else None,
+        key=key,
+        bucket=bucket,
     )
 
 

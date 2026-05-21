@@ -31,6 +31,10 @@ from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.logger import logger
 from tracecat.registry.actions.schemas import RegistryActionCreate
 from tracecat.registry.sync.platform_service import PLATFORM_REGISTRY_TARBALL_NAMESPACE
+from tracecat.registry.sync.prebuilt import (
+    load_prebuilt_builtin_registry_manifest,
+    reuse_or_upload_prebuilt_builtin_artifacts,
+)
 from tracecat.registry.sync.schemas import RegistrySyncRequest, RegistrySyncResult
 from tracecat.registry.sync.subprocess import fetch_actions_from_subprocess
 from tracecat.registry.sync.tarball import (
@@ -177,49 +181,81 @@ class RegistrySyncRunner:
                 package_path=str(package_path),
             )
 
+            storage_namespace = (
+                request.storage_namespace or PLATFORM_REGISTRY_TARBALL_NAMESPACE
+            )
+            tarball_uri = await reuse_or_upload_prebuilt_builtin_artifacts(
+                origin=request.origin,
+                target_version=request.target_version,
+                storage_namespace=storage_namespace,
+            )
+
             # Phase 2: Build tarball venv (includes package installation)
             # This runs `uv pip install` which needs network access
-            tarball_result = await self._build_tarball_venv(
-                package_path=package_path,
-                output_dir=work_dir / "tarball",
-            )
+            if tarball_uri is None:
+                tarball_result = await self._build_tarball_venv(
+                    package_path=package_path,
+                    output_dir=work_dir / "tarball",
+                )
 
-            logger.info(
-                "Tarball venv built",
-                tarball_path=str(tarball_result.tarball_path),
-                compressed_size_bytes=tarball_result.compressed_size_bytes,
-                squashfs_size_bytes=tarball_result.squashfs_size_bytes,
-            )
+                logger.info(
+                    "Tarball venv built",
+                    tarball_path=str(tarball_result.tarball_path),
+                    compressed_size_bytes=tarball_result.compressed_size_bytes,
+                    squashfs_size_bytes=tarball_result.squashfs_size_bytes,
+                )
+            else:
+                tarball_result = None
 
-            # Phase 3: Discover actions from the installed packages
-            # This phase could run in nsjail without network for extra security
-            # For now, we use the subprocess approach (same as existing code)
-            actions, validation_errors = await self._discover_actions(
-                repository_id=request.repository_id,
+            # Phase 3: Discover actions from the installed packages, or load the
+            # release-built manifest for builtin registries.
+            prebuilt_manifest = load_prebuilt_builtin_registry_manifest(
                 origin=request.origin,
-                commit_sha=commit_sha,
-                validate=request.validate_actions,
-                git_repo_package_name=request.git_repo_package_name,
-                organization_id=request.organization_id,
+                target_version=request.target_version,
+                storage_namespace=storage_namespace,
             )
+            if prebuilt_manifest is not None:
+                actions = prebuilt_manifest.to_action_creates(
+                    repository_id=request.repository_id,
+                    origin=request.origin,
+                )
+                validation_errors = {}
+                logger.info(
+                    "Loaded prebuilt builtin registry manifest",
+                    num_actions=len(actions),
+                    target_version=request.target_version,
+                )
+            else:
+                actions, validation_errors = await self._discover_actions(
+                    repository_id=request.repository_id,
+                    origin=request.origin,
+                    commit_sha=commit_sha,
+                    validate=request.validate_actions,
+                    git_repo_package_name=request.git_repo_package_name,
+                    organization_id=request.organization_id,
+                )
 
-            logger.info(
-                "Actions discovered",
-                num_actions=len(actions),
-                num_validation_errors=len(validation_errors),
-            )
+                logger.info(
+                    "Actions discovered",
+                    num_actions=len(actions),
+                    num_validation_errors=len(validation_errors),
+                )
 
             if validation_errors:
                 raise RegistrySyncValidationError(validation_errors)
 
             # Phase 4: Upload tarball to S3
-            tarball_uri = await self._upload_tarball(
-                tarball_path=tarball_result.tarball_path,
-                squashfs_path=tarball_result.squashfs_path,
-                repository_origin=request.origin,
-                commit_sha=commit_sha,
-                storage_namespace=request.storage_namespace,
-            )
+            if tarball_uri is None:
+                if tarball_result is None:
+                    raise RegistrySyncRunnerError("Tarball build result is missing")
+                tarball_uri = await self._upload_tarball(
+                    tarball_path=tarball_result.tarball_path,
+                    squashfs_path=tarball_result.squashfs_path,
+                    repository_origin=request.origin,
+                    commit_sha=commit_sha,
+                    storage_namespace=request.storage_namespace,
+                    target_version=request.target_version,
+                )
 
             logger.info(
                 "Tarball uploaded",
@@ -490,6 +526,7 @@ class RegistrySyncRunner:
         repository_origin: str,
         commit_sha: str | None,
         storage_namespace: str | None,
+        target_version: str | None = None,
     ) -> str:
         """Upload the tarball venv to S3.
 
@@ -499,13 +536,16 @@ class RegistrySyncRunner:
             repository_origin: Repository origin for S3 key generation.
             commit_sha: Commit SHA for version string (or timestamp if None).
             storage_namespace: Namespace prefix for tarball storage.
+            target_version: Explicit version for deterministic artifact keys.
 
         Returns:
             S3 URI of the uploaded tarball.
         """
 
         # Generate version string
-        if commit_sha:
+        if target_version:
+            version = target_version
+        elif commit_sha:
             version = commit_sha
         else:
             version = datetime.now(UTC).strftime("%Y.%m.%d.%H%M%S")
