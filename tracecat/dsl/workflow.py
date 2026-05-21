@@ -754,10 +754,9 @@ class DSLWorkflow:
         try:
             task_exceptions = await self.scheduler.start()
         except Exception as e:
-            msg = f"DSL scheduler failed with unexpected error: {e}"
             raise WorkflowRuntimeError.platform(
                 code="dsl.scheduler.failed",
-                message=msg,
+                message=f"DSL scheduler failed with unexpected error: {e}",
                 origin=RuntimeErrorOrigin.DSL,
                 phase=RuntimeErrorPhase.ROUTE,
                 error_type=e.__class__.__name__,
