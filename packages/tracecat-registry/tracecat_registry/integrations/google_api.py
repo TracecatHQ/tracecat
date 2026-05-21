@@ -85,10 +85,25 @@ def _get_google_credentials(
     scopes: list[str] | None = None,
     subject: str | None = None,
 ) -> GoogleCredentials:
+    has_service_account_credentials = bool(
+        secrets.get_or_default("GOOGLE_API_CREDENTIALS")
+    )
+    if (scopes is not None or subject is not None) and has_service_account_credentials:
+        return _get_service_account_credentials(scopes=scopes, subject=subject)
+
+    if (
+        scopes is not None or subject is not None
+    ) and not has_service_account_credentials:
+        raise SecretNotFoundError(
+            "`scopes` and `subject` require `GOOGLE_API_CREDENTIALS` service "
+            "account JSON because OAuth service tokens cannot apply per-call "
+            "service account overrides."
+        )
+
     if token := secrets.get_or_default(google_oauth_secret.token_name):
         return OAuthCredentials(token=token)
 
-    if secrets.get_or_default("GOOGLE_API_CREDENTIALS"):
+    if has_service_account_credentials:
         return _get_service_account_credentials(scopes=scopes, subject=subject)
 
     raise SecretNotFoundError(

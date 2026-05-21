@@ -76,7 +76,6 @@ def test_call_api_prefers_oauth_token(monkeypatch: pytest.MonkeyPatch) -> None:
         resource="files",
         method_name="list",
         params={"pageSize": 10},
-        scopes=["scope-from-input"],
     )
 
     assert result == {"files": [{"id": "1"}]}
@@ -135,6 +134,55 @@ def test_call_api_uses_service_account_json_fallback(
     assert captured["build_kwargs"]["credentials"] is credentials
 
 
+def test_call_api_uses_service_account_when_scopes_override_oauth_token(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[dict[str, Any]] = []
+    captured: dict[str, Any] = {}
+    credentials = object()
+
+    def from_service_account_info(info: dict[str, Any], scopes: list[str]) -> object:
+        captured["info"] = info
+        captured["scopes"] = scopes
+        return credentials
+
+    def build(*_args: Any, **kwargs: Any) -> FakeService:
+        captured["build_kwargs"] = kwargs
+        return FakeService(calls, [{"files": [{"id": "1"}]}])
+
+    monkeypatch.setattr(
+        google_api.secrets,
+        "get_or_default",
+        lambda key: (
+            "service-token"
+            if key == "GOOGLE_SERVICE_TOKEN"
+            else '{"type":"service_account"}'
+        ),
+    )
+    monkeypatch.setattr(
+        google_api.secrets, "get", lambda _key: '{"type":"service_account"}'
+    )
+    monkeypatch.setattr(
+        google_api.service_account.Credentials,
+        "from_service_account_info",
+        from_service_account_info,
+    )
+    monkeypatch.setattr(google_api, "build", build)
+
+    result = google_api.call_api(
+        service_name="drive",
+        version="v3",
+        resource="files",
+        method_name="list",
+        scopes=["scope-from-input"],
+    )
+
+    assert result == {"files": [{"id": "1"}]}
+    assert captured["info"] == {"type": "service_account"}
+    assert captured["scopes"] == ["scope-from-input"]
+    assert captured["build_kwargs"]["credentials"] is credentials
+
+
 def test_call_api_applies_service_account_subject(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -166,6 +214,25 @@ def test_call_api_applies_service_account_subject(
 
     assert result is credentials
     assert captured["subject"] == "user@example.test"
+
+
+def test_call_api_rejects_service_account_overrides_without_service_account_json(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        google_api.secrets,
+        "get_or_default",
+        lambda key: "service-token" if key == "GOOGLE_SERVICE_TOKEN" else None,
+    )
+
+    with pytest.raises(SecretNotFoundError, match="GOOGLE_API_CREDENTIALS"):
+        google_api.call_api(
+            service_name="drive",
+            version="v3",
+            resource="files",
+            method_name="list",
+            subject="user@example.test",
+        )
 
 
 def test_call_api_rejects_invalid_service_account_json(
