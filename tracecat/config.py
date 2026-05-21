@@ -687,6 +687,17 @@ TRACECAT__AGENT_SANDBOX_TIMEOUT = int(
 )
 """Default timeout for agent sandbox execution in seconds (30 minutes)."""
 
+TRACECAT__AGENT_EXECUTOR_GRACEFUL_SHUTDOWN_TIMEOUT = int(
+    os.environ.get("TRACECAT__AGENT_EXECUTOR_GRACEFUL_SHUTDOWN_TIMEOUT")
+    or (TRACECAT__AGENT_SANDBOX_TIMEOUT + 60)
+)
+"""Agent executor worker drain timeout in seconds.
+
+Defaults to the agent sandbox timeout plus a small buffer so planned worker
+shutdowns can let active agent activities finish instead of interrupting the
+sandbox.
+"""
+
 TRACECAT__AGENT_SANDBOX_MEMORY_MB = int(
     os.environ.get("TRACECAT__AGENT_SANDBOX_MEMORY_MB") or 4096
 )
