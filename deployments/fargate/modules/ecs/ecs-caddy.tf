@@ -30,6 +30,14 @@ resource "aws_ecs_task_definition" "caddy_task_definition" {
         <<EOT
 cat > /etc/caddy/Caddyfile <<'CONFIG'
 :80 {
+  # Metrics are scraped over Service Connect, not the public Caddy entrypoint.
+  @public_metrics {
+    path /api/metrics /api/metrics/* /mcp/metrics /mcp/metrics/*
+  }
+  handle @public_metrics {
+    respond 404
+  }
+
   handle_path /api* {
     header {
       Cache-Control "no-cache, no-transform"
