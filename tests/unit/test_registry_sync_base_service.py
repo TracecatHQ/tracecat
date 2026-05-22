@@ -30,7 +30,10 @@ from tracecat.registry.sync.platform_service import PlatformRegistrySyncService
 from tracecat.registry.sync.prebuilt import write_prebuilt_registry_manifest
 from tracecat.registry.sync.runner import RegistrySyncValidationError
 from tracecat.registry.sync.service import RegistrySyncError, RegistrySyncService
-from tracecat.registry.sync.tarball import get_tarball_venv_artifact_dir
+from tracecat.registry.sync.tarball import (
+    TarballVenvBuildResult,
+    get_tarball_venv_artifact_dir,
+)
 from tracecat.registry.versions.schemas import RegistryVersionManifest
 from tracecat.registry.versions.service import RegistryVersionsService
 
@@ -61,6 +64,21 @@ def _make_action(
         author=None,
         deprecated=None,
         options=RegistryActionOptions(),
+    )
+
+
+def _make_artifact_result(tmp_path: Path) -> TarballVenvBuildResult:
+    tarball_path = tmp_path / "site-packages.tar.gz"
+    squashfs_path = tmp_path / "site-packages.squashfs"
+    tarball_path.write_bytes(b"tarball")
+    squashfs_path.write_bytes(b"squashfs")
+    return TarballVenvBuildResult(
+        tarball_path=tarball_path,
+        tarball_name="site-packages.tar.gz",
+        content_hash="hash",
+        compressed_size_bytes=len(b"tarball"),
+        squashfs_path=squashfs_path,
+        squashfs_size_bytes=len(b"squashfs"),
     )
 
 
@@ -168,23 +186,19 @@ async def test_platform_builtin_sync_reuses_existing_artifact_objects(
     monkeypatch.setattr(config, "TRACECAT__REGISTRY_SYNC_SQUASHFS_ENABLED", True)
 
     ensure_bucket_exists = mocker.patch(
-        "tracecat.registry.sync.prebuilt.blob.ensure_bucket_exists",
+        "tracecat.registry.sync.base_service.blob.ensure_bucket_exists",
         mocker.AsyncMock(),
     )
     file_exists = mocker.patch(
-        "tracecat.registry.sync.tarball.blob.file_exists",
-        mocker.AsyncMock(side_effect=[True, True]),
+        "tracecat.registry.sync.base_service.blob.file_exists",
+        mocker.AsyncMock(return_value=True),
     )
     build_builtin_registry_tarball_venv = mocker.patch(
         "tracecat.registry.sync.base_service.build_builtin_registry_tarball_venv",
         mocker.AsyncMock(),
     )
-    upload_prebuilt_tarball_venv = mocker.patch(
-        "tracecat.registry.sync.prebuilt.upload_prebuilt_tarball_venv",
-        mocker.AsyncMock(),
-    )
-    upload_tarball_venv = mocker.patch(
-        "tracecat.registry.sync.base_service.upload_tarball_venv",
+    upload_squashfs_venv = mocker.patch(
+        "tracecat.registry.sync.base_service.upload_squashfs_venv",
         mocker.AsyncMock(),
     )
 
@@ -198,58 +212,44 @@ async def test_platform_builtin_sync_reuses_existing_artifact_objects(
 
     assert result.tarball_uri == (
         "s3://registry/platform/tarball-venvs/tracecat_registry/1.2.3/"
-        "site-packages.tar.gz"
+        "site-packages.squashfs"
     )
     ensure_bucket_exists.assert_awaited_once_with("registry")
-    file_exists.assert_has_awaits(
-        [
-            mocker.call(
-                key="platform/tarball-venvs/tracecat_registry/1.2.3/site-packages.tar.gz",
-                bucket="registry",
-            ),
-            mocker.call(
-                key="platform/tarball-venvs/tracecat_registry/1.2.3/site-packages.squashfs",
-                bucket="registry",
-            ),
-        ]
+    file_exists.assert_awaited_once_with(
+        key="platform/tarball-venvs/tracecat_registry/1.2.3/site-packages.squashfs",
+        bucket="registry",
     )
     build_builtin_registry_tarball_venv.assert_not_awaited()
-    upload_prebuilt_tarball_venv.assert_not_awaited()
-    upload_tarball_venv.assert_not_awaited()
+    upload_squashfs_venv.assert_not_awaited()
 
 
 @pytest.mark.anyio
-async def test_platform_builtin_sync_uploads_prebuilt_artifacts(
+async def test_platform_builtin_sync_uploads_squashfs_artifact(
     tmp_path: Path,
     mocker,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(config, "TRACECAT__BLOB_STORAGE_BUCKET_REGISTRY", "registry")
-    monkeypatch.setattr(config, "TRACECAT__REGISTRY_SYNC_SQUASHFS_ENABLED", True)
-    monkeypatch.setattr(
-        config,
-        "TRACECAT__REGISTRY_SYNC_PREBUILT_ARTIFACTS_DIR",
-        str(tmp_path),
-    )
+    artifact_result = _make_artifact_result(tmp_path)
 
     mocker.patch(
-        "tracecat.registry.sync.prebuilt.blob.ensure_bucket_exists",
+        "tracecat.registry.sync.base_service.blob.ensure_bucket_exists",
         mocker.AsyncMock(),
     )
     mocker.patch(
-        "tracecat.registry.sync.tarball.blob.file_exists",
+        "tracecat.registry.sync.base_service.blob.file_exists",
         mocker.AsyncMock(return_value=False),
     )
     build_builtin_registry_tarball_venv = mocker.patch(
         "tracecat.registry.sync.base_service.build_builtin_registry_tarball_venv",
-        mocker.AsyncMock(),
+        mocker.AsyncMock(return_value=artifact_result),
     )
-    upload_prebuilt_tarball_venv = mocker.patch(
-        "tracecat.registry.sync.prebuilt.upload_prebuilt_tarball_venv",
+    upload_squashfs_venv = mocker.patch(
+        "tracecat.registry.sync.base_service.upload_squashfs_venv",
         mocker.AsyncMock(
             return_value=(
                 "s3://registry/platform/tarball-venvs/tracecat_registry/1.2.3/"
-                "site-packages.tar.gz"
+                "site-packages.squashfs"
             )
         ),
     )
@@ -262,14 +262,13 @@ async def test_platform_builtin_sync_uploads_prebuilt_artifacts(
         commit_sha=None,
     )
 
-    assert result.tarball_uri.endswith("/1.2.3/site-packages.tar.gz")
-    upload_prebuilt_tarball_venv.assert_awaited_once_with(
-        root=tmp_path,
-        key="platform/tarball-venvs/tracecat_registry/1.2.3/site-packages.tar.gz",
+    assert result.tarball_uri.endswith("/1.2.3/site-packages.squashfs")
+    build_builtin_registry_tarball_venv.assert_awaited_once()
+    upload_squashfs_venv.assert_awaited_once_with(
+        squashfs_path=artifact_result.squashfs_path,
+        key="platform/tarball-venvs/tracecat_registry/1.2.3/site-packages.squashfs",
         bucket="registry",
-        require_squashfs=True,
     )
-    build_builtin_registry_tarball_venv.assert_not_awaited()
 
 
 @pytest.mark.anyio
@@ -280,6 +279,7 @@ async def test_platform_builtin_sync_uses_prebuilt_manifest_without_discovery(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(config, "TRACECAT__REGISTRY_SYNC_SANDBOX_ENABLED", False)
+    monkeypatch.setattr(config, "TRACECAT__BLOB_STORAGE_BUCKET_REGISTRY", "registry")
     monkeypatch.setattr(
         config,
         "TRACECAT__REGISTRY_SYNC_PREBUILT_ARTIFACTS_DIR",
@@ -306,14 +306,7 @@ async def test_platform_builtin_sync_uses_prebuilt_manifest_without_discovery(
     mocker.patch.object(
         PlatformRegistrySyncService,
         "_build_and_upload_artifacts",
-        mocker.AsyncMock(
-            return_value=ArtifactsBuildResult(
-                tarball_uri=(
-                    "s3://registry/platform/tarball-venvs/tracecat_registry/1.2.3/"
-                    "site-packages.tar.gz"
-                )
-            )
-        ),
+        mocker.AsyncMock(),
     )
 
     sync_service = PlatformRegistrySyncService(session)
@@ -321,11 +314,13 @@ async def test_platform_builtin_sync_uses_prebuilt_manifest_without_discovery(
         repo,
         target_version="1.2.3",
         bypass_temporal=True,
+        defer_artifact_build=True,
         commit=False,
     )
 
     assert result.num_actions == 1
     assert result.actions[0].default_title == "Prebuilt title"
+    assert result.tarball_uri.endswith("/1.2.3/site-packages.squashfs")
     assert RegistryVersionManifest.model_validate(result.version.manifest) == manifest
     fetch_actions_from_subprocess.assert_not_awaited()
 

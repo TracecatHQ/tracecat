@@ -91,7 +91,7 @@ class RegistrySyncRequest(BaseModel):
     storage_namespace: str | None = Field(
         default=None,
         description=(
-            "Storage namespace for tarball uploads (e.g., org ID or 'platform'). "
+            "Storage namespace for artifact uploads (e.g., org ID or 'platform'). "
             "Defaults to the deployment's default org ID when not provided."
         ),
     )
@@ -105,14 +105,16 @@ class RegistrySyncResult(BaseModel):
     """Result from sandboxed registry sync workflow.
 
     Returned from the ExecutorWorker to the API service via Temporal.
-    Contains discovered actions and tarball location for DB operations.
+    Contains discovered actions and artifact location for DB operations.
     """
 
     actions: list[RegistryActionCreate] = Field(
         default_factory=list,
         description="List of discovered registry actions",
     )
-    tarball_uri: str = Field(..., description="S3 URI of the uploaded tarball venv")
+    tarball_uri: str = Field(
+        ..., description="S3 URI of the uploaded execution artifact"
+    )
     commit_sha: str | None = Field(
         default=None,
         description="Resolved commit SHA (None for builtin/local repos)",
@@ -128,7 +130,9 @@ class RegistryArtifactsBackfillItem(BaseModel):
 
     version_id: UUID = Field(..., description="Database registry version ID")
     version: str = Field(..., description="Registry version string")
-    tarball_uri: str = Field(..., description="S3 URI of the existing tarball venv")
+    tarball_uri: str = Field(
+        ..., description="S3 URI of the existing execution artifact"
+    )
 
 
 class RegistryArtifactsBackfillRequest(BaseModel):

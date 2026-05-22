@@ -42,60 +42,33 @@ def test_squashfs_sidecar_key_helpers() -> None:
 
 
 @pytest.mark.anyio
-async def test_upload_prebuilt_tarball_venv_uses_key_layout(
+async def test_upload_squashfs_venv_uploads_only_squashfs(
     tmp_path: Path,
     mocker,
 ) -> None:
-    artifact_dir = tmp_path / "platform/tarball-venvs/tracecat_registry/v1"
-    artifact_dir.mkdir(parents=True)
-    tarball_path = artifact_dir / "site-packages.tar.gz"
-    squashfs_path = artifact_dir / "site-packages.squashfs"
-    tarball_path.write_bytes(b"gzip")
+    squashfs_path = tmp_path / "site-packages.squashfs"
     squashfs_path.write_bytes(b"squashfs")
-
-    upload_tarball_venv = mocker.patch(
-        "tracecat.registry.sync.tarball.upload_tarball_venv",
-        mocker.AsyncMock(return_value="s3://tracecat-registry/platform/v1.tar.gz"),
-    )
-
-    uri = await tarball.upload_prebuilt_tarball_venv(
-        root=tmp_path,
-        key="platform/tarball-venvs/tracecat_registry/v1/site-packages.tar.gz",
-        bucket="tracecat-registry",
-        require_squashfs=True,
-    )
-
-    assert uri == "s3://tracecat-registry/platform/v1.tar.gz"
-    upload_tarball_venv.assert_awaited_once_with(
-        tarball_path=tarball_path,
-        squashfs_path=squashfs_path,
-        key="platform/tarball-venvs/tracecat_registry/v1/site-packages.tar.gz",
-        bucket="tracecat-registry",
-    )
-
-
-@pytest.mark.anyio
-async def test_upload_prebuilt_tarball_venv_requires_squashfs_when_configured(
-    tmp_path: Path,
-    mocker,
-) -> None:
-    artifact_dir = tmp_path / "platform/tarball-venvs/tracecat_registry/v1"
-    artifact_dir.mkdir(parents=True)
-    (artifact_dir / "site-packages.tar.gz").write_bytes(b"gzip")
-    upload_tarball_venv = mocker.patch(
-        "tracecat.registry.sync.tarball.upload_tarball_venv",
+    upload_file_from_path = mocker.patch(
+        "tracecat.registry.sync.tarball.blob.upload_file_from_path",
         mocker.AsyncMock(),
     )
 
-    uri = await tarball.upload_prebuilt_tarball_venv(
-        root=tmp_path,
-        key="platform/tarball-venvs/tracecat_registry/v1/site-packages.tar.gz",
+    uri = await tarball.upload_squashfs_venv(
+        squashfs_path=squashfs_path,
+        key="platform/tarball-venvs/tracecat_registry/v1/site-packages.squashfs",
         bucket="tracecat-registry",
-        require_squashfs=True,
     )
 
-    assert uri is None
-    upload_tarball_venv.assert_not_awaited()
+    assert uri == (
+        "s3://tracecat-registry/platform/tarball-venvs/tracecat_registry/v1/"
+        "site-packages.squashfs"
+    )
+    upload_file_from_path.assert_awaited_once_with(
+        path=squashfs_path,
+        key="platform/tarball-venvs/tracecat_registry/v1/site-packages.squashfs",
+        bucket="tracecat-registry",
+        content_type="application/vnd.squashfs",
+    )
 
 
 @pytest.mark.anyio

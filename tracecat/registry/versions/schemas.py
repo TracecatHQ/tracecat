@@ -149,7 +149,7 @@ class RegistryVersionCreate(BaseModel):
     manifest: RegistryVersionManifest
     tarball_uri: str = Field(
         ...,
-        description="S3 URI to the compressed tarball venv for action execution",
+        description="S3 URI to the execution artifact for this registry version",
     )
 
 

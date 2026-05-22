@@ -16,7 +16,7 @@ Architecture:
          │                                     ├─ Git clone (with SSH)
          │                                     ├─ Package install (nsjail)
          │                                     ├─ Action discovery (nsjail, NO network)
-         │                                     ├─ Build tarball → upload to S3
+         │                                     ├─ Build execution artifact → upload to S3
          │  ◄── RegistrySyncResult ────────────┤
          │                                     │
          ├─ Create RegistryVersion             │
@@ -74,7 +74,7 @@ class RegistrySyncWorkflow:
             request: Sync request containing repository details and SSH credentials.
 
         Returns:
-            RegistrySyncResult with discovered actions and tarball URI.
+            RegistrySyncResult with discovered actions and artifact URI.
         """
         workflow.logger.info(
             "Starting RegistrySyncWorkflow",
@@ -167,13 +167,13 @@ async def sync_registry_activity(request: RegistrySyncRequest) -> RegistrySyncRe
     1. Git clone (subprocess, needs SSH) - for git origins
     2. Package install (nsjail + network) - install dependencies
     3. Action discovery (nsjail, NO network) - import and discover actions
-    4. Tarball build and upload - create portable venv
+    4. Artifact build and upload - create portable registry environment
 
     Args:
         request: Sync request containing repository details.
 
     Returns:
-        RegistrySyncResult with discovered actions and tarball URI.
+        RegistrySyncResult with discovered actions and artifact URI.
 
     Raises:
         ApplicationError: If sync fails at any phase.
@@ -231,7 +231,7 @@ async def sync_registry_activity(request: RegistrySyncRequest) -> RegistrySyncRe
 async def backfill_registry_artifacts_activity(
     item: RegistryArtifactsBackfillItem,
 ) -> RegistryArtifactsBackfillItemResult:
-    """Build and upload missing artifacts for an existing registry tarball."""
+    """Build and upload missing SquashFS artifacts for an existing registry tarball."""
     try:
         bucket, tarball_key = parse_s3_uri(item.tarball_uri)
         squashfs_key = get_squashfs_sidecar_key(tarball_key)

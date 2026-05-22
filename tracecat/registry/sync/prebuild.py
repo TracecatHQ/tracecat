@@ -1,4 +1,4 @@
-"""Build release-carried builtin registry artifacts."""
+"""Build release-carried builtin registry metadata."""
 
 from __future__ import annotations
 
@@ -12,18 +12,15 @@ from tracecat import config
 from tracecat.registry.constants import DEFAULT_REGISTRY_ORIGIN
 from tracecat.registry.sync.entrypoint import load_and_serialize_actions
 from tracecat.registry.sync.prebuilt import write_prebuilt_registry_manifest
-from tracecat.registry.sync.tarball import (
-    build_builtin_registry_tarball_venv,
-    get_tarball_venv_artifact_dir,
-)
+from tracecat.registry.sync.tarball import get_tarball_venv_artifact_dir
 from tracecat.registry.versions.schemas import RegistryVersionManifest
 
 PLATFORM_REGISTRY_TARBALL_NAMESPACE = "platform"
 PREBUILD_REPOSITORY_ID = UUID("00000000-0000-4000-8000-000000000000")
 
 
-async def prebuild_builtin_registry_artifacts(output_root: Path | None = None) -> Path:
-    """Build builtin registry artifacts into the deterministic local layout."""
+async def prebuild_builtin_registry_manifest(output_root: Path | None = None) -> Path:
+    """Build the builtin registry manifest into the deterministic local layout."""
     root = output_root or Path(config.TRACECAT__REGISTRY_SYNC_PREBUILT_ARTIFACTS_DIR)
     output_dir = get_tarball_venv_artifact_dir(
         root=root,
@@ -45,14 +42,13 @@ async def prebuild_builtin_registry_artifacts(output_root: Path | None = None) -
         )
     manifest = RegistryVersionManifest.from_actions(sync_result.actions)
     write_prebuilt_registry_manifest(artifact_dir=output_dir, manifest=manifest)
-    await build_builtin_registry_tarball_venv(output_dir)
     return output_dir
 
 
 def main() -> None:
-    """Build builtin registry artifacts for the current image."""
-    output_dir = asyncio.run(prebuild_builtin_registry_artifacts())
-    print(f"Prebuilt builtin registry artifacts in {output_dir}")
+    """Build builtin registry metadata for the current image."""
+    output_dir = asyncio.run(prebuild_builtin_registry_manifest())
+    print(f"Prebuilt builtin registry manifest in {output_dir}")
 
 
 if __name__ == "__main__":

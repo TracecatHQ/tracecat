@@ -148,10 +148,10 @@ class ActionRunner:
         This is the public API for pool workers to get the path to add to PYTHONPATH.
 
         Args:
-            tarball_uri: S3 URI to the pre-built tarball venv.
+            tarball_uri: S3 URI to the registry execution artifact.
 
         Returns:
-            Path to add to PYTHONPATH, or None if no tarball available.
+            Path to add to PYTHONPATH, or None if no artifact is available.
         """
         return await self.registry_artifacts.ensure_environment(tarball_uri)
 
@@ -172,7 +172,7 @@ class ActionRunner:
 
         base_dir = self.cache_dir / "base"
         base_dir.mkdir(parents=True, exist_ok=True)
-        logger.info("No tarball URIs provided, using base PYTHONPATH")
+        logger.info("No registry artifact URIs provided, using base PYTHONPATH")
         return [base_dir]
 
     async def execute_action(
@@ -193,7 +193,7 @@ class ActionRunner:
         Args:
             input: The RunActionInput containing task and context
             role: The Role for authorization
-            tarball_uris: List of S3 URIs to pre-built tarball venvs (deterministic order)
+            tarball_uris: List of registry artifact S3 URIs (deterministic order)
             env_vars: Additional environment variables for the subprocess
             timeout: Execution timeout in seconds
             force_sandbox: If True, always use nsjail sandbox regardless of config
@@ -205,7 +205,7 @@ class ActionRunner:
         """
         timeout = timeout or config.TRACECAT__EXECUTOR_CLIENT_TIMEOUT
 
-        # Download and extract each tarball venv, collect paths in deterministic order
+        # Materialize each registry artifact, collect paths in deterministic order.
         registry_paths = await self.resolve_registry_paths(tarball_uris)
 
         # Check if sandbox execution is enabled and available

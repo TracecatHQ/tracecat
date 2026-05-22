@@ -123,7 +123,7 @@ WORKDIR /app
 # ====================
 FROM base AS development
 
-ARG TRACECAT__REGISTRY_SYNC_BUILD_PREBUILT_ARTIFACTS=true
+ARG TRACECAT__REGISTRY_SYNC_BUILD_PREBUILT_MANIFEST=true
 
 ENV TMPDIR="/home/apiuser/.cache/tmp" TEMP="/home/apiuser/.cache/tmp" TMP="/home/apiuser/.cache/tmp"
 
@@ -142,12 +142,12 @@ COPY --chown=apiuser:apiuser . /app/
 
 RUN --mount=type=cache,target=/root/.cache/uv uv sync --frozen --no-dev
 
-# Carry builtin registry execution and manifest artifacts in dev images too, so
-# local cluster startup can upload/reuse them instead of rebuilding at runtime.
-RUN if [ "$TRACECAT__REGISTRY_SYNC_BUILD_PREBUILT_ARTIFACTS" = "true" ]; then \
+# Carry builtin registry metadata in dev images too, so local cluster startup can
+# update the DB without rediscovering actions on the hot path.
+RUN if [ "$TRACECAT__REGISTRY_SYNC_BUILD_PREBUILT_MANIFEST" = "true" ]; then \
       /app/.venv/bin/python -m tracecat.registry.sync.prebuild; \
     else \
-      echo "Skipping builtin registry artifact prebuild"; \
+      echo "Skipping builtin registry manifest prebuild"; \
     fi
 
 # Fix ownership of /app (uv sync creates .venv as root)
@@ -183,7 +183,7 @@ CMD ["python", "-m", "pytest"]
 # ====================
 FROM base AS production
 
-ARG TRACECAT__REGISTRY_SYNC_BUILD_PREBUILT_ARTIFACTS=true
+ARG TRACECAT__REGISTRY_SYNC_BUILD_PREBUILT_MANIFEST=true
 
 ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy
 
@@ -223,12 +223,12 @@ ENV PATH="/app/.venv/bin:/home/apiuser/.local/bin:/usr/local/bin:/usr/bin:/bin"
 
 RUN ln -sf $(which uv) /home/apiuser/.local/bin/uv
 
-# Carry builtin registry execution artifacts in the image so platform registry
-# startup can upload/reuse them instead of rebuilding site-packages in the API.
-RUN if [ "$TRACECAT__REGISTRY_SYNC_BUILD_PREBUILT_ARTIFACTS" = "true" ]; then \
+# Carry builtin registry metadata in the image so platform registry startup can
+# update the DB without rediscovering actions on the hot path.
+RUN if [ "$TRACECAT__REGISTRY_SYNC_BUILD_PREBUILT_MANIFEST" = "true" ]; then \
       python -m tracecat.registry.sync.prebuild; \
     else \
-      echo "Skipping builtin registry artifact prebuild"; \
+      echo "Skipping builtin registry manifest prebuild"; \
     fi
 
 # Verification

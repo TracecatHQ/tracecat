@@ -773,53 +773,31 @@ def get_tarball_venv_artifact_dir(
     return root / Path(key).parent
 
 
-async def tarball_venv_artifacts_exist(
-    *,
+async def upload_squashfs_venv(
+    squashfs_path: Path,
     key: str,
     bucket: str,
-    require_squashfs: bool,
-) -> bool:
-    """Return whether required registry artifact objects already exist."""
-    if not await blob.file_exists(key=key, bucket=bucket):
-        return False
-    if require_squashfs:
-        return await blob.file_exists(key=_squashfs_key_for(key), bucket=bucket)
-    return True
+) -> str:
+    """Upload a SquashFS registry environment artifact to S3/MinIO."""
+    if not squashfs_path.exists():
+        raise FileNotFoundError(f"SquashFS file not found: {squashfs_path}")
 
-
-async def upload_prebuilt_tarball_venv(
-    *,
-    root: Path,
-    key: str,
-    bucket: str,
-    require_squashfs: bool,
-) -> str | None:
-    """Upload prebuilt artifacts from disk when they exist.
-
-    The local directory layout mirrors the blob key layout under ``root``.
-    Returns the tarball URI when uploaded, or ``None`` when no complete prebuilt
-    artifact set is available.
-    """
-    artifact_dir = root / Path(key).parent
-    tarball_path = artifact_dir / "site-packages.tar.gz"
-    squashfs_path = artifact_dir / "site-packages.squashfs"
-
-    if not tarball_path.exists():
-        return None
-    if require_squashfs and not squashfs_path.exists():
-        logger.warning(
-            "Prebuilt registry tarball exists but SquashFS sidecar is missing",
-            tarball_path=str(tarball_path),
-            squashfs_path=str(squashfs_path),
-        )
-        return None
-
-    return await upload_tarball_venv(
-        tarball_path=tarball_path,
-        squashfs_path=squashfs_path if squashfs_path.exists() else None,
+    await blob.upload_file_from_path(
+        path=squashfs_path,
         key=key,
         bucket=bucket,
+        content_type="application/vnd.squashfs",
     )
+
+    s3_uri = f"s3://{bucket}/{key}"
+    logger.info(
+        "SquashFS registry artifact uploaded successfully",
+        key=key,
+        bucket=bucket,
+        s3_uri=s3_uri,
+        size=squashfs_path.stat().st_size,
+    )
+    return s3_uri
 
 
 async def upload_tarball_venv(

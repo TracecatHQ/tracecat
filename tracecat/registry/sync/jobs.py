@@ -7,6 +7,7 @@ to prevent race conditions when multiple API processes start simultaneously.
 
 from __future__ import annotations
 
+import asyncio
 import re
 
 import tracecat_registry
@@ -143,6 +144,7 @@ async def _sync_as_leader(session: AsyncSession, target_version: str) -> None:
                 "Platform registry already at target version",
                 version=target_version,
             )
+            _schedule_platform_registry_artifact_build(target_version)
             return
 
         # If there is no current selection, repair the pointer to the target
@@ -157,6 +159,7 @@ async def _sync_as_leader(session: AsyncSession, target_version: str) -> None:
                 target_version=target_version,
                 version_id=str(existing_version.id),
             )
+            _schedule_platform_registry_artifact_build(target_version)
             return
 
         # Version exists but is not current - don't auto-promote
@@ -206,6 +209,7 @@ async def _sync_as_leader(session: AsyncSession, target_version: str) -> None:
                 repo,
                 target_version=target_version,
                 bypass_temporal=True,  # Always use subprocess at startup
+                defer_artifact_build=True,
             )
             logger.info(
                 "Platform registry sync completed",
@@ -216,6 +220,7 @@ async def _sync_as_leader(session: AsyncSession, target_version: str) -> None:
 
             # Seed registry scopes for the synced actions
             await _seed_registry_scopes(session, result.actions)
+            _schedule_platform_registry_artifact_build(target_version)
             return
 
         except Exception as e:
@@ -258,3 +263,45 @@ async def _seed_registry_scopes(
         logger.warning("Failed to seed registry scopes", error=str(e))
         # Don't fail the sync if scope seeding fails due to DB errors
         await session.rollback()
+
+
+def _schedule_platform_registry_artifact_build(target_version: str) -> None:
+    """Ensure the current builtin registry SquashFS artifact in the background."""
+    try:
+        task = asyncio.create_task(
+            _build_platform_registry_artifact(target_version),
+            name=f"platform_registry_artifact_{target_version}",
+        )
+    except RuntimeError as e:
+        logger.warning(
+            "Failed to schedule platform registry artifact build",
+            target_version=target_version,
+            error=str(e),
+        )
+        return
+
+    task.add_done_callback(_log_platform_registry_artifact_build_result)
+
+
+def _log_platform_registry_artifact_build_result(task: asyncio.Task[None]) -> None:
+    try:
+        task.result()
+    except asyncio.CancelledError:
+        logger.warning("Platform registry artifact build was cancelled")
+    except Exception as e:
+        logger.warning("Platform registry artifact build failed", error=str(e))
+
+
+async def _build_platform_registry_artifact(target_version: str) -> None:
+    async with get_async_session_bypass_rls_context_manager() as session:
+        sync_service = PlatformRegistrySyncService(session)
+        result = await sync_service._build_and_upload_artifacts(
+            origin=DEFAULT_REGISTRY_ORIGIN,
+            version_string=target_version,
+            commit_sha=None,
+        )
+        logger.info(
+            "Platform registry artifact build completed",
+            target_version=target_version,
+            artifact_uri=result.tarball_uri,
+        )

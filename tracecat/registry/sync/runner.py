@@ -6,7 +6,7 @@ with nsjail sandboxing. It coordinates four phases:
 1. Git clone (subprocess, needs SSH) - for git origins only
 2. Package install (nsjail + network) - install dependencies
 3. Action discovery (nsjail, NO network) - import and discover actions
-4. Tarball build and upload - create portable venv
+4. Artifact build and upload - create portable registry environment
 
 Security model:
 - SSH keys are used ONLY for git clone (outside nsjail)
@@ -31,10 +31,7 @@ from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.logger import logger
 from tracecat.registry.actions.schemas import RegistryActionCreate
 from tracecat.registry.sync.platform_service import PLATFORM_REGISTRY_TARBALL_NAMESPACE
-from tracecat.registry.sync.prebuilt import (
-    load_prebuilt_builtin_registry_manifest,
-    reuse_or_upload_prebuilt_builtin_artifacts,
-)
+from tracecat.registry.sync.prebuilt import load_prebuilt_builtin_registry_manifest
 from tracecat.registry.sync.schemas import RegistrySyncRequest, RegistrySyncResult
 from tracecat.registry.sync.subprocess import fetch_actions_from_subprocess
 from tracecat.registry.sync.tarball import (
@@ -42,8 +39,9 @@ from tracecat.registry.sync.tarball import (
     TarballVenvBuildResult,
     build_tarball_venv_from_path,
     get_builtin_registry_source_path,
+    get_squashfs_sidecar_key,
     get_tarball_venv_s3_key,
-    upload_tarball_venv,
+    upload_squashfs_venv,
 )
 from tracecat.secrets.service import SecretsService
 from tracecat.storage import blob
@@ -105,7 +103,7 @@ class RegistrySyncRunner:
     - Git operations (with SSH credentials)
     - Package installation (sandboxed with network)
     - Action discovery (sandboxed without network)
-    - Tarball creation and upload
+    - SquashFS artifact creation and upload
     """
 
     def __init__(
@@ -133,7 +131,7 @@ class RegistrySyncRunner:
             request: Sync request with repository details.
 
         Returns:
-            RegistrySyncResult with discovered actions and tarball URI.
+            RegistrySyncResult with discovered actions and artifact URI.
 
         Raises:
             RegistrySyncRunnerError: If any phase fails.
@@ -184,28 +182,19 @@ class RegistrySyncRunner:
             storage_namespace = (
                 request.storage_namespace or PLATFORM_REGISTRY_TARBALL_NAMESPACE
             )
-            tarball_uri = await reuse_or_upload_prebuilt_builtin_artifacts(
-                origin=request.origin,
-                target_version=request.target_version,
-                storage_namespace=storage_namespace,
+
+            # Phase 2: Build execution artifact. This installs dependencies and
+            # may need network access, but upload waits until validation passes.
+            artifact_result = await self._build_execution_artifact(
+                package_path=package_path,
+                output_dir=work_dir / "tarball",
             )
 
-            # Phase 2: Build tarball venv (includes package installation)
-            # This runs `uv pip install` which needs network access
-            if tarball_uri is None:
-                tarball_result = await self._build_tarball_venv(
-                    package_path=package_path,
-                    output_dir=work_dir / "tarball",
-                )
-
-                logger.info(
-                    "Tarball venv built",
-                    tarball_path=str(tarball_result.tarball_path),
-                    compressed_size_bytes=tarball_result.compressed_size_bytes,
-                    squashfs_size_bytes=tarball_result.squashfs_size_bytes,
-                )
-            else:
-                tarball_result = None
+            logger.info(
+                "Registry artifact built",
+                squashfs_path=str(artifact_result.squashfs_path),
+                squashfs_size_bytes=artifact_result.squashfs_size_bytes,
+            )
 
             # Phase 3: Discover actions from the installed packages, or load the
             # release-built manifest for builtin registries.
@@ -244,21 +233,19 @@ class RegistrySyncRunner:
             if validation_errors:
                 raise RegistrySyncValidationError(validation_errors)
 
-            # Phase 4: Upload tarball to S3
-            if tarball_uri is None:
-                if tarball_result is None:
-                    raise RegistrySyncRunnerError("Tarball build result is missing")
-                tarball_uri = await self._upload_tarball(
-                    tarball_path=tarball_result.tarball_path,
-                    squashfs_path=tarball_result.squashfs_path,
-                    repository_origin=request.origin,
-                    commit_sha=commit_sha,
-                    storage_namespace=request.storage_namespace,
-                )
+            # Phase 4: Upload SquashFS artifact to S3
+            if artifact_result.squashfs_path is None:
+                raise RegistrySyncRunnerError("SquashFS artifact build is unavailable")
+            tarball_uri = await self._upload_squashfs(
+                squashfs_path=artifact_result.squashfs_path,
+                repository_origin=request.origin,
+                commit_sha=commit_sha,
+                storage_namespace=request.storage_namespace,
+            )
 
             logger.info(
-                "Tarball uploaded",
-                tarball_uri=tarball_uri,
+                "Registry artifact uploaded",
+                artifact_uri=tarball_uri,
             )
 
             return RegistrySyncResult(
@@ -453,12 +440,12 @@ class RegistrySyncRunner:
                     _ = ssh_key_path.write_bytes(b"\x00" * len(ssh_key))
                     ssh_key_path.unlink()
 
-    async def _build_tarball_venv(
+    async def _build_execution_artifact(
         self,
         package_path: Path,
         output_dir: Path,
     ) -> TarballVenvBuildResult:
-        """Build a tarball venv from the package.
+        """Build a registry artifact from the package.
 
         Args:
             package_path: Path to the package directory.
@@ -471,6 +458,8 @@ class RegistrySyncRunner:
             TarballBuildError: If build fails.
         """
         output_dir.mkdir(parents=True, exist_ok=True)
+        # Reuse the existing venv builder: it performs dependency installation
+        # once and emits the SquashFS sidecar that this runner uploads.
         return await build_tarball_venv_from_path(package_path, output_dir)
 
     async def _discover_actions(
@@ -518,25 +507,23 @@ class RegistrySyncRunner:
         except Exception as e:
             raise ActionDiscoveryError(f"Failed to discover actions: {e}") from e
 
-    async def _upload_tarball(
+    async def _upload_squashfs(
         self,
-        tarball_path: Path,
-        squashfs_path: Path | None,
+        squashfs_path: Path,
         repository_origin: str,
         commit_sha: str | None,
         storage_namespace: str | None,
     ) -> str:
-        """Upload the tarball venv to S3.
+        """Upload the SquashFS registry artifact to S3.
 
         Args:
-            tarball_path: Local path to the tarball.
-            squashfs_path: Optional local path to the SquashFS sidecar.
+            squashfs_path: Local path to the SquashFS artifact.
             repository_origin: Repository origin for S3 key generation.
             commit_sha: Commit SHA for version string (or timestamp if None).
-            storage_namespace: Namespace prefix for tarball storage.
+            storage_namespace: Namespace prefix for artifact storage.
 
         Returns:
-            S3 URI of the uploaded tarball.
+            S3 URI of the uploaded SquashFS artifact.
         """
 
         # Generate version string
@@ -551,15 +538,16 @@ class RegistrySyncRunner:
 
         # Generate S3 key
         namespace = storage_namespace or PLATFORM_REGISTRY_TARBALL_NAMESPACE
-        s3_key = get_tarball_venv_s3_key(
-            organization_id=namespace,
-            repository_origin=repository_origin,
-            version=version,
+        s3_key = get_squashfs_sidecar_key(
+            get_tarball_venv_s3_key(
+                organization_id=namespace,
+                repository_origin=repository_origin,
+                version=version,
+            )
         )
 
         # Upload
-        return await upload_tarball_venv(
-            tarball_path=tarball_path,
+        return await upload_squashfs_venv(
             squashfs_path=squashfs_path,
             key=s3_key,
             bucket=bucket,

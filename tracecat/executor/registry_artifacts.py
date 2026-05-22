@@ -49,6 +49,15 @@ class RegistryArtifact:
     format: RegistryArtifactFormat
 
 
+@dataclass(frozen=True, slots=True)
+class RegistryArtifactPaths:
+    """Executor-local cache paths for one registry artifact key."""
+
+    squashfs_mount_dir: Path
+    squashfs_extract_dir: Path
+    tarball_target_dir: Path
+
+
 def parse_s3_uri(uri: str) -> tuple[str, str]:
     """Parse an s3://bucket/key URI into (bucket, key)."""
     if not uri.startswith("s3://"):
@@ -173,7 +182,6 @@ class RegistryArtifactCache:
         self._locks: dict[str, asyncio.Lock] = {}
         self._locks_lock = asyncio.Lock()
         self._squashfs_mount_disabled = False
-        self._seed_prebuilt_squashfs_cache()
 
     async def ensure_environment(self, artifact_uri: str | None) -> Path | None:
         """Materialize an optional registry artifact and return a PYTHONPATH entry."""
@@ -192,64 +200,44 @@ class RegistryArtifactCache:
 
     async def materialize(self, cache_key: str, artifact_uri: str) -> Path:
         """Materialize a registry artifact as a local importable directory."""
-        squashfs_mount_dir = self.cache_dir / f"squashfs-{cache_key}"
-        tarball_target_dir = self.cache_dir / f"tarball-{cache_key}"
+        paths = self._paths_for(cache_key)
 
-        if cached_path := self._cached_path(
-            squashfs_mount_dir=squashfs_mount_dir,
-            tarball_target_dir=tarball_target_dir,
-        ):
+        if cached_path := self._cached_path(paths):
             return cached_path
 
         lock = await self._lock_for(cache_key)
         async with lock:
-            if cached_path := self._cached_path(
-                squashfs_mount_dir=squashfs_mount_dir,
-                tarball_target_dir=tarball_target_dir,
-            ):
+            if cached_path := self._cached_path(paths):
                 return cached_path
 
-            artifact = await self._resolve_preferred_artifact(cache_key, artifact_uri)
-            logger.info(
-                "Resolved registry artifact",
-                cache_key=cache_key,
-                artifact_uri=artifact.uri,
-                artifact_format=artifact.format.value,
-            )
-            if artifact.format == RegistryArtifactFormat.SQUASHFS:
+            candidates = await self._artifact_candidates(cache_key, artifact_uri)
+            for index, artifact in enumerate(candidates):
                 try:
-                    return await self._materialize_squashfs(
+                    logger.info(
+                        "Trying registry artifact candidate",
+                        cache_key=cache_key,
+                        artifact_uri=artifact.uri,
+                        artifact_format=artifact.format.value,
+                        candidate=index + 1,
+                        candidates=len(candidates),
+                    )
+                    return await self._materialize_artifact(
                         cache_key=cache_key,
                         artifact=artifact,
-                        image_path=self._squashfs_image_path(cache_key),
-                        target_dir=squashfs_mount_dir,
+                        paths=paths,
                     )
                 except Exception as e:
-                    self._squashfs_mount_disabled = True
+                    if index == len(candidates) - 1:
+                        raise
                     logger.warning(
-                        "Failed to mount SquashFS registry artifact, falling back",
+                        "Failed to materialize registry artifact candidate, trying fallback",
                         cache_key=cache_key,
                         artifact_uri=artifact.uri,
                         artifact_format=artifact.format.value,
                         error=str(e),
                     )
-                    artifact = await self._resolve_preferred_artifact(
-                        cache_key,
-                        artifact_uri,
-                        allow_squashfs=False,
-                    )
-                    logger.info(
-                        "Resolved registry artifact fallback",
-                        cache_key=cache_key,
-                        artifact_uri=artifact.uri,
-                        artifact_format=artifact.format.value,
-                    )
 
-            return await self._materialize_tarball(
-                cache_key=cache_key,
-                artifact=artifact,
-                target_dir=tarball_target_dir,
-            )
+        raise RuntimeError(f"No registry artifact candidates for {artifact_uri}")
 
     async def _lock_for(self, cache_key: str) -> asyncio.Lock:
         """Get or create a lock for the given cache key."""
@@ -262,109 +250,87 @@ class RegistryArtifactCache:
         """Return the expected local SquashFS image cache path."""
         return self.cache_dir / f"squashfs-{cache_key}.squashfs"
 
-    def _seed_prebuilt_squashfs_cache(self) -> None:
-        """Symlink image-prebuilt SquashFS artifacts into the executor cache."""
-        root = Path(config.TRACECAT__REGISTRY_SYNC_PREBUILT_ARTIFACTS_DIR)
-        if not root.exists():
-            return
+    def _paths_for(self, cache_key: str) -> RegistryArtifactPaths:
+        """Return local cache paths for a registry artifact key."""
+        return RegistryArtifactPaths(
+            squashfs_mount_dir=self.cache_dir / f"squashfs-{cache_key}",
+            squashfs_extract_dir=self.cache_dir / f"unsquashfs-{cache_key}",
+            tarball_target_dir=self.cache_dir / f"tarball-{cache_key}",
+        )
 
-        bucket = config.TRACECAT__BLOB_STORAGE_BUCKET_REGISTRY
-        seeded = 0
-        for squashfs_path in root.rglob("site-packages.squashfs"):
-            if not squashfs_path.is_file():
-                continue
-
-            squashfs_key = squashfs_path.relative_to(root).as_posix()
-            tarball_key = squashfs_key.removesuffix(".squashfs") + ".tar.gz"
-            tarball_uri = f"s3://{bucket}/{tarball_key}"
-            cache_key = compute_registry_artifact_cache_key(tarball_uri)
-            image_path = self._squashfs_image_path(cache_key)
-
-            try:
-                self.cache_dir.mkdir(parents=True, exist_ok=True)
-                if image_path.exists():
-                    continue
-                if image_path.is_symlink():
-                    image_path.unlink()
-                image_path.symlink_to(squashfs_path.resolve())
-                seeded += 1
-            except FileExistsError:
-                continue
-            except OSError as e:
-                logger.warning(
-                    "Failed to seed prebuilt SquashFS registry artifact",
-                    squashfs_path=str(squashfs_path),
-                    cache_path=str(image_path),
-                    error=str(e),
-                )
-
-        if seeded:
-            logger.info(
-                "Seeded prebuilt SquashFS registry artifact cache",
-                root=str(root),
-                cache_dir=str(self.cache_dir),
-                count=seeded,
-            )
-
-    def _cached_path(
-        self,
-        *,
-        squashfs_mount_dir: Path,
-        tarball_target_dir: Path,
-    ) -> Path | None:
+    def _cached_path(self, paths: RegistryArtifactPaths) -> Path | None:
         """Return an already-materialized path if one exists."""
-        if squashfs_mount_dir.is_mount():
+        if paths.squashfs_mount_dir.is_mount():
             logger.debug(
                 "Using cached SquashFS registry mount",
-                cache_key=squashfs_mount_dir.name.removeprefix("squashfs-"),
+                cache_key=paths.squashfs_mount_dir.name.removeprefix("squashfs-"),
             )
-            return squashfs_mount_dir
-        if tarball_target_dir.exists():
+            return paths.squashfs_mount_dir
+        if paths.squashfs_extract_dir.exists():
+            logger.debug(
+                "Using cached SquashFS registry extraction",
+                cache_key=paths.squashfs_extract_dir.name.removeprefix("unsquashfs-"),
+            )
+            return paths.squashfs_extract_dir
+        if paths.tarball_target_dir.exists():
             logger.debug(
                 "Using cached tarball extraction",
-                cache_key=tarball_target_dir.name.removeprefix("tarball-"),
+                cache_key=paths.tarball_target_dir.name.removeprefix("tarball-"),
             )
-            return tarball_target_dir
+            return paths.tarball_target_dir
         return None
 
-    async def _resolve_preferred_artifact(
-        self,
-        cache_key: str,
-        artifact_uri: str,
-        *,
-        allow_squashfs: bool = True,
-    ) -> RegistryArtifact:
-        """Prefer SquashFS sidecars when present, otherwise use gzip."""
-        if (
-            not allow_squashfs
-            and _artifact_format(artifact_uri) == RegistryArtifactFormat.SQUASHFS
-            and (tarball_uri := _tarball_uri_for_squashfs(artifact_uri))
-        ):
-            artifact_uri = tarball_uri
+    async def _artifact_candidates(
+        self, cache_key: str, artifact_uri: str
+    ) -> list[RegistryArtifact]:
+        """Return artifact candidates in executor preference order."""
+        artifact_format = _artifact_format(artifact_uri)
+        if artifact_format == RegistryArtifactFormat.SQUASHFS:
+            candidates = [
+                RegistryArtifact(
+                    uri=artifact_uri,
+                    format=RegistryArtifactFormat.SQUASHFS,
+                )
+            ]
+            if tarball_uri := _tarball_uri_for_squashfs(artifact_uri):
+                candidates.append(
+                    RegistryArtifact(
+                        uri=tarball_uri,
+                        format=RegistryArtifactFormat.TAR_GZ,
+                    )
+                )
+            return candidates
 
-        if allow_squashfs and self._can_try_squashfs():
+        candidates: list[RegistryArtifact] = []
+        if self._can_try_squashfs():
             squashfs_uri = _squashfs_sidecar_uri(artifact_uri)
             if squashfs_uri:
                 if self._squashfs_image_path(cache_key).exists():
-                    return RegistryArtifact(
-                        uri=squashfs_uri,
-                        format=RegistryArtifactFormat.SQUASHFS,
+                    candidates.append(
+                        RegistryArtifact(
+                            uri=squashfs_uri,
+                            format=RegistryArtifactFormat.SQUASHFS,
+                        )
                     )
-
-                if await self._sidecar_exists(
+                elif await self._sidecar_exists(
                     base_uri=artifact_uri,
                     sidecar_uri=squashfs_uri,
                     artifact_format=RegistryArtifactFormat.SQUASHFS,
                 ):
-                    return RegistryArtifact(
-                        uri=squashfs_uri,
-                        format=RegistryArtifactFormat.SQUASHFS,
+                    candidates.append(
+                        RegistryArtifact(
+                            uri=squashfs_uri,
+                            format=RegistryArtifactFormat.SQUASHFS,
+                        )
                     )
 
-        return RegistryArtifact(
-            uri=artifact_uri,
-            format=_artifact_format(artifact_uri),
+        candidates.append(
+            RegistryArtifact(
+                uri=artifact_uri,
+                format=RegistryArtifactFormat.TAR_GZ,
+            )
         )
+        return candidates
 
     async def _sidecar_exists(
         self,
@@ -396,14 +362,71 @@ class RegistryArtifactCache:
         return False
 
     def _can_try_squashfs(self) -> bool:
-        """Return whether this process should attempt SquashFS registry mounts."""
-        # /proc/filesystems only lists currently registered filesystems. On EKS
-        # AL2023, SquashFS may be available as a loadable module and appear only
-        # after the first successful mount attempt.
+        """Return whether this process should prefer SquashFS artifacts."""
+        return config.TRACECAT__EXECUTOR_REGISTRY_SQUASHFS_ENABLED
+
+    def _can_try_squashfs_mount(self) -> bool:
+        """Return whether this process should attempt SquashFS mounts."""
         return (
-            config.TRACECAT__EXECUTOR_REGISTRY_SQUASHFS_ENABLED
+            self._can_try_squashfs()
             and not self._squashfs_mount_disabled
-            and shutil.which("mount") is not None
+            and (shutil.which("mount") is not None)
+        )
+
+    async def _materialize_artifact(
+        self,
+        *,
+        cache_key: str,
+        artifact: RegistryArtifact,
+        paths: RegistryArtifactPaths,
+    ) -> Path:
+        """Materialize one registry artifact candidate."""
+        if artifact.format == RegistryArtifactFormat.SQUASHFS:
+            return await self._materialize_squashfs_artifact(
+                cache_key=cache_key,
+                artifact=artifact,
+                paths=paths,
+            )
+        if artifact.format == RegistryArtifactFormat.TAR_GZ:
+            return await self._materialize_tarball(
+                cache_key=cache_key,
+                artifact=artifact,
+                target_dir=paths.tarball_target_dir,
+            )
+        raise ValueError(f"Unsupported registry artifact format: {artifact.format}")
+
+    async def _materialize_squashfs_artifact(
+        self,
+        *,
+        cache_key: str,
+        artifact: RegistryArtifact,
+        paths: RegistryArtifactPaths,
+    ) -> Path:
+        """Materialize a SquashFS candidate by mounting or extracting it."""
+        image_path = self._squashfs_image_path(cache_key)
+        if self._can_try_squashfs_mount():
+            try:
+                return await self._materialize_squashfs(
+                    cache_key=cache_key,
+                    artifact=artifact,
+                    image_path=image_path,
+                    target_dir=paths.squashfs_mount_dir,
+                )
+            except Exception as e:
+                self._squashfs_mount_disabled = True
+                logger.warning(
+                    "Failed to mount SquashFS registry artifact, trying extraction",
+                    cache_key=cache_key,
+                    artifact_uri=artifact.uri,
+                    artifact_format=artifact.format.value,
+                    error=str(e),
+                )
+
+        return await self._materialize_squashfs_extract(
+            cache_key=cache_key,
+            artifact=artifact,
+            image_path=image_path,
+            target_dir=paths.squashfs_extract_dir,
         )
 
     async def _materialize_squashfs(
@@ -428,24 +451,11 @@ class RegistryArtifactCache:
             artifact_format=artifact.format.value,
         )
         start_time = time.monotonic()
-        download_elapsed = 0.0
-
-        if not image_path.exists():
-            unique_id = id(asyncio.current_task())
-            temp_image = self.cache_dir / (
-                f"{cache_key}.{os.getpid()}.{unique_id}.squashfs"
-            )
-            try:
-                download_start = time.monotonic()
-                await self._download_artifact(artifact.uri, temp_image)
-                try:
-                    temp_image.rename(image_path)
-                except OSError:
-                    if not image_path.exists():
-                        raise
-                download_elapsed = (time.monotonic() - download_start) * 1000
-            finally:
-                temp_image.unlink(missing_ok=True)
+        download_elapsed = await self._ensure_squashfs_image(
+            cache_key=cache_key,
+            artifact=artifact,
+            image_path=image_path,
+        )
 
         mount_start = time.monotonic()
         await self._mount_squashfs(image_path, target_dir)
@@ -462,6 +472,94 @@ class RegistryArtifactCache:
             total_ms=f"{total_elapsed:.1f}",
         )
         return target_dir
+
+    async def _materialize_squashfs_extract(
+        self,
+        *,
+        cache_key: str,
+        artifact: RegistryArtifact,
+        image_path: Path,
+        target_dir: Path,
+    ) -> Path:
+        """Download and extract a SquashFS registry artifact with unsquashfs."""
+        if target_dir.exists():
+            return target_dir
+
+        self.cache_dir.mkdir(parents=True, exist_ok=True)
+
+        logger.info(
+            "Extracting SquashFS registry artifact",
+            cache_key=cache_key,
+            artifact_uri=artifact.uri,
+            artifact_format=artifact.format.value,
+        )
+        start_time = time.monotonic()
+        download_elapsed = await self._ensure_squashfs_image(
+            cache_key=cache_key,
+            artifact=artifact,
+            image_path=image_path,
+        )
+
+        unique_id = id(asyncio.current_task())
+        temp_dir = self.cache_dir / f"{cache_key}.{os.getpid()}.{unique_id}.unsquashfs"
+        try:
+            extract_start = time.monotonic()
+            temp_dir.mkdir(parents=True, exist_ok=True)
+            await self._extract_squashfs(image_path, temp_dir)
+            extract_elapsed = (time.monotonic() - extract_start) * 1000
+
+            try:
+                temp_dir.rename(target_dir)
+                total_elapsed = (time.monotonic() - start_time) * 1000
+                logger.info(
+                    "SquashFS registry artifact extracted",
+                    cache_key=cache_key,
+                    artifact_uri=artifact.uri,
+                    artifact_format=artifact.format.value,
+                    download_ms=f"{download_elapsed:.1f}",
+                    extract_ms=f"{extract_elapsed:.1f}",
+                    total_ms=f"{total_elapsed:.1f}",
+                )
+            except OSError:
+                if target_dir.exists():
+                    logger.debug(
+                        "SquashFS already extracted by another process",
+                        cache_key=cache_key,
+                        artifact_uri=artifact.uri,
+                        artifact_format=artifact.format.value,
+                    )
+                else:
+                    raise
+        finally:
+            if temp_dir.exists():
+                shutil.rmtree(temp_dir, ignore_errors=True)
+
+        return target_dir
+
+    async def _ensure_squashfs_image(
+        self,
+        *,
+        cache_key: str,
+        artifact: RegistryArtifact,
+        image_path: Path,
+    ) -> float:
+        """Ensure a SquashFS artifact is downloaded locally."""
+        if image_path.exists():
+            return 0.0
+
+        unique_id = id(asyncio.current_task())
+        temp_image = self.cache_dir / f"{cache_key}.{os.getpid()}.{unique_id}.squashfs"
+        try:
+            download_start = time.monotonic()
+            await self._download_artifact(artifact.uri, temp_image)
+            try:
+                temp_image.rename(image_path)
+            except OSError:
+                if not image_path.exists():
+                    raise
+            return (time.monotonic() - download_start) * 1000
+        finally:
+            temp_image.unlink(missing_ok=True)
 
     async def _materialize_tarball(
         self,
@@ -549,6 +647,28 @@ class RegistryArtifactCache:
 
         output = (stderr or stdout).decode(errors="replace").strip()
         raise RuntimeError(output or "mount command failed")
+
+    async def _extract_squashfs(self, image_path: Path, target_dir: Path) -> None:
+        """Extract a SquashFS image to target_dir using unsquashfs."""
+        unsquashfs = shutil.which("unsquashfs")
+        if unsquashfs is None:
+            raise RuntimeError("unsquashfs command is not installed")
+
+        proc = await asyncio.create_subprocess_exec(
+            unsquashfs,
+            "-f",
+            "-d",
+            str(target_dir),
+            str(image_path),
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, stderr = await proc.communicate()
+        if proc.returncode == 0:
+            return
+
+        output = (stderr or stdout).decode(errors="replace").strip()
+        raise RuntimeError(output or "unsquashfs command failed")
 
     async def _download_artifact(self, artifact_uri: str, output_path: Path) -> None:
         """Download an S3 registry artifact to a local path."""

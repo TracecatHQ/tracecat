@@ -615,9 +615,11 @@ class AdminRegistryService(BasePlatformService):
                 f"Version {version_id} does not belong to repository {repository_id}"
             )
 
-        # Validate version has tarball_uri
+        # Validate version has an execution artifact URI.
         if not version.tarball_uri:
-            raise ValueError(f"Version {version_id} does not have a tarball")
+            raise ValueError(
+                f"Version {version_id} does not have an execution artifact"
+            )
 
         # Store previous version ID
         previous_version_id = repo.current_version_id

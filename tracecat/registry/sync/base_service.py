@@ -29,10 +29,7 @@ from tracecat.registry.constants import (
     DEFAULT_REGISTRY_ORIGIN,
     REGISTRY_GIT_SSH_KEY_SECRET_NAME,
 )
-from tracecat.registry.sync.prebuilt import (
-    load_prebuilt_builtin_registry_manifest,
-    reuse_or_upload_prebuilt_builtin_artifacts,
-)
+from tracecat.registry.sync.prebuilt import load_prebuilt_builtin_registry_manifest
 from tracecat.registry.sync.schemas import RegistrySyncRequest
 from tracecat.registry.sync.subprocess import fetch_actions_from_subprocess
 from tracecat.registry.sync.tarball import (
@@ -41,8 +38,9 @@ from tracecat.registry.sync.tarball import (
     build_builtin_registry_tarball_venv,
     build_tarball_venv_from_git,
     build_tarball_venv_from_path,
+    get_squashfs_sidecar_key,
     get_tarball_venv_s3_key,
-    upload_tarball_venv,
+    upload_squashfs_venv,
 )
 from tracecat.registry.versions.schemas import (
     RegistryVersionCreate,
@@ -101,7 +99,7 @@ class VersionsServiceProtocol[VersionT: VersionProtocol](Protocol):
 
 @dataclass
 class ArtifactsBuildResult:
-    """Result of building and uploading tarball artifacts."""
+    """Result of building and uploading execution artifacts."""
 
     tarball_uri: str
 
@@ -285,6 +283,7 @@ class BaseRegistrySyncService[
         git_repo_package_name: str | None = None,
         commit: bool = True,
         bypass_temporal: bool = False,
+        defer_artifact_build: bool = False,
     ) -> BaseSyncResult[VersionT]:
         """Sync a repository and create a versioned snapshot.
 
@@ -298,8 +297,17 @@ class BaseRegistrySyncService[
             bypass_temporal: If True, always use subprocess sync instead of Temporal
                 workflow, even when sandbox mode is enabled. Use this for platform
                 registry startup sync where Temporal may not be available yet.
+            defer_artifact_build: If True, create the registry version using the
+                deterministic artifact URI without building the artifact inline.
+                This is only safe for builtin startup sync because the current
+                registry version executes from the installed package while the
+                artifact build runs in the background.
         """
         origin = str(db_repo.origin)
+        if defer_artifact_build and origin != DEFAULT_REGISTRY_ORIGIN:
+            raise self._sync_error_cls()(
+                "Deferred registry artifact builds are only supported for the builtin registry"
+            )
         repo_id = db_repo.id
         origin_type = self._get_origin_type(origin)
         if target_version is None and origin_type == "builtin":
@@ -320,6 +328,7 @@ class BaseRegistrySyncService[
             sandbox_enabled=config.TRACECAT__REGISTRY_SYNC_SANDBOX_ENABLED,
             bypass_temporal=bypass_temporal,
             use_temporal=use_temporal,
+            defer_artifact_build=defer_artifact_build,
         )
 
         if use_temporal:
@@ -392,7 +401,7 @@ class BaseRegistrySyncService[
             tarball_uri = cast(str | None, existing_version.tarball_uri)
             if tarball_uri is None:
                 raise self._sync_error_cls()(
-                    f"Version {target_version} exists but has no tarball artifact. "
+                    f"Version {target_version} exists but has no execution artifact. "
                     + "Delete the version and re-sync to create a valid version."
                 )
             self.logger.info(
@@ -407,12 +416,20 @@ class BaseRegistrySyncService[
                 commit_sha=commit_sha,
             )
 
-        artifacts = await self._build_and_upload_artifacts(
-            origin=origin,
-            version_string=target_version,
-            commit_sha=commit_sha,
-            ssh_env=ssh_env,
-        )
+        if defer_artifact_build:
+            artifacts = ArtifactsBuildResult(
+                tarball_uri=self._artifact_uri_for_version(
+                    origin=origin,
+                    version_string=target_version,
+                )
+            )
+        else:
+            artifacts = await self._build_and_upload_artifacts(
+                origin=origin,
+                version_string=target_version,
+                commit_sha=commit_sha,
+                ssh_env=ssh_env,
+            )
 
         version_create = RegistryVersionCreate(
             repository_id=repo_id,
@@ -491,6 +508,18 @@ class BaseRegistrySyncService[
             )
         return namespace
 
+    def _artifact_uri_for_version(self, *, origin: str, version_string: str) -> str:
+        """Return the deterministic SquashFS artifact URI for a registry version."""
+        bucket = config.TRACECAT__BLOB_STORAGE_BUCKET_REGISTRY
+        key = get_squashfs_sidecar_key(
+            get_tarball_venv_s3_key(
+                organization_id=self._get_storage_namespace(),
+                repository_origin=origin,
+                version=version_string,
+            )
+        )
+        return f"s3://{bucket}/{key}"
+
     async def _build_and_upload_artifacts(
         self,
         *,
@@ -500,29 +529,35 @@ class BaseRegistrySyncService[
         ssh_env: SshEnv | None = None,
     ) -> ArtifactsBuildResult:
         storage_namespace = self._get_storage_namespace()
-        if prebuilt_uri := await reuse_or_upload_prebuilt_builtin_artifacts(
-            origin=origin,
-            target_version=version_string,
-            storage_namespace=storage_namespace,
-        ):
-            self.logger.info(
-                "Using prebuilt builtin registry artifacts",
-                tarball_uri=prebuilt_uri,
+        bucket = config.TRACECAT__BLOB_STORAGE_BUCKET_REGISTRY
+        await blob.ensure_bucket_exists(bucket)
+        artifact_key = get_squashfs_sidecar_key(
+            get_tarball_venv_s3_key(
+                organization_id=storage_namespace,
+                repository_origin=origin,
+                version=version_string,
             )
-            return ArtifactsBuildResult(tarball_uri=prebuilt_uri)
+        )
+        artifact_uri = f"s3://{bucket}/{artifact_key}"
+        if await blob.file_exists(key=artifact_key, bucket=bucket):
+            self.logger.info(
+                "Using existing registry execution artifact",
+                artifact_uri=artifact_uri,
+            )
+            return ArtifactsBuildResult(tarball_uri=artifact_uri)
 
         async with aiofiles.tempfile.TemporaryDirectory(
             prefix="tracecat_tarball_"
         ) as temp_dir:
             output_dir = Path(temp_dir)
-            tarball_result: TarballVenvBuildResult
+            artifact_result: TarballVenvBuildResult
 
             if origin == DEFAULT_REGISTRY_ORIGIN:
-                tarball_result = await build_builtin_registry_tarball_venv(output_dir)
+                artifact_result = await build_builtin_registry_tarball_venv(output_dir)
 
             elif origin == DEFAULT_LOCAL_REGISTRY_ORIGIN:
                 local_path = Path(config.TRACECAT__LOCAL_REPOSITORY_CONTAINER_PATH)
-                tarball_result = await build_tarball_venv_from_path(
+                artifact_result = await build_tarball_venv_from_path(
                     local_path, output_dir
                 )
 
@@ -533,10 +568,10 @@ class BaseRegistrySyncService[
                     )
 
                 self.logger.info(
-                    "Building tarball venv for git repository",
+                    "Building registry artifact for git repository",
                     origin=origin,
                 )
-                tarball_result = await build_tarball_venv_from_git(
+                artifact_result = await build_tarball_venv_from_git(
                     git_url=origin,
                     commit_sha=commit_sha,
                     env=ssh_env,
@@ -548,27 +583,21 @@ class BaseRegistrySyncService[
                     f"Unsupported origin for artifact building: {origin}"
                 )
 
-            bucket = config.TRACECAT__BLOB_STORAGE_BUCKET_REGISTRY
-            await blob.ensure_bucket_exists(bucket)
-            tarball_s3_key = get_tarball_venv_s3_key(
-                organization_id=storage_namespace,
-                repository_origin=origin,
-                version=version_string,
-            )
-            tarball_uri = await upload_tarball_venv(
-                tarball_path=tarball_result.tarball_path,
-                key=tarball_s3_key,
+            if artifact_result.squashfs_path is None:
+                raise TarballBuildError("SquashFS artifact build is unavailable")
+
+            artifact_uri = await upload_squashfs_venv(
+                squashfs_path=artifact_result.squashfs_path,
+                key=artifact_key,
                 bucket=bucket,
-                squashfs_path=tarball_result.squashfs_path,
             )
             self.logger.info(
-                "Tarball venv uploaded",
-                tarball_uri=tarball_uri,
-                compressed_size_bytes=tarball_result.compressed_size_bytes,
-                squashfs_size_bytes=tarball_result.squashfs_size_bytes,
+                "Registry execution artifact uploaded",
+                artifact_uri=artifact_uri,
+                squashfs_size_bytes=artifact_result.squashfs_size_bytes,
             )
 
-            return ArtifactsBuildResult(tarball_uri=tarball_uri)
+            return ArtifactsBuildResult(tarball_uri=artifact_uri)
 
     def _generate_version_string(
         self,
@@ -752,7 +781,7 @@ class BaseRegistrySyncService[
             existing_tarball_uri = cast(str | None, existing_version.tarball_uri)
             if existing_tarball_uri is None:
                 raise self._sync_error_cls()(
-                    f"Version {target_version} exists but has no tarball artifact. "
+                    f"Version {target_version} exists but has no execution artifact. "
                     + "Delete the version and re-sync to create a valid version."
                 )
             self.logger.info(

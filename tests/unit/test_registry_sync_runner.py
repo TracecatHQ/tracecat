@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
+from pathlib import Path
 from uuid import uuid4
 
 import pytest
@@ -27,6 +28,21 @@ from tracecat.registry.sync.tarball import (
     get_tarball_venv_artifact_dir,
 )
 from tracecat.registry.versions.schemas import RegistryVersionManifest
+
+
+def _make_artifact_result(tmp_path: Path) -> TarballVenvBuildResult:
+    tarball_path = tmp_path / "site-packages.tar.gz"
+    squashfs_path = tmp_path / "site-packages.squashfs"
+    tarball_path.write_bytes(b"tarball")
+    squashfs_path.write_bytes(b"squashfs")
+    return TarballVenvBuildResult(
+        tarball_path=tarball_path,
+        tarball_name="site-packages.tar.gz",
+        content_hash="hash",
+        compressed_size_bytes=len(b"tarball"),
+        squashfs_path=squashfs_path,
+        squashfs_size_bytes=len(b"squashfs"),
+    )
 
 
 def test_registry_sync_request_ignores_legacy_ssh_key() -> None:
@@ -62,8 +78,7 @@ async def test_runner_passes_resolved_commit_sha_to_discovery(
         validate_actions=True,
     )
 
-    tarball_path = tmp_path / "site-packages.tar.gz"
-    tarball_path.write_bytes(b"tarball")
+    artifact_result = _make_artifact_result(tmp_path)
 
     clone_repository = mocker.patch.object(
         runner,
@@ -77,15 +92,8 @@ async def test_runner_passes_resolved_commit_sha_to_discovery(
     )
     mocker.patch.object(
         runner,
-        "_build_tarball_venv",
-        mocker.AsyncMock(
-            return_value=TarballVenvBuildResult(
-                tarball_path=tarball_path,
-                tarball_name="site-packages.tar.gz",
-                content_hash="hash",
-                compressed_size_bytes=7,
-            )
-        ),
+        "_build_execution_artifact",
+        mocker.AsyncMock(return_value=artifact_result),
     )
     discover_actions = mocker.patch.object(
         runner,
@@ -94,8 +102,8 @@ async def test_runner_passes_resolved_commit_sha_to_discovery(
     )
     upload_tarball = mocker.patch.object(
         runner,
-        "_upload_tarball",
-        mocker.AsyncMock(return_value="s3://registry/tarball.tgz"),
+        "_upload_squashfs",
+        mocker.AsyncMock(return_value="s3://registry/site-packages.squashfs"),
     )
 
     result = await runner.run(request)
@@ -156,8 +164,7 @@ async def test_runner_raises_before_upload_on_validation_errors(
         validate_actions=True,
     )
 
-    tarball_path = tmp_path / "site-packages.tar.gz"
-    tarball_path.write_bytes(b"tarball")
+    artifact_result = _make_artifact_result(tmp_path)
 
     mocker.patch.object(
         runner,
@@ -166,15 +173,8 @@ async def test_runner_raises_before_upload_on_validation_errors(
     )
     mocker.patch.object(
         runner,
-        "_build_tarball_venv",
-        mocker.AsyncMock(
-            return_value=TarballVenvBuildResult(
-                tarball_path=tarball_path,
-                tarball_name="site-packages.tar.gz",
-                content_hash="hash",
-                compressed_size_bytes=7,
-            )
-        ),
+        "_build_execution_artifact",
+        mocker.AsyncMock(return_value=artifact_result),
     )
     mocker.patch.object(
         runner,
@@ -198,8 +198,8 @@ async def test_runner_raises_before_upload_on_validation_errors(
     )
     upload_tarball = mocker.patch.object(
         runner,
-        "_upload_tarball",
-        mocker.AsyncMock(return_value="s3://registry/tarball.tgz"),
+        "_upload_squashfs",
+        mocker.AsyncMock(return_value="s3://registry/site-packages.squashfs"),
     )
 
     with pytest.raises(
@@ -212,7 +212,7 @@ async def test_runner_raises_before_upload_on_validation_errors(
 
 
 @pytest.mark.anyio
-async def test_runner_does_not_upload_fallback_artifacts_under_target_version(
+async def test_runner_does_not_upload_artifacts_under_target_version(
     tmp_path,
     mocker,
     monkeypatch: pytest.MonkeyPatch,
@@ -231,29 +231,17 @@ async def test_runner_does_not_upload_fallback_artifacts_under_target_version(
         storage_namespace="platform",
         validate_actions=True,
     )
-    tarball_path = tmp_path / "site-packages.tar.gz"
-    tarball_path.write_bytes(b"tarball")
+    artifact_result = _make_artifact_result(tmp_path)
 
     mocker.patch.object(
         runner,
         "_get_builtin_package_path",
         mocker.AsyncMock(return_value=tmp_path),
     )
-    mocker.patch(
-        "tracecat.registry.sync.runner.reuse_or_upload_prebuilt_builtin_artifacts",
-        mocker.AsyncMock(return_value=None),
-    )
     mocker.patch.object(
         runner,
-        "_build_tarball_venv",
-        mocker.AsyncMock(
-            return_value=TarballVenvBuildResult(
-                tarball_path=tarball_path,
-                tarball_name="site-packages.tar.gz",
-                content_hash="hash",
-                compressed_size_bytes=7,
-            )
-        ),
+        "_build_execution_artifact",
+        mocker.AsyncMock(return_value=artifact_result),
     )
     mocker.patch.object(
         runner,
@@ -262,15 +250,14 @@ async def test_runner_does_not_upload_fallback_artifacts_under_target_version(
     )
     upload_tarball = mocker.patch.object(
         runner,
-        "_upload_tarball",
-        mocker.AsyncMock(return_value="s3://registry/tarball.tgz"),
+        "_upload_squashfs",
+        mocker.AsyncMock(return_value="s3://registry/generated/site-packages.squashfs"),
     )
 
     await runner.run(request)
 
     upload_tarball.assert_awaited_once_with(
-        tarball_path=tarball_path,
-        squashfs_path=None,
+        squashfs_path=artifact_result.squashfs_path,
         repository_origin=DEFAULT_REGISTRY_ORIGIN,
         commit_sha=None,
         storage_namespace="platform",
@@ -313,19 +300,11 @@ async def test_runner_falls_back_to_discovery_when_prebuilt_manifest_is_invalid(
         "_get_builtin_package_path",
         mocker.AsyncMock(return_value=tmp_path),
     )
-    mocker.patch(
-        "tracecat.registry.sync.runner.reuse_or_upload_prebuilt_builtin_artifacts",
-        mocker.AsyncMock(
-            return_value=(
-                "s3://registry/platform/tarball-venvs/tracecat_registry/1.2.3/"
-                "site-packages.tar.gz"
-            )
-        ),
-    )
+    artifact_result = _make_artifact_result(tmp_path)
     build_tarball_venv = mocker.patch.object(
         runner,
-        "_build_tarball_venv",
-        mocker.AsyncMock(),
+        "_build_execution_artifact",
+        mocker.AsyncMock(return_value=artifact_result),
     )
     discover_actions = mocker.patch.object(
         runner,
@@ -334,14 +313,19 @@ async def test_runner_falls_back_to_discovery_when_prebuilt_manifest_is_invalid(
     )
     upload_tarball = mocker.patch.object(
         runner,
-        "_upload_tarball",
-        mocker.AsyncMock(),
+        "_upload_squashfs",
+        mocker.AsyncMock(
+            return_value=(
+                "s3://registry/platform/tarball-venvs/tracecat_registry/generated/"
+                "site-packages.squashfs"
+            )
+        ),
     )
 
     result = await runner.run(request)
 
-    assert result.tarball_uri.endswith("/1.2.3/site-packages.tar.gz")
-    build_tarball_venv.assert_not_awaited()
+    assert result.tarball_uri.endswith("/site-packages.squashfs")
+    build_tarball_venv.assert_awaited_once()
     discover_actions.assert_awaited_once_with(
         repository_id=repository_id,
         origin=DEFAULT_REGISTRY_ORIGIN,
@@ -350,7 +334,7 @@ async def test_runner_falls_back_to_discovery_when_prebuilt_manifest_is_invalid(
         git_repo_package_name=None,
         organization_id=None,
     )
-    upload_tarball.assert_not_awaited()
+    upload_tarball.assert_awaited_once()
 
 
 @pytest.mark.anyio
@@ -414,19 +398,11 @@ async def test_runner_uses_prebuilt_manifest_without_discovery(
         "_get_builtin_package_path",
         mocker.AsyncMock(return_value=tmp_path),
     )
-    mocker.patch(
-        "tracecat.registry.sync.runner.reuse_or_upload_prebuilt_builtin_artifacts",
-        mocker.AsyncMock(
-            return_value=(
-                "s3://registry/platform/tarball-venvs/tracecat_registry/1.2.3/"
-                "site-packages.tar.gz"
-            )
-        ),
-    )
+    artifact_result = _make_artifact_result(tmp_path)
     build_tarball_venv = mocker.patch.object(
         runner,
-        "_build_tarball_venv",
-        mocker.AsyncMock(),
+        "_build_execution_artifact",
+        mocker.AsyncMock(return_value=artifact_result),
     )
     discover_actions = mocker.patch.object(
         runner,
@@ -435,15 +411,20 @@ async def test_runner_uses_prebuilt_manifest_without_discovery(
     )
     upload_tarball = mocker.patch.object(
         runner,
-        "_upload_tarball",
-        mocker.AsyncMock(),
+        "_upload_squashfs",
+        mocker.AsyncMock(
+            return_value=(
+                "s3://registry/platform/tarball-venvs/tracecat_registry/generated/"
+                "site-packages.squashfs"
+            )
+        ),
     )
 
     result = await runner.run(request)
 
-    assert result.tarball_uri.endswith("/1.2.3/site-packages.tar.gz")
+    assert result.tarball_uri.endswith("/site-packages.squashfs")
     assert len(result.actions) == 1
     assert result.actions[0].default_title == "Prebuilt title"
-    build_tarball_venv.assert_not_awaited()
+    build_tarball_venv.assert_awaited_once()
     discover_actions.assert_not_awaited()
-    upload_tarball.assert_not_awaited()
+    upload_tarball.assert_awaited_once()
