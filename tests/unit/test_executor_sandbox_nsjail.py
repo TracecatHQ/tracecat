@@ -153,8 +153,6 @@ def _run_executor_action_smoke_in_docker_or_skip(smoke_case: SmokeCase) -> None:
                 "  executor:",
                 "    build:",
                 "      target: test",
-                "      args:",
-                '        TRACECAT__REGISTRY_SYNC_BUILD_PREBUILT_MANIFEST: "false"',
                 "    privileged: true",
                 "    security_opt:",
                 "      - seccomp:unconfined",

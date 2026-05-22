@@ -703,8 +703,6 @@ def _run_nsjail_harness_in_docker_or_skip(
                 "  api:",
                 "    build:",
                 "      target: test",
-                "      args:",
-                '        TRACECAT__REGISTRY_SYNC_BUILD_PREBUILT_MANIFEST: "false"',
                 "    cap_add:",
                 "      - SYS_ADMIN",
                 "    security_opt:",
