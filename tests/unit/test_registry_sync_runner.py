@@ -212,6 +212,72 @@ async def test_runner_raises_before_upload_on_validation_errors(
 
 
 @pytest.mark.anyio
+async def test_runner_does_not_upload_fallback_artifacts_under_target_version(
+    tmp_path,
+    mocker,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        config,
+        "TRACECAT__REGISTRY_SYNC_PREBUILT_ARTIFACTS_DIR",
+        str(tmp_path),
+    )
+    runner = RegistrySyncRunner()
+    request = RegistrySyncRequest(
+        repository_id=uuid4(),
+        origin=DEFAULT_REGISTRY_ORIGIN,
+        origin_type="builtin",
+        target_version="1.2.3",
+        storage_namespace="platform",
+        validate_actions=True,
+    )
+    tarball_path = tmp_path / "site-packages.tar.gz"
+    tarball_path.write_bytes(b"tarball")
+
+    mocker.patch.object(
+        runner,
+        "_get_builtin_package_path",
+        mocker.AsyncMock(return_value=tmp_path),
+    )
+    mocker.patch(
+        "tracecat.registry.sync.runner.reuse_or_upload_prebuilt_builtin_artifacts",
+        mocker.AsyncMock(return_value=None),
+    )
+    mocker.patch.object(
+        runner,
+        "_build_tarball_venv",
+        mocker.AsyncMock(
+            return_value=TarballVenvBuildResult(
+                tarball_path=tarball_path,
+                tarball_name="site-packages.tar.gz",
+                content_hash="hash",
+                compressed_size_bytes=7,
+            )
+        ),
+    )
+    mocker.patch.object(
+        runner,
+        "_discover_actions",
+        mocker.AsyncMock(return_value=([], {})),
+    )
+    upload_tarball = mocker.patch.object(
+        runner,
+        "_upload_tarball",
+        mocker.AsyncMock(return_value="s3://registry/tarball.tgz"),
+    )
+
+    await runner.run(request)
+
+    upload_tarball.assert_awaited_once_with(
+        tarball_path=tarball_path,
+        squashfs_path=None,
+        repository_origin=DEFAULT_REGISTRY_ORIGIN,
+        commit_sha=None,
+        storage_namespace="platform",
+    )
+
+
+@pytest.mark.anyio
 async def test_runner_uses_prebuilt_manifest_without_discovery(
     tmp_path,
     mocker,

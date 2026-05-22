@@ -254,7 +254,6 @@ class RegistrySyncRunner:
                     repository_origin=request.origin,
                     commit_sha=commit_sha,
                     storage_namespace=request.storage_namespace,
-                    target_version=request.target_version,
                 )
 
             logger.info(
@@ -526,7 +525,6 @@ class RegistrySyncRunner:
         repository_origin: str,
         commit_sha: str | None,
         storage_namespace: str | None,
-        target_version: str | None = None,
     ) -> str:
         """Upload the tarball venv to S3.
 
@@ -536,16 +534,13 @@ class RegistrySyncRunner:
             repository_origin: Repository origin for S3 key generation.
             commit_sha: Commit SHA for version string (or timestamp if None).
             storage_namespace: Namespace prefix for tarball storage.
-            target_version: Explicit version for deterministic artifact keys.
 
         Returns:
             S3 URI of the uploaded tarball.
         """
 
         # Generate version string
-        if target_version:
-            version = target_version
-        elif commit_sha:
+        if commit_sha:
             version = commit_sha
         else:
             version = datetime.now(UTC).strftime("%Y.%m.%d.%H%M%S")
