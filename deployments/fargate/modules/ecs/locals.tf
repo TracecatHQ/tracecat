@@ -22,6 +22,7 @@ locals {
   temporal_cluster_queue = var.temporal_cluster_queue
   temporal_namespace     = var.temporal_namespace
   allow_origins          = "https://${var.domain_name},http://ui-service:3000"
+  internal_litellm_url   = "http://litellm-service:4000"
 
   # Tracecat Postgres env vars
   tracecat_db_configs = {
@@ -49,6 +50,7 @@ locals {
     TRACECAT__AWS_ASSUME_ROLE_PRINCIPAL_ARN          = aws_iam_role.executor_task.arn
     TRACECAT__FEATURE_FLAGS                          = var.feature_flags # Requires Tracecat Enterprise license to modify.
     TRACECAT__EE_MULTI_TENANT                        = var.ee_multi_tenant
+    TRACECAT__LITELLM_BASE_URL                       = local.internal_litellm_url
     TRACECAT__CONTEXT_COMPRESSION_ENABLED            = var.context_compression_enabled
     TRACECAT__CONTEXT_COMPRESSION_THRESHOLD_KB       = var.context_compression_threshold_kb
     TRACECAT__RESULT_EXTERNALIZATION_ENABLED         = var.result_externalization_enabled
@@ -194,7 +196,7 @@ locals {
         TRACECAT__LLM_GATEWAY_POOL_TIMEOUT_SECONDS         = var.llm_gateway_healthcheck_pool_timeout_seconds
         TRACECAT__LLM_GATEWAY_FAILURE_THRESHOLD            = var.llm_gateway_healthcheck_failure_threshold
         TRACECAT__LLM_GATEWAY_STATUS_LOG_INTERVAL_SECONDS  = var.llm_gateway_status_log_interval_seconds
-        TRACECAT__LITELLM_BASE_URL                         = "http://litellm-service:4000"
+        TRACECAT__LITELLM_BASE_URL                         = local.internal_litellm_url
         TRACECAT__UNSAFE_DISABLE_SM_MASKING                = "false"
         TRACECAT__DISABLE_NSJAIL                           = "true"
         TRACECAT__SANDBOX_NSJAIL_PATH                      = "/usr/local/bin/nsjail"
@@ -213,7 +215,7 @@ locals {
         TRACECAT__DB_ENDPOINT         = local.core_db_hostname
         TRACECAT__LITELLM_PORT        = "4000"
         TRACECAT__LITELLM_NUM_WORKERS = var.litellm_num_workers
-        TRACECAT__LITELLM_BASE_URL    = "http://litellm-service:4000"
+        TRACECAT__LITELLM_BASE_URL    = local.internal_litellm_url
       }
     ) :
     { name = k, value = tostring(v) } if v != null
