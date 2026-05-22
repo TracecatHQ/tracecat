@@ -283,6 +283,7 @@ class BaseRegistrySyncService[
         commit: bool = True,
         bypass_temporal: bool = False,
         defer_artifact_build: bool = False,
+        promote: bool = True,
     ) -> BaseSyncResult[VersionT]:
         """Sync a repository and create a versioned snapshot.
 
@@ -301,6 +302,9 @@ class BaseRegistrySyncService[
                 This is only safe for builtin startup sync because the current
                 registry version executes from the installed package while the
                 artifact build runs in the background.
+            promote: If True, set the synced version as the repository's current
+                version before returning. If False, create the version and index
+                entries without exposing it as current.
         """
         origin = str(db_repo.origin)
         if defer_artifact_build and origin != DEFAULT_REGISTRY_ORIGIN:
@@ -328,6 +332,7 @@ class BaseRegistrySyncService[
             bypass_temporal=bypass_temporal,
             use_temporal=use_temporal,
             defer_artifact_build=defer_artifact_build,
+            promote=promote,
         )
 
         if use_temporal:
@@ -338,6 +343,7 @@ class BaseRegistrySyncService[
                 ssh_env=ssh_env,
                 git_repo_package_name=git_repo_package_name,
                 commit=commit,
+                promote=promote,
             )
 
         # Prefer release-built builtin metadata; fall back to subprocess discovery.
@@ -446,9 +452,10 @@ class BaseRegistrySyncService[
             artifact_uri=artifacts.artifact_uri,
         )
 
-        # Auto-promote: set new version as current
-        db_repo.current_version_id = version.id
-        self.session.add(db_repo)
+        if promote:
+            # Auto-promote: set new version as current
+            db_repo.current_version_id = version.id
+            self.session.add(db_repo)
 
         _ = await versions_service.populate_index_from_manifest(version, commit=False)
 
@@ -608,6 +615,7 @@ class BaseRegistrySyncService[
         ssh_env: SshEnv | None = None,
         git_repo_package_name: str | None = None,
         commit: bool = True,
+        promote: bool = True,
     ) -> BaseSyncResult[VersionT]:
         from temporalio.common import RetryPolicy
 
@@ -787,9 +795,10 @@ class BaseRegistrySyncService[
             artifact_uri=artifact_uri,
         )
 
-        # Auto-promote: set new version as current
-        db_repo.current_version_id = version.id
-        self.session.add(db_repo)
+        if promote:
+            # Auto-promote: set new version as current
+            db_repo.current_version_id = version.id
+            self.session.add(db_repo)
 
         _ = await versions_service.populate_index_from_manifest(version, commit=False)
 

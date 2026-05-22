@@ -410,6 +410,16 @@ class PlatformRegistryVersionsService(BaseService):
         result = await self.session.execute(statement)
         return result.scalars().all()
 
+    async def has_versions(self, repository_id: UUID) -> bool:
+        """Return whether a platform registry repository has any versions."""
+        statement = (
+            select(PlatformRegistryVersion.id)
+            .where(PlatformRegistryVersion.repository_id == repository_id)
+            .limit(1)
+        )
+        result = await self.session.execute(statement)
+        return result.scalar_one_or_none() is not None
+
     async def get_version(self, version_id: UUID) -> PlatformRegistryVersion | None:
         """Get a platform registry version by ID."""
         statement = (
