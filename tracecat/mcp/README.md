@@ -84,7 +84,6 @@ truncation metadata under `truncation.collections`.
 - `list_case_fields(workspace_id, limit=20, cursor=None)` returns field objects with `id`, `type`, `description`, `nullable`, `default`, `reserved`, `options`, and optional `kind`
 - `create_case_field(workspace_id, name, type, kind=None, options=None)` where `kind` is create-only; valid values are `LONG_TEXT` with `type=TEXT` and `URL` with `type=JSONB`
 - `update_case_field(workspace_id, field_id, name=None, type=None, options=None)`
-- `delete_case_field(workspace_id, field_id)`
 
 Case field and table `type` values are:
 - `TEXT`

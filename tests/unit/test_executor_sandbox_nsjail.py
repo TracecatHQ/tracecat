@@ -32,6 +32,7 @@ from tracecat.executor.action_runner import ActionRunner
 from tracecat.executor.backends.direct import DirectBackend
 from tracecat.executor.backends.ephemeral import EphemeralBackend
 from tracecat.executor.registry_artifacts import (
+    SQUASHFS_MOUNT_OPTIONS,
     RegistryArtifactFormat,
     SquashfsArtifact,
     TarballArtifact,
@@ -451,6 +452,33 @@ def _unmount_if_needed(path: Path) -> None:
     )
 
 
+def _squashfs_mount_probe_failure(image_path: Path, mount_dir: Path) -> str | None:
+    mount_dir.mkdir(parents=True, exist_ok=True)
+    result = subprocess.run(
+        [
+            "mount",
+            "-t",
+            "squashfs",
+            "-o",
+            SQUASHFS_MOUNT_OPTIONS,
+            str(image_path),
+            str(mount_dir),
+        ],
+        capture_output=True,
+        text=True,
+        timeout=10,
+        check=False,
+    )
+    try:
+        if result.returncode == 0 or mount_dir.is_mount():
+            return None
+
+        output = result.stderr.strip() or result.stdout.strip() or "mount failed"
+        return f"SquashFS loop mount unavailable: {output}"
+    finally:
+        _unmount_if_needed(mount_dir)
+
+
 async def _run_executor_action_smoke_case(
     smoke_case: SmokeCase,
     *,
@@ -485,6 +513,11 @@ async def _run_executor_action_smoke_case(
     _build_tar_gz(source_dir, tar_gz_path)
     if smoke_case in {SmokeCase.NSJAIL_SQUASHFS, SmokeCase.DIRECT_SQUASHFS}:
         _build_squashfs_image(source_dir, squashfs_path)
+        if reason := _squashfs_mount_probe_failure(
+            squashfs_path,
+            tmp_path / "squashfs-mount-probe",
+        ):
+            _skip_smoke(reason)
 
     runner = ActionRunner(cache_dir=cache_dir)
     cache_key = compute_registry_artifact_cache_key(_SMOKE_URI)

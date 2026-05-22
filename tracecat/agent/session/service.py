@@ -11,7 +11,6 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, Literal
 
 import orjson
-from pydantic_ai.exceptions import AgentRunError, UserError
 from pydantic_ai.messages import (
     ModelRequest,
     UserPromptPart,
@@ -36,6 +35,7 @@ from tracecat_registry._internal.exceptions import SecretNotFoundError
 import tracecat.agent.adapter.vercel
 from tracecat import config
 from tracecat.agent.approvals.enums import ApprovalStatus
+from tracecat.agent.llm import LLMCompletionError
 from tracecat.agent.mcp.metadata import sanitize_message_tool_inputs
 from tracecat.agent.preset.prompts import AgentPresetBuilderPrompt
 from tracecat.agent.preset.service import AgentPresetService
@@ -850,18 +850,16 @@ class AgentSessionService(BaseWorkspaceService):
                     ),
                 }
             )
-            agent_service = AgentManagementService(self.session, service_role)
-            async with agent_service.with_model_config() as model_config:
-                new_title = await generate_session_title(
-                    user_prompt=prompt,
-                    model_name=model_config.name,
-                    model_provider=model_config.provider,
-                )
+            new_title = await generate_session_title(
+                user_prompt=prompt,
+                session=self.session,
+                role=service_role,
+            )
         except (
-            AgentRunError,
+            LLMCompletionError,
             SecretNotFoundError,
             TracecatNotFoundError,
-            UserError,
+            TracecatValidationError,
             ValueError,
         ) as e:
             logger.warning(

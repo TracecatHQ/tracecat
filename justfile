@@ -22,6 +22,24 @@ test-file file:
 test-k keyword:
 	uv run pytest tests/unit -k "{{keyword}}" -n auto -x
 
+# Run frontend smoke tests against PLAYWRIGHT_BASE_URL or the active cluster URL
+test-frontend-smoke *args:
+	#!/usr/bin/env sh
+	set -e
+	if [ -z "${PLAYWRIGHT_BASE_URL:-}" ]; then
+		PLAYWRIGHT_BASE_URL="$(./scripts/cluster ports | awk '/UI \(Caddy\):/ {print $3; exit}')"
+		if [ -z "${PLAYWRIGHT_BASE_URL}" ]; then
+			echo "Could not determine active cluster URL. Set PLAYWRIGHT_BASE_URL explicitly." >&2
+			exit 1
+		fi
+		export PLAYWRIGHT_BASE_URL
+	fi
+	pnpm -C frontend exec playwright test --workers="${PLAYWRIGHT_WORKERS:-1}" {{args}}
+
+# Open the frontend smoke Playwright report
+test-frontend-smoke-report *args:
+	pnpm -C frontend exec playwright show-report {{args}}
+
 # Run backend benchmarks inside Docker (required for nsjail on macOS)
 bench *args:
 	docker run --rm \
@@ -40,9 +58,9 @@ bench *args:
 down:
 	docker compose down --remove-orphans
 clean:
-	docker volume ls -q | xargs -r docker volume rm
+	docker volume ls -q | xargs -r -n 1 docker volume rm || true
 clean-images:
-	docker images --filter "reference=tracecat*" | awk 'NR>1 && $1 != "<none>" && $2 != "<none>" {print $1 ":" $2}' | xargs -r -n 1 docker rmi
+	docker images --filter "reference=tracecat*" | awk 'NR>1 && $1 != "<none>" && $2 != "<none>" {print $1 ":" $2}' | xargs -r -n 1 docker rmi || true
 clean-dangling:
 	docker image prune -f
 dev:

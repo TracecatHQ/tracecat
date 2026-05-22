@@ -3715,34 +3715,6 @@ async def test_update_case_field_parses_type_and_options(monkeypatch):
     assert "updated successfully" in payload["message"]
 
 
-@pytest.mark.anyio
-async def test_delete_case_field(monkeypatch):
-    async def _resolve(_workspace_id):
-        return uuid.uuid4(), SimpleNamespace()
-
-    captured: dict[str, Any] = {}
-
-    async def _delete_field(field_id):
-        captured["field_id"] = field_id
-
-    field_service = SimpleNamespace(delete_field=_delete_field)
-
-    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
-    monkeypatch.setattr(
-        mcp_server,
-        "CaseFieldsService",
-        SimpleNamespace(with_session=lambda role: _AsyncContext(field_service)),
-    )
-
-    result = await _tool(mcp_server.delete_case_field)(
-        workspace_id=str(uuid.uuid4()),
-        field_id="severity_band",
-    )
-    payload = _payload(result)
-    assert captured["field_id"] == "severity_band"
-    assert "deleted successfully" in payload["message"]
-
-
 # ---------------------------------------------------------------------------
 # Case CRUD tests
 # ---------------------------------------------------------------------------
@@ -4173,63 +4145,6 @@ async def test_update_case_not_found(monkeypatch):
             workspace_id=str(uuid.uuid4()),
             case_id=str(uuid.uuid4()),
             summary="Won't work",
-        )
-
-
-@pytest.mark.anyio
-async def test_delete_case(monkeypatch):
-    async def _resolve(_workspace_id):
-        return uuid.uuid4(), SimpleNamespace()
-
-    case_id = uuid.uuid4()
-    case = SimpleNamespace(id=case_id)
-    deleted = []
-
-    async def _get_case(parsed_id, **kwargs):
-        return case
-
-    async def _delete_case(c):
-        deleted.append(c.id)
-
-    cases_service = SimpleNamespace(get_case=_get_case, delete_case=_delete_case)
-
-    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
-    monkeypatch.setattr(
-        mcp_server,
-        "CasesService",
-        SimpleNamespace(with_session=lambda role: _AsyncContext(cases_service)),
-    )
-
-    result = await _tool(mcp_server.delete_case)(
-        workspace_id=str(uuid.uuid4()),
-        case_id=str(case_id),
-    )
-    payload = _payload(result)
-    assert "deleted successfully" in payload["message"]
-    assert deleted == [case_id]
-
-
-@pytest.mark.anyio
-async def test_delete_case_not_found(monkeypatch):
-    async def _resolve(_workspace_id):
-        return uuid.uuid4(), SimpleNamespace()
-
-    async def _get_case(parsed_id, **kwargs):
-        return None
-
-    cases_service = SimpleNamespace(get_case=_get_case)
-
-    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
-    monkeypatch.setattr(
-        mcp_server,
-        "CasesService",
-        SimpleNamespace(with_session=lambda role: _AsyncContext(cases_service)),
-    )
-
-    with pytest.raises(ToolError, match="not found"):
-        await _tool(mcp_server.delete_case)(
-            workspace_id=str(uuid.uuid4()),
-            case_id=str(uuid.uuid4()),
         )
 
 
@@ -4848,42 +4763,6 @@ async def test_update_case_task_wrong_case(monkeypatch):
             task_id=str(task_id),
             status="completed",
         )
-
-
-@pytest.mark.anyio
-async def test_delete_case_task(monkeypatch):
-    async def _resolve(_workspace_id):
-        return uuid.uuid4(), SimpleNamespace()
-
-    case_id = uuid.uuid4()
-    task_id = uuid.uuid4()
-    deleted = []
-
-    existing_task = SimpleNamespace(id=task_id, case_id=case_id)
-
-    async def _get_task(parsed_task_id):
-        return existing_task
-
-    async def _delete_task(parsed_task_id):
-        deleted.append(parsed_task_id)
-
-    task_service = SimpleNamespace(get_task=_get_task, delete_task=_delete_task)
-
-    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
-    monkeypatch.setattr(
-        mcp_server,
-        "CaseTasksService",
-        SimpleNamespace(with_session=lambda role: _AsyncContext(task_service)),
-    )
-
-    result = await _tool(mcp_server.delete_case_task)(
-        workspace_id=str(uuid.uuid4()),
-        case_id=str(case_id),
-        task_id=str(task_id),
-    )
-    payload = _payload(result)
-    assert "deleted successfully" in payload["message"]
-    assert deleted == [task_id]
 
 
 @pytest.mark.anyio
@@ -6262,6 +6141,17 @@ def test_workflow_file_tools_removed():
         "prepare_workflow_file_upload",
         "create_workflow_from_uploaded_file",
         "update_workflow_from_uploaded_file",
+    }
+    assert removed_tools.isdisjoint(mcp_server._TOOL_NAMESPACE_BY_NAME)
+    for tool_name in removed_tools:
+        assert not hasattr(mcp_server, tool_name)
+
+
+def test_destructive_case_tools_removed():
+    removed_tools = {
+        "delete_case",
+        "delete_case_task",
+        "delete_case_field",
     }
     assert removed_tools.isdisjoint(mcp_server._TOOL_NAMESPACE_BY_NAME)
     for tool_name in removed_tools:
