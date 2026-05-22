@@ -7,7 +7,6 @@ on:
       - tracecat/**
       - registry/**
       - tests/**
-      - scripts/tests/test_action_doc_links.py
       - packages/tracecat-ee/**
       - packages/tracecat-registry/**
       - pyproject.toml
@@ -22,7 +21,6 @@ on:
       - tracecat/**
       - registry/**
       - tests/**
-      - scripts/tests/test_action_doc_links.py
       - packages/tracecat-ee/**
       - packages/tracecat-registry/**
       - pyproject.toml
