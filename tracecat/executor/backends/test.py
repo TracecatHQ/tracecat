@@ -254,9 +254,10 @@ class TestBackend(ExecutorBackend):
 
         for artifact_uri in artifact_uris:
             try:
-                extracted_path = await runner.ensure_registry_environment(artifact_uri)
-                if extracted_path:
-                    extracted_paths.append(str(extracted_path))
+                extracted_paths.extend(
+                    str(p)
+                    for p in await runner.ensure_registry_environment(artifact_uri)
+                )
             except Exception as e:
                 logger.warning(
                     "Failed to materialize artifact for test execution",

@@ -125,7 +125,7 @@ class TestRegistryArtifactCache:
     async def test_ensure_environment_uses_bundled_current_builtin(
         self, temp_cache_dir, monkeypatch: pytest.MonkeyPatch
     ):
-        """Current builtin registry resolves to installed site-packages."""
+        """In-tree builtin registry returns only the installed site-packages."""
         version = "1.2.3"
         site_packages = temp_cache_dir / "venv" / "site-packages"
         package_dir = site_packages / "tracecat_registry"
@@ -143,22 +143,23 @@ class TestRegistryArtifactCache:
         cache = RegistryArtifactCache(temp_cache_dir)
         result = await cache.ensure_environment(bundled_builtin_registry_uri(version))
 
-        assert result == site_packages.resolve()
+        assert result == [site_packages.resolve()]
 
     @pytest.mark.anyio
-    async def test_ensure_environment_overlays_editable_builtin(
+    async def test_ensure_environment_exposes_editable_builtin_parent(
         self, temp_cache_dir, monkeypatch: pytest.MonkeyPatch
     ):
-        """Editable builtin registry installs still include site-packages deps."""
+        """Editable builtin registry exposes the package wrapper + site-packages."""
         version = "1.2.3"
         site_packages = temp_cache_dir / "venv" / "site-packages"
         dependency_dir = site_packages / "orjson"
         dependency_dir.mkdir(parents=True)
+        (dependency_dir / "__init__.py").write_text("VALUE = 1\n")
         source_root = temp_cache_dir / "src" / "tracecat-registry"
         package_dir = source_root / "tracecat_registry"
         package_dir.mkdir(parents=True)
         package_file = package_dir / "__init__.py"
-        package_file.write_text("")
+        package_file.write_text("__version__ = '1.2.3'\n")
 
         monkeypatch.setattr(tracecat_registry, "__version__", version)
         monkeypatch.setattr(tracecat_registry, "__file__", str(package_file))
@@ -170,10 +171,7 @@ class TestRegistryArtifactCache:
         cache = RegistryArtifactCache(temp_cache_dir)
         result = await cache.ensure_environment(bundled_builtin_registry_uri(version))
 
-        assert result is not None
-        assert result != source_root
-        assert (result / "tracecat_registry").resolve() == package_dir.resolve()
-        assert (result / "orjson").resolve() == dependency_dir.resolve()
+        assert result == [source_root.resolve(), site_packages.resolve()]
 
     @pytest.mark.anyio
     async def test_ensure_environment_rejects_stale_bundled_builtin(
@@ -265,7 +263,7 @@ class TestRegistryArtifactCache:
             del ctx
             seen_candidates.append([artifact.format for artifact in candidates])
             if candidates is post_lock_candidates:
-                return cached_path
+                return [cached_path]
             return None
 
         with (
@@ -286,7 +284,7 @@ class TestRegistryArtifactCache:
                 "s3://bucket/path/site-packages.tar.gz",
             )
 
-        assert result == cached_path
+        assert result == [cached_path]
         assert artifact_candidates.await_count == 2
         assert seen_candidates == [
             [RegistryArtifactFormat.TAR_GZ],
@@ -424,12 +422,13 @@ class TestRegistryArtifactCache:
                 new_callable=AsyncMock,
             ) as tarball_materialize,
         ):
-            target_dir = await cache.materialize(
+            result = await cache.materialize(
                 "squashfs-key",
                 "s3://bucket/path/site-packages.tar.gz",
             )
 
-        assert (target_dir / "module.py").read_text() == "VALUE = 1"
+        assert len(result) == 1
+        assert (result[0] / "module.py").read_text() == "VALUE = 1"
         tarball_materialize.assert_not_awaited()
 
     @pytest.mark.anyio
@@ -508,13 +507,14 @@ class TestRegistryArtifactCache:
                 new_callable=AsyncMock,
             ) as tarball_materialize,
         ):
-            target_dir = await cache.materialize(
+            result = await cache.materialize(
                 "fallback-key",
                 "s3://bucket/path/site-packages.tar.gz",
             )
 
-        assert (target_dir / "module.py").read_text() == "VALUE = 1"
-        assert target_dir.name.startswith("unsquashfs-")
+        assert len(result) == 1
+        assert (result[0] / "module.py").read_text() == "VALUE = 1"
+        assert result[0].name.startswith("unsquashfs-")
         tarball_materialize.assert_not_awaited()
 
     @pytest.mark.anyio
@@ -545,13 +545,14 @@ class TestRegistryArtifactCache:
             ),
             patch.object(SquashfsArtifact, "extract", mock_extract),
         ):
-            target_dir = await cache.materialize(
+            result = await cache.materialize(
                 "extract-key",
                 "s3://bucket/path/site-packages.tar.gz",
             )
 
-        assert (target_dir / "module.py").read_text() == "VALUE = 1"
-        assert target_dir.name.startswith("unsquashfs-")
+        assert len(result) == 1
+        assert (result[0] / "module.py").read_text() == "VALUE = 1"
+        assert result[0].name.startswith("unsquashfs-")
 
     @pytest.mark.anyio
     async def test_materialize_falls_back_to_gzip_when_squashfs_extract_fails(
@@ -591,13 +592,14 @@ class TestRegistryArtifactCache:
             patch.object(SquashfsArtifact, "extract", mock_extract),
             patch.object(TarballArtifact, "download", mock_tarball_download),
         ):
-            target_dir = await cache.materialize(
+            result = await cache.materialize(
                 "gzip-fallback-key",
                 "s3://bucket/path/site-packages.tar.gz",
             )
 
-        assert (target_dir / "module.py").read_text() == "VALUE = 1"
-        assert target_dir.name.startswith("tarball-")
+        assert len(result) == 1
+        assert (result[0] / "module.py").read_text() == "VALUE = 1"
+        assert result[0].name.startswith("tarball-")
 
     @pytest.mark.anyio
     async def test_materialize_treats_unknown_suffix_as_gzip(self, temp_cache_dir):
@@ -613,12 +615,13 @@ class TestRegistryArtifactCache:
                 tar.add(source / "module.py", arcname="module.py")
 
         with patch.object(TarballArtifact, "download", mock_download):
-            target_dir = await cache.materialize(
+            result = await cache.materialize(
                 "custom-key-test",
                 "s3://bucket/path/custom-key",
             )
 
-        assert (target_dir / "module.py").read_text() == "VALUE = 1"
+        assert len(result) == 1
+        assert (result[0] / "module.py").read_text() == "VALUE = 1"
 
     @pytest.mark.anyio
     async def test_materialize_caches_result(self, temp_cache_dir):
@@ -630,7 +633,7 @@ class TestRegistryArtifactCache:
 
         result = await cache.materialize(cache_key, "s3://bucket/test.tar.gz")
 
-        assert result == target_dir
+        assert result == [target_dir]
 
     @pytest.mark.anyio
     async def test_materialize_concurrent_requests(self, temp_cache_dir):

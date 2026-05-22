@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import os
 import shutil
@@ -18,6 +19,7 @@ from typing import NoReturn
 from unittest.mock import patch
 
 import pytest
+import tracecat_registry
 
 from tracecat import config
 from tracecat.auth.types import Role
@@ -27,6 +29,8 @@ from tracecat.dsl.schemas import ActionStatement, RunActionInput, RunContext
 from tracecat.executor.action_gateway.config import ACTION_GATEWAY_SANDBOX_SOCKET
 from tracecat.executor.action_gateway.server import ActionGateway
 from tracecat.executor.action_runner import ActionRunner
+from tracecat.executor.backends.direct import DirectBackend
+from tracecat.executor.backends.ephemeral import EphemeralBackend
 from tracecat.executor.registry_artifacts import (
     RegistryArtifactFormat,
     SquashfsArtifact,
@@ -49,17 +53,24 @@ _SMOKE_URI = "s3://tracecat-test-registry/smoke/site-packages.tar.gz"
 
 class SmokeCase(StrEnum):
     DIRECT = "direct"
+    DIRECT_SQUASHFS = "direct-squashfs"
+    DIRECT_CURRENT_BUILTIN = "direct-current-builtin"
     NSJAIL_GZ = "nsjail-gz"
     NSJAIL_SQUASHFS = "nsjail-squashfs"
     NSJAIL_GATEWAY = "nsjail-gateway"
+    NSJAIL_CURRENT_BUILTIN = "nsjail-current-builtin"
 
     @property
     def force_sandbox(self) -> bool:
-        return self != SmokeCase.DIRECT
+        return self not in {
+            SmokeCase.DIRECT,
+            SmokeCase.DIRECT_SQUASHFS,
+            SmokeCase.DIRECT_CURRENT_BUILTIN,
+        }
 
     @property
     def preferred_format(self) -> RegistryArtifactFormat:
-        if self == SmokeCase.NSJAIL_SQUASHFS:
+        if self in {SmokeCase.NSJAIL_SQUASHFS, SmokeCase.DIRECT_SQUASHFS}:
             return RegistryArtifactFormat.SQUASHFS
         return RegistryArtifactFormat.TAR_GZ
 
@@ -101,6 +112,11 @@ def _missing_prerequisite(smoke_case: SmokeCase) -> str | None:
             return "mount is unavailable"
         if not _kernel_supports_squashfs():
             return "kernel does not advertise SquashFS support"
+    if smoke_case == SmokeCase.DIRECT_SQUASHFS:
+        if shutil.which("mksquashfs") is None:
+            return "mksquashfs is unavailable"
+        if shutil.which("unsquashfs") is None:
+            return "unsquashfs is unavailable"
     return None
 
 
@@ -248,6 +264,29 @@ def _make_action_input(action_name: str) -> RunActionInput:
     )
 
 
+def _make_builtin_action_input(action_name: str) -> RunActionInput:
+    wf_id = WorkflowUUID.new_uuid4()
+    return RunActionInput(
+        task=ActionStatement(
+            action=action_name,
+            args={"value": {"source": "current-builtin"}},
+            ref="current_builtin_smoke",
+        ),
+        exec_context=create_default_execution_context(),
+        run_context=RunContext(
+            wf_id=wf_id,
+            wf_exec_id=f"{wf_id.short()}/exec_current_builtin_smoke",
+            wf_run_id=uuid.uuid4(),
+            environment="test",
+            logical_time=datetime.now(UTC),
+        ),
+        registry_lock=RegistryLock(
+            origins={"tracecat_registry": tracecat_registry.__version__},
+            actions={action_name: "tracecat_registry"},
+        ),
+    )
+
+
 def _make_resolved_context(
     *,
     action_name: str,
@@ -264,6 +303,31 @@ def _make_resolved_context(
             name="run",
         ),
         evaluated_args={"value": "from-registry-artifact"},
+        workspace_id=str(role.workspace_id),
+        workflow_id=str(input.run_context.wf_id),
+        run_id=str(input.run_context.wf_run_id),
+        executor_token="test-executor-token",
+        secret_projection=SecretEnvProjection(env={}, mask_values=set()),
+    )
+
+
+def _make_builtin_resolved_context(
+    *,
+    action_name: str,
+    input: RunActionInput,
+    role: Role,
+) -> ResolvedContext:
+    return ResolvedContext(
+        secrets={},
+        variables={},
+        action_impl=ActionImplementation(
+            type="udf",
+            action_name=action_name,
+            module="tracecat_registry.core.transform",
+            name="reshape",
+            origin="tracecat_registry",
+        ),
+        evaluated_args={"value": {"source": "current-builtin"}},
         workspace_id=str(role.workspace_id),
         workflow_id=str(input.run_context.wf_id),
         run_id=str(input.run_context.wf_run_id),
@@ -419,12 +483,13 @@ async def _run_executor_action_smoke_case(
     else:
         _write_registry_artifact_source(source_dir)
     _build_tar_gz(source_dir, tar_gz_path)
-    if smoke_case == SmokeCase.NSJAIL_SQUASHFS:
+    if smoke_case in {SmokeCase.NSJAIL_SQUASHFS, SmokeCase.DIRECT_SQUASHFS}:
         _build_squashfs_image(source_dir, squashfs_path)
 
     runner = ActionRunner(cache_dir=cache_dir)
     cache_key = compute_registry_artifact_cache_key(_SMOKE_URI)
     mount_dir = cache_dir / f"squashfs-{cache_key}"
+    extract_dir = cache_dir / f"unsquashfs-{cache_key}"
     tarball_dir = cache_dir / f"tarball-{cache_key}"
 
     async def sidecar_exists(
@@ -457,11 +522,24 @@ async def _run_executor_action_smoke_case(
             action_gateway = ActionGateway()
             await action_gateway.start()
 
-        with (
+        patches = [
             patch.object(runner.registry_artifacts, "_sidecar_exists", sidecar_exists),
             patch.object(SquashfsArtifact, "download", download_artifact),
             patch.object(TarballArtifact, "download", download_artifact),
-        ):
+        ]
+        if smoke_case is SmokeCase.DIRECT_SQUASHFS:
+            # Direct mode runs unprivileged; force the unsquashfs extraction
+            # path instead of attempting a loopback mount.
+            patches.append(
+                patch(
+                    "tracecat.executor.registry_artifacts.shutil.which",
+                    return_value=None,
+                )
+            )
+
+        with contextlib.ExitStack() as stack:
+            for ctx_manager in patches:
+                stack.enter_context(ctx_manager)
             result = await runner.execute_action(
                 input=action_input,
                 role=role,
@@ -490,6 +568,10 @@ async def _run_executor_action_smoke_case(
             assert tarball_dir.exists()
             assert f"tarball-{cache_key}" in result["source"]
             assert result["source"].endswith("/registry_artifact_smoke_action.py")
+        elif smoke_case == SmokeCase.DIRECT_SQUASHFS:
+            assert extract_dir.exists()
+            assert str(extract_dir) in result["source"]
+            assert result["source"].endswith("/registry_artifact_smoke_action.py")
         else:
             assert result["source"] == "/packages/0/registry_artifact_smoke_action.py"
             if smoke_case == SmokeCase.NSJAIL_SQUASHFS:
@@ -502,13 +584,65 @@ async def _run_executor_action_smoke_case(
         _unmount_if_needed(mount_dir)
 
 
+async def _run_current_builtin_smoke_case(
+    *,
+    smoke_case: SmokeCase,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    if reason := _missing_prerequisite(smoke_case):
+        _skip_smoke(reason)
+
+    monkeypatch.setattr(config, "TRACECAT__SERVICE_KEY", "test-service-key")
+    monkeypatch.setattr(config, "TRACECAT__API_URL", "http://127.0.0.1:8000")
+    monkeypatch.setattr(
+        config, "TRACECAT__EXECUTOR_SANDBOX_ENABLED", smoke_case.force_sandbox
+    )
+    monkeypatch.setattr(config, "TRACECAT__EXECUTOR_CLIENT_TIMEOUT", 30.0)
+    monkeypatch.setattr(config, "TRACECAT__ACTION_GATEWAY_ENABLED", False)
+
+    action_name = "core.transform.reshape"
+    role = _make_role()
+    action_input = _make_builtin_action_input(action_name)
+    resolved_context = _make_builtin_resolved_context(
+        action_name=action_name,
+        input=action_input,
+        role=role,
+    )
+
+    backend = EphemeralBackend() if smoke_case.force_sandbox else DirectBackend()
+    result = await backend.execute(
+        input=action_input,
+        role=role,
+        resolved_context=resolved_context,
+        timeout=30,
+    )
+
+    assert result.type == "success"
+    assert result.result == {"source": "current-builtin"}
+
+
+_CURRENT_BUILTIN_CASES = {
+    SmokeCase.DIRECT_CURRENT_BUILTIN,
+    SmokeCase.NSJAIL_CURRENT_BUILTIN,
+}
+
+
 @pytest.mark.parametrize(
     "smoke_case",
     [
         pytest.param(SmokeCase.DIRECT, id=SmokeCase.DIRECT.value),
+        pytest.param(SmokeCase.DIRECT_SQUASHFS, id=SmokeCase.DIRECT_SQUASHFS.value),
+        pytest.param(
+            SmokeCase.DIRECT_CURRENT_BUILTIN,
+            id=SmokeCase.DIRECT_CURRENT_BUILTIN.value,
+        ),
         pytest.param(SmokeCase.NSJAIL_GZ, id=SmokeCase.NSJAIL_GZ.value),
         pytest.param(SmokeCase.NSJAIL_SQUASHFS, id=SmokeCase.NSJAIL_SQUASHFS.value),
         pytest.param(SmokeCase.NSJAIL_GATEWAY, id=SmokeCase.NSJAIL_GATEWAY.value),
+        pytest.param(
+            SmokeCase.NSJAIL_CURRENT_BUILTIN,
+            id=SmokeCase.NSJAIL_CURRENT_BUILTIN.value,
+        ),
     ],
 )
 @pytest.mark.anyio
@@ -517,6 +651,15 @@ async def test_action_runner_executes_registry_action_smoke(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
+    if smoke_case in _CURRENT_BUILTIN_CASES:
+        if smoke_case.force_sandbox and _missing_prerequisite(smoke_case):
+            _run_executor_action_smoke_in_docker_or_skip(smoke_case)
+            return
+        await _run_current_builtin_smoke_case(
+            smoke_case=smoke_case, monkeypatch=monkeypatch
+        )
+        return
+
     if smoke_case.force_sandbox and _missing_prerequisite(smoke_case):
         _run_executor_action_smoke_in_docker_or_skip(smoke_case)
         return
@@ -533,11 +676,16 @@ def _run_smoke_from_cli(smoke_case: SmokeCase) -> None:
         monkeypatch = pytest.MonkeyPatch()
         tmp_path = Path(tempfile.mkdtemp(prefix="tracecat-executor-nsjail-"))
         try:
-            await _run_executor_action_smoke_case(
-                smoke_case,
-                monkeypatch=monkeypatch,
-                tmp_path=tmp_path,
-            )
+            if smoke_case in _CURRENT_BUILTIN_CASES:
+                await _run_current_builtin_smoke_case(
+                    smoke_case=smoke_case, monkeypatch=monkeypatch
+                )
+            else:
+                await _run_executor_action_smoke_case(
+                    smoke_case,
+                    monkeypatch=monkeypatch,
+                    tmp_path=tmp_path,
+                )
         finally:
             monkeypatch.undo()
             shutil.rmtree(tmp_path, ignore_errors=True)

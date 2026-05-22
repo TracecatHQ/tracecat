@@ -148,14 +148,14 @@ class TestActionRunner:
 
     @pytest.mark.anyio
     async def test_ensure_registry_environment_no_tarball(self, temp_cache_dir):
-        """Test that None is returned when no tarball URI provided."""
+        """Test that an empty list is returned when no tarball URI provided."""
         runner = ActionRunner(cache_dir=temp_cache_dir)
 
         result = await runner.ensure_registry_environment(None)
-        assert result is None
+        assert result == []
 
         result = await runner.ensure_registry_environment("")
-        assert result is None
+        assert result == []
 
     @pytest.mark.anyio
     async def test_execute_action_timeout(

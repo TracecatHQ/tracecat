@@ -865,10 +865,11 @@ class TestExecuteWithSyncedRegistry:
         runner = ActionRunner(cache_dir=temp_cache_dir)
 
         # Download and materialize the registry artifact
-        extracted_path = await runner.ensure_registry_environment(tarball_uri)
+        extracted_paths = await runner.ensure_registry_environment(tarball_uri)
 
         # Verify extraction
-        assert extracted_path is not None
+        assert len(extracted_paths) == 1
+        extracted_path = extracted_paths[0]
         assert extracted_path.exists()
         assert extracted_path.is_dir()
 

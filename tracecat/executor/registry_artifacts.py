@@ -94,12 +94,16 @@ class RegistryArtifact(ABC):
         """Artifact format used for logging and dispatch."""
 
     @abstractmethod
-    def cached_path(self, ctx: RegistryArtifactMaterializationContext) -> Path | None:
-        """Return an already-materialized path for this artifact, if present."""
+    def cached_path(
+        self, ctx: RegistryArtifactMaterializationContext
+    ) -> list[Path] | None:
+        """Return already-materialized import paths for this artifact, if present."""
 
     @abstractmethod
-    async def materialize(self, ctx: RegistryArtifactMaterializationContext) -> Path:
-        """Return an importable Python path, materializing the artifact if needed."""
+    async def materialize(
+        self, ctx: RegistryArtifactMaterializationContext
+    ) -> list[Path]:
+        """Return importable Python paths, materializing the artifact if needed."""
 
     def _temp_path(
         self,
@@ -120,20 +124,22 @@ class BuiltinArtifact(RegistryArtifact):
     def format(self) -> RegistryArtifactFormat:
         return RegistryArtifactFormat.BUILTIN
 
-    def cached_path(self, ctx: RegistryArtifactMaterializationContext) -> Path | None:
+    def cached_path(
+        self, ctx: RegistryArtifactMaterializationContext
+    ) -> list[Path] | None:
         return None
 
-    async def materialize(self, ctx: RegistryArtifactMaterializationContext) -> Path:
-        import_path = _bundled_builtin_registry_import_path(
-            self.version,
-            ctx.cache_dir,
-        )
+    async def materialize(
+        self, ctx: RegistryArtifactMaterializationContext
+    ) -> list[Path]:
+        del ctx
+        import_paths = _bundled_builtin_registry_import_paths(self.version)
         logger.info(
             "Using bundled builtin registry environment",
             registry_version=self.version,
-            path=str(import_path),
+            paths=[str(p) for p in import_paths],
         )
-        return import_path
+        return import_paths
 
 
 @dataclass(frozen=True, slots=True)
@@ -144,26 +150,30 @@ class SquashfsArtifact(RegistryArtifact):
     def format(self) -> RegistryArtifactFormat:
         return RegistryArtifactFormat.SQUASHFS
 
-    def cached_path(self, ctx: RegistryArtifactMaterializationContext) -> Path | None:
+    def cached_path(
+        self, ctx: RegistryArtifactMaterializationContext
+    ) -> list[Path] | None:
         if ctx.paths.squashfs_mount_dir.is_mount():
             logger.debug(
                 "Using cached SquashFS registry mount",
                 cache_key=ctx.cache_key,
             )
-            return ctx.paths.squashfs_mount_dir
+            return [ctx.paths.squashfs_mount_dir]
         if ctx.paths.squashfs_extract_dir.exists():
             logger.debug(
                 "Using cached SquashFS registry extraction",
                 cache_key=ctx.cache_key,
             )
-            return ctx.paths.squashfs_extract_dir
+            return [ctx.paths.squashfs_extract_dir]
         return None
 
-    async def materialize(self, ctx: RegistryArtifactMaterializationContext) -> Path:
+    async def materialize(
+        self, ctx: RegistryArtifactMaterializationContext
+    ) -> list[Path]:
         image_path = ctx.paths.squashfs_image_path
         if ctx.can_mount_squashfs():
             try:
-                return await self.mount(ctx, image_path)
+                return [await self.mount(ctx, image_path)]
             except Exception as e:
                 ctx.disable_squashfs_mount()
                 logger.warning(
@@ -174,7 +184,7 @@ class SquashfsArtifact(RegistryArtifact):
                     error=str(e),
                 )
 
-        return await self.extract(ctx, image_path)
+        return [await self.extract(ctx, image_path)]
 
     async def download(
         self,
@@ -345,16 +355,20 @@ class TarballArtifact(RegistryArtifact):
     def format(self) -> RegistryArtifactFormat:
         return RegistryArtifactFormat.TAR_GZ
 
-    def cached_path(self, ctx: RegistryArtifactMaterializationContext) -> Path | None:
+    def cached_path(
+        self, ctx: RegistryArtifactMaterializationContext
+    ) -> list[Path] | None:
         if ctx.paths.tarball_target_dir.exists():
             logger.debug(
                 "Using cached tarball extraction",
                 cache_key=ctx.cache_key,
             )
-            return ctx.paths.tarball_target_dir
+            return [ctx.paths.tarball_target_dir]
         return None
 
-    async def materialize(self, ctx: RegistryArtifactMaterializationContext) -> Path:
+    async def materialize(
+        self, ctx: RegistryArtifactMaterializationContext
+    ) -> list[Path]:
         target_dir = ctx.paths.tarball_target_dir
         logger.info(
             "Materializing tarball registry artifact",
@@ -407,7 +421,7 @@ class TarballArtifact(RegistryArtifact):
             if temp_tarball.exists():
                 temp_tarball.unlink(missing_ok=True)
 
-        return target_dir
+        return [target_dir]
 
     async def download(
         self,
@@ -476,18 +490,14 @@ def _bundled_builtin_registry_version(artifact_uri: str) -> str | None:
     return version or None
 
 
-def _symlink_once(source: Path, dest: Path) -> None:
-    """Create a symlink unless another process already created it."""
-    try:
-        if dest.exists() or dest.is_symlink():
-            return
-        dest.symlink_to(source, target_is_directory=source.is_dir())
-    except FileExistsError:
-        return
+def _bundled_builtin_registry_import_paths(version: str) -> list[Path]:
+    """Return import paths for the current builtin registry and its dependencies.
 
-
-def _bundled_builtin_registry_import_path(version: str, cache_dir: Path) -> Path:
-    """Return an import path for the current builtin registry and its dependencies."""
+    Dependencies always live in the executor's site-packages. For editable
+    installs the parent of ``package_dir`` (the package wrapper, e.g.
+    ``packages/tracecat-registry/``) is exposed first so its ``tracecat_registry/``
+    shadows any stale copy in site-packages.
+    """
     installed_version = tracecat_registry.__version__
     if version != installed_version:
         raise RuntimeError(
@@ -511,24 +521,9 @@ def _bundled_builtin_registry_import_path(version: str, cache_dir: Path) -> Path
 
     package_dir = Path(package_file).resolve().parent
     if package_dir.is_relative_to(site_packages):
-        return site_packages
+        return [site_packages]
 
-    cache_key = compute_registry_artifact_cache_key(
-        bundled_builtin_registry_uri(version)
-    )
-    overlay_dir = cache_dir / f"bundled-{cache_key}"
-    overlay_dir.mkdir(parents=True, exist_ok=True)
-    for child in site_packages.iterdir():
-        _symlink_once(child, overlay_dir / child.name)
-    _symlink_once(package_dir, overlay_dir / DEFAULT_REGISTRY_ORIGIN)
-    logger.info(
-        "Prepared bundled builtin registry overlay",
-        registry_version=version,
-        package_dir=str(package_dir),
-        site_packages=str(site_packages),
-        overlay_dir=str(overlay_dir),
-    )
-    return overlay_dir
+    return [package_dir.parent, site_packages]
 
 
 def _squashfs_sidecar_uri(tarball_uri: str) -> str | None:
@@ -561,26 +556,26 @@ class RegistryArtifactCache:
         self._locks_lock = asyncio.Lock()
         self._squashfs_mount_state = SquashfsMountState()
 
-    async def ensure_environment(self, artifact_uri: str | None) -> Path | None:
-        """Materialize an optional registry artifact and return a PYTHONPATH entry."""
+    async def ensure_environment(self, artifact_uri: str | None) -> list[Path]:
+        """Materialize an optional registry artifact and return PYTHONPATH entries."""
         if not artifact_uri:
-            return None
+            return []
         cache_key = compute_registry_artifact_cache_key(artifact_uri)
         return await self.materialize(cache_key, artifact_uri)
 
-    async def materialize(self, cache_key: str, artifact_uri: str) -> Path:
-        """Materialize a registry artifact as a local importable directory."""
+    async def materialize(self, cache_key: str, artifact_uri: str) -> list[Path]:
+        """Materialize a registry artifact as local importable directories."""
         ctx = self._context_for(cache_key)
         candidates = await self._artifact_candidates(ctx, artifact_uri)
 
-        if cached_path := self._first_cached_path(candidates, ctx):
-            return cached_path
+        if cached_paths := self._first_cached_path(candidates, ctx):
+            return cached_paths
 
         lock = await self._lock_for(cache_key)
         async with lock:
             candidates = await self._artifact_candidates(ctx, artifact_uri)
-            if cached_path := self._first_cached_path(candidates, ctx):
-                return cached_path
+            if cached_paths := self._first_cached_path(candidates, ctx):
+                return cached_paths
 
             for index, artifact in enumerate(candidates):
                 try:
@@ -635,11 +630,11 @@ class RegistryArtifactCache:
         self,
         candidates: list[RegistryArtifact],
         ctx: RegistryArtifactMaterializationContext,
-    ) -> Path | None:
-        """Return the first already-materialized candidate path."""
+    ) -> list[Path] | None:
+        """Return the first already-materialized candidate paths."""
         for artifact in candidates:
-            if cached_path := artifact.cached_path(ctx):
-                return cached_path
+            if cached_paths := artifact.cached_path(ctx):
+                return cached_paths
         return None
 
     async def _artifact_candidates(

@@ -142,18 +142,16 @@ class ActionRunner:
         self.registry_artifacts = RegistryArtifactCache(self.cache_dir)
         logger.info("ActionRunner initialized", cache_dir=str(self.cache_dir))
 
-    async def ensure_registry_environment(
-        self, artifact_uri: str | None
-    ) -> Path | None:
-        """Ensure the registry environment is set up and return the PYTHONPATH.
+    async def ensure_registry_environment(self, artifact_uri: str | None) -> list[Path]:
+        """Ensure the registry environment is set up and return PYTHONPATH entries.
 
-        This is the public API for pool workers to get the path to add to PYTHONPATH.
+        This is the public API for pool workers to get the paths to add to PYTHONPATH.
 
         Args:
             artifact_uri: S3 URI to the registry execution artifact.
 
         Returns:
-            Path to add to PYTHONPATH, or None if no artifact is available.
+            Paths to add to PYTHONPATH (empty if no artifact is available).
         """
         return await self.registry_artifacts.ensure_environment(artifact_uri)
 
@@ -164,8 +162,9 @@ class ActionRunner:
         registry_paths: list[Path] = []
         if artifact_uris:
             for artifact_uri in artifact_uris:
-                if target_dir := await self.ensure_registry_environment(artifact_uri):
-                    registry_paths.append(target_dir)
+                registry_paths.extend(
+                    await self.ensure_registry_environment(artifact_uri)
+                )
             logger.info(
                 "Using registry artifact environments",
                 count=len(registry_paths),
