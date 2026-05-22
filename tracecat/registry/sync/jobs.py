@@ -32,6 +32,7 @@ from tracecat.registry.versions.service import PlatformRegistryVersionsService
 
 MAX_SYNC_RETRIES = 3
 PLATFORM_SYNC_LOCK_KEY = derive_lock_key_from_parts("platform_registry_sync")
+_platform_registry_artifact_build_tasks: set[asyncio.Task[None]] = set()
 _RELEASE_TAG_PATTERN = re.compile(
     r"^(?P<major>\d+)\.(?P<minor>\d+)\.(?P<patch>\d+)"
     r"(?:-(?P<stage>alpha|a|beta|b|rc|dev|post)\.(?P<number>\d+)"
@@ -280,10 +281,12 @@ def _schedule_platform_registry_artifact_build(target_version: str) -> None:
         )
         return
 
+    _platform_registry_artifact_build_tasks.add(task)
     task.add_done_callback(_log_platform_registry_artifact_build_result)
 
 
 def _log_platform_registry_artifact_build_result(task: asyncio.Task[None]) -> None:
+    _platform_registry_artifact_build_tasks.discard(task)
     try:
         task.result()
     except asyncio.CancelledError:

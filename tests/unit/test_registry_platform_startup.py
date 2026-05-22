@@ -10,6 +10,7 @@ This test suite validates:
 
 from __future__ import annotations
 
+import asyncio
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -346,6 +347,37 @@ async def test_startup_sync_calls_sync_for_new_version(
         call_kwargs = mock_sync_service.sync_repository_v2.call_args.kwargs
         assert call_kwargs["target_version"] == "1.0.0"
         assert call_kwargs["bypass_temporal"] is True
+
+
+@pytest.mark.anyio
+async def test_schedule_platform_registry_artifact_build_keeps_task_reference(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from tracecat.registry.sync import jobs
+
+    started = asyncio.Event()
+    release = asyncio.Event()
+
+    async def fake_build_platform_registry_artifact(target_version: str) -> None:
+        assert target_version == "1.0.0"
+        started.set()
+        await release.wait()
+
+    monkeypatch.setattr(
+        jobs,
+        "_build_platform_registry_artifact",
+        fake_build_platform_registry_artifact,
+    )
+
+    jobs._schedule_platform_registry_artifact_build("1.0.0")
+
+    await started.wait()
+    tasks = set(jobs._platform_registry_artifact_build_tasks)
+    assert len(tasks) == 1
+
+    release.set()
+    await asyncio.gather(*tasks)
+    assert jobs._platform_registry_artifact_build_tasks == set()
 
 
 @pytest.mark.anyio
