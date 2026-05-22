@@ -44,10 +44,10 @@ def write_prebuilt_registry_manifest(
     artifact_dir: Path,
     manifest: RegistryVersionManifest,
 ) -> Path:
-    """Write a release-built registry manifest."""
+    """Write a compact release-built registry manifest."""
     artifact_dir.mkdir(parents=True, exist_ok=True)
     manifest_path = artifact_dir / PREBUILT_MANIFEST_FILENAME
-    manifest_path.write_text(manifest.model_dump_json(indent=2) + "\n")
+    manifest_path.write_text(manifest.model_dump_json())
     return manifest_path
 
 

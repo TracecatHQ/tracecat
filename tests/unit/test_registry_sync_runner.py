@@ -45,6 +45,46 @@ def _make_artifact_result(tmp_path: Path) -> TarballVenvBuildResult:
     )
 
 
+def test_write_prebuilt_registry_manifest_is_compact(tmp_path: Path) -> None:
+    repository_id = uuid4()
+    manifest = RegistryVersionManifest.from_actions(
+        [
+            RegistryActionCreate(
+                repository_id=repository_id,
+                name="reshape",
+                description="Reshape test payload",
+                namespace="core.transform",
+                type="udf",
+                origin=DEFAULT_REGISTRY_ORIGIN,
+                interface={"expects": {}, "returns": {}},
+                implementation=RegistryActionUDFImpl(
+                    type="udf",
+                    url=DEFAULT_REGISTRY_ORIGIN,
+                    module="tracecat_registry.core.transform",
+                    name="reshape",
+                ),
+                secrets=None,
+                default_title="Prebuilt title",
+                display_group=None,
+                doc_url=None,
+                author=None,
+                deprecated=None,
+                options=RegistryActionOptions(),
+            )
+        ]
+    )
+
+    manifest_path = write_prebuilt_registry_manifest(
+        artifact_dir=tmp_path,
+        manifest=manifest,
+    )
+
+    manifest_text = manifest_path.read_text()
+    assert "\n" not in manifest_text
+    assert "  " not in manifest_text
+    assert RegistryVersionManifest.model_validate_json(manifest_text) == manifest
+
+
 def test_registry_sync_request_ignores_legacy_ssh_key() -> None:
     """Legacy SSH keys are accepted for rollout compatibility but not serialized."""
     payload = {
