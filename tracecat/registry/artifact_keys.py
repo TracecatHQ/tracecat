@@ -12,6 +12,7 @@ this prefix are `.squashfs` images.
 from __future__ import annotations
 
 import re
+from hashlib import sha256
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -24,6 +25,9 @@ REGISTRY_ARTIFACT_FILENAME = "site-packages.squashfs"
 LEGACY_TARBALL_FILENAME = "site-packages.tar.gz"
 """Filename for the legacy gzip tarball artifact (read-only at runtime)."""
 
+ORIGIN_SLUG_MAX_LENGTH = 100
+ORIGIN_SLUG_HASH_LENGTH = 12
+
 
 def parse_s3_uri(uri: str) -> tuple[str, str]:
     """Parse an `s3://bucket/key` URI into `(bucket, key)`."""
@@ -35,13 +39,19 @@ def parse_s3_uri(uri: str) -> tuple[str, str]:
 
 def _slugify_origin(origin: str) -> str:
     """Convert a repository origin to a safe slug for S3 keys."""
-    slug = (
+    normalized = (
         origin.replace("git+ssh://", "").replace("https://", "").replace("http://", "")
     )
+    slug = normalized
     slug = re.sub(r"[^a-zA-Z0-9_-]", "_", slug)
     slug = re.sub(r"_+", "_", slug)
     slug = slug.strip("_")
-    return slug[:100]
+    if len(slug) <= ORIGIN_SLUG_MAX_LENGTH:
+        return slug
+
+    digest = sha256(normalized.encode()).hexdigest()[:ORIGIN_SLUG_HASH_LENGTH]
+    prefix_length = ORIGIN_SLUG_MAX_LENGTH - ORIGIN_SLUG_HASH_LENGTH - 1
+    return f"{slug[:prefix_length]}_{digest}"
 
 
 def get_artifact_s3_prefix(

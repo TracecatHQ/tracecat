@@ -58,6 +58,27 @@ def test_get_artifact_s3_key_returns_squashfs_path() -> None:
     assert key.endswith("/site-packages.squashfs")
 
 
+def test_get_artifact_s3_key_avoids_long_origin_collisions() -> None:
+    origin_prefix = "git+ssh://git@github.com/acme/" + ("shared-" * 20)
+
+    first_key = get_artifact_s3_key(
+        organization_id="org-abc",
+        repository_origin=f"{origin_prefix}-first.git",
+        version="1.2.3",
+    )
+    second_key = get_artifact_s3_key(
+        organization_id="org-abc",
+        repository_origin=f"{origin_prefix}-second.git",
+        version="1.2.3",
+    )
+
+    assert first_key != second_key
+    assert len(first_key.split("/")[2]) == 100
+    assert len(second_key.split("/")[2]) == 100
+    assert first_key.endswith("/site-packages.squashfs")
+    assert second_key.endswith("/site-packages.squashfs")
+
+
 def test_get_squashfs_artifact_key_normalizes_inputs() -> None:
     base = "platform/tarball-venvs/test/1.0.0/site-packages"
     assert get_squashfs_artifact_key(f"{base}.tar.gz") == f"{base}.squashfs"
