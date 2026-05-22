@@ -509,6 +509,39 @@ export type AgentModelAccessRead = {
   catalog_id: string
 }
 
+/**
+ * Organization-scoped Claude Code OTel configuration.
+ */
+export type AgentOtelConfig = {
+  /**
+   * Whether Claude Code telemetry is enabled for agent runs.
+   */
+  enabled?: boolean
+  /**
+   * Allowlisted Claude Code OTel environment variables. Headers are configured separately.
+   */
+  env?: {
+    [key: string]: string
+  }
+}
+
+export type AgentOtelSettingsRead = {
+  agent_otel_config?: AgentOtelConfig
+}
+
+export type AgentOtelSettingsUpdate = {
+  /**
+   * Claude Code OTel telemetry configuration for agent runs.
+   */
+  agent_otel_config?: AgentOtelConfig
+  /**
+   * Encrypted headers for the Claude Code OTLP exporter. Omitted values leave existing headers unchanged.
+   */
+  agent_otel_headers?: {
+    [key: string]: string
+  } | null
+}
+
 export type AgentOutput = {
   output: unknown
   message_history?: Array<ChatMessage> | null
@@ -11300,6 +11333,14 @@ export type SettingsUpdateAgentSettingsData = {
 
 export type SettingsUpdateAgentSettingsResponse = void
 
+export type SettingsGetAgentOtelSettingsResponse = AgentOtelSettingsRead
+
+export type SettingsUpdateAgentOtelSettingsData = {
+  requestBody: AgentOtelSettingsUpdate
+}
+
+export type SettingsUpdateAgentOtelSettingsResponse = void
+
 export type OrganizationSecretsListOrgSecretsData = {
   /**
    * Filter by secret type
@@ -16848,6 +16889,29 @@ export type $OpenApiTs = {
     }
     patch: {
       req: SettingsUpdateAgentSettingsData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/settings/agent-otel": {
+    get: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: AgentOtelSettingsRead
+      }
+    }
+    patch: {
+      req: SettingsUpdateAgentOtelSettingsData
       res: {
         /**
          * Successful Response

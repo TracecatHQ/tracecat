@@ -27,7 +27,7 @@ resource "aws_ecs_task_definition" "agent_executor_task_definition" {
         }
       }
       environment = local.agent_executor_env
-      secrets     = local.executor_secrets
+      secrets     = local.agent_executor_secrets
     }
   ])
 }
