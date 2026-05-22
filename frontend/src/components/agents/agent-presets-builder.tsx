@@ -942,6 +942,7 @@ function AgentPresetChatPane({
               align="end"
             />
             <Button
+              type="button"
               size="sm"
               variant="ghost"
               className="text-xs"
@@ -3610,6 +3611,7 @@ function AgentPresetBuilderChatPane({
               align="end"
             />
             <Button
+              type="button"
               size="sm"
               variant="ghost"
               className="text-xs"
