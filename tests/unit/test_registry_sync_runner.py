@@ -278,6 +278,82 @@ async def test_runner_does_not_upload_fallback_artifacts_under_target_version(
 
 
 @pytest.mark.anyio
+async def test_runner_falls_back_to_discovery_when_prebuilt_manifest_is_invalid(
+    tmp_path,
+    mocker,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        config,
+        "TRACECAT__REGISTRY_SYNC_PREBUILT_ARTIFACTS_DIR",
+        str(tmp_path),
+    )
+    repository_id = uuid4()
+    artifact_dir = get_tarball_venv_artifact_dir(
+        root=tmp_path,
+        organization_id="platform",
+        repository_origin=DEFAULT_REGISTRY_ORIGIN,
+        version="1.2.3",
+    )
+    artifact_dir.mkdir(parents=True)
+    (artifact_dir / "manifest.json").write_text("{invalid")
+
+    runner = RegistrySyncRunner()
+    request = RegistrySyncRequest(
+        repository_id=repository_id,
+        origin=DEFAULT_REGISTRY_ORIGIN,
+        origin_type="builtin",
+        target_version="1.2.3",
+        storage_namespace="platform",
+        validate_actions=True,
+    )
+
+    mocker.patch.object(
+        runner,
+        "_get_builtin_package_path",
+        mocker.AsyncMock(return_value=tmp_path),
+    )
+    mocker.patch(
+        "tracecat.registry.sync.runner.reuse_or_upload_prebuilt_builtin_artifacts",
+        mocker.AsyncMock(
+            return_value=(
+                "s3://registry/platform/tarball-venvs/tracecat_registry/1.2.3/"
+                "site-packages.tar.gz"
+            )
+        ),
+    )
+    build_tarball_venv = mocker.patch.object(
+        runner,
+        "_build_tarball_venv",
+        mocker.AsyncMock(),
+    )
+    discover_actions = mocker.patch.object(
+        runner,
+        "_discover_actions",
+        mocker.AsyncMock(return_value=([], {})),
+    )
+    upload_tarball = mocker.patch.object(
+        runner,
+        "_upload_tarball",
+        mocker.AsyncMock(),
+    )
+
+    result = await runner.run(request)
+
+    assert result.tarball_uri.endswith("/1.2.3/site-packages.tar.gz")
+    build_tarball_venv.assert_not_awaited()
+    discover_actions.assert_awaited_once_with(
+        repository_id=repository_id,
+        origin=DEFAULT_REGISTRY_ORIGIN,
+        commit_sha=None,
+        validate=True,
+        git_repo_package_name=None,
+        organization_id=None,
+    )
+    upload_tarball.assert_not_awaited()
+
+
+@pytest.mark.anyio
 async def test_runner_uses_prebuilt_manifest_without_discovery(
     tmp_path,
     mocker,

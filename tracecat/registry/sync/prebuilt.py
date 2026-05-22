@@ -4,7 +4,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from pydantic import ValidationError
+
 from tracecat import config
+from tracecat.logger import logger
 from tracecat.registry.constants import DEFAULT_REGISTRY_ORIGIN
 from tracecat.registry.sync.tarball import (
     get_tarball_venv_s3_key,
@@ -63,7 +66,15 @@ def load_prebuilt_registry_manifest(
     manifest_path = get_prebuilt_registry_manifest_path(root=root, key=key)
     if not manifest_path.exists():
         return None
-    return RegistryVersionManifest.model_validate_json(manifest_path.read_text())
+    try:
+        return RegistryVersionManifest.model_validate_json(manifest_path.read_text())
+    except (OSError, ValueError, ValidationError) as e:
+        logger.warning(
+            "Ignoring invalid prebuilt registry manifest",
+            manifest_path=str(manifest_path),
+            error=str(e),
+        )
+        return None
 
 
 def load_prebuilt_builtin_registry_manifest(
