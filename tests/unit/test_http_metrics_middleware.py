@@ -38,6 +38,7 @@ def test_http_metrics_middleware_records_normalized_route_and_code() -> None:
     metrics_body = client.get("/metrics").text
 
     assert "http_request_total" in metrics_body
+    assert "http_request_duration_seconds" in metrics_body
     assert 'component="unit-api"' in metrics_body
     assert 'route="/api/items/{item_id}"' in metrics_body
     assert 'route="/api/blocked"' in metrics_body

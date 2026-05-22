@@ -1,7 +1,14 @@
+import time
 from collections.abc import Awaitable, Callable
 
 from fastapi import Request
-from prometheus_client import CONTENT_TYPE_LATEST, REGISTRY, Counter, generate_latest
+from prometheus_client import (
+    CONTENT_TYPE_LATEST,
+    REGISTRY,
+    Counter,
+    Histogram,
+    generate_latest,
+)
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import Response
 from starlette.types import ASGIApp
@@ -29,6 +36,19 @@ HTTP_REQUEST_ERROR_TOTAL = Counter(
     ),
 )
 
+HTTP_REQUEST_DURATION_SECONDS = Histogram(
+    "http_request_duration_seconds",
+    "HTTP request latency for Tracecat services.",
+    labelnames=("component", "route", "method", "code"),
+    buckets=(0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30, 60),
+)
+
+WORKFLOW_DISPATCH_FAILURE_TOTAL = Counter(
+    "workflow_dispatch_failure_total",
+    "Workflow starts that failed before Temporal accepted the execution.",
+    labelnames=("trigger_type", "execution_type", "mode"),
+)
+
 _EXCLUDED_METRICS_PATHS = frozenset({"/metrics", "/health", "/ready"})
 
 _TENANT_ERROR_STATUS_CODES = frozenset({400, 401, 403, 422, 429})
@@ -46,6 +66,7 @@ class HTTPMetricsMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
 
         status_code = 500
+        started_at = time.monotonic()
         try:
             response = await call_next(request)
             status_code = response.status_code
@@ -58,6 +79,12 @@ class HTTPMetricsMiddleware(BaseHTTPMiddleware):
                 method=request.method,
                 code=str(status_code),
             ).inc()
+            HTTP_REQUEST_DURATION_SECONDS.labels(
+                component=self.component,
+                route=route,
+                method=request.method,
+                code=str(status_code),
+            ).observe(time.monotonic() - started_at)
 
             if status_code >= 500 or status_code in _TENANT_ERROR_STATUS_CODES:
                 if tenant_labels := _tenant_labels(request):
@@ -75,6 +102,16 @@ class HTTPMetricsMiddleware(BaseHTTPMiddleware):
 def prometheus_metrics_response() -> Response:
     data = generate_latest(REGISTRY)
     return Response(content=data, headers={"Content-Type": str(CONTENT_TYPE_LATEST)})
+
+
+def record_workflow_dispatch_failure(
+    *, trigger_type: str, execution_type: str, mode: str
+) -> None:
+    WORKFLOW_DISPATCH_FAILURE_TOTAL.labels(
+        trigger_type=trigger_type,
+        execution_type=execution_type,
+        mode=mode,
+    ).inc()
 
 
 def _should_skip_request(request: Request) -> bool:
