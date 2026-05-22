@@ -753,8 +753,8 @@ class BaseRegistrySyncService[
             manifest=manifest,
         )
         if existing_version:
-            existing_tarball_uri = cast(str | None, existing_version.tarball_uri)
-            if existing_tarball_uri is None:
+            existing_artifact_uri = cast(str | None, existing_version.tarball_uri)
+            if existing_artifact_uri is None:
                 raise self._sync_error_cls()(
                     f"Version {target_version} exists but has no execution artifact. "
                     + "Delete the version and re-sync to create a valid version."
@@ -767,7 +767,7 @@ class BaseRegistrySyncService[
             return self._result_cls()(
                 version=existing_version,
                 actions=actions,
-                artifact_uri=existing_tarball_uri,
+                artifact_uri=existing_artifact_uri,
                 commit_sha=commit_sha,
             )
 
