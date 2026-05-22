@@ -47,7 +47,8 @@ async def complete(
 
     Raises:
         LLMCompletionError: If the provider request fails, returns an
-            unexpected response, or the workspace lacks access to the model.
+            unexpected response, the model configuration is invalid, or the
+            workspace lacks access to the model.
         TracecatNotFoundError: If the default model or credentials are missing.
     """
     svc = AgentManagementService(session, role)
@@ -119,6 +120,9 @@ async def complete(
         raise LLMCompletionError(message) from e
     except httpx.RequestError as e:
         raise LLMCompletionError(f"LLM request failed: {e}") from e
+    except TracecatValidationError as e:
+        detail = str(e) or "model configuration failed validation"
+        raise LLMCompletionError(f"LLM model configuration is invalid: {detail}") from e
 
     return resp
 

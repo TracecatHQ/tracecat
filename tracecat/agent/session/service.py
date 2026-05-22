@@ -859,6 +859,7 @@ class AgentSessionService(BaseWorkspaceService):
             LLMCompletionError,
             SecretNotFoundError,
             TracecatNotFoundError,
+            TracecatValidationError,
             ValueError,
         ) as e:
             logger.warning(

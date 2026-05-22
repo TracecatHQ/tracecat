@@ -11,7 +11,7 @@ from tracecat.agent.session.service import AgentSessionService
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.db.models import AgentSession
-from tracecat.exceptions import TracecatNotFoundError
+from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
 
 
 @pytest.fixture
@@ -172,6 +172,35 @@ async def test_auto_title_does_not_raise_on_llm_completion_error(
     with patch(
         "tracecat.agent.session.service.generate_session_title",
         AsyncMock(side_effect=LLMCompletionError("provider down")),
+    ):
+        await service.auto_title_session_on_first_prompt(
+            agent_session,
+            "Find issue",
+        )
+
+    session.execute.assert_not_awaited()
+    session.commit.assert_not_awaited()
+
+
+@pytest.mark.anyio
+async def test_auto_title_does_not_raise_on_validation_error(
+    role: Role,
+) -> None:
+    session = AsyncMock()
+    service = AgentSessionService(session, role)
+    agent_session = AgentSession(
+        workspace_id=role.workspace_id,
+        title="New Chat",
+        entity_type="workflow",
+        entity_id=uuid.uuid4(),
+    )
+    agent_session.id = uuid.uuid4()
+
+    service._is_first_prompt_for_session = AsyncMock(return_value=True)
+
+    with patch(
+        "tracecat.agent.session.service.generate_session_title",
+        AsyncMock(side_effect=TracecatValidationError("invalid model config")),
     ):
         await service.auto_title_session_on_first_prompt(
             agent_session,
