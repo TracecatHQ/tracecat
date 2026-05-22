@@ -221,7 +221,7 @@ async def _sync_as_leader(session: AsyncSession, target_version: str) -> None:
 
             # Seed registry scopes for the synced actions
             await _seed_registry_scopes(session, result.actions)
-            _schedule_platform_registry_artifact_build(target_version)
+            _schedule_platform_registry_artifact_build(result.version_string)
             return
 
         except Exception as e:

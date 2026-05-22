@@ -11,6 +11,7 @@ This test suite validates:
 from __future__ import annotations
 
 import asyncio
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -333,9 +334,12 @@ async def test_startup_sync_calls_sync_for_new_version(
     mock_result.version_string = "1.0.0"
     mock_result.num_actions = 10
 
-    with patch(
-        "tracecat.registry.sync.jobs.PlatformRegistrySyncService"
-    ) as mock_sync_cls:
+    with (
+        patch(
+            "tracecat.registry.sync.jobs.PlatformRegistrySyncService"
+        ) as mock_sync_cls,
+        patch("tracecat.registry.sync.jobs._schedule_platform_registry_artifact_build"),
+    ):
         mock_sync_service = AsyncMock()
         mock_sync_service.sync_repository_v2.return_value = mock_result
         mock_sync_cls.return_value = mock_sync_service
@@ -347,6 +351,40 @@ async def test_startup_sync_calls_sync_for_new_version(
         call_kwargs = mock_sync_service.sync_repository_v2.call_args.kwargs
         assert call_kwargs["target_version"] == "1.0.0"
         assert call_kwargs["bypass_temporal"] is True
+
+
+@pytest.mark.anyio
+async def test_startup_sync_schedules_artifact_for_resolved_version(
+    session: AsyncSession,
+) -> None:
+    from tracecat.registry.sync.jobs import _sync_as_leader
+
+    repo = await _get_or_create_platform_repo(session)
+    repo.current_version_id = None
+    session.add(repo)
+    await session.commit()
+
+    mock_result = SimpleNamespace(
+        version_string="1.0.0.dev20260522140000",
+        num_actions=0,
+        actions=[],
+    )
+
+    with (
+        patch(
+            "tracecat.registry.sync.jobs.PlatformRegistrySyncService"
+        ) as mock_sync_cls,
+        patch(
+            "tracecat.registry.sync.jobs._schedule_platform_registry_artifact_build"
+        ) as schedule_build,
+    ):
+        mock_sync_service = AsyncMock()
+        mock_sync_service.sync_repository_v2.return_value = mock_result
+        mock_sync_cls.return_value = mock_sync_service
+
+        await _sync_as_leader(session, "1.0.0")
+
+        schedule_build.assert_called_once_with("1.0.0.dev20260522140000")
 
 
 @pytest.mark.anyio
