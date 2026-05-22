@@ -16,6 +16,8 @@ from tracecat.executor.registry_artifacts import (
     SQUASHFS_MOUNT_OPTIONS,
     RegistryArtifactCache,
     RegistryArtifactFormat,
+    SquashfsArtifact,
+    TarballArtifact,
     bundled_builtin_registry_uri,
     compute_registry_artifact_cache_key,
     parse_s3_uri,
@@ -211,12 +213,15 @@ class TestRegistryArtifactCache:
             cache_key = compute_registry_artifact_cache_key(
                 "s3://bucket/path/site-packages.tar.gz"
             )
+            ctx = cache._context_for(cache_key)
             candidates = await cache._artifact_candidates(
-                cache_key, "s3://bucket/path/site-packages.tar.gz"
+                ctx, "s3://bucket/path/site-packages.tar.gz"
             )
 
         artifact = candidates[0]
         assert len(candidates) == 2
+        assert isinstance(artifact, SquashfsArtifact)
+        assert isinstance(candidates[1], TarballArtifact)
         assert artifact.uri == "s3://bucket/path/site-packages.squashfs"
         assert artifact.format == RegistryArtifactFormat.SQUASHFS
         file_exists.assert_awaited_once_with(
@@ -235,11 +240,14 @@ class TestRegistryArtifactCache:
             cache_key = compute_registry_artifact_cache_key(
                 "s3://bucket/path/site-packages.squashfs"
             )
+            ctx = cache._context_for(cache_key)
             candidates = await cache._artifact_candidates(
-                cache_key,
+                ctx,
                 "s3://bucket/path/site-packages.squashfs",
             )
 
+        assert isinstance(candidates[0], SquashfsArtifact)
+        assert isinstance(candidates[1], TarballArtifact)
         assert [artifact.uri for artifact in candidates] == [
             "s3://bucket/path/site-packages.squashfs",
             "s3://bucket/path/site-packages.tar.gz",
@@ -266,12 +274,14 @@ class TestRegistryArtifactCache:
             cache_key = compute_registry_artifact_cache_key(
                 "s3://bucket/path/site-packages.tar.gz"
             )
+            ctx = cache._context_for(cache_key)
             candidates = await cache._artifact_candidates(
-                cache_key, "s3://bucket/path/site-packages.tar.gz"
+                ctx, "s3://bucket/path/site-packages.tar.gz"
             )
 
         artifact = candidates[0]
         assert len(candidates) == 1
+        assert isinstance(artifact, TarballArtifact)
         assert artifact.uri == "s3://bucket/path/site-packages.tar.gz"
         assert artifact.format == RegistryArtifactFormat.TAR_GZ
 
@@ -304,12 +314,14 @@ class TestRegistryArtifactCache:
             cache_key = compute_registry_artifact_cache_key(
                 "s3://bucket/path/custom.tar.gz"
             )
+            ctx = cache._context_for(cache_key)
             candidates = await cache._artifact_candidates(
-                cache_key, "s3://bucket/path/custom.tar.gz"
+                ctx, "s3://bucket/path/custom.tar.gz"
             )
 
         artifact = candidates[0]
         assert len(candidates) == 1
+        assert isinstance(artifact, TarballArtifact)
         assert artifact.uri == "s3://bucket/path/custom.tar.gz"
         assert artifact.format == RegistryArtifactFormat.TAR_GZ
         file_exists.assert_not_awaited()
