@@ -679,7 +679,7 @@ async def shared_synced_registry(
     yield {
         "sync_result": sync_result,
         "version": sync_result.version.version,
-        "tarball_uri": sync_result.tarball_uri,
+        "tarball_uri": sync_result.artifact_uri,
     }
 
 
@@ -717,13 +717,13 @@ class TestSyncv2MinioIntegration:
 
         # Verify sync result
         assert result.version is not None
-        assert result.tarball_uri is not None
-        assert result.tarball_uri.startswith("s3://")
+        assert result.artifact_uri is not None
+        assert result.artifact_uri.startswith("s3://")
         assert result.num_actions > 0
 
-        # Extract bucket and key from tarball_uri
+        # Extract bucket and key from artifact URI
         # Format: s3://bucket/key
-        uri_parts = result.tarball_uri.replace("s3://", "").split("/", 1)
+        uri_parts = result.artifact_uri.replace("s3://", "").split("/", 1)
         bucket = uri_parts[0]
         key = uri_parts[1]
 
@@ -833,7 +833,7 @@ class TestSyncv2MinioIntegration:
 
         # Should return same version
         assert result1.version.id == result2.version.id
-        assert result1.tarball_uri == result2.tarball_uri
+        assert result1.artifact_uri == result2.artifact_uri
 
 
 # =============================================================================
@@ -978,7 +978,7 @@ class TestExecuteWithSyncedRegistry:
             RegistryArtifactsContext(
                 origin=DEFAULT_REGISTRY_ORIGIN,
                 version=sync_result.version.version,
-                artifact_uri=sync_result.tarball_uri,
+                artifact_uri=sync_result.artifact_uri,
             )
         ]
 
@@ -1546,7 +1546,7 @@ class TestMultitenantWorkloads:
             RegistryArtifactsContext(
                 origin=DEFAULT_REGISTRY_ORIGIN,
                 version=sync_result.version.version,
-                artifact_uri=sync_result.tarball_uri,
+                artifact_uri=sync_result.artifact_uri,
             )
         ]
 
@@ -1723,7 +1723,7 @@ async def _run_sync_artifact_sandbox_smoke_child() -> None:
         )
         await session.commit()
 
-    tarball_uri = sync_result.tarball_uri
+    tarball_uri = sync_result.artifact_uri
     bucket, _ = _parse_s3_uri(tarball_uri)
     object_keys = _artifact_keys_for_tarball_uri(tarball_uri)
     missing_keys = [

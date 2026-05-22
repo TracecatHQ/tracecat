@@ -314,7 +314,7 @@ async def test_platform_builtin_sync_uses_prebuilt_manifest_without_discovery(
 
     assert result.num_actions == 1
     assert result.actions[0].default_title == "Prebuilt title"
-    assert result.tarball_uri.endswith("/1.2.3/site-packages.squashfs")
+    assert result.artifact_uri.endswith("/1.2.3/site-packages.squashfs")
     assert RegistryVersionManifest.model_validate(result.version.manifest) == manifest
     fetch_actions_from_subprocess.assert_not_awaited()
 

@@ -109,7 +109,7 @@ class BaseSyncResult[VersionT: VersionProtocol]:
 
     version: VersionT
     actions: list[RegistryActionCreate]
-    tarball_uri: str
+    artifact_uri: str
     commit_sha: str | None = None
 
     @property
@@ -397,8 +397,8 @@ class BaseRegistrySyncService[
             manifest=manifest,
         )
         if existing_version:
-            tarball_uri = cast(str | None, existing_version.tarball_uri)
-            if tarball_uri is None:
+            existing_artifact_uri = cast(str | None, existing_version.tarball_uri)
+            if existing_artifact_uri is None:
                 raise self._sync_error_cls()(
                     f"Version {target_version} exists but has no execution artifact. "
                     + "Delete the version and re-sync to create a valid version."
@@ -411,7 +411,7 @@ class BaseRegistrySyncService[
             return self._make_result(
                 version=existing_version,
                 actions=actions,
-                tarball_uri=tarball_uri,
+                artifact_uri=existing_artifact_uri,
                 commit_sha=commit_sha,
             )
 
@@ -470,7 +470,7 @@ class BaseRegistrySyncService[
         return self._make_result(
             version=version,
             actions=actions,
-            tarball_uri=artifacts.artifact_uri,
+            artifact_uri=artifacts.artifact_uri,
             commit_sha=commit_sha,
         )
 
@@ -482,13 +482,13 @@ class BaseRegistrySyncService[
         *,
         version: VersionT,
         actions: list[RegistryActionCreate],
-        tarball_uri: str,
+        artifact_uri: str,
         commit_sha: str | None,
     ) -> BaseSyncResult[VersionT]:
         return self._result_cls()(
             version=version,
             actions=actions,
-            tarball_uri=tarball_uri,
+            artifact_uri=artifact_uri,
             commit_sha=commit_sha,
         )
 
@@ -782,7 +782,7 @@ class BaseRegistrySyncService[
             return self._make_result(
                 version=existing_version,
                 actions=actions,
-                tarball_uri=existing_tarball_uri,
+                artifact_uri=existing_tarball_uri,
                 commit_sha=commit_sha,
             )
 
@@ -826,6 +826,6 @@ class BaseRegistrySyncService[
         return self._make_result(
             version=version,
             actions=actions,
-            tarball_uri=artifact_uri,
+            artifact_uri=artifact_uri,
             commit_sha=commit_sha,
         )
