@@ -97,6 +97,7 @@ locals {
         SAML_SIGNED_RESPONSES                      = var.saml_signed_responses
         SAML_VERIFY_SSL_ENTITY                     = var.saml_verify_ssl_entity
         SAML_VERIFY_SSL_METADATA                   = var.saml_verify_ssl_metadata
+        SENTRY_DSN                                 = var.sentry_dsn
         TRACECAT__WORKFLOW_ARTIFACT_RETENTION_DAYS = var.workflow_artifact_retention_days
       }
     ) :
@@ -162,6 +163,7 @@ locals {
         TRACECAT__SANDBOX_NSJAIL_PATH       = "/usr/local/bin/nsjail"
         TRACECAT__SANDBOX_ROOTFS_PATH       = "/var/lib/tracecat/sandbox-rootfs"
         TRACECAT__SANDBOX_CACHE_DIR         = "/var/lib/tracecat/sandbox-cache"
+        SENTRY_DSN                          = var.sentry_dsn
       }
     ) :
     { name = k, value = tostring(v) } if v != null
@@ -200,6 +202,7 @@ locals {
         TRACECAT__SANDBOX_NSJAIL_PATH                      = "/usr/local/bin/nsjail"
         TRACECAT__SANDBOX_ROOTFS_PATH                      = "/var/lib/tracecat/sandbox-rootfs"
         TRACECAT__SANDBOX_CACHE_DIR                        = "/var/lib/tracecat/sandbox-cache"
+        SENTRY_DSN                                         = var.sentry_dsn
       }
     ) :
     { name = k, value = tostring(v) } if v != null
@@ -238,6 +241,7 @@ locals {
         TRACECAT_MCP__STARTUP_MAX_ATTEMPTS        = var.mcp_startup_max_attempts
         TRACECAT_MCP__STARTUP_RETRY_DELAY_SECONDS = var.mcp_startup_retry_delay_seconds
         TEMPORAL__CLUSTER_QUEUE                   = local.temporal_cluster_queue
+        SENTRY_DSN                                = var.sentry_dsn
       }
     ) :
     { name = k, value = tostring(v) } if v != null
@@ -262,8 +266,10 @@ locals {
       NEXT_PUBLIC_APP_ENV    = var.tracecat_app_env
       NEXT_PUBLIC_APP_URL    = local.public_app_url
       NEXT_PUBLIC_AUTH_TYPES = var.auth_types
+      NEXT_PUBLIC_SENTRY_DSN = var.sentry_dsn
       NEXT_SERVER_API_URL    = local.internal_api_url
       NODE_ENV               = "production"
+      SENTRY_DSN             = var.sentry_dsn
     } :
     { name = k, value = tostring(v) } if v != null
   ]

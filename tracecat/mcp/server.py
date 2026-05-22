@@ -170,6 +170,7 @@ from tracecat.mcp.json_patch import apply_json_patch_operations, validate_patch_
 from tracecat.mcp.middleware import (
     MCPInputSizeLimitMiddleware,
     MCPTimeoutMiddleware,
+    SentryMCPMiddleware,
     WatchtowerMonitorMiddleware,
     get_mcp_client_id,
 )
@@ -2905,6 +2906,7 @@ mcp.add_middleware(MCPTimeoutMiddleware())
 mcp.add_middleware(
     ErrorHandlingMiddleware(include_traceback=False, transform_errors=True)
 )
+mcp.add_middleware(SentryMCPMiddleware())
 mcp.add_middleware(
     LoggingMiddleware(methods=["tools/call"], include_payload_length=True)
 )

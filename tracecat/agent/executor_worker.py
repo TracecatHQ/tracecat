@@ -9,7 +9,7 @@ from datetime import timedelta
 from typing import TYPE_CHECKING
 
 import uvloop
-from temporalio.worker import Worker
+from temporalio.worker import Interceptor, Worker
 
 from tracecat import config
 from tracecat.agent.executor.activity import run_agent_activity
@@ -21,7 +21,9 @@ from tracecat.agent.runtime_services import (
 )
 from tracecat.agent.worker import new_sandbox_runner
 from tracecat.dsl.client import get_temporal_client
+from tracecat.dsl.interceptor import SentryInterceptor
 from tracecat.logger import logger
+from tracecat.observability.sentry import init_sentry
 from tracecat.temporal.worker_lifecycle import run_worker_entrypoint
 
 if TYPE_CHECKING:
@@ -88,11 +90,15 @@ async def main(shutdown_event: asyncio.Event | None = None) -> None:
 
     try:
         client = await _start_runtime_services()
+        interceptors: list[Interceptor] = []
+        if init_sentry("agent-executor"):
+            interceptors.append(SentryInterceptor())
         with ThreadPoolExecutor(max_workers=threadpool_max_workers) as executor:
             async with Worker(
                 client,
                 task_queue=config.TRACECAT__AGENT_EXECUTOR_QUEUE,
                 activities=get_activities(),
+                interceptors=interceptors,
                 workflow_runner=new_sandbox_runner(),
                 max_concurrent_activities=max_concurrent,
                 disable_eager_activity_execution=config.TEMPORAL__DISABLE_EAGER_ACTIVITY_EXECUTION,

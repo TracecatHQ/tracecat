@@ -25,6 +25,7 @@ ARG NODE_ENV=production
 ARG NEXT_PUBLIC_APP_ENV=production
 ARG NEXT_PUBLIC_APP_URL=http://localhost:3000
 ARG NEXT_PUBLIC_API_URL=http://localhost:8000
+ARG NEXT_PUBLIC_SENTRY_DSN=
 ARG NEXT_SERVER_API_URL=http://api:8000
 
 # Set environment variables
@@ -32,6 +33,7 @@ ENV NODE_ENV=production
 ENV NEXT_PUBLIC_APP_ENV=$NEXT_PUBLIC_APP_ENV
 ENV NEXT_PUBLIC_APP_URL=$NEXT_PUBLIC_APP_URL
 ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
+ENV NEXT_PUBLIC_SENTRY_DSN=$NEXT_PUBLIC_SENTRY_DSN
 ENV NEXT_SERVER_API_URL=$NEXT_SERVER_API_URL
 
 # Copy node_modules from the deps stage
@@ -51,6 +53,7 @@ WORKDIR /app
 # Set production environment variables
 ENV NODE_ENV=production
 ENV NEXT_PUBLIC_APP_ENV=production
+ENV NEXT_PUBLIC_SENTRY_DSN=""
 
 # Create a non-root user to run the application
 RUN addgroup --system --gid 1001 nodejs
