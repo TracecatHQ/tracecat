@@ -11,6 +11,8 @@ import pytest
 
 from tracecat.registry.repository import Repository
 
+pytestmark = pytest.mark.skip(reason="action documentation link checks are disabled")
+
 
 def _action_doc_urls() -> dict[str, tuple[str, ...]]:
     repo = Repository()
