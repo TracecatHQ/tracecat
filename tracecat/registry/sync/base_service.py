@@ -749,7 +749,7 @@ class BaseRegistrySyncService[
 
         actions = workflow_result.actions
         self._raise_if_validation_errors(workflow_result.validation_errors)
-        tarball_uri = workflow_result.tarball_uri
+        artifact_uri = workflow_result.artifact_uri
         commit_sha = workflow_result.commit_sha
 
         if not actions:
@@ -758,7 +758,7 @@ class BaseRegistrySyncService[
         self.logger.info(
             "Workflow completed, processing results",
             num_actions=len(actions),
-            tarball_uri=tarball_uri,
+            artifact_uri=artifact_uri,
             commit_sha=commit_sha,
         )
 
@@ -801,7 +801,7 @@ class BaseRegistrySyncService[
             version=target_version,
             commit_sha=commit_sha,
             manifest=manifest,
-            tarball_uri=tarball_uri,
+            tarball_uri=artifact_uri,
         )
         version = await versions_service.create_version(version_create, commit=False)
 
@@ -809,7 +809,7 @@ class BaseRegistrySyncService[
             "Created registry version",
             version_id=str(version.id),
             version=target_version,
-            tarball_uri=tarball_uri,
+            artifact_uri=artifact_uri,
         )
 
         # Auto-promote: set new version as current
@@ -830,12 +830,12 @@ class BaseRegistrySyncService[
             version_id=str(version.id),
             version=target_version,
             num_actions=len(actions),
-            tarball_uri=tarball_uri,
+            artifact_uri=artifact_uri,
         )
 
         return self._make_result(
             version=version,
             actions=actions,
-            tarball_uri=tarball_uri,
+            tarball_uri=artifact_uri,
             commit_sha=commit_sha,
         )

@@ -97,7 +97,7 @@ class RegistrySyncWorkflow:
             "RegistrySyncWorkflow completed",
             repository_id=str(request.repository_id),
             num_actions=len(result.actions),
-            tarball_uri=result.tarball_uri,
+            artifact_uri=result.artifact_uri,
         )
 
         return result
@@ -220,7 +220,7 @@ async def sync_registry_activity(request: RegistrySyncRequest) -> RegistrySyncRe
         "sync_registry_activity completed",
         repository_id=str(request.repository_id),
         num_actions=len(result.actions),
-        tarball_uri=result.tarball_uri,
+        artifact_uri=result.artifact_uri,
         commit_sha=result.commit_sha,
     )
 

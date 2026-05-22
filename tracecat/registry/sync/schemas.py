@@ -12,7 +12,7 @@ from __future__ import annotations
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, TypeAdapter
 
 from tracecat.registry.actions.schemas import (
     RegistryActionCreate,
@@ -108,12 +108,21 @@ class RegistrySyncResult(BaseModel):
     Contains discovered actions and artifact location for DB operations.
     """
 
+    model_config = ConfigDict(
+        serialize_by_alias=True,
+        validate_by_alias=True,
+        validate_by_name=True,
+    )
+
     actions: list[RegistryActionCreate] = Field(
         default_factory=list,
         description="List of discovered registry actions",
     )
-    tarball_uri: str = Field(
-        ..., description="S3 URI of the uploaded execution artifact"
+    artifact_uri: str = Field(
+        ...,
+        validation_alias=AliasChoices("artifact_uri", "tarball_uri"),
+        serialization_alias="tarball_uri",
+        description="S3 URI of the uploaded execution artifact",
     )
     commit_sha: str | None = Field(
         default=None,
@@ -123,6 +132,11 @@ class RegistrySyncResult(BaseModel):
         default_factory=dict,
         description="Map of action name to validation errors",
     )
+
+    @property
+    def tarball_uri(self) -> str:
+        """Legacy alias for the registry artifact URI."""
+        return self.artifact_uri
 
 
 class RegistryArtifactsBackfillItem(BaseModel):

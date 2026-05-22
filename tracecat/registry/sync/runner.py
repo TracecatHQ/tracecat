@@ -236,7 +236,7 @@ class RegistrySyncRunner:
             # Phase 4: Upload SquashFS artifact to S3
             if artifact_result.squashfs_path is None:
                 raise RegistrySyncRunnerError("SquashFS artifact build is unavailable")
-            tarball_uri = await self._upload_squashfs(
+            artifact_uri = await self._upload_squashfs(
                 squashfs_path=artifact_result.squashfs_path,
                 repository_origin=request.origin,
                 commit_sha=commit_sha,
@@ -245,12 +245,12 @@ class RegistrySyncRunner:
 
             logger.info(
                 "Registry artifact uploaded",
-                artifact_uri=tarball_uri,
+                artifact_uri=artifact_uri,
             )
 
             return RegistrySyncResult(
                 actions=actions,
-                tarball_uri=tarball_uri,
+                artifact_uri=artifact_uri,
                 commit_sha=commit_sha,
                 validation_errors=validation_errors,
             )
