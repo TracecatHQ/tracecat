@@ -148,6 +148,36 @@ async def test_list_versions_includes_artifact_and_usage_status(
 
 
 @pytest.mark.anyio
+async def test_artifacts_ready_accepts_direct_squashfs_uri(
+    session: AsyncSession,
+    platform_role: PlatformRole,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    checked: dict[str, str] = {}
+
+    async def fake_file_exists(*, key: str, bucket: str) -> bool:
+        checked["key"] = key
+        checked["bucket"] = bucket
+        return True
+
+    monkeypatch.setattr(
+        "tracecat.admin.registry.service.blob.file_exists",
+        fake_file_exists,
+    )
+
+    service = AdminRegistryService(session, platform_role)
+    ready = await service._artifacts_ready(
+        "s3://registry-artifacts/platform/v1/site-packages.squashfs"
+    )
+
+    assert ready is True
+    assert checked == {
+        "bucket": "registry-artifacts",
+        "key": "platform/v1/site-packages.squashfs",
+    }
+
+
+@pytest.mark.anyio
 async def test_start_artifacts_backfill_scales_workflow_timeout(
     session: AsyncSession,
     platform_role: PlatformRole,

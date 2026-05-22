@@ -77,6 +77,13 @@ def get_squashfs_sidecar_key(tarball_key: str) -> str:
     return _squashfs_key_for(tarball_key)
 
 
+def get_squashfs_artifact_key(artifact_key: str) -> str:
+    """Return the SquashFS key for either a tarball key or SquashFS key."""
+    if artifact_key.endswith(".squashfs"):
+        return artifact_key
+    return _squashfs_key_for(artifact_key)
+
+
 def get_tarball_venv_s3_uri(*, bucket: str, key: str) -> str:
     """Return the S3 URI for a tarball venv key."""
     return f"s3://{bucket}/{key}"

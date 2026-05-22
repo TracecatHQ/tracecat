@@ -51,7 +51,7 @@ from tracecat.registry.sync.schemas import (
     RegistryArtifactsBackfillRequest,
 )
 from tracecat.registry.sync.tarball import (
-    get_squashfs_sidecar_key,
+    get_squashfs_artifact_key,
     parse_s3_uri,
 )
 from tracecat.registry.versions.schemas import RegistryVersionManifest
@@ -504,8 +504,8 @@ class AdminRegistryService(BasePlatformService):
             return False
 
         try:
-            bucket, tarball_key = parse_s3_uri(tarball_uri)
-            artifact_key = get_squashfs_sidecar_key(tarball_key)
+            bucket, artifact_uri_key = parse_s3_uri(tarball_uri)
+            artifact_key = get_squashfs_artifact_key(artifact_uri_key)
             return await blob.file_exists(key=artifact_key, bucket=bucket)
         except ValueError:
             self.logger.warning(

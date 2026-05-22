@@ -27,6 +27,18 @@ def test_squashfs_sidecar_key_helpers() -> None:
         )
         == "platform/tarball-venvs/test/1.0.0/site-packages.squashfs"
     )
+    assert (
+        tarball.get_squashfs_artifact_key(
+            "platform/tarball-venvs/test/1.0.0/site-packages.tar.gz"
+        )
+        == "platform/tarball-venvs/test/1.0.0/site-packages.squashfs"
+    )
+    assert (
+        tarball.get_squashfs_artifact_key(
+            "platform/tarball-venvs/test/1.0.0/site-packages.squashfs"
+        )
+        == "platform/tarball-venvs/test/1.0.0/site-packages.squashfs"
+    )
     assert tarball.get_tarball_venv_s3_uri(
         bucket="registry-artifacts",
         key="platform/tarball-venvs/test/1.0.0/site-packages.tar.gz",
