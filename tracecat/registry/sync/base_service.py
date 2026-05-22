@@ -29,19 +29,19 @@ from tracecat.registry.constants import (
     DEFAULT_REGISTRY_ORIGIN,
     REGISTRY_GIT_SSH_KEY_SECRET_NAME,
 )
-from tracecat.registry.sync.prebuilt import load_prebuilt_builtin_registry_manifest
-from tracecat.registry.sync.schemas import RegistrySyncRequest
-from tracecat.registry.sync.subprocess import fetch_actions_from_subprocess
-from tracecat.registry.sync.tarball import (
-    TarballBuildError,
-    TarballVenvBuildResult,
-    build_builtin_registry_tarball_venv,
-    build_tarball_venv_from_git,
-    build_tarball_venv_from_path,
+from tracecat.registry.sync.artifact import (
+    RegistryArtifactBuildError,
+    RegistryArtifactBuildResult,
+    build_artifact_from_git,
+    build_artifact_from_path,
+    build_builtin_registry_artifact,
     get_squashfs_sidecar_key,
     get_tarball_venv_s3_key,
     upload_squashfs_venv,
 )
+from tracecat.registry.sync.prebuilt import load_prebuilt_builtin_registry_manifest
+from tracecat.registry.sync.schemas import RegistrySyncRequest
+from tracecat.registry.sync.subprocess import fetch_actions_from_subprocess
 from tracecat.registry.versions.schemas import (
     RegistryVersionCreate,
     RegistryVersionManifest,
@@ -547,23 +547,21 @@ class BaseRegistrySyncService[
             return ArtifactsBuildResult(tarball_uri=artifact_uri)
 
         async with aiofiles.tempfile.TemporaryDirectory(
-            prefix="tracecat_tarball_"
+            prefix="tracecat_registry_artifact_"
         ) as temp_dir:
             output_dir = Path(temp_dir)
-            artifact_result: TarballVenvBuildResult
+            artifact_result: RegistryArtifactBuildResult
 
             if origin == DEFAULT_REGISTRY_ORIGIN:
-                artifact_result = await build_builtin_registry_tarball_venv(output_dir)
+                artifact_result = await build_builtin_registry_artifact(output_dir)
 
             elif origin == DEFAULT_LOCAL_REGISTRY_ORIGIN:
                 local_path = Path(config.TRACECAT__LOCAL_REPOSITORY_CONTAINER_PATH)
-                artifact_result = await build_tarball_venv_from_path(
-                    local_path, output_dir
-                )
+                artifact_result = await build_artifact_from_path(local_path, output_dir)
 
             elif origin.startswith("git+ssh://"):
                 if commit_sha is None:
-                    raise TarballBuildError(
+                    raise RegistryArtifactBuildError(
                         "commit_sha is required for git repositories"
                     )
 
@@ -571,7 +569,7 @@ class BaseRegistrySyncService[
                     "Building registry artifact for git repository",
                     origin=origin,
                 )
-                artifact_result = await build_tarball_venv_from_git(
+                artifact_result = await build_artifact_from_git(
                     git_url=origin,
                     commit_sha=commit_sha,
                     env=ssh_env,
@@ -579,12 +577,9 @@ class BaseRegistrySyncService[
                 )
 
             else:
-                raise TarballBuildError(
+                raise RegistryArtifactBuildError(
                     f"Unsupported origin for artifact building: {origin}"
                 )
-
-            if artifact_result.squashfs_path is None:
-                raise TarballBuildError("SquashFS artifact build is unavailable")
 
             artifact_uri = await upload_squashfs_venv(
                 squashfs_path=artifact_result.squashfs_path,
@@ -594,7 +589,7 @@ class BaseRegistrySyncService[
             self.logger.info(
                 "Registry execution artifact uploaded",
                 artifact_uri=artifact_uri,
-                squashfs_size_bytes=artifact_result.squashfs_size_bytes,
+                artifact_size_bytes=artifact_result.artifact_size_bytes,
             )
 
             return ArtifactsBuildResult(tarball_uri=artifact_uri)

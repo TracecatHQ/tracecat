@@ -17,31 +17,27 @@ from tracecat.registry.actions.schemas import (
     RegistryActionValidationErrorInfo,
 )
 from tracecat.registry.constants import DEFAULT_REGISTRY_ORIGIN
+from tracecat.registry.sync.artifact import (
+    RegistryArtifactBuildResult,
+    get_tarball_venv_artifact_dir,
+)
 from tracecat.registry.sync.prebuilt import write_prebuilt_registry_manifest
 from tracecat.registry.sync.runner import (
     RegistrySyncRunner,
     RegistrySyncValidationError,
 )
 from tracecat.registry.sync.schemas import RegistrySyncRequest
-from tracecat.registry.sync.tarball import (
-    TarballVenvBuildResult,
-    get_tarball_venv_artifact_dir,
-)
 from tracecat.registry.versions.schemas import RegistryVersionManifest
 
 
-def _make_artifact_result(tmp_path: Path) -> TarballVenvBuildResult:
-    tarball_path = tmp_path / "site-packages.tar.gz"
+def _make_artifact_result(tmp_path: Path) -> RegistryArtifactBuildResult:
     squashfs_path = tmp_path / "site-packages.squashfs"
-    tarball_path.write_bytes(b"tarball")
     squashfs_path.write_bytes(b"squashfs")
-    return TarballVenvBuildResult(
-        tarball_path=tarball_path,
-        tarball_name="site-packages.tar.gz",
-        content_hash="hash",
-        compressed_size_bytes=len(b"tarball"),
+    return RegistryArtifactBuildResult(
         squashfs_path=squashfs_path,
-        squashfs_size_bytes=len(b"squashfs"),
+        squashfs_name="site-packages.squashfs",
+        content_hash="hash",
+        artifact_size_bytes=len(b"squashfs"),
     )
 
 

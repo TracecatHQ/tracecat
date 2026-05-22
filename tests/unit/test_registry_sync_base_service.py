@@ -25,15 +25,15 @@ from tracecat.registry.constants import (
 from tracecat.registry.repositories.platform_service import PlatformRegistryReposService
 from tracecat.registry.repositories.schemas import RegistryRepositoryCreate
 from tracecat.registry.repositories.service import RegistryReposService
+from tracecat.registry.sync.artifact import (
+    RegistryArtifactBuildResult,
+    get_tarball_venv_artifact_dir,
+)
 from tracecat.registry.sync.base_service import ArtifactsBuildResult
 from tracecat.registry.sync.platform_service import PlatformRegistrySyncService
 from tracecat.registry.sync.prebuilt import write_prebuilt_registry_manifest
 from tracecat.registry.sync.runner import RegistrySyncValidationError
 from tracecat.registry.sync.service import RegistrySyncError, RegistrySyncService
-from tracecat.registry.sync.tarball import (
-    TarballVenvBuildResult,
-    get_tarball_venv_artifact_dir,
-)
 from tracecat.registry.versions.schemas import RegistryVersionManifest
 from tracecat.registry.versions.service import RegistryVersionsService
 
@@ -67,18 +67,14 @@ def _make_action(
     )
 
 
-def _make_artifact_result(tmp_path: Path) -> TarballVenvBuildResult:
-    tarball_path = tmp_path / "site-packages.tar.gz"
+def _make_artifact_result(tmp_path: Path) -> RegistryArtifactBuildResult:
     squashfs_path = tmp_path / "site-packages.squashfs"
-    tarball_path.write_bytes(b"tarball")
     squashfs_path.write_bytes(b"squashfs")
-    return TarballVenvBuildResult(
-        tarball_path=tarball_path,
-        tarball_name="site-packages.tar.gz",
-        content_hash="hash",
-        compressed_size_bytes=len(b"tarball"),
+    return RegistryArtifactBuildResult(
         squashfs_path=squashfs_path,
-        squashfs_size_bytes=len(b"squashfs"),
+        squashfs_name="site-packages.squashfs",
+        content_hash="hash",
+        artifact_size_bytes=len(b"squashfs"),
     )
 
 
@@ -193,8 +189,8 @@ async def test_platform_builtin_sync_reuses_existing_artifact_objects(
         "tracecat.registry.sync.base_service.blob.file_exists",
         mocker.AsyncMock(return_value=True),
     )
-    build_builtin_registry_tarball_venv = mocker.patch(
-        "tracecat.registry.sync.base_service.build_builtin_registry_tarball_venv",
+    build_builtin_registry_artifact = mocker.patch(
+        "tracecat.registry.sync.base_service.build_builtin_registry_artifact",
         mocker.AsyncMock(),
     )
     upload_squashfs_venv = mocker.patch(
@@ -219,7 +215,7 @@ async def test_platform_builtin_sync_reuses_existing_artifact_objects(
         key="platform/tarball-venvs/tracecat_registry/1.2.3/site-packages.squashfs",
         bucket="registry",
     )
-    build_builtin_registry_tarball_venv.assert_not_awaited()
+    build_builtin_registry_artifact.assert_not_awaited()
     upload_squashfs_venv.assert_not_awaited()
 
 
@@ -240,8 +236,8 @@ async def test_platform_builtin_sync_uploads_squashfs_artifact(
         "tracecat.registry.sync.base_service.blob.file_exists",
         mocker.AsyncMock(return_value=False),
     )
-    build_builtin_registry_tarball_venv = mocker.patch(
-        "tracecat.registry.sync.base_service.build_builtin_registry_tarball_venv",
+    build_builtin_registry_artifact = mocker.patch(
+        "tracecat.registry.sync.base_service.build_builtin_registry_artifact",
         mocker.AsyncMock(return_value=artifact_result),
     )
     upload_squashfs_venv = mocker.patch(
@@ -263,7 +259,7 @@ async def test_platform_builtin_sync_uploads_squashfs_artifact(
     )
 
     assert result.tarball_uri.endswith("/1.2.3/site-packages.squashfs")
-    build_builtin_registry_tarball_venv.assert_awaited_once()
+    build_builtin_registry_artifact.assert_awaited_once()
     upload_squashfs_venv.assert_awaited_once_with(
         squashfs_path=artifact_result.squashfs_path,
         key="platform/tarball-venvs/tracecat_registry/1.2.3/site-packages.squashfs",

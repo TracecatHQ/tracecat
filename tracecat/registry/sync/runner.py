@@ -30,19 +30,19 @@ from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.logger import logger
 from tracecat.registry.actions.schemas import RegistryActionCreate
-from tracecat.registry.sync.platform_service import PLATFORM_REGISTRY_TARBALL_NAMESPACE
-from tracecat.registry.sync.prebuilt import load_prebuilt_builtin_registry_manifest
-from tracecat.registry.sync.schemas import RegistrySyncRequest, RegistrySyncResult
-from tracecat.registry.sync.subprocess import fetch_actions_from_subprocess
-from tracecat.registry.sync.tarball import (
-    TarballBuildError,
-    TarballVenvBuildResult,
-    build_tarball_venv_from_path,
+from tracecat.registry.sync.artifact import (
+    RegistryArtifactBuildError,
+    RegistryArtifactBuildResult,
+    build_artifact_from_path,
     get_builtin_registry_source_path,
     get_squashfs_sidecar_key,
     get_tarball_venv_s3_key,
     upload_squashfs_venv,
 )
+from tracecat.registry.sync.platform_service import PLATFORM_REGISTRY_TARBALL_NAMESPACE
+from tracecat.registry.sync.prebuilt import load_prebuilt_builtin_registry_manifest
+from tracecat.registry.sync.schemas import RegistrySyncRequest, RegistrySyncResult
+from tracecat.registry.sync.subprocess import fetch_actions_from_subprocess
 from tracecat.secrets.service import SecretsService
 from tracecat.storage import blob
 
@@ -187,13 +187,13 @@ class RegistrySyncRunner:
             # may need network access, but upload waits until validation passes.
             artifact_result = await self._build_execution_artifact(
                 package_path=package_path,
-                output_dir=work_dir / "tarball",
+                output_dir=work_dir / "artifact",
             )
 
             logger.info(
                 "Registry artifact built",
                 squashfs_path=str(artifact_result.squashfs_path),
-                squashfs_size_bytes=artifact_result.squashfs_size_bytes,
+                artifact_size_bytes=artifact_result.artifact_size_bytes,
             )
 
             # Phase 3: Discover actions from the installed packages, or load the
@@ -233,9 +233,7 @@ class RegistrySyncRunner:
             if validation_errors:
                 raise RegistrySyncValidationError(validation_errors)
 
-            # Phase 4: Upload SquashFS artifact to S3
-            if artifact_result.squashfs_path is None:
-                raise RegistrySyncRunnerError("SquashFS artifact build is unavailable")
+            # Phase 4: Upload SquashFS image to S3
             artifact_uri = await self._upload_squashfs(
                 squashfs_path=artifact_result.squashfs_path,
                 repository_origin=request.origin,
@@ -266,7 +264,7 @@ class RegistrySyncRunner:
         """
         try:
             return get_builtin_registry_source_path()
-        except TarballBuildError as e:
+        except RegistryArtifactBuildError as e:
             raise RegistrySyncRunnerError(str(e)) from e
 
     async def _fetch_registry_ssh_key(self, organization_id: UUID | None) -> str:
@@ -444,23 +442,21 @@ class RegistrySyncRunner:
         self,
         package_path: Path,
         output_dir: Path,
-    ) -> TarballVenvBuildResult:
-        """Build a registry artifact from the package.
+    ) -> RegistryArtifactBuildResult:
+        """Build a SquashFS registry artifact from the package.
 
         Args:
             package_path: Path to the package directory.
             output_dir: Directory for output files.
 
         Returns:
-            TarballVenvBuildResult with build metadata.
+            RegistryArtifactBuildResult with build metadata.
 
         Raises:
-            TarballBuildError: If build fails.
+            RegistryArtifactBuildError: If build fails.
         """
         output_dir.mkdir(parents=True, exist_ok=True)
-        # Reuse the existing venv builder: it performs dependency installation
-        # once and emits the SquashFS sidecar that this runner uploads.
-        return await build_tarball_venv_from_path(package_path, output_dir)
+        return await build_artifact_from_path(package_path, output_dir)
 
     async def _discover_actions(
         self,

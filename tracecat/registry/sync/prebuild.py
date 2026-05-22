@@ -10,9 +10,9 @@ import tracecat_registry
 
 from tracecat import config
 from tracecat.registry.constants import DEFAULT_REGISTRY_ORIGIN
+from tracecat.registry.sync.artifact import get_tarball_venv_artifact_dir
 from tracecat.registry.sync.entrypoint import load_and_serialize_actions
 from tracecat.registry.sync.prebuilt import write_prebuilt_registry_manifest
-from tracecat.registry.sync.tarball import get_tarball_venv_artifact_dir
 from tracecat.registry.versions.schemas import RegistryVersionManifest
 
 PLATFORM_REGISTRY_TARBALL_NAMESPACE = "platform"

@@ -9,7 +9,7 @@ from pydantic import ValidationError
 from tracecat import config
 from tracecat.logger import logger
 from tracecat.registry.constants import DEFAULT_REGISTRY_ORIGIN
-from tracecat.registry.sync.tarball import get_tarball_venv_s3_key
+from tracecat.registry.sync.artifact import get_tarball_venv_s3_key
 from tracecat.registry.versions.schemas import RegistryVersionManifest
 
 PREBUILT_MANIFEST_FILENAME = "manifest.json"

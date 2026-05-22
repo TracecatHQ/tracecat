@@ -45,14 +45,14 @@ from tracecat.registry.repositories.schemas import (
     RegistryRepositoryRead,
     RegistryRepositoryReadMinimal,
 )
+from tracecat.registry.sync.artifact import (
+    get_squashfs_artifact_key,
+    parse_s3_uri,
+)
 from tracecat.registry.sync.platform_service import PlatformRegistrySyncService
 from tracecat.registry.sync.schemas import (
     RegistryArtifactsBackfillItem,
     RegistryArtifactsBackfillRequest,
-)
-from tracecat.registry.sync.tarball import (
-    get_squashfs_artifact_key,
-    parse_s3_uri,
 )
 from tracecat.registry.versions.schemas import RegistryVersionManifest
 from tracecat.registry.versions.service import PlatformRegistryVersionsService

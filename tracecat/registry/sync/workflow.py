@@ -36,6 +36,12 @@ with workflow.unsafe.imports_passed_through():
     from pathlib import Path
 
     from tracecat.logger import logger
+    from tracecat.registry.sync.artifact import (
+        build_squashfs_sidecar_from_tarball,
+        download_tarball_venv,
+        get_squashfs_artifact_key,
+        parse_s3_uri,
+    )
     from tracecat.registry.sync.runner import (
         RegistrySyncRunner,
         RegistrySyncValidationError,
@@ -47,12 +53,6 @@ with workflow.unsafe.imports_passed_through():
         RegistryArtifactsBackfillResult,
         RegistrySyncRequest,
         RegistrySyncResult,
-    )
-    from tracecat.registry.sync.tarball import (
-        build_squashfs_sidecar_from_tarball,
-        download_tarball_venv,
-        get_squashfs_artifact_key,
-        parse_s3_uri,
     )
     from tracecat.storage import blob
 
