@@ -31,6 +31,7 @@ from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.logger import logger
 from tracecat.registry.actions.schemas import RegistryActionCreate
 from tracecat.registry.artifact_keys import get_artifact_s3_key
+from tracecat.registry.constants import PLATFORM_REGISTRY_NAMESPACE
 from tracecat.registry.sync.artifact import (
     RegistryArtifactBuildError,
     RegistryArtifactBuildResult,
@@ -38,7 +39,6 @@ from tracecat.registry.sync.artifact import (
     get_builtin_registry_source_path,
     upload_squashfs_venv,
 )
-from tracecat.registry.sync.platform_service import PLATFORM_REGISTRY_TARBALL_NAMESPACE
 from tracecat.registry.sync.prebuilt import load_prebuilt_builtin_registry_manifest
 from tracecat.registry.sync.schemas import RegistrySyncRequest, RegistrySyncResult
 from tracecat.registry.sync.subprocess import fetch_actions_from_subprocess
@@ -178,9 +178,7 @@ class RegistrySyncRunner:
                 package_path=str(package_path),
             )
 
-            storage_namespace = (
-                request.storage_namespace or PLATFORM_REGISTRY_TARBALL_NAMESPACE
-            )
+            storage_namespace = request.storage_namespace or PLATFORM_REGISTRY_NAMESPACE
 
             # Phase 2: Build execution artifact. This installs dependencies and
             # may need network access, but upload waits until validation passes.
@@ -532,7 +530,7 @@ class RegistrySyncRunner:
         await blob.ensure_bucket_exists(bucket)
 
         # Generate S3 key
-        namespace = storage_namespace or PLATFORM_REGISTRY_TARBALL_NAMESPACE
+        namespace = storage_namespace or PLATFORM_REGISTRY_NAMESPACE
         s3_key = get_artifact_s3_key(
             organization_id=namespace,
             repository_origin=repository_origin,

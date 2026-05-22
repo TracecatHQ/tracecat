@@ -408,7 +408,7 @@ class BaseRegistrySyncService[
                 version=target_version,
                 version_id=str(existing_version.id),
             )
-            return self._make_result(
+            return self._result_cls()(
                 version=existing_version,
                 actions=actions,
                 artifact_uri=existing_artifact_uri,
@@ -467,7 +467,7 @@ class BaseRegistrySyncService[
             artifact_uri=artifacts.artifact_uri,
         )
 
-        return self._make_result(
+        return self._result_cls()(
             version=version,
             actions=actions,
             artifact_uri=artifacts.artifact_uri,
@@ -476,21 +476,6 @@ class BaseRegistrySyncService[
 
     def _get_versions_service(self) -> VersionsServiceProtocol[VersionT]:
         return self._versions_service_cls()(self.session, self.role)
-
-    def _make_result(
-        self,
-        *,
-        version: VersionT,
-        actions: list[RegistryActionCreate],
-        artifact_uri: str,
-        commit_sha: str | None,
-    ) -> BaseSyncResult[VersionT]:
-        return self._result_cls()(
-            version=version,
-            actions=actions,
-            artifact_uri=artifact_uri,
-            commit_sha=commit_sha,
-        )
 
     def _get_storage_namespace(self) -> str:
         """Get storage namespace for blob storage.
@@ -779,7 +764,7 @@ class BaseRegistrySyncService[
                 version=target_version,
                 version_id=str(existing_version.id),
             )
-            return self._make_result(
+            return self._result_cls()(
                 version=existing_version,
                 actions=actions,
                 artifact_uri=existing_tarball_uri,
@@ -823,7 +808,7 @@ class BaseRegistrySyncService[
             artifact_uri=artifact_uri,
         )
 
-        return self._make_result(
+        return self._result_cls()(
             version=version,
             actions=actions,
             artifact_uri=artifact_uri,

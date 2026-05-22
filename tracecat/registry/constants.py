@@ -10,3 +10,6 @@ REGISTRY_REPOS_PATH: str = "/registry/repos"
 
 REGISTRY_ACTIONS_PATH: str = "/registry/actions"
 """Base path for action-related endpoints"""
+
+PLATFORM_REGISTRY_NAMESPACE: str = "platform"
+"""Storage namespace for platform-scoped registry artifacts (S3 prefix segment)."""
