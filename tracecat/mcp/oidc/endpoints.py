@@ -207,7 +207,7 @@ async def openid_configuration(request: Request) -> dict[str, Any]:
     # Build a base URL from the incoming request so the token endpoint is
     # reachable by whoever fetched this discovery document.
     # When the request arrived through a path-stripping reverse proxy (e.g.
-    # Caddy's ``handle_path /api*``), include the app's root_path so the
+    # Caddy's ``handle_path /api/*``), include the app's root_path so the
     # returned endpoint URLs are reachable via that same proxy.
     forwarded_host = request.headers.get("x-forwarded-host")
     if forwarded_host:

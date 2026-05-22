@@ -13,6 +13,7 @@
 # Optional secrets:
 # 1. OAUTH_CLIENT_ID (legacy OIDC alias)
 # 2. OAUTH_CLIENT_SECRET (legacy OIDC alias)
+# 3. TRACECAT__METRICS_TOKEN (optional bearer auth for metrics reads)
 
 ### Required secrets
 data "aws_secretsmanager_secret" "tracecat_db_encryption_key" {
@@ -276,6 +277,13 @@ locals {
     }
   ] : []
 
+  metrics_token_secret = var.metrics_token_secret_arn != null ? [
+    {
+      name      = "TRACECAT__METRICS_TOKEN"
+      valueFrom = var.metrics_token_secret_arn
+    }
+  ] : []
+
   temporal_auth_client_id_secret = var.temporal_auth_client_id_arn != null ? [
     {
       name      = "TEMPORAL_AUTH_CLIENT_ID"
@@ -297,6 +305,7 @@ locals {
     local.oidc_client_id_secret,
     local.oidc_client_secret_secret,
     local.user_auth_secret_secret,
+    local.metrics_token_secret,
     local.saml_idp_metadata_url_secret,
     local.saml_ca_certs_secret,
     local.saml_metadata_cert_secret
@@ -328,5 +337,6 @@ locals {
   mcp_secrets = concat(
     local.tracecat_temporal_secrets,
     local.user_auth_secret_secret,
+    local.metrics_token_secret,
   )
 }

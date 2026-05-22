@@ -190,7 +190,10 @@ from tracecat.mcp.schemas import (
     WorkflowSchedule,
     WorkflowYamlPayload,
 )
-from tracecat.middleware.metrics import prometheus_metrics_response
+from tracecat.middleware.metrics import (
+    metrics_auth_failure_status,
+    prometheus_metrics_response,
+)
 from tracecat.pagination import CursorPaginatedResponse, CursorPaginationParams
 from tracecat.registry.actions.schemas import TemplateAction
 from tracecat.registry.actions.service import (
@@ -2919,6 +2922,8 @@ async def metrics(request: Request):
     # exposing them through the public MCP root prefix such as /mcp/metrics.
     if request.scope.get("path") != "/metrics":
         return Response(status_code=404)
+    if failure_status := metrics_auth_failure_status(request):
+        return Response(status_code=failure_status)
     return prometheus_metrics_response()
 
 

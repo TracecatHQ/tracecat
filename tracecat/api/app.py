@@ -142,7 +142,10 @@ from tracecat.middleware import (
     HTTPMetricsMiddleware,
     RequestLoggingMiddleware,
 )
-from tracecat.middleware.metrics import prometheus_metrics_response
+from tracecat.middleware.metrics import (
+    metrics_auth_failure_status,
+    prometheus_metrics_response,
+)
 from tracecat.middleware.security import SecurityHeadersMiddleware
 from tracecat.organization.management import (
     ensure_default_organization,
@@ -773,6 +776,8 @@ async def metrics(request: Request) -> Response:
     # root-prefixed API path such as /api/metrics.
     if request.scope.get("path") != "/metrics":
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
+    if failure_status := metrics_auth_failure_status(request):
+        raise HTTPException(status_code=failure_status)
     return prometheus_metrics_response()
 
 

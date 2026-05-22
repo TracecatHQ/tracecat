@@ -433,6 +433,12 @@ variable "user_auth_secret_arn" {
   description = "The ARN of the secret containing USER_AUTH_SECRET"
 }
 
+variable "metrics_token_secret_arn" {
+  type        = string
+  description = "The ARN of the secret containing TRACECAT__METRICS_TOKEN. When null, private metrics reads are unauthenticated."
+  default     = null
+}
+
 variable "saml_idp_metadata_url_arn" {
   type        = string
   description = "The ARN of the secret containing the SAML IDP metadata URL (optional)"

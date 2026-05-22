@@ -1,3 +1,4 @@
+import secrets
 from collections.abc import Awaitable, Callable
 
 from fastapi import Request
@@ -6,6 +7,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import Response
 from starlette.types import ASGIApp
 
+from tracecat import config
 from tracecat.auth.types import Role
 
 type CallNext = Callable[[Request], Awaitable[Response]]
@@ -75,6 +77,33 @@ class HTTPMetricsMiddleware(BaseHTTPMiddleware):
 def prometheus_metrics_response() -> Response:
     data = generate_latest(REGISTRY)
     return Response(content=data, headers={"Content-Type": str(CONTENT_TYPE_LATEST)})
+
+
+def metrics_auth_failure_status(request: Request) -> int | None:
+    """Return an HTTP status when a metrics scrape request is not authorized."""
+    if not config.TRACECAT__METRICS_TOKEN:
+        return None
+    authorization = request.headers.get("authorization")
+    if not _is_valid_metrics_authorization(authorization):
+        return 401
+    return None
+
+
+def _is_valid_metrics_authorization(authorization: str | None) -> bool:
+    token = config.TRACECAT__METRICS_TOKEN
+    if not token or not authorization:
+        return False
+
+    scheme, separator, credentials = authorization.partition(" ")
+    if not separator or scheme.lower() != "bearer":
+        return False
+
+    try:
+        credentials_bytes = credentials.strip().encode("ascii")
+        token_bytes = token.encode("ascii")
+    except UnicodeEncodeError:
+        return False
+    return secrets.compare_digest(credentials_bytes, token_bytes)
 
 
 def _should_skip_request(request: Request) -> bool:
