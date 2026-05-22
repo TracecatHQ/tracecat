@@ -20,7 +20,7 @@ from tracecat.executor.backends.pool.pool import (
     get_worker_pool,
     shutdown_worker_pool,
 )
-from tracecat.executor.backends.registry_helpers import get_registry_tarball_uris
+from tracecat.executor.backends.registry_helpers import get_registry_artifact_uris
 from tracecat.logger import logger
 
 if TYPE_CHECKING:
@@ -72,13 +72,13 @@ class PoolBackend(ExecutorBackend):
             timeout=timeout,
         )
 
-    async def _get_tarball_uris(
+    async def _get_artifact_uris(
         self,
         input: RunActionInput,
         role: Role,
     ) -> list[str]:
-        """Get tarball URIs for registry environment (deterministic ordering)."""
-        return await get_registry_tarball_uris(input=input, role=role)
+        """Get artifact URIs for registry environment (deterministic ordering)."""
+        return await get_registry_artifact_uris(input=input, role=role)
 
     async def start(self) -> None:
         """Initialize the worker pool."""

@@ -33,7 +33,7 @@ from tracecat.contexts import (
 )
 from tracecat.executor.action_runner import get_action_runner
 from tracecat.executor.backends.base import ExecutorBackend
-from tracecat.executor.backends.registry_helpers import get_registry_tarball_uris
+from tracecat.executor.backends.registry_helpers import get_registry_artifact_uris
 from tracecat.executor.schemas import (
     ActionImplementation,
     ExecutorActionErrorInfo,
@@ -116,15 +116,15 @@ class TestBackend(ExecutorBackend):
             task_ref=input.task.ref,
         )
 
-        tarball_paths = await self._ensure_registry_tarballs(input, role)
-        if tarball_paths:
+        artifact_paths = await self._ensure_registry_artifacts(input, role)
+        if artifact_paths:
             logger.debug(
-                "Adding tarball paths to sys.path for test execution",
-                paths=tarball_paths,
+                "Adding artifact paths to sys.path for test execution",
+                paths=artifact_paths,
             )
 
         try:
-            with _temporary_sys_path(tarball_paths):
+            with _temporary_sys_path(artifact_paths):
                 result = await asyncio.wait_for(
                     self._execute_with_context(input, role, resolved_context),
                     timeout=timeout,
@@ -237,39 +237,39 @@ class TestBackend(ExecutorBackend):
         )
         return load_udf_impl(udf_impl)
 
-    async def _ensure_registry_tarballs(
+    async def _ensure_registry_artifacts(
         self, input: RunActionInput, role: Role
     ) -> list[str]:
-        """Download and extract registry tarballs, returning paths for sys.path."""
+        """Materialize registry artifacts, returning paths for sys.path."""
         if config.TRACECAT__LOCAL_REPOSITORY_ENABLED:
             return []
 
-        tarball_uris = await self._get_tarball_uris(input, role)
-        if not tarball_uris:
-            logger.debug("No tarball URIs found, using empty paths")
+        artifact_uris = await self._get_artifact_uris(input, role)
+        if not artifact_uris:
+            logger.debug("No artifact URIs found, using empty paths")
             return []
 
         runner = get_action_runner()
         extracted_paths: list[str] = []
 
-        for tarball_uri in tarball_uris:
+        for artifact_uri in artifact_uris:
             try:
-                extracted_path = await runner.ensure_registry_environment(tarball_uri)
+                extracted_path = await runner.ensure_registry_environment(artifact_uri)
                 if extracted_path:
                     extracted_paths.append(str(extracted_path))
             except Exception as e:
                 logger.warning(
-                    "Failed to extract tarball for test execution",
-                    tarball_uri=tarball_uri,
+                    "Failed to materialize artifact for test execution",
+                    artifact_uri=artifact_uri,
                     error=str(e),
                 )
 
         logger.debug(
-            "Extracted registry tarballs for test execution",
+            "Materialized registry artifacts for test execution",
             count=len(extracted_paths),
         )
         return extracted_paths
 
-    async def _get_tarball_uris(self, input: RunActionInput, role: Role) -> list[str]:
-        """Get tarball URIs for registry environment (deterministic ordering)."""
-        return await get_registry_tarball_uris(input=input, role=role)
+    async def _get_artifact_uris(self, input: RunActionInput, role: Role) -> list[str]:
+        """Get artifact URIs for registry environment (deterministic ordering)."""
+        return await get_registry_artifact_uris(input=input, role=role)

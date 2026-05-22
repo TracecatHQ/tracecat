@@ -11,7 +11,6 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import os
-import re
 import shutil
 import stat
 import subprocess
@@ -21,7 +20,6 @@ import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
-from urllib.parse import urlparse
 
 import aiofiles
 import tracecat_registry
@@ -46,38 +44,6 @@ class RegistryArtifactBuildResult:
     squashfs_name: str
     content_hash: str
     artifact_size_bytes: int
-
-
-def _squashfs_key_for(key: str) -> str:
-    """Return the sibling SquashFS key for a legacy gzip tarball S3 key."""
-    if key.endswith(".tar.gz"):
-        return key.removesuffix(".tar.gz") + ".squashfs"
-    return f"{key}.squashfs"
-
-
-def parse_s3_uri(uri: str) -> tuple[str, str]:
-    """Parse an S3 URI into bucket and key."""
-    parsed = urlparse(uri)
-    if parsed.scheme != "s3" or not parsed.netloc or not parsed.path.strip("/"):
-        raise ValueError(f"Invalid S3 URI: {uri}")
-    return parsed.netloc, parsed.path.lstrip("/")
-
-
-def get_squashfs_sidecar_key(tarball_key: str) -> str:
-    """Return the sibling SquashFS key for a tarball S3 key."""
-    return _squashfs_key_for(tarball_key)
-
-
-def get_squashfs_artifact_key(artifact_key: str) -> str:
-    """Return the SquashFS key for either a tarball key or SquashFS key."""
-    if artifact_key.endswith(".squashfs"):
-        return artifact_key
-    return _squashfs_key_for(artifact_key)
-
-
-def get_tarball_venv_s3_uri(*, bucket: str, key: str) -> str:
-    """Return the S3 URI for a tarball venv key."""
-    return f"s3://{bucket}/{key}"
 
 
 def _compute_file_hash(file_path: Path) -> str:
@@ -232,21 +198,6 @@ def subprocess_run(cmd: list[str]) -> subprocess.CompletedProcess[str]:
     shelling out.
     """
     return subprocess.run(cmd, capture_output=True, text=True, check=False)
-
-
-def _slugify_origin(origin: str) -> str:
-    """Convert a repository origin to a safe slug for S3 keys."""
-    # Remove protocol prefix
-    slug = (
-        origin.replace("git+ssh://", "").replace("https://", "").replace("http://", "")
-    )
-    # Replace non-alphanumeric characters with underscores
-    slug = re.sub(r"[^a-zA-Z0-9_-]", "_", slug)
-    # Remove consecutive underscores
-    slug = re.sub(r"_+", "_", slug)
-    # Remove leading/trailing underscores
-    slug = slug.strip("_")
-    return slug[:100]  # Limit length
 
 
 def get_builtin_registry_source_path() -> Path:
@@ -702,45 +653,6 @@ async def build_squashfs_sidecar_from_tarball(
         return squashfs_path.exists()
 
     return await asyncio.to_thread(_build_sidecar)
-
-
-def get_tarball_venv_s3_key(
-    organization_id: str,
-    repository_origin: str,
-    version: str,
-) -> str:
-    """Generate the S3 key for a tarball venv file.
-
-    Format: {org_id}/tarball-venvs/{origin_slug}/{version}/site-packages.tar.gz
-
-    Args:
-        organization_id: Organization UUID
-        repository_origin: Repository origin (e.g., "tracecat_registry", "git+ssh://...")
-        version: Version string
-
-    Returns:
-        S3 key string
-    """
-    origin_slug = _slugify_origin(repository_origin)
-    return (
-        f"{organization_id}/tarball-venvs/{origin_slug}/{version}/site-packages.tar.gz"
-    )
-
-
-def get_tarball_venv_artifact_dir(
-    *,
-    root: Path,
-    organization_id: str,
-    repository_origin: str,
-    version: str,
-) -> Path:
-    """Return the local artifact directory matching the tarball S3 key layout."""
-    key = get_tarball_venv_s3_key(
-        organization_id=organization_id,
-        repository_origin=repository_origin,
-        version=version,
-    )
-    return root / Path(key).parent
 
 
 async def upload_squashfs_venv(

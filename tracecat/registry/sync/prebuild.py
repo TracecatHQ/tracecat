@@ -9,8 +9,8 @@ from uuid import UUID
 import tracecat_registry
 
 from tracecat import config
+from tracecat.registry.artifact_keys import get_artifact_local_dir
 from tracecat.registry.constants import DEFAULT_REGISTRY_ORIGIN
-from tracecat.registry.sync.artifact import get_tarball_venv_artifact_dir
 from tracecat.registry.sync.entrypoint import load_and_serialize_actions
 from tracecat.registry.sync.prebuilt import write_prebuilt_registry_manifest
 from tracecat.registry.versions.schemas import RegistryVersionManifest
@@ -22,7 +22,7 @@ PREBUILD_REPOSITORY_ID = UUID("00000000-0000-4000-8000-000000000000")
 async def prebuild_builtin_registry_manifest(output_root: Path | None = None) -> Path:
     """Build the builtin registry manifest into the deterministic local layout."""
     root = output_root or Path(config.TRACECAT__REGISTRY_SYNC_PREBUILT_ARTIFACTS_DIR)
-    output_dir = get_tarball_venv_artifact_dir(
+    output_dir = get_artifact_local_dir(
         root=root,
         organization_id=PLATFORM_REGISTRY_TARBALL_NAMESPACE,
         repository_origin=DEFAULT_REGISTRY_ORIGIN,

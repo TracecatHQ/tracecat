@@ -9,8 +9,8 @@ import pytest
 from tracecat.auth.types import Role
 from tracecat.dsl.schemas import RunActionInput
 from tracecat.executor.backends.registry_helpers import (
-    get_registry_tarball_uris,
-    sort_registry_tarball_uris,
+    get_registry_artifact_uris,
+    sort_registry_artifact_uris,
 )
 from tracecat.executor.registry_artifacts import bundled_builtin_registry_uri
 from tracecat.executor.service import RegistryArtifactsContext
@@ -27,26 +27,26 @@ def test_role() -> Role:
     )
 
 
-def test_sort_registry_tarball_uris_orders_builtin_first() -> None:
+def test_sort_registry_artifact_uris_orders_builtin_first() -> None:
     artifacts = [
         RegistryArtifactsContext(
             origin="git+ssh://github.com/example/b.git",
             version="v1",
-            tarball_uri="s3://bucket/b.tar.gz",
+            artifact_uri="s3://bucket/b.tar.gz",
         ),
         RegistryArtifactsContext(
             origin="tracecat_registry",
             version="v1",
-            tarball_uri="s3://bucket/builtin.tar.gz",
+            artifact_uri="s3://bucket/builtin.tar.gz",
         ),
         RegistryArtifactsContext(
             origin="git+ssh://github.com/example/a.git",
             version="v1",
-            tarball_uri="s3://bucket/a.tar.gz",
+            artifact_uri="s3://bucket/a.tar.gz",
         ),
     ]
 
-    assert sort_registry_tarball_uris(artifacts) == [
+    assert sort_registry_artifact_uris(artifacts) == [
         "s3://bucket/builtin.tar.gz",
         "s3://bucket/a.tar.gz",
         "s3://bucket/b.tar.gz",
@@ -54,7 +54,7 @@ def test_sort_registry_tarball_uris_orders_builtin_first() -> None:
 
 
 @pytest.mark.anyio
-async def test_get_registry_tarball_uris_uses_bundled_current_builtin(
+async def test_get_registry_artifact_uris_uses_bundled_current_builtin(
     test_role: Role, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     current_version = "1.2.3"
@@ -79,13 +79,13 @@ async def test_get_registry_tarball_uris_uses_bundled_current_builtin(
         fail_lookup,
     )
 
-    assert await get_registry_tarball_uris(input_data, test_role) == [
+    assert await get_registry_artifact_uris(input_data, test_role) == [
         bundled_builtin_registry_uri(current_version)
     ]
 
 
 @pytest.mark.anyio
-async def test_get_registry_tarball_uris_looks_up_only_non_current_origins(
+async def test_get_registry_artifact_uris_looks_up_only_non_current_origins(
     test_role: Role, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     current_version = "1.2.3"
@@ -112,7 +112,7 @@ async def test_get_registry_tarball_uris_looks_up_only_non_current_origins(
             RegistryArtifactsContext(
                 origin=custom_origin,
                 version="abc123",
-                tarball_uri="s3://bucket/custom/site-packages.tar.gz",
+                artifact_uri="s3://bucket/custom/site-packages.tar.gz",
             )
         ]
 
@@ -125,14 +125,14 @@ async def test_get_registry_tarball_uris_looks_up_only_non_current_origins(
         get_artifacts,
     )
 
-    assert await get_registry_tarball_uris(input_data, test_role) == [
+    assert await get_registry_artifact_uris(input_data, test_role) == [
         bundled_builtin_registry_uri(current_version),
         "s3://bucket/custom/site-packages.tar.gz",
     ]
 
 
 @pytest.mark.anyio
-async def test_get_registry_tarball_uris_propagates_lookup_errors(
+async def test_get_registry_artifact_uris_propagates_lookup_errors(
     test_role: Role, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     input_data = cast(
@@ -155,4 +155,4 @@ async def test_get_registry_tarball_uris_propagates_lookup_errors(
     )
 
     with pytest.raises(RuntimeError, match="artifact lookup failed"):
-        await get_registry_tarball_uris(input_data, test_role)
+        await get_registry_artifact_uris(input_data, test_role)

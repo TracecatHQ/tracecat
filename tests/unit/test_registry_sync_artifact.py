@@ -12,47 +12,6 @@ from tracecat.registry.sync import artifact
 from tracecat.registry.sync.artifact import upload_squashfs_venv
 
 
-def test_squashfs_sidecar_key_helpers() -> None:
-    uri = (
-        "s3://registry-artifacts/platform/tarball-venvs/test/1.0.0/site-packages.tar.gz"
-    )
-
-    assert artifact.parse_s3_uri(uri) == (
-        "registry-artifacts",
-        "platform/tarball-venvs/test/1.0.0/site-packages.tar.gz",
-    )
-    assert (
-        artifact.get_squashfs_sidecar_key(
-            "platform/tarball-venvs/test/1.0.0/site-packages.tar.gz"
-        )
-        == "platform/tarball-venvs/test/1.0.0/site-packages.squashfs"
-    )
-    assert (
-        artifact.get_squashfs_artifact_key(
-            "platform/tarball-venvs/test/1.0.0/site-packages.tar.gz"
-        )
-        == "platform/tarball-venvs/test/1.0.0/site-packages.squashfs"
-    )
-    assert (
-        artifact.get_squashfs_artifact_key(
-            "platform/tarball-venvs/test/1.0.0/site-packages.squashfs"
-        )
-        == "platform/tarball-venvs/test/1.0.0/site-packages.squashfs"
-    )
-    assert artifact.get_tarball_venv_s3_uri(
-        bucket="registry-artifacts",
-        key="platform/tarball-venvs/test/1.0.0/site-packages.tar.gz",
-    ) == (
-        "s3://registry-artifacts/platform/tarball-venvs/test/1.0.0/site-packages.tar.gz"
-    )
-    assert artifact.get_tarball_venv_artifact_dir(
-        root=Path("/prebuilt"),
-        organization_id="platform",
-        repository_origin="tracecat_registry",
-        version="1.0.0",
-    ) == Path("/prebuilt/platform/tarball-venvs/tracecat_registry/1.0.0")
-
-
 @pytest.mark.anyio
 async def test_upload_squashfs_venv_uploads_only_squashfs(
     tmp_path: Path,

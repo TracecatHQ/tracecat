@@ -19,6 +19,7 @@ import tracecat_registry
 
 from tracecat import config
 from tracecat.logger import logger
+from tracecat.registry.artifact_keys import parse_s3_uri
 from tracecat.registry.constants import DEFAULT_REGISTRY_ORIGIN
 from tracecat.storage import blob
 
@@ -432,17 +433,6 @@ class TarballArtifact(RegistryArtifact):
             target=str(target_dir),
             artifact_format=_artifact_format(str(tarball_path)).value,
         )
-
-
-def parse_s3_uri(uri: str) -> tuple[str, str]:
-    """Parse an s3://bucket/key URI into (bucket, key)."""
-    if not uri.startswith("s3://"):
-        raise ValueError(f"Invalid S3 URI: {uri}")
-    rest = uri.removeprefix("s3://")
-    bucket, _, key = rest.partition("/")
-    if not bucket or not key:
-        raise ValueError(f"Invalid S3 URI: {uri}")
-    return bucket, key
 
 
 async def _download_s3_artifact(artifact_uri: str, output_path: Path) -> None:

@@ -24,6 +24,7 @@ from tracecat.registry.actions.schemas import (
     RegistryActionCreate,
     RegistryActionValidationErrorInfo,
 )
+from tracecat.registry.artifact_keys import get_artifact_s3_key
 from tracecat.registry.constants import (
     DEFAULT_LOCAL_REGISTRY_ORIGIN,
     DEFAULT_REGISTRY_ORIGIN,
@@ -35,8 +36,6 @@ from tracecat.registry.sync.artifact import (
     build_artifact_from_git,
     build_artifact_from_path,
     build_builtin_registry_artifact,
-    get_squashfs_sidecar_key,
-    get_tarball_venv_s3_key,
     upload_squashfs_venv,
 )
 from tracecat.registry.sync.prebuilt import load_prebuilt_builtin_registry_manifest
@@ -101,7 +100,7 @@ class VersionsServiceProtocol[VersionT: VersionProtocol](Protocol):
 class ArtifactsBuildResult:
     """Result of building and uploading execution artifacts."""
 
-    tarball_uri: str
+    artifact_uri: str
 
 
 @dataclass
@@ -418,7 +417,7 @@ class BaseRegistrySyncService[
 
         if defer_artifact_build:
             artifacts = ArtifactsBuildResult(
-                tarball_uri=self._artifact_uri_for_version(
+                artifact_uri=self._artifact_uri_for_version(
                     origin=origin,
                     version_string=target_version,
                 )
@@ -436,7 +435,7 @@ class BaseRegistrySyncService[
             version=target_version,
             commit_sha=commit_sha,
             manifest=manifest,
-            tarball_uri=artifacts.tarball_uri,
+            tarball_uri=artifacts.artifact_uri,
         )
         version = await versions_service.create_version(version_create, commit=False)
 
@@ -444,7 +443,7 @@ class BaseRegistrySyncService[
             "Created registry version",
             version_id=str(version.id),
             version=target_version,
-            tarball_uri=artifacts.tarball_uri,
+            artifact_uri=artifacts.artifact_uri,
         )
 
         # Auto-promote: set new version as current
@@ -465,13 +464,13 @@ class BaseRegistrySyncService[
             version_id=str(version.id),
             version=target_version,
             num_actions=len(actions),
-            tarball_uri=artifacts.tarball_uri,
+            artifact_uri=artifacts.artifact_uri,
         )
 
         return self._make_result(
             version=version,
             actions=actions,
-            tarball_uri=artifacts.tarball_uri,
+            tarball_uri=artifacts.artifact_uri,
             commit_sha=commit_sha,
         )
 
@@ -511,12 +510,10 @@ class BaseRegistrySyncService[
     def _artifact_uri_for_version(self, *, origin: str, version_string: str) -> str:
         """Return the deterministic SquashFS artifact URI for a registry version."""
         bucket = config.TRACECAT__BLOB_STORAGE_BUCKET_REGISTRY
-        key = get_squashfs_sidecar_key(
-            get_tarball_venv_s3_key(
-                organization_id=self._get_storage_namespace(),
-                repository_origin=origin,
-                version=version_string,
-            )
+        key = get_artifact_s3_key(
+            organization_id=self._get_storage_namespace(),
+            repository_origin=origin,
+            version=version_string,
         )
         return f"s3://{bucket}/{key}"
 
@@ -531,12 +528,10 @@ class BaseRegistrySyncService[
         storage_namespace = self._get_storage_namespace()
         bucket = config.TRACECAT__BLOB_STORAGE_BUCKET_REGISTRY
         await blob.ensure_bucket_exists(bucket)
-        artifact_key = get_squashfs_sidecar_key(
-            get_tarball_venv_s3_key(
-                organization_id=storage_namespace,
-                repository_origin=origin,
-                version=version_string,
-            )
+        artifact_key = get_artifact_s3_key(
+            organization_id=storage_namespace,
+            repository_origin=origin,
+            version=version_string,
         )
         artifact_uri = f"s3://{bucket}/{artifact_key}"
         if await blob.file_exists(key=artifact_key, bucket=bucket):
@@ -544,7 +539,7 @@ class BaseRegistrySyncService[
                 "Using existing registry execution artifact",
                 artifact_uri=artifact_uri,
             )
-            return ArtifactsBuildResult(tarball_uri=artifact_uri)
+            return ArtifactsBuildResult(artifact_uri=artifact_uri)
 
         async with aiofiles.tempfile.TemporaryDirectory(
             prefix="tracecat_registry_artifact_"
@@ -592,7 +587,7 @@ class BaseRegistrySyncService[
                 artifact_size_bytes=artifact_result.artifact_size_bytes,
             )
 
-            return ArtifactsBuildResult(tarball_uri=artifact_uri)
+            return ArtifactsBuildResult(artifact_uri=artifact_uri)
 
     def _generate_version_string(
         self,

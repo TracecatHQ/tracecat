@@ -16,11 +16,9 @@ from tracecat.registry.actions.schemas import (
     RegistryActionUDFImpl,
     RegistryActionValidationErrorInfo,
 )
+from tracecat.registry.artifact_keys import get_artifact_local_dir
 from tracecat.registry.constants import DEFAULT_REGISTRY_ORIGIN
-from tracecat.registry.sync.artifact import (
-    RegistryArtifactBuildResult,
-    get_tarball_venv_artifact_dir,
-)
+from tracecat.registry.sync.artifact import RegistryArtifactBuildResult
 from tracecat.registry.sync.prebuilt import write_prebuilt_registry_manifest
 from tracecat.registry.sync.runner import (
     RegistrySyncRunner,
@@ -312,7 +310,7 @@ async def test_runner_falls_back_to_discovery_when_prebuilt_manifest_is_invalid(
         str(tmp_path),
     )
     repository_id = uuid4()
-    artifact_dir = get_tarball_venv_artifact_dir(
+    artifact_dir = get_artifact_local_dir(
         root=tmp_path,
         organization_id="platform",
         repository_origin=DEFAULT_REGISTRY_ORIGIN,
@@ -411,7 +409,7 @@ async def test_runner_uses_prebuilt_manifest_without_discovery(
             )
         ]
     )
-    artifact_dir = get_tarball_venv_artifact_dir(
+    artifact_dir = get_artifact_local_dir(
         root=tmp_path,
         organization_id="platform",
         repository_origin=DEFAULT_REGISTRY_ORIGIN,

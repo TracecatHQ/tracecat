@@ -18,6 +18,7 @@ from tracecat.registry.actions.schemas import (
     RegistryActionOptions,
     RegistryActionUDFImpl,
 )
+from tracecat.registry.artifact_keys import get_artifact_local_dir
 from tracecat.registry.constants import (
     DEFAULT_REGISTRY_ORIGIN,
     REGISTRY_GIT_SSH_KEY_SECRET_NAME,
@@ -25,10 +26,7 @@ from tracecat.registry.constants import (
 from tracecat.registry.repositories.platform_service import PlatformRegistryReposService
 from tracecat.registry.repositories.schemas import RegistryRepositoryCreate
 from tracecat.registry.repositories.service import RegistryReposService
-from tracecat.registry.sync.artifact import (
-    RegistryArtifactBuildResult,
-    get_tarball_venv_artifact_dir,
-)
+from tracecat.registry.sync.artifact import RegistryArtifactBuildResult
 from tracecat.registry.sync.base_service import ArtifactsBuildResult
 from tracecat.registry.sync.platform_service import PlatformRegistrySyncService
 from tracecat.registry.sync.prebuilt import write_prebuilt_registry_manifest
@@ -140,7 +138,7 @@ async def test_sync_creates_collision_version_for_manifest_changes(
     ) -> ArtifactsBuildResult:
         del origin, commit_sha, ssh_env
         return ArtifactsBuildResult(
-            tarball_uri=f"s3://test-bucket/{version_string}/site-packages.tar.gz"
+            artifact_uri=f"s3://test-bucket/{version_string}/site-packages.squashfs"
         )
 
     mocker.patch.object(
@@ -206,7 +204,7 @@ async def test_platform_builtin_sync_reuses_existing_artifact_objects(
         commit_sha=None,
     )
 
-    assert result.tarball_uri == (
+    assert result.artifact_uri == (
         "s3://registry/platform/tarball-venvs/tracecat_registry/1.2.3/"
         "site-packages.squashfs"
     )
@@ -258,7 +256,7 @@ async def test_platform_builtin_sync_uploads_squashfs_artifact(
         commit_sha=None,
     )
 
-    assert result.tarball_uri.endswith("/1.2.3/site-packages.squashfs")
+    assert result.artifact_uri.endswith("/1.2.3/site-packages.squashfs")
     build_builtin_registry_artifact.assert_awaited_once()
     upload_squashfs_venv.assert_awaited_once_with(
         squashfs_path=artifact_result.squashfs_path,
@@ -287,7 +285,7 @@ async def test_platform_builtin_sync_uses_prebuilt_manifest_without_discovery(
     manifest = RegistryVersionManifest.from_actions(
         [_make_action(repository_id=repo.id, default_title="Prebuilt title")]
     )
-    artifact_dir = get_tarball_venv_artifact_dir(
+    artifact_dir = get_artifact_local_dir(
         root=tmp_path,
         organization_id="platform",
         repository_origin=DEFAULT_REGISTRY_ORIGIN,

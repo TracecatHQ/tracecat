@@ -89,7 +89,7 @@ class DispatchActionContext:
 class RegistryArtifactsContext:
     origin: str
     version: str
-    tarball_uri: str
+    artifact_uri: str
 
 
 # Cache for individual artifacts (origin, version) -> RegistryArtifactsContext
@@ -212,12 +212,12 @@ async def get_registry_artifacts_for_lock(
         # Process results
         found_keys: set[tuple[str, str]] = set()
         for row in rows:
-            origin_val, version_val, tarball_uri = row
-            if tarball_uri is not None:
+            origin_val, version_val, artifact_uri = row
+            if artifact_uri is not None:
                 artifact = RegistryArtifactsContext(
                     origin=origin_val,
                     version=version_val,
-                    tarball_uri=tarball_uri,
+                    artifact_uri=artifact_uri,
                 )
                 fetched_artifacts.append(artifact)
                 found_keys.add((origin_val, version_val))
@@ -226,7 +226,7 @@ async def get_registry_artifacts_for_lock(
                 await _artifact_cache.set(key=key, value=artifact)
             else:
                 logger.warning(
-                    "Registry version found but missing tarball_uri",
+                    "Registry version found but missing artifact URI",
                     origin=origin_val,
                     version=version_val,
                 )

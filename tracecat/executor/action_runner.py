@@ -142,27 +142,29 @@ class ActionRunner:
         self.registry_artifacts = RegistryArtifactCache(self.cache_dir)
         logger.info("ActionRunner initialized", cache_dir=str(self.cache_dir))
 
-    async def ensure_registry_environment(self, tarball_uri: str | None) -> Path | None:
+    async def ensure_registry_environment(
+        self, artifact_uri: str | None
+    ) -> Path | None:
         """Ensure the registry environment is set up and return the PYTHONPATH.
 
         This is the public API for pool workers to get the path to add to PYTHONPATH.
 
         Args:
-            tarball_uri: S3 URI to the registry execution artifact.
+            artifact_uri: S3 URI to the registry execution artifact.
 
         Returns:
             Path to add to PYTHONPATH, or None if no artifact is available.
         """
-        return await self.registry_artifacts.ensure_environment(tarball_uri)
+        return await self.registry_artifacts.ensure_environment(artifact_uri)
 
     async def resolve_registry_paths(
-        self, tarball_uris: list[str] | None = None
+        self, artifact_uris: list[str] | None = None
     ) -> list[Path]:
         """Materialize registry artifacts and return importable Python paths."""
         registry_paths: list[Path] = []
-        if tarball_uris:
-            for tarball_uri in tarball_uris:
-                if target_dir := await self.ensure_registry_environment(tarball_uri):
+        if artifact_uris:
+            for artifact_uri in artifact_uris:
+                if target_dir := await self.ensure_registry_environment(artifact_uri):
                     registry_paths.append(target_dir)
             logger.info(
                 "Using registry artifact environments",
@@ -180,7 +182,7 @@ class ActionRunner:
         input: RunActionInput,
         role: Role,
         resolved_context: ResolvedContext,
-        tarball_uris: list[str] | None = None,
+        artifact_uris: list[str] | None = None,
         env_vars: dict[str, str] | None = None,
         timeout: float | None = None,
         force_sandbox: bool = False,
@@ -193,7 +195,7 @@ class ActionRunner:
         Args:
             input: The RunActionInput containing task and context
             role: The Role for authorization
-            tarball_uris: List of registry artifact S3 URIs (deterministic order)
+            artifact_uris: List of registry artifact S3 URIs (deterministic order)
             env_vars: Additional environment variables for the subprocess
             timeout: Execution timeout in seconds
             force_sandbox: If True, always use nsjail sandbox regardless of config
@@ -206,7 +208,7 @@ class ActionRunner:
         timeout = timeout or config.TRACECAT__EXECUTOR_CLIENT_TIMEOUT
 
         # Materialize each registry artifact, collect paths in deterministic order.
-        registry_paths = await self.resolve_registry_paths(tarball_uris)
+        registry_paths = await self.resolve_registry_paths(artifact_uris)
 
         # Check if sandbox execution is enabled and available
         # force_sandbox=True overrides config (used by ephemeral backend)

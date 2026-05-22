@@ -466,7 +466,7 @@ async def _run_executor_action_smoke_case(
                 input=action_input,
                 role=role,
                 resolved_context=resolved_context,
-                tarball_uris=[_SMOKE_URI],
+                artifact_uris=[_SMOKE_URI],
                 timeout=30,
                 force_sandbox=smoke_case.force_sandbox,
             )

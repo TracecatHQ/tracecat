@@ -1,4 +1,4 @@
-"""Shared helpers for resolving and ordering registry tarball URIs."""
+"""Shared helpers for resolving and ordering registry artifact URIs."""
 
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ from tracecat.executor.service import (
 from tracecat.registry.constants import DEFAULT_REGISTRY_ORIGIN
 
 
-async def get_registry_tarball_uris(
+async def get_registry_artifact_uris(
     input: RunActionInput,
     role: Role,
 ) -> list[str]:
@@ -46,21 +46,23 @@ async def get_registry_tarball_uris(
         origins,
         role.organization_id,
     )
-    return artifact_uris + sort_registry_tarball_uris(artifacts)
+    return artifact_uris + sort_registry_artifact_uris(artifacts)
 
 
-def sort_registry_tarball_uris(artifacts: list[RegistryArtifactsContext]) -> list[str]:
-    """Sort tarballs: tracecat_registry first, then lexicographically by origin."""
+def sort_registry_artifact_uris(
+    artifacts: list[RegistryArtifactsContext],
+) -> list[str]:
+    """Sort artifacts: tracecat_registry first, then lexicographically by origin."""
     builtin_uris: list[str] = []
     other_uris: list[tuple[str, str]] = []
 
     for artifact in artifacts:
-        if not artifact.tarball_uri:
+        if not artifact.artifact_uri:
             continue
         if artifact.origin == DEFAULT_REGISTRY_ORIGIN:
-            builtin_uris.append(artifact.tarball_uri)
+            builtin_uris.append(artifact.artifact_uri)
         else:
-            other_uris.append((artifact.origin, artifact.tarball_uri))
+            other_uris.append((artifact.origin, artifact.artifact_uri))
 
     other_uris.sort(key=lambda item: item[0])
     return builtin_uris + [uri for _, uri in other_uris]

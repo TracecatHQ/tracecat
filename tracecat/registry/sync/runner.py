@@ -30,13 +30,12 @@ from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.logger import logger
 from tracecat.registry.actions.schemas import RegistryActionCreate
+from tracecat.registry.artifact_keys import get_artifact_s3_key
 from tracecat.registry.sync.artifact import (
     RegistryArtifactBuildError,
     RegistryArtifactBuildResult,
     build_artifact_from_path,
     get_builtin_registry_source_path,
-    get_squashfs_sidecar_key,
-    get_tarball_venv_s3_key,
     upload_squashfs_venv,
 )
 from tracecat.registry.sync.platform_service import PLATFORM_REGISTRY_TARBALL_NAMESPACE
@@ -534,12 +533,10 @@ class RegistrySyncRunner:
 
         # Generate S3 key
         namespace = storage_namespace or PLATFORM_REGISTRY_TARBALL_NAMESPACE
-        s3_key = get_squashfs_sidecar_key(
-            get_tarball_venv_s3_key(
-                organization_id=namespace,
-                repository_origin=repository_origin,
-                version=version,
-            )
+        s3_key = get_artifact_s3_key(
+            organization_id=namespace,
+            repository_origin=repository_origin,
+            version=version,
         )
 
         # Upload

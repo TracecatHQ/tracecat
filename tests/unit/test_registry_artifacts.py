@@ -20,8 +20,8 @@ from tracecat.executor.registry_artifacts import (
     TarballArtifact,
     bundled_builtin_registry_uri,
     compute_registry_artifact_cache_key,
-    parse_s3_uri,
 )
+from tracecat.registry.artifact_keys import parse_s3_uri
 
 
 @pytest.fixture

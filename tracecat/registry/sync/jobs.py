@@ -306,5 +306,5 @@ async def _build_platform_registry_artifact(target_version: str) -> None:
         logger.info(
             "Platform registry artifact build completed",
             target_version=target_version,
-            artifact_uri=result.tarball_uri,
+            artifact_uri=result.artifact_uri,
         )

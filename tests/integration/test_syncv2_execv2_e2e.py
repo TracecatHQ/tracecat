@@ -978,7 +978,7 @@ class TestExecuteWithSyncedRegistry:
             RegistryArtifactsContext(
                 origin=DEFAULT_REGISTRY_ORIGIN,
                 version=sync_result.version.version,
-                tarball_uri=sync_result.tarball_uri,
+                artifact_uri=sync_result.tarball_uri,
             )
         ]
 
@@ -1127,7 +1127,7 @@ class TestFailureScenarios:
         # Resolve and delete the exact artifact URI(s) the executor will use.
         # For tracecat_registry, this may resolve to platform-scoped artifacts.
         backend = EphemeralBackend()
-        tarball_uris = await backend._get_tarball_uris(input_data, test_role)
+        tarball_uris = await backend._get_artifact_uris(input_data, test_role)
         assert tarball_uris, (
             "Expected resolved tarball URIs for locked registry version"
         )
@@ -1546,7 +1546,7 @@ class TestMultitenantWorkloads:
             RegistryArtifactsContext(
                 origin=DEFAULT_REGISTRY_ORIGIN,
                 version=sync_result.version.version,
-                tarball_uri=sync_result.tarball_uri,
+                artifact_uri=sync_result.tarball_uri,
             )
         ]
 
@@ -1690,8 +1690,8 @@ class TestVersionIsolationArtifactResolution:
         artifact = artifacts[0]
         assert artifact.origin == DEFAULT_REGISTRY_ORIGIN
         assert artifact.version == V1
-        assert V1 in artifact.tarball_uri  # v1's tarball
-        assert V2 not in artifact.tarball_uri  # NOT v2's tarball
+        assert V1 in artifact.artifact_uri  # v1's artifact
+        assert V2 not in artifact.artifact_uri  # NOT v2's artifact
 
 
 async def _run_sync_artifact_sandbox_smoke_child() -> None:

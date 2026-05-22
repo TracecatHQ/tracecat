@@ -36,6 +36,10 @@ from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
 from tracecat.parse import safe_url
 from tracecat.registry.actions.schemas import RegistryActionRead
 from tracecat.registry.actions.types import IndexEntry
+from tracecat.registry.artifact_keys import (
+    get_squashfs_artifact_key,
+    parse_s3_uri,
+)
 from tracecat.registry.constants import (
     DEFAULT_LOCAL_REGISTRY_ORIGIN,
     DEFAULT_REGISTRY_ORIGIN,
@@ -44,10 +48,6 @@ from tracecat.registry.repositories.platform_service import PlatformRegistryRepo
 from tracecat.registry.repositories.schemas import (
     RegistryRepositoryRead,
     RegistryRepositoryReadMinimal,
-)
-from tracecat.registry.sync.artifact import (
-    get_squashfs_artifact_key,
-    parse_s3_uri,
 )
 from tracecat.registry.sync.platform_service import PlatformRegistrySyncService
 from tracecat.registry.sync.schemas import (
