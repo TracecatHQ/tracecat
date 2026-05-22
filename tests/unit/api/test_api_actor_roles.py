@@ -580,7 +580,7 @@ def test_workflow_detail_route_remains_user_only() -> None:
         workflow_management_router.get_workflow, include_extras=True
     )["role"]
 
-    assert workflow_detail_role == WorkspaceUserRouteRole
+    assert workflow_detail_role == WorkspaceActorRouteRole
 
 
 def test_webhook_api_key_revocation_route_remains_user_only() -> None:
