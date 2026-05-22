@@ -29,6 +29,8 @@ from tracecat.executor.action_gateway.server import ActionGateway
 from tracecat.executor.action_runner import ActionRunner
 from tracecat.executor.registry_artifacts import (
     RegistryArtifactFormat,
+    SquashfsArtifact,
+    TarballArtifact,
     compute_registry_artifact_cache_key,
 )
 from tracecat.executor.schemas import (
@@ -435,11 +437,12 @@ async def _run_executor_action_smoke_case(
     ) -> bool:
         return base_uri == _SMOKE_URI and artifact_format == smoke_case.preferred_format
 
-    async def download_artifact(artifact_uri: str, output_path: Path) -> None:
-        if artifact_uri.endswith(".squashfs"):
+    async def download_artifact(self, ctx, output_path: Path) -> float:
+        if self.uri.endswith(".squashfs"):
             shutil.copy2(squashfs_path, output_path)
         else:
             shutil.copy2(tar_gz_path, output_path)
+        return 0.0
 
     action_name = "test.registry_artifact_smoke"
     role = _make_role()
@@ -458,11 +461,8 @@ async def _run_executor_action_smoke_case(
 
         with (
             patch.object(runner.registry_artifacts, "_sidecar_exists", sidecar_exists),
-            patch.object(
-                runner.registry_artifacts,
-                "_download_artifact",
-                download_artifact,
-            ),
+            patch.object(SquashfsArtifact, "download", download_artifact),
+            patch.object(TarballArtifact, "download", download_artifact),
         ):
             result = await runner.execute_action(
                 input=action_input,

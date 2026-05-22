@@ -47,47 +47,37 @@ BUNDLED_BUILTIN_REGISTRY_URI_PREFIX = f"tracecat-builtin://{DEFAULT_REGISTRY_ORI
 class RegistryArtifactPaths:
     """Executor-local cache paths for one registry artifact key."""
 
+    squashfs_image_path: Path
     squashfs_mount_dir: Path
     squashfs_extract_dir: Path
     tarball_target_dir: Path
 
 
 @dataclass(slots=True)
+class SquashfsMountState:
+    """Shared process-local SquashFS mount state."""
+
+    disabled: bool = False
+
+
+@dataclass(slots=True)
 class RegistryArtifactMaterializationContext:
-    """Shared state and helpers for artifact materialization."""
+    """Shared runtime state for artifact materialization."""
 
-    cache: RegistryArtifactCache
     cache_key: str
+    cache_dir: Path
     paths: RegistryArtifactPaths
-
-    @property
-    def cache_dir(self) -> Path:
-        return self.cache.cache_dir
-
-    @property
-    def squashfs_image_path(self) -> Path:
-        return self.cache._squashfs_image_path(self.cache_key)
-
-    def can_prefer_squashfs(self) -> bool:
-        return self.cache._can_try_squashfs()
+    squashfs_mount_state: SquashfsMountState
 
     def can_mount_squashfs(self) -> bool:
-        return self.cache._can_try_squashfs_mount()
+        return (
+            config.TRACECAT__EXECUTOR_REGISTRY_SQUASHFS_ENABLED
+            and not self.squashfs_mount_state.disabled
+            and (shutil.which("mount") is not None)
+        )
 
     def disable_squashfs_mount(self) -> None:
-        self.cache._squashfs_mount_disabled = True
-
-    async def download_artifact(self, artifact_uri: str, output_path: Path) -> None:
-        await self.cache._download_artifact(artifact_uri, output_path)
-
-    async def mount_squashfs(self, image_path: Path, target_dir: Path) -> None:
-        await self.cache._mount_squashfs(image_path, target_dir)
-
-    async def extract_squashfs(self, image_path: Path, target_dir: Path) -> None:
-        await self.cache._extract_squashfs(image_path, target_dir)
-
-    async def extract_tarball(self, tarball_path: Path, target_dir: Path) -> None:
-        await self.cache._extract_tarball(tarball_path, target_dir)
+        self.squashfs_mount_state.disabled = True
 
 
 @dataclass(frozen=True, slots=True)
@@ -108,7 +98,7 @@ class RegistryArtifact(ABC):
 
     @abstractmethod
     async def materialize(self, ctx: RegistryArtifactMaterializationContext) -> Path:
-        """Materialize this artifact and return an importable Python path."""
+        """Return an importable Python path, materializing the artifact if needed."""
 
     def _temp_path(
         self,
@@ -169,10 +159,10 @@ class SquashfsArtifact(RegistryArtifact):
         return None
 
     async def materialize(self, ctx: RegistryArtifactMaterializationContext) -> Path:
-        image_path = ctx.squashfs_image_path
+        image_path = ctx.paths.squashfs_image_path
         if ctx.can_mount_squashfs():
             try:
-                return await self._mount(ctx, image_path)
+                return await self.mount(ctx, image_path)
             except Exception as e:
                 ctx.disable_squashfs_mount()
                 logger.warning(
@@ -183,9 +173,31 @@ class SquashfsArtifact(RegistryArtifact):
                     error=str(e),
                 )
 
-        return await self._extract(ctx, image_path)
+        return await self.extract(ctx, image_path)
 
-    async def _mount(
+    async def download(
+        self,
+        ctx: RegistryArtifactMaterializationContext,
+        image_path: Path,
+    ) -> float:
+        """Ensure the SquashFS image exists locally and return download time."""
+        if image_path.exists():
+            return 0.0
+
+        temp_image = self._temp_path(ctx, ".squashfs")
+        try:
+            download_start = time.monotonic()
+            await _download_s3_artifact(self.uri, temp_image)
+            try:
+                temp_image.rename(image_path)
+            except OSError:
+                if not image_path.exists():
+                    raise
+            return (time.monotonic() - download_start) * 1000
+        finally:
+            temp_image.unlink(missing_ok=True)
+
+    async def mount(
         self,
         ctx: RegistryArtifactMaterializationContext,
         image_path: Path,
@@ -204,13 +216,10 @@ class SquashfsArtifact(RegistryArtifact):
             artifact_format=self.format.value,
         )
         start_time = time.monotonic()
-        download_elapsed = await ctx.cache._ensure_squashfs_image(
-            artifact=self,
-            image_path=image_path,
-        )
+        download_elapsed = await self.download(ctx, image_path)
 
         mount_start = time.monotonic()
-        await ctx.mount_squashfs(image_path, target_dir)
+        await self._mount_image(image_path, target_dir)
         mount_elapsed = (time.monotonic() - mount_start) * 1000
         total_elapsed = (time.monotonic() - start_time) * 1000
 
@@ -225,7 +234,7 @@ class SquashfsArtifact(RegistryArtifact):
         )
         return target_dir
 
-    async def _extract(
+    async def extract(
         self,
         ctx: RegistryArtifactMaterializationContext,
         image_path: Path,
@@ -243,16 +252,13 @@ class SquashfsArtifact(RegistryArtifact):
             artifact_format=self.format.value,
         )
         start_time = time.monotonic()
-        download_elapsed = await ctx.cache._ensure_squashfs_image(
-            artifact=self,
-            image_path=image_path,
-        )
+        download_elapsed = await self.download(ctx, image_path)
 
         temp_dir = self._temp_path(ctx, ".unsquashfs")
         try:
             extract_start = time.monotonic()
             temp_dir.mkdir(parents=True, exist_ok=True)
-            await ctx.extract_squashfs(image_path, temp_dir)
+            await self._extract_image(image_path, temp_dir)
             extract_elapsed = (time.monotonic() - extract_start) * 1000
 
             try:
@@ -282,6 +288,52 @@ class SquashfsArtifact(RegistryArtifact):
                 shutil.rmtree(temp_dir, ignore_errors=True)
 
         return target_dir
+
+    async def _mount_image(self, image_path: Path, target_dir: Path) -> None:
+        """Mount a SquashFS image read-only at target_dir."""
+        if target_dir.is_mount():
+            return
+
+        proc = await asyncio.create_subprocess_exec(
+            "mount",
+            "-t",
+            "squashfs",
+            "-o",
+            SQUASHFS_MOUNT_OPTIONS,
+            str(image_path),
+            str(target_dir),
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, stderr = await proc.communicate()
+
+        if proc.returncode == 0 or target_dir.is_mount():
+            return
+
+        output = (stderr or stdout).decode(errors="replace").strip()
+        raise RuntimeError(output or "mount command failed")
+
+    async def _extract_image(self, image_path: Path, target_dir: Path) -> None:
+        """Extract a SquashFS image to target_dir using unsquashfs."""
+        unsquashfs = shutil.which("unsquashfs")
+        if unsquashfs is None:
+            raise RuntimeError("unsquashfs command is not installed")
+
+        proc = await asyncio.create_subprocess_exec(
+            unsquashfs,
+            "-f",
+            "-d",
+            str(target_dir),
+            str(image_path),
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, stderr = await proc.communicate()
+        if proc.returncode == 0:
+            return
+
+        output = (stderr or stdout).decode(errors="replace").strip()
+        raise RuntimeError(output or "unsquashfs command failed")
 
 
 @dataclass(frozen=True, slots=True)
@@ -318,12 +370,12 @@ class TarballArtifact(RegistryArtifact):
             ctx.cache_dir.mkdir(parents=True, exist_ok=True)
 
             download_start = time.monotonic()
-            await ctx.download_artifact(self.uri, temp_tarball)
+            await self.download(ctx, temp_tarball)
             download_elapsed = (time.monotonic() - download_start) * 1000
 
             extract_start = time.monotonic()
             temp_dir.mkdir(parents=True, exist_ok=True)
-            await ctx.extract_tarball(temp_tarball, temp_dir)
+            await self.extract(temp_tarball, temp_dir)
             extract_elapsed = (time.monotonic() - extract_start) * 1000
 
             try:
@@ -356,6 +408,31 @@ class TarballArtifact(RegistryArtifact):
 
         return target_dir
 
+    async def download(
+        self,
+        ctx: RegistryArtifactMaterializationContext,
+        output_path: Path,
+    ) -> None:
+        await _download_s3_artifact(self.uri, output_path)
+
+    async def extract(self, tarball_path: Path, target_dir: Path) -> None:
+        """Extract a supported registry tarball to target directory."""
+
+        def _do_extract() -> None:
+            if tarball_path.name.endswith(".tar.gz"):
+                with tarfile.open(tarball_path, "r:gz") as tar:
+                    tar.extractall(path=target_dir, filter="data")
+                return
+
+            raise ValueError(f"Unsupported tarball format: {tarball_path}")
+
+        await asyncio.to_thread(_do_extract)
+        logger.debug(
+            "Tarball extracted",
+            target=str(target_dir),
+            artifact_format=_artifact_format(str(tarball_path)).value,
+        )
+
 
 def parse_s3_uri(uri: str) -> tuple[str, str]:
     """Parse an s3://bucket/key URI into (bucket, key)."""
@@ -366,6 +443,25 @@ def parse_s3_uri(uri: str) -> tuple[str, str]:
     if not bucket or not key:
         raise ValueError(f"Invalid S3 URI: {uri}")
     return bucket, key
+
+
+async def _download_s3_artifact(artifact_uri: str, output_path: Path) -> None:
+    """Download an S3 registry artifact to a local path."""
+    bucket, key = parse_s3_uri(artifact_uri)
+    try:
+        await blob.download_file_to_path(
+            key=key,
+            bucket=bucket,
+            output_path=output_path,
+        )
+    except FileNotFoundError as e:
+        request = httpx.Request("GET", artifact_uri)
+        response = httpx.Response(status_code=404, request=request)
+        raise httpx.HTTPStatusError(
+            f"Registry artifact not found: {artifact_uri}",
+            request=request,
+            response=response,
+        ) from e
 
 
 def compute_registry_artifact_cache_key(artifact_uri: str) -> str:
@@ -473,7 +569,7 @@ class RegistryArtifactCache:
         self.cache_dir = cache_dir
         self._locks: dict[str, asyncio.Lock] = {}
         self._locks_lock = asyncio.Lock()
-        self._squashfs_mount_disabled = False
+        self._squashfs_mount_state = SquashfsMountState()
 
     async def ensure_environment(self, artifact_uri: str | None) -> Path | None:
         """Materialize an optional registry artifact and return a PYTHONPATH entry."""
@@ -526,21 +622,19 @@ class RegistryArtifactCache:
                 self._locks[cache_key] = asyncio.Lock()
             return self._locks[cache_key]
 
-    def _squashfs_image_path(self, cache_key: str) -> Path:
-        """Return the expected local SquashFS image cache path."""
-        return self.cache_dir / f"squashfs-{cache_key}.squashfs"
-
     def _context_for(self, cache_key: str) -> RegistryArtifactMaterializationContext:
         """Return a materialization context for a registry artifact key."""
         return RegistryArtifactMaterializationContext(
-            cache=self,
             cache_key=cache_key,
+            cache_dir=self.cache_dir,
             paths=self._paths_for(cache_key),
+            squashfs_mount_state=self._squashfs_mount_state,
         )
 
     def _paths_for(self, cache_key: str) -> RegistryArtifactPaths:
         """Return local cache paths for a registry artifact key."""
         return RegistryArtifactPaths(
+            squashfs_image_path=self.cache_dir / f"squashfs-{cache_key}.squashfs",
             squashfs_mount_dir=self.cache_dir / f"squashfs-{cache_key}",
             squashfs_extract_dir=self.cache_dir / f"unsquashfs-{cache_key}",
             tarball_target_dir=self.cache_dir / f"tarball-{cache_key}",
@@ -590,10 +684,10 @@ class RegistryArtifactCache:
             return candidates
 
         candidates: list[RegistryArtifact] = []
-        if ctx.can_prefer_squashfs():
+        if self._can_try_squashfs():
             squashfs_uri = _squashfs_sidecar_uri(artifact_uri)
             if squashfs_uri:
-                if ctx.squashfs_image_path.exists():
+                if ctx.paths.squashfs_image_path.exists():
                     candidates.append(
                         SquashfsArtifact(
                             uri=squashfs_uri,
@@ -652,119 +746,3 @@ class RegistryArtifactCache:
     def _can_try_squashfs(self) -> bool:
         """Return whether this process should prefer SquashFS artifacts."""
         return config.TRACECAT__EXECUTOR_REGISTRY_SQUASHFS_ENABLED
-
-    def _can_try_squashfs_mount(self) -> bool:
-        """Return whether this process should attempt SquashFS mounts."""
-        return (
-            self._can_try_squashfs()
-            and not self._squashfs_mount_disabled
-            and (shutil.which("mount") is not None)
-        )
-
-    async def _ensure_squashfs_image(
-        self,
-        *,
-        artifact: RegistryArtifact,
-        image_path: Path,
-    ) -> float:
-        """Ensure a SquashFS artifact is downloaded locally."""
-        if image_path.exists():
-            return 0.0
-
-        unique_id = id(asyncio.current_task())
-        temp_image = (
-            self.cache_dir / f"{artifact.cache_key}.{os.getpid()}.{unique_id}.squashfs"
-        )
-        try:
-            download_start = time.monotonic()
-            await self._download_artifact(artifact.uri, temp_image)
-            try:
-                temp_image.rename(image_path)
-            except OSError:
-                if not image_path.exists():
-                    raise
-            return (time.monotonic() - download_start) * 1000
-        finally:
-            temp_image.unlink(missing_ok=True)
-
-    async def _mount_squashfs(self, image_path: Path, target_dir: Path) -> None:
-        """Mount a SquashFS image read-only at target_dir."""
-        if target_dir.is_mount():
-            return
-
-        proc = await asyncio.create_subprocess_exec(
-            "mount",
-            "-t",
-            "squashfs",
-            "-o",
-            SQUASHFS_MOUNT_OPTIONS,
-            str(image_path),
-            str(target_dir),
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        stdout, stderr = await proc.communicate()
-
-        if proc.returncode == 0 or target_dir.is_mount():
-            return
-
-        output = (stderr or stdout).decode(errors="replace").strip()
-        raise RuntimeError(output or "mount command failed")
-
-    async def _extract_squashfs(self, image_path: Path, target_dir: Path) -> None:
-        """Extract a SquashFS image to target_dir using unsquashfs."""
-        unsquashfs = shutil.which("unsquashfs")
-        if unsquashfs is None:
-            raise RuntimeError("unsquashfs command is not installed")
-
-        proc = await asyncio.create_subprocess_exec(
-            unsquashfs,
-            "-f",
-            "-d",
-            str(target_dir),
-            str(image_path),
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        stdout, stderr = await proc.communicate()
-        if proc.returncode == 0:
-            return
-
-        output = (stderr or stdout).decode(errors="replace").strip()
-        raise RuntimeError(output or "unsquashfs command failed")
-
-    async def _download_artifact(self, artifact_uri: str, output_path: Path) -> None:
-        """Download an S3 registry artifact to a local path."""
-        bucket, key = parse_s3_uri(artifact_uri)
-        try:
-            await blob.download_file_to_path(
-                key=key,
-                bucket=bucket,
-                output_path=output_path,
-            )
-        except FileNotFoundError as e:
-            request = httpx.Request("GET", artifact_uri)
-            response = httpx.Response(status_code=404, request=request)
-            raise httpx.HTTPStatusError(
-                f"Registry artifact not found: {artifact_uri}",
-                request=request,
-                response=response,
-            ) from e
-
-    async def _extract_tarball(self, tarball_path: Path, target_dir: Path) -> None:
-        """Extract a supported registry tarball to target directory."""
-
-        def _do_extract() -> None:
-            if tarball_path.name.endswith(".tar.gz"):
-                with tarfile.open(tarball_path, "r:gz") as tar:
-                    tar.extractall(path=target_dir, filter="data")
-                return
-
-            raise ValueError(f"Unsupported tarball format: {tarball_path}")
-
-        await asyncio.to_thread(_do_extract)
-        logger.debug(
-            "Tarball extracted",
-            target=str(target_dir),
-            artifact_format=_artifact_format(str(tarball_path)).value,
-        )
