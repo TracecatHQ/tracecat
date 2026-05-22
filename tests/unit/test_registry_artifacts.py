@@ -243,6 +243,57 @@ class TestRegistryArtifactCache:
         )
 
     @pytest.mark.anyio
+    async def test_materialize_recomputes_candidates_after_lock(self, temp_cache_dir):
+        """Test that lock waiters re-check preferred artifact candidates."""
+        cache = RegistryArtifactCache(temp_cache_dir)
+        cache_key = "recompute-key"
+        cached_path = temp_cache_dir / "cached-squashfs"
+        cached_path.mkdir()
+        tarball = TarballArtifact(
+            uri="s3://bucket/path/site-packages.tar.gz",
+            cache_key=cache_key,
+        )
+        squashfs = SquashfsArtifact(
+            uri="s3://bucket/path/site-packages.squashfs",
+            cache_key=cache_key,
+        )
+        pre_lock_candidates = [tarball]
+        post_lock_candidates = [squashfs, tarball]
+        seen_candidates: list[list[RegistryArtifactFormat]] = []
+
+        def fake_first_cached_path(candidates, ctx):
+            del ctx
+            seen_candidates.append([artifact.format for artifact in candidates])
+            if candidates is post_lock_candidates:
+                return cached_path
+            return None
+
+        with (
+            patch.object(
+                cache,
+                "_artifact_candidates",
+                new_callable=AsyncMock,
+                side_effect=[pre_lock_candidates, post_lock_candidates],
+            ) as artifact_candidates,
+            patch.object(
+                cache,
+                "_first_cached_path",
+                side_effect=fake_first_cached_path,
+            ),
+        ):
+            result = await cache.materialize(
+                cache_key,
+                "s3://bucket/path/site-packages.tar.gz",
+            )
+
+        assert result == cached_path
+        assert artifact_candidates.await_count == 2
+        assert seen_candidates == [
+            [RegistryArtifactFormat.TAR_GZ],
+            [RegistryArtifactFormat.SQUASHFS, RegistryArtifactFormat.TAR_GZ],
+        ]
+
+    @pytest.mark.anyio
     async def test_artifact_candidates_direct_squashfs_include_gzip_fallback(
         self, temp_cache_dir
     ):

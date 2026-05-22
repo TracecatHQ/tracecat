@@ -588,6 +588,7 @@ class RegistryArtifactCache:
 
         lock = await self._lock_for(cache_key)
         async with lock:
+            candidates = await self._artifact_candidates(ctx, artifact_uri)
             if cached_path := self._first_cached_path(candidates, ctx):
                 return cached_path
 
