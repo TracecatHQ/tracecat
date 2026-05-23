@@ -340,7 +340,6 @@ async def _build_platform_registry_artifact(
                 session,
                 target_version=target_version,
                 version_id=promote_version_id,
-                artifact_uri=result.artifact_uri,
                 expected_current_version_id=expected_current_version_id,
                 artifact_uri=result.artifact_uri,
                 artifact_hash=result.artifact_hash,
@@ -352,7 +351,6 @@ async def _promote_platform_registry_version_after_artifact_build(
     *,
     target_version: str,
     version_id: UUID,
-    artifact_uri: str,
     expected_current_version_id: UUID | None,
     artifact_uri: str,
     artifact_hash: str | None,
@@ -413,7 +411,8 @@ async def _promote_platform_registry_version_after_artifact_build(
         session.add(version)
 
     version.tarball_uri = artifact_uri
-    version.artifact_hash = artifact_hash
+    if artifact_hash is not None:
+        version.artifact_hash = artifact_hash
     session.add(version)
     repo.current_version_id = version.id
     session.add(repo)
@@ -422,5 +421,5 @@ async def _promote_platform_registry_version_after_artifact_build(
         "Promoted platform registry version after artifact build",
         target_version=target_version,
         version_id=str(version_id),
-        artifact_hash=artifact_hash,
+        artifact_hash=version.artifact_hash,
     )

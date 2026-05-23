@@ -507,17 +507,16 @@ async def test_promote_after_artifact_build_promotes_when_current_matches_guard(
         session,
         target_version="2.0.0",
         version_id=new_version.id,
-        artifact_uri="s3://test/v2.tar.gz",
         expected_current_version_id=old_version.id,
         artifact_uri="s3://test/v2-built.squashfs",
-        artifact_hash="built-hash",
+        artifact_hash="b" * 64,
     )
 
     await session.refresh(repo)
     await session.refresh(new_version)
     assert repo.current_version_id == new_version.id
     assert new_version.tarball_uri == "s3://test/v2-built.squashfs"
-    assert new_version.artifact_hash == "built-hash"
+    assert new_version.artifact_hash == "b" * 64
 
 
 @pytest.mark.anyio
@@ -554,12 +553,14 @@ async def test_promote_after_artifact_build_updates_stored_artifact_uri(
         version_id=pending_version.id,
         artifact_uri=artifact_uri,
         expected_current_version_id=old_version.id,
+        artifact_hash="b" * 64,
     )
 
     await session.refresh(repo)
     await session.refresh(pending_version)
     assert repo.current_version_id == pending_version.id
     assert pending_version.tarball_uri == artifact_uri
+    assert pending_version.artifact_hash == "b" * 64
 
 
 @pytest.mark.anyio
@@ -595,10 +596,57 @@ async def test_promote_after_artifact_build_promotes_collision_version(
         version_id=collision_version.id,
         artifact_uri="s3://test/collision.tar.gz",
         expected_current_version_id=old_version.id,
+        artifact_hash="c" * 64,
     )
 
     await session.refresh(repo)
+    await session.refresh(collision_version)
     assert repo.current_version_id == collision_version.id
+    assert collision_version.artifact_hash == "c" * 64
+
+
+@pytest.mark.anyio
+async def test_promote_after_artifact_build_preserves_existing_hash_when_reusing_object(
+    session: AsyncSession,
+) -> None:
+    from tracecat.registry.sync.jobs import (
+        _promote_platform_registry_version_after_artifact_build,
+    )
+
+    repo = await _get_or_create_platform_repo(session)
+    old_version = PlatformRegistryVersion(
+        repository_id=repo.id,
+        version="1.0.0",
+        manifest=_make_manifest(["test.action_v1"]),
+        tarball_uri="s3://test/v1.tar.gz",
+    )
+    new_version = PlatformRegistryVersion(
+        repository_id=repo.id,
+        version="2.0.0",
+        manifest=_make_manifest(["test.action_v2"]),
+        tarball_uri="s3://test/v2.tar.gz",
+        artifact_hash="a" * 64,
+    )
+    session.add_all([old_version, new_version])
+    await session.flush()
+    repo.current_version_id = old_version.id
+    session.add(repo)
+    await session.commit()
+
+    await _promote_platform_registry_version_after_artifact_build(
+        session,
+        target_version="2.0.0",
+        version_id=new_version.id,
+        expected_current_version_id=old_version.id,
+        artifact_uri="s3://test/v2-built.squashfs",
+        artifact_hash=None,
+    )
+
+    await session.refresh(repo)
+    await session.refresh(new_version)
+    assert repo.current_version_id == new_version.id
+    assert new_version.tarball_uri == "s3://test/v2-built.squashfs"
+    assert new_version.artifact_hash == "a" * 64
 
 
 @pytest.mark.anyio
@@ -638,10 +686,9 @@ async def test_promote_after_artifact_build_skips_when_current_changed(
         session,
         target_version="2.0.0",
         version_id=pending_version.id,
-        artifact_uri="s3://test/v2.tar.gz",
         expected_current_version_id=old_version.id,
         artifact_uri="s3://test/v2-built.squashfs",
-        artifact_hash="built-hash",
+        artifact_hash="b" * 64,
     )
 
     await session.refresh(repo)
