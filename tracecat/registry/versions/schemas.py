@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 from datetime import datetime
+from hashlib import sha256
 from typing import Any, Literal
 from uuid import UUID
 
+import orjson
 from pydantic import BaseModel, Field
 from tracecat_registry import RegistrySecretType
 
@@ -135,6 +137,14 @@ class RegistryVersionManifest(BaseModel):
             action.to_action_create(repository_id=repository_id, origin=origin)
             for action in self.actions.values()
         ]
+
+
+def registry_manifest_fingerprint(manifest: RegistryVersionManifest) -> str:
+    """Return a stable SHA-256 fingerprint for a registry version manifest."""
+    payload = orjson.dumps(
+        manifest.model_dump(mode="json"), option=orjson.OPT_SORT_KEYS
+    )
+    return sha256(payload).hexdigest()
 
 
 class RegistryVersionCreate(BaseModel):
