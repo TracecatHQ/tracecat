@@ -45,6 +45,10 @@ def test_apply_api_key_created_cursor_rejects_invalid_cursor() -> None:
         "case:update",
         "case:delete",
         "secret:update",
+        "variable:read",
+        "variable:create",
+        "variable:update",
+        "variable:delete",
         "workspace:member:invite",
         "action:tools.slack.post_message:execute",
     ],
@@ -64,8 +68,6 @@ def test_workspace_service_account_assignable_scope_allows_supported_api_key_sco
     [
         "table:read",
         "table:create",
-        "variable:read",
-        "variable:update",
         "inbox:read",
         "agent:execute",
         "workspace:create",
@@ -92,6 +94,10 @@ def test_workspace_service_account_assignable_scope_rejects_user_only_scopes(
         "org:workspace:read",
         "workspace:create",
         "workflow:update",
+        "variable:read",
+        "variable:create",
+        "variable:update",
+        "variable:delete",
         "action:tools.slack.post_message:execute",
     ],
 )
@@ -114,7 +120,6 @@ def test_org_service_account_assignable_scope_allows_supported_api_key_scopes(
         "org:registry:read",
         "org:member:invite",
         "table:read",
-        "variable:read",
         "org:service_account:read",
     ],
 )
