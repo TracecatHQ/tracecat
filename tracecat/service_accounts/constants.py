@@ -5,6 +5,10 @@ from tracecat.authz.enums import ScopeSource
 WORKSPACE_SERVICE_ACCOUNT_ASSIGNABLE_SCOPES: frozenset[str] = frozenset(
     {
         "agent:read",
+        "agent:create",
+        "agent:update",
+        "agent:delete",
+        "agent:execute",
         "case:read",
         "case:create",
         "case:update",
