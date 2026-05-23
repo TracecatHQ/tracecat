@@ -509,10 +509,15 @@ async def test_promote_after_artifact_build_promotes_when_current_matches_guard(
         version_id=new_version.id,
         artifact_uri="s3://test/v2.tar.gz",
         expected_current_version_id=old_version.id,
+        artifact_uri="s3://test/v2-built.squashfs",
+        artifact_hash="built-hash",
     )
 
     await session.refresh(repo)
+    await session.refresh(new_version)
     assert repo.current_version_id == new_version.id
+    assert new_version.tarball_uri == "s3://test/v2-built.squashfs"
+    assert new_version.artifact_hash == "built-hash"
 
 
 @pytest.mark.anyio
@@ -635,6 +640,8 @@ async def test_promote_after_artifact_build_skips_when_current_changed(
         version_id=pending_version.id,
         artifact_uri="s3://test/v2.tar.gz",
         expected_current_version_id=old_version.id,
+        artifact_uri="s3://test/v2-built.squashfs",
+        artifact_hash="built-hash",
     )
 
     await session.refresh(repo)

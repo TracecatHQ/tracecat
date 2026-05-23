@@ -90,6 +90,7 @@ class RegistryArtifactsContext:
     origin: str
     version: str
     artifact_uri: str
+    artifact_hash: str | None = None
 
 
 # Cache for individual artifacts (origin, version) -> RegistryArtifactsContext
@@ -98,14 +99,18 @@ _artifact_cache: Any = Cache(Cache.MEMORY, ttl=60)
 
 
 def _artifact_cache_key(
-    origin: str, version: str, organization_id: OrganizationID
+    origin: str,
+    version: str,
+    organization_id: OrganizationID,
+    fingerprint: str | None = None,
 ) -> str:
-    return f"artifact:{organization_id}:{origin}:{version}"
+    return f"artifact:{organization_id}:{origin}:{version}:{fingerprint or ''}"
 
 
 async def get_registry_artifacts_for_lock(
     origins: dict[str, str],
     organization_id: OrganizationID,
+    origin_fingerprints: dict[str, str] | None = None,
 ) -> list[RegistryArtifactsContext]:
     """Get registry tarball URIs for specific locked versions.
 
@@ -132,7 +137,14 @@ async def get_registry_artifacts_for_lock(
     org_misses: list[tuple[str, str]] = []
 
     for origin, version in origins.items():
-        key = _artifact_cache_key(origin, version, organization_id)
+        key = _artifact_cache_key(
+            origin,
+            version,
+            organization_id,
+            fingerprint=origin_fingerprints.get(origin)
+            if origin_fingerprints
+            else None,
+        )
         cached = await _artifact_cache.get(key=key)
         if cached is not None:
             cached_artifacts.append(cached)
@@ -164,6 +176,7 @@ async def get_registry_artifacts_for_lock(
                     PlatformRegistryRepository.origin,
                     PlatformRegistryVersion.version,
                     PlatformRegistryVersion.tarball_uri,
+                    PlatformRegistryVersion.artifact_hash,
                 )
                 .join(
                     PlatformRegistryVersion,
@@ -188,6 +201,7 @@ async def get_registry_artifacts_for_lock(
                     RegistryRepository.origin,
                     RegistryVersion.version,
                     RegistryVersion.tarball_uri,
+                    RegistryVersion.artifact_hash,
                 )
                 .join(
                     RegistryVersion,
@@ -212,17 +226,25 @@ async def get_registry_artifacts_for_lock(
         # Process results
         found_keys: set[tuple[str, str]] = set()
         for row in rows:
-            origin_val, version_val, artifact_uri = row
+            origin_val, version_val, artifact_uri, artifact_hash = row
             if artifact_uri is not None:
                 artifact = RegistryArtifactsContext(
                     origin=origin_val,
                     version=version_val,
                     artifact_uri=artifact_uri,
+                    artifact_hash=artifact_hash,
                 )
                 fetched_artifacts.append(artifact)
                 found_keys.add((origin_val, version_val))
                 # Cache the artifact
-                key = _artifact_cache_key(origin_val, version_val, organization_id)
+                key = _artifact_cache_key(
+                    origin_val,
+                    version_val,
+                    organization_id,
+                    fingerprint=origin_fingerprints.get(origin_val)
+                    if origin_fingerprints
+                    else None,
+                )
                 await _artifact_cache.set(key=key, value=artifact)
             else:
                 logger.warning(

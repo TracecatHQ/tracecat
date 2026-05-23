@@ -20,6 +20,8 @@ from tracecat.executor.registry_artifacts import (
     TarballArtifact,
     bundled_builtin_registry_uri,
     compute_registry_artifact_cache_key,
+    registry_artifact_ref,
+    split_registry_artifact_ref,
 )
 from tracecat.registry.artifact_keys import parse_s3_uri
 
@@ -82,6 +84,15 @@ class TestRegistryArtifactCache:
 
         assert key1 != key2
 
+    def test_compute_registry_artifact_cache_key_includes_hash_fragment(self):
+        uri = "s3://bucket/path/site-packages.squashfs"
+        ref = registry_artifact_ref(uri, "a" * 64)
+
+        assert compute_registry_artifact_cache_key(ref) != (
+            compute_registry_artifact_cache_key(uri)
+        )
+        assert split_registry_artifact_ref(ref) == (uri, "a" * 64)
+
     def test_compute_registry_artifact_cache_key_empty(self):
         """Test that empty URI returns the base cache key."""
         assert compute_registry_artifact_cache_key("") == "base"
@@ -104,7 +115,9 @@ class TestRegistryArtifactCache:
             key: str,
             bucket: str,
             output_path: Path,
+            expected_sha256: str | None = None,
         ) -> None:
+            assert expected_sha256 is None
             output_path.write_bytes(b"squashfs")
 
         with patch(
@@ -119,6 +132,36 @@ class TestRegistryArtifactCache:
         assert await_args is not None
         assert await_args.kwargs["key"] == "path/site-packages.squashfs"
         assert await_args.kwargs["bucket"] == "bucket"
+        assert output_path.read_bytes() == b"squashfs"
+
+    @pytest.mark.anyio
+    async def test_download_artifact_verifies_expected_hash(self, temp_cache_dir):
+        cache = RegistryArtifactCache(temp_cache_dir)
+        artifact = SquashfsArtifact(
+            uri="s3://bucket/path/site-packages.squashfs",
+            cache_key="download-test",
+            expected_hash="a" * 64,
+        )
+        ctx = cache._context_for(artifact.cache_key)
+        output_path = temp_cache_dir / "artifact.squashfs"
+
+        async def mock_download_file_to_path(
+            *,
+            key: str,
+            bucket: str,
+            output_path: Path,
+            expected_sha256: str | None = None,
+        ) -> None:
+            assert expected_sha256 == "a" * 64
+            output_path.write_bytes(b"squashfs")
+
+        with patch(
+            "tracecat.executor.registry_artifacts.blob.download_file_to_path",
+            new_callable=AsyncMock,
+            side_effect=mock_download_file_to_path,
+        ):
+            await artifact.download(ctx, output_path)
+
         assert output_path.read_bytes() == b"squashfs"
 
     @pytest.mark.anyio

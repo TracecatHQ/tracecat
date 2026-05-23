@@ -333,6 +333,7 @@ async def _build_platform_registry_artifact(
             "Platform registry artifact build completed",
             target_version=target_version,
             artifact_uri=result.artifact_uri,
+            artifact_hash=result.artifact_hash,
         )
         if promote_version_id is not None:
             await _promote_platform_registry_version_after_artifact_build(
@@ -341,6 +342,8 @@ async def _build_platform_registry_artifact(
                 version_id=promote_version_id,
                 artifact_uri=result.artifact_uri,
                 expected_current_version_id=expected_current_version_id,
+                artifact_uri=result.artifact_uri,
+                artifact_hash=result.artifact_hash,
             )
 
 
@@ -351,6 +354,8 @@ async def _promote_platform_registry_version_after_artifact_build(
     version_id: UUID,
     artifact_uri: str,
     expected_current_version_id: UUID | None,
+    artifact_uri: str,
+    artifact_hash: str | None,
 ) -> None:
     repos_service = PlatformRegistryReposService(session)
     versions_service = PlatformRegistryVersionsService(session)
@@ -407,9 +412,15 @@ async def _promote_platform_registry_version_after_artifact_build(
         version.tarball_uri = artifact_uri
         session.add(version)
 
-    await repos_service.promote_version(repo, version_id)
+    version.tarball_uri = artifact_uri
+    version.artifact_hash = artifact_hash
+    session.add(version)
+    repo.current_version_id = version.id
+    session.add(repo)
+    await session.commit()
     logger.info(
         "Promoted platform registry version after artifact build",
         target_version=target_version,
         version_id=str(version_id),
+        artifact_hash=artifact_hash,
     )

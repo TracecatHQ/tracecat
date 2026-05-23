@@ -10,7 +10,7 @@ import sysconfig
 import tarfile
 import time
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
 
@@ -42,6 +42,9 @@ native extension modules that need to be loaded from the mounted artifact.
 
 BUNDLED_BUILTIN_REGISTRY_URI_PREFIX = f"tracecat-builtin://{DEFAULT_REGISTRY_ORIGIN}/"
 """Pseudo-URI for the builtin registry already installed in the executor image."""
+
+ARTIFACT_SHA256_FRAGMENT_PREFIX = "#sha256="
+"""URI fragment used to carry expected registry artifact content hashes."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -87,6 +90,7 @@ class RegistryArtifact(ABC):
 
     uri: str
     cache_key: str
+    expected_hash: str | None = field(default=None, kw_only=True)
 
     @property
     @abstractmethod
@@ -198,7 +202,11 @@ class SquashfsArtifact(RegistryArtifact):
         temp_image = self._temp_path(ctx, ".squashfs")
         try:
             download_start = time.monotonic()
-            await _download_s3_artifact(self.uri, temp_image)
+            await _download_s3_artifact(
+                self.uri,
+                temp_image,
+                expected_sha256=self.expected_hash,
+            )
             try:
                 temp_image.rename(image_path)
             except OSError:
@@ -449,7 +457,12 @@ class TarballArtifact(RegistryArtifact):
         )
 
 
-async def _download_s3_artifact(artifact_uri: str, output_path: Path) -> None:
+async def _download_s3_artifact(
+    artifact_uri: str,
+    output_path: Path,
+    *,
+    expected_sha256: str | None = None,
+) -> None:
     """Download an S3 registry artifact to a local path."""
     bucket, key = parse_s3_uri(artifact_uri)
     try:
@@ -457,6 +470,7 @@ async def _download_s3_artifact(artifact_uri: str, output_path: Path) -> None:
             key=key,
             bucket=bucket,
             output_path=output_path,
+            expected_sha256=expected_sha256,
         )
     except FileNotFoundError as e:
         request = httpx.Request("GET", artifact_uri)
@@ -472,9 +486,26 @@ def compute_registry_artifact_cache_key(artifact_uri: str) -> str:
     """Compute the local cache key for a registry artifact URI."""
     if not artifact_uri:
         return "base"
-    # S3 keys are case-sensitive, so preserve URI case when hashing.
+    # S3 keys and SHA-256 fragments are case-sensitive, so preserve URI case.
     content = artifact_uri.strip()
     return hashlib.sha256(content.encode()).hexdigest()[:16]
+
+
+def registry_artifact_ref(artifact_uri: str, artifact_hash: str | None) -> str:
+    """Return an artifact reference carrying an optional expected SHA-256 hash."""
+    if not artifact_hash:
+        return artifact_uri
+    return f"{artifact_uri}{ARTIFACT_SHA256_FRAGMENT_PREFIX}{artifact_hash}"
+
+
+def split_registry_artifact_ref(artifact_ref: str) -> tuple[str, str | None]:
+    """Split an artifact reference into its storage URI and expected hash."""
+    artifact_uri, separator, expected_hash = artifact_ref.partition(
+        ARTIFACT_SHA256_FRAGMENT_PREFIX
+    )
+    if not separator:
+        return artifact_ref, None
+    return artifact_uri, expected_hash or None
 
 
 def bundled_builtin_registry_uri(version: str) -> str:
@@ -561,19 +592,29 @@ class RegistryArtifactCache:
         if not artifact_uri:
             return []
         cache_key = compute_registry_artifact_cache_key(artifact_uri)
-        return await self.materialize(cache_key, artifact_uri)
+        artifact_uri, expected_hash = split_registry_artifact_ref(artifact_uri)
+        return await self.materialize(cache_key, artifact_uri, expected_hash)
 
-    async def materialize(self, cache_key: str, artifact_uri: str) -> list[Path]:
+    async def materialize(
+        self,
+        cache_key: str,
+        artifact_uri: str,
+        expected_hash: str | None = None,
+    ) -> list[Path]:
         """Materialize a registry artifact as local importable directories."""
         ctx = self._context_for(cache_key)
-        candidates = await self._artifact_candidates(ctx, artifact_uri)
+        candidates = await self._artifact_candidates(ctx, artifact_uri, expected_hash)
 
         if cached_paths := self._first_cached_path(candidates, ctx):
             return cached_paths
 
         lock = await self._lock_for(cache_key)
         async with lock:
-            candidates = await self._artifact_candidates(ctx, artifact_uri)
+            candidates = await self._artifact_candidates(
+                ctx,
+                artifact_uri,
+                expected_hash,
+            )
             if cached_paths := self._first_cached_path(candidates, ctx):
                 return cached_paths
 
@@ -641,6 +682,7 @@ class RegistryArtifactCache:
         self,
         ctx: RegistryArtifactMaterializationContext,
         artifact_uri: str,
+        expected_hash: str | None = None,
     ) -> list[RegistryArtifact]:
         """Return artifact candidates in executor preference order."""
         if version := _bundled_builtin_registry_version(artifact_uri):
@@ -658,6 +700,7 @@ class RegistryArtifactCache:
                 SquashfsArtifact(
                     uri=artifact_uri,
                     cache_key=ctx.cache_key,
+                    expected_hash=expected_hash,
                 )
             ]
             if tarball_uri := _tarball_uri_for_squashfs(artifact_uri):
@@ -678,6 +721,7 @@ class RegistryArtifactCache:
                         SquashfsArtifact(
                             uri=squashfs_uri,
                             cache_key=ctx.cache_key,
+                            expected_hash=None,
                         )
                     )
                 elif await self._sidecar_exists(
@@ -689,6 +733,7 @@ class RegistryArtifactCache:
                         SquashfsArtifact(
                             uri=squashfs_uri,
                             cache_key=ctx.cache_key,
+                            expected_hash=None,
                         )
                     )
 

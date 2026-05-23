@@ -17961,9 +17961,9 @@ Attributes:
         Example: {"tracecat_registry": "2024.12.10.123456"}
     actions: Maps action name to its source origin.
         Example: {"core.transform.reshape": "tracecat_registry"}
-    origin_fingerprints: Optional immutable manifest fingerprints for origins.
-        New executors use the builtin fingerprint to decide whether their
-        bundled tracecat_registry package is an exact match for the lock.`,
+    origin_fingerprints: Optional immutable origin fingerprints. New locks
+        prefer execution artifact SHA-256 hashes and fall back to manifest
+        fingerprints when older versions do not have artifact hashes.`,
 } as const
 
 export const $RegistryOAuthSecret = {
@@ -29968,6 +29968,17 @@ export const $tracecat__admin__registry__schemas__RegistryVersionRead = {
       ],
       title: "Tarball Uri",
     },
+    artifact_hash: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Artifact Hash",
+    },
     created_at: {
       type: "string",
       format: "date-time",
@@ -30239,6 +30250,17 @@ export const $tracecat__registry__repositories__schemas__RegistryVersionRead = {
         },
       ],
       title: "Tarball Uri",
+    },
+    artifact_hash: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Artifact Hash",
     },
     created_at: {
       type: "string",

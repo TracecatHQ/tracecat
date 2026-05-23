@@ -258,6 +258,7 @@ class RegistrySyncRunner:
             return RegistrySyncResult(
                 actions=actions,
                 artifact_uri=artifact_uri,
+                artifact_hash=artifact_result.content_hash,
                 commit_sha=commit_sha,
                 validation_errors=validation_errors,
             )

@@ -44,6 +44,7 @@ def test_sort_registry_artifact_uris_orders_builtin_first() -> None:
             origin="tracecat_registry",
             version="v1",
             artifact_uri="s3://bucket/builtin.tar.gz",
+            artifact_hash="a" * 64,
         ),
         RegistryArtifactsContext(
             origin="git+ssh://github.com/example/a.git",
@@ -53,7 +54,7 @@ def test_sort_registry_artifact_uris_orders_builtin_first() -> None:
     ]
 
     assert sort_registry_artifact_uris(artifacts) == [
-        "s3://bucket/builtin.tar.gz",
+        f"s3://bucket/builtin.tar.gz#sha256={'a' * 64}",
         "s3://bucket/a.tar.gz",
         "s3://bucket/b.tar.gz",
     ]
@@ -130,6 +131,44 @@ async def test_get_registry_artifact_uris_uses_bundled_builtin_on_fingerprint_ma
 
 
 @pytest.mark.anyio
+async def test_get_registry_artifact_uris_uses_bundled_builtin_on_artifact_hash_match(
+    test_role: Role, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    current_version = "1.2.3"
+    artifact_hash = "a" * 64
+    input_data = cast(
+        RunActionInput,
+        SimpleNamespace(
+            registry_lock=RegistryLock(
+                origins={DEFAULT_REGISTRY_ORIGIN: current_version},
+                actions={},
+                origin_fingerprints={DEFAULT_REGISTRY_ORIGIN: artifact_hash},
+            )
+        ),
+    )
+
+    async def fail_lookup(*_args, **_kwargs):
+        pytest.fail("matching builtin registry should not query artifact storage")
+
+    monkeypatch.setattr(
+        "tracecat.executor.backends.registry_helpers.tracecat_registry.__version__",
+        current_version,
+    )
+    monkeypatch.setattr(
+        "tracecat.executor.backends.registry_helpers.load_prebuilt_builtin_registry_artifact_metadata",
+        lambda **_kwargs: SimpleNamespace(artifact_hash=artifact_hash),
+    )
+    monkeypatch.setattr(
+        "tracecat.executor.backends.registry_helpers.get_registry_artifacts_for_lock",
+        fail_lookup,
+    )
+
+    assert await get_registry_artifact_uris(input_data, test_role) == [
+        bundled_builtin_registry_uri(current_version)
+    ]
+
+
+@pytest.mark.anyio
 async def test_get_registry_artifact_uris_looks_up_builtin_on_fingerprint_mismatch(
     test_role: Role, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -149,14 +188,18 @@ async def test_get_registry_artifact_uris_looks_up_builtin_on_fingerprint_mismat
     async def get_artifacts(
         origins: dict[str, str],
         organization_id: uuid.UUID,
+        *,
+        origin_fingerprints: dict[str, str] | None = None,
     ) -> list[RegistryArtifactsContext]:
         assert origins == {DEFAULT_REGISTRY_ORIGIN: current_version}
         assert organization_id == test_role.organization_id
+        assert origin_fingerprints == {DEFAULT_REGISTRY_ORIGIN: "different"}
         return [
             RegistryArtifactsContext(
                 origin=DEFAULT_REGISTRY_ORIGIN,
                 version=current_version,
                 artifact_uri=artifact_uri,
+                artifact_hash="b" * 64,
             )
         ]
 
@@ -173,7 +216,9 @@ async def test_get_registry_artifact_uris_looks_up_builtin_on_fingerprint_mismat
         get_artifacts,
     )
 
-    assert await get_registry_artifact_uris(input_data, test_role) == [artifact_uri]
+    assert await get_registry_artifact_uris(input_data, test_role) == [
+        f"{artifact_uri}#sha256={'b' * 64}"
+    ]
 
 
 @pytest.mark.anyio
@@ -244,9 +289,12 @@ async def test_get_registry_artifact_uris_looks_up_only_non_current_origins(
     async def get_artifacts(
         origins: dict[str, str],
         organization_id: uuid.UUID,
+        *,
+        origin_fingerprints: dict[str, str] | None = None,
     ) -> list[RegistryArtifactsContext]:
         assert origins == {custom_origin: "abc123"}
         assert organization_id == test_role.organization_id
+        assert origin_fingerprints is None
         return [
             RegistryArtifactsContext(
                 origin=custom_origin,

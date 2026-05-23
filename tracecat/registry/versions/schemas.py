@@ -161,6 +161,10 @@ class RegistryVersionCreate(BaseModel):
         ...,
         description="S3 URI to the execution artifact for this registry version",
     )
+    artifact_hash: str | None = Field(
+        default=None,
+        description="SHA-256 content hash of the execution artifact",
+    )
 
 
 class RegistryVersionRead(BaseModel):
@@ -172,6 +176,7 @@ class RegistryVersionRead(BaseModel):
     commit_sha: str | None
     manifest: RegistryVersionManifest
     tarball_uri: str
+    artifact_hash: str | None = None
     created_at: datetime
 
 
@@ -183,6 +188,7 @@ class RegistryVersionReadMinimal(BaseModel):
     version: str
     commit_sha: str | None
     tarball_uri: str
+    artifact_hash: str | None = None
     created_at: datetime
     action_count: int = Field(
         default=0,
