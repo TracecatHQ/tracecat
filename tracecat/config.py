@@ -1166,8 +1166,10 @@ TRACECAT__REGISTRY_SYNC_SQUASHFS_ENABLED = os.environ.get(
 ).lower() in ("true", "1")
 """Build SquashFS sidecars for registry tarball venvs when mksquashfs is available."""
 
+_DEFAULT_REGISTRY_SYNC_SQUASHFS_PROCESSORS = os.cpu_count() or 1
 TRACECAT__REGISTRY_SYNC_SQUASHFS_PROCESSORS = int(
-    os.environ.get("TRACECAT__REGISTRY_SYNC_SQUASHFS_PROCESSORS") or 1
+    os.environ.get("TRACECAT__REGISTRY_SYNC_SQUASHFS_PROCESSORS")
+    or _DEFAULT_REGISTRY_SYNC_SQUASHFS_PROCESSORS
 )
 """Number of processors mksquashfs may use for registry SquashFS sidecar builds."""
 

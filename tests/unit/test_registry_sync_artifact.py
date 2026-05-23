@@ -176,6 +176,32 @@ def test_create_squashfs_image_makes_mount_root_traversable(
     def fake_subprocess_run(cmd: list[str]) -> subprocess.CompletedProcess[str]:
         staging_dir = Path(cmd[1])
         assert staging_dir.stat().st_mode & 0o777 == 0o755
+        assert cmd == [
+            "/usr/bin/mksquashfs",
+            str(staging_dir),
+            str(image_path),
+            "-noappend",
+            "-comp",
+            "gzip",
+            "-Xcompression-level",
+            "6",
+            "-no-xattrs",
+            "-all-root",
+            "-root-mode",
+            "755",
+            "-reproducible",
+            "-mkfs-time",
+            "0",
+            "-all-time",
+            "0",
+            "-root-time",
+            "0",
+            "-no-hardlinks",
+            "-processors",
+            "2",
+            "-mem",
+            "256M",
+        ]
         assert cmd[-4:] == ["-processors", "2", "-mem", "256M"]
         image_path.write_bytes(b"squashfs")
         return subprocess.CompletedProcess(cmd, 0, "", "")
@@ -186,6 +212,51 @@ def test_create_squashfs_image_makes_mount_root_traversable(
         image_path,
         [(source / "module.py", "module.py")],
     )
+
+
+def test_create_squashfs_image_stages_entries_in_deterministic_order(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Stage top-level entries by arcname for reproducible SquashFS output."""
+    source = tmp_path / "source"
+    source.mkdir()
+    for name in ("b.py", "a.py", "c.py"):
+        (source / name).write_text(f"{name}\n")
+    image_path = tmp_path / "site-packages.squashfs"
+
+    monkeypatch.setattr(
+        artifact.config, "TRACECAT__REGISTRY_SYNC_SQUASHFS_ENABLED", True
+    )
+    monkeypatch.setattr(artifact.shutil, "which", lambda _name: "/usr/bin/mksquashfs")
+
+    staged_arcnames: list[str] = []
+
+    def fake_copy_squashfs_entry(
+        path: Path,
+        dest: Path,
+        *,
+        preserve_symlinks: bool,  # noqa: ARG001
+    ) -> None:
+        staged_arcnames.append(dest.name)
+        dest.write_text(path.read_text())
+
+    def fake_subprocess_run(cmd: list[str]) -> subprocess.CompletedProcess[str]:
+        image_path.write_bytes(b"squashfs")
+        return subprocess.CompletedProcess(cmd, 0, "", "")
+
+    monkeypatch.setattr(artifact, "_copy_squashfs_entry", fake_copy_squashfs_entry)
+    monkeypatch.setattr(artifact, "subprocess_run", fake_subprocess_run)
+
+    assert artifact._create_squashfs_image(
+        image_path,
+        [
+            (source / "b.py", "b.py"),
+            (source / "a.py", "a.py"),
+            (source / "c.py", "c.py"),
+        ],
+    )
+    assert staged_arcnames == ["a.py", "b.py", "c.py"]
 
 
 def test_create_squashfs_image_makes_restrictive_files_readable(
