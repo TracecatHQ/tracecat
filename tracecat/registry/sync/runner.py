@@ -200,18 +200,30 @@ class RegistrySyncRunner:
                 target_version=request.target_version,
                 storage_namespace=storage_namespace,
             )
+            actions: list[RegistryActionCreate] | None = None
+            validation_errors: dict[str, list[RegistryActionValidationErrorInfo]] = {}
             if prebuilt_manifest is not None:
-                actions = prebuilt_manifest.to_action_creates(
-                    repository_id=request.repository_id,
-                    origin=request.origin,
-                )
-                validation_errors = {}
-                logger.info(
-                    "Loaded prebuilt builtin registry manifest",
-                    num_actions=len(actions),
-                    target_version=request.target_version,
-                )
-            else:
+                try:
+                    actions = prebuilt_manifest.to_action_creates(
+                        repository_id=request.repository_id,
+                        origin=request.origin,
+                    )
+                    validation_errors = {}
+                    logger.info(
+                        "Loaded prebuilt builtin registry manifest",
+                        num_actions=len(actions),
+                        target_version=request.target_version,
+                    )
+                except Exception as e:
+                    logger.warning(
+                        "Ignoring prebuilt registry manifest that could not be converted",
+                        origin=request.origin,
+                        target_version=request.target_version,
+                        error=str(e),
+                    )
+                    prebuilt_manifest = None
+
+            if actions is None:
                 actions, validation_errors = await self._discover_actions(
                     repository_id=request.repository_id,
                     origin=request.origin,

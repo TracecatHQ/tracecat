@@ -321,6 +321,79 @@ async def test_platform_builtin_sync_uses_prebuilt_manifest_without_discovery(
 
 
 @pytest.mark.anyio
+async def test_platform_builtin_sync_falls_back_when_prebuilt_manifest_conversion_fails(
+    session: AsyncSession,
+    tmp_path: Path,
+    mocker,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(config, "TRACECAT__REGISTRY_SYNC_SANDBOX_ENABLED", False)
+    monkeypatch.setattr(config, "TRACECAT__BLOB_STORAGE_BUCKET_REGISTRY", "registry")
+    monkeypatch.setattr(
+        config,
+        "TRACECAT__REGISTRY_SYNC_PREBUILT_ARTIFACTS_DIR",
+        str(tmp_path),
+    )
+
+    repos_service = PlatformRegistryReposService(session)
+    repo = await repos_service.get_or_create_repository(DEFAULT_REGISTRY_ORIGIN)
+    prebuilt_manifest = RegistryVersionManifest.from_actions(
+        [_make_action(repository_id=repo.id, default_title="Prebuilt title")]
+    )
+    artifact_dir = get_artifact_local_dir(
+        root=tmp_path,
+        organization_id="platform",
+        repository_origin=DEFAULT_REGISTRY_ORIGIN,
+        version="1.2.3",
+    )
+    write_prebuilt_registry_manifest(
+        artifact_dir=artifact_dir,
+        manifest=prebuilt_manifest,
+    )
+
+    fallback_action = _make_action(
+        repository_id=repo.id,
+        default_title="Recovered title",
+    )
+    fetch_actions_from_subprocess = mocker.patch(
+        "tracecat.registry.sync.base_service.fetch_actions_from_subprocess",
+        mocker.AsyncMock(
+            return_value=SimpleNamespace(
+                actions=[fallback_action],
+                commit_sha=None,
+                validation_errors={},
+            )
+        ),
+    )
+
+    def raise_conversion_error(*_args, **_kwargs) -> list[RegistryActionCreate]:
+        raise ValueError("bad prebuilt action payload")
+
+    monkeypatch.setattr(
+        RegistryVersionManifest,
+        "to_action_creates",
+        raise_conversion_error,
+    )
+
+    sync_service = PlatformRegistrySyncService(session)
+    result = await sync_service.sync_repository_v2(
+        repo,
+        target_version="1.2.3",
+        bypass_temporal=True,
+        defer_artifact_build=True,
+        commit=False,
+    )
+
+    assert result.num_actions == 1
+    assert result.actions[0].default_title == "Recovered title"
+    assert result.artifact_uri.endswith("/1.2.3/site-packages.squashfs")
+    assert RegistryVersionManifest.model_validate(
+        result.version.manifest
+    ) == RegistryVersionManifest.from_actions([fallback_action])
+    fetch_actions_from_subprocess.assert_awaited_once()
+
+
+@pytest.mark.anyio
 async def test_platform_builtin_sync_can_create_pending_version(
     session: AsyncSession,
     tmp_path: Path,

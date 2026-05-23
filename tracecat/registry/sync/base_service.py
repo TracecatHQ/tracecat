@@ -352,19 +352,32 @@ class BaseRegistrySyncService[
             target_version=target_version,
             storage_namespace=self._get_storage_namespace(),
         )
+        actions: list[RegistryActionCreate] | None = None
+        manifest: RegistryVersionManifest | None = None
+        commit_sha: str | None = None
         if prebuilt_manifest is not None:
-            manifest = prebuilt_manifest
-            actions = manifest.to_action_creates(
-                repository_id=repo_id,
-                origin=origin,
-            )
-            commit_sha = target_commit_sha
-            self.logger.info(
-                "Loaded prebuilt builtin registry manifest",
-                num_actions=len(actions),
-                target_version=target_version,
-            )
-        else:
+            try:
+                manifest = prebuilt_manifest
+                actions = manifest.to_action_creates(
+                    repository_id=repo_id,
+                    origin=origin,
+                )
+                commit_sha = target_commit_sha
+                self.logger.info(
+                    "Loaded prebuilt builtin registry manifest",
+                    num_actions=len(actions),
+                    target_version=target_version,
+                )
+            except Exception as e:
+                self.logger.warning(
+                    "Ignoring prebuilt registry manifest that could not be converted",
+                    origin=origin,
+                    target_version=target_version,
+                    error=str(e),
+                )
+                prebuilt_manifest = None
+
+        if actions is None:
             org_id = self.role.organization_id if isinstance(self.role, Role) else None
             sync_result = await fetch_actions_from_subprocess(
                 origin=origin,
@@ -385,6 +398,11 @@ class BaseRegistrySyncService[
             )
 
             manifest = RegistryVersionManifest.from_actions(actions)
+
+        if manifest is None:
+            raise self._sync_error_cls()(
+                f"Failed to build registry manifest for repository {origin}"
+            )
 
         if not actions:
             raise self._sync_error_cls()(f"No actions found in repository {origin}")

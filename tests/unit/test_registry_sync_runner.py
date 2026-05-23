@@ -372,6 +372,135 @@ async def test_runner_falls_back_to_discovery_when_prebuilt_manifest_is_invalid(
 
 
 @pytest.mark.anyio
+async def test_runner_falls_back_when_prebuilt_manifest_conversion_fails(
+    tmp_path,
+    mocker,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        config,
+        "TRACECAT__REGISTRY_SYNC_PREBUILT_ARTIFACTS_DIR",
+        str(tmp_path),
+    )
+    repository_id = uuid4()
+    manifest = RegistryVersionManifest.from_actions(
+        [
+            RegistryActionCreate(
+                repository_id=repository_id,
+                name="reshape",
+                description="Reshape test payload",
+                namespace="core.transform",
+                type="udf",
+                origin=DEFAULT_REGISTRY_ORIGIN,
+                interface={"expects": {}, "returns": {}},
+                implementation=RegistryActionUDFImpl(
+                    type="udf",
+                    url=DEFAULT_REGISTRY_ORIGIN,
+                    module="tracecat_registry.core.transform",
+                    name="reshape",
+                ),
+                secrets=None,
+                default_title="Prebuilt title",
+                display_group=None,
+                doc_url=None,
+                author=None,
+                deprecated=None,
+                options=RegistryActionOptions(),
+            )
+        ]
+    )
+    artifact_dir = get_artifact_local_dir(
+        root=tmp_path,
+        organization_id="platform",
+        repository_origin=DEFAULT_REGISTRY_ORIGIN,
+        version="1.2.3",
+    )
+    write_prebuilt_registry_manifest(artifact_dir=artifact_dir, manifest=manifest)
+
+    runner = RegistrySyncRunner()
+    request = RegistrySyncRequest(
+        repository_id=repository_id,
+        origin=DEFAULT_REGISTRY_ORIGIN,
+        origin_type="builtin",
+        target_version="1.2.3",
+        storage_namespace="platform",
+        validate_actions=True,
+    )
+
+    mocker.patch.object(
+        runner,
+        "_get_builtin_package_path",
+        mocker.AsyncMock(return_value=tmp_path),
+    )
+    artifact_result = _make_artifact_result(tmp_path)
+    mocker.patch.object(
+        runner,
+        "_build_execution_artifact",
+        mocker.AsyncMock(return_value=artifact_result),
+    )
+    fallback_actions = [
+        RegistryActionCreate(
+            repository_id=repository_id,
+            name="reshape",
+            description="Reshape test payload",
+            namespace="core.transform",
+            type="udf",
+            origin=DEFAULT_REGISTRY_ORIGIN,
+            interface={"expects": {}, "returns": {}},
+            implementation=RegistryActionUDFImpl(
+                type="udf",
+                url=DEFAULT_REGISTRY_ORIGIN,
+                module="tracecat_registry.core.transform",
+                name="reshape",
+            ),
+            secrets=None,
+            default_title="Recovered title",
+            display_group=None,
+            doc_url=None,
+            author=None,
+            deprecated=None,
+            options=RegistryActionOptions(),
+        )
+    ]
+    discover_actions = mocker.patch.object(
+        runner,
+        "_discover_actions",
+        mocker.AsyncMock(return_value=(fallback_actions, {})),
+    )
+    mocker.patch.object(
+        runner,
+        "_upload_squashfs",
+        mocker.AsyncMock(
+            return_value=(
+                "s3://registry/platform/tarball-venvs/tracecat_registry/generated/"
+                "site-packages.squashfs"
+            )
+        ),
+    )
+
+    def raise_conversion_error(*_args, **_kwargs) -> list[RegistryActionCreate]:
+        raise ValueError("bad prebuilt action payload")
+
+    monkeypatch.setattr(
+        RegistryVersionManifest,
+        "to_action_creates",
+        raise_conversion_error,
+    )
+
+    result = await runner.run(request)
+
+    assert result.actions == fallback_actions
+    discover_actions.assert_awaited_once_with(
+        repository_id=repository_id,
+        origin=DEFAULT_REGISTRY_ORIGIN,
+        commit_sha=None,
+        validate=True,
+        git_repo_package_name=None,
+        organization_id=None,
+    )
+
+
+@pytest.mark.anyio
 async def test_runner_uses_prebuilt_manifest_without_discovery(
     tmp_path,
     mocker,
