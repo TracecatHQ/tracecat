@@ -339,6 +339,7 @@ async def _build_platform_registry_artifact(
                 session,
                 target_version=target_version,
                 version_id=promote_version_id,
+                artifact_uri=result.artifact_uri,
                 expected_current_version_id=expected_current_version_id,
             )
 
@@ -348,6 +349,7 @@ async def _promote_platform_registry_version_after_artifact_build(
     *,
     target_version: str,
     version_id: UUID,
+    artifact_uri: str,
     expected_current_version_id: UUID | None,
 ) -> None:
     repos_service = PlatformRegistryReposService(session)
@@ -393,6 +395,17 @@ async def _promote_platform_registry_version_after_artifact_build(
             else None,
         )
         return
+
+    if version.tarball_uri != artifact_uri:
+        logger.info(
+            "Updating platform registry version artifact URI before promotion",
+            target_version=target_version,
+            version_id=str(version_id),
+            previous_artifact_uri=version.tarball_uri,
+            artifact_uri=artifact_uri,
+        )
+        version.tarball_uri = artifact_uri
+        session.add(version)
 
     await repos_service.promote_version(repo, version_id)
     logger.info(
