@@ -142,6 +142,7 @@ class RegistryLockService(BaseOrgService):
         # Build origins dict and parse manifests.
         origins: dict[str, str] = {}
         origin_fingerprints: dict[str, str] = {}
+        builtin_fingerprint: str | None = None
         origin_manifests: dict[str, RegistryVersionManifest] = {}
         excluded_custom_origin_manifests: dict[str, RegistryVersionManifest] = {}
 
@@ -150,7 +151,10 @@ class RegistryLockService(BaseOrgService):
             origins[origin_str] = str(version)
             manifest = RegistryVersionManifest.model_validate(manifest_dict)
             origin_manifests[origin_str] = manifest
-            origin_fingerprints[origin_str] = registry_manifest_fingerprint(manifest)
+            fingerprint = registry_manifest_fingerprint(manifest)
+            origin_fingerprints[origin_str] = fingerprint
+            if origin_str == DEFAULT_REGISTRY_ORIGIN and builtin_fingerprint is None:
+                builtin_fingerprint = fingerprint
         if not custom_registry_enabled:
             for origin, _version, manifest_dict in org_rows:
                 origin_str = str(origin)
@@ -224,6 +228,8 @@ class RegistryLockService(BaseOrgService):
         used_origins = set(actions.values())
         origins = {o: v for o, v in origins.items() if o in used_origins}
         origins[DEFAULT_REGISTRY_ORIGIN] = builtin_version
+        if builtin_fingerprint is not None:
+            origin_fingerprints[DEFAULT_REGISTRY_ORIGIN] = builtin_fingerprint
         origin_fingerprints = {
             o: fingerprint
             for o, fingerprint in origin_fingerprints.items()

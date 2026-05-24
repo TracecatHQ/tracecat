@@ -671,6 +671,11 @@ async def test_resolve_lock_overwrites_builtin_origin_with_platform_version(
 
     assert lock.actions["tools.custom.same_origin"] == "tracecat_registry"
     assert lock.origins["tracecat_registry"] == "2.0.0-beta.1"
+    assert lock.origin_fingerprints[
+        "tracecat_registry"
+    ] == registry_manifest_fingerprint(
+        RegistryVersionManifest.model_validate(platform_version.manifest)
+    )
 
 
 @pytest.mark.anyio

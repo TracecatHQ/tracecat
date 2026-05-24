@@ -177,6 +177,53 @@ async def test_get_registry_artifact_uris_looks_up_builtin_on_fingerprint_mismat
 
 
 @pytest.mark.anyio
+async def test_get_registry_artifact_uris_looks_up_builtin_when_manifest_missing(
+    test_role: Role, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    current_version = "1.2.3"
+    artifact_uri = "s3://bucket/builtin/site-packages.squashfs"
+    input_data = cast(
+        RunActionInput,
+        SimpleNamespace(
+            registry_lock=RegistryLock(
+                origins={DEFAULT_REGISTRY_ORIGIN: current_version},
+                actions={},
+                origin_fingerprints={DEFAULT_REGISTRY_ORIGIN: "expected"},
+            )
+        ),
+    )
+
+    async def get_artifacts(
+        origins: dict[str, str],
+        organization_id: uuid.UUID,
+    ) -> list[RegistryArtifactsContext]:
+        assert origins == {DEFAULT_REGISTRY_ORIGIN: current_version}
+        assert organization_id == test_role.organization_id
+        return [
+            RegistryArtifactsContext(
+                origin=DEFAULT_REGISTRY_ORIGIN,
+                version=current_version,
+                artifact_uri=artifact_uri,
+            )
+        ]
+
+    monkeypatch.setattr(
+        "tracecat.executor.backends.registry_helpers.tracecat_registry.__version__",
+        current_version,
+    )
+    monkeypatch.setattr(
+        "tracecat.executor.backends.registry_helpers.load_prebuilt_builtin_registry_manifest",
+        lambda **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        "tracecat.executor.backends.registry_helpers.get_registry_artifacts_for_lock",
+        get_artifacts,
+    )
+
+    assert await get_registry_artifact_uris(input_data, test_role) == [artifact_uri]
+
+
+@pytest.mark.anyio
 async def test_get_registry_artifact_uris_looks_up_only_non_current_origins(
     test_role: Role, monkeypatch: pytest.MonkeyPatch
 ) -> None:
