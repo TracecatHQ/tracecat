@@ -178,6 +178,45 @@ async def test_artifacts_ready_accepts_direct_squashfs_uri(
 
 
 @pytest.mark.anyio
+async def test_promote_version_requires_ready_artifact(
+    session: AsyncSession,
+    platform_role: PlatformRole,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repo = PlatformRegistryRepository(origin="tracecat_registry")
+    session.add(repo)
+    await session.flush()
+
+    version = PlatformRegistryVersion(
+        repository_id=repo.id,
+        version="1.0.0",
+        manifest={"schema_version": "1.0", "actions": {}},
+        tarball_uri="s3://registry-artifacts/platform/v1/site-packages.squashfs",
+    )
+    session.add(version)
+    await session.commit()
+
+    async def artifact_not_ready(
+        _service: AdminRegistryService,
+        _tarball_uri: str | None,
+    ) -> bool:
+        return False
+
+    monkeypatch.setattr(
+        AdminRegistryService,
+        "_artifacts_ready",
+        artifact_not_ready,
+    )
+
+    service = AdminRegistryService(session, platform_role)
+    with pytest.raises(TracecatValidationError, match="artifact is not ready"):
+        await service.promote_version(repo.id, version.id)
+
+    await session.refresh(repo)
+    assert repo.current_version_id is None
+
+
+@pytest.mark.anyio
 async def test_start_artifacts_backfill_scales_workflow_timeout(
     session: AsyncSession,
     platform_role: PlatformRole,

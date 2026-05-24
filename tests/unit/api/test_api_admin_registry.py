@@ -237,6 +237,28 @@ async def test_promote_registry_version_not_found(
 
 
 @pytest.mark.anyio
+async def test_promote_registry_version_artifact_not_ready(
+    client: TestClient, test_admin_role: Role
+) -> None:
+    repo_id = uuid.uuid4()
+    version_id = uuid.uuid4()
+
+    with patch.object(registry_router_module, "AdminRegistryService") as MockService:
+        mock_svc = AsyncMock()
+        mock_svc.promote_version.side_effect = TracecatValidationError(
+            "Version artifact is not ready"
+        )
+        MockService.return_value = mock_svc
+
+        response = client.post(
+            f"/admin/registry/{repo_id}/versions/{version_id}/promote"
+        )
+
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
+    assert response.json()["detail"] == "Version artifact is not ready"
+
+
+@pytest.mark.anyio
 async def test_sync_all_repositories_with_force(
     client: TestClient, test_admin_role: Role
 ) -> None:

@@ -620,6 +620,10 @@ class AdminRegistryService(BasePlatformService):
             raise ValueError(
                 f"Version {version_id} does not have an execution artifact"
             )
+        if not await self._artifacts_ready(version.tarball_uri):
+            raise TracecatValidationError(
+                f"Version {version_id} execution artifact is not ready"
+            )
 
         # Store previous version ID
         previous_version_id = repo.current_version_id
