@@ -260,6 +260,48 @@ async def test_promote_version_allows_ready_legacy_tarball_artifact(
 
 
 @pytest.mark.anyio
+async def test_promote_version_allows_backfilled_legacy_squashfs_sidecar(
+    session: AsyncSession,
+    platform_role: PlatformRole,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repo = PlatformRegistryRepository(origin="tracecat_registry")
+    session.add(repo)
+    await session.flush()
+
+    version = PlatformRegistryVersion(
+        repository_id=repo.id,
+        version="1.0.0",
+        manifest={"schema_version": "1.0", "actions": {}},
+        tarball_uri="s3://registry-artifacts/platform/v1/site-packages.tar.gz",
+    )
+    session.add(version)
+    await session.commit()
+
+    checked: list[tuple[str, str]] = []
+
+    async def fake_file_exists(*, key: str, bucket: str) -> bool:
+        checked.append((bucket, key))
+        return key == "platform/v1/site-packages.squashfs"
+
+    monkeypatch.setattr(
+        "tracecat.admin.registry.service.blob.file_exists",
+        fake_file_exists,
+    )
+
+    service = AdminRegistryService(session, platform_role)
+    response = await service.promote_version(repo.id, version.id)
+
+    await session.refresh(repo)
+    assert response.current_version_id == version.id
+    assert repo.current_version_id == version.id
+    assert checked == [
+        ("registry-artifacts", "platform/v1/site-packages.tar.gz"),
+        ("registry-artifacts", "platform/v1/site-packages.squashfs"),
+    ]
+
+
+@pytest.mark.anyio
 async def test_start_artifacts_backfill_scales_workflow_timeout(
     session: AsyncSession,
     platform_role: PlatformRole,

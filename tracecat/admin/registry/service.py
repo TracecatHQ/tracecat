@@ -37,6 +37,7 @@ from tracecat.parse import safe_url
 from tracecat.registry.actions.schemas import RegistryActionRead
 from tracecat.registry.actions.types import IndexEntry
 from tracecat.registry.artifact_keys import (
+    LEGACY_TARBALL_FILENAME,
     get_squashfs_artifact_key,
     parse_s3_uri,
 )
@@ -524,13 +525,18 @@ class AdminRegistryService(BasePlatformService):
         self,
         artifact_uri: str | None,
     ) -> bool:
-        """Return whether the stored execution artifact exists."""
+        """Return whether an executor can materialize the execution artifact."""
         if artifact_uri is None:
             return False
 
         try:
             bucket, artifact_key = parse_s3_uri(artifact_uri)
-            return await blob.file_exists(key=artifact_key, bucket=bucket)
+            if await blob.file_exists(key=artifact_key, bucket=bucket):
+                return True
+
+            if artifact_key.endswith(LEGACY_TARBALL_FILENAME):
+                sidecar_key = get_squashfs_artifact_key(artifact_key)
+                return await blob.file_exists(key=sidecar_key, bucket=bucket)
         except ValueError:
             self.logger.warning(
                 "Registry version has invalid execution artifact URI",
