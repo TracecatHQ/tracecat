@@ -199,12 +199,12 @@ async def test_promote_version_requires_ready_artifact(
     async def artifact_not_ready(
         _service: AdminRegistryService,
         _artifact_uri: str | None,
-    ) -> bool:
-        return False
+    ) -> str | None:
+        return None
 
     monkeypatch.setattr(
         AdminRegistryService,
-        "_execution_artifact_ready",
+        "_ready_execution_artifact_uri",
         artifact_not_ready,
     )
 
@@ -251,8 +251,13 @@ async def test_promote_version_allows_ready_legacy_tarball_artifact(
     response = await service.promote_version(repo.id, version.id)
 
     await session.refresh(repo)
+    await session.refresh(version)
     assert response.current_version_id == version.id
     assert repo.current_version_id == version.id
+    assert (
+        version.tarball_uri
+        == "s3://registry-artifacts/platform/v1/site-packages.tar.gz"
+    )
     assert checked == {
         "bucket": "registry-artifacts",
         "key": "platform/v1/site-packages.tar.gz",
@@ -293,8 +298,13 @@ async def test_promote_version_allows_backfilled_legacy_squashfs_sidecar(
     response = await service.promote_version(repo.id, version.id)
 
     await session.refresh(repo)
+    await session.refresh(version)
     assert response.current_version_id == version.id
     assert repo.current_version_id == version.id
+    assert (
+        version.tarball_uri
+        == "s3://registry-artifacts/platform/v1/site-packages.squashfs"
+    )
     assert checked == [
         ("registry-artifacts", "platform/v1/site-packages.tar.gz"),
         ("registry-artifacts", "platform/v1/site-packages.squashfs"),

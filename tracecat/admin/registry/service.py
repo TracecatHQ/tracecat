@@ -521,22 +521,23 @@ class AdminRegistryService(BasePlatformService):
             )
         return False
 
-    async def _execution_artifact_ready(
+    async def _ready_execution_artifact_uri(
         self,
         artifact_uri: str | None,
-    ) -> bool:
-        """Return whether an executor can materialize the execution artifact."""
+    ) -> str | None:
+        """Return the artifact URI an executor can materialize."""
         if artifact_uri is None:
-            return False
+            return None
 
         try:
             bucket, artifact_key = parse_s3_uri(artifact_uri)
             if await blob.file_exists(key=artifact_key, bucket=bucket):
-                return True
+                return artifact_uri
 
             if artifact_key.endswith(LEGACY_TARBALL_FILENAME):
                 sidecar_key = get_squashfs_artifact_key(artifact_key)
-                return await blob.file_exists(key=sidecar_key, bucket=bucket)
+                if await blob.file_exists(key=sidecar_key, bucket=bucket):
+                    return f"s3://{bucket}/{sidecar_key}"
         except ValueError:
             self.logger.warning(
                 "Registry version has invalid execution artifact URI",
@@ -548,7 +549,7 @@ class AdminRegistryService(BasePlatformService):
                 artifact_uri=artifact_uri,
                 error=str(exc),
             )
-        return False
+        return None
 
     async def start_artifacts_backfill(
         self,
@@ -650,10 +651,16 @@ class AdminRegistryService(BasePlatformService):
             raise ValueError(
                 f"Version {version_id} does not have an execution artifact"
             )
-        if not await self._execution_artifact_ready(version.tarball_uri):
+        ready_artifact_uri = await self._ready_execution_artifact_uri(
+            version.tarball_uri
+        )
+        if ready_artifact_uri is None:
             raise TracecatValidationError(
                 f"Version {version_id} execution artifact is not ready"
             )
+        if version.tarball_uri != ready_artifact_uri:
+            version.tarball_uri = ready_artifact_uri
+            self.session.add(version)
 
         # Store previous version ID
         previous_version_id = repo.current_version_id
