@@ -440,9 +440,16 @@ async def test_startup_sync_schedules_artifact_for_resolved_version(
     repo = await _get_or_create_platform_repo(session)
     repo.current_version_id = None
     session.add(repo)
+    await session.flush()
+    await session.execute(
+        delete(PlatformRegistryVersion).where(
+            PlatformRegistryVersion.repository_id == repo.id
+        )
+    )
     await session.commit()
 
     mock_result = SimpleNamespace(
+        version=SimpleNamespace(id=uuid.uuid4()),
         version_string="1.0.0.dev20260522140000",
         num_actions=0,
         actions=[],
