@@ -436,7 +436,11 @@ class TarballArtifact(RegistryArtifact):
         ctx: RegistryArtifactMaterializationContext,
         output_path: Path,
     ) -> None:
-        await _download_s3_artifact(self.uri, output_path)
+        await _download_s3_artifact(
+            self.uri,
+            output_path,
+            expected_sha256=self.expected_hash,
+        )
 
     async def extract(self, tarball_path: Path, target_dir: Path) -> None:
         """Extract a supported registry tarball to target directory."""
@@ -703,7 +707,9 @@ class RegistryArtifactCache:
                     expected_hash=expected_hash,
                 )
             ]
-            if tarball_uri := _tarball_uri_for_squashfs(artifact_uri):
+            if expected_hash is None and (
+                tarball_uri := _tarball_uri_for_squashfs(artifact_uri)
+            ):
                 candidates.append(
                     TarballArtifact(
                         uri=tarball_uri,
@@ -715,7 +721,7 @@ class RegistryArtifactCache:
         candidates: list[RegistryArtifact] = []
         if self._can_try_squashfs():
             squashfs_uri = _squashfs_sidecar_uri(artifact_uri)
-            if squashfs_uri:
+            if squashfs_uri and expected_hash is None:
                 if ctx.paths.squashfs_image_path.exists():
                     candidates.append(
                         SquashfsArtifact(
@@ -741,6 +747,7 @@ class RegistryArtifactCache:
             TarballArtifact(
                 uri=artifact_uri,
                 cache_key=ctx.cache_key,
+                expected_hash=expected_hash,
             )
         )
         return candidates
