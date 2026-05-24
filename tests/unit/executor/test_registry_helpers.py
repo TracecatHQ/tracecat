@@ -174,13 +174,14 @@ async def test_get_registry_artifact_uris_looks_up_builtin_on_fingerprint_mismat
 ) -> None:
     current_version = "1.2.3"
     artifact_uri = "s3://bucket/builtin/site-packages.squashfs"
+    locked_artifact_hash = "b" * 64
     input_data = cast(
         RunActionInput,
         SimpleNamespace(
             registry_lock=RegistryLock(
                 origins={DEFAULT_REGISTRY_ORIGIN: current_version},
                 actions={},
-                origin_fingerprints={DEFAULT_REGISTRY_ORIGIN: "different"},
+                origin_fingerprints={DEFAULT_REGISTRY_ORIGIN: locked_artifact_hash},
             )
         ),
     )
@@ -193,13 +194,13 @@ async def test_get_registry_artifact_uris_looks_up_builtin_on_fingerprint_mismat
     ) -> list[RegistryArtifactsContext]:
         assert origins == {DEFAULT_REGISTRY_ORIGIN: current_version}
         assert organization_id == test_role.organization_id
-        assert origin_fingerprints == {DEFAULT_REGISTRY_ORIGIN: "different"}
+        assert origin_fingerprints == {DEFAULT_REGISTRY_ORIGIN: locked_artifact_hash}
         return [
             RegistryArtifactsContext(
                 origin=DEFAULT_REGISTRY_ORIGIN,
                 version=current_version,
                 artifact_uri=artifact_uri,
-                artifact_hash="b" * 64,
+                artifact_hash=locked_artifact_hash,
             )
         ]
 
@@ -217,7 +218,7 @@ async def test_get_registry_artifact_uris_looks_up_builtin_on_fingerprint_mismat
     )
 
     assert await get_registry_artifact_uris(input_data, test_role) == [
-        f"{artifact_uri}#sha256={'b' * 64}"
+        f"{artifact_uri}#sha256={locked_artifact_hash}"
     ]
 
 
