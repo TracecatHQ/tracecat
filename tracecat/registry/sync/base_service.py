@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import uuid
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
@@ -56,6 +57,8 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
 
     from tracecat.ssh import SshEnv
+
+READ_HASH_CHUNK_SIZE_BYTES = 1024 * 1024
 
 
 class RepositoryProtocol(Protocol):
@@ -125,6 +128,27 @@ class BaseSyncResult[VersionT: VersionProtocol]:
     @property
     def num_actions(self) -> int:
         return len(self.actions)
+
+
+async def _compute_existing_artifact_hash(*, key: str, bucket: str) -> str:
+    async with aiofiles.tempfile.TemporaryDirectory(
+        prefix="tracecat_registry_existing_artifact_"
+    ) as temp_dir:
+        artifact_path = Path(temp_dir) / Path(key).name
+        await blob.download_file_to_path(
+            key=key,
+            bucket=bucket,
+            output_path=artifact_path,
+        )
+        return await _compute_file_sha256(artifact_path)
+
+
+async def _compute_file_sha256(path: Path) -> str:
+    hasher = hashlib.sha256()
+    async with aiofiles.open(path, "rb") as f:
+        while chunk := await f.read(READ_HASH_CHUNK_SIZE_BYTES):
+            hasher.update(chunk)
+    return hasher.hexdigest()
 
 
 class BaseRegistrySyncService[
@@ -567,7 +591,14 @@ class BaseRegistrySyncService[
                 "Using existing registry execution artifact",
                 artifact_uri=artifact_uri,
             )
-            return ArtifactsBuildResult(artifact_uri=artifact_uri)
+            artifact_hash = await _compute_existing_artifact_hash(
+                key=artifact_key,
+                bucket=bucket,
+            )
+            return ArtifactsBuildResult(
+                artifact_uri=artifact_uri,
+                artifact_hash=artifact_hash,
+            )
 
         async with aiofiles.tempfile.TemporaryDirectory(
             prefix="tracecat_registry_artifact_"

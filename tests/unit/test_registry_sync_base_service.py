@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import uuid
 from pathlib import Path
 from types import SimpleNamespace
@@ -201,6 +202,25 @@ async def test_platform_builtin_sync_reuses_existing_artifact_objects(
         "tracecat.registry.sync.base_service.upload_squashfs_venv",
         mocker.AsyncMock(),
     )
+    existing_artifact = b"existing-squashfs-artifact"
+
+    async def fake_download_file_to_path(
+        *,
+        key: str,
+        bucket: str,
+        output_path: Path,
+    ) -> int:
+        assert key == (
+            "platform/tarball-venvs/tracecat_registry/1.2.3/site-packages.squashfs"
+        )
+        assert bucket == "registry"
+        output_path.write_bytes(existing_artifact)
+        return len(existing_artifact)
+
+    download_file_to_path = mocker.patch(
+        "tracecat.registry.sync.base_service.blob.download_file_to_path",
+        mocker.AsyncMock(side_effect=fake_download_file_to_path),
+    )
 
     service = PlatformRegistrySyncService(mocker.Mock(spec=AsyncSession))
 
@@ -214,12 +234,13 @@ async def test_platform_builtin_sync_reuses_existing_artifact_objects(
         "s3://registry/platform/tarball-venvs/tracecat_registry/1.2.3/"
         "site-packages.squashfs"
     )
-    assert result.artifact_hash is None
+    assert result.artifact_hash == hashlib.sha256(existing_artifact).hexdigest()
     ensure_bucket_exists.assert_awaited_once_with("registry")
     file_exists.assert_awaited_once_with(
         key="platform/tarball-venvs/tracecat_registry/1.2.3/site-packages.squashfs",
         bucket="registry",
     )
+    download_file_to_path.assert_awaited_once()
     build_builtin_registry_artifact.assert_not_awaited()
     upload_squashfs_venv.assert_not_awaited()
 
