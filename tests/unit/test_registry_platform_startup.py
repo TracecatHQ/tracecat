@@ -191,12 +191,22 @@ async def test_startup_sync_skips_when_version_already_current(
         mock_registry.__version__ = "0.1.0"
 
         # Should complete without calling sync
-        with patch(
-            "tracecat.registry.sync.jobs.PlatformRegistrySyncService"
-        ) as mock_sync_service:
+        with (
+            patch(
+                "tracecat.registry.sync.jobs.PlatformRegistrySyncService"
+            ) as mock_sync_service,
+            patch(
+                "tracecat.registry.sync.jobs._schedule_platform_registry_artifact_build"
+            ) as schedule_build,
+        ):
             await _sync_as_leader(session, "0.1.0")
             # Sync service should not be instantiated
             mock_sync_service.assert_not_called()
+            schedule_build.assert_called_once_with(
+                "0.1.0",
+                promote_version_id=version.id,
+                expected_current_version_id=version.id,
+            )
 
 
 @pytest.mark.anyio
