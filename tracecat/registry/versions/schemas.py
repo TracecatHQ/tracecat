@@ -163,6 +163,9 @@ class RegistryVersionCreate(BaseModel):
     )
     artifact_hash: str | None = Field(
         default=None,
+        min_length=64,
+        max_length=64,
+        pattern=r"^[a-fA-F0-9]{64}$",
         description="SHA-256 content hash of the execution artifact",
     )
 

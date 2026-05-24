@@ -144,7 +144,7 @@ async def test_sync_creates_collision_version_for_manifest_changes(
         del origin, commit_sha, ssh_env
         return ArtifactsBuildResult(
             artifact_uri=f"s3://test-bucket/{version_string}/site-packages.squashfs",
-            artifact_hash=f"{version_string}-hash",
+            artifact_hash="a" * 64,
         )
 
     mocker.patch.object(
@@ -303,7 +303,7 @@ async def test_platform_builtin_sync_uses_prebuilt_manifest_without_discovery(
     write_prebuilt_registry_artifact_metadata(
         artifact_dir=artifact_dir,
         metadata=PrebuiltRegistryArtifactMetadata(
-            artifact_hash="prebuilt-hash",
+            artifact_hash="b" * 64,
             artifact_size_bytes=123,
         ),
     )
@@ -330,8 +330,8 @@ async def test_platform_builtin_sync_uses_prebuilt_manifest_without_discovery(
     assert result.num_actions == 1
     assert result.actions[0].default_title == "Prebuilt title"
     assert result.artifact_uri.endswith("/1.2.3/site-packages.squashfs")
-    assert result.artifact_hash == "prebuilt-hash"
-    assert result.version.artifact_hash == "prebuilt-hash"
+    assert result.artifact_hash == "b" * 64
+    assert result.version.artifact_hash == "b" * 64
     assert RegistryVersionManifest.model_validate(result.version.manifest) == manifest
     fetch_actions_from_subprocess.assert_not_awaited()
 
@@ -449,7 +449,7 @@ async def test_platform_builtin_sync_can_create_pending_version(
     write_prebuilt_registry_artifact_metadata(
         artifact_dir=artifact_dir,
         metadata=PrebuiltRegistryArtifactMetadata(
-            artifact_hash="pending-hash",
+            artifact_hash="c" * 64,
             artifact_size_bytes=123,
         ),
     )
@@ -475,7 +475,7 @@ async def test_platform_builtin_sync_can_create_pending_version(
     )
 
     assert result.version.version == "1.2.3"
-    assert result.version.artifact_hash == "pending-hash"
+    assert result.version.artifact_hash == "c" * 64
     assert repo.current_version_id is None
 
 
