@@ -163,9 +163,9 @@ RUN mkdir -p /var/run/tracecat && chown 1001:1001 /var/run/tracecat
 WORKDIR /app
 
 # ====================
-# Stage 4: Development target
+# Stage 4: Development app
 # ====================
-FROM base AS development
+FROM base AS development-app
 
 ENV TMPDIR="/home/apiuser/.cache/tmp" TEMP="/home/apiuser/.cache/tmp" TMP="/home/apiuser/.cache/tmp"
 
@@ -203,7 +203,23 @@ EXPOSE $PORT
 CMD ["sh", "-c", "python3 -m uvicorn tracecat.api.app:app --host $HOST --port $PORT --reload"]
 
 # ====================
-# Stage 5: Test target (development + pytest)
+# Stage 5: Development registry manifest
+# ====================
+FROM development-app AS development-registry-manifest
+
+RUN /app/.venv/bin/python -m tracecat.registry.sync.prebuild
+
+# ====================
+# Stage 6: Development target
+# ====================
+FROM development-app AS development
+
+# Carry only the generated builtin registry metadata in dev images too, so local
+# cluster startup can update the DB without rediscovering actions on the hot path.
+COPY --from=development-registry-manifest --chown=apiuser:apiuser /app/.registry-artifacts /app/.registry-artifacts
+
+# ====================
+# Stage 7: Test target (development + pytest)
 # ====================
 FROM development AS test
 
@@ -213,9 +229,9 @@ RUN --mount=type=cache,target=/home/apiuser/.cache/uv,uid=1001,gid=1001 uv sync 
 CMD ["python", "-m", "pytest"]
 
 # ====================
-# Stage 6: Production target
+# Stage 8: Production app
 # ====================
-FROM base AS production
+FROM base AS production-app
 
 ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy
 
@@ -254,6 +270,22 @@ RUN --mount=type=cache,target=/home/apiuser/.cache/uv,uid=1001,gid=1001 \
 ENV PATH="/app/.venv/bin:/home/apiuser/.local/bin:/usr/local/bin:/usr/bin:/bin"
 
 RUN ln -sf $(which uv) /home/apiuser/.local/bin/uv
+
+# ====================
+# Stage 9: Production registry manifest
+# ====================
+FROM production-app AS registry-manifest
+
+RUN /app/.venv/bin/python -m tracecat.registry.sync.prebuild
+
+# ====================
+# Stage 10: Production target
+# ====================
+FROM production-app AS production
+
+# Carry only the generated builtin registry metadata in the image so platform
+# registry startup can update the DB without rediscovering actions on the hot path.
+COPY --from=registry-manifest --chown=apiuser:apiuser /app/.registry-artifacts /app/.registry-artifacts
 
 # Verification
 RUN nsjail --help > /dev/null 2>&1 && echo "nsjail available"

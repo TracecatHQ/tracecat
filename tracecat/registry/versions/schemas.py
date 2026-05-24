@@ -3,15 +3,19 @@
 from __future__ import annotations
 
 from datetime import datetime
+from hashlib import sha256
 from typing import Any, Literal
 from uuid import UUID
 
+import orjson
 from pydantic import BaseModel, Field
 from tracecat_registry import RegistrySecretType
 
 from tracecat.registry.actions.schemas import (
     RegistryActionCreate,
+    RegistryActionImplValidator,
     RegistryActionInterface,
+    RegistryActionInterfaceValidator,
     RegistryActionOptions,
     RegistryActionType,
 )
@@ -65,6 +69,33 @@ class RegistryVersionManifestAction(BaseModel):
         """Full action identifier."""
         return f"{self.namespace}.{self.name}"
 
+    def to_action_create(
+        self,
+        *,
+        repository_id: UUID,
+        origin: str,
+    ) -> RegistryActionCreate:
+        """Create registry action params from a manifest action."""
+        return RegistryActionCreate(
+            repository_id=repository_id,
+            name=self.name,
+            description=self.description,
+            namespace=self.namespace,
+            type=self.action_type,
+            origin=origin,
+            secrets=self.secrets,
+            interface=RegistryActionInterfaceValidator.validate_python(self.interface),
+            implementation=RegistryActionImplValidator.validate_python(
+                self.implementation
+            ),
+            default_title=self.default_title,
+            display_group=self.display_group,
+            doc_url=self.doc_url,
+            author=self.author,
+            deprecated=self.deprecated,
+            options=self.options,
+        )
+
 
 class RegistryVersionManifest(BaseModel):
     """The frozen manifest stored in RegistryVersion.
@@ -95,6 +126,26 @@ class RegistryVersionManifest(BaseModel):
             )
         return RegistryVersionManifest(actions=manifest_actions)
 
+    def to_action_creates(
+        self,
+        *,
+        repository_id: UUID,
+        origin: str,
+    ) -> list[RegistryActionCreate]:
+        """Create registry action params from this manifest."""
+        return [
+            action.to_action_create(repository_id=repository_id, origin=origin)
+            for action in self.actions.values()
+        ]
+
+
+def registry_manifest_fingerprint(manifest: RegistryVersionManifest) -> str:
+    """Return a stable SHA-256 fingerprint for a registry version manifest."""
+    payload = orjson.dumps(
+        manifest.model_dump(mode="json"), option=orjson.OPT_SORT_KEYS
+    )
+    return sha256(payload).hexdigest()
+
 
 class RegistryVersionCreate(BaseModel):
     """Parameters for creating a new registry version."""
@@ -108,7 +159,7 @@ class RegistryVersionCreate(BaseModel):
     manifest: RegistryVersionManifest
     tarball_uri: str = Field(
         ...,
-        description="S3 URI to the compressed tarball venv for action execution",
+        description="S3 URI to the execution artifact for this registry version",
     )
 
 

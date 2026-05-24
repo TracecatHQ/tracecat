@@ -10,10 +10,9 @@ from tracecat.db.models import (
     PlatformRegistryVersion,
 )
 from tracecat.exceptions import RegistryError
+from tracecat.registry.constants import PLATFORM_REGISTRY_NAMESPACE
 from tracecat.registry.sync.base_service import BaseRegistrySyncService, BaseSyncResult
 from tracecat.registry.versions.service import PlatformRegistryVersionsService
-
-PLATFORM_REGISTRY_TARBALL_NAMESPACE = "platform"
 
 
 class PlatformRegistrySyncError(RegistryError):
@@ -50,4 +49,4 @@ class PlatformRegistrySyncService(
 
     @classmethod
     def _storage_namespace(cls) -> str:
-        return PLATFORM_REGISTRY_TARBALL_NAMESPACE
+        return PLATFORM_REGISTRY_NAMESPACE

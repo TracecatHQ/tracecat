@@ -1,31 +1,39 @@
 from __future__ import annotations
 
 import uuid
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import AsyncSession
 from temporalio.client import WorkflowFailureError
 from temporalio.exceptions import ApplicationError
 
 from tracecat import config
 from tracecat.auth.types import Role
-from tracecat.db.models import Organization, RegistryRepository
+from tracecat.db.models import Organization, PlatformRegistryVersion, RegistryRepository
 from tracecat.exceptions import TracecatNotFoundError
 from tracecat.registry.actions.schemas import (
     RegistryActionCreate,
     RegistryActionOptions,
     RegistryActionUDFImpl,
 )
+from tracecat.registry.artifact_keys import get_artifact_local_dir
 from tracecat.registry.constants import (
     DEFAULT_REGISTRY_ORIGIN,
     REGISTRY_GIT_SSH_KEY_SECRET_NAME,
 )
+from tracecat.registry.repositories.platform_service import PlatformRegistryReposService
 from tracecat.registry.repositories.schemas import RegistryRepositoryCreate
 from tracecat.registry.repositories.service import RegistryReposService
+from tracecat.registry.sync.artifact import RegistryArtifactBuildResult
 from tracecat.registry.sync.base_service import ArtifactsBuildResult
+from tracecat.registry.sync.platform_service import PlatformRegistrySyncService
+from tracecat.registry.sync.prebuilt import write_prebuilt_registry_manifest
 from tracecat.registry.sync.runner import RegistrySyncValidationError
 from tracecat.registry.sync.service import RegistrySyncError, RegistrySyncService
+from tracecat.registry.versions.schemas import RegistryVersionManifest
 from tracecat.registry.versions.service import RegistryVersionsService
 
 
@@ -55,6 +63,17 @@ def _make_action(
         author=None,
         deprecated=None,
         options=RegistryActionOptions(),
+    )
+
+
+def _make_artifact_result(tmp_path: Path) -> RegistryArtifactBuildResult:
+    squashfs_path = tmp_path / "site-packages.squashfs"
+    squashfs_path.write_bytes(b"squashfs")
+    return RegistryArtifactBuildResult(
+        squashfs_path=squashfs_path,
+        squashfs_name="site-packages.squashfs",
+        content_hash="hash",
+        artifact_size_bytes=len(b"squashfs"),
     )
 
 
@@ -120,7 +139,7 @@ async def test_sync_creates_collision_version_for_manifest_changes(
     ) -> ArtifactsBuildResult:
         del origin, commit_sha, ssh_env
         return ArtifactsBuildResult(
-            tarball_uri=f"s3://test-bucket/{version_string}/site-packages.tar.gz"
+            artifact_uri=f"s3://test-bucket/{version_string}/site-packages.squashfs"
         )
 
     mocker.patch.object(
@@ -151,6 +170,289 @@ async def test_sync_creates_collision_version_for_manifest_changes(
     versions_service = RegistryVersionsService(session, role)
     versions = await versions_service.list_versions(repository_id=repo.id)
     assert len(versions) == 2
+
+
+@pytest.mark.anyio
+async def test_platform_builtin_sync_reuses_existing_artifact_objects(
+    mocker,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(config, "TRACECAT__BLOB_STORAGE_BUCKET_REGISTRY", "registry")
+    monkeypatch.setattr(config, "TRACECAT__REGISTRY_SYNC_SQUASHFS_ENABLED", True)
+
+    ensure_bucket_exists = mocker.patch(
+        "tracecat.registry.sync.base_service.blob.ensure_bucket_exists",
+        mocker.AsyncMock(),
+    )
+    file_exists = mocker.patch(
+        "tracecat.registry.sync.base_service.blob.file_exists",
+        mocker.AsyncMock(return_value=True),
+    )
+    build_builtin_registry_artifact = mocker.patch(
+        "tracecat.registry.sync.base_service.build_builtin_registry_artifact",
+        mocker.AsyncMock(),
+    )
+    upload_squashfs_venv = mocker.patch(
+        "tracecat.registry.sync.base_service.upload_squashfs_venv",
+        mocker.AsyncMock(),
+    )
+
+    service = PlatformRegistrySyncService(mocker.Mock(spec=AsyncSession))
+
+    result = await service._build_and_upload_artifacts(
+        origin=DEFAULT_REGISTRY_ORIGIN,
+        version_string="1.2.3",
+        commit_sha=None,
+    )
+
+    assert result.artifact_uri == (
+        "s3://registry/platform/tarball-venvs/tracecat_registry/1.2.3/"
+        "site-packages.squashfs"
+    )
+    ensure_bucket_exists.assert_awaited_once_with("registry")
+    file_exists.assert_awaited_once_with(
+        key="platform/tarball-venvs/tracecat_registry/1.2.3/site-packages.squashfs",
+        bucket="registry",
+    )
+    build_builtin_registry_artifact.assert_not_awaited()
+    upload_squashfs_venv.assert_not_awaited()
+
+
+@pytest.mark.anyio
+async def test_platform_builtin_sync_uploads_squashfs_artifact(
+    tmp_path: Path,
+    mocker,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(config, "TRACECAT__BLOB_STORAGE_BUCKET_REGISTRY", "registry")
+    artifact_result = _make_artifact_result(tmp_path)
+
+    mocker.patch(
+        "tracecat.registry.sync.base_service.blob.ensure_bucket_exists",
+        mocker.AsyncMock(),
+    )
+    mocker.patch(
+        "tracecat.registry.sync.base_service.blob.file_exists",
+        mocker.AsyncMock(return_value=False),
+    )
+    build_builtin_registry_artifact = mocker.patch(
+        "tracecat.registry.sync.base_service.build_builtin_registry_artifact",
+        mocker.AsyncMock(return_value=artifact_result),
+    )
+    upload_squashfs_venv = mocker.patch(
+        "tracecat.registry.sync.base_service.upload_squashfs_venv",
+        mocker.AsyncMock(
+            return_value=(
+                "s3://registry/platform/tarball-venvs/tracecat_registry/1.2.3/"
+                "site-packages.squashfs"
+            )
+        ),
+    )
+
+    service = PlatformRegistrySyncService(mocker.Mock(spec=AsyncSession))
+
+    result = await service._build_and_upload_artifacts(
+        origin=DEFAULT_REGISTRY_ORIGIN,
+        version_string="1.2.3",
+        commit_sha=None,
+    )
+
+    assert result.artifact_uri.endswith("/1.2.3/site-packages.squashfs")
+    build_builtin_registry_artifact.assert_awaited_once()
+    upload_squashfs_venv.assert_awaited_once_with(
+        squashfs_path=artifact_result.squashfs_path,
+        key="platform/tarball-venvs/tracecat_registry/1.2.3/site-packages.squashfs",
+        bucket="registry",
+    )
+
+
+@pytest.mark.anyio
+async def test_platform_builtin_sync_uses_prebuilt_manifest_without_discovery(
+    session: AsyncSession,
+    tmp_path: Path,
+    mocker,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(config, "TRACECAT__REGISTRY_SYNC_SANDBOX_ENABLED", False)
+    monkeypatch.setattr(config, "TRACECAT__BLOB_STORAGE_BUCKET_REGISTRY", "registry")
+    monkeypatch.setattr(
+        config,
+        "TRACECAT__REGISTRY_SYNC_PREBUILT_ARTIFACTS_DIR",
+        str(tmp_path),
+    )
+
+    repos_service = PlatformRegistryReposService(session)
+    repo = await repos_service.get_or_create_repository(DEFAULT_REGISTRY_ORIGIN)
+    manifest = RegistryVersionManifest.from_actions(
+        [_make_action(repository_id=repo.id, default_title="Prebuilt title")]
+    )
+    artifact_dir = get_artifact_local_dir(
+        root=tmp_path,
+        organization_id="platform",
+        repository_origin=DEFAULT_REGISTRY_ORIGIN,
+        version="1.2.3",
+    )
+    write_prebuilt_registry_manifest(artifact_dir=artifact_dir, manifest=manifest)
+
+    fetch_actions_from_subprocess = mocker.patch(
+        "tracecat.registry.sync.base_service.fetch_actions_from_subprocess",
+        mocker.AsyncMock(),
+    )
+    mocker.patch.object(
+        PlatformRegistrySyncService,
+        "_build_and_upload_artifacts",
+        mocker.AsyncMock(),
+    )
+
+    sync_service = PlatformRegistrySyncService(session)
+    result = await sync_service.sync_repository_v2(
+        repo,
+        target_version="1.2.3",
+        bypass_temporal=True,
+        defer_artifact_build=True,
+        commit=False,
+    )
+
+    assert result.num_actions == 1
+    assert result.actions[0].default_title == "Prebuilt title"
+    assert result.artifact_uri.endswith("/1.2.3/site-packages.squashfs")
+    assert RegistryVersionManifest.model_validate(result.version.manifest) == manifest
+    fetch_actions_from_subprocess.assert_not_awaited()
+
+
+@pytest.mark.anyio
+async def test_platform_builtin_sync_falls_back_when_prebuilt_manifest_conversion_fails(
+    session: AsyncSession,
+    tmp_path: Path,
+    mocker,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(config, "TRACECAT__REGISTRY_SYNC_SANDBOX_ENABLED", False)
+    monkeypatch.setattr(config, "TRACECAT__BLOB_STORAGE_BUCKET_REGISTRY", "registry")
+    monkeypatch.setattr(
+        config,
+        "TRACECAT__REGISTRY_SYNC_PREBUILT_ARTIFACTS_DIR",
+        str(tmp_path),
+    )
+
+    repos_service = PlatformRegistryReposService(session)
+    repo = await repos_service.get_or_create_repository(DEFAULT_REGISTRY_ORIGIN)
+    prebuilt_manifest = RegistryVersionManifest.from_actions(
+        [_make_action(repository_id=repo.id, default_title="Prebuilt title")]
+    )
+    artifact_dir = get_artifact_local_dir(
+        root=tmp_path,
+        organization_id="platform",
+        repository_origin=DEFAULT_REGISTRY_ORIGIN,
+        version="1.2.3",
+    )
+    write_prebuilt_registry_manifest(
+        artifact_dir=artifact_dir,
+        manifest=prebuilt_manifest,
+    )
+
+    fallback_action = _make_action(
+        repository_id=repo.id,
+        default_title="Recovered title",
+    )
+    fetch_actions_from_subprocess = mocker.patch(
+        "tracecat.registry.sync.base_service.fetch_actions_from_subprocess",
+        mocker.AsyncMock(
+            return_value=SimpleNamespace(
+                actions=[fallback_action],
+                commit_sha=None,
+                validation_errors={},
+            )
+        ),
+    )
+
+    def raise_conversion_error(*_args, **_kwargs) -> list[RegistryActionCreate]:
+        raise ValueError("bad prebuilt action payload")
+
+    monkeypatch.setattr(
+        RegistryVersionManifest,
+        "to_action_creates",
+        raise_conversion_error,
+    )
+
+    sync_service = PlatformRegistrySyncService(session)
+    result = await sync_service.sync_repository_v2(
+        repo,
+        target_version="1.2.3",
+        bypass_temporal=True,
+        defer_artifact_build=True,
+        commit=False,
+    )
+
+    assert result.num_actions == 1
+    assert result.actions[0].default_title == "Recovered title"
+    assert result.artifact_uri.endswith("/1.2.3/site-packages.squashfs")
+    assert RegistryVersionManifest.model_validate(
+        result.version.manifest
+    ) == RegistryVersionManifest.from_actions([fallback_action])
+    fetch_actions_from_subprocess.assert_awaited_once()
+
+
+@pytest.mark.anyio
+async def test_platform_builtin_sync_can_create_pending_version(
+    session: AsyncSession,
+    tmp_path: Path,
+    mocker,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(config, "TRACECAT__REGISTRY_SYNC_SANDBOX_ENABLED", False)
+    monkeypatch.setattr(config, "TRACECAT__BLOB_STORAGE_BUCKET_REGISTRY", "registry")
+    monkeypatch.setattr(
+        config,
+        "TRACECAT__REGISTRY_SYNC_PREBUILT_ARTIFACTS_DIR",
+        str(tmp_path),
+    )
+
+    repos_service = PlatformRegistryReposService(session)
+    repo = await repos_service.get_or_create_repository(DEFAULT_REGISTRY_ORIGIN)
+    repo.current_version_id = None
+    session.add(repo)
+    await session.flush()
+    await session.execute(
+        delete(PlatformRegistryVersion).where(
+            PlatformRegistryVersion.repository_id == repo.id
+        )
+    )
+    await session.flush()
+
+    manifest = RegistryVersionManifest.from_actions(
+        [_make_action(repository_id=repo.id, default_title="Prebuilt title")]
+    )
+    artifact_dir = get_artifact_local_dir(
+        root=tmp_path,
+        organization_id="platform",
+        repository_origin=DEFAULT_REGISTRY_ORIGIN,
+        version="1.2.3",
+    )
+    write_prebuilt_registry_manifest(artifact_dir=artifact_dir, manifest=manifest)
+
+    mocker.patch(
+        "tracecat.registry.sync.base_service.fetch_actions_from_subprocess",
+        mocker.AsyncMock(),
+    )
+    mocker.patch.object(
+        PlatformRegistrySyncService,
+        "_build_and_upload_artifacts",
+        mocker.AsyncMock(),
+    )
+
+    sync_service = PlatformRegistrySyncService(session)
+    result = await sync_service.sync_repository_v2(
+        repo,
+        target_version="1.2.3",
+        bypass_temporal=True,
+        defer_artifact_build=True,
+        promote=False,
+        commit=False,
+    )
+
+    assert result.version.version == "1.2.3"
+    assert repo.current_version_id is None
 
 
 @pytest.mark.anyio

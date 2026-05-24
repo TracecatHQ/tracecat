@@ -5526,12 +5526,18 @@ export type RegistryArtifactsBackfillStartResponse = {
  * Example: {"tracecat_registry": "2024.12.10.123456"}
  * actions: Maps action name to its source origin.
  * Example: {"core.transform.reshape": "tracecat_registry"}
+ * origin_fingerprints: Optional immutable manifest fingerprints for origins.
+ * New executors use the builtin fingerprint to decide whether their
+ * bundled tracecat_registry package is an exact match for the lock.
  */
 export type RegistryLock = {
   origins: {
     [key: string]: string
   }
   actions: {
+    [key: string]: string
+  }
+  origin_fingerprints?: {
     [key: string]: string
   }
 }

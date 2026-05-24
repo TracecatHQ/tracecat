@@ -1176,6 +1176,16 @@ TRACECAT__REGISTRY_SYNC_SQUASHFS_MEM = (
 )
 """Memory budget passed to mksquashfs for registry SquashFS sidecar builds."""
 
+TRACECAT__REGISTRY_SYNC_PREBUILT_ARTIFACTS_DIR = (
+    os.environ.get("TRACECAT__REGISTRY_SYNC_PREBUILT_ARTIFACTS_DIR")
+    or "/app/.registry-artifacts"
+)
+"""Root directory for release-built registry artifacts.
+
+Artifacts use the same relative layout as blob storage keys, for example:
+platform/tarball-venvs/tracecat_registry/<version>/site-packages.tar.gz
+"""
+
 TRACECAT__BUILTIN_REGISTRY_SOURCE_PATH = os.environ.get(
     "TRACECAT__BUILTIN_REGISTRY_SOURCE_PATH", "/app/packages/tracecat-registry"
 )

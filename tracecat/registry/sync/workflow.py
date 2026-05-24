@@ -16,7 +16,7 @@ Architecture:
          │                                     ├─ Git clone (with SSH)
          │                                     ├─ Package install (nsjail)
          │                                     ├─ Action discovery (nsjail, NO network)
-         │                                     ├─ Build tarball → upload to S3
+         │                                     ├─ Build execution artifact → upload to S3
          │  ◄── RegistrySyncResult ────────────┤
          │                                     │
          ├─ Create RegistryVersion             │
@@ -36,6 +36,14 @@ with workflow.unsafe.imports_passed_through():
     from pathlib import Path
 
     from tracecat.logger import logger
+    from tracecat.registry.artifact_keys import (
+        get_squashfs_artifact_key,
+        parse_s3_uri,
+    )
+    from tracecat.registry.sync.artifact import (
+        build_squashfs_sidecar_from_tarball,
+        download_tarball_venv,
+    )
     from tracecat.registry.sync.runner import (
         RegistrySyncRunner,
         RegistrySyncValidationError,
@@ -47,12 +55,6 @@ with workflow.unsafe.imports_passed_through():
         RegistryArtifactsBackfillResult,
         RegistrySyncRequest,
         RegistrySyncResult,
-    )
-    from tracecat.registry.sync.tarball import (
-        build_squashfs_sidecar_from_tarball,
-        download_tarball_venv,
-        get_squashfs_sidecar_key,
-        parse_s3_uri,
     )
     from tracecat.storage import blob
 
@@ -74,7 +76,7 @@ class RegistrySyncWorkflow:
             request: Sync request containing repository details and SSH credentials.
 
         Returns:
-            RegistrySyncResult with discovered actions and tarball URI.
+            RegistrySyncResult with discovered actions and artifact URI.
         """
         workflow.logger.info(
             "Starting RegistrySyncWorkflow",
@@ -97,7 +99,7 @@ class RegistrySyncWorkflow:
             "RegistrySyncWorkflow completed",
             repository_id=str(request.repository_id),
             num_actions=len(result.actions),
-            tarball_uri=result.tarball_uri,
+            artifact_uri=result.artifact_uri,
         )
 
         return result
@@ -167,13 +169,13 @@ async def sync_registry_activity(request: RegistrySyncRequest) -> RegistrySyncRe
     1. Git clone (subprocess, needs SSH) - for git origins
     2. Package install (nsjail + network) - install dependencies
     3. Action discovery (nsjail, NO network) - import and discover actions
-    4. Tarball build and upload - create portable venv
+    4. Artifact build and upload - create portable registry environment
 
     Args:
         request: Sync request containing repository details.
 
     Returns:
-        RegistrySyncResult with discovered actions and tarball URI.
+        RegistrySyncResult with discovered actions and artifact URI.
 
     Raises:
         ApplicationError: If sync fails at any phase.
@@ -220,7 +222,7 @@ async def sync_registry_activity(request: RegistrySyncRequest) -> RegistrySyncRe
         "sync_registry_activity completed",
         repository_id=str(request.repository_id),
         num_actions=len(result.actions),
-        tarball_uri=result.tarball_uri,
+        artifact_uri=result.artifact_uri,
         commit_sha=result.commit_sha,
     )
 
@@ -231,10 +233,10 @@ async def sync_registry_activity(request: RegistrySyncRequest) -> RegistrySyncRe
 async def backfill_registry_artifacts_activity(
     item: RegistryArtifactsBackfillItem,
 ) -> RegistryArtifactsBackfillItemResult:
-    """Build and upload missing artifacts for an existing registry tarball."""
+    """Build or verify missing SquashFS artifacts for a registry version."""
     try:
-        bucket, tarball_key = parse_s3_uri(item.tarball_uri)
-        squashfs_key = get_squashfs_sidecar_key(tarball_key)
+        bucket, artifact_key = parse_s3_uri(item.tarball_uri)
+        squashfs_key = get_squashfs_artifact_key(artifact_key)
         artifact_uri = f"s3://{bucket}/{squashfs_key}"
 
         if await blob.file_exists(key=squashfs_key, bucket=bucket):
@@ -249,6 +251,19 @@ async def backfill_registry_artifacts_activity(
                 status="exists",
             )
 
+        if artifact_key.endswith(".squashfs"):
+            logger.info(
+                "Registry artifact backfill skipped; SquashFS artifact is missing",
+                version_id=str(item.version_id),
+                version=item.version,
+                artifact_uri=artifact_uri,
+            )
+            return RegistryArtifactsBackfillItemResult(
+                version_id=item.version_id,
+                status="skipped",
+                error="SquashFS artifact is missing and no tarball source is available.",
+            )
+
         with tempfile.TemporaryDirectory(
             prefix="tracecat_registry_artifacts_backfill_"
         ) as temp_dir:
@@ -256,7 +271,7 @@ async def backfill_registry_artifacts_activity(
             tarball_path = work_dir / "site-packages.tar.gz"
             squashfs_path = work_dir / "site-packages.squashfs"
             await download_tarball_venv(
-                key=tarball_key,
+                key=artifact_key,
                 bucket=bucket,
                 output_path=tarball_path,
             )

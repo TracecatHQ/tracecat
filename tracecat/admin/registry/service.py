@@ -36,6 +36,11 @@ from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
 from tracecat.parse import safe_url
 from tracecat.registry.actions.schemas import RegistryActionRead
 from tracecat.registry.actions.types import IndexEntry
+from tracecat.registry.artifact_keys import (
+    LEGACY_TARBALL_FILENAME,
+    get_squashfs_artifact_key,
+    parse_s3_uri,
+)
 from tracecat.registry.constants import (
     DEFAULT_LOCAL_REGISTRY_ORIGIN,
     DEFAULT_REGISTRY_ORIGIN,
@@ -49,10 +54,6 @@ from tracecat.registry.sync.platform_service import PlatformRegistrySyncService
 from tracecat.registry.sync.schemas import (
     RegistryArtifactsBackfillItem,
     RegistryArtifactsBackfillRequest,
-)
-from tracecat.registry.sync.tarball import (
-    get_squashfs_sidecar_key,
-    parse_s3_uri,
 )
 from tracecat.registry.versions.schemas import RegistryVersionManifest
 from tracecat.registry.versions.service import PlatformRegistryVersionsService
@@ -504,8 +505,8 @@ class AdminRegistryService(BasePlatformService):
             return False
 
         try:
-            bucket, tarball_key = parse_s3_uri(tarball_uri)
-            artifact_key = get_squashfs_sidecar_key(tarball_key)
+            bucket, artifact_uri_key = parse_s3_uri(tarball_uri)
+            artifact_key = get_squashfs_artifact_key(artifact_uri_key)
             return await blob.file_exists(key=artifact_key, bucket=bucket)
         except ValueError:
             self.logger.warning(
@@ -519,6 +520,36 @@ class AdminRegistryService(BasePlatformService):
                 error=str(exc),
             )
         return False
+
+    async def _ready_execution_artifact_uri(
+        self,
+        artifact_uri: str | None,
+    ) -> str | None:
+        """Return the artifact URI an executor can materialize."""
+        if artifact_uri is None:
+            return None
+
+        try:
+            bucket, artifact_key = parse_s3_uri(artifact_uri)
+            if await blob.file_exists(key=artifact_key, bucket=bucket):
+                return artifact_uri
+
+            if artifact_key.endswith(LEGACY_TARBALL_FILENAME):
+                sidecar_key = get_squashfs_artifact_key(artifact_key)
+                if await blob.file_exists(key=sidecar_key, bucket=bucket):
+                    return f"s3://{bucket}/{sidecar_key}"
+        except ValueError:
+            self.logger.warning(
+                "Registry version has invalid execution artifact URI",
+                artifact_uri=artifact_uri,
+            )
+        except Exception as exc:
+            self.logger.warning(
+                "Failed to check registry execution artifact",
+                artifact_uri=artifact_uri,
+                error=str(exc),
+            )
+        return None
 
     async def start_artifacts_backfill(
         self,
@@ -615,9 +646,21 @@ class AdminRegistryService(BasePlatformService):
                 f"Version {version_id} does not belong to repository {repository_id}"
             )
 
-        # Validate version has tarball_uri
+        # Validate version has an execution artifact URI.
         if not version.tarball_uri:
-            raise ValueError(f"Version {version_id} does not have a tarball")
+            raise ValueError(
+                f"Version {version_id} does not have an execution artifact"
+            )
+        ready_artifact_uri = await self._ready_execution_artifact_uri(
+            version.tarball_uri
+        )
+        if ready_artifact_uri is None:
+            raise TracecatValidationError(
+                f"Version {version_id} execution artifact is not ready"
+            )
+        if version.tarball_uri != ready_artifact_uri:
+            version.tarball_uri = ready_artifact_uri
+            self.session.add(version)
 
         # Store previous version ID
         previous_version_id = repo.current_version_id

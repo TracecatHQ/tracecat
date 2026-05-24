@@ -10,14 +10,18 @@ from unittest.mock import AsyncMock, patch
 
 import httpx
 import pytest
+import tracecat_registry
 
 from tracecat.executor.registry_artifacts import (
     SQUASHFS_MOUNT_OPTIONS,
     RegistryArtifactCache,
     RegistryArtifactFormat,
+    SquashfsArtifact,
+    TarballArtifact,
+    bundled_builtin_registry_uri,
     compute_registry_artifact_cache_key,
-    parse_s3_uri,
 )
+from tracecat.registry.artifact_keys import parse_s3_uri
 
 
 @pytest.fixture
@@ -88,23 +92,97 @@ class TestRegistryArtifactCache:
     ):
         """Test that artifact downloads stay behind the blob storage helper."""
         cache = RegistryArtifactCache(temp_cache_dir)
+        artifact = SquashfsArtifact(
+            uri="s3://bucket/path/site-packages.squashfs",
+            cache_key="download-test",
+        )
+        ctx = cache._context_for(artifact.cache_key)
         output_path = temp_cache_dir / "artifact.squashfs"
+
+        async def mock_download_file_to_path(
+            *,
+            key: str,
+            bucket: str,
+            output_path: Path,
+        ) -> None:
+            output_path.write_bytes(b"squashfs")
 
         with patch(
             "tracecat.executor.registry_artifacts.blob.download_file_to_path",
             new_callable=AsyncMock,
-            return_value=123,
+            side_effect=mock_download_file_to_path,
         ) as download_file_to_path:
-            await cache._download_artifact(
-                "s3://bucket/path/site-packages.squashfs",
-                output_path,
-            )
+            await artifact.download(ctx, output_path)
 
-        download_file_to_path.assert_awaited_once_with(
-            key="path/site-packages.squashfs",
-            bucket="bucket",
-            output_path=output_path,
+        download_file_to_path.assert_awaited_once()
+        await_args = download_file_to_path.await_args
+        assert await_args is not None
+        assert await_args.kwargs["key"] == "path/site-packages.squashfs"
+        assert await_args.kwargs["bucket"] == "bucket"
+        assert output_path.read_bytes() == b"squashfs"
+
+    @pytest.mark.anyio
+    async def test_ensure_environment_uses_bundled_current_builtin(
+        self, temp_cache_dir, monkeypatch: pytest.MonkeyPatch
+    ):
+        """In-tree builtin registry returns only the installed site-packages."""
+        version = "1.2.3"
+        site_packages = temp_cache_dir / "venv" / "site-packages"
+        package_dir = site_packages / "tracecat_registry"
+        package_dir.mkdir(parents=True)
+        package_file = package_dir / "__init__.py"
+        package_file.write_text("")
+
+        monkeypatch.setattr(tracecat_registry, "__version__", version)
+        monkeypatch.setattr(tracecat_registry, "__file__", str(package_file))
+        monkeypatch.setattr(
+            "tracecat.executor.registry_artifacts.sysconfig.get_path",
+            lambda name: str(site_packages) if name == "purelib" else None,
         )
+
+        cache = RegistryArtifactCache(temp_cache_dir)
+        result = await cache.ensure_environment(bundled_builtin_registry_uri(version))
+
+        assert result == [site_packages.resolve()]
+
+    @pytest.mark.anyio
+    async def test_ensure_environment_exposes_editable_builtin_parent(
+        self, temp_cache_dir, monkeypatch: pytest.MonkeyPatch
+    ):
+        """Editable builtin registry exposes the package wrapper + site-packages."""
+        version = "1.2.3"
+        site_packages = temp_cache_dir / "venv" / "site-packages"
+        dependency_dir = site_packages / "orjson"
+        dependency_dir.mkdir(parents=True)
+        (dependency_dir / "__init__.py").write_text("VALUE = 1\n")
+        source_root = temp_cache_dir / "src" / "tracecat-registry"
+        package_dir = source_root / "tracecat_registry"
+        package_dir.mkdir(parents=True)
+        package_file = package_dir / "__init__.py"
+        package_file.write_text("__version__ = '1.2.3'\n")
+
+        monkeypatch.setattr(tracecat_registry, "__version__", version)
+        monkeypatch.setattr(tracecat_registry, "__file__", str(package_file))
+        monkeypatch.setattr(
+            "tracecat.executor.registry_artifacts.sysconfig.get_path",
+            lambda name: str(site_packages) if name == "purelib" else None,
+        )
+
+        cache = RegistryArtifactCache(temp_cache_dir)
+        result = await cache.ensure_environment(bundled_builtin_registry_uri(version))
+
+        assert result == [source_root.resolve(), site_packages.resolve()]
+
+    @pytest.mark.anyio
+    async def test_ensure_environment_rejects_stale_bundled_builtin(
+        self, temp_cache_dir, monkeypatch: pytest.MonkeyPatch
+    ):
+        """Bundled pseudo-URIs must match this executor's installed package."""
+        monkeypatch.setattr(tracecat_registry, "__version__", "1.2.3")
+
+        cache = RegistryArtifactCache(temp_cache_dir)
+        with pytest.raises(RuntimeError, match="does not match installed version"):
+            await cache.ensure_environment(bundled_builtin_registry_uri("1.2.4"))
 
     @pytest.mark.anyio
     async def test_download_artifact_normalizes_missing_objects_to_http_404(
@@ -112,6 +190,11 @@ class TestRegistryArtifactCache:
     ):
         """Preserve the missing-artifact error contract from presigned downloads."""
         cache = RegistryArtifactCache(temp_cache_dir)
+        artifact = TarballArtifact(
+            uri="s3://bucket/path/site-packages.tar.gz",
+            cache_key="missing-test",
+        )
+        ctx = cache._context_for(artifact.cache_key)
         output_path = temp_cache_dir / "artifact.tar.gz"
 
         with patch(
@@ -120,18 +203,13 @@ class TestRegistryArtifactCache:
             side_effect=FileNotFoundError,
         ):
             with pytest.raises(httpx.HTTPStatusError) as exc_info:
-                await cache._download_artifact(
-                    "s3://bucket/path/site-packages.tar.gz",
-                    output_path,
-                )
+                await artifact.download(ctx, output_path)
 
         assert exc_info.value.response.status_code == 404
         assert isinstance(exc_info.value.__cause__, FileNotFoundError)
 
     @pytest.mark.anyio
-    async def test_resolve_preferred_artifact_uses_squashfs_sidecar(
-        self, temp_cache_dir
-    ):
+    async def test_artifact_candidates_prefer_squashfs_sidecar(self, temp_cache_dir):
         """Test that gzip tarballs prefer a sibling SquashFS sidecar."""
         cache = RegistryArtifactCache(temp_cache_dir)
 
@@ -143,10 +221,18 @@ class TestRegistryArtifactCache:
             ) as file_exists,
             patch.object(cache, "_can_try_squashfs", return_value=True),
         ):
-            artifact = await cache._resolve_preferred_artifact(
+            cache_key = compute_registry_artifact_cache_key(
                 "s3://bucket/path/site-packages.tar.gz"
             )
+            ctx = cache._context_for(cache_key)
+            candidates = await cache._artifact_candidates(
+                ctx, "s3://bucket/path/site-packages.tar.gz"
+            )
 
+        artifact = candidates[0]
+        assert len(candidates) == 2
+        assert isinstance(artifact, SquashfsArtifact)
+        assert isinstance(candidates[1], TarballArtifact)
         assert artifact.uri == "s3://bucket/path/site-packages.squashfs"
         assert artifact.format == RegistryArtifactFormat.SQUASHFS
         file_exists.assert_awaited_once_with(
@@ -155,24 +241,87 @@ class TestRegistryArtifactCache:
         )
 
     @pytest.mark.anyio
-    async def test_resolve_preferred_artifact_squashfs_fallback_uses_gzip(
+    async def test_materialize_recomputes_candidates_after_lock(self, temp_cache_dir):
+        """Test that lock waiters re-check preferred artifact candidates."""
+        cache = RegistryArtifactCache(temp_cache_dir)
+        cache_key = "recompute-key"
+        cached_path = temp_cache_dir / "cached-squashfs"
+        cached_path.mkdir()
+        tarball = TarballArtifact(
+            uri="s3://bucket/path/site-packages.tar.gz",
+            cache_key=cache_key,
+        )
+        squashfs = SquashfsArtifact(
+            uri="s3://bucket/path/site-packages.squashfs",
+            cache_key=cache_key,
+        )
+        pre_lock_candidates = [tarball]
+        post_lock_candidates = [squashfs, tarball]
+        seen_candidates: list[list[RegistryArtifactFormat]] = []
+
+        def fake_first_cached_path(candidates, ctx):
+            del ctx
+            seen_candidates.append([artifact.format for artifact in candidates])
+            if candidates is post_lock_candidates:
+                return [cached_path]
+            return None
+
+        with (
+            patch.object(
+                cache,
+                "_artifact_candidates",
+                new_callable=AsyncMock,
+                side_effect=[pre_lock_candidates, post_lock_candidates],
+            ) as artifact_candidates,
+            patch.object(
+                cache,
+                "_first_cached_path",
+                side_effect=fake_first_cached_path,
+            ),
+        ):
+            result = await cache.materialize(
+                cache_key,
+                "s3://bucket/path/site-packages.tar.gz",
+            )
+
+        assert result == [cached_path]
+        assert artifact_candidates.await_count == 2
+        assert seen_candidates == [
+            [RegistryArtifactFormat.TAR_GZ],
+            [RegistryArtifactFormat.SQUASHFS, RegistryArtifactFormat.TAR_GZ],
+        ]
+
+    @pytest.mark.anyio
+    async def test_artifact_candidates_direct_squashfs_include_gzip_fallback(
         self, temp_cache_dir
     ):
         """Test direct SquashFS URIs fall back to sibling gzip tarballs."""
         cache = RegistryArtifactCache(temp_cache_dir)
 
         with patch.object(cache, "_can_try_squashfs") as can_try_squashfs:
-            artifact = await cache._resolve_preferred_artifact(
+            cache_key = compute_registry_artifact_cache_key(
+                "s3://bucket/path/site-packages.squashfs"
+            )
+            ctx = cache._context_for(cache_key)
+            candidates = await cache._artifact_candidates(
+                ctx,
                 "s3://bucket/path/site-packages.squashfs",
-                allow_squashfs=False,
             )
 
-        assert artifact.uri == "s3://bucket/path/site-packages.tar.gz"
-        assert artifact.format == RegistryArtifactFormat.TAR_GZ
+        assert isinstance(candidates[0], SquashfsArtifact)
+        assert isinstance(candidates[1], TarballArtifact)
+        assert [artifact.uri for artifact in candidates] == [
+            "s3://bucket/path/site-packages.squashfs",
+            "s3://bucket/path/site-packages.tar.gz",
+        ]
+        assert [artifact.format for artifact in candidates] == [
+            RegistryArtifactFormat.SQUASHFS,
+            RegistryArtifactFormat.TAR_GZ,
+        ]
         can_try_squashfs.assert_not_called()
 
     @pytest.mark.anyio
-    async def test_resolve_preferred_artifact_falls_back_to_gzip(self, temp_cache_dir):
+    async def test_artifact_candidates_fall_back_to_gzip(self, temp_cache_dir):
         """Test that gzip tarballs are used when no sidecar exists."""
         cache = RegistryArtifactCache(temp_cache_dir)
 
@@ -184,42 +333,40 @@ class TestRegistryArtifactCache:
             ),
             patch.object(cache, "_can_try_squashfs", return_value=True),
         ):
-            artifact = await cache._resolve_preferred_artifact(
+            cache_key = compute_registry_artifact_cache_key(
                 "s3://bucket/path/site-packages.tar.gz"
             )
+            ctx = cache._context_for(cache_key)
+            candidates = await cache._artifact_candidates(
+                ctx, "s3://bucket/path/site-packages.tar.gz"
+            )
 
+        artifact = candidates[0]
+        assert len(candidates) == 1
+        assert isinstance(artifact, TarballArtifact)
         assert artifact.uri == "s3://bucket/path/site-packages.tar.gz"
         assert artifact.format == RegistryArtifactFormat.TAR_GZ
 
-    def test_can_try_squashfs_does_not_require_preloaded_filesystem(
-        self, temp_cache_dir
-    ):
-        """Attempt SquashFS even when the kernel module is not registered yet."""
+    def test_can_try_squashfs_does_not_require_mount_binary(self, temp_cache_dir):
+        """Prefer SquashFS whenever enabled; extraction may work without mounts."""
         cache = RegistryArtifactCache(temp_cache_dir)
 
         with (
             patch(
                 "tracecat.executor.registry_artifacts.shutil.which",
-                return_value="/usr/bin/mount",
+                return_value=None,
             ),
             patch(
                 "tracecat.executor.registry_artifacts.config.TRACECAT__EXECUTOR_REGISTRY_SQUASHFS_ENABLED",
                 True,
             ),
-            patch("tracecat.executor.registry_artifacts.Path") as path_cls,
         ):
-            filesystems_path = path_cls.return_value
-            filesystems_path.exists.return_value = True
-            filesystems_path.read_text.return_value = "nodev\tproc\nnodev\ttmpfs\n"
-
+            ctx = cache._context_for("squashfs-test")
             assert cache._can_try_squashfs() is True
-
-        filesystems_path.read_text.assert_not_called()
+            assert ctx.can_mount_squashfs() is False
 
     @pytest.mark.anyio
-    async def test_resolve_preferred_artifact_skips_non_registry_tarballs(
-        self, temp_cache_dir
-    ):
+    async def test_artifact_candidates_skip_non_registry_tarballs(self, temp_cache_dir):
         """Test that arbitrary gzip tarballs do not trigger sidecar lookups."""
         cache = RegistryArtifactCache(temp_cache_dir)
 
@@ -227,10 +374,17 @@ class TestRegistryArtifactCache:
             "tracecat.executor.registry_artifacts.blob.file_exists",
             new_callable=AsyncMock,
         ) as file_exists:
-            artifact = await cache._resolve_preferred_artifact(
+            cache_key = compute_registry_artifact_cache_key(
                 "s3://bucket/path/custom.tar.gz"
             )
+            ctx = cache._context_for(cache_key)
+            candidates = await cache._artifact_candidates(
+                ctx, "s3://bucket/path/custom.tar.gz"
+            )
 
+        artifact = candidates[0]
+        assert len(candidates) == 1
+        assert isinstance(artifact, TarballArtifact)
         assert artifact.uri == "s3://bucket/path/custom.tar.gz"
         assert artifact.format == RegistryArtifactFormat.TAR_GZ
         file_exists.assert_not_awaited()
@@ -240,13 +394,12 @@ class TestRegistryArtifactCache:
         """Test that a SquashFS sidecar is mounted instead of extracting tarballs."""
         cache = RegistryArtifactCache(temp_cache_dir)
 
-        async def mock_download(_uri, path):
-            assert path.name.endswith(".squashfs")
-            path.write_bytes(b"squashfs")
-
-        async def mock_mount(_image_path, target_dir):
+        async def mock_mount(self, ctx, image_path):
+            assert image_path.name.endswith(".squashfs")
+            target_dir = ctx.paths.squashfs_mount_dir
             target_dir.mkdir(parents=True, exist_ok=True)
             (target_dir / "module.py").write_text("VALUE = 1")
+            return target_dir
 
         with (
             patch(
@@ -254,18 +407,29 @@ class TestRegistryArtifactCache:
                 new_callable=AsyncMock,
                 return_value=True,
             ),
-            patch.object(cache, "_can_try_squashfs", return_value=True),
-            patch.object(cache, "_download_artifact", mock_download),
-            patch.object(cache, "_mount_squashfs", mock_mount),
-            patch.object(cache, "_extract_tarball", new_callable=AsyncMock) as extract,
+            patch(
+                "tracecat.executor.registry_artifacts.config.TRACECAT__EXECUTOR_REGISTRY_SQUASHFS_ENABLED",
+                True,
+            ),
+            patch(
+                "tracecat.executor.registry_artifacts.shutil.which",
+                return_value="/sbin/mount",
+            ),
+            patch.object(SquashfsArtifact, "mount", mock_mount),
+            patch.object(
+                TarballArtifact,
+                "materialize",
+                new_callable=AsyncMock,
+            ) as tarball_materialize,
         ):
-            target_dir = await cache.materialize(
+            result = await cache.materialize(
                 "squashfs-key",
                 "s3://bucket/path/site-packages.tar.gz",
             )
 
-        assert (target_dir / "module.py").read_text() == "VALUE = 1"
-        extract.assert_not_awaited()
+        assert len(result) == 1
+        assert (result[0] / "module.py").read_text() == "VALUE = 1"
+        tarball_materialize.assert_not_awaited()
 
     @pytest.mark.anyio
     async def test_mount_squashfs_uses_hardened_read_only_options(
@@ -273,9 +437,15 @@ class TestRegistryArtifactCache:
         temp_cache_dir,
     ):
         """Test that SquashFS images are mounted read-only without device/setuid bits."""
+        cache_key = "cache-key"
         cache = RegistryArtifactCache(temp_cache_dir)
-        image_path = temp_cache_dir / "site-packages.squashfs"
-        target_dir = temp_cache_dir / "squashfs-cache-key"
+        ctx = cache._context_for(cache_key)
+        artifact = SquashfsArtifact(
+            uri="s3://bucket/path/site-packages.squashfs",
+            cache_key=cache_key,
+        )
+        image_path = ctx.paths.squashfs_image_path
+        target_dir = ctx.paths.squashfs_mount_dir
         image_path.write_bytes(b"squashfs")
         target_dir.mkdir()
         process = AsyncMock()
@@ -287,7 +457,7 @@ class TestRegistryArtifactCache:
             new_callable=AsyncMock,
             return_value=process,
         ) as create_subprocess_exec:
-            await cache._mount_squashfs(image_path, target_dir)
+            await artifact.mount(ctx, image_path)
 
         create_subprocess_exec.assert_awaited_once_with(
             "mount",
@@ -302,24 +472,107 @@ class TestRegistryArtifactCache:
         )
 
     @pytest.mark.anyio
-    async def test_materialize_falls_back_when_squashfs_mount_fails(
+    async def test_materialize_extracts_squashfs_when_mount_fails(self, temp_cache_dir):
+        """Test that SquashFS mount failures fall back to unsquashfs extraction."""
+        cache = RegistryArtifactCache(temp_cache_dir)
+
+        async def mock_mount(self, ctx, image_path):
+            raise RuntimeError("operation not permitted")
+
+        async def mock_extract(self, ctx, image_path):
+            target_dir = ctx.paths.squashfs_extract_dir
+            target_dir.mkdir(parents=True, exist_ok=True)
+            (target_dir / "module.py").write_text("VALUE = 1")
+            return target_dir
+
+        with (
+            patch(
+                "tracecat.executor.registry_artifacts.blob.file_exists",
+                new_callable=AsyncMock,
+                return_value=True,
+            ),
+            patch(
+                "tracecat.executor.registry_artifacts.config.TRACECAT__EXECUTOR_REGISTRY_SQUASHFS_ENABLED",
+                True,
+            ),
+            patch(
+                "tracecat.executor.registry_artifacts.shutil.which",
+                return_value="/sbin/mount",
+            ),
+            patch.object(SquashfsArtifact, "mount", mock_mount),
+            patch.object(SquashfsArtifact, "extract", mock_extract),
+            patch.object(
+                TarballArtifact,
+                "materialize",
+                new_callable=AsyncMock,
+            ) as tarball_materialize,
+        ):
+            result = await cache.materialize(
+                "fallback-key",
+                "s3://bucket/path/site-packages.tar.gz",
+            )
+
+        assert len(result) == 1
+        assert (result[0] / "module.py").read_text() == "VALUE = 1"
+        assert result[0].name.startswith("unsquashfs-")
+        tarball_materialize.assert_not_awaited()
+
+    @pytest.mark.anyio
+    async def test_materialize_extracts_squashfs_without_mount_binary(
         self, temp_cache_dir
     ):
-        """Test that SquashFS mount failures fall back to gzip extraction."""
+        """Test that SquashFS is still preferred when only unsquashfs is available."""
+        cache = RegistryArtifactCache(temp_cache_dir)
+
+        async def mock_extract(self, ctx, image_path):
+            target_dir = ctx.paths.squashfs_extract_dir
+            target_dir.mkdir(parents=True, exist_ok=True)
+            (target_dir / "module.py").write_text("VALUE = 1")
+            return target_dir
+
+        with (
+            patch(
+                "tracecat.executor.registry_artifacts.blob.file_exists",
+                new_callable=AsyncMock,
+                return_value=True,
+            ),
+            patch(
+                "tracecat.executor.registry_artifacts.config.TRACECAT__EXECUTOR_REGISTRY_SQUASHFS_ENABLED",
+                True,
+            ),
+            patch(
+                "tracecat.executor.registry_artifacts.shutil.which", return_value=None
+            ),
+            patch.object(SquashfsArtifact, "extract", mock_extract),
+        ):
+            result = await cache.materialize(
+                "extract-key",
+                "s3://bucket/path/site-packages.tar.gz",
+            )
+
+        assert len(result) == 1
+        assert (result[0] / "module.py").read_text() == "VALUE = 1"
+        assert result[0].name.startswith("unsquashfs-")
+
+    @pytest.mark.anyio
+    async def test_materialize_falls_back_to_gzip_when_squashfs_extract_fails(
+        self, temp_cache_dir
+    ):
+        """Test that legacy gzip remains the final compatibility fallback."""
         cache = RegistryArtifactCache(temp_cache_dir)
         source = temp_cache_dir / "source"
         source.mkdir()
         (source / "module.py").write_text("VALUE = 1")
 
-        async def mock_download(_uri, path):
-            if path.name.endswith(".squashfs"):
-                path.write_bytes(b"squashfs")
-                return
+        async def mock_tarball_download(self, ctx, path):
             with tarfile.open(path, "w:gz") as tar:
                 tar.add(source / "module.py", arcname="module.py")
 
-        async def mock_mount(_image_path, _target_dir):
+        async def mock_mount(self, ctx, image_path):
             raise RuntimeError("operation not permitted")
+
+        async def mock_extract(self, ctx, image_path):
+            raise RuntimeError("unsquashfs unavailable")
 
         with (
             patch(
@@ -327,16 +580,26 @@ class TestRegistryArtifactCache:
                 new_callable=AsyncMock,
                 side_effect=[True, False],
             ),
-            patch.object(cache, "_can_try_squashfs", return_value=True),
-            patch.object(cache, "_download_artifact", mock_download),
-            patch.object(cache, "_mount_squashfs", mock_mount),
+            patch(
+                "tracecat.executor.registry_artifacts.config.TRACECAT__EXECUTOR_REGISTRY_SQUASHFS_ENABLED",
+                True,
+            ),
+            patch(
+                "tracecat.executor.registry_artifacts.shutil.which",
+                return_value="/sbin/mount",
+            ),
+            patch.object(SquashfsArtifact, "mount", mock_mount),
+            patch.object(SquashfsArtifact, "extract", mock_extract),
+            patch.object(TarballArtifact, "download", mock_tarball_download),
         ):
-            target_dir = await cache.materialize(
-                "fallback-key",
+            result = await cache.materialize(
+                "gzip-fallback-key",
                 "s3://bucket/path/site-packages.tar.gz",
             )
 
-        assert (target_dir / "module.py").read_text() == "VALUE = 1"
+        assert len(result) == 1
+        assert (result[0] / "module.py").read_text() == "VALUE = 1"
+        assert result[0].name.startswith("tarball-")
 
     @pytest.mark.anyio
     async def test_materialize_treats_unknown_suffix_as_gzip(self, temp_cache_dir):
@@ -346,18 +609,19 @@ class TestRegistryArtifactCache:
         source.mkdir()
         (source / "module.py").write_text("VALUE = 1")
 
-        async def mock_download(_uri, path):
+        async def mock_download(self, ctx, path):
             assert path.name.endswith(".tar.gz")
             with tarfile.open(path, "w:gz") as tar:
                 tar.add(source / "module.py", arcname="module.py")
 
-        with patch.object(cache, "_download_artifact", mock_download):
-            target_dir = await cache.materialize(
+        with patch.object(TarballArtifact, "download", mock_download):
+            result = await cache.materialize(
                 "custom-key-test",
                 "s3://bucket/path/custom-key",
             )
 
-        assert (target_dir / "module.py").read_text() == "VALUE = 1"
+        assert len(result) == 1
+        assert (result[0] / "module.py").read_text() == "VALUE = 1"
 
     @pytest.mark.anyio
     async def test_materialize_caches_result(self, temp_cache_dir):
@@ -369,7 +633,7 @@ class TestRegistryArtifactCache:
 
         result = await cache.materialize(cache_key, "s3://bucket/test.tar.gz")
 
-        assert result == target_dir
+        assert result == [target_dir]
 
     @pytest.mark.anyio
     async def test_materialize_concurrent_requests(self, temp_cache_dir):
@@ -378,18 +642,18 @@ class TestRegistryArtifactCache:
         cache_key = "concurrent-test"
         download_count = 0
 
-        async def mock_download(_uri, path):
+        async def mock_download(self, ctx, path):
             nonlocal download_count
             download_count += 1
             await asyncio.sleep(0.1)
             path.write_bytes(b"fake tarball content")
 
-        async def mock_extract(_tarball_path, target_dir):
+        async def mock_extract(self, tarball_path, target_dir):
             (target_dir / "extracted.txt").write_text("extracted")
 
         with (
-            patch.object(cache, "_download_artifact", mock_download),
-            patch.object(cache, "_extract_tarball", mock_extract),
+            patch.object(TarballArtifact, "download", mock_download),
+            patch.object(TarballArtifact, "extract", mock_extract),
         ):
             results = await asyncio.gather(
                 cache.materialize(cache_key, "s3://bucket/test.tar.gz"),

@@ -21,7 +21,10 @@ from tracecat.exceptions import (
 from tracecat.registry.actions.schemas import RegistryActionImplValidator
 from tracecat.registry.constants import DEFAULT_REGISTRY_ORIGIN
 from tracecat.registry.lock.types import RegistryLock
-from tracecat.registry.versions.schemas import RegistryVersionManifest
+from tracecat.registry.versions.schemas import (
+    RegistryVersionManifest,
+    registry_manifest_fingerprint,
+)
 from tracecat.service import BaseOrgService
 from tracecat.tiers.enums import Entitlement
 
@@ -138,15 +141,20 @@ class RegistryLockService(BaseOrgService):
 
         # Build origins dict and parse manifests.
         origins: dict[str, str] = {}
+        origin_fingerprints: dict[str, str] = {}
+        builtin_fingerprint: str | None = None
         origin_manifests: dict[str, RegistryVersionManifest] = {}
         excluded_custom_origin_manifests: dict[str, RegistryVersionManifest] = {}
 
         for origin, version, manifest_dict in rows:
             origin_str = str(origin)
             origins[origin_str] = str(version)
-            origin_manifests[origin_str] = RegistryVersionManifest.model_validate(
-                manifest_dict
-            )
+            manifest = RegistryVersionManifest.model_validate(manifest_dict)
+            origin_manifests[origin_str] = manifest
+            fingerprint = registry_manifest_fingerprint(manifest)
+            origin_fingerprints[origin_str] = fingerprint
+            if origin_str == DEFAULT_REGISTRY_ORIGIN and builtin_fingerprint is None:
+                builtin_fingerprint = fingerprint
         if not custom_registry_enabled:
             for origin, _version, manifest_dict in org_rows:
                 origin_str = str(origin)
@@ -220,6 +228,13 @@ class RegistryLockService(BaseOrgService):
         used_origins = set(actions.values())
         origins = {o: v for o, v in origins.items() if o in used_origins}
         origins[DEFAULT_REGISTRY_ORIGIN] = builtin_version
+        if builtin_fingerprint is not None:
+            origin_fingerprints[DEFAULT_REGISTRY_ORIGIN] = builtin_fingerprint
+        origin_fingerprints = {
+            o: fingerprint
+            for o, fingerprint in origin_fingerprints.items()
+            if o in origins
+        }
 
         self.logger.debug(
             "Resolved lock with bindings",
@@ -227,4 +242,8 @@ class RegistryLockService(BaseOrgService):
             num_actions=len(actions),
         )
 
-        return RegistryLock(origins=origins, actions=actions)
+        return RegistryLock(
+            origins=origins,
+            actions=actions,
+            origin_fingerprints=origin_fingerprints,
+        )

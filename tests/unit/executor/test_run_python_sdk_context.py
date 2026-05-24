@@ -467,12 +467,12 @@ async def _run_sandbox_registry_ctx_smoke(
 class _FakeRunPythonRegistryPathRunner:
     def __init__(self, paths: list[Path]) -> None:
         self.paths = paths
-        self.tarball_uris: list[str] | None = None
+        self.artifact_uris: list[str] | None = None
 
     async def resolve_registry_paths(
-        self, tarball_uris: list[str] | None = None
+        self, artifact_uris: list[str] | None = None
     ) -> list[Path]:
-        self.tarball_uris = tarball_uris
+        self.artifact_uris = artifact_uris
         return self.paths
 
 
@@ -484,7 +484,7 @@ async def _run_backend_registry_ctx_smoke(
 ) -> dict[str, Any]:
     fake_runner = _FakeRunPythonRegistryPathRunner(_registry_python_path_dirs())
 
-    async def _get_tarball_uris(_input: RunActionInput, _role: Role) -> list[str]:
+    async def _get_artifact_uris(_input: RunActionInput, _role: Role) -> list[str]:
         return ["s3://tracecat-registry/test/site-packages.tar.gz"]
 
     monkeypatch.setattr(
@@ -492,7 +492,7 @@ async def _run_backend_registry_ctx_smoke(
         "SandboxService",
         lambda: SandboxService(cache_dir=str(cache_dir)),
     )
-    monkeypatch.setattr(backend, "_get_tarball_uris", _get_tarball_uris)
+    monkeypatch.setattr(backend, "_get_artifact_uris", _get_artifact_uris)
     monkeypatch.setattr(
         executor_backend_module,
         "get_action_runner",
@@ -533,7 +533,7 @@ async def _run_backend_registry_ctx_smoke(
         environment=input_data.run_context.environment,
         token=resolved_context.executor_token,
     )
-    assert fake_runner.tarball_uris == [
+    assert fake_runner.artifact_uris == [
         "s3://tracecat-registry/test/site-packages.tar.gz"
     ]
     return result.result
@@ -550,7 +550,7 @@ async def _run_backend_registry_ctx_gateway_smoke(
     """Run a real SDK request through run_python's nsjail Action Gateway mount."""
     fake_runner = _FakeRunPythonRegistryPathRunner(registry_paths)
 
-    async def _get_tarball_uris(_input: RunActionInput, _role: Role) -> list[str]:
+    async def _get_artifact_uris(_input: RunActionInput, _role: Role) -> list[str]:
         return ["s3://tracecat-registry/test/site-packages.tar.gz"]
 
     monkeypatch.setattr(
@@ -558,7 +558,7 @@ async def _run_backend_registry_ctx_gateway_smoke(
         "SandboxService",
         lambda: SandboxService(cache_dir=str(cache_dir)),
     )
-    monkeypatch.setattr(backend, "_get_tarball_uris", _get_tarball_uris)
+    monkeypatch.setattr(backend, "_get_artifact_uris", _get_artifact_uris)
     monkeypatch.setattr(
         executor_backend_module,
         "get_action_runner",
@@ -602,7 +602,7 @@ async def _run_backend_registry_ctx_gateway_smoke(
         "socket_path": str(ACTION_GATEWAY_SANDBOX_SOCKET),
         "outbound_status": "blocked: URLError",
     }
-    assert fake_runner.tarball_uris == [
+    assert fake_runner.artifact_uris == [
         "s3://tracecat-registry/test/site-packages.tar.gz"
     ]
     return result.result
@@ -1121,7 +1121,7 @@ async def test_run_python_backend_always_injects_sdk_context(
     artifact_path.mkdir()
     fake_runner = _FakeRunPythonRegistryPathRunner([artifact_path])
 
-    async def _get_tarball_uris(_input: RunActionInput, _role: Role) -> list[str]:
+    async def _get_artifact_uris(_input: RunActionInput, _role: Role) -> list[str]:
         return ["s3://tracecat-registry/test/site-packages.tar.gz"]
 
     class FakeSandboxService:
@@ -1138,7 +1138,7 @@ async def test_run_python_backend_always_injects_sdk_context(
         "http://api.test:8000",
     )
     backend = DirectBackend()
-    monkeypatch.setattr(backend, "_get_tarball_uris", _get_tarball_uris)
+    monkeypatch.setattr(backend, "_get_artifact_uris", _get_artifact_uris)
     monkeypatch.setattr(
         "tracecat.executor.backends.base.get_action_runner",
         lambda: fake_runner,
@@ -1165,7 +1165,7 @@ async def test_run_python_backend_always_injects_sdk_context(
         "TRACECAT__EXECUTOR_TOKEN": resolved_context.executor_token,
     }
     assert captured["python_path_dirs"] == [artifact_path]
-    assert fake_runner.tarball_uris == [
+    assert fake_runner.artifact_uris == [
         "s3://tracecat-registry/test/site-packages.tar.gz"
     ]
 
@@ -1174,7 +1174,7 @@ async def test_run_python_backend_always_injects_sdk_context(
 async def test_run_python_backend_fails_without_registry_artifacts(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    async def _get_tarball_uris(_input: RunActionInput, _role: Role) -> list[str]:
+    async def _get_artifact_uris(_input: RunActionInput, _role: Role) -> list[str]:
         return []
 
     monkeypatch.setattr(
@@ -1182,7 +1182,7 @@ async def test_run_python_backend_fails_without_registry_artifacts(
         False,
     )
     backend = DirectBackend()
-    monkeypatch.setattr(backend, "_get_tarball_uris", _get_tarball_uris)
+    monkeypatch.setattr(backend, "_get_artifact_uris", _get_artifact_uris)
 
     result = await backend.execute(
         input=_make_run_python_input(),
@@ -1214,7 +1214,7 @@ async def test_run_python_backend_uses_local_registry_paths(
         if site_path
     }
 
-    async def _get_tarball_uris(_input: RunActionInput, _role: Role) -> list[str]:
+    async def _get_artifact_uris(_input: RunActionInput, _role: Role) -> list[str]:
         return []
 
     class FakeSandboxService:
@@ -1224,10 +1224,10 @@ async def test_run_python_backend_uses_local_registry_paths(
 
     class FailingRegistryPathRunner:
         async def resolve_registry_paths(
-            self, tarball_uris: list[str] | None = None
+            self, artifact_uris: list[str] | None = None
         ) -> list[Path]:
             raise AssertionError(
-                f"local repository mode should not resolve {tarball_uris=}"
+                f"local repository mode should not resolve {artifact_uris=}"
             )
 
     monkeypatch.setattr(executor_backend_module, "SandboxService", FakeSandboxService)
@@ -1254,7 +1254,7 @@ async def test_run_python_backend_uses_local_registry_paths(
     monkeypatch.setenv("PYTHONUSERBASE", str(custom_target))
 
     backend = DirectBackend()
-    monkeypatch.setattr(backend, "_get_tarball_uris", _get_tarball_uris)
+    monkeypatch.setattr(backend, "_get_artifact_uris", _get_artifact_uris)
 
     result = await backend.execute(
         input=_make_run_python_input(),
@@ -1359,7 +1359,7 @@ async def test_run_python_pid_sdk_calls_use_action_gateway_with_legacy_registry(
         [legacy_registry_root, Path(sysconfig.get_path("purelib")).resolve()]
     )
 
-    async def _get_tarball_uris(_input: RunActionInput, _role: Role) -> list[str]:
+    async def _get_artifact_uris(_input: RunActionInput, _role: Role) -> list[str]:
         return ["s3://tracecat-registry/test/site-packages.tar.gz"]
 
     monkeypatch.setattr(
@@ -1389,7 +1389,7 @@ async def test_run_python_pid_sdk_calls_use_action_gateway_with_legacy_registry(
     )
 
     backend = DirectBackend()
-    monkeypatch.setattr(backend, "_get_tarball_uris", _get_tarball_uris)
+    monkeypatch.setattr(backend, "_get_artifact_uris", _get_artifact_uris)
 
     input_data = _make_run_python_input()
     resolved_context = _make_run_python_context()
@@ -1428,7 +1428,7 @@ async def main():
         "gateway": {"status": "ok"},
         "socket_path": str(action_gateway_socket),
     }
-    assert fake_runner.tarball_uris == [
+    assert fake_runner.artifact_uris == [
         "s3://tracecat-registry/test/site-packages.tar.gz"
     ]
 
