@@ -241,9 +241,11 @@ async def test_get_registry_artifact_uris_looks_up_builtin_when_manifest_missing
     async def get_artifacts(
         origins: dict[str, str],
         organization_id: uuid.UUID,
+        origin_fingerprints: dict[str, str] | None = None,
     ) -> list[RegistryArtifactsContext]:
         assert origins == {DEFAULT_REGISTRY_ORIGIN: current_version}
         assert organization_id == test_role.organization_id
+        assert origin_fingerprints == {DEFAULT_REGISTRY_ORIGIN: "expected"}
         return [
             RegistryArtifactsContext(
                 origin=DEFAULT_REGISTRY_ORIGIN,
