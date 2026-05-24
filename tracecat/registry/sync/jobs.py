@@ -150,7 +150,11 @@ async def _sync_as_leader(session: AsyncSession, target_version: str) -> None:
                 "Platform registry already at target version",
                 version=target_version,
             )
-            _schedule_platform_registry_artifact_build(target_version)
+            _schedule_platform_registry_artifact_build(
+                target_version,
+                promote_version_id=existing_version.id,
+                expected_current_version_id=existing_version.id,
+            )
             return
 
         # If this repo has versions but no current selection, wait until the
