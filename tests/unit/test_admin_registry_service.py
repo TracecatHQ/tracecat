@@ -198,13 +198,13 @@ async def test_promote_version_requires_ready_artifact(
 
     async def artifact_not_ready(
         _service: AdminRegistryService,
-        _tarball_uri: str | None,
+        _artifact_uri: str | None,
     ) -> bool:
         return False
 
     monkeypatch.setattr(
         AdminRegistryService,
-        "_artifacts_ready",
+        "_execution_artifact_ready",
         artifact_not_ready,
     )
 
@@ -214,6 +214,49 @@ async def test_promote_version_requires_ready_artifact(
 
     await session.refresh(repo)
     assert repo.current_version_id is None
+
+
+@pytest.mark.anyio
+async def test_promote_version_allows_ready_legacy_tarball_artifact(
+    session: AsyncSession,
+    platform_role: PlatformRole,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repo = PlatformRegistryRepository(origin="tracecat_registry")
+    session.add(repo)
+    await session.flush()
+
+    version = PlatformRegistryVersion(
+        repository_id=repo.id,
+        version="1.0.0",
+        manifest={"schema_version": "1.0", "actions": {}},
+        tarball_uri="s3://registry-artifacts/platform/v1/site-packages.tar.gz",
+    )
+    session.add(version)
+    await session.commit()
+
+    checked: dict[str, str] = {}
+
+    async def fake_file_exists(*, key: str, bucket: str) -> bool:
+        checked["key"] = key
+        checked["bucket"] = bucket
+        return True
+
+    monkeypatch.setattr(
+        "tracecat.admin.registry.service.blob.file_exists",
+        fake_file_exists,
+    )
+
+    service = AdminRegistryService(session, platform_role)
+    response = await service.promote_version(repo.id, version.id)
+
+    await session.refresh(repo)
+    assert response.current_version_id == version.id
+    assert repo.current_version_id == version.id
+    assert checked == {
+        "bucket": "registry-artifacts",
+        "key": "platform/v1/site-packages.tar.gz",
+    }
 
 
 @pytest.mark.anyio

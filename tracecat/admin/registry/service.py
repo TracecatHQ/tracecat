@@ -520,6 +520,30 @@ class AdminRegistryService(BasePlatformService):
             )
         return False
 
+    async def _execution_artifact_ready(
+        self,
+        artifact_uri: str | None,
+    ) -> bool:
+        """Return whether the stored execution artifact exists."""
+        if artifact_uri is None:
+            return False
+
+        try:
+            bucket, artifact_key = parse_s3_uri(artifact_uri)
+            return await blob.file_exists(key=artifact_key, bucket=bucket)
+        except ValueError:
+            self.logger.warning(
+                "Registry version has invalid execution artifact URI",
+                artifact_uri=artifact_uri,
+            )
+        except Exception as exc:
+            self.logger.warning(
+                "Failed to check registry execution artifact",
+                artifact_uri=artifact_uri,
+                error=str(exc),
+            )
+        return False
+
     async def start_artifacts_backfill(
         self,
         params: RegistryArtifactsBackfillStartRequest,
@@ -620,7 +644,7 @@ class AdminRegistryService(BasePlatformService):
             raise ValueError(
                 f"Version {version_id} does not have an execution artifact"
             )
-        if not await self._artifacts_ready(version.tarball_uri):
+        if not await self._execution_artifact_ready(version.tarball_uri):
             raise TracecatValidationError(
                 f"Version {version_id} execution artifact is not ready"
             )
