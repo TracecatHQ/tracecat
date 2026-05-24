@@ -394,14 +394,6 @@ async def _promote_platform_registry_version_after_artifact_build(
         )
         return
 
-    if _is_downgrade(repo.current_version, target_version):
-        logger.warning(
-            "Skipping platform registry promotion after artifact build; target is a downgrade",
-            current=repo.current_version.version if repo.current_version else None,
-            target=target_version,
-        )
-        return
-
     await repos_service.promote_version(repo, version_id)
     logger.info(
         "Promoted platform registry version after artifact build",

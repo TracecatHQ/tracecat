@@ -508,6 +508,44 @@ async def test_promote_after_artifact_build_promotes_when_current_matches_guard(
 
 
 @pytest.mark.anyio
+async def test_promote_after_artifact_build_promotes_collision_version(
+    session: AsyncSession,
+) -> None:
+    from tracecat.registry.sync.jobs import (
+        _promote_platform_registry_version_after_artifact_build,
+    )
+
+    repo = await _get_or_create_platform_repo(session)
+    old_version = PlatformRegistryVersion(
+        repository_id=repo.id,
+        version="1.2.3",
+        manifest=_make_manifest(["test.action_v1"]),
+        tarball_uri="s3://test/v1.tar.gz",
+    )
+    collision_version = PlatformRegistryVersion(
+        repository_id=repo.id,
+        version="1.2.3.dev20260522140000",
+        manifest=_make_manifest(["test.action_v2"]),
+        tarball_uri="s3://test/collision.tar.gz",
+    )
+    session.add_all([old_version, collision_version])
+    await session.flush()
+    repo.current_version_id = old_version.id
+    session.add(repo)
+    await session.commit()
+
+    await _promote_platform_registry_version_after_artifact_build(
+        session,
+        target_version="1.2.3.dev20260522140000",
+        version_id=collision_version.id,
+        expected_current_version_id=old_version.id,
+    )
+
+    await session.refresh(repo)
+    assert repo.current_version_id == collision_version.id
+
+
+@pytest.mark.anyio
 async def test_promote_after_artifact_build_skips_when_current_changed(
     session: AsyncSession,
 ) -> None:
