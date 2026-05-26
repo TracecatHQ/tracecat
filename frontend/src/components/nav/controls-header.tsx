@@ -12,7 +12,9 @@ import {
   Flag,
   Flame,
   FolderIcon,
+  KeyRound,
   ListIcon,
+  LockKeyhole,
   MessageSquare,
   MousePointerClickIcon,
   PanelRight,
@@ -129,6 +131,7 @@ import {
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuSeparator,
   DropdownMenuSub,
@@ -341,18 +344,52 @@ function TablesActions() {
 
 function IntegrationsActions() {
   const [oauthDialogOpen, setOauthDialogOpen] = useState(false)
+  const [credentialDialogOpen, setCredentialDialogOpen] = useState(false)
 
   return (
     <>
-      <Button
-        variant="outline"
-        size="sm"
-        className="h-7 bg-white"
-        onClick={() => setOauthDialogOpen(true)}
-      >
-        <Plus className="mr-1 h-3.5 w-3.5" />
-        Add OAuth provider
-      </Button>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button variant="outline" size="sm" className="h-7 bg-white">
+            <Plus className="mr-1 h-3.5 w-3.5" />
+            Add integration
+            <ChevronDown className="ml-1 h-3.5 w-3.5" />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent
+          align="end"
+          className="
+            [&_[data-radix-collection-item]]:flex
+            [&_[data-radix-collection-item]]:items-center
+            [&_[data-radix-collection-item]]:gap-2
+          "
+        >
+          <DropdownMenuGroup>
+            <DropdownMenuItem onSelect={() => setCredentialDialogOpen(true)}>
+              <KeyRound className="size-4 text-foreground/80" />
+              <div className="flex flex-col text-xs">
+                <span>Key-value credentials</span>
+                <span className="text-xs text-muted-foreground">
+                  Store API keys and tokens
+                </span>
+              </div>
+            </DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => setOauthDialogOpen(true)}>
+              <LockKeyhole className="size-4 text-foreground/80" />
+              <div className="flex flex-col text-xs">
+                <span>Custom OAuth provider</span>
+                <span className="text-xs text-muted-foreground">
+                  Configure OAuth app credentials
+                </span>
+              </div>
+            </DropdownMenuItem>
+          </DropdownMenuGroup>
+        </DropdownMenuContent>
+      </DropdownMenu>
+      <CreateCredentialDialog
+        open={credentialDialogOpen}
+        onOpenChange={setCredentialDialogOpen}
+      />
       <CreateCustomProviderDialog
         open={oauthDialogOpen}
         onOpenChange={setOauthDialogOpen}
