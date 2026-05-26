@@ -191,16 +191,24 @@ async def sync_registry_activity(request: RegistrySyncRequest) -> RegistrySyncRe
     runner = RegistrySyncRunner()
     try:
         result = await runner.run(request)
-    except (RegistrySyncValidationError, ActionDiscoveryError) as exc:
-        # Discovery/template-load failures are caused by the repository content,
-        # not worker capacity. Mark them non-retryable so users see the
-        # actionable parser/validation error immediately instead of a 20m
-        # workflow timeout after repeated identical attempts.
+    except RegistrySyncValidationError as exc:
+        # Validation failures are caused by repository content, not worker
+        # capacity. Fail fast so users see the actionable error immediately.
         raise ApplicationError(
             str(exc),
             non_retryable=True,
             type="RegistrySyncValidationError",
         ) from exc
+    except ActionDiscoveryError as exc:
+        if exc.non_retryable:
+            # Some discovery failures are deterministic content errors, such as
+            # template parsing failures. Keep transient subprocess failures retryable.
+            raise ApplicationError(
+                str(exc),
+                non_retryable=True,
+                type="RegistrySyncValidationError",
+            ) from exc
+        raise
 
     if result.validation_errors:
         error_count = sum(len(errs) for errs in result.validation_errors.values())

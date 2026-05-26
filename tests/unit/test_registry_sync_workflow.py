@@ -67,7 +67,7 @@ async def test_sync_registry_activity_raises_validation_application_error(
 
 
 @pytest.mark.anyio
-async def test_sync_registry_activity_raises_non_retryable_error_for_discovery_failure(
+async def test_sync_registry_activity_raises_non_retryable_error_for_content_discovery_failure(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Discovery/template-load failures should surface immediately, not retry to timeout."""
@@ -79,7 +79,8 @@ async def test_sync_registry_activity_raises_non_retryable_error_for_discovery_f
                 "Failed to discover actions: Failed to load template action from "
                 "/custom_actions/example_template.yml: "
                 "Invalid type annotation for expected field 'items': 'list'. "
-                "Lists must include an item type, e.g. 'list[str]' or 'list[Any]'."
+                "Lists must include an item type, e.g. 'list[str]' or 'list[Any]'.",
+                non_retryable=True,
             )
 
     monkeypatch.setattr(
@@ -100,6 +101,33 @@ async def test_sync_registry_activity_raises_non_retryable_error_for_discovery_f
     assert exc.non_retryable is True
     assert "example_template.yml" in str(exc)
     assert "list[str]" in str(exc)
+
+
+@pytest.mark.anyio
+async def test_sync_registry_activity_keeps_transient_discovery_errors_retryable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Transient discovery failures should bubble up so Temporal can retry them."""
+
+    class _FakeRunner:
+        async def run(self, request: RegistrySyncRequest) -> None:
+            del request
+            raise ActionDiscoveryError(
+                "Failed to discover actions: Sync subprocess timed out after 300s"
+            )
+
+    monkeypatch.setattr(
+        "tracecat.registry.sync.workflow.RegistrySyncRunner", _FakeRunner
+    )
+
+    request = RegistrySyncRequest(
+        repository_id=uuid4(),
+        origin="tracecat_registry",
+        origin_type="builtin",
+    )
+
+    with pytest.raises(ActionDiscoveryError, match="timed out"):
+        await sync_registry_activity(request)
 
 
 @pytest.mark.anyio
