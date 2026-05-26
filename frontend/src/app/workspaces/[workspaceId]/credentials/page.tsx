@@ -1,41 +1,17 @@
 "use client"
 
+import { useRouter } from "next/navigation"
+import { useEffect } from "react"
 import { CenteredSpinner } from "@/components/loading/spinner"
-import { AlertNotification } from "@/components/notifications"
-import { WorkspaceCredentialsInventory } from "@/components/workspaces/workspace-credentials-inventory"
-import { useWorkspaceDetails } from "@/hooks/use-workspace"
+import { useWorkspaceId } from "@/providers/workspace-id"
 
-export default function WorkspaceCredentialsPage() {
-  const { workspace, workspaceLoading, workspaceError } = useWorkspaceDetails()
-  if (workspaceLoading) {
-    return <CenteredSpinner />
-  }
-  if (workspaceError) {
-    return (
-      <div className="size-full overflow-auto">
-        <div className="container flex h-full flex-col space-y-12 py-8">
-          <AlertNotification
-            level="error"
-            message="Error loading workspace info."
-          />
-        </div>
-      </div>
-    )
-  }
-  if (!workspace) {
-    return (
-      <div className="size-full overflow-auto">
-        <div className="container flex h-full flex-col space-y-12 py-8">
-          <AlertNotification level="error" message="Workspace not found." />
-        </div>
-      </div>
-    )
-  }
-  return (
-    <div className="size-full overflow-auto">
-      <div className="flex h-full flex-col">
-        <WorkspaceCredentialsInventory />
-      </div>
-    </div>
-  )
+export default function WorkspaceCredentialsRedirectPage() {
+  const router = useRouter()
+  const workspaceId = useWorkspaceId()
+
+  useEffect(() => {
+    router.replace(`/workspaces/${workspaceId}/settings/secrets`)
+  }, [router, workspaceId])
+
+  return <CenteredSpinner />
 }

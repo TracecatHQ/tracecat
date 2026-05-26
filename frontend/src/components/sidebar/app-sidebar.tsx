@@ -5,7 +5,6 @@ import {
   BotIcon,
   BoxIcon,
   ChevronDown,
-  KeyRound,
   LayersIcon,
   ListChecksIcon,
   ListVideoIcon,
@@ -13,6 +12,7 @@ import {
   type LucideIcon,
   MousePointerClickIcon,
   Pyramid,
+  Sparkles,
   Table2Icon,
   TerminalIcon,
   UsersIcon,
@@ -178,17 +178,20 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
         visible: canViewVariables === true,
       },
       {
-        title: "Credentials",
-        url: `${basePath}/credentials`,
-        icon: KeyRound,
-        isActive: pathname?.startsWith(`${basePath}/credentials`),
-        visible: canViewSecrets === true,
-      },
-      {
         title: "Integrations",
         url: `${basePath}/integrations`,
         icon: BlocksIcon,
-        isActive: pathname?.startsWith(`${basePath}/integrations`),
+        isActive:
+          pathname?.startsWith(`${basePath}/integrations`) ||
+          pathname?.startsWith(`${basePath}/settings/secrets`) ||
+          pathname?.startsWith(`${basePath}/credentials`),
+        visible: canViewIntegrations === true || canViewSecrets === true,
+      },
+      {
+        title: "MCP servers",
+        url: `${basePath}/mcp-servers`,
+        icon: Sparkles,
+        isActive: pathname?.startsWith(`${basePath}/mcp-servers`),
         visible: canViewIntegrations === true,
       },
       {

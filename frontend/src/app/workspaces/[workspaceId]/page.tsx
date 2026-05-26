@@ -85,7 +85,7 @@ export default function WorkspacePage() {
       return `${basePath}/variables`
     }
     if (canViewSecrets === true) {
-      return `${basePath}/credentials`
+      return `${basePath}/settings/secrets`
     }
     if (canViewIntegrations === true) {
       return `${basePath}/integrations`
