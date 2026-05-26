@@ -5,6 +5,7 @@ import pytest
 from tests.smoke.agent.smoke_client import (
     AgentSmokeClient,
     ProviderSpec,
+    assert_agent_response_contains,
     new_sentinel,
 )
 
@@ -38,7 +39,7 @@ async def test_case_chat_uses_primary_provider(
         f"Reply exactly with this case smoke sentinel: {sentinel}",
     )
     reloaded = await smoke_client.read_session(str(session["id"]))
-    assert sentinel in result.text or sentinel in str(reloaded)
+    assert_agent_response_contains(result, reloaded, sentinel)
 
     smoke_client.record("case_chat", provider=primary_provider.name)
 
@@ -61,6 +62,6 @@ async def test_builder_assistant_uses_primary_provider(
         f"Reply exactly with this builder smoke sentinel: {sentinel}",
     )
     reloaded = await smoke_client.read_session(str(session["id"]))
-    assert sentinel in result.text or sentinel in str(reloaded)
+    assert_agent_response_contains(result, reloaded, sentinel)
 
     smoke_client.record("builder_assistant", provider=primary_provider.name)

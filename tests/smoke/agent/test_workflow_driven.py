@@ -7,8 +7,11 @@ import pytest
 
 from tests.smoke.agent.smoke_client import (
     AgentSmokeClient,
+    assert_has_approval_decision,
     assert_has_messages,
-    assert_json_contains,
+    assert_workflow_result_contains,
+    assert_workflow_tool_called,
+    assert_workflow_tool_result_contains,
     new_sentinel,
     smoke_provider_names,
 )
@@ -55,7 +58,7 @@ async def test_ai_agent_workflow_continuity_and_stream_resume(
     )
     compact = await smoke_client.wait_for_workflow(second_exec_id)
     reloaded = await smoke_client.read_session(session_id)
-    assert_json_contains({"compact": compact, "session": reloaded}, sentinel)
+    assert_workflow_result_contains(compact, sentinel)
     assert_has_messages(reloaded, minimum=4)
     await smoke_client.assert_basic_stream_resume(session_id)
 
@@ -80,12 +83,14 @@ async def test_ai_agent_workflow_platform_tool(
         prompt=(
             f"Use the {action} tool exactly once with JSON "
             f'{{"outer": {{"sentinel": "{sentinel}"}}}}. '
-            f"After the tool returns, reply exactly: {sentinel}"
+            "After the tool returns, reply only with the flattened "
+            "`outer.sentinel` value from the tool result. Do not add prose."
         ),
         actions=[action],
     )
     compact = await smoke_client.wait_for_workflow(exec_id)
-    assert_json_contains(compact, sentinel)
+    assert_workflow_result_contains(compact, sentinel)
+    assert_workflow_tool_called(compact)
 
     smoke_client.record("workflow_ai_agent_platform_tool", provider=provider.name)
 
@@ -106,12 +111,14 @@ async def test_ai_agent_workflow_mcp_tool(
         provider,
         prompt=(
             f"Use the {mcp_tool.tool_name} tool with marker {sentinel}. "
-            f"Reply exactly with the tool result: {expected}"
+            "Reply only with the raw tool result. Do not add prose."
         ),
         mcp_integrations=[mcp_tool.integration_id],
     )
     compact = await smoke_client.wait_for_workflow(exec_id)
-    assert_json_contains(compact, expected)
+    assert_workflow_tool_called(compact)
+    assert_workflow_result_contains(compact, sentinel)
+    assert_workflow_tool_result_contains(compact, expected)
 
     smoke_client.record(
         "workflow_ai_agent_mcp_tool",
@@ -150,8 +157,8 @@ async def test_ai_agent_workflow_approval(
     )
     compact = await smoke_client.wait_for_workflow(exec_id)
     reloaded = await smoke_client.read_session(session_id)
-    assert_json_contains({"compact": compact, "session": reloaded}, sentinel)
-    assert "approval-decision" in str(reloaded)
+    assert_workflow_result_contains(compact, sentinel)
+    assert_has_approval_decision(reloaded)
 
     smoke_client.record("workflow_ai_agent_approval", provider=provider.name)
 
@@ -169,12 +176,13 @@ async def test_ai_agent_workflow_custom_registry_tool(
         provider,
         prompt=(
             f"Use the {action} custom registry tool with marker {sentinel}. "
-            f"Reply exactly with {sentinel}."
+            "Reply only with the marker returned by the tool. Do not add prose."
         ),
         actions=[action],
     )
     compact = await smoke_client.wait_for_workflow(exec_id)
-    assert_json_contains(compact, sentinel)
+    assert_workflow_result_contains(compact, sentinel)
+    assert_workflow_tool_called(compact)
 
     smoke_client.record(
         "workflow_ai_agent_custom_registry_tool", provider=provider.name
@@ -196,6 +204,6 @@ async def test_preset_agent_workflow_uses_saved_preset(
         prompt=f"Reply exactly with this preset workflow sentinel: {sentinel}",
     )
     compact = await smoke_client.wait_for_workflow(exec_id)
-    assert_json_contains(compact, sentinel)
+    assert_workflow_result_contains(compact, sentinel)
 
     smoke_client.record("workflow_preset_agent", provider=provider.name)

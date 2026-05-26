@@ -69,6 +69,20 @@ type AgentSessionRead = {
   }>
 }
 
+type AgentSessionListItem = {
+  id: string
+}
+
+type VercelSessionRead = {
+  messages?: Array<{
+    role?: string
+    parts?: Array<{
+      type?: string
+      text?: string
+    }>
+  }>
+}
+
 test.describe("agent UX canary", () => {
   test("agent chat renders streaming tool use and persisted reload state", async ({
     page,
@@ -94,6 +108,10 @@ test.describe("agent UX canary", () => {
     await clickFirstEnabledButton(page, "Submit")
 
     await expectExactTextVisible(page, sentinel, 180_000)
+    await waitForPersistedAgentPresetReply(request, workspaceId, {
+      presetId: preset.id,
+      text: sentinel,
+    })
 
     await page.reload()
     await expectExactTextVisible(page, sentinel, 60_000)
@@ -123,6 +141,12 @@ test.describe("agent UX canary", () => {
     await openInboxSession(page, workflowTitle)
     await approveVisibleToolCall(page)
     await expectExactTextVisible(page, sentinel, 180_000)
+    await waitForPersistedSessionReply(
+      request,
+      workspaceId,
+      sessionId,
+      sentinel
+    )
 
     await page.reload()
     await openInboxSession(page, workflowTitle)
@@ -152,15 +176,10 @@ async function ensureBuiltInProvider(
 ): Promise<ProviderSpec> {
   const apiKey = requireEnv(options.keyEnv)
   const modelName = options.modelName
-  await postJson<JsonObject>(
-    request,
-    "/api/agent/credentials",
-    {
-      provider: options.providerName,
-      credentials: { [options.credentialKey]: apiKey },
-    },
-    [201]
-  )
+  await upsertProviderCredentials(request, {
+    providerName: options.providerName,
+    credentials: { [options.credentialKey]: apiKey },
+  })
   const catalogId = await findCatalogId(request, {
     provider: options.providerName,
     modelName,
@@ -172,6 +191,52 @@ async function ensureBuiltInProvider(
     modelName,
     catalogId,
   }
+}
+
+async function upsertProviderCredentials(
+  request: APIRequestContext,
+  options: {
+    providerName: string
+    credentials: JsonObject
+  }
+): Promise<void> {
+  const response = await request.post("/api/agent/credentials", {
+    data: {
+      provider: options.providerName,
+      credentials: options.credentials,
+    },
+  })
+  if (response.status() === 201) {
+    return
+  }
+
+  const body = await response.text()
+  if (
+    response.status() === 400 &&
+    isDuplicateProviderCredentialsResponse(body, options.providerName)
+  ) {
+    await putJson<JsonObject>(
+      request,
+      `/api/agent/credentials/${encodeURIComponent(options.providerName)}`,
+      { credentials: options.credentials },
+      [200]
+    )
+    return
+  }
+
+  throw new Error(
+    `Failed to upsert ${options.providerName} credentials: HTTP ${response.status()}${body ? ` ${body}` : ""}`
+  )
+}
+
+function isDuplicateProviderCredentialsResponse(
+  body: string,
+  providerName: string
+): boolean {
+  return (
+    body.includes("duplicate key value violates unique constraint") &&
+    body.includes(`agent-${providerName}-credentials`)
+  )
 }
 
 async function findCatalogId(
@@ -373,6 +438,87 @@ async function waitForApprovalRequest(
     await delay(3_000)
   }
   throw new Error(`Timed out waiting for approval request in ${sessionId}`)
+}
+
+async function waitForPersistedAgentPresetReply(
+  request: APIRequestContext,
+  workspaceId: string,
+  options: {
+    presetId: string
+    text: string
+  }
+): Promise<void> {
+  const deadline = Date.now() + 60_000
+  let lastSessionIds: string[] = []
+  while (Date.now() < deadline) {
+    const sessions = await getJson<AgentSessionListItem[]>(
+      request,
+      `/api/workspaces/${workspaceId}/agent/sessions?entity_type=agent_preset&entity_id=${encodeURIComponent(options.presetId)}&limit=10`
+    )
+    lastSessionIds = sessions.map((session) => session.id)
+    for (const session of sessions) {
+      if (
+        await sessionHasPersistedAssistantText(
+          request,
+          workspaceId,
+          session.id,
+          options.text
+        )
+      ) {
+        return
+      }
+    }
+    await delay(1_000)
+  }
+  throw new Error(
+    `Timed out waiting for persisted assistant reply for preset ${options.presetId}. Sessions: ${lastSessionIds.join(", ")}`
+  )
+}
+
+async function waitForPersistedSessionReply(
+  request: APIRequestContext,
+  workspaceId: string,
+  sessionId: string,
+  text: string
+): Promise<void> {
+  const deadline = Date.now() + 60_000
+  while (Date.now() < deadline) {
+    if (
+      await sessionHasPersistedAssistantText(
+        request,
+        workspaceId,
+        sessionId,
+        text
+      )
+    ) {
+      return
+    }
+    await delay(1_000)
+  }
+  throw new Error(
+    `Timed out waiting for persisted assistant reply in session ${sessionId}`
+  )
+}
+
+async function sessionHasPersistedAssistantText(
+  request: APIRequestContext,
+  workspaceId: string,
+  sessionId: string,
+  text: string
+): Promise<boolean> {
+  const session = await getJson<VercelSessionRead>(
+    request,
+    `/api/workspaces/${workspaceId}/agent/sessions/${sessionId}/vercel`
+  )
+  return (
+    session.messages?.some(
+      (message) =>
+        message.role === "assistant" &&
+        message.parts?.some(
+          (part) => part.type === "text" && part.text === text
+        )
+    ) ?? false
+  )
 }
 
 async function expectExactTextVisible(

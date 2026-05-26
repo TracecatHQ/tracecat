@@ -7,6 +7,9 @@ import pytest
 from tests.smoke.agent.smoke_client import (
     AgentSmokeClient,
     ProviderSpec,
+    assert_agent_response_contains,
+    assert_agent_tool_result_contains,
+    assert_has_approval_decision,
     assert_has_messages,
     new_sentinel,
     smoke_provider_names,
@@ -81,7 +84,7 @@ async def test_agent_chat_continuity_and_stream_resume(
         "Return only the exact sentinel I asked you to remember. Do not add prose.",
     )
     reloaded_after_second = await smoke_client.read_session(session_id)
-    assert sentinel in second.text or sentinel in str(reloaded_after_second)
+    assert_agent_response_contains(second, reloaded_after_second, sentinel)
     assert_has_messages(reloaded_after_second, minimum=4)
     await smoke_client.assert_basic_stream_resume(session_id)
 
@@ -113,12 +116,13 @@ async def test_agent_chat_platform_tool(
         (
             f"Use the {action} tool exactly once with JSON "
             f'{{"outer": {{"sentinel": "{sentinel}"}}}}. '
-            f"After the tool returns, reply exactly: {sentinel}"
+            "After the tool returns, reply only with the flattened "
+            "`outer.sentinel` value from the tool result. Do not add prose."
         ),
     )
     reloaded = await smoke_client.read_session(session_id)
-    assert sentinel in result.text or sentinel in str(reloaded)
-    assert result.saw_tool_activity or sentinel in str(reloaded)
+    assert_agent_response_contains(result, reloaded, sentinel)
+    assert result.saw_tool_activity
 
     smoke_client.record("chat_platform_tool", provider=provider.name)
 
@@ -146,11 +150,13 @@ async def test_agent_chat_mcp_tool(
         provider,
         (
             f"Use the {mcp_tool.tool_name} tool with marker {sentinel}. "
-            f"Reply exactly with the tool result: {expected}"
+            "Reply only with the raw tool result. Do not add prose."
         ),
     )
     reloaded = await smoke_client.read_session(session_id)
-    assert expected in result.text or expected in str(reloaded)
+    assert result.saw_tool_activity
+    assert_agent_response_contains(result, reloaded, sentinel)
+    assert_agent_tool_result_contains(result, reloaded, expected)
 
     smoke_client.record(
         "chat_mcp_tool",
@@ -191,8 +197,8 @@ async def test_agent_chat_approval(
         tool_call_id=str(approval["tool_call_id"]),
     )
     reloaded = await smoke_client.read_session(session_id)
-    assert sentinel in continued.text or sentinel in str(reloaded)
-    assert "approval-decision" in str(reloaded)
+    assert_agent_response_contains(continued, reloaded, sentinel)
+    assert_has_approval_decision(reloaded)
 
     smoke_client.record("chat_approval", provider=provider.name)
 
@@ -217,10 +223,11 @@ async def test_agent_chat_custom_registry_tool(
         provider,
         (
             f"Use the {action} custom registry tool with marker {sentinel}. "
-            f"Reply exactly with {sentinel}."
+            "Reply only with the marker returned by the tool. Do not add prose."
         ),
     )
     reloaded = await smoke_client.read_session(session_id)
-    assert sentinel in result.text or sentinel in str(reloaded)
+    assert_agent_response_contains(result, reloaded, sentinel)
+    assert result.saw_tool_activity
 
     smoke_client.record("chat_custom_registry_tool", provider=provider.name)

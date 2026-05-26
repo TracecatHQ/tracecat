@@ -9,7 +9,7 @@ import os
 import subprocess
 import time
 import uuid
-from collections.abc import Iterable, Iterator
+from collections.abc import Callable, Iterable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -56,11 +56,15 @@ CUSTOM_PROVIDER_SIDECAR_ENV_NAMES = (
     "AWS_ACCESS_KEY_ID",
     "AWS_SECRET_ACCESS_KEY",
     "AWS_SESSION_TOKEN",
+    "AWS_ROLE_ARN",
+    "AWS_ROLE_SESSION_NAME",
     "AWS_REGION",
     "AWS_DEFAULT_REGION",
     "AWS_REGION_NAME",
     "AWS_BEARER_TOKEN_BEDROCK",
+    "TRACECAT_AWS_EXTERNAL_ID",
 )
+AWS_REGION_ENV_NAMES = ("AWS_REGION", "AWS_DEFAULT_REGION", "AWS_REGION_NAME")
 _HTTP_MCP_FIXTURE_READY = False
 _CUSTOM_PROVIDER_SIDECAR_READY = False
 _STARTED_LOCAL_FIXTURE_CONTAINERS: set[str] = set()
@@ -127,6 +131,7 @@ class StreamResult:
     saw_text_delta: bool
     saw_tool_activity: bool
     saw_approval_activity: bool
+    tool_activity_payloads: list[dict[str, Any]] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -304,6 +309,12 @@ class AgentSmokeClient:
         sidecar_model_name = CUSTOM_PROVIDER_LITELLM_MODEL_NAME
 
         if uses_local_sidecar:
+            if not _has_local_custom_provider_bedrock_env():
+                _skip_or_fail(
+                    "Set AWS_REGION plus one of AWS_ROLE_ARN, "
+                    "AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY, or "
+                    "AWS_BEARER_TOKEN_BEDROCK to run custom provider agent smoke tests"
+                )
             _ensure_local_custom_provider_sidecar(
                 model_name=requested_model_name,
                 sidecar_model=sidecar_model_name,
@@ -520,6 +531,7 @@ class AgentSmokeClient:
         payload_count = 0
         saw_tool_activity = False
         saw_approval_activity = False
+        tool_activity_payloads: list[dict[str, Any]] = []
         try:
             async with asyncio.timeout(self.env.stream_timeout_seconds):
                 async with self.client.stream(
@@ -554,14 +566,10 @@ class AgentSmokeClient:
                             delta = payload.get("delta")
                             if isinstance(delta, str):
                                 text_parts.append(delta)
-                        if "tool" in payload_type.lower() or "tool" in _compact_json(
-                            payload
-                        ):
+                        if _payload_has_tool_activity(payload):
                             saw_tool_activity = True
-                        if (
-                            "approval" in payload_type.lower()
-                            or "approval" in _compact_json(payload)
-                        ):
+                            tool_activity_payloads.append(payload)
+                        if _payload_has_approval_activity(payload):
                             saw_approval_activity = True
         except TimeoutError as exc:
             raise AssertionError(
@@ -576,6 +584,7 @@ class AgentSmokeClient:
             saw_text_delta=bool(text_parts),
             saw_tool_activity=saw_tool_activity,
             saw_approval_activity=saw_approval_activity,
+            tool_activity_payloads=tool_activity_payloads,
         )
 
     async def read_basic_stream_replay(
@@ -710,7 +719,7 @@ class AgentSmokeClient:
             if not _truthy(os.environ.get("CI")):
                 server_uri = _default_http_mcp_url()
                 _ensure_local_http_mcp_fixture()
-            name = "tcsmokehttp"
+            name = _worker_scoped_name("tcsmokehttp")
             payload: dict[str, Any] = {
                 "name": name,
                 "description": "Agent smoke HTTP MCP fixture",
@@ -721,7 +730,7 @@ class AgentSmokeClient:
             }
             expected_prefix = "http:"
         else:
-            name = "tcsmokestdio"
+            name = _worker_scoped_name("tcsmokestdio")
             payload = {
                 "name": name,
                 "description": "Agent smoke stdio MCP fixture",
@@ -737,14 +746,8 @@ class AgentSmokeClient:
             }
             expected_prefix = "stdio:"
 
-        integration = await self.post_json(
-            f"/workspaces/{self.workspace_id}/mcp-integrations",
-            payload,
-            expected={201},
-        )
-        server_name = (
-            str(integration["name"]) if kind == "http" else str(integration["slug"])
-        )
+        integration = await self._ensure_mcp_integration(name=name, payload=payload)
+        server_name = str(integration["slug"])
         spec = McpToolSpec(
             integration_id=str(integration["id"]),
             tool_name=f"mcp__{server_name}__tc_smoke_echo",
@@ -752,6 +755,57 @@ class AgentSmokeClient:
         )
         self.mcp_cache[kind] = spec
         return spec
+
+    async def _ensure_mcp_integration(
+        self, *, name: str, payload: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Create or refresh one deterministic MCP fixture per xdist worker."""
+        path = f"/workspaces/{self.workspace_id}/mcp-integrations"
+        existing_payload = await self.get_json(path)
+        if not isinstance(existing_payload, list):
+            raise AssertionError(
+                f"/mcp-integrations returned an unexpected payload: {existing_payload}"
+            )
+
+        existing = next(
+            (
+                integration
+                for integration in existing_payload
+                if isinstance(integration, dict)
+                and integration.get("slug") == name
+                and integration.get("server_type") == payload["server_type"]
+            ),
+            None,
+        )
+        if existing is not None:
+            return await self.put_json(
+                f"{path}/{existing['id']}", _mcp_integration_update_payload(payload)
+            )
+
+        try:
+            return await self.post_json(path, payload, expected={201})
+        except AssertionError:
+            # A concurrent worker-local client may have created the deterministic
+            # fixture between list and create. Re-list once before surfacing the
+            # original API failure.
+            existing_payload = await self.get_json(path)
+            if isinstance(existing_payload, list):
+                existing = next(
+                    (
+                        integration
+                        for integration in existing_payload
+                        if isinstance(integration, dict)
+                        and integration.get("slug") == name
+                        and integration.get("server_type") == payload["server_type"]
+                    ),
+                    None,
+                )
+                if existing is not None:
+                    return await self.put_json(
+                        f"{path}/{existing['id']}",
+                        _mcp_integration_update_payload(payload),
+                    )
+            raise
 
     async def ensure_custom_registry_action(self) -> str:
         if self.custom_registry_action is not None:
@@ -1127,9 +1181,50 @@ def new_sentinel(prefix: str = "TC_SMOKE") -> str:
     return f"{prefix}_{uuid.uuid4().hex[:12].upper()}"
 
 
-def assert_json_contains(payload: Any, value: str) -> None:
-    serialized = json.dumps(payload, sort_keys=True, default=str)
-    assert value in serialized, f"{value!r} not found in payload: {serialized[:2000]}"
+def assert_agent_response_contains(
+    result: StreamResult, session: dict[str, Any], value: str
+) -> None:
+    if value in result.text:
+        return
+    assistant_text = _assistant_text(session)
+    assert value in assistant_text, (
+        f"{value!r} not found in streamed text or persisted assistant text. "
+        f"Streamed={result.text!r}; assistant_text={assistant_text[:2000]!r}"
+    )
+
+
+def assert_agent_tool_result_contains(
+    result: StreamResult, session: dict[str, Any], value: str
+) -> None:
+    tool_payload = _agent_tool_activity_payload(result, session)
+    serialized = json.dumps(tool_payload, sort_keys=True, default=str)
+    assert value in serialized, (
+        f"{value!r} not found in agent tool activity payload: {serialized[:2000]}"
+    )
+
+
+def assert_workflow_result_contains(payload: dict[str, Any], value: str) -> None:
+    output_payload = _workflow_output_payload(payload)
+    serialized = json.dumps(output_payload, sort_keys=True, default=str)
+    assert value in serialized, (
+        f"{value!r} not found in workflow output payload: {serialized[:2000]}"
+    )
+
+
+def assert_workflow_tool_called(payload: dict[str, Any]) -> None:
+    activity_payload = _workflow_tool_activity_payload(payload)
+    assert _value_has_tool_activity(activity_payload), (
+        "Workflow output did not include structural tool activity. "
+        f"payload={_compact_json(activity_payload)}"
+    )
+
+
+def assert_workflow_tool_result_contains(payload: dict[str, Any], value: str) -> None:
+    activity_payload = _workflow_tool_activity_payload(payload)
+    serialized = json.dumps(activity_payload, sort_keys=True, default=str)
+    assert value in serialized, (
+        f"{value!r} not found in workflow tool activity payload: {serialized[:2000]}"
+    )
 
 
 def latest_approval_tool_call_id(session: dict[str, Any]) -> str:
@@ -1150,6 +1245,141 @@ def assert_has_messages(session: dict[str, Any], minimum: int = 2) -> None:
     )
 
 
+def assert_has_approval_decision(session: dict[str, Any]) -> None:
+    messages = session.get("messages")
+    assert isinstance(messages, list), f"Session has no message list: {session}"
+    assert any(
+        isinstance(message, dict) and message.get("kind") == "approval-decision"
+        for message in messages
+    ), f"No approval decision found in session: {_compact_json(session)}"
+
+
+def _assistant_text(session: dict[str, Any]) -> str:
+    text_parts: list[str] = []
+    for entry in session.get("messages", []):
+        if not isinstance(entry, dict):
+            continue
+        message = entry.get("message")
+        if not isinstance(message, dict) or not _is_assistant_message(message):
+            continue
+        _collect_text_parts(message, text_parts)
+    return "\n".join(text_parts)
+
+
+def _agent_tool_activity_payload(
+    result: StreamResult, session: dict[str, Any]
+) -> list[Any]:
+    payloads: list[Any] = [*result.tool_activity_payloads]
+    messages = session.get("messages")
+    if isinstance(messages, list):
+        payloads.extend(
+            message
+            for message in messages
+            if isinstance(message, dict) and _value_has_tool_activity(message)
+        )
+    return payloads
+
+
+def _is_assistant_message(message: dict[str, Any]) -> bool:
+    if message.get("role") == "assistant" or message.get("type") == "assistant":
+        return True
+    if message.get("kind") == "response":
+        return True
+    return isinstance(message.get("model"), str) and (
+        "stop_reason" in message or "usage" in message
+    )
+
+
+def _collect_text_parts(value: Any, parts: list[str]) -> None:
+    if isinstance(value, list):
+        for item in value:
+            _collect_text_parts(item, parts)
+        return
+    if not isinstance(value, dict):
+        return
+
+    block_kind = value.get("type") or value.get("part_kind") or value.get("kind")
+    if isinstance(text := value.get("text"), str) and block_kind in {
+        None,
+        "text",
+        "text_delta",
+    }:
+        parts.append(text)
+    if isinstance(content := value.get("content"), str) and block_kind in {
+        "text",
+        "output_text",
+    }:
+        parts.append(content)
+
+    for key in ("content", "parts", "message"):
+        child = value.get(key)
+        if isinstance(child, (dict, list)):
+            _collect_text_parts(child, parts)
+
+
+def _workflow_output_payload(payload: dict[str, Any]) -> list[Any]:
+    outputs: list[Any] = []
+    for key in ("result", "workflow_result"):
+        if key in payload:
+            outputs.append(_terminal_output(payload[key]))
+
+    events = payload.get("events")
+    if isinstance(events, list):
+        for event in events:
+            if isinstance(event, dict) and "action_result" in event:
+                outputs.append(_terminal_output(event["action_result"]))
+    return outputs
+
+
+def _workflow_tool_activity_payload(payload: dict[str, Any]) -> list[Any]:
+    outputs: list[Any] = []
+    events = payload.get("events")
+    if not isinstance(events, list):
+        return outputs
+
+    for event in events:
+        if not isinstance(event, dict):
+            continue
+        if "action_result" in event:
+            outputs.append(event["action_result"])
+        session = event.get("session")
+        if isinstance(session, dict) and "events" in session:
+            outputs.append(session["events"])
+    return outputs
+
+
+def _terminal_output(value: Any) -> Any:
+    if isinstance(value, dict) and _looks_like_agent_output(value):
+        return value.get("output")
+    return value
+
+
+def _value_has_tool_activity(value: Any) -> bool:
+    if isinstance(value, list):
+        return any(_value_has_tool_activity(item) for item in value)
+    if not isinstance(value, dict):
+        return False
+
+    payload_type = str(
+        value.get("type") or value.get("kind") or value.get("part_kind") or ""
+    )
+    if payload_type.startswith("tool-") or payload_type in {
+        "dynamic-tool",
+        "tool_call",
+        "tool_use",
+        "tool_result",
+        "tool-call",
+        "tool-return",
+    }:
+        return True
+    if any(
+        isinstance(value.get(key), str)
+        for key in ("toolCallId", "toolName", "tool_call_id", "tool_name")
+    ):
+        return True
+    return any(_value_has_tool_activity(child) for child in value.values())
+
+
 def _normalize_api_url(raw_url: str) -> str:
     url = raw_url.rstrip("/")
     return url if url.endswith("/api") else f"{url}/api"
@@ -1162,6 +1392,30 @@ def _xdist_worker_id() -> str:
 def _worker_scoped_name(prefix: str) -> str:
     worker_id = _xdist_worker_id()
     return prefix if worker_id == "master" else f"{prefix}-{worker_id}"
+
+
+def _mcp_integration_update_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    update = {
+        "name": payload["name"],
+        "description": payload.get("description"),
+        "timeout": payload.get("timeout"),
+    }
+    if payload["server_type"] == "http":
+        update.update(
+            {
+                "server_uri": payload["server_uri"],
+                "auth_type": payload["auth_type"],
+            }
+        )
+    else:
+        update.update(
+            {
+                "stdio_command": payload["stdio_command"],
+                "stdio_args": payload.get("stdio_args"),
+                "stdio_env": {},
+            }
+        )
+    return update
 
 
 def _default_http_mcp_url() -> str:
@@ -1178,6 +1432,18 @@ def _uses_local_custom_provider_sidecar(base_url: str) -> bool:
         DEFAULT_CUSTOM_PROVIDER_BASE_URL.rstrip("/"),
         _default_custom_provider_base_url().rstrip("/"),
     }
+
+
+def _has_local_custom_provider_bedrock_env() -> bool:
+    has_region = any(os.environ.get(env_name) for env_name in AWS_REGION_ENV_NAMES)
+    has_static_credentials = bool(os.environ.get("AWS_ACCESS_KEY_ID")) and bool(
+        os.environ.get("AWS_SECRET_ACCESS_KEY")
+    )
+    has_role_credentials = bool(os.environ.get("AWS_ROLE_ARN"))
+    has_bearer_token = bool(os.environ.get("AWS_BEARER_TOKEN_BEDROCK"))
+    return has_region and (
+        has_static_credentials or has_role_credentials or has_bearer_token
+    )
 
 
 def _mcp_fixture_source(
@@ -1203,7 +1469,11 @@ if __name__ == "__main__":
 
 def _python_exec_arg(source: str) -> str:
     encoded = base64.b64encode(source.encode()).decode()
-    return f"import base64\nexec(base64.b64decode({encoded!r}).decode())"
+    return (
+        "import base64, glob, sys\n"
+        "sys.path[:0] = glob.glob('/app/.venv/lib/python*/site-packages')\n"
+        f"exec(base64.b64decode({encoded!r}).decode())"
+    )
 
 
 def _ensure_local_http_mcp_fixture() -> None:
@@ -1497,6 +1767,44 @@ def _parse_sse_data_line(line: str) -> dict[str, Any] | None:
     except json.JSONDecodeError:
         return None
     return parsed if isinstance(parsed, dict) else None
+
+
+def _payload_has_tool_activity(payload: dict[str, Any]) -> bool:
+    payload_type = str(payload.get("type") or payload.get("kind") or "")
+    if payload_type.startswith("tool-") or payload_type in {
+        "dynamic-tool",
+        "tool_call",
+    }:
+        return True
+    if any(
+        isinstance(payload.get(key), str)
+        for key in ("toolCallId", "toolName", "tool_call_id", "tool_name")
+    ):
+        return True
+    return _nested_payload_has(payload, _payload_has_tool_activity)
+
+
+def _payload_has_approval_activity(payload: dict[str, Any]) -> bool:
+    payload_type = str(payload.get("type") or payload.get("kind") or "")
+    if "approval" in payload_type.lower():
+        return True
+    if any(key in payload for key in ("approval", "approval_items")):
+        return True
+    return _nested_payload_has(payload, _payload_has_approval_activity)
+
+
+def _nested_payload_has(
+    payload: dict[str, Any], predicate: Callable[[dict[str, Any]], bool]
+) -> bool:
+    for key in ("data", "parts", "content", "message"):
+        value = payload.get(key)
+        if isinstance(value, dict) and predicate(value):
+            return True
+        if isinstance(value, list) and any(
+            isinstance(item, dict) and predicate(item) for item in value
+        ):
+            return True
+    return False
 
 
 def _compact_json(payload: Any) -> str:
