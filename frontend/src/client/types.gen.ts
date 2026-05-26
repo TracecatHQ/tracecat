@@ -2417,6 +2417,7 @@ export type CatalogIntegrationRead = {
  */
 export type CatalogStaticKVConnectionCreate = {
   auth_method?: ConnectionAuthMethod
+  environment?: string
   keys: {
     [key: string]: string
   }

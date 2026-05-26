@@ -204,6 +204,7 @@ function IntegrationDetailContent({
           integrationId={integration.id}
           connections={integration.connections ?? []}
           canAddConnection={connectableOptions.length > 0}
+          canConfigure={configurableOptions.length > 0}
           onAddConnection={() => setConnectOpen(true)}
         />
       </div>
@@ -240,12 +241,14 @@ function ConnectionsSection({
   integrationId,
   connections,
   canAddConnection,
+  canConfigure,
   onAddConnection,
 }: {
   workspaceId: string
   integrationId: string
   connections: CatalogConnectionRead[]
   canAddConnection: boolean
+  canConfigure: boolean
   onAddConnection: () => void
 }) {
   const { deleteConnection, deleteConnectionIsPending } = useDeleteConnection(
@@ -278,7 +281,9 @@ function ConnectionsSection({
         <p className="text-xs text-muted-foreground">
           {canAddConnection
             ? "No connections yet. Add a connection to authenticate this integration."
-            : "This integration uses provider configuration instead of a separate connection."}
+            : canConfigure
+              ? "Use Configure to finish credential setup for this integration."
+              : "No separate connection is required for this integration."}
         </p>
       ) : (
         <ul className="space-y-2">

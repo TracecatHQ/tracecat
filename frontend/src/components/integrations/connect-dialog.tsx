@@ -405,6 +405,7 @@ function StaticKVOptionPanel({
   onSuccess: () => void
 }) {
   const fields = option.fields ?? []
+  const [environment, setEnvironment] = useState("default")
   const [values, setValues] = useState<Record<string, string>>({})
   const { createConnection, createConnectionIsPending } = useCreateConnection(
     workspaceId,
@@ -412,6 +413,7 @@ function StaticKVOptionPanel({
   )
 
   useEffect(() => {
+    setEnvironment("default")
     setValues({})
   }, [option])
 
@@ -435,8 +437,10 @@ function StaticKVOptionPanel({
     )
     await createConnection({
       auth_method: "static_kv",
+      environment: environment.trim() || "default",
       keys,
     })
+    setEnvironment("default")
     setValues({})
     onSuccess()
   }
@@ -446,6 +450,18 @@ function StaticKVOptionPanel({
       {option.description ? (
         <p className="text-sm text-muted-foreground">{option.description}</p>
       ) : null}
+      <div className="space-y-1.5">
+        <Label htmlFor={`${optionKey(option)}-environment`}>Environment</Label>
+        <Input
+          id={`${optionKey(option)}-environment`}
+          placeholder="default"
+          value={environment}
+          onChange={(event) => setEnvironment(event.target.value)}
+        />
+        <p className="text-[11px] text-muted-foreground">
+          Workflows use this environment to select the right credentials.
+        </p>
+      </div>
       {fields.map((field) => (
         <CredentialFieldInput
           key={field.key}

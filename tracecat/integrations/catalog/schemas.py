@@ -14,6 +14,7 @@ from tracecat.integrations.enums import (
     IntegrationStatus,
     OAuthGrantType,
 )
+from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
 
 
 class CatalogCredentialField(BaseModel):
@@ -88,6 +89,7 @@ class CatalogStaticKVConnectionCreate(BaseModel):
     """Connection backed by an arbitrary key-value blob."""
 
     auth_method: ConnectionAuthMethod = ConnectionAuthMethod.STATIC_KV
+    environment: str = DEFAULT_SECRETS_ENVIRONMENT
     keys: dict[str, str]
 
 

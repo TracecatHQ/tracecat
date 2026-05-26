@@ -211,6 +211,43 @@ async def test_create_static_connection_writes_secret_source_of_truth(
 
 
 @pytest.mark.anyio
+async def test_create_static_connection_writes_requested_environment(
+    session, svc_role
+) -> None:
+    integration = Integration(
+        workspace_id=None,
+        namespace="virustotal",
+        display_name="VirusTotal",
+        source=IntegrationSource.PLATFORM,
+    )
+    session.add(integration)
+    await session.flush()
+
+    connection = await ConnectionsService(session, role=svc_role).create_connection(
+        integration,
+        CatalogStaticKVConnectionCreate(
+            environment="production",
+            keys={"VIRUSTOTAL_API_KEY": "test-api-key"},
+        ),
+    )
+    await session.flush()
+
+    secret = (
+        await session.execute(
+            select(Secret).where(
+                Secret.workspace_id == svc_role.workspace_id,
+                Secret.name == "virustotal",
+                Secret.environment == "production",
+            )
+        )
+    ).scalar_one()
+
+    assert connection.id == secret.id
+    assert connection.label == "production"
+    assert connection.metadata["environment"] == "production"
+
+
+@pytest.mark.anyio
 async def test_oauth_integrations_are_projected_as_connection_summaries(
     session, svc_role
 ) -> None:

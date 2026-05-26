@@ -685,11 +685,12 @@ class ConnectionsService(BaseWorkspaceService):
         integration: Integration,
         params: CatalogConnectionCreate,
     ) -> CatalogConnectionRead:
-        """Create or replace the default static Secret for an integration."""
+        """Create or replace a static Secret for an integration environment."""
         if not isinstance(params, CatalogStaticKVConnectionCreate):
             raise ValueError(f"Unsupported connection payload: {type(params).__name__}")
         if not params.keys:
             raise ValueError("At least one credential field is required.")
+        environment = params.environment.strip() or DEFAULT_SECRETS_ENVIRONMENT
 
         encrypted_keys = encrypt_keyvalues(
             [
@@ -702,7 +703,7 @@ class ConnectionsService(BaseWorkspaceService):
             select(Secret).where(
                 Secret.workspace_id == self.workspace_id,
                 Secret.name == integration.namespace,
-                Secret.environment == DEFAULT_SECRETS_ENVIRONMENT,
+                Secret.environment == environment,
             )
         )
         secret = result.scalar_one_or_none()
@@ -713,7 +714,7 @@ class ConnectionsService(BaseWorkspaceService):
                 type=SecretType.CUSTOM,
                 description=f"Credentials for {integration.display_name}.",
                 encrypted_keys=encrypted_keys,
-                environment=DEFAULT_SECRETS_ENVIRONMENT,
+                environment=environment,
             )
         else:
             secret.type = SecretType.CUSTOM

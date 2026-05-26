@@ -9246,6 +9246,11 @@ export const $CatalogStaticKVConnectionCreate = {
       $ref: "#/components/schemas/ConnectionAuthMethod",
       default: "static_kv",
     },
+    environment: {
+      type: "string",
+      title: "Environment",
+      default: "default",
+    },
     keys: {
       additionalProperties: {
         type: "string",
