@@ -51,7 +51,6 @@ function matchesFilters(
 
 function catalogCardState(integration: CatalogIntegrationRead): {
   ctaIntent: CatalogCardIntent
-  ctaSublabel: string | null
   isConnected: boolean
 } {
   const authOptions = integration.auth_options ?? []
@@ -74,16 +73,15 @@ function catalogCardState(integration: CatalogIntegrationRead): {
   )
 
   if (!isConnected && hasReadyConnectableOption) {
-    return { ctaIntent: "connect", ctaSublabel: null, isConnected }
+    return { ctaIntent: "connect", isConnected }
   }
   if (needsConfiguration) {
     return {
       ctaIntent: "configure",
-      ctaSublabel: "Configuration missing",
       isConnected,
     }
   }
-  return { ctaIntent: "open", ctaSublabel: null, isConnected }
+  return { ctaIntent: "open", isConnected }
 }
 
 export default function IntegrationsPage() {
@@ -213,7 +211,6 @@ export default function IntegrationsPage() {
                           key={integration.id}
                           integration={integration}
                           ctaIntent={cardState.ctaIntent}
-                          ctaSublabel={cardState.ctaSublabel}
                           isConnected={cardState.isConnected}
                           onSelect={() => updateSelection(integration.id)}
                         />
@@ -242,7 +239,6 @@ export default function IntegrationsPage() {
                           key={integration.id}
                           integration={integration}
                           ctaIntent={cardState.ctaIntent}
-                          ctaSublabel={cardState.ctaSublabel}
                           isConnected={cardState.isConnected}
                           onSelect={() => updateSelection(integration.id)}
                         />

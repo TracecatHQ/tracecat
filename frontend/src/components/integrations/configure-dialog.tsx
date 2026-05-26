@@ -62,14 +62,14 @@ function isConfigurableOption(option: CatalogAuthOption): boolean {
   )
 }
 
-function optionStatusLabel(option: CatalogAuthOption): string {
+function optionStatusLabel(option: CatalogAuthOption): string | null {
   if (option.status === "connected") {
     return "Connected"
   }
   if (option.status === "configured") {
     return "Configured"
   }
-  return "Needs configuration"
+  return null
 }
 
 function fallbackRedirectUrl(): string {
@@ -148,6 +148,7 @@ export function ConfigureDialog({
               {configurableOptions.map((option) => {
                 const key = optionKey(option)
                 const selected = selectedKey === key
+                const statusLabel = optionStatusLabel(option)
                 return (
                   <button
                     key={key}
@@ -171,17 +172,19 @@ export function ConfigureDialog({
                         </span>
                       ) : null}
                     </span>
-                    <span
-                      className={cn(
-                        "mt-0.5 rounded border px-1.5 py-0.5 text-[10px] font-medium",
-                        option.status === "connected" ||
-                          option.status === "configured"
-                          ? "border-emerald-400/50 bg-emerald-500/10 text-emerald-700"
-                          : "border-amber-400/60 bg-amber-50 text-amber-700"
-                      )}
-                    >
-                      {optionStatusLabel(option)}
-                    </span>
+                    {statusLabel ? (
+                      <span
+                        className={cn(
+                          "mt-0.5 rounded border px-1.5 py-0.5 text-[10px] font-medium",
+                          option.status === "connected" ||
+                            option.status === "configured"
+                            ? "border-emerald-400/50 bg-emerald-500/10 text-emerald-700"
+                            : "border-border bg-muted/40 text-muted-foreground"
+                        )}
+                      >
+                        {statusLabel}
+                      </span>
+                    ) : null}
                   </button>
                 )
               })}

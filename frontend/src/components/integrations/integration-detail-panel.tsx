@@ -1,8 +1,8 @@
 "use client"
 
 import { formatDistanceToNowStrict } from "date-fns"
-import { AlertTriangle, Loader2, Plug, Trash2, Wrench } from "lucide-react"
-import { useMemo, useState } from "react"
+import { Plug, Trash2, Wrench } from "lucide-react"
+import { useEffect, useMemo, useState } from "react"
 import type {
   CatalogAuthOption,
   CatalogConnectionRead,
@@ -20,6 +20,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
+import { Skeleton } from "@/components/ui/skeleton"
 import {
   useDeleteConnection,
   useIntegrationDetail,
@@ -41,6 +42,15 @@ export function IntegrationDetailPanel({
     workspaceId,
     integrationId
   )
+  const [lastIntegration, setLastIntegration] =
+    useState<CatalogIntegrationDetail | null>(null)
+  const renderedIntegration = integration ?? (open ? null : lastIntegration)
+
+  useEffect(() => {
+    if (integration) {
+      setLastIntegration(integration)
+    }
+  }, [integration])
 
   return (
     <Dialog
@@ -49,19 +59,44 @@ export function IntegrationDetailPanel({
         if (!next) onClose()
       }}
     >
-      <DialogContent className="max-w-2xl gap-4 p-0">
-        {integrationIsLoading || !integration ? (
-          <div className="flex h-40 items-center justify-center">
-            <Loader2 className="size-5 animate-spin text-muted-foreground" />
-          </div>
+      <DialogContent className="min-h-[220px] w-[calc(100vw-2rem)] max-w-2xl gap-4 p-0 data-[state=closed]:zoom-out-100 data-[state=open]:zoom-in-100 sm:w-full">
+        {integrationIsLoading || !renderedIntegration ? (
+          <IntegrationDetailSkeleton />
         ) : (
           <IntegrationDetailContent
-            integration={integration}
+            key={renderedIntegration.id}
+            integration={renderedIntegration}
             workspaceId={workspaceId}
           />
         )}
       </DialogContent>
     </Dialog>
+  )
+}
+
+function IntegrationDetailSkeleton() {
+  return (
+    <>
+      <DialogHeader className="px-6 pt-6">
+        <DialogTitle className="sr-only">Loading integration</DialogTitle>
+        <div className="flex items-start gap-3">
+          <Skeleton className="size-11 shrink-0" />
+          <div className="flex min-w-0 flex-1 flex-col gap-2">
+            <Skeleton className="h-5 w-40" />
+            <Skeleton className="h-3 w-72 max-w-full" />
+          </div>
+          <Skeleton className="h-7 w-24 shrink-0" />
+        </div>
+      </DialogHeader>
+
+      <div className="flex max-h-[60vh] min-h-[116px] flex-col gap-3 overflow-y-auto px-6 pb-6">
+        <div className="flex items-center justify-between">
+          <Skeleton className="h-4 w-28" />
+          <Skeleton className="h-7 w-28" />
+        </div>
+        <Skeleton className="h-12 w-full" />
+      </div>
+    </>
   )
 }
 
@@ -85,17 +120,6 @@ function isConfigurableOption(option: CatalogAuthOption): boolean {
       option.grant_type &&
       option.requires_config
   )
-}
-
-function isUsableAuthOption(option: CatalogAuthOption): boolean {
-  if (option.enabled === false) return false
-  if (option.auth_method === "static_kv") return true
-  if (option.auth_method === "oauth_auth_code") {
-    return !(
-      option.requires_config === true && option.status === "not_configured"
-    )
-  }
-  return option.status === "connected" || option.status === "configured"
 }
 
 function authMethodLabel(
@@ -130,8 +154,6 @@ function IntegrationDetailContent({
   const missingConfigOption =
     configurableOptions.find((option) => option.status === "not_configured") ??
     null
-  const needsConfiguration =
-    Boolean(missingConfigOption) && !authOptions.some(isUsableAuthOption)
   const openConfigure = (option?: CatalogAuthOption | null) => {
     setConfigureOption(
       option ?? missingConfigOption ?? configurableOptions[0] ?? null
@@ -157,15 +179,6 @@ function IntegrationDetailContent({
                   Built by me
                 </Badge>
               ) : null}
-              {needsConfiguration ? (
-                <Badge
-                  variant="outline"
-                  className="h-5 gap-1 border-amber-400/60 bg-amber-50 px-1.5 text-[10px] font-medium text-amber-700"
-                >
-                  <AlertTriangle className="size-3" />
-                  Configuration missing
-                </Badge>
-              ) : null}
             </div>
             <DialogDescription className="mt-1 text-xs">
               {integration.description ?? "No description"}
@@ -185,7 +198,7 @@ function IntegrationDetailContent({
         </div>
       </DialogHeader>
 
-      <div className="max-h-[60vh] space-y-5 overflow-y-auto px-6 pb-6">
+      <div className="max-h-[60vh] min-h-[116px] space-y-5 overflow-y-auto px-6 pb-6">
         <ConnectionsSection
           workspaceId={workspaceId}
           integrationId={integration.id}

@@ -86,7 +86,7 @@ function AuthOptionIcon({ option }: { option: CatalogAuthOption }) {
 
 function optionStatusLabel(option: CatalogAuthOption): string | null {
   if (option.requires_config === true && option.status === "not_configured") {
-    return "Needs configuration"
+    return null
   }
   if (option.status === "connected") {
     return "Connected"
@@ -101,8 +101,6 @@ function AuthOptionStatusBadge({ option }: { option: CatalogAuthOption }) {
   const label = optionStatusLabel(option)
   if (!label) return null
 
-  const needsConfiguration =
-    option.requires_config === true && option.status === "not_configured"
   const connected = option.status === "connected"
 
   return (
@@ -110,7 +108,6 @@ function AuthOptionStatusBadge({ option }: { option: CatalogAuthOption }) {
       variant="outline"
       className={cn(
         "h-5 shrink-0 px-1.5 text-[10px] font-medium",
-        needsConfiguration && "border-amber-400/60 bg-amber-50 text-amber-700",
         connected && "border-emerald-400/50 bg-emerald-500/10 text-emerald-700"
       )}
     >
@@ -379,7 +376,7 @@ function OAuthOptionPanel({
             className="gap-2"
           >
             <Wrench className="size-4" />
-            Configure first
+            Configure
           </Button>
         ) : (
           <Button onClick={() => mutate()} disabled={isPending}>
