@@ -24,3 +24,4 @@ class MessageKind(StrEnum):
     COMPACTION = (
         "compaction"  # Compaction status badge shown when conversation is compacted
     )
+    INTERRUPT = "interrupt"  # Status badge shown when a chat turn is interrupted

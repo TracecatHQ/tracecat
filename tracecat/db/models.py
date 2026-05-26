@@ -2850,6 +2850,14 @@ class AgentSession(WorkspaceModel):
         nullable=True,
         doc="Last processed Redis stream ID - used to resume streaming from correct position",
     )
+    status: Mapped[str] = mapped_column(
+        String(32),
+        default="idle",
+        server_default="idle",
+        nullable=False,
+        index=True,
+        doc="Agent session lifecycle status for active turn coordination",
+    )
     # Parent session for forked sessions (approval continuations)
     parent_session_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID,

@@ -8,3 +8,6 @@ APPROVAL_DATA_PART_TYPE = "data-approval-request"
 
 COMPACTION_DATA_PART_TYPE = "data-compaction"
 """UI data part identifier for transient compaction status payloads."""
+
+INTERRUPT_DATA_PART_TYPE = "data-interrupt"
+"""UI data part identifier for interrupted chat turn notifications."""

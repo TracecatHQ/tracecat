@@ -14,6 +14,7 @@ from starlette import status
 from tracecat.agent.adapter.vercel import UIMessage
 from tracecat.agent.common.stream_types import HarnessType
 from tracecat.agent.session.router import (
+    cancel_session,
     get_session,
     get_session_vercel,
     send_message,
@@ -26,7 +27,7 @@ from tracecat.chat.schemas import (
     ContinueRunRequest,
     VercelChatRequest,
 )
-from tracecat.exceptions import TracecatNotFoundError
+from tracecat.exceptions import TracecatConflictError, TracecatNotFoundError
 
 
 async def _empty_event_stream() -> AsyncIterator[None]:
@@ -57,6 +58,7 @@ def _agent_session_stub(**overrides: Any) -> SimpleNamespace:
         "created_at": now,
         "updated_at": now,
         "last_stream_id": None,
+        "status": "idle",
     }
     values.update(overrides)
     return SimpleNamespace(**values)
@@ -129,6 +131,66 @@ async def test_get_session_vercel_includes_agents_binding() -> None:
         "enabled": False,
         "subagents": [],
     }
+
+
+@pytest.mark.anyio
+async def test_cancel_session_delegates_to_service() -> None:
+    session_id = uuid.uuid4()
+    workspace_id = uuid.uuid4()
+    role = _read_role(workspace_id)
+    fake_response = SimpleNamespace(
+        session_id=session_id,
+        run_id=uuid.uuid4(),
+        reason="user_cancel",
+        status="running",
+    )
+    fake_svc = SimpleNamespace(request_cancel=AsyncMock(return_value=fake_response))
+
+    with patch(
+        "tracecat.agent.session.router.AgentSessionService", return_value=fake_svc
+    ):
+        raw_cancel_session = cast(Any, cancel_session).__wrapped__
+        response = await raw_cancel_session(
+            session_id=session_id,
+            role=role,
+            session=AsyncMock(),
+            request=None,
+        )
+
+    assert response is fake_response
+    fake_svc.request_cancel.assert_awaited_once()
+    assert fake_svc.request_cancel.await_args.args[0] == session_id
+    assert fake_svc.request_cancel.await_args.args[1].reason == "user_cancel"
+
+
+@pytest.mark.anyio
+async def test_cancel_session_maps_conflict_to_409() -> None:
+    session_id = uuid.uuid4()
+    workspace_id = uuid.uuid4()
+    role = _read_role(workspace_id)
+    fake_svc = SimpleNamespace(
+        request_cancel=AsyncMock(
+            side_effect=TracecatConflictError(
+                "not running",
+                detail={"status": "idle"},
+            )
+        )
+    )
+
+    with patch(
+        "tracecat.agent.session.router.AgentSessionService", return_value=fake_svc
+    ):
+        raw_cancel_session = cast(Any, cancel_session).__wrapped__
+        with pytest.raises(HTTPException) as exc_info:
+            await raw_cancel_session(
+                session_id=session_id,
+                role=role,
+                session=AsyncMock(),
+                request=None,
+            )
+
+    assert exc_info.value.status_code == status.HTTP_409_CONFLICT
+    assert exc_info.value.detail == {"status": "idle"}
 
 
 @pytest.mark.anyio

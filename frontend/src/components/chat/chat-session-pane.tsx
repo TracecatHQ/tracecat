@@ -11,7 +11,9 @@ import {
   type UITools,
 } from "ai"
 import {
+  AlertTriangleIcon,
   CheckIcon,
+  InfoIcon,
   Loader2,
   MousePointer2OffIcon,
   MousePointerClickIcon,
@@ -99,6 +101,7 @@ import {
   type ApprovalCard,
   makeContinueMessage,
   parseChatError,
+  useCancelChatTurn,
   useUpdateChat,
   useVercelChat,
 } from "@/hooks/use-chat"
@@ -264,6 +267,8 @@ export function ChatSessionPane({
   const [toolMention, setToolMention] = useState<ToolMentionState>()
   const [selectedTools, setSelectedTools] = useState<string[]>([])
   const { updateChat, isUpdating: isUpdatingTools } = useUpdateChat(workspaceId)
+  const { cancelChatTurn, isCancellingChatTurn } =
+    useCancelChatTurn(workspaceId)
   const { registryActions, registryActionsIsLoading } =
     useBuilderRegistryActions()
 
@@ -322,7 +327,12 @@ export function ChatSessionPane({
         (lastPart.type === "reasoning" && lastPart.text.length > 0) ||
         (isToolUIPart(lastPart) && lastPart.state === "input-streaming")
 
-      if (lastPart.type === "data-approval-request") return false
+      if (
+        lastPart.type === "data-approval-request" ||
+        lastPart.type === "data-interrupt"
+      ) {
+        return false
+      }
 
       return !isStreamingVisual
     }
@@ -333,6 +343,31 @@ export function ChatSessionPane({
   const isInputDisabledRef = useRef(isInputDisabled)
   isInputDisabledRef.current = isInputDisabled
   const wasInputDisabledRef = useRef(isInputDisabled)
+  const isGenerating = status === "submitted" || status === "streaming"
+  const [cancelRequested, setCancelRequested] = useState(false)
+
+  useEffect(() => {
+    if (!isGenerating) {
+      setCancelRequested(false)
+    }
+  }, [isGenerating])
+
+  const handleStop = useCallback(async () => {
+    if (!chat?.id || cancelRequested) {
+      return
+    }
+
+    setCancelRequested(true)
+    try {
+      await cancelChatTurn({ chatId: chat.id })
+    } catch (error) {
+      setCancelRequested(false)
+      toast({
+        title: "Failed to stop run",
+        description: parseChatError(error),
+      })
+    }
+  }, [cancelChatTurn, cancelRequested, chat?.id])
 
   useEffect(() => {
     const wasInputDisabled = wasInputDisabledRef.current
@@ -1083,7 +1118,12 @@ export function ChatSessionPane({
               ) : null}
             </PromptInputTools>
             <PromptInputSubmit
-              disabled={isInputDisabled || !input.trim()}
+              disabled={
+                isGenerating
+                  ? isCancellingChatTurn || cancelRequested || !chat?.id
+                  : isInputDisabled || !input.trim()
+              }
+              onStop={() => void handleStop()}
               status={status}
               className="text-muted-foreground/80"
             />
@@ -1291,6 +1331,50 @@ function PromptModelIndicator({ modelInfo }: { modelInfo: ModelInfo }) {
   )
 }
 
+type TimelineNoticeTone = "neutral" | "warning"
+
+function TimelineNoticePart({
+  label,
+  tone,
+}: {
+  label: string
+  tone: TimelineNoticeTone
+}) {
+  const Icon = tone === "warning" ? AlertTriangleIcon : InfoIcon
+
+  return (
+    <div className="flex w-full justify-center py-1.5">
+      <div
+        className={cn(
+          "inline-flex max-w-full items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs",
+          tone === "warning"
+            ? "border-amber-200 bg-amber-50/80 text-amber-800 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-200"
+            : "border-border bg-muted/50 text-muted-foreground"
+        )}
+      >
+        <Icon className="size-3.5 shrink-0" />
+        <span className="truncate">{label}</span>
+      </div>
+    </div>
+  )
+}
+
+function getCompactionNoticeLabel(data: unknown): string {
+  const phase =
+    data && typeof data === "object" && "phase" in data
+      ? (data as { phase?: unknown }).phase
+      : undefined
+
+  switch (phase) {
+    case "started":
+      return "Compacting conversation"
+    case "failed":
+      return "Compaction failed"
+    default:
+      return "Conversation compacted"
+  }
+}
+
 export function MessagePart({
   part,
   partIdx,
@@ -1318,6 +1402,27 @@ export function MessagePart({
         key={`${id}-${partIdx}`}
         approvals={approvals}
         onSubmit={onSubmitApprovals}
+      />
+    )
+  }
+
+  if (part.type === "data-compaction") {
+    const payload = (part as { data?: unknown }).data
+    return (
+      <TimelineNoticePart
+        key={`${id}-${partIdx}`}
+        label={getCompactionNoticeLabel(payload)}
+        tone="neutral"
+      />
+    )
+  }
+
+  if (part.type === "data-interrupt") {
+    return (
+      <TimelineNoticePart
+        key={`${id}-${partIdx}`}
+        label="Chat interrupted"
+        tone="warning"
       />
     )
   }

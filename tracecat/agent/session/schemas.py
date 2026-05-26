@@ -10,7 +10,11 @@ from pydantic import BaseModel, Field
 
 from tracecat.agent.adapter.vercel import UIMessage
 from tracecat.agent.common.stream_types import HarnessType
-from tracecat.agent.session.types import AgentSessionEntity
+from tracecat.agent.session.types import (
+    AgentCancelReason,
+    AgentSessionEntity,
+    AgentSessionStatus,
+)
 from tracecat.agent.subagents import ResolvedAgentsConfig
 
 
@@ -121,6 +125,11 @@ class AgentSessionRead(BaseModel):
     harness_type: str | None
     # Stream tracking
     last_stream_id: str | None = None
+    # Lifecycle
+    turn_status: AgentSessionStatus = Field(
+        default=AgentSessionStatus.IDLE,
+        validation_alias="status",
+    )
     # Fork tracking
     parent_session_id: uuid.UUID | None = None
     # Timestamps
@@ -154,3 +163,21 @@ class AgentSessionForkRequest(BaseModel):
         description="Override entity type for the forked session. "
         "Use 'approval' for inbox forks to hide from main chat list.",
     )
+
+
+class AgentSessionCancelRequest(BaseModel):
+    """Request schema for cancelling an active agent session turn."""
+
+    reason: AgentCancelReason = Field(
+        default="user_cancel",
+        description="Reason for requesting cancellation.",
+    )
+
+
+class AgentSessionCancelResponse(BaseModel):
+    """Response schema for an accepted agent session cancellation request."""
+
+    session_id: uuid.UUID
+    run_id: uuid.UUID
+    reason: AgentCancelReason
+    turn_status: AgentSessionStatus

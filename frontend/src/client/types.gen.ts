@@ -319,6 +319,8 @@ export type AdminUserRead = {
   last_login_at?: string | null
 }
 
+export type AgentCancelReason = "user_cancel" | "worker_drain"
+
 /**
  * List catalog entries with pagination.
  */
@@ -767,6 +769,26 @@ export type AgentPresetVersionReadMinimal = {
 }
 
 /**
+ * Request schema for cancelling an active agent session turn.
+ */
+export type AgentSessionCancelRequest = {
+  /**
+   * Reason for requesting cancellation.
+   */
+  reason?: AgentCancelReason
+}
+
+/**
+ * Response schema for an accepted agent session cancellation request.
+ */
+export type AgentSessionCancelResponse = {
+  session_id: string
+  run_id: string
+  reason: AgentCancelReason
+  turn_status: AgentSessionStatus
+}
+
+/**
  * Request schema for creating an agent session.
  */
 export type AgentSessionCreate = {
@@ -858,6 +880,7 @@ export type AgentSessionRead = {
   agents_binding?: ResolvedAgentsConfig | null
   harness_type: string | null
   last_stream_id?: string | null
+  turn_status?: AgentSessionStatus
   parent_session_id?: string | null
   created_at: string
   updated_at: string
@@ -882,6 +905,7 @@ export type AgentSessionReadVercel = {
   agents_binding?: ResolvedAgentsConfig | null
   harness_type: string | null
   last_stream_id?: string | null
+  turn_status?: AgentSessionStatus
   parent_session_id?: string | null
   created_at: string
   updated_at: string
@@ -910,6 +934,7 @@ export type AgentSessionReadWithMessages = {
   agents_binding?: ResolvedAgentsConfig | null
   harness_type: string | null
   last_stream_id?: string | null
+  turn_status?: AgentSessionStatus
   parent_session_id?: string | null
   created_at: string
   updated_at: string
@@ -918,6 +943,16 @@ export type AgentSessionReadWithMessages = {
    */
   messages?: Array<unknown>
 }
+
+/**
+ * Lifecycle state for an agent session turn.
+ */
+export type AgentSessionStatus =
+  | "idle"
+  | "running"
+  | "waiting_for_approval"
+  | "stopped"
+  | "failed"
 
 /**
  * Request schema for updating an agent session.
@@ -2343,6 +2378,7 @@ export type ChannelType = "slack"
  * - kind=CHAT_MESSAGE: Contains message field with user/assistant content
  * - kind=APPROVAL_REQUEST/APPROVAL_DECISION: Contains approval field with approval data
  * - kind=COMPACTION: Contains compaction field with compaction status data
+ * - kind=INTERRUPT: Contains interrupt field with interruption status data
  */
 export type ChatMessage = {
   /**
@@ -2373,6 +2409,12 @@ export type ChatMessage = {
    * Compaction status data for badge rendering (for kind=COMPACTION)
    */
   compaction?: {
+    [key: string]: unknown
+  } | null
+  /**
+   * Interruption status data for badge rendering (for kind=INTERRUPT)
+   */
+  interrupt?: {
     [key: string]: unknown
   } | null
 }
@@ -4693,6 +4735,7 @@ export type MessageKind =
   | "approval-decision"
   | "internal"
   | "compaction"
+  | "interrupt"
 
 export type ModelConfig = {
   /**
@@ -10738,6 +10781,14 @@ export type AgentSessionsGetSessionVercelResponse =
   | AgentSessionReadVercel
   | ChatReadVercel
 
+export type AgentSessionsCancelSessionData = {
+  requestBody?: AgentSessionCancelRequest | null
+  sessionId: string
+  workspaceId: string
+}
+
+export type AgentSessionsCancelSessionResponse = AgentSessionCancelResponse
+
 export type AgentSessionsSendMessageData = {
   requestBody: VercelChatRequest | ContinueRunRequest
   sessionId: string
@@ -15718,6 +15769,21 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: AgentSessionReadVercel | ChatReadVercel
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/agent/sessions/{session_id}/cancel": {
+    post: {
+      req: AgentSessionsCancelSessionData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: AgentSessionCancelResponse
         /**
          * Validation Error
          */

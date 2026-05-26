@@ -1,8 +1,12 @@
 from datetime import UTC, datetime
+from typing import cast
 from uuid import uuid4
 
-from tracecat.agent.adapter.vercel import convert_chat_messages_to_ui
+from claude_agent_sdk.types import TextBlock, ToolResultBlock, UserMessage
+
+from tracecat.agent.adapter.vercel import DataUIPart, convert_chat_messages_to_ui
 from tracecat.agent.approvals.enums import ApprovalStatus
+from tracecat.chat.constants import INTERRUPT_DATA_PART_TYPE
 from tracecat.chat.enums import MessageKind
 from tracecat.chat.schemas import ApprovalRead, ChatMessage
 
@@ -34,3 +38,59 @@ def test_convert_chat_messages_to_ui_skips_resolved_approval_request() -> None:
     messages = convert_chat_messages_to_ui([_approval_message(ApprovalStatus.APPROVED)])
 
     assert messages == []
+
+
+def test_convert_chat_messages_to_ui_filters_interrupt_text() -> None:
+    messages = convert_chat_messages_to_ui(
+        [
+            ChatMessage(
+                id=str(uuid4()),
+                message=UserMessage(
+                    content=[
+                        TextBlock(text="[Request interrupted by user]"),
+                    ]
+                ),
+            )
+        ]
+    )
+
+    assert messages == []
+
+
+def test_convert_chat_messages_to_ui_filters_interrupt_tool_result() -> None:
+    messages = convert_chat_messages_to_ui(
+        [
+            ChatMessage(
+                id=str(uuid4()),
+                message=UserMessage(
+                    content=[
+                        ToolResultBlock(
+                            tool_use_id="call_123",
+                            content="The user doesn't want to take this action right now.",
+                            is_error=True,
+                        )
+                    ]
+                ),
+            )
+        ]
+    )
+
+    assert messages == []
+
+
+def test_convert_chat_messages_to_ui_emits_interrupt_notice() -> None:
+    messages = convert_chat_messages_to_ui(
+        [
+            ChatMessage(
+                id=str(uuid4()),
+                kind=MessageKind.INTERRUPT,
+                interrupt={"reason": "user_cancel"},
+            )
+        ]
+    )
+
+    assert len(messages) == 1
+    assert messages[0].role == "system"
+    part = cast(DataUIPart, messages[0].parts[0])
+    assert part["type"] == INTERRUPT_DATA_PART_TYPE
+    assert part["data"] == {"reason": "user_cancel"}

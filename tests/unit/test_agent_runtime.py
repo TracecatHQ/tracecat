@@ -296,6 +296,80 @@ class TestClaudeAgentRuntimeRun:
         mock_socket_writer.send_done.assert_awaited_once()
 
     @pytest.mark.anyio
+    async def test_interrupt_before_query_stops_sdk_after_query_ready(
+        self,
+        mock_socket_writer: MagicMock,
+        mock_claude_sdk_client: MagicMock,
+        sample_init_payload: RuntimeInitPayload,
+    ) -> None:
+        """A pre-ready interrupt is retained until the SDK query can be stopped."""
+        with (
+            patch(
+                "tracecat.agent.runtime.claude_code.runtime.ClaudeSDKClient",
+                return_value=mock_claude_sdk_client,
+            ),
+        ):
+            runtime = ClaudeAgentRuntime(
+                mock_socket_writer, transport_factory=lambda _: MagicMock()
+            )
+            interrupt_task = asyncio.create_task(
+                runtime.interrupt(reason="user_cancel")
+            )
+            await asyncio.sleep(0)
+            await runtime.run(sample_init_payload)
+            await interrupt_task
+
+        mock_claude_sdk_client.interrupt.assert_awaited_once()
+        mock_socket_writer.send_done.assert_awaited_once()
+
+    @pytest.mark.anyio
+    async def test_interrupt_during_receive_lets_sdk_finish_turn(
+        self,
+        mock_socket_writer: MagicMock,
+        mock_claude_sdk_client: MagicMock,
+        sample_init_payload: RuntimeInitPayload,
+    ) -> None:
+        """Cancellation interrupts the SDK but preserves its remaining output."""
+        query_sent = asyncio.Event()
+
+        async def query(_input: object) -> None:
+            query_sent.set()
+
+        async def receive_response() -> Any:
+            await query_sent.wait()
+            yield StreamEvent(
+                uuid="stream-event-uuid",
+                session_id="sdk-session",
+                event={
+                    "type": "content_block_delta",
+                    "index": 0,
+                    "delta": {"type": "text_delta", "text": "interrupted"},
+                },
+            )
+
+        mock_claude_sdk_client.query.side_effect = query
+        mock_claude_sdk_client.receive_response = receive_response
+
+        with (
+            patch(
+                "tracecat.agent.runtime.claude_code.runtime.ClaudeSDKClient",
+                return_value=mock_claude_sdk_client,
+            ),
+        ):
+            runtime = ClaudeAgentRuntime(
+                mock_socket_writer, transport_factory=lambda _: MagicMock()
+            )
+            run_task = asyncio.create_task(runtime.run(sample_init_payload))
+            await asyncio.wait_for(query_sent.wait(), timeout=1)
+
+            await runtime.interrupt(reason="user_cancel")
+            await asyncio.wait_for(run_task, timeout=1)
+
+        mock_claude_sdk_client.interrupt.assert_awaited_once()
+        mock_socket_writer.send_stream_event.assert_awaited()
+        mock_socket_writer.send_done.assert_awaited_once()
+
+    @pytest.mark.anyio
     async def test_handles_stream_events(
         self,
         mock_socket_writer: MagicMock,
@@ -2351,6 +2425,45 @@ class TestClaudeAgentRuntimeInternalSessionLines:
         }
 
         assert runtime._is_internal_session_line(line_data) is True
+
+    def test_interrupt_rows_are_internal(
+        self,
+        mock_socket_writer: MagicMock,
+    ) -> None:
+        """SDK interruption artifacts should not render as chat messages."""
+        runtime = ClaudeAgentRuntime(
+            mock_socket_writer, transport_factory=lambda _: MagicMock()
+        )
+
+        text_marker = {
+            "type": "user",
+            "message": {
+                "content": [
+                    {
+                        "type": "text",
+                        "text": "[Request interrupted by user]",
+                    }
+                ]
+            },
+        }
+        tool_result = {
+            "type": "user",
+            "message": {
+                "content": [
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": "call_123",
+                        "is_error": True,
+                        "content": (
+                            "The user doesn't want to take this action right now."
+                        ),
+                    }
+                ]
+            },
+        }
+
+        assert runtime._is_internal_session_line(text_marker) is True
+        assert runtime._is_internal_session_line(tool_result) is True
 
     @pytest.mark.anyio
     async def test_approval_continuation_hides_sdk_meta_prompt_only(

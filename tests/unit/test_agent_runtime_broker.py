@@ -136,6 +136,45 @@ async def test_broker_rejects_second_turn_for_same_session(
 
 
 @pytest.mark.anyio
+async def test_broker_interrupts_active_runtime(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    release = asyncio.Event()
+    runtimes: list[Any] = []
+
+    class FakeRuntime:
+        def __init__(self, *_args, **_kwargs) -> None:
+            self.interrupt = AsyncMock()
+            runtimes.append(self)
+
+        async def run(self, _payload: RuntimeInitPayload) -> None:
+            await release.wait()
+
+    monkeypatch.setattr(broker_module, "ClaudeAgentRuntime", FakeRuntime)
+
+    broker = ClaudeRuntimeBroker()
+    await broker.start()
+
+    request = _make_request(tmp_path)
+    handler = cast(
+        Any,
+        SimpleNamespace(
+            prepare=AsyncMock(),
+            process_envelope=AsyncMock(),
+        ),
+    )
+
+    task = asyncio.create_task(broker.run_turn(request, handler))
+    await asyncio.sleep(0)
+
+    await broker.interrupt_turn(str(request.init_payload.session_id), "user_cancel")
+
+    runtimes[0].interrupt.assert_awaited_once_with(reason="user_cancel")
+    release.set()
+    await task
+
+
+@pytest.mark.anyio
 async def test_broker_rechecks_closed_state_after_waiting_for_lock(
     tmp_path: Path,
 ) -> None:

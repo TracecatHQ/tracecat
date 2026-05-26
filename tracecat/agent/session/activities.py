@@ -18,7 +18,7 @@ from tracecat.agent.common.stream_types import HarnessType, UnifiedStreamEvent
 from tracecat.agent.executor.schemas import ToolExecutionResult
 from tracecat.agent.session.schemas import AgentSessionCreate
 from tracecat.agent.session.service import AgentSessionService
-from tracecat.agent.session.types import AgentSessionEntity
+from tracecat.agent.session.types import AgentSessionEntity, AgentSessionStatus
 from tracecat.agent.stream.connector import AgentStream
 from tracecat.agent.subagents import ResolvedAgentsConfig
 from tracecat.auth.types import Role
@@ -117,6 +117,21 @@ class LoadSessionMessagesResult(BaseModel):
     error: str | None = None
 
 
+class UpdateSessionStatusInput(BaseModel):
+    """Input for update_session_status_activity."""
+
+    role: Role
+    session_id: uuid.UUID
+    status: AgentSessionStatus
+    clear_curr_run_id: bool = False
+
+
+class UpdateSessionStatusResult(BaseModel):
+    """Result from update_session_status_activity."""
+
+    found: bool
+
+
 @activity.defn
 async def create_session_activity(input: CreateSessionInput) -> CreateSessionResult:
     """Create or get an existing agent session in the database.
@@ -203,6 +218,7 @@ async def create_session_activity(input: CreateSessionInput) -> CreateSessionRes
             # Set curr_run_id if provided (for workflow-initiated sessions)
             if input.curr_run_id is not None:
                 agent_session.curr_run_id = input.curr_run_id
+                agent_session.status = AgentSessionStatus.RUNNING.value
                 service.session.add(agent_session)
                 await service.session.commit()
 
@@ -304,6 +320,22 @@ async def load_session_activity(input: LoadSessionInput) -> LoadSessionResult:
 
 
 @activity.defn
+async def update_session_status_activity(
+    input: UpdateSessionStatusInput,
+) -> UpdateSessionStatusResult:
+    """Update lightweight agent session lifecycle state."""
+    ctx_role.set(input.role)
+
+    async with AgentSessionService.with_session(role=input.role) as service:
+        found = await service.set_session_status(
+            input.session_id,
+            input.status,
+            clear_curr_run_id=input.clear_curr_run_id,
+        )
+    return UpdateSessionStatusResult(found=found)
+
+
+@activity.defn
 async def load_session_messages_activity(
     input: LoadSessionMessagesInput,
 ) -> LoadSessionMessagesResult:
@@ -384,6 +416,7 @@ def get_session_activities() -> list:
     return [
         create_session_activity,
         load_session_activity,
+        update_session_status_activity,
         load_session_messages_activity,
         reconcile_tool_results_activity,
     ]
