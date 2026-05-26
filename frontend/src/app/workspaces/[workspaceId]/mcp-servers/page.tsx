@@ -58,8 +58,14 @@ export default function McpServersPage() {
 
   const { mcpIntegrations, mcpIntegrationsIsLoading, mcpIntegrationsError } =
     useListMcpIntegrations(workspaceId)
-  const { providers, providersIsLoading, providersError } =
-    useIntegrations(workspaceId)
+  const {
+    integrations,
+    integrationsIsLoading,
+    integrationsError,
+    providers,
+    providersIsLoading,
+    providersError,
+  } = useIntegrations(workspaceId)
   const { deleteMcpIntegration, deleteMcpIntegrationIsPending } =
     useDeleteMcpIntegration(workspaceId)
 
@@ -115,11 +121,33 @@ export default function McpServersPage() {
     return providers.filter((p) => p.id.endsWith("_mcp"))
   }, [providers])
 
+  const integrationById = useMemo(
+    () =>
+      new Map(
+        (integrations ?? []).map((integration) => [integration.id, integration])
+      ),
+    [integrations]
+  )
+
+  const isPlatformBackedMcpIntegration = useCallback(
+    (mcp: MCPIntegrationRead) => {
+      if (mcp.auth_type !== "OAUTH2" || !mcp.oauth_integration_id) {
+        return false
+      }
+      const integration = integrationById.get(mcp.oauth_integration_id)
+      return integration?.provider_id.endsWith("_mcp") ?? false
+    },
+    [integrationById]
+  )
+
   const filteredWorkspaceServers = useMemo(() => {
     if (!mcpIntegrations) return []
     const q = searchQuery.trim().toLowerCase()
     return mcpIntegrations
       .filter((mcp) => {
+        if (isPlatformBackedMcpIntegration(mcp)) {
+          return false
+        }
         if (!q) return true
         return (
           mcp.name.toLowerCase().includes(q) ||
@@ -128,7 +156,7 @@ export default function McpServersPage() {
         )
       })
       .sort((a, b) => a.name.localeCompare(b.name))
-  }, [mcpIntegrations, searchQuery])
+  }, [isPlatformBackedMcpIntegration, mcpIntegrations, searchQuery])
 
   const filteredPlatformProviders = useMemo(() => {
     const q = searchQuery.trim().toLowerCase()
@@ -146,8 +174,9 @@ export default function McpServersPage() {
 
   const totalCount =
     filteredWorkspaceServers.length + filteredPlatformProviders.length
-  const isLoading = mcpIntegrationsIsLoading || providersIsLoading
-  const loadError = mcpIntegrationsError ?? providersError
+  const isLoading =
+    mcpIntegrationsIsLoading || integrationsIsLoading || providersIsLoading
+  const loadError = mcpIntegrationsError ?? integrationsError ?? providersError
 
   if (canRead !== true) {
     return (
@@ -177,7 +206,7 @@ export default function McpServersPage() {
       />
 
       <div className="flex-1 overflow-y-auto px-6 py-4">
-        <div className="mx-auto flex max-w-5xl flex-col gap-6">
+        <div className="mx-auto flex max-w-6xl flex-col gap-6">
           <p className="text-sm text-muted-foreground">
             MCP servers that Tracecat agents can call. Separate from
             integrations that back actions.
@@ -216,13 +245,13 @@ export default function McpServersPage() {
           ) : (
             <>
               {filteredPlatformProviders.length > 0 ? (
-                <section className="space-y-2">
+                <section className="space-y-3">
                   <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                     Platform-shipped
                   </h2>
-                  <ul className="space-y-2">
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
                     {filteredPlatformProviders.map((provider) => (
-                      <PlatformMcpRow
+                      <PlatformMcpCard
                         key={provider.id}
                         provider={provider}
                         canMutate={canMutate}
@@ -244,18 +273,18 @@ export default function McpServersPage() {
                         }
                       />
                     ))}
-                  </ul>
+                  </div>
                 </section>
               ) : null}
 
               {filteredWorkspaceServers.length > 0 ? (
-                <section className="space-y-2">
+                <section className="space-y-3">
                   <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                     Workspace-authored
                   </h2>
-                  <ul className="space-y-2">
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
                     {filteredWorkspaceServers.map((mcp) => (
-                      <McpRow
+                      <McpCard
                         key={mcp.id}
                         mcp={mcp}
                         canMutate={canMutate}
@@ -263,7 +292,7 @@ export default function McpServersPage() {
                         onDelete={() => setPendingDeleteId(mcp.id)}
                       />
                     ))}
-                  </ul>
+                  </div>
                 </section>
               ) : null}
             </>
@@ -334,7 +363,7 @@ export default function McpServersPage() {
   )
 }
 
-interface PlatformMcpRowProps {
+interface PlatformMcpCardProps {
   provider: ProviderReadMinimal
   canMutate: boolean
   isConnecting: boolean
@@ -342,84 +371,72 @@ interface PlatformMcpRowProps {
   onManage: () => void
 }
 
-function PlatformMcpRow({
+function PlatformMcpCard({
   provider,
   canMutate,
   isConnecting,
   onConnect,
   onManage,
-}: PlatformMcpRowProps) {
+}: PlatformMcpCardProps) {
   const connected = provider.integration_status === "connected"
   return (
-    <li>
-      <Card className="flex items-center gap-3 border bg-card p-3 shadow-none">
+    <Card className="flex h-full min-h-[120px] flex-col gap-2.5 border bg-card p-4 shadow-none transition-colors hover:border-foreground/30">
+      <div className="flex items-start justify-between gap-3">
         <ProviderIcon providerId={provider.id} className="size-9 shrink-0" />
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2">
-            <h3 className="truncate text-sm font-semibold">{provider.name}</h3>
-            <Badge
+        {canMutate ? (
+          connected ? (
+            <Button
+              size="sm"
               variant="outline"
-              className="h-4 px-1.5 text-[10px] uppercase"
+              className="h-8 gap-1.5 px-3 text-xs font-medium"
+              onClick={onManage}
             >
-              Platform
-            </Badge>
-            {connected ? (
-              <Badge
-                variant="outline"
-                className="h-4 px-1.5 text-[10px] border-emerald-400/50 bg-emerald-500/10 text-emerald-700"
-              >
-                Connected
-              </Badge>
-            ) : null}
-          </div>
-          {provider.description ? (
-            <p className="mt-0.5 line-clamp-1 text-xs text-muted-foreground">
-              {provider.description}
-            </p>
+              <Settings className="size-3.5" />
+              Manage
+            </Button>
+          ) : (
+            <Button
+              size="sm"
+              className="h-8 gap-1.5 px-3 text-xs font-medium"
+              disabled={isConnecting || !provider.enabled}
+              onClick={onConnect}
+            >
+              {isConnecting ? (
+                <Loader2 className="size-3.5 animate-spin" />
+              ) : (
+                <Lock className="size-3.5" />
+              )}
+              Connect
+            </Button>
+          )
+        ) : null}
+      </div>
+
+      <div className="flex min-w-0 flex-col gap-1">
+        <div className="flex min-w-0 items-baseline gap-2">
+          <h3 className="truncate text-sm font-semibold leading-5 text-foreground">
+            {provider.name}
+          </h3>
+          {connected ? (
+            <span className="shrink-0 text-xs text-emerald-700">Connected</span>
           ) : null}
         </div>
-        {canMutate ? (
-          <div className="flex shrink-0 gap-1">
-            {connected ? (
-              <Button
-                size="sm"
-                variant="outline"
-                className="h-7 gap-1.5 px-2.5 text-xs"
-                onClick={onManage}
-              >
-                <Settings className="size-3.5" />
-                Manage
-              </Button>
-            ) : (
-              <Button
-                size="sm"
-                className="h-7 gap-1.5 px-2.5 text-xs"
-                disabled={isConnecting || !provider.enabled}
-                onClick={onConnect}
-              >
-                {isConnecting ? (
-                  <Loader2 className="size-3.5 animate-spin" />
-                ) : (
-                  <Lock className="size-3.5" />
-                )}
-                Connect
-              </Button>
-            )}
-          </div>
-        ) : null}
-      </Card>
-    </li>
+        <p className="line-clamp-2 text-sm leading-5 text-muted-foreground">
+          {provider.description ?? "No description"}
+        </p>
+      </div>
+    </Card>
   )
 }
 
-interface McpRowProps {
+interface McpCardProps {
   mcp: MCPIntegrationRead
   canMutate: boolean
   onEdit: () => void
   onDelete: () => void
 }
 
-function McpRow({ mcp, canMutate, onEdit, onDelete }: McpRowProps) {
+function McpCard({ mcp, canMutate, onEdit, onDelete }: McpCardProps) {
   const TransportIcon = mcp.server_type === "stdio" ? Terminal : Globe
   const target =
     mcp.server_type === "stdio" ? mcp.stdio_command : mcp.server_uri
@@ -435,49 +452,17 @@ function McpRow({ mcp, canMutate, onEdit, onDelete }: McpRowProps) {
   })()
 
   return (
-    <li>
-      <Card className="flex items-center gap-3 border bg-card p-3 shadow-none">
+    <Card className="flex h-full min-h-[150px] flex-col gap-2.5 border bg-card p-4 shadow-none transition-colors hover:border-foreground/30">
+      <div className="flex items-start justify-between gap-3">
         <div className="flex size-9 shrink-0 items-center justify-center rounded-md border bg-muted/20">
           <TransportIcon className="size-4 text-muted-foreground" />
-        </div>
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2">
-            <h3 className="truncate text-sm font-semibold">{mcp.name}</h3>
-            <Badge
-              variant="outline"
-              className="h-4 px-1.5 text-[10px] uppercase"
-            >
-              {mcp.server_type}
-            </Badge>
-            <Badge
-              variant="outline"
-              className="h-4 px-1.5 text-[10px] uppercase"
-            >
-              {mcp.auth_type}
-            </Badge>
-          </div>
-          {target ? (
-            <p className="mt-0.5 truncate font-mono text-[11px] text-muted-foreground">
-              {target}
-            </p>
-          ) : null}
-          {mcp.description ? (
-            <p className="mt-0.5 line-clamp-1 text-xs text-muted-foreground">
-              {mcp.description}
-            </p>
-          ) : null}
-          {lastUpdated ? (
-            <p className="mt-0.5 text-[11px] text-muted-foreground">
-              Updated {lastUpdated}
-            </p>
-          ) : null}
         </div>
         {canMutate ? (
           <div className="flex shrink-0 gap-1">
             <Button
               size="sm"
               variant="outline"
-              className="h-7 gap-1.5 px-2.5 text-xs"
+              className="h-8 gap-1.5 px-3 text-xs font-medium"
               onClick={onEdit}
             >
               <Cable className="size-3.5" />
@@ -486,7 +471,7 @@ function McpRow({ mcp, canMutate, onEdit, onDelete }: McpRowProps) {
             <Button
               size="icon"
               variant="ghost"
-              className="size-7 text-muted-foreground hover:text-destructive"
+              className="size-8 text-muted-foreground hover:text-destructive"
               onClick={onDelete}
               aria-label={`Remove MCP server ${mcp.name}`}
             >
@@ -494,7 +479,34 @@ function McpRow({ mcp, canMutate, onEdit, onDelete }: McpRowProps) {
             </Button>
           </div>
         ) : null}
-      </Card>
-    </li>
+      </div>
+
+      <div className="flex min-w-0 flex-col gap-1">
+        <div className="flex min-w-0 items-baseline gap-2">
+          <h3 className="truncate text-sm font-semibold leading-5 text-foreground">
+            {mcp.name}
+          </h3>
+          <Badge variant="outline" className="h-4 px-1.5 text-[10px] uppercase">
+            {mcp.server_type}
+          </Badge>
+          <Badge variant="outline" className="h-4 px-1.5 text-[10px] uppercase">
+            {mcp.auth_type}
+          </Badge>
+        </div>
+        <p className="line-clamp-2 text-sm leading-5 text-muted-foreground">
+          {mcp.description ?? "No description"}
+        </p>
+        {target ? (
+          <p className="truncate font-mono text-[11px] leading-5 text-muted-foreground">
+            {target}
+          </p>
+        ) : null}
+        {lastUpdated ? (
+          <p className="text-[11px] leading-5 text-muted-foreground">
+            Updated {lastUpdated}
+          </p>
+        ) : null}
+      </div>
+    </Card>
   )
 }
