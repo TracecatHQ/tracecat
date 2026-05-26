@@ -12,14 +12,14 @@ import {
   Flag,
   Flame,
   FolderIcon,
+  KeyRound,
   ListIcon,
-  Lock,
+  LockKeyhole,
   MessageSquare,
   MousePointerClickIcon,
   PanelRight,
   PenLine,
   Plus,
-  Sparkles,
   TagsIcon,
   Trash2,
   User,
@@ -75,7 +75,6 @@ import {
 } from "@/components/dashboard/workflows-catalog-view-toggle"
 import { DynamicLucideIcon } from "@/components/dynamic-lucide-icon"
 import { CreateCustomProviderDialog } from "@/components/integrations/create-custom-provider-dialog"
-import { MCPIntegrationDialog } from "@/components/integrations/mcp-integration-dialog"
 import { Spinner } from "@/components/loading/spinner"
 import {
   MembersViewMode,
@@ -132,6 +131,7 @@ import {
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuSeparator,
   DropdownMenuSub,
@@ -343,7 +343,8 @@ function TablesActions() {
 }
 
 function IntegrationsActions() {
-  const [activeDialog, setActiveDialog] = useState<"oauth" | "mcp" | null>(null)
+  const [oauthDialogOpen, setOauthDialogOpen] = useState(false)
+  const [credentialDialogOpen, setCredentialDialogOpen] = useState(false)
 
   return (
     <>
@@ -363,34 +364,35 @@ function IntegrationsActions() {
             [&_[data-radix-collection-item]]:gap-2
           "
         >
-          <DropdownMenuItem onSelect={() => setActiveDialog("oauth")}>
-            <Lock className="size-4 text-foreground/80" />
-            <div className="flex flex-col text-xs">
-              <span>OAuth provider</span>
-              <span className="text-xs text-muted-foreground">
-                Add a custom OAuth 2.0 provider
-              </span>
-            </div>
-          </DropdownMenuItem>
-          <DropdownMenuItem onSelect={() => setActiveDialog("mcp")}>
-            <Sparkles className="size-4 text-foreground/80" />
-            <div className="flex flex-col text-xs">
-              <span>MCP integration</span>
-              <span className="text-xs text-muted-foreground">
-                Connect to an MCP server
-              </span>
-            </div>
-          </DropdownMenuItem>
+          <DropdownMenuGroup>
+            <DropdownMenuItem onSelect={() => setCredentialDialogOpen(true)}>
+              <KeyRound className="size-4 text-foreground/80" />
+              <div className="flex flex-col text-xs">
+                <span>Key-value credentials</span>
+                <span className="text-xs text-muted-foreground">
+                  Store API keys and tokens
+                </span>
+              </div>
+            </DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => setOauthDialogOpen(true)}>
+              <LockKeyhole className="size-4 text-foreground/80" />
+              <div className="flex flex-col text-xs">
+                <span>Custom OAuth provider</span>
+                <span className="text-xs text-muted-foreground">
+                  Configure OAuth app credentials
+                </span>
+              </div>
+            </DropdownMenuItem>
+          </DropdownMenuGroup>
         </DropdownMenuContent>
       </DropdownMenu>
-      <CreateCustomProviderDialog
-        open={activeDialog === "oauth"}
-        onOpenChange={(open) => setActiveDialog(open ? "oauth" : null)}
-        hideTrigger
+      <CreateCredentialDialog
+        open={credentialDialogOpen}
+        onOpenChange={setCredentialDialogOpen}
       />
-      <MCPIntegrationDialog
-        open={activeDialog === "mcp"}
-        onOpenChange={(open) => setActiveDialog(open ? "mcp" : null)}
+      <CreateCustomProviderDialog
+        open={oauthDialogOpen}
+        onOpenChange={setOauthDialogOpen}
         hideTrigger
       />
     </>
@@ -1596,6 +1598,35 @@ function ServiceAccountsActions() {
   )
 }
 
+function McpServersActions() {
+  const canMutate = useScopeCheck("integration:update")
+  const pathname = usePathname()
+  const searchParams = useSearchParams()
+  const router = useRouter()
+
+  if (canMutate !== true || !pathname) {
+    return null
+  }
+
+  return (
+    <Button
+      variant="outline"
+      size="sm"
+      className="h-7 bg-white"
+      onClick={() => {
+        const params = new URLSearchParams(searchParams?.toString())
+        params.set("createMcpServer", Date.now().toString())
+        router.replace(`${pathname}?${params.toString()}`, {
+          scroll: false,
+        })
+      }}
+    >
+      <Plus className="mr-1 h-3.5 w-3.5" />
+      Add MCP server
+    </Button>
+  )
+}
+
 function McpAccessActions() {
   const canReadWorkspace = useScopeCheck("workspace:read")
   const pathname = usePathname()
@@ -1974,6 +2005,13 @@ function getPageConfig(
     return {
       title: "Credentials",
       actions: <CredentialsActions />,
+    }
+  }
+
+  if (pagePath.startsWith("/mcp-servers")) {
+    return {
+      title: "MCP servers",
+      actions: <McpServersActions />,
     }
   }
 
