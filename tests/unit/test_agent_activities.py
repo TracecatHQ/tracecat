@@ -381,6 +381,7 @@ class TestCreateSessionActivity:
         mock_agent_session = MagicMock()
         mock_agent_session.agents_binding = None
         mock_agent_session.sdk_session_id = None
+        mock_agent_session.parent_session_id = None
         mock_service = AsyncMock()
         mock_service.get_or_create_session.return_value = (mock_agent_session, False)
 
@@ -412,6 +413,7 @@ class TestCreateSessionActivity:
         mock_agent_session = MagicMock()
         mock_agent_session.agents_binding = None
         mock_agent_session.sdk_session_id = None
+        mock_agent_session.parent_session_id = None
         mock_service = AsyncMock()
         mock_service.get_or_create_session.return_value = (
             mock_agent_session,
@@ -438,12 +440,14 @@ class TestCreateSessionActivity:
             "incoming_agents_binding",
             "persisted_agents_binding",
             "sdk_session_id",
+            "parent_session_id",
             "expected_success",
             "expected_backfill",
         ),
         [
             pytest.param(
                 ResolvedAgentsConfig.model_validate({"enabled": True, "subagents": []}),
+                None,
                 None,
                 None,
                 True,
@@ -454,14 +458,25 @@ class TestCreateSessionActivity:
                 ResolvedAgentsConfig.model_validate({"enabled": True, "subagents": []}),
                 None,
                 "sdk-session-1",
+                None,
                 False,
                 False,
                 id="resumable-null-cannot-enable-agents",
             ),
             pytest.param(
+                ResolvedAgentsConfig.model_validate({"enabled": True, "subagents": []}),
+                None,
+                None,
+                uuid.UUID("00000000-0000-0000-0000-000000000001"),
+                False,
+                False,
+                id="fork-null-cannot-enable-agents",
+            ),
+            pytest.param(
                 ResolvedAgentsConfig(),
                 {"enabled": False},
                 "sdk-session-1",
+                None,
                 True,
                 False,
                 id="default-equivalent-jsonb",
@@ -470,6 +485,7 @@ class TestCreateSessionActivity:
                 ResolvedAgentsConfig.model_validate({"enabled": True, "subagents": []}),
                 {"enabled": False},
                 None,
+                None,
                 False,
                 False,
                 id="different-explicit-binding",
@@ -477,6 +493,7 @@ class TestCreateSessionActivity:
             pytest.param(
                 None,
                 {"enabled": True, "subagents": []},
+                None,
                 None,
                 False,
                 False,
@@ -494,10 +511,11 @@ class TestCreateSessionActivity:
         incoming_agents_binding: ResolvedAgentsConfig | None,
         persisted_agents_binding: dict[str, object] | None,
         sdk_session_id: str | None,
+        parent_session_id: uuid.UUID | None,
         expected_success: bool,
         expected_backfill: bool,
     ):
-        """Existing sessions reject binding changes once SDK resume state exists."""
+        """Existing sessions reject binding changes once SDK/fork resume state exists."""
         input = CreateSessionInput(
             role=mock_role,
             session_id=mock_session_id,
@@ -509,6 +527,7 @@ class TestCreateSessionActivity:
         mock_agent_session = MagicMock()
         mock_agent_session.agents_binding = persisted_agents_binding
         mock_agent_session.sdk_session_id = sdk_session_id
+        mock_agent_session.parent_session_id = parent_session_id
         mock_service = AsyncMock()
         mock_service.get_or_create_session.return_value = (
             mock_agent_session,
@@ -563,6 +582,7 @@ class TestCreateSessionActivity:
         mock_agent_session = MagicMock()
         mock_agent_session.agents_binding = None
         mock_agent_session.sdk_session_id = None
+        mock_agent_session.parent_session_id = None
         mock_service.get_session.return_value = mock_agent_session
 
         mock_ctx = AsyncMock()
@@ -682,6 +702,8 @@ class TestCreateSessionActivity:
 
         mock_agent_session = MagicMock()
         mock_agent_session.agents_binding = None
+        mock_agent_session.sdk_session_id = None
+        mock_agent_session.parent_session_id = None
         mock_service = AsyncMock()
         mock_service.get_or_create_session.return_value = (mock_agent_session, False)
         mock_service.auto_title_session_on_first_prompt = AsyncMock()

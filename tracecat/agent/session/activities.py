@@ -160,20 +160,24 @@ async def create_session_activity(input: CreateSessionInput) -> CreateSessionRes
             # sessions may be inserted before the durable workflow resolves the
             # current preset's subagent bindings, so a fresh session can have a
             # NULL binding even though this run already has a concrete binding.
-            # Backfill that first-run case. Once an SDK session exists, however,
-            # the binding is part of the resumable runtime topology and explicit
-            # mismatches must continue to fail.
+            # Backfill that first-run case. Once an SDK session exists, or the
+            # row forks from a parent SDK history, the binding is part of the
+            # resumable runtime topology and explicit mismatches must continue
+            # to fail.
             if not created:
                 disabled_agents_binding = ResolvedAgentsConfig()
                 requested_agents_binding = (
                     input.agents_binding or disabled_agents_binding
                 )
                 if agent_session.agents_binding is None:
-                    has_sdk_resume_state = agent_session.sdk_session_id is not None
+                    has_resume_state = (
+                        agent_session.sdk_session_id is not None
+                        or agent_session.parent_session_id is not None
+                    )
                     should_backfill_agents_binding = input.agents_binding is not None
                     stored_agents_binding = (
                         requested_agents_binding
-                        if should_backfill_agents_binding and not has_sdk_resume_state
+                        if should_backfill_agents_binding and not has_resume_state
                         else disabled_agents_binding
                     )
                 else:
