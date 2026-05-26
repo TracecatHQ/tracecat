@@ -118,12 +118,6 @@ def _activity_error_message(error: ActivityError) -> str:
     return str(error)
 
 
-def _workflow_error_message(error: ApplicationError | ActivityError) -> str:
-    if isinstance(error, ActivityError):
-        return _activity_error_message(error)
-    return error.message
-
-
 def _build_approved_tool_run_input(
     *,
     tool_call: ApprovedToolCall,
@@ -673,8 +667,11 @@ class DurableAgentWorkflow:
         try:
             cfg = await self._build_config(args)
             return await self._run_with_agent_executor(args, cfg)
-        except (ApplicationError, ActivityError) as e:
-            await self._emit_session_error(_workflow_error_message(e))
+        except ActivityError as e:
+            await self._emit_session_error(_activity_error_message(e))
+            raise
+        except ApplicationError as e:
+            await self._emit_session_error(e.message)
             raise
 
     async def _emit_session_error(self, message: str) -> None:
