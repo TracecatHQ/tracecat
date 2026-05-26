@@ -28,6 +28,7 @@ import aiofiles
 from tracecat import config
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
+from tracecat.exceptions import RegistryError
 from tracecat.logger import logger
 from tracecat.registry.actions.schemas import RegistryActionCreate
 from tracecat.registry.artifact_keys import get_artifact_s3_key
@@ -63,6 +64,22 @@ class PackageInstallError(RegistrySyncRunnerError):
 
 class ActionDiscoveryError(RegistrySyncRunnerError):
     """Raised when action discovery fails."""
+
+    def __init__(self, message: str, *, non_retryable: bool = False) -> None:
+        super().__init__(message)
+        self.non_retryable = non_retryable
+
+
+_NON_RETRYABLE_DISCOVERY_ERROR_PREFIXES = ("Failed to load template action from ",)
+
+
+def _is_non_retryable_discovery_error(exc: BaseException) -> bool:
+    if not isinstance(exc, RegistryError):
+        return False
+    message = str(exc)
+    return any(
+        message.startswith(prefix) for prefix in _NON_RETRYABLE_DISCOVERY_ERROR_PREFIXES
+    )
 
 
 def _build_validation_failure_message(
@@ -510,7 +527,10 @@ class RegistrySyncRunner:
             )
             return result.actions, result.validation_errors
         except Exception as e:
-            raise ActionDiscoveryError(f"Failed to discover actions: {e}") from e
+            raise ActionDiscoveryError(
+                f"Failed to discover actions: {e}",
+                non_retryable=_is_non_retryable_discovery_error(e),
+            ) from e
 
     async def _upload_squashfs(
         self,

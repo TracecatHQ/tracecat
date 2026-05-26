@@ -309,8 +309,8 @@ def test_validate_schema_with_enum(status, priority):
     [
         (
             {"status": {"type": "enum[]", "description": "Empty enum"}},
-            lark.exceptions.UnexpectedCharacters,
-            "No terminal matches ']'",
+            ValueError,
+            "Invalid type annotation for expected field 'status'",
         ),
         (
             {
@@ -354,6 +354,44 @@ def test_validate_schema_with_invalid_enum_values(invalid_value):
 
     with pytest.raises(ValidationError):
         DynamicModel(status=invalid_value)
+
+
+def test_bare_list_type_definition_has_actionable_error():
+    schema: dict[str, Any] = {
+        "items": {
+            "type": "list",
+            "description": "Items to process",
+        },
+    }
+
+    with pytest.raises(ValueError) as exc_info:
+        create_expectation_model(schema)
+
+    message = str(exc_info.value)
+    assert "expected field 'items'" in message
+    assert "'list'" in message
+    assert "list[str]" in message
+    assert "list[Any]" in message
+
+
+@pytest.mark.parametrize("type_string", ["enum[]", "listx", "list | str"])
+def test_invalid_type_definition_uses_stable_actionable_error(type_string: str):
+    schema: dict[str, Any] = {
+        "items": {
+            "type": type_string,
+            "description": "Items to process",
+        },
+    }
+
+    with pytest.raises(ValueError) as exc_info:
+        create_expectation_model(schema)
+
+    message = str(exc_info.value)
+    assert "Invalid type annotation for expected field 'items'" in message
+    assert type_string in message
+    assert "Supported examples include" in message
+    assert "list[str]" in message
+    assert "enum" in message
 
 
 def test_trigger_input_schema_default_values_are_applied():

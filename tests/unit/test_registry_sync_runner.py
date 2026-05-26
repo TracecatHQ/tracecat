@@ -9,6 +9,7 @@ from pydantic import SecretStr
 
 from tracecat import config
 from tracecat.auth.types import Role
+from tracecat.exceptions import RegistryError
 from tracecat.registry.actions.enums import TemplateActionValidationErrorType
 from tracecat.registry.actions.schemas import (
     RegistryActionCreate,
@@ -21,6 +22,7 @@ from tracecat.registry.constants import DEFAULT_REGISTRY_ORIGIN
 from tracecat.registry.sync.artifact import RegistryArtifactBuildResult
 from tracecat.registry.sync.prebuilt import write_prebuilt_registry_manifest
 from tracecat.registry.sync.runner import (
+    ActionDiscoveryError,
     RegistrySyncRunner,
     RegistrySyncValidationError,
 )
@@ -243,6 +245,51 @@ async def test_runner_raises_before_upload_on_validation_errors(
         await runner.run(request)
 
     upload_tarball.assert_not_awaited()
+
+
+@pytest.mark.anyio
+async def test_discover_actions_marks_template_load_errors_non_retryable(
+    mocker,
+) -> None:
+    runner = RegistrySyncRunner()
+    mocker.patch(
+        "tracecat.registry.sync.runner.fetch_actions_from_subprocess",
+        mocker.AsyncMock(
+            side_effect=RegistryError(
+                "Failed to load template action from "
+                "/custom_actions/example_template.yml: invalid annotation"
+            )
+        ),
+    )
+
+    with pytest.raises(ActionDiscoveryError) as exc_info:
+        await runner._discover_actions(
+            repository_id=uuid4(),
+            origin="tracecat_registry",
+        )
+
+    assert exc_info.value.non_retryable is True
+
+
+@pytest.mark.anyio
+async def test_discover_actions_keeps_subprocess_errors_retryable(mocker) -> None:
+    runner = RegistrySyncRunner()
+    mocker.patch(
+        "tracecat.registry.sync.runner.fetch_actions_from_subprocess",
+        mocker.AsyncMock(
+            side_effect=RegistryError(
+                "Sync subprocess timed out after 300.0s for 'tracecat_registry'"
+            )
+        ),
+    )
+
+    with pytest.raises(ActionDiscoveryError) as exc_info:
+        await runner._discover_actions(
+            repository_id=uuid4(),
+            origin="tracecat_registry",
+        )
+
+    assert exc_info.value.non_retryable is False
 
 
 @pytest.mark.anyio
