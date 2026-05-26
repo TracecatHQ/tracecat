@@ -99,7 +99,6 @@ with workflow.unsafe.imports_passed_through():
     from tracecat_ee.agent.types import AgentWorkflowID
 
 
-AGENT_TOOL_DEFINITION_ERROR = "AgentToolDefinitionError"
 ROOT_AGENT_SCOPE = "root"
 BUILD_AGENT_TOOL_DEFINITIONS_PATCH = (
     "tracecat_ee.agent.workflows.durable.build_agent_tool_definitions"
@@ -117,6 +116,12 @@ def _activity_error_message(error: ActivityError) -> str:
     if cause is not None:
         return str(cause)
     return str(error)
+
+
+def _workflow_error_message(error: ApplicationError | ActivityError) -> str:
+    if isinstance(error, ActivityError):
+        return _activity_error_message(error)
+    return error.message
 
 
 def _build_approved_tool_run_input(
@@ -668,26 +673,28 @@ class DurableAgentWorkflow:
         try:
             cfg = await self._build_config(args)
             return await self._run_with_agent_executor(args, cfg)
-        except ApplicationError as e:
-            if e.type == AGENT_TOOL_DEFINITION_ERROR:
-                try:
-                    await workflow.execute_activity_method(
-                        AgentActivities.emit_session_error,
-                        EmitSessionErrorInputs(
-                            session_id=self.session_id,
-                            workspace_id=self.workspace_id,
-                            message=e.message,
-                        ),
-                        start_to_close_timeout=timedelta(seconds=10),
-                        retry_policy=RETRY_POLICIES["activity:fail_fast"],
-                    )
-                except ActivityError as emit_error:
-                    logger.warning(
-                        "Failed to emit terminal agent session error",
-                        session_id=self.session_id,
-                        error=str(emit_error),
-                    )
+        except (ApplicationError, ActivityError) as e:
+            await self._emit_session_error(_workflow_error_message(e))
             raise
+
+    async def _emit_session_error(self, message: str) -> None:
+        try:
+            await workflow.execute_activity_method(
+                AgentActivities.emit_session_error,
+                EmitSessionErrorInputs(
+                    session_id=self.session_id,
+                    workspace_id=self.workspace_id,
+                    message=message,
+                ),
+                start_to_close_timeout=timedelta(seconds=10),
+                retry_policy=RETRY_POLICIES["activity:fail_fast"],
+            )
+        except ActivityError as emit_error:
+            logger.warning(
+                "Failed to emit terminal agent session error",
+                session_id=self.session_id,
+                error=str(emit_error),
+            )
 
     @workflow.update
     def set_approvals(self, submission: WorkflowApprovalSubmission) -> None:

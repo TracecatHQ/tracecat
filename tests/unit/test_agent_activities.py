@@ -380,6 +380,7 @@ class TestCreateSessionActivity:
         # Set up the mock service
         mock_agent_session = MagicMock()
         mock_agent_session.agents_binding = None
+        mock_agent_session.sdk_session_id = None
         mock_service = AsyncMock()
         mock_service.get_or_create_session.return_value = (mock_agent_session, False)
 
@@ -410,6 +411,7 @@ class TestCreateSessionActivity:
 
         mock_agent_session = MagicMock()
         mock_agent_session.agents_binding = None
+        mock_agent_session.sdk_session_id = None
         mock_service = AsyncMock()
         mock_service.get_or_create_session.return_value = (
             mock_agent_session,
@@ -435,30 +437,48 @@ class TestCreateSessionActivity:
         (
             "incoming_agents_binding",
             "persisted_agents_binding",
+            "sdk_session_id",
             "expected_success",
+            "expected_backfill",
         ),
         [
             pytest.param(
                 ResolvedAgentsConfig.model_validate({"enabled": True, "subagents": []}),
                 None,
+                None,
+                True,
+                True,
+                id="fresh-null-backfills-resolved-agents",
+            ),
+            pytest.param(
+                ResolvedAgentsConfig.model_validate({"enabled": True, "subagents": []}),
+                None,
+                "sdk-session-1",
                 False,
-                id="legacy-null-cannot-enable-agents",
+                False,
+                id="resumable-null-cannot-enable-agents",
             ),
             pytest.param(
                 ResolvedAgentsConfig(),
                 {"enabled": False},
+                "sdk-session-1",
                 True,
+                False,
                 id="default-equivalent-jsonb",
             ),
             pytest.param(
                 ResolvedAgentsConfig.model_validate({"enabled": True, "subagents": []}),
                 {"enabled": False},
+                None,
+                False,
                 False,
                 id="different-explicit-binding",
             ),
             pytest.param(
                 None,
                 {"enabled": True, "subagents": []},
+                None,
+                False,
                 False,
                 id="missing-incoming-binding",
             ),
@@ -473,9 +493,11 @@ class TestCreateSessionActivity:
         mock_session_id: uuid.UUID,
         incoming_agents_binding: ResolvedAgentsConfig | None,
         persisted_agents_binding: dict[str, object] | None,
+        sdk_session_id: str | None,
         expected_success: bool,
+        expected_backfill: bool,
     ):
-        """Existing sessions reject changes to their bound subagent topology."""
+        """Existing sessions reject binding changes once SDK resume state exists."""
         input = CreateSessionInput(
             role=mock_role,
             session_id=mock_session_id,
@@ -486,6 +508,7 @@ class TestCreateSessionActivity:
 
         mock_agent_session = MagicMock()
         mock_agent_session.agents_binding = persisted_agents_binding
+        mock_agent_session.sdk_session_id = sdk_session_id
         mock_service = AsyncMock()
         mock_service.get_or_create_session.return_value = (
             mock_agent_session,
@@ -509,8 +532,18 @@ class TestCreateSessionActivity:
                 "Agent session was created with a different agents binding"
             )
             assert exc_info.value.non_retryable is True
-        mock_service.session.add.assert_not_called()
-        mock_service.session.commit.assert_not_awaited()
+
+        if expected_backfill:
+            assert incoming_agents_binding is not None
+            assert (
+                mock_agent_session.agents_binding
+                == incoming_agents_binding.model_dump(mode="json")
+            )
+            mock_service.session.add.assert_called_once_with(mock_agent_session)
+            mock_service.session.commit.assert_awaited_once()
+        else:
+            mock_service.session.add.assert_not_called()
+            mock_service.session.commit.assert_not_awaited()
 
     @pytest.mark.anyio
     @patch("tracecat.agent.session.activities.AgentSessionService.with_session")
@@ -529,6 +562,7 @@ class TestCreateSessionActivity:
         mock_service = AsyncMock()
         mock_agent_session = MagicMock()
         mock_agent_session.agents_binding = None
+        mock_agent_session.sdk_session_id = None
         mock_service.get_session.return_value = mock_agent_session
 
         mock_ctx = AsyncMock()
