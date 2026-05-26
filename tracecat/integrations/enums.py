@@ -27,3 +27,25 @@ class MCPAuthType(StrEnum):
     OAUTH2 = "OAUTH2"
     CUSTOM = "CUSTOM"
     NONE = "NONE"
+
+
+class IntegrationSource(StrEnum):
+    """Origin of a catalog integration."""
+
+    PLATFORM = "platform"
+    """Tracecat-shipped, available across workspaces."""
+    WORKSPACE = "workspace"
+    """Workspace-authored catalog entry."""
+
+
+class ConnectionAuthMethod(StrEnum):
+    """Auth method for catalog connection projections."""
+
+    OAUTH_AUTH_CODE = "oauth_auth_code"
+    """OAuth 2.0 Authorization Code grant (user-delegated, per-user)."""
+    OAUTH_CLIENT_CREDENTIALS = "oauth_client_credentials"
+    """OAuth 2.0 Client Credentials grant (machine-to-machine)."""
+    SERVICE_ACCOUNT = "service_account"
+    """Service account JSON (e.g. GCP)."""
+    STATIC_KV = "static_kv"
+    """Generic encrypted key-value blob."""

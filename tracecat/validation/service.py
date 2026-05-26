@@ -8,7 +8,6 @@ from pydantic import (
     ConfigDict,
     ValidationError,
 )
-from sqlalchemy.exc import MultipleResultsFound
 from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat_registry import (
     RegistryOAuthSecret,
@@ -21,7 +20,7 @@ from tracecat.db.engine import get_async_session_context_manager
 from tracecat.dsl.common import DSLInput, ExecuteSubflowArgs
 from tracecat.dsl.enums import PlatformAction
 from tracecat.dsl.schemas import ActionStatement
-from tracecat.exceptions import RegistryValidationError, TracecatNotFoundError
+from tracecat.exceptions import RegistryValidationError
 from tracecat.expressions import patterns
 from tracecat.expressions.common import ExprType
 from tracecat.expressions.eval import extract_expressions, is_template_only
@@ -37,8 +36,10 @@ from tracecat.interactions.schemas import ResponseInteraction
 from tracecat.logger import logger
 from tracecat.registry.actions.service import RegistryActionsService
 from tracecat.registry.versions.schemas import RegistryVersionManifest
+from tracecat.secrets.schemas import SecretSearch
 from tracecat.secrets.service import SecretsService
-from tracecat.tiers.entitlements import Entitlement, EntitlementService
+from tracecat.tiers.entitlements import EntitlementService
+from tracecat.tiers.enums import Entitlement
 from tracecat.tiers.service import TierService
 from tracecat.validation.common import json_schema_to_pydantic
 from tracecat.validation.schemas import (
@@ -86,19 +87,21 @@ async def validate_single_secret(
     results: list[SecretValidationResult] = []
     defined_secret = None
 
-    try:
-        defined_secret = await secrets_service.get_secret_by_name(
-            registry_secret.name, environment=environment
-        )
-    except TracecatNotFoundError as e:
+    defined_secrets = await secrets_service.search_secrets(
+        SecretSearch(names={registry_secret.name}, environment=environment)
+    )
+    checked_keys.add(registry_secret.name)
+    if len(defined_secrets) == 1:
+        defined_secret = defined_secrets[0]
+    else:
         # If the secret is required, we fail early
         if not registry_secret.optional:
             secret_repr = f"{registry_secret.name!r} (env: {environment!r})"
-            match e.__cause__:
-                case MultipleResultsFound():
-                    msg = f"Multiple secrets found when searching for secret {secret_repr}."
-                case _:
-                    msg = f"Secret {secret_repr} is missing in the secrets manager."
+            msg = (
+                f"Multiple secrets found when searching for secret {secret_repr}."
+                if len(defined_secrets) > 1
+                else f"Secret {secret_repr} is missing in the secrets manager."
+            )
             return [
                 SecretValidationResult(
                     status="error",
@@ -110,8 +113,6 @@ async def validate_single_secret(
                 )
             ]
         # If the secret is optional, we just log and move on
-    finally:
-        checked_keys.add(registry_secret.name)
 
     # At this point we either have an optional secret, or the secret is defined
     # Validate secret keys

@@ -2332,6 +2332,98 @@ export type CaseViewedEventRead = {
 }
 
 /**
+ * Supported authentication path for a catalog integration.
+ */
+export type CatalogAuthOption = {
+  auth_method: ConnectionAuthMethod
+  label: string
+  description?: string | null
+  provider_id?: string | null
+  grant_type?: OAuthGrantType | null
+  requires_config?: boolean
+  enabled?: boolean
+  status?: IntegrationStatus | null
+  fields?: Array<CatalogCredentialField>
+}
+
+/**
+ * A user/workspace authenticated binding to an integration.
+ */
+export type CatalogConnectionRead = {
+  id: string
+  integration_id: string
+  workspace_id: string
+  user_id: string | null
+  auth_method: ConnectionAuthMethod
+  label: string
+  expires_at: string | null
+  scope: string | null
+  metadata_?: {
+    [key: string]: unknown
+  }
+  created_at: string
+  updated_at: string
+  is_expired?: boolean
+}
+
+/**
+ * Credential field required by a static/auth configuration option.
+ */
+export type CatalogCredentialField = {
+  key: string
+  label: string
+  required?: boolean
+  secret?: boolean
+  multiline?: boolean
+  placeholder?: string | null
+  description?: string | null
+}
+
+/**
+ * Integration row enriched with related connections.
+ */
+export type CatalogIntegrationDetail = {
+  id: string
+  workspace_id: string | null
+  namespace: string
+  display_name: string
+  description?: string | null
+  icon_url?: string | null
+  source: IntegrationSource
+  auth_options?: Array<CatalogAuthOption>
+  created_at: string
+  updated_at: string
+  connections?: Array<CatalogConnectionRead>
+}
+
+/**
+ * Catalog row for an integration.
+ */
+export type CatalogIntegrationRead = {
+  id: string
+  workspace_id: string | null
+  namespace: string
+  display_name: string
+  description?: string | null
+  icon_url?: string | null
+  source: IntegrationSource
+  auth_options?: Array<CatalogAuthOption>
+  created_at: string
+  updated_at: string
+}
+
+/**
+ * Connection backed by an arbitrary key-value blob.
+ */
+export type CatalogStaticKVConnectionCreate = {
+  auth_method?: ConnectionAuthMethod
+  environment?: string
+  keys: {
+    [key: string]: string
+  }
+}
+
+/**
  * Supported external channel types.
  */
 export type ChannelType = "slack"
@@ -2739,6 +2831,15 @@ export type CommentUpdatedEventRead = {
    */
   created_at: string
 }
+
+/**
+ * Auth method for catalog connection projections.
+ */
+export type ConnectionAuthMethod =
+  | "oauth_auth_code"
+  | "oauth_client_credentials"
+  | "service_account"
+  | "static_kv"
 
 /**
  * Payload to continue a CE run after collecting approvals.
@@ -4339,6 +4440,11 @@ export type IntegrationReadMinimal = {
   status: IntegrationStatus
   is_expired: boolean
 }
+
+/**
+ * Origin of a catalog integration.
+ */
+export type IntegrationSource = "platform" | "workspace"
 
 /**
  * Status of an integration.
@@ -12189,6 +12295,46 @@ export type IntegrationsOauthCallbackData = {
 
 export type IntegrationsOauthCallbackResponse = IntegrationOAuthCallback
 
+export type IntegrationsCatalogListCatalogData = {
+  search?: string | null
+  source?: IntegrationSource | null
+  workspaceId: string
+}
+
+export type IntegrationsCatalogListCatalogResponse =
+  Array<CatalogIntegrationRead>
+
+export type IntegrationsCatalogGetCatalogEntryData = {
+  integrationId: string
+  workspaceId: string
+}
+
+export type IntegrationsCatalogGetCatalogEntryResponse =
+  CatalogIntegrationDetail
+
+export type IntegrationsCatalogListConnectionsData = {
+  integrationId: string
+  workspaceId: string
+}
+
+export type IntegrationsCatalogListConnectionsResponse =
+  Array<CatalogConnectionRead>
+
+export type IntegrationsCatalogCreateConnectionData = {
+  integrationId: string
+  requestBody: CatalogStaticKVConnectionCreate
+  workspaceId: string
+}
+
+export type IntegrationsCatalogCreateConnectionResponse = CatalogConnectionRead
+
+export type IntegrationsCatalogDeleteConnectionData = {
+  connectionId: string
+  workspaceId: string
+}
+
+export type IntegrationsCatalogDeleteConnectionResponse = void
+
 export type IntegrationsListIntegrationsData = {
   workspaceId: string
 }
@@ -18122,6 +18268,79 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: IntegrationOAuthCallback
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/integrations/catalog": {
+    get: {
+      req: IntegrationsCatalogListCatalogData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<CatalogIntegrationRead>
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/integrations/catalog/{integration_id}": {
+    get: {
+      req: IntegrationsCatalogGetCatalogEntryData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: CatalogIntegrationDetail
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/integrations/catalog/{integration_id}/connections": {
+    get: {
+      req: IntegrationsCatalogListConnectionsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<CatalogConnectionRead>
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    post: {
+      req: IntegrationsCatalogCreateConnectionData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: CatalogConnectionRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/integrations/connections/{connection_id}": {
+    delete: {
+      req: IntegrationsCatalogDeleteConnectionData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
         /**
          * Validation Error
          */

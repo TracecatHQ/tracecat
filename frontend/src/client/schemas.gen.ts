@@ -8838,6 +8838,433 @@ export const $CaseViewedEventRead = {
   description: "Event for when a case is viewed.",
 } as const
 
+export const $CatalogAuthOption = {
+  properties: {
+    auth_method: {
+      $ref: "#/components/schemas/ConnectionAuthMethod",
+    },
+    label: {
+      type: "string",
+      title: "Label",
+    },
+    description: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Description",
+    },
+    provider_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Provider Id",
+    },
+    grant_type: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/OAuthGrantType",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    requires_config: {
+      type: "boolean",
+      title: "Requires Config",
+      default: false,
+    },
+    enabled: {
+      type: "boolean",
+      title: "Enabled",
+      default: true,
+    },
+    status: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/IntegrationStatus",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    fields: {
+      items: {
+        $ref: "#/components/schemas/CatalogCredentialField",
+      },
+      type: "array",
+      title: "Fields",
+    },
+  },
+  type: "object",
+  required: ["auth_method", "label"],
+  title: "CatalogAuthOption",
+  description: "Supported authentication path for a catalog integration.",
+} as const
+
+export const $CatalogConnectionRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    integration_id: {
+      type: "string",
+      format: "uuid",
+      title: "Integration Id",
+    },
+    workspace_id: {
+      type: "string",
+      format: "uuid",
+      title: "Workspace Id",
+    },
+    user_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "User Id",
+    },
+    auth_method: {
+      $ref: "#/components/schemas/ConnectionAuthMethod",
+    },
+    label: {
+      type: "string",
+      title: "Label",
+    },
+    expires_at: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Expires At",
+    },
+    scope: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Scope",
+    },
+    metadata_: {
+      additionalProperties: true,
+      type: "object",
+      title: "Metadata",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+    updated_at: {
+      type: "string",
+      format: "date-time",
+      title: "Updated At",
+    },
+    is_expired: {
+      type: "boolean",
+      title: "Is Expired",
+      default: false,
+    },
+  },
+  type: "object",
+  required: [
+    "id",
+    "integration_id",
+    "workspace_id",
+    "user_id",
+    "auth_method",
+    "label",
+    "expires_at",
+    "scope",
+    "created_at",
+    "updated_at",
+  ],
+  title: "CatalogConnectionRead",
+  description: "A user/workspace authenticated binding to an integration.",
+} as const
+
+export const $CatalogCredentialField = {
+  properties: {
+    key: {
+      type: "string",
+      title: "Key",
+    },
+    label: {
+      type: "string",
+      title: "Label",
+    },
+    required: {
+      type: "boolean",
+      title: "Required",
+      default: true,
+    },
+    secret: {
+      type: "boolean",
+      title: "Secret",
+      default: true,
+    },
+    multiline: {
+      type: "boolean",
+      title: "Multiline",
+      default: false,
+    },
+    placeholder: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Placeholder",
+    },
+    description: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Description",
+    },
+  },
+  type: "object",
+  required: ["key", "label"],
+  title: "CatalogCredentialField",
+  description:
+    "Credential field required by a static/auth configuration option.",
+} as const
+
+export const $CatalogIntegrationDetail = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    workspace_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Workspace Id",
+    },
+    namespace: {
+      type: "string",
+      title: "Namespace",
+    },
+    display_name: {
+      type: "string",
+      title: "Display Name",
+    },
+    description: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Description",
+    },
+    icon_url: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Icon Url",
+    },
+    source: {
+      $ref: "#/components/schemas/IntegrationSource",
+    },
+    auth_options: {
+      items: {
+        $ref: "#/components/schemas/CatalogAuthOption",
+      },
+      type: "array",
+      title: "Auth Options",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+    updated_at: {
+      type: "string",
+      format: "date-time",
+      title: "Updated At",
+    },
+    connections: {
+      items: {
+        $ref: "#/components/schemas/CatalogConnectionRead",
+      },
+      type: "array",
+      title: "Connections",
+    },
+  },
+  type: "object",
+  required: [
+    "id",
+    "workspace_id",
+    "namespace",
+    "display_name",
+    "source",
+    "created_at",
+    "updated_at",
+  ],
+  title: "CatalogIntegrationDetail",
+  description: "Integration row enriched with related connections.",
+} as const
+
+export const $CatalogIntegrationRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    workspace_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Workspace Id",
+    },
+    namespace: {
+      type: "string",
+      title: "Namespace",
+    },
+    display_name: {
+      type: "string",
+      title: "Display Name",
+    },
+    description: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Description",
+    },
+    icon_url: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Icon Url",
+    },
+    source: {
+      $ref: "#/components/schemas/IntegrationSource",
+    },
+    auth_options: {
+      items: {
+        $ref: "#/components/schemas/CatalogAuthOption",
+      },
+      type: "array",
+      title: "Auth Options",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+    updated_at: {
+      type: "string",
+      format: "date-time",
+      title: "Updated At",
+    },
+  },
+  type: "object",
+  required: [
+    "id",
+    "workspace_id",
+    "namespace",
+    "display_name",
+    "source",
+    "created_at",
+    "updated_at",
+  ],
+  title: "CatalogIntegrationRead",
+  description: "Catalog row for an integration.",
+} as const
+
+export const $CatalogStaticKVConnectionCreate = {
+  properties: {
+    auth_method: {
+      $ref: "#/components/schemas/ConnectionAuthMethod",
+      default: "static_kv",
+    },
+    environment: {
+      type: "string",
+      title: "Environment",
+      default: "default",
+    },
+    keys: {
+      additionalProperties: {
+        type: "string",
+      },
+      type: "object",
+      title: "Keys",
+    },
+  },
+  type: "object",
+  required: ["keys"],
+  title: "CatalogStaticKVConnectionCreate",
+  description: "Connection backed by an arbitrary key-value blob.",
+} as const
+
 export const $ChannelType = {
   type: "string",
   enum: ["slack"],
@@ -9827,6 +10254,18 @@ export const $CommentUpdatedEventRead = {
   required: ["comment_id", "thread_root_id", "created_at"],
   title: "CommentUpdatedEventRead",
   description: "Event for when a top-level comment is updated.",
+} as const
+
+export const $ConnectionAuthMethod = {
+  type: "string",
+  enum: [
+    "oauth_auth_code",
+    "oauth_client_credentials",
+    "service_account",
+    "static_kv",
+  ],
+  title: "ConnectionAuthMethod",
+  description: "Auth method for catalog connection projections.",
 } as const
 
 export const $ContinueRunRequest = {
@@ -14128,6 +14567,13 @@ export const $IntegrationReadMinimal = {
   required: ["id", "provider_id", "status", "is_expired"],
   title: "IntegrationReadMinimal",
   description: "Response model for user integration.",
+} as const
+
+export const $IntegrationSource = {
+  type: "string",
+  enum: ["platform", "workspace"],
+  title: "IntegrationSource",
+  description: "Origin of a catalog integration.",
 } as const
 
 export const $IntegrationStatus = {
