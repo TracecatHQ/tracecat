@@ -161,6 +161,72 @@ async def test_backfill_registry_artifacts_activity_skips_existing_artifacts(
 
 
 @pytest.mark.anyio
+async def test_backfill_registry_artifacts_activity_accepts_existing_squashfs_uri(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def fake_file_exists(*, key: str, bucket: str) -> bool:
+        assert bucket == "registry-artifacts"
+        assert key == "platform/tarball-venvs/test/1.0.0/site-packages.squashfs"
+        return True
+
+    monkeypatch.setattr(
+        "tracecat.registry.sync.workflow.blob.file_exists",
+        fake_file_exists,
+    )
+
+    result = await backfill_registry_artifacts_activity(
+        RegistryArtifactsBackfillItem(
+            version_id=uuid4(),
+            version="1.0.0",
+            tarball_uri=(
+                "s3://registry-artifacts/platform/tarball-venvs/test/1.0.0/"
+                "site-packages.squashfs"
+            ),
+        )
+    )
+
+    assert result.status == "exists"
+
+
+@pytest.mark.anyio
+async def test_backfill_registry_artifacts_activity_skips_missing_squashfs_uri(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def fake_file_exists(*, key: str, bucket: str) -> bool:
+        assert bucket == "registry-artifacts"
+        assert key == "platform/tarball-venvs/test/1.0.0/site-packages.squashfs"
+        return False
+
+    async def fail_download_tarball_venv(**kwargs: object) -> Path:
+        raise AssertionError(f"download should not be called: {kwargs}")
+
+    monkeypatch.setattr(
+        "tracecat.registry.sync.workflow.blob.file_exists",
+        fake_file_exists,
+    )
+    monkeypatch.setattr(
+        "tracecat.registry.sync.workflow.download_tarball_venv",
+        fail_download_tarball_venv,
+    )
+
+    result = await backfill_registry_artifacts_activity(
+        RegistryArtifactsBackfillItem(
+            version_id=uuid4(),
+            version="1.0.0",
+            tarball_uri=(
+                "s3://registry-artifacts/platform/tarball-venvs/test/1.0.0/"
+                "site-packages.squashfs"
+            ),
+        )
+    )
+
+    assert result.status == "skipped"
+    assert result.error == (
+        "SquashFS artifact is missing and no tarball source is available."
+    )
+
+
+@pytest.mark.anyio
 async def test_backfill_registry_artifacts_activity_creates_sidecar(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

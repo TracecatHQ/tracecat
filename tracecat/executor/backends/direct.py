@@ -43,18 +43,18 @@ class DirectBackend(EphemeralBackend):
             task_ref=input.task.ref,
         )
 
-        tarball_uris = await self._get_tarball_uris(input, role)
+        artifact_uris = await self._get_artifact_uris(input, role)
 
-        if not tarball_uris and not config.TRACECAT__LOCAL_REPOSITORY_ENABLED:
+        if not artifact_uris and not config.TRACECAT__LOCAL_REPOSITORY_ENABLED:
             logger.error(
-                "No registry tarballs resolved - cannot execute action",
+                "No registry artifacts resolved - cannot execute action",
                 action=action_name,
                 action_origin=resolved_context.action_impl.origin,
             )
             return ExecutorResultFailure(
                 error=ExecutorActionErrorInfo(
                     type="RegistryError",
-                    message="No registry tarballs available for execution. "
+                    message="No registry artifacts available for execution. "
                     "Check that the registry is synced and the registry_lock is valid.",
                     action_name=action_name,
                     filename="<direct>",
@@ -62,17 +62,17 @@ class DirectBackend(EphemeralBackend):
                 )
             )
 
-        if tarball_uris:
-            logger.debug("Using registry tarballs", count=len(tarball_uris))
+        if artifact_uris:
+            logger.debug("Using registry artifacts", count=len(artifact_uris))
         else:
-            logger.debug("Using local repository mode, no tarballs mounted")
+            logger.debug("Using local repository mode, no artifacts mounted")
 
         runner = get_action_runner()
         result = await runner.execute_action(
             input=input,
             role=role,
             resolved_context=resolved_context,
-            tarball_uris=tarball_uris,
+            artifact_uris=artifact_uris,
             timeout=timeout,
             force_sandbox=False,
         )

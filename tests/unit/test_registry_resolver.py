@@ -176,6 +176,19 @@ class TestResolveAction:
 
         assert "Actions reference unknown origins" in str(exc_info.value)
 
+    def test_registry_lock_rejects_unknown_fingerprint_origin(self):
+        """Test error when an origin fingerprint is not in the lock origins."""
+        from pydantic import ValidationError
+
+        with pytest.raises(ValidationError) as exc_info:
+            RegistryLock(
+                origins={"tracecat_registry": "2024.12.10"},
+                actions={},
+                origin_fingerprints={"missing_origin": "fingerprint"},
+            )
+
+        assert "Origin fingerprints reference unknown origins" in str(exc_info.value)
+
     @pytest.mark.anyio
     async def test_resolve_action_cache_not_populated_error(self):
         """Test error when manifest not found in DB."""

@@ -1,8 +1,9 @@
-"""Tarball venv building utilities for registry packages.
+"""SquashFS venv building utilities for registry packages.
 
-This module provides functionality to build compressed tarball venvs from
-registry packages for upload to S3/MinIO. Tarballs are used by executors
-to install and execute registry actions.
+Builds a SquashFS image of a registry package's site-packages and uploads it
+to S3/MinIO so executors can mount (or extract via unsquashfs) it at runtime.
+The module also retains a small set of legacy helpers used by the backfill
+flow for registry versions originally uploaded as gzip tarballs.
 """
 
 from __future__ import annotations
@@ -10,7 +11,6 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import os
-import re
 import shutil
 import stat
 import subprocess
@@ -20,7 +20,6 @@ import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
-from urllib.parse import urlparse
 
 import aiofiles
 import tracecat_registry
@@ -33,48 +32,18 @@ if TYPE_CHECKING:
     from tracecat.ssh import SshEnv
 
 
-class TarballBuildError(Exception):
-    """Raised when tarball building fails."""
+class RegistryArtifactBuildError(Exception):
+    """Raised when registry venv (SquashFS) building fails."""
 
 
 @dataclass
-class TarballVenvBuildResult:
-    """Result of building a compressed tarball venv."""
+class RegistryArtifactBuildResult:
+    """Result of building a SquashFS venv image."""
 
-    tarball_path: Path
-    tarball_name: str
+    squashfs_path: Path
+    squashfs_name: str
     content_hash: str
-    compressed_size_bytes: int
-    squashfs_path: Path | None = None
-    squashfs_size_bytes: int | None = None
-
-
-def _squashfs_path_for(tarball_path: Path) -> Path:
-    """Return the sibling SquashFS path for a gzip tarball path."""
-    if tarball_path.name.endswith(".tar.gz"):
-        squashfs_name = tarball_path.name.removesuffix(".tar.gz") + ".squashfs"
-        return tarball_path.with_name(squashfs_name)
-    return tarball_path.with_name(f"{tarball_path.name}.squashfs")
-
-
-def _squashfs_key_for(key: str) -> str:
-    """Return the sibling SquashFS key for a gzip tarball S3 key."""
-    if key.endswith(".tar.gz"):
-        return key.removesuffix(".tar.gz") + ".squashfs"
-    return f"{key}.squashfs"
-
-
-def parse_s3_uri(uri: str) -> tuple[str, str]:
-    """Parse an S3 URI into bucket and key."""
-    parsed = urlparse(uri)
-    if parsed.scheme != "s3" or not parsed.netloc or not parsed.path.strip("/"):
-        raise ValueError(f"Invalid S3 URI: {uri}")
-    return parsed.netloc, parsed.path.lstrip("/")
-
-
-def get_squashfs_sidecar_key(tarball_key: str) -> str:
-    """Return the sibling SquashFS key for a tarball S3 key."""
-    return _squashfs_key_for(tarball_key)
+    artifact_size_bytes: int
 
 
 def _compute_file_hash(file_path: Path) -> str:
@@ -112,7 +81,7 @@ def _copy_squashfs_entry(
 
     if path.is_symlink():
         if not preserve_symlinks:
-            logger.info(
+            logger.debug(
                 "Skipping link entry while staging SquashFS",
                 path=str(path),
                 link_target=os.readlink(path),
@@ -151,7 +120,7 @@ def _copy_squashfs_entry(
             dest.chmod(normalized_mode)
         return
 
-    logger.info("Skipping non-file entry while staging SquashFS", path=str(path))
+    logger.debug("Skipping non-file entry while staging SquashFS", path=str(path))
 
 
 def _create_squashfs_image(
@@ -166,7 +135,7 @@ def _create_squashfs_image(
 
     mksquashfs = shutil.which("mksquashfs")
     if mksquashfs is None:
-        logger.warning("Skipping SquashFS sidecar build; mksquashfs is not installed")
+        logger.warning("Skipping SquashFS image build; mksquashfs is not installed")
         return False
 
     with tempfile.TemporaryDirectory(prefix="tracecat_squashfs_root_") as staging:
@@ -198,24 +167,28 @@ def _create_squashfs_image(
         result = subprocess_run(cmd)
         if result.returncode != 0:
             error = result.stderr.strip() or result.stdout.strip()
-            raise TarballBuildError(f"Failed to build SquashFS sidecar: {error}")
+            raise RegistryArtifactBuildError(f"Failed to build SquashFS image: {error}")
 
     return True
 
 
-def _create_squashfs_sidecar(
+def _build_required_squashfs_image(
     squashfs_path: Path,
     entries: list[tuple[Path, str]],
     *,
     preserve_symlinks: bool = True,
 ) -> None:
-    """Create a SquashFS sidecar when enabled, otherwise leave no file behind."""
+    """Create the primary SquashFS image; raise if disabled or unavailable."""
     if not _create_squashfs_image(
         squashfs_path,
         entries,
         preserve_symlinks=preserve_symlinks,
     ):
         squashfs_path.unlink(missing_ok=True)
+        raise RegistryArtifactBuildError(
+            "Cannot build registry venv: mksquashfs is unavailable or SquashFS "
+            "build is disabled (TRACECAT__REGISTRY_SYNC_SQUASHFS_ENABLED)."
+        )
 
 
 def subprocess_run(cmd: list[str]) -> subprocess.CompletedProcess[str]:
@@ -225,21 +198,6 @@ def subprocess_run(cmd: list[str]) -> subprocess.CompletedProcess[str]:
     shelling out.
     """
     return subprocess.run(cmd, capture_output=True, text=True, check=False)
-
-
-def _slugify_origin(origin: str) -> str:
-    """Convert a repository origin to a safe slug for S3 keys."""
-    # Remove protocol prefix
-    slug = (
-        origin.replace("git+ssh://", "").replace("https://", "").replace("http://", "")
-    )
-    # Replace non-alphanumeric characters with underscores
-    slug = re.sub(r"[^a-zA-Z0-9_-]", "_", slug)
-    # Remove consecutive underscores
-    slug = re.sub(r"_+", "_", slug)
-    # Remove leading/trailing underscores
-    slug = slug.strip("_")
-    return slug[:100]  # Limit length
 
 
 def get_builtin_registry_source_path() -> Path:
@@ -253,7 +211,7 @@ def get_builtin_registry_source_path() -> Path:
         Path to the package directory containing pyproject.toml.
 
     Raises:
-        TarballBuildError: If package path cannot be determined.
+        RegistryArtifactBuildError: If package path cannot be determined.
     """
     # Check configured path first (Docker default: /app/packages/tracecat-registry)
     config_path = Path(config.TRACECAT__BUILTIN_REGISTRY_SOURCE_PATH)
@@ -268,7 +226,7 @@ def get_builtin_registry_source_path() -> Path:
         pyproject = package_path / "pyproject.toml"
 
     if not pyproject.exists():
-        raise TarballBuildError(
+        raise RegistryArtifactBuildError(
             "Cannot find pyproject.toml for tracecat_registry. "
             "Set TRACECAT__BUILTIN_REGISTRY_SOURCE_PATH or use source installation."
         )
@@ -287,13 +245,13 @@ def get_installed_site_packages_paths() -> list[Path]:
     for path_name in ("purelib", "platlib"):
         site_packages_str = sysconfig.get_path(path_name)
         if site_packages_str is None:
-            raise TarballBuildError(
+            raise RegistryArtifactBuildError(
                 f"Could not resolve {path_name} path from current interpreter."
             )
 
         site_packages = Path(site_packages_str)
         if not site_packages.exists():
-            raise TarballBuildError(
+            raise RegistryArtifactBuildError(
                 f"Resolved {path_name} path does not exist: {site_packages}"
             )
 
@@ -307,13 +265,13 @@ def get_installed_site_packages_paths() -> list[Path]:
     return site_packages_paths
 
 
-async def build_tarball_venv_from_installed_environment(
+async def build_artifact_from_installed_environment(
     *,
     package_name: str,
     package_dir: Path,
     output_dir: Path | None = None,
-) -> TarballVenvBuildResult:
-    """Build a tarball from the current interpreter's installed environment.
+) -> RegistryArtifactBuildResult:
+    """Build a SquashFS venv image from the current interpreter's installed environment.
 
     This avoids creating a fresh venv and re-installing dependencies from indexes.
     It's primarily used for builtin registry sync where dependencies are already
@@ -321,7 +279,7 @@ async def build_tarball_venv_from_installed_environment(
     """
 
     if output_dir is None:
-        output_dir = Path(tempfile.mkdtemp(prefix="tracecat_tarball_venv_"))
+        output_dir = Path(tempfile.mkdtemp(prefix="tracecat_registry_venv_"))
     output_dir.mkdir(parents=True, exist_ok=True)
 
     site_packages_paths = get_installed_site_packages_paths()
@@ -345,12 +303,11 @@ async def build_tarball_venv_from_installed_environment(
         package_site_entry is None or package_site_entry_is_symlink
     )
 
-    tarball_name = "site-packages.tar.gz"
-    tarball_path = output_dir / tarball_name
-    squashfs_path = _squashfs_path_for(tarball_path)
+    squashfs_name = "site-packages.squashfs"
+    squashfs_path = output_dir / squashfs_name
 
     logger.info(
-        "Building tarball from installed environment",
+        "Building SquashFS venv from installed environment",
         site_packages_paths=[str(path) for path in site_packages_paths],
         package_name=package_name,
         package_dir=str(package_dir),
@@ -359,17 +316,7 @@ async def build_tarball_venv_from_installed_environment(
         package_site_entry_is_symlink=package_site_entry_is_symlink,
     )
 
-    def _filter_link_entries(member: tarfile.TarInfo) -> tarfile.TarInfo | None:
-        if member.issym() or member.islnk():
-            logger.info(
-                "Skipping link entry while building installed environment tarball",
-                member_name=member.name,
-                link_target=member.linkname,
-            )
-            return None
-        return member
-
-    def _create_tarball() -> None:
+    def _build_image() -> None:
         entries: list[tuple[Path, str]] = []
         for site_packages in site_packages_paths:
             entries.extend((item, item.name) for item in site_packages.iterdir())
@@ -377,11 +324,7 @@ async def build_tarball_venv_from_installed_environment(
         if not package_in_site_packages and should_overlay_editable_package:
             entries.append((package_dir, package_name))
 
-        with tarfile.open(tarball_path, "w:gz", compresslevel=6) as tar:
-            for path, arcname in entries:
-                tar.add(path, arcname=arcname, filter=_filter_link_entries)
-
-        _create_squashfs_sidecar(
+        _build_required_squashfs_image(
             squashfs_path,
             entries,
             preserve_symlinks=False,
@@ -393,72 +336,65 @@ async def build_tarball_venv_from_installed_environment(
                 package_name=package_name,
             )
 
-    await asyncio.to_thread(_create_tarball)
+    await asyncio.to_thread(_build_image)
 
-    content_hash = await asyncio.to_thread(_compute_file_hash, tarball_path)
-    compressed_size = tarball_path.stat().st_size
-    squashfs_size = squashfs_path.stat().st_size if squashfs_path.exists() else None
+    content_hash = await asyncio.to_thread(_compute_file_hash, squashfs_path)
+    artifact_size = squashfs_path.stat().st_size
 
     logger.info(
-        "Installed environment tarball built successfully",
-        tarball_name=tarball_name,
+        "Installed environment SquashFS venv built successfully",
+        squashfs_name=squashfs_name,
         content_hash=content_hash[:16],
-        compressed_size_bytes=compressed_size,
-        squashfs_size_bytes=squashfs_size,
+        artifact_size_bytes=artifact_size,
     )
 
-    return TarballVenvBuildResult(
-        tarball_path=tarball_path,
-        tarball_name=tarball_name,
+    return RegistryArtifactBuildResult(
+        squashfs_path=squashfs_path,
+        squashfs_name=squashfs_name,
         content_hash=content_hash,
-        compressed_size_bytes=compressed_size,
-        squashfs_path=squashfs_path if squashfs_path.exists() else None,
-        squashfs_size_bytes=squashfs_size,
+        artifact_size_bytes=artifact_size,
     )
 
 
-async def build_tarball_venv_from_path(
+async def build_artifact_from_path(
     package_path: Path,
     output_dir: Path | None = None,
     python_version: str = "3.12",
-) -> TarballVenvBuildResult:
-    """Build a complete venv with all dependencies and compress as tarball.
+) -> RegistryArtifactBuildResult:
+    """Build a complete venv with all dependencies as a SquashFS image.
 
-    This creates a portable venv tarball that can be extracted and used
-    directly without running pip install. Faster for deployment since
-    extraction is quicker than package installation.
+    This creates a portable venv image that can be mounted (or extracted) and
+    used directly without running pip install.
 
     Args:
         package_path: Path to the package directory (must contain pyproject.toml)
-        output_dir: Directory to output the tarball (defaults to temp dir)
+        output_dir: Directory to output the image (defaults to temp dir)
         python_version: Python version for the venv (default: 3.12)
 
     Returns:
-        TarballVenvBuildResult with the tarball path and metadata
+        RegistryArtifactBuildResult with the image path and metadata
 
     Raises:
-        TarballBuildError: If the build fails
+        RegistryArtifactBuildError: If the build fails
     """
 
     if not package_path.exists():
-        raise TarballBuildError(f"Package path does not exist: {package_path}")
+        raise RegistryArtifactBuildError(f"Package path does not exist: {package_path}")
 
     pyproject = package_path / "pyproject.toml"
     if not pyproject.exists():
-        raise TarballBuildError(f"No pyproject.toml found in {package_path}")
+        raise RegistryArtifactBuildError(f"No pyproject.toml found in {package_path}")
 
-    # Use temp dir if no output dir specified
     if output_dir is None:
-        output_dir = Path(tempfile.mkdtemp(prefix="tracecat_tarball_venv_"))
+        output_dir = Path(tempfile.mkdtemp(prefix="tracecat_registry_venv_"))
 
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    # Create venv directory
     venv_dir = output_dir / "venv"
     venv_dir.mkdir(parents=True, exist_ok=True)
 
     logger.info(
-        "Building tarball venv from package",
+        "Building SquashFS venv from package",
         package_path=str(package_path),
         output_dir=str(output_dir),
     )
@@ -476,10 +412,9 @@ async def build_tarball_venv_from_path(
     if process.returncode != 0:
         error_msg = stderr.decode().strip()
         logger.error("Failed to create venv", error=error_msg)
-        raise TarballBuildError(f"Failed to create venv: {error_msg}")
+        raise RegistryArtifactBuildError(f"Failed to create venv: {error_msg}")
 
     # Step 2: Install the package and all dependencies into the venv
-    # Use --frozen to respect the lock file if present
     install_cmd = [
         "uv",
         "pip",
@@ -499,31 +434,31 @@ async def build_tarball_venv_from_path(
     if process.returncode != 0:
         error_msg = stderr.decode().strip()
         logger.error("Failed to install package into venv", error=error_msg)
-        raise TarballBuildError(f"Failed to install package: {error_msg}")
+        raise RegistryArtifactBuildError(f"Failed to install package: {error_msg}")
 
-    # Step 3: Extract just the site-packages directory (what we need for PYTHONPATH)
+    # Step 3: Locate the site-packages directory (PYTHONPATH entry)
     site_packages = venv_dir / "lib" / f"python{python_version}" / "site-packages"
     if not site_packages.exists():
-        # Try without minor version
         site_packages_candidates = list(
             (venv_dir / "lib").glob("python*/site-packages")
         )
         if site_packages_candidates:
             site_packages = site_packages_candidates[0]
         else:
-            raise TarballBuildError(f"Could not find site-packages in {venv_dir}")
+            raise RegistryArtifactBuildError(
+                f"Could not find site-packages in {venv_dir}"
+            )
 
     # Step 4: Pre-compile Python bytecode for faster imports in sandbox
-    # This avoids runtime compilation overhead when the tarball is extracted
     logger.info("Pre-compiling Python bytecode", site_packages=str(site_packages))
     compile_cmd = [
         str(venv_dir / "bin" / "python"),
         "-m",
         "compileall",
-        "-q",  # Quiet mode
-        "-f",  # Force recompile
+        "-q",
+        "-f",
         "-j",
-        "0",  # Use all CPU cores
+        "0",
         str(site_packages),
     ]
     process = await asyncio.create_subprocess_exec(
@@ -534,89 +469,77 @@ async def build_tarball_venv_from_path(
     await process.communicate()
     # Ignore errors - bytecode compilation is optional optimization
 
-    # Step 5: Create compressed tarball of site-packages
-    tarball_name = "site-packages.tar.gz"
-    tarball_path = output_dir / tarball_name
-    squashfs_path = _squashfs_path_for(tarball_path)
+    # Step 5: Pack site-packages into a SquashFS image
+    squashfs_name = "site-packages.squashfs"
+    squashfs_path = output_dir / squashfs_name
 
     logger.info(
-        "Compressing site-packages to tarball",
+        "Packing site-packages into SquashFS image",
         site_packages=str(site_packages),
-        tarball_path=str(tarball_path),
+        squashfs_path=str(squashfs_path),
     )
 
-    # Run tar compression in a thread to not block async loop
-    def _create_tarball() -> None:
+    def _build_image() -> None:
         entries = [(item, item.name) for item in site_packages.iterdir()]
-        with tarfile.open(tarball_path, "w:gz", compresslevel=6) as tar:
-            # Add site-packages contents with relative paths
-            for path, arcname in entries:
-                tar.add(path, arcname=arcname)
-        _create_squashfs_sidecar(squashfs_path, entries)
+        _build_required_squashfs_image(squashfs_path, entries)
 
-    await asyncio.to_thread(_create_tarball)
+    await asyncio.to_thread(_build_image)
 
     # Step 6: Compute content hash
-    content_hash = await asyncio.to_thread(_compute_file_hash, tarball_path)
-    compressed_size = tarball_path.stat().st_size
-    squashfs_size = squashfs_path.stat().st_size if squashfs_path.exists() else None
+    content_hash = await asyncio.to_thread(_compute_file_hash, squashfs_path)
+    artifact_size = squashfs_path.stat().st_size
 
     logger.info(
-        "Tarball venv built successfully",
-        tarball_name=tarball_name,
+        "SquashFS venv built successfully",
+        squashfs_name=squashfs_name,
         content_hash=content_hash[:16],
-        compressed_size_bytes=compressed_size,
-        squashfs_size_bytes=squashfs_size,
+        artifact_size_bytes=artifact_size,
     )
 
-    return TarballVenvBuildResult(
-        tarball_path=tarball_path,
-        tarball_name=tarball_name,
+    return RegistryArtifactBuildResult(
+        squashfs_path=squashfs_path,
+        squashfs_name=squashfs_name,
         content_hash=content_hash,
-        compressed_size_bytes=compressed_size,
-        squashfs_path=squashfs_path if squashfs_path.exists() else None,
-        squashfs_size_bytes=squashfs_size,
+        artifact_size_bytes=artifact_size,
     )
 
 
-async def build_tarball_venv_from_git(
+async def build_artifact_from_git(
     git_url: str,
     commit_sha: str,
     env: SshEnv | None = None,
     output_dir: Path | None = None,
     python_version: str = "3.12",
-) -> TarballVenvBuildResult:
-    """Build a tarball venv from a git repository.
+) -> RegistryArtifactBuildResult:
+    """Build a SquashFS venv image from a git repository.
 
     Args:
         git_url: Git SSH URL (git+ssh://...)
         commit_sha: Commit SHA to checkout
         env: SSH environment for git operations
-        output_dir: Directory to output the tarball
+        output_dir: Directory to output the image
         python_version: Python version for the venv (default: 3.12)
 
     Returns:
-        TarballVenvBuildResult with the tarball path and metadata
+        RegistryArtifactBuildResult with the image path and metadata
 
     Raises:
-        TarballBuildError: If the build fails
+        RegistryArtifactBuildError: If the build fails
     """
     if output_dir is None:
-        output_dir = Path(tempfile.mkdtemp(prefix="tracecat_tarball_venv_"))
+        output_dir = Path(tempfile.mkdtemp(prefix="tracecat_registry_venv_"))
 
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    # Clone the repository to a temp directory
     async with aiofiles.tempfile.TemporaryDirectory(
         prefix="tracecat_git_"
     ) as clone_dir:
         clone_path = Path(clone_dir)
 
-        # Strip git+ssh:// prefix for git clone
         clone_url = git_url.replace("git+ssh://", "ssh://")
 
         logger.info(
-            "Cloning repository for tarball venv build",
+            "Cloning repository for SquashFS venv build",
             url=clone_url,
             commit_sha=commit_sha,
         )
@@ -638,7 +561,7 @@ async def build_tarball_venv_from_git(
 
         if process.returncode != 0:
             error_msg = stderr.decode().strip()
-            raise TarballBuildError(f"Failed to clone repository: {error_msg}")
+            raise RegistryArtifactBuildError(f"Failed to clone repository: {error_msg}")
 
         # Fetch the specific commit
         fetch_cmd = ["git", "fetch", "origin", commit_sha]
@@ -653,7 +576,7 @@ async def build_tarball_venv_from_git(
 
         if process.returncode != 0:
             error_msg = stderr.decode().strip()
-            raise TarballBuildError(f"Failed to fetch commit: {error_msg}")
+            raise RegistryArtifactBuildError(f"Failed to fetch commit: {error_msg}")
 
         # Checkout the specific commit
         checkout_cmd = ["git", "checkout", commit_sha]
@@ -668,37 +591,34 @@ async def build_tarball_venv_from_git(
 
         if process.returncode != 0:
             error_msg = stderr.decode().strip()
-            raise TarballBuildError(f"Failed to checkout commit: {error_msg}")
+            raise RegistryArtifactBuildError(f"Failed to checkout commit: {error_msg}")
 
-        # Build the tarball venv from the cloned repository
-        return await build_tarball_venv_from_path(
-            clone_path, output_dir, python_version
-        )
+        return await build_artifact_from_path(clone_path, output_dir, python_version)
 
 
-async def build_builtin_registry_tarball_venv(
+async def build_builtin_registry_artifact(
     output_dir: Path | None = None,
-) -> TarballVenvBuildResult:
-    """Build a tarball venv from the builtin tracecat_registry package.
+) -> RegistryArtifactBuildResult:
+    """Build a SquashFS venv image from the builtin tracecat_registry package.
 
     Args:
-        output_dir: Directory to output the tarball
+        output_dir: Directory to output the image
 
     Returns:
-        TarballVenvBuildResult with the tarball path and metadata
+        RegistryArtifactBuildResult with the image path and metadata
 
     Raises:
-        TarballBuildError: If the build fails
+        RegistryArtifactBuildError: If the build fails
     """
     if config.TRACECAT__REGISTRY_SYNC_BUILTIN_USE_INSTALLED_SITE_PACKAGES:
-        return await build_tarball_venv_from_installed_environment(
+        return await build_artifact_from_installed_environment(
             package_name="tracecat_registry",
             package_dir=Path(tracecat_registry.__file__).resolve().parent,
             output_dir=output_dir,
         )
 
     package_path = get_builtin_registry_source_path()
-    return await build_tarball_venv_from_path(package_path, output_dir)
+    return await build_artifact_from_path(package_path, output_dir)
 
 
 async def build_squashfs_sidecar_from_tarball(
@@ -707,7 +627,11 @@ async def build_squashfs_sidecar_from_tarball(
     squashfs_path: Path,
     work_dir: Path,
 ) -> bool:
-    """Build a SquashFS sidecar from an existing site-packages tarball."""
+    """Build a SquashFS sidecar from an existing site-packages tarball.
+
+    Used by the backfill flow to retrofit SquashFS artifacts onto registry
+    versions that were originally uploaded as gzip tarballs only.
+    """
 
     def _build_sidecar() -> bool:
         if not tarball_path.exists():
@@ -719,92 +643,41 @@ async def build_squashfs_sidecar_from_tarball(
             tar.extractall(path=extracted_dir, filter="data")
 
         entries = [(item, item.name) for item in extracted_dir.iterdir()]
-        _create_squashfs_sidecar(
+        created = _create_squashfs_image(
             squashfs_path,
             entries,
             preserve_symlinks=True,
         )
+        if not created:
+            squashfs_path.unlink(missing_ok=True)
         return squashfs_path.exists()
 
     return await asyncio.to_thread(_build_sidecar)
 
 
-def get_tarball_venv_s3_key(
-    organization_id: str,
-    repository_origin: str,
-    version: str,
-) -> str:
-    """Generate the S3 key for a tarball venv file.
-
-    Format: {org_id}/tarball-venvs/{origin_slug}/{version}/site-packages.tar.gz
-
-    Args:
-        organization_id: Organization UUID
-        repository_origin: Repository origin (e.g., "tracecat_registry", "git+ssh://...")
-        version: Version string
-
-    Returns:
-        S3 key string
-    """
-    origin_slug = _slugify_origin(repository_origin)
-    return (
-        f"{organization_id}/tarball-venvs/{origin_slug}/{version}/site-packages.tar.gz"
-    )
-
-
-async def upload_tarball_venv(
-    tarball_path: Path,
-    squashfs_path: Path | None,
+async def upload_squashfs_venv(
+    squashfs_path: Path,
     key: str,
     bucket: str,
 ) -> str:
-    """Upload a tarball venv file to S3/MinIO.
-
-    Args:
-        tarball_path: Local path to the tarball file
-        squashfs_path: Optional local path to the SquashFS sidecar
-        key: The S3 object key
-        bucket: Bucket name
-
-    Returns:
-        The S3 URI of the uploaded tarball (s3://{bucket}/{key})
-
-    Raises:
-        FileNotFoundError: If the tarball file doesn't exist
-    """
-    if not tarball_path.exists():
-        raise FileNotFoundError(f"Tarball file not found: {tarball_path}")
-
-    squashfs_key = _squashfs_key_for(key)
-    if squashfs_path is not None and not squashfs_path.exists():
+    """Upload a SquashFS registry environment artifact to S3/MinIO."""
+    if not squashfs_path.exists():
         raise FileNotFoundError(f"SquashFS file not found: {squashfs_path}")
-    await blob.delete_file(key=squashfs_key, bucket=bucket)
 
-    # Stream from disk via multipart upload so we don't hold hundreds of MB
-    # of tarball bytes in the API process memory at once.
     await blob.upload_file_from_path(
-        path=tarball_path,
+        path=squashfs_path,
         key=key,
         bucket=bucket,
-        content_type="application/gzip",
+        content_type="application/vnd.squashfs",
     )
-
-    if squashfs_path is not None:
-        await blob.upload_file_from_path(
-            path=squashfs_path,
-            key=squashfs_key,
-            bucket=bucket,
-            content_type="application/vnd.squashfs",
-        )
 
     s3_uri = f"s3://{bucket}/{key}"
     logger.info(
-        "Tarball venv uploaded successfully",
+        "SquashFS registry artifact uploaded successfully",
         key=key,
         bucket=bucket,
         s3_uri=s3_uri,
-        size=tarball_path.stat().st_size,
-        squashfs_size=squashfs_path.stat().st_size if squashfs_path else None,
+        size=squashfs_path.stat().st_size,
     )
     return s3_uri
 
