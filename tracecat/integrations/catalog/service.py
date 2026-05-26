@@ -222,14 +222,10 @@ def _validate_static_kv_fields(
     keys: Mapping[str, str],
 ) -> None:
     required = {field.key for field in static_option.fields if field.required}
-    allowed = {field.key for field in static_option.fields}
     provided = set(keys)
     missing = sorted(required - provided)
-    unknown = sorted(provided - allowed)
     if missing:
         raise ValueError("Missing required credential fields: " + ", ".join(missing))
-    if unknown:
-        raise ValueError("Unsupported credential fields: " + ", ".join(unknown))
 
 
 class IntegrationCatalogService(BaseWorkspaceService):

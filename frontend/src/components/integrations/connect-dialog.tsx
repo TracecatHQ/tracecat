@@ -1,7 +1,7 @@
 "use client"
 
 import { useMutation } from "@tanstack/react-query"
-import { KeyRound, Loader2, Lock, Wrench } from "lucide-react"
+import { KeyRound, Loader2, Lock, Plus, Trash2, Wrench } from "lucide-react"
 import { useEffect, useMemo, useState } from "react"
 import type { CatalogAuthOption, CatalogCredentialField } from "@/client"
 import { integrationsConnectProvider } from "@/client"
@@ -407,6 +407,9 @@ function StaticKVOptionPanel({
   const fields = option.fields ?? []
   const [environment, setEnvironment] = useState("default")
   const [values, setValues] = useState<Record<string, string>>({})
+  const [extraKeys, setExtraKeys] = useState<
+    Array<{ id: number; key: string; value: string }>
+  >([])
   const { createConnection, createConnectionIsPending } = useCreateConnection(
     workspaceId,
     integrationId
@@ -415,6 +418,7 @@ function StaticKVOptionPanel({
   useEffect(() => {
     setEnvironment("default")
     setValues({})
+    setExtraKeys([])
   }, [option])
 
   const submit = async () => {
@@ -430,11 +434,58 @@ function StaticKVOptionPanel({
       return
     }
 
-    const keys = Object.fromEntries(
+    const declaredKeys = Object.fromEntries(
       fields
         .map((field) => [field.key, values[field.key]?.trim() ?? ""] as const)
         .filter(([, value]) => value.length > 0)
     )
+    const completeExtraKeys = extraKeys
+      .map((item) => ({
+        key: item.key.trim(),
+        value: item.value.trim(),
+      }))
+      .filter((item) => item.key.length > 0 || item.value.length > 0)
+    const incompleteExtraKey = completeExtraKeys.find(
+      (item) => item.key.length === 0 || item.value.length === 0
+    )
+    if (incompleteExtraKey) {
+      toast({
+        title: "Incomplete credential key",
+        description: "Additional keys require both a key and a value.",
+        variant: "destructive",
+      })
+      return
+    }
+    const declaredFieldKeys = new Set(fields.map((field) => field.key))
+    const duplicateKey = completeExtraKeys.find(
+      (item, index) =>
+        declaredFieldKeys.has(item.key) ||
+        completeExtraKeys.findIndex((other) => other.key === item.key) !== index
+    )
+    if (duplicateKey) {
+      toast({
+        title: "Duplicate credential key",
+        description: `${duplicateKey.key} is already defined.`,
+        variant: "destructive",
+      })
+      return
+    }
+
+    const keys = {
+      ...declaredKeys,
+      ...Object.fromEntries(
+        completeExtraKeys.map((item) => [item.key, item.value] as const)
+      ),
+    }
+    if (Object.keys(keys).length === 0) {
+      toast({
+        title: "No credential keys",
+        description: "Add at least one credential key before saving.",
+        variant: "destructive",
+      })
+      return
+    }
+
     await createConnection({
       auth_method: "static_kv",
       environment: environment.trim() || "default",
@@ -442,6 +493,7 @@ function StaticKVOptionPanel({
     })
     setEnvironment("default")
     setValues({})
+    setExtraKeys([])
     onSuccess()
   }
 
@@ -473,10 +525,86 @@ function StaticKVOptionPanel({
           }
         />
       ))}
+      <div className="space-y-2">
+        <div className="flex items-center justify-between gap-2">
+          <Label>Additional keys</Label>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="h-7 gap-1.5 px-2 text-xs"
+            onClick={() =>
+              setExtraKeys((prev) => [
+                ...prev,
+                { id: Date.now() + Math.random(), key: "", value: "" },
+              ])
+            }
+          >
+            <Plus className="size-3.5" />
+            Add key
+          </Button>
+        </div>
+        {extraKeys.length > 0 ? (
+          <div className="flex flex-col gap-2">
+            {extraKeys.map((item) => (
+              <div key={item.id} className="flex items-center gap-2">
+                <Input
+                  placeholder="Key"
+                  value={item.key}
+                  onChange={(event) =>
+                    setExtraKeys((prev) =>
+                      prev.map((prevItem) =>
+                        prevItem.id === item.id
+                          ? { ...prevItem, key: event.target.value }
+                          : prevItem
+                      )
+                    )
+                  }
+                />
+                <Input
+                  type="password"
+                  placeholder="Value"
+                  value={item.value}
+                  onChange={(event) =>
+                    setExtraKeys((prev) =>
+                      prev.map((prevItem) =>
+                        prevItem.id === item.id
+                          ? { ...prevItem, value: event.target.value }
+                          : prevItem
+                      )
+                    )
+                  }
+                />
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="size-8 shrink-0"
+                  onClick={() =>
+                    setExtraKeys((prev) =>
+                      prev.filter((prevItem) => prevItem.id !== item.id)
+                    )
+                  }
+                  aria-label={`Remove additional key ${item.key || "row"}`}
+                >
+                  <Trash2 className="size-4" />
+                </Button>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="text-[11px] text-muted-foreground">
+            Add optional keys that are not part of the default template.
+          </p>
+        )}
+      </div>
       <DialogFooter>
         <Button
           onClick={submit}
-          disabled={fields.length === 0 || createConnectionIsPending}
+          disabled={
+            (fields.length === 0 && extraKeys.length === 0) ||
+            createConnectionIsPending
+          }
         >
           {createConnectionIsPending ? (
             <Loader2 className="mr-2 size-4 animate-spin" />

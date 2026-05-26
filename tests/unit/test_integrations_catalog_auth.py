@@ -82,7 +82,9 @@ def test_record_secret_fields_promotes_duplicate_optional_key_to_required() -> N
     assert field.required is True
 
 
-def test_validate_static_kv_fields_rejects_missing_and_unknown_keys() -> None:
+def test_validate_static_kv_fields_requires_declared_keys_and_allows_extra_keys() -> (
+    None
+):
     option = CatalogAuthOption(
         auth_method=ConnectionAuthMethod.STATIC_KV,
         label="API key",
@@ -94,11 +96,10 @@ def test_validate_static_kv_fields_rejects_missing_and_unknown_keys() -> None:
     with pytest.raises(ValueError, match="Missing required credential fields"):
         _validate_static_kv_fields(option, {})
 
-    with pytest.raises(ValueError, match="Unsupported credential fields"):
-        _validate_static_kv_fields(
-            option,
-            {"ABUSEIPDB_API_KEY": "secret", "API_KEY": "wrong"},
-        )
+    _validate_static_kv_fields(
+        option,
+        {"ABUSEIPDB_API_KEY": "secret", "EXTRA_HEADER": "extra"},
+    )
 
 
 @pytest.mark.anyio
