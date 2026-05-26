@@ -3,7 +3,7 @@ from datetime import datetime, timedelta
 from typing import Any, Literal, Union
 
 from lark import Lark, Transformer, v_args
-from lark.exceptions import UnexpectedCharacters, UnexpectedEOF
+from lark.exceptions import UnexpectedInput
 from pydantic import BaseModel, ConfigDict, Field, create_model
 from pydantic_core import to_jsonable_python
 
@@ -144,18 +144,25 @@ class TypeTransformer(Transformer):
         return value
 
 
+def _invalid_type_annotation_hint(type_string: str) -> str:
+    normalized_type = "".join(type_string.split())
+    if normalized_type in {"list", "list[", "list[]"}:
+        return "Lists must include an item type, e.g. 'list[str]' or 'list[Any]'."
+
+    return (
+        "Supported examples include 'str', 'int', 'list[str]', 'dict[str, Any]', "
+        "'str | None', 'enum[\"open\", \"closed\"]', or '$SomeReference'."
+    )
+
+
 def parse_type(type_string: str, field_name: str) -> Any:
     try:
         tree = type_parser.parse(type_string)
-    except (UnexpectedCharacters, UnexpectedEOF) as exc:
-        stripped_type = type_string.strip()
-        if stripped_type.startswith("list") and "LSQB" in str(exc):
-            raise ValueError(
-                f"Invalid type annotation for expected field {field_name!r}: "
-                f"{type_string!r}. Lists must include an item type, "
-                "e.g. 'list[str]' or 'list[Any]'."
-            ) from exc
-        raise
+    except UnexpectedInput as exc:
+        raise ValueError(
+            f"Invalid type annotation for expected field {field_name!r}: "
+            f"{type_string!r}. {_invalid_type_annotation_hint(type_string)}"
+        ) from exc
     return TypeTransformer(field_name).transform(tree)
 
 
