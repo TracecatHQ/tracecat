@@ -4607,15 +4607,26 @@ export function useCreateMcpIntegration(workspaceId: string) {
   }
 }
 
-export function useListMcpIntegrations(workspaceId: string) {
+/**
+ * List MCP integrations for a workspace.
+ *
+ * Pass `source` to restrict results to either platform-managed rows
+ * (auto-created by an MCP OAuth provider) or workspace-authored rows. Omit
+ * `source` to get every row, which is what agent presets and runtime
+ * resolution need to look up an MCP integration by ID.
+ */
+export function useListMcpIntegrations(
+  workspaceId: string,
+  source?: "platform" | "workspace"
+) {
   const {
     data: mcpIntegrations,
     isLoading: mcpIntegrationsIsLoading,
     error: mcpIntegrationsError,
   } = useQuery<MCPIntegrationRead[], TracecatApiError>({
-    queryKey: ["mcp-integrations", workspaceId],
+    queryKey: ["mcp-integrations", workspaceId, source],
     queryFn: async () =>
-      await mcpIntegrationsListMcpIntegrations({ workspaceId }),
+      await mcpIntegrationsListMcpIntegrations({ workspaceId, source }),
     enabled: Boolean(workspaceId),
     staleTime: 5 * 60 * 1000,
     refetchOnWindowFocus: false,

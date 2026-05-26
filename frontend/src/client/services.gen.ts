@@ -11391,9 +11391,10 @@ export const mcpIntegrationsCreateMcpIntegration = (
 
 /**
  * List Mcp Integrations
- * List all MCP integrations for the workspace.
+ * List MCP integrations for the workspace, optionally filtered by source.
  * @param data The data for the request.
  * @param data.workspaceId
+ * @param data.source Restrict results to platform-managed or workspace-authored MCP integrations. Defaults to all rows.
  * @returns MCPIntegrationRead Successful Response
  * @throws ApiError
  */
@@ -11405,6 +11406,9 @@ export const mcpIntegrationsListMcpIntegrations = (
     url: "/workspaces/{workspace_id}/mcp-integrations",
     path: {
       workspace_id: data.workspaceId,
+    },
+    query: {
+      source: data.source,
     },
     errors: {
       422: "Validation Error",

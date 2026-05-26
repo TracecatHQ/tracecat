@@ -57,7 +57,7 @@ export default function McpServersPage() {
   const canMutate = useScopeCheck("integration:update") === true
 
   const { mcpIntegrations, mcpIntegrationsIsLoading, mcpIntegrationsError } =
-    useListMcpIntegrations(workspaceId)
+    useListMcpIntegrations(workspaceId, "workspace")
   const {
     integrations,
     integrationsIsLoading,

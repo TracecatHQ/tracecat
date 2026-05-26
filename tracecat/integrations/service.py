@@ -38,6 +38,7 @@ from tracecat.integrations.providers.base import (
 from tracecat.integrations.schemas import (
     CustomOAuthProviderCreate,
     MCPIntegrationCreate,
+    MCPIntegrationSource,
     MCPIntegrationUpdate,
     ProviderConfig,
     ProviderKey,
@@ -1216,13 +1217,45 @@ class IntegrationService(BaseWorkspaceService):
 
         return mcp_integration
 
-    async def list_mcp_integrations(self) -> Sequence[MCPIntegration]:
-        """List all MCP integrations for the workspace."""
+    def _is_platform_managed_mcp_integration(
+        self, mcp_integration: MCPIntegration
+    ) -> bool:
+        """Whether an MCP integration is owned by the MCP OAuth provider lifecycle.
+
+        Platform-managed rows are auto-created by ``MCPAuthProvider`` flows in
+        ``_auto_create_mcp_integration_if_needed``. We identify them by the
+        provider class of the linked OAuth integration rather than the presence
+        of ``oauth_integration_id`` alone, because workspace users can also
+        attach non-MCP OAuth integrations to custom MCP servers.
+        """
+        oauth_integration = mcp_integration.oauth_integration
+        if oauth_integration is None:
+            return False
+        provider_impl = get_provider_class(
+            ProviderKey(
+                id=oauth_integration.provider_id,
+                grant_type=oauth_integration.grant_type,
+            )
+        )
+        return bool(provider_impl and issubclass(provider_impl, MCPAuthProvider))
+
+    async def list_mcp_integrations(
+        self, *, source: MCPIntegrationSource | None = None
+    ) -> Sequence[MCPIntegration]:
+        """List MCP integrations for the workspace, optionally filtered by source."""
         statement = select(MCPIntegration).where(
             MCPIntegration.workspace_id == self.workspace_id
         )
         result = await self.session.execute(statement)
-        return result.scalars().all()
+        integrations = result.scalars().all()
+        if source is None:
+            return integrations
+        want_platform = source == "platform"
+        return [
+            mcp
+            for mcp in integrations
+            if self._is_platform_managed_mcp_integration(mcp) == want_platform
+        ]
 
     async def get_mcp_integration(
         self, *, mcp_integration_id: uuid.UUID

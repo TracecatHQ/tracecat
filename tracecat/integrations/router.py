@@ -43,6 +43,7 @@ from tracecat.integrations.schemas import (
     IntegrationUpdate,
     MCPIntegrationCreate,
     MCPIntegrationRead,
+    MCPIntegrationSource,
     MCPIntegrationUpdate,
     ProviderKey,
     ProviderRead,
@@ -876,8 +877,17 @@ async def create_mcp_integration(
 async def list_mcp_integrations(
     role: WorkspaceActorRouteRole,
     session: AsyncDBSession,
+    source: Annotated[
+        MCPIntegrationSource | None,
+        Query(
+            description=(
+                "Restrict results to platform-managed or workspace-authored "
+                "MCP integrations. Defaults to all rows."
+            ),
+        ),
+    ] = None,
 ) -> list[MCPIntegrationRead]:
-    """List all MCP integrations for the workspace."""
+    """List MCP integrations for the workspace, optionally filtered by source."""
     if role.workspace_id is None:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -885,7 +895,7 @@ async def list_mcp_integrations(
         )
 
     svc = IntegrationService(session, role=role)
-    integrations = await svc.list_mcp_integrations()
+    integrations = await svc.list_mcp_integrations(source=source)
 
     return [
         MCPIntegrationRead(
