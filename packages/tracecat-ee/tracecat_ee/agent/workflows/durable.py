@@ -100,6 +100,7 @@ with workflow.unsafe.imports_passed_through():
 
 
 ROOT_AGENT_SCOPE = "root"
+AGENT_RUNTIME_EXECUTION_ERROR = "AgentRuntimeExecutionError"
 BUILD_AGENT_TOOL_DEFINITIONS_PATCH = (
     "tracecat_ee.agent.workflows.durable.build_agent_tool_definitions"
 )
@@ -671,7 +672,8 @@ class DurableAgentWorkflow:
             await self._emit_session_error(_activity_error_message(e))
             raise
         except ApplicationError as e:
-            await self._emit_session_error(e.message)
+            if e.type != AGENT_RUNTIME_EXECUTION_ERROR:
+                await self._emit_session_error(e.message)
             raise
 
     async def _emit_session_error(self, message: str) -> None:
@@ -868,6 +870,7 @@ class DurableAgentWorkflow:
             if not result.success:
                 raise ApplicationError(
                     f"Agent execution failed: {result.error}",
+                    type=AGENT_RUNTIME_EXECUTION_ERROR,
                     non_retryable=True,
                 )
 

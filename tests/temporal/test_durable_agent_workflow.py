@@ -526,6 +526,50 @@ async def test_agent_workflow_streams_tool_definition_error(
 
 @pytest.mark.anyio
 @pytest.mark.integration
+async def test_agent_workflow_does_not_duplicate_runtime_terminal_error(
+    temporal_client: Client,
+    agent_worker_factory,
+    agent_workflow_args: AgentWorkflowArgs,
+    mock_session_id: uuid.UUID,
+) -> None:
+    queue = f"test-agent-queue-{mock_session_id}"
+    emitted_errors: list[EmitSessionErrorInputs] = []
+
+    def runtime_failure(
+        call_count: int, input: AgentExecutorInput
+    ) -> AgentExecutorResult:
+        del call_count, input
+        return AgentExecutorResult(success=False, error="runtime exploded")
+
+    @activity.defn(name="emit_session_error")
+    async def mock_emit_session_error(args: EmitSessionErrorInputs) -> None:
+        emitted_errors.append(args)
+
+    activities = [
+        *create_activities_with_mock_executor(runtime_failure),
+        mock_emit_session_error,
+    ]
+
+    async with agent_worker_factory(
+        temporal_client, task_queue=queue, custom_activities=activities
+    ):
+        with pytest.raises(WorkflowFailureError) as exc_info:
+            await temporal_client.execute_workflow(
+                DurableAgentWorkflow.run,
+                agent_workflow_args,
+                id=AgentWorkflowID(mock_session_id),
+                task_queue=queue,
+                retry_policy=RETRY_POLICIES["workflow:fail_fast"],
+                execution_timeout=timedelta(seconds=30),
+            )
+
+    assert isinstance(exc_info.value.cause, ApplicationError)
+    assert "Agent execution failed: runtime exploded" in str(exc_info.value.cause)
+    assert emitted_errors == []
+
+
+@pytest.mark.anyio
+@pytest.mark.integration
 async def test_agent_workflow_simple_execution(
     svc_role: Role,
     temporal_client: Client,
