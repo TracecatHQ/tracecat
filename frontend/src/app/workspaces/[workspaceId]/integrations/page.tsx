@@ -17,7 +17,6 @@ import {
   IntegrationsHeader,
   type IntegrationTypeFilter,
 } from "@/components/integrations/integrations-header"
-import { MCPIntegrationDialog } from "@/components/integrations/mcp-integration-dialog"
 import { OAuthIntegrationDetailsDialog } from "@/components/integrations/oauth-integration-details-dialog"
 import { OAuthIntegrationDialog } from "@/components/integrations/oauth-integration-dialog"
 import { CenteredSpinner } from "@/components/loading/spinner"
@@ -56,60 +55,39 @@ import {
 } from "@/components/ui/tooltip"
 import { toast } from "@/components/ui/use-toast"
 import type { TracecatApiError } from "@/lib/errors"
-import {
-  useDeleteMcpIntegration,
-  useIntegrations,
-  useListMcpIntegrations,
-} from "@/lib/hooks"
+import { useIntegrations } from "@/lib/hooks"
 import { cn } from "@/lib/utils"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
-type IntegrationItem =
-  | {
-      type: "oauth"
-      id: string
-      name: string
-      description: string
-      enabled: boolean
-      integration_status: IntegrationStatus
-      grant_type: OAuthGrantType
-      requires_config: boolean
-    }
-  | {
-      type: "mcp"
-      id: string
-      name: string
-      description: string | null
-      slug: string
-      server_uri: string | null
-      auth_type: string
-      oauth_integration_id?: string | null
-    }
+type IntegrationItem = {
+  type: "oauth"
+  id: string
+  name: string
+  description: string
+  enabled: boolean
+  integration_status: IntegrationStatus
+  grant_type: OAuthGrantType
+  requires_config: boolean
+}
 
 const displayStatus = (status: IntegrationStatus) =>
   status === "configured" ? "not_configured" : status
 
-type IntegrationSectionType = "oauth" | "mcp" | "custom_oauth" | "custom_mcp"
+type IntegrationSectionType = "oauth" | "custom_oauth"
 
 const integrationTypeLabels = {
   oauth: "OAuth",
-  mcp: "MCP",
   custom_oauth: "Custom OAuth",
-  custom_mcp: "Custom MCP",
 } as const
 
 const integrationSectionOrder: IntegrationSectionType[] = [
   "oauth",
   "custom_oauth",
-  "mcp",
-  "custom_mcp",
 ]
 
 const integrationSectionTitles: Record<IntegrationSectionType, string> = {
   oauth: "OAuth",
   custom_oauth: "Custom OAuth",
-  mcp: "MCP",
-  custom_mcp: "Custom MCP",
 }
 
 export default function IntegrationsPage() {
@@ -131,12 +109,6 @@ export default function IntegrationsPage() {
     providerId: string
     grantType: OAuthGrantType
   } | null>(null)
-  const [activeMcpIntegrationId, setActiveMcpIntegrationId] = useState<
-    string | null
-  >(null)
-  const [pendingMcpDeleteId, setPendingMcpDeleteId] = useState<string | null>(
-    null
-  )
   const [disconnectConfirmTextByKey, setDisconnectConfirmTextByKey] = useState<
     Record<string, string>
   >({})
@@ -145,17 +117,11 @@ export default function IntegrationsPage() {
   >({
     oauth: false,
     custom_oauth: false,
-    mcp: false,
-    custom_mcp: false,
   })
   const lastHandledConnectRef = useRef<string | null>(null)
 
-  const { integrations, providers, providersIsLoading, providersError } =
+  const { providers, providersIsLoading, providersError } =
     useIntegrations(workspaceId)
-  const { mcpIntegrations, mcpIntegrationsIsLoading, mcpIntegrationsError } =
-    useListMcpIntegrations(workspaceId)
-  const { deleteMcpIntegration, deleteMcpIntegrationIsPending } =
-    useDeleteMcpIntegration(workspaceId)
 
   const queryClient = useQueryClient()
   const handleTypeFilterToggle = useCallback(
@@ -259,76 +225,27 @@ export default function IntegrationsPage() {
     },
   })
 
-  const integrationById = useMemo(
-    () =>
-      new Map(
-        (integrations ?? []).map((integration) => [integration.id, integration])
-      ),
-    [integrations]
-  )
-
   const getIntegrationStatus = useCallback(
-    (item: IntegrationItem): IntegrationStatus => {
-      if (item.type === "mcp") {
-        return getMcpDisplayStatus(item, integrationById)
-      }
-      return displayStatus(item.integration_status)
-    },
-    [integrationById]
-  )
-
-  const isCustomMcpIntegration = useCallback(
-    (item: Extract<IntegrationItem, { type: "mcp" }>) => {
-      if (item.auth_type !== "OAUTH2") {
-        return true
-      }
-      if (!item.oauth_integration_id) {
-        return true
-      }
-      const integration = integrationById.get(item.oauth_integration_id)
-      return !integration?.provider_id.endsWith("_mcp")
-    },
-    [integrationById]
+    (item: IntegrationItem): IntegrationStatus =>
+      displayStatus(item.integration_status),
+    []
   )
 
   const getIntegrationDisplayType = useCallback(
     (item: IntegrationItem): IntegrationSectionType => {
-      if (item.type === "oauth" && item.id.startsWith("custom_")) {
+      if (item.id.startsWith("custom_")) {
         return "custom_oauth"
-      }
-      if (item.type === "oauth" && item.id.endsWith("_mcp")) {
-        return "mcp"
-      }
-      if (item.type === "mcp" && isCustomMcpIntegration(item)) {
-        return "custom_mcp"
       }
       return item.type
     },
-    [isCustomMcpIntegration]
+    []
   )
 
   const allIntegrations = useMemo<IntegrationItem[]>(() => {
-    // Track which MCP provider IDs already have MCP integration records
-    // so we don't show duplicates for connected MCP OAuth providers
-    const mcpOAuthProviderIds = new Set(
-      (mcpIntegrations ?? [])
-        .filter((mcp) => mcp.auth_type === "OAUTH2" && mcp.oauth_integration_id)
-        .flatMap((mcp) => {
-          const integration = integrationById.get(mcp.oauth_integration_id!)
-          return integration?.provider_id ? [integration.provider_id] : []
-        })
-    )
-
-    const oauthItems: IntegrationItem[] =
+    return (
       providers
-        ?.filter((provider) => {
-          // Exclude MCP OAuth providers that already have MCP integration records
-          if (provider.id.endsWith("_mcp")) {
-            return !mcpOAuthProviderIds.has(provider.id)
-          }
-          return true
-        })
-        .map((provider) => ({
+        ?.filter((provider) => !provider.id.endsWith("_mcp"))
+        .map<IntegrationItem>((provider) => ({
           type: "oauth" as const,
           id: provider.id,
           name: provider.name,
@@ -338,21 +255,8 @@ export default function IntegrationsPage() {
           grant_type: provider.grant_type,
           requires_config: provider.requires_config,
         })) ?? []
-
-    const mcpItems: IntegrationItem[] =
-      mcpIntegrations?.map((mcp) => ({
-        type: "mcp" as const,
-        id: mcp.id,
-        name: mcp.name,
-        description: mcp.description,
-        slug: mcp.slug,
-        server_uri: mcp.server_uri,
-        auth_type: mcp.auth_type,
-        oauth_integration_id: mcp.oauth_integration_id,
-      })) ?? []
-
-    return [...oauthItems, ...mcpItems]
-  }, [providers, mcpIntegrations, integrationById])
+    )
+  }, [providers])
 
   const filteredIntegrations = useMemo(() => {
     const filtered = allIntegrations.filter((item) => {
@@ -365,16 +269,7 @@ export default function IntegrationsPage() {
         typeFilters.length === 0 ||
         typeFilters.some((filter) => {
           if (filter === "custom_oauth") {
-            return item.type === "oauth" && item.id.startsWith("custom_")
-          }
-          if (filter === "custom_mcp") {
-            return item.type === "mcp" && isCustomMcpIntegration(item)
-          }
-          if (filter === "mcp") {
-            return (
-              item.type === "mcp" ||
-              (item.type === "oauth" && item.id.endsWith("_mcp"))
-            )
+            return item.id.startsWith("custom_")
           }
           return item.type === filter
         })
@@ -406,10 +301,8 @@ export default function IntegrationsPage() {
         return aOrder - bOrder
       }
 
-      if (a.type === "oauth" && b.type === "oauth") {
-        if (a.enabled !== b.enabled) {
-          return a.enabled ? -1 : 1
-        }
+      if (a.enabled !== b.enabled) {
+        return a.enabled ? -1 : 1
       }
 
       return a.name.localeCompare(b.name)
@@ -418,7 +311,6 @@ export default function IntegrationsPage() {
     allIntegrations,
     connectionFilter,
     getIntegrationStatus,
-    isCustomMcpIntegration,
     searchQuery,
     typeFilters,
   ])
@@ -430,8 +322,6 @@ export default function IntegrationsPage() {
     > = {
       oauth: [],
       custom_oauth: [],
-      mcp: [],
-      custom_mcp: [],
     }
 
     for (const item of filteredIntegrations) {
@@ -527,6 +417,7 @@ export default function IntegrationsPage() {
 
     const provider = providers.find(
       (item) =>
+        !item.id.endsWith("_mcp") &&
         item.id === connectParam &&
         (connectGrantType == null || item.grant_type === connectGrantType)
     )
@@ -568,24 +459,10 @@ export default function IntegrationsPage() {
     [handleDirectConnect]
   )
 
-  const handleMcpDisconnect = useCallback(
-    async (mcpIntegrationId: string) => {
-      setPendingMcpDeleteId(mcpIntegrationId)
-      try {
-        await deleteMcpIntegration(mcpIntegrationId)
-      } finally {
-        setPendingMcpDeleteId(null)
-      }
-    },
-    [deleteMcpIntegration]
+  const getDisconnectKey = useCallback(
+    (item: IntegrationItem) => `oauth:${item.id}:${item.grant_type}`,
+    []
   )
-
-  const getDisconnectKey = useCallback((item: IntegrationItem) => {
-    if (item.type === "oauth") {
-      return `oauth:${item.id}:${item.grant_type}`
-    }
-    return `mcp:${item.id}`
-  }, [])
 
   const resetDisconnectConfirmText = useCallback((key: string) => {
     setDisconnectConfirmTextByKey((prev) => {
@@ -601,8 +478,7 @@ export default function IntegrationsPage() {
   if (
     canReadIntegrations === undefined ||
     canUpdateIntegrations === undefined ||
-    providersIsLoading ||
-    mcpIntegrationsIsLoading
+    providersIsLoading
   ) {
     return <CenteredSpinner />
   }
@@ -610,12 +486,8 @@ export default function IntegrationsPage() {
   if (!canReadIntegrations) {
     return null
   }
-  if (providersError || mcpIntegrationsError) {
-    return (
-      <div>
-        Error: {providersError?.message || mcpIntegrationsError?.message}
-      </div>
-    )
+  if (providersError) {
+    return <div>Error: {providersError.message}</div>
   }
 
   return (
@@ -669,61 +541,40 @@ export default function IntegrationsPage() {
                   <CollapsibleContent>
                     <div className="divide-y divide-border/50">
                       {section.items.map((item) => {
-                        const isOAuth = item.type === "oauth"
-                        const isMcp = item.type === "mcp"
                         const status = getIntegrationStatus(item)
-                        const isConnected = isMcp
-                          ? status === "connected"
-                          : item.integration_status === "connected"
+                        const isConnected =
+                          item.integration_status === "connected"
                         const isConfigured = status === "connected"
                         const isClickable =
-                          (isOAuth && isConnected) ||
+                          isConnected ||
                           (canMutateIntegrations &&
-                            ((isOAuth &&
-                              item.requires_config &&
-                              item.enabled) ||
-                              isMcp))
-                        const isDisabled = isOAuth ? !item.enabled : false
+                            item.requires_config &&
+                            item.enabled)
+                        const isDisabled = !item.enabled
                         const showConnect =
                           canMutateIntegrations && !isConnected
                         const showDisconnect =
                           canMutateIntegrations && isConnected
                         const isConnecting =
-                          isOAuth &&
-                          ((connectProviderMutation.isPending &&
+                          (connectProviderMutation.isPending &&
                             connectProviderMutation.variables?.providerId ===
                               item.id) ||
-                            (testConnectionMutation.isPending &&
-                              testConnectionMutation.variables?.providerId ===
-                                item.id))
+                          (testConnectionMutation.isPending &&
+                            testConnectionMutation.variables?.providerId ===
+                              item.id)
                         const isDisconnecting =
-                          isOAuth &&
                           disconnectProviderMutation.isPending &&
                           disconnectProviderMutation.variables?.providerId ===
                             item.id
-                        const isDeletingMcp =
-                          item.type === "mcp" &&
-                          pendingMcpDeleteId === item.id &&
-                          deleteMcpIntegrationIsPending
                         const disconnectKey = getDisconnectKey(item)
                         const disconnectConfirmText =
                           disconnectConfirmTextByKey[disconnectKey] ?? ""
                         const displayType = getIntegrationDisplayType(item)
                         const typeLabel = integrationTypeLabels[displayType]
 
-                        const mcpProviderIconId = isMcp
-                          ? item.slug.endsWith("_mcp")
-                            ? item.slug
-                            : `${item.slug}_mcp`
-                          : null
-
                         return (
                           <Item
-                            key={
-                              isOAuth
-                                ? `${item.id}-${item.grant_type}`
-                                : item.id
-                            }
+                            key={`${item.id}-${item.grant_type}`}
                             variant="default"
                             size="sm"
                             className={cn(
@@ -732,46 +583,26 @@ export default function IntegrationsPage() {
                               !isClickable && "cursor-default"
                             )}
                             onClick={() => {
-                              if (isOAuth) {
-                                if (isConnected) {
-                                  setDetailsProvider({
-                                    providerId: item.id,
-                                    grantType: item.grant_type,
-                                  })
-                                  return
-                                }
-                                if (item.requires_config && item.enabled) {
-                                  if (!canMutateIntegrations) {
-                                    return
-                                  }
-                                  handleOpenOAuthModal(item.id, item.grant_type)
-                                }
+                              if (isConnected) {
+                                setDetailsProvider({
+                                  providerId: item.id,
+                                  grantType: item.grant_type,
+                                })
                                 return
                               }
-                              if (isMcp) {
+                              if (item.requires_config && item.enabled) {
                                 if (!canMutateIntegrations) {
                                   return
                                 }
-                                setActiveMcpIntegrationId(item.id)
+                                handleOpenOAuthModal(item.id, item.grant_type)
                               }
                             }}
                           >
                             <ItemMedia className="translate-y-0 self-center">
-                              {isOAuth ? (
-                                <ProviderIcon
-                                  providerId={item.id}
-                                  className="size-6 rounded"
-                                />
-                              ) : mcpProviderIconId ? (
-                                <ProviderIcon
-                                  providerId={mcpProviderIconId}
-                                  className="size-6 rounded"
-                                />
-                              ) : (
-                                <div className="flex size-6 items-center justify-center rounded bg-muted text-[10px] font-medium text-muted-foreground">
-                                  MCP
-                                </div>
-                              )}
+                              <ProviderIcon
+                                providerId={item.id}
+                                className="size-6 rounded"
+                              />
                             </ItemMedia>
                             <ItemContent className="min-w-0 gap-0">
                               <ItemTitle className="flex w-full min-w-0 items-center gap-2 text-xs">
@@ -807,35 +638,33 @@ export default function IntegrationsPage() {
                                   </Tooltip>
                                 </TooltipProvider>
                               ) : null}
-                              {isOAuth &&
-                                isConnected &&
-                                canMutateIntegrations && (
-                                  <TooltipProvider>
-                                    <Tooltip>
-                                      <TooltipTrigger asChild>
-                                        <Button
-                                          variant="ghost"
-                                          size="icon"
-                                          className="h-6 w-6"
-                                          aria-label={`Reconnect ${item.name}`}
-                                          onClick={(event) => {
-                                            event.stopPropagation()
-                                            handleReconnect(
-                                              item.id,
-                                              item.grant_type
-                                            )
-                                          }}
-                                          disabled={isDisabled || isConnecting}
-                                        >
-                                          <RotateCcw className="size-3.5" />
-                                        </Button>
-                                      </TooltipTrigger>
-                                      <TooltipContent>
-                                        <p>Reconnect</p>
-                                      </TooltipContent>
-                                    </Tooltip>
-                                  </TooltipProvider>
-                                )}
+                              {isConnected && canMutateIntegrations && (
+                                <TooltipProvider>
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        className="h-6 w-6"
+                                        aria-label={`Reconnect ${item.name}`}
+                                        onClick={(event) => {
+                                          event.stopPropagation()
+                                          handleReconnect(
+                                            item.id,
+                                            item.grant_type
+                                          )
+                                        }}
+                                        disabled={isDisabled || isConnecting}
+                                      >
+                                        <RotateCcw className="size-3.5" />
+                                      </Button>
+                                    </TooltipTrigger>
+                                    <TooltipContent>
+                                      <p>Reconnect</p>
+                                    </TooltipContent>
+                                  </Tooltip>
+                                </TooltipProvider>
+                              )}
                               {showConnect && (
                                 <>
                                   <Button
@@ -844,21 +673,17 @@ export default function IntegrationsPage() {
                                     className="h-6 border-input bg-white px-2.5 text-[11px] text-foreground hover:bg-muted"
                                     onClick={(event) => {
                                       event.stopPropagation()
-                                      if (isOAuth) {
-                                        if (item.requires_config) {
-                                          handleOpenOAuthModal(
-                                            item.id,
-                                            item.grant_type
-                                          )
-                                          return
-                                        }
-                                        handleDirectConnect(
+                                      if (item.requires_config) {
+                                        handleOpenOAuthModal(
                                           item.id,
                                           item.grant_type
                                         )
                                         return
                                       }
-                                      setActiveMcpIntegrationId(item.id)
+                                      handleDirectConnect(
+                                        item.id,
+                                        item.grant_type
+                                      )
                                     }}
                                     disabled={isDisabled || isConnecting}
                                   >
@@ -885,11 +710,7 @@ export default function IntegrationsPage() {
                                       onClick={(event) =>
                                         event.stopPropagation()
                                       }
-                                      disabled={
-                                        isDisabled ||
-                                        isDisconnecting ||
-                                        isDeletingMcp
-                                      }
+                                      disabled={isDisabled || isDisconnecting}
                                     >
                                       Disconnect
                                     </Button>
@@ -925,9 +746,7 @@ export default function IntegrationsPage() {
                                               )
                                             }
                                             placeholder="Enter integration name"
-                                            disabled={
-                                              isDisconnecting || isDeletingMcp
-                                            }
+                                            disabled={isDisconnecting}
                                           />
                                         </div>
                                       </AlertDialogDescription>
@@ -945,26 +764,21 @@ export default function IntegrationsPage() {
                                           ) {
                                             return
                                           }
-                                          if (isOAuth) {
-                                            await handleOAuthDisconnect(
-                                              item.id,
-                                              item.grant_type
-                                            )
-                                          } else {
-                                            await handleMcpDisconnect(item.id)
-                                          }
+                                          await handleOAuthDisconnect(
+                                            item.id,
+                                            item.grant_type
+                                          )
                                           resetDisconnectConfirmText(
                                             disconnectKey
                                           )
                                         }}
                                         disabled={
                                           isDisconnecting ||
-                                          isDeletingMcp ||
                                           disconnectConfirmText.trim() !==
                                             item.name
                                         }
                                       >
-                                        {(isDisconnecting || isDeletingMcp) && (
+                                        {isDisconnecting && (
                                           <Loader2 className="mr-2 size-3 animate-spin" />
                                         )}
                                         Disconnect
@@ -1012,33 +826,6 @@ export default function IntegrationsPage() {
           grantType={detailsProvider.grantType}
         />
       )}
-      {activeMcpIntegrationId ? (
-        <MCPIntegrationDialog
-          key={activeMcpIntegrationId}
-          open
-          onOpenChange={(nextOpen) => {
-            if (!nextOpen) {
-              setActiveMcpIntegrationId(null)
-            }
-          }}
-          mcpIntegrationId={activeMcpIntegrationId}
-          hideTrigger
-        />
-      ) : null}
     </div>
   )
-}
-
-function getMcpDisplayStatus(
-  item: Extract<IntegrationItem, { type: "mcp" }>,
-  integrationById: Map<string, { status: IntegrationStatus }>
-): IntegrationStatus {
-  if (item.auth_type === "OAUTH2") {
-    if (!item.oauth_integration_id) {
-      return "not_configured"
-    }
-    const integration = integrationById.get(item.oauth_integration_id)
-    return integration?.status === "connected" ? "connected" : "not_configured"
-  }
-  return "connected"
 }
