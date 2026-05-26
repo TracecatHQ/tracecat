@@ -292,6 +292,7 @@ class _FakeBroker:
     def __init__(self) -> None:
         self.requests: list[ClaudeTurnRequest] = []
         self.cancelled_session_ids: list[str] = []
+        self.interrupted_session_ids: list[str] = []
 
     async def run_turn(
         self,
@@ -303,6 +304,10 @@ class _FakeBroker:
 
     async def cancel_turn(self, session_id: str) -> None:
         self.cancelled_session_ids.append(session_id)
+
+    async def interrupt_turn(self, session_id: str, reason: str) -> None:
+        del reason
+        self.interrupted_session_ids.append(session_id)
 
 
 class _FakeProxy:

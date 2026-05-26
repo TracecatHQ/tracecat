@@ -80,6 +80,7 @@ from tracecat.agent.runtime.claude_code.session_lines import (
     is_meta_session_line,
     is_synthetic_session_line,
 )
+from tracecat.agent.session.types import AgentCancelReason
 from tracecat.logger import logger
 
 CLAUDE_PROJECT_DIR_MAX_LENGTH = 200
@@ -266,6 +267,11 @@ class ClaudeAgentRuntime:
         self._pending_approval_tool_ids: set[str] = set()
         self.client: ClaudeSDKClient | None = None
         self._was_interrupted: bool = False
+        self._interrupt_requested: AgentCancelReason | None = None
+        self._interrupt_sent: bool = False
+        self._client_connected_event = asyncio.Event()
+        self._query_sent_event = asyncio.Event()
+        self._interrupt_lock = asyncio.Lock()
         # For incremental JSONL line tracking
         self._sdk_session_id: str | None = None
         self._last_seen_byte_offset: int = 0
@@ -863,6 +869,34 @@ class ClaudeAgentRuntime:
             self._was_interrupted = True
             await self.client.interrupt()
 
+    async def interrupt(self, *, reason: AgentCancelReason) -> None:
+        """Request a graceful interrupt for this turn.
+
+        The broker can call this before the SDK client is ready. In that case we
+        retain the requested reason and self-interrupt once the query is sent.
+        """
+        self._interrupt_requested = reason
+        await self._client_connected_event.wait()
+        await self._query_sent_event.wait()
+        await self._send_pending_interrupt()
+
+    async def _send_pending_interrupt(self) -> None:
+        """Deliver the pending user/worker interrupt to Claude once."""
+        async with self._interrupt_lock:
+            reason = self._interrupt_requested
+            if reason is None or self._interrupt_sent or self.client is None:
+                return
+
+            logger.info(
+                "Interrupting Claude runtime",
+                session_id=self._session_id,
+                reason=reason,
+            )
+            self._was_interrupted = True
+            self._interrupt_sent = True
+            await self.client.interrupt()
+            await self._emit_new_session_lines()
+
     async def _pre_tool_use_hook(
         self,
         input_data: HookInput,
@@ -1074,6 +1108,9 @@ class ClaudeAgentRuntime:
         self._sdk_session_id = None
         self._last_seen_byte_offset = 0
         self._session_flush_event.clear()
+        self._client_connected_event.clear()
+        self._query_sent_event.clear()
+        self._interrupt_sent = False
         self.registry_tools = payload.allowed_actions
         self.tool_approvals = payload.config.tool_approvals
         self._agents_enabled = payload.config.agents.enabled
@@ -1366,6 +1403,7 @@ class ClaudeAgentRuntime:
             logger.debug("Client created, entering context")
             async with client:
                 self.client = client
+                self._client_connected_event.set()
                 log_benchmark_phase("runtime_client_connected")
                 stderr_task = asyncio.create_task(drain_stderr())
                 session_flush_task = asyncio.create_task(
@@ -1387,6 +1425,8 @@ class ClaudeAgentRuntime:
                             self._build_compaction_status_event(phase="started")
                         )
                     await client.query(query_input)
+                    self._query_sent_event.set()
+                    await self._send_pending_interrupt()
                     log_benchmark_phase("runtime_query_sent")
 
                     await self._event_writer.send_log(

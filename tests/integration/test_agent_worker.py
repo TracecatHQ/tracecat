@@ -52,6 +52,8 @@ from tracecat.agent.session.activities import (
     LoadSessionResult,
     ReconcileToolResultsInput,
     ReconcileToolResultsResult,
+    UpdateSessionStatusInput,
+    UpdateSessionStatusResult,
     get_session_activities,
 )
 from tracecat.agent.session.types import AgentSessionEntity
@@ -115,6 +117,19 @@ def create_mock_load_session_messages_activity() -> Callable[..., Any]:
     return mock_load_session_messages_activity
 
 
+def create_mock_update_session_status_activity() -> Callable[..., Any]:
+    """Create a mock update_session_status_activity."""
+
+    @activity.defn(name="update_session_status_activity")
+    async def mock_update_session_status_activity(
+        input: UpdateSessionStatusInput,
+    ) -> UpdateSessionStatusResult:
+        del input
+        return UpdateSessionStatusResult(found=True)
+
+    return mock_update_session_status_activity
+
+
 def create_mock_run_agent_activity(
     response_callback: Callable[[AgentExecutorInput], AgentExecutorResult],
 ) -> Callable[..., Any]:
@@ -155,6 +170,7 @@ def create_activities_with_mock_executor(
     # Add mocked session activities (to avoid DB FK constraints)
     activities.append(create_mock_create_session_activity())
     activities.append(create_mock_load_session_activity())
+    activities.append(create_mock_update_session_status_activity())
     activities.append(create_mock_load_session_messages_activity())
 
     # Add mocked runtime activity
@@ -245,6 +261,7 @@ class TestAgentWorkerLifecycle:
         assert set(activity_names) == {
             "create_session_activity",
             "load_session_activity",
+            "update_session_status_activity",
             "load_session_messages_activity",
             "reconcile_tool_results_activity",
         }
@@ -513,6 +530,7 @@ class TestAgentWorkerSingleTenant:
             *agent_activities.get_activities(),
             mock_create_session_activity,
             mock_load_session_activity,
+            create_mock_update_session_status_activity(),
             create_mock_load_session_messages_activity(),
             mock_record_approval_requests,
             mock_apply_approval_decisions,

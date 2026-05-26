@@ -29,6 +29,8 @@ from tracecat.agent.session.activities import (
     LoadSessionMessagesInput,
     LoadSessionMessagesResult,
     LoadSessionResult,
+    UpdateSessionStatusInput,
+    UpdateSessionStatusResult,
 )
 from tracecat.agent.worker import (
     get_activities as get_agent_worker_activities,
@@ -125,6 +127,16 @@ def create_mock_load_session_messages_activity() -> Callable[..., Any]:
     return mock_load_session_messages_activity
 
 
+def create_mock_update_session_status_activity() -> Callable[..., Any]:
+    @activity.defn(name="update_session_status_activity")
+    async def mock_update_session_status_activity(
+        _: UpdateSessionStatusInput,
+    ) -> UpdateSessionStatusResult:
+        return UpdateSessionStatusResult(found=True)
+
+    return mock_update_session_status_activity
+
+
 def create_mock_build_tool_definitions_activity() -> Callable[..., Any]:
     @activity.defn(name="build_agent_tool_definitions")
     async def mock_build_tool_definitions(
@@ -197,6 +209,7 @@ class TestDSLAgentWiring:
         for replacement in (
             create_mock_create_session_activity(),
             create_mock_load_session_activity(),
+            create_mock_update_session_status_activity(),
             create_mock_load_session_messages_activity(),
             create_mock_build_tool_definitions_activity(),
         ):
@@ -265,6 +278,7 @@ class TestDSLAgentWiring:
         for replacement in (
             create_mock_create_session_activity(captured_inputs),
             create_mock_load_session_activity(),
+            create_mock_update_session_status_activity(),
             create_mock_load_session_messages_activity(),
             create_mock_build_tool_definitions_activity(),
         ):

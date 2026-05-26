@@ -48,6 +48,7 @@ from tracecat_ee.agent.workflows.durable import (
     AgentWorkflowArgs,
     DurableAgentWorkflow,
     WorkflowApprovalSubmission,
+    WorkflowCancelRequest,
 )
 
 from tracecat import config
@@ -69,13 +70,16 @@ from tracecat.agent.session.activities import (
     LoadSessionResult,
     ReconcileToolResultsInput,
     ReconcileToolResultsResult,
+    UpdateSessionStatusInput,
+    UpdateSessionStatusResult,
     create_session_activity,
     load_session_activity,
     load_session_messages_activity,
     reconcile_tool_results_activity,
+    update_session_status_activity,
 )
 from tracecat.agent.session.service import AgentSessionService
-from tracecat.agent.session.types import AgentSessionEntity
+from tracecat.agent.session.types import AgentSessionEntity, AgentSessionStatus
 from tracecat.agent.types import AgentConfig
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
@@ -152,6 +156,22 @@ def create_mock_load_session_messages_activity(
         return LoadSessionMessagesResult(messages=result_messages, error=error)
 
     return mock_load_session_messages_activity
+
+
+def create_mock_update_session_status_activity(
+    captured_inputs: list[UpdateSessionStatusInput] | None = None,
+) -> Callable[..., Any]:
+    """Create a mock update_session_status_activity."""
+
+    @activity.defn(name="update_session_status_activity")
+    async def mock_update_session_status_activity(
+        input: UpdateSessionStatusInput,
+    ) -> UpdateSessionStatusResult:
+        if captured_inputs is not None:
+            captured_inputs.append(input)
+        return UpdateSessionStatusResult(found=True)
+
+    return mock_update_session_status_activity
 
 
 def create_mock_build_tool_definitions_activity(
@@ -270,6 +290,7 @@ def create_activities_with_mock_executor(
     tool_definitions: dict[str, MCPToolDefinition] | None = None,
     message_load_inputs: list[LoadSessionMessagesInput] | None = None,
     session_messages: list[ChatMessage] | None = None,
+    status_update_inputs: list[UpdateSessionStatusInput] | None = None,
 ) -> Sequence[Callable[..., Any]]:
     """Create a full activity list with mocked agent executor.
 
@@ -284,6 +305,7 @@ def create_activities_with_mock_executor(
     activities: list[Callable[..., Any]] = [
         create_mock_create_session_activity(),
         create_mock_load_session_activity(),
+        create_mock_update_session_status_activity(status_update_inputs),
         create_mock_load_session_messages_activity(
             captured_inputs=message_load_inputs,
             messages=session_messages,
@@ -500,6 +522,7 @@ async def test_agent_workflow_streams_tool_definition_error(
 
     activities = [
         create_mock_create_session_activity(),
+        create_mock_update_session_status_activity(),
         mock_build_tool_definitions,
         mock_emit_session_error,
     ]
@@ -670,6 +693,76 @@ async def test_agent_workflow_simple_execution(
         assert result.message_history == session_messages
 
     assert [input.session_id for input in message_load_inputs] == [mock_session_id]
+
+
+@pytest.mark.anyio
+@pytest.mark.integration
+async def test_request_cancel_gracefully_stops_running_agent_turn(
+    temporal_client: Client,
+    agent_worker_factory,
+    agent_workflow_args: AgentWorkflowArgs,
+    mock_session_id: uuid.UUID,
+) -> None:
+    """Workflow cancel update requests activity cancellation and exits cleanly."""
+    queue = f"test-agent-queue-{mock_session_id}"
+    activity_started = asyncio.Event()
+    cancellation_seen = asyncio.Event()
+    status_update_inputs: list[UpdateSessionStatusInput] = []
+
+    @activity.defn(name="run_agent_activity")
+    async def mock_run_agent_activity(
+        input: AgentExecutorInput,
+    ) -> AgentExecutorResult:
+        del input
+        activity_started.set()
+        try:
+            while True:
+                activity.heartbeat("Mock agent waiting for cancellation")
+                await asyncio.sleep(0.1)
+        except asyncio.CancelledError:
+            cancellation_seen.set()
+            return AgentExecutorResult(
+                success=True,
+                cancelled=True,
+                cancelled_reason="user_cancel",
+            )
+
+    activities: list[Callable[..., Any]] = [
+        create_mock_create_session_activity(),
+        create_mock_load_session_activity(),
+        create_mock_update_session_status_activity(status_update_inputs),
+        create_mock_load_session_messages_activity(),
+        create_mock_build_tool_definitions_activity(),
+        mock_run_agent_activity,
+        create_mock_execute_action_activity(),
+        create_mock_reconcile_tool_results_activity(),
+        *ApprovalManager.get_activities(),
+    ]
+
+    async with agent_worker_factory(
+        temporal_client, task_queue=queue, custom_activities=activities
+    ):
+        handle = await temporal_client.start_workflow(
+            DurableAgentWorkflow.run,
+            agent_workflow_args,
+            id=AgentWorkflowID(mock_session_id),
+            task_queue=queue,
+            retry_policy=RETRY_POLICIES["workflow:fail_fast"],
+            execution_timeout=timedelta(seconds=60),
+        )
+        await asyncio.wait_for(activity_started.wait(), timeout=10)
+
+        await handle.execute_update(
+            DurableAgentWorkflow.request_cancel,
+            WorkflowCancelRequest(reason="user_cancel"),
+        )
+        result = await handle.result()
+
+    assert cancellation_seen.is_set()
+    assert result.session_id == mock_session_id
+    assert result.output is None
+    assert status_update_inputs[-1].status is AgentSessionStatus.STOPPED
+    assert status_update_inputs[-1].clear_curr_run_id is True
 
 
 @pytest.mark.anyio
@@ -1002,6 +1095,7 @@ async def test_agent_workflow_routes_approved_tools_to_executor_and_reconciles_h
         activities=[
             create_session_activity,
             load_session_activity,
+            update_session_status_activity,
             load_session_messages_activity,
             reconcile_tool_results_activity,
             mock_build_tool_definitions,
@@ -1301,6 +1395,7 @@ async def test_agent_workflow_plumbs_forked_session_through_approval_continuatio
         activities=[
             mock_create_session_activity,
             mock_load_session_activity,
+            create_mock_update_session_status_activity(),
             create_mock_load_session_messages_activity(),
             mock_build_tool_definitions,
             mock_record_approval_requests,
@@ -1491,6 +1586,7 @@ async def test_agent_workflow_replays_suspended_legacy_sdk_session_data_history(
     activities = [
         create_mock_create_session_activity(),
         mock_load_session_activity,
+        create_mock_update_session_status_activity(),
         create_mock_load_session_messages_activity(),
         create_mock_build_tool_definitions_activity(),
         mock_run_agent_activity,
@@ -1748,6 +1844,7 @@ async def test_agent_workflow_does_not_retry_approved_tool_failures(
         activities=[
             create_session_activity,
             load_session_activity,
+            update_session_status_activity,
             load_session_messages_activity,
             reconcile_tool_results_activity,
             mock_build_tool_definitions,

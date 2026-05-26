@@ -17,6 +17,7 @@ from tracecat.agent.runtime.claude_code.session_paths import (
 from tracecat.agent.runtime.claude_code.transport import (
     SandboxedCLITransport,
 )
+from tracecat.agent.session.types import AgentCancelReason
 
 
 class ConcurrentSessionTurnError(RuntimeError):
@@ -35,12 +36,21 @@ class ClaudeTurnRequest:
     skills_dir: Path | None = None
 
 
+@dataclass(frozen=True, slots=True)
+class ActiveTurn:
+    """Runtime state for one broker-managed session turn."""
+
+    task: asyncio.Task[None]
+    runtime: ClaudeAgentRuntime
+    session_id: str
+
+
 class ClaudeRuntimeBroker:
     """Warm in-process broker that owns host-side Claude orchestration."""
 
     def __init__(self) -> None:
         self._closed = False
-        self._active_turns: dict[str, asyncio.Task[None]] = {}
+        self._active_turns: dict[str, ActiveTurn] = {}
         self._lock = asyncio.Lock()
 
     async def start(self) -> None:
@@ -51,7 +61,7 @@ class ClaudeRuntimeBroker:
         """Cancel any remaining active turns and reject future work."""
         async with self._lock:
             self._closed = True
-            active_tasks = list(self._active_turns.values())
+            active_tasks = [turn.task for turn in self._active_turns.values()]
         for task in active_tasks:
             task.cancel()
         for task in active_tasks:
@@ -71,6 +81,27 @@ class ClaudeRuntimeBroker:
         if current_task is None:
             raise RuntimeError("Broker turn must run inside an asyncio task")
 
+        path_mapping = self._build_path_mapping(
+            session_id=str(request.init_payload.session_id)
+        )
+        runtime = ClaudeAgentRuntime(
+            handler,
+            transport_factory=lambda options: SandboxedCLITransport(
+                options=options,
+                socket_dir=request.socket_dir,
+                llm_socket_path=request.llm_socket_path,
+                job_dir=request.job_dir,
+                path_mapping=path_mapping,
+                enable_internet_access=request.enable_internet_access,
+                use_jailed_paths=not TRACECAT__DISABLE_NSJAIL,
+                session_id=str(request.init_payload.session_id),
+                skills_dir=request.skills_dir,
+            ),
+            session_home_dir=path_mapping.host_home_dir,
+            cwd=path_mapping.runtime_cwd,
+            cwd_setup_path=path_mapping.host_project_dir,
+        )
+
         async with self._lock:
             if self._closed:
                 raise RuntimeError("Claude runtime broker is not running")
@@ -78,30 +109,14 @@ class ClaudeRuntimeBroker:
                 raise ConcurrentSessionTurnError(
                     f"Session {session_key} already has an active turn"
                 )
-            self._active_turns[session_key] = current_task
+            self._active_turns[session_key] = ActiveTurn(
+                task=current_task,
+                runtime=runtime,
+                session_id=session_key,
+            )
 
         try:
             await handler.prepare()
-            path_mapping = self._build_path_mapping(
-                session_id=str(request.init_payload.session_id)
-            )
-            runtime = ClaudeAgentRuntime(
-                handler,
-                transport_factory=lambda options: SandboxedCLITransport(
-                    options=options,
-                    socket_dir=request.socket_dir,
-                    llm_socket_path=request.llm_socket_path,
-                    job_dir=request.job_dir,
-                    path_mapping=path_mapping,
-                    enable_internet_access=request.enable_internet_access,
-                    use_jailed_paths=not TRACECAT__DISABLE_NSJAIL,
-                    session_id=str(request.init_payload.session_id),
-                    skills_dir=request.skills_dir,
-                ),
-                session_home_dir=path_mapping.host_home_dir,
-                cwd=path_mapping.runtime_cwd,
-                cwd_setup_path=path_mapping.host_project_dir,
-            )
             await runtime.run(request.init_payload)
         finally:
             async with self._lock:
@@ -110,9 +125,27 @@ class ClaudeRuntimeBroker:
     async def cancel_turn(self, session_id: str) -> None:
         """Cancel an active turn for the provided session, if one exists."""
         async with self._lock:
-            task = self._active_turns.get(session_id)
-        if task is not None:
-            task.cancel()
+            active = self._active_turns.get(session_id)
+        if active is not None:
+            active.task.cancel()
+
+    async def interrupt_turn(
+        self,
+        session_id: str,
+        reason: AgentCancelReason,
+        timeout: float | None = None,
+    ) -> None:
+        """Interrupt an active turn through the runtime, if one exists."""
+        async with self._lock:
+            active = self._active_turns.get(session_id)
+        if active is None:
+            return
+
+        interrupt = active.runtime.interrupt(reason=reason)
+        if timeout is None:
+            await interrupt
+        else:
+            await asyncio.wait_for(interrupt, timeout=timeout)
 
     @staticmethod
     def _build_path_mapping(*, session_id: str) -> ClaudeSandboxPathMapping:

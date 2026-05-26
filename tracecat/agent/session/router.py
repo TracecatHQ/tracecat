@@ -11,6 +11,8 @@ from fastapi.responses import Response, StreamingResponse
 from tracecat import config
 from tracecat.agent.adapter import vercel
 from tracecat.agent.session.schemas import (
+    AgentSessionCancelRequest,
+    AgentSessionCancelResponse,
     AgentSessionCreate,
     AgentSessionForkRequest,
     AgentSessionRead,
@@ -19,7 +21,7 @@ from tracecat.agent.session.schemas import (
     AgentSessionUpdate,
 )
 from tracecat.agent.session.service import AgentSessionService
-from tracecat.agent.session.types import AgentSessionEntity
+from tracecat.agent.session.types import AgentSessionEntity, AgentSessionStatus
 from tracecat.agent.stream.connector import AgentStream
 from tracecat.agent.stream.events import StreamFormat
 from tracecat.agent.subagents import ResolvedAgentsConfig
@@ -33,7 +35,7 @@ from tracecat.chat.schemas import (
     ContinueRunRequest,
 )
 from tracecat.db.dependencies import AsyncDBSession
-from tracecat.exceptions import TracecatNotFoundError
+from tracecat.exceptions import TracecatConflictError, TracecatNotFoundError
 from tracecat.logger import logger
 
 router = APIRouter(prefix="/agent/sessions", tags=["agent-sessions"])
@@ -134,6 +136,7 @@ async def get_session(
             created_at=agent_session.created_at,
             updated_at=agent_session.updated_at,
             last_stream_id=agent_session.last_stream_id,
+            turn_status=AgentSessionStatus(agent_session.status),
             messages=messages,
         )
 
@@ -203,6 +206,7 @@ async def get_session_vercel(
             created_at=agent_session.created_at,
             updated_at=agent_session.updated_at,
             last_stream_id=agent_session.last_stream_id,
+            turn_status=AgentSessionStatus(agent_session.status),
             messages=ui_messages,
         )
 
@@ -286,6 +290,33 @@ async def delete_session(
         )
 
     await svc.delete_session(agent_session)
+
+
+@router.post("/{session_id}/cancel")
+@require_scope("agent:execute")
+async def cancel_session(
+    session_id: uuid.UUID,
+    role: WorkspaceUserRouteRole,
+    session: AsyncDBSession,
+    request: AgentSessionCancelRequest | None = None,
+) -> AgentSessionCancelResponse:
+    """Request graceful cancellation for the active agent session turn."""
+    svc = AgentSessionService(session, role)
+    try:
+        return await svc.request_cancel(
+            session_id,
+            request or AgentSessionCancelRequest(),
+        )
+    except TracecatNotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        ) from e
+    except TracecatConflictError as e:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=e.detail or str(e),
+        ) from e
 
 
 @router.post("/{session_id}/messages")
@@ -379,6 +410,11 @@ async def send_message(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=str(e),
+        ) from e
+    except TracecatConflictError as e:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=e.detail or str(e),
         ) from e
     except ValueError as e:
         raise HTTPException(

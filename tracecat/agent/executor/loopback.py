@@ -36,7 +36,7 @@ from tracecat.agent.common.stream_types import (
     ToolCallContent,
     UnifiedStreamEvent,
 )
-from tracecat.agent.session.types import AgentSessionEntity
+from tracecat.agent.session.types import AgentCancelReason, AgentSessionEntity
 from tracecat.agent.stream.connector import AgentStream
 from tracecat.db.engine import (
     get_async_session_bypass_rls_context_manager,
@@ -96,6 +96,8 @@ class LoopbackResult:
     output: RuntimeOutput | None = None
     result_usage: ResultUsage | None = None
     result_num_turns: int | None = None
+    cancelled: bool = False
+    cancelled_reason: AgentCancelReason | None = None
 
 
 @dataclass(frozen=True, kw_only=True, slots=True)
@@ -247,6 +249,7 @@ class LoopbackHandler:
         self._result = LoopbackResult(success=False)
         self._sdk_session_id: str | None = None  # Track SDK session ID for this run
         self._stream_done_emitted: bool = False  # Dedupe flag for stream.done()
+        self._interrupt_notice_emitted: bool = False
         # Track which session lines have been persisted to avoid duplicates
         self._persisted_line_uuids: set[str] = set()
         # Track pending approval tool IDs to suppress synthetic interruption results.
@@ -624,6 +627,21 @@ class LoopbackHandler:
         """Handle a terminal runtime error."""
         await self._handle_error(error)
 
+    def mark_cancelled(self, reason: AgentCancelReason) -> None:
+        """Record that the active runtime turn is expected to stop early."""
+        self._result.cancelled = True
+        self._result.cancelled_reason = reason
+
+    async def _emit_interrupt_notice_if_cancelled(
+        self, stream_sink: LoopbackEventSink
+    ) -> None:
+        if not self._result.cancelled or self._interrupt_notice_emitted:
+            return
+        self._interrupt_notice_emitted = True
+        await stream_sink.append(
+            UnifiedStreamEvent.interrupt_event(reason=self._result.cancelled_reason)
+        )
+
     async def _handle_done(self) -> bool:
         """Handle runtime completion."""
         stream_sink = await self.prepare()
@@ -641,6 +659,7 @@ class LoopbackHandler:
             self._result.error = validation_error
             return True
         self._result.success = True
+        await self._emit_interrupt_notice_if_cancelled(stream_sink)
         await self._emit_stream_done()
         return True
 
@@ -888,6 +907,8 @@ class LoopbackHandler:
     def _validate_runtime_completion(self) -> str | None:
         """Return a terminal error when runtime completion is missing a usable result."""
         if self._result.approval_requested or self._result.error is not None:
+            return None
+        if self._result.cancelled:
             return None
         if not self._received_result:
             return "Runtime completed without final result"
