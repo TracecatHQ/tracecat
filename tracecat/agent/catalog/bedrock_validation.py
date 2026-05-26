@@ -2,27 +2,63 @@
 
 from __future__ import annotations
 
-import asyncio
-from typing import Any
-from urllib.parse import quote
+from collections.abc import Callable
+from contextlib import AbstractAsyncContextManager
+from typing import cast
 
-import boto3
-import httpx
+import aioboto3
+import aiobotocore.session
+import orjson
+from aiobotocore.config import AioConfig
 from botocore.exceptions import BotoCoreError, ClientError
+from botocore.tokens import FrozenAuthToken
+
+from tracecat.agent.catalog.types import (
+    AnthropicInvokePayload,
+    BedrockControlClient,
+    BedrockInferenceConfig,
+    BedrockInferenceProfileDetails,
+    BedrockInferenceProfileResponse,
+    BedrockMessage,
+    BedrockModelAvailabilityDetails,
+    BedrockModelAvailabilityResponse,
+    BedrockRuntimeClient,
+    BedrockVerificationDetails,
+)
 
 _AWS_ASSUME_ROLE_EXTERNAL_ID_SECRET_KEY = "TRACECAT_AWS_EXTERNAL_ID"
 _DEFAULT_AWS_ROLE_SESSION_NAME = "tracecat-session"
-_PING_MESSAGES: list[dict[str, Any]] = [
+_BEDROCK_BEARER_CONFIG = AioConfig(signature_version="bearer")
+
+
+class StaticBearerTokenProvider:
+    """Botocore token provider for Bedrock bearer-token SDK auth."""
+
+    def __init__(self, token: str) -> None:
+        self._token = token
+
+    def load_token(self, **_: object) -> FrozenAuthToken:
+        return FrozenAuthToken(self._token)
+
+
+_PING_MESSAGES: list[BedrockMessage] = [
     {"role": "user", "content": [{"text": "ping"}]},
 ]
-_PING_INFERENCE_CONFIG = {"maxTokens": 1}
+_PING_INFERENCE_CONFIG: BedrockInferenceConfig = {"maxTokens": 1}
+_ANTHROPIC_INVOKE_PING: AnthropicInvokePayload = {
+    "anthropic_version": "bedrock-2023-05-31",
+    "max_tokens": 1,
+    "messages": [
+        {"role": "user", "content": [{"type": "text", "text": "ping"}]},
+    ],
+}
 
 
 class BedrockVerificationError(Exception):
     """Raised when Bedrock target verification fails."""
 
 
-def _assume_bedrock_role(credentials: dict[str, str]) -> dict[str, str]:
+async def _assume_bedrock_role(credentials: dict[str, str]) -> dict[str, str]:
     role_arn = credentials["AWS_ROLE_ARN"]
     external_id = credentials.get(_AWS_ASSUME_ROLE_EXTERNAL_ID_SECRET_KEY)
     if not external_id:
@@ -33,12 +69,13 @@ def _assume_bedrock_role(credentials: dict[str, str]) -> dict[str, str]:
         credentials.get("AWS_ROLE_SESSION_NAME", "").strip()
         or _DEFAULT_AWS_ROLE_SESSION_NAME
     )
-    sts_client = boto3.Session().client("sts")
-    response = sts_client.assume_role(
-        RoleArn=role_arn,
-        RoleSessionName=session_name,
-        ExternalId=external_id,
-    )
+    session = aioboto3.Session()
+    async with session.client("sts") as client:
+        response = await client.assume_role(
+            RoleArn=role_arn,
+            RoleSessionName=session_name,
+            ExternalId=external_id,
+        )
     session_credentials = response["Credentials"]
     return credentials | {
         "AWS_ACCESS_KEY_ID": session_credentials["AccessKeyId"],
@@ -53,7 +90,7 @@ async def _resolve_bedrock_credentials(
     """Resolve configured Bedrock credentials into an explicit auth shape."""
     if credentials.get("AWS_ROLE_ARN"):
         try:
-            return await asyncio.to_thread(_assume_bedrock_role, credentials)
+            return await _assume_bedrock_role(credentials)
         except BedrockVerificationError:
             raise
         except (BotoCoreError, ClientError, KeyError) as exc:
@@ -79,125 +116,153 @@ async def _resolve_bedrock_credentials(
     )
 
 
-def _check_profile_response(response: dict[str, Any]) -> dict[str, Any]:
+def _check_profile_response(
+    response: BedrockInferenceProfileResponse,
+) -> BedrockInferenceProfileDetails:
     status = response.get("status")
-    details = {
+    details: BedrockInferenceProfileDetails = {
         "target_type": "inference_profile",
-        "status": status,
-        "inference_profile_id": response.get("inferenceProfileId"),
-        "inference_profile_arn": response.get("inferenceProfileArn"),
         "model_count": len(response.get("models") or []),
     }
+    if status is not None:
+        details["status"] = status
+    if (inference_profile_id := response.get("inferenceProfileId")) is not None:
+        details["inference_profile_id"] = inference_profile_id
+    if (inference_profile_arn := response.get("inferenceProfileArn")) is not None:
+        details["inference_profile_arn"] = inference_profile_arn
     if status and status != "ACTIVE":
         raise BedrockVerificationError(
             f"Inference profile is {status}; expected ACTIVE."
         )
-    return {key: value for key, value in details.items() if value is not None}
+    return details
 
 
-def _check_model_availability_response(response: dict[str, Any]) -> dict[str, Any]:
+def _check_model_availability_response(
+    response: BedrockModelAvailabilityResponse,
+) -> BedrockModelAvailabilityDetails:
     authorization_status = response.get("authorizationStatus")
     entitlement_availability = response.get("entitlementAvailability")
     region_availability = response.get("regionAvailability")
-    details = {
+    details: BedrockModelAvailabilityDetails = {
         "target_type": "model_id",
-        "authorization_status": authorization_status,
-        "entitlement_availability": entitlement_availability,
-        "region_availability": region_availability,
     }
-    failures: list[str] = []
-    if authorization_status and authorization_status != "AUTHORIZED":
-        failures.append(f"authorization status is {authorization_status}")
-    if entitlement_availability and entitlement_availability != "AVAILABLE":
-        failures.append(f"entitlement availability is {entitlement_availability}")
-    if region_availability and region_availability != "AVAILABLE":
-        failures.append(f"region availability is {region_availability}")
-    if failures:
+    if authorization_status is not None:
+        details["authorization_status"] = authorization_status
+    if entitlement_availability is not None:
+        details["entitlement_availability"] = entitlement_availability
+    if region_availability is not None:
+        details["region_availability"] = region_availability
+    return details
+
+
+def _build_static_bearer_session(api_key: str, region: str) -> aioboto3.Session:
+    botocore_session = aiobotocore.session.get_session()
+    botocore_session.register_component(
+        "token_provider",
+        StaticBearerTokenProvider(api_key),
+    )
+    return aioboto3.Session(botocore_session=botocore_session, region_name=region)
+
+
+def _client_context(
+    session: aioboto3.Session,
+    service_name: str,
+    *,
+    region: str,
+    config: AioConfig | None = None,
+) -> AbstractAsyncContextManager[object]:
+    client = cast(Callable[..., AbstractAsyncContextManager[object]], session.client)
+    return client(service_name, region_name=region, config=config)
+
+
+def _is_anthropic_claude_target(target_id: str) -> bool:
+    return "anthropic.claude" in target_id.lower()
+
+
+async def _verify_with_invoke_model(
+    runtime_client: BedrockRuntimeClient,
+    target_id: str,
+) -> None:
+    if not _is_anthropic_claude_target(target_id):
         raise BedrockVerificationError(
-            "Foundation model is not available: " + ", ".join(failures) + "."
+            "InvokeModel runtime verification is currently supported for Anthropic Claude Bedrock targets only. Enable Use Converse API or use an Anthropic Claude model ID/inference profile."
         )
-    return {key: value for key, value in details.items() if value is not None}
+    await runtime_client.invoke_model(
+        modelId=target_id,
+        body=orjson.dumps(_ANTHROPIC_INVOKE_PING),
+        contentType="application/json",
+        accept="application/json",
+    )
 
 
-def _verify_with_boto3(
+async def _verify_with_sdk_clients(
+    *,
+    session: aioboto3.Session,
+    region: str,
+    target_id: str,
+    is_inference_profile: bool,
+    use_converse: bool,
+    client_config: AioConfig | None = None,
+) -> BedrockVerificationDetails:
+    async with _client_context(
+        session,
+        "bedrock",
+        region=region,
+        config=client_config,
+    ) as bedrock:
+        bedrock_client = cast(BedrockControlClient, bedrock)
+        if is_inference_profile:
+            details = _check_profile_response(
+                await bedrock_client.get_inference_profile(
+                    inferenceProfileIdentifier=target_id,
+                )
+            )
+        else:
+            details = _check_model_availability_response(
+                await bedrock_client.get_foundation_model_availability(
+                    modelId=target_id,
+                )
+            )
+
+    async with _client_context(
+        session,
+        "bedrock-runtime",
+        region=region,
+        config=client_config,
+    ) as runtime:
+        runtime_client = cast(BedrockRuntimeClient, runtime)
+        if use_converse:
+            await runtime_client.converse(
+                modelId=target_id,
+                messages=_PING_MESSAGES,
+                inferenceConfig=_PING_INFERENCE_CONFIG,
+            )
+        else:
+            await _verify_with_invoke_model(runtime_client, target_id)
+    return details
+
+
+async def _verify_with_aws_credentials(
     *,
     credentials: dict[str, str],
     region: str,
     target_id: str,
     is_inference_profile: bool,
     use_converse: bool,
-) -> dict[str, Any]:
-    session = boto3.Session(
+) -> BedrockVerificationDetails:
+    session = aioboto3.Session(
         aws_access_key_id=credentials["AWS_ACCESS_KEY_ID"],
         aws_secret_access_key=credentials["AWS_SECRET_ACCESS_KEY"],
         aws_session_token=credentials.get("AWS_SESSION_TOKEN"),
         region_name=region,
     )
-    bedrock = session.client("bedrock", region_name=region)
-    runtime = session.client("bedrock-runtime", region_name=region)
-    if is_inference_profile:
-        details = _check_profile_response(
-            bedrock.get_inference_profile(inferenceProfileIdentifier=target_id)
-        )
-    else:
-        details = _check_model_availability_response(
-            bedrock.get_foundation_model_availability(modelId=target_id)
-        )
-
-    if not use_converse:
-        raise BedrockVerificationError(
-            "Runtime verification requires the Bedrock Converse API. Enable Use Converse API and try again."
-        )
-
-    runtime.converse(
-        modelId=target_id,
-        messages=_PING_MESSAGES,
-        inferenceConfig=_PING_INFERENCE_CONFIG,
+    return await _verify_with_sdk_clients(
+        session=session,
+        region=region,
+        target_id=target_id,
+        is_inference_profile=is_inference_profile,
+        use_converse=use_converse,
     )
-    return details | {"runtime_test": "converse"}
-
-
-def _extract_http_error(response: httpx.Response) -> str:
-    try:
-        payload = response.json()
-    except ValueError:
-        return response.text or response.reason_phrase
-    if isinstance(payload, dict):
-        message = payload.get("message") or payload.get("Message")
-        error_type = payload.get("__type") or payload.get("code")
-        if message and error_type:
-            return f"{error_type}: {message}"
-        if message:
-            return str(message)
-    return response.text or response.reason_phrase
-
-
-async def _request_bedrock_api_key(
-    *,
-    method: str,
-    url: str,
-    api_key: str,
-    json: dict[str, Any] | None = None,
-) -> dict[str, Any]:
-    headers = {
-        "Authorization": f"Bearer {api_key}",
-        "Content-Type": "application/json",
-    }
-    try:
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            response = await client.request(method, url, headers=headers, json=json)
-    except httpx.TimeoutException as exc:
-        raise BedrockVerificationError(
-            "Bedrock API request timed out. Check connectivity and try again."
-        ) from exc
-    except httpx.RequestError as exc:
-        raise BedrockVerificationError(f"Bedrock API request failed: {exc}") from exc
-    if response.is_error:
-        raise BedrockVerificationError(_extract_http_error(response))
-    if not response.content:
-        return {}
-    payload = response.json()
-    return payload if isinstance(payload, dict) else {}
 
 
 async def _verify_with_api_key(
@@ -207,40 +272,16 @@ async def _verify_with_api_key(
     target_id: str,
     is_inference_profile: bool,
     use_converse: bool,
-) -> dict[str, Any]:
-    encoded_target = quote(target_id, safe="")
-    if is_inference_profile:
-        details = _check_profile_response(
-            await _request_bedrock_api_key(
-                method="GET",
-                url=f"https://bedrock.{region}.amazonaws.com/inference-profiles/{encoded_target}",
-                api_key=api_key,
-            )
-        )
-    else:
-        details = _check_model_availability_response(
-            await _request_bedrock_api_key(
-                method="GET",
-                url=f"https://bedrock.{region}.amazonaws.com/foundation-model-availability/{encoded_target}",
-                api_key=api_key,
-            )
-        )
-
-    if not use_converse:
-        raise BedrockVerificationError(
-            "Runtime verification requires the Bedrock Converse API. Enable Use Converse API and try again."
-        )
-
-    await _request_bedrock_api_key(
-        method="POST",
-        url=f"https://bedrock-runtime.{region}.amazonaws.com/model/{encoded_target}/converse",
-        api_key=api_key,
-        json={
-            "messages": _PING_MESSAGES,
-            "inferenceConfig": _PING_INFERENCE_CONFIG,
-        },
+) -> BedrockVerificationDetails:
+    session = _build_static_bearer_session(api_key, region)
+    return await _verify_with_sdk_clients(
+        session=session,
+        region=region,
+        target_id=target_id,
+        is_inference_profile=is_inference_profile,
+        use_converse=use_converse,
+        client_config=_BEDROCK_BEARER_CONFIG,
     )
-    return details | {"runtime_test": "converse"}
 
 
 async def verify_bedrock_catalog_target(
@@ -249,7 +290,7 @@ async def verify_bedrock_catalog_target(
     inference_profile_id: str | None,
     model_id: str | None,
     use_converse: bool,
-) -> dict[str, Any]:
+) -> BedrockVerificationDetails:
     """Verify a Bedrock catalog target with control-plane and runtime calls."""
     region = credentials.get("AWS_REGION")
     if not region:
@@ -264,8 +305,13 @@ async def verify_bedrock_catalog_target(
 
     resolved = await _resolve_bedrock_credentials(credentials)
     is_inference_profile = inference_profile_id is not None
-    if api_key := resolved.get("AWS_BEARER_TOKEN_BEDROCK"):
-        try:
+    try:
+        has_aws_credentials = bool(
+            resolved.get("AWS_ACCESS_KEY_ID") and resolved.get("AWS_SECRET_ACCESS_KEY")
+        )
+        if not has_aws_credentials and (
+            api_key := resolved.get("AWS_BEARER_TOKEN_BEDROCK")
+        ):
             return await _verify_with_api_key(
                 api_key=api_key,
                 region=region,
@@ -273,14 +319,8 @@ async def verify_bedrock_catalog_target(
                 is_inference_profile=is_inference_profile,
                 use_converse=use_converse,
             )
-        except BedrockVerificationError:
-            raise
-        except Exception as exc:
-            raise BedrockVerificationError(str(exc)) from exc
 
-    try:
-        return await asyncio.to_thread(
-            _verify_with_boto3,
+        return await _verify_with_aws_credentials(
             credentials=resolved,
             region=region,
             target_id=target_id,

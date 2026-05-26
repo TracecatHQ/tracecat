@@ -23,7 +23,6 @@ from tracecat.auth.dependencies import OrgUserRole, WorkspaceUserPathRole
 from tracecat.authz.controls import require_scope
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
-from tracecat.integrations.aws_assume_role import build_organization_external_id
 from tracecat.pagination import CursorPaginationParams
 
 router = APIRouter()
@@ -72,7 +71,11 @@ async def create_catalog_entry(
     params: AgentCatalogCreate = Body(...),
 ) -> AgentCatalogRead:
     """Create an org-scoped catalog entry and auto-enable it at the org level."""
-    assert role.organization_id is not None  # OrgUserRole guarantees this
+    if role.organization_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No organization context",
+        )
     catalog_service = AgentCatalogService(session=session)
     access_service = AgentModelAccessService(session=session, role=role)
     metadata = params.model_dump(exclude={"model_provider", "model_name"})
@@ -107,22 +110,19 @@ async def test_bedrock_catalog_target(
     params: BedrockCatalogTest = Body(...),
 ) -> BedrockCatalogTestResponse:
     """Verify an unsaved Bedrock catalog target."""
-    assert role.organization_id is not None  # OrgUserRole guarantees this
+    if role.organization_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No organization context",
+        )
     credentials_service = AgentManagementService(session=session, role=role)
-    credentials = await credentials_service.get_provider_credentials("bedrock")
+    credentials = await credentials_service.get_runtime_provider_credentials("bedrock")
     if not credentials:
         return BedrockCatalogTestResponse(
             success=False,
             message="Bedrock credentials are not configured.",
             error="Configure AWS Bedrock credentials before verifying a model.",
         )
-
-    if "AWS_ROLE_ARN" in credentials and "TRACECAT_AWS_EXTERNAL_ID" not in credentials:
-        credentials = credentials | {
-            "TRACECAT_AWS_EXTERNAL_ID": build_organization_external_id(
-                role.organization_id
-            )
-        }
 
     try:
         details = await verify_bedrock_catalog_target(
@@ -155,7 +155,11 @@ async def get_catalog_entry(
     session: AsyncDBSession,
 ) -> AgentCatalogRead:
     """Get a specific catalog entry."""
-    assert role.organization_id is not None  # OrgUserRole guarantees this
+    if role.organization_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No organization context",
+        )
     service = AgentCatalogService(session=session)
     try:
         row = await service.get_catalog_entry(
@@ -182,7 +186,11 @@ async def update_catalog_entry(
     params: AgentCatalogUpdate = Body(...),
 ) -> AgentCatalogRead:
     """Update metadata on an org-scoped catalog entry."""
-    assert role.organization_id is not None  # OrgUserRole guarantees this
+    if role.organization_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No organization context",
+        )
     service = AgentCatalogService(session=session)
     try:
         row = await service.get_catalog_entry(
@@ -226,7 +234,11 @@ async def delete_catalog_entry(
     session: AsyncDBSession,
 ) -> None:
     """Delete an org-scoped catalog entry."""
-    assert role.organization_id is not None  # OrgUserRole guarantees this
+    if role.organization_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No organization context",
+        )
     service = AgentCatalogService(session=session)
     try:
         row = await service.get_catalog_entry(

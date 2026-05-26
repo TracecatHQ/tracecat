@@ -188,7 +188,7 @@ const bedrockCloudModelSchema = z.object({
   display_name: z.string().trim().optional(),
   inference_profile_id: z.string().trim().optional(),
   model_id: z.string().trim().optional(),
-  use_converse: z.boolean().default(true),
+  use_converse: z.boolean().default(false),
 })
 
 const azureOpenAICloudModelSchema = z.object({
@@ -273,7 +273,7 @@ function buildCloudCatalogDefaults(
           "inference_profile_id"
         ),
         model_id: getCatalogMetadataString(metadata, "model_id"),
-        use_converse: entry ? metadata?.use_converse === true : true,
+        use_converse: entry ? metadata?.use_converse === true : false,
       }
     case "azure_openai":
       return {

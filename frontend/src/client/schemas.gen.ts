@@ -5458,7 +5458,7 @@ export const $BedrockCatalogCreate = {
     use_converse: {
       type: "boolean",
       title: "Use Converse",
-      default: true,
+      default: false,
     },
   },
   additionalProperties: false,
@@ -5503,7 +5503,7 @@ export const $BedrockCatalogTest = {
     use_converse: {
       type: "boolean",
       title: "Use Converse",
-      default: true,
+      default: false,
     },
   },
   additionalProperties: false,
@@ -5538,9 +5538,14 @@ export const $BedrockCatalogTestResponse = {
       description: "Error message if verification failed",
     },
     details: {
-      additionalProperties: true,
-      type: "object",
-      title: "Details",
+      anyOf: [
+        {
+          $ref: "#/components/schemas/BedrockVerificationDetails",
+        },
+        {
+          type: "null",
+        },
+      ],
       description:
         "Non-sensitive provider details returned during verification",
     },
@@ -5596,13 +5601,78 @@ export const $BedrockCatalogUpdate = {
     use_converse: {
       type: "boolean",
       title: "Use Converse",
-      default: true,
+      default: false,
     },
   },
   additionalProperties: false,
   type: "object",
   required: ["model_provider"],
   title: "BedrockCatalogUpdate",
+} as const
+
+export const $BedrockInferenceProfileDetails = {
+  properties: {
+    target_type: {
+      type: "string",
+      const: "inference_profile",
+      title: "Target Type",
+    },
+    model_count: {
+      type: "integer",
+      title: "Model Count",
+    },
+    status: {
+      type: "string",
+      title: "Status",
+    },
+    inference_profile_id: {
+      type: "string",
+      title: "Inference Profile Id",
+    },
+    inference_profile_arn: {
+      type: "string",
+      title: "Inference Profile Arn",
+    },
+  },
+  type: "object",
+  required: ["target_type", "model_count"],
+  title: "BedrockInferenceProfileDetails",
+} as const
+
+export const $BedrockModelAvailabilityDetails = {
+  properties: {
+    target_type: {
+      type: "string",
+      const: "model_id",
+      title: "Target Type",
+    },
+    authorization_status: {
+      type: "string",
+      title: "Authorization Status",
+    },
+    entitlement_availability: {
+      type: "string",
+      title: "Entitlement Availability",
+    },
+    region_availability: {
+      type: "string",
+      title: "Region Availability",
+    },
+  },
+  type: "object",
+  required: ["target_type"],
+  title: "BedrockModelAvailabilityDetails",
+} as const
+
+export const $BedrockVerificationDetails = {
+  anyOf: [
+    {
+      $ref: "#/components/schemas/BedrockInferenceProfileDetails",
+    },
+    {
+      $ref: "#/components/schemas/BedrockModelAvailabilityDetails",
+    },
+  ],
 } as const
 
 export const $BinaryContent = {

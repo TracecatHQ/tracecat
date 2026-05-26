@@ -1417,9 +1417,7 @@ export type BedrockCatalogTestResponse = {
   /**
    * Non-sensitive provider details returned during verification
    */
-  details?: {
-    [key: string]: unknown
-  }
+  details?: BedrockVerificationDetails | null
 }
 
 export type BedrockCatalogUpdate = {
@@ -1429,6 +1427,25 @@ export type BedrockCatalogUpdate = {
   model_id?: string | null
   use_converse?: boolean
 }
+
+export type BedrockInferenceProfileDetails = {
+  target_type: "inference_profile"
+  model_count: number
+  status?: string
+  inference_profile_id?: string
+  inference_profile_arn?: string
+}
+
+export type BedrockModelAvailabilityDetails = {
+  target_type: "model_id"
+  authorization_status?: string
+  entitlement_availability?: string
+  region_availability?: string
+}
+
+export type BedrockVerificationDetails =
+  | BedrockInferenceProfileDetails
+  | BedrockModelAvailabilityDetails
 
 /**
  * Binary content, e.g. an audio or image file.

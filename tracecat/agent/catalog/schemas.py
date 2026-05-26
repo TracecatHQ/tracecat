@@ -5,6 +5,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from tracecat.agent.catalog.types import BedrockVerificationDetails
+
 
 class AgentCatalogRead(BaseModel):
     """Single catalog model entry."""
@@ -46,7 +48,7 @@ class BedrockCatalogCreate(CloudCatalogModelBase):
     model_name: str = Field(min_length=1, max_length=500)
     inference_profile_id: str | None = Field(default=None, min_length=1)
     model_id: str | None = Field(default=None, min_length=1)
-    use_converse: bool = True
+    use_converse: bool = False
 
     @model_validator(mode="after")
     def _require_one_model_ref(self) -> "BedrockCatalogCreate":
@@ -94,7 +96,7 @@ class BedrockCatalogUpdate(CloudCatalogModelBase):
     model_provider: Literal["bedrock"]
     inference_profile_id: str | None = Field(default=None, min_length=1)
     model_id: str | None = Field(default=None, min_length=1)
-    use_converse: bool = True
+    use_converse: bool = False
 
     @model_validator(mode="after")
     def _require_one_model_ref(self) -> "BedrockCatalogUpdate":
@@ -146,7 +148,7 @@ class BedrockCatalogTest(BaseModel):
     model_provider: Literal["bedrock"]
     inference_profile_id: str | None = Field(default=None, min_length=1)
     model_id: str | None = Field(default=None, min_length=1)
-    use_converse: bool = True
+    use_converse: bool = False
 
     @model_validator(mode="after")
     def _require_one_model_ref(self) -> "BedrockCatalogTest":
@@ -172,7 +174,7 @@ class BedrockCatalogTestResponse(BaseModel):
         default=None,
         description="Error message if verification failed",
     )
-    details: dict[str, Any] = Field(
-        default_factory=dict,
+    details: BedrockVerificationDetails | None = Field(
+        default=None,
         description="Non-sensitive provider details returned during verification",
     )
