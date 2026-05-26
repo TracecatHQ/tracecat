@@ -356,6 +356,24 @@ def test_validate_schema_with_invalid_enum_values(invalid_value):
         DynamicModel(status=invalid_value)
 
 
+def test_bare_list_type_definition_has_actionable_error():
+    schema: dict[str, Any] = {
+        "items": {
+            "type": "list",
+            "description": "Items to process",
+        },
+    }
+
+    with pytest.raises(ValueError) as exc_info:
+        create_expectation_model(schema)
+
+    message = str(exc_info.value)
+    assert "expected field 'items'" in message
+    assert "'list'" in message
+    assert "list[str]" in message
+    assert "list[Any]" in message
+
+
 def test_trigger_input_schema_default_values_are_applied():
     """Test that default values are correctly applied when validating trigger inputs."""
     # Define a schema with multiple fields that have default values

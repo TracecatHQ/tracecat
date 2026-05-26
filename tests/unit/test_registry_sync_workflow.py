@@ -12,7 +12,10 @@ from temporalio.exceptions import ActivityError, ApplicationError
 
 from tracecat.registry.actions.enums import TemplateActionValidationErrorType
 from tracecat.registry.actions.schemas import RegistryActionValidationErrorInfo
-from tracecat.registry.sync.runner import RegistrySyncValidationError
+from tracecat.registry.sync.runner import (
+    ActionDiscoveryError,
+    RegistrySyncValidationError,
+)
 from tracecat.registry.sync.schemas import (
     RegistryArtifactsBackfillItem,
     RegistryArtifactsBackfillItemResult,
@@ -61,6 +64,42 @@ async def test_sync_registry_activity_raises_validation_application_error(
 
     with pytest.raises(ApplicationError, match="Registry sync validation failed"):
         await sync_registry_activity(request)
+
+
+@pytest.mark.anyio
+async def test_sync_registry_activity_raises_non_retryable_error_for_discovery_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Discovery/template-load failures should surface immediately, not retry to timeout."""
+
+    class _FakeRunner:
+        async def run(self, request: RegistrySyncRequest) -> None:
+            del request
+            raise ActionDiscoveryError(
+                "Failed to discover actions: Failed to load template action from "
+                "/custom_actions/example_template.yml: "
+                "Invalid type annotation for expected field 'items': 'list'. "
+                "Lists must include an item type, e.g. 'list[str]' or 'list[Any]'."
+            )
+
+    monkeypatch.setattr(
+        "tracecat.registry.sync.workflow.RegistrySyncRunner", _FakeRunner
+    )
+
+    request = RegistrySyncRequest(
+        repository_id=uuid4(),
+        origin="tracecat_registry",
+        origin_type="builtin",
+    )
+
+    with pytest.raises(ApplicationError) as exc_info:
+        await sync_registry_activity(request)
+
+    exc = exc_info.value
+    assert exc.type == "RegistrySyncValidationError"
+    assert exc.non_retryable is True
+    assert "example_template.yml" in str(exc)
+    assert "list[str]" in str(exc)
 
 
 @pytest.mark.anyio

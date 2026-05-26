@@ -804,9 +804,19 @@ class Repository:
                 continue
 
             logger.info(f"Loading template actions from {file_path!s}")
-            template_action = self.load_template_action_from_file(
-                file_path, origin, overwrite=overwrite
-            )
+            try:
+                template_action = self.load_template_action_from_file(
+                    file_path, origin, overwrite=overwrite
+                )
+            except Exception as exc:
+                logger.error(
+                    "Failed to load template action",
+                    path=file_path,
+                    error=str(exc),
+                )
+                raise RegistryError(
+                    f"Failed to load template action from {file_path}: {exc}"
+                ) from exc
             if template_action is None:
                 continue
 

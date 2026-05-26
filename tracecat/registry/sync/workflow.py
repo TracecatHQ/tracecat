@@ -37,6 +37,7 @@ with workflow.unsafe.imports_passed_through():
 
     from tracecat.logger import logger
     from tracecat.registry.sync.runner import (
+        ActionDiscoveryError,
         RegistrySyncRunner,
         RegistrySyncValidationError,
     )
@@ -190,7 +191,11 @@ async def sync_registry_activity(request: RegistrySyncRequest) -> RegistrySyncRe
     runner = RegistrySyncRunner()
     try:
         result = await runner.run(request)
-    except RegistrySyncValidationError as exc:
+    except (RegistrySyncValidationError, ActionDiscoveryError) as exc:
+        # Discovery/template-load failures are caused by the repository content,
+        # not worker capacity. Mark them non-retryable so users see the
+        # actionable parser/validation error immediately instead of a 20m
+        # workflow timeout after repeated identical attempts.
         raise ApplicationError(
             str(exc),
             non_retryable=True,
