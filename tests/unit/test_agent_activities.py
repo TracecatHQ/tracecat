@@ -47,7 +47,7 @@ from tracecat.agent.session.activities import (
     load_session_activity,
     load_session_messages_activity,
 )
-from tracecat.agent.session.types import AgentSessionEntity
+from tracecat.agent.session.types import AgentSessionEntity, AgentSessionStatus
 from tracecat.agent.skill.types import ResolvedSkillRef
 from tracecat.agent.subagents import ResolvedAgentsConfig
 from tracecat.agent.tools import BuildToolsResult
@@ -395,6 +395,41 @@ class TestCreateSessionActivity:
 
         assert result.success is True
         assert result.session_id == mock_session_id
+
+    @pytest.mark.anyio
+    @patch("tracecat.agent.session.activities.AgentSessionService.with_session")
+    async def test_curr_run_id_does_not_mark_session_running(
+        self, mock_with_session, mock_role: Role, mock_session_id: uuid.UUID
+    ):
+        """Create setup records the run token without taking the running lock."""
+        curr_run_id = uuid.uuid4()
+        input = CreateSessionInput(
+            role=mock_role,
+            session_id=mock_session_id,
+            entity_type=AgentSessionEntity.WORKFLOW,
+            entity_id=uuid.uuid4(),
+            curr_run_id=curr_run_id,
+        )
+
+        mock_agent_session = MagicMock()
+        mock_agent_session.agents_binding = None
+        mock_agent_session.status = AgentSessionStatus.IDLE.value
+        mock_service = AsyncMock()
+        mock_service.get_or_create_session.return_value = (mock_agent_session, False)
+        mock_service.session = MagicMock()
+        mock_service.session.commit = AsyncMock()
+
+        mock_ctx = AsyncMock()
+        mock_ctx.__aenter__.return_value = mock_service
+        mock_with_session.return_value = mock_ctx
+
+        result = await create_session_activity(input)
+
+        assert result.success is True
+        assert mock_agent_session.curr_run_id == curr_run_id
+        assert mock_agent_session.status == AgentSessionStatus.IDLE.value
+        mock_service.session.add.assert_called_once_with(mock_agent_session)
+        mock_service.session.commit.assert_awaited_once()
 
     @pytest.mark.anyio
     @patch("tracecat.agent.session.activities.AgentSessionService.with_session")

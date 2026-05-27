@@ -767,6 +767,49 @@ async def test_request_cancel_gracefully_stops_running_agent_turn(
 
 @pytest.mark.anyio
 @pytest.mark.integration
+async def test_agent_workflow_marks_failed_when_executor_activity_errors(
+    temporal_client: Client,
+    agent_worker_factory,
+    agent_workflow_args: AgentWorkflowArgs,
+    mock_session_id: uuid.UUID,
+) -> None:
+    """Executor ActivityError failures should release the running session gate."""
+    queue = f"test-agent-queue-{mock_session_id}"
+    status_update_inputs: list[UpdateSessionStatusInput] = []
+
+    def mock_executor(
+        _call_count: int,
+        _input: AgentExecutorInput,
+    ) -> AgentExecutorResult:
+        raise ApplicationError("sandbox worker timed out")
+
+    activities = create_activities_with_mock_executor(
+        mock_executor,
+        status_update_inputs=status_update_inputs,
+    )
+
+    async with agent_worker_factory(
+        temporal_client, task_queue=queue, custom_activities=activities
+    ):
+        with pytest.raises(WorkflowFailureError):
+            await temporal_client.execute_workflow(
+                DurableAgentWorkflow.run,
+                agent_workflow_args,
+                id=AgentWorkflowID(mock_session_id),
+                task_queue=queue,
+                retry_policy=RETRY_POLICIES["workflow:fail_fast"],
+                execution_timeout=timedelta(seconds=30),
+            )
+
+    assert [input.status for input in status_update_inputs] == [
+        AgentSessionStatus.RUNNING,
+        AgentSessionStatus.FAILED,
+    ]
+    assert status_update_inputs[-1].clear_curr_run_id is True
+
+
+@pytest.mark.anyio
+@pytest.mark.integration
 async def test_agent_workflow_preserves_legacy_activity_message_history(
     svc_role: Role,
     temporal_client: Client,

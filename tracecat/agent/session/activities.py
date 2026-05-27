@@ -217,8 +217,9 @@ async def create_session_activity(input: CreateSessionInput) -> CreateSessionRes
 
             # Set curr_run_id if provided (for workflow-initiated sessions)
             if input.curr_run_id is not None:
+                # The workflow marks RUNNING only after setup completes, just
+                # before handing control to the executor activity.
                 agent_session.curr_run_id = input.curr_run_id
-                agent_session.status = AgentSessionStatus.RUNNING.value
                 service.session.add(agent_session)
                 await service.session.commit()
 

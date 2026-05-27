@@ -342,6 +342,7 @@ UPSERT_TRACECAT_SEARCH_ATTRIBUTES_PATCH = (
 LOAD_TERMINAL_MESSAGE_HISTORY_PATCH = "durable-agent-load-terminal-message-history-v1"
 AGENT_ACTIVITY_GRACEFUL_CANCEL_PATCH = "durable-agent-activity-graceful-cancel-v1"
 AGENT_SESSION_STATUS_PATCH = "durable-agent-session-status-v1"
+AGENT_SESSION_FAILURE_STATUS_PATCH = "durable-agent-session-failure-status-v1"
 AGENT_ACTIVITY_GRACEFUL_CANCEL_HEARTBEAT_TIMEOUT_SECONDS = 10
 
 
@@ -718,6 +719,11 @@ class DurableAgentWorkflow:
             ):
                 await self._emit_session_error(e.message)
             raise
+        except TemporalCancelledError:
+            raise
+        except Exception:
+            await self._set_agent_session_failed_for_unhandled_failure()
+            raise
 
     async def _emit_session_error(self, message: str) -> None:
         try:
@@ -817,6 +823,16 @@ class DurableAgentWorkflow:
                 status=status,
                 error=str(e),
             )
+
+    async def _set_agent_session_failed_for_unhandled_failure(self) -> None:
+        """Mark failed for post-deploy unhandled workflow failures."""
+        if not workflow.patched(AGENT_SESSION_FAILURE_STATUS_PATCH):
+            return
+
+        await self._set_agent_session_status(
+            AgentSessionStatus.FAILED,
+            clear_curr_run_id=True,
+        )
 
     async def _run_agent_activity_turn(
         self,
