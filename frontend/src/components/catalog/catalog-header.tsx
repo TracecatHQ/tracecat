@@ -16,7 +16,7 @@ import { cn } from "@/lib/utils"
 export interface CatalogHeaderPillOption<TValue extends string = string> {
   value: TValue
   label: string
-  icon: LucideIcon
+  icon?: LucideIcon
 }
 
 export interface CatalogHeaderSelectOption {
@@ -115,7 +115,9 @@ export function CatalogHeader<TPillValue extends string = string>({
                 aria-pressed={isActive}
                 onClick={() => onPillFilterToggle?.(option.value)}
               >
-                <Icon className="size-3.5 text-muted-foreground" />
+                {Icon ? (
+                  <Icon className="size-3.5 text-muted-foreground" />
+                ) : null}
                 {option.label}
               </button>
             )

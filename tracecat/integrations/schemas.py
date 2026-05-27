@@ -524,6 +524,16 @@ class MCPIntegrationUpdate(BaseModel):
         return value
 
 
+MCPIntegrationSource = Literal["platform", "workspace"]
+"""Provenance of an MCP integration.
+
+- ``platform``: auto-created by a platform-shipped MCP auth provider (the
+  lifecycle is owned by the OAuth flow for an ``MCPAuthProvider``).
+- ``workspace``: explicitly created by a workspace user via the MCP servers
+  page or API.
+"""
+
+
 class MCPIntegrationRead(BaseModel):
     """Response model for MCP integration."""
 

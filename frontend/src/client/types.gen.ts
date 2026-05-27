@@ -12272,6 +12272,10 @@ export type McpIntegrationsCreateMcpIntegrationData = {
 export type McpIntegrationsCreateMcpIntegrationResponse = MCPIntegrationRead
 
 export type McpIntegrationsListMcpIntegrationsData = {
+  /**
+   * Restrict results to platform-managed or workspace-authored MCP integrations. Defaults to all rows.
+   */
+  source?: "platform" | "workspace" | null
   workspaceId: string
 }
 

@@ -1,24 +1,13 @@
 "use client"
 
-import {
-  Link2,
-  Lock,
-  LockKeyhole,
-  Sparkles,
-  Unlink2,
-  WrenchIcon,
-} from "lucide-react"
+import { Link2, Lock, LockKeyhole, Unlink2 } from "lucide-react"
 import {
   CatalogHeader,
   type CatalogHeaderPillOption,
   type CatalogHeaderSelectFilter,
 } from "@/components/catalog/catalog-header"
 
-export type IntegrationTypeFilter =
-  | "oauth"
-  | "custom_oauth"
-  | "mcp"
-  | "custom_mcp"
+export type IntegrationTypeFilter = "oauth" | "custom_oauth"
 export type ConnectionFilter = "all" | "connected" | "not_connected"
 
 interface IntegrationsHeaderProps {
@@ -36,8 +25,6 @@ const TYPE_FILTER_OPTIONS: Array<
 > = [
   { value: "oauth", label: "OAuth", icon: Lock },
   { value: "custom_oauth", label: "Custom OAuth", icon: LockKeyhole },
-  { value: "mcp", label: "MCP", icon: Sparkles },
-  { value: "custom_mcp", label: "Custom MCP", icon: WrenchIcon },
 ]
 
 export function IntegrationsHeader({

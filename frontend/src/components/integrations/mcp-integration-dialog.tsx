@@ -4,14 +4,34 @@ import { zodResolver } from "@hookform/resolvers/zod"
 import { Loader2, Plus, Trash2 } from "lucide-react"
 import React, { useState } from "react"
 import { useFieldArray, useForm } from "react-hook-form"
-import { z } from "zod"
 import type {
   MCPHttpIntegrationCreate,
   MCPIntegrationUpdate,
   MCPStdioIntegrationCreate,
 } from "@/client/types.gen"
+import { useScopeCheck } from "@/components/auth/scope-guard"
 import { CodeEditor } from "@/components/editor/codemirror/code-editor"
 import { ProviderIcon } from "@/components/icons"
+import {
+  ALLOWED_COMMANDS,
+  AUTH_TYPES,
+  isAllowedCommand,
+  MCP_INTEGRATION_FORM_DEFAULTS,
+  type MCPIntegrationFormValues,
+  mcpIntegrationFormSchema,
+  SERVER_TYPES,
+} from "@/components/integrations/mcp-integration-schema"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog"
 import { Button, type ButtonProps } from "@/components/ui/button"
 import {
   Dialog,
@@ -42,240 +62,14 @@ import {
 import { Textarea } from "@/components/ui/textarea"
 import {
   useCreateMcpIntegration,
+  useDeleteMcpIntegration,
   useGetMcpIntegration,
   useIntegrations,
   useUpdateMcpIntegration,
 } from "@/lib/hooks"
+import { isMcpProvider } from "@/lib/integrations"
 import { cn } from "@/lib/utils"
 import { useWorkspaceId } from "@/providers/workspace-id"
-
-const SERVER_TYPES = [
-  {
-    value: "http",
-    label: "URL (HTTP/SSE)",
-    description: "Connect to an MCP server via HTTP or SSE endpoint",
-  },
-  {
-    value: "stdio",
-    label: "Stdio",
-    description: "Run a command that spawns an MCP server (e.g., npx)",
-  },
-] as const
-
-const AUTH_TYPES = [
-  {
-    value: "OAUTH2",
-    label: "OAuth 2.0",
-    description: "Use existing OAuth integration (MCP standard)",
-  },
-  {
-    value: "CUSTOM",
-    label: "Custom",
-    description: "API key, bearer token, or custom headers (JSON)",
-  },
-  {
-    value: "NONE",
-    label: "No Authentication",
-    description: "No authentication required (for self-hosted)",
-  },
-] as const
-
-const ALLOWED_COMMANDS = ["npx", "uvx", "python", "python3", "node"] as const
-
-function isAllowedCommand(
-  command: string
-): command is (typeof ALLOWED_COMMANDS)[number] {
-  return ALLOWED_COMMANDS.includes(command as (typeof ALLOWED_COMMANDS)[number])
-}
-
-function isValidHeadersJson(value: string): boolean {
-  try {
-    const parsed = JSON.parse(value) as unknown
-    if (
-      typeof parsed !== "object" ||
-      parsed === null ||
-      Array.isArray(parsed)
-    ) {
-      return false
-    }
-    const headers = parsed as Record<string, unknown>
-    for (const headerValue of Object.values(headers)) {
-      if (typeof headerValue !== "string") {
-        return false
-      }
-    }
-    return true
-  } catch {
-    return false
-  }
-}
-
-const formSchema = z
-  .object({
-    name: z
-      .string()
-      .trim()
-      .min(3, { message: "Name must be at least 3 characters long" })
-      .max(255, { message: "Name must be 255 characters or fewer" }),
-    description: z
-      .string()
-      .trim()
-      .max(512, { message: "Description must be 512 characters or fewer" })
-      .optional()
-      .or(z.literal("")),
-    // Server type
-    server_type: z.enum(["http", "stdio"]),
-    // HTTP-type fields
-    server_uri: z.string().trim().optional().or(z.literal("")),
-    auth_type: z.enum(["OAUTH2", "CUSTOM", "NONE"]),
-    oauth_integration_id: z.string().uuid().optional().or(z.literal("")),
-    custom_credentials: z.string().trim().optional().or(z.literal("")),
-    // Stdio-type fields
-    stdio_command: z.string().trim().optional().or(z.literal("")),
-    stdio_args: z.array(
-      z.object({
-        value: z.string(),
-      })
-    ),
-    stdio_env: z.string().trim().optional().or(z.literal("")),
-    // General fields
-    timeout: z.coerce.number().int().min(1).max(300).optional(),
-  })
-  // HTTP-type validation
-  .refine(
-    (data) => {
-      if (data.server_type === "http") {
-        if (!data.server_uri || data.server_uri.trim() === "") {
-          return false
-        }
-        try {
-          new URL(data.server_uri)
-          return true
-        } catch {
-          return false
-        }
-      }
-      return true
-    },
-    {
-      message: "Valid server URL is required for HTTP-type servers",
-      path: ["server_uri"],
-    }
-  )
-  .refine(
-    (data) => {
-      if (data.server_type === "http" && data.auth_type === "OAUTH2") {
-        return !!data.oauth_integration_id && data.oauth_integration_id !== ""
-      }
-      return true
-    },
-    {
-      message: "OAuth integration is required for OAuth 2.0 authentication",
-      path: ["oauth_integration_id"],
-    }
-  )
-  .refine(
-    (data) => {
-      if (data.server_type === "http" && data.auth_type === "CUSTOM") {
-        if (!data.custom_credentials || data.custom_credentials.trim() === "") {
-          return false
-        }
-        return isValidHeadersJson(data.custom_credentials)
-      }
-      return true
-    },
-    {
-      message:
-        "Custom credentials must be a valid JSON object with string values",
-      path: ["custom_credentials"],
-    }
-  )
-  .refine(
-    (data) => {
-      if (
-        data.server_type === "http" &&
-        data.auth_type === "OAUTH2" &&
-        data.custom_credentials &&
-        data.custom_credentials.trim() !== ""
-      ) {
-        return isValidHeadersJson(data.custom_credentials)
-      }
-      return true
-    },
-    {
-      message:
-        "Additional headers must be a valid JSON object with string values",
-      path: ["custom_credentials"],
-    }
-  )
-  // Stdio-type validation
-  .refine(
-    (data) => {
-      if (data.server_type === "stdio") {
-        if (!data.stdio_command || data.stdio_command.trim() === "") {
-          return false
-        }
-        const cmd = data.stdio_command.trim()
-        return isAllowedCommand(cmd)
-      }
-      return true
-    },
-    {
-      message: `Command must be one of: ${ALLOWED_COMMANDS.join(", ")}`,
-      path: ["stdio_command"],
-    }
-  )
-  .refine(
-    (data) => {
-      if (
-        data.server_type === "stdio" &&
-        data.stdio_env &&
-        data.stdio_env.trim() !== ""
-      ) {
-        try {
-          const parsed = JSON.parse(data.stdio_env) as unknown
-          if (
-            typeof parsed !== "object" ||
-            parsed === null ||
-            Array.isArray(parsed)
-          ) {
-            return false
-          }
-          // Validate all values are strings (API expects Record<string, string>)
-          for (const value of Object.values(parsed)) {
-            if (typeof value !== "string") {
-              return false
-            }
-          }
-          return true
-        } catch {
-          return false
-        }
-      }
-      return true
-    },
-    {
-      message:
-        "Environment variables must be a valid JSON object with string values only",
-      path: ["stdio_env"],
-    }
-  )
-
-type MCPIntegrationFormValues = z.infer<typeof formSchema>
-
-const DEFAULT_VALUES: MCPIntegrationFormValues = {
-  name: "",
-  description: "",
-  server_type: "http",
-  server_uri: "",
-  auth_type: "NONE",
-  oauth_integration_id: "",
-  custom_credentials: "",
-  stdio_command: "",
-  stdio_args: [],
-  stdio_env: "",
-  timeout: 30,
-}
 
 export function MCPIntegrationDialog({
   triggerProps,
@@ -296,12 +90,15 @@ export function MCPIntegrationDialog({
     useCreateMcpIntegration(workspaceId)
   const { updateMcpIntegration, updateMcpIntegrationIsPending } =
     useUpdateMcpIntegration(workspaceId)
+  const { deleteMcpIntegration, deleteMcpIntegrationIsPending } =
+    useDeleteMcpIntegration(workspaceId)
   const { integrations, providers, integrationsIsLoading } =
     useIntegrations(workspaceId)
   const { mcpIntegration, mcpIntegrationIsLoading } = useGetMcpIntegration(
     workspaceId,
     mcpIntegrationId ?? null
   )
+  const canDelete = useScopeCheck("integration:delete") === true
   const [internalOpen, setInternalOpen] = useState(false)
   const [isEditHydrated, setIsEditHydrated] = useState(false)
   const open = controlledOpen ?? internalOpen
@@ -316,8 +113,8 @@ export function MCPIntegrationDialog({
   }, [mcpIntegrationId, controlledOpen])
 
   const form = useForm<MCPIntegrationFormValues>({
-    resolver: zodResolver(formSchema),
-    defaultValues: DEFAULT_VALUES,
+    resolver: zodResolver(mcpIntegrationFormSchema),
+    defaultValues: MCP_INTEGRATION_FORM_DEFAULTS,
   })
   const {
     fields: stdioArgFields,
@@ -400,7 +197,7 @@ export function MCPIntegrationDialog({
       replaceStdioArgs(hydratedStdioArgs)
       setIsEditHydrated(true)
     } else {
-      form.reset(DEFAULT_VALUES)
+      form.reset(MCP_INTEGRATION_FORM_DEFAULTS)
       replaceStdioArgs([])
       setIsEditHydrated(false)
     }
@@ -928,7 +725,7 @@ export function MCPIntegrationDialog({
                                       )
                                       if (
                                         !integration ||
-                                        integration.provider_id.endsWith("_mcp")
+                                        isMcpProvider(integration.provider_id)
                                       )
                                         return null
                                       const provider = providers?.find(
@@ -953,7 +750,7 @@ export function MCPIntegrationDialog({
                                     ?.filter(
                                       (int) =>
                                         int.status === "connected" &&
-                                        !int.provider_id.endsWith("_mcp")
+                                        !isMcpProvider(int.provider_id)
                                     )
                                     .map((integration) => {
                                       const provider = providers?.find(
@@ -989,7 +786,7 @@ export function MCPIntegrationDialog({
                                     integrations.filter(
                                       (int) =>
                                         int.status === "connected" &&
-                                        !int.provider_id.endsWith("_mcp")
+                                        !isMcpProvider(int.provider_id)
                                     ).length === 0) && (
                                     <div className="px-2 py-1.5 text-xs text-muted-foreground">
                                       No OAuth integrations available
@@ -1045,8 +842,56 @@ export function MCPIntegrationDialog({
                     />
                   )}
 
-                <DialogFooter className="flex flex-col gap-2 sm:flex-row">
-                  <div className="flex w-full items-center justify-end gap-2">
+                <DialogFooter className="flex flex-col gap-2 sm:flex-row sm:justify-between">
+                  {isEditMode && mcpIntegrationId && canDelete ? (
+                    <AlertDialog>
+                      <AlertDialogTrigger asChild>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+                          disabled={isPending || deleteMcpIntegrationIsPending}
+                        >
+                          <Trash2 className="mr-1.5 h-3.5 w-3.5" />
+                          Delete
+                        </Button>
+                      </AlertDialogTrigger>
+                      <AlertDialogContent>
+                        <AlertDialogHeader>
+                          <AlertDialogTitle>
+                            Remove MCP server?
+                          </AlertDialogTitle>
+                          <AlertDialogDescription>
+                            Agents will no longer be able to call{" "}
+                            <span className="font-medium">
+                              {mcpIntegration?.name ?? "this server"}
+                            </span>
+                            .
+                          </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                          <AlertDialogCancel>Cancel</AlertDialogCancel>
+                          <AlertDialogAction
+                            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                            disabled={deleteMcpIntegrationIsPending}
+                            onClick={async (event) => {
+                              event.preventDefault()
+                              await deleteMcpIntegration(mcpIntegrationId)
+                              handleOpenChange(false)
+                            }}
+                          >
+                            {deleteMcpIntegrationIsPending && (
+                              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                            )}
+                            Remove
+                          </AlertDialogAction>
+                        </AlertDialogFooter>
+                      </AlertDialogContent>
+                    </AlertDialog>
+                  ) : (
+                    <span />
+                  )}
+                  <div className="flex items-center justify-end gap-2">
                     <Button
                       type="button"
                       variant="outline"

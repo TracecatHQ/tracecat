@@ -13,6 +13,7 @@ import {
   type LucideIcon,
   MousePointerClickIcon,
   Pyramid,
+  Sparkles,
   Table2Icon,
   TerminalIcon,
   UsersIcon,
@@ -189,6 +190,13 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
         url: `${basePath}/integrations`,
         icon: BlocksIcon,
         isActive: pathname?.startsWith(`${basePath}/integrations`),
+        visible: canViewIntegrations === true,
+      },
+      {
+        title: "MCP servers",
+        url: `${basePath}/mcp-servers`,
+        icon: Sparkles,
+        isActive: pathname?.startsWith(`${basePath}/mcp-servers`),
         visible: canViewIntegrations === true,
       },
       {

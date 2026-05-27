@@ -30,6 +30,7 @@ from tracecat.integrations.enums import IntegrationStatus, OAuthGrantType
 from tracecat.integrations.providers import all_providers
 from tracecat.integrations.providers.base import (
     AuthorizationCodeOAuthProvider,
+    MCPAuthProvider,
     ServiceAccountOAuthProvider,
 )
 from tracecat.integrations.schemas import (
@@ -42,6 +43,7 @@ from tracecat.integrations.schemas import (
     IntegrationUpdate,
     MCPIntegrationCreate,
     MCPIntegrationRead,
+    MCPIntegrationSource,
     MCPIntegrationUpdate,
     ProviderKey,
     ProviderRead,
@@ -66,6 +68,17 @@ providers_router = APIRouter(prefix="/providers", tags=["providers"])
 
 mcp_router = APIRouter(prefix="/mcp-integrations", tags=["mcp-integrations"])
 """Routes for managing MCP integrations."""
+
+
+def _oauth_callback_redirect_url(
+    *,
+    provider_impl: type[AuthorizationCodeOAuthProvider],
+    workspace_id: uuid.UUID,
+) -> str:
+    target_page = (
+        "mcp-servers" if issubclass(provider_impl, MCPAuthProvider) else "integrations"
+    )
+    return f"{config.TRACECAT__PUBLIC_APP_URL}/workspaces/{workspace_id}/{target_page}"
 
 
 @oauth_router.get("/callback")
@@ -247,9 +260,15 @@ async def oauth_callback(
             detail="Provider returned insecure OAuth endpoints",
         ) from exc
     logger.info("Returning OAuth callback", status="connected", provider=key.id)
+    if role.workspace_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Workspace ID is required",
+        )
 
-    redirect_url = (
-        f"{config.TRACECAT__PUBLIC_APP_URL}/workspaces/{role.workspace_id}/integrations"
+    redirect_url = _oauth_callback_redirect_url(
+        provider_impl=provider_impl,
+        workspace_id=role.workspace_id,
     )
     return IntegrationOAuthCallback(
         status="connected",
@@ -858,8 +877,17 @@ async def create_mcp_integration(
 async def list_mcp_integrations(
     role: WorkspaceActorRouteRole,
     session: AsyncDBSession,
+    source: Annotated[
+        MCPIntegrationSource | None,
+        Query(
+            description=(
+                "Restrict results to platform-managed or workspace-authored "
+                "MCP integrations. Defaults to all rows."
+            ),
+        ),
+    ] = None,
 ) -> list[MCPIntegrationRead]:
-    """List all MCP integrations for the workspace."""
+    """List MCP integrations for the workspace, optionally filtered by source."""
     if role.workspace_id is None:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -867,7 +895,7 @@ async def list_mcp_integrations(
         )
 
     svc = IntegrationService(session, role=role)
-    integrations = await svc.list_mcp_integrations()
+    integrations = await svc.list_mcp_integrations(source=source)
 
     return [
         MCPIntegrationRead(

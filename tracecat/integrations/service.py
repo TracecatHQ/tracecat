@@ -8,6 +8,7 @@ from urllib.parse import urlparse
 from uuid import uuid4
 
 import orjson
+import sqlalchemy as sa
 from pydantic import SecretStr
 from slugify import slugify
 from sqlalchemy import and_, or_, select, update
@@ -38,6 +39,7 @@ from tracecat.integrations.providers.base import (
 from tracecat.integrations.schemas import (
     CustomOAuthProviderCreate,
     MCPIntegrationCreate,
+    MCPIntegrationSource,
     MCPIntegrationUpdate,
     ProviderConfig,
     ProviderKey,
@@ -56,6 +58,10 @@ class IntegrationService(BaseWorkspaceService):
     """Service for managing user integrations."""
 
     service_name = "integrations"
+
+    @staticmethod
+    def _escape_like_pattern(value: str) -> str:
+        return value.replace("\\", "\\\\").replace("%", r"\%").replace("_", r"\_")
 
     @staticmethod
     def _validate_https_endpoint(
@@ -484,9 +490,19 @@ class IntegrationService(BaseWorkspaceService):
     @require_scope("integration:update")
     async def disconnect_integration(self, *, integration: OAuthIntegration) -> None:
         """Disconnect a user's integration for a specific provider."""
-        self._disconnect_integration_state(integration=integration)
-        self.session.add(integration)
-        await self.session.commit()
+        try:
+            if await self._is_mcp_lifecycle_owned_oauth_integration(
+                integration=integration
+            ):
+                await self._delete_mcp_integrations_for_oauth_integration(
+                    integration=integration
+                )
+            self._disconnect_integration_state(integration=integration)
+            self.session.add(integration)
+            await self.session.commit()
+        except Exception:
+            await self.session.rollback()
+            raise
 
     def _disconnect_integration_state(self, *, integration: OAuthIntegration) -> None:
         """Apply disconnected token state to an integration without committing."""
@@ -1118,6 +1134,112 @@ class IntegrationService(BaseWorkspaceService):
         )
         return bool(provider_impl and issubclass(provider_impl, MCPAuthProvider))
 
+    async def _delete_mcp_integrations_for_oauth_integration(
+        self, *, integration: OAuthIntegration
+    ) -> int:
+        """Delete MCP rows backed by a lifecycle-owned OAuth integration."""
+        provider_impl = await self.resolve_provider_impl(
+            provider_key=ProviderKey(
+                id=integration.provider_id,
+                grant_type=integration.grant_type,
+            )
+        )
+        if provider_impl is None or not issubclass(provider_impl, MCPAuthProvider):
+            return 0
+        provider_impl = cast(type[MCPAuthProvider], provider_impl)
+
+        provider_slug = provider_impl.id
+        escaped_provider_slug = self._escape_like_pattern(provider_slug)
+        candidate_mcp_integrations = (
+            select(
+                MCPIntegration.id.label("id"),
+                sa.cast(MCPIntegration.id, sa.String).label("id_str"),
+            )
+            .where(
+                MCPIntegration.workspace_id == self.workspace_id,
+                MCPIntegration.oauth_integration_id == integration.id,
+                MCPIntegration.server_type == "http",
+                MCPIntegration.auth_type == MCPAuthType.OAUTH2,
+                MCPIntegration.server_uri == provider_impl.mcp_server_uri,
+                or_(
+                    MCPIntegration.slug == provider_slug,
+                    and_(
+                        MCPIntegration.slug.like(
+                            f"{escaped_provider_slug}-%", escape="\\"
+                        ),
+                        sa.func.substring(
+                            MCPIntegration.slug,
+                            len(provider_slug) + 2,
+                        ).op("~")(r"^\d+$"),
+                    ),
+                ),
+            )
+            .cte("candidate_mcp_integrations")
+        )
+
+        candidate_ids = select(
+            sa.func.coalesce(
+                sa.func.array_agg(candidate_mcp_integrations.c.id_str),
+                sa.cast(sa.literal([]), sa.ARRAY(sa.String())),
+            )
+        ).scalar_subquery()
+        candidate_exists = select(candidate_mcp_integrations.c.id).exists()
+
+        pruned_preset_ids = (
+            await self.session.scalars(
+                update(AgentPreset)
+                .where(
+                    AgentPreset.workspace_id == self.workspace_id,
+                    AgentPreset.mcp_integrations.isnot(None),
+                    candidate_exists,
+                    AgentPreset.mcp_integrations.op("?|")(candidate_ids),
+                )
+                .values(
+                    mcp_integrations=AgentPreset.mcp_integrations.op("-")(candidate_ids)
+                )
+                .returning(AgentPreset.id)
+                .execution_options(synchronize_session="fetch")
+            )
+        ).all()
+        await self._version_pruned_agent_presets(preset_ids=pruned_preset_ids)
+
+        deleted = await self.session.scalars(
+            sa.delete(MCPIntegration)
+            .where(MCPIntegration.id.in_(select(candidate_mcp_integrations.c.id)))
+            .returning(MCPIntegration.id)
+            .execution_options(synchronize_session="fetch")
+        )
+        return len(deleted.all())
+
+    async def _version_pruned_agent_presets(
+        self, *, preset_ids: Sequence[uuid.UUID]
+    ) -> None:
+        """Create current versions for presets whose MCP refs were pruned."""
+        if not preset_ids:
+            return
+
+        from tracecat.agent.preset.service import AgentPresetService
+
+        preset_service = AgentPresetService(self.session, role=self.role)
+        presets = await self.session.scalars(
+            select(AgentPreset)
+            .where(
+                AgentPreset.workspace_id == self.workspace_id,
+                AgentPreset.id.in_(preset_ids),
+            )
+            .order_by(AgentPreset.id)
+            .with_for_update()
+        )
+
+        for preset in presets:
+            version = await preset_service._create_version_from_preset(
+                preset,
+                preset_locked=True,
+            )
+            preset.current_version_id = version.id
+            self.session.add(preset)
+        await self.session.flush()
+
     async def _mcp_integration_slug_taken(self, slug: str) -> bool:
         """Check if an MCP integration slug is already taken."""
         statement = select(MCPIntegration).where(
@@ -1216,13 +1338,75 @@ class IntegrationService(BaseWorkspaceService):
 
         return mcp_integration
 
-    async def list_mcp_integrations(self) -> Sequence[MCPIntegration]:
-        """List all MCP integrations for the workspace."""
+    @staticmethod
+    def _mcp_integration_uses_provider_server(
+        mcp_integration: MCPIntegration, provider_impl: type[MCPAuthProvider]
+    ) -> bool:
+        return (
+            mcp_integration.server_type == "http"
+            and mcp_integration.auth_type == MCPAuthType.OAUTH2
+            and mcp_integration.server_uri == provider_impl.mcp_server_uri
+        )
+
+    @staticmethod
+    def _mcp_integration_has_provider_slug(
+        mcp_integration: MCPIntegration, provider_impl: type[MCPAuthProvider]
+    ) -> bool:
+        provider_slug = provider_impl.id
+        if mcp_integration.slug == provider_slug:
+            return True
+        suffix = mcp_integration.slug.removeprefix(f"{provider_slug}-")
+        return suffix != mcp_integration.slug and suffix.isdigit()
+
+    def _is_platform_managed_mcp_integration(
+        self, mcp_integration: MCPIntegration
+    ) -> bool:
+        """Whether an MCP integration is owned by the MCP OAuth provider lifecycle.
+
+        Platform-managed rows are auto-created by ``MCPAuthProvider`` flows in
+        ``_auto_create_mcp_integration_if_needed``. We identify them by their
+        provider-owned slug and provider server details because workspace users
+        can create their own MCP rows backed by the same OAuth integration.
+        """
+        oauth_integration = mcp_integration.oauth_integration
+        if oauth_integration is None:
+            return False
+        provider_impl = get_provider_class(
+            ProviderKey(
+                id=oauth_integration.provider_id,
+                grant_type=oauth_integration.grant_type,
+            )
+        )
+        return bool(
+            provider_impl
+            and issubclass(provider_impl, MCPAuthProvider)
+            and self._mcp_integration_uses_provider_server(
+                mcp_integration,
+                cast(type[MCPAuthProvider], provider_impl),
+            )
+            and self._mcp_integration_has_provider_slug(
+                mcp_integration,
+                cast(type[MCPAuthProvider], provider_impl),
+            )
+        )
+
+    async def list_mcp_integrations(
+        self, *, source: MCPIntegrationSource | None = None
+    ) -> Sequence[MCPIntegration]:
+        """List MCP integrations for the workspace, optionally filtered by source."""
         statement = select(MCPIntegration).where(
             MCPIntegration.workspace_id == self.workspace_id
         )
         result = await self.session.execute(statement)
-        return result.scalars().all()
+        integrations = result.scalars().all()
+        if source is None:
+            return integrations
+        want_platform = source == "platform"
+        return [
+            mcp
+            for mcp in integrations
+            if self._is_platform_managed_mcp_integration(mcp) == want_platform
+        ]
 
     async def get_mcp_integration(
         self, *, mcp_integration_id: uuid.UUID
@@ -1359,20 +1543,26 @@ class IntegrationService(BaseWorkspaceService):
 
         id_str = str(mcp_integration_id)
 
-        # Remove stale ID references from agent presets in this workspace
-        await self.session.execute(
-            update(AgentPreset)
-            .where(
-                and_(
-                    AgentPreset.workspace_id == self.workspace_id,
-                    AgentPreset.mcp_integrations.isnot(None),
-                    AgentPreset.mcp_integrations.contains([id_str]),
-                )
-            )
-            .values(mcp_integrations=AgentPreset.mcp_integrations.op("-")(id_str))
-        )
-
         try:
+            pruned_preset_ids = (
+                await self.session.scalars(
+                    update(AgentPreset)
+                    .where(
+                        and_(
+                            AgentPreset.workspace_id == self.workspace_id,
+                            AgentPreset.mcp_integrations.isnot(None),
+                            AgentPreset.mcp_integrations.contains([id_str]),
+                        )
+                    )
+                    .values(
+                        mcp_integrations=AgentPreset.mcp_integrations.op("-")(id_str)
+                    )
+                    .returning(AgentPreset.id)
+                    .execution_options(synchronize_session="fetch")
+                )
+            ).all()
+            await self._version_pruned_agent_presets(preset_ids=pruned_preset_ids)
+
             # If backed by an OAuth integration, lock it to serialize deletes for shared refs.
             oauth_integration = None
             oauth_integration_id = mcp_integration.oauth_integration_id
