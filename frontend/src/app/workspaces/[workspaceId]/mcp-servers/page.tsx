@@ -57,8 +57,14 @@ export default function McpServersPage() {
 
   const { mcpIntegrations, mcpIntegrationsIsLoading, mcpIntegrationsError } =
     useListMcpIntegrations(workspaceId, "workspace")
-  const { providers, providersIsLoading, providersError } =
-    useIntegrations(workspaceId)
+  const {
+    integrations,
+    providers,
+    integrationsIsLoading,
+    providersIsLoading,
+    providersError,
+    integrationsError,
+  } = useIntegrations(workspaceId)
 
   const [searchQuery, setSearchQuery] = useState("")
   const [presetFilter, setPresetFilter] = useState<PresetFilter>("all")
@@ -123,6 +129,14 @@ export default function McpServersPage() {
     )
   }, [mcpIntegrations, providers])
 
+  const connectedOAuthIntegrationIds = useMemo(() => {
+    return new Set(
+      (integrations ?? [])
+        .filter((integration) => integration.status === "connected")
+        .map((integration) => integration.id)
+    )
+  }, [integrations])
+
   // Two-pass filter: preset slice only changes when items or the preset
   // selection changes; the search pass only runs when the query changes.
   const presetFilteredItems = useMemo(() => {
@@ -131,16 +145,20 @@ export default function McpServersPage() {
         return item.kind === "workspace"
       }
       if (presetFilter === "connected") {
-        // Workspace items are user-configured, so they always count as
-        // connected; platform items must report integration_status="connected".
         if (item.kind === "platform") {
           return item.provider.integration_status === "connected"
         }
-        return true
+        if (item.mcp.auth_type !== "OAUTH2") {
+          return true
+        }
+        return (
+          item.mcp.oauth_integration_id !== null &&
+          connectedOAuthIntegrationIds.has(item.mcp.oauth_integration_id)
+        )
       }
       return true
     })
-  }, [items, presetFilter])
+  }, [connectedOAuthIntegrationIds, items, presetFilter])
 
   const filteredItems = useMemo(() => {
     const q = searchQuery.trim().toLowerCase()
@@ -164,8 +182,9 @@ export default function McpServersPage() {
   }, [presetFilteredItems, searchQuery])
 
   const totalCount = filteredItems.length
-  const isLoading = mcpIntegrationsIsLoading || providersIsLoading
-  const loadError = mcpIntegrationsError ?? providersError
+  const isLoading =
+    mcpIntegrationsIsLoading || providersIsLoading || integrationsIsLoading
+  const loadError = mcpIntegrationsError ?? providersError ?? integrationsError
 
   if (canRead === undefined) {
     return (
