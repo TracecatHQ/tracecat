@@ -1,0 +1,41 @@
+type: action
+definition:
+  title: Select many fields
+  description: Use AI to select and rank fields from a JSON object.
+  display_group: AI
+  namespace: ai
+  name: select_fields
+  expects:
+    json:
+      type: dict[str, Any]
+      description: JSON object to select the fields from.
+    criteria_prompt:
+      type: str
+      description: Criteria to rank the fields by. For example, "from most to least important."
+    min_fields:
+      type: int
+      description: Minimum number of fields to select.
+      default: 5
+    max_fields:
+      type: int
+      description: Maximum number of fields to select.
+      default: 30
+    instructions:
+      type: str | None
+      description: Additional instructions for the agent.
+      default: null
+  steps:
+    - ref: run_agent
+      action: ai.agent
+      args:
+        user_prompt: >-
+          Given this JSON object, select between ${{ inputs.min_fields }} and ${{ inputs.max_fields }} fields ranked by relevance according to this criteria: ${{ inputs.criteria_prompt }}
+
+          JSON:
+          ${{ inputs.json }}
+
+          Return a JSON object containing only the selected fields.
+        instructions: ${{ inputs.instructions }}
+        output_type:
+          type: object
+  returns: ${{ steps.run_agent.result.output }}
