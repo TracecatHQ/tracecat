@@ -1,4 +1,24 @@
+import { formatDistanceToNowStrict } from "date-fns"
 import { z } from "zod"
+
+/**
+ * Format a timestamp as a relative-to-now string, e.g. "3 minutes ago".
+ *
+ * Returns `null` when the input is missing or not a valid date, so callers
+ * can render conditionally without wrapping in try/catch.
+ */
+export function formatRelative(
+  value: string | Date | null | undefined
+): string | null {
+  if (!value) return null
+  try {
+    const date = value instanceof Date ? value : new Date(value)
+    if (Number.isNaN(date.getTime())) return null
+    return formatDistanceToNowStrict(date, { addSuffix: true })
+  } catch {
+    return null
+  }
+}
 
 // Ensure all values are positive
 // Finally validate that at least one component is present

@@ -1,16 +1,11 @@
 "use client"
 
-import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { ChevronRight, Loader2, RotateCcw, SquareAsterisk } from "lucide-react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import type { IntegrationStatus, OAuthGrantType } from "@/client"
-import {
-  integrationsConnectProvider,
-  integrationsDisconnectIntegration,
-  integrationsTestConnection,
-} from "@/client"
 import { useScopeCheck } from "@/components/auth/scope-guard"
+import { ConfirmDestructiveDialog } from "@/components/confirm-destructive-dialog"
 import { ProviderIcon } from "@/components/icons"
 import {
   type ConnectionFilter,
@@ -20,24 +15,12 @@ import {
 import { OAuthIntegrationDetailsDialog } from "@/components/integrations/oauth-integration-details-dialog"
 import { OAuthIntegrationDialog } from "@/components/integrations/oauth-integration-dialog"
 import { CenteredSpinner } from "@/components/loading/spinner"
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTrigger,
-} from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/button"
 import {
   Collapsible,
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible"
-import { Input } from "@/components/ui/input"
 import {
   Item,
   ItemActions,
@@ -45,7 +28,6 @@ import {
   ItemMedia,
   ItemTitle,
 } from "@/components/ui/item"
-import { Label } from "@/components/ui/label"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import {
   Tooltip,
@@ -53,9 +35,13 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
-import { toast } from "@/components/ui/use-toast"
-import type { TracecatApiError } from "@/lib/errors"
+import {
+  useConnectProvider,
+  useDisconnectProvider,
+  useTestProvider,
+} from "@/hooks/use-integration-actions"
 import { useIntegrations } from "@/lib/hooks"
+import { isMcpProvider } from "@/lib/integrations"
 import { cn } from "@/lib/utils"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
@@ -109,9 +95,11 @@ export default function IntegrationsPage() {
     providerId: string
     grantType: OAuthGrantType
   } | null>(null)
-  const [disconnectConfirmTextByKey, setDisconnectConfirmTextByKey] = useState<
-    Record<string, string>
-  >({})
+  const [disconnectTarget, setDisconnectTarget] = useState<{
+    providerId: string
+    grantType: OAuthGrantType
+    name: string
+  } | null>(null)
   const [expandedSections, setExpandedSections] = useState<
     Record<IntegrationSectionType, boolean>
   >({
@@ -123,7 +111,6 @@ export default function IntegrationsPage() {
   const { providers, providersIsLoading, providersError } =
     useIntegrations(workspaceId)
 
-  const queryClient = useQueryClient()
   const handleTypeFilterToggle = useCallback(
     (filter: IntegrationTypeFilter) => {
       setTypeFilters((prev) =>
@@ -135,95 +122,9 @@ export default function IntegrationsPage() {
     []
   )
 
-  const invalidateIntegrationQueries = useCallback(
-    (providerId: string, grantType: OAuthGrantType) => {
-      queryClient.invalidateQueries({
-        queryKey: ["integration", providerId, workspaceId, grantType],
-      })
-      queryClient.invalidateQueries({ queryKey: ["providers", workspaceId] })
-      queryClient.invalidateQueries({
-        queryKey: ["integrations", workspaceId],
-      })
-    },
-    [queryClient, workspaceId]
-  )
-
-  const connectProviderMutation = useMutation({
-    mutationFn: async ({ providerId }: { providerId: string }) =>
-      await integrationsConnectProvider({ providerId, workspaceId }),
-    onSuccess: (result) => {
-      window.location.href = result.auth_url
-    },
-    onError: (error: TracecatApiError) => {
-      console.error("Failed to connect provider:", error)
-      toast({
-        title: "Failed to connect",
-        description: `Could not connect to provider: ${error.body?.detail || error.message}`,
-      })
-    },
-  })
-
-  const disconnectProviderMutation = useMutation({
-    mutationFn: async ({
-      providerId,
-      grantType,
-    }: {
-      providerId: string
-      grantType: OAuthGrantType
-    }) =>
-      await integrationsDisconnectIntegration({
-        providerId,
-        workspaceId,
-        grantType,
-      }),
-    onSuccess: (_, variables) => {
-      invalidateIntegrationQueries(variables.providerId, variables.grantType)
-      toast({
-        title: "Disconnected",
-        description: "Successfully disconnected from provider",
-      })
-    },
-    onError: (error: TracecatApiError) => {
-      console.error("Failed to disconnect provider:", error)
-      toast({
-        title: "Failed to disconnect",
-        description: `Could not disconnect from provider: ${error.body?.detail || error.message}`,
-        variant: "destructive",
-      })
-    },
-  })
-
-  const testConnectionMutation = useMutation({
-    mutationFn: async ({
-      providerId,
-    }: {
-      providerId: string
-      grantType: OAuthGrantType
-    }) => await integrationsTestConnection({ providerId, workspaceId }),
-    onSuccess: (result, variables) => {
-      if (result.success) {
-        invalidateIntegrationQueries(variables.providerId, variables.grantType)
-        toast({
-          title: "Connection successful",
-          description: result.message,
-        })
-      } else {
-        toast({
-          title: "Connection failed",
-          description: result.error || result.message,
-          variant: "destructive",
-        })
-      }
-    },
-    onError: (error: TracecatApiError) => {
-      console.error("Failed to test connection:", error)
-      toast({
-        title: "Test failed",
-        description: `Could not test connection: ${error.body?.detail || error.message}`,
-        variant: "destructive",
-      })
-    },
-  })
+  const connectProviderMutation = useConnectProvider(workspaceId)
+  const disconnectProviderMutation = useDisconnectProvider(workspaceId)
+  const testConnectionMutation = useTestProvider(workspaceId)
 
   const getIntegrationStatus = useCallback(
     (item: IntegrationItem): IntegrationStatus =>
@@ -244,7 +145,7 @@ export default function IntegrationsPage() {
   const allIntegrations = useMemo<IntegrationItem[]>(() => {
     return (
       providers
-        ?.filter((provider) => !provider.id.endsWith("_mcp"))
+        ?.filter((provider) => !isMcpProvider(provider.id))
         .map<IntegrationItem>((provider) => ({
           type: "oauth" as const,
           id: provider.id,
@@ -417,7 +318,7 @@ export default function IntegrationsPage() {
 
     const provider = providers.find(
       (item) =>
-        !item.id.endsWith("_mcp") &&
+        !isMcpProvider(item.id) &&
         item.id === connectParam &&
         (connectGrantType == null || item.grant_type === connectGrantType)
     )
@@ -445,35 +346,12 @@ export default function IntegrationsPage() {
     providers,
   ])
 
-  const handleOAuthDisconnect = useCallback(
-    async (providerId: string, grantType: OAuthGrantType) => {
-      await disconnectProviderMutation.mutateAsync({ providerId, grantType })
-    },
-    [disconnectProviderMutation]
-  )
-
   const handleReconnect = useCallback(
     (providerId: string, grantType: OAuthGrantType) => {
       handleDirectConnect(providerId, grantType)
     },
     [handleDirectConnect]
   )
-
-  const getDisconnectKey = useCallback(
-    (item: IntegrationItem) => `oauth:${item.id}:${item.grant_type}`,
-    []
-  )
-
-  const resetDisconnectConfirmText = useCallback((key: string) => {
-    setDisconnectConfirmTextByKey((prev) => {
-      if (!prev[key]) {
-        return prev
-      }
-      const next = { ...prev }
-      delete next[key]
-      return next
-    })
-  }, [])
 
   if (
     canReadIntegrations === undefined ||
@@ -566,9 +444,6 @@ export default function IntegrationsPage() {
                           disconnectProviderMutation.isPending &&
                           disconnectProviderMutation.variables?.providerId ===
                             item.id
-                        const disconnectKey = getDisconnectKey(item)
-                        const disconnectConfirmText =
-                          disconnectConfirmTextByKey[disconnectKey] ?? ""
                         const displayType = getIntegrationDisplayType(item)
                         const typeLabel = integrationTypeLabels[displayType]
 
@@ -695,97 +570,22 @@ export default function IntegrationsPage() {
                                 </>
                               )}
                               {showDisconnect && (
-                                <AlertDialog
-                                  onOpenChange={(nextOpen) => {
-                                    if (!nextOpen) {
-                                      resetDisconnectConfirmText(disconnectKey)
-                                    }
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  className="h-6 border-input bg-white px-2.5 text-[11px] text-foreground hover:border-destructive hover:bg-destructive hover:text-destructive-foreground"
+                                  onClick={(event) => {
+                                    event.stopPropagation()
+                                    setDisconnectTarget({
+                                      providerId: item.id,
+                                      grantType: item.grant_type,
+                                      name: item.name,
+                                    })
                                   }}
+                                  disabled={isDisabled || isDisconnecting}
                                 >
-                                  <AlertDialogTrigger asChild>
-                                    <Button
-                                      variant="outline"
-                                      size="sm"
-                                      className="h-6 border-input bg-white px-2.5 text-[11px] text-foreground hover:border-destructive hover:bg-destructive hover:text-destructive-foreground"
-                                      onClick={(event) =>
-                                        event.stopPropagation()
-                                      }
-                                      disabled={isDisabled || isDisconnecting}
-                                    >
-                                      Disconnect
-                                    </Button>
-                                  </AlertDialogTrigger>
-                                  <AlertDialogContent
-                                    onClick={(event) => event.stopPropagation()}
-                                  >
-                                    <AlertDialogHeader>
-                                      <AlertDialogTitle>
-                                        Disconnect integration
-                                      </AlertDialogTitle>
-                                      <AlertDialogDescription className="space-y-4">
-                                        <p>
-                                          {`Are you sure you want to disconnect from ${item.name}?`}
-                                        </p>
-                                        <div className="space-y-2">
-                                          <Label
-                                            htmlFor={`${disconnectKey}-confirm`}
-                                          >
-                                            Type <strong>{item.name}</strong> to
-                                            confirm:
-                                          </Label>
-                                          <Input
-                                            id={`${disconnectKey}-confirm`}
-                                            value={disconnectConfirmText}
-                                            onChange={(event) =>
-                                              setDisconnectConfirmTextByKey(
-                                                (prev) => ({
-                                                  ...prev,
-                                                  [disconnectKey]:
-                                                    event.target.value,
-                                                })
-                                              )
-                                            }
-                                            placeholder="Enter integration name"
-                                            disabled={isDisconnecting}
-                                          />
-                                        </div>
-                                      </AlertDialogDescription>
-                                    </AlertDialogHeader>
-                                    <AlertDialogFooter>
-                                      <AlertDialogCancel>
-                                        Cancel
-                                      </AlertDialogCancel>
-                                      <AlertDialogAction
-                                        variant="destructive"
-                                        onClick={async () => {
-                                          if (
-                                            disconnectConfirmText.trim() !==
-                                            item.name
-                                          ) {
-                                            return
-                                          }
-                                          await handleOAuthDisconnect(
-                                            item.id,
-                                            item.grant_type
-                                          )
-                                          resetDisconnectConfirmText(
-                                            disconnectKey
-                                          )
-                                        }}
-                                        disabled={
-                                          isDisconnecting ||
-                                          disconnectConfirmText.trim() !==
-                                            item.name
-                                        }
-                                      >
-                                        {isDisconnecting && (
-                                          <Loader2 className="mr-2 size-3 animate-spin" />
-                                        )}
-                                        Disconnect
-                                      </AlertDialogAction>
-                                    </AlertDialogFooter>
-                                  </AlertDialogContent>
-                                </AlertDialog>
+                                  Disconnect
+                                </Button>
                               )}
                             </ItemActions>
                           </Item>
@@ -826,6 +626,32 @@ export default function IntegrationsPage() {
           grantType={detailsProvider.grantType}
         />
       )}
+      <ConfirmDestructiveDialog
+        open={disconnectTarget !== null}
+        onOpenChange={(next) => {
+          if (!next) setDisconnectTarget(null)
+        }}
+        confirmPhrase={disconnectTarget?.name ?? ""}
+        title="Disconnect integration"
+        description={
+          disconnectTarget ? (
+            <>
+              Are you sure you want to disconnect from{" "}
+              <span className="font-medium">{disconnectTarget.name}</span>?
+            </>
+          ) : null
+        }
+        confirmLabel="Disconnect"
+        isPending={disconnectProviderMutation.isPending}
+        onConfirm={async () => {
+          if (!disconnectTarget) return
+          await disconnectProviderMutation.mutateAsync({
+            providerId: disconnectTarget.providerId,
+            grantType: disconnectTarget.grantType,
+          })
+          setDisconnectTarget(null)
+        }}
+      />
     </div>
   )
 }

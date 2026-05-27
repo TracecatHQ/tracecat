@@ -1,7 +1,6 @@
 "use client"
 
-import { useMutation, useQueryClient } from "@tanstack/react-query"
-import { formatDistanceToNowStrict } from "date-fns"
+import { useQueryClient } from "@tanstack/react-query"
 import { Globe, Loader2, Plus, Sparkles, Terminal } from "lucide-react"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import { useCallback, useEffect, useMemo, useState } from "react"
@@ -10,7 +9,6 @@ import type {
   OAuthGrantType,
   ProviderReadMinimal,
 } from "@/client"
-import { integrationsConnectProvider } from "@/client"
 import { useScopeCheck } from "@/components/auth/scope-guard"
 import { CatalogHeader } from "@/components/catalog/catalog-header"
 import { ProviderIcon } from "@/components/icons"
@@ -20,9 +18,10 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
-import { toast } from "@/components/ui/use-toast"
-import type { TracecatApiError } from "@/lib/errors"
+import { useConnectProvider } from "@/hooks/use-integration-actions"
 import { useIntegrations, useListMcpIntegrations } from "@/lib/hooks"
+import { integrationKeys, isMcpProvider } from "@/lib/integrations"
+import { formatRelative } from "@/lib/time"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
 const CREATE_MCP_SERVER_PARAM = "createMcpServer"
@@ -89,24 +88,11 @@ export default function McpServersPage() {
   }, [handleCreateSignalConsumed, searchParams])
 
   const queryClient = useQueryClient()
-  const connectProviderMutation = useMutation({
-    mutationFn: async ({ providerId }: { providerId: string }) =>
-      await integrationsConnectProvider({ providerId, workspaceId }),
-    onSuccess: (result) => {
-      window.location.href = result.auth_url
-    },
-    onError: (error: TracecatApiError) => {
-      toast({
-        title: "Failed to start OAuth",
-        description: String(error.body?.detail ?? error.message),
-        variant: "destructive",
-      })
-    },
-  })
+  const connectProviderMutation = useConnectProvider(workspaceId)
 
   const items = useMemo<McpItem[]>(() => {
     const platformItems: McpItem[] = (providers ?? [])
-      .filter((p) => p.id.endsWith("_mcp"))
+      .filter((p) => isMcpProvider(p.id))
       .map((provider) => ({
         kind: "platform" as const,
         sortKey: provider.name.toLowerCase(),
@@ -268,7 +254,7 @@ export default function McpServersPage() {
           if (!next) {
             setActiveProvider(null)
             queryClient.invalidateQueries({
-              queryKey: ["providers", workspaceId],
+              queryKey: integrationKeys.providers(workspaceId),
             })
           }
         }}
@@ -353,16 +339,7 @@ interface McpCardProps {
 
 function McpCard({ mcp, canMutate, onEdit }: McpCardProps) {
   const TransportIcon = mcp.server_type === "stdio" ? Terminal : Globe
-  const lastUpdated = (() => {
-    if (!mcp.updated_at) return null
-    try {
-      return formatDistanceToNowStrict(new Date(mcp.updated_at), {
-        addSuffix: true,
-      })
-    } catch {
-      return null
-    }
-  })()
+  const lastUpdated = formatRelative(mcp.updated_at)
 
   return (
     <Card className="flex h-full min-h-[120px] flex-col gap-2.5 border bg-card p-4 shadow-none transition-colors hover:border-foreground/30">

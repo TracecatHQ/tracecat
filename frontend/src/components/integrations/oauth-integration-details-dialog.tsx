@@ -1,7 +1,5 @@
 "use client"
 
-import { useMutation, useQueryClient } from "@tanstack/react-query"
-import { formatDistanceToNowStrict } from "date-fns"
 import {
   CheckCircle2,
   Link2,
@@ -12,22 +10,8 @@ import {
 } from "lucide-react"
 import { useMemo, useState } from "react"
 import type { OAuthGrantType } from "@/client"
-import {
-  integrationsConnectProvider,
-  integrationsDisconnectIntegration,
-  integrationsTestConnection,
-} from "@/client"
+import { ConfirmDestructiveDialog } from "@/components/confirm-destructive-dialog"
 import { ProviderIcon } from "@/components/icons"
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -44,13 +28,15 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Skeleton } from "@/components/ui/skeleton"
-import { toast } from "@/components/ui/use-toast"
-import type { TracecatApiError } from "@/lib/errors"
+import {
+  useConnectProvider,
+  useDisconnectProvider,
+  useTestProvider,
+} from "@/hooks/use-integration-actions"
 import { useIntegrationProvider } from "@/lib/hooks"
+import { formatRelative } from "@/lib/time"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
 interface OAuthIntegrationDetailsDialogProps {
@@ -75,9 +61,7 @@ export function OAuthIntegrationDetailsDialog({
   onOpenChange,
 }: OAuthIntegrationDetailsDialogProps) {
   const workspaceId = useWorkspaceId()
-  const queryClient = useQueryClient()
   const [confirmDisconnectOpen, setConfirmDisconnectOpen] = useState(false)
-  const [confirmText, setConfirmText] = useState("")
 
   const {
     provider,
@@ -92,84 +76,9 @@ export function OAuthIntegrationDetailsDialog({
     grantType,
   })
 
-  const invalidateAll = () => {
-    queryClient.invalidateQueries({
-      queryKey: ["integration", providerId, workspaceId, grantType],
-    })
-    queryClient.invalidateQueries({ queryKey: ["providers", workspaceId] })
-    queryClient.invalidateQueries({
-      queryKey: ["integrations", workspaceId],
-    })
-    queryClient.invalidateQueries({
-      queryKey: ["mcp-integrations", workspaceId],
-    })
-  }
-
-  const reauthorizeMutation = useMutation({
-    mutationFn: async () =>
-      await integrationsConnectProvider({ providerId, workspaceId }),
-    onSuccess: (result) => {
-      window.location.href = result.auth_url
-    },
-    onError: (error: TracecatApiError) => {
-      toast({
-        title: "Failed to reauthorize",
-        description: `${error.body?.detail ?? error.message}`,
-        variant: "destructive",
-      })
-    },
-  })
-
-  const testMutation = useMutation({
-    mutationFn: async () =>
-      await integrationsTestConnection({ providerId, workspaceId }),
-    onSuccess: (result) => {
-      invalidateAll()
-      if (result.success) {
-        toast({
-          title: "Connection successful",
-          description: result.message,
-        })
-      } else {
-        toast({
-          title: "Connection failed",
-          description: result.error || result.message,
-          variant: "destructive",
-        })
-      }
-    },
-    onError: (error: TracecatApiError) => {
-      toast({
-        title: "Test failed",
-        description: `${error.body?.detail ?? error.message}`,
-        variant: "destructive",
-      })
-    },
-  })
-
-  const disconnectMutation = useMutation({
-    mutationFn: async () =>
-      await integrationsDisconnectIntegration({
-        providerId,
-        workspaceId,
-        grantType,
-      }),
-    onSuccess: () => {
-      invalidateAll()
-      toast({
-        title: "Disconnected",
-        description: "Successfully disconnected from provider",
-      })
-      onOpenChange(false)
-    },
-    onError: (error: TracecatApiError) => {
-      toast({
-        title: "Failed to disconnect",
-        description: `${error.body?.detail ?? error.message}`,
-        variant: "destructive",
-      })
-    },
-  })
+  const reauthorizeMutation = useConnectProvider(workspaceId)
+  const testMutation = useTestProvider(workspaceId)
+  const disconnectMutation = useDisconnectProvider(workspaceId)
 
   const providerName = provider?.metadata.name || providerId
   const isConnected = integration?.status === "connected"
@@ -196,16 +105,7 @@ export function OAuthIntegrationDetailsDialog({
     }
   }, [integration?.expires_at])
 
-  const lastUpdatedRelative = useMemo(() => {
-    if (!integration?.updated_at) return null
-    try {
-      return formatDistanceToNowStrict(new Date(integration.updated_at), {
-        addSuffix: true,
-      })
-    } catch {
-      return null
-    }
-  }, [integration?.updated_at])
+  const lastUpdatedRelative = formatRelative(integration?.updated_at)
 
   if (!open) {
     return null
@@ -322,7 +222,9 @@ export function OAuthIntegrationDetailsDialog({
                         <DropdownMenuContent align="end" className="w-44">
                           {supportsReauthorize ? (
                             <DropdownMenuItem
-                              onClick={() => reauthorizeMutation.mutate()}
+                              onClick={() =>
+                                reauthorizeMutation.mutate({ providerId })
+                              }
                               disabled={reauthorizeMutation.isPending}
                             >
                               <Link2 className="mr-2 size-4 text-muted-foreground" />
@@ -330,7 +232,9 @@ export function OAuthIntegrationDetailsDialog({
                             </DropdownMenuItem>
                           ) : null}
                           <DropdownMenuItem
-                            onClick={() => testMutation.mutate()}
+                            onClick={() =>
+                              testMutation.mutate({ providerId, grantType })
+                            }
                             disabled={testMutation.isPending}
                           >
                             <PlayCircle className="mr-2 size-4 text-muted-foreground" />
@@ -464,57 +368,25 @@ export function OAuthIntegrationDetailsDialog({
             )}
         </ScrollArea>
 
-        <AlertDialog
+        <ConfirmDestructiveDialog
           open={confirmDisconnectOpen}
-          onOpenChange={(next) => {
-            setConfirmDisconnectOpen(next)
-            if (!next) setConfirmText("")
+          onOpenChange={setConfirmDisconnectOpen}
+          confirmPhrase={providerName}
+          title="Disconnect integration"
+          description={
+            <>
+              Are you sure you want to disconnect from{" "}
+              <span className="font-medium">{providerName}</span>?
+            </>
+          }
+          confirmLabel="Disconnect"
+          isPending={disconnectMutation.isPending}
+          onConfirm={async () => {
+            await disconnectMutation.mutateAsync({ providerId, grantType })
+            setConfirmDisconnectOpen(false)
+            onOpenChange(false)
           }}
-        >
-          <AlertDialogContent>
-            <AlertDialogHeader>
-              <AlertDialogTitle>Disconnect integration</AlertDialogTitle>
-              <AlertDialogDescription>
-                Are you sure you want to disconnect from{" "}
-                <span className="font-medium">{providerName}</span>?
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-            <div className="space-y-2">
-              <Label htmlFor="disconnect-confirm">
-                Type <strong>{providerName}</strong> to confirm:
-              </Label>
-              <Input
-                id="disconnect-confirm"
-                value={confirmText}
-                onChange={(event) => setConfirmText(event.target.value)}
-                placeholder="Enter provider name"
-                disabled={disconnectMutation.isPending}
-              />
-            </div>
-            <AlertDialogFooter>
-              <AlertDialogCancel>Cancel</AlertDialogCancel>
-              <AlertDialogAction
-                variant="destructive"
-                disabled={
-                  disconnectMutation.isPending ||
-                  confirmText.trim() !== providerName
-                }
-                onClick={async (event) => {
-                  event.preventDefault()
-                  if (confirmText.trim() !== providerName) return
-                  await disconnectMutation.mutateAsync()
-                  setConfirmText("")
-                  setConfirmDisconnectOpen(false)
-                }}
-              >
-                {disconnectMutation.isPending && (
-                  <Loader2 className="mr-2 size-4 animate-spin" />
-                )}
-                Disconnect
-              </AlertDialogAction>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
+        />
       </DialogContent>
     </Dialog>
   )
