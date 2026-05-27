@@ -1,4 +1,7 @@
-import type { OAuthGrantType } from "@/client"
+import type {
+  McpIntegrationsListMcpIntegrationsData,
+  OAuthGrantType,
+} from "@/client"
 
 /**
  * Whether a provider ID belongs to a platform-shipped MCP auth provider.
@@ -7,9 +10,12 @@ import type { OAuthGrantType } from "@/client"
  * IDs end with the `_mcp` suffix by convention; if a future MCPAuthProvider
  * deviates from that, update both this predicate and the backend's
  * `_is_platform_managed_mcp_integration` check.
+ *
+ * Custom OAuth providers can also end in `_mcp`, but they are prefixed with
+ * `custom_` and should remain on the integrations page.
  */
 export function isMcpProvider(providerId: string): boolean {
-  return providerId.endsWith("_mcp")
+  return providerId.endsWith("_mcp") && !providerId.startsWith("custom_")
 }
 
 /**
@@ -27,6 +33,8 @@ export const integrationKeys = {
     workspaceId: string,
     grantType: OAuthGrantType
   ) => ["integration", providerId, workspaceId, grantType] as const,
-  mcpIntegrations: (workspaceId: string, source?: "platform" | "workspace") =>
-    ["mcp-integrations", workspaceId, source] as const,
+  mcpIntegrations: (
+    workspaceId: string,
+    source?: McpIntegrationsListMcpIntegrationsData["source"]
+  ) => ["mcp-integrations", workspaceId, source] as const,
 } as const

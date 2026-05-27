@@ -142,6 +142,7 @@ import {
   type MCPIntegrationCreate,
   type MCPIntegrationRead,
   type MCPIntegrationUpdate,
+  type McpIntegrationsListMcpIntegrationsData,
   type ModelCredentialCreate,
   type ModelCredentialUpdate,
   mcpIntegrationsCreateMcpIntegration,
@@ -4617,7 +4618,7 @@ export function useCreateMcpIntegration(workspaceId: string) {
  */
 export function useListMcpIntegrations(
   workspaceId: string,
-  source?: "platform" | "workspace"
+  source?: McpIntegrationsListMcpIntegrationsData["source"]
 ) {
   const {
     data: mcpIntegrations,
