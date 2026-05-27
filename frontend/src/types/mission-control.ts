@@ -87,13 +87,20 @@ export type ArtifactDataPayload = {
   artifact: MissionControlArtifact
 }
 
+export const ARTIFACT_DATA_PART_TYPE = "data-artifact"
+
+export type ArtifactDataPart = {
+  type: typeof ARTIFACT_DATA_PART_TYPE
+  data: ArtifactDataPayload
+}
+
+export type MissionControlStreamPart = ArtifactDataPart
+
 export type ArtifactLane = {
   agentType: string | undefined
   agentId: string | undefined
   artifacts: MissionControlArtifact[]
 }
-
-export const ARTIFACT_DATA_PART_TYPE = "data-artifact"
 
 type UnknownRecord = Record<string, unknown>
 
@@ -119,14 +126,9 @@ function isArtifact(value: unknown): value is MissionControlArtifact {
   )
 }
 
-/** Parse a Vercel UI message part as a Mission Control artifact payload. */
-export function getArtifactDataPayload(
-  part: UIMessage["parts"][number]
+function parseArtifactDataPayload(
+  data: unknown
 ): ArtifactDataPayload | undefined {
-  if (part.type !== ARTIFACT_DATA_PART_TYPE || !("data" in part)) {
-    return undefined
-  }
-  const data = part.data
   if (!isRecord(data)) {
     return undefined
   }
@@ -137,4 +139,27 @@ export function getArtifactDataPayload(
     return undefined
   }
   return data as ArtifactDataPayload
+}
+
+/** Parse a Vercel UI message part as a typed Mission Control stream part. */
+export function parseMissionControlStreamPart(
+  part: UIMessage["parts"][number]
+): MissionControlStreamPart | undefined {
+  switch (part.type) {
+    case ARTIFACT_DATA_PART_TYPE: {
+      if (!("data" in part)) {
+        return undefined
+      }
+      const data = parseArtifactDataPayload(part.data)
+      if (!data) {
+        return undefined
+      }
+      return {
+        type: ARTIFACT_DATA_PART_TYPE,
+        data,
+      }
+    }
+    default:
+      return undefined
+  }
 }

@@ -1,11 +1,14 @@
 import type { UIMessage } from "ai"
 import { useCallback, useEffect, useMemo, useState } from "react"
 import {
+  ARTIFACT_DATA_PART_TYPE,
+  type ArtifactDataPayload,
   type ArtifactLane,
   type ArtifactType,
   artifactKey,
-  getArtifactDataPayload,
   type MissionControlArtifact,
+  type MissionControlStreamPart,
+  parseMissionControlStreamPart,
 } from "@/types/mission-control"
 
 /** Derived artifact state for the Mission Control side panel. */
@@ -15,6 +18,54 @@ export type UseMissionControlArtifactsResult = {
   activeArtifactKey: string | null
   setActiveArtifactKey: (key: string | null) => void
   closeArtifact: (type: ArtifactType, id: string) => void
+}
+
+function reduceArtifactPayload(
+  next: Map<string, MissionControlArtifact>,
+  payload: ArtifactDataPayload,
+  closedKeys: ReadonlySet<string>
+) {
+  const key = artifactKey(payload.artifact)
+  switch (payload.op) {
+    case "upsert":
+      if (!closedKeys.has(key)) {
+        next.set(key, payload.artifact)
+      }
+      return
+    case "remove":
+      next.delete(key)
+      return
+  }
+}
+
+function reduceMissionControlStreamPart(
+  next: Map<string, MissionControlArtifact>,
+  part: MissionControlStreamPart,
+  closedKeys: ReadonlySet<string>
+) {
+  switch (part.type) {
+    case ARTIFACT_DATA_PART_TYPE:
+      reduceArtifactPayload(next, part.data, closedKeys)
+      return
+  }
+}
+
+/** Project Vercel UI message parts into Mission Control artifact state. */
+export function reduceMissionControlArtifacts(
+  messages: UIMessage[],
+  closedKeys: ReadonlySet<string>
+): MissionControlArtifact[] {
+  const next = new Map<string, MissionControlArtifact>()
+  for (const message of messages) {
+    for (const part of message.parts ?? []) {
+      const streamPart = parseMissionControlStreamPart(part)
+      if (!streamPart) {
+        continue
+      }
+      reduceMissionControlStreamPart(next, streamPart, closedKeys)
+    }
+  }
+  return Array.from(next.values())
 }
 
 /** Derive Mission Control artifacts from Vercel UI message data parts. */
@@ -27,28 +78,7 @@ export function useMissionControlArtifacts(
   )
 
   const artifacts = useMemo(() => {
-    const next = new Map<string, MissionControlArtifact>()
-    for (const message of messages) {
-      for (const part of message.parts ?? []) {
-        const payload = getArtifactDataPayload(part)
-        if (!payload) {
-          continue
-        }
-
-        const key = artifactKey(payload.artifact)
-        if (closedKeys.has(key)) {
-          continue
-        }
-
-        if (payload.op === "remove") {
-          next.delete(key)
-          continue
-        }
-
-        next.set(key, payload.artifact)
-      }
-    }
-    return Array.from(next.values())
+    return reduceMissionControlArtifacts(messages, closedKeys)
   }, [closedKeys, messages])
 
   const lanes = useMemo(() => {
