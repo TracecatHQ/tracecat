@@ -11,15 +11,9 @@ import pytest
 
 from tracecat.registry.repository import Repository
 
-_TRANSIENT_HTTP_ERRORS = (
-    httpx.ConnectError,
-    httpx.ConnectTimeout,
-    httpx.PoolTimeout,
-    httpx.ReadError,
-    httpx.ReadTimeout,
-    httpx.RemoteProtocolError,
-)
-_RETRYABLE_STATUS_CODES = {408, 425, 500, 502, 503, 504}
+_ALLOWED_UNREACHABLE_STATUS_CODES = {401, 403, 429}
+_MAX_LINK_CHECK_ATTEMPTS = 3
+_TRANSIENT_STATUS_CODES = {408, 425, 429, 500, 502, 503, 504, 520, 521, 522, 523, 524}
 
 
 def _action_doc_urls() -> dict[str, tuple[str, ...]]:
@@ -67,33 +61,51 @@ def test_ai_actions_link_to_tracecat_docs() -> None:
     assert repo.get("ai.action").doc_url == "https://docs.tracecat.com/agents/ai-action"
 
 
+async def _request_url(client: httpx.AsyncClient, url: str) -> int:
+    response = await client.head(url, follow_redirects=True)
+    if response.status_code in {405, 501}:
+        response = await client.get(url, follow_redirects=True)
+    return response.status_code
+
+
+def _is_transient_status(status_code: int) -> bool:
+    return status_code >= 500 or status_code in _TRANSIENT_STATUS_CODES
+
+
 async def _check_url(
     client: httpx.AsyncClient,
     semaphore: asyncio.Semaphore,
     url: str,
-    attempts: int = 3,
 ) -> tuple[int | None, str | None]:
     async with semaphore:
-        for attempt in range(1, attempts + 1):
+        last_error: str | None = None
+        last_status_code: int | None = None
+        for attempt in range(1, _MAX_LINK_CHECK_ATTEMPTS + 1):
             try:
-                response = await client.head(url, follow_redirects=True)
-                if response.status_code in {405, 501}:
-                    response = await client.get(url, follow_redirects=True)
-            except _TRANSIENT_HTTP_ERRORS as exc:
-                if attempt == attempts:
-                    return None, f"{type(exc).__name__}: {exc}"
-                await asyncio.sleep(0.5 * attempt)
-                continue
+                status_code = await _request_url(client, url)
+            except httpx.TransportError as exc:
+                last_error = f"{type(exc).__name__}: {exc}"
+                last_status_code = None
             except httpx.HTTPError as exc:
                 return None, f"{type(exc).__name__}: {exc}"
+            else:
+                last_status_code = status_code
+                last_error = None
+                if not _is_transient_status(status_code):
+                    return status_code, None
 
-            if response.status_code in _RETRYABLE_STATUS_CODES and attempt < attempts:
+            if attempt < _MAX_LINK_CHECK_ATTEMPTS:
                 await asyncio.sleep(0.5 * attempt)
-                continue
-            return response.status_code, None
 
-        msg = "exhausted retries"
-        return None, msg
+        if last_error:
+            return None, f"{last_error} after {_MAX_LINK_CHECK_ATTEMPTS} attempts"
+        return last_status_code, None
+
+
+def _is_broken_link_status(status_code: int | None) -> bool:
+    return status_code is None or (
+        status_code >= 400 and status_code not in _ALLOWED_UNREACHABLE_STATUS_CODES
+    )
 
 
 @pytest.mark.skipif(
@@ -102,11 +114,11 @@ async def _check_url(
 )
 def test_action_doc_urls_are_reachable() -> None:
     url_actions = _action_doc_urls()
-    timeout = httpx.Timeout(20.0, connect=10.0)
+    timeout = httpx.Timeout(12.0, connect=5.0)
     headers = {"User-Agent": "Tracecat-CI-Link-Checker/1.0"}
 
     async def check_all() -> dict[str, str]:
-        semaphore = asyncio.Semaphore(16)
+        semaphore = asyncio.Semaphore(8)
         async with httpx.AsyncClient(timeout=timeout, headers=headers) as client:
             results = await asyncio.gather(
                 *(
@@ -119,9 +131,7 @@ def test_action_doc_urls_are_reachable() -> None:
         for url, (status_code, error) in zip(url_actions, results, strict=True):
             if error:
                 broken[url] = error
-            elif status_code is None or (
-                status_code >= 400 and status_code not in {401, 403, 429}
-            ):
+            elif _is_broken_link_status(status_code):
                 broken[url] = f"HTTP {status_code}"
         return broken
 

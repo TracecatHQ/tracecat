@@ -10,9 +10,11 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 from temporalio.common import TypedSearchAttributes
+from temporalio.exceptions import ActivityError
 from tracecat_ee.agent.activities import BuildToolDefsArgs, BuildToolDefsResult
 from tracecat_ee.agent.workflows.durable import (
     BUILD_AGENT_TOOL_DEFINITIONS_PATCH,
+    EMIT_PRE_STREAM_SESSION_ERRORS_PATCH,
     LOAD_TERMINAL_MESSAGE_HISTORY_PATCH,
     UPSERT_TRACECAT_SEARCH_ATTRIBUTES_PATCH,
     AgentWorkflowArgs,
@@ -202,6 +204,61 @@ async def test_run_skips_search_attribute_upsert_without_patch_marker() -> None:
     upsert_mock.assert_not_called()
     run_mock.assert_awaited_once_with(workflow_args, cfg)
     assert result == expected_output
+
+
+@pytest.mark.anyio
+async def test_run_skips_activity_error_emission_without_patch_marker() -> None:
+    """Legacy replays must not schedule the new session-error activity."""
+    role = Role(
+        type="user",
+        service_id="tracecat-api",
+        workspace_id=uuid.uuid4(),
+        organization_id=uuid.uuid4(),
+        user_id=uuid.uuid4(),
+        scopes=frozenset({"agent:execute", "secret:read"}),
+    )
+    workflow_args = _build_workflow_args(role)
+    workflow_instance = DurableAgentWorkflow(workflow_args)
+    cfg = cast(Any, workflow_args.agent_args.config)
+    activity_error = ActivityError(
+        "activity failed",
+        scheduled_event_id=1,
+        started_event_id=2,
+        identity="worker",
+        activity_type="create_session_activity",
+        activity_id="activity-id",
+        retry_state=None,
+    )
+
+    with (
+        patch(
+            "tracecat_ee.agent.workflows.durable.workflow.patched",
+            side_effect=[False, False],
+        ) as patched_mock,
+        patch(
+            "tracecat_ee.agent.workflows.durable.workflow.unsafe.is_replaying",
+            return_value=False,
+        ),
+        patch.object(workflow_instance, "_build_config", AsyncMock(return_value=cfg)),
+        patch.object(
+            workflow_instance,
+            "_run_with_agent_executor",
+            AsyncMock(side_effect=activity_error),
+        ),
+        patch.object(
+            workflow_instance,
+            "_emit_session_error",
+            AsyncMock(),
+        ) as emit_error_mock,
+    ):
+        with pytest.raises(ActivityError):
+            await workflow_instance.run(workflow_args)
+
+    assert patched_mock.call_args_list == [
+        ((UPSERT_TRACECAT_SEARCH_ATTRIBUTES_PATCH,),),
+        ((EMIT_PRE_STREAM_SESSION_ERRORS_PATCH,),),
+    ]
+    emit_error_mock.assert_not_awaited()
 
 
 @pytest.mark.anyio
