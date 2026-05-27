@@ -9,6 +9,7 @@ import type {
   MCPIntegrationUpdate,
   MCPStdioIntegrationCreate,
 } from "@/client/types.gen"
+import { useScopeCheck } from "@/components/auth/scope-guard"
 import { CodeEditor } from "@/components/editor/codemirror/code-editor"
 import { ProviderIcon } from "@/components/icons"
 import {
@@ -97,6 +98,7 @@ export function MCPIntegrationDialog({
     workspaceId,
     mcpIntegrationId ?? null
   )
+  const canDelete = useScopeCheck("integration:delete") === true
   const [internalOpen, setInternalOpen] = useState(false)
   const [isEditHydrated, setIsEditHydrated] = useState(false)
   const open = controlledOpen ?? internalOpen
@@ -841,7 +843,7 @@ export function MCPIntegrationDialog({
                   )}
 
                 <DialogFooter className="flex flex-col gap-2 sm:flex-row sm:justify-between">
-                  {isEditMode && mcpIntegrationId ? (
+                  {isEditMode && mcpIntegrationId && canDelete ? (
                     <AlertDialog>
                       <AlertDialogTrigger asChild>
                         <Button
