@@ -1207,9 +1207,12 @@ class AgentSessionService(BaseWorkspaceService):
                     )
                 return agent_session
             case VercelChatRequest() | BasicChatRequest():
-                if agent_session.status == AgentSessionStatus.RUNNING.value:
+                if agent_session.status in {
+                    AgentSessionStatus.RUNNING.value,
+                    AgentSessionStatus.WAITING_FOR_APPROVAL.value,
+                }:
                     raise TracecatConflictError(
-                        "This session already has a running turn."
+                        "This session already has an active turn."
                     )
                 if await self.has_pending_approvals(session_id):
                     raise ValueError(
