@@ -8,6 +8,7 @@ import shutil
 import tempfile
 import uuid
 from collections import Counter
+from collections.abc import Coroutine
 from dataclasses import dataclass, field
 from pathlib import Path
 from time import perf_counter
@@ -51,6 +52,7 @@ from tracecat.agent.sandbox.llm_proxy import (
     LLMSocketProxy,
 )
 from tracecat.agent.session.service import AgentSessionService
+from tracecat.agent.session.types import AgentCancelReason
 from tracecat.agent.skill.service import SkillService
 from tracecat.agent.types import AgentConfig
 from tracecat.auth.types import Role
@@ -68,6 +70,9 @@ from .schemas import (
     DeniedToolCall,
     ToolExecutionResult,
 )
+
+GRACEFUL_CANCEL_TIMEOUT_SECONDS = 30
+AGENT_ACTIVITY_HEARTBEAT_INTERVAL_SECONDS = 2
 
 
 class AgentExecutorInput(BaseModel):
@@ -126,6 +131,8 @@ class AgentExecutorResult(BaseModel):
     )
     result_usage: dict[str, Any] | None = None
     result_num_turns: int | None = None
+    cancelled: bool = False
+    cancelled_reason: AgentCancelReason | None = None
 
 
 class ExecuteApprovedToolsInput(BaseModel):
@@ -400,6 +407,52 @@ class SandboxedAgentExecutor:
             result.output = loopback_result.output
         result.result_usage = loopback_result.result_usage
         result.result_num_turns = loopback_result.result_num_turns
+        result.cancelled = loopback_result.cancelled
+        result.cancelled_reason = loopback_result.cancelled_reason
+
+    @staticmethod
+    def _activity_cancel_reason() -> AgentCancelReason:
+        """Map Temporal activity cancellation metadata to agent cancellation reason."""
+        details = activity.cancellation_details()
+        if details is not None and details.worker_shutdown:
+            return "worker_drain"
+        return "user_cancel"
+
+    async def _await_cancel_step_with_heartbeats[T](
+        self,
+        awaitable: asyncio.Task[T] | Coroutine[Any, Any, T],
+        *,
+        phase: str,
+    ) -> T:
+        """Await a graceful-cancel task while keeping the activity heartbeat alive."""
+        if isinstance(awaitable, asyncio.Task):
+            task = awaitable
+            owns_task = False
+        else:
+            task = asyncio.create_task(awaitable)
+            owns_task = True
+        heartbeat_interval = AGENT_ACTIVITY_HEARTBEAT_INTERVAL_SECONDS
+        elapsed = 0.0
+        try:
+            while True:
+                try:
+                    return await asyncio.wait_for(
+                        asyncio.shield(task),
+                        timeout=heartbeat_interval,
+                    )
+                except TimeoutError:
+                    if task.done():
+                        return await task
+                    elapsed += heartbeat_interval
+                    activity.heartbeat(
+                        f"Agent cancellation {phase}: {self.input.session_id} "
+                        f"({elapsed:g}s elapsed)"
+                    )
+        finally:
+            if owns_task and not task.done():
+                task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await task
 
     async def _run_with_broker(
         self,
@@ -441,7 +494,7 @@ class SandboxedAgentExecutor:
             return self._fatal_error or "Unknown LLM error"
 
         fatal_error_task = asyncio.create_task(wait_fatal_error())
-        heartbeat_interval = 30
+        heartbeat_interval = AGENT_ACTIVITY_HEARTBEAT_INTERVAL_SECONDS
         elapsed = 0
 
         try:
@@ -492,8 +545,43 @@ class SandboxedAgentExecutor:
             if not isinstance(e, ConcurrentSessionTurnError):
                 raise
         except asyncio.CancelledError:
-            await broker.cancel_turn(str(self.input.session_id))
-            raise
+            reason = self._activity_cancel_reason()
+            logger.info(
+                "Agent activity cancellation requested",
+                session_id=self.input.session_id,
+                reason=reason,
+            )
+            handler.mark_cancelled(reason)
+            try:
+                async with asyncio.timeout(GRACEFUL_CANCEL_TIMEOUT_SECONDS):
+                    await self._await_cancel_step_with_heartbeats(
+                        broker.interrupt_turn(str(self.input.session_id), reason),
+                        phase="interrupting runtime",
+                    )
+                    await self._await_cancel_step_with_heartbeats(
+                        broker_task,
+                        phase="waiting for runtime",
+                    )
+            except TimeoutError:
+                logger.warning(
+                    "Timed out gracefully cancelling agent activity",
+                    session_id=self.input.session_id,
+                    timeout_seconds=GRACEFUL_CANCEL_TIMEOUT_SECONDS,
+                )
+                await broker.cancel_turn(str(self.input.session_id))
+                raise
+            except asyncio.CancelledError:
+                await broker.cancel_turn(str(self.input.session_id))
+                raise
+
+            self._apply_loopback_result(result, handler.build_result())
+            result.success = True
+            result.cancelled = True
+            result.cancelled_reason = reason
+            self._log_benchmark_phase(
+                "broker_activity_cancelled",
+                reason=reason,
+            )
         finally:
             for task in (fatal_error_task, broker_task):
                 if not task.done():
@@ -727,7 +815,9 @@ async def run_agent_activity(input: AgentExecutorInput) -> AgentExecutorResult:
     executor = SandboxedAgentExecutor(input=input)
     result = await executor.run()
 
-    if result.success:
+    if result.cancelled:
+        activity.heartbeat(f"Agent execution cancelled: {input.session_id}")
+    elif result.success:
         activity.heartbeat(f"Agent execution completed: {input.session_id}")
     else:
         activity.heartbeat(f"Agent execution failed: {result.error}")

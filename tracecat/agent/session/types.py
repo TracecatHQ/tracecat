@@ -1,6 +1,7 @@
 """Domain types for agent session management."""
 
 from enum import StrEnum
+from typing import Literal
 
 
 class AgentSessionEntity(StrEnum):
@@ -23,3 +24,16 @@ class AgentSessionEntity(StrEnum):
     WORKFLOW = "workflow"
     APPROVAL = "approval"
     EXTERNAL_CHANNEL = "external_channel"
+
+
+class AgentSessionStatus(StrEnum):
+    """Lifecycle state for an agent session turn."""
+
+    IDLE = "idle"
+    RUNNING = "running"
+    WAITING_FOR_APPROVAL = "waiting_for_approval"
+    STOPPED = "stopped"
+    FAILED = "failed"
+
+
+type AgentCancelReason = Literal["user_cancel", "worker_drain"]

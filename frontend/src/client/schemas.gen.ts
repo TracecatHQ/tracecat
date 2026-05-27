@@ -1212,6 +1212,11 @@ export const $AdminUserRead = {
   description: "Admin view of a user.",
 } as const
 
+export const $AgentCancelReason = {
+  type: "string",
+  enum: ["user_cancel", "worker_drain"],
+} as const
+
 export const $AgentCatalogListResponse = {
   properties: {
     items: {
@@ -3329,6 +3334,45 @@ export const $AgentPresetVersionReadMinimal = {
   description: "Metadata returned when listing immutable preset versions.",
 } as const
 
+export const $AgentSessionCancelRequest = {
+  properties: {
+    reason: {
+      $ref: "#/components/schemas/AgentCancelReason",
+      description: "Reason for requesting cancellation.",
+      default: "user_cancel",
+    },
+  },
+  type: "object",
+  title: "AgentSessionCancelRequest",
+  description: "Request schema for cancelling an active agent session turn.",
+} as const
+
+export const $AgentSessionCancelResponse = {
+  properties: {
+    session_id: {
+      type: "string",
+      format: "uuid",
+      title: "Session Id",
+    },
+    run_id: {
+      type: "string",
+      format: "uuid",
+      title: "Run Id",
+    },
+    reason: {
+      $ref: "#/components/schemas/AgentCancelReason",
+    },
+    turn_status: {
+      $ref: "#/components/schemas/AgentSessionStatus",
+    },
+  },
+  type: "object",
+  required: ["session_id", "run_id", "reason", "turn_status"],
+  title: "AgentSessionCancelResponse",
+  description:
+    "Response schema for an accepted agent session cancellation request.",
+} as const
+
 export const $AgentSessionCreate = {
   properties: {
     id: {
@@ -3593,6 +3637,10 @@ export const $AgentSessionRead = {
       ],
       title: "Last Stream Id",
     },
+    turn_status: {
+      $ref: "#/components/schemas/AgentSessionStatus",
+      default: "idle",
+    },
     parent_session_id: {
       anyOf: [
         {
@@ -3754,6 +3802,10 @@ export const $AgentSessionReadVercel = {
         },
       ],
       title: "Last Stream Id",
+    },
+    turn_status: {
+      $ref: "#/components/schemas/AgentSessionStatus",
+      default: "idle",
     },
     parent_session_id: {
       anyOf: [
@@ -3925,6 +3977,10 @@ export const $AgentSessionReadWithMessages = {
       ],
       title: "Last Stream Id",
     },
+    turn_status: {
+      $ref: "#/components/schemas/AgentSessionStatus",
+      default: "idle",
+    },
     parent_session_id: {
       anyOf: [
         {
@@ -3972,6 +4028,13 @@ export const $AgentSessionReadWithMessages = {
   ],
   title: "AgentSessionReadWithMessages",
   description: "Response schema for agent session with message history.",
+} as const
+
+export const $AgentSessionStatus = {
+  type: "string",
+  enum: ["idle", "running", "waiting_for_approval", "stopped", "failed"],
+  title: "AgentSessionStatus",
+  description: "Lifecycle state for an agent session turn.",
 } as const
 
 export const $AgentSessionUpdate = {
@@ -8911,6 +8974,20 @@ export const $ChatMessage = {
       description:
         "Compaction status data for badge rendering (for kind=COMPACTION)",
     },
+    interrupt: {
+      anyOf: [
+        {
+          additionalProperties: true,
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Interrupt",
+      description:
+        "Interruption status data for badge rendering (for kind=INTERRUPT)",
+    },
   },
   type: "object",
   required: ["id"],
@@ -8920,7 +8997,8 @@ export const $ChatMessage = {
 This model supports multiple message kinds:
 - kind=CHAT_MESSAGE: Contains message field with user/assistant content
 - kind=APPROVAL_REQUEST/APPROVAL_DECISION: Contains approval field with approval data
-- kind=COMPACTION: Contains compaction field with compaction status data`,
+- kind=COMPACTION: Contains compaction field with compaction status data
+- kind=INTERRUPT: Contains interrupt field with interruption status data`,
 } as const
 
 export const $ChatRead = {
@@ -15249,6 +15327,7 @@ export const $MessageKind = {
     "approval-decision",
     "internal",
     "compaction",
+    "interrupt",
   ],
   title: "MessageKind",
   description: "The type/kind of message stored in the chat.",

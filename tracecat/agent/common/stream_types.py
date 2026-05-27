@@ -44,6 +44,7 @@ class StreamEventType(StrEnum):
 
     # System/status events
     COMPACTION = "compaction"
+    INTERRUPT = "interrupt"
 
     # Control events
     ERROR = "error"
@@ -207,6 +208,14 @@ class UnifiedStreamEvent:
             type=StreamEventType.COMPACTION,
             metadata=event_metadata,
         )
+
+    @classmethod
+    def interrupt_event(cls, *, reason: str | None = None) -> UnifiedStreamEvent:
+        """Factory method for creating interrupted turn status events."""
+        metadata: dict[str, Any] = {}
+        if reason is not None:
+            metadata["reason"] = reason
+        return cls(type=StreamEventType.INTERRUPT, metadata=metadata)
 
     @classmethod
     def tool_result_event(

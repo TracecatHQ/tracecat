@@ -13,6 +13,7 @@ from temporalio.common import TypedSearchAttributes
 from temporalio.exceptions import ActivityError
 from tracecat_ee.agent.activities import BuildToolDefsArgs, BuildToolDefsResult
 from tracecat_ee.agent.workflows.durable import (
+    AGENT_SESSION_STATUS_PATCH,
     BUILD_AGENT_TOOL_DEFINITIONS_PATCH,
     EMIT_PRE_STREAM_SESSION_ERRORS_PATCH,
     LOAD_TERMINAL_MESSAGE_HISTORY_PATCH,
@@ -233,7 +234,7 @@ async def test_run_skips_activity_error_emission_without_patch_marker() -> None:
     with (
         patch(
             "tracecat_ee.agent.workflows.durable.workflow.patched",
-            side_effect=[False, False],
+            side_effect=[False, False, False],
         ) as patched_mock,
         patch(
             "tracecat_ee.agent.workflows.durable.workflow.unsafe.is_replaying",
@@ -256,6 +257,7 @@ async def test_run_skips_activity_error_emission_without_patch_marker() -> None:
 
     assert patched_mock.call_args_list == [
         ((UPSERT_TRACECAT_SEARCH_ATTRIBUTES_PATCH,),),
+        ((AGENT_SESSION_STATUS_PATCH,),),
         ((EMIT_PRE_STREAM_SESSION_ERRORS_PATCH,),),
     ]
     emit_error_mock.assert_not_awaited()

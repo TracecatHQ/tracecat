@@ -27,6 +27,7 @@ import pydantic
 from claude_agent_sdk.types import (
     AssistantMessage,
     TextBlock,
+    ToolResultBlock,
     ToolUseBlock,
     UserMessage,
 )
@@ -76,6 +77,7 @@ from tracecat.chat.constants import (
     APPROVAL_DATA_PART_TYPE,
     APPROVAL_REQUEST_HEADER,
     COMPACTION_DATA_PART_TYPE,
+    INTERRUPT_DATA_PART_TYPE,
 )
 from tracecat.chat.enums import MessageKind
 from tracecat.logger import logger
@@ -695,6 +697,11 @@ class CompactionDataPayload:
 
 
 @dataclasses.dataclass(slots=True, kw_only=True)
+class InterruptDataPayload:
+    reason: str | None = None
+
+
+@dataclasses.dataclass(slots=True, kw_only=True)
 class DataEventPayload:
     type: str
     data: Any
@@ -1027,6 +1034,17 @@ class VercelStreamContext:
                 )
                 yield DataEventPayload(
                     type=COMPACTION_DATA_PART_TYPE,
+                    data=payload,
+                )
+
+            case StreamEventType.INTERRUPT:
+                metadata = event.metadata or {}
+                reason = metadata.get("reason")
+                payload = InterruptDataPayload(
+                    reason=reason if isinstance(reason, str) else None
+                )
+                yield DataEventPayload(
+                    type=INTERRUPT_DATA_PART_TYPE,
                     data=payload,
                 )
 
@@ -1508,6 +1526,11 @@ def _is_internal_interrupt_message(chat_message: ChatMessage) -> bool:
                     return True
                 if part.text == "No response requested.":
                     return True
+            elif isinstance(part, ToolResultBlock):
+                if part.is_error:
+                    text = str(part.content or "")
+                    if "doesn't want to take this action" in text:
+                        return True
 
     return False
 
@@ -1538,6 +1561,18 @@ def convert_chat_messages_to_ui(
                 parts=[
                     DataUIPart(type=COMPACTION_DATA_PART_TYPE, data=compaction_data)
                 ],
+            )
+            mutable_messages.append(mutable_message)
+            continue
+
+        # Handle interrupt status badges from DB (kind=INTERRUPT)
+        # These show when a chat turn was stopped by the user.
+        if chat_message.kind == MessageKind.INTERRUPT and chat_message.interrupt:
+            interrupt_data = chat_message.interrupt
+            mutable_message = MutableMessage(
+                id=chat_message.id,
+                role="system",
+                parts=[DataUIPart(type=INTERRUPT_DATA_PART_TYPE, data=interrupt_data)],
             )
             mutable_messages.append(mutable_message)
             continue

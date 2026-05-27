@@ -8,7 +8,7 @@ import uuid
 from collections.abc import AsyncIterator, Sequence
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 import orjson
 from pydantic_ai.messages import (
@@ -28,6 +28,7 @@ from sqlalchemy import (
     update,
 )
 from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.engine import CursorResult
 from sqlalchemy.exc import SQLAlchemyError
 from temporalio.common import TypedSearchAttributes
 from tracecat_registry._internal.exceptions import SecretNotFoundError
@@ -42,6 +43,7 @@ from tracecat.agent.preset.service import AgentPresetService
 from tracecat.agent.runtime.claude_code.session_lines import (
     APPROVAL_INTERRUPT_CONTENT_EXACT,
     APPROVAL_INTERRUPT_CONTENT_MARKERS,
+    is_approval_interrupt_content,
     is_approval_interrupt_tool_result,
     is_continuation_control_artifact,
     session_line_uuid,
@@ -49,12 +51,14 @@ from tracecat.agent.runtime.claude_code.session_lines import (
 from tracecat.agent.schemas import RunAgentArgs
 from tracecat.agent.service import AgentManagementService
 from tracecat.agent.session.schemas import (
+    AgentSessionCancelRequest,
+    AgentSessionCancelResponse,
     AgentSessionCreate,
     AgentSessionRead,
     AgentSessionUpdate,
 )
 from tracecat.agent.session.title_generator import generate_session_title
-from tracecat.agent.session.types import AgentSessionEntity
+from tracecat.agent.session.types import AgentSessionEntity, AgentSessionStatus
 from tracecat.agent.subagents import (
     ResolvedAgentsConfig,
 )
@@ -80,7 +84,11 @@ from tracecat.chat.tools import get_default_tools
 from tracecat.db.models import AgentSession, AgentSessionHistory, Approval, Chat
 from tracecat.dsl.client import get_temporal_client
 from tracecat.dsl.common import RETRY_POLICIES
-from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
+from tracecat.exceptions import (
+    TracecatConflictError,
+    TracecatNotFoundError,
+    TracecatValidationError,
+)
 from tracecat.identifiers import UserID
 from tracecat.logger import logger
 from tracecat.redis.client import get_redis_client
@@ -554,6 +562,79 @@ class AgentSessionService(BaseWorkspaceService):
         await self.session.commit()
         await self.session.refresh(agent_session)
         return agent_session
+
+    async def set_session_status(
+        self,
+        session_id: uuid.UUID,
+        status: AgentSessionStatus,
+        *,
+        clear_curr_run_id: bool = False,
+    ) -> bool:
+        """Update an agent session lifecycle status by ID."""
+        values: dict[str, Any] = {"status": status.value}
+        if clear_curr_run_id:
+            values["curr_run_id"] = None
+
+        stmt = (
+            update(AgentSession)
+            .where(
+                AgentSession.id == session_id,
+                AgentSession.workspace_id == self.workspace_id,
+            )
+            .values(**values)
+        )
+        result = await self.session.execute(stmt)
+        await self.session.commit()
+        return bool(cast(CursorResult[Any], result).rowcount)
+
+    async def request_cancel(
+        self,
+        session_id: uuid.UUID,
+        request: AgentSessionCancelRequest,
+    ) -> AgentSessionCancelResponse:
+        """Request graceful cancellation for the active agent workflow turn."""
+        from tracecat_ee.agent.types import AgentWorkflowID
+        from tracecat_ee.agent.workflows.durable import (
+            DurableAgentWorkflow,
+            WorkflowCancelRequest,
+        )
+
+        agent_session = await self.get_session(session_id)
+        if agent_session is None:
+            raise TracecatNotFoundError(f"Session with ID {session_id} not found")
+
+        current_status = AgentSessionStatus(agent_session.status)
+        if current_status not in {
+            AgentSessionStatus.RUNNING,
+            AgentSessionStatus.WAITING_FOR_APPROVAL,
+        }:
+            raise TracecatConflictError(
+                "Agent session does not have an active turn",
+                detail={"status": current_status.value},
+            )
+
+        curr_run_id = agent_session.curr_run_id
+        if curr_run_id is None:
+            raise TracecatConflictError("Agent session has no active workflow run")
+
+        client = await get_temporal_client()
+        workflow_id = AgentWorkflowID(curr_run_id)
+        handle = client.get_workflow_handle_for(
+            DurableAgentWorkflow.run,
+            str(workflow_id),
+        )
+
+        await handle.execute_update(
+            DurableAgentWorkflow.request_cancel,
+            WorkflowCancelRequest(reason=request.reason),
+        )
+
+        return AgentSessionCancelResponse(
+            session_id=session_id,
+            run_id=curr_run_id,
+            reason=request.reason,
+            turn_status=current_status,
+        )
 
     # =========================================================================
     # Session History Management (for Claude SDK session persistence)
@@ -1074,6 +1155,7 @@ class AgentSessionService(BaseWorkspaceService):
 
             # Update session with current run_id for approval lookups
             agent_session.curr_run_id = run_id
+            agent_session.status = AgentSessionStatus.RUNNING.value
             self.session.add(agent_session)
             await self.session.commit()
 
@@ -1089,16 +1171,22 @@ class AgentSessionService(BaseWorkspaceService):
                 task_queue=config.TRACECAT__AGENT_QUEUE,
             )
 
-            await client.start_workflow(
-                DurableAgentWorkflow.run,
-                workflow_args,
-                id=str(workflow_id),
-                task_queue=config.TRACECAT__AGENT_QUEUE,
-                retry_policy=RETRY_POLICIES["workflow:fail_fast"],
-                search_attributes=self._build_direct_agent_search_attributes(
-                    session_id
-                ),
-            )
+            try:
+                await client.start_workflow(
+                    DurableAgentWorkflow.run,
+                    workflow_args,
+                    id=str(workflow_id),
+                    task_queue=config.TRACECAT__AGENT_QUEUE,
+                    retry_policy=RETRY_POLICIES["workflow:fail_fast"],
+                    search_attributes=self._build_direct_agent_search_attributes(
+                        session_id
+                    ),
+                )
+            except Exception:
+                agent_session.status = AgentSessionStatus.FAILED.value
+                self.session.add(agent_session)
+                await self.session.commit()
+                raise
 
         # Return ChatResponse with session_id for streaming
         stream_url = f"/api/agent/sessions/{session_id}/stream"
@@ -1122,6 +1210,13 @@ class AgentSessionService(BaseWorkspaceService):
                     )
                 return agent_session
             case VercelChatRequest() | BasicChatRequest():
+                if agent_session.status in {
+                    AgentSessionStatus.RUNNING.value,
+                    AgentSessionStatus.WAITING_FOR_APPROVAL.value,
+                }:
+                    raise TracecatConflictError(
+                        "This session already has an active turn."
+                    )
                 if await self.has_pending_approvals(session_id):
                     raise ValueError(
                         "This session is waiting for approval decisions. "
@@ -1546,12 +1641,16 @@ class AgentSessionService(BaseWorkspaceService):
         approval_by_tool_id: dict[str, Approval] = {
             a.tool_call_id: a for a in approvals
         }
+        pending_approval_tool_ids = {
+            a.tool_call_id for a in approvals if a.status == ApprovalStatus.PENDING
+        }
 
         # Build timeline with interleaved approvals
         # Process both chat-message and internal entries in order
         # Internal entries contain tool results that the adapter will extract
         messages: list[ChatMessage] = []
         internal_uuids: set[str] = set()
+        pending_approval_interrupt_tool_ids: set[str] = set()
         for entry in all_entries:
             content = entry.content
             if not content:
@@ -1559,6 +1658,24 @@ class AgentSessionService(BaseWorkspaceService):
 
             # Skip internal entries (e.g., continuation prompts)
             if entry.kind == MessageKind.INTERNAL.value:
+                if (
+                    getattr(entry, "session_id", session_id) == session_id
+                    and self._is_interrupt_session_line(content)
+                    and not self._is_pending_approval_interrupt_session_line(
+                        content,
+                        pending_approval_interrupt_tool_ids,
+                    )
+                    and not (messages and messages[-1].kind == MessageKind.INTERRUPT)
+                ):
+                    kind = MessageKind.INTERRUPT
+                    if not kinds or kind in kinds:
+                        messages.append(
+                            ChatMessage(
+                                id=str(entry.id),
+                                kind=kind,
+                                interrupt={"reason": "user_cancel"},
+                            )
+                        )
                 if line_uuid := session_line_uuid(content):
                     internal_uuids.add(line_uuid)
                 continue
@@ -1604,10 +1721,6 @@ class AgentSessionService(BaseWorkspaceService):
             # Standard chat messages
             kind = MessageKind.CHAT_MESSAGE
 
-            # Filter by kinds if specified
-            if kinds and kind not in kinds:
-                continue
-
             # Extract the inner message from JSONL envelope
             inner_message = content.get("message")
             if not inner_message:
@@ -1618,27 +1731,47 @@ class AgentSessionService(BaseWorkspaceService):
 
             # Deserialize the content using Claude SDK TypeAdapter
             message = ClaudeSDKMessageTA.validate_python(sanitized_message)
-            messages.append(ChatMessage(id=str(entry.id), message=message))
+            if not kinds or kind in kinds:
+                messages.append(ChatMessage(id=str(entry.id), message=message))
 
             # For assistant messages, check for tool calls needing approval bubbles
             if msg_type == "assistant":
                 tool_uses = self._extract_tool_uses_from_message(sanitized_message)
                 for tool_use in tool_uses:
                     tool_use_id = tool_use.get("id")
+                    if tool_use_id in pending_approval_tool_ids:
+                        pending_approval_interrupt_tool_ids.add(tool_use_id)
                     if tool_use_id and (
                         approval := approval_by_tool_id.get(tool_use_id)
                     ):
-                        # Insert approval-request bubble
-                        approval_read = ApprovalRead.model_validate(approval)
-                        messages.append(
-                            ChatMessage(
-                                id=str(approval.id),
-                                kind=MessageKind.APPROVAL_REQUEST,
-                                approval=approval_read,
-                            )
+                        should_append_approval_request = (
+                            not kinds or MessageKind.APPROVAL_REQUEST in kinds
                         )
+                        should_append_approval_decision = (
+                            approval.status != ApprovalStatus.PENDING
+                            and (not kinds or MessageKind.APPROVAL_DECISION in kinds)
+                        )
+                        if (
+                            should_append_approval_request
+                            or should_append_approval_decision
+                        ):
+                            approval_read = ApprovalRead.model_validate(approval)
+                        else:
+                            approval_read = None
+
+                        # Insert approval-request bubble
+                        if should_append_approval_request:
+                            assert approval_read is not None
+                            messages.append(
+                                ChatMessage(
+                                    id=str(approval.id),
+                                    kind=MessageKind.APPROVAL_REQUEST,
+                                    approval=approval_read,
+                                )
+                            )
                         # If decided, also insert decision bubble
-                        if approval.status != ApprovalStatus.PENDING:
+                        if should_append_approval_decision:
+                            assert approval_read is not None
                             messages.append(
                                 ChatMessage(
                                     id=f"{approval.id}-decision",
@@ -1648,6 +1781,73 @@ class AgentSessionService(BaseWorkspaceService):
                             )
 
         return messages
+
+    @staticmethod
+    def _is_pending_approval_interrupt_session_line(
+        content: dict[str, Any],
+        pending_tool_call_ids: set[str],
+    ) -> bool:
+        """Return True for SDK interrupt rows caused by an active approval wait."""
+        if not pending_tool_call_ids:
+            return False
+
+        message = content.get("message")
+        if not isinstance(message, dict):
+            return False
+
+        msg_content = message.get("content")
+        if isinstance(msg_content, str):
+            return is_approval_interrupt_content(msg_content)
+        if not isinstance(msg_content, list):
+            return False
+
+        for block in msg_content:
+            if isinstance(block, dict):
+                if block.get("type") == "text" and is_approval_interrupt_content(
+                    block.get("text", "")
+                ):
+                    return True
+                if (
+                    block.get("type") == "tool_result"
+                    and block.get("is_error") is True
+                    and block.get("tool_use_id") in pending_tool_call_ids
+                    and is_approval_interrupt_content(block.get("content", ""))
+                ):
+                    return True
+            elif is_approval_interrupt_content(block):
+                return True
+
+        return False
+
+    @staticmethod
+    def _is_interrupt_session_line(content: dict[str, Any]) -> bool:
+        """Return True for internal SDK rows that represent a user interruption."""
+        message = content.get("message")
+        if not isinstance(message, dict):
+            return False
+
+        msg_content = message.get("content")
+        if isinstance(msg_content, str):
+            return is_approval_interrupt_content(msg_content)
+        if not isinstance(msg_content, list):
+            return False
+
+        for block in msg_content:
+            if isinstance(block, dict):
+                if block.get("type") == "text" and is_approval_interrupt_content(
+                    block.get("text", "")
+                ):
+                    return True
+                if (
+                    block.get("type") == "tool_result"
+                    and block.get("is_error") is True
+                    and is_approval_interrupt_content(block.get("content", ""))
+                ):
+                    return True
+            elif is_approval_interrupt_content(block):
+                return True
+
+        return False
 
     @staticmethod
     def _extract_tool_uses_from_message(

@@ -8,7 +8,9 @@ from unittest.mock import AsyncMock, MagicMock, Mock
 import orjson
 import pytest
 
+from tracecat.agent.approvals.enums import ApprovalStatus
 from tracecat.agent.session.service import AgentSessionService
+from tracecat.agent.session.types import AgentSessionStatus
 from tracecat.auth.types import Role
 from tracecat.chat.enums import MessageKind
 from tracecat.db.models import AgentSession
@@ -78,6 +80,152 @@ async def test_list_messages_preserves_compaction_metadata() -> None:
         "phase": "completed",
         "pre_tokens": 128000,
     }
+
+
+@pytest.mark.anyio
+async def test_list_messages_adds_interrupt_notice_for_stopped_session() -> None:
+    service, agent_session = _build_service()
+    agent_session.status = AgentSessionStatus.STOPPED.value
+    interrupt_entry = SimpleNamespace(
+        id=uuid.uuid4(),
+        session_id=agent_session.id,
+        kind=MessageKind.INTERNAL.value,
+        content={
+            "type": "user",
+            "uuid": "interrupt-uuid",
+            "message": {
+                "role": "user",
+                "content": [{"type": "text", "text": "[Request interrupted by user]"}],
+            },
+        },
+    )
+    duplicate_interrupt_entry = SimpleNamespace(
+        id=uuid.uuid4(),
+        session_id=agent_session.id,
+        kind=MessageKind.INTERNAL.value,
+        content={
+            "type": "user",
+            "uuid": "interrupt-tool-result-uuid",
+            "message": {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": "call_123",
+                        "is_error": True,
+                        "content": "The user doesn't want to take this action right now.",
+                    }
+                ],
+            },
+        },
+    )
+
+    service.get_session = AsyncMock(return_value=agent_session)
+    service.session.execute = AsyncMock(
+        side_effect=[
+            _mock_scalar_result([interrupt_entry, duplicate_interrupt_entry]),
+            _mock_scalar_result([]),
+        ]
+    )
+
+    messages = await service.list_messages(agent_session.id)
+
+    assert len(messages) == 1
+    assert messages[0].kind == MessageKind.INTERRUPT
+    assert messages[0].interrupt == {"reason": "user_cancel"}
+
+
+@pytest.mark.anyio
+async def test_list_messages_adds_interrupt_notice_after_session_resumes() -> None:
+    service, agent_session = _build_service()
+    agent_session.status = AgentSessionStatus.IDLE.value
+    interrupt_entry = SimpleNamespace(
+        id=uuid.uuid4(),
+        session_id=agent_session.id,
+        kind=MessageKind.INTERNAL.value,
+        content={
+            "type": "user",
+            "uuid": "interrupt-uuid",
+            "message": {
+                "role": "user",
+                "content": [{"type": "text", "text": "[Request interrupted by user]"}],
+            },
+        },
+    )
+
+    service.get_session = AsyncMock(return_value=agent_session)
+    service.session.execute = AsyncMock(
+        side_effect=[
+            _mock_scalar_result([interrupt_entry]),
+            _mock_scalar_result([]),
+        ]
+    )
+
+    messages = await service.list_messages(agent_session.id)
+
+    assert len(messages) == 1
+    assert messages[0].kind == MessageKind.INTERRUPT
+    assert messages[0].interrupt == {"reason": "user_cancel"}
+
+
+@pytest.mark.anyio
+async def test_list_messages_keeps_pending_approval_interrupt_artifacts_hidden() -> (
+    None
+):
+    service, agent_session = _build_service()
+    agent_session.status = AgentSessionStatus.WAITING_FOR_APPROVAL.value
+    assistant_entry = SimpleNamespace(
+        id=uuid.uuid4(),
+        session_id=agent_session.id,
+        kind=MessageKind.CHAT_MESSAGE.value,
+        content={
+            "type": "assistant",
+            "uuid": "assistant-uuid",
+            "message": {
+                "role": "assistant",
+                "content": [
+                    {
+                        "type": "tool_use",
+                        "id": "call_123",
+                        "name": "core__http_request",
+                        "input": {"url": "https://example.com"},
+                    }
+                ],
+            },
+        },
+    )
+    interrupt_entry = SimpleNamespace(
+        id=uuid.uuid4(),
+        session_id=agent_session.id,
+        kind=MessageKind.INTERNAL.value,
+        content={
+            "type": "user",
+            "uuid": "interrupt-uuid",
+            "message": {
+                "role": "user",
+                "content": [{"type": "text", "text": "[Request interrupted by user]"}],
+            },
+        },
+    )
+    pending_approval = SimpleNamespace(
+        tool_call_id="call_123",
+        status=ApprovalStatus.PENDING,
+    )
+
+    service.get_session = AsyncMock(return_value=agent_session)
+    service.session.execute = AsyncMock(
+        side_effect=[
+            _mock_scalar_result([assistant_entry, interrupt_entry]),
+            _mock_scalar_result([pending_approval]),
+        ]
+    )
+
+    messages = await service.list_messages(
+        agent_session.id,
+        kinds=[MessageKind.INTERRUPT],
+    )
+
+    assert messages == []
 
 
 @pytest.mark.anyio

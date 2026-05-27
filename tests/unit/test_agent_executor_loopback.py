@@ -377,3 +377,43 @@ async def test_send_done_preserves_existing_error_state() -> None:
     assert handler._result.error == "runtime failed"
     stream.error.assert_not_awaited()
     stream.done.assert_awaited_once()
+
+
+@pytest.mark.anyio
+async def test_mark_cancelled_skips_empty_runtime_completion_validation() -> None:
+    handler = _make_handler()
+    stream = _FakeStream()
+    handler._stream_sink = stream
+
+    handler.mark_cancelled("user_cancel")
+    await handler.send_done()
+
+    assert handler._result.success is True
+    assert handler._result.cancelled is True
+    assert handler._result.cancelled_reason == "user_cancel"
+    stream.append.assert_awaited_once()
+    append_args = stream.append.await_args
+    assert append_args is not None
+    event = append_args.args[0]
+    assert event.type == StreamEventType.INTERRUPT
+    assert event.metadata == {"reason": "user_cancel"}
+    stream.error.assert_not_awaited()
+    stream.done.assert_awaited_once()
+
+
+@pytest.mark.anyio
+async def test_cancelled_loopback_preserves_later_stream_and_history() -> None:
+    handler = _make_handler()
+    stream = _FakeStream()
+    handler._stream_sink = stream
+    persist = AsyncMock()
+    handler._persist_session_line = persist
+
+    handler.mark_cancelled("user_cancel")
+    await handler.send_stream_event(
+        UnifiedStreamEvent(type=StreamEventType.TEXT_DELTA, text="late")
+    )
+    await handler.send_session_line("sdk-session", '{"type":"assistant"}')
+
+    assert stream.append.await_count == 1
+    persist.assert_awaited_once()

@@ -6,11 +6,15 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from tracecat.agent.adapter.vercel import UIMessage
 from tracecat.agent.common.stream_types import HarnessType
-from tracecat.agent.session.types import AgentSessionEntity
+from tracecat.agent.session.types import (
+    AgentCancelReason,
+    AgentSessionEntity,
+    AgentSessionStatus,
+)
 from tracecat.agent.subagents import ResolvedAgentsConfig
 
 
@@ -99,7 +103,7 @@ class AgentSessionHistoryRead(BaseModel):
     created_at: datetime
     updated_at: datetime
 
-    model_config = {"from_attributes": True}
+    model_config = ConfigDict(from_attributes=True)
 
 
 class AgentSessionRead(BaseModel):
@@ -121,13 +125,18 @@ class AgentSessionRead(BaseModel):
     harness_type: str | None
     # Stream tracking
     last_stream_id: str | None = None
+    # Lifecycle
+    turn_status: AgentSessionStatus = Field(
+        default=AgentSessionStatus.IDLE,
+        validation_alias="status",
+    )
     # Fork tracking
     parent_session_id: uuid.UUID | None = None
     # Timestamps
     created_at: datetime
     updated_at: datetime
 
-    model_config = {"from_attributes": True}
+    model_config = ConfigDict(from_attributes=True, validate_by_name=True)
 
 
 class AgentSessionReadWithMessages(AgentSessionRead):
@@ -154,3 +163,21 @@ class AgentSessionForkRequest(BaseModel):
         description="Override entity type for the forked session. "
         "Use 'approval' for inbox forks to hide from main chat list.",
     )
+
+
+class AgentSessionCancelRequest(BaseModel):
+    """Request schema for cancelling an active agent session turn."""
+
+    reason: AgentCancelReason = Field(
+        default="user_cancel",
+        description="Reason for requesting cancellation.",
+    )
+
+
+class AgentSessionCancelResponse(BaseModel):
+    """Response schema for an accepted agent session cancellation request."""
+
+    session_id: uuid.UUID
+    run_id: uuid.UUID
+    reason: AgentCancelReason
+    turn_status: AgentSessionStatus

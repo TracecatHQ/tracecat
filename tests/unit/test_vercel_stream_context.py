@@ -30,6 +30,7 @@ from tracecat.agent.common.stream_types import (
     ToolCallContent,
     UnifiedStreamEvent,
 )
+from tracecat.chat.constants import INTERRUPT_DATA_PART_TYPE
 
 
 async def collect_frames(
@@ -942,6 +943,22 @@ async def test_tool_input_emitted_state_tracking():
 
     # Should now be marked as emitted
     assert ctx.tool_input_emitted[tool_call_id] is True
+
+
+@pytest.mark.anyio
+async def test_interrupt_event_emits_data_payload():
+    """Test interrupted turns emit a system data part."""
+    ctx = VercelStreamContext(message_id="msg_test")
+
+    frames = await collect_frames(
+        ctx,
+        [UnifiedStreamEvent.interrupt_event(reason="user_cancel")],
+    )
+
+    assert len(frames) == 1
+    assert isinstance(frames[0], DataEventPayload)
+    assert frames[0].type == INTERRUPT_DATA_PART_TYPE
+    assert frames[0].data.reason == "user_cancel"
 
 
 # ==============================================================================

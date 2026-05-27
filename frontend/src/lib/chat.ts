@@ -302,12 +302,14 @@ export function transformMessages(messages: ai.UIMessage[]): ai.UIMessage[] {
   // Array positions to ignore (using "msgIndex-partIndex" string format)
   const ignorePos = new Set<string>()
   let pendingCompactionStartPos: string | null = null
+  let pendingInterruptPos: string | null = null
 
   for (const [i, message] of messages.entries()) {
     for (const [j, part] of message.parts.entries()) {
       const posKey = `${i}-${j}`
 
       if (ai.isToolUIPart(part)) {
+        pendingInterruptPos = null
         const { state, toolCallId } = part
         if (state === "input-available") {
           // OPEN STATE
@@ -333,6 +335,7 @@ export function transformMessages(messages: ai.UIMessage[]): ai.UIMessage[] {
           states.set(toolCallId, { ...currState, close: posKey })
         }
       } else if (part.type === "data-approval-request") {
+        pendingInterruptPos = null
         // Handle approval request parts
         // 1. If approval request we mark positions, only ignore if we hit a close state
         // 2. If we see approval requests after a close state, we should ignore the approval requests
@@ -356,6 +359,7 @@ export function transformMessages(messages: ai.UIMessage[]): ai.UIMessage[] {
           }
         }
       } else if (part.type === "data-compaction") {
+        pendingInterruptPos = null
         const phase =
           part.data &&
           typeof part.data === "object" &&
@@ -373,6 +377,13 @@ export function transformMessages(messages: ai.UIMessage[]): ai.UIMessage[] {
             pendingCompactionStartPos = null
           }
         }
+      } else if (part.type === "data-interrupt") {
+        if (pendingInterruptPos) {
+          ignorePos.add(pendingInterruptPos)
+        }
+        pendingInterruptPos = posKey
+      } else {
+        pendingInterruptPos = null
       }
     }
   }

@@ -11,7 +11,7 @@ import asyncio
 import shutil
 import uuid
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -33,7 +33,11 @@ from tracecat.agent.executor.activity import (
     _hydrate_sdk_session_history,
     run_agent_activity,
 )
-from tracecat.agent.executor.loopback import LoopbackResult
+from tracecat.agent.executor.loopback import (
+    LoopbackHandler,
+    LoopbackInput,
+    LoopbackResult,
+)
 from tracecat.agent.schemas import ToolFilters
 from tracecat.agent.session.activities import (
     CreateSessionInput,
@@ -47,7 +51,7 @@ from tracecat.agent.session.activities import (
     load_session_activity,
     load_session_messages_activity,
 )
-from tracecat.agent.session.types import AgentSessionEntity
+from tracecat.agent.session.types import AgentSessionEntity, AgentSessionStatus
 from tracecat.agent.skill.types import ResolvedSkillRef
 from tracecat.agent.subagents import ResolvedAgentsConfig
 from tracecat.agent.tools import BuildToolsResult
@@ -95,7 +99,7 @@ class TestSessionActivities:
         """Test that get_session_activities returns a list of activity functions."""
         activities = get_session_activities()
         assert isinstance(activities, list)
-        assert len(activities) == 4
+        assert len(activities) == 5
 
         # All returned items should have the temporal activity definition
         for activity in activities:
@@ -109,6 +113,7 @@ class TestSessionActivities:
         ]
         assert "create_session_activity" in activity_names
         assert "load_session_activity" in activity_names
+        assert "update_session_status_activity" in activity_names
         assert "load_session_messages_activity" in activity_names
         assert "reconcile_tool_results_activity" in activity_names
 
@@ -394,6 +399,41 @@ class TestCreateSessionActivity:
 
         assert result.success is True
         assert result.session_id == mock_session_id
+
+    @pytest.mark.anyio
+    @patch("tracecat.agent.session.activities.AgentSessionService.with_session")
+    async def test_curr_run_id_marks_session_running(
+        self, mock_with_session, mock_role: Role, mock_session_id: uuid.UUID
+    ):
+        """Create setup records the run token and takes the running lock."""
+        curr_run_id = uuid.uuid4()
+        input = CreateSessionInput(
+            role=mock_role,
+            session_id=mock_session_id,
+            entity_type=AgentSessionEntity.WORKFLOW,
+            entity_id=uuid.uuid4(),
+            curr_run_id=curr_run_id,
+        )
+
+        mock_agent_session = MagicMock()
+        mock_agent_session.agents_binding = None
+        mock_agent_session.status = AgentSessionStatus.IDLE.value
+        mock_service = AsyncMock()
+        mock_service.get_or_create_session.return_value = (mock_agent_session, False)
+        mock_service.session = MagicMock()
+        mock_service.session.commit = AsyncMock()
+
+        mock_ctx = AsyncMock()
+        mock_ctx.__aenter__.return_value = mock_service
+        mock_with_session.return_value = mock_ctx
+
+        result = await create_session_activity(input)
+
+        assert result.success is True
+        assert mock_agent_session.curr_run_id == curr_run_id
+        assert mock_agent_session.status == AgentSessionStatus.RUNNING.value
+        mock_service.session.add.assert_called_once_with(mock_agent_session)
+        mock_service.session.commit.assert_awaited_once()
 
     @pytest.mark.anyio
     @patch("tracecat.agent.session.activities.AgentSessionService.with_session")
@@ -1091,6 +1131,95 @@ class TestSandboxedAgentExecutorHelpers:
         assert result.success is False
         assert result.error == "runtime failed"
         assert result.terminal_stream_error_emitted is True
+
+    @pytest.mark.anyio
+    async def test_run_with_broker_heartbeats_while_gracefully_cancelling(
+        self,
+        executor_input: AgentExecutorInput,
+        tmp_path: Path,
+    ) -> None:
+        class SlowInterruptBroker:
+            def __init__(self) -> None:
+                self.turn_started = asyncio.Event()
+                self.interrupt_finished = asyncio.Event()
+                self.interrupted_session_ids: list[str] = []
+                self.cancelled_session_ids: list[str] = []
+
+            async def run_turn(self, request: Any, handler: LoopbackHandler) -> None:
+                del request, handler
+                self.turn_started.set()
+                await self.interrupt_finished.wait()
+
+            async def interrupt_turn(self, session_id: str, reason: str) -> None:
+                del reason
+                self.interrupted_session_ids.append(session_id)
+                await asyncio.sleep(0.03)
+                self.interrupt_finished.set()
+
+            async def cancel_turn(self, session_id: str) -> None:
+                self.cancelled_session_ids.append(session_id)
+
+        class StartedProxy:
+            async def start(self) -> None:
+                pass
+
+        broker = SlowInterruptBroker()
+        executor = SandboxedAgentExecutor(input=executor_input)
+        executor._job_dir = tmp_path
+        executor._llm_proxy = cast(Any, StartedProxy())
+        socket_dir = tmp_path / "sockets"
+        socket_dir.mkdir()
+        result = AgentExecutorResult(
+            success=False,
+            terminal_stream_error_emitted=False,
+        )
+        handler = LoopbackHandler(
+            input=LoopbackInput(
+                session_id=executor_input.session_id,
+                workspace_id=executor_input.workspace_id,
+            )
+        )
+
+        with (
+            patch(
+                "tracecat.agent.executor.activity.get_claude_runtime_broker",
+                return_value=broker,
+            ),
+            patch("tracecat.agent.executor.activity.activity") as mock_activity,
+            patch(
+                "tracecat.agent.executor.activity."
+                "AGENT_ACTIVITY_HEARTBEAT_INTERVAL_SECONDS",
+                0.01,
+            ),
+        ):
+            mock_activity.heartbeat = MagicMock()
+            mock_activity.cancellation_details.return_value = None
+            run_task = asyncio.create_task(
+                executor._run_with_broker(
+                    result=result,
+                    handler=handler,
+                    init_payload=executor._build_runtime_init_payload(),
+                    socket_dir=socket_dir,
+                    llm_socket_path=socket_dir / "llm.sock",
+                )
+            )
+            await asyncio.wait_for(broker.turn_started.wait(), timeout=1)
+
+            run_task.cancel()
+            await asyncio.wait_for(run_task, timeout=1)
+
+        heartbeat_messages = [
+            call.args[0] for call in mock_activity.heartbeat.call_args_list
+        ]
+        assert result.success is True
+        assert result.cancelled is True
+        assert result.cancelled_reason == "user_cancel"
+        assert broker.interrupted_session_ids == [str(executor_input.session_id)]
+        assert broker.cancelled_session_ids == []
+        assert any(
+            "Agent cancellation interrupting runtime" in message
+            for message in heartbeat_messages
+        )
 
     @pytest.mark.anyio
     @patch("tracecat.agent.executor.activity.AgentSessionService.with_session")
