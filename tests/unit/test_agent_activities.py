@@ -402,10 +402,10 @@ class TestCreateSessionActivity:
 
     @pytest.mark.anyio
     @patch("tracecat.agent.session.activities.AgentSessionService.with_session")
-    async def test_curr_run_id_does_not_mark_session_running(
+    async def test_curr_run_id_marks_session_running(
         self, mock_with_session, mock_role: Role, mock_session_id: uuid.UUID
     ):
-        """Create setup records the run token without taking the running lock."""
+        """Create setup records the run token and takes the running lock."""
         curr_run_id = uuid.uuid4()
         input = CreateSessionInput(
             role=mock_role,
@@ -431,7 +431,7 @@ class TestCreateSessionActivity:
 
         assert result.success is True
         assert mock_agent_session.curr_run_id == curr_run_id
-        assert mock_agent_session.status == AgentSessionStatus.IDLE.value
+        assert mock_agent_session.status == AgentSessionStatus.RUNNING.value
         mock_service.session.add.assert_called_once_with(mock_agent_session)
         mock_service.session.commit.assert_awaited_once()
 

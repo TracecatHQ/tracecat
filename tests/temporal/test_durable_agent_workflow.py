@@ -767,6 +767,206 @@ async def test_request_cancel_gracefully_stops_running_agent_turn(
 
 @pytest.mark.anyio
 @pytest.mark.integration
+async def test_request_cancel_stops_agent_turn_waiting_for_approval(
+    temporal_client: Client,
+    agent_worker_factory,
+    agent_workflow_args: AgentWorkflowArgs,
+    mock_session_id: uuid.UUID,
+) -> None:
+    """Workflow cancel update stops a turn parked on manual approval."""
+    queue = f"test-agent-queue-{mock_session_id}"
+    approval_request_recorded = asyncio.Event()
+    status_update_inputs: list[UpdateSessionStatusInput] = []
+    approval_decision_inputs: list[ApplyApprovalResultsActivityInputs] = []
+
+    def mock_executor(
+        call_count: int,
+        _input: AgentExecutorInput,
+    ) -> AgentExecutorResult:
+        assert call_count == 0
+        return AgentExecutorResult(
+            success=True,
+            approval_requested=True,
+            approval_items=[
+                ToolCallContent(
+                    id="call_123",
+                    name="core__http_request",
+                    input={"url": "https://example.com", "method": "GET"},
+                )
+            ],
+        )
+
+    @activity.defn(name="record_approval_requests")
+    async def mock_record_approval_requests(
+        input: PersistApprovalsActivityInputs,
+    ) -> None:
+        del input
+        approval_request_recorded.set()
+
+    @activity.defn(name="apply_approval_decisions")
+    async def mock_apply_approval_decisions(
+        input: ApplyApprovalResultsActivityInputs,
+    ) -> None:
+        approval_decision_inputs.append(input)
+
+    activities: list[Callable[..., Any]] = [
+        create_mock_create_session_activity(),
+        create_mock_load_session_activity(),
+        create_mock_update_session_status_activity(status_update_inputs),
+        create_mock_load_session_messages_activity(),
+        create_mock_build_tool_definitions_activity(),
+        create_mock_run_agent_activity(mock_executor),
+        create_mock_execute_action_activity(),
+        create_mock_reconcile_tool_results_activity(),
+        mock_record_approval_requests,
+        mock_apply_approval_decisions,
+    ]
+
+    async with agent_worker_factory(
+        temporal_client, task_queue=queue, custom_activities=activities
+    ):
+        handle = await temporal_client.start_workflow(
+            DurableAgentWorkflow.run,
+            agent_workflow_args,
+            id=AgentWorkflowID(mock_session_id),
+            task_queue=queue,
+            retry_policy=RETRY_POLICIES["workflow:fail_fast"],
+            execution_timeout=timedelta(seconds=60),
+        )
+        await asyncio.wait_for(approval_request_recorded.wait(), timeout=10)
+
+        await handle.execute_update(
+            DurableAgentWorkflow.request_cancel,
+            WorkflowCancelRequest(reason="user_cancel"),
+        )
+        result = await handle.result()
+
+    assert result.session_id == mock_session_id
+    assert result.output is None
+    assert [input.status for input in status_update_inputs] == [
+        AgentSessionStatus.RUNNING,
+        AgentSessionStatus.WAITING_FOR_APPROVAL,
+        AgentSessionStatus.STOPPED,
+    ]
+    assert status_update_inputs[-1].clear_curr_run_id is True
+    assert len(approval_decision_inputs) == 1
+    assert len(approval_decision_inputs[0].decisions) == 1
+    decision = approval_decision_inputs[0].decisions[0]
+    assert decision.tool_call_id == "call_123"
+    assert decision.approved is False
+    assert decision.reason == "Cancelled while waiting for approval"
+
+
+@pytest.mark.anyio
+@pytest.mark.integration
+async def test_request_cancel_after_approval_decisions_skips_tool_execution(
+    temporal_client: Client,
+    agent_worker_factory,
+    agent_workflow_args: AgentWorkflowArgs,
+    mock_session_id: uuid.UUID,
+) -> None:
+    """Cancel received while approval decisions persist stops before tools run."""
+    queue = f"test-agent-queue-{mock_session_id}"
+    approval_request_recorded = asyncio.Event()
+    decision_apply_started = asyncio.Event()
+    release_decision_apply = asyncio.Event()
+    execute_action_called = asyncio.Event()
+    status_update_inputs: list[UpdateSessionStatusInput] = []
+
+    def mock_executor(
+        call_count: int,
+        _input: AgentExecutorInput,
+    ) -> AgentExecutorResult:
+        assert call_count == 0
+        return AgentExecutorResult(
+            success=True,
+            approval_requested=True,
+            approval_items=[
+                ToolCallContent(
+                    id="call_123",
+                    name="core__http_request",
+                    input={"url": "https://example.com", "method": "GET"},
+                )
+            ],
+        )
+
+    @activity.defn(name="record_approval_requests")
+    async def mock_record_approval_requests(
+        input: PersistApprovalsActivityInputs,
+    ) -> None:
+        del input
+        approval_request_recorded.set()
+
+    @activity.defn(name="apply_approval_decisions")
+    async def mock_apply_approval_decisions(
+        input: ApplyApprovalResultsActivityInputs,
+    ) -> None:
+        del input
+        decision_apply_started.set()
+        await release_decision_apply.wait()
+
+    @activity.defn(name="execute_action_activity")
+    async def mock_execute_action_activity(
+        input: RunActionInput,
+        role: Role,
+    ) -> InlineObject[dict[str, str]]:
+        del input, role
+        execute_action_called.set()
+        raise AssertionError("approved tool should not execute after cancellation")
+
+    activities: list[Callable[..., Any]] = [
+        create_mock_create_session_activity(),
+        create_mock_load_session_activity(),
+        create_mock_update_session_status_activity(status_update_inputs),
+        create_mock_load_session_messages_activity(),
+        create_mock_build_tool_definitions_activity(),
+        create_mock_run_agent_activity(mock_executor),
+        mock_execute_action_activity,
+        create_mock_reconcile_tool_results_activity(),
+        mock_record_approval_requests,
+        mock_apply_approval_decisions,
+    ]
+
+    async with agent_worker_factory(
+        temporal_client, task_queue=queue, custom_activities=activities
+    ):
+        handle = await temporal_client.start_workflow(
+            DurableAgentWorkflow.run,
+            agent_workflow_args,
+            id=AgentWorkflowID(mock_session_id),
+            task_queue=queue,
+            retry_policy=RETRY_POLICIES["workflow:fail_fast"],
+            execution_timeout=timedelta(seconds=60),
+        )
+        await asyncio.wait_for(approval_request_recorded.wait(), timeout=10)
+        await handle.execute_update(
+            DurableAgentWorkflow.set_approvals,
+            WorkflowApprovalSubmission(
+                approvals={"call_123": True},
+                approved_by=agent_workflow_args.role.user_id,
+            ),
+        )
+        await asyncio.wait_for(decision_apply_started.wait(), timeout=10)
+
+        cancel_task = asyncio.create_task(
+            handle.execute_update(
+                DurableAgentWorkflow.request_cancel,
+                WorkflowCancelRequest(reason="user_cancel"),
+            )
+        )
+        await asyncio.wait_for(cancel_task, timeout=10)
+        release_decision_apply.set()
+        result = await handle.result()
+
+    assert result.session_id == mock_session_id
+    assert result.output is None
+    assert not execute_action_called.is_set()
+    assert status_update_inputs[-1].status is AgentSessionStatus.STOPPED
+    assert status_update_inputs[-1].clear_curr_run_id is True
+
+
+@pytest.mark.anyio
+@pytest.mark.integration
 async def test_agent_workflow_marks_failed_when_executor_activity_errors(
     temporal_client: Client,
     agent_worker_factory,
