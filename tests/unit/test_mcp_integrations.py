@@ -512,7 +512,7 @@ class TestMCPIntegrationCRUD:
         self,
         integration_service: IntegrationService,
     ) -> None:
-        """Test disconnecting MCP-provider OAuth removes its derived MCP row."""
+        """Test disconnecting MCP-provider OAuth only removes its derived MCP row."""
         provider_key = ProviderKey(
             id="github_mcp",
             grant_type=OAuthGrantType.AUTHORIZATION_CODE,
@@ -534,13 +534,23 @@ class TestMCPIntegrationCRUD:
         assert mcp_integration is not None
         mcp_integration_id = mcp_integration.id
 
+        workspace_created = await integration_service.create_mcp_integration(
+            params=MCPHttpIntegrationCreate(
+                name="Workspace-authored MCP",
+                server_uri="https://api.example.com/workspace-mcp",
+                auth_type=MCPAuthType.OAUTH2,
+                oauth_integration_id=oauth_integration.id,
+            )
+        )
+        workspace_created_id = workspace_created.id
+
         preset = AgentPreset(
             workspace_id=integration_service.workspace_id,
             name="MCP provider preset",
             slug="mcp-provider-preset",
             model_name="gpt-4o-mini",
             model_provider="openai",
-            mcp_integrations=[str(mcp_integration_id)],
+            mcp_integrations=[str(mcp_integration_id), str(workspace_created_id)],
         )
         integration_service.session.add(preset)
         await integration_service.session.commit()
@@ -560,6 +570,11 @@ class TestMCPIntegrationCRUD:
         )
         assert deleted_mcp is None
 
+        surviving_mcp = await integration_service.get_mcp_integration(
+            mcp_integration_id=workspace_created_id
+        )
+        assert surviving_mcp is not None
+
         refreshed_preset_result = await integration_service.session.execute(
             select(AgentPreset).where(AgentPreset.id == preset_id)
         )
@@ -567,6 +582,7 @@ class TestMCPIntegrationCRUD:
         assert refreshed_preset is not None
         assert refreshed_preset.mcp_integrations is not None
         assert str(mcp_integration_id) not in refreshed_preset.mcp_integrations
+        assert str(workspace_created_id) in refreshed_preset.mcp_integrations
 
     async def test_delete_mcp_integration_rolls_back_on_disconnect_failure(
         self,

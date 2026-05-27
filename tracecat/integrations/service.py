@@ -1133,32 +1133,56 @@ class IntegrationService(BaseWorkspaceService):
         self, *, integration: OAuthIntegration
     ) -> int:
         """Delete MCP rows backed by a lifecycle-owned OAuth integration."""
+        provider_impl = await self.resolve_provider_impl(
+            provider_key=ProviderKey(
+                id=integration.provider_id,
+                grant_type=integration.grant_type,
+            )
+        )
+        if provider_impl is None or not issubclass(provider_impl, MCPAuthProvider):
+            return 0
+        provider_impl = cast(type[MCPAuthProvider], provider_impl)
+
         result = await self.session.execute(
             select(MCPIntegration).where(
                 MCPIntegration.workspace_id == self.workspace_id,
                 MCPIntegration.oauth_integration_id == integration.id,
             )
         )
-        mcp_integrations = result.scalars().all()
-        for mcp_integration in mcp_integrations:
-            id_str = str(mcp_integration.id)
-            await self.session.execute(
-                update(AgentPreset)
-                .where(
-                    and_(
-                        AgentPreset.workspace_id == self.workspace_id,
-                        AgentPreset.mcp_integrations.isnot(None),
-                        AgentPreset.mcp_integrations.contains([id_str]),
-                    )
-                )
-                .values(mcp_integrations=AgentPreset.mcp_integrations.op("-")(id_str))
+        candidates = [
+            mcp_integration
+            for mcp_integration in result.scalars().all()
+            if self._mcp_integration_uses_provider_server(
+                mcp_integration, provider_impl
             )
-            await self.session.delete(mcp_integration)
+        ]
+        if not candidates:
+            return 0
 
-        if mcp_integrations:
-            await self.session.flush()
+        mcp_integration = next(
+            (
+                candidate
+                for candidate in candidates
+                if candidate.slug == provider_impl.id
+            ),
+            min(candidates, key=lambda candidate: candidate.created_at),
+        )
+        id_str = str(mcp_integration.id)
+        await self.session.execute(
+            update(AgentPreset)
+            .where(
+                and_(
+                    AgentPreset.workspace_id == self.workspace_id,
+                    AgentPreset.mcp_integrations.isnot(None),
+                    AgentPreset.mcp_integrations.contains([id_str]),
+                )
+            )
+            .values(mcp_integrations=AgentPreset.mcp_integrations.op("-")(id_str))
+        )
+        await self.session.delete(mcp_integration)
+        await self.session.flush()
 
-        return len(mcp_integrations)
+        return 1
 
     async def _mcp_integration_slug_taken(self, slug: str) -> bool:
         """Check if an MCP integration slug is already taken."""
@@ -1258,6 +1282,16 @@ class IntegrationService(BaseWorkspaceService):
 
         return mcp_integration
 
+    @staticmethod
+    def _mcp_integration_uses_provider_server(
+        mcp_integration: MCPIntegration, provider_impl: type[MCPAuthProvider]
+    ) -> bool:
+        return (
+            mcp_integration.server_type == "http"
+            and mcp_integration.auth_type == MCPAuthType.OAUTH2
+            and mcp_integration.server_uri == provider_impl.mcp_server_uri
+        )
+
     def _is_platform_managed_mcp_integration(
         self, mcp_integration: MCPIntegration
     ) -> bool:
@@ -1278,7 +1312,14 @@ class IntegrationService(BaseWorkspaceService):
                 grant_type=oauth_integration.grant_type,
             )
         )
-        return bool(provider_impl and issubclass(provider_impl, MCPAuthProvider))
+        return bool(
+            provider_impl
+            and issubclass(provider_impl, MCPAuthProvider)
+            and self._mcp_integration_uses_provider_server(
+                mcp_integration,
+                cast(type[MCPAuthProvider], provider_impl),
+            )
+        )
 
     async def list_mcp_integrations(
         self, *, source: MCPIntegrationSource | None = None
