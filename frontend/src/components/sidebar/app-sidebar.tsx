@@ -142,6 +142,17 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const navWorkspace: NavItem[] = useMemo(
     () => [
       {
+        title: "Mission Control",
+        url: `${basePath}/mission-control`,
+        icon: BotIcon,
+        isActive: pathname?.startsWith(`${basePath}/mission-control`),
+        visible: canExecuteAgents === true,
+        isLocked: entitlementsIsLoading || !agentAddonsEnabled,
+        onSelect: entitlementsIsLoading
+          ? undefined
+          : () => setLockedFeatureDialogOpen(true),
+      },
+      {
         title: "Workflows",
         url: `${basePath}/workflows`,
         icon: WorkflowIcon,
@@ -154,17 +165,6 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
         icon: LayersIcon,
         isActive: pathname?.startsWith(`${basePath}/cases`),
         visible: canViewCases === true,
-      },
-      {
-        title: "Mission Control",
-        url: `${basePath}/mission-control`,
-        icon: BotIcon,
-        isActive: pathname?.startsWith(`${basePath}/mission-control`),
-        visible: canExecuteAgents === true,
-        isLocked: entitlementsIsLoading || !agentAddonsEnabled,
-        onSelect: entitlementsIsLoading
-          ? undefined
-          : () => setLockedFeatureDialogOpen(true),
       },
       {
         title: "Agents",

@@ -35,14 +35,15 @@ export function MissionControlView() {
   }
 
   return (
-    <div className="flex size-full min-h-0 flex-col overflow-hidden">
-      <ChatInterface
-        entityType="copilot"
-        entityId={workspaceId}
-        title="Mission Control"
-        bodyClassName="min-h-0"
-        placeholder="Ask Mission Control..."
-      />
+    <div className="flex size-full min-h-0 justify-center overflow-hidden">
+      <div className="flex h-full min-h-0 w-full max-w-4xl flex-col">
+        <ChatInterface
+          entityType="copilot"
+          entityId={workspaceId}
+          bodyClassName="min-h-0"
+          placeholder="Ask Mission Control..."
+        />
+      </div>
     </div>
   )
 }
