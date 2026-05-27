@@ -99,10 +99,15 @@ with workflow.unsafe.imports_passed_through():
     from tracecat_ee.agent.types import AgentWorkflowID
 
 
-AGENT_TOOL_DEFINITION_ERROR = "AgentToolDefinitionError"
 ROOT_AGENT_SCOPE = "root"
+AGENT_TOOL_DEFINITION_ERROR = "AgentToolDefinitionError"
+AGENT_EXECUTOR_PRE_STREAM_ERROR = "AgentExecutorPreStreamError"
+AGENT_RUNTIME_EXECUTION_ERROR = "AgentRuntimeExecutionError"
 BUILD_AGENT_TOOL_DEFINITIONS_PATCH = (
     "tracecat_ee.agent.workflows.durable.build_agent_tool_definitions"
+)
+EMIT_PRE_STREAM_SESSION_ERRORS_PATCH = (
+    "tracecat_ee.agent.workflows.durable.emit_pre_stream_session_errors"
 )
 
 
@@ -668,26 +673,36 @@ class DurableAgentWorkflow:
         try:
             cfg = await self._build_config(args)
             return await self._run_with_agent_executor(args, cfg)
-        except ApplicationError as e:
-            if e.type == AGENT_TOOL_DEFINITION_ERROR:
-                try:
-                    await workflow.execute_activity_method(
-                        AgentActivities.emit_session_error,
-                        EmitSessionErrorInputs(
-                            session_id=self.session_id,
-                            workspace_id=self.workspace_id,
-                            message=e.message,
-                        ),
-                        start_to_close_timeout=timedelta(seconds=10),
-                        retry_policy=RETRY_POLICIES["activity:fail_fast"],
-                    )
-                except ActivityError as emit_error:
-                    logger.warning(
-                        "Failed to emit terminal agent session error",
-                        session_id=self.session_id,
-                        error=str(emit_error),
-                    )
+        except ActivityError as e:
+            if workflow.patched(EMIT_PRE_STREAM_SESSION_ERRORS_PATCH):
+                await self._emit_session_error(_activity_error_message(e))
             raise
+        except ApplicationError as e:
+            if e.type == AGENT_TOOL_DEFINITION_ERROR or (
+                e.type != AGENT_RUNTIME_EXECUTION_ERROR
+                and workflow.patched(EMIT_PRE_STREAM_SESSION_ERRORS_PATCH)
+            ):
+                await self._emit_session_error(e.message)
+            raise
+
+    async def _emit_session_error(self, message: str) -> None:
+        try:
+            await workflow.execute_activity_method(
+                AgentActivities.emit_session_error,
+                EmitSessionErrorInputs(
+                    session_id=self.session_id,
+                    workspace_id=self.workspace_id,
+                    message=message,
+                ),
+                start_to_close_timeout=timedelta(seconds=10),
+                retry_policy=RETRY_POLICIES["activity:fail_fast"],
+            )
+        except ActivityError as emit_error:
+            logger.warning(
+                "Failed to emit terminal agent session error",
+                session_id=self.session_id,
+                error=str(emit_error),
+            )
 
     @workflow.update
     def set_approvals(self, submission: WorkflowApprovalSubmission) -> None:
@@ -862,8 +877,16 @@ class DurableAgentWorkflow:
             )
 
             if not result.success:
+                # Missing means a legacy activity result from before the flag
+                # existed; preserve the old no-fallback behavior on replay.
+                terminal_stream_error_emitted = (
+                    result.terminal_stream_error_emitted is not False
+                )
                 raise ApplicationError(
                     f"Agent execution failed: {result.error}",
+                    type=AGENT_RUNTIME_EXECUTION_ERROR
+                    if terminal_stream_error_emitted
+                    else AGENT_EXECUTOR_PRE_STREAM_ERROR,
                     non_retryable=True,
                 )
 

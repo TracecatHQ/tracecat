@@ -119,8 +119,10 @@ async def test_emit_terminal_error_uses_redis_when_external_lookup_errors(
     stream_new = AsyncMock(return_value=fake_stream)
     monkeypatch.setattr("tracecat.agent.executor.loopback.AgentStream.new", stream_new)
 
-    await handler.emit_terminal_error("runtime exited before connect")
+    emitted = await handler.emit_terminal_error("runtime exited before connect")
 
+    assert emitted is True
+    assert handler.build_result().terminal_stream_error_emitted is True
     assert isinstance(handler._stream_sink, AgentStreamSink)
     stream_new.assert_awaited_once_with(
         session_id=loopback_input.session_id,
@@ -147,8 +149,10 @@ async def test_emit_terminal_error_emits_failed_compaction_when_pending(
 
     handler._started_compaction_event = True
 
-    await handler.emit_terminal_error("runtime exited before connect")
+    emitted = await handler.emit_terminal_error("runtime exited before connect")
 
+    assert emitted is True
+    assert handler.build_result().terminal_stream_error_emitted is True
     fake_stream.append.assert_awaited_once()
     await_args = fake_stream.append.await_args
     assert await_args is not None

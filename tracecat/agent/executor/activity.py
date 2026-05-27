@@ -110,6 +110,10 @@ class AgentExecutorResult(BaseModel):
 
     success: bool
     error: str | None = None
+    # None means a legacy activity result did not carry this field. The
+    # workflow treats unknown failed results as already terminal-emitted so old
+    # histories keep their original command shape.
+    terminal_stream_error_emitted: bool | None = None
     approval_requested: bool = False
     approval_items: list[ToolCallContent] | None = None
     # Legacy replay compatibility only. New executions load terminal message
@@ -332,7 +336,10 @@ class SandboxedAgentExecutor:
         Returns:
             AgentExecutorResult with success status and any session updates.
         """
-        result = AgentExecutorResult(success=False)
+        result = AgentExecutorResult(
+            success=False,
+            terminal_stream_error_emitted=False,
+        )
         self._log_benchmark_phase("activity_start")
 
         try:
@@ -384,6 +391,9 @@ class SandboxedAgentExecutor:
         result.error = loopback_result.error
         result.approval_requested = loopback_result.approval_requested
         result.approval_items = loopback_result.approval_items or None
+        result.terminal_stream_error_emitted = (
+            loopback_result.terminal_stream_error_emitted
+        )
         # Approval turns pause before a final answer exists. Preserve the
         # existing output until the continuation completes and returns one.
         if not loopback_result.approval_requested:
@@ -453,7 +463,9 @@ class SandboxedAgentExecutor:
                     error_msg = fatal_error_task.result()
                     result.error = error_msg
                     await broker.cancel_turn(str(self.input.session_id))
-                    await handler.emit_terminal_error(error_msg)
+                    result.terminal_stream_error_emitted = (
+                        await handler.emit_terminal_error(error_msg)
+                    )
                     break
 
                 await broker_task
@@ -469,10 +481,14 @@ class SandboxedAgentExecutor:
                     f"Agent execution timed out after {self.timeout_seconds}s"
                 )
                 await broker.cancel_turn(str(self.input.session_id))
-                await handler.emit_terminal_error(result.error)
+                result.terminal_stream_error_emitted = (
+                    await handler.emit_terminal_error(result.error)
+                )
         except Exception as e:
             result.error = str(e)
-            await handler.emit_terminal_error(result.error)
+            result.terminal_stream_error_emitted = await handler.emit_terminal_error(
+                result.error
+            )
             if not isinstance(e, ConcurrentSessionTurnError):
                 raise
         except asyncio.CancelledError:

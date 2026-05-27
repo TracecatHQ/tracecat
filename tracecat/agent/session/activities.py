@@ -156,17 +156,30 @@ async def create_session_activity(input: CreateSessionInput) -> CreateSessionRes
                     agents_binding=input.agents_binding,
                 )
 
-            # Reconcile agents_binding for pre-existing sessions: legacy NULL
-            # bindings represent the historical no-subagent runtime shape, and
-            # explicit mismatches would invalidate the SDK history we resume from.
+            # Reconcile agents_binding for pre-existing sessions. Chat-created
+            # sessions may be inserted before the durable workflow resolves the
+            # current preset's subagent bindings, so a fresh session can have a
+            # NULL binding even though this run already has a concrete binding.
+            # Backfill that first-run case. Once an SDK session exists, or the
+            # row forks from a parent SDK history, the binding is part of the
+            # resumable runtime topology and explicit mismatches must continue
+            # to fail.
             if not created:
                 disabled_agents_binding = ResolvedAgentsConfig()
                 requested_agents_binding = (
                     input.agents_binding or disabled_agents_binding
                 )
                 if agent_session.agents_binding is None:
-                    stored_agents_binding = disabled_agents_binding
+                    has_resume_state = (
+                        agent_session.sdk_session_id is not None
+                        or agent_session.parent_session_id is not None
+                    )
                     should_backfill_agents_binding = input.agents_binding is not None
+                    stored_agents_binding = (
+                        requested_agents_binding
+                        if should_backfill_agents_binding and not has_resume_state
+                        else disabled_agents_binding
+                    )
                 else:
                     stored_agents_binding = ResolvedAgentsConfig.model_validate(
                         agent_session.agents_binding

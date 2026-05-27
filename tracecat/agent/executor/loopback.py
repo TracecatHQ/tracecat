@@ -90,6 +90,7 @@ class LoopbackResult:
 
     success: bool
     error: str | None = None
+    terminal_stream_error_emitted: bool = False
     approval_requested: bool = False
     approval_items: list[ToolCallContent] = field(default_factory=list)
     output: RuntimeOutput | None = None
@@ -335,7 +336,17 @@ class LoopbackHandler:
             except Exception as e:
                 logger.warning("Failed to emit stream done", error=str(e))
 
-    async def emit_terminal_error(self, error: str) -> None:
+    async def _emit_terminal_stream_error(
+        self,
+        stream_sink: LoopbackEventSink,
+        error: str,
+    ) -> None:
+        await self._emit_failed_compaction_if_pending()
+        await stream_sink.error(error)
+        await self._emit_stream_done()
+        self._result.terminal_stream_error_emitted = True
+
+    async def emit_terminal_error(self, error: str) -> bool:
         """Emit a terminal error through the resolved stream sink.
 
         This is used by executor-level crash/timeout paths that happen outside
@@ -344,14 +355,14 @@ class LoopbackHandler:
         try:
             if self._stream_sink is None:
                 self._stream_sink = await self._initialize_stream_sink()
-            await self._emit_failed_compaction_if_pending()
-            await self._stream_sink.error(error)
-            await self._emit_stream_done()
+            await self._emit_terminal_stream_error(self._stream_sink, error)
+            return self._result.terminal_stream_error_emitted
         except Exception:
             logger.warning(
                 "Failed to emit terminal stream error",
                 session_id=self.input.session_id,
             )
+            return False
 
     async def _emit_failed_compaction_if_pending(self) -> None:
         """Emit a transient failed compaction event when started never completed.
@@ -569,9 +580,7 @@ class LoopbackHandler:
             session_id=self.input.session_id,
             error=error_msg,
         )
-        await self._emit_failed_compaction_if_pending()
-        await stream_sink.error(error_msg)
-        await self._emit_stream_done()
+        await self._emit_terminal_stream_error(stream_sink, error_msg)
         self._result.error = error_msg
         return True
 
@@ -607,9 +616,7 @@ class LoopbackHandler:
         """Handle a terminal runtime error."""
         stream_sink = await self.prepare()
         logger.error("Runtime error", error=error)
-        await self._emit_failed_compaction_if_pending()
-        await stream_sink.error(error)
-        await self._emit_stream_done()
+        await self._emit_terminal_stream_error(stream_sink, error)
         self._result.error = error
         return True
 
@@ -630,8 +637,7 @@ class LoopbackHandler:
             await self._emit_stream_done()
             return True
         if validation_error := self._validate_runtime_completion():
-            await stream_sink.error(validation_error)
-            await self._emit_stream_done()
+            await self._emit_terminal_stream_error(stream_sink, validation_error)
             self._result.error = validation_error
             return True
         self._result.success = True
