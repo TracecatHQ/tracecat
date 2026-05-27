@@ -11,6 +11,16 @@ import pytest
 
 from tracecat.registry.repository import Repository
 
+_TRANSIENT_HTTP_ERRORS = (
+    httpx.ConnectError,
+    httpx.ConnectTimeout,
+    httpx.PoolTimeout,
+    httpx.ReadError,
+    httpx.ReadTimeout,
+    httpx.RemoteProtocolError,
+)
+_RETRYABLE_STATUS_CODES = {408, 425, 500, 502, 503, 504}
+
 
 def _action_doc_urls() -> dict[str, tuple[str, ...]]:
     repo = Repository()
@@ -61,15 +71,29 @@ async def _check_url(
     client: httpx.AsyncClient,
     semaphore: asyncio.Semaphore,
     url: str,
+    attempts: int = 3,
 ) -> tuple[int | None, str | None]:
     async with semaphore:
-        try:
-            response = await client.head(url, follow_redirects=True)
-            if response.status_code in {405, 501}:
-                response = await client.get(url, follow_redirects=True)
-        except httpx.HTTPError as exc:
-            return None, f"{type(exc).__name__}: {exc}"
-        return response.status_code, None
+        for attempt in range(1, attempts + 1):
+            try:
+                response = await client.head(url, follow_redirects=True)
+                if response.status_code in {405, 501}:
+                    response = await client.get(url, follow_redirects=True)
+            except _TRANSIENT_HTTP_ERRORS as exc:
+                if attempt == attempts:
+                    return None, f"{type(exc).__name__}: {exc}"
+                await asyncio.sleep(0.5 * attempt)
+                continue
+            except httpx.HTTPError as exc:
+                return None, f"{type(exc).__name__}: {exc}"
+
+            if response.status_code in _RETRYABLE_STATUS_CODES and attempt < attempts:
+                await asyncio.sleep(0.5 * attempt)
+                continue
+            return response.status_code, None
+
+        msg = "exhausted retries"
+        return None, msg
 
 
 @pytest.mark.skipif(
