@@ -1543,20 +1543,26 @@ class IntegrationService(BaseWorkspaceService):
 
         id_str = str(mcp_integration_id)
 
-        # Remove stale ID references from agent presets in this workspace
-        await self.session.execute(
-            update(AgentPreset)
-            .where(
-                and_(
-                    AgentPreset.workspace_id == self.workspace_id,
-                    AgentPreset.mcp_integrations.isnot(None),
-                    AgentPreset.mcp_integrations.contains([id_str]),
-                )
-            )
-            .values(mcp_integrations=AgentPreset.mcp_integrations.op("-")(id_str))
-        )
-
         try:
+            pruned_preset_ids = (
+                await self.session.scalars(
+                    update(AgentPreset)
+                    .where(
+                        and_(
+                            AgentPreset.workspace_id == self.workspace_id,
+                            AgentPreset.mcp_integrations.isnot(None),
+                            AgentPreset.mcp_integrations.contains([id_str]),
+                        )
+                    )
+                    .values(
+                        mcp_integrations=AgentPreset.mcp_integrations.op("-")(id_str)
+                    )
+                    .returning(AgentPreset.id)
+                    .execution_options(synchronize_session="fetch")
+                )
+            ).all()
+            await self._version_pruned_agent_presets(preset_ids=pruned_preset_ids)
+
             # If backed by an OAuth integration, lock it to serialize deletes for shared refs.
             oauth_integration = None
             oauth_integration_id = mcp_integration.oauth_integration_id
