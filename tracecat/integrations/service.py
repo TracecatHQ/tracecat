@@ -60,6 +60,10 @@ class IntegrationService(BaseWorkspaceService):
     service_name = "integrations"
 
     @staticmethod
+    def _escape_like_pattern(value: str) -> str:
+        return value.replace("\\", "\\\\").replace("%", r"\%").replace("_", r"\_")
+
+    @staticmethod
     def _validate_https_endpoint(
         endpoint: str | None, *, field_name: str
     ) -> str | None:
@@ -1145,6 +1149,7 @@ class IntegrationService(BaseWorkspaceService):
         provider_impl = cast(type[MCPAuthProvider], provider_impl)
 
         provider_slug = provider_impl.id
+        escaped_provider_slug = self._escape_like_pattern(provider_slug)
         candidate_mcp_integrations = (
             select(
                 MCPIntegration.id.label("id"),
@@ -1159,7 +1164,9 @@ class IntegrationService(BaseWorkspaceService):
                 or_(
                     MCPIntegration.slug == provider_slug,
                     and_(
-                        MCPIntegration.slug.like(f"{provider_slug}-%"),
+                        MCPIntegration.slug.like(
+                            f"{escaped_provider_slug}-%", escape="\\"
+                        ),
                         sa.func.substring(
                             MCPIntegration.slug,
                             len(provider_slug) + 2,

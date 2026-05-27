@@ -602,6 +602,19 @@ class TestMCPIntegrationCRUD:
         await integration_service.session.flush()
         duplicate_managed_mcp_id = duplicate_managed_mcp.id
 
+        wildcard_collision_mcp = MCPIntegration(
+            workspace_id=integration_service.workspace_id,
+            name="Wildcard collision GitHub MCP",
+            slug="github-mcp-1",
+            server_type="http",
+            server_uri=server_uri,
+            auth_type=MCPAuthType.OAUTH2,
+            oauth_integration_id=oauth_integration.id,
+        )
+        integration_service.session.add(wildcard_collision_mcp)
+        await integration_service.session.flush()
+        wildcard_collision_mcp_id = wildcard_collision_mcp.id
+
         workspace_created = await integration_service.create_mcp_integration(
             params=MCPHttpIntegrationCreate(
                 name="Workspace-authored MCP",
@@ -621,6 +634,7 @@ class TestMCPIntegrationCRUD:
             mcp_integrations=[
                 str(mcp_integration_id),
                 str(duplicate_managed_mcp_id),
+                str(wildcard_collision_mcp_id),
                 str(workspace_created_id),
             ],
         )
@@ -646,6 +660,11 @@ class TestMCPIntegrationCRUD:
         )
         assert deleted_duplicate_mcp is None
 
+        wildcard_collision = await integration_service.get_mcp_integration(
+            mcp_integration_id=wildcard_collision_mcp_id
+        )
+        assert wildcard_collision is not None
+
         surviving_mcp = await integration_service.get_mcp_integration(
             mcp_integration_id=workspace_created_id
         )
@@ -659,6 +678,7 @@ class TestMCPIntegrationCRUD:
         assert refreshed_preset.mcp_integrations is not None
         assert str(mcp_integration_id) not in refreshed_preset.mcp_integrations
         assert str(duplicate_managed_mcp_id) not in refreshed_preset.mcp_integrations
+        assert str(wildcard_collision_mcp_id) in refreshed_preset.mcp_integrations
         assert str(workspace_created_id) in refreshed_preset.mcp_integrations
 
     async def test_delete_mcp_integration_rolls_back_on_disconnect_failure(
