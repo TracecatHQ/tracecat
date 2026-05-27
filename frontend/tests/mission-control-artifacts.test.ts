@@ -7,7 +7,7 @@ describe("mission control artifacts", () => {
       {
         type: "data-artifact",
         data: {
-          op: "add",
+          op: "upsert",
           artifact: {
             type: "case",
             id: "case-1",
@@ -20,7 +20,7 @@ describe("mission control artifacts", () => {
     ] as UIMessage["parts"]
 
     expect(getArtifactDataPayload(part)).toEqual({
-      op: "add",
+      op: "upsert",
       artifact: {
         type: "case",
         id: "case-1",
@@ -36,7 +36,7 @@ describe("mission control artifacts", () => {
       {
         type: "data-artifact",
         data: {
-          op: "add",
+          op: "upsert",
           artifact: {
             type: "case",
             id: "case-1",

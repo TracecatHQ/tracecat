@@ -7,8 +7,9 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from tracecat.agent.common.stream_types import StreamEventType, UnifiedStreamEvent
 from tracecat.agent.stream.connector import AgentStream
-from tracecat.agent.stream.events import StreamData, StreamDelta, StreamEnd
+from tracecat.agent.stream.events import StreamDelta, StreamEnd
 from tracecat.chat import tokens
 from tracecat.redis.client import RedisClient
 
@@ -33,29 +34,7 @@ async def test_abort_new_turn_clears_buffer_and_saved_cursor() -> None:
 
 
 @pytest.mark.anyio
-async def test_append_data_event_requires_data_event_type() -> None:
-    workspace_id = uuid.uuid4()
-    session_id = uuid.uuid4()
-    client = SimpleNamespace(xadd=AsyncMock(return_value="1-0"))
-    stream = AgentStream(
-        client=cast(RedisClient, client),
-        workspace_id=workspace_id,
-        session_id=session_id,
-    )
-
-    await stream.append_data_event(
-        "data-artifact",
-        {"op": "add", "artifact": {"type": "generic", "id": "g1"}},
-    )
-
-    client.xadd.assert_awaited_once()
-
-    with pytest.raises(ValueError, match="Data event types"):
-        await stream.append_data_event("artifact", {})
-
-
-@pytest.mark.anyio
-async def test_stream_events_yields_data_event() -> None:
+async def test_stream_events_yields_artifact_unified_event() -> None:
     workspace_id = uuid.uuid4()
     session_id = uuid.uuid4()
     raw_client = SimpleNamespace(expire=AsyncMock(return_value=None))
@@ -69,9 +48,9 @@ async def test_stream_events_yields_data_event() -> None:
                             "1717426372768-0",
                             {
                                 tokens.DATA_KEY: (
-                                    b'{"kind":"data","type":"data-artifact",'
-                                    b'"data":{"op":"add","artifact":{"type":"generic",'
-                                    b'"id":"g1","title":"Result"}}}'
+                                    b'{"type":"artifact","artifact_data":{"op":"upsert",'
+                                    b'"artifact":{"type":"generic","id":"g1",'
+                                    b'"title":"Result"}}}'
                                 ),
                             },
                         )
@@ -98,11 +77,16 @@ async def test_stream_events_yields_data_event() -> None:
     ]
 
     assert len(events) == 1
-    assert isinstance(events[0], StreamData)
-    assert events[0].type == "data-artifact"
-    assert events[0].data == {
-        "op": "add",
-        "artifact": {"type": "generic", "id": "g1", "title": "Result"},
+    assert isinstance(events[0], StreamDelta)
+    event = events[0].event
+    assert isinstance(event, UnifiedStreamEvent)
+    assert event.type is StreamEventType.ARTIFACT
+    assert event.artifact_data is not None
+    assert event.artifact_data.op == "upsert"
+    assert event.artifact_data.artifact == {
+        "type": "generic",
+        "id": "g1",
+        "title": "Result",
     }
 
 

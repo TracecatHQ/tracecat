@@ -10,6 +10,8 @@ from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Any, Literal
 
+type ArtifactEventOp = Literal["upsert", "remove"]
+
 
 class HarnessType(StrEnum):
     """Supported agent harnesses."""
@@ -44,6 +46,7 @@ class StreamEventType(StrEnum):
 
     # System/status events
     COMPACTION = "compaction"
+    ARTIFACT = "artifact"
 
     # Control events
     ERROR = "error"
@@ -94,6 +97,26 @@ class ToolCallContent:
 
 
 @dataclass(kw_only=True, slots=True)
+class ArtifactEventContent:
+    """Artifact operation surfaced by agent runtimes."""
+
+    op: ArtifactEventOp
+    artifact: dict[str, Any]
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> ArtifactEventContent:
+        """Construct from dict (orjson parsed)."""
+        return cls(op=data["op"], artifact=data["artifact"])
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to dict for orjson serialization."""
+        return {
+            "op": self.op,
+            "artifact": self.artifact,
+        }
+
+
+@dataclass(kw_only=True, slots=True)
 class UnifiedStreamEvent:
     """A normalized streaming event.
 
@@ -119,6 +142,9 @@ class UnifiedStreamEvent:
     # For APPROVAL_REQUEST events
     approval_items: list[ToolCallContent] | None = None
 
+    # For ARTIFACT events
+    artifact_data: ArtifactEventContent | None = None
+
     timestamp: datetime = field(default_factory=datetime.now)
 
     @classmethod
@@ -129,6 +155,9 @@ class UnifiedStreamEvent:
             approval_items = [
                 ToolCallContent.from_dict(item) for item in data["approval_items"]
             ]
+        artifact_data = None
+        if data.get("artifact_data"):
+            artifact_data = ArtifactEventContent.from_dict(data["artifact_data"])
 
         timestamp = data.get("timestamp")
         if isinstance(timestamp, str):
@@ -149,6 +178,7 @@ class UnifiedStreamEvent:
             error=data.get("error"),
             metadata=data.get("metadata"),
             approval_items=approval_items,
+            artifact_data=artifact_data,
             timestamp=timestamp,
         )
 
@@ -180,6 +210,8 @@ class UnifiedStreamEvent:
             result["metadata"] = self.metadata
         if self.approval_items is not None:
             result["approval_items"] = [item.to_dict() for item in self.approval_items]
+        if self.artifact_data is not None:
+            result["artifact_data"] = self.artifact_data.to_dict()
         return result
 
     @classmethod
@@ -223,4 +255,17 @@ class UnifiedStreamEvent:
             tool_name=tool_name,
             tool_output=output,
             is_error=is_error,
+        )
+
+    @classmethod
+    def artifact_event(
+        cls,
+        *,
+        op: ArtifactEventOp,
+        artifact: dict[str, Any],
+    ) -> UnifiedStreamEvent:
+        """Factory method for creating artifact stream events."""
+        return cls(
+            type=StreamEventType.ARTIFACT,
+            artifact_data=ArtifactEventContent(op=op, artifact=artifact),
         )

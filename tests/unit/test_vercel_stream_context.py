@@ -9,6 +9,7 @@ from typing import cast
 
 import pytest
 
+from tracecat.agent.adapter.artifact import ARTIFACT_DATA_PART_TYPE
 from tracecat.agent.adapter.vercel import (
     DataEventPayload,
     ReasoningDeltaEventPayload,
@@ -52,6 +53,40 @@ async def collect_frames(
 # ==============================================================================
 # Basic Text Streaming Tests
 # ==============================================================================
+
+
+@pytest.mark.anyio
+async def test_artifact_event_maps_to_data_part():
+    """Test semantic artifact events emit Vercel data-artifact payloads."""
+    ctx = VercelStreamContext(message_id="msg_test")
+
+    frames = await collect_frames(
+        ctx,
+        [
+            UnifiedStreamEvent.artifact_event(
+                op="upsert",
+                artifact={
+                    "type": "generic",
+                    "id": "g1",
+                    "title": "Result",
+                },
+            )
+        ],
+    )
+
+    assert frames == [
+        DataEventPayload(
+            type=ARTIFACT_DATA_PART_TYPE,
+            data={
+                "op": "upsert",
+                "artifact": {
+                    "type": "generic",
+                    "id": "g1",
+                    "title": "Result",
+                },
+            },
+        )
+    ]
 
 
 @pytest.mark.anyio

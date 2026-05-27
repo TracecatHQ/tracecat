@@ -80,7 +80,7 @@ export type MissionControlArtifact =
 
 export type ArtifactType = MissionControlArtifact["type"]
 
-export type ArtifactOp = "add" | "remove" | "update"
+export type ArtifactOp = "upsert" | "remove"
 
 export type ArtifactDataPayload = {
   op: ArtifactOp
@@ -130,7 +130,7 @@ export function getArtifactDataPayload(
   if (!isRecord(data)) {
     return undefined
   }
-  if (data.op !== "add" && data.op !== "remove" && data.op !== "update") {
+  if (data.op !== "upsert" && data.op !== "remove") {
     return undefined
   }
   if (!isArtifact(data.artifact)) {

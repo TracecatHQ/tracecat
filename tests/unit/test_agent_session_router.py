@@ -16,7 +16,11 @@ from tracecat.agent.adapter.artifact import (
     CaseArtifact,
 )
 from tracecat.agent.adapter.vercel import UIMessage
-from tracecat.agent.common.stream_types import HarnessType
+from tracecat.agent.common.stream_types import (
+    HarnessType,
+    StreamEventType,
+    UnifiedStreamEvent,
+)
 from tracecat.agent.session.router import (
     get_session,
     get_session_vercel,
@@ -250,7 +254,7 @@ async def test_get_session_vercel_includes_initial_artifact() -> None:
     payload = response.model_dump(mode="json")["messages"][0]["parts"][0]
     assert payload["type"] == ARTIFACT_DATA_PART_TYPE
     assert payload["data"] == {
-        "op": "add",
+        "op": "upsert",
         "artifact": {
             "type": "case",
             "id": str(session_stub.entity_id),
@@ -430,7 +434,7 @@ async def test_send_message_new_turn_appends_initial_artifact() -> None:
     )
     fake_stream = SimpleNamespace(
         reset_for_new_turn=AsyncMock(return_value=None),
-        append_data_event=AsyncMock(return_value=None),
+        append=AsyncMock(return_value=None),
         abort_new_turn=AsyncMock(return_value=None),
         sse=Mock(return_value=_empty_event_stream()),
     )
@@ -458,19 +462,19 @@ async def test_send_message_new_turn_appends_initial_artifact() -> None:
 
     assert isinstance(response, StreamingResponse)
     fake_stream.reset_for_new_turn.assert_awaited_once()
-    fake_stream.append_data_event.assert_awaited_once_with(
-        ARTIFACT_DATA_PART_TYPE,
-        {
-            "op": "add",
-            "artifact": {
-                "type": "case",
-                "id": str(agent_session.entity_id),
-                "title": "Investigate suspicious login",
-                "severity": "high",
-                "status": "new",
-            },
-        },
-    )
+    fake_stream.append.assert_awaited_once()
+    artifact_event = fake_stream.append.await_args.args[0]
+    assert isinstance(artifact_event, UnifiedStreamEvent)
+    assert artifact_event.type is StreamEventType.ARTIFACT
+    assert artifact_event.artifact_data is not None
+    assert artifact_event.artifact_data.op == "upsert"
+    assert artifact_event.artifact_data.artifact == {
+        "type": "case",
+        "id": str(agent_session.entity_id),
+        "title": "Investigate suspicious login",
+        "severity": "high",
+        "status": "new",
+    }
     fake_svc.run_turn.assert_awaited_once_with(
         session_id=session_id,
         request=request,

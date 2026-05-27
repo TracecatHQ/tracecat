@@ -3,13 +3,15 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any, Literal, cast
 
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 
+from tracecat.agent.common.stream_types import UnifiedStreamEvent
+
 ARTIFACT_DATA_PART_TYPE = "data-artifact"
 
-type ArtifactOp = Literal["add", "remove", "update"]
+type ArtifactOp = Literal["upsert", "remove"]
 
 
 class ArtifactSchema(BaseModel):
@@ -134,3 +136,12 @@ def artifact_data_payload(op: ArtifactOp, artifact: Artifact) -> dict[str, Any]:
     """Serialize an artifact operation for a `data-artifact` UI message part."""
     payload = ArtifactDataPayload(op=op, artifact=artifact)
     return payload.model_dump(mode="json", by_alias=True, exclude_none=True)
+
+
+def artifact_stream_event(op: ArtifactOp, artifact: Artifact) -> UnifiedStreamEvent:
+    """Serialize an artifact operation as a durable unified stream event."""
+    payload = artifact_data_payload(op, artifact)
+    return UnifiedStreamEvent.artifact_event(
+        op=op,
+        artifact=cast(dict[str, Any], payload["artifact"]),
+    )

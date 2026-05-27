@@ -13,6 +13,7 @@ from tracecat.agent.adapter import vercel
 from tracecat.agent.adapter.artifact import (
     ARTIFACT_DATA_PART_TYPE,
     artifact_data_payload,
+    artifact_stream_event,
 )
 from tracecat.agent.session.schemas import (
     AgentSessionCreate,
@@ -191,7 +192,7 @@ async def get_session_vercel(
                     parts=[
                         vercel.DataUIPart(
                             type=ARTIFACT_DATA_PART_TYPE,
-                            data=artifact_data_payload("add", artifact),
+                            data=artifact_data_payload("upsert", artifact),
                         )
                     ],
                 ),
@@ -352,10 +353,7 @@ async def send_message(
                 # pick up events emitted before the SSE response starts consuming.
                 start_id = "0-0"
                 if artifact := await svc.build_initial_artifact(agent_session):
-                    await stream.append_data_event(
-                        ARTIFACT_DATA_PART_TYPE,
-                        artifact_data_payload("add", artifact),
-                    )
+                    await stream.append(artifact_stream_event("upsert", artifact))
 
             # Run session turn (spawns DurableAgentWorkflow)
             try:
