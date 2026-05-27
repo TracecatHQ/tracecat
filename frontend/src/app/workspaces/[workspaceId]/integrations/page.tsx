@@ -76,6 +76,19 @@ const integrationSectionTitles: Record<IntegrationSectionType, string> = {
   custom_oauth: "Custom OAuth",
 }
 
+function getIntegrationStatus(item: IntegrationItem): IntegrationStatus {
+  return displayStatus(item.integration_status)
+}
+
+function getIntegrationDisplayType(
+  item: IntegrationItem
+): IntegrationSectionType {
+  if (item.id.startsWith("custom_")) {
+    return "custom_oauth"
+  }
+  return item.type
+}
+
 export default function IntegrationsPage() {
   const workspaceId = useWorkspaceId()
   const canReadIntegrations = useScopeCheck("integration:read")
@@ -111,36 +124,17 @@ export default function IntegrationsPage() {
   const { providers, providersIsLoading, providersError } =
     useIntegrations(workspaceId)
 
-  const handleTypeFilterToggle = useCallback(
-    (filter: IntegrationTypeFilter) => {
-      setTypeFilters((prev) =>
-        prev.includes(filter)
-          ? prev.filter((value) => value !== filter)
-          : [...prev, filter]
-      )
-    },
-    []
-  )
+  function handleTypeFilterToggle(filter: IntegrationTypeFilter) {
+    setTypeFilters((prev) =>
+      prev.includes(filter)
+        ? prev.filter((value) => value !== filter)
+        : [...prev, filter]
+    )
+  }
 
   const connectProviderMutation = useConnectProvider(workspaceId)
   const disconnectProviderMutation = useDisconnectProvider(workspaceId)
   const testConnectionMutation = useTestProvider(workspaceId)
-
-  const getIntegrationStatus = useCallback(
-    (item: IntegrationItem): IntegrationStatus =>
-      displayStatus(item.integration_status),
-    []
-  )
-
-  const getIntegrationDisplayType = useCallback(
-    (item: IntegrationItem): IntegrationSectionType => {
-      if (item.id.startsWith("custom_")) {
-        return "custom_oauth"
-      }
-      return item.type
-    },
-    []
-  )
 
   const allIntegrations = useMemo<IntegrationItem[]>(() => {
     return (
@@ -160,12 +154,11 @@ export default function IntegrationsPage() {
   }, [providers])
 
   const filteredIntegrations = useMemo(() => {
+    const q = searchQuery.toLowerCase()
     const filtered = allIntegrations.filter((item) => {
       const matchesSearch =
-        item.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        (item.description ?? "")
-          .toLowerCase()
-          .includes(searchQuery.toLowerCase())
+        item.name.toLowerCase().includes(q) ||
+        (item.description ?? "").toLowerCase().includes(q)
       const matchesType =
         typeFilters.length === 0 ||
         typeFilters.some((filter) => {
@@ -208,13 +201,7 @@ export default function IntegrationsPage() {
 
       return a.name.localeCompare(b.name)
     })
-  }, [
-    allIntegrations,
-    connectionFilter,
-    getIntegrationStatus,
-    searchQuery,
-    typeFilters,
-  ])
+  }, [allIntegrations, connectionFilter, searchQuery, typeFilters])
 
   const sectionedIntegrations = useMemo(() => {
     const groupedIntegrations: Record<
@@ -239,7 +226,7 @@ export default function IntegrationsPage() {
         (section) =>
           section.items.length > 0 || section.sectionType === "custom_oauth"
       )
-  }, [filteredIntegrations, getIntegrationDisplayType])
+  }, [filteredIntegrations])
 
   const connectParam = searchParams?.get("connect")
   const connectGrantType = searchParams?.get(

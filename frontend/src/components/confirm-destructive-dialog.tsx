@@ -2,7 +2,7 @@
 
 import { Loader2 } from "lucide-react"
 import type { ReactNode } from "react"
-import { useEffect, useState } from "react"
+import { useState } from "react"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -60,16 +60,15 @@ export function ConfirmDestructiveDialog({
 }: ConfirmDestructiveDialogProps) {
   const [confirmText, setConfirmText] = useState("")
 
-  useEffect(() => {
-    if (!open) {
-      setConfirmText("")
-    }
-  }, [open])
-
   const matches = confirmText.trim() === confirmPhrase
 
+  function handleOpenChange(next: boolean) {
+    if (!next) setConfirmText("")
+    onOpenChange(next)
+  }
+
   return (
-    <AlertDialog open={open} onOpenChange={onOpenChange}>
+    <AlertDialog open={open} onOpenChange={handleOpenChange}>
       <AlertDialogContent>
         <AlertDialogHeader>
           <AlertDialogTitle>{title}</AlertDialogTitle>

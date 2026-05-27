@@ -3,7 +3,7 @@
 import { useQueryClient } from "@tanstack/react-query"
 import { Globe, Loader2, Plus, Sparkles, Terminal } from "lucide-react"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import type {
   MCPIntegrationRead,
   OAuthGrantType,
@@ -68,24 +68,24 @@ export default function McpServersPage() {
   const pathname = usePathname()
   const router = useRouter()
   const searchParams = useSearchParams()
-
-  const handleCreateSignalConsumed = useCallback(() => {
-    if (!pathname || !searchParams?.get(CREATE_MCP_SERVER_PARAM)) {
-      return
-    }
-    const params = new URLSearchParams(searchParams.toString())
-    params.delete(CREATE_MCP_SERVER_PARAM)
-    const next = params.toString()
-    router.replace(next ? `${pathname}?${next}` : pathname, { scroll: false })
-  }, [pathname, router, searchParams])
+  // Subscribe to the primitive instead of the whole searchParams object: this
+  // effect should only re-run when our specific param flips, not on every
+  // unrelated query-string change.
+  const createSignal = searchParams?.get(CREATE_MCP_SERVER_PARAM) ?? null
 
   useEffect(() => {
-    if (!searchParams?.get(CREATE_MCP_SERVER_PARAM)) {
+    if (!createSignal || !pathname) {
       return
     }
     setCreateOpen(true)
-    handleCreateSignalConsumed()
-  }, [handleCreateSignalConsumed, searchParams])
+    const params = new URLSearchParams(searchParams?.toString() ?? "")
+    params.delete(CREATE_MCP_SERVER_PARAM)
+    const next = params.toString()
+    router.replace(next ? `${pathname}?${next}` : pathname, { scroll: false })
+    // searchParams is read once to compose the cleanup URL; the dependency
+    // we actually watch is `createSignal`.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [createSignal, pathname, router])
 
   const queryClient = useQueryClient()
   const connectProviderMutation = useConnectProvider(workspaceId)
@@ -110,24 +110,29 @@ export default function McpServersPage() {
     )
   }, [mcpIntegrations, providers])
 
-  const filteredItems = useMemo(() => {
-    const q = searchQuery.trim().toLowerCase()
+  // Two-pass filter: preset slice only changes when items or the preset
+  // selection changes; the search pass only runs when the query changes.
+  const presetFilteredItems = useMemo(() => {
     return items.filter((item) => {
-      // Preset filter
-      if (presetFilter === "workspace" && item.kind !== "workspace") {
-        return false
+      if (presetFilter === "workspace") {
+        return item.kind === "workspace"
       }
       if (presetFilter === "connected") {
+        // Workspace items are user-configured, so they always count as
+        // connected; platform items must report integration_status="connected".
         if (item.kind === "platform") {
-          if (item.provider.integration_status !== "connected") {
-            return false
-          }
+          return item.provider.integration_status === "connected"
         }
-        // Workspace items are user-configured, so they always pass "connected".
+        return true
       }
+      return true
+    })
+  }, [items, presetFilter])
 
-      // Search
-      if (!q) return true
+  const filteredItems = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase()
+    if (!q) return presetFilteredItems
+    return presetFilteredItems.filter((item) => {
       if (item.kind === "platform") {
         const { name, description, id } = item.provider
         return (
@@ -143,7 +148,7 @@ export default function McpServersPage() {
         slug.toLowerCase().includes(q)
       )
     })
-  }, [items, presetFilter, searchQuery])
+  }, [presetFilteredItems, searchQuery])
 
   const totalCount = filteredItems.length
   const isLoading = mcpIntegrationsIsLoading || providersIsLoading
@@ -246,34 +251,36 @@ export default function McpServersPage() {
         </div>
       </div>
 
-      <OAuthIntegrationDetailsDialog
-        providerId={activeProvider?.providerId ?? ""}
-        grantType={activeProvider?.grantType ?? "authorization_code"}
-        open={activeProvider !== null}
-        onOpenChange={(next) => {
-          if (!next) {
-            setActiveProvider(null)
-            queryClient.invalidateQueries({
-              queryKey: integrationKeys.providers(workspaceId),
-            })
-          }
-        }}
-      />
+      {activeProvider ? (
+        <OAuthIntegrationDetailsDialog
+          providerId={activeProvider.providerId}
+          grantType={activeProvider.grantType}
+          open
+          onOpenChange={(next) => {
+            if (!next) {
+              setActiveProvider(null)
+              queryClient.invalidateQueries({
+                queryKey: integrationKeys.providers(workspaceId),
+              })
+            }
+          }}
+        />
+      ) : null}
 
-      <MCPIntegrationDialog
-        open={createOpen}
-        onOpenChange={setCreateOpen}
-        hideTrigger
-      />
+      {createOpen ? (
+        <MCPIntegrationDialog open onOpenChange={setCreateOpen} hideTrigger />
+      ) : null}
 
-      <MCPIntegrationDialog
-        open={editingId !== null}
-        onOpenChange={(next) => {
-          if (!next) setEditingId(null)
-        }}
-        mcpIntegrationId={editingId}
-        hideTrigger
-      />
+      {editingId !== null ? (
+        <MCPIntegrationDialog
+          open
+          onOpenChange={(next) => {
+            if (!next) setEditingId(null)
+          }}
+          mcpIntegrationId={editingId}
+          hideTrigger
+        />
+      ) : null}
     </div>
   )
 }
