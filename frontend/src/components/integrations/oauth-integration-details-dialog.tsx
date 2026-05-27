@@ -114,6 +114,7 @@ export function OAuthIntegrationDetailsDialog({
   }
 
   const supportsReauthorize = grantType === "authorization_code"
+  const supportsTest = grantType === "client_credentials"
   const anyActionPending =
     reauthorizeMutation.isPending ||
     testMutation.isPending ||
@@ -234,15 +235,17 @@ export function OAuthIntegrationDetailsDialog({
                                 Reauthorize
                               </DropdownMenuItem>
                             ) : null}
-                            <DropdownMenuItem
-                              onClick={() =>
-                                testMutation.mutate({ providerId, grantType })
-                              }
-                              disabled={testMutation.isPending}
-                            >
-                              <PlayCircle className="mr-2 size-4 text-muted-foreground" />
-                              Test
-                            </DropdownMenuItem>
+                            {supportsTest ? (
+                              <DropdownMenuItem
+                                onClick={() =>
+                                  testMutation.mutate({ providerId, grantType })
+                                }
+                                disabled={testMutation.isPending}
+                              >
+                                <PlayCircle className="mr-2 size-4 text-muted-foreground" />
+                                Test
+                              </DropdownMenuItem>
+                            ) : null}
                             <DropdownMenuSeparator />
                             <DropdownMenuItem
                               className="text-destructive focus:bg-destructive/10 focus:text-destructive"
