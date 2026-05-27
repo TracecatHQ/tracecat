@@ -1016,3 +1016,30 @@ async def test_sse_vercel_uses_stable_bubble_id_and_composite_frame_ids():
     id_frames = [f for f in frames if f.startswith("id: ")]
     assert id_frames[0].startswith("id: 1000-0:0\n")
     assert id_frames[1].startswith("id: 1000-0:1\n")
+
+
+@pytest.mark.anyio
+async def test_sse_vercel_skips_frames_at_composite_resume_cursor():
+    """Reconnect inside a Redis entry replays that entry but drops seen frames."""
+    from tracecat.agent.stream.events import StreamDelta
+
+    async def events():
+        yield StreamDelta(
+            id="1000-0",
+            event=UnifiedStreamEvent(
+                type=StreamEventType.TEXT_START, part_id=0, text="hello"
+            ),
+        )
+
+    frames: list[str] = []
+    async for frame in sse_vercel(
+        events(),
+        message_id="sess:run",
+        resume_from="1000-0:0",
+    ):
+        frames.append(frame)
+
+    id_frames = [f for f in frames if f.startswith("id: ")]
+    assert len(id_frames) == 1
+    assert id_frames[0].startswith("id: 1000-0:1\n")
+    assert '"delta":"hello"' in id_frames[0]

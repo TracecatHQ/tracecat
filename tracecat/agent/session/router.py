@@ -24,7 +24,7 @@ from tracecat.agent.session.schemas import (
 from tracecat.agent.session.service import AgentSessionService
 from tracecat.agent.session.types import AgentSessionEntity, AgentSessionStatus
 from tracecat.agent.stream.connector import AgentStream
-from tracecat.agent.stream.events import StreamFormat
+from tracecat.agent.stream.events import StreamFormat, parse_vercel_frame_cursor
 from tracecat.agent.subagents import ResolvedAgentsConfig
 from tracecat.auth.dependencies import WorkspaceUserRouteRole
 from tracecat.authz.controls import require_scope
@@ -515,20 +515,22 @@ async def stream_session_events(
 
     # Don't fail if the session doesn't exist yet: the frontend can connect
     # before the session row is created (handled by the 204 below).
+    last_event_id = request.headers.get("Last-Event-ID")
     async with AgentSessionService.with_session(role=role) as svc:
         agent_session = await svc.get_session(session_id)
+        curr_run_id = agent_session.curr_run_id if agent_session is not None else None
+        if curr_run_id is None and last_event_id:
+            curr_run_id = await svc.get_latest_history_run_id(session_id)
 
-    last_event_id = request.headers.get("Last-Event-ID")
-    is_active = agent_session is not None and agent_session.status in (
-        AgentSessionStatus.RUNNING.value,
-        AgentSessionStatus.WAITING_FOR_APPROVAL.value,
+    is_stream_attachable = (
+        agent_session is not None
+        and agent_session.status == AgentSessionStatus.RUNNING.value
     )
     # Nothing live to attach to and no client cursor to resume -> let the client
     # fall back to the persisted DB history.
-    if not is_active and not last_event_id:
+    if not is_stream_attachable and not last_event_id:
         return Response(status_code=status.HTTP_204_NO_CONTENT)
 
-    curr_run_id = agent_session.curr_run_id if agent_session is not None else None
     stream = await AgentStream.new(session_id, workspace_id)
     message_id = _bubble_id(session_id, curr_run_id)
 
@@ -545,14 +547,16 @@ async def stream_session_events(
     # Browser owns the cursor: no Last-Event-ID -> replay 0-0; has one -> resume
     # after it. Readers never read last_stream_id (producer/lifecycle-only).
     start_id = "0-0"
+    resume_from: str | None = None
     if last_event_id:
-        requested = last_event_id.split(":", 1)[0]  # strip composite :frame_index
+        cursor = parse_vercel_frame_cursor(last_event_id)
+        requested = cursor.redis_id if cursor else last_event_id.split(":", 1)[0]
         min_id = await stream.min_entry_id()
         if min_id is None or _redis_id_lt(requested, min_id):
-            # Cursor predates the live buffer (maxlen/TTL eviction). While active,
-            # replay from the start. Once terminal there is nothing live, so emit a
+            # Cursor predates the live buffer (maxlen/TTL eviction). While running,
+            # replay from the start. Otherwise there is nothing live, so emit a
             # finishing stream that ends cleanly -> client refetches DB history.
-            if not is_active:
+            if not is_stream_attachable:
                 return StreamingResponse(
                     stream.finished_sse(format=format, message_id=message_id),
                     media_type="text/event-stream",
@@ -561,6 +565,7 @@ async def stream_session_events(
             # else start_id stays "0-0"
         else:
             start_id = requested
+            resume_from = last_event_id if cursor else None
 
     logger.info(
         "Starting session stream",
@@ -574,6 +579,7 @@ async def stream_session_events(
             last_id=start_id,
             format=format,
             message_id=message_id,
+            resume_from=resume_from,
         ),
         media_type="text/event-stream",
         headers=headers,

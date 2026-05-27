@@ -465,3 +465,43 @@ async def test_list_messages_hides_active_run_rows_while_running(
     assert "prior turn" in texts
     assert "legacy row" in texts
     assert "active partial" not in texts
+
+
+@pytest.mark.anyio
+@pytest.mark.usefixtures("db")
+async def test_list_messages_keeps_waiting_for_approval_rows(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    """WAITING_FOR_APPROVAL is DB-backed; fresh observers should load history."""
+    active_run = uuid.uuid4()
+    agent_session = AgentSession(
+        id=uuid.uuid4(),
+        workspace_id=svc_role.workspace_id,
+        title="Chat",
+        entity_type="case",
+        entity_id=uuid.uuid4(),
+        status=AgentSessionStatus.WAITING_FOR_APPROVAL.value,
+        curr_run_id=active_run,
+    )
+    session.add(agent_session)
+    session.add(
+        AgentSessionHistory(
+            session_id=agent_session.id,
+            workspace_id=svc_role.workspace_id,
+            content=_chat_message_content("approval is visible"),
+            kind=MessageKind.CHAT_MESSAGE.value,
+            curr_run_id=active_run,
+        )
+    )
+    await session.commit()
+
+    service = AgentSessionService(session=session, role=svc_role)
+    texts = [
+        getattr(part, "text", None)
+        for m in await service.list_messages(agent_session.id)
+        if m.message is not None
+        for part in cast(Any, m.message).content
+    ]
+
+    assert "approval is visible" in texts

@@ -57,6 +57,11 @@ jest.mock("@/components/editor/codemirror/code-editor", () => ({
 jest.mock("@/hooks/use-chat", () => ({
   useVercelChat: jest.fn(),
   useGetChat: jest.fn(() => ({ chat: null })),
+  useSessionStatus: jest.fn(() => ({
+    turnStatus: undefined,
+    currRunId: undefined,
+    prompt: undefined,
+  })),
   useUpdateChat: jest.fn(() => ({ updateChat: jest.fn(), isUpdating: false })),
   useCancelChatTurn: jest.fn(() => ({
     cancelChatTurn: jest.fn(),

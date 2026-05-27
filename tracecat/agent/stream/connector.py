@@ -2,7 +2,14 @@ from __future__ import annotations
 
 import asyncio
 import uuid
-from collections.abc import AsyncIterable, AsyncIterator, Awaitable, Callable
+from collections.abc import (
+    AsyncIterable,
+    AsyncIterator,
+    Awaitable,
+    Callable,
+    Mapping,
+    Sequence,
+)
 from time import monotonic
 from typing import Any
 
@@ -21,6 +28,7 @@ from tracecat.agent.stream.events import (
     StreamKeepAlive,
     StreamMessage,
     UnifiedStreamEventTA,
+    parse_vercel_frame_cursor,
 )
 from tracecat.agent.types import ModelMessageTA, StreamKey
 from tracecat.chat import tokens
@@ -110,7 +118,11 @@ class AgentStream:
                 await session_svc.update_last_stream_id(agent_session, last_stream_id)
 
     async def _stream_events(
-        self, stop_condition: Callable[[], Awaitable[bool]], last_id: str
+        self,
+        stop_condition: Callable[[], Awaitable[bool]],
+        last_id: str,
+        *,
+        include_last_id: bool = False,
     ) -> AsyncIterator[StreamEvent]:
         """Stream events from Redis until a stop condition is met.
 
@@ -137,7 +149,56 @@ class AgentStream:
         current_id = last_id
         last_keepalive = monotonic()
         stream_completed = False
+
+        async def parse_stream_messages(
+            messages: Sequence[tuple[str, Mapping[str, str]]],
+        ) -> AsyncIterator[StreamEvent]:
+            nonlocal current_id, stream_completed
+            for msg_id, fields in messages:
+                data = orjson.loads(fields[tokens.DATA_KEY])
+                current_id = msg_id
+                match data:
+                    case {tokens.END_TOKEN: tokens.END_TOKEN_VALUE}:
+                        stream_completed = True
+                        yield StreamEnd(id=msg_id)
+                    case {"event_kind": _}:
+                        legacy_event = AgentStreamEventTA.validate_python(data)
+                        yield StreamDelta(id=msg_id, event=legacy_event)
+                    case {"type": _}:
+                        unified_event = UnifiedStreamEventTA.validate_python(data)
+                        yield StreamDelta(id=msg_id, event=unified_event)
+                    case {"kind": "error", "error": error_message}:
+                        logger.warning(
+                            "Stream error received",
+                            error=error_message,
+                            message_id=msg_id,
+                        )
+                        yield StreamError(error=error_message)
+                    case {"kind": _}:
+                        message = ModelMessageTA.validate_python(data)
+                        yield StreamMessage(id=msg_id, message=message)
+                    case _:
+                        logger.warning(
+                            "Invalid stream message",
+                            error="Unexpected payload",
+                            message_id=msg_id,
+                        )
+
         try:
+            if include_last_id and current_id != "0-0":
+                try:
+                    entries = await self.client.xrange(
+                        self._stream_key,
+                        min_id=current_id,
+                        max_id=current_id,
+                        count=1,
+                    )
+                    async for event in parse_stream_messages(entries):
+                        yield event
+                except Exception as e:
+                    logger.error("Error reading Redis cursor entry", error=str(e))
+                    yield StreamError(error="Stream read error")
+
             while not await stop_condition():
                 try:
                     if result := await self.client.xread(
@@ -147,41 +208,8 @@ class AgentStream:
                     ):
                         last_keepalive = monotonic()
                         for _stream_name, messages in result:
-                            for msg_id, fields in messages:
-                                data = orjson.loads(fields[tokens.DATA_KEY])
-                                current_id = msg_id
-                                match data:
-                                    case {tokens.END_TOKEN: tokens.END_TOKEN_VALUE}:
-                                        stream_completed = True
-                                        yield StreamEnd(id=msg_id)
-                                    case {"event_kind": _}:
-                                        legacy_event = (
-                                            AgentStreamEventTA.validate_python(data)
-                                        )
-                                        yield StreamDelta(id=msg_id, event=legacy_event)
-                                    case {"type": _}:
-                                        unified_event = (
-                                            UnifiedStreamEventTA.validate_python(data)
-                                        )
-                                        yield StreamDelta(
-                                            id=msg_id, event=unified_event
-                                        )
-                                    case {"kind": "error", "error": error_message}:
-                                        logger.warning(
-                                            "Stream error received",
-                                            error=error_message,
-                                            message_id=msg_id,
-                                        )
-                                        yield StreamError(error=error_message)
-                                    case {"kind": _}:
-                                        message = ModelMessageTA.validate_python(data)
-                                        yield StreamMessage(id=msg_id, message=message)
-                                    case _:
-                                        logger.warning(
-                                            "Invalid stream message",
-                                            error="Unexpected payload",
-                                            message_id=msg_id,
-                                        )
+                            async for event in parse_stream_messages(messages):
+                                yield event
 
                     now = monotonic()
                     if now - last_keepalive >= self.KEEPALIVE_INTERVAL_SECONDS:
@@ -206,10 +234,18 @@ class AgentStream:
                 await self._expire_completed_stream()
 
     async def stream_events(
-        self, stop_condition: Callable[[], Awaitable[bool]], last_id: str
+        self,
+        stop_condition: Callable[[], Awaitable[bool]],
+        last_id: str,
+        *,
+        include_last_id: bool = False,
     ) -> AsyncIterator[StreamEvent]:
         """Public stream-events iterator for external stream consumers."""
-        async for event in self._stream_events(stop_condition, last_id):
+        async for event in self._stream_events(
+            stop_condition,
+            last_id,
+            include_last_id=include_last_id,
+        ):
             yield event
 
     def sse(
@@ -219,14 +255,21 @@ class AgentStream:
         format: StreamFormat,
         *,
         message_id: str,
+        resume_from: str | None = None,
     ) -> AsyncIterable[str]:
+        cursor = parse_vercel_frame_cursor(resume_from)
         match format:
             case "vercel":
                 from tracecat.agent.adapter.vercel import sse_vercel
 
                 return sse_vercel(
-                    self.stream_events(stop_condition, last_id),
+                    self.stream_events(
+                        stop_condition,
+                        last_id,
+                        include_last_id=cursor is not None,
+                    ),
                     message_id=message_id,
+                    resume_from=resume_from,
                 )
             case "basic":
                 return self.simple_sse(stop_condition, last_id)

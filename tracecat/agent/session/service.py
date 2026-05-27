@@ -675,6 +675,23 @@ class AgentSessionService(BaseWorkspaceService):
         result = await self.session.execute(stmt)
         return result.scalar_one_or_none()
 
+    async def get_latest_history_run_id(
+        self, session_id: uuid.UUID
+    ) -> uuid.UUID | None:
+        """Return the newest stamped history run id for terminal stream reconnects."""
+        stmt = (
+            select(AgentSessionHistory.curr_run_id)
+            .where(
+                AgentSessionHistory.session_id == session_id,
+                AgentSessionHistory.workspace_id == self.workspace_id,
+                AgentSessionHistory.curr_run_id.is_not(None),
+            )
+            .order_by(AgentSessionHistory.surrogate_id.desc())
+            .limit(1)
+        )
+        result = await self.session.execute(stmt)
+        return result.scalar_one_or_none()
+
     async def request_cancel(
         self,
         session_id: uuid.UUID,

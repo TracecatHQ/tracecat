@@ -37,9 +37,16 @@ import { type ModelInfo, toServerUIMessage } from "@/lib/chat"
 const DEFAULT_CHAT_ERROR_MESSAGE =
   "The assistant couldn't complete that request. Please try again."
 
-/** A turn is live (stream attachable) while running or awaiting approval. */
+/** A turn still has active run metadata while running or awaiting approval. */
 function isActiveTurnStatus(status: AgentSessionStatus | undefined): boolean {
   return status === "running" || status === "waiting_for_approval"
+}
+
+/** Fresh stream attachment is only safe while the Redis stream is still open. */
+function isStreamAttachableTurnStatus(
+  status: AgentSessionStatus | undefined
+): boolean {
+  return status === "running"
 }
 
 function getMessageText(message: UIMessage): string {
@@ -751,7 +758,7 @@ export function useVercelChat({
   // bubble. Add it to useChat state from the status poll before attaching.
   useEffect(() => {
     if (
-      !isActiveTurnStatus(turnStatus) ||
+      !isStreamAttachableTurnStatus(turnStatus) ||
       status !== "ready" ||
       !chatId ||
       !currRunId ||
@@ -790,13 +797,11 @@ export function useVercelChat({
   // running, the next status poll re-attaches. Handles back-to-back turns
   // started by another client without relying on the SDK's one-shot `resume`.
   useEffect(() => {
-    if (!isActiveTurnStatus(turnStatus) || status !== "ready") {
+    if (!isStreamAttachableTurnStatus(turnStatus) || status !== "ready") {
       return
     }
 
-    const shouldWaitForPrompt =
-      turnStatus === "running" || Boolean(activePromptText)
-    if (shouldWaitForPrompt && !activePromptPresent) {
+    if (activePromptText && !activePromptPresent) {
       return
     }
 

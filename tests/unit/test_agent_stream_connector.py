@@ -127,6 +127,71 @@ async def test_stream_events_does_not_write_cursor_when_not_completed() -> None:
 
 
 @pytest.mark.anyio
+async def test_stream_events_can_replay_cursor_entry_before_xread() -> None:
+    workspace_id = uuid.uuid4()
+    session_id = uuid.uuid4()
+    raw_client = SimpleNamespace(expire=AsyncMock(return_value=None))
+    client = SimpleNamespace(
+        xrange=AsyncMock(
+            return_value=[
+                (
+                    "1717426372768-0",
+                    {
+                        tokens.DATA_KEY: b'{"type":"text_delta","text":"first"}',
+                    },
+                )
+            ]
+        ),
+        xread=AsyncMock(
+            return_value=[
+                (
+                    f"agent-stream:{workspace_id}:{session_id}",
+                    [
+                        (
+                            "1717426372769-0",
+                            {
+                                tokens.DATA_KEY: b'{"type":"text_delta","text":"next"}',
+                            },
+                        )
+                    ],
+                )
+            ]
+        ),
+        _get_client=AsyncMock(return_value=raw_client),
+    )
+    stream = AgentStream(
+        client=cast(RedisClient, client),
+        workspace_id=workspace_id,
+        session_id=session_id,
+    )
+
+    events = [
+        event
+        async for event in stream._stream_events(
+            AsyncMock(side_effect=[False, True]),
+            last_id="1717426372768-0",
+            include_last_id=True,
+        )
+    ]
+
+    assert [event.id for event in events if isinstance(event, StreamDelta)] == [
+        "1717426372768-0",
+        "1717426372769-0",
+    ]
+    client.xrange.assert_awaited_once_with(
+        stream._stream_key,
+        min_id="1717426372768-0",
+        max_id="1717426372768-0",
+        count=1,
+    )
+    client.xread.assert_awaited_once_with(
+        streams={stream._stream_key: "1717426372768-0"},
+        count=100,
+        block=1000,
+    )
+
+
+@pytest.mark.anyio
 async def test_min_entry_id_returns_oldest_or_none() -> None:
     workspace_id = uuid.uuid4()
     session_id = uuid.uuid4()

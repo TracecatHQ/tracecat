@@ -71,6 +71,7 @@ from tracecat.agent.stream.events import (
     StreamEvent,
     StreamKeepAlive,
     StreamMessage,
+    parse_vercel_frame_cursor,
 )
 from tracecat.agent.types import UnifiedMessage
 from tracecat.chat.constants import (
@@ -1805,6 +1806,7 @@ async def sse_vercel(
     events: AsyncIterable[StreamEvent],
     *,
     message_id: str,
+    resume_from: str | None = None,
 ) -> AsyncIterable[str]:
     """Stream Redis events as Vercel AI SDK frames without persisting adapter output.
 
@@ -1815,16 +1817,24 @@ async def sse_vercel(
     """
 
     context = VercelStreamContext(message_id=message_id)
+    resume_cursor = parse_vercel_frame_cursor(resume_from)
 
     # Composite-id state: the Redis id of the entry currently fanning out, and a
     # per-entry frame counter. format_sse omits id: when redis_id is None.
     redis_id: str | None = None
     frame_index = 0
 
-    def emit(payload: VercelSSEPayload) -> str:
+    def emit(payload: VercelSSEPayload) -> str | None:
         nonlocal frame_index
         sse_id = f"{redis_id}:{frame_index}" if redis_id else None
+        current_frame_index = frame_index
         frame_index += 1
+        if (
+            resume_cursor is not None
+            and redis_id == resume_cursor.redis_id
+            and current_frame_index <= resume_cursor.frame_index
+        ):
+            return None
         return format_sse(payload, sse_id)
 
     try:
@@ -1838,7 +1848,8 @@ async def sse_vercel(
                     redis_id, frame_index = delta_id, 0
                     # Process agent stream events (PartStartEvent, PartDeltaEvent, etc.)
                     async for msg in context.handle_event(agent_event):
-                        yield emit(msg)
+                        if frame := emit(msg):
+                            yield frame
                 case StreamMessage(id=message_redis_id, message=message):
                     redis_id, frame_index = message_redis_id, 0
                     if approval_payload := _extract_approval_payload_from_message(
@@ -1863,7 +1874,8 @@ async def sse_vercel(
                                     ) in context.collect_current_part_end_events(
                                         index=index
                                     ):
-                                        yield emit(end_evt)
+                                        if frame := emit(end_evt):
+                                            yield frame
                         except Exception:
                             # Best-effort only; do not abort streaming on cache/finalize errors
                             pass
@@ -1874,7 +1886,8 @@ async def sse_vercel(
                             )
                         )
                         for data_event in context.flush_data_events():
-                            yield emit(data_event)
+                            if frame := emit(data_event):
+                                yield frame
                     continue
                 case StreamKeepAlive():
                     yield StreamKeepAlive.sse()

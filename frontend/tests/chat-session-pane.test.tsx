@@ -23,10 +23,6 @@ jest.mock("@/hooks/use-chat", () => ({
     isCancellingChatTurn: false,
   })),
   useUpdateChat: jest.fn(() => ({ updateChat: jest.fn(), isUpdating: false })),
-  useCancelChatTurn: jest.fn(() => ({
-    cancelChatTurn: jest.fn(),
-    isCancellingChatTurn: false,
-  })),
   parseChatError: (error: unknown) =>
     error instanceof Error ? error.message : "Chat error",
   makeContinueMessage: (decisions: unknown) => ({
