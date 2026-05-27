@@ -589,6 +589,19 @@ class TestMCPIntegrationCRUD:
         server_uri = mcp_integration.server_uri
         assert server_uri is not None
 
+        duplicate_managed_mcp = MCPIntegration(
+            workspace_id=integration_service.workspace_id,
+            name="Duplicate GitHub MCP",
+            slug="github_mcp-1",
+            server_type="http",
+            server_uri=server_uri,
+            auth_type=MCPAuthType.OAUTH2,
+            oauth_integration_id=oauth_integration.id,
+        )
+        integration_service.session.add(duplicate_managed_mcp)
+        await integration_service.session.flush()
+        duplicate_managed_mcp_id = duplicate_managed_mcp.id
+
         workspace_created = await integration_service.create_mcp_integration(
             params=MCPHttpIntegrationCreate(
                 name="Workspace-authored MCP",
@@ -605,7 +618,11 @@ class TestMCPIntegrationCRUD:
             slug="mcp-provider-preset",
             model_name="gpt-4o-mini",
             model_provider="openai",
-            mcp_integrations=[str(mcp_integration_id), str(workspace_created_id)],
+            mcp_integrations=[
+                str(mcp_integration_id),
+                str(duplicate_managed_mcp_id),
+                str(workspace_created_id),
+            ],
         )
         integration_service.session.add(preset)
         await integration_service.session.commit()
@@ -624,6 +641,10 @@ class TestMCPIntegrationCRUD:
             mcp_integration_id=mcp_integration_id
         )
         assert deleted_mcp is None
+        deleted_duplicate_mcp = await integration_service.get_mcp_integration(
+            mcp_integration_id=duplicate_managed_mcp_id
+        )
+        assert deleted_duplicate_mcp is None
 
         surviving_mcp = await integration_service.get_mcp_integration(
             mcp_integration_id=workspace_created_id
@@ -637,6 +658,7 @@ class TestMCPIntegrationCRUD:
         assert refreshed_preset is not None
         assert refreshed_preset.mcp_integrations is not None
         assert str(mcp_integration_id) not in refreshed_preset.mcp_integrations
+        assert str(duplicate_managed_mcp_id) not in refreshed_preset.mcp_integrations
         assert str(workspace_created_id) in refreshed_preset.mcp_integrations
 
     async def test_delete_mcp_integration_rolls_back_on_disconnect_failure(

@@ -1160,30 +1160,25 @@ class IntegrationService(BaseWorkspaceService):
         if not candidates:
             return 0
 
-        mcp_integration = next(
-            (
-                candidate
-                for candidate in candidates
-                if candidate.slug == provider_impl.id
-            ),
-            min(candidates, key=lambda candidate: candidate.created_at),
-        )
-        id_str = str(mcp_integration.id)
-        await self.session.execute(
-            update(AgentPreset)
-            .where(
-                and_(
-                    AgentPreset.workspace_id == self.workspace_id,
-                    AgentPreset.mcp_integrations.isnot(None),
-                    AgentPreset.mcp_integrations.contains([id_str]),
+        deleted = 0
+        for mcp_integration in candidates:
+            id_str = str(mcp_integration.id)
+            await self.session.execute(
+                update(AgentPreset)
+                .where(
+                    and_(
+                        AgentPreset.workspace_id == self.workspace_id,
+                        AgentPreset.mcp_integrations.isnot(None),
+                        AgentPreset.mcp_integrations.contains([id_str]),
+                    )
                 )
+                .values(mcp_integrations=AgentPreset.mcp_integrations.op("-")(id_str))
             )
-            .values(mcp_integrations=AgentPreset.mcp_integrations.op("-")(id_str))
-        )
-        await self.session.delete(mcp_integration)
+            await self.session.delete(mcp_integration)
+            deleted += 1
         await self.session.flush()
 
-        return 1
+        return deleted
 
     async def _mcp_integration_slug_taken(self, slug: str) -> bool:
         """Check if an MCP integration slug is already taken."""
