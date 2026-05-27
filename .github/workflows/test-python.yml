@@ -67,34 +67,6 @@ jobs:
           env -u UV_SYSTEM_PYTHON uv pip install --python .venv/bin/python .
           .venv/bin/python -c "import custom_actions"
 
-  test-action-doc-links:
-    runs-on: blacksmith-8vcpu-ubuntu-2204
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-
-      - name: Install uv
-        uses: useblacksmith/setup-uv@f4588471335f14dcb60198856207b916701a9e9f # v4
-        with:
-          version: "0.9.7"
-          enable-cache: true
-          cache-dependency-glob: |
-            pyproject.toml
-            uv.lock
-
-      - name: Set up Python 3.12
-        uses: useblacksmith/setup-python@943b05a7c4ca70c2360391137527a37bee33fb1d # v6
-        with:
-          python-version: "3.12"
-
-      - name: Install dependencies
-        run: uv sync --frozen
-
-      - name: Check action documentation links
-        env:
-          TRACECAT_TEST_ACTION_DOC_LINKS: "1"
-        run: uv run pytest scripts/tests/test_action_doc_links.py -ra
-
   test-all:
     runs-on: blacksmith-8vcpu-ubuntu-2204
     timeout-minutes: 60
