@@ -323,6 +323,59 @@ class TestMCPIntegrationCRUD:
             integration.name.startswith("Test MCP") for integration in integrations
         )
 
+    async def test_list_mcp_integrations_source_keeps_matching_user_row_as_workspace(
+        self,
+        integration_service: IntegrationService,
+    ) -> None:
+        """User-created MCP rows stay workspace-owned even with provider server URI."""
+        provider_key = ProviderKey(
+            id="github_mcp",
+            grant_type=OAuthGrantType.AUTHORIZATION_CODE,
+        )
+        oauth_integration = await integration_service.store_integration(
+            provider_key=provider_key,
+            access_token=SecretStr("test_access_token"),
+            refresh_token=SecretStr("test_refresh_token"),
+            expires_in=3600,
+        )
+
+        auto_created = await integration_service.session.execute(
+            select(MCPIntegration).where(
+                MCPIntegration.workspace_id == integration_service.workspace_id,
+                MCPIntegration.oauth_integration_id == oauth_integration.id,
+            )
+        )
+        platform_created = auto_created.scalars().first()
+        assert platform_created is not None
+        server_uri = platform_created.server_uri
+        assert server_uri is not None
+
+        workspace_created = await integration_service.create_mcp_integration(
+            params=MCPHttpIntegrationCreate(
+                name="Workspace-authored Provider MCP",
+                server_uri=server_uri,
+                auth_type=MCPAuthType.OAUTH2,
+                oauth_integration_id=oauth_integration.id,
+            )
+        )
+
+        platform_integrations = await integration_service.list_mcp_integrations(
+            source="platform"
+        )
+        workspace_integrations = await integration_service.list_mcp_integrations(
+            source="workspace"
+        )
+
+        assert [integration.id for integration in platform_integrations] == [
+            platform_created.id
+        ]
+        assert workspace_created.id in {
+            integration.id for integration in workspace_integrations
+        }
+        assert platform_created.id not in {
+            integration.id for integration in workspace_integrations
+        }
+
     async def test_update_mcp_integration(
         self,
         integration_service: IntegrationService,
@@ -533,11 +586,13 @@ class TestMCPIntegrationCRUD:
         mcp_integration = auto_created.scalars().first()
         assert mcp_integration is not None
         mcp_integration_id = mcp_integration.id
+        server_uri = mcp_integration.server_uri
+        assert server_uri is not None
 
         workspace_created = await integration_service.create_mcp_integration(
             params=MCPHttpIntegrationCreate(
                 name="Workspace-authored MCP",
-                server_uri="https://api.example.com/workspace-mcp",
+                server_uri=server_uri,
                 auth_type=MCPAuthType.OAUTH2,
                 oauth_integration_id=oauth_integration.id,
             )

@@ -1155,6 +1155,7 @@ class IntegrationService(BaseWorkspaceService):
             if self._mcp_integration_uses_provider_server(
                 mcp_integration, provider_impl
             )
+            and self._mcp_integration_has_provider_slug(mcp_integration, provider_impl)
         ]
         if not candidates:
             return 0
@@ -1292,16 +1293,25 @@ class IntegrationService(BaseWorkspaceService):
             and mcp_integration.server_uri == provider_impl.mcp_server_uri
         )
 
+    @staticmethod
+    def _mcp_integration_has_provider_slug(
+        mcp_integration: MCPIntegration, provider_impl: type[MCPAuthProvider]
+    ) -> bool:
+        provider_slug = provider_impl.id
+        if mcp_integration.slug == provider_slug:
+            return True
+        suffix = mcp_integration.slug.removeprefix(f"{provider_slug}-")
+        return suffix != mcp_integration.slug and suffix.isdigit()
+
     def _is_platform_managed_mcp_integration(
         self, mcp_integration: MCPIntegration
     ) -> bool:
         """Whether an MCP integration is owned by the MCP OAuth provider lifecycle.
 
         Platform-managed rows are auto-created by ``MCPAuthProvider`` flows in
-        ``_auto_create_mcp_integration_if_needed``. We identify them by the
-        provider class of the linked OAuth integration rather than the presence
-        of ``oauth_integration_id`` alone, because workspace users can also
-        attach non-MCP OAuth integrations to custom MCP servers.
+        ``_auto_create_mcp_integration_if_needed``. We identify them by their
+        provider-owned slug and provider server details because workspace users
+        can create their own MCP rows backed by the same OAuth integration.
         """
         oauth_integration = mcp_integration.oauth_integration
         if oauth_integration is None:
@@ -1316,6 +1326,10 @@ class IntegrationService(BaseWorkspaceService):
             provider_impl
             and issubclass(provider_impl, MCPAuthProvider)
             and self._mcp_integration_uses_provider_server(
+                mcp_integration,
+                cast(type[MCPAuthProvider], provider_impl),
+            )
+            and self._mcp_integration_has_provider_slug(
                 mcp_integration,
                 cast(type[MCPAuthProvider], provider_impl),
             )
