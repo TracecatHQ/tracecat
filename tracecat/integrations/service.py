@@ -8,6 +8,7 @@ from urllib.parse import urlparse
 from uuid import uuid4
 
 import orjson
+import sqlalchemy as sa
 from pydantic import SecretStr
 from slugify import slugify
 from sqlalchemy import and_, or_, select, update
@@ -1143,42 +1144,61 @@ class IntegrationService(BaseWorkspaceService):
             return 0
         provider_impl = cast(type[MCPAuthProvider], provider_impl)
 
-        result = await self.session.execute(
-            select(MCPIntegration).where(
+        provider_slug = provider_impl.id
+        candidate_mcp_integrations = (
+            select(
+                MCPIntegration.id.label("id"),
+                sa.cast(MCPIntegration.id, sa.String).label("id_str"),
+            )
+            .where(
                 MCPIntegration.workspace_id == self.workspace_id,
                 MCPIntegration.oauth_integration_id == integration.id,
-            )
-        )
-        candidates = [
-            mcp_integration
-            for mcp_integration in result.scalars().all()
-            if self._mcp_integration_uses_provider_server(
-                mcp_integration, provider_impl
-            )
-            and self._mcp_integration_has_provider_slug(mcp_integration, provider_impl)
-        ]
-        if not candidates:
-            return 0
-
-        deleted = 0
-        for mcp_integration in candidates:
-            id_str = str(mcp_integration.id)
-            await self.session.execute(
-                update(AgentPreset)
-                .where(
+                MCPIntegration.server_type == "http",
+                MCPIntegration.auth_type == MCPAuthType.OAUTH2,
+                MCPIntegration.server_uri == provider_impl.mcp_server_uri,
+                or_(
+                    MCPIntegration.slug == provider_slug,
                     and_(
-                        AgentPreset.workspace_id == self.workspace_id,
-                        AgentPreset.mcp_integrations.isnot(None),
-                        AgentPreset.mcp_integrations.contains([id_str]),
-                    )
-                )
-                .values(mcp_integrations=AgentPreset.mcp_integrations.op("-")(id_str))
+                        MCPIntegration.slug.like(f"{provider_slug}-%"),
+                        sa.func.substring(
+                            MCPIntegration.slug,
+                            len(provider_slug) + 2,
+                        ).op("~")(r"^\d+$"),
+                    ),
+                ),
             )
-            await self.session.delete(mcp_integration)
-            deleted += 1
-        await self.session.flush()
+            .cte("candidate_mcp_integrations")
+        )
 
-        return deleted
+        candidate_ids = select(
+            sa.func.coalesce(
+                sa.func.array_agg(candidate_mcp_integrations.c.id_str),
+                sa.cast(sa.literal([]), sa.ARRAY(sa.String())),
+            )
+        ).scalar_subquery()
+        candidate_exists = select(candidate_mcp_integrations.c.id).exists()
+
+        await self.session.execute(
+            update(AgentPreset)
+            .where(
+                AgentPreset.workspace_id == self.workspace_id,
+                AgentPreset.mcp_integrations.isnot(None),
+                candidate_exists,
+                AgentPreset.mcp_integrations.op("?|")(candidate_ids),
+            )
+            .values(
+                mcp_integrations=AgentPreset.mcp_integrations.op("-")(candidate_ids)
+            )
+            .execution_options(synchronize_session="fetch")
+        )
+
+        deleted = await self.session.scalars(
+            sa.delete(MCPIntegration)
+            .where(MCPIntegration.id.in_(select(candidate_mcp_integrations.c.id)))
+            .returning(MCPIntegration.id)
+            .execution_options(synchronize_session="fetch")
+        )
+        return len(deleted.all())
 
     async def _mcp_integration_slug_taken(self, slug: str) -> bool:
         """Check if an MCP integration slug is already taken."""
