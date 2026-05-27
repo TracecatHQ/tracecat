@@ -3,27 +3,14 @@ from typing import Annotated
 from pydantic import Field
 from typing_extensions import Doc
 
-from tracecat_registry import RegistryOAuthSecret, registry, secrets
-from tracecat_registry.context import get_context
-from tracecat_registry.core.agent import PYDANTIC_AI_REGISTRY_SECRETS
-from tracecat_registry.core.ai import (
-    LEGACY_MODEL_FIELD_SCHEMA_EXTRA,
-    resolve_model_selection,
-)
+from tracecat_registry import RegistryOAuthSecret, registry
 from tracecat_registry.fields import AgentModel, ModelSelection
-from tracecat_registry.sdk.agents import AgentConfig, MCPServerConfig
 from tracecat_registry.types import AgentOutputRead
 
 linear_mcp_oauth_secret = RegistryOAuthSecret(
     provider_id="linear_mcp",
     grant_type="authorization_code",
 )
-"""Linear MCP OAuth2.0 credentials (Authorization Code grant).
-
-- name: `linear_mcp`
-- provider_id: `linear_mcp`
-- token_name: `LINEAR_MCP_USER_TOKEN`
-"""
 
 
 @registry.register(
@@ -32,7 +19,8 @@ linear_mcp_oauth_secret = RegistryOAuthSecret(
     display_group="Linear MCP",
     doc_url="https://linear.app/docs/mcp",
     namespace="tools.linear",
-    secrets=[linear_mcp_oauth_secret, *PYDANTIC_AI_REGISTRY_SECRETS],
+    secrets=[linear_mcp_oauth_secret],
+    deprecated="Use the 'ai.agent' action with MCP integrations instead.",
 )
 async def mcp(
     user_prompt: Annotated[str, Doc("User prompt to the agent.")],
@@ -45,34 +33,14 @@ async def mcp(
     model_name: Annotated[
         str | None,
         Doc("Deprecated. Use `model` instead."),
-        Field(deprecated=True, json_schema_extra=LEGACY_MODEL_FIELD_SCHEMA_EXTRA),
+        Field(deprecated=True),
     ] = None,
     model_provider: Annotated[
         str | None,
         Doc("Deprecated. Use `model` instead."),
-        Field(deprecated=True, json_schema_extra=LEGACY_MODEL_FIELD_SCHEMA_EXTRA),
+        Field(deprecated=True),
     ] = None,
 ) -> AgentOutputRead:
-    """Use AI to interact with Linear."""
-    resolved_model = resolve_model_selection(
-        model=model, model_name=model_name, model_provider=model_provider
+    raise NotImplementedError(
+        "Use the 'ai.agent' action with MCP integrations instead."
     )
-    token = secrets.get(linear_mcp_oauth_secret.token_name)
-    ctx = get_context()
-    result = await ctx.agents.run(
-        user_prompt=user_prompt,
-        config=AgentConfig(
-            model_name=resolved_model.model_name,
-            model_provider=resolved_model.model_provider,
-            catalog_id=resolved_model.catalog_id,
-            instructions=instructions,
-            mcp_servers=[
-                MCPServerConfig(
-                    name="linear",
-                    url="https://mcp.linear.app/mcp",
-                    headers={"Authorization": f"Bearer {token}"},
-                )
-            ],
-        ),
-    )
-    return result
