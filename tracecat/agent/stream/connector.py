@@ -13,6 +13,7 @@ from tracecat.agent.session.service import AgentSessionService
 from tracecat.agent.stream.events import (
     AgentStreamEventTA,
     StreamConnected,
+    StreamData,
     StreamDelta,
     StreamEnd,
     StreamError,
@@ -58,6 +59,13 @@ class AgentStream:
             maxlen=10000,
             approximate=True,
         )
+
+    async def append_data_event(self, event_type: str, data: Any) -> None:
+        """Append a custom Vercel data part to the session stream."""
+        if not event_type.startswith("data-"):
+            msg = "Data event types must start with 'data-'"
+            raise ValueError(msg)
+        await self.append({"kind": "data", "type": event_type, "data": data})
 
     async def error(self, error: str) -> None:
         """Emit an error marker."""
@@ -150,6 +158,18 @@ class AgentStream:
                                             AgentStreamEventTA.validate_python(data)
                                         )
                                         yield StreamDelta(id=msg_id, event=legacy_event)
+                                    case {
+                                        "kind": "data",
+                                        "type": event_type,
+                                        "data": event_data,
+                                    } if isinstance(
+                                        event_type, str
+                                    ) and event_type.startswith("data-"):
+                                        yield StreamData(
+                                            id=msg_id,
+                                            type=event_type,
+                                            data=event_data,
+                                        )
                                     case {"type": _}:
                                         unified_event = (
                                             UnifiedStreamEventTA.validate_python(data)
@@ -243,6 +263,8 @@ class AgentStream:
                     case StreamDelta():
                         yield event.sse()
                     case StreamMessage():
+                        yield event.sse()
+                    case StreamData():
                         yield event.sse()
                     case _:
                         logger.warning(

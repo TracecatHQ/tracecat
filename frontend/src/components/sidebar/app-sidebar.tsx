@@ -110,6 +110,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   // Scope checks for sidebar items
   const canViewWorkflows = useScopeCheck("workflow:read")
   const canViewAgents = useScopeCheck("agent:read")
+  const canExecuteAgents = useScopeCheck("agent:execute")
   const canViewTables = useScopeCheck("table:read")
   const canViewVariables = useScopeCheck("variable:read")
   const canViewSecrets = useScopeCheck("secret:read")
@@ -122,6 +123,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const canViewCases = useScopeCheck("case:read")
   const shouldLoadEntitlements =
     canViewAgents === true ||
+    canExecuteAgents === true ||
     canViewServiceAccounts === true ||
     canViewInbox === true
   const { hasEntitlement, isLoading: entitlementsIsLoading } = useEntitlements({
@@ -152,6 +154,17 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
         icon: LayersIcon,
         isActive: pathname?.startsWith(`${basePath}/cases`),
         visible: canViewCases === true,
+      },
+      {
+        title: "Mission Control",
+        url: `${basePath}/mission-control`,
+        icon: BotIcon,
+        isActive: pathname?.startsWith(`${basePath}/mission-control`),
+        visible: canExecuteAgents === true,
+        isLocked: entitlementsIsLoading || !agentAddonsEnabled,
+        onSelect: entitlementsIsLoading
+          ? undefined
+          : () => setLockedFeatureDialogOpen(true),
       },
       {
         title: "Agents",
@@ -223,6 +236,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       pathname,
       canViewWorkflows,
       canViewCases,
+      canExecuteAgents,
       canViewTables,
       canViewVariables,
       canViewSecrets,

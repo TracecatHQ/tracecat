@@ -35,6 +35,7 @@ from tracecat_registry._internal.exceptions import SecretNotFoundError
 
 import tracecat.agent.adapter.vercel
 from tracecat import config
+from tracecat.agent.adapter.artifact import Artifact, ArtifactAdapter
 from tracecat.agent.approvals.enums import ApprovalStatus
 from tracecat.agent.llm import LLMCompletionError
 from tracecat.agent.mcp.metadata import sanitize_message_tool_inputs
@@ -78,7 +79,14 @@ from tracecat.chat.schemas import (
 )
 from tracecat.chat.service import ChatService
 from tracecat.chat.tools import get_default_tools
-from tracecat.db.models import AgentSession, AgentSessionHistory, Approval, Chat
+from tracecat.db.models import (
+    AgentSession,
+    AgentSessionHistory,
+    Approval,
+    Case,
+    Chat,
+    Workflow,
+)
 from tracecat.dsl.client import get_temporal_client
 from tracecat.dsl.common import RETRY_POLICIES
 from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
@@ -312,6 +320,51 @@ class AgentSessionService(BaseWorkspaceService):
         )
         result = await self.session.execute(stmt)
         return result.scalar_one_or_none()
+
+    async def build_initial_artifact(
+        self, agent_session: AgentSession
+    ) -> Artifact | None:
+        """Build the session's initial Mission Control artifact, if supported."""
+        entity_type = AgentSessionEntity(agent_session.entity_type)
+        match entity_type:
+            case AgentSessionEntity.CASE:
+                stmt = select(Case).where(
+                    Case.id == agent_session.entity_id,
+                    Case.workspace_id == self.workspace_id,
+                )
+                result = await self.session.execute(stmt)
+                case = result.scalar_one_or_none()
+                if case is None:
+                    return None
+                return ArtifactAdapter.validate_python(
+                    {
+                        "type": "case",
+                        "id": str(case.id),
+                        "title": case.summary,
+                        "severity": case.severity.value,
+                        "status": case.status.value,
+                    }
+                )
+            case AgentSessionEntity.WORKFLOW:
+                stmt = select(Workflow).where(
+                    Workflow.id == agent_session.entity_id,
+                    Workflow.workspace_id == self.workspace_id,
+                )
+                result = await self.session.execute(stmt)
+                workflow = result.scalar_one_or_none()
+                if workflow is None:
+                    return None
+                return ArtifactAdapter.validate_python(
+                    {
+                        "type": "workflow",
+                        "id": str(workflow.id),
+                        "title": workflow.title,
+                        "color": "#64748b",
+                        "isPublished": workflow.status == "online",
+                    }
+                )
+            case _:
+                return None
 
     async def is_legacy_session(self, session_id: uuid.UUID) -> bool:
         """Check if a session ID refers to a legacy Chat record.

@@ -91,9 +91,13 @@ function isCustomFieldValueEmpty(value: unknown): boolean {
 
 interface CasePanelContentProps {
   caseId: string
+  embedded?: boolean
 }
 
-export function CasePanelView({ caseId }: CasePanelContentProps) {
+export function CasePanelView({
+  caseId,
+  embedded = false,
+}: CasePanelContentProps) {
   const workspaceId = useWorkspaceId()
   const { members } = useWorkspaceMembers(workspaceId)
   const router = useRouter()
@@ -134,6 +138,7 @@ export function CasePanelView({ caseId }: CasePanelContentProps) {
     [caseData?.fields]
   )
   const [showAllCustomFields, setShowAllCustomFields] = useState(false)
+  const [embeddedTab, setEmbeddedTab] = useState<CasePanelTab>("comments")
   const visibleCustomFields = useMemo(
     () =>
       showAllCustomFields
@@ -157,7 +162,7 @@ export function CasePanelView({ caseId }: CasePanelContentProps) {
   )
 
   // Get active tab from URL query params, default to "comments"
-  const activeTab = (
+  const routeTab = (
     searchParams &&
     ["comments", "activity", "attachments", "rows", "payload"].includes(
       searchParams.get("tab") || ""
@@ -165,13 +170,18 @@ export function CasePanelView({ caseId }: CasePanelContentProps) {
       ? (searchParams.get("tab") ?? "comments")
       : "comments"
   ) as CasePanelTab
+  const activeTab = embedded ? embeddedTab : routeTab
 
   // Function to handle tab changes and update URL
   const handleTabChange = useCallback(
     (tab: string) => {
+      if (embedded) {
+        setEmbeddedTab(tab as CasePanelTab)
+        return
+      }
       router.push(`/workspaces/${workspaceId}/cases/${caseId}?tab=${tab}`)
     },
-    [router, workspaceId, caseId]
+    [embedded, router, workspaceId, caseId]
   )
 
   if (caseDataIsLoading) {

@@ -10,6 +10,10 @@ from fastapi.responses import Response, StreamingResponse
 
 from tracecat import config
 from tracecat.agent.adapter import vercel
+from tracecat.agent.adapter.artifact import (
+    ARTIFACT_DATA_PART_TYPE,
+    artifact_data_payload,
+)
 from tracecat.agent.session.schemas import (
     AgentSessionCreate,
     AgentSessionForkRequest,
@@ -178,6 +182,20 @@ async def get_session_vercel(
     if agent_session:
         messages = await svc.list_messages(session_id)
         ui_messages = vercel.convert_chat_messages_to_ui(messages)
+        if artifact := await svc.build_initial_artifact(agent_session):
+            ui_messages.insert(
+                0,
+                vercel.UIMessage(
+                    id=f"artifact-{agent_session.id}",
+                    role="assistant",
+                    parts=[
+                        vercel.DataUIPart(
+                            type=ARTIFACT_DATA_PART_TYPE,
+                            data=artifact_data_payload("add", artifact),
+                        )
+                    ],
+                ),
+            )
         return AgentSessionReadVercel(
             id=agent_session.id,
             workspace_id=agent_session.workspace_id,
@@ -316,7 +334,10 @@ async def send_message(
                     detail="Legacy chat sessions are read-only and cannot receive new messages",
                 )
 
-            await svc.validate_turn_request(session_id=session_id, request=request)
+            agent_session = await svc.validate_turn_request(
+                session_id=session_id,
+                request=request,
+            )
 
             if isinstance(request, ContinueRunRequest):
                 # Continuations should follow only newly appended events. Resuming
@@ -330,6 +351,11 @@ async def send_message(
                 # Read from the beginning of the freshly cleared stream so we still
                 # pick up events emitted before the SSE response starts consuming.
                 start_id = "0-0"
+                if artifact := await svc.build_initial_artifact(agent_session):
+                    await stream.append_data_event(
+                        ARTIFACT_DATA_PART_TYPE,
+                        artifact_data_payload("add", artifact),
+                    )
 
             # Run session turn (spawns DurableAgentWorkflow)
             try:

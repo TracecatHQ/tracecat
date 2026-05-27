@@ -51,8 +51,10 @@ interface ChatInterfaceProps {
   chatId?: string
   entityType: AgentSessionEntity
   entityId: string
+  title?: string
   onChatSelect?: (chatId: string) => void
   bodyClassName?: string
+  placeholder?: string
 }
 
 type PendingFirstMessage = {
@@ -69,8 +71,10 @@ export function ChatInterface({
   chatId,
   entityType,
   entityId,
+  title,
   onChatSelect,
   bodyClassName,
+  placeholder,
 }: ChatInterfaceProps) {
   const workspaceId = useWorkspaceId()
   const { hasEntitlement } = useEntitlements()
@@ -285,6 +289,9 @@ export function ChatInterface({
         <div className="flex items-center justify-between">
           {/* Unified New-chat / History dropdown */}
           <div className="flex items-center gap-2">
+            {title ? (
+              <h1 className="min-w-0 truncate text-sm font-medium">{title}</h1>
+            ) : null}
             <ChatHistoryDropdown
               chats={chats}
               isLoading={chatsLoading}
@@ -348,6 +355,7 @@ export function ChatInterface({
           workspaceId={workspaceId}
           entityType={entityType}
           entityId={entityId}
+          placeholder={placeholder ?? `Ask about this ${entityType}...`}
           chat={chat}
           chatLoading={chatLoading}
           chatError={chatError}
@@ -398,6 +406,7 @@ interface ChatBodyProps {
   workspaceId: string
   entityType: AgentSessionEntity
   entityId: string
+  placeholder: string
   chat?: AgentSessionsGetSessionVercelResponse
   chatLoading: boolean
   chatError: unknown
@@ -430,6 +439,7 @@ function ChatBody({
   workspaceId,
   entityType,
   entityId,
+  placeholder,
   chat,
   chatLoading,
   chatError,
@@ -533,7 +543,7 @@ function ChatBody({
         workspaceId={workspaceId}
         entityType={entityType}
         entityId={entityId}
-        placeholder={`Ask about this ${entityType}...`}
+        placeholder={placeholder}
         className="flex-1 min-h-0"
         modelInfo={modelInfo}
         toolsEnabled={toolsEnabled}
@@ -559,7 +569,7 @@ function ChatBody({
       workspaceId={workspaceId}
       entityType={entityType}
       entityId={entityId}
-      placeholder={`Ask about this ${entityType}...`}
+      placeholder={placeholder}
       className="flex-1 min-h-0"
       modelInfo={modelInfo}
       toolsEnabled={toolsEnabled}

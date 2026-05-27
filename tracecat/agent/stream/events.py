@@ -38,6 +38,20 @@ class StreamMessage:
 
 
 @dataclass(slots=True, kw_only=True)
+class StreamData:
+    """Container for custom UI data parts."""
+
+    kind: Literal["data"] = "data"
+    id: str
+    type: str
+    data: object
+
+    def sse(self) -> str:
+        payload = orjson.dumps({"type": self.type, "data": self.data}).decode()
+        return f"id: {self.id}\nevent: data\ndata: {payload}\n\n"
+
+
+@dataclass(slots=True, kw_only=True)
 class StreamConnected:
     """Container for Redis stream payloads and adapter errors."""
 
@@ -94,7 +108,12 @@ class StreamKeepAlive:
 
 
 type StreamEvent = Annotated[
-    StreamDelta | StreamMessage | StreamEnd | StreamError | StreamKeepAlive,
+    StreamDelta
+    | StreamMessage
+    | StreamData
+    | StreamEnd
+    | StreamError
+    | StreamKeepAlive,
     Discriminator("kind"),
 ]
 

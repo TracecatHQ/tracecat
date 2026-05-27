@@ -64,6 +64,7 @@ from tracecat.agent.common.stream_types import StreamEventType, UnifiedStreamEve
 from tracecat.agent.mcp.metadata import strip_proxy_tool_metadata
 from tracecat.agent.mcp.utils import normalize_mcp_tool_name
 from tracecat.agent.stream.events import (
+    StreamData,
     StreamDelta,
     StreamEnd,
     StreamError,
@@ -1814,6 +1815,8 @@ async def sse_vercel(events: AsyncIterable[StreamEvent]) -> AsyncIterable[str]:
                         for data_event in context.flush_data_events():
                             yield format_sse(data_event)
                     continue
+                case StreamData(type=event_type, data=data):
+                    yield format_sse(DataEventPayload(type=event_type, data=data))
                 case StreamKeepAlive():
                     yield StreamKeepAlive.sse()
                 case StreamError(error=error):
