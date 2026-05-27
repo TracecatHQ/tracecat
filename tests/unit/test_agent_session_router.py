@@ -20,7 +20,7 @@ from tracecat.agent.session.router import (
     send_message,
     stream_session_events,
 )
-from tracecat.agent.session.types import AgentSessionEntity
+from tracecat.agent.session.types import AgentSessionEntity, AgentSessionStatus
 from tracecat.auth.types import Role
 from tracecat.chat.schemas import (
     ApprovalDecision,
@@ -87,7 +87,7 @@ class _AsyncContext:
 
 @pytest.mark.anyio
 async def test_get_session_includes_agents_binding() -> None:
-    session_stub = _agent_session_stub()
+    session_stub = _agent_session_stub(status=AgentSessionStatus.RUNNING.value)
     fake_svc = SimpleNamespace(
         get_session=AsyncMock(return_value=session_stub),
         list_messages=AsyncMock(return_value=[]),
@@ -107,11 +107,14 @@ async def test_get_session_includes_agents_binding() -> None:
         "enabled": False,
         "subagents": [],
     }
+    assert response.turn_status is AgentSessionStatus.RUNNING
 
 
 @pytest.mark.anyio
 async def test_get_session_vercel_includes_agents_binding() -> None:
-    session_stub = _agent_session_stub()
+    session_stub = _agent_session_stub(
+        status=AgentSessionStatus.WAITING_FOR_APPROVAL.value
+    )
     fake_svc = SimpleNamespace(
         get_session=AsyncMock(return_value=session_stub),
         list_messages=AsyncMock(return_value=[]),
@@ -131,6 +134,7 @@ async def test_get_session_vercel_includes_agents_binding() -> None:
         "enabled": False,
         "subagents": [],
     }
+    assert response.turn_status is AgentSessionStatus.WAITING_FOR_APPROVAL
 
 
 @pytest.mark.anyio
