@@ -345,6 +345,7 @@ function TablesActions() {
 function IntegrationsActions() {
   const [oauthDialogOpen, setOauthDialogOpen] = useState(false)
   const [credentialDialogOpen, setCredentialDialogOpen] = useState(false)
+  const canCreateSecrets = useScopeCheck("secret:create") === true
 
   return (
     <>
@@ -365,15 +366,17 @@ function IntegrationsActions() {
           "
         >
           <DropdownMenuGroup>
-            <DropdownMenuItem onSelect={() => setCredentialDialogOpen(true)}>
-              <KeyRound className="size-4 text-foreground/80" />
-              <div className="flex flex-col text-xs">
-                <span>Key-value credentials</span>
-                <span className="text-xs text-muted-foreground">
-                  Store API keys and tokens
-                </span>
-              </div>
-            </DropdownMenuItem>
+            {canCreateSecrets ? (
+              <DropdownMenuItem onSelect={() => setCredentialDialogOpen(true)}>
+                <KeyRound className="size-4 text-foreground/80" />
+                <div className="flex flex-col text-xs">
+                  <span>Key-value credentials</span>
+                  <span className="text-xs text-muted-foreground">
+                    Store API keys and tokens
+                  </span>
+                </div>
+              </DropdownMenuItem>
+            ) : null}
             <DropdownMenuItem onSelect={() => setOauthDialogOpen(true)}>
               <LockKeyhole className="size-4 text-foreground/80" />
               <div className="flex flex-col text-xs">
@@ -1549,6 +1552,11 @@ function MembersActions({ view }: { view: MembersViewMode }) {
 
 function CredentialsActions() {
   const [dialogOpen, setDialogOpen] = useState(false)
+  const canCreateSecrets = useScopeCheck("secret:create")
+
+  if (canCreateSecrets !== true) {
+    return null
+  }
 
   return (
     <>
@@ -1599,12 +1607,12 @@ function ServiceAccountsActions() {
 }
 
 function McpServersActions() {
-  const canMutate = useScopeCheck("integration:update")
+  const canCreate = useScopeCheck("integration:create")
   const pathname = usePathname()
   const searchParams = useSearchParams()
   const router = useRouter()
 
-  if (canMutate !== true || !pathname) {
+  if (canCreate !== true || !pathname) {
     return null
   }
 

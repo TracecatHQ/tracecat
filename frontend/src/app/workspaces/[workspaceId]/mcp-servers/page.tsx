@@ -14,6 +14,7 @@ import { CatalogHeader } from "@/components/catalog/catalog-header"
 import { ProviderIcon } from "@/components/icons"
 import { MCPIntegrationDialog } from "@/components/integrations/mcp-integration-dialog"
 import { OAuthIntegrationDetailsDialog } from "@/components/integrations/oauth-integration-details-dialog"
+import { OAuthIntegrationDialog } from "@/components/integrations/oauth-integration-dialog"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -49,7 +50,10 @@ const PRESET_FILTERS: Array<{ value: PresetFilter; label: string }> = [
 export default function McpServersPage() {
   const workspaceId = useWorkspaceId()
   const canRead = useScopeCheck("integration:read")
-  const canMutate = useScopeCheck("integration:update") === true
+  const canCreate = useScopeCheck("integration:create")
+  const canUpdate = useScopeCheck("integration:update")
+  const canCreateMcp = canCreate === true
+  const canUpdateIntegrations = canUpdate === true
 
   const { mcpIntegrations, mcpIntegrationsIsLoading, mcpIntegrationsError } =
     useListMcpIntegrations(workspaceId, "workspace")
@@ -61,6 +65,10 @@ export default function McpServersPage() {
   const [createOpen, setCreateOpen] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [activeProvider, setActiveProvider] = useState<{
+    providerId: string
+    grantType: OAuthGrantType
+  } | null>(null)
+  const [configProvider, setConfigProvider] = useState<{
     providerId: string
     grantType: OAuthGrantType
   } | null>(null)
@@ -77,7 +85,12 @@ export default function McpServersPage() {
     if (!createSignal || !pathname) {
       return
     }
-    setCreateOpen(true)
+    if (canCreate === undefined) {
+      return
+    }
+    if (canCreate === true) {
+      setCreateOpen(true)
+    }
     const params = new URLSearchParams(searchParams?.toString() ?? "")
     params.delete(CREATE_MCP_SERVER_PARAM)
     const next = params.toString()
@@ -85,7 +98,7 @@ export default function McpServersPage() {
     // searchParams is read once to compose the cleanup URL; the dependency
     // we actually watch is `createSignal`.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [createSignal, pathname, router])
+  }, [canCreate, createSignal, pathname, router])
 
   const queryClient = useQueryClient()
   const connectProviderMutation = useConnectProvider(workspaceId)
@@ -154,7 +167,15 @@ export default function McpServersPage() {
   const isLoading = mcpIntegrationsIsLoading || providersIsLoading
   const loadError = mcpIntegrationsError ?? providersError
 
-  if (canRead !== true) {
+  if (canRead === undefined) {
+    return (
+      <div className="flex h-full items-center justify-center p-6">
+        <Loader2 className="size-5 animate-spin text-muted-foreground" />
+      </div>
+    )
+  }
+
+  if (canRead === false) {
     return (
       <div className="flex h-full items-center justify-center p-6">
         <Alert className="max-w-md">
@@ -205,7 +226,7 @@ export default function McpServersPage() {
                   toolset.
                 </p>
               </div>
-              {canMutate ? (
+              {canCreateMcp ? (
                 <Button size="sm" onClick={() => setCreateOpen(true)}>
                   <Plus className="mr-1.5 size-4" />
                   Add MCP server
@@ -219,17 +240,24 @@ export default function McpServersPage() {
                   <PlatformMcpCard
                     key={`platform:${item.provider.id}`}
                     provider={item.provider}
-                    canMutate={canMutate}
+                    canMutate={canUpdateIntegrations}
                     isConnecting={
                       connectProviderMutation.isPending &&
                       connectProviderMutation.variables?.providerId ===
                         item.provider.id
                     }
-                    onConnect={() =>
+                    onConnect={() => {
+                      if (item.provider.requires_config) {
+                        setConfigProvider({
+                          providerId: item.provider.id,
+                          grantType: item.provider.grant_type,
+                        })
+                        return
+                      }
                       connectProviderMutation.mutate({
                         providerId: item.provider.id,
                       })
-                    }
+                    }}
                     onManage={() =>
                       setActiveProvider({
                         providerId: item.provider.id,
@@ -241,7 +269,7 @@ export default function McpServersPage() {
                   <McpCard
                     key={`workspace:${item.mcp.id}`}
                     mcp={item.mcp}
-                    canMutate={canMutate}
+                    canMutate={canUpdateIntegrations}
                     onEdit={() => setEditingId(item.mcp.id)}
                   />
                 )
@@ -256,9 +284,26 @@ export default function McpServersPage() {
           providerId={activeProvider.providerId}
           grantType={activeProvider.grantType}
           open
+          canUpdate={canUpdateIntegrations}
           onOpenChange={(next) => {
             if (!next) {
               setActiveProvider(null)
+              queryClient.invalidateQueries({
+                queryKey: integrationKeys.providers(workspaceId),
+              })
+            }
+          }}
+        />
+      ) : null}
+
+      {configProvider ? (
+        <OAuthIntegrationDialog
+          providerId={configProvider.providerId}
+          grantType={configProvider.grantType}
+          open
+          onOpenChange={(next) => {
+            if (!next) {
+              setConfigProvider(null)
               queryClient.invalidateQueries({
                 queryKey: integrationKeys.providers(workspaceId),
               })

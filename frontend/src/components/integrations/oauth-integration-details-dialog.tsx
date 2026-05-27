@@ -44,6 +44,7 @@ interface OAuthIntegrationDetailsDialogProps {
   grantType: OAuthGrantType
   open: boolean
   onOpenChange: (open: boolean) => void
+  canUpdate?: boolean
 }
 
 function maskValue(value?: string | null) {
@@ -59,6 +60,7 @@ export function OAuthIntegrationDetailsDialog({
   grantType,
   open,
   onOpenChange,
+  canUpdate = false,
 }: OAuthIntegrationDetailsDialogProps) {
   const workspaceId = useWorkspaceId()
   const [confirmDisconnectOpen, setConfirmDisconnectOpen] = useState(false)
@@ -203,56 +205,58 @@ export function OAuthIntegrationDetailsDialog({
                           </p>
                         </div>
                       </div>
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="size-8 shrink-0 text-muted-foreground"
-                            disabled={anyActionPending}
-                            aria-label="Connection actions"
-                          >
-                            {anyActionPending ? (
-                              <Loader2 className="size-4 animate-spin" />
-                            ) : (
-                              <MoreHorizontal className="size-4" />
-                            )}
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end" className="w-44">
-                          {supportsReauthorize ? (
+                      {canUpdate ? (
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="size-8 shrink-0 text-muted-foreground"
+                              disabled={anyActionPending}
+                              aria-label="Connection actions"
+                            >
+                              {anyActionPending ? (
+                                <Loader2 className="size-4 animate-spin" />
+                              ) : (
+                                <MoreHorizontal className="size-4" />
+                              )}
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end" className="w-44">
+                            {supportsReauthorize ? (
+                              <DropdownMenuItem
+                                onClick={() =>
+                                  reauthorizeMutation.mutate({ providerId })
+                                }
+                                disabled={reauthorizeMutation.isPending}
+                              >
+                                <Link2 className="mr-2 size-4 text-muted-foreground" />
+                                Reauthorize
+                              </DropdownMenuItem>
+                            ) : null}
                             <DropdownMenuItem
                               onClick={() =>
-                                reauthorizeMutation.mutate({ providerId })
+                                testMutation.mutate({ providerId, grantType })
                               }
-                              disabled={reauthorizeMutation.isPending}
+                              disabled={testMutation.isPending}
                             >
-                              <Link2 className="mr-2 size-4 text-muted-foreground" />
-                              Reauthorize
+                              <PlayCircle className="mr-2 size-4 text-muted-foreground" />
+                              Test
                             </DropdownMenuItem>
-                          ) : null}
-                          <DropdownMenuItem
-                            onClick={() =>
-                              testMutation.mutate({ providerId, grantType })
-                            }
-                            disabled={testMutation.isPending}
-                          >
-                            <PlayCircle className="mr-2 size-4 text-muted-foreground" />
-                            Test
-                          </DropdownMenuItem>
-                          <DropdownMenuSeparator />
-                          <DropdownMenuItem
-                            className="text-destructive focus:bg-destructive/10 focus:text-destructive"
-                            onSelect={(event) => {
-                              event.preventDefault()
-                              setConfirmDisconnectOpen(true)
-                            }}
-                          >
-                            <Trash2 className="mr-2 size-4" />
-                            Disconnect
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem
+                              className="text-destructive focus:bg-destructive/10 focus:text-destructive"
+                              onSelect={(event) => {
+                                event.preventDefault()
+                                setConfirmDisconnectOpen(true)
+                              }}
+                            >
+                              <Trash2 className="mr-2 size-4" />
+                              Disconnect
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      ) : null}
                     </div>
                   ) : (
                     <p className="text-sm text-muted-foreground">

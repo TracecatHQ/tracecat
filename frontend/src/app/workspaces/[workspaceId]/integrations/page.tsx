@@ -305,7 +305,6 @@ export default function IntegrationsPage() {
 
     const provider = providers.find(
       (item) =>
-        !isMcpProvider(item.id) &&
         item.id === connectParam &&
         (connectGrantType == null || item.grant_type === connectGrantType)
     )
@@ -611,6 +610,7 @@ export default function IntegrationsPage() {
           }}
           providerId={detailsProvider.providerId}
           grantType={detailsProvider.grantType}
+          canUpdate={canMutateIntegrations}
         />
       )}
       <ConfirmDestructiveDialog

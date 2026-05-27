@@ -95,7 +95,11 @@ export function ConfirmDestructiveDialog({
             onClick={async (event) => {
               event.preventDefault()
               if (!matches) return
-              await onConfirm()
+              try {
+                await onConfirm()
+              } catch {
+                // Mutation callbacks handle user-facing errors.
+              }
             }}
           >
             {isPending ? (
