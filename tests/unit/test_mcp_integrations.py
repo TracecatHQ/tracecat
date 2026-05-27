@@ -21,7 +21,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat.agent.preset.service import AgentPresetService
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import ADMIN_SCOPES
-from tracecat.db.models import AgentPreset, MCPIntegration, OAuthIntegration
+from tracecat.db.models import (
+    AgentPreset,
+    AgentPresetVersion,
+    MCPIntegration,
+    OAuthIntegration,
+)
 from tracecat.integrations.enums import MCPAuthType, OAuthGrantType
 from tracecat.integrations.providers.base import (
     DynamicRegistrationResult,
@@ -639,8 +644,21 @@ class TestMCPIntegrationCRUD:
             ],
         )
         integration_service.session.add(preset)
-        await integration_service.session.commit()
+        await integration_service.session.flush()
         preset_id = preset.id
+        initial_version = AgentPresetVersion(
+            workspace_id=integration_service.workspace_id,
+            preset_id=preset_id,
+            version=1,
+            model_name=preset.model_name,
+            model_provider=preset.model_provider,
+            mcp_integrations=list(preset.mcp_integrations or []),
+        )
+        integration_service.session.add(initial_version)
+        await integration_service.session.flush()
+        initial_version_id = initial_version.id
+        preset.current_version_id = initial_version_id
+        await integration_service.session.commit()
 
         await integration_service.disconnect_integration(integration=oauth_integration)
 
@@ -680,6 +698,20 @@ class TestMCPIntegrationCRUD:
         assert str(duplicate_managed_mcp_id) not in refreshed_preset.mcp_integrations
         assert str(wildcard_collision_mcp_id) in refreshed_preset.mcp_integrations
         assert str(workspace_created_id) in refreshed_preset.mcp_integrations
+        assert refreshed_preset.current_version_id != initial_version_id
+
+        current_version_result = await integration_service.session.execute(
+            select(AgentPresetVersion).where(
+                AgentPresetVersion.id == refreshed_preset.current_version_id
+            )
+        )
+        current_version = current_version_result.scalars().one()
+        assert current_version.version == 2
+        assert current_version.mcp_integrations is not None
+        assert str(mcp_integration_id) not in current_version.mcp_integrations
+        assert str(duplicate_managed_mcp_id) not in current_version.mcp_integrations
+        assert str(wildcard_collision_mcp_id) in current_version.mcp_integrations
+        assert str(workspace_created_id) in current_version.mcp_integrations
 
     async def test_delete_mcp_integration_rolls_back_on_disconnect_failure(
         self,

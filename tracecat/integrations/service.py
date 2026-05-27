@@ -1185,19 +1185,23 @@ class IntegrationService(BaseWorkspaceService):
         ).scalar_subquery()
         candidate_exists = select(candidate_mcp_integrations.c.id).exists()
 
-        await self.session.execute(
-            update(AgentPreset)
-            .where(
-                AgentPreset.workspace_id == self.workspace_id,
-                AgentPreset.mcp_integrations.isnot(None),
-                candidate_exists,
-                AgentPreset.mcp_integrations.op("?|")(candidate_ids),
+        pruned_preset_ids = (
+            await self.session.scalars(
+                update(AgentPreset)
+                .where(
+                    AgentPreset.workspace_id == self.workspace_id,
+                    AgentPreset.mcp_integrations.isnot(None),
+                    candidate_exists,
+                    AgentPreset.mcp_integrations.op("?|")(candidate_ids),
+                )
+                .values(
+                    mcp_integrations=AgentPreset.mcp_integrations.op("-")(candidate_ids)
+                )
+                .returning(AgentPreset.id)
+                .execution_options(synchronize_session="fetch")
             )
-            .values(
-                mcp_integrations=AgentPreset.mcp_integrations.op("-")(candidate_ids)
-            )
-            .execution_options(synchronize_session="fetch")
-        )
+        ).all()
+        await self._version_pruned_agent_presets(preset_ids=pruned_preset_ids)
 
         deleted = await self.session.scalars(
             sa.delete(MCPIntegration)
@@ -1206,6 +1210,35 @@ class IntegrationService(BaseWorkspaceService):
             .execution_options(synchronize_session="fetch")
         )
         return len(deleted.all())
+
+    async def _version_pruned_agent_presets(
+        self, *, preset_ids: Sequence[uuid.UUID]
+    ) -> None:
+        """Create current versions for presets whose MCP refs were pruned."""
+        if not preset_ids:
+            return
+
+        from tracecat.agent.preset.service import AgentPresetService
+
+        preset_service = AgentPresetService(self.session, role=self.role)
+        presets = await self.session.scalars(
+            select(AgentPreset)
+            .where(
+                AgentPreset.workspace_id == self.workspace_id,
+                AgentPreset.id.in_(preset_ids),
+            )
+            .order_by(AgentPreset.id)
+            .with_for_update()
+        )
+
+        for preset in presets:
+            version = await preset_service._create_version_from_preset(
+                preset,
+                preset_locked=True,
+            )
+            preset.current_version_id = version.id
+            self.session.add(preset)
+        await self.session.flush()
 
     async def _mcp_integration_slug_taken(self, slug: str) -> bool:
         """Check if an MCP integration slug is already taken."""
