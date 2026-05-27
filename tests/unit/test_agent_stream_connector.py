@@ -74,7 +74,8 @@ async def test_stream_events_clears_buffer_after_terminal_marker() -> None:
 
     assert isinstance(event, StreamEnd)
 
-    stream._set_last_stream_id.assert_awaited_once_with(None)
+    # Readers never write the cursor; on terminal we only expire the buffer.
+    stream._set_last_stream_id.assert_not_awaited()
     raw_client.expire.assert_awaited_once_with(
         name=stream._stream_key,
         time=stream.COMPLETED_STREAM_TTL_SECONDS,
@@ -82,7 +83,7 @@ async def test_stream_events_clears_buffer_after_terminal_marker() -> None:
 
 
 @pytest.mark.anyio
-async def test_stream_events_preserves_cursor_when_stream_not_completed() -> None:
+async def test_stream_events_does_not_write_cursor_when_not_completed() -> None:
     workspace_id = uuid.uuid4()
     session_id = uuid.uuid4()
     raw_client = SimpleNamespace(expire=AsyncMock(return_value=None))
@@ -120,5 +121,26 @@ async def test_stream_events_preserves_cursor_when_stream_not_completed() -> Non
 
     assert len(events) == 1
     assert isinstance(events[0], StreamDelta)
-    stream._set_last_stream_id.assert_awaited()
+    # Readers never write the cursor: the browser owns it via Last-Event-ID.
+    stream._set_last_stream_id.assert_not_awaited()
     raw_client.expire.assert_not_awaited()
+
+
+@pytest.mark.anyio
+async def test_min_entry_id_returns_oldest_or_none() -> None:
+    workspace_id = uuid.uuid4()
+    session_id = uuid.uuid4()
+    client = SimpleNamespace(
+        xrange=AsyncMock(return_value=[("1717426372768-0", {})]),
+    )
+    stream = AgentStream(
+        client=cast(RedisClient, client),
+        workspace_id=workspace_id,
+        session_id=session_id,
+    )
+
+    assert await stream.min_entry_id() == "1717426372768-0"
+    client.xrange.assert_awaited_once_with(stream._stream_key, count=1)
+
+    client.xrange = AsyncMock(return_value=[])
+    assert await stream.min_entry_id() is None

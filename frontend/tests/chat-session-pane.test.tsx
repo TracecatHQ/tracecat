@@ -13,6 +13,15 @@ import { useBuilderRegistryActions } from "@/lib/hooks"
 jest.mock("@/hooks/use-chat", () => ({
   useVercelChat: jest.fn(),
   useGetChat: jest.fn(() => ({ chat: null })),
+  useSessionStatus: jest.fn(() => ({
+    turnStatus: undefined,
+    currRunId: undefined,
+    prompt: undefined,
+  })),
+  useCancelChatTurn: jest.fn(() => ({
+    cancelChatTurn: jest.fn(),
+    isCancellingChatTurn: false,
+  })),
   useUpdateChat: jest.fn(() => ({ updateChat: jest.fn(), isUpdating: false })),
   useCancelChatTurn: jest.fn(() => ({
     cancelChatTurn: jest.fn(),

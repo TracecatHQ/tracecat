@@ -155,6 +155,22 @@ class AgentSessionReadVercel(AgentSessionRead):
     )
 
 
+class AgentSessionStatusRead(BaseModel):
+    """Lightweight session lifecycle status for cheap polling.
+
+    Clients poll this (instead of the full message history) to learn when a turn
+    starts elsewhere and attach to the live stream.
+    """
+
+    turn_status: AgentSessionStatus = Field(default=AgentSessionStatus.IDLE)
+    curr_run_id: uuid.UUID | None = None
+    prompt: str | None = Field(
+        default=None,
+        description="Human prompt that started the active run, for observer "
+        "clients to render (user messages cannot stream over the Vercel protocol).",
+    )
+
+
 class AgentSessionForkRequest(BaseModel):
     """Request schema for forking an agent session."""
 

@@ -650,6 +650,30 @@ class AgentSessionService(BaseWorkspaceService):
             agent_session.curr_run_id = None
             await self.session.commit()
         return False
+    async def get_active_run_prompt(
+        self, session_id: uuid.UUID, run_id: uuid.UUID
+    ) -> str | None:
+        """Return the human prompt text that started the given run, if any.
+
+        The prompt is the run's first user row whose message content is a plain
+        string (excludes leading queue-operation rows and tool_result arrays).
+        Used so observer clients can show the prompt while the assistant streams
+        (the Vercel stream protocol cannot carry user messages).
+        """
+        content = AgentSessionHistory.content
+        stmt = (
+            select(content["message"]["content"].astext)
+            .where(
+                AgentSessionHistory.session_id == session_id,
+                AgentSessionHistory.curr_run_id == run_id,
+                content["type"].astext == "user",
+                func.jsonb_typeof(content["message"]["content"]) == "string",
+            )
+            .order_by(AgentSessionHistory.surrogate_id)
+            .limit(1)
+        )
+        result = await self.session.execute(stmt)
+        return result.scalar_one_or_none()
 
     async def request_cancel(
         self,
@@ -1699,6 +1723,18 @@ class AgentSessionService(BaseWorkspaceService):
             .where(AgentSessionHistory.session_id.in_(session_ids))
             .order_by(AgentSessionHistory.surrogate_id)
         )
+        # While a turn is running, the active run's partial rows live in Redis;
+        # hide them here so the live assistant has exactly one source (no dedupe).
+        if (
+            getattr(agent_session, "status", None) == AgentSessionStatus.RUNNING.value
+            and getattr(agent_session, "curr_run_id", None) is not None
+        ):
+            all_history_stmt = all_history_stmt.where(
+                or_(
+                    AgentSessionHistory.curr_run_id.is_(None),
+                    AgentSessionHistory.curr_run_id != agent_session.curr_run_id,
+                )
+            )
         all_history_result = await self.session.execute(all_history_stmt)
         all_entries = list(all_history_result.scalars().all())
 

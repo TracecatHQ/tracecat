@@ -1,14 +1,19 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import uuid
+from collections.abc import AsyncIterator
 from pathlib import Path
+from typing import cast
 from unittest.mock import AsyncMock
 from uuid import UUID
 
 import orjson
 import pytest
+from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.agent.common.protocol import RuntimeEventEnvelope
 from tracecat.agent.common.socket_io import MessageType, build_message
@@ -19,6 +24,8 @@ from tracecat.agent.executor.loopback import (
     LoopbackHandler,
     LoopbackInput,
 )
+from tracecat.auth.types import Role
+from tracecat.db.models import AgentSession, AgentSessionHistory
 
 
 class _FakeStream:
@@ -417,3 +424,66 @@ async def test_cancelled_loopback_preserves_later_stream_and_history() -> None:
 
     assert stream.append.await_count == 1
     persist.assert_awaited_once()
+
+
+@pytest.mark.anyio
+@pytest.mark.usefixtures("db")
+async def test_persist_session_line_stamps_curr_run_id(
+    monkeypatch: pytest.MonkeyPatch,
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    """Persisted history rows carry the session's active run id so mid-turn DB
+    loads can hide them."""
+    run_id = uuid.uuid4()
+    agent_session = AgentSession(
+        id=uuid.uuid4(),
+        workspace_id=svc_role.workspace_id,
+        title="Chat",
+        entity_type="case",
+        entity_id=uuid.uuid4(),
+        curr_run_id=run_id,
+    )
+    session.add(agent_session)
+    await session.commit()
+
+    handler = LoopbackHandler(
+        input=LoopbackInput(
+            session_id=agent_session.id,
+            workspace_id=cast(uuid.UUID, svc_role.workspace_id),
+        )
+    )
+
+    @contextlib.asynccontextmanager
+    async def _ctx() -> AsyncIterator[AsyncSession]:
+        yield session
+
+    monkeypatch.setattr(
+        "tracecat.agent.executor.loopback.get_async_session_bypass_rls_context_manager",
+        _ctx,
+    )
+
+    await handler._persist_session_line(
+        "sdk-session",
+        orjson.dumps(
+            {
+                "type": "assistant",
+                "uuid": str(uuid.uuid4()),
+                "message": {"role": "assistant", "content": []},
+            }
+        ).decode(),
+    )
+
+    rows = (
+        (
+            await session.execute(
+                select(AgentSessionHistory).where(
+                    AgentSessionHistory.session_id == agent_session.id
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert len(rows) == 1
+    assert rows[0].curr_run_id == run_id

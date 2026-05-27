@@ -93,6 +93,15 @@ class AgentStream:
                 error=str(exc),
             )
 
+    async def min_entry_id(self) -> str | None:
+        """Oldest id still in the live buffer, or None if empty/evicted.
+
+        Used for reconnect gap detection: a client cursor older than this was
+        trimmed (maxlen) or TTL-evicted, so it cannot be resumed.
+        """
+        entries = await self.client.xrange(self._stream_key, count=1)
+        return entries[0][0] if entries else None
+
     async def _set_last_stream_id(self, last_stream_id: str | None) -> None:
         """Update last stream ID for reconnection support."""
 
@@ -120,7 +129,7 @@ class AgentStream:
                         StreamError (error events), or StreamEnd (end-of-stream marker).
 
         Note:
-            - Periodically updates the chat's last_stream_id for reconnection support
+            - Read-only: never writes last_stream_id (browser owns the cursor)
             - Implements exponential backoff on errors (1s sleep)
             - Blocks for up to 1 second waiting for new messages
             - Processes up to 100 messages per read operation
@@ -174,9 +183,6 @@ class AgentStream:
                                             message_id=msg_id,
                                         )
 
-                        if not stream_completed:
-                            await self._set_last_stream_id(current_id)
-
                     now = monotonic()
                     if now - last_keepalive >= self.KEEPALIVE_INTERVAL_SECONDS:
                         yield StreamKeepAlive()
@@ -194,11 +200,10 @@ class AgentStream:
             yield StreamError(error="Fatal stream error")
         finally:
             logger.info("Chat stream ended", stream_key=self._stream_key)
+            # Readers never write last_stream_id; the browser owns the reconnect
+            # cursor (Last-Event-ID). We only expire the buffer after terminal.
             if stream_completed:
-                await self._set_last_stream_id(None)
                 await self._expire_completed_stream()
-            else:
-                await self._set_last_stream_id(current_id)
 
     async def stream_events(
         self, stop_condition: Callable[[], Awaitable[bool]], last_id: str
@@ -212,14 +217,46 @@ class AgentStream:
         stop_condition: Callable[[], Awaitable[bool]],
         last_id: str,
         format: StreamFormat,
+        *,
+        message_id: str,
     ) -> AsyncIterable[str]:
         match format:
             case "vercel":
                 from tracecat.agent.adapter.vercel import sse_vercel
 
-                return sse_vercel(self.stream_events(stop_condition, last_id))
+                return sse_vercel(
+                    self.stream_events(stop_condition, last_id),
+                    message_id=message_id,
+                )
             case "basic":
                 return self.simple_sse(stop_condition, last_id)
+            case _:
+                raise ValueError(f"Invalid format: {format}")
+
+    def finished_sse(
+        self, format: StreamFormat, *, message_id: str
+    ) -> AsyncIterable[str]:
+        """Emit an immediately-finishing stream (no live content).
+
+        Used on reconnect when the cursor is stale and the turn is already
+        terminal: the client gets a clean finish and refetches DB history.
+        """
+
+        async def _empty() -> AsyncIterator[StreamEvent]:
+            return
+            yield  # pragma: no cover - establishes async generator
+
+        match format:
+            case "vercel":
+                from tracecat.agent.adapter.vercel import sse_vercel
+
+                return sse_vercel(_empty(), message_id=message_id)
+            case "basic":
+
+                async def _end() -> AsyncIterable[str]:
+                    yield StreamEnd.sse()
+
+                return _end()
             case _:
                 raise ValueError(f"Invalid format: {format}")
 

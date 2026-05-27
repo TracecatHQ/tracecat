@@ -24,6 +24,7 @@ from tracecat.agent.adapter.vercel import (
     VercelSSEPayload,
     VercelStreamContext,
     format_sse,
+    sse_vercel,
 )
 from tracecat.agent.common.stream_types import (
     StreamEventType,
@@ -980,3 +981,38 @@ async def test_format_sse_produces_valid_output():
     data = json.loads(json_str)
     assert data["type"] == "text-start"
     assert data["id"] == "test_id"
+
+
+@pytest.mark.anyio
+async def test_format_sse_emits_id_line_when_given():
+    """An sse_id prefixes an `id:` line so the browser can replay from it."""
+    payload = TextDeltaEventPayload(id="part", delta="hi")
+    assert format_sse(payload, "1234-0:2").startswith("id: 1234-0:2\ndata: ")
+
+
+@pytest.mark.anyio
+async def test_sse_vercel_uses_stable_bubble_id_and_composite_frame_ids():
+    """sse_vercel keeps a stable messageId and stamps composite ids per frame."""
+    from tracecat.agent.stream.events import StreamDelta
+
+    async def events():
+        yield StreamDelta(
+            id="1000-0",
+            event=UnifiedStreamEvent(
+                type=StreamEventType.TEXT_START, part_id=0, text="hello"
+            ),
+        )
+
+    frames: list[str] = []
+    async for frame in sse_vercel(events(), message_id="sess:run"):
+        frames.append(frame)
+
+    # Start frame carries the stable bubble id (no random msg_*).
+    start = next(f for f in frames if '"type":"start"' in f)
+    assert '"messageId":"sess:run"' in start
+
+    # Both delta frames from the single Redis entry share the redis id with an
+    # incrementing frame index.
+    id_frames = [f for f in frames if f.startswith("id: ")]
+    assert id_frames[0].startswith("id: 1000-0:0\n")
+    assert id_frames[1].startswith("id: 1000-0:1\n")

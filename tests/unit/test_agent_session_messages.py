@@ -7,13 +7,14 @@ from unittest.mock import AsyncMock, MagicMock, Mock
 
 import orjson
 import pytest
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.agent.approvals.enums import ApprovalStatus
 from tracecat.agent.session.service import AgentSessionService
 from tracecat.agent.session.types import AgentSessionStatus
 from tracecat.auth.types import Role
 from tracecat.chat.enums import MessageKind
-from tracecat.db.models import AgentSession
+from tracecat.db.models import AgentSession, AgentSessionHistory
 
 
 def _mock_scalar_result(items: list[Any]) -> Mock:
@@ -407,3 +408,60 @@ async def test_list_messages_skips_misclassified_continuation_artifacts() -> Non
 
     assert len(messages) == 1
     assert messages[0].message is not None
+
+
+def _chat_message_content(text: str) -> dict[str, Any]:
+    return {
+        "type": "assistant",
+        "uuid": str(uuid.uuid4()),
+        "message": {"role": "assistant", "content": [{"type": "text", "text": text}]},
+    }
+
+
+@pytest.mark.anyio
+@pytest.mark.usefixtures("db")
+async def test_list_messages_hides_active_run_rows_while_running(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    """While RUNNING, the active run's rows are hidden (Redis owns them); rows
+    from prior runs or without a run id stay visible."""
+    active_run = uuid.uuid4()
+    prior_run = uuid.uuid4()
+    agent_session = AgentSession(
+        id=uuid.uuid4(),
+        workspace_id=svc_role.workspace_id,
+        title="Chat",
+        entity_type="case",
+        entity_id=uuid.uuid4(),
+        status=AgentSessionStatus.RUNNING.value,
+        curr_run_id=active_run,
+    )
+    session.add(agent_session)
+    for text, run_id in (
+        ("prior turn", prior_run),
+        ("legacy row", None),
+        ("active partial", active_run),
+    ):
+        session.add(
+            AgentSessionHistory(
+                session_id=agent_session.id,
+                workspace_id=svc_role.workspace_id,
+                content=_chat_message_content(text),
+                kind=MessageKind.CHAT_MESSAGE.value,
+                curr_run_id=run_id,
+            )
+        )
+    await session.commit()
+
+    service = AgentSessionService(session=session, role=svc_role)
+    texts = [
+        getattr(part, "text", None)
+        for m in await service.list_messages(agent_session.id)
+        if m.message is not None
+        for part in cast(Any, m.message).content
+    ]
+
+    assert "prior turn" in texts
+    assert "legacy row" in texts
+    assert "active partial" not in texts

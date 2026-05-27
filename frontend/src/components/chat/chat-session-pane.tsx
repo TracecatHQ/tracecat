@@ -102,6 +102,7 @@ import {
   makeContinueMessage,
   parseChatError,
   useCancelChatTurn,
+  useSessionStatus,
   useUpdateChat,
   useVercelChat,
 } from "@/hooks/use-chat"
@@ -279,12 +280,26 @@ export function ChatSessionPane({
     () => (chat?.messages || []).map(toUIMessage),
     [chat?.messages]
   )
+  // Cheap status poll drives attaching to a live turn (started by another tab).
+  // `prompt` carries the active turn's user message so observer tabs can show
+  // it (the Vercel stream protocol only streams assistant messages).
+  const {
+    turnStatus,
+    currRunId,
+    prompt: activePrompt,
+  } = useSessionStatus({
+    chatId: chat?.id,
+    workspaceId,
+  })
   const { sendMessage, messages, status, regenerate, lastError, clearError } =
     useVercelChat({
       chatId: chat?.id,
       workspaceId,
       messages: uiMessages,
       modelInfo,
+      turnStatus,
+      currRunId,
+      activePrompt,
     })
 
   // Track pending message sends to avoid duplicate sends

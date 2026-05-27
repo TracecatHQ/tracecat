@@ -171,6 +171,8 @@ import type {
   AgentSessionsForkSessionResponse,
   AgentSessionsGetSessionData,
   AgentSessionsGetSessionResponse,
+  AgentSessionsGetSessionStatusData,
+  AgentSessionsGetSessionStatusResponse,
   AgentSessionsGetSessionVercelData,
   AgentSessionsGetSessionVercelResponse,
   AgentSessionsListSessionsData,
@@ -6603,6 +6605,31 @@ export const agentSessionsGetSessionVercel = (
   return __request(OpenAPI, {
     method: "GET",
     url: "/workspaces/{workspace_id}/agent/sessions/{session_id}/vercel",
+    path: {
+      session_id: data.sessionId,
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Get Session Status
+ * Cheap lifecycle status for polling (no message history loaded).
+ * @param data The data for the request.
+ * @param data.sessionId
+ * @param data.workspaceId
+ * @returns AgentSessionStatusRead Successful Response
+ * @throws ApiError
+ */
+export const agentSessionsGetSessionStatus = (
+  data: AgentSessionsGetSessionStatusData
+): CancelablePromise<AgentSessionsGetSessionStatusResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/workspaces/{workspace_id}/agent/sessions/{session_id}/status",
     path: {
       session_id: data.sessionId,
       workspace_id: data.workspaceId,

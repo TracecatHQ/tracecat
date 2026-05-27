@@ -248,6 +248,9 @@ class LoopbackHandler:
         self._stream_sink: LoopbackEventSink | None = None
         self._result = LoopbackResult(success=False)
         self._sdk_session_id: str | None = None  # Track SDK session ID for this run
+        self._curr_run_id: uuid.UUID | None = (
+            None  # Active run; stamped on history rows
+        )
         self._stream_done_emitted: bool = False  # Dedupe flag for stream.done()
         self._interrupt_notice_emitted: bool = False
         # Track which session lines have been persisted to avoid duplicates
@@ -872,13 +875,17 @@ class LoopbackHandler:
                 )
                 result = await session.execute(stmt)
                 agent_session = result.scalar_one_or_none()
-                if agent_session and agent_session.sdk_session_id is None:
-                    agent_session.sdk_session_id = sdk_session_id
-                    logger.info(
-                        "Updated AgentSession with sdk_session_id",
-                        session_id=self.input.session_id,
-                        sdk_session_id=sdk_session_id,
-                    )
+                if agent_session:
+                    # Stamp the active run on every history row so mid-turn DB
+                    # loads can hide this turn's partial rows (Redis owns them).
+                    self._curr_run_id = agent_session.curr_run_id
+                    if agent_session.sdk_session_id is None:
+                        agent_session.sdk_session_id = sdk_session_id
+                        logger.info(
+                            "Updated AgentSession with sdk_session_id",
+                            session_id=self.input.session_id,
+                            sdk_session_id=sdk_session_id,
+                        )
 
             # Use explicit internal flag from runtime, not content-based heuristics
             kind: SessionLineKind = "internal" if internal else "chat-message"
@@ -896,6 +903,7 @@ class LoopbackHandler:
                 workspace_id=self.input.workspace_id,
                 content=_session_line_db_content(line_data),
                 kind=kind,
+                curr_run_id=self._curr_run_id,
             )
             session.add(history_entry)
             await session.commit()
