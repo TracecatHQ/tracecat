@@ -1,10 +1,35 @@
 "use client"
 
-import { Loader2 } from "lucide-react"
-import { useMemo } from "react"
+import { useMutation, useQueryClient } from "@tanstack/react-query"
+import { formatDistanceToNowStrict } from "date-fns"
+import {
+  CheckCircle2,
+  Link2,
+  Loader2,
+  MoreHorizontal,
+  PlayCircle,
+  Trash2,
+} from "lucide-react"
+import { useMemo, useState } from "react"
 import type { OAuthGrantType } from "@/client"
+import {
+  integrationsConnectProvider,
+  integrationsDisconnectIntegration,
+  integrationsTestConnection,
+} from "@/client"
 import { ProviderIcon } from "@/components/icons"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
 import {
   Dialog,
   DialogContent,
@@ -12,7 +37,19 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
 import { ScrollArea } from "@/components/ui/scroll-area"
+import { Skeleton } from "@/components/ui/skeleton"
+import { toast } from "@/components/ui/use-toast"
+import type { TracecatApiError } from "@/lib/errors"
 import { useIntegrationProvider } from "@/lib/hooks"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
@@ -38,6 +75,9 @@ export function OAuthIntegrationDetailsDialog({
   onOpenChange,
 }: OAuthIntegrationDetailsDialogProps) {
   const workspaceId = useWorkspaceId()
+  const queryClient = useQueryClient()
+  const [confirmDisconnectOpen, setConfirmDisconnectOpen] = useState(false)
+  const [confirmText, setConfirmText] = useState("")
 
   const {
     provider,
@@ -51,6 +91,89 @@ export function OAuthIntegrationDetailsDialog({
     workspaceId,
     grantType,
   })
+
+  const invalidateAll = () => {
+    queryClient.invalidateQueries({
+      queryKey: ["integration", providerId, workspaceId, grantType],
+    })
+    queryClient.invalidateQueries({ queryKey: ["providers", workspaceId] })
+    queryClient.invalidateQueries({
+      queryKey: ["integrations", workspaceId],
+    })
+    queryClient.invalidateQueries({
+      queryKey: ["mcp-integrations", workspaceId],
+    })
+  }
+
+  const reauthorizeMutation = useMutation({
+    mutationFn: async () =>
+      await integrationsConnectProvider({ providerId, workspaceId }),
+    onSuccess: (result) => {
+      window.location.href = result.auth_url
+    },
+    onError: (error: TracecatApiError) => {
+      toast({
+        title: "Failed to reauthorize",
+        description: `${error.body?.detail ?? error.message}`,
+        variant: "destructive",
+      })
+    },
+  })
+
+  const testMutation = useMutation({
+    mutationFn: async () =>
+      await integrationsTestConnection({ providerId, workspaceId }),
+    onSuccess: (result) => {
+      invalidateAll()
+      if (result.success) {
+        toast({
+          title: "Connection successful",
+          description: result.message,
+        })
+      } else {
+        toast({
+          title: "Connection failed",
+          description: result.error || result.message,
+          variant: "destructive",
+        })
+      }
+    },
+    onError: (error: TracecatApiError) => {
+      toast({
+        title: "Test failed",
+        description: `${error.body?.detail ?? error.message}`,
+        variant: "destructive",
+      })
+    },
+  })
+
+  const disconnectMutation = useMutation({
+    mutationFn: async () =>
+      await integrationsDisconnectIntegration({
+        providerId,
+        workspaceId,
+        grantType,
+      }),
+    onSuccess: () => {
+      invalidateAll()
+      toast({
+        title: "Disconnected",
+        description: "Successfully disconnected from provider",
+      })
+      onOpenChange(false)
+    },
+    onError: (error: TracecatApiError) => {
+      toast({
+        title: "Failed to disconnect",
+        description: `${error.body?.detail ?? error.message}`,
+        variant: "destructive",
+      })
+    },
+  })
+
+  const providerName = provider?.metadata.name || providerId
+  const isConnected = integration?.status === "connected"
+  const isExpired = integration?.is_expired ?? false
 
   const serviceAccountProviders = ["google", "google_sheets", "google_docs"]
   const isServiceAccountProvider = serviceAccountProviders.includes(
@@ -73,45 +196,169 @@ export function OAuthIntegrationDetailsDialog({
     }
   }, [integration?.expires_at])
 
+  const lastUpdatedRelative = useMemo(() => {
+    if (!integration?.updated_at) return null
+    try {
+      return formatDistanceToNowStrict(new Date(integration.updated_at), {
+        addSuffix: true,
+      })
+    } catch {
+      return null
+    }
+  }, [integration?.updated_at])
+
   if (!open) {
     return null
   }
 
+  const supportsReauthorize = grantType === "authorization_code"
+  const anyActionPending =
+    reauthorizeMutation.isPending ||
+    testMutation.isPending ||
+    disconnectMutation.isPending
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl gap-0 p-0 overflow-hidden max-h-[85vh] flex flex-col">
-        <DialogHeader className="p-6 pb-4">
+      <DialogContent className="max-w-2xl gap-0 p-0 overflow-hidden max-h-[85vh] min-h-[520px] flex flex-col">
+        <DialogHeader className="border-b p-6">
           <div className="flex items-start gap-4">
             <ProviderIcon providerId={providerId} className="size-10" />
-            <div className="space-y-1 text-left">
-              <DialogTitle>{provider?.metadata.name || providerId}</DialogTitle>
-              <DialogDescription>
-                Connection details for this OAuth integration.
+            <div className="min-w-0 flex-1 space-y-1 text-left">
+              <DialogTitle className="text-lg font-semibold">
+                {provider?.metadata.name ? (
+                  providerName
+                ) : providerIsLoading ? (
+                  <Skeleton className="h-5 w-32" />
+                ) : (
+                  providerName
+                )}
+              </DialogTitle>
+              <DialogDescription className="text-sm" asChild>
+                {provider?.metadata ? (
+                  <span>
+                    {provider.metadata.description ??
+                      "Connection details for this integration."}
+                  </span>
+                ) : providerIsLoading ? (
+                  <span className="block space-y-1.5 pt-1">
+                    <Skeleton className="h-3 w-3/4" />
+                    <Skeleton className="h-3 w-1/2" />
+                  </span>
+                ) : (
+                  <span>Connection details for this integration.</span>
+                )}
               </DialogDescription>
             </div>
           </div>
         </DialogHeader>
 
-        <ScrollArea className="flex-1 px-6 pb-6">
-          {(providerIsLoading || integrationIsLoading) && (
-            <div className="flex items-center justify-center py-6">
-              <Loader2 className="size-5 animate-spin text-muted-foreground" />
-            </div>
-          )}
+        <ScrollArea className="flex-1">
+          {(providerIsLoading || integrationIsLoading) && <DetailsSkeleton />}
 
-          {(providerError || integrationError) && (
-            <div className="text-sm text-destructive">
-              Failed to load integration details.
-            </div>
-          )}
+          {!providerIsLoading &&
+            !integrationIsLoading &&
+            (providerError || integrationError) && (
+              <div className="px-6 py-4 text-sm text-destructive">
+                Failed to load integration details.
+              </div>
+            )}
 
           {!providerIsLoading &&
             !integrationIsLoading &&
             provider &&
             integration && (
-              <div className="space-y-8">
-                <div className="space-y-6">
-                  <h3 className="font-medium">Configuration</h3>
+              <div className="flex flex-col">
+                <section className="space-y-3 px-6 py-5">
+                  <h3 className="text-sm font-semibold">Connection</h3>
+                  {isConnected ? (
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="flex min-w-0 flex-1 items-center gap-3">
+                        <span
+                          className={
+                            isExpired
+                              ? "flex size-7 shrink-0 items-center justify-center rounded-full bg-amber-100 text-amber-700"
+                              : "flex size-7 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-emerald-700"
+                          }
+                        >
+                          <CheckCircle2 className="size-4" />
+                        </span>
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2">
+                            <p className="truncate text-sm font-medium text-foreground">
+                              {providerName}
+                            </p>
+                            {isExpired ? (
+                              <Badge
+                                variant="outline"
+                                className="h-4 border-amber-300 bg-amber-50 px-1.5 text-[10px] uppercase text-amber-700"
+                              >
+                                Expired
+                              </Badge>
+                            ) : null}
+                          </div>
+                          <p className="text-xs text-muted-foreground">
+                            {lastUpdatedRelative
+                              ? `Last updated ${lastUpdatedRelative}`
+                              : "Connected"}
+                          </p>
+                        </div>
+                      </div>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="size-8 shrink-0 text-muted-foreground"
+                            disabled={anyActionPending}
+                            aria-label="Connection actions"
+                          >
+                            {anyActionPending ? (
+                              <Loader2 className="size-4 animate-spin" />
+                            ) : (
+                              <MoreHorizontal className="size-4" />
+                            )}
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end" className="w-44">
+                          {supportsReauthorize ? (
+                            <DropdownMenuItem
+                              onClick={() => reauthorizeMutation.mutate()}
+                              disabled={reauthorizeMutation.isPending}
+                            >
+                              <Link2 className="mr-2 size-4 text-muted-foreground" />
+                              Reauthorize
+                            </DropdownMenuItem>
+                          ) : null}
+                          <DropdownMenuItem
+                            onClick={() => testMutation.mutate()}
+                            disabled={testMutation.isPending}
+                          >
+                            <PlayCircle className="mr-2 size-4 text-muted-foreground" />
+                            Test
+                          </DropdownMenuItem>
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem
+                            className="text-destructive focus:bg-destructive/10 focus:text-destructive"
+                            onSelect={(event) => {
+                              event.preventDefault()
+                              setConfirmDisconnectOpen(true)
+                            }}
+                          >
+                            <Trash2 className="mr-2 size-4" />
+                            Disconnect
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </div>
+                  ) : (
+                    <p className="text-sm text-muted-foreground">
+                      Not connected yet.
+                    </p>
+                  )}
+                </section>
+
+                <section className="space-y-4 border-t px-6 py-5">
+                  <h3 className="text-sm font-semibold">Configuration</h3>
                   <div className="grid grid-cols-2 gap-x-12 gap-y-4 text-sm">
                     <div className="flex flex-col gap-1.5">
                       <span className="font-medium text-muted-foreground">
@@ -162,20 +409,18 @@ export function OAuthIntegrationDetailsDialog({
                       </div>
                     )}
                   </div>
-                </div>
+                </section>
 
-                <div className="space-y-6">
-                  <h3 className="font-medium">Scopes</h3>
+                <section className="space-y-4 border-t px-6 py-5">
+                  <h3 className="text-sm font-semibold">Scopes</h3>
                   <div className="space-y-4">
                     {hasScopes ? (
                       <>
                         {requestedScopes.length > 0 && (
                           <div className="flex flex-col gap-2">
-                            <div className="flex items-center gap-2">
-                              <span className="text-sm font-medium text-muted-foreground">
-                                Requested scopes
-                              </span>
-                            </div>
+                            <span className="text-xs font-medium text-muted-foreground">
+                              Requested
+                            </span>
                             <div className="flex flex-wrap gap-1">
                               {requestedScopes.map((scope) => (
                                 <Badge
@@ -191,11 +436,9 @@ export function OAuthIntegrationDetailsDialog({
                         )}
                         {grantedScopes.length > 0 && (
                           <div className="flex flex-col gap-2">
-                            <div className="flex items-center gap-2">
-                              <span className="text-sm font-medium text-muted-foreground">
-                                Granted scopes
-                              </span>
-                            </div>
+                            <span className="text-xs font-medium text-muted-foreground">
+                              Granted
+                            </span>
                             <div className="flex flex-wrap gap-1">
                               {grantedScopes.map((scope) => (
                                 <Badge
@@ -216,11 +459,113 @@ export function OAuthIntegrationDetailsDialog({
                       </p>
                     )}
                   </div>
-                </div>
+                </section>
               </div>
             )}
         </ScrollArea>
+
+        <AlertDialog
+          open={confirmDisconnectOpen}
+          onOpenChange={(next) => {
+            setConfirmDisconnectOpen(next)
+            if (!next) setConfirmText("")
+          }}
+        >
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Disconnect integration</AlertDialogTitle>
+              <AlertDialogDescription>
+                Are you sure you want to disconnect from{" "}
+                <span className="font-medium">{providerName}</span>?
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <div className="space-y-2">
+              <Label htmlFor="disconnect-confirm">
+                Type <strong>{providerName}</strong> to confirm:
+              </Label>
+              <Input
+                id="disconnect-confirm"
+                value={confirmText}
+                onChange={(event) => setConfirmText(event.target.value)}
+                placeholder="Enter provider name"
+                disabled={disconnectMutation.isPending}
+              />
+            </div>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancel</AlertDialogCancel>
+              <AlertDialogAction
+                variant="destructive"
+                disabled={
+                  disconnectMutation.isPending ||
+                  confirmText.trim() !== providerName
+                }
+                onClick={async (event) => {
+                  event.preventDefault()
+                  if (confirmText.trim() !== providerName) return
+                  await disconnectMutation.mutateAsync()
+                  setConfirmText("")
+                  setConfirmDisconnectOpen(false)
+                }}
+              >
+                {disconnectMutation.isPending && (
+                  <Loader2 className="mr-2 size-4 animate-spin" />
+                )}
+                Disconnect
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </DialogContent>
     </Dialog>
+  )
+}
+
+function DetailsSkeleton() {
+  return (
+    <div className="flex flex-col">
+      <section className="space-y-3 px-6 py-5">
+        <Skeleton className="h-4 w-24" />
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex min-w-0 flex-1 items-center gap-3">
+            <Skeleton className="size-7 shrink-0 rounded-full" />
+            <div className="min-w-0 space-y-1.5">
+              <Skeleton className="h-3.5 w-32" />
+              <Skeleton className="h-3 w-40" />
+            </div>
+          </div>
+          <Skeleton className="size-8 shrink-0 rounded-md" />
+        </div>
+      </section>
+
+      <section className="space-y-4 border-t px-6 py-5">
+        <Skeleton className="h-4 w-24" />
+        <div className="grid grid-cols-2 gap-x-12 gap-y-4">
+          {[
+            "client-id",
+            "client-secret",
+            "auth-endpoint",
+            "token-endpoint",
+          ].map((key) => (
+            <div key={key} className="flex flex-col gap-2">
+              <Skeleton className="h-3 w-20" />
+              <Skeleton className="h-3 w-40" />
+            </div>
+          ))}
+        </div>
+      </section>
+
+      <section className="space-y-3 border-t px-6 py-5">
+        <Skeleton className="h-4 w-16" />
+        <div className="flex flex-wrap gap-1.5">
+          {[14, 18, 12, 16, 20].map((width) => (
+            <Skeleton
+              key={width}
+              className="h-5 rounded-md"
+              style={{ width: `${width * 4}px` }}
+            />
+          ))}
+        </div>
+      </section>
+    </div>
   )
 }

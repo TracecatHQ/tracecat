@@ -2,17 +2,7 @@
 
 import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { formatDistanceToNowStrict } from "date-fns"
-import {
-  Cable,
-  Globe,
-  Loader2,
-  Lock,
-  Plus,
-  Settings,
-  Sparkles,
-  Terminal,
-  Trash2,
-} from "lucide-react"
+import { Globe, Loader2, Plus, Sparkles, Terminal } from "lucide-react"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import { useCallback, useEffect, useMemo, useState } from "react"
 import type {
@@ -27,29 +17,35 @@ import { ProviderIcon } from "@/components/icons"
 import { MCPIntegrationDialog } from "@/components/integrations/mcp-integration-dialog"
 import { OAuthIntegrationDetailsDialog } from "@/components/integrations/oauth-integration-details-dialog"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { toast } from "@/components/ui/use-toast"
 import type { TracecatApiError } from "@/lib/errors"
-import {
-  useDeleteMcpIntegration,
-  useIntegrations,
-  useListMcpIntegrations,
-} from "@/lib/hooks"
+import { useIntegrations, useListMcpIntegrations } from "@/lib/hooks"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
 const CREATE_MCP_SERVER_PARAM = "createMcpServer"
+
+type PresetFilter = "all" | "connected" | "workspace"
+
+type McpItem =
+  | {
+      kind: "platform"
+      sortKey: string
+      provider: ProviderReadMinimal
+    }
+  | {
+      kind: "workspace"
+      sortKey: string
+      mcp: MCPIntegrationRead
+    }
+
+const PRESET_FILTERS: Array<{ value: PresetFilter; label: string }> = [
+  { value: "all", label: "All" },
+  { value: "connected", label: "Connected" },
+  { value: "workspace", label: "Workspace" },
+]
 
 export default function McpServersPage() {
   const workspaceId = useWorkspaceId()
@@ -58,21 +54,13 @@ export default function McpServersPage() {
 
   const { mcpIntegrations, mcpIntegrationsIsLoading, mcpIntegrationsError } =
     useListMcpIntegrations(workspaceId, "workspace")
-  const {
-    integrations,
-    integrationsIsLoading,
-    integrationsError,
-    providers,
-    providersIsLoading,
-    providersError,
-  } = useIntegrations(workspaceId)
-  const { deleteMcpIntegration, deleteMcpIntegrationIsPending } =
-    useDeleteMcpIntegration(workspaceId)
+  const { providers, providersIsLoading, providersError } =
+    useIntegrations(workspaceId)
 
   const [searchQuery, setSearchQuery] = useState("")
+  const [presetFilter, setPresetFilter] = useState<PresetFilter>("all")
   const [createOpen, setCreateOpen] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
-  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null)
   const [activeProvider, setActiveProvider] = useState<{
     providerId: string
     grantType: OAuthGrantType
@@ -116,67 +104,64 @@ export default function McpServersPage() {
     },
   })
 
-  const platformMcpProviders = useMemo<ProviderReadMinimal[]>(() => {
-    if (!providers) return []
-    return providers.filter((p) => p.id.endsWith("_mcp"))
-  }, [providers])
+  const items = useMemo<McpItem[]>(() => {
+    const platformItems: McpItem[] = (providers ?? [])
+      .filter((p) => p.id.endsWith("_mcp"))
+      .map((provider) => ({
+        kind: "platform" as const,
+        sortKey: provider.name.toLowerCase(),
+        provider,
+      }))
 
-  const integrationById = useMemo(
-    () =>
-      new Map(
-        (integrations ?? []).map((integration) => [integration.id, integration])
-      ),
-    [integrations]
-  )
+    const workspaceItems: McpItem[] = (mcpIntegrations ?? []).map((mcp) => ({
+      kind: "workspace" as const,
+      sortKey: mcp.name.toLowerCase(),
+      mcp,
+    }))
 
-  const isPlatformBackedMcpIntegration = useCallback(
-    (mcp: MCPIntegrationRead) => {
-      if (mcp.auth_type !== "OAUTH2" || !mcp.oauth_integration_id) {
+    return [...platformItems, ...workspaceItems].sort((a, b) =>
+      a.sortKey.localeCompare(b.sortKey)
+    )
+  }, [mcpIntegrations, providers])
+
+  const filteredItems = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase()
+    return items.filter((item) => {
+      // Preset filter
+      if (presetFilter === "workspace" && item.kind !== "workspace") {
         return false
       }
-      const integration = integrationById.get(mcp.oauth_integration_id)
-      return integration?.provider_id.endsWith("_mcp") ?? false
-    },
-    [integrationById]
-  )
-
-  const filteredWorkspaceServers = useMemo(() => {
-    if (!mcpIntegrations) return []
-    const q = searchQuery.trim().toLowerCase()
-    return mcpIntegrations
-      .filter((mcp) => {
-        if (isPlatformBackedMcpIntegration(mcp)) {
-          return false
+      if (presetFilter === "connected") {
+        if (item.kind === "platform") {
+          if (item.provider.integration_status !== "connected") {
+            return false
+          }
         }
-        if (!q) return true
-        return (
-          mcp.name.toLowerCase().includes(q) ||
-          (mcp.description ?? "").toLowerCase().includes(q) ||
-          mcp.slug.toLowerCase().includes(q)
-        )
-      })
-      .sort((a, b) => a.name.localeCompare(b.name))
-  }, [isPlatformBackedMcpIntegration, mcpIntegrations, searchQuery])
+        // Workspace items are user-configured, so they always pass "connected".
+      }
 
-  const filteredPlatformProviders = useMemo(() => {
-    const q = searchQuery.trim().toLowerCase()
-    return platformMcpProviders
-      .filter((p) => {
-        if (!q) return true
+      // Search
+      if (!q) return true
+      if (item.kind === "platform") {
+        const { name, description, id } = item.provider
         return (
-          p.name.toLowerCase().includes(q) ||
-          (p.description ?? "").toLowerCase().includes(q) ||
-          p.id.toLowerCase().includes(q)
+          name.toLowerCase().includes(q) ||
+          (description ?? "").toLowerCase().includes(q) ||
+          id.toLowerCase().includes(q)
         )
-      })
-      .sort((a, b) => a.name.localeCompare(b.name))
-  }, [platformMcpProviders, searchQuery])
+      }
+      const { name, description, slug } = item.mcp
+      return (
+        name.toLowerCase().includes(q) ||
+        (description ?? "").toLowerCase().includes(q) ||
+        slug.toLowerCase().includes(q)
+      )
+    })
+  }, [items, presetFilter, searchQuery])
 
-  const totalCount =
-    filteredWorkspaceServers.length + filteredPlatformProviders.length
-  const isLoading =
-    mcpIntegrationsIsLoading || integrationsIsLoading || providersIsLoading
-  const loadError = mcpIntegrationsError ?? integrationsError ?? providersError
+  const totalCount = filteredItems.length
+  const isLoading = mcpIntegrationsIsLoading || providersIsLoading
+  const loadError = mcpIntegrationsError ?? providersError
 
   if (canRead !== true) {
     return (
@@ -191,27 +176,21 @@ export default function McpServersPage() {
     )
   }
 
-  const pendingDelete = pendingDeleteId
-    ? (mcpIntegrations?.find((mcp) => mcp.id === pendingDeleteId) ?? null)
-    : null
-
   return (
     <div className="flex h-full flex-col">
       <CatalogHeader
         searchQuery={searchQuery}
         onSearchChange={setSearchQuery}
         searchPlaceholder="Search MCP servers..."
+        pillFilters={PRESET_FILTERS}
+        activePillFilters={[presetFilter]}
+        onPillFilterToggle={(value) => setPresetFilter(value)}
         displayCount={totalCount}
         countLabel={`server${totalCount === 1 ? "" : "s"}`}
       />
 
       <div className="flex-1 overflow-y-auto px-6 py-4">
-        <div className="mx-auto flex max-w-6xl flex-col gap-6">
-          <p className="text-sm text-muted-foreground">
-            MCP servers that Tracecat agents can call. Separate from
-            integrations that back actions.
-          </p>
-
+        <div className="mx-auto flex max-w-7xl flex-col gap-6">
           {loadError ? (
             <Alert variant="destructive">
               <AlertTitle>Failed to load MCP servers</AlertTitle>
@@ -243,59 +222,40 @@ export default function McpServersPage() {
               ) : null}
             </Card>
           ) : (
-            <>
-              {filteredPlatformProviders.length > 0 ? (
-                <section className="space-y-3">
-                  <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                    Platform-shipped
-                  </h2>
-                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-                    {filteredPlatformProviders.map((provider) => (
-                      <PlatformMcpCard
-                        key={provider.id}
-                        provider={provider}
-                        canMutate={canMutate}
-                        isConnecting={
-                          connectProviderMutation.isPending &&
-                          connectProviderMutation.variables?.providerId ===
-                            provider.id
-                        }
-                        onConnect={() =>
-                          connectProviderMutation.mutate({
-                            providerId: provider.id,
-                          })
-                        }
-                        onManage={() =>
-                          setActiveProvider({
-                            providerId: provider.id,
-                            grantType: provider.grant_type,
-                          })
-                        }
-                      />
-                    ))}
-                  </div>
-                </section>
-              ) : null}
-
-              {filteredWorkspaceServers.length > 0 ? (
-                <section className="space-y-3">
-                  <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                    Workspace-authored
-                  </h2>
-                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-                    {filteredWorkspaceServers.map((mcp) => (
-                      <McpCard
-                        key={mcp.id}
-                        mcp={mcp}
-                        canMutate={canMutate}
-                        onEdit={() => setEditingId(mcp.id)}
-                        onDelete={() => setPendingDeleteId(mcp.id)}
-                      />
-                    ))}
-                  </div>
-                </section>
-              ) : null}
-            </>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+              {filteredItems.map((item) =>
+                item.kind === "platform" ? (
+                  <PlatformMcpCard
+                    key={`platform:${item.provider.id}`}
+                    provider={item.provider}
+                    canMutate={canMutate}
+                    isConnecting={
+                      connectProviderMutation.isPending &&
+                      connectProviderMutation.variables?.providerId ===
+                        item.provider.id
+                    }
+                    onConnect={() =>
+                      connectProviderMutation.mutate({
+                        providerId: item.provider.id,
+                      })
+                    }
+                    onManage={() =>
+                      setActiveProvider({
+                        providerId: item.provider.id,
+                        grantType: item.provider.grant_type,
+                      })
+                    }
+                  />
+                ) : (
+                  <McpCard
+                    key={`workspace:${item.mcp.id}`}
+                    mcp={item.mcp}
+                    canMutate={canMutate}
+                    onEdit={() => setEditingId(item.mcp.id)}
+                  />
+                )
+              )}
+            </div>
           )}
         </div>
       </div>
@@ -328,37 +288,6 @@ export default function McpServersPage() {
         mcpIntegrationId={editingId}
         hideTrigger
       />
-
-      <AlertDialog
-        open={pendingDelete !== null}
-        onOpenChange={(next) => {
-          if (!next) setPendingDeleteId(null)
-        }}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Remove MCP server?</AlertDialogTitle>
-            <AlertDialogDescription>
-              Agents will no longer be able to call{" "}
-              <span className="font-medium">{pendingDelete?.name}</span>.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-              disabled={deleteMcpIntegrationIsPending}
-              onClick={async () => {
-                if (!pendingDeleteId) return
-                await deleteMcpIntegration(pendingDeleteId)
-                setPendingDeleteId(null)
-              }}
-            >
-              Remove
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
     </div>
   )
 }
@@ -384,31 +313,18 @@ function PlatformMcpCard({
       <div className="flex items-start justify-between gap-3">
         <ProviderIcon providerId={provider.id} className="size-9 shrink-0" />
         {canMutate ? (
-          connected ? (
-            <Button
-              size="sm"
-              variant="outline"
-              className="h-8 gap-1.5 px-3 text-xs font-medium"
-              onClick={onManage}
-            >
-              <Settings className="size-3.5" />
-              Manage
-            </Button>
-          ) : (
-            <Button
-              size="sm"
-              className="h-8 gap-1.5 px-3 text-xs font-medium"
-              disabled={isConnecting || !provider.enabled}
-              onClick={onConnect}
-            >
-              {isConnecting ? (
-                <Loader2 className="size-3.5 animate-spin" />
-              ) : (
-                <Lock className="size-3.5" />
-              )}
-              Connect
-            </Button>
-          )
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-7 px-2.5 text-xs font-medium"
+            disabled={!connected && (isConnecting || !provider.enabled)}
+            onClick={connected ? onManage : onConnect}
+          >
+            {!connected && isConnecting ? (
+              <Loader2 className="mr-1.5 size-3.5 animate-spin" />
+            ) : null}
+            {connected ? "Manage" : "Connect"}
+          </Button>
         ) : null}
       </div>
 
@@ -421,7 +337,7 @@ function PlatformMcpCard({
             <span className="shrink-0 text-xs text-emerald-700">Connected</span>
           ) : null}
         </div>
-        <p className="line-clamp-2 text-sm leading-5 text-muted-foreground">
+        <p className="line-clamp-2 text-xs leading-5 text-muted-foreground">
           {provider.description ?? "No description"}
         </p>
       </div>
@@ -433,13 +349,10 @@ interface McpCardProps {
   mcp: MCPIntegrationRead
   canMutate: boolean
   onEdit: () => void
-  onDelete: () => void
 }
 
-function McpCard({ mcp, canMutate, onEdit, onDelete }: McpCardProps) {
+function McpCard({ mcp, canMutate, onEdit }: McpCardProps) {
   const TransportIcon = mcp.server_type === "stdio" ? Terminal : Globe
-  const target =
-    mcp.server_type === "stdio" ? mcp.stdio_command : mcp.server_uri
   const lastUpdated = (() => {
     if (!mcp.updated_at) return null
     try {
@@ -452,32 +365,20 @@ function McpCard({ mcp, canMutate, onEdit, onDelete }: McpCardProps) {
   })()
 
   return (
-    <Card className="flex h-full min-h-[150px] flex-col gap-2.5 border bg-card p-4 shadow-none transition-colors hover:border-foreground/30">
+    <Card className="flex h-full min-h-[120px] flex-col gap-2.5 border bg-card p-4 shadow-none transition-colors hover:border-foreground/30">
       <div className="flex items-start justify-between gap-3">
         <div className="flex size-9 shrink-0 items-center justify-center rounded-md border bg-muted/20">
           <TransportIcon className="size-4 text-muted-foreground" />
         </div>
         {canMutate ? (
-          <div className="flex shrink-0 gap-1">
-            <Button
-              size="sm"
-              variant="outline"
-              className="h-8 gap-1.5 px-3 text-xs font-medium"
-              onClick={onEdit}
-            >
-              <Cable className="size-3.5" />
-              Edit
-            </Button>
-            <Button
-              size="icon"
-              variant="ghost"
-              className="size-8 text-muted-foreground hover:text-destructive"
-              onClick={onDelete}
-              aria-label={`Remove MCP server ${mcp.name}`}
-            >
-              <Trash2 className="size-4" />
-            </Button>
-          </div>
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-7 px-2.5 text-xs font-medium"
+            onClick={onEdit}
+          >
+            Edit
+          </Button>
         ) : null}
       </div>
 
@@ -489,18 +390,10 @@ function McpCard({ mcp, canMutate, onEdit, onDelete }: McpCardProps) {
           <Badge variant="outline" className="h-4 px-1.5 text-[10px] uppercase">
             {mcp.server_type}
           </Badge>
-          <Badge variant="outline" className="h-4 px-1.5 text-[10px] uppercase">
-            {mcp.auth_type}
-          </Badge>
         </div>
-        <p className="line-clamp-2 text-sm leading-5 text-muted-foreground">
+        <p className="line-clamp-2 text-xs leading-5 text-muted-foreground">
           {mcp.description ?? "No description"}
         </p>
-        {target ? (
-          <p className="truncate font-mono text-[11px] leading-5 text-muted-foreground">
-            {target}
-          </p>
-        ) : null}
         {lastUpdated ? (
           <p className="text-[11px] leading-5 text-muted-foreground">
             Updated {lastUpdated}

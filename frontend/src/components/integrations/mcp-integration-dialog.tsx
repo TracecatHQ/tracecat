@@ -12,6 +12,17 @@ import type {
 } from "@/client/types.gen"
 import { CodeEditor } from "@/components/editor/codemirror/code-editor"
 import { ProviderIcon } from "@/components/icons"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog"
 import { Button, type ButtonProps } from "@/components/ui/button"
 import {
   Dialog,
@@ -42,6 +53,7 @@ import {
 import { Textarea } from "@/components/ui/textarea"
 import {
   useCreateMcpIntegration,
+  useDeleteMcpIntegration,
   useGetMcpIntegration,
   useIntegrations,
   useUpdateMcpIntegration,
@@ -296,6 +308,8 @@ export function MCPIntegrationDialog({
     useCreateMcpIntegration(workspaceId)
   const { updateMcpIntegration, updateMcpIntegrationIsPending } =
     useUpdateMcpIntegration(workspaceId)
+  const { deleteMcpIntegration, deleteMcpIntegrationIsPending } =
+    useDeleteMcpIntegration(workspaceId)
   const { integrations, providers, integrationsIsLoading } =
     useIntegrations(workspaceId)
   const { mcpIntegration, mcpIntegrationIsLoading } = useGetMcpIntegration(
@@ -1045,8 +1059,56 @@ export function MCPIntegrationDialog({
                     />
                   )}
 
-                <DialogFooter className="flex flex-col gap-2 sm:flex-row">
-                  <div className="flex w-full items-center justify-end gap-2">
+                <DialogFooter className="flex flex-col gap-2 sm:flex-row sm:justify-between">
+                  {isEditMode && mcpIntegrationId ? (
+                    <AlertDialog>
+                      <AlertDialogTrigger asChild>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+                          disabled={isPending || deleteMcpIntegrationIsPending}
+                        >
+                          <Trash2 className="mr-1.5 h-3.5 w-3.5" />
+                          Delete
+                        </Button>
+                      </AlertDialogTrigger>
+                      <AlertDialogContent>
+                        <AlertDialogHeader>
+                          <AlertDialogTitle>
+                            Remove MCP server?
+                          </AlertDialogTitle>
+                          <AlertDialogDescription>
+                            Agents will no longer be able to call{" "}
+                            <span className="font-medium">
+                              {mcpIntegration?.name ?? "this server"}
+                            </span>
+                            .
+                          </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                          <AlertDialogCancel>Cancel</AlertDialogCancel>
+                          <AlertDialogAction
+                            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                            disabled={deleteMcpIntegrationIsPending}
+                            onClick={async (event) => {
+                              event.preventDefault()
+                              await deleteMcpIntegration(mcpIntegrationId)
+                              handleOpenChange(false)
+                            }}
+                          >
+                            {deleteMcpIntegrationIsPending && (
+                              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                            )}
+                            Remove
+                          </AlertDialogAction>
+                        </AlertDialogFooter>
+                      </AlertDialogContent>
+                    </AlertDialog>
+                  ) : (
+                    <span />
+                  )}
+                  <div className="flex items-center justify-end gap-2">
                     <Button
                       type="button"
                       variant="outline"
