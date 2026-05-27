@@ -8,6 +8,7 @@ import shutil
 import tempfile
 import uuid
 from collections import Counter
+from collections.abc import Coroutine
 from dataclasses import dataclass, field
 from pathlib import Path
 from time import perf_counter
@@ -417,6 +418,42 @@ class SandboxedAgentExecutor:
             return "worker_drain"
         return "user_cancel"
 
+    async def _await_cancel_step_with_heartbeats[T](
+        self,
+        awaitable: asyncio.Task[T] | Coroutine[Any, Any, T],
+        *,
+        phase: str,
+    ) -> T:
+        """Await a graceful-cancel task while keeping the activity heartbeat alive."""
+        if isinstance(awaitable, asyncio.Task):
+            task = awaitable
+            owns_task = False
+        else:
+            task = asyncio.create_task(awaitable)
+            owns_task = True
+        heartbeat_interval = AGENT_ACTIVITY_HEARTBEAT_INTERVAL_SECONDS
+        elapsed = 0.0
+        try:
+            while True:
+                try:
+                    return await asyncio.wait_for(
+                        asyncio.shield(task),
+                        timeout=heartbeat_interval,
+                    )
+                except TimeoutError:
+                    if task.done():
+                        return await task
+                    elapsed += heartbeat_interval
+                    activity.heartbeat(
+                        f"Agent cancellation {phase}: {self.input.session_id} "
+                        f"({elapsed:g}s elapsed)"
+                    )
+        finally:
+            if owns_task and not task.done():
+                task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await task
+
     async def _run_with_broker(
         self,
         *,
@@ -517,8 +554,14 @@ class SandboxedAgentExecutor:
             handler.mark_cancelled(reason)
             try:
                 async with asyncio.timeout(GRACEFUL_CANCEL_TIMEOUT_SECONDS):
-                    await broker.interrupt_turn(str(self.input.session_id), reason)
-                    await broker_task
+                    await self._await_cancel_step_with_heartbeats(
+                        broker.interrupt_turn(str(self.input.session_id), reason),
+                        phase="interrupting runtime",
+                    )
+                    await self._await_cancel_step_with_heartbeats(
+                        broker_task,
+                        phase="waiting for runtime",
+                    )
             except TimeoutError:
                 logger.warning(
                     "Timed out gracefully cancelling agent activity",
