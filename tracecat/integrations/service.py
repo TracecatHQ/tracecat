@@ -485,9 +485,19 @@ class IntegrationService(BaseWorkspaceService):
     @require_scope("integration:update")
     async def disconnect_integration(self, *, integration: OAuthIntegration) -> None:
         """Disconnect a user's integration for a specific provider."""
-        self._disconnect_integration_state(integration=integration)
-        self.session.add(integration)
-        await self.session.commit()
+        try:
+            if await self._is_mcp_lifecycle_owned_oauth_integration(
+                integration=integration
+            ):
+                await self._delete_mcp_integrations_for_oauth_integration(
+                    integration=integration
+                )
+            self._disconnect_integration_state(integration=integration)
+            self.session.add(integration)
+            await self.session.commit()
+        except Exception:
+            await self.session.rollback()
+            raise
 
     def _disconnect_integration_state(self, *, integration: OAuthIntegration) -> None:
         """Apply disconnected token state to an integration without committing."""
@@ -1118,6 +1128,37 @@ class IntegrationService(BaseWorkspaceService):
             )
         )
         return bool(provider_impl and issubclass(provider_impl, MCPAuthProvider))
+
+    async def _delete_mcp_integrations_for_oauth_integration(
+        self, *, integration: OAuthIntegration
+    ) -> int:
+        """Delete MCP rows backed by a lifecycle-owned OAuth integration."""
+        result = await self.session.execute(
+            select(MCPIntegration).where(
+                MCPIntegration.workspace_id == self.workspace_id,
+                MCPIntegration.oauth_integration_id == integration.id,
+            )
+        )
+        mcp_integrations = result.scalars().all()
+        for mcp_integration in mcp_integrations:
+            id_str = str(mcp_integration.id)
+            await self.session.execute(
+                update(AgentPreset)
+                .where(
+                    and_(
+                        AgentPreset.workspace_id == self.workspace_id,
+                        AgentPreset.mcp_integrations.isnot(None),
+                        AgentPreset.mcp_integrations.contains([id_str]),
+                    )
+                )
+                .values(mcp_integrations=AgentPreset.mcp_integrations.op("-")(id_str))
+            )
+            await self.session.delete(mcp_integration)
+
+        if mcp_integrations:
+            await self.session.flush()
+
+        return len(mcp_integrations)
 
     async def _mcp_integration_slug_taken(self, slug: str) -> bool:
         """Check if an MCP integration slug is already taken."""

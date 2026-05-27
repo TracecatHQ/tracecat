@@ -508,6 +508,66 @@ class TestMCPIntegrationCRUD:
         assert refreshed_oauth.scope is None
         assert refreshed_oauth.requested_scopes is None
 
+    async def test_disconnect_mcp_provider_oauth_removes_auto_created_mcp_integration(
+        self,
+        integration_service: IntegrationService,
+    ) -> None:
+        """Test disconnecting MCP-provider OAuth removes its derived MCP row."""
+        provider_key = ProviderKey(
+            id="github_mcp",
+            grant_type=OAuthGrantType.AUTHORIZATION_CODE,
+        )
+        oauth_integration = await integration_service.store_integration(
+            provider_key=provider_key,
+            access_token=SecretStr("test_access_token"),
+            refresh_token=SecretStr("test_refresh_token"),
+            expires_in=3600,
+        )
+
+        auto_created = await integration_service.session.execute(
+            select(MCPIntegration).where(
+                MCPIntegration.workspace_id == integration_service.workspace_id,
+                MCPIntegration.oauth_integration_id == oauth_integration.id,
+            )
+        )
+        mcp_integration = auto_created.scalars().first()
+        assert mcp_integration is not None
+        mcp_integration_id = mcp_integration.id
+
+        preset = AgentPreset(
+            workspace_id=integration_service.workspace_id,
+            name="MCP provider preset",
+            slug="mcp-provider-preset",
+            model_name="gpt-4o-mini",
+            model_provider="openai",
+            mcp_integrations=[str(mcp_integration_id)],
+        )
+        integration_service.session.add(preset)
+        await integration_service.session.commit()
+        preset_id = preset.id
+
+        await integration_service.disconnect_integration(integration=oauth_integration)
+
+        refreshed_oauth = await integration_service.session.get(
+            OAuthIntegration, oauth_integration.id
+        )
+        assert refreshed_oauth is not None
+        assert refreshed_oauth.provider_id == provider_key.id
+        assert await integration_service.get_access_token(refreshed_oauth) is None
+
+        deleted_mcp = await integration_service.get_mcp_integration(
+            mcp_integration_id=mcp_integration_id
+        )
+        assert deleted_mcp is None
+
+        refreshed_preset_result = await integration_service.session.execute(
+            select(AgentPreset).where(AgentPreset.id == preset_id)
+        )
+        refreshed_preset = refreshed_preset_result.scalars().first()
+        assert refreshed_preset is not None
+        assert refreshed_preset.mcp_integrations is not None
+        assert str(mcp_integration_id) not in refreshed_preset.mcp_integrations
+
     async def test_delete_mcp_integration_rolls_back_on_disconnect_failure(
         self,
         integration_service: IntegrationService,
