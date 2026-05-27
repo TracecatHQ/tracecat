@@ -539,7 +539,11 @@ async def test_agent_workflow_does_not_duplicate_runtime_terminal_error(
         call_count: int, input: AgentExecutorInput
     ) -> AgentExecutorResult:
         del call_count, input
-        return AgentExecutorResult(success=False, error="runtime exploded")
+        return AgentExecutorResult(
+            success=False,
+            error="runtime exploded",
+            terminal_stream_error_emitted=True,
+        )
 
     @activity.defn(name="emit_session_error")
     async def mock_emit_session_error(args: EmitSessionErrorInputs) -> None:
@@ -566,6 +570,56 @@ async def test_agent_workflow_does_not_duplicate_runtime_terminal_error(
     assert isinstance(exc_info.value.cause, ApplicationError)
     assert "Agent execution failed: runtime exploded" in str(exc_info.value.cause)
     assert emitted_errors == []
+
+
+@pytest.mark.anyio
+@pytest.mark.integration
+async def test_agent_workflow_streams_executor_pre_stream_failure(
+    temporal_client: Client,
+    agent_worker_factory,
+    agent_workflow_args: AgentWorkflowArgs,
+    mock_session_id: uuid.UUID,
+) -> None:
+    queue = f"test-agent-queue-{mock_session_id}"
+    emitted_errors: list[EmitSessionErrorInputs] = []
+
+    def setup_failure(
+        call_count: int, input: AgentExecutorInput
+    ) -> AgentExecutorResult:
+        del call_count, input
+        return AgentExecutorResult(
+            success=False,
+            error="executor setup failed",
+            terminal_stream_error_emitted=False,
+        )
+
+    @activity.defn(name="emit_session_error")
+    async def mock_emit_session_error(args: EmitSessionErrorInputs) -> None:
+        emitted_errors.append(args)
+
+    activities = [
+        *create_activities_with_mock_executor(setup_failure),
+        mock_emit_session_error,
+    ]
+
+    async with agent_worker_factory(
+        temporal_client, task_queue=queue, custom_activities=activities
+    ):
+        with pytest.raises(WorkflowFailureError) as exc_info:
+            await temporal_client.execute_workflow(
+                DurableAgentWorkflow.run,
+                agent_workflow_args,
+                id=AgentWorkflowID(mock_session_id),
+                task_queue=queue,
+                retry_policy=RETRY_POLICIES["workflow:fail_fast"],
+                execution_timeout=timedelta(seconds=30),
+            )
+
+    assert isinstance(exc_info.value.cause, ApplicationError)
+    assert "Agent execution failed: executor setup failed" in str(exc_info.value.cause)
+    assert len(emitted_errors) == 1
+    assert emitted_errors[0].session_id == mock_session_id
+    assert emitted_errors[0].message == "Agent execution failed: executor setup failed"
 
 
 @pytest.mark.anyio

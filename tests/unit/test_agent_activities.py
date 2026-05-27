@@ -1073,6 +1073,25 @@ class TestSandboxedAgentExecutorHelpers:
         assert result.approval_requested is False
         assert result.output == {"status": "completed"}
 
+    def test_apply_loopback_result_copies_terminal_stream_error_flag(
+        self,
+    ) -> None:
+        result = AgentExecutorResult(
+            success=False,
+            terminal_stream_error_emitted=False,
+        )
+        loopback_result = LoopbackResult(
+            success=False,
+            error="runtime failed",
+            terminal_stream_error_emitted=True,
+        )
+
+        SandboxedAgentExecutor._apply_loopback_result(result, loopback_result)
+
+        assert result.success is False
+        assert result.error == "runtime failed"
+        assert result.terminal_stream_error_emitted is True
+
     @pytest.mark.anyio
     @patch("tracecat.agent.executor.activity.AgentSessionService.with_session")
     async def test_hydrates_session_history_for_runtime(

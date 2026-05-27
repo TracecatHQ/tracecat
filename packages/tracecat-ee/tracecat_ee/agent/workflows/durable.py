@@ -101,6 +101,7 @@ with workflow.unsafe.imports_passed_through():
 
 ROOT_AGENT_SCOPE = "root"
 AGENT_TOOL_DEFINITION_ERROR = "AgentToolDefinitionError"
+AGENT_EXECUTOR_PRE_STREAM_ERROR = "AgentExecutorPreStreamError"
 AGENT_RUNTIME_EXECUTION_ERROR = "AgentRuntimeExecutionError"
 BUILD_AGENT_TOOL_DEFINITIONS_PATCH = (
     "tracecat_ee.agent.workflows.durable.build_agent_tool_definitions"
@@ -876,9 +877,16 @@ class DurableAgentWorkflow:
             )
 
             if not result.success:
+                # Missing means a legacy activity result from before the flag
+                # existed; preserve the old no-fallback behavior on replay.
+                terminal_stream_error_emitted = (
+                    result.terminal_stream_error_emitted is not False
+                )
                 raise ApplicationError(
                     f"Agent execution failed: {result.error}",
-                    type=AGENT_RUNTIME_EXECUTION_ERROR,
+                    type=AGENT_RUNTIME_EXECUTION_ERROR
+                    if terminal_stream_error_emitted
+                    else AGENT_EXECUTOR_PRE_STREAM_ERROR,
                     non_retryable=True,
                 )
 
