@@ -11,10 +11,6 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, Literal
 
 import orjson
-from pydantic_ai.messages import (
-    ModelRequest,
-    UserPromptPart,
-)
 from pydantic_ai.tools import ToolApproved, ToolDenied
 from sqlalchemy import (
     and_,
@@ -32,9 +28,9 @@ from sqlalchemy.exc import SQLAlchemyError
 from temporalio.common import TypedSearchAttributes
 from tracecat_registry._internal.exceptions import SecretNotFoundError
 
-import tracecat.agent.adapter.vercel
 from tracecat import config
 from tracecat.agent.approvals.enums import ApprovalStatus
+from tracecat.agent.common.types import AgentUserPrompt
 from tracecat.agent.llm import LLMCompletionError
 from tracecat.agent.mcp.metadata import sanitize_message_tool_inputs
 from tracecat.agent.preset.prompts import AgentPresetBuilderPrompt
@@ -69,15 +65,13 @@ from tracecat.chat.schemas import (
     ApprovalRead,
     BasicChatRequest,
     ChatMessage,
-    ChatReadMinimal,
     ChatRequest,
     ChatResponse,
     ContinueRunRequest,
     VercelChatRequest,
 )
-from tracecat.chat.service import ChatService
 from tracecat.chat.tools import get_default_tools
-from tracecat.db.models import AgentSession, AgentSessionHistory, Approval, Chat
+from tracecat.db.models import AgentSession, AgentSessionHistory, Approval
 from tracecat.dsl.client import get_temporal_client
 from tracecat.dsl.common import RETRY_POLICIES
 from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
@@ -100,6 +94,66 @@ if TYPE_CHECKING:
 
 AUTO_TITLE_SERVICE_ID = "tracecat-api"
 APPROVAL_CONTINUATION_DEDUP_TTL_SECONDS = 5 * 60
+
+
+def _data_url_source(url: str, fallback_media_type: str) -> dict[str, str] | None:
+    header, separator, data = url.partition(",")
+    if not separator or not header.startswith("data:") or ";base64" not in header:
+        return None
+
+    media_type = header.removeprefix("data:").split(";", 1)[0]
+    return {
+        "type": "base64",
+        "media_type": media_type or fallback_media_type,
+        "data": data,
+    }
+
+
+def _vercel_file_part_to_content_block(part: Any) -> dict[str, Any]:
+    media_type = part["mediaType"]
+    source = _data_url_source(part["url"], media_type)
+    if source is None:
+        source = {"type": "url", "url": part["url"]}
+
+    if media_type.startswith("image/"):
+        return {"type": "image", "source": source}
+
+    block: dict[str, Any] = {"type": "document", "source": source}
+    if filename := part.get("filename"):
+        block["title"] = filename
+    return block
+
+
+def _extract_vercel_user_prompt(
+    ui_message: Any,
+) -> tuple[AgentUserPrompt | None, str | None]:
+    from tracecat.agent.adapter.vercel import is_file_ui_part, is_text_ui_part
+
+    text_parts: list[str] = []
+    content_blocks: list[dict[str, Any]] = []
+    has_file_part = False
+
+    for part in ui_message.parts:
+        if is_text_ui_part(part):
+            text = part["text"]
+            text_parts.append(text)
+            content_blocks.append({"type": "text", "text": text})
+        elif is_file_ui_part(part):
+            has_file_part = True
+            content_blocks.append(_vercel_file_part_to_content_block(part))
+
+    text_prompt = "\n".join(text_parts) if text_parts else None
+    if has_file_part:
+        if not content_blocks:
+            return None, text_prompt
+        return [
+            {
+                "type": "user",
+                "message": {"role": "user", "content": content_blocks},
+                "parent_tool_use_id": None,
+            }
+        ], text_prompt
+    return text_prompt, text_prompt
 
 
 @dataclass
@@ -275,54 +329,12 @@ class AgentSessionService(BaseWorkspaceService):
         self,
         session_id: uuid.UUID,
     ) -> AgentSession | None:
-        """Get an agent session by ID.
-
-        Only returns actual AgentSession records. Use get_legacy_chat()
-        for legacy Chat records.
-
-        Args:
-            session_id: The session UUID.
-
-        Returns:
-            AgentSession model if found, None otherwise.
-        """
         stmt = select(AgentSession).where(
             AgentSession.id == session_id,
             AgentSession.workspace_id == self.workspace_id,
         )
         result = await self.session.execute(stmt)
         return result.scalar_one_or_none()
-
-    async def get_legacy_chat(
-        self,
-        session_id: uuid.UUID,
-    ) -> Chat | None:
-        """Get a legacy Chat by ID.
-
-        Args:
-            session_id: The chat UUID.
-
-        Returns:
-            Chat model if found, None otherwise.
-        """
-        stmt = select(Chat).where(
-            Chat.id == session_id,
-            Chat.workspace_id == self.workspace_id,
-        )
-        result = await self.session.execute(stmt)
-        return result.scalar_one_or_none()
-
-    async def is_legacy_session(self, session_id: uuid.UUID) -> bool:
-        """Check if a session ID refers to a legacy Chat record.
-
-        Args:
-            session_id: The session/chat UUID.
-
-        Returns:
-            True if this is a legacy Chat, False otherwise.
-        """
-        chat = await self.get_legacy_chat(session_id)
-        return chat is not None
 
     async def get_or_create_session(
         self,
@@ -356,11 +368,10 @@ class AgentSessionService(BaseWorkspaceService):
         exclude_entity_types: list[AgentSessionEntity] | None = None,
         parent_session_id: uuid.UUID | None = None,
         limit: int = 100,
-    ) -> list[AgentSessionRead | ChatReadMinimal]:
-        """List agent sessions and legacy chats for the workspace.
+    ) -> list[AgentSessionRead]:
+        """List agent sessions for the workspace.
 
-        Returns a merged list of AgentSession and legacy Chat records,
-        sorted by created_at. Legacy chats have is_readonly=True.
+        Returns a list of AgentSession records sorted by created_at.
 
         Args:
             created_by: Filter by user who created the session.
@@ -371,7 +382,7 @@ class AgentSessionService(BaseWorkspaceService):
             limit: Maximum number of results.
 
         Returns:
-            List of AgentSessionRead or ChatReadMinimal (legacy, read-only).
+            List of AgentSessionRead.
         """
         # Query AgentSession table
         session_stmt = select(AgentSession).where(
@@ -403,38 +414,9 @@ class AgentSessionService(BaseWorkspaceService):
         session_result = await self.session.execute(session_stmt)
         sessions = list(session_result.scalars().all())
 
-        legacy_chats: list[Chat] = []
-        if parent_session_id is None:
-            # Query legacy Chat table
-            # Note: exclude_entity_types is not applied here because legacy Chat records
-            # predate entity types like WORKFLOW and APPROVAL that are typically excluded.
-            # Legacy chats only have entity types like "case" or "agent_preset".
-            chat_stmt = select(Chat).where(Chat.workspace_id == self.workspace_id)
-            if created_by is not None:
-                chat_stmt = chat_stmt.where(Chat.user_id == created_by)
-            if entity_type is not None:
-                chat_stmt = chat_stmt.where(Chat.entity_type == entity_type.value)
-            if entity_id is not None:
-                chat_stmt = chat_stmt.where(Chat.entity_id == entity_id)
-            # Bound query cost at the database layer; we still merge+sort below.
-            chat_stmt = chat_stmt.order_by(Chat.created_at.desc()).limit(limit)
-
-            chat_result = await self.session.execute(chat_stmt)
-            legacy_chats = list(chat_result.scalars().all())
-
-        # Convert and merge
-        items: list[AgentSessionRead | ChatReadMinimal] = []
-
-        for s in sessions:
-            items.append(AgentSessionRead.model_validate(s, from_attributes=True))
-
-        for c in legacy_chats:
-            # ChatReadMinimal has is_readonly=True by default
-            items.append(ChatReadMinimal.model_validate(c, from_attributes=True))
-
-        # Sort by created_at descending and apply limit
-        items.sort(key=lambda x: x.created_at, reverse=True)
-        return items[:limit]
+        return [
+            AgentSessionRead.model_validate(s, from_attributes=True) for s in sessions
+        ]
 
     @audit_log(resource_type="agent_session", action="update")
     async def update_session(
@@ -612,7 +594,7 @@ class AgentSessionService(BaseWorkspaceService):
         sdk_session_id = source_session.sdk_session_id
         if not sdk_session_id:
             logger.debug(
-                "No sdk_session_id on session (new session or legacy)",
+                "No sdk_session_id on session (new session)",
                 session_id=source_session_id,
             )
             return None
@@ -999,7 +981,8 @@ class AgentSessionService(BaseWorkspaceService):
         )
 
         # Parse request to extract user prompt
-        user_prompt: str | None = None
+        user_prompt: AgentUserPrompt | None = None
+        prompt_text: str | None = None
         request_instructions: str | None = None
         is_continuation = False
 
@@ -1007,33 +990,29 @@ class AgentSessionService(BaseWorkspaceService):
             case ContinueRunRequest():
                 is_continuation = True
             case VercelChatRequest(message=ui_message):
-                [message] = tracecat.agent.adapter.vercel.convert_ui_message(ui_message)
-                match message:
-                    case ModelRequest(parts=[UserPromptPart(content=content)]):
-                        match content:
-                            case str(s):
-                                user_prompt = s
-                            case list(l):
-                                user_prompt = "\n".join(str(item) for item in l)
-                            case _:
-                                raise ValueError(f"Unsupported user prompt: {content}")
-                    case _:
-                        raise ValueError(f"Unsupported message: {message}")
+                user_prompt, prompt_text = _extract_vercel_user_prompt(ui_message)
+                if user_prompt is None:
+                    raise ValueError(
+                        "VercelChatRequest contained no supported user content parts"
+                    )
             case BasicChatRequest(message=prompt, instructions=instructions):
                 user_prompt = prompt
+                prompt_text = prompt
                 request_instructions = instructions
             case _:
                 raise ValueError(f"Unsupported request type: {type(request)}")
 
-        if user_prompt is not None:
+        if isinstance(user_prompt, str):
             logger.info("Received user prompt", prompt_length=len(user_prompt))
+        elif user_prompt is not None:
+            logger.info("Received multimodal user prompt", messages=len(user_prompt))
 
         # Handle continuation (approval submission) vs new turn
         if is_continuation and isinstance(request, ContinueRunRequest):
             return await self._continue_with_approvals(session_id, request)
 
-        if user_prompt is not None:
-            await self.auto_title_session_on_first_prompt(agent_session, user_prompt)
+        if prompt_text is not None:
+            await self.auto_title_session_on_first_prompt(agent_session, prompt_text)
 
         # Build agent config and spawn workflow for new turn
         async with self._build_agent_config(agent_session) as agent_config:
@@ -1519,11 +1498,8 @@ class AgentSessionService(BaseWorkspaceService):
             List of ChatMessage objects (parent messages + current if forked).
         """
         agent_session = await self.get_session(session_id)
-
-        # If no history in new table, fall back to legacy ChatMessage table
         if not agent_session:
-            chat_service = ChatService(self.session, self.role)
-            return await chat_service.list_legacy_messages(session_id, kinds=kinds)
+            raise TracecatNotFoundError(f"Session {session_id} not found")
 
         session_ids = [session_id]
         if agent_session and agent_session.parent_session_id:

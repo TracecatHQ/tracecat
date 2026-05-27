@@ -35,7 +35,6 @@ from tracecat.agent.channels.management_router import (
 )
 from tracecat.agent.channels.router import router as agent_channels_router
 from tracecat.agent.folders.router import router as agent_folders_router
-from tracecat.agent.internal_router import router as internal_agent_router
 from tracecat.agent.preset.internal_router import (
     router as internal_agent_preset_router,
 )
@@ -592,7 +591,6 @@ def create_app(**kwargs) -> FastAPI:
         dependencies=[Depends(authenticated_user_only)],
     )
     # Internal routers
-    app.include_router(internal_agent_router)
     app.include_router(internal_agent_preset_router)
     app.include_router(internal_case_attachments_router)
     app.include_router(internal_cases_router)

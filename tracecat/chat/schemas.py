@@ -6,14 +6,13 @@ import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING, Annotated, Any, Literal
 
-from pydantic import UUID4, BaseModel, Discriminator, Field
+from pydantic import BaseModel, Discriminator, Field
 from pydantic_ai.tools import ToolApproved, ToolDenied
 
 from tracecat.agent.adapter import vercel
 from tracecat.agent.approvals.enums import ApprovalStatus
 from tracecat.agent.common.stream_types import HarnessType
 from tracecat.agent.mcp.metadata import sanitize_message_tool_inputs
-from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.agent.types import ClaudeSDKMessageTA, ModelMessageTA, UnifiedMessage
 from tracecat.chat.enums import MessageKind
 
@@ -76,103 +75,6 @@ class ChatResponse(BaseModel):
 
     stream_url: str = Field(..., description="URL to connect for SSE streaming")
     chat_id: uuid.UUID = Field(..., description="Unique chat identifier")
-
-
-class ChatCreate(BaseModel):
-    """Request model for creating a new chat."""
-
-    title: str = Field(
-        ...,
-        description="Human-readable title for the chat",
-        min_length=1,
-        max_length=200,
-    )
-    entity_type: AgentSessionEntity = Field(
-        ..., description="Type of entity this chat is associated with"
-    )
-    entity_id: UUID4 = Field(..., description="ID of the associated entity")
-    tools: list[str] | None = Field(
-        default=None,
-        description="Tools available to the agent for this chat",
-        max_length=50,
-    )
-    agent_preset_id: uuid.UUID | None = Field(
-        default=None,
-        description="Agent preset used for this chat, if any",
-    )
-    agent_preset_version_id: uuid.UUID | None = Field(
-        default=None,
-        description="Pinned preset version used for this chat, if any",
-    )
-
-
-class ChatReadMinimal(BaseModel):
-    """Model for chat metadata without messages.
-
-    Note: Legacy Chat records are read-only (is_readonly=True).
-    """
-
-    id: UUID4 = Field(..., description="Unique chat identifier")
-    title: str = Field(..., description="Human-readable title for the chat")
-    user_id: UUID4 = Field(..., description="ID of the user who owns the chat")
-    entity_type: str = Field(
-        ..., description="Type of entity this chat is associated with"
-    )
-    entity_id: UUID4 = Field(..., description="ID of the associated entity")
-    tools: list[str] = Field(..., description="Tools available to the agent")
-    agent_preset_id: uuid.UUID | None = Field(
-        default=None,
-        description="Agent preset used for this chat, if any",
-    )
-    agent_preset_version_id: uuid.UUID | None = Field(
-        default=None,
-        description="Pinned preset version used for this chat, if any",
-    )
-    created_at: datetime = Field(..., description="When the chat was created")
-    updated_at: datetime = Field(..., description="When the chat was last updated")
-    last_stream_id: str | None = Field(
-        default=None,
-        description="Last processed Redis stream ID for this chat",
-    )
-    is_readonly: bool = Field(
-        default=True,
-        description="Whether this chat is read-only (legacy chats cannot be modified)",
-    )
-
-
-class ChatRead(ChatReadMinimal):
-    """Model for chat metadata with message history."""
-
-    messages: list[ChatMessage] = Field(
-        default_factory=list, description="Chat messages from Redis stream"
-    )
-
-
-class ChatReadVercel(ChatReadMinimal):
-    """Model for chat metadata with message history in Vercel format."""
-
-    messages: list[vercel.UIMessage] = Field(
-        default_factory=list, description="Chat messages from Redis stream"
-    )
-
-
-class ChatUpdate(BaseModel):
-    """Request model for updating chat properties."""
-
-    tools: list[str] | None = Field(
-        default=None, description="Tools available to the agent", max_length=50
-    )
-    title: str | None = Field(
-        default=None, description="Chat title", min_length=1, max_length=200
-    )
-    agent_preset_id: uuid.UUID | None = Field(
-        default=None,
-        description="Agent preset to use for the chat session (set to null for default instructions)",
-    )
-    agent_preset_version_id: uuid.UUID | None = Field(
-        default=None,
-        description="Pinned preset version to use for the chat session",
-    )
 
 
 class ApprovalRead(BaseModel):

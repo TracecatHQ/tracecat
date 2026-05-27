@@ -2,7 +2,6 @@ import type { UIMessage } from "ai"
 import type {
   AgentSessionRead,
   ApprovalRead,
-  ChatReadMinimal,
   WorkflowExecutionStatus,
 } from "@/client"
 import { undoSlugify } from "@/lib/utils"
@@ -13,11 +12,7 @@ export type WorkflowSummary = {
   alias?: string | null
 }
 
-/**
- * Base session type that can be either AgentSessionRead or ChatReadMinimal.
- * Used for backward compatibility with legacy Chat records.
- */
-export type SessionBase = AgentSessionRead | ChatReadMinimal
+export type SessionBase = AgentSessionRead
 
 /**
  * Extended session with optional metadata fields populated by the workflow API.

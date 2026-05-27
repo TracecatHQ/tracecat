@@ -14,6 +14,7 @@ from typing import Any, Literal
 
 from tracecat.agent.common.stream_types import UnifiedStreamEvent
 from tracecat.agent.common.types import (
+    AgentUserPrompt,
     MCPToolDefinition,
     SandboxAgentConfig,
     SandboxSubagentConfig,
@@ -39,7 +40,7 @@ class RuntimeInitPayload:
     session_id: uuid.UUID
     mcp_auth_token: str  # JWT for MCP auth
     config: SandboxAgentConfig
-    user_prompt: str
+    user_prompt: AgentUserPrompt
     llm_gateway_auth_token: str
 
     # Resolved tool definitions (orchestrator resolves action names → full definitions)

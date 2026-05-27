@@ -26,6 +26,7 @@ from tracecat.agent.common.exceptions import AgentSandboxExecutionError
 from tracecat.agent.common.protocol import RuntimeInitPayload
 from tracecat.agent.common.stream_types import ToolCallContent
 from tracecat.agent.common.types import (
+    AgentUserPrompt,
     MCPServerConfig,
     MCPToolDefinition,
     SandboxAgentConfig,
@@ -81,7 +82,7 @@ class AgentExecutorInput(BaseModel):
 
     session_id: uuid.UUID
     workspace_id: uuid.UUID
-    user_prompt: str
+    user_prompt: AgentUserPrompt
     config: AgentConfig
     # Role for context
     role: Role

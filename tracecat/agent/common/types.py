@@ -13,6 +13,8 @@ from tracecat.agent.subagents import AgentSubagentsConfig
 if TYPE_CHECKING:
     from tracecat.agent.types import AgentConfig
 
+type AgentUserPrompt = str | list[dict[str, Any]]
+
 
 class MCPHttpServerConfig(TypedDict):
     """Configuration for a user-defined MCP server over HTTP/SSE.

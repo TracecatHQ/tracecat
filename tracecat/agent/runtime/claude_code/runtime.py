@@ -108,6 +108,13 @@ def _ensure_supported_claude_project_dir_name(cwd: Path) -> None:
     _claude_project_dir_name(cwd)
 
 
+async def _iter_sdk_user_prompt_messages(
+    messages: list[dict[str, Any]],
+) -> AsyncIterator[dict[str, Any]]:
+    for message in messages:
+        yield dict(message)
+
+
 class RuntimeEventWriter(Protocol):
     """Protocol for runtime event delivery."""
 
@@ -1356,10 +1363,17 @@ class ClaudeAgentRuntime:
                     "is_meta": True,
                 }
                 logger.debug("Approval continuation with meta prompt")
-            else:
+            elif isinstance(payload.user_prompt, str):
                 query_input = payload.user_prompt
                 query_log_extra = {"prompt_length": len(query_input)}
                 logger.debug("Normal turn with user prompt")
+            else:
+                query_input = _iter_sdk_user_prompt_messages(payload.user_prompt)
+                query_log_extra = {
+                    "prompt_message_count": len(payload.user_prompt),
+                    "is_multimodal": True,
+                }
+                logger.debug("Normal turn with multimodal user prompt")
 
             transport = self._transport_factory(options)
             client = ClaudeSDKClient(options=options, transport=transport)
