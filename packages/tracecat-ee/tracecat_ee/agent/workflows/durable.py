@@ -1082,12 +1082,80 @@ class DurableAgentWorkflow:
                         tool_call_parts,
                         request_metadata=request_metadata,
                     )
-                # Wait for approval signal
-                await self.approvals.wait()
+                # Wait for either approval decisions or a user cancellation.
+                await workflow.wait_condition(
+                    lambda: self.approvals.is_ready() or self._cancel_requested
+                )
+                if self._cancel_requested:
+                    logger.info(
+                        "Agent turn cancelled while waiting for approval",
+                        session_id=self.session_id,
+                        reason=self._cancel_reason,
+                    )
+                    self.approvals.set(
+                        {
+                            item.id: ToolDenied(
+                                message="Cancelled while waiting for approval"
+                            )
+                            for item in result.approval_items or []
+                        }
+                    )
+                    await self.approvals.handle_decisions()
+                    self._status = "done"
+                    await self._set_agent_session_status(
+                        AgentSessionStatus.STOPPED,
+                        clear_curr_run_id=True,
+                    )
+                    message_history = await self._load_terminal_message_history(result)
+                    return AgentOutput(
+                        output=None,
+                        message_history=message_history,
+                        duration=(datetime.now(UTC) - info.start_time).total_seconds(),
+                        usage=RunUsage(requests=0, input_tokens=0, output_tokens=0),
+                        session_id=self.session_id,
+                    )
                 # Persist approval decisions to DB (atomic with chat messages)
                 await self.approvals.handle_decisions()
+                if self._cancel_requested:
+                    logger.info(
+                        "Agent turn cancelled after approval decisions",
+                        session_id=self.session_id,
+                        reason=self._cancel_reason,
+                    )
+                    self._status = "done"
+                    await self._set_agent_session_status(
+                        AgentSessionStatus.STOPPED,
+                        clear_curr_run_id=True,
+                    )
+                    message_history = await self._load_terminal_message_history(result)
+                    return AgentOutput(
+                        output=None,
+                        message_history=message_history,
+                        duration=(datetime.now(UTC) - info.start_time).total_seconds(),
+                        usage=RunUsage(requests=0, input_tokens=0, output_tokens=0),
+                        session_id=self.session_id,
+                    )
                 self._status = "running"
                 await self._set_agent_session_status(AgentSessionStatus.RUNNING)
+                if self._cancel_requested:
+                    logger.info(
+                        "Agent turn cancelled before approved tool execution",
+                        session_id=self.session_id,
+                        reason=self._cancel_reason,
+                    )
+                    self._status = "done"
+                    await self._set_agent_session_status(
+                        AgentSessionStatus.STOPPED,
+                        clear_curr_run_id=True,
+                    )
+                    message_history = await self._load_terminal_message_history(result)
+                    return AgentOutput(
+                        output=None,
+                        message_history=message_history,
+                        duration=(datetime.now(UTC) - info.start_time).total_seconds(),
+                        usage=RunUsage(requests=0, input_tokens=0, output_tokens=0),
+                        session_id=self.session_id,
+                    )
 
                 # Execute approved tools and reconcile the SDK transcript.
                 approved_tools, denied_tools = self._build_tool_lists_from_approvals(

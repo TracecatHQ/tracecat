@@ -30,7 +30,9 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.engine import CursorResult
 from sqlalchemy.exc import SQLAlchemyError
+from temporalio.client import WorkflowExecutionStatus
 from temporalio.common import TypedSearchAttributes
+from tracecat_ee.agent.types import AgentWorkflowID
 from tracecat_registry._internal.exceptions import SecretNotFoundError
 
 import tracecat.agent.adapter.vercel
@@ -108,6 +110,11 @@ if TYPE_CHECKING:
 
 AUTO_TITLE_SERVICE_ID = "tracecat-api"
 APPROVAL_CONTINUATION_DEDUP_TTL_SECONDS = 5 * 60
+ACTIVE_AGENT_SESSION_STATUSES = ("running", "waiting_for_approval")
+ACTIVE_WORKFLOW_STATUSES = (
+    WorkflowExecutionStatus.RUNNING,
+    WorkflowExecutionStatus.CONTINUED_AS_NEW,
+)
 
 
 @dataclass
@@ -587,13 +594,44 @@ class AgentSessionService(BaseWorkspaceService):
         await self.session.commit()
         return bool(cast(CursorResult[Any], result).rowcount)
 
+    async def _has_active_agent_turn(self, agent_session: AgentSession) -> bool:
+        """Return whether DB/Temporal state should block a new turn."""
+        if agent_session.curr_run_id is None:
+            return agent_session.status in ACTIVE_AGENT_SESSION_STATUSES
+
+        client = await get_temporal_client()
+        workflow_id = AgentWorkflowID(agent_session.curr_run_id)
+        try:
+            handle = client.get_workflow_handle(str(workflow_id))
+            description = await handle.describe()
+        except Exception:
+            return True
+
+        if description.status in ACTIVE_WORKFLOW_STATUSES:
+            return True
+
+        agent_session.status = (
+            AgentSessionStatus.FAILED.value
+            if description.status
+            in {WorkflowExecutionStatus.FAILED, WorkflowExecutionStatus.TIMED_OUT}
+            else AgentSessionStatus.STOPPED.value
+            if description.status
+            in {
+                WorkflowExecutionStatus.CANCELED,
+                WorkflowExecutionStatus.TERMINATED,
+            }
+            else AgentSessionStatus.IDLE.value
+        )
+        agent_session.curr_run_id = None
+        await self.session.commit()
+        return False
+
     async def request_cancel(
         self,
         session_id: uuid.UUID,
         request: AgentSessionCancelRequest,
     ) -> AgentSessionCancelResponse:
         """Request graceful cancellation for the active agent workflow turn."""
-        from tracecat_ee.agent.types import AgentWorkflowID
         from tracecat_ee.agent.workflows.durable import (
             DurableAgentWorkflow,
             WorkflowCancelRequest,
@@ -604,9 +642,12 @@ class AgentSessionService(BaseWorkspaceService):
             raise TracecatNotFoundError(f"Session with ID {session_id} not found")
 
         current_status = AgentSessionStatus(agent_session.status)
-        if current_status is not AgentSessionStatus.RUNNING:
+        if current_status not in {
+            AgentSessionStatus.RUNNING,
+            AgentSessionStatus.WAITING_FOR_APPROVAL,
+        }:
             raise TracecatConflictError(
-                "Agent session is not currently running",
+                "Agent session does not have an active turn",
                 detail={"status": current_status.value},
             )
 
@@ -1061,7 +1102,6 @@ class AgentSessionService(BaseWorkspaceService):
             TracecatNotFoundError: If the session is not found.
             ValueError: If the request/entity type is unsupported.
         """
-        from tracecat_ee.agent.types import AgentWorkflowID
         from tracecat_ee.agent.workflows.durable import (
             AgentWorkflowArgs,
             DurableAgentWorkflow,
@@ -1152,7 +1192,6 @@ class AgentSessionService(BaseWorkspaceService):
 
             # Update session with current run_id for approval lookups
             agent_session.curr_run_id = run_id
-            agent_session.status = AgentSessionStatus.RUNNING.value
             self.session.add(agent_session)
             await self.session.commit()
 
@@ -1180,6 +1219,7 @@ class AgentSessionService(BaseWorkspaceService):
                     ),
                 )
             except Exception:
+                agent_session.curr_run_id = None
                 agent_session.status = AgentSessionStatus.FAILED.value
                 self.session.add(agent_session)
                 await self.session.commit()
@@ -1207,10 +1247,7 @@ class AgentSessionService(BaseWorkspaceService):
                     )
                 return agent_session
             case VercelChatRequest() | BasicChatRequest():
-                if agent_session.status in {
-                    AgentSessionStatus.RUNNING.value,
-                    AgentSessionStatus.WAITING_FOR_APPROVAL.value,
-                }:
+                if await self._has_active_agent_turn(agent_session):
                     raise TracecatConflictError(
                         "This session already has an active turn."
                     )
@@ -1241,7 +1278,6 @@ class AgentSessionService(BaseWorkspaceService):
             TracecatNotFoundError: If no active session exists.
         """
         from tracecat_ee.agent.approvals.service import ApprovalMap
-        from tracecat_ee.agent.types import AgentWorkflowID
         from tracecat_ee.agent.workflows.durable import (
             DurableAgentWorkflow,
             WorkflowApprovalSubmission,
@@ -1638,15 +1674,16 @@ class AgentSessionService(BaseWorkspaceService):
         approval_by_tool_id: dict[str, Approval] = {
             a.tool_call_id: a for a in approvals
         }
+        pending_approval_tool_ids = {
+            a.tool_call_id for a in approvals if a.status == ApprovalStatus.PENDING
+        }
 
         # Build timeline with interleaved approvals
         # Process both chat-message and internal entries in order
         # Internal entries contain tool results that the adapter will extract
         messages: list[ChatMessage] = []
         internal_uuids: set[str] = set()
-        show_interrupt_notice = (
-            getattr(agent_session, "status", None) == AgentSessionStatus.STOPPED.value
-        )
+        pending_approval_interrupt_tool_ids: set[str] = set()
         for entry in all_entries:
             content = entry.content
             if not content:
@@ -1655,9 +1692,12 @@ class AgentSessionService(BaseWorkspaceService):
             # Skip internal entries (e.g., continuation prompts)
             if entry.kind == MessageKind.INTERNAL.value:
                 if (
-                    show_interrupt_notice
-                    and getattr(entry, "session_id", session_id) == session_id
+                    getattr(entry, "session_id", session_id) == session_id
                     and self._is_interrupt_session_line(content)
+                    and not self._is_pending_approval_interrupt_session_line(
+                        content,
+                        pending_approval_interrupt_tool_ids,
+                    )
                     and not (messages and messages[-1].kind == MessageKind.INTERRUPT)
                 ):
                     kind = MessageKind.INTERRUPT
@@ -1714,10 +1754,6 @@ class AgentSessionService(BaseWorkspaceService):
             # Standard chat messages
             kind = MessageKind.CHAT_MESSAGE
 
-            # Filter by kinds if specified
-            if kinds and kind not in kinds:
-                continue
-
             # Extract the inner message from JSONL envelope
             inner_message = content.get("message")
             if not inner_message:
@@ -1728,27 +1764,47 @@ class AgentSessionService(BaseWorkspaceService):
 
             # Deserialize the content using Claude SDK TypeAdapter
             message = ClaudeSDKMessageTA.validate_python(sanitized_message)
-            messages.append(ChatMessage(id=str(entry.id), message=message))
+            if not kinds or kind in kinds:
+                messages.append(ChatMessage(id=str(entry.id), message=message))
 
             # For assistant messages, check for tool calls needing approval bubbles
             if msg_type == "assistant":
                 tool_uses = self._extract_tool_uses_from_message(sanitized_message)
                 for tool_use in tool_uses:
                     tool_use_id = tool_use.get("id")
+                    if tool_use_id in pending_approval_tool_ids:
+                        pending_approval_interrupt_tool_ids.add(tool_use_id)
                     if tool_use_id and (
                         approval := approval_by_tool_id.get(tool_use_id)
                     ):
-                        # Insert approval-request bubble
-                        approval_read = ApprovalRead.model_validate(approval)
-                        messages.append(
-                            ChatMessage(
-                                id=str(approval.id),
-                                kind=MessageKind.APPROVAL_REQUEST,
-                                approval=approval_read,
-                            )
+                        should_append_approval_request = (
+                            not kinds or MessageKind.APPROVAL_REQUEST in kinds
                         )
+                        should_append_approval_decision = (
+                            approval.status != ApprovalStatus.PENDING
+                            and (not kinds or MessageKind.APPROVAL_DECISION in kinds)
+                        )
+                        if (
+                            should_append_approval_request
+                            or should_append_approval_decision
+                        ):
+                            approval_read = ApprovalRead.model_validate(approval)
+                        else:
+                            approval_read = None
+
+                        # Insert approval-request bubble
+                        if should_append_approval_request:
+                            assert approval_read is not None
+                            messages.append(
+                                ChatMessage(
+                                    id=str(approval.id),
+                                    kind=MessageKind.APPROVAL_REQUEST,
+                                    approval=approval_read,
+                                )
+                            )
                         # If decided, also insert decision bubble
-                        if approval.status != ApprovalStatus.PENDING:
+                        if should_append_approval_decision:
+                            assert approval_read is not None
                             messages.append(
                                 ChatMessage(
                                     id=f"{approval.id}-decision",
@@ -1758,6 +1814,43 @@ class AgentSessionService(BaseWorkspaceService):
                             )
 
         return messages
+
+    @staticmethod
+    def _is_pending_approval_interrupt_session_line(
+        content: dict[str, Any],
+        pending_tool_call_ids: set[str],
+    ) -> bool:
+        """Return True for SDK interrupt rows caused by an active approval wait."""
+        if not pending_tool_call_ids:
+            return False
+
+        message = content.get("message")
+        if not isinstance(message, dict):
+            return False
+
+        msg_content = message.get("content")
+        if isinstance(msg_content, str):
+            return is_approval_interrupt_content(msg_content)
+        if not isinstance(msg_content, list):
+            return False
+
+        for block in msg_content:
+            if isinstance(block, dict):
+                if block.get("type") == "text" and is_approval_interrupt_content(
+                    block.get("text", "")
+                ):
+                    return True
+                if (
+                    block.get("type") == "tool_result"
+                    and block.get("is_error") is True
+                    and block.get("tool_use_id") in pending_tool_call_ids
+                    and is_approval_interrupt_content(block.get("content", ""))
+                ):
+                    return True
+            elif is_approval_interrupt_content(block):
+                return True
+
+        return False
 
     @staticmethod
     def _is_interrupt_session_line(content: dict[str, Any]) -> bool:
