@@ -4037,6 +4037,46 @@ export const $AgentSessionStatus = {
   description: "Lifecycle state for an agent session turn.",
 } as const
 
+export const $AgentSessionStatusRead = {
+  properties: {
+    turn_status: {
+      $ref: "#/components/schemas/AgentSessionStatus",
+      default: "idle",
+    },
+    curr_run_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Curr Run Id",
+    },
+    prompt: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Prompt",
+      description:
+        "Human prompt that started the active run, for observer clients to render (user messages cannot stream over the Vercel protocol).",
+    },
+  },
+  type: "object",
+  title: "AgentSessionStatusRead",
+  description: `Lightweight session lifecycle status for cheap polling.
+
+Clients poll this (instead of the full message history) to learn when a turn
+starts elsewhere and attach to the live stream.`,
+} as const
+
 export const $AgentSessionUpdate = {
   properties: {
     title: {

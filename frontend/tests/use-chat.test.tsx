@@ -1,12 +1,17 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { renderHook, waitFor } from "@testing-library/react"
+import type { UIMessage } from "ai"
 import type {
   AgentSessionRead,
   AgentSessionReadVercel,
   AgentSessionReadWithMessages,
 } from "@/client"
 import { agentSessionsUpdateSession } from "@/client"
-import { useUpdateChat } from "@/hooks/use-chat"
+import {
+  scanSseIds,
+  upsertActivePromptMessage,
+  useUpdateChat,
+} from "@/hooks/use-chat"
 
 jest.mock("@/client", () => {
   const actual = jest.requireActual("@/client")
@@ -72,6 +77,143 @@ function createSessionReadVercel(
     ...overrides,
   }
 }
+
+function streamFromChunks(chunks: string[]): ReadableStream<Uint8Array> {
+  const encoder = new TextEncoder()
+  return new ReadableStream({
+    start(controller) {
+      for (const chunk of chunks) {
+        controller.enqueue(encoder.encode(chunk))
+      }
+      controller.close()
+    },
+  })
+}
+
+describe("scanSseIds", () => {
+  it("publishes the event id after the blank line terminates the SSE event", async () => {
+    const lastEventIdRef = { current: null as string | null }
+
+    await scanSseIds(
+      streamFromChunks(["id: 1000-0:1\n", 'data: {"type":"text"}\n\n']),
+      lastEventIdRef
+    )
+
+    expect(lastEventIdRef.current).toBe("1000-0:1")
+  })
+
+  it("does not publish an id from an incomplete SSE event", async () => {
+    const lastEventIdRef = { current: "999-0:0" as string | null }
+
+    await scanSseIds(
+      streamFromChunks(["id: 1000-0:1\n", 'data: {"type":"text"}']),
+      lastEventIdRef
+    )
+
+    expect(lastEventIdRef.current).toBe("999-0:0")
+  })
+
+  it("uses the last id line in a completed SSE event", async () => {
+    const lastEventIdRef = { current: null as string | null }
+
+    await scanSseIds(
+      streamFromChunks(["id: 1000-0:1\ndata: first\n", "id: 1000-0:2\n\n"]),
+      lastEventIdRef
+    )
+
+    expect(lastEventIdRef.current).toBe("1000-0:2")
+  })
+})
+
+describe("upsertActivePromptMessage", () => {
+  it("appends the active prompt before the stream creates an assistant", () => {
+    const messages: UIMessage[] = []
+
+    const result = upsertActivePromptMessage(messages, {
+      chatId: "chat-1",
+      currRunId: "run-1",
+      prompt: "Investigate this alert",
+    })
+
+    expect(result).toEqual([
+      {
+        id: "active-user:chat-1:run-1",
+        role: "user",
+        parts: [{ type: "text", text: "Investigate this alert" }],
+      },
+    ])
+  })
+
+  it("inserts the active prompt before an existing streaming assistant", () => {
+    const messages: UIMessage[] = [
+      {
+        id: "chat-1:run-1",
+        role: "assistant",
+        parts: [{ type: "text", text: "Working" }],
+      },
+    ]
+
+    const result = upsertActivePromptMessage(messages, {
+      chatId: "chat-1",
+      currRunId: "run-1",
+      prompt: "Investigate this alert",
+    })
+
+    expect(result).toHaveLength(2)
+    expect(result[0]).toEqual({
+      id: "active-user:chat-1:run-1",
+      role: "user",
+      parts: [{ type: "text", text: "Investigate this alert" }],
+    })
+    expect(result[1]).toBe(messages[0])
+  })
+
+  it("does not duplicate the sender's optimistic user prompt", () => {
+    const messages: UIMessage[] = [
+      {
+        id: "local-user",
+        role: "user",
+        parts: [{ type: "text", text: "Investigate this alert" }],
+      },
+      {
+        id: "chat-1:run-1",
+        role: "assistant",
+        parts: [{ type: "text", text: "Working" }],
+      },
+    ]
+
+    const result = upsertActivePromptMessage(messages, {
+      chatId: "chat-1",
+      currRunId: "run-1",
+      prompt: "Investigate this alert",
+    })
+
+    expect(result).toBe(messages)
+  })
+
+  it("is idempotent after inserting the active prompt", () => {
+    const messages: UIMessage[] = [
+      {
+        id: "chat-1:run-1",
+        role: "assistant",
+        parts: [{ type: "text", text: "Working" }],
+      },
+    ]
+
+    const first = upsertActivePromptMessage(messages, {
+      chatId: "chat-1",
+      currRunId: "run-1",
+      prompt: "Investigate this alert",
+    })
+    const second = upsertActivePromptMessage(first, {
+      chatId: "chat-1",
+      currRunId: "run-1",
+      prompt: "Investigate this alert",
+    })
+
+    expect(second).toBe(first)
+  })
+})
 
 describe("useUpdateChat", () => {
   let queryClient: QueryClient

@@ -6,12 +6,14 @@ import {
   useQueryClient,
 } from "@tanstack/react-query"
 import { DefaultChatTransport, type UIMessage } from "ai"
-import { useCallback, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import {
   type AgentSessionCancelResponse,
   type AgentSessionCreate,
   type AgentSessionEntity,
   type AgentSessionRead,
+  type AgentSessionStatus,
+  type AgentSessionStatusRead,
   type AgentSessionsGetSessionResponse,
   type AgentSessionsGetSessionVercelResponse,
   type AgentSessionsListSessionsResponse,
@@ -21,6 +23,7 @@ import {
   agentSessionsCreateSession,
   agentSessionsDeleteSession,
   agentSessionsGetSession,
+  agentSessionsGetSessionStatus,
   agentSessionsGetSessionVercel,
   agentSessionsListSessions,
   agentSessionsUpdateSession,
@@ -33,6 +36,170 @@ import { type ModelInfo, toServerUIMessage } from "@/lib/chat"
 
 const DEFAULT_CHAT_ERROR_MESSAGE =
   "The assistant couldn't complete that request. Please try again."
+
+/** A turn still has active run metadata while running or awaiting approval. */
+function isActiveTurnStatus(status: AgentSessionStatus | undefined): boolean {
+  return status === "running" || status === "waiting_for_approval"
+}
+
+/** Fresh stream attachment is only safe while the Redis stream is still open. */
+function isStreamAttachableTurnStatus(
+  status: AgentSessionStatus | undefined
+): boolean {
+  return status === "running"
+}
+
+function getMessageText(message: UIMessage): string {
+  return message.parts
+    .filter(
+      (part): part is Extract<UIMessage["parts"][number], { type: "text" }> =>
+        part.type === "text"
+    )
+    .map((part) => part.text)
+    .join("")
+}
+
+function isMatchingUserPrompt(
+  message: UIMessage | undefined,
+  prompt: string
+): boolean {
+  return message?.role === "user" && getMessageText(message) === prompt
+}
+
+function hasActivePromptMessage(
+  messages: UIMessage[],
+  promptMessageId: string,
+  activeAssistantId: string,
+  prompt: string
+): boolean {
+  if (messages.some((message) => message.id === promptMessageId)) {
+    return true
+  }
+
+  const activeAssistantIndex = messages.findIndex(
+    (message) =>
+      message.role === "assistant" && message.id === activeAssistantId
+  )
+  if (
+    activeAssistantIndex > 0 &&
+    isMatchingUserPrompt(messages[activeAssistantIndex - 1], prompt)
+  ) {
+    return true
+  }
+
+  return isMatchingUserPrompt(messages[messages.length - 1], prompt)
+}
+
+/**
+ * Insert the active turn's user prompt into SDK chat state for observer tabs.
+ *
+ * The sender already gets an optimistic user message from `sendMessage`, while
+ * observers only receive the assistant over the Vercel UI stream. This keeps
+ * the prompt as durable chat state instead of deriving it during render.
+ */
+export function upsertActivePromptMessage(
+  messages: UIMessage[],
+  {
+    chatId,
+    currRunId,
+    prompt,
+  }: {
+    chatId?: string
+    currRunId?: string | null
+    prompt?: string | null
+  }
+): UIMessage[] {
+  if (!chatId || !currRunId || !prompt?.trim()) {
+    return messages
+  }
+
+  const promptMessageId = `active-user:${chatId}:${currRunId}`
+  const activeAssistantId = `${chatId}:${currRunId}`
+
+  if (
+    hasActivePromptMessage(messages, promptMessageId, activeAssistantId, prompt)
+  ) {
+    return messages
+  }
+
+  const promptMessage: UIMessage = {
+    id: promptMessageId,
+    role: "user",
+    parts: [{ type: "text", text: prompt }],
+  }
+  const activeAssistantIndex = messages.findIndex(
+    (message) =>
+      message.role === "assistant" && message.id === activeAssistantId
+  )
+
+  if (activeAssistantIndex === -1) {
+    return [...messages, promptMessage]
+  }
+
+  return [
+    ...messages.slice(0, activeAssistantIndex),
+    promptMessage,
+    ...messages.slice(activeAssistantIndex),
+  ]
+}
+
+/**
+ * Read an SSE response stream and record the latest `id:` line into a ref.
+ *
+ * The AI SDK does not surface SSE event ids, so we capture them ourselves to
+ * resume from the right place on reconnect (sent back as `Last-Event-ID`).
+ * Consumes its own tee'd branch of the body; cancels cleanly on stream end.
+ */
+export async function scanSseIds(
+  stream: ReadableStream<Uint8Array>,
+  lastEventIdRef: { current: string | null }
+): Promise<void> {
+  const reader = stream.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ""
+  let pendingEventId: string | null = null
+
+  function processLine(rawLine: string) {
+    const line = rawLine.endsWith("\r") ? rawLine.slice(0, -1) : rawLine
+    if (line === "") {
+      if (pendingEventId !== null) {
+        lastEventIdRef.current = pendingEventId
+        pendingEventId = null
+      }
+      return
+    }
+
+    if (line.startsWith("id:")) {
+      pendingEventId = line.slice(3).trim()
+    }
+  }
+
+  function processCompleteLines() {
+    let newlineIndex = buffer.indexOf("\n")
+    while (newlineIndex !== -1) {
+      processLine(buffer.slice(0, newlineIndex))
+      buffer = buffer.slice(newlineIndex + 1)
+      newlineIndex = buffer.indexOf("\n")
+    }
+  }
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) {
+        buffer += decoder.decode()
+        processCompleteLines()
+        break
+      }
+      buffer += decoder.decode(value, { stream: true })
+      processCompleteLines()
+    }
+  } catch {
+    // Best-effort: a cancelled/aborted stream is not an error for id tracking.
+  } finally {
+    reader.cancel().catch(() => {})
+  }
+}
 
 type UpdateableChatRecord =
   | AgentSessionsGetSessionResponse
@@ -410,20 +577,89 @@ export function useGetChatVercel({
   return { chat, chatLoading, chatError }
 }
 
+/**
+ * Poll the lifecycle status endpoint so a client learns when a turn
+ * starts (e.g. from another tab) and can attach to the live stream. Kept
+ * separate from the heavy message-history fetch. Polls a touch faster while a
+ * turn is live; always polls so an idle client notices a new turn.
+ */
+export function useSessionStatus({
+  chatId,
+  workspaceId,
+}: {
+  chatId?: string
+  workspaceId: string
+}) {
+  const { data } = useQuery<AgentSessionStatusRead, ApiError>({
+    queryKey: ["chat", chatId, workspaceId, "status"],
+    queryFn: async () => {
+      if (!chatId) {
+        throw new Error("No chat ID available")
+      }
+      return await agentSessionsGetSessionStatus({
+        sessionId: chatId,
+        workspaceId,
+      })
+    },
+    enabled: !!chatId,
+    refetchInterval: (query) =>
+      isActiveTurnStatus(query.state.data?.turn_status) ? 2000 : 3000,
+    refetchIntervalInBackground: false,
+  })
+  return {
+    turnStatus: data?.turn_status,
+    currRunId: data?.curr_run_id,
+    prompt: data?.prompt,
+  }
+}
+
 // Combined hook for chat functionality with Vercel AI SDK streaming
 export function useVercelChat({
   chatId,
   workspaceId,
   messages,
   modelInfo,
+  turnStatus,
+  currRunId,
+  activePrompt,
 }: {
   chatId?: string
   workspaceId: string
   messages: UIMessage[]
   modelInfo: ModelInfo
+  /** Server-reported lifecycle status; drives attaching to a live turn. */
+  turnStatus?: AgentSessionStatus
+  /** Active server run id; used to key the observer prompt bubble. */
+  currRunId?: string | null
+  /** Active run's user prompt for observer tabs. */
+  activePrompt?: string | null
 }) {
   const queryClient = useQueryClient()
   const [lastError, setLastError] = useState<string | null>(null)
+  // Last SSE id seen on the live stream; resent as Last-Event-ID on reconnect.
+  const lastEventIdRef = useRef<string | null>(null)
+  const resumeAttemptKeyRef = useRef<string | null>(null)
+  const activeResumeRunKeyRef = useRef<string | null>(null)
+  const completedResumeRunKeyRef = useRef<string | null>(null)
+  const insertedPromptKeyRef = useRef<string | null>(null)
+  const previousActiveRunRef = useRef<{
+    currRunId?: string | null
+    turnStatus?: AgentSessionStatus
+  }>({})
+
+  // Tee every streamed response: one branch feeds the SDK untouched, the other
+  // is scanned for SSE `id:` lines (the SDK does not expose them).
+  const trackingFetch = useCallback<typeof fetch>(async (input, init) => {
+    const response = await fetch(input, init)
+    if (!response.body) return response
+    const [toSdk, toScan] = response.body.tee()
+    void scanSseIds(toScan, lastEventIdRef)
+    return new Response(toSdk, {
+      status: response.status,
+      statusText: response.statusText,
+      headers: response.headers,
+    })
+  }, [])
 
   // Build the Vercel streaming endpoint URL
   const apiEndpoint = useMemo(() => {
@@ -434,19 +670,27 @@ export function useVercelChat({
   }, [chatId, workspaceId])
 
   // Use Vercel's useChat hook for streaming
+  // We attach to live turns via the status-driven effect below, not the SDK's
+  // one-shot `resume` (fires once on mount, never re-fires for a turn started
+  // afterward by another client).
   const chat = aiSdk.useChat({
     id: chatId,
-    resume: !!chatId,
     messages,
     transport: new DefaultChatTransport({
       api: apiEndpoint,
       credentials: "include",
+      fetch: trackingFetch,
       prepareReconnectToStreamRequest: ({ id }) => {
         const url = new URL(`/api/agent/sessions/${id}/stream`, getBaseUrl())
         url.searchParams.set("workspace_id", workspaceId)
+        const headers: Record<string, string> = {}
+        if (lastEventIdRef.current) {
+          headers["Last-Event-ID"] = lastEventIdRef.current
+        }
         return {
           api: url.toString(),
           credentials: "include",
+          headers,
         }
       },
       prepareSendMessagesRequest: ({ messages }) => {
@@ -486,7 +730,15 @@ export function useVercelChat({
         description: friendlyMessage,
       })
     },
-    onFinish: () => {
+    onFinish: ({ isAbort, isDisconnect, isError }) => {
+      if (activeResumeRunKeyRef.current) {
+        if (isAbort || isDisconnect || isError) {
+          resumeAttemptKeyRef.current = null
+        } else {
+          completedResumeRunKeyRef.current = activeResumeRunKeyRef.current
+        }
+        activeResumeRunKeyRef.current = null
+      }
       setLastError(null)
       queryClient.invalidateQueries({
         queryKey: ["chat", chatId, workspaceId, "vercel"],
@@ -494,6 +746,110 @@ export function useVercelChat({
       queryClient.invalidateQueries({ queryKey: ["chats", workspaceId] })
     },
   })
+
+  const { messages: chatMessages, status, resumeStream, setMessages } = chat
+  const activePromptText = activePrompt?.trim() ? activePrompt : undefined
+  const activePromptPresent =
+    chatId && currRunId && activePromptText
+      ? hasActivePromptMessage(
+          chatMessages,
+          `active-user:${chatId}:${currRunId}`,
+          `${chatId}:${currRunId}`,
+          activePromptText
+        )
+      : false
+
+  useEffect(() => {
+    const previous = previousActiveRunRef.current
+    if (
+      previous.currRunId !== currRunId ||
+      !isActiveTurnStatus(turnStatus) ||
+      (previous.turnStatus === "waiting_for_approval" &&
+        turnStatus === "running")
+    ) {
+      resumeAttemptKeyRef.current = null
+      activeResumeRunKeyRef.current = null
+      completedResumeRunKeyRef.current = null
+      insertedPromptKeyRef.current = null
+    }
+
+    previousActiveRunRef.current = { currRunId, turnStatus }
+  }, [currRunId, turnStatus])
+
+  // Observer tabs don't call sendMessage, so they don't get the optimistic user
+  // bubble. Add it to useChat state from the status poll before attaching.
+  useEffect(() => {
+    if (
+      !isStreamAttachableTurnStatus(turnStatus) ||
+      status !== "ready" ||
+      !chatId ||
+      !currRunId ||
+      !activePromptText ||
+      activePromptPresent
+    ) {
+      return
+    }
+
+    const promptInsertKey = `${chatId}:${currRunId}`
+    if (insertedPromptKeyRef.current === promptInsertKey) {
+      return
+    }
+
+    insertedPromptKeyRef.current = promptInsertKey
+    setMessages((current) =>
+      upsertActivePromptMessage(current, {
+        chatId,
+        currRunId,
+        prompt: activePromptText,
+      })
+    )
+  }, [
+    activePromptPresent,
+    activePromptText,
+    chatId,
+    currRunId,
+    setMessages,
+    status,
+    turnStatus,
+  ])
+
+  // Attach to a live turn whenever the server reports one and we're idle.
+  // The condition self-guards: resumeStream() flips status off "ready", so it
+  // won't re-fire mid-stream; if the stream drops while the turn is still
+  // running, the next status poll re-attaches. Handles back-to-back turns
+  // started by another client without relying on the SDK's one-shot `resume`.
+  useEffect(() => {
+    if (!isStreamAttachableTurnStatus(turnStatus) || status !== "ready") {
+      return
+    }
+
+    if (activePromptText && !activePromptPresent) {
+      return
+    }
+
+    const resumeRunKey =
+      chatId && currRunId ? `${chatId}:${currRunId}` : undefined
+    if (!resumeRunKey || completedResumeRunKeyRef.current === resumeRunKey) {
+      return
+    }
+
+    const resumeAttemptKey = `${resumeRunKey}:${lastEventIdRef.current ?? "0-0"}`
+    if (resumeAttemptKeyRef.current === resumeAttemptKey) {
+      return
+    }
+
+    resumeAttemptKeyRef.current = resumeAttemptKey
+    activeResumeRunKeyRef.current = resumeRunKey
+    void resumeStream()
+  }, [
+    activePromptPresent,
+    activePromptText,
+    chatId,
+    currRunId,
+    resumeStream,
+    status,
+    turnStatus,
+  ])
 
   return {
     ...chat,

@@ -2,7 +2,14 @@ from __future__ import annotations
 
 import asyncio
 import uuid
-from collections.abc import AsyncIterable, AsyncIterator, Awaitable, Callable
+from collections.abc import (
+    AsyncIterable,
+    AsyncIterator,
+    Awaitable,
+    Callable,
+    Mapping,
+    Sequence,
+)
 from time import monotonic
 from typing import Any
 
@@ -21,6 +28,7 @@ from tracecat.agent.stream.events import (
     StreamKeepAlive,
     StreamMessage,
     UnifiedStreamEventTA,
+    parse_vercel_frame_cursor,
 )
 from tracecat.agent.types import ModelMessageTA, StreamKey
 from tracecat.chat import tokens
@@ -93,6 +101,15 @@ class AgentStream:
                 error=str(exc),
             )
 
+    async def min_entry_id(self) -> str | None:
+        """Oldest id still in the live buffer, or None if empty/evicted.
+
+        Used for reconnect gap detection: a client cursor older than this was
+        trimmed (maxlen) or TTL-evicted, so it cannot be resumed.
+        """
+        entries = await self.client.xrange(self._stream_key, count=1)
+        return entries[0][0] if entries else None
+
     async def _set_last_stream_id(self, last_stream_id: str | None) -> None:
         """Update last stream ID for reconnection support."""
 
@@ -101,7 +118,11 @@ class AgentStream:
                 await session_svc.update_last_stream_id(agent_session, last_stream_id)
 
     async def _stream_events(
-        self, stop_condition: Callable[[], Awaitable[bool]], last_id: str
+        self,
+        stop_condition: Callable[[], Awaitable[bool]],
+        last_id: str,
+        *,
+        include_last_id: bool = False,
     ) -> AsyncIterator[StreamEvent]:
         """Stream events from Redis until a stop condition is met.
 
@@ -120,7 +141,7 @@ class AgentStream:
                         StreamError (error events), or StreamEnd (end-of-stream marker).
 
         Note:
-            - Periodically updates the chat's last_stream_id for reconnection support
+            - Read-only: never writes last_stream_id (browser owns the cursor)
             - Implements exponential backoff on errors (1s sleep)
             - Blocks for up to 1 second waiting for new messages
             - Processes up to 100 messages per read operation
@@ -128,7 +149,56 @@ class AgentStream:
         current_id = last_id
         last_keepalive = monotonic()
         stream_completed = False
+
+        async def parse_stream_messages(
+            messages: Sequence[tuple[str, Mapping[str, str]]],
+        ) -> AsyncIterator[StreamEvent]:
+            nonlocal current_id, stream_completed
+            for msg_id, fields in messages:
+                data = orjson.loads(fields[tokens.DATA_KEY])
+                current_id = msg_id
+                match data:
+                    case {tokens.END_TOKEN: tokens.END_TOKEN_VALUE}:
+                        stream_completed = True
+                        yield StreamEnd(id=msg_id)
+                    case {"event_kind": _}:
+                        legacy_event = AgentStreamEventTA.validate_python(data)
+                        yield StreamDelta(id=msg_id, event=legacy_event)
+                    case {"type": _}:
+                        unified_event = UnifiedStreamEventTA.validate_python(data)
+                        yield StreamDelta(id=msg_id, event=unified_event)
+                    case {"kind": "error", "error": error_message}:
+                        logger.warning(
+                            "Stream error received",
+                            error=error_message,
+                            message_id=msg_id,
+                        )
+                        yield StreamError(error=error_message)
+                    case {"kind": _}:
+                        message = ModelMessageTA.validate_python(data)
+                        yield StreamMessage(id=msg_id, message=message)
+                    case _:
+                        logger.warning(
+                            "Invalid stream message",
+                            error="Unexpected payload",
+                            message_id=msg_id,
+                        )
+
         try:
+            if include_last_id and current_id != "0-0":
+                try:
+                    entries = await self.client.xrange(
+                        self._stream_key,
+                        min_id=current_id,
+                        max_id=current_id,
+                        count=1,
+                    )
+                    async for event in parse_stream_messages(entries):
+                        yield event
+                except Exception as e:
+                    logger.error("Error reading Redis cursor entry", error=str(e))
+                    yield StreamError(error="Stream read error")
+
             while not await stop_condition():
                 try:
                     if result := await self.client.xread(
@@ -138,44 +208,8 @@ class AgentStream:
                     ):
                         last_keepalive = monotonic()
                         for _stream_name, messages in result:
-                            for msg_id, fields in messages:
-                                data = orjson.loads(fields[tokens.DATA_KEY])
-                                current_id = msg_id
-                                match data:
-                                    case {tokens.END_TOKEN: tokens.END_TOKEN_VALUE}:
-                                        stream_completed = True
-                                        yield StreamEnd(id=msg_id)
-                                    case {"event_kind": _}:
-                                        legacy_event = (
-                                            AgentStreamEventTA.validate_python(data)
-                                        )
-                                        yield StreamDelta(id=msg_id, event=legacy_event)
-                                    case {"type": _}:
-                                        unified_event = (
-                                            UnifiedStreamEventTA.validate_python(data)
-                                        )
-                                        yield StreamDelta(
-                                            id=msg_id, event=unified_event
-                                        )
-                                    case {"kind": "error", "error": error_message}:
-                                        logger.warning(
-                                            "Stream error received",
-                                            error=error_message,
-                                            message_id=msg_id,
-                                        )
-                                        yield StreamError(error=error_message)
-                                    case {"kind": _}:
-                                        message = ModelMessageTA.validate_python(data)
-                                        yield StreamMessage(id=msg_id, message=message)
-                                    case _:
-                                        logger.warning(
-                                            "Invalid stream message",
-                                            error="Unexpected payload",
-                                            message_id=msg_id,
-                                        )
-
-                        if not stream_completed:
-                            await self._set_last_stream_id(current_id)
+                            async for event in parse_stream_messages(messages):
+                                yield event
 
                     now = monotonic()
                     if now - last_keepalive >= self.KEEPALIVE_INTERVAL_SECONDS:
@@ -194,17 +228,24 @@ class AgentStream:
             yield StreamError(error="Fatal stream error")
         finally:
             logger.info("Chat stream ended", stream_key=self._stream_key)
+            # Readers never write last_stream_id; the browser owns the reconnect
+            # cursor (Last-Event-ID). We only expire the buffer after terminal.
             if stream_completed:
-                await self._set_last_stream_id(None)
                 await self._expire_completed_stream()
-            else:
-                await self._set_last_stream_id(current_id)
 
     async def stream_events(
-        self, stop_condition: Callable[[], Awaitable[bool]], last_id: str
+        self,
+        stop_condition: Callable[[], Awaitable[bool]],
+        last_id: str,
+        *,
+        include_last_id: bool = False,
     ) -> AsyncIterator[StreamEvent]:
         """Public stream-events iterator for external stream consumers."""
-        async for event in self._stream_events(stop_condition, last_id):
+        async for event in self._stream_events(
+            stop_condition,
+            last_id,
+            include_last_id=include_last_id,
+        ):
             yield event
 
     def sse(
@@ -212,14 +253,53 @@ class AgentStream:
         stop_condition: Callable[[], Awaitable[bool]],
         last_id: str,
         format: StreamFormat,
+        *,
+        message_id: str | None,
+        resume_from: str | None = None,
     ) -> AsyncIterable[str]:
+        cursor = parse_vercel_frame_cursor(resume_from)
         match format:
             case "vercel":
                 from tracecat.agent.adapter.vercel import sse_vercel
 
-                return sse_vercel(self.stream_events(stop_condition, last_id))
+                return sse_vercel(
+                    self.stream_events(
+                        stop_condition,
+                        last_id,
+                        include_last_id=cursor is not None,
+                    ),
+                    message_id=message_id,
+                    resume_from=resume_from,
+                )
             case "basic":
                 return self.simple_sse(stop_condition, last_id)
+            case _:
+                raise ValueError(f"Invalid format: {format}")
+
+    def finished_sse(
+        self, format: StreamFormat, *, message_id: str | None
+    ) -> AsyncIterable[str]:
+        """Emit an immediately-finishing stream (no live content).
+
+        Used on reconnect when the cursor is stale and the turn is already
+        terminal: the client gets a clean finish and refetches DB history.
+        """
+
+        async def _empty() -> AsyncIterator[StreamEvent]:
+            return
+            yield  # pragma: no cover - establishes async generator
+
+        match format:
+            case "vercel":
+                from tracecat.agent.adapter.vercel import sse_vercel
+
+                return sse_vercel(_empty(), message_id=message_id)
+            case "basic":
+
+                async def _end() -> AsyncIterable[str]:
+                    yield StreamEnd.sse()
+
+                return _end()
             case _:
                 raise ValueError(f"Invalid format: {format}")
 

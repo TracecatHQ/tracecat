@@ -16,10 +16,12 @@ from tracecat.agent.common.stream_types import HarnessType
 from tracecat.agent.session.router import (
     cancel_session,
     get_session,
+    get_session_status,
     get_session_vercel,
     send_message,
     stream_session_events,
 )
+from tracecat.agent.session.service import AgentTurnState
 from tracecat.agent.session.types import AgentSessionEntity, AgentSessionStatus
 from tracecat.auth.types import Role
 from tracecat.chat.schemas import (
@@ -198,6 +200,46 @@ async def test_cancel_session_maps_conflict_to_409() -> None:
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize("status_value", ["running", "waiting_for_approval"])
+async def test_get_session_status_includes_prompt_for_active_turn(
+    status_value: str,
+) -> None:
+    session_id = uuid.uuid4()
+    workspace_id = uuid.uuid4()
+    run_id = uuid.uuid4()
+    session_stub = SimpleNamespace(
+        status=AgentSessionStatus.IDLE.value,
+        curr_run_id=None,
+    )
+    fake_svc = SimpleNamespace(
+        get_turn_state=AsyncMock(
+            return_value=AgentTurnState(
+                session=cast(Any, session_stub),
+                turn_status=AgentSessionStatus(status_value),
+                curr_run_id=run_id,
+            )
+        ),
+        get_active_run_prompt=AsyncMock(return_value="Investigate this alert"),
+    )
+
+    with patch(
+        "tracecat.agent.session.router.AgentSessionService", return_value=fake_svc
+    ):
+        raw_get_session_status = cast(Any, get_session_status).__wrapped__
+        response = await raw_get_session_status(
+            session_id=session_id,
+            role=_read_role(workspace_id),
+            session=AsyncMock(),
+        )
+
+    assert response.turn_status == status_value
+    assert response.curr_run_id == run_id
+    assert response.prompt == "Investigate this alert"
+    fake_svc.get_turn_state.assert_awaited_once_with(session_id)
+    fake_svc.get_active_run_prompt.assert_awaited_once_with(session_id, run_id)
+
+
+@pytest.mark.anyio
 async def test_send_message_continue_uses_path_session_id_for_stream_key() -> None:
     session_id = uuid.uuid4()
     workspace_id = uuid.uuid4()
@@ -222,6 +264,7 @@ async def test_send_message_continue_uses_path_session_id_for_stream_key() -> No
         is_legacy_session=AsyncMock(return_value=False),
         validate_turn_request=AsyncMock(return_value=None),
         run_turn=AsyncMock(return_value=None),
+        get_session=AsyncMock(return_value=SimpleNamespace(curr_run_id=uuid.uuid4())),
     )
     fake_stream = SimpleNamespace(
         reset_for_new_turn=AsyncMock(return_value=None),
@@ -287,13 +330,16 @@ async def test_send_message_new_turn_resets_stream_before_streaming() -> None:
         model_provider="openai",
     )
 
+    run_id = uuid.uuid4()
     fake_svc = SimpleNamespace(
         is_legacy_session=AsyncMock(return_value=False),
         validate_turn_request=AsyncMock(return_value=None),
         run_turn=AsyncMock(return_value=None),
+        get_session=AsyncMock(return_value=SimpleNamespace(curr_run_id=run_id)),
     )
     fake_stream = SimpleNamespace(
         reset_for_new_turn=AsyncMock(return_value=None),
+        append=AsyncMock(return_value=None),
         abort_new_turn=AsyncMock(return_value=None),
         sse=Mock(return_value=_empty_event_stream()),
     )
@@ -466,17 +512,57 @@ def _make_stream_role(workspace_id: uuid.UUID) -> Role:
     )
 
 
-@pytest.mark.anyio
-async def test_stream_session_events_returns_204_when_no_turn_started() -> None:
-    """last_stream_id=None with no Last-Event-ID header returns 204."""
-    session_id = uuid.uuid4()
-    workspace_id = uuid.uuid4()
-    role = _make_stream_role(workspace_id)
+def _fake_stream_session(
+    *,
+    status_value: str,
+    last_stream_id: str | None = None,
+    curr_run_id: uuid.UUID | None = None,
+) -> SimpleNamespace:
+    return SimpleNamespace(
+        status=status_value,
+        last_stream_id=last_stream_id,
+        curr_run_id=curr_run_id,
+    )
 
-    fake_session = SimpleNamespace(last_stream_id=None)
-    fake_svc = SimpleNamespace(get_session=AsyncMock(return_value=fake_session))
-    fake_stream = SimpleNamespace(sse=Mock(return_value=_empty_event_stream()))
 
+def _fake_stream(min_id: str | None = None) -> SimpleNamespace:
+    return SimpleNamespace(
+        sse=Mock(return_value=_empty_event_stream()),
+        finished_sse=Mock(return_value=_empty_event_stream()),
+        min_entry_id=AsyncMock(return_value=min_id),
+    )
+
+
+async def _run_stream_endpoint(
+    *,
+    session: SimpleNamespace | None,
+    stream: SimpleNamespace,
+    headers: dict[str, str],
+    session_id: uuid.UUID | None = None,
+    latest_run_id: uuid.UUID | None = None,
+    turn_status: AgentSessionStatus | None = None,
+    turn_run_id: uuid.UUID | None = None,
+) -> Any:
+    session_id = session_id or uuid.uuid4()
+    role = _make_stream_role(uuid.uuid4())
+    if turn_status is None:
+        turn_status = (
+            AgentSessionStatus(session.status)
+            if session is not None
+            else AgentSessionStatus.IDLE
+        )
+    if turn_run_id is None and session is not None:
+        turn_run_id = session.curr_run_id
+    fake_svc = SimpleNamespace(
+        get_turn_state=AsyncMock(
+            return_value=AgentTurnState(
+                session=cast(Any, session),
+                turn_status=turn_status,
+                curr_run_id=turn_run_id,
+            )
+        ),
+        get_latest_history_run_id=AsyncMock(return_value=latest_run_id),
+    )
     with (
         patch(
             "tracecat.agent.session.router.AgentSessionService.with_session",
@@ -484,19 +570,32 @@ async def test_stream_session_events_returns_204_when_no_turn_started() -> None:
         ),
         patch(
             "tracecat.agent.session.router.AgentStream.new",
-            AsyncMock(return_value=fake_stream),
+            AsyncMock(return_value=stream),
         ),
     ):
         raw = cast(Any, stream_session_events).__wrapped__
-        response = await raw(
+        return await raw(
             role=role,
-            request=SimpleNamespace(headers={}),
+            request=SimpleNamespace(
+                headers=headers, is_disconnected=AsyncMock(return_value=False)
+            ),
             session_id=session_id,
         )
 
+
+@pytest.mark.anyio
+async def test_stream_session_events_returns_204_when_no_turn_started() -> None:
+    """Idle status with no Last-Event-ID header returns 204."""
+    stream = _fake_stream()
+    response = await _run_stream_endpoint(
+        session=_fake_stream_session(status_value="idle"),
+        stream=stream,
+        headers={},
+    )
+
     assert isinstance(response, Response)
     assert response.status_code == status.HTTP_204_NO_CONTENT
-    fake_stream.sse.assert_not_called()
+    stream.sse.assert_not_called()
 
 
 @pytest.mark.anyio
@@ -504,65 +603,138 @@ async def test_stream_session_events_attaches_when_turn_in_progress_no_events_ye
     None
 ):
     session_id = uuid.uuid4()
-    workspace_id = uuid.uuid4()
-    role = _make_stream_role(workspace_id)
-
-    fake_session = SimpleNamespace(last_stream_id="0-0")
-    fake_svc = SimpleNamespace(get_session=AsyncMock(return_value=fake_session))
-    fake_stream = SimpleNamespace(sse=Mock(return_value=_empty_event_stream()))
-
-    with (
-        patch(
-            "tracecat.agent.session.router.AgentSessionService.with_session",
-            return_value=_AsyncContext(fake_svc),
-        ),
-        patch(
-            "tracecat.agent.session.router.AgentStream.new",
-            AsyncMock(return_value=fake_stream),
-        ),
-    ):
-        raw = cast(Any, stream_session_events).__wrapped__
-        response = await raw(
-            role=role,
-            request=SimpleNamespace(
-                headers={}, is_disconnected=AsyncMock(return_value=False)
-            ),
-            session_id=session_id,
-        )
+    curr_run_id = uuid.uuid4()
+    stream = _fake_stream()
+    response = await _run_stream_endpoint(
+        session=_fake_stream_session(status_value="running", curr_run_id=curr_run_id),
+        stream=stream,
+        headers={},
+        session_id=session_id,
+    )
 
     assert isinstance(response, StreamingResponse)
-    fake_stream.sse.assert_called_once()
+    stream.sse.assert_called_once()
+    assert stream.sse.call_args.kwargs["last_id"] == "0-0"
+    assert stream.sse.call_args.kwargs["message_id"] == f"{session_id}:{curr_run_id}"
 
 
 @pytest.mark.anyio
-async def test_stream_session_events_attaches_when_last_event_id_present() -> None:
+async def test_stream_session_events_uses_temporal_turn_state_for_attach() -> None:
     session_id = uuid.uuid4()
-    workspace_id = uuid.uuid4()
-    role = _make_stream_role(workspace_id)
-
-    fake_session = SimpleNamespace(last_stream_id=None)
-    fake_svc = SimpleNamespace(get_session=AsyncMock(return_value=fake_session))
-    fake_stream = SimpleNamespace(sse=Mock(return_value=_empty_event_stream()))
-
-    with (
-        patch(
-            "tracecat.agent.session.router.AgentSessionService.with_session",
-            return_value=_AsyncContext(fake_svc),
-        ),
-        patch(
-            "tracecat.agent.session.router.AgentStream.new",
-            AsyncMock(return_value=fake_stream),
-        ),
-    ):
-        raw = cast(Any, stream_session_events).__wrapped__
-        response = await raw(
-            role=role,
-            request=SimpleNamespace(
-                headers={"Last-Event-ID": "1234-0"},
-                is_disconnected=AsyncMock(return_value=False),
-            ),
-            session_id=session_id,
-        )
+    curr_run_id = uuid.uuid4()
+    stream = _fake_stream()
+    response = await _run_stream_endpoint(
+        session=_fake_stream_session(status_value="idle", curr_run_id=curr_run_id),
+        stream=stream,
+        headers={},
+        session_id=session_id,
+        turn_status=AgentSessionStatus.RUNNING,
+    )
 
     assert isinstance(response, StreamingResponse)
-    fake_stream.sse.assert_called_once()
+    stream.sse.assert_called_once()
+    assert stream.sse.call_args.kwargs["message_id"] == f"{session_id}:{curr_run_id}"
+
+
+@pytest.mark.anyio
+async def test_stream_session_events_waiting_without_cursor_uses_db_history() -> None:
+    stream = _fake_stream()
+    response = await _run_stream_endpoint(
+        session=_fake_stream_session(status_value="waiting_for_approval"),
+        stream=stream,
+        headers={},
+    )
+
+    assert isinstance(response, Response)
+    assert response.status_code == status.HTTP_204_NO_CONTENT
+    stream.sse.assert_not_called()
+    stream.finished_sse.assert_not_called()
+
+
+@pytest.mark.anyio
+async def test_stream_session_events_resumes_after_last_event_id() -> None:
+    """A live cursor newer than the buffer min resumes after it (composite id)."""
+    curr_run_id = uuid.uuid4()
+    stream = _fake_stream(min_id="1000-0")
+    response = await _run_stream_endpoint(
+        session=_fake_stream_session(status_value="running", curr_run_id=curr_run_id),
+        stream=stream,
+        headers={"Last-Event-ID": "1234-0:2"},
+    )
+
+    assert isinstance(response, StreamingResponse)
+    stream.sse.assert_called_once()
+    assert stream.sse.call_args.kwargs["last_id"] == "1234-0"
+    assert stream.sse.call_args.kwargs["resume_from"] == "1234-0:2"
+
+
+@pytest.mark.anyio
+async def test_stream_session_events_terminal_reconnect_uses_latest_run_id() -> None:
+    """Terminal reconnect against retained Redis keeps the turn's assistant id."""
+    session_id = uuid.uuid4()
+    latest_run_id = uuid.uuid4()
+    stream = _fake_stream(min_id="1000-0")
+    response = await _run_stream_endpoint(
+        session=_fake_stream_session(status_value="stopped"),
+        stream=stream,
+        headers={"Last-Event-ID": "1234-0:2"},
+        session_id=session_id,
+        latest_run_id=latest_run_id,
+    )
+
+    assert isinstance(response, StreamingResponse)
+    stream.sse.assert_called_once()
+    assert stream.sse.call_args.kwargs["message_id"] == (
+        f"{session_id}:{latest_run_id}"
+    )
+    assert stream.sse.call_args.kwargs["resume_from"] == "1234-0:2"
+
+
+@pytest.mark.anyio
+async def test_stream_session_events_stale_cursor_running_replays_from_start() -> None:
+    """Cursor older than the buffer min, still running -> replay from 0-0."""
+    curr_run_id = uuid.uuid4()
+    stream = _fake_stream(min_id="2000-0")
+    response = await _run_stream_endpoint(
+        session=_fake_stream_session(status_value="running", curr_run_id=curr_run_id),
+        stream=stream,
+        headers={"Last-Event-ID": "1000-0:0"},
+    )
+
+    assert isinstance(response, StreamingResponse)
+    stream.sse.assert_called_once()
+    assert stream.sse.call_args.kwargs["last_id"] == "0-0"
+    stream.finished_sse.assert_not_called()
+
+
+@pytest.mark.anyio
+async def test_stream_session_events_stale_cursor_terminal_finishes() -> None:
+    """Cursor older than the buffer min and turn terminal -> finishing stream."""
+    stream = _fake_stream(min_id=None)
+    response = await _run_stream_endpoint(
+        session=_fake_stream_session(status_value="stopped"),
+        stream=stream,
+        headers={"Last-Event-ID": "1000-0:0"},
+    )
+
+    assert isinstance(response, StreamingResponse)
+    stream.finished_sse.assert_called_once()
+    assert stream.finished_sse.call_args.kwargs["message_id"] is None
+    stream.sse.assert_not_called()
+
+
+@pytest.mark.anyio
+async def test_stream_session_events_terminal_without_run_id_finishes() -> None:
+    """Terminal reconnects without a run id do not synthesize a new bubble id."""
+    stream = _fake_stream(min_id="1000-0")
+    response = await _run_stream_endpoint(
+        session=_fake_stream_session(status_value="stopped"),
+        stream=stream,
+        headers={"Last-Event-ID": "1234-0:2"},
+        latest_run_id=None,
+    )
+
+    assert isinstance(response, StreamingResponse)
+    stream.finished_sse.assert_called_once()
+    assert stream.finished_sse.call_args.kwargs["message_id"] is None
+    stream.sse.assert_not_called()

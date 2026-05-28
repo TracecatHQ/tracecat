@@ -37,3 +37,10 @@ class AgentSessionStatus(StrEnum):
 
 
 type AgentCancelReason = Literal["user_cancel", "worker_drain"]
+type AgentWorkflowTurnStatus = Literal[
+    "idle",
+    "running",
+    "waiting_for_approval",
+    "stopped",
+    "failed",
+]

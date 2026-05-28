@@ -132,6 +132,85 @@ async def test_validate_turn_request_rejects_idle_projection_with_active_workflo
 
 
 @pytest.mark.anyio
+async def test_get_turn_state_uses_workflow_phase_over_db_projection() -> None:
+    workspace_id = uuid.uuid4()
+    session_id = uuid.uuid4()
+    run_id = uuid.uuid4()
+    role = _build_role(workspace_id)
+    service = _build_service(role)
+    agent_session = _build_agent_session(
+        workspace_id=workspace_id,
+        session_id=session_id,
+        status=AgentSessionStatus.IDLE,
+        curr_run_id=run_id,
+    )
+    workflow_handle = SimpleNamespace(
+        describe=AsyncMock(
+            return_value=SimpleNamespace(status=WorkflowExecutionStatus.RUNNING)
+        ),
+        query=AsyncMock(return_value="waiting_for_approval"),
+    )
+    temporal_client = SimpleNamespace(
+        get_workflow_handle=MagicMock(return_value=workflow_handle),
+        get_workflow_handle_for=MagicMock(return_value=workflow_handle),
+    )
+
+    with (
+        patch.object(service, "get_session", AsyncMock(return_value=agent_session)),
+        patch(
+            "tracecat.agent.session.service.get_temporal_client",
+            AsyncMock(return_value=temporal_client),
+        ),
+    ):
+        state = await service.get_turn_state(session_id)
+
+    assert state.session is agent_session
+    assert state.curr_run_id == run_id
+    assert state.turn_status is AgentSessionStatus.WAITING_FOR_APPROVAL
+    assert state.is_stream_attachable is False
+    workflow_handle.describe.assert_awaited_once()
+    workflow_handle.query.assert_awaited_once()
+
+
+@pytest.mark.anyio
+async def test_get_turn_state_repairs_terminal_projection() -> None:
+    workspace_id = uuid.uuid4()
+    session_id = uuid.uuid4()
+    run_id = uuid.uuid4()
+    role = _build_role(workspace_id)
+    service = _build_service(role)
+    agent_session = _build_agent_session(
+        workspace_id=workspace_id,
+        session_id=session_id,
+        status=AgentSessionStatus.RUNNING,
+        curr_run_id=run_id,
+    )
+    workflow_handle = SimpleNamespace(
+        describe=AsyncMock(
+            return_value=SimpleNamespace(status=WorkflowExecutionStatus.TERMINATED)
+        )
+    )
+    temporal_client = SimpleNamespace(
+        get_workflow_handle=MagicMock(return_value=workflow_handle),
+    )
+
+    with (
+        patch.object(service, "get_session", AsyncMock(return_value=agent_session)),
+        patch(
+            "tracecat.agent.session.service.get_temporal_client",
+            AsyncMock(return_value=temporal_client),
+        ),
+    ):
+        state = await service.get_turn_state(session_id)
+
+    assert state.curr_run_id is None
+    assert state.turn_status is AgentSessionStatus.STOPPED
+    assert agent_session.curr_run_id is None
+    assert agent_session.status == AgentSessionStatus.STOPPED.value
+    cast(Any, service.session.commit).assert_awaited_once()
+
+
+@pytest.mark.anyio
 @pytest.mark.parametrize(
     "status",
     [AgentSessionStatus.RUNNING, AgentSessionStatus.WAITING_FOR_APPROVAL],

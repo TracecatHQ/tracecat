@@ -71,6 +71,7 @@ from tracecat.agent.stream.events import (
     StreamEvent,
     StreamKeepAlive,
     StreamMessage,
+    parse_vercel_frame_cursor,
 )
 from tracecat.agent.types import UnifiedMessage
 from tracecat.chat.constants import (
@@ -736,9 +737,14 @@ VercelSSEPayload = (
 )
 
 
-def format_sse(data: VercelSSEPayload) -> str:
-    """Formats a dictionary into a Server-Sent Event string."""
-    return f"data: {to_json(data).decode()}\n\n"
+def format_sse(data: VercelSSEPayload, sse_id: str | None = None) -> str:
+    """Formats a payload into a Server-Sent Event string.
+
+    When ``sse_id`` is given, emit an ``id:`` line so the browser records it as
+    the Last-Event-ID for reconnect.
+    """
+    prefix = f"id: {sse_id}\n" if sse_id else ""
+    return f"{prefix}data: {to_json(data).decode()}\n\n"
 
 
 @dataclasses.dataclass
@@ -760,7 +766,7 @@ class VercelStreamContext:
     consistent start/delta/end sequences required by the Vercel protocol.
     """
 
-    message_id: str
+    message_id: str | None
     # Active parts keyed by event index -> maintains per-part lifecycle state.
     part_states: dict[int, _PartState] = dataclasses.field(default_factory=dict)
     tool_finished: dict[str, bool] = dataclasses.field(default_factory=dict)
@@ -1796,24 +1802,58 @@ def convert_chat_messages_to_ui(
     return UIMessagesTA.validate_python(raw_messages)
 
 
-async def sse_vercel(events: AsyncIterable[StreamEvent]) -> AsyncIterable[str]:
-    """Stream Redis events as Vercel AI SDK frames without persisting adapter output."""
+async def sse_vercel(
+    events: AsyncIterable[StreamEvent],
+    *,
+    message_id: str | None,
+    resume_from: str | None = None,
+) -> AsyncIterable[str]:
+    """Stream Redis events as Vercel AI SDK frames without persisting adapter output.
 
-    message_id = f"msg_{uuid.uuid4().hex}"
+    ``message_id`` is the stable assistant-bubble id (``session_id:curr_run_id``)
+    so reconnects within a turn resume the same bubble instead of spawning a new
+    one. It is omitted for terminal reconnects where no run id can be resolved.
+    Each Redis entry can fan out to many Vercel frames, so frames carry a
+    composite ``id: {redis_id}:{frame_index}`` that the browser replays from.
+    """
+
     context = VercelStreamContext(message_id=message_id)
+    resume_cursor = parse_vercel_frame_cursor(resume_from)
+
+    # Composite-id state: the Redis id of the entry currently fanning out, and a
+    # per-entry frame counter. format_sse omits id: when redis_id is None.
+    redis_id: str | None = None
+    frame_index = 0
+
+    def emit(payload: VercelSSEPayload) -> str | None:
+        nonlocal frame_index
+        sse_id = f"{redis_id}:{frame_index}" if redis_id else None
+        current_frame_index = frame_index
+        frame_index += 1
+        if (
+            resume_cursor is not None
+            and redis_id == resume_cursor.redis_id
+            and current_frame_index <= resume_cursor.frame_index
+        ):
+            return None
+        return format_sse(payload, sse_id)
 
     try:
         # 1. Start of the message stream
-        yield format_sse(StartEventPayload(messageId=message_id))
+        if message_id is not None:
+            yield format_sse(StartEventPayload(messageId=message_id))
 
         # 2. Process events from Redis stream
         async for stream_event in events:
             match stream_event:
-                case StreamDelta(event=agent_event):
+                case StreamDelta(id=delta_id, event=agent_event):
+                    redis_id, frame_index = delta_id, 0
                     # Process agent stream events (PartStartEvent, PartDeltaEvent, etc.)
                     async for msg in context.handle_event(agent_event):
-                        yield format_sse(msg)
-                case StreamMessage(message=message):
+                        if frame := emit(msg):
+                            yield frame
+                case StreamMessage(id=message_redis_id, message=message):
+                    redis_id, frame_index = message_redis_id, 0
                     if approval_payload := _extract_approval_payload_from_message(
                         message
                     ):
@@ -1836,7 +1876,8 @@ async def sse_vercel(events: AsyncIterable[StreamEvent]) -> AsyncIterable[str]:
                                     ) in context.collect_current_part_end_events(
                                         index=index
                                     ):
-                                        yield format_sse(end_evt)
+                                        if frame := emit(end_evt):
+                                            yield frame
                         except Exception:
                             # Best-effort only; do not abort streaming on cache/finalize errors
                             pass
@@ -1847,7 +1888,8 @@ async def sse_vercel(events: AsyncIterable[StreamEvent]) -> AsyncIterable[str]:
                             )
                         )
                         for data_event in context.flush_data_events():
-                            yield format_sse(data_event)
+                            if frame := emit(data_event):
+                                yield frame
                     continue
                 case StreamKeepAlive():
                     yield StreamKeepAlive.sse()

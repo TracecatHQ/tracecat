@@ -60,7 +60,11 @@ from tracecat.agent.session.schemas import (
     AgentSessionUpdate,
 )
 from tracecat.agent.session.title_generator import generate_session_title
-from tracecat.agent.session.types import AgentSessionEntity, AgentSessionStatus
+from tracecat.agent.session.types import (
+    AgentSessionEntity,
+    AgentSessionStatus,
+    AgentWorkflowTurnStatus,
+)
 from tracecat.agent.subagents import (
     ResolvedAgentsConfig,
 )
@@ -136,6 +140,22 @@ class SessionHistoryData:
     sdk_session_id: str
     sdk_session_data: str
     is_fork: bool = False  # If True, SDK should use fork_session=True
+
+
+@dataclass(frozen=True)
+class AgentTurnState:
+    """Authoritative live turn state, with DB projection as fallback."""
+
+    session: AgentSession | None
+    turn_status: AgentSessionStatus
+    curr_run_id: uuid.UUID | None
+
+    @property
+    def is_stream_attachable(self) -> bool:
+        return (
+            self.turn_status is AgentSessionStatus.RUNNING
+            and self.curr_run_id is not None
+        )
 
 
 class AgentSessionService(BaseWorkspaceService):
@@ -630,6 +650,119 @@ class AgentSessionService(BaseWorkspaceService):
             return AgentSessionStatus.STOPPED
         return AgentSessionStatus.IDLE
 
+    @staticmethod
+    def _status_for_workflow_turn_status(
+        workflow_turn_status: AgentWorkflowTurnStatus,
+    ) -> AgentSessionStatus:
+        """Return the workflow-owned status using the DB status vocabulary."""
+        return AgentSessionStatus(workflow_turn_status)
+
+    async def _query_curr_run_turn_status(
+        self, agent_session: AgentSession
+    ) -> AgentWorkflowTurnStatus:
+        """Query the live workflow phase for the session's current run."""
+        from tracecat_ee.agent.workflows.durable import DurableAgentWorkflow
+
+        if agent_session.curr_run_id is None:
+            raise ValueError("Agent session has no current run")
+
+        client = await get_temporal_client()
+        workflow_id = AgentWorkflowID(agent_session.curr_run_id)
+        handle = client.get_workflow_handle_for(
+            DurableAgentWorkflow.run,
+            str(workflow_id),
+        )
+        return await handle.query(DurableAgentWorkflow.get_turn_status)
+
+    async def _repair_terminal_projection(
+        self,
+        agent_session: AgentSession,
+        workflow_status: WorkflowExecutionStatus,
+    ) -> AgentSessionStatus:
+        """Cache terminal Temporal state back to the DB projection."""
+        turn_status = self._terminal_status_for_workflow_status(workflow_status)
+        agent_session.status = turn_status.value
+        agent_session.curr_run_id = None
+        await self.session.commit()
+        return turn_status
+
+    async def get_turn_state(self, session_id: uuid.UUID) -> AgentTurnState:
+        """Return Temporal-owned turn state for live decisions.
+
+        The DB row locates the current workflow run and caches status. Temporal
+        owns whether that run is live and whether it is waiting for approval.
+        """
+        agent_session = await self.get_session(session_id)
+        if agent_session is None:
+            return AgentTurnState(
+                session=None,
+                turn_status=AgentSessionStatus.IDLE,
+                curr_run_id=None,
+            )
+
+        projected_status = AgentSessionStatus(agent_session.status)
+        if agent_session.curr_run_id is None:
+            return AgentTurnState(
+                session=agent_session,
+                turn_status=projected_status,
+                curr_run_id=None,
+            )
+
+        try:
+            workflow_status = await self._describe_curr_run(agent_session)
+        except Exception as exc:
+            logger.warning(
+                "Failed to describe agent workflow; using DB projection",
+                session_id=str(session_id),
+                run_id=str(agent_session.curr_run_id),
+                error=str(exc),
+            )
+            return AgentTurnState(
+                session=agent_session,
+                turn_status=projected_status,
+                curr_run_id=agent_session.curr_run_id,
+            )
+
+        if workflow_status in ACTIVE_WORKFLOW_STATUSES:
+            try:
+                workflow_turn_status = await self._query_curr_run_turn_status(
+                    agent_session
+                )
+                turn_status = self._status_for_workflow_turn_status(
+                    workflow_turn_status
+                )
+            except Exception as exc:
+                logger.warning(
+                    "Failed to query agent workflow phase; using DB projection",
+                    session_id=str(session_id),
+                    run_id=str(agent_session.curr_run_id),
+                    error=str(exc),
+                )
+                turn_status = projected_status
+
+            return AgentTurnState(
+                session=agent_session,
+                turn_status=turn_status,
+                curr_run_id=agent_session.curr_run_id,
+            )
+
+        if workflow_status is None:
+            return AgentTurnState(
+                session=agent_session,
+                turn_status=projected_status,
+                curr_run_id=agent_session.curr_run_id,
+            )
+
+        turn_status = await self._repair_terminal_projection(
+            agent_session,
+            workflow_status,
+        )
+        return AgentTurnState(
+            session=agent_session,
+            turn_status=turn_status,
+            curr_run_id=None,
+        )
+
     async def _has_active_agent_turn(self, agent_session: AgentSession) -> bool:
         """Return whether Temporal/projected state should block a new turn."""
         if agent_session.curr_run_id is None:
@@ -644,12 +777,50 @@ class AgentSessionService(BaseWorkspaceService):
             return True
 
         if workflow_status is not None:
-            agent_session.status = self._terminal_status_for_workflow_status(
-                workflow_status
-            ).value
-            agent_session.curr_run_id = None
-            await self.session.commit()
+            await self._repair_terminal_projection(agent_session, workflow_status)
         return False
+
+    async def get_active_run_prompt(
+        self, session_id: uuid.UUID, run_id: uuid.UUID
+    ) -> str | None:
+        """Return the human prompt text that started the given run, if any.
+
+        The prompt is the run's first user row whose message content is a plain
+        string (excludes leading queue-operation rows and tool_result arrays).
+        Used so observer clients can show the prompt while the assistant streams
+        (the Vercel stream protocol cannot carry user messages).
+        """
+        content = AgentSessionHistory.content
+        stmt = (
+            select(content["message"]["content"].astext)
+            .where(
+                AgentSessionHistory.session_id == session_id,
+                AgentSessionHistory.curr_run_id == run_id,
+                content["type"].astext == "user",
+                func.jsonb_typeof(content["message"]["content"]) == "string",
+            )
+            .order_by(AgentSessionHistory.surrogate_id)
+            .limit(1)
+        )
+        result = await self.session.execute(stmt)
+        return result.scalar_one_or_none()
+
+    async def get_latest_history_run_id(
+        self, session_id: uuid.UUID
+    ) -> uuid.UUID | None:
+        """Return the newest stamped history run id for terminal stream reconnects."""
+        stmt = (
+            select(AgentSessionHistory.curr_run_id)
+            .where(
+                AgentSessionHistory.session_id == session_id,
+                AgentSessionHistory.workspace_id == self.workspace_id,
+                AgentSessionHistory.curr_run_id.is_not(None),
+            )
+            .order_by(AgentSessionHistory.surrogate_id.desc())
+            .limit(1)
+        )
+        result = await self.session.execute(stmt)
+        return result.scalar_one_or_none()
 
     async def request_cancel(
         self,
@@ -1699,6 +1870,18 @@ class AgentSessionService(BaseWorkspaceService):
             .where(AgentSessionHistory.session_id.in_(session_ids))
             .order_by(AgentSessionHistory.surrogate_id)
         )
+        # While a turn is running, the active run's partial rows live in Redis;
+        # hide them here so the live assistant has exactly one source (no dedupe).
+        if (
+            getattr(agent_session, "status", None) == AgentSessionStatus.RUNNING.value
+            and getattr(agent_session, "curr_run_id", None) is not None
+        ):
+            all_history_stmt = all_history_stmt.where(
+                or_(
+                    AgentSessionHistory.curr_run_id.is_(None),
+                    AgentSessionHistory.curr_run_id != agent_session.curr_run_id,
+                )
+            )
         all_history_result = await self.session.execute(all_history_stmt)
         all_entries = list(all_history_result.scalars().all())
 

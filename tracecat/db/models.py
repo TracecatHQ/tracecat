@@ -2915,6 +2915,12 @@ class AgentSessionHistory(WorkspaceModel):
         index=True,
         doc="Message kind for filtering (chat-message, internal). Default to internal - only user/assistant messages explicitly marked visible.",
     )
+    curr_run_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID,
+        nullable=True,
+        index=True,
+        doc="Workflow run that produced this row; used to hide active-turn rows mid-stream",
+    )
 
     session: Mapped[AgentSession] = relationship(
         "AgentSession",

@@ -4,7 +4,7 @@ import asyncio
 import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from typing import Any, Literal
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 from temporalio import workflow
@@ -74,6 +74,7 @@ with workflow.unsafe.imports_passed_through():
         AgentCancelReason,
         AgentSessionEntity,
         AgentSessionStatus,
+        AgentWorkflowTurnStatus,
     )
     from tracecat.agent.subagents import has_manual_tool_approvals
     from tracecat.agent.tokens import (
@@ -354,7 +355,7 @@ class DurableAgentWorkflow:
         ctx_role.set(args.role)
         AgentContext.set(session_id=args.agent_args.session_id)
 
-        self._status: Literal["running", "waiting_for_results", "done"] = "running"
+        self._status: AgentWorkflowTurnStatus = AgentSessionStatus.RUNNING.value
         self._turn: int = 0
         if args.role.workspace_id is None:
             raise ApplicationError("Role must have a workspace ID", non_retryable=True)
@@ -371,6 +372,11 @@ class DurableAgentWorkflow:
         self.max_tool_calls = args.agent_args.max_tool_calls
         self._cancel_requested = False
         self._cancel_reason: AgentCancelReason | None = None
+
+    @workflow.query
+    def get_turn_status(self) -> AgentWorkflowTurnStatus:
+        """Return the live product turn status owned by this workflow."""
+        return self._status
 
     def _upsert_tracecat_search_attributes(self) -> None:
         """Ensure direct agent runs have core Tracecat search attributes.
@@ -701,6 +707,7 @@ class DurableAgentWorkflow:
             cfg = await self._build_config(args)
             return await self._run_with_agent_executor(args, cfg)
         except ActivityError as e:
+            self._status = AgentSessionStatus.FAILED.value
             await self._set_agent_session_status(
                 AgentSessionStatus.FAILED,
                 clear_curr_run_id=True,
@@ -709,6 +716,7 @@ class DurableAgentWorkflow:
                 await self._emit_session_error(_activity_error_message(e))
             raise
         except ApplicationError as e:
+            self._status = AgentSessionStatus.FAILED.value
             await self._set_agent_session_status(
                 AgentSessionStatus.FAILED,
                 clear_curr_run_id=True,
@@ -722,6 +730,7 @@ class DurableAgentWorkflow:
         except TemporalCancelledError:
             raise
         except Exception:
+            self._status = AgentSessionStatus.FAILED.value
             await self._set_agent_session_failed_for_unhandled_failure()
             raise
 
@@ -1017,7 +1026,7 @@ class DurableAgentWorkflow:
         # Run the executor activity
         while True:
             logger.info("Executing agent turn", turn=self._turn)
-            self._status = "running"
+            self._status = AgentSessionStatus.RUNNING.value
             await self._set_agent_session_status(AgentSessionStatus.RUNNING)
 
             result = await self._run_agent_activity_turn(executor_input)
@@ -1028,7 +1037,7 @@ class DurableAgentWorkflow:
                     session_id=self.session_id,
                     reason=result.cancelled_reason,
                 )
-                self._status = "done"
+                self._status = AgentSessionStatus.STOPPED.value
                 await self._set_agent_session_status(
                     AgentSessionStatus.STOPPED,
                     clear_curr_run_id=True,
@@ -1058,7 +1067,7 @@ class DurableAgentWorkflow:
 
             if result.approval_requested:
                 logger.info("Agent waiting for approval", session_id=self.session_id)
-                self._status = "waiting_for_results"
+                self._status = AgentSessionStatus.WAITING_FOR_APPROVAL.value
                 await self._set_agent_session_status(
                     AgentSessionStatus.WAITING_FOR_APPROVAL
                 )
@@ -1101,7 +1110,7 @@ class DurableAgentWorkflow:
                         }
                     )
                     await self.approvals.handle_decisions()
-                    self._status = "done"
+                    self._status = AgentSessionStatus.STOPPED.value
                     await self._set_agent_session_status(
                         AgentSessionStatus.STOPPED,
                         clear_curr_run_id=True,
@@ -1122,7 +1131,7 @@ class DurableAgentWorkflow:
                         session_id=self.session_id,
                         reason=self._cancel_reason,
                     )
-                    self._status = "done"
+                    self._status = AgentSessionStatus.STOPPED.value
                     await self._set_agent_session_status(
                         AgentSessionStatus.STOPPED,
                         clear_curr_run_id=True,
@@ -1135,7 +1144,7 @@ class DurableAgentWorkflow:
                         usage=RunUsage(requests=0, input_tokens=0, output_tokens=0),
                         session_id=self.session_id,
                     )
-                self._status = "running"
+                self._status = AgentSessionStatus.RUNNING.value
                 await self._set_agent_session_status(AgentSessionStatus.RUNNING)
                 if self._cancel_requested:
                     logger.info(
@@ -1143,7 +1152,7 @@ class DurableAgentWorkflow:
                         session_id=self.session_id,
                         reason=self._cancel_reason,
                     )
-                    self._status = "done"
+                    self._status = AgentSessionStatus.STOPPED.value
                     await self._set_agent_session_status(
                         AgentSessionStatus.STOPPED,
                         clear_curr_run_id=True,
@@ -1210,7 +1219,7 @@ class DurableAgentWorkflow:
                 output=result.output,
             )
             message_history = await self._load_terminal_message_history(result)
-            self._status = "done"
+            self._status = AgentSessionStatus.IDLE.value
             await self._set_agent_session_status(
                 AgentSessionStatus.IDLE,
                 clear_curr_run_id=True,

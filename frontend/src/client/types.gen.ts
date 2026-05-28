@@ -955,6 +955,21 @@ export type AgentSessionStatus =
   | "failed"
 
 /**
+ * Lightweight session lifecycle status for cheap polling.
+ *
+ * Clients poll this (instead of the full message history) to learn when a turn
+ * starts elsewhere and attach to the live stream.
+ */
+export type AgentSessionStatusRead = {
+  turn_status?: AgentSessionStatus
+  curr_run_id?: string | null
+  /**
+   * Human prompt that started the active run, for observer clients to render (user messages cannot stream over the Vercel protocol).
+   */
+  prompt?: string | null
+}
+
+/**
  * Request schema for updating an agent session.
  */
 export type AgentSessionUpdate = {
@@ -10781,6 +10796,13 @@ export type AgentSessionsGetSessionVercelResponse =
   | AgentSessionReadVercel
   | ChatReadVercel
 
+export type AgentSessionsGetSessionStatusData = {
+  sessionId: string
+  workspaceId: string
+}
+
+export type AgentSessionsGetSessionStatusResponse = AgentSessionStatusRead
+
 export type AgentSessionsCancelSessionData = {
   requestBody?: AgentSessionCancelRequest | null
   sessionId: string
@@ -15773,6 +15795,21 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: AgentSessionReadVercel | ChatReadVercel
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/agent/sessions/{session_id}/status": {
+    get: {
+      req: AgentSessionsGetSessionStatusData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: AgentSessionStatusRead
         /**
          * Validation Error
          */

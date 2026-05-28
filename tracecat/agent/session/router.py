@@ -18,12 +18,13 @@ from tracecat.agent.session.schemas import (
     AgentSessionRead,
     AgentSessionReadVercel,
     AgentSessionReadWithMessages,
+    AgentSessionStatusRead,
     AgentSessionUpdate,
 )
 from tracecat.agent.session.service import AgentSessionService
 from tracecat.agent.session.types import AgentSessionEntity, AgentSessionStatus
 from tracecat.agent.stream.connector import AgentStream
-from tracecat.agent.stream.events import StreamFormat
+from tracecat.agent.stream.events import StreamFormat, parse_vercel_frame_cursor
 from tracecat.agent.subagents import ResolvedAgentsConfig
 from tracecat.auth.dependencies import WorkspaceUserRouteRole
 from tracecat.authz.controls import require_scope
@@ -39,6 +40,21 @@ from tracecat.exceptions import TracecatConflictError, TracecatNotFoundError
 from tracecat.logger import logger
 
 router = APIRouter(prefix="/agent/sessions", tags=["agent-sessions"])
+
+
+def _bubble_id(session_id: uuid.UUID, curr_run_id: uuid.UUID | None) -> str | None:
+    """Stable assistant-bubble id for a turn, if the turn is known."""
+    return f"{session_id}:{curr_run_id}" if curr_run_id else None
+
+
+def _redis_id_lt(a: str, b: str) -> bool:
+    """Order Redis stream ids ("<ms>-<seq>") as (ms, seq) tuples."""
+
+    def parts(rid: str) -> tuple[int, int]:
+        ms, _, seq = rid.partition("-")
+        return int(ms), int(seq or 0)
+
+    return parts(a) < parts(b)
 
 
 @router.post("")
@@ -236,6 +252,36 @@ async def get_session_vercel(
     )
 
 
+@router.get("/{session_id}/status")
+@require_scope("agent:read")
+async def get_session_status(
+    session_id: uuid.UUID,
+    role: WorkspaceUserRouteRole,
+    session: AsyncDBSession,
+) -> AgentSessionStatusRead:
+    """Lifecycle status for polling without loading message history."""
+    svc = AgentSessionService(session, role)
+    turn_state = await svc.get_turn_state(session_id)
+    agent_session = turn_state.session
+    if agent_session is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Session not found",
+        )
+    prompt: str | None = None
+    if (
+        turn_state.turn_status
+        in {AgentSessionStatus.RUNNING, AgentSessionStatus.WAITING_FOR_APPROVAL}
+        and turn_state.curr_run_id is not None
+    ):
+        prompt = await svc.get_active_run_prompt(session_id, turn_state.curr_run_id)
+    return AgentSessionStatusRead(
+        turn_status=turn_state.turn_status,
+        curr_run_id=turn_state.curr_run_id,
+        prompt=prompt,
+    )
+
+
 @router.patch("/{session_id}")
 @require_scope("agent:execute")
 async def update_session(
@@ -385,6 +431,12 @@ async def send_message(
                         )
                 raise
 
+            # run_turn set curr_run_id; build a bubble id stable for this turn.
+            updated = await svc.get_session(session_id)
+            message_id = _bubble_id(
+                session_id, updated.curr_run_id if updated else None
+            )
+
         logger.info(
             "Starting Vercel streaming session",
             session_id=session_id,
@@ -393,7 +445,12 @@ async def send_message(
 
         # Create stream and return with Vercel format
         return StreamingResponse(
-            stream.sse(http_request.is_disconnected, last_id=start_id, format="vercel"),
+            stream.sse(
+                http_request.is_disconnected,
+                last_id=start_id,
+                format="vercel",
+                message_id=message_id,
+            ),
             media_type="text/event-stream",
             headers={
                 "Cache-Control": "no-cache, no-transform",
@@ -456,25 +513,24 @@ async def stream_session_events(
             detail="Workspace access required",
         )
 
-        # Try to get last_stream_id from session, but don't fail if session doesn't exist yet.
-        # This handles the race condition where frontend connects before session is created.
-    last_stream_id: str | None = None
-    async with AgentSessionService.with_session(role=role) as svc:
-        agent_session = await svc.get_session(session_id)
-        if agent_session is not None:
-            last_stream_id = agent_session.last_stream_id
-
+    # Don't fail if the session doesn't exist yet: the frontend can connect
+    # before the session row is created (handled by the 204 below).
     last_event_id = request.headers.get("Last-Event-ID")
-    if last_stream_id is None and not last_event_id:
+    async with AgentSessionService.with_session(role=role) as svc:
+        turn_state = await svc.get_turn_state(session_id)
+        curr_run_id = turn_state.curr_run_id
+        if curr_run_id is None and last_event_id:
+            curr_run_id = await svc.get_latest_history_run_id(session_id)
+
+    is_stream_attachable = turn_state.is_stream_attachable
+    # Nothing live to attach to and no client cursor to resume -> let the client
+    # fall back to the persisted DB history.
+    if not is_stream_attachable and not last_event_id:
         return Response(status_code=status.HTTP_204_NO_CONTENT)
-    start_id = last_event_id or last_stream_id or "0-0"
-    logger.info(
-        "Starting session stream",
-        last_id=start_id,
-        session_id=session_id,
-    )
 
     stream = await AgentStream.new(session_id, workspace_id)
+    message_id = _bubble_id(session_id, curr_run_id)
+
     headers = {
         "Cache-Control": "no-cache, no-transform",
         "Connection": "keep-alive",
@@ -484,8 +540,55 @@ async def stream_session_events(
     }
     if format == "vercel":
         headers["x-vercel-ai-ui-message-stream"] = "v1"
+
+    # Browser owns the cursor: no Last-Event-ID -> replay 0-0; has one -> resume
+    # after it. Readers never read last_stream_id (producer/lifecycle-only).
+    start_id = "0-0"
+    resume_from: str | None = None
+    if last_event_id:
+        cursor = parse_vercel_frame_cursor(last_event_id)
+        requested = cursor.redis_id if cursor else last_event_id.split(":", 1)[0]
+        min_id = await stream.min_entry_id()
+        if min_id is None or _redis_id_lt(requested, min_id):
+            # Cursor predates the live buffer (maxlen/TTL eviction). While running,
+            # replay from the start. Otherwise there is nothing live, so emit a
+            # finishing stream that ends cleanly -> client refetches DB history.
+            if not is_stream_attachable:
+                return StreamingResponse(
+                    stream.finished_sse(format=format, message_id=message_id),
+                    media_type="text/event-stream",
+                    headers=headers,
+                )
+            # else start_id stays "0-0"
+        else:
+            start_id = requested
+            resume_from = last_event_id if cursor else None
+
+    # Terminal reconnects can outlive curr_run_id and, in edge cases, fail to
+    # resolve a persisted run id. Do not invent a session-only assistant id:
+    # finish cleanly so the client refetches DB history without rendering an
+    # empty synthetic bubble.
+    if not is_stream_attachable and message_id is None:
+        return StreamingResponse(
+            stream.finished_sse(format=format, message_id=None),
+            media_type="text/event-stream",
+            headers=headers,
+        )
+
+    logger.info(
+        "Starting session stream",
+        last_id=start_id,
+        session_id=session_id,
+    )
+
     return StreamingResponse(
-        stream.sse(request.is_disconnected, last_id=start_id, format=format),
+        stream.sse(
+            request.is_disconnected,
+            last_id=start_id,
+            format=format,
+            message_id=message_id,
+            resume_from=resume_from,
+        ),
         media_type="text/event-stream",
         headers=headers,
     )
