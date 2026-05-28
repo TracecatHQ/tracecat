@@ -8,6 +8,7 @@ import { useScopeCheck } from "@/components/auth/scope-guard"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { Button } from "@/components/ui/button"
 import { useEntitlements } from "@/hooks"
+import { getWorkspaceLandingPath } from "@/lib/workspace-navigation"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
 function NoAccessibleSections() {
@@ -40,7 +41,6 @@ export default function WorkspacePage() {
   const canViewVariables = useScopeCheck("variable:read")
   const canViewSecrets = useScopeCheck("secret:read")
   const canViewIntegrations = useScopeCheck("integration:read")
-  const canViewServiceAccounts = useScopeCheck("workspace:service_account:read")
   const canViewMembers = useScopeCheck("workspace:member:read")
   const canViewInbox = useScopeCheck("inbox:read")
   const canReadWorkspace = useScopeCheck("workspace:read")
@@ -58,7 +58,6 @@ export default function WorkspacePage() {
       canViewVariables,
       canViewSecrets,
       canViewIntegrations,
-      canViewServiceAccounts,
       canViewMembers,
       canViewInbox,
       canReadWorkspace,
@@ -69,6 +68,9 @@ export default function WorkspacePage() {
       return undefined
     }
     const basePath = `/workspaces/${workspaceId}`
+    if (canReadWorkspace === true) {
+      return getWorkspaceLandingPath(workspaceId)
+    }
     if (canViewWorkflows === true) {
       return `${basePath}/workflows`
     }
@@ -90,9 +92,6 @@ export default function WorkspacePage() {
     if (canViewIntegrations === true) {
       return `${basePath}/integrations`
     }
-    if (canViewServiceAccounts === true && canReadWorkspace === true) {
-      return `${basePath}/service-accounts`
-    }
     if (canViewMembers === true) {
       return `${basePath}/members`
     }
@@ -112,7 +111,6 @@ export default function WorkspacePage() {
     canViewTables,
     canViewVariables,
     canViewWorkflows,
-    canViewServiceAccounts,
     isLoading,
     workspaceId,
   ])

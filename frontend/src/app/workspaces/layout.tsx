@@ -21,6 +21,7 @@ import { Button } from "@/components/ui/button"
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar"
 import { useAuth, useAuthActions } from "@/hooks/use-auth"
 import { useWorkspaceManager } from "@/lib/hooks"
+import { getWorkspaceLandingPath } from "@/lib/workspace-navigation"
 import { WorkflowBuilderProvider } from "@/providers/builder"
 import { ScopeProvider } from "@/providers/scopes"
 import { SkillsStudioProvider } from "@/providers/skills-studio"
@@ -110,7 +111,7 @@ export default function WorkspaceLayout({
     ) {
       return
     }
-    router.replace(`/workspaces/${fallbackWorkspaceId}`)
+    router.replace(getWorkspaceLandingPath(fallbackWorkspaceId))
   }, [
     fallbackWorkspaceId,
     requestedWorkspaceExists,
@@ -308,7 +309,7 @@ function NoWorkspaces() {
     setIsCreating(true)
     try {
       const workspace = await createWorkspace({ name: "New Workspace" })
-      router.replace(`/workspaces/${workspace.id}/workflows`)
+      router.replace(getWorkspaceLandingPath(workspace.id))
     } catch (error) {
       console.error("Error creating workspace", error)
       setIsCreating(false)

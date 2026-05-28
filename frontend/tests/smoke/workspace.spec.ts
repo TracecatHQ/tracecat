@@ -24,6 +24,9 @@ test.describe("workspace first run", () => {
   })
 
   test("user can create a workflow and load the builder", async ({ page }) => {
+    await page.getByRole("link", { name: "Workflows" }).click()
+    await page.waitForURL(/\/workspaces\/[^/]+\/workflows(\/|$|\?)/)
+
     await page.getByRole("button", { name: /Create new/i }).click()
     await page
       .getByRole("menuitem")

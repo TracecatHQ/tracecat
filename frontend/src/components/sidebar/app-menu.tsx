@@ -39,6 +39,7 @@ import {
 } from "@/components/ui/sidebar"
 import { useWorkspaceManager } from "@/lib/hooks"
 import { cn } from "@/lib/utils"
+import { getWorkspaceLandingPath } from "@/lib/workspace-navigation"
 
 export function AppMenu({ workspaceId }: { workspaceId: string }) {
   const router = useRouter()
@@ -61,11 +62,11 @@ export function AppMenu({ workspaceId }: { workspaceId: string }) {
     const currentPath = pathname ?? ""
     const search = searchParams?.toString()
     if (!preserveRelativePath || !currentPath.startsWith("/workspaces/")) {
-      return `/workspaces/${targetWorkspaceId}/workflows`
+      return getWorkspaceLandingPath(targetWorkspaceId)
     }
     const relativePath = currentPath.replace(/^\/workspaces\/[^/]+/, "")
     const normalizedPath =
-      relativePath && relativePath !== "/" ? relativePath : "/workflows"
+      relativePath && relativePath !== "/" ? relativePath : "/mission-control"
 
     return `/workspaces/${targetWorkspaceId}${normalizedPath}${
       search ? `?${search}` : ""
