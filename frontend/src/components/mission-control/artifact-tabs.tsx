@@ -139,7 +139,7 @@ function ArtifactTab({
     <div
       data-artifact-tab-id={key}
       className={cn(
-        "group flex h-7 max-w-[14rem] shrink-0 items-center rounded-sm text-xs",
+        "group flex h-7 min-w-0 max-w-[min(14rem,100%)] shrink-0 items-center rounded-sm text-xs",
         active
           ? "bg-muted text-foreground"
           : "text-muted-foreground hover:bg-muted/70 hover:text-foreground"

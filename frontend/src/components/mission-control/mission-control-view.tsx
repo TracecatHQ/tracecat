@@ -11,6 +11,11 @@ import { CenteredSpinner } from "@/components/loading/spinner"
 import { ArtifactPanel } from "@/components/mission-control/artifact-panel"
 import { Button } from "@/components/ui/button"
 import {
+  ResizableHandle,
+  ResizablePanel,
+  ResizablePanelGroup,
+} from "@/components/ui/resizable"
+import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
@@ -111,47 +116,73 @@ export function MissionControlView() {
   }
 
   const showExpandButton = hasArtifacts && isPanelCollapsed
+  const showArtifactPanel = hasArtifacts && !isPanelCollapsed
 
   return (
-    <div className="relative flex size-full min-h-0 overflow-hidden">
-      <div className="flex h-full min-w-[320px] flex-1 flex-col">
-        <ChatInterface
-          entityType="copilot"
-          entityId={workspaceId}
-          bodyClassName="min-h-0"
-          placeholder="Ask Mission Control..."
-          surface="mission-control"
-          onMessagesChange={setMessages}
-          onChatChange={setChat}
-          headerActions={
-            showExpandButton ? (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    className="size-6 p-0"
-                    onClick={expandPanel}
-                    aria-label="Show artifacts"
-                  >
-                    <PanelLeftIcon className="size-4 -scale-x-100" />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent side="bottom">Show artifacts</TooltipContent>
-              </Tooltip>
-            ) : null
-          }
-        />
-      </div>
-      <ArtifactPanel
-        artifacts={artifactsState.artifacts}
-        activeArtifactKey={artifactsState.activeArtifactKey}
-        setActiveArtifactKey={artifactsState.setActiveArtifactKey}
-        closeArtifact={artifactsState.closeArtifact}
-        workspaceId={workspaceId}
-        isCollapsed={isPanelCollapsed}
-        onCollapse={collapsePanel}
-      />
-    </div>
+    <ResizablePanelGroup
+      direction="horizontal"
+      className="relative size-full min-h-0 overflow-hidden"
+    >
+      <ResizablePanel
+        id="mission-control-chat"
+        order={1}
+        defaultSize={showArtifactPanel ? 50 : 100}
+        minSize={30}
+        className="min-w-0"
+      >
+        <div className="flex size-full min-w-[320px] flex-col">
+          <ChatInterface
+            entityType="copilot"
+            entityId={workspaceId}
+            bodyClassName="min-h-0"
+            placeholder="Ask Mission Control..."
+            surface="mission-control"
+            onMessagesChange={setMessages}
+            onChatChange={setChat}
+            headerActions={
+              showExpandButton ? (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="size-6 p-0"
+                      onClick={expandPanel}
+                      aria-label="Show artifacts"
+                    >
+                      <PanelLeftIcon className="size-4 -scale-x-100" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom">Show artifacts</TooltipContent>
+                </Tooltip>
+              ) : null
+            }
+          />
+        </div>
+      </ResizablePanel>
+
+      {showArtifactPanel ? (
+        <>
+          <ResizableHandle className="z-10 -mx-1 w-2 bg-transparent after:w-px after:bg-border" />
+          <ResizablePanel
+            id="mission-control-artifacts"
+            order={2}
+            defaultSize={50}
+            minSize={30}
+            maxSize={70}
+            className="min-w-0"
+          >
+            <ArtifactPanel
+              artifacts={artifactsState.artifacts}
+              activeArtifactKey={artifactsState.activeArtifactKey}
+              setActiveArtifactKey={artifactsState.setActiveArtifactKey}
+              closeArtifact={artifactsState.closeArtifact}
+              workspaceId={workspaceId}
+              onCollapse={collapsePanel}
+            />
+          </ResizablePanel>
+        </>
+      ) : null}
+    </ResizablePanelGroup>
   )
 }

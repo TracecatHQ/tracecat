@@ -12,6 +12,7 @@ import {
   FormMessage,
 } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
+import { Textarea } from "@/components/ui/textarea"
 
 const summaryFormSchema = z.object({
   summary: z.string().min(1, { message: "Summary is required" }),
@@ -21,11 +22,13 @@ type SummaryFormSchema = z.infer<typeof summaryFormSchema>
 interface CasePanelSummaryProps {
   caseData: CaseRead
   updateCase: (caseData: CaseUpdate) => Promise<void>
+  compact?: boolean
 }
 
 export function CasePanelSummary({
   caseData,
   updateCase,
+  compact = false,
 }: CasePanelSummaryProps) {
   const form = useForm<SummaryFormSchema>({
     resolver: zodResolver(summaryFormSchema),
@@ -37,7 +40,9 @@ export function CasePanelSummary({
     await updateCase({ summary: values.summary })
   }
 
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+  const handleKeyDown = (
+    e: React.KeyboardEvent<HTMLInputElement | HTMLTextAreaElement>
+  ) => {
     if (e.key === "Enter") {
       e.preventDefault()
       handleSummarySubmit(form.getValues())
@@ -57,14 +62,25 @@ export function CasePanelSummary({
           render={({ field }) => (
             <FormItem>
               <FormControl>
-                <Input
-                  {...field}
-                  value={field.value || ""}
-                  variant="flat"
-                  className="-mx-1 w-full px-1 text-xl font-semibold"
-                  onBlur={() => handleSummarySubmit(form.getValues())}
-                  onKeyDown={handleKeyDown}
-                />
+                {compact ? (
+                  <Textarea
+                    {...field}
+                    value={field.value || ""}
+                    rows={2}
+                    className="min-h-0 max-w-full resize-none border-transparent bg-transparent px-0 py-1 text-lg font-semibold shadow-none focus-visible:ring-0"
+                    onBlur={() => handleSummarySubmit(form.getValues())}
+                    onKeyDown={handleKeyDown}
+                  />
+                ) : (
+                  <Input
+                    {...field}
+                    value={field.value || ""}
+                    variant="flat"
+                    className="-mx-1 w-full px-1 text-xl font-semibold"
+                    onBlur={() => handleSummarySubmit(form.getValues())}
+                    onKeyDown={handleKeyDown}
+                  />
+                )}
               </FormControl>
               <FormMessage />
             </FormItem>
