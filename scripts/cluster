@@ -39,7 +39,7 @@ ENV_FILE="${REPO_ROOT}/.env"
 # Default profile
 PROFILE="dev"
 CLUSTER_EE_MULTI_TENANT=""
-CLUSTER_USE_SANDBOX_COMPOSE=false
+CLUSTER_USE_SANDBOX_COMPOSE=true
 
 # Get worktree identifier for namespacing clusters
 # Returns "main" for the main worktree, or a sanitized branch/directory name for worktrees
@@ -380,8 +380,12 @@ Tenant mode:
   --single-tenant                 Set TRACECAT__EE_MULTI_TENANT=false
   --multi-tenant                  Set TRACECAT__EE_MULTI_TENANT=true
   --ee-multi-tenant true|false    Set TRACECAT__EE_MULTI_TENANT explicitly
-  --sandbox                       Enable nsjail sandboxing with the ephemeral
-                                  executor backend and layer sandbox privileges
+
+Sandbox mode:
+  Enabled by default for cluster development.
+  --sandbox                       Keep nsjail sandboxing enabled
+  --no-sandbox                    Disable nsjail sandboxing and sandbox
+                                  compose privileges
 
 Commands:
   up [args]     Start the cluster (e.g., up -d)
@@ -392,6 +396,7 @@ Commands:
                 user, and all default tier entitlements by default for the dev
                 profile. Use --no-seed to skip.
                 Use --default-tier-entitlements all|none|a,b to override.
+                Use --no-sandbox to opt out of nsjail sandboxing.
   seed [args]   Seed or update the dev superuser, tenant user, and default tier
                 for an already running cluster. Use
                 --default-tier-entitlements all|none|a,b to override.
@@ -416,12 +421,12 @@ Nuke options:
   nuke volumes          List and select volumes to remove
 
 Examples:
-  ./cluster up -d                Start cluster and create dev users
+  ./cluster up -d                Start sandboxed cluster and create dev users
   ./cluster up -d --single-tenant
                                   Start cluster with multi-tenancy disabled
   ./cluster --ee-multi-tenant false up -d
                                   Start cluster with explicit tenant mode
-  ./cluster --sandbox up -d       Start cluster with nsjail sandboxing
+  ./cluster up -d --no-sandbox    Start cluster without nsjail sandboxing
   ./cluster up -d --new          Force a new cluster on next available number
   ./cluster up -d --no-seed      Start cluster without creating dev tenant user
   ./cluster up -d --default-tier-entitlements none
@@ -530,6 +535,7 @@ build_env() {
         export TRACECAT__EXECUTOR_BACKEND=ephemeral
     else
         # Default to direct executor backend for development
+        export TRACECAT__DISABLE_NSJAIL=true
         export TRACECAT__EXECUTOR_BACKEND="${TRACECAT__EXECUTOR_BACKEND:-direct}"
     fi
 
@@ -659,6 +665,10 @@ while [[ $# -gt 0 ]]; do
             CLUSTER_USE_SANDBOX_COMPOSE=true
             shift
             ;;
+        --no-sandbox)
+            CLUSTER_USE_SANDBOX_COMPOSE=false
+            shift
+            ;;
         *)
             break
             ;;
@@ -728,6 +738,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --sandbox)
             CLUSTER_USE_SANDBOX_COMPOSE=true
+            shift
+            ;;
+        --no-sandbox)
+            CLUSTER_USE_SANDBOX_COMPOSE=false
             shift
             ;;
         *)
