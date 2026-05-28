@@ -15,8 +15,8 @@ Security model:
 Key design:
 - Runtime executes a standalone shim script from the per-job /run/tracecat/job directory
 - Shim mode avoids Tracecat package mounts entirely
-- Control socket at /var/run/tracecat/control.sock
-- LLM socket at /var/run/tracecat/llm.sock (proxied to LLM gateway)
+- Control socket at /run/tracecat/control.sock
+- LLM socket at /run/tracecat/llm.sock (proxied to LLM gateway)
 """
 
 from __future__ import annotations
@@ -27,6 +27,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from tracecat.agent.common.config import (
+    AGENT_RUNTIME_DIR,
     CONTROL_SOCKET_NAME,
     JAILED_CONTROL_SOCKET_PATH,
     JAILED_LLM_SOCKET_PATH,
@@ -360,8 +361,10 @@ def build_agent_nsjail_config(
             "# Temporary filesystems",
             'mount { dst: "/tmp" fstype: "tmpfs" rw: true options: "size=256M" }',
             "",
-            "# Tracecat-owned per-turn runtime files",
-            'mount { dst: "/run/tracecat" fstype: "tmpfs" rw: true options: "size=16M" }',
+            "# Tracecat job mountpoint namespace",
+            "# The tmpfs only backs files placed directly under this directory;",
+            "# /run/tracecat/job is a separate read-only bind mount from the host.",
+            f'mount {{ dst: "{AGENT_RUNTIME_DIR}" fstype: "tmpfs" rw: true options: "size=1M" }}',
             f'mount {{ src: "{job_dir}" dst: "{JAILED_AGENT_JOB_DIR}" is_bind: true rw: false }}',
         ]
     )

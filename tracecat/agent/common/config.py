@@ -27,9 +27,12 @@ TRACECAT__DISABLE_NSJAIL = os.environ.get(
 ).lower() in ("true", "1")
 """Disable nsjail sandbox and use the unsafe PID executor instead."""
 
-# === Well-known socket paths (internal to agent worker) === #
+# === Well-known runtime paths (internal to agent worker) === #
 
-TRUSTED_MCP_SOCKET_PATH = Path("/var/run/tracecat/mcp.sock")
+AGENT_RUNTIME_DIR = Path("/run/tracecat")
+"""Tracecat-owned runtime namespace for agent sandbox mountpoints and sockets."""
+
+TRUSTED_MCP_SOCKET_PATH = AGENT_RUNTIME_DIR / "mcp.sock"
 """Path to the trusted MCP socket (shared across jobs)."""
 
 TRACECAT__AGENT_MCP_SOCKET_PATH = Path(
@@ -45,13 +48,13 @@ TRACECAT__AGENT_MCP_BRIDGE_PORT = int(
 CONTROL_SOCKET_NAME = "control.sock"
 """Name of the per-job control socket."""
 
-JAILED_CONTROL_SOCKET_PATH = Path("/var/run/tracecat/control.sock")
+JAILED_CONTROL_SOCKET_PATH = AGENT_RUNTIME_DIR / "control.sock"
 """Path to the control socket inside the jail."""
 
 LLM_SOCKET_NAME = "llm.sock"
 """Name of the LLM socket for proxied LLM gateway access."""
 
-JAILED_LLM_SOCKET_PATH = Path("/var/run/tracecat/llm.sock")
+JAILED_LLM_SOCKET_PATH = AGENT_RUNTIME_DIR / "llm.sock"
 """Path to the LLM socket inside the jail."""
 
 # === Runtime socket overrides (primarily for direct subprocess mode) === #
