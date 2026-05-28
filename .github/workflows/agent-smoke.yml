@@ -1,0 +1,398 @@
+name: Agent Smoke
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 14 * * *"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: agent-smoke-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  agent-smoke:
+    if: >-
+      github.event_name != 'workflow_dispatch' ||
+      github.actor == 'github-actions[bot]' ||
+      contains(
+        fromJSON(vars.TRUSTED_CI_ACTORS_JSON || '[]'),
+        github.triggering_actor || github.actor
+      )
+    runs-on: blacksmith-8vcpu-ubuntu-2204
+    timeout-minutes: 90
+    environment: agent-smoke
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+
+      - name: Install uv
+        uses: useblacksmith/setup-uv@f4588471335f14dcb60198856207b916701a9e9f # v4
+        with:
+          version: "0.9.7"
+          enable-cache: true
+          cache-dependency-glob: |
+            pyproject.toml
+            uv.lock
+
+      - name: Set up Python 3.12
+        uses: useblacksmith/setup-python@943b05a7c4ca70c2360391137527a37bee33fb1d # v6
+        with:
+          python-version: "3.12"
+
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "22"
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4
+        with:
+          version: 10
+          run_install: false
+
+      - name: Set up Docker builder
+        uses: useblacksmith/setup-docker-builder@78f41686563c732ccc097f7baac2f092f67538f0 # v1
+
+      - name: Disable IPv6
+        run: |
+          sudo sysctl -w net.ipv6.conf.all.disable_ipv6=1
+          sudo sysctl -w net.ipv6.conf.default.disable_ipv6=1
+
+      - name: Configure environment
+        run: |
+          echo "y
+          localhost
+          n
+          test@tracecat.com" | bash env.sh
+          {
+            echo "TRACECAT__LOCAL_REPOSITORY_ENABLED=true"
+            echo "TRACECAT__LOCAL_REPOSITORY_PATH=${PWD}/tests/fixtures/agent_smoke_registry"
+          } >> .env
+
+      - name: Install dependencies
+        run: |
+          uv sync --locked --group dev --group admin
+          pnpm --dir frontend install --frozen-lockfile
+          pnpm --dir frontend exec playwright install --with-deps chromium
+
+      - name: Build CI image
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: .
+          target: production
+          load: true
+          tags: tracecat-ci:agent-smoke-${{ github.run_id }}-${{ github.run_attempt }}
+
+      - name: Build UI image
+        env:
+          TRACECAT__CI_IMAGE_TAG: agent-smoke-${{ github.run_id }}-${{ github.run_attempt }}
+        run: |
+          docker compose -f docker-compose.local.yml -f .github/docker-compose.integration.yml build ui
+
+      - name: Start Tracecat stack
+        env:
+          TRACECAT__CI_IMAGE_TAG: agent-smoke-${{ github.run_id }}-${{ github.run_attempt }}
+          TRACECAT__UNSAFE_DISABLE_SM_MASKING: "true"
+          TRACECAT__EXECUTOR_BACKEND: "direct"
+          TRACECAT__FEATURE_FLAGS: "agent-presets,agent-approvals"
+          TRACECAT__REGISTRY_SYNC_SANDBOX_ENABLED: "true"
+        run: |
+          set -euo pipefail
+
+          compose_files=(-f docker-compose.local.yml -f .github/docker-compose.integration.yml)
+          docker compose "${compose_files[@]}" up --no-build -d temporal api worker executor agent-worker litellm agent-executor postgres_db caddy minio redis ui
+
+          echo "Waiting for services to become healthy..."
+          timeout 420 bash -c '
+            while true; do
+              statuses=$(
+                docker compose -f docker-compose.local.yml -f .github/docker-compose.integration.yml ps --format json |
+                  jq -r "if type == \"array\" then .[] else . end | select(.Health != null and .Health != \"\") | .Health"
+              )
+
+              total=$(echo "$statuses" | grep -c . || true)
+              healthy=$(echo "$statuses" | grep -c "^healthy$" || true)
+
+              if [ "$total" -eq 0 ]; then
+                echo "No services with health checks found yet, waiting..."
+                sleep 5
+              elif [ "$healthy" -lt "$total" ]; then
+                echo "Waiting for services to be healthy ($healthy/$total ready)..."
+                sleep 5
+              else
+                echo "All $total services with health checks are healthy"
+                break
+              fi
+            done
+          '
+
+          docker compose "${compose_files[@]}" ps
+
+          timeout 420 bash -c 'until curl -fsS http://localhost/api/ready; do sleep 5; done'
+          timeout 120 bash -c 'until curl -fsS http://localhost; do sleep 5; done'
+
+          set -a
+          . ./.env
+          set +a
+
+          TRACECAT__DB_URI="postgresql+psycopg://postgres:postgres@localhost:5432/postgres" \
+            uv run --no-sync tracecat admin create-dev-user \
+              --email dev@tracecat.com \
+              --password password1234 \
+              --superuser-email test@tracecat.com \
+              --superuser-password password1234 \
+              --default-tier-entitlements custom_registry,agent_addons,case_addons \
+              --org-role organization-owner \
+              --workspace-role workspace-admin
+
+      - name: Start HTTP MCP fixture
+        env:
+          TRACECAT__CI_IMAGE_TAG: agent-smoke-${{ github.run_id }}-${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+
+          compose_files=(-f docker-compose.local.yml -f .github/docker-compose.integration.yml)
+          docker rm -f agent-smoke-http-mcp 2>/dev/null || true
+          MCP_SOURCE="$(cat <<'PY'
+          from fastmcp import FastMCP
+
+          mcp = FastMCP("Tracecat agent smoke MCP")
+
+          @mcp.tool
+          def tc_smoke_echo(marker: str) -> str:
+              return "http:" + marker
+
+          if __name__ == "__main__":
+              mcp.run(transport="http", host="0.0.0.0", port=8765)
+          PY
+          )"
+          docker compose "${compose_files[@]}" run -d --name agent-smoke-http-mcp --no-deps api python -c "$MCP_SOURCE"
+
+      - name: Validate AWS OIDC config
+        env:
+          AWS_BEDROCK_ROLE_ARN: ${{ secrets.AWS_BEDROCK_ROLE_ARN }}
+          AWS_REGION: ${{ vars.AWS_REGION }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${AWS_BEDROCK_ROLE_ARN:-}" ]; then
+            echo "Missing required Actions variable: AWS_BEDROCK_ROLE_ARN" >&2
+            exit 1
+          fi
+
+          if [ -z "${AWS_REGION:-}" ]; then
+            echo "Missing required Actions variable: AWS_REGION" >&2
+            exit 1
+          fi
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@e3dd6a429d7300a6a4c196c26e071d42e0343502 # v4
+        with:
+          role-to-assume: ${{ secrets.AWS_BEDROCK_ROLE_ARN }}
+          role-session-name: agent-smoke-${{ github.run_id }}-${{ github.run_attempt }}
+          aws-region: ${{ vars.AWS_REGION }}
+          role-duration-seconds: 7200
+          mask-aws-account-id: true
+
+      - name: Mask runtime credentials
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          set -euo pipefail
+
+          for env_name in \
+            ANTHROPIC_API_KEY \
+            OPENAI_API_KEY \
+            AWS_ACCESS_KEY_ID \
+            AWS_SECRET_ACCESS_KEY \
+            AWS_SESSION_TOKEN
+          do
+            value="${!env_name:-}"
+            if [ -n "$value" ]; then
+              echo "::add-mask::$value"
+            fi
+          done
+
+      - name: Configure custom provider fixture
+        env:
+          TRACECAT__CI_IMAGE_TAG: agent-smoke-${{ github.run_id }}-${{ github.run_attempt }}
+          AWS_REGION: ${{ vars.AWS_REGION }}
+          AWS_DEFAULT_REGION: ${{ vars.AWS_REGION }}
+          AWS_REGION_NAME: ${{ vars.AWS_REGION }}
+        run: |
+          set -euo pipefail
+
+          compose_files=(-f docker-compose.local.yml -f .github/docker-compose.integration.yml)
+
+          custom_model="claude-haiku-4-5-bedrock"
+          sidecar_model="bedrock/converse/us.anthropic.claude-haiku-4-5-20251001-v1:0"
+
+          docker rm -f agent-smoke-custom-litellm 2>/dev/null || true
+
+          run_args=(run -d --name agent-smoke-custom-litellm --no-deps)
+          for env_name in \
+            AWS_ACCESS_KEY_ID \
+            AWS_SECRET_ACCESS_KEY \
+            AWS_SESSION_TOKEN \
+            AWS_REGION \
+            AWS_DEFAULT_REGION \
+            AWS_REGION_NAME
+          do
+            if [ -n "${!env_name:-}" ]; then
+              run_args+=("-e" "$env_name")
+            fi
+          done
+
+          docker compose "${compose_files[@]}" "${run_args[@]}" api litellm --host 0.0.0.0 --port 4100 --model "$sidecar_model" --alias "$custom_model"
+          timeout 120 bash -c 'until docker exec agent-smoke-custom-litellm python -c "import urllib.request; urllib.request.urlopen(\"http://127.0.0.1:4100/v1/models\", timeout=2).read()" >/dev/null 2>&1; do sleep 2; done'
+          echo "CUSTOM_PROVIDER_BASE_URL=http://agent-smoke-custom-litellm:4100/v1" >> "$GITHUB_ENV"
+
+      - name: Verify host MinIO access
+        run: |
+          set -euo pipefail
+
+          unset AWS_ACCESS_KEY_ID
+          unset AWS_SECRET_ACCESS_KEY
+          unset AWS_SESSION_TOKEN
+          unset AWS_REGION
+          unset AWS_DEFAULT_REGION
+          unset AWS_REGION_NAME
+
+          set -a
+          . ./.env
+          set +a
+
+          timeout 120 bash -c 'until curl -fsS http://localhost:9000/minio/health/ready; do sleep 2; done'
+          uv run --no-sync python -c 'from minio import Minio; import os; print([b.name for b in Minio("localhost:9000", access_key=os.environ["MINIO_ROOT_USER"], secret_key=os.environ["MINIO_ROOT_PASSWORD"], secure=False).list_buckets()])'
+
+      - name: Run agent smoke suite
+        env:
+          RUN_AGENT_SMOKE: "1"
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          MINIO_ROOT_USER: minio
+          MINIO_ROOT_PASSWORD: password
+        run: |
+          unset AWS_ACCESS_KEY_ID
+          unset AWS_SECRET_ACCESS_KEY
+          unset AWS_SESSION_TOKEN
+          unset AWS_REGION
+          unset AWS_DEFAULT_REGION
+          unset AWS_REGION_NAME
+
+          TRACECAT_TEST_EXTERNAL_API_URL="http://localhost/api"
+          export TRACECAT_TEST_EXTERNAL_API_URL
+          TRACECAT_TEST_API_MODE=external
+          export TRACECAT_TEST_API_MODE
+          uv run --no-sync pytest tests/smoke/agent -m agent_smoke -n 3 -x -ra
+
+      - name: Run agent UX canary
+        env:
+          RUN_AGENT_UX_CANARY: "1"
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          MINIO_ROOT_USER: minio
+          MINIO_ROOT_PASSWORD: password
+        run: |
+          unset AWS_ACCESS_KEY_ID
+          unset AWS_SECRET_ACCESS_KEY
+          unset AWS_SESSION_TOKEN
+          unset AWS_REGION
+          unset AWS_DEFAULT_REGION
+          unset AWS_REGION_NAME
+
+          PLAYWRIGHT_BASE_URL="http://localhost"
+          export PLAYWRIGHT_BASE_URL
+          PLAYWRIGHT_WORKERS=1
+          export PLAYWRIGHT_WORKERS
+          pnpm --dir frontend exec playwright test agent-ux.spec.ts --workers=1
+
+      - name: Upload agent smoke summary
+        if: always()
+        uses: actions/upload-artifact@de65e23aa2b7e23d713bb51fbfcb6d502f8667d8 # v4
+        with:
+          name: agent-smoke-summary
+          path: artifacts/agent-smoke-summary.json
+          if-no-files-found: ignore
+
+      - name: Upload agent UX Playwright report
+        if: always()
+        uses: actions/upload-artifact@de65e23aa2b7e23d713bb51fbfcb6d502f8667d8 # v4
+        with:
+          name: agent-ux-playwright-report
+          path: frontend/playwright-report
+          if-no-files-found: ignore
+
+      - name: Upload agent UX test results
+        if: always()
+        uses: actions/upload-artifact@de65e23aa2b7e23d713bb51fbfcb6d502f8667d8 # v4
+        with:
+          name: agent-ux-test-results
+          path: frontend/test-results
+          if-no-files-found: ignore
+
+      - name: Show service logs on failure
+        if: failure()
+        env:
+          TRACECAT__CI_IMAGE_TAG: agent-smoke-${{ github.run_id }}-${{ github.run_attempt }}
+        run: |
+          compose_files=(-f docker-compose.local.yml -f .github/docker-compose.integration.yml)
+
+          echo "=== Docker Service Status ==="
+          docker compose "${compose_files[@]}" ps
+
+          echo "=== API Logs ==="
+          docker compose "${compose_files[@]}" logs api --tail=200
+
+          echo "=== UI Logs ==="
+          docker compose "${compose_files[@]}" logs ui --tail=200
+
+          echo "=== Worker Logs ==="
+          docker compose "${compose_files[@]}" logs worker --tail=200
+
+          echo "=== Executor Logs ==="
+          docker compose "${compose_files[@]}" logs executor --tail=200
+
+          echo "=== Agent Worker Logs ==="
+          docker compose "${compose_files[@]}" logs agent-worker --tail=200
+
+          echo "=== Agent Executor Logs ==="
+          docker compose "${compose_files[@]}" logs agent-executor --tail=200
+
+          echo "=== LiteLLM Logs ==="
+          docker compose "${compose_files[@]}" logs litellm --tail=200
+
+          echo "=== Temporal Logs ==="
+          docker compose "${compose_files[@]}" logs temporal --tail=200
+
+          echo "=== Redis Logs ==="
+          docker compose "${compose_files[@]}" logs redis --tail=200
+
+          echo "=== MinIO Logs ==="
+          docker compose "${compose_files[@]}" logs minio --tail=200
+
+          echo "=== PostgreSQL Logs ==="
+          docker compose "${compose_files[@]}" logs postgres_db --tail=200
+
+          echo "=== HTTP MCP Fixture Logs ==="
+          docker logs agent-smoke-http-mcp || true
+
+          echo "=== Custom LiteLLM Fixture Logs ==="
+          docker logs agent-smoke-custom-litellm || true
+
+      - name: Clean up
+        if: always()
+        env:
+          TRACECAT__CI_IMAGE_TAG: agent-smoke-${{ github.run_id }}-${{ github.run_attempt }}
+        run: |
+          docker rm -f agent-smoke-http-mcp 2>/dev/null || true
+          docker rm -f agent-smoke-custom-litellm 2>/dev/null || true
+          docker compose -f docker-compose.local.yml -f .github/docker-compose.integration.yml down -v

@@ -134,7 +134,13 @@ export async function createOrganizationInvitation(
  * Wait until the workspace redirect settles on the workflows dashboard.
  */
 export async function expectWorkspaceLanding(page: Page): Promise<void> {
-  await page.waitForURL(/\/workspaces\/[^/]+(\/workflows)?(\/|$|\?)/)
+  const workspaceUrlPattern = /\/workspaces\/[^/]+(\/workflows)?(\/|$|\?)/
+  if (!workspaceUrlPattern.test(page.url())) {
+    const workflowsLink = page.getByRole("link", { name: "Workflows" }).first()
+    await expect(workflowsLink).toBeVisible({ timeout: 30_000 })
+    await workflowsLink.click()
+  }
+  await page.waitForURL(workspaceUrlPattern)
   const createNewButton = page.getByRole("button", { name: /Create new/i })
   if (!(await createNewButton.isVisible())) {
     await page.getByRole("link", { name: "Workflows" }).click()
