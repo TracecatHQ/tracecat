@@ -259,25 +259,25 @@ async def get_session_status(
     role: WorkspaceUserRouteRole,
     session: AsyncDBSession,
 ) -> AgentSessionStatusRead:
-    """Cheap lifecycle status for polling (no message history loaded)."""
+    """Lifecycle status for polling without loading message history."""
     svc = AgentSessionService(session, role)
-    agent_session = await svc.get_session(session_id)
+    turn_state = await svc.get_turn_state(session_id)
+    agent_session = turn_state.session
     if agent_session is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Session not found",
         )
-    turn_status = AgentSessionStatus(agent_session.status)
     prompt: str | None = None
     if (
-        turn_status
+        turn_state.turn_status
         in {AgentSessionStatus.RUNNING, AgentSessionStatus.WAITING_FOR_APPROVAL}
-        and agent_session.curr_run_id is not None
+        and turn_state.curr_run_id is not None
     ):
-        prompt = await svc.get_active_run_prompt(session_id, agent_session.curr_run_id)
+        prompt = await svc.get_active_run_prompt(session_id, turn_state.curr_run_id)
     return AgentSessionStatusRead(
-        turn_status=turn_status,
-        curr_run_id=agent_session.curr_run_id,
+        turn_status=turn_state.turn_status,
+        curr_run_id=turn_state.curr_run_id,
         prompt=prompt,
     )
 
@@ -517,15 +517,12 @@ async def stream_session_events(
     # before the session row is created (handled by the 204 below).
     last_event_id = request.headers.get("Last-Event-ID")
     async with AgentSessionService.with_session(role=role) as svc:
-        agent_session = await svc.get_session(session_id)
-        curr_run_id = agent_session.curr_run_id if agent_session is not None else None
+        turn_state = await svc.get_turn_state(session_id)
+        curr_run_id = turn_state.curr_run_id
         if curr_run_id is None and last_event_id:
             curr_run_id = await svc.get_latest_history_run_id(session_id)
 
-    is_stream_attachable = (
-        agent_session is not None
-        and agent_session.status == AgentSessionStatus.RUNNING.value
-    )
+    is_stream_attachable = turn_state.is_stream_attachable
     # Nothing live to attach to and no client cursor to resume -> let the client
     # fall back to the persisted DB history.
     if not is_stream_attachable and not last_event_id:

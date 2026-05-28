@@ -578,7 +578,7 @@ export function useGetChatVercel({
 }
 
 /**
- * Poll the cheap lifecycle status endpoint so a client learns when a turn
+ * Poll the lifecycle status endpoint so a client learns when a turn
  * starts (e.g. from another tab) and can attach to the live stream. Kept
  * separate from the heavy message-history fetch. Polls a touch faster while a
  * turn is live; always polls so an idle client notices a new turn.

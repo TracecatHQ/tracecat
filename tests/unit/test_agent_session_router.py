@@ -21,6 +21,7 @@ from tracecat.agent.session.router import (
     send_message,
     stream_session_events,
 )
+from tracecat.agent.session.service import AgentTurnState
 from tracecat.agent.session.types import AgentSessionEntity, AgentSessionStatus
 from tracecat.auth.types import Role
 from tracecat.chat.schemas import (
@@ -206,10 +207,15 @@ async def test_get_session_status_includes_prompt_for_active_turn(
     session_id = uuid.uuid4()
     workspace_id = uuid.uuid4()
     run_id = uuid.uuid4()
+    session_stub = SimpleNamespace(
+        status=AgentSessionStatus.IDLE.value,
+        curr_run_id=None,
+    )
     fake_svc = SimpleNamespace(
-        get_session=AsyncMock(
-            return_value=SimpleNamespace(
-                status=status_value,
+        get_turn_state=AsyncMock(
+            return_value=AgentTurnState(
+                session=cast(Any, session_stub),
+                turn_status=AgentSessionStatus(status_value),
                 curr_run_id=run_id,
             )
         ),
@@ -229,6 +235,7 @@ async def test_get_session_status_includes_prompt_for_active_turn(
     assert response.turn_status == status_value
     assert response.curr_run_id == run_id
     assert response.prompt == "Investigate this alert"
+    fake_svc.get_turn_state.assert_awaited_once_with(session_id)
     fake_svc.get_active_run_prompt.assert_awaited_once_with(session_id, run_id)
 
 
@@ -533,11 +540,27 @@ async def _run_stream_endpoint(
     headers: dict[str, str],
     session_id: uuid.UUID | None = None,
     latest_run_id: uuid.UUID | None = None,
+    turn_status: AgentSessionStatus | None = None,
+    turn_run_id: uuid.UUID | None = None,
 ) -> Any:
     session_id = session_id or uuid.uuid4()
     role = _make_stream_role(uuid.uuid4())
+    if turn_status is None:
+        turn_status = (
+            AgentSessionStatus(session.status)
+            if session is not None
+            else AgentSessionStatus.IDLE
+        )
+    if turn_run_id is None and session is not None:
+        turn_run_id = session.curr_run_id
     fake_svc = SimpleNamespace(
-        get_session=AsyncMock(return_value=session),
+        get_turn_state=AsyncMock(
+            return_value=AgentTurnState(
+                session=cast(Any, session),
+                turn_status=turn_status,
+                curr_run_id=turn_run_id,
+            )
+        ),
         get_latest_history_run_id=AsyncMock(return_value=latest_run_id),
     )
     with (
@@ -592,6 +615,24 @@ async def test_stream_session_events_attaches_when_turn_in_progress_no_events_ye
     assert isinstance(response, StreamingResponse)
     stream.sse.assert_called_once()
     assert stream.sse.call_args.kwargs["last_id"] == "0-0"
+    assert stream.sse.call_args.kwargs["message_id"] == f"{session_id}:{curr_run_id}"
+
+
+@pytest.mark.anyio
+async def test_stream_session_events_uses_temporal_turn_state_for_attach() -> None:
+    session_id = uuid.uuid4()
+    curr_run_id = uuid.uuid4()
+    stream = _fake_stream()
+    response = await _run_stream_endpoint(
+        session=_fake_stream_session(status_value="idle", curr_run_id=curr_run_id),
+        stream=stream,
+        headers={},
+        session_id=session_id,
+        turn_status=AgentSessionStatus.RUNNING,
+    )
+
+    assert isinstance(response, StreamingResponse)
+    stream.sse.assert_called_once()
     assert stream.sse.call_args.kwargs["message_id"] == f"{session_id}:{curr_run_id}"
 
 

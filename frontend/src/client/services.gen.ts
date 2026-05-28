@@ -6617,7 +6617,7 @@ export const agentSessionsGetSessionVercel = (
 
 /**
  * Get Session Status
- * Cheap lifecycle status for polling (no message history loaded).
+ * Lifecycle status for polling without loading message history.
  * @param data The data for the request.
  * @param data.sessionId
  * @param data.workspaceId
