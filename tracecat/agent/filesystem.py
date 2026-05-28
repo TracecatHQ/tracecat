@@ -198,6 +198,15 @@ async def persist_agent_work_dir(
             )
             return None
 
+        if marker is None and stats.file_count == 0:
+            temp_archive.unlink(missing_ok=True)
+            logger.debug(
+                "Skipping empty initial agent filesystem snapshot",
+                session_id=str(session_id),
+                sha256=stats.sha256,
+            )
+            return None
+
         archive_path = await asyncio.to_thread(
             _promote_archive_to_cache,
             temp_archive,

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import io
+import json
 import shutil
 import stat
 import tarfile
@@ -209,3 +210,128 @@ async def test_persist_and_hydrate_round_trip_through_blob_cache(
 
     assert hydrated is latest_snapshot
     assert (work_dir / "notes.txt").read_text() == "durable state"
+
+
+@pytest.mark.anyio
+async def test_persist_skips_initial_empty_work_dir(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    session_id = uuid.uuid4()
+    workspace_id = uuid.uuid4()
+    work_dir = tmp_path / "session" / "agent-work-dir"
+    work_dir.mkdir(parents=True)
+
+    @asynccontextmanager
+    async def fail_with_session(**_kwargs: Any):
+        raise AssertionError("empty initial work dir should not record a snapshot")
+        yield
+
+    async def fail_upload_file_from_path(*_args: Any, **_kwargs: Any) -> None:
+        raise AssertionError("empty initial work dir should not upload an archive")
+
+    monkeypatch.setattr(
+        config,
+        "TRACECAT__AGENT_FS_CACHE_DIR",
+        str(tmp_path / "cache"),
+    )
+    monkeypatch.setattr(
+        AgentFilesystemService,
+        "with_session",
+        staticmethod(fail_with_session),
+    )
+    monkeypatch.setattr(
+        "tracecat.agent.filesystem.blob.upload_file_from_path",
+        fail_upload_file_from_path,
+    )
+
+    snapshot = await persist_agent_work_dir(
+        role=cast(Any, object()),
+        session_id=session_id,
+        workspace_id=workspace_id,
+        work_dir=work_dir,
+    )
+
+    assert snapshot is None
+    assert not (work_dir.parent / ".agent-fs-snapshot.json").exists()
+
+
+@pytest.mark.anyio
+async def test_persist_records_empty_work_dir_after_prior_snapshot_marker(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    session_id = uuid.uuid4()
+    workspace_id = uuid.uuid4()
+    work_dir = tmp_path / "session" / "agent-work-dir"
+    work_dir.mkdir(parents=True)
+    (work_dir.parent / ".agent-fs-snapshot.json").write_text(
+        json.dumps({"snapshot_id": str(uuid.uuid4()), "sha256": "0" * 64})
+    )
+    uploaded: dict[tuple[str, str], bytes] = {}
+    recorded_snapshot: SimpleNamespace | None = None
+
+    class FakeService:
+        async def record_snapshot(
+            self,
+            *,
+            session_id: uuid.UUID,
+            bucket: str,
+            key: str,
+            stats: Any,
+        ) -> SimpleNamespace:
+            nonlocal recorded_snapshot
+            recorded_snapshot = SimpleNamespace(
+                id=uuid.uuid4(),
+                session_id=session_id,
+                bucket=bucket,
+                key=key,
+                sha256=stats.sha256,
+                size_bytes=stats.size_bytes,
+                uncompressed_size_bytes=stats.uncompressed_size_bytes,
+                file_count=stats.file_count,
+            )
+            return recorded_snapshot
+
+    @asynccontextmanager
+    async def fake_with_session(**_kwargs: Any):
+        yield FakeService()
+
+    async def fake_upload_file_from_path(
+        path: Path,
+        *,
+        key: str,
+        bucket: str,
+        content_type: str | None = None,
+    ) -> None:
+        assert content_type == "application/gzip"
+        uploaded[(bucket, key)] = path.read_bytes()
+
+    monkeypatch.setattr(
+        config,
+        "TRACECAT__AGENT_FS_CACHE_DIR",
+        str(tmp_path / "cache"),
+    )
+    monkeypatch.setattr(config, "TRACECAT__BLOB_STORAGE_BUCKET_AGENT", "agent-bucket")
+    monkeypatch.setattr(
+        AgentFilesystemService,
+        "with_session",
+        staticmethod(fake_with_session),
+    )
+    monkeypatch.setattr(
+        "tracecat.agent.filesystem.blob.upload_file_from_path",
+        fake_upload_file_from_path,
+    )
+
+    snapshot = await persist_agent_work_dir(
+        role=cast(Any, object()),
+        session_id=session_id,
+        workspace_id=workspace_id,
+        work_dir=work_dir,
+    )
+
+    assert snapshot is recorded_snapshot
+    assert recorded_snapshot is not None
+    assert recorded_snapshot.file_count == 0
+    assert recorded_snapshot.uncompressed_size_bytes == 0
+    assert uploaded.keys() == {("agent-bucket", recorded_snapshot.key)}
