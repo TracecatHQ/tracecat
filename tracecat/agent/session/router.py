@@ -42,9 +42,9 @@ from tracecat.logger import logger
 router = APIRouter(prefix="/agent/sessions", tags=["agent-sessions"])
 
 
-def _bubble_id(session_id: uuid.UUID, curr_run_id: uuid.UUID | None) -> str:
-    """Stable assistant-bubble id for a turn (falls back to session if no run)."""
-    return f"{session_id}:{curr_run_id}" if curr_run_id else str(session_id)
+def _bubble_id(session_id: uuid.UUID, curr_run_id: uuid.UUID | None) -> str | None:
+    """Stable assistant-bubble id for a turn, if the turn is known."""
+    return f"{session_id}:{curr_run_id}" if curr_run_id else None
 
 
 def _redis_id_lt(a: str, b: str) -> bool:
@@ -566,6 +566,17 @@ async def stream_session_events(
         else:
             start_id = requested
             resume_from = last_event_id if cursor else None
+
+    # Terminal reconnects can outlive curr_run_id and, in edge cases, fail to
+    # resolve a persisted run id. Do not invent a session-only assistant id:
+    # finish cleanly so the client refetches DB history without rendering an
+    # empty synthetic bubble.
+    if not is_stream_attachable and message_id is None:
+        return StreamingResponse(
+            stream.finished_sse(format=format, message_id=None),
+            media_type="text/event-stream",
+            headers=headers,
+        )
 
     logger.info(
         "Starting session stream",

@@ -766,7 +766,7 @@ class VercelStreamContext:
     consistent start/delta/end sequences required by the Vercel protocol.
     """
 
-    message_id: str
+    message_id: str | None
     # Active parts keyed by event index -> maintains per-part lifecycle state.
     part_states: dict[int, _PartState] = dataclasses.field(default_factory=dict)
     tool_finished: dict[str, bool] = dataclasses.field(default_factory=dict)
@@ -1805,14 +1805,15 @@ def convert_chat_messages_to_ui(
 async def sse_vercel(
     events: AsyncIterable[StreamEvent],
     *,
-    message_id: str,
+    message_id: str | None,
     resume_from: str | None = None,
 ) -> AsyncIterable[str]:
     """Stream Redis events as Vercel AI SDK frames without persisting adapter output.
 
     ``message_id`` is the stable assistant-bubble id (``session_id:curr_run_id``)
     so reconnects within a turn resume the same bubble instead of spawning a new
-    one. Each Redis entry can fan out to many Vercel frames, so frames carry a
+    one. It is omitted for terminal reconnects where no run id can be resolved.
+    Each Redis entry can fan out to many Vercel frames, so frames carry a
     composite ``id: {redis_id}:{frame_index}`` that the browser replays from.
     """
 
@@ -1839,7 +1840,8 @@ async def sse_vercel(
 
     try:
         # 1. Start of the message stream
-        yield format_sse(StartEventPayload(messageId=message_id))
+        if message_id is not None:
+            yield format_sse(StartEventPayload(messageId=message_id))
 
         # 2. Process events from Redis stream
         async for stream_event in events:

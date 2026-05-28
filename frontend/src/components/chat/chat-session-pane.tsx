@@ -288,7 +288,7 @@ export function ChatSessionPane({
     currRunId,
     prompt: activePrompt,
   } = useSessionStatus({
-    chatId: chat?.id,
+    chatId: isReadonly ? undefined : chat?.id,
     workspaceId,
   })
   const { sendMessage, messages, status, regenerate, lastError, clearError } =

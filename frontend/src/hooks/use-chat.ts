@@ -150,27 +150,49 @@ export function upsertActivePromptMessage(
  * resume from the right place on reconnect (sent back as `Last-Event-ID`).
  * Consumes its own tee'd branch of the body; cancels cleanly on stream end.
  */
-async function scanSseIds(
+export async function scanSseIds(
   stream: ReadableStream<Uint8Array>,
   lastEventIdRef: { current: string | null }
 ): Promise<void> {
   const reader = stream.getReader()
   const decoder = new TextDecoder()
   let buffer = ""
+  let pendingEventId: string | null = null
+
+  function processLine(rawLine: string) {
+    const line = rawLine.endsWith("\r") ? rawLine.slice(0, -1) : rawLine
+    if (line === "") {
+      if (pendingEventId !== null) {
+        lastEventIdRef.current = pendingEventId
+        pendingEventId = null
+      }
+      return
+    }
+
+    if (line.startsWith("id:")) {
+      pendingEventId = line.slice(3).trim()
+    }
+  }
+
+  function processCompleteLines() {
+    let newlineIndex = buffer.indexOf("\n")
+    while (newlineIndex !== -1) {
+      processLine(buffer.slice(0, newlineIndex))
+      buffer = buffer.slice(newlineIndex + 1)
+      newlineIndex = buffer.indexOf("\n")
+    }
+  }
+
   try {
     while (true) {
       const { done, value } = await reader.read()
-      if (done) break
-      buffer += decoder.decode(value, { stream: true })
-      let newlineIndex = buffer.indexOf("\n")
-      while (newlineIndex !== -1) {
-        const line = buffer.slice(0, newlineIndex)
-        buffer = buffer.slice(newlineIndex + 1)
-        if (line.startsWith("id:")) {
-          lastEventIdRef.current = line.slice(3).trim()
-        }
-        newlineIndex = buffer.indexOf("\n")
+      if (done) {
+        buffer += decoder.decode()
+        processCompleteLines()
+        break
       }
+      buffer += decoder.decode(value, { stream: true })
+      processCompleteLines()
     }
   } catch {
     // Best-effort: a cancelled/aborted stream is not an error for id tracking.

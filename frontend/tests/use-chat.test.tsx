@@ -7,7 +7,11 @@ import type {
   AgentSessionReadWithMessages,
 } from "@/client"
 import { agentSessionsUpdateSession } from "@/client"
-import { upsertActivePromptMessage, useUpdateChat } from "@/hooks/use-chat"
+import {
+  scanSseIds,
+  upsertActivePromptMessage,
+  useUpdateChat,
+} from "@/hooks/use-chat"
 
 jest.mock("@/client", () => {
   const actual = jest.requireActual("@/client")
@@ -73,6 +77,53 @@ function createSessionReadVercel(
     ...overrides,
   }
 }
+
+function streamFromChunks(chunks: string[]): ReadableStream<Uint8Array> {
+  const encoder = new TextEncoder()
+  return new ReadableStream({
+    start(controller) {
+      for (const chunk of chunks) {
+        controller.enqueue(encoder.encode(chunk))
+      }
+      controller.close()
+    },
+  })
+}
+
+describe("scanSseIds", () => {
+  it("publishes the event id after the blank line terminates the SSE event", async () => {
+    const lastEventIdRef = { current: null as string | null }
+
+    await scanSseIds(
+      streamFromChunks(["id: 1000-0:1\n", 'data: {"type":"text"}\n\n']),
+      lastEventIdRef
+    )
+
+    expect(lastEventIdRef.current).toBe("1000-0:1")
+  })
+
+  it("does not publish an id from an incomplete SSE event", async () => {
+    const lastEventIdRef = { current: "999-0:0" as string | null }
+
+    await scanSseIds(
+      streamFromChunks(["id: 1000-0:1\n", 'data: {"type":"text"}']),
+      lastEventIdRef
+    )
+
+    expect(lastEventIdRef.current).toBe("999-0:0")
+  })
+
+  it("uses the last id line in a completed SSE event", async () => {
+    const lastEventIdRef = { current: null as string | null }
+
+    await scanSseIds(
+      streamFromChunks(["id: 1000-0:1\ndata: first\n", "id: 1000-0:2\n\n"]),
+      lastEventIdRef
+    )
+
+    expect(lastEventIdRef.current).toBe("1000-0:2")
+  })
+})
 
 describe("upsertActivePromptMessage", () => {
   it("appends the active prompt before the stream creates an assistant", () => {

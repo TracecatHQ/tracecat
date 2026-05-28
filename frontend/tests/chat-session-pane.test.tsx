@@ -7,7 +7,11 @@ import {
   MessagePart,
 } from "@/components/chat/chat-session-pane"
 import { TooltipProvider } from "@/components/ui/tooltip"
-import { useUpdateChat, useVercelChat } from "@/hooks/use-chat"
+import {
+  useSessionStatus,
+  useUpdateChat,
+  useVercelChat,
+} from "@/hooks/use-chat"
 import { useBuilderRegistryActions } from "@/lib/hooks"
 
 jest.mock("@/hooks/use-chat", () => ({
@@ -84,6 +88,9 @@ const mockUseVercelChat = useVercelChat as jest.MockedFunction<
 >
 const mockUseUpdateChat = useUpdateChat as jest.MockedFunction<
   typeof useUpdateChat
+>
+const mockUseSessionStatus = useSessionStatus as jest.MockedFunction<
+  typeof useSessionStatus
 >
 const mockUseBuilderRegistryActions =
   useBuilderRegistryActions as jest.MockedFunction<
@@ -238,6 +245,30 @@ describe("ChatSessionPane", () => {
 
     await waitFor(() => {
       expect(textarea).toHaveValue("")
+    })
+  })
+
+  it("does not poll session status for read-only legacy chats", () => {
+    mockUseVercelChatStatus("ready")
+    const readonlyChat = { ...createChatFixture(), is_readonly: true }
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <TooltipProvider>
+          <ChatSessionPane
+            chat={readonlyChat}
+            workspaceId="workspace-1"
+            entityType="case"
+            entityId="case-1"
+            modelInfo={{ name: "gpt-4o-mini", provider: "openai" }}
+          />
+        </TooltipProvider>
+      </QueryClientProvider>
+    )
+
+    expect(mockUseSessionStatus).toHaveBeenCalledWith({
+      chatId: undefined,
+      workspaceId: "workspace-1",
     })
   })
 

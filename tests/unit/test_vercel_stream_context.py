@@ -1019,6 +1019,22 @@ async def test_sse_vercel_uses_stable_bubble_id_and_composite_frame_ids():
 
 
 @pytest.mark.anyio
+async def test_sse_vercel_omits_start_frame_when_message_id_unknown():
+    """Terminal reconnect finish streams should not create a synthetic bubble."""
+
+    async def events():
+        return
+        yield  # pragma: no cover - establishes async generator
+
+    frames: list[str] = []
+    async for frame in sse_vercel(events(), message_id=None):
+        frames.append(frame)
+
+    assert not any('"type":"start"' in frame for frame in frames)
+    assert any('"type":"finish"' in frame for frame in frames)
+
+
+@pytest.mark.anyio
 async def test_sse_vercel_skips_frames_at_composite_resume_cursor():
     """Reconnect inside a Redis entry replays that entry but drops seen frames."""
     from tracecat.agent.stream.events import StreamDelta

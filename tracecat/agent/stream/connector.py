@@ -254,7 +254,7 @@ class AgentStream:
         last_id: str,
         format: StreamFormat,
         *,
-        message_id: str,
+        message_id: str | None,
         resume_from: str | None = None,
     ) -> AsyncIterable[str]:
         cursor = parse_vercel_frame_cursor(resume_from)
@@ -277,7 +277,7 @@ class AgentStream:
                 raise ValueError(f"Invalid format: {format}")
 
     def finished_sse(
-        self, format: StreamFormat, *, message_id: str
+        self, format: StreamFormat, *, message_id: str | None
     ) -> AsyncIterable[str]:
         """Emit an immediately-finishing stream (no live content).
 

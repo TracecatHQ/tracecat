@@ -579,16 +579,20 @@ async def test_stream_session_events_returns_204_when_no_turn_started() -> None:
 async def test_stream_session_events_attaches_when_turn_in_progress_no_events_yet() -> (
     None
 ):
+    session_id = uuid.uuid4()
+    curr_run_id = uuid.uuid4()
     stream = _fake_stream()
     response = await _run_stream_endpoint(
-        session=_fake_stream_session(status_value="running"),
+        session=_fake_stream_session(status_value="running", curr_run_id=curr_run_id),
         stream=stream,
         headers={},
+        session_id=session_id,
     )
 
     assert isinstance(response, StreamingResponse)
     stream.sse.assert_called_once()
     assert stream.sse.call_args.kwargs["last_id"] == "0-0"
+    assert stream.sse.call_args.kwargs["message_id"] == f"{session_id}:{curr_run_id}"
 
 
 @pytest.mark.anyio
@@ -609,9 +613,10 @@ async def test_stream_session_events_waiting_without_cursor_uses_db_history() ->
 @pytest.mark.anyio
 async def test_stream_session_events_resumes_after_last_event_id() -> None:
     """A live cursor newer than the buffer min resumes after it (composite id)."""
+    curr_run_id = uuid.uuid4()
     stream = _fake_stream(min_id="1000-0")
     response = await _run_stream_endpoint(
-        session=_fake_stream_session(status_value="running"),
+        session=_fake_stream_session(status_value="running", curr_run_id=curr_run_id),
         stream=stream,
         headers={"Last-Event-ID": "1234-0:2"},
     )
@@ -647,9 +652,10 @@ async def test_stream_session_events_terminal_reconnect_uses_latest_run_id() -> 
 @pytest.mark.anyio
 async def test_stream_session_events_stale_cursor_running_replays_from_start() -> None:
     """Cursor older than the buffer min, still running -> replay from 0-0."""
+    curr_run_id = uuid.uuid4()
     stream = _fake_stream(min_id="2000-0")
     response = await _run_stream_endpoint(
-        session=_fake_stream_session(status_value="running"),
+        session=_fake_stream_session(status_value="running", curr_run_id=curr_run_id),
         stream=stream,
         headers={"Last-Event-ID": "1000-0:0"},
     )
@@ -672,4 +678,22 @@ async def test_stream_session_events_stale_cursor_terminal_finishes() -> None:
 
     assert isinstance(response, StreamingResponse)
     stream.finished_sse.assert_called_once()
+    assert stream.finished_sse.call_args.kwargs["message_id"] is None
+    stream.sse.assert_not_called()
+
+
+@pytest.mark.anyio
+async def test_stream_session_events_terminal_without_run_id_finishes() -> None:
+    """Terminal reconnects without a run id do not synthesize a new bubble id."""
+    stream = _fake_stream(min_id="1000-0")
+    response = await _run_stream_endpoint(
+        session=_fake_stream_session(status_value="stopped"),
+        stream=stream,
+        headers={"Last-Event-ID": "1234-0:2"},
+        latest_run_id=None,
+    )
+
+    assert isinstance(response, StreamingResponse)
+    stream.finished_sse.assert_called_once()
+    assert stream.finished_sse.call_args.kwargs["message_id"] is None
     stream.sse.assert_not_called()

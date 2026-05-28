@@ -650,6 +650,7 @@ class AgentSessionService(BaseWorkspaceService):
             agent_session.curr_run_id = None
             await self.session.commit()
         return False
+
     async def get_active_run_prompt(
         self, session_id: uuid.UUID, run_id: uuid.UUID
     ) -> str | None:
