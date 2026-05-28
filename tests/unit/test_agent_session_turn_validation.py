@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, create_autospec, patch
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
+from temporalio.client import WorkflowExecutionStatus
 
 from tracecat.agent.session.schemas import AgentSessionCancelRequest
 from tracecat.agent.session.service import AgentSessionService
@@ -88,6 +89,49 @@ async def test_validate_turn_request_rejects_active_turn_before_pending_rows(
 
 
 @pytest.mark.anyio
+async def test_validate_turn_request_rejects_idle_projection_with_active_workflow() -> (
+    None
+):
+    workspace_id = uuid.uuid4()
+    session_id = uuid.uuid4()
+    run_id = uuid.uuid4()
+    role = _build_role(workspace_id)
+    service = _build_service(role)
+    agent_session = _build_agent_session(
+        workspace_id=workspace_id,
+        session_id=session_id,
+        status=AgentSessionStatus.IDLE,
+        curr_run_id=run_id,
+    )
+    workflow_handle = SimpleNamespace(
+        describe=AsyncMock(
+            return_value=SimpleNamespace(status=WorkflowExecutionStatus.RUNNING)
+        )
+    )
+    temporal_client = SimpleNamespace(
+        get_workflow_handle=MagicMock(return_value=workflow_handle),
+    )
+    has_pending_approvals = AsyncMock(return_value=False)
+
+    with (
+        patch.object(service, "get_session", AsyncMock(return_value=agent_session)),
+        patch.object(service, "has_pending_approvals", has_pending_approvals),
+        patch(
+            "tracecat.agent.session.service.get_temporal_client",
+            AsyncMock(return_value=temporal_client),
+        ),
+    ):
+        with pytest.raises(TracecatConflictError, match="active turn"):
+            await service.validate_turn_request(
+                session_id=session_id,
+                request=BasicChatRequest(message="hello"),
+            )
+
+    has_pending_approvals.assert_not_awaited()
+    workflow_handle.describe.assert_awaited_once()
+
+
+@pytest.mark.anyio
 @pytest.mark.parametrize(
     "status",
     [AgentSessionStatus.RUNNING, AgentSessionStatus.WAITING_FOR_APPROVAL],
@@ -106,9 +150,15 @@ async def test_request_cancel_accepts_active_turn_statuses(
         status=status,
         curr_run_id=run_id,
     )
-    workflow_handle = SimpleNamespace(execute_update=AsyncMock())
+    workflow_handle = SimpleNamespace(
+        describe=AsyncMock(
+            return_value=SimpleNamespace(status=WorkflowExecutionStatus.RUNNING)
+        ),
+        execute_update=AsyncMock(),
+    )
     temporal_client = SimpleNamespace(
-        get_workflow_handle_for=MagicMock(return_value=workflow_handle)
+        get_workflow_handle=MagicMock(return_value=workflow_handle),
+        get_workflow_handle_for=MagicMock(return_value=workflow_handle),
     )
 
     with (
@@ -126,4 +176,90 @@ async def test_request_cancel_accepts_active_turn_statuses(
     assert response.session_id == session_id
     assert response.run_id == run_id
     assert response.turn_status is status
+    workflow_handle.describe.assert_awaited_once()
     workflow_handle.execute_update.assert_awaited_once()
+
+
+@pytest.mark.anyio
+async def test_request_cancel_accepts_idle_projection_with_active_workflow() -> None:
+    workspace_id = uuid.uuid4()
+    session_id = uuid.uuid4()
+    run_id = uuid.uuid4()
+    role = _build_role(workspace_id)
+    service = _build_service(role)
+    agent_session = _build_agent_session(
+        workspace_id=workspace_id,
+        session_id=session_id,
+        status=AgentSessionStatus.IDLE,
+        curr_run_id=run_id,
+    )
+    workflow_handle = SimpleNamespace(
+        describe=AsyncMock(
+            return_value=SimpleNamespace(status=WorkflowExecutionStatus.RUNNING)
+        ),
+        execute_update=AsyncMock(),
+    )
+    temporal_client = SimpleNamespace(
+        get_workflow_handle=MagicMock(return_value=workflow_handle),
+        get_workflow_handle_for=MagicMock(return_value=workflow_handle),
+    )
+
+    with (
+        patch.object(service, "get_session", AsyncMock(return_value=agent_session)),
+        patch(
+            "tracecat.agent.session.service.get_temporal_client",
+            AsyncMock(return_value=temporal_client),
+        ),
+    ):
+        response = await service.request_cancel(
+            session_id,
+            AgentSessionCancelRequest(reason="user_cancel"),
+        )
+
+    assert response.session_id == session_id
+    assert response.run_id == run_id
+    assert response.turn_status is AgentSessionStatus.IDLE
+    workflow_handle.describe.assert_awaited_once()
+    workflow_handle.execute_update.assert_awaited_once()
+
+
+@pytest.mark.anyio
+async def test_request_cancel_handles_finished_current_run() -> None:
+    workspace_id = uuid.uuid4()
+    session_id = uuid.uuid4()
+    run_id = uuid.uuid4()
+    role = _build_role(workspace_id)
+    service = _build_service(role)
+    agent_session = _build_agent_session(
+        workspace_id=workspace_id,
+        session_id=session_id,
+        status=AgentSessionStatus.RUNNING,
+        curr_run_id=run_id,
+    )
+    workflow_handle = SimpleNamespace(
+        describe=AsyncMock(
+            return_value=SimpleNamespace(status=WorkflowExecutionStatus.TERMINATED)
+        ),
+        execute_update=AsyncMock(),
+    )
+    temporal_client = SimpleNamespace(
+        get_workflow_handle=MagicMock(return_value=workflow_handle),
+        get_workflow_handle_for=MagicMock(return_value=workflow_handle),
+    )
+
+    with (
+        patch.object(service, "get_session", AsyncMock(return_value=agent_session)),
+        patch(
+            "tracecat.agent.session.service.get_temporal_client",
+            AsyncMock(return_value=temporal_client),
+        ),
+    ):
+        with pytest.raises(TracecatConflictError, match="active turn"):
+            await service.request_cancel(
+                session_id,
+                AgentSessionCancelRequest(reason="user_cancel"),
+            )
+
+    assert agent_session.curr_run_id is None
+    assert agent_session.status == AgentSessionStatus.STOPPED.value
+    workflow_handle.execute_update.assert_not_awaited()

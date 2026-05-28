@@ -115,6 +115,18 @@ ACTIVE_WORKFLOW_STATUSES = (
     WorkflowExecutionStatus.RUNNING,
     WorkflowExecutionStatus.CONTINUED_AS_NEW,
 )
+# Lifecycle source of truth:
+# - curr_run_id + Temporal describe decides whether a turn is actually active.
+# - AgentSession.status is a DB projection for cheap reads and durable product
+#   terminal state; do not use it alone for correctness gates.
+TERMINAL_FAILURE_WORKFLOW_STATUSES = {
+    WorkflowExecutionStatus.FAILED,
+    WorkflowExecutionStatus.TIMED_OUT,
+}
+TERMINAL_STOPPED_WORKFLOW_STATUSES = {
+    WorkflowExecutionStatus.CANCELED,
+    WorkflowExecutionStatus.TERMINATED,
+}
 
 
 @dataclass
@@ -594,36 +606,49 @@ class AgentSessionService(BaseWorkspaceService):
         await self.session.commit()
         return bool(cast(CursorResult[Any], result).rowcount)
 
-    async def _has_active_agent_turn(self, agent_session: AgentSession) -> bool:
-        """Return whether DB/Temporal state should block a new turn."""
+    async def _describe_curr_run(
+        self, agent_session: AgentSession
+    ) -> WorkflowExecutionStatus | None:
+        """Describe the Temporal run pointed to by the session, if any."""
         if agent_session.curr_run_id is None:
-            return agent_session.status in ACTIVE_AGENT_SESSION_STATUSES
+            return None
 
         client = await get_temporal_client()
         workflow_id = AgentWorkflowID(agent_session.curr_run_id)
+        handle = client.get_workflow_handle(str(workflow_id))
+        description = await handle.describe()
+        return description.status
+
+    @staticmethod
+    def _terminal_status_for_workflow_status(
+        workflow_status: WorkflowExecutionStatus,
+    ) -> AgentSessionStatus:
+        """Map Temporal terminal state to the product status shown in the UI."""
+        if workflow_status in TERMINAL_FAILURE_WORKFLOW_STATUSES:
+            return AgentSessionStatus.FAILED
+        if workflow_status in TERMINAL_STOPPED_WORKFLOW_STATUSES:
+            return AgentSessionStatus.STOPPED
+        return AgentSessionStatus.IDLE
+
+    async def _has_active_agent_turn(self, agent_session: AgentSession) -> bool:
+        """Return whether Temporal/projected state should block a new turn."""
+        if agent_session.curr_run_id is None:
+            return agent_session.status in ACTIVE_AGENT_SESSION_STATUSES
+
         try:
-            handle = client.get_workflow_handle(str(workflow_id))
-            description = await handle.describe()
+            workflow_status = await self._describe_curr_run(agent_session)
         except Exception:
             return True
 
-        if description.status in ACTIVE_WORKFLOW_STATUSES:
+        if workflow_status in ACTIVE_WORKFLOW_STATUSES:
             return True
 
-        agent_session.status = (
-            AgentSessionStatus.FAILED.value
-            if description.status
-            in {WorkflowExecutionStatus.FAILED, WorkflowExecutionStatus.TIMED_OUT}
-            else AgentSessionStatus.STOPPED.value
-            if description.status
-            in {
-                WorkflowExecutionStatus.CANCELED,
-                WorkflowExecutionStatus.TERMINATED,
-            }
-            else AgentSessionStatus.IDLE.value
-        )
-        agent_session.curr_run_id = None
-        await self.session.commit()
+        if workflow_status is not None:
+            agent_session.status = self._terminal_status_for_workflow_status(
+                workflow_status
+            ).value
+            agent_session.curr_run_id = None
+            await self.session.commit()
         return False
 
     async def request_cancel(
@@ -642,18 +667,28 @@ class AgentSessionService(BaseWorkspaceService):
             raise TracecatNotFoundError(f"Session with ID {session_id} not found")
 
         current_status = AgentSessionStatus(agent_session.status)
-        if current_status not in {
-            AgentSessionStatus.RUNNING,
-            AgentSessionStatus.WAITING_FOR_APPROVAL,
-        }:
-            raise TracecatConflictError(
-                "Agent session does not have an active turn",
-                detail={"status": current_status.value},
-            )
-
         curr_run_id = agent_session.curr_run_id
         if curr_run_id is None:
             raise TracecatConflictError("Agent session has no active workflow run")
+
+        try:
+            workflow_status = await self._describe_curr_run(agent_session)
+        except Exception as e:
+            raise TracecatConflictError(
+                "Agent session does not have an active turn",
+                detail={"status": current_status.value},
+            ) from e
+        if workflow_status not in ACTIVE_WORKFLOW_STATUSES:
+            if workflow_status is not None:
+                agent_session.status = self._terminal_status_for_workflow_status(
+                    workflow_status
+                ).value
+                agent_session.curr_run_id = None
+                await self.session.commit()
+            raise TracecatConflictError(
+                "Agent session does not have an active turn",
+                detail={"status": AgentSessionStatus(agent_session.status).value},
+            )
 
         client = await get_temporal_client()
         workflow_id = AgentWorkflowID(curr_run_id)
