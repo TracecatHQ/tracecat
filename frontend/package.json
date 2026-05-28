@@ -140,6 +140,7 @@
     "@hey-api/openapi-ts": "^0.48.3",
     "@hookform/devtools": "^4.4.0",
     "@playwright/test": "1.58.2",
+    "@tailwindcss/container-queries": "^0.1.1",
     "@tailwindcss/typography": "^0.5.19",
     "@tanstack/react-query-devtools": "^5.90.2",
     "@testing-library/jest-dom": "^6.8.0",

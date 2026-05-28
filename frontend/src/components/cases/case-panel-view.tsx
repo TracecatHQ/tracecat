@@ -76,8 +76,6 @@ import {
 import { cn, undoSlugify } from "@/lib/utils"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
-import "./case-panel-view.css"
-
 type CasePanelTab = "comments" | "activity" | "attachments" | "rows" | "payload"
 
 function isCustomFieldValueEmpty(value: unknown): boolean {
@@ -294,8 +292,12 @@ export function CasePanelView({
     }
   }
 
-  const panelFieldRowClassName =
-    "tc-case-panel-row group -mx-2 flex h-7 w-full min-w-0 cursor-pointer items-center gap-2 rounded-sm px-2 transition-colors hover:bg-muted/70 focus-within:bg-muted/70"
+  const panelFieldRowClassName = cn(
+    "group -mx-2 flex h-7 w-full min-w-0 max-w-full cursor-pointer items-center gap-2 rounded-sm px-2 transition-colors hover:bg-muted/70 focus-within:bg-muted/70",
+    embedded
+      ? "[@container(max-width:360px)]:h-auto [@container(max-width:360px)]:min-h-12 [@container(max-width:360px)]:flex-col [@container(max-width:360px)]:items-stretch [@container(max-width:360px)]:gap-0.5 [@container(max-width:360px)]:py-1"
+      : undefined
+  )
   const panelFieldRowInteractiveSelector =
     "input:not([type='hidden']):not([disabled]), textarea:not([disabled]), [role='combobox']:not([aria-disabled='true']), button:not([disabled])"
   const panelFieldRowTargetSelector =
@@ -330,12 +332,22 @@ export function CasePanelView({
 
   const tabTriggerClassName =
     "flex h-full shrink-0 items-center justify-center rounded-none py-0 text-xs font-medium data-[state=active]:bg-transparent data-[state=active]:shadow-none"
-  const panelSelectTriggerClassName =
-    "tc-case-panel-select-trigger h-7 w-full min-w-0 max-w-full justify-end border-none px-2 text-sm hover:bg-transparent focus:ring-0 focus-visible:ring-0 focus-visible:ring-offset-0 data-[state=open]:border-none data-[state=open]:ring-0 [&>span]:w-full"
-  const panelControlClassName =
-    "tc-case-panel-row-control ml-auto min-w-0 flex-1"
-  const panelLabelClassName =
-    "tc-case-panel-row-label min-w-0 truncate text-sm text-muted-foreground"
+  const panelSelectTriggerClassName = cn(
+    "h-7 w-full min-w-0 max-w-full justify-end border-none px-2 text-right text-sm hover:bg-transparent focus:ring-0 focus-visible:ring-0 focus-visible:ring-offset-0 data-[state=open]:border-none data-[state=open]:ring-0 [&>span]:min-w-0 [&>span]:w-full",
+    embedded
+      ? "[@container(max-width:360px)]:justify-start [@container(max-width:360px)]:px-0 [@container(max-width:360px)]:text-left"
+      : undefined
+  )
+  const panelControlClassName = cn(
+    "tc-case-panel-row-control ml-auto min-w-0 max-w-full flex-1",
+    embedded
+      ? "[@container(max-width:360px)]:ml-0 [@container(max-width:360px)]:w-full [@container(max-width:360px)]:flex-none"
+      : undefined
+  )
+  const panelLabelClassName = cn(
+    "min-w-0 truncate text-sm text-muted-foreground",
+    embedded && "[@container(max-width:360px)]:w-full"
+  )
   const caseDetailsContent = (
     <>
       <SidebarGroup>
@@ -473,8 +485,12 @@ export function CasePanelView({
                           <CustomField
                             customField={field}
                             updateCase={updateCase}
-                            formClassName="w-full"
-                            inputClassName="tc-case-panel-field-input w-full min-w-0 border-none text-sm hover:bg-transparent focus:ring-0 focus-visible:ring-0 focus-visible:ring-offset-0"
+                            formClassName="w-full min-w-0 max-w-full"
+                            inputClassName={cn(
+                              "w-full min-w-0 max-w-full border-none text-sm hover:bg-transparent focus:ring-0 focus-visible:ring-0 focus-visible:ring-offset-0",
+                              embedded &&
+                                "[@container(max-width:360px)]:px-0 [@container(max-width:360px)]:text-left"
+                            )}
                           />
                         </div>
                       </div>
@@ -508,20 +524,23 @@ export function CasePanelView({
       <div
         className={cn(
           "tc-case-panel flex h-full w-full min-w-0",
-          embedded && "tc-case-panel--embedded"
+          embedded && "@container"
         )}
       >
         <div className="min-w-0 flex-1">
           <ScrollArea
             className={cn(
-              "tc-case-panel-scroll h-full min-w-0 bg-muted/20",
-              embedded && "tc-case-panel-scroll--embedded"
+              "h-full min-w-0 bg-muted/20",
+              embedded &&
+                "[&_[data-radix-scroll-area-viewport]>div]:!block [&_[data-radix-scroll-area-viewport]>div]:!w-full [&_[data-radix-scroll-area-viewport]>div]:!min-w-0 [&_[data-radix-scroll-area-viewport]>div]:!max-w-full"
             )}
           >
             <div
               className={cn(
-                "tc-case-panel-content mx-auto w-full min-w-0 max-w-4xl",
-                embedded ? "px-4 py-5 pb-12" : "px-6 py-8 pb-24"
+                "mx-auto w-full min-w-0 max-w-4xl",
+                embedded
+                  ? "px-4 py-5 pb-12 [@container(max-width:280px)]:px-3 [@container(max-width:360px)]:px-3.5"
+                  : "px-6 py-8 pb-24"
               )}
             >
               <div className="mb-2">
