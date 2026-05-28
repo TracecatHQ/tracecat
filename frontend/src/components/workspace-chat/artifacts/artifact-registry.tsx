@@ -1,23 +1,34 @@
 "use client"
 
+import type { QueryClient } from "@tanstack/react-query"
 import {
-  Activity,
   Bell,
-  BriefcaseBusiness,
+  BlocksIcon,
   FileText,
-  GitBranch,
   KeyRound,
-  type LucideIcon,
-  Plug,
-  Table2,
+  LayersIcon,
+  ListVideoIcon,
+  Table2Icon,
+  WorkflowIcon,
 } from "lucide-react"
+import type { ComponentType } from "react"
+import { invalidateCaseActivityQueries } from "@/lib/cases/invalidation"
 import type { WorkspaceChatArtifact } from "@/types/workspace-chat-artifacts"
+
+export type ArtifactIconComponent = ComponentType<{ className?: string }>
+
+type ArtifactQueryInvalidator = (
+  queryClient: QueryClient,
+  workspaceId: string,
+  artifact: WorkspaceChatArtifact
+) => void
 
 export type ArtifactConfig = {
   label: string
   singularLabel: string
-  icon: LucideIcon
+  icon: ArtifactIconComponent
   href?: (artifact: WorkspaceChatArtifact, workspaceId: string) => string
+  invalidateQueries?: ArtifactQueryInvalidator
 }
 
 export const ARTIFACT_REGISTRY = {
@@ -29,21 +40,31 @@ export const ARTIFACT_REGISTRY = {
   case: {
     label: "Cases",
     singularLabel: "Case",
-    icon: BriefcaseBusiness,
+    icon: LayersIcon,
     href: (artifact, workspaceId) =>
       `/workspaces/${workspaceId}/cases/${artifact.id}`,
+    invalidateQueries: (queryClient, workspaceId, artifact) => {
+      invalidateCaseActivityQueries(queryClient, artifact.id, workspaceId)
+      queryClient.invalidateQueries({
+        queryKey: ["cases", workspaceId],
+      })
+      queryClient.invalidateQueries({
+        queryKey: ["cases", "paginated"],
+        exact: false,
+      })
+    },
   },
   workflow: {
     label: "Workflows",
     singularLabel: "Workflow",
-    icon: GitBranch,
+    icon: WorkflowIcon,
     href: (artifact, workspaceId) =>
       `/workspaces/${workspaceId}/workflows/${artifact.id}`,
   },
   run: {
     label: "Runs",
     singularLabel: "Run",
-    icon: Activity,
+    icon: ListVideoIcon,
     href: (artifact, workspaceId) =>
       artifact.type === "run"
         ? `/workspaces/${workspaceId}/workflows/${artifact.workflowId}/executions/${artifact.id}`
@@ -52,14 +73,22 @@ export const ARTIFACT_REGISTRY = {
   table: {
     label: "Tables",
     singularLabel: "Table",
-    icon: Table2,
+    icon: Table2Icon,
     href: (artifact, workspaceId) =>
       `/workspaces/${workspaceId}/tables/${artifact.id}`,
+    invalidateQueries: (queryClient, workspaceId, artifact) => {
+      queryClient.invalidateQueries({
+        queryKey: ["table", workspaceId, artifact.id],
+      })
+      queryClient.invalidateQueries({
+        queryKey: ["tables", workspaceId],
+      })
+    },
   },
   integration: {
     label: "Integrations",
     singularLabel: "Integration",
-    icon: Plug,
+    icon: BlocksIcon,
   },
   secret: {
     label: "Secrets",
@@ -95,4 +124,17 @@ export function getArtifactHref(
   workspaceId: string
 ): string | undefined {
   return getArtifactConfig(artifact).href?.(artifact, workspaceId)
+}
+
+/** Invalidate embedded artifact queries after an artifact stream event. */
+export function invalidateArtifactQueries(
+  queryClient: QueryClient,
+  workspaceId: string,
+  artifact: WorkspaceChatArtifact
+): void {
+  getArtifactConfig(artifact).invalidateQueries?.(
+    queryClient,
+    workspaceId,
+    artifact
+  )
 }

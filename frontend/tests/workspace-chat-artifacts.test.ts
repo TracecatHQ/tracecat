@@ -1,5 +1,7 @@
+import { QueryClient } from "@tanstack/react-query"
 import { act, renderHook } from "@testing-library/react"
 import type { UIMessage } from "ai"
+import { invalidateArtifactQueries } from "@/components/workspace-chat/artifacts/artifact-registry"
 import {
   reduceWorkspaceChatArtifacts,
   useWorkspaceChatArtifacts,
@@ -185,6 +187,69 @@ describe("workspace chat artifacts", () => {
     expect(result.current.activeArtifactKey).toBe("case:case-1")
   })
 
+  it("notifies when explicit artifact stream parts are applied", () => {
+    const streamPart: WorkspaceChatArtifactStreamPart = {
+      type: ARTIFACT_DATA_PART_TYPE,
+      data: {
+        op: "upsert",
+        artifact: {
+          type: "case",
+          id: "case-1",
+          title: "Investigate suspicious login",
+          severity: "high",
+          status: "new",
+        },
+      },
+    }
+    const onArtifactStreamPart = jest.fn()
+    const { result } = renderHook(() =>
+      useWorkspaceChatArtifacts([], { onArtifactStreamPart })
+    )
+
+    act(() => {
+      result.current.applyStreamPart(streamPart)
+    })
+
+    expect(onArtifactStreamPart).toHaveBeenCalledWith(streamPart)
+  })
+
+  it("notifies when new artifact message parts arrive", () => {
+    const streamPart: WorkspaceChatArtifactStreamPart = {
+      type: ARTIFACT_DATA_PART_TYPE,
+      data: {
+        op: "upsert",
+        artifact: {
+          type: "case",
+          id: "case-1",
+          title: "Investigate suspicious login",
+          severity: "high",
+          status: "new",
+        },
+      },
+    }
+    const messages = [
+      {
+        id: "msg-1",
+        role: "assistant",
+        parts: [streamPart],
+      },
+    ] as UIMessage[]
+    const onArtifactStreamPart = jest.fn()
+    const { rerender } = renderHook(
+      ({ currentMessages }: { currentMessages: UIMessage[] }) =>
+        useWorkspaceChatArtifacts(currentMessages, {
+          onArtifactStreamPart,
+        }),
+      {
+        initialProps: { currentMessages: [] as UIMessage[] },
+      }
+    )
+
+    rerender({ currentMessages: messages })
+
+    expect(onArtifactStreamPart).toHaveBeenCalledWith(streamPart)
+  })
+
   it("hydrates artifacts from the persisted session projection", () => {
     const artifact = {
       type: "case",
@@ -338,5 +403,29 @@ describe("workspace chat artifacts", () => {
   it("enables artifact projection only for the workspace chat surface", () => {
     expect(CHAT_SURFACE_CAPABILITIES.regular.artifacts).toBe(false)
     expect(CHAT_SURFACE_CAPABILITIES["workspace-chat"].artifacts).toBe(true)
+  })
+
+  it("invalidates case artifact queries for embedded artifact refreshes", () => {
+    const queryClient = new QueryClient()
+    const invalidateQueries = jest.spyOn(queryClient, "invalidateQueries")
+
+    invalidateArtifactQueries(queryClient, "workspace-1", {
+      type: "case",
+      id: "case-1",
+      title: "Investigate suspicious login",
+      severity: "high",
+      status: "new",
+    })
+
+    expect(invalidateQueries).toHaveBeenCalledWith({
+      queryKey: ["case", "case-1"],
+    })
+    expect(invalidateQueries).toHaveBeenCalledWith({
+      queryKey: ["cases", "workspace-1"],
+    })
+    expect(invalidateQueries).toHaveBeenCalledWith({
+      queryKey: ["cases", "paginated"],
+      exact: false,
+    })
   })
 })

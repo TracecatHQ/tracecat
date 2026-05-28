@@ -25,6 +25,7 @@ export type UseWorkspaceChatArtifactsResult = {
 export type UseWorkspaceChatArtifactsOptions = {
   enabled?: boolean
   persistedArtifacts?: WorkspaceChatArtifact[]
+  onArtifactStreamPart?: (part: WorkspaceChatArtifactStreamPart) => void
   onCloseArtifact?: (type: ArtifactType, id: string) => void | Promise<void>
 }
 
@@ -151,6 +152,18 @@ function lastArtifactKey(artifacts: WorkspaceChatArtifact[]): string | null {
   return artifact ? artifactKey(artifact) : null
 }
 
+function notifyArtifactStreamParts(
+  streamParts: WorkspaceChatArtifactMessageStreamPart[],
+  onArtifactStreamPart: UseWorkspaceChatArtifactsOptions["onArtifactStreamPart"]
+) {
+  if (!onArtifactStreamPart) {
+    return
+  }
+  for (const { part } of streamParts) {
+    onArtifactStreamPart(part)
+  }
+}
+
 function artifactSignature(artifacts: WorkspaceChatArtifact[]): string {
   return artifacts
     .map((artifact) => `${artifactKey(artifact)}:${JSON.stringify(artifact)}`)
@@ -164,6 +177,8 @@ export function useWorkspaceChatArtifacts(
 ): UseWorkspaceChatArtifactsResult {
   const enabled = options.enabled ?? true
   const persistedArtifacts = options.persistedArtifacts ?? EMPTY_ARTIFACTS
+  const onArtifactStreamPart = options.onArtifactStreamPart
+  const onCloseArtifact = options.onCloseArtifact
   const persistedArtifactSignature = useMemo(
     () => artifactSignature(persistedArtifacts),
     [persistedArtifacts]
@@ -203,10 +218,10 @@ export function useWorkspaceChatArtifacts(
 
   useEffect(() => {
     const firstMessageId = messages[0]?.id ?? null
+    const previousFirstMessageId = previousFirstMessageIdRef.current
     const enabledChanged = previousEnabledRef.current !== enabled
     previousEnabledRef.current = enabled
-    const firstMessageChanged =
-      previousFirstMessageIdRef.current !== firstMessageId
+    const firstMessageChanged = previousFirstMessageId !== firstMessageId
     previousFirstMessageIdRef.current = firstMessageId
     const persistedArtifactsChanged =
       previousPersistedArtifactSignatureRef.current !==
@@ -224,6 +239,13 @@ export function useWorkspaceChatArtifacts(
 
     const currentParts = messageStreamParts(messages)
     if (enabledChanged || firstMessageChanged) {
+      if (
+        firstMessageChanged &&
+        previousFirstMessageId === null &&
+        firstMessageId !== null
+      ) {
+        notifyArtifactStreamParts(currentParts, onArtifactStreamPart)
+      }
       processedMessagePartKeysRef.current = new Set(
         currentParts.map(({ eventKey }) => eventKey)
       )
@@ -244,6 +266,7 @@ export function useWorkspaceChatArtifacts(
     )
 
     if (persistedArtifactsChanged) {
+      notifyArtifactStreamParts(pendingParts, onArtifactStreamPart)
       for (const { eventKey } of pendingParts) {
         processedMessagePartKeysRef.current.add(eventKey)
       }
@@ -263,6 +286,7 @@ export function useWorkspaceChatArtifacts(
       return
     }
 
+    notifyArtifactStreamParts(pendingParts, onArtifactStreamPart)
     for (const { eventKey } of pendingParts) {
       processedMessagePartKeysRef.current.add(eventKey)
     }
@@ -278,7 +302,13 @@ export function useWorkspaceChatArtifacts(
     if (nextActiveArtifactKey) {
       setActiveArtifactKey(nextActiveArtifactKey)
     }
-  }, [enabled, messages, persistedArtifactSignature, persistedArtifacts])
+  }, [
+    enabled,
+    messages,
+    onArtifactStreamPart,
+    persistedArtifactSignature,
+    persistedArtifacts,
+  ])
 
   const artifacts = useMemo(() => {
     if (!enabled) {
@@ -298,6 +328,7 @@ export function useWorkspaceChatArtifacts(
         reduceWorkspaceChatArtifactStreamPart(next, part)
         return next
       })
+      onArtifactStreamPart?.(part)
 
       switch (part.type) {
         case ARTIFACT_DATA_PART_TYPE:
@@ -307,7 +338,7 @@ export function useWorkspaceChatArtifacts(
           return
       }
     },
-    [enabled]
+    [enabled, onArtifactStreamPart]
   )
 
   const lanes = useMemo(() => {
@@ -364,9 +395,9 @@ export function useWorkspaceChatArtifacts(
         )
         setActiveArtifactKey(fallback ? artifactKey(fallback) : null)
       }
-      void options.onCloseArtifact?.(type, id)
+      void onCloseArtifact?.(type, id)
     },
-    [activeArtifactKey, artifacts, options.onCloseArtifact]
+    [activeArtifactKey, artifacts, onCloseArtifact]
   )
 
   return {

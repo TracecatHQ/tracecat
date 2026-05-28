@@ -2,7 +2,7 @@
 
 import { ExternalLink, PanelLeftIcon, X } from "lucide-react"
 import Link from "next/link"
-import { type ComponentType, useEffect, useRef } from "react"
+import { useEffect, useRef } from "react"
 import { Button } from "@/components/ui/button"
 import {
   Tooltip,
@@ -10,6 +10,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import {
+  type ArtifactIconComponent,
   getArtifactConfig,
   getArtifactHref,
 } from "@/components/workspace-chat/artifacts/artifact-registry"
@@ -151,7 +152,7 @@ function ArtifactTab({
         className="flex h-full min-w-0 items-center gap-1.5 px-2"
         title={artifact.title}
       >
-        <ArtifactIcon artifact={artifact} icon={Icon} />
+        <Icon className="size-3.5 shrink-0" />
         <span className="truncate">{artifact.title}</span>
       </button>
       <button
@@ -171,7 +172,7 @@ export function ArtifactIcon({
   icon: Icon,
 }: {
   artifact: WorkspaceChatArtifact
-  icon: ComponentType<{ className?: string }>
+  icon: ArtifactIconComponent
 }) {
   if (artifact.type === "workflow") {
     return (
