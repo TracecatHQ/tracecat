@@ -5130,6 +5130,7 @@ class UserRoleAssignment(Base):
         # Partial unique index for org-wide assignments (workspace_id IS NULL)
         Index(
             "ix_user_role_assignment_user_org_unique",
+            "organization_id",
             "user_id",
             unique=True,
             postgresql_where=text("workspace_id IS NULL"),

@@ -20,6 +20,7 @@ from tracecat.db.models import (
     OrganizationMembership,
     Scope,
     User,
+    UserRoleAssignment,
     Workspace,
 )
 from tracecat.exceptions import (
@@ -522,6 +523,82 @@ class TestRBACServiceUserAssignments:
         assert assignment.user_id == user.id
         assert assignment.role_id == custom_role.id
         assert assignment.organization_id == role.organization_id
+
+    async def test_create_org_wide_user_assignments_across_organizations(
+        self,
+        session: AsyncSession,
+        role: Role,
+        user: User,
+    ):
+        """A user can have one org-wide direct role assignment per org."""
+        other_org_id = uuid.uuid4()
+        other_org = Organization(
+            id=other_org_id,
+            name="Other Org",
+            slug=f"other-org-{other_org_id.hex[:8]}",
+        )
+        session.add(other_org)
+        await session.flush()
+        session.add(
+            OrganizationMembership(
+                user_id=user.id,
+                organization_id=other_org.id,
+            )
+        )
+        await session.commit()
+
+        service = RBACService(session, role=role)
+        other_role = role.model_copy(update={"organization_id": other_org.id})
+        other_service = RBACService(session, role=other_role)
+
+        org_role = await service.create_role(name="Direct User Role")
+        other_org_role = await other_service.create_role(name="Direct User Role")
+
+        assignment = await service.create_user_assignment(
+            user_id=user.id,
+            role_id=org_role.id,
+        )
+        other_assignment = await other_service.create_user_assignment(
+            user_id=user.id,
+            role_id=other_org_role.id,
+        )
+
+        assert assignment.organization_id == role.organization_id
+        assert other_assignment.organization_id == other_org.id
+
+        result = await session.execute(
+            select(UserRoleAssignment).where(
+                UserRoleAssignment.user_id == user.id,
+                UserRoleAssignment.workspace_id.is_(None),
+            )
+        )
+        org_ids = {assignment.organization_id for assignment in result.scalars()}
+        assert org_ids == {role.organization_id, other_org.id}
+
+    async def test_create_duplicate_org_wide_user_assignment_in_same_org_fails(
+        self,
+        session: AsyncSession,
+        role: Role,
+        user: User,
+    ):
+        """A user can still have only one direct org-wide assignment per org."""
+        service = RBACService(session, role=role)
+        first_role = await service.create_role(name="First Direct User Role")
+        second_role = await service.create_role(name="Second Direct User Role")
+
+        await service.create_user_assignment(
+            user_id=user.id,
+            role_id=first_role.id,
+        )
+
+        with pytest.raises(
+            TracecatValidationError,
+            match="User already has an assignment for this workspace",
+        ):
+            await service.create_user_assignment(
+                user_id=user.id,
+                role_id=second_role.id,
+            )
 
     async def test_create_user_assignment_rejects_non_member(
         self,

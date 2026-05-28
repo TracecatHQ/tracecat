@@ -437,8 +437,8 @@ async def ensure_single_tenant_user_defaults_in_session(
 
     assignment = assignment_row[0] if assignment_row is not None else None
     if assignment is None:
-        # There can only be one org-wide assignment per user. For superusers, a
-        # conflict means another request created or found a stale org-wide
+        # There can only be one org-wide assignment per user per organization.
+        # For superusers, a conflict means another request created the same-org
         # assignment, so upgrade it to owner. Regular users do not update on
         # insert conflict; existing rows observed by this session are handled by
         # the normalization branch below.
@@ -449,16 +449,16 @@ async def ensure_single_tenant_user_defaults_in_session(
             role_id=role.id,
         )
         conflict_target = {
-            "index_elements": [UserRoleAssignment.user_id],
+            "index_elements": [
+                UserRoleAssignment.organization_id,
+                UserRoleAssignment.user_id,
+            ],
             "index_where": UserRoleAssignment.workspace_id.is_(None),
         }
         if is_superuser:
             assignment_insert = assignment_insert.on_conflict_do_update(
                 **conflict_target,
-                set_={
-                    "organization_id": organization_id,
-                    "role_id": role.id,
-                },
+                set_={"role_id": role.id},
             )
         else:
             assignment_insert = assignment_insert.on_conflict_do_nothing(
