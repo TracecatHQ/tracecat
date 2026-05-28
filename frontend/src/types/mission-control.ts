@@ -103,6 +103,9 @@ export type ArtifactLane = {
 }
 
 type UnknownRecord = Record<string, unknown>
+type StreamPartInput =
+  | UIMessage["parts"][number]
+  | { type: string; data?: unknown }
 
 /** Build the stable tab key for a Mission Control artifact. */
 export function artifactKey(
@@ -143,7 +146,7 @@ function parseArtifactDataPayload(
 
 /** Parse a Vercel UI message part as a typed Mission Control stream part. */
 export function parseMissionControlStreamPart(
-  part: UIMessage["parts"][number]
+  part: StreamPartInput
 ): MissionControlStreamPart | undefined {
   switch (part.type) {
     case ARTIFACT_DATA_PART_TYPE: {

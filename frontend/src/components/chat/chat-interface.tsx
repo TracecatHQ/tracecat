@@ -1,8 +1,9 @@
 "use client"
 
+import type { UIMessage } from "ai"
 import { ChevronDown, Plus } from "lucide-react"
 import Link from "next/link"
-import { useEffect, useState } from "react"
+import { type ReactNode, useEffect, useState } from "react"
 import type {
   AgentPresetRead,
   AgentPresetReadMinimal,
@@ -46,6 +47,7 @@ import { getApiErrorDetail } from "@/lib/errors"
 import { useChatReadiness } from "@/lib/hooks"
 import { cn } from "@/lib/utils"
 import { useWorkspaceId } from "@/providers/workspace-id"
+import type { ChatSurface } from "@/types/chat-surface"
 
 interface ChatInterfaceProps {
   chatId?: string
@@ -55,6 +57,11 @@ interface ChatInterfaceProps {
   onChatSelect?: (chatId: string) => void
   bodyClassName?: string
   placeholder?: string
+  surface?: ChatSurface
+  /** Called on every chat message update; lets parents derive side-panel state. */
+  onMessagesChange?: (messages: UIMessage[]) => void
+  /** Extra slot rendered before the New-chat button in the header. */
+  headerActions?: ReactNode
 }
 
 type PendingFirstMessage = {
@@ -75,6 +82,9 @@ export function ChatInterface({
   onChatSelect,
   bodyClassName,
   placeholder,
+  surface = "regular",
+  onMessagesChange,
+  headerActions,
 }: ChatInterfaceProps) {
   const workspaceId = useWorkspaceId()
   const { hasEntitlement } = useEntitlements()
@@ -113,6 +123,10 @@ export function ChatInterface({
 
   const presetsEnabled =
     agentAddonsEnabled && (entityType === "case" || entityType === "copilot")
+  const headerRowClassName =
+    surface === "mission-control"
+      ? "mx-auto flex w-full max-w-[56rem] items-center justify-between"
+      : "flex items-center justify-between"
 
   const {
     presets: presetOptions,
@@ -286,7 +300,7 @@ export function ChatInterface({
     <div className="flex h-full min-h-0 flex-col">
       {/* Chat Header */}
       <div className="px-4 py-2">
-        <div className="flex items-center justify-between">
+        <div className={headerRowClassName}>
           {/* Unified New-chat / History dropdown */}
           <div className="flex items-center gap-2">
             {title ? (
@@ -299,12 +313,11 @@ export function ChatInterface({
               selectedChatId={selectedChatId}
               onSelectChat={handleSelectChat}
             />
-
-            {/* (left-side plus removed) */}
           </div>
 
           {/* Right-side actions */}
           <div className="flex items-center gap-1">
+            {headerActions}
             {/* New chat icon button with tooltip */}
             <AlertDialog
               open={newChatDialogOpen}
@@ -395,6 +408,8 @@ export function ChatInterface({
               current?.chatId === selectedChatId ? null : current
             )
           }
+          surface={surface}
+          onMessagesChange={onMessagesChange}
         />
       </div>
     </div>
@@ -432,6 +447,8 @@ interface ChatBodyProps {
   draftInputDisabled: boolean
   pendingMessage: string | null
   onPendingMessageSent: () => void
+  surface: ChatSurface
+  onMessagesChange?: (messages: UIMessage[]) => void
 }
 
 function ChatBody({
@@ -452,6 +469,8 @@ function ChatBody({
   draftInputDisabled,
   pendingMessage,
   onPendingMessageSent,
+  surface,
+  onMessagesChange,
 }: ChatBodyProps) {
   const {
     ready: chatReady,
@@ -551,6 +570,8 @@ function ChatBody({
         onBeforeSend={onCreateSessionBeforeSend}
         inputDisabled={draftInputDisabled}
         inputDisabledPlaceholder="Creating chat..."
+        surface={surface}
+        onMessagesChange={onMessagesChange}
       />
     )
   }
@@ -576,6 +597,8 @@ function ChatBody({
       presetSelector={presetSelector}
       pendingMessage={pendingMessage ?? undefined}
       onPendingMessageSent={onPendingMessageSent}
+      surface={surface}
+      onMessagesChange={onMessagesChange}
     />
   )
 }

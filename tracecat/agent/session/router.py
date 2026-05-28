@@ -10,11 +10,6 @@ from fastapi.responses import Response, StreamingResponse
 
 from tracecat import config
 from tracecat.agent.adapter import vercel
-from tracecat.agent.adapter.artifact import (
-    ARTIFACT_DATA_PART_TYPE,
-    artifact_data_payload,
-    artifact_stream_event,
-)
 from tracecat.agent.session.schemas import (
     AgentSessionCreate,
     AgentSessionForkRequest,
@@ -25,9 +20,11 @@ from tracecat.agent.session.schemas import (
 )
 from tracecat.agent.session.service import AgentSessionService
 from tracecat.agent.session.types import AgentSessionEntity
+from tracecat.agent.stream.artifacts import artifact_stream_event
 from tracecat.agent.stream.connector import AgentStream
 from tracecat.agent.stream.events import StreamFormat
 from tracecat.agent.subagents import ResolvedAgentsConfig
+from tracecat.artifacts.schemas import ARTIFACT_DATA_PART_TYPE, artifact_data_payload
 from tracecat.auth.dependencies import WorkspaceActorRouteRole
 from tracecat.authz.controls import require_scope
 from tracecat.chat.schemas import (

@@ -59,7 +59,6 @@ from pydantic_ai.messages import (
 )
 from pydantic_core import to_json
 
-from tracecat.agent.adapter.artifact import ARTIFACT_DATA_PART_TYPE
 from tracecat.agent.approvals.enums import ApprovalStatus
 from tracecat.agent.common.stream_types import StreamEventType, UnifiedStreamEvent
 from tracecat.agent.mcp.metadata import strip_proxy_tool_metadata
@@ -73,6 +72,7 @@ from tracecat.agent.stream.events import (
     StreamMessage,
 )
 from tracecat.agent.types import UnifiedMessage
+from tracecat.artifacts.schemas import ARTIFACT_DATA_PART_TYPE
 from tracecat.chat.constants import (
     APPROVAL_DATA_PART_TYPE,
     APPROVAL_REQUEST_HEADER,

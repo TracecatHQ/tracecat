@@ -109,3 +109,64 @@ async def test_reconcile_tool_results_removes_interrupts_and_returns_tool_result
         input.session_id,
         result.results,
     )
+
+
+@pytest.mark.anyio
+async def test_reconcile_tool_results_appends_artifact_side_effect(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    stream = MagicMock()
+    stream.append = AsyncMock()
+
+    service = AsyncMock()
+    ctx = AsyncMock()
+    ctx.__aenter__.return_value = service
+
+    monkeypatch.setattr(
+        "tracecat.agent.session.activities.AgentStream.new",
+        AsyncMock(return_value=stream),
+    )
+    monkeypatch.setattr(
+        "tracecat.agent.session.activities.AgentSessionService.with_session",
+        MagicMock(return_value=ctx),
+    )
+
+    input = ReconcileToolResultsInput(
+        session_id=uuid.uuid4(),
+        workspace_id=uuid.uuid4(),
+        role=Role(
+            type="service",
+            user_id=uuid.uuid4(),
+            workspace_id=uuid.uuid4(),
+            service_id="tracecat-service",
+        ),
+        pending_results=[
+            PendingToolResult(
+                tool_call_id="toolu_123",
+                tool_name="core.cases.create_case",
+                tool_input={"summary": "Suspicious login"},
+                raw_result={
+                    "id": "case_123",
+                    "summary": "Suspicious login",
+                    "severity": "high",
+                    "status": "new",
+                },
+            )
+        ],
+    )
+
+    await reconcile_tool_results_activity(input)
+
+    append_calls = [call.args[0] for call in stream.append.await_args_list]
+    assert len(append_calls) == 2
+    assert append_calls[0].tool_call_id == "toolu_123"
+    assert append_calls[1].artifact_data is not None
+    assert append_calls[1].artifact_data.op == "upsert"
+    assert append_calls[1].artifact_data.artifact == {
+        "type": "case",
+        "id": "case_123",
+        "title": "Suspicious login",
+        "scope": {"parentToolCallId": "toolu_123"},
+        "severity": "high",
+        "status": "new",
+    }

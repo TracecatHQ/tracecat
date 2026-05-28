@@ -1,6 +1,6 @@
 "use client"
 
-import { ExternalLink, X } from "lucide-react"
+import { ExternalLink, PanelLeftIcon, X } from "lucide-react"
 import Link from "next/link"
 import { type ComponentType, useEffect, useRef } from "react"
 import {
@@ -27,6 +27,7 @@ export interface ArtifactTabsProps {
   setActiveArtifactKey: (key: string | null) => void
   closeArtifact: (type: ArtifactType, id: string) => void
   workspaceId: string
+  onCollapse?: () => void
 }
 
 /** Horizontal artifact tab strip for the Mission Control panel. */
@@ -37,6 +38,7 @@ export function ArtifactTabs({
   setActiveArtifactKey,
   closeArtifact,
   workspaceId,
+  onCollapse,
 }: ArtifactTabsProps) {
   const scrollNodeRef = useRef<HTMLDivElement>(null)
 
@@ -83,6 +85,22 @@ export function ArtifactTabs({
 
   return (
     <div className="flex h-10 shrink-0 items-center gap-1 border-b px-2">
+      {onCollapse ? (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              size="sm"
+              variant="ghost"
+              className="size-7 p-0"
+              onClick={onCollapse}
+              aria-label="Hide artifacts"
+            >
+              <PanelLeftIcon className="size-3.5" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent side="bottom">Hide artifacts</TooltipContent>
+        </Tooltip>
+      ) : null}
       <div
         ref={scrollNodeRef}
         className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"

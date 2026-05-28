@@ -254,6 +254,59 @@ def test_should_not_suppress_normal_tool_result_error() -> None:
 
 
 @pytest.mark.anyio
+async def test_tool_result_emits_artifact_side_effect_from_tracked_call() -> None:
+    handler = _make_handler()
+    stream = _FakeStream()
+    handler._stream_sink = stream
+
+    await handler.send_stream_event(
+        UnifiedStreamEvent(
+            type=StreamEventType.TOOL_CALL_STOP,
+            tool_call_id="toolu_123",
+            tool_name="core.cases.create_case",
+            tool_input={"summary": "Suspicious login"},
+        )
+    )
+    await handler.send_stream_event(
+        UnifiedStreamEvent(
+            type=StreamEventType.TOOL_RESULT,
+            tool_call_id="toolu_123",
+            tool_output=[
+                {
+                    "type": "text",
+                    "text": orjson.dumps(
+                        {
+                            "id": "case_123",
+                            "summary": "Suspicious login",
+                            "severity": "high",
+                            "status": "new",
+                        }
+                    ).decode(),
+                }
+            ],
+        )
+    )
+
+    append_calls = [call.args[0] for call in stream.append.await_args_list]
+    assert [event.type for event in append_calls] == [
+        StreamEventType.TOOL_CALL_STOP,
+        StreamEventType.TOOL_RESULT,
+        StreamEventType.ARTIFACT,
+    ]
+    artifact_event = append_calls[-1]
+    assert artifact_event.artifact_data is not None
+    assert artifact_event.artifact_data.op == "upsert"
+    assert artifact_event.artifact_data.artifact == {
+        "type": "case",
+        "id": "case_123",
+        "title": "Suspicious login",
+        "scope": {"parentToolCallId": "toolu_123"},
+        "severity": "high",
+        "status": "new",
+    }
+
+
+@pytest.mark.anyio
 async def test_process_runtime_events_emits_failed_compaction_on_runtime_error() -> (
     None
 ):

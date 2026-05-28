@@ -90,7 +90,6 @@ import { CodeEditor } from "@/components/editor/codemirror/code-editor"
 import { getIcon, ProviderIcon } from "@/components/icons"
 import { JsonViewWithControls } from "@/components/json-viewer"
 import { Dots } from "@/components/loading/dots"
-import { ArtifactPanel } from "@/components/mission-control/artifact-panel"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -103,7 +102,6 @@ import {
   useUpdateChat,
   useVercelChat,
 } from "@/hooks/use-chat"
-import { useMissionControlArtifacts } from "@/hooks/use-mission-control-artifacts"
 import type { ModelInfo } from "@/lib/chat"
 import {
   ENTITY_TO_INVALIDATION,
@@ -112,6 +110,7 @@ import {
 } from "@/lib/chat"
 import { useBuilderRegistryActions } from "@/lib/hooks"
 import { cn } from "@/lib/utils"
+import type { ChatSurface } from "@/types/chat-surface"
 import { ARTIFACT_DATA_PART_TYPE } from "@/types/mission-control"
 
 const MAX_TOOL_MENTION_RESULTS = 40
@@ -229,6 +228,8 @@ export interface ChatSessionPaneProps {
    * Optional preset selector rendered in the prompt footer.
    */
   presetSelector?: ChatPresetSelector
+  /** Selects the chat stream projection and surrounding UI surface. */
+  surface?: ChatSurface
 }
 
 export function ChatSessionPane({
@@ -248,6 +249,7 @@ export function ChatSessionPane({
   inputDisabled = false,
   inputDisabledPlaceholder,
   presetSelector,
+  surface = "regular",
 }: ChatSessionPaneProps) {
   const queryClient = useQueryClient()
   const promptInputContainerRef = useRef<HTMLDivElement>(null)
@@ -277,6 +279,13 @@ export function ChatSessionPane({
     () => (chat?.messages || []).map(toUIMessage),
     [chat?.messages]
   )
+  const isMissionControl = surface === "mission-control"
+  const chatContentCenterClass = isMissionControl
+    ? "mx-auto w-full max-w-[56rem]"
+    : undefined
+  const promptCenterClass = isMissionControl
+    ? "relative mx-auto w-full max-w-[56rem]"
+    : "relative"
   const { sendMessage, messages, status, regenerate, lastError, clearError } =
     useVercelChat({
       chatId: chat?.id,
@@ -782,7 +791,6 @@ export function ChatSessionPane({
     () => transformMessages(messages),
     [messages]
   )
-  const missionControlArtifacts = useMissionControlArtifacts(messages)
 
   const invalidateEntityQueries = useCallback(
     (toolNames: string[]) => {
@@ -871,11 +879,11 @@ export function ChatSessionPane({
   }
 
   return (
-    <div className={cn("flex h-full min-h-0 flex-col xl:flex-row", className)}>
+    <div className={cn("flex h-full min-h-0 flex-col", className)}>
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         <div className="flex min-h-0 flex-1 flex-col">
           <Conversation className="flex-1">
-            <ConversationContent>
+            <ConversationContent className={chatContentCenterClass}>
               {lastError && (
                 <Alert variant="destructive" className="mb-4">
                   <AlertTitle>Unable to continue with this model</AlertTitle>
@@ -966,147 +974,141 @@ export function ChatSessionPane({
           </Conversation>
         </div>
         <div
-          className="relative px-3 pb-3"
+          className="px-3 pb-3"
           onPointerDownCapture={handlePromptPointerDownCapture}
-          ref={promptInputContainerRef}
         >
-          {mentionEnabled && toolMention && (
-            <div className="absolute inset-x-3 bottom-full z-30 mb-2">
-              <div className="overflow-hidden rounded-md border bg-popover shadow-md">
-                {registryActionsIsLoading ? (
-                  <div className="flex items-center gap-2 px-3 py-2 text-xs text-muted-foreground">
-                    <Loader2 className="size-3 animate-spin" />
-                    Loading tools...
-                  </div>
-                ) : null}
-                {!registryActionsIsLoading &&
-                  filteredToolSuggestions.length === 0 && (
-                    <div className="px-3 py-2 text-xs text-muted-foreground">
-                      No tools found for
-                      {` "${toolMention.query}"`}.
+          <div ref={promptInputContainerRef} className={promptCenterClass}>
+            {mentionEnabled && toolMention && (
+              <div className="absolute inset-x-0 bottom-full z-30 mb-2">
+                <div className="overflow-hidden rounded-md border bg-popover shadow-md">
+                  {registryActionsIsLoading ? (
+                    <div className="flex items-center gap-2 px-3 py-2 text-xs text-muted-foreground">
+                      <Loader2 className="size-3 animate-spin" />
+                      Loading tools...
                     </div>
-                  )}
-                {!registryActionsIsLoading &&
-                  filteredToolSuggestions.length > 0 && (
-                    <div className="max-h-64 overflow-y-auto p-1">
-                      {filteredToolSuggestions.map((tool, index) => {
-                        const isActive = toolMention.activeIndex === index
-                        const isSelected = selectedTools.includes(tool.value)
+                  ) : null}
+                  {!registryActionsIsLoading &&
+                    filteredToolSuggestions.length === 0 && (
+                      <div className="px-3 py-2 text-xs text-muted-foreground">
+                        No tools found for
+                        {` "${toolMention.query}"`}.
+                      </div>
+                    )}
+                  {!registryActionsIsLoading &&
+                    filteredToolSuggestions.length > 0 && (
+                      <div className="max-h-64 overflow-y-auto p-1">
+                        {filteredToolSuggestions.map((tool, index) => {
+                          const isActive = toolMention.activeIndex === index
+                          const isSelected = selectedTools.includes(tool.value)
 
-                        return (
-                          <button
-                            key={tool.value}
-                            type="button"
-                            onMouseDown={(event) => event.preventDefault()}
-                            onClick={() => handleSelectMentionTool(tool.value)}
-                            className={cn(
-                              "flex w-full items-start justify-between gap-2 rounded-sm px-2 py-2 text-left",
-                              isActive && "bg-accent"
-                            )}
-                          >
-                            <div className="flex min-w-0 items-start gap-2">
-                              {getIcon(tool.value, {
-                                className: "mt-0.5 size-6 shrink-0",
-                              })}
-                              <div className="min-w-0">
-                                <p className="truncate text-xs font-medium text-foreground">
-                                  {tool.label}
-                                </p>
-                                <p className="truncate text-[11px] text-muted-foreground">
-                                  {tool.value}
-                                </p>
+                          return (
+                            <button
+                              key={tool.value}
+                              type="button"
+                              onMouseDown={(event) => event.preventDefault()}
+                              onClick={() =>
+                                handleSelectMentionTool(tool.value)
+                              }
+                              className={cn(
+                                "flex w-full items-start justify-between gap-2 rounded-sm px-2 py-2 text-left",
+                                isActive && "bg-accent"
+                              )}
+                            >
+                              <div className="flex min-w-0 items-start gap-2">
+                                {getIcon(tool.value, {
+                                  className: "mt-0.5 size-6 shrink-0",
+                                })}
+                                <div className="min-w-0">
+                                  <p className="truncate text-xs font-medium text-foreground">
+                                    {tool.label}
+                                  </p>
+                                  <p className="truncate text-[11px] text-muted-foreground">
+                                    {tool.value}
+                                  </p>
+                                </div>
                               </div>
-                            </div>
-                            {isSelected ? (
-                              <CheckIcon className="mt-0.5 size-3.5 text-muted-foreground" />
-                            ) : null}
-                          </button>
-                        )
-                      })}
-                    </div>
-                  )}
+                              {isSelected ? (
+                                <CheckIcon className="mt-0.5 size-3.5 text-muted-foreground" />
+                              ) : null}
+                            </button>
+                          )
+                        })}
+                      </div>
+                    )}
+                </div>
               </div>
-            </div>
-          )}
-          <PromptInput onSubmit={handleSubmit}>
-            {toolsEnabled && selectedToolBadges.length > 0 && (
-              <PromptInputHeader className="gap-1.5 px-3 pt-3">
-                {selectedToolBadges.map((tool) => (
-                  <Badge
-                    key={tool.value}
-                    variant="secondary"
-                    className="h-7 gap-1.5 px-2.5 text-xs"
-                  >
-                    <span className="inline-flex items-center justify-center text-foreground">
-                      {tool.icon}
-                    </span>
-                    <span className="truncate">{tool.label}</span>
-                    <button
-                      type="button"
-                      className="inline-flex items-center text-muted-foreground hover:text-foreground"
-                      aria-label={`Remove ${tool.label}`}
-                      onClick={() => removeSelectedTool(tool.value)}
-                      disabled={
-                        isUpdatingTools ||
-                        isReadonly ||
-                        inputDisabled ||
-                        !toolsEnabled
-                      }
-                    >
-                      <XIcon className="size-3.5" />
-                    </button>
-                  </Badge>
-                ))}
-              </PromptInputHeader>
             )}
-            <PromptInputBody>
-              <PromptInputTextarea
-                onChange={handleInputChange}
-                onKeyDown={handleInputKeyDown}
-                onFocus={handleInputFocus}
-                onBlur={handleInputBlur}
-                placeholder={
-                  isReadonly
-                    ? "This is a legacy session (read-only)"
-                    : inputDisabled && inputDisabledPlaceholder
-                      ? inputDisabledPlaceholder
-                      : placeholder
-                }
-                value={input}
-                autoFocus={autoFocusInput && !isReadonly && !inputDisabled}
-                disabled={isInputDisabled}
-              />
-            </PromptInputBody>
-            <PromptInputFooter>
-              <PromptInputTools>
-                {presetSelector && !isReadonly && (
-                  <PromptPresetSelector
-                    selector={presetSelector}
-                    disabled={inputDisabled || !canSubmit}
-                  />
-                )}
-                {!isReadonly ? (
-                  <PromptModelIndicator modelInfo={modelInfo} />
-                ) : null}
-              </PromptInputTools>
-              <PromptInputSubmit
-                disabled={isInputDisabled || !input.trim()}
-                status={status}
-                className="text-muted-foreground/80"
-              />
-            </PromptInputFooter>
-          </PromptInput>
+            <PromptInput onSubmit={handleSubmit}>
+              {toolsEnabled && selectedToolBadges.length > 0 && (
+                <PromptInputHeader className="gap-1.5 px-3 pt-3">
+                  {selectedToolBadges.map((tool) => (
+                    <Badge
+                      key={tool.value}
+                      variant="secondary"
+                      className="h-7 gap-1.5 px-2.5 text-xs"
+                    >
+                      <span className="inline-flex items-center justify-center text-foreground">
+                        {tool.icon}
+                      </span>
+                      <span className="truncate">{tool.label}</span>
+                      <button
+                        type="button"
+                        className="inline-flex items-center text-muted-foreground hover:text-foreground"
+                        aria-label={`Remove ${tool.label}`}
+                        onClick={() => removeSelectedTool(tool.value)}
+                        disabled={
+                          isUpdatingTools ||
+                          isReadonly ||
+                          inputDisabled ||
+                          !toolsEnabled
+                        }
+                      >
+                        <XIcon className="size-3.5" />
+                      </button>
+                    </Badge>
+                  ))}
+                </PromptInputHeader>
+              )}
+              <PromptInputBody>
+                <PromptInputTextarea
+                  onChange={handleInputChange}
+                  onKeyDown={handleInputKeyDown}
+                  onFocus={handleInputFocus}
+                  onBlur={handleInputBlur}
+                  placeholder={
+                    isReadonly
+                      ? "This is a legacy session (read-only)"
+                      : inputDisabled && inputDisabledPlaceholder
+                        ? inputDisabledPlaceholder
+                        : placeholder
+                  }
+                  value={input}
+                  autoFocus={autoFocusInput && !isReadonly && !inputDisabled}
+                  disabled={isInputDisabled}
+                />
+              </PromptInputBody>
+              <PromptInputFooter>
+                <PromptInputTools>
+                  {presetSelector && !isReadonly && (
+                    <PromptPresetSelector
+                      selector={presetSelector}
+                      disabled={inputDisabled || !canSubmit}
+                    />
+                  )}
+                  {!isReadonly ? (
+                    <PromptModelIndicator modelInfo={modelInfo} />
+                  ) : null}
+                </PromptInputTools>
+                <PromptInputSubmit
+                  disabled={isInputDisabled || !input.trim()}
+                  status={status}
+                  className="text-muted-foreground/80"
+                />
+              </PromptInputFooter>
+            </PromptInput>
+          </div>
         </div>
       </div>
-      {missionControlArtifacts.artifacts.length > 0 ? (
-        <ArtifactPanel
-          artifacts={missionControlArtifacts.artifacts}
-          activeArtifactKey={missionControlArtifacts.activeArtifactKey}
-          setActiveArtifactKey={missionControlArtifacts.setActiveArtifactKey}
-          closeArtifact={missionControlArtifacts.closeArtifact}
-          workspaceId={workspaceId}
-        />
-      ) : null}
     </div>
   )
 }

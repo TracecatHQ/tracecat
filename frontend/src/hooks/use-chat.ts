@@ -5,7 +5,11 @@ import {
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query"
-import { DefaultChatTransport, type UIMessage } from "ai"
+import {
+  type ChatOnDataCallback,
+  DefaultChatTransport,
+  type UIMessage,
+} from "ai"
 import { useCallback, useMemo, useState } from "react"
 import {
   type AgentSessionCreate,
@@ -379,11 +383,13 @@ export function useVercelChat({
   workspaceId,
   messages,
   modelInfo,
+  onData,
 }: {
   chatId?: string
   workspaceId: string
   messages: UIMessage[]
   modelInfo: ModelInfo
+  onData?: ChatOnDataCallback<UIMessage>
 }) {
   const queryClient = useQueryClient()
   const [lastError, setLastError] = useState<string | null>(null)
@@ -456,6 +462,7 @@ export function useVercelChat({
       })
       queryClient.invalidateQueries({ queryKey: ["chats", workspaceId] })
     },
+    onData,
   })
 
   return {

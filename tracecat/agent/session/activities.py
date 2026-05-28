@@ -19,6 +19,7 @@ from tracecat.agent.executor.schemas import ToolExecutionResult
 from tracecat.agent.session.schemas import AgentSessionCreate
 from tracecat.agent.session.service import AgentSessionService
 from tracecat.agent.session.types import AgentSessionEntity
+from tracecat.agent.stream.artifacts import artifact_stream_events_for_tool_result
 from tracecat.agent.stream.connector import AgentStream
 from tracecat.agent.subagents import ResolvedAgentsConfig
 from tracecat.auth.types import Role
@@ -64,6 +65,7 @@ class PendingToolResult(BaseModel):
 
     tool_call_id: str
     tool_name: str
+    tool_input: dict[str, Any] | None = None
     stored_result: StoredObject | None = None
     raw_result: Any = None
     is_error: bool = False
@@ -368,6 +370,14 @@ async def reconcile_tool_results_activity(
                 is_error=result.is_error,
             )
         )
+        for artifact_event in artifact_stream_events_for_tool_result(
+            tool_name=result.tool_name,
+            tool_input=pending.tool_input,
+            tool_output=result.result,
+            is_error=result.is_error,
+            tool_call_id=result.tool_call_id,
+        ):
+            await stream.append(artifact_event)
 
     if results:
         async with AgentSessionService.with_session(role=input.role) as service:

@@ -11,10 +11,6 @@ from fastapi import HTTPException
 from fastapi.responses import Response, StreamingResponse
 from starlette import status
 
-from tracecat.agent.adapter.artifact import (
-    ARTIFACT_DATA_PART_TYPE,
-    CaseArtifact,
-)
 from tracecat.agent.adapter.vercel import UIMessage
 from tracecat.agent.common.stream_types import (
     HarnessType,
@@ -29,7 +25,9 @@ from tracecat.agent.session.router import (
     stream_session_events,
 )
 from tracecat.agent.session.types import AgentSessionEntity
+from tracecat.artifacts.schemas import ARTIFACT_DATA_PART_TYPE, CaseArtifact
 from tracecat.auth.types import Role
+from tracecat.cases.enums import CaseSeverity, CaseStatus
 from tracecat.chat.schemas import (
     ApprovalDecision,
     ContinueRunRequest,
@@ -232,8 +230,8 @@ async def test_get_session_vercel_includes_initial_artifact() -> None:
     artifact = CaseArtifact(
         id=str(session_stub.entity_id),
         title="Investigate suspicious login",
-        severity="high",
-        status="new",
+        severity=CaseSeverity.HIGH,
+        status=CaseStatus.NEW,
     )
     fake_svc = SimpleNamespace(
         get_session=AsyncMock(return_value=session_stub),
@@ -406,8 +404,8 @@ async def test_send_message_new_turn_appends_initial_artifact() -> None:
     artifact = CaseArtifact(
         id=str(agent_session.entity_id),
         title="Investigate suspicious login",
-        severity="high",
-        status="new",
+        severity=CaseSeverity.HIGH,
+        status=CaseStatus.NEW,
     )
     role = Role(
         type="service",

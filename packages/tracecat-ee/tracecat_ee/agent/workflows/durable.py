@@ -1146,6 +1146,7 @@ class DurableAgentWorkflow:
                     PendingToolResult(
                         tool_call_id=tool_call.tool_call_id,
                         tool_name=tool_call.tool_name,
+                        tool_input=tool_call.args,
                         stored_result=stored,
                     )
                 )
@@ -1154,6 +1155,7 @@ class DurableAgentWorkflow:
                     PendingToolResult(
                         tool_call_id=tool_call.tool_call_id,
                         tool_name=tool_call.tool_name,
+                        tool_input=tool_call.args,
                         raw_result=f"Tool execution failed: {_activity_error_message(e)}",
                         is_error=True,
                     )

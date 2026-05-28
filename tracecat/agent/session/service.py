@@ -35,7 +35,6 @@ from tracecat_registry._internal.exceptions import SecretNotFoundError
 
 import tracecat.agent.adapter.vercel
 from tracecat import config
-from tracecat.agent.adapter.artifact import Artifact, ArtifactAdapter
 from tracecat.agent.approvals.enums import ApprovalStatus
 from tracecat.agent.llm import LLMCompletionError
 from tracecat.agent.mcp.metadata import sanitize_message_tool_inputs
@@ -61,6 +60,7 @@ from tracecat.agent.subagents import (
     ResolvedAgentsConfig,
 )
 from tracecat.agent.types import AgentConfig, ClaudeSDKMessageTA, StreamKey
+from tracecat.artifacts.schemas import Artifact, ArtifactAdapter
 from tracecat.audit.logger import audit_log
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.cases.prompts import CaseCopilotPrompts

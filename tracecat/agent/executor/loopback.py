@@ -37,6 +37,7 @@ from tracecat.agent.common.stream_types import (
     UnifiedStreamEvent,
 )
 from tracecat.agent.session.types import AgentSessionEntity
+from tracecat.agent.stream.artifacts import artifact_stream_events_for_tool_result
 from tracecat.agent.stream.connector import AgentStream
 from tracecat.db.engine import (
     get_async_session_bypass_rls_context_manager,
@@ -251,6 +252,8 @@ class LoopbackHandler:
         self._persisted_line_uuids: set[str] = set()
         # Track pending approval tool IDs to suppress synthetic interruption results.
         self._pending_approval_tool_call_ids: set[str] = set()
+        self._tool_names_by_call_id: dict[str, str] = {}
+        self._tool_inputs_by_call_id: dict[str, dict[str, Any]] = {}
         self._received_result: bool = False
         self._received_assistant_content: bool = False
         self._received_compaction_event: bool = False
@@ -524,6 +527,7 @@ class LoopbackHandler:
     async def _handle_stream_event(self, event: UnifiedStreamEvent) -> bool:
         """Handle a stream event emitted by the runtime."""
         stream_sink = await self.prepare()
+        self._track_tool_event(event)
 
         if event.type == StreamEventType.APPROVAL_REQUEST:
             logger.info(
@@ -570,6 +574,7 @@ class LoopbackHandler:
             self._received_assistant_content = True
             self._log_benchmark_phase("loopback_first_assistant_delta")
         await stream_sink.append(event)
+        await self._append_artifact_side_effects(event, stream_sink)
 
         if event.type != StreamEventType.ERROR:
             return False
@@ -583,6 +588,52 @@ class LoopbackHandler:
         await self._emit_terminal_stream_error(stream_sink, error_msg)
         self._result.error = error_msg
         return True
+
+    def _track_tool_event(self, event: UnifiedStreamEvent) -> None:
+        match event.type:
+            case StreamEventType.TOOL_CALL_START | StreamEventType.TOOL_CALL_STOP:
+                if event.tool_call_id is None:
+                    return
+                if event.tool_name is not None:
+                    self._tool_names_by_call_id[event.tool_call_id] = event.tool_name
+                if event.tool_input is not None:
+                    self._tool_inputs_by_call_id[event.tool_call_id] = event.tool_input
+            case StreamEventType.APPROVAL_REQUEST:
+                for item in event.approval_items or []:
+                    self._tool_names_by_call_id[item.id] = item.name
+                    self._tool_inputs_by_call_id[item.id] = item.input
+            case _:
+                return
+
+    async def _append_artifact_side_effects(
+        self,
+        event: UnifiedStreamEvent,
+        stream_sink: LoopbackEventSink,
+    ) -> None:
+        if event.type is not StreamEventType.TOOL_RESULT:
+            return
+
+        tool_call_id = event.tool_call_id
+        tool_name = event.tool_name
+        tool_input = event.tool_input
+        if tool_call_id is not None:
+            tool_name = tool_name or self._tool_names_by_call_id.get(tool_call_id)
+            if tool_input is None:
+                tool_input = self._tool_inputs_by_call_id.get(tool_call_id)
+
+        artifact_events = artifact_stream_events_for_tool_result(
+            tool_name=tool_name,
+            tool_input=tool_input,
+            tool_output=event.tool_output,
+            is_error=event.is_error,
+            tool_call_id=tool_call_id,
+        )
+        for artifact_event in artifact_events:
+            await stream_sink.append(artifact_event)
+
+        if tool_call_id is not None:
+            self._tool_names_by_call_id.pop(tool_call_id, None)
+            self._tool_inputs_by_call_id.pop(tool_call_id, None)
 
     async def send_stream_event(self, event: UnifiedStreamEvent) -> None:
         """Handle a stream event emitted by the runtime."""
