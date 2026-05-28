@@ -22,8 +22,8 @@ import pytest
 import tracecat.agent.executor.activity as executor_activity
 import tracecat.agent.runtime.claude_code.broker as broker_module
 import tracecat.agent.runtime.claude_code.runtime as runtime_module
-import tracecat.agent.runtime.claude_code.session_paths as session_paths_module
 import tracecat.agent.runtime.claude_code.transport as transport_module
+import tracecat.agent.runtime.session_paths as session_paths_module
 import tracecat.agent.sandbox.llm_proxy as llm_proxy_module
 import tracecat.agent.sandbox.nsjail as nsjail_module
 import tracecat.agent.sandbox.shim_entrypoint as shim_entrypoint
@@ -1608,7 +1608,7 @@ async def test_run_agent_activity_with_fake_runtime_plumbs_resume_flags_to_loopb
         assert runtimes[0].cwd == runtimes[0].cwd_setup_path
         assert runtimes[0].cwd.is_relative_to(tmp_path / "sessions")
     else:
-        assert runtimes[0].cwd == Path("/work/claude-project")
+        assert runtimes[0].cwd == Path("/work")
         assert runtimes[0].cwd_setup_path.is_relative_to(tmp_path / "sessions")
 
 
@@ -1698,7 +1698,7 @@ async def test_run_agent_activity_plumbs_subagents_to_runtime_in_each_sandbox_mo
     if disable_nsjail:
         assert runtimes[0].cwd == runtimes[0].cwd_setup_path
     else:
-        assert runtimes[0].cwd == Path("/work/claude-project")
+        assert runtimes[0].cwd == Path("/work")
 
 
 @pytest.mark.anyio
@@ -1808,7 +1808,7 @@ async def test_run_agent_activity_with_fake_litellm_provider_spawns_runtime_in_e
         assert runtime.cwd == runtime.cwd_setup_path
         assert runtime.cwd.is_relative_to(tmp_path / "sessions")
     else:
-        assert runtime.cwd == Path("/work/claude-project")
+        assert runtime.cwd == Path("/work")
 
 
 async def _run_attached_skills_visible_case(
@@ -1961,9 +1961,7 @@ async def _run_attached_skills_visible_case(
         assert skill_path.startswith(str(tmp_path / "sessions"))
         assert skill_path.endswith("/.claude/skills/skill-a/SKILL.md")
     else:
-        assert (
-            message["skill_path"] == "/work/claude-home/.claude/skills/skill-a/SKILL.md"
-        )
+        assert message["skill_path"] == "/home/agent/.claude/skills/skill-a/SKILL.md"
 
 
 async def _run_duckdb_cli_available_case(
@@ -2086,7 +2084,7 @@ async def _run_duckdb_cli_available_case(
     assert len(_FakeRuntimeReadingDuckDBTransport.instances) == 1
     runtime = _FakeRuntimeReadingDuckDBTransport.instances[0]
     assert runtime.transport is not None
-    assert runtime.cwd == Path("/work/claude-project")
+    assert runtime.cwd == Path("/work")
 
     assert _FakeRuntimeReadingDuckDBTransport.messages == [
         {"duckdb_path": "/usr/local/bin/duckdb", "duckdb_extension_count": 5}

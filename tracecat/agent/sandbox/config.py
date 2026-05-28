@@ -13,10 +13,10 @@ Security model:
 - Site-packages or a minimal Claude SDK subtree mounted read-only
 
 Key design:
-- Runtime executes a standalone shim script from the per-job /work directory
+- Runtime executes a standalone shim script from the per-job /run/tracecat/job directory
 - Shim mode avoids Tracecat package mounts entirely
-- Control socket at /var/run/tracecat/control.sock
-- LLM socket at /var/run/tracecat/llm.sock (proxied to LLM gateway)
+- Control socket at /run/tracecat/control.sock
+- LLM socket at /run/tracecat/llm.sock (proxied to LLM gateway)
 """
 
 from __future__ import annotations
@@ -27,6 +27,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from tracecat.agent.common.config import (
+    AGENT_RUNTIME_DIR,
     CONTROL_SOCKET_NAME,
     JAILED_CONTROL_SOCKET_PATH,
     JAILED_LLM_SOCKET_PATH,
@@ -35,6 +36,11 @@ from tracecat.agent.common.config import (
     TRUSTED_MCP_SOCKET_PATH,
 )
 from tracecat.agent.common.exceptions import AgentSandboxValidationError
+from tracecat.agent.runtime.session_paths import (
+    JAILED_AGENT_HOME_DIR,
+    JAILED_AGENT_JOB_DIR,
+    JAILED_AGENT_WORK_DIR,
+)
 
 # Valid environment variable name pattern (POSIX compliant)
 _ENV_VAR_KEY_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
@@ -106,8 +112,8 @@ class AgentSandboxConfig:
     env_vars: dict[str, str] = field(default_factory=dict)
 
 
-# In-jail path for the standalone Claude shim copied into the per-job workdir.
-JAILED_SHIM_ENTRYPOINT_PATH = "/work/shim_entrypoint.py"
+# In-jail path for the standalone Claude shim copied into the per-job runtime dir.
+JAILED_SHIM_ENTRYPOINT_PATH = str(JAILED_AGENT_JOB_DIR / "shim_entrypoint.py")
 
 # Minimal base environment for sandboxed agent processes
 AGENT_SANDBOX_BASE_ENV = {
@@ -213,7 +219,7 @@ def build_agent_nsjail_config(
     mount_control_socket: bool = True,
     control_socket_path: Path | None = None,
     session_home_dir: Path | None = None,
-    session_project_dir: Path | None = None,
+    session_work_dir: Path | None = None,
     enable_internet_access: bool = False,
     skills_dir: Path | None = None,
 ) -> str:
@@ -233,8 +239,8 @@ def build_agent_nsjail_config(
             jail. The current shim path does not require this.
         control_socket_path: Optional explicit control socket path. When omitted
             and mount_control_socket is True, defaults to socket_dir/control.sock.
-        session_home_dir: Optional host directory mounted as the jailed Claude home.
-        session_project_dir: Optional host directory mounted as the jailed project.
+        session_home_dir: Optional host directory mounted as the jailed agent home.
+        session_work_dir: Optional host directory mounted as the jailed work dir.
         enable_internet_access: If True, enables pasta userspace networking for
             outbound internet access. Default is False (network isolated with
             private loopback only).
@@ -279,8 +285,8 @@ def build_agent_nsjail_config(
         _validate_path(resolved_control_socket_path, "control_socket_path")
     if session_home_dir is not None:
         _validate_path(session_home_dir, "session_home_dir")
-    if session_project_dir is not None:
-        _validate_path(session_project_dir, "session_project_dir")
+    if session_work_dir is not None:
+        _validate_path(session_work_dir, "session_work_dir")
     claude_sdk_package_dir = site_packages_dir / "claude_agent_sdk"
     _validate_path(claude_sdk_package_dir, "claude_sdk_package_dir")
     # JAILED_LLM_SOCKET_PATH is a constant, no validation needed.
@@ -355,8 +361,11 @@ def build_agent_nsjail_config(
             "# Temporary filesystems",
             'mount { dst: "/tmp" fstype: "tmpfs" rw: true options: "size=256M" }',
             "",
-            "# Job directory - contains copied runtime code",
-            f'mount {{ src: "{job_dir}" dst: "/work" is_bind: true rw: true }}',
+            "# Tracecat job mountpoint namespace",
+            "# The tmpfs only backs files placed directly under this directory;",
+            "# /run/tracecat/job is a separate read-only bind mount from the host.",
+            f'mount {{ dst: "{AGENT_RUNTIME_DIR}" fstype: "tmpfs" rw: true options: "size=1M" }}',
+            f'mount {{ src: "{job_dir}" dst: "{JAILED_AGENT_JOB_DIR}" is_bind: true rw: false }}',
         ]
     )
     lines.extend(
@@ -397,13 +406,37 @@ def build_agent_nsjail_config(
             ]
         )
 
-    if session_home_dir is not None and session_project_dir is not None:
+    if session_work_dir is not None:
         lines.extend(
             [
                 "",
-                "# Stable Claude session directories shared across jailed turns",
-                f'mount {{ src: "{session_home_dir}" dst: "/work/claude-home" is_bind: true rw: true }}',
-                f'mount {{ src: "{session_project_dir}" dst: "/work/claude-project" is_bind: true rw: true }}',
+                "# Stable agent work dir shared across jailed turns",
+                f'mount {{ src: "{session_work_dir}" dst: "{JAILED_AGENT_WORK_DIR}" is_bind: true rw: true }}',
+            ]
+        )
+    else:
+        lines.extend(
+            [
+                "",
+                "# Ephemeral agent work dir",
+                f'mount {{ dst: "{JAILED_AGENT_WORK_DIR}" fstype: "tmpfs" rw: true options: "size=256M" }}',
+            ]
+        )
+
+    if session_home_dir is not None:
+        lines.extend(
+            [
+                "",
+                "# Stable agent home shared across jailed turns",
+                f'mount {{ src: "{session_home_dir}" dst: "{JAILED_AGENT_HOME_DIR}" is_bind: true rw: true }}',
+            ]
+        )
+    else:
+        lines.extend(
+            [
+                "",
+                "# Ephemeral agent home",
+                f'mount {{ dst: "{JAILED_AGENT_HOME_DIR}" fstype: "tmpfs" rw: true options: "size=64M" }}',
             ]
         )
 
@@ -413,7 +446,7 @@ def build_agent_nsjail_config(
                 [
                     "",
                     "# Workspace skills for the Claude Code Skill tool",
-                    f'mount {{ src: "{skills_dir}" dst: "/work/claude-home/.claude/skills" is_bind: true rw: false }}',
+                    f'mount {{ src: "{skills_dir}" dst: "{JAILED_AGENT_HOME_DIR}/.claude/skills" is_bind: true rw: false }}',
                 ]
             )
         else:
@@ -444,7 +477,7 @@ def build_agent_nsjail_config(
     lines.extend(
         [
             "",
-            'cwd: "/work"',
+            f'cwd: "{JAILED_AGENT_JOB_DIR}"',
             "# Execution - standalone shim script",
             f'exec_bin {{ path: "/usr/local/bin/python3" arg: "{JAILED_SHIM_ENTRYPOINT_PATH}" }}',
         ]

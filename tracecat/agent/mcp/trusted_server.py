@@ -5,7 +5,7 @@ internal, and user MCP tools. It runs outside the sandbox with full network
 access.
 
 Run with uvicorn on a Unix socket:
-    uvicorn tracecat.agent.mcp.trusted_server:app --uds /var/run/tracecat/mcp.sock
+    uvicorn tracecat.agent.mcp.trusted_server:app --uds /run/tracecat/mcp.sock
 
 All action execution uses nsjail sandboxing. To test locally, run in a
 Docker container with nsjail installed (e.g., the executor image).

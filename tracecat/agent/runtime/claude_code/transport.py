@@ -25,7 +25,7 @@ from claude_agent_sdk._version import __version__
 from claude_agent_sdk.types import AgentDefinition, McpHttpServerConfig, McpServerConfig
 
 from tracecat.agent.common.config import TRACECAT__AGENT_MCP_BRIDGE_PORT
-from tracecat.agent.runtime.claude_code.session_paths import ClaudeSandboxPathMapping
+from tracecat.agent.runtime.session_paths import AgentSandboxPathMapping
 from tracecat.agent.sandbox.nsjail import (
     SpawnedRuntime,
     cleanup_spawned_runtime,
@@ -91,7 +91,7 @@ class SandboxedCLITransport(Transport):
         socket_dir: Path,
         llm_socket_path: Path,
         job_dir: Path,
-        path_mapping: ClaudeSandboxPathMapping,
+        path_mapping: AgentSandboxPathMapping,
         enable_internet_access: bool,
         use_jailed_paths: bool,
         skills_dir: Path | None = None,
@@ -154,7 +154,7 @@ class SandboxedCLITransport(Transport):
             init_payload: ClaudeShimInitPayload = {
                 "command": command,
                 "env": env,
-                "cwd": str(self._path_mapping.runtime_cwd),
+                "cwd": str(self._path_mapping.runtime_work_dir),
                 "mcp_bridge_port": mcp_binding.port,
                 "mcp_bridge_fd": mcp_binding.listener_fd,
             }
@@ -175,7 +175,7 @@ class SandboxedCLITransport(Transport):
                 pipe_stdin=True,
                 job_dir=self._job_dir,
                 session_home_dir=self._path_mapping.host_home_dir,
-                session_project_dir=self._path_mapping.host_project_dir,
+                session_work_dir=self._path_mapping.host_work_dir,
                 enable_internet_access=self._enable_internet_access,
                 skills_dir=self._skills_dir,
                 inherited_fds=mcp_binding.inherited_fds,
@@ -480,7 +480,7 @@ class SandboxedCLITransport(Transport):
             "CLAUDE_CODE_ENTRYPOINT": "sdk-py",
             "CLAUDE_AGENT_SDK_VERSION": __version__,
             "HOME": str(self._path_mapping.runtime_home_dir),
-            "PWD": str(self._path_mapping.runtime_cwd),
+            "PWD": str(self._path_mapping.runtime_work_dir),
             **self._options.env,
         }
         if self._options.enable_file_checkpointing:

@@ -20,19 +20,19 @@ from claude_agent_sdk.types import (
 
 from tracecat.agent.common.protocol import RuntimeInitPayload
 from tracecat.agent.common.types import SandboxAgentConfig
+from tracecat.agent.runtime import session_paths as session_paths_module
 from tracecat.agent.runtime.claude_code import broker as broker_module
-from tracecat.agent.runtime.claude_code import session_paths as session_paths_module
 from tracecat.agent.runtime.claude_code import transport as transport_module
 from tracecat.agent.runtime.claude_code.broker import (
     ClaudeRuntimeBroker,
     ClaudeTurnRequest,
     ConcurrentSessionTurnError,
 )
-from tracecat.agent.runtime.claude_code.session_paths import ClaudeSandboxPathMapping
 from tracecat.agent.runtime.claude_code.transport import (
     SandboxedCLITransport,
     open_mcp_bridge_binding,
 )
+from tracecat.agent.runtime.session_paths import AgentSandboxPathMapping
 
 
 def _make_request(tmp_path: Path) -> ClaudeTurnRequest:
@@ -59,12 +59,13 @@ def _make_request(tmp_path: Path) -> ClaudeTurnRequest:
 
 
 def _make_transport(tmp_path: Path, *, use_jailed_paths: bool) -> SandboxedCLITransport:
-    runtime_root = Path("/work") if use_jailed_paths else tmp_path / "runtime"
-    path_mapping = ClaudeSandboxPathMapping(
+    runtime_home_dir = Path("/home/agent") if use_jailed_paths else tmp_path / "home"
+    runtime_work_dir = Path("/work") if use_jailed_paths else tmp_path / "work"
+    path_mapping = AgentSandboxPathMapping(
         host_home_dir=tmp_path / "home",
-        host_project_dir=tmp_path / "project",
-        runtime_home_dir=runtime_root / "home",
-        runtime_cwd=runtime_root / "project",
+        host_work_dir=tmp_path / "work",
+        runtime_home_dir=runtime_home_dir,
+        runtime_work_dir=runtime_work_dir,
     )
     return SandboxedCLITransport(
         options=ClaudeAgentOptions(),
@@ -171,14 +172,14 @@ def test_build_path_mapping_uses_runtime_mount_paths_when_nsjail_enabled(
     mapping = ClaudeRuntimeBroker._build_path_mapping(session_id="session-123")
 
     assert (
-        mapping.host_home_dir == tmp_path / "tracecat-agent-session-123" / "claude-home"
+        mapping.host_home_dir == tmp_path / "tracecat-agent-session-123" / "agent-home"
     )
     assert (
-        mapping.host_project_dir
-        == tmp_path / "tracecat-agent-session-123" / "claude-project"
+        mapping.host_work_dir
+        == tmp_path / "tracecat-agent-session-123" / "agent-work-dir"
     )
-    assert mapping.runtime_home_dir == Path("/work/claude-home")
-    assert mapping.runtime_cwd == Path("/work/claude-project")
+    assert mapping.runtime_home_dir == Path("/home/agent")
+    assert mapping.runtime_work_dir == Path("/work")
 
 
 def test_build_path_mapping_uses_host_paths_in_direct_mode(
@@ -192,7 +193,7 @@ def test_build_path_mapping_uses_host_paths_in_direct_mode(
     mapping = ClaudeRuntimeBroker._build_path_mapping(session_id="session-123")
 
     assert mapping.runtime_home_dir == mapping.host_home_dir
-    assert mapping.runtime_cwd == mapping.host_project_dir
+    assert mapping.runtime_work_dir == mapping.host_work_dir
 
 
 def test_build_path_mapping_is_stable_per_session(
