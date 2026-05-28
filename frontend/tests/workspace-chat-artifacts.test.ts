@@ -82,7 +82,7 @@ describe("workspace chat artifacts", () => {
       },
     ] as UIMessage["parts"]
 
-    expect(parseMissionControlStreamPart(part)).toBeUndefined()
+    expect(parseWorkspaceChatArtifactStreamPart(part)).toBeUndefined()
   })
 
   it("reduces typed artifact stream parts by operation", () => {
@@ -278,7 +278,7 @@ describe("workspace chat artifacts", () => {
 
     const { result, rerender } = renderHook(
       ({ enabled }: { enabled: boolean }) =>
-        useMissionControlArtifacts([], {
+        useWorkspaceChatArtifacts([], {
           enabled,
           persistedArtifacts: [artifact],
         }),

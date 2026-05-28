@@ -2,8 +2,9 @@
  * @jest-environment jsdom
  */
 
-import { render, screen, waitFor } from "@testing-library/react"
-import { MissionControlView } from "@/components/mission-control/mission-control-view"
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
+import { render, screen } from "@testing-library/react"
+import { WorkspaceChatView } from "@/components/workspace-chat/workspace-chat-view"
 
 const mockRouterReplace = jest.fn()
 const mockUseScopeCheck = jest.fn<
@@ -28,11 +29,15 @@ jest.mock("@/components/chat/chat-interface", () => ({
   ChatInterface: () => <div data-testid="mission-control-chat" />,
 }))
 
+jest.mock("@/components/entitlement-required-empty-state", () => ({
+  EntitlementRequiredEmptyState: () => <div>Upgrade required</div>,
+}))
+
 jest.mock("@/components/loading/spinner", () => ({
   CenteredSpinner: () => <div>Loading</div>,
 }))
 
-jest.mock("@/components/mission-control/artifact-panel", () => ({
+jest.mock("@/components/workspace-chat/artifacts/artifact-panel", () => ({
   ArtifactPanel: () => <div data-testid="artifact-panel" />,
 }))
 
@@ -47,8 +52,8 @@ jest.mock("@/hooks/use-entitlements", () => ({
   }),
 }))
 
-jest.mock("@/hooks/use-mission-control-artifacts", () => ({
-  useMissionControlArtifacts: () => ({
+jest.mock("@/hooks/use-workspace-chat-artifacts", () => ({
+  useWorkspaceChatArtifacts: () => ({
     artifacts: [],
     activeArtifactKey: null,
     setActiveArtifactKey: jest.fn(),
@@ -60,7 +65,16 @@ jest.mock("@/providers/workspace-id", () => ({
   useWorkspaceId: () => "workspace-1",
 }))
 
-describe("MissionControlView", () => {
+function renderWorkspaceChatView() {
+  const queryClient = new QueryClient()
+  return render(
+    <QueryClientProvider client={queryClient}>
+      <WorkspaceChatView />
+    </QueryClientProvider>
+  )
+}
+
+describe("WorkspaceChatView", () => {
   beforeEach(() => {
     mockRouterReplace.mockReset()
     mockUseScopeCheck.mockReset()
@@ -70,7 +84,7 @@ describe("MissionControlView", () => {
   })
 
   it("requires agent execute and read scopes before rendering chat", () => {
-    render(<MissionControlView />)
+    renderWorkspaceChatView()
 
     expect(mockUseScopeCheck).toHaveBeenCalledWith(
       undefined,
@@ -83,19 +97,17 @@ describe("MissionControlView", () => {
   it("does not render chat without all required agent scopes", () => {
     mockUseScopeCheck.mockReturnValue(false)
 
-    render(<MissionControlView />)
+    renderWorkspaceChatView()
 
     expect(screen.queryByTestId("mission-control-chat")).not.toBeInTheDocument()
   })
 
-  it("redirects to workspaces when agent add-ons are unavailable", async () => {
+  it("redirects to workspaces when agent add-ons are unavailable", () => {
     mockHasEntitlement.mockReturnValue(false)
 
-    render(<MissionControlView />)
+    renderWorkspaceChatView()
 
-    await waitFor(() => {
-      expect(mockRouterReplace).toHaveBeenCalledWith("/workspaces")
-    })
+    expect(mockRouterReplace).toHaveBeenCalledWith("/workspaces")
     expect(screen.queryByTestId("mission-control-chat")).not.toBeInTheDocument()
   })
 })
