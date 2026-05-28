@@ -3708,6 +3708,7 @@ export type FeatureFlag =
   | "ai-ranking"
   | "workflow-concurrency-limits"
   | "agent-channels"
+  | "agent-fs-persistence"
 
 /**
  * Response model for feature flags.

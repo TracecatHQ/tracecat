@@ -37,6 +37,7 @@ from tracecat.agent.executor.loopback import (
     LoopbackInput,
     LoopbackResult,
 )
+from tracecat.agent.filesystem import hydrate_agent_work_dir, persist_agent_work_dir
 from tracecat.agent.llm_routing import get_litellm_route_model
 from tracecat.agent.preset.service import AgentPresetService
 from tracecat.agent.runtime.claude_code.broker import (
@@ -59,6 +60,7 @@ from tracecat.config import (
     TRACECAT__AGENT_SKILL_CACHE_DIR,
     TRACECAT__AGENT_SKILL_CACHE_MAX_CONCURRENT_DOWNLOADS,
 )
+from tracecat.feature_flags import FeatureFlag, is_feature_enabled
 from tracecat.logger import logger
 from tracecat.registry.lock.types import RegistryLock
 from tracecat.storage import blob
@@ -148,6 +150,11 @@ class ExecuteApprovedToolsResult(BaseModel):
     results: list[ToolExecutionResult]
     success: bool = True
     error: str | None = None
+
+
+def _agent_fs_persistence_enabled() -> bool:
+    """Return whether durable agent work-dir snapshots should run."""
+    return is_feature_enabled(FeatureFlag.AGENT_FS_PERSISTENCE)
 
 
 @dataclass
@@ -382,6 +389,36 @@ class SandboxedAgentExecutor:
 
         return result
 
+    async def _hydrate_agent_filesystem(self, work_dir: Path) -> None:
+        """Hydrate the persistent agent work dir before runtime startup."""
+        self._log_benchmark_phase("agent_fs_hydrate_start")
+        await hydrate_agent_work_dir(
+            role=self.input.role,
+            session_id=self.input.session_id,
+            work_dir=work_dir,
+        )
+        self._log_benchmark_phase("agent_fs_hydrate_complete")
+
+    async def _persist_agent_filesystem(self, work_dir: Path) -> None:
+        """Persist the agent work dir after a successful runtime turn."""
+        self._log_benchmark_phase("agent_fs_snapshot_start")
+        try:
+            await persist_agent_work_dir(
+                role=self.input.role,
+                session_id=self.input.session_id,
+                workspace_id=self.input.workspace_id,
+                work_dir=work_dir,
+            )
+        except Exception as e:
+            logger.exception(
+                "Failed to persist agent filesystem snapshot",
+                session_id=str(self.input.session_id),
+                workspace_id=str(self.input.workspace_id),
+                error=str(e),
+            )
+        else:
+            self._log_benchmark_phase("agent_fs_snapshot_complete")
+
     @staticmethod
     def _apply_loopback_result(
         result: AgentExecutorResult, loopback_result: LoopbackResult
@@ -432,6 +469,12 @@ class SandboxedAgentExecutor:
             llm_socket_path=llm_socket_path,
             enable_internet_access=init_payload.config.enable_internet_access,
             skills_dir=self._skills_dir(),
+            hydrate_work_dir=self._hydrate_agent_filesystem
+            if _agent_fs_persistence_enabled()
+            else None,
+            persist_work_dir=self._persist_agent_filesystem
+            if _agent_fs_persistence_enabled()
+            else None,
         )
         broker_task = asyncio.create_task(broker.run_turn(request, handler))
         self._log_benchmark_phase("broker_turn_dispatched")

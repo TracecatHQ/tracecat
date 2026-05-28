@@ -1190,6 +1190,9 @@ def env_sandbox(monkeysession: pytest.MonkeyPatch):
     monkeysession.setattr(
         config, "TRACECAT__BLOB_STORAGE_BUCKET_WORKFLOW", MINIO_WORKFLOW_BUCKET
     )
+    monkeysession.setattr(
+        config, "TRACECAT__BLOB_STORAGE_BUCKET_AGENT", MINIO_WORKFLOW_BUCKET
+    )
     monkeysession.setattr(config, "TRACECAT__RESULT_EXTERNALIZATION_ENABLED", True)
     # Externalize all results for testing (threshold=0)
     monkeysession.setattr(config, "TRACECAT__RESULT_EXTERNALIZATION_THRESHOLD_BYTES", 0)
@@ -1212,6 +1215,7 @@ def env_sandbox(monkeysession: pytest.MonkeyPatch):
     monkeysession.setenv(
         "TRACECAT__BLOB_STORAGE_BUCKET_WORKFLOW", MINIO_WORKFLOW_BUCKET
     )
+    monkeysession.setenv("TRACECAT__BLOB_STORAGE_BUCKET_AGENT", MINIO_WORKFLOW_BUCKET)
     monkeysession.setenv("TRACECAT__RESULT_EXTERNALIZATION_ENABLED", "true")
     monkeysession.setenv("TRACECAT__RESULT_EXTERNALIZATION_THRESHOLD_BYTES", "0")
     # monkeysession.setenv("TRACECAT__DB_ENCRYPTION_KEY", Fernet.generate_key().decode())
@@ -1746,6 +1750,7 @@ def workflow_bucket(minio_server, env_sandbox):
         config.TRACECAT__BLOB_STORAGE_BUCKET_ATTACHMENTS,
         config.TRACECAT__BLOB_STORAGE_BUCKET_REGISTRY,
         config.TRACECAT__BLOB_STORAGE_BUCKET_SKILLS,
+        config.TRACECAT__BLOB_STORAGE_BUCKET_AGENT,
         config.TRACECAT__BLOB_STORAGE_BUCKET_WORKFLOW,
     }
     for bucket_name in sorted(bucket_names):

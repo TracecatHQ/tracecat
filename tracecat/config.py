@@ -473,6 +473,15 @@ TRACECAT__BLOB_STORAGE_BUCKET_WORKFLOW = os.environ.get(
 )
 """Bucket for externalized workflow data (action results, triggers, etc.)."""
 
+TRACECAT__BLOB_STORAGE_BUCKET_AGENT = os.environ.get(
+    "TRACECAT__BLOB_STORAGE_BUCKET_AGENT", TRACECAT__BLOB_STORAGE_BUCKET_WORKFLOW
+)
+"""Bucket for durable agent filesystem snapshots.
+
+Defaults to the workflow bucket so existing deployments do not need a new bucket
+until the feature is explicitly pointed at one.
+"""
+
 TRACECAT__WORKFLOW_ARTIFACT_RETENTION_DAYS = int(
     os.environ.get("TRACECAT__WORKFLOW_ARTIFACT_RETENTION_DAYS") or 30
 )
@@ -557,6 +566,22 @@ TRACECAT__SANDBOX_CACHE_DIR = os.environ.get(
     "TRACECAT__SANDBOX_CACHE_DIR", "/var/lib/tracecat/sandbox-cache"
 )
 """Base directory for sandbox caching (packages, uv cache)."""
+
+TRACECAT__AGENT_FS_CACHE_DIR = os.environ.get(
+    "TRACECAT__AGENT_FS_CACHE_DIR",
+    f"{TRACECAT__SANDBOX_CACHE_DIR}/agent-fs",
+)
+"""Worker-local cache for downloaded and extracted agent filesystem snapshots."""
+
+TRACECAT__AGENT_FS_MAX_UNCOMPRESSED_BYTES = int(
+    os.environ.get("TRACECAT__AGENT_FS_MAX_UNCOMPRESSED_BYTES") or 1024 * 1024 * 1024
+)
+"""Maximum uncompressed bytes allowed in one agent filesystem snapshot."""
+
+TRACECAT__AGENT_FS_MAX_FILE_COUNT = int(
+    os.environ.get("TRACECAT__AGENT_FS_MAX_FILE_COUNT") or 50_000
+)
+"""Maximum number of regular files allowed in one agent filesystem snapshot."""
 
 TRACECAT__SANDBOX_DEFAULT_TIMEOUT = int(
     os.environ.get("TRACECAT__SANDBOX_DEFAULT_TIMEOUT") or 300

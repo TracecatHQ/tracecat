@@ -209,6 +209,7 @@ async def lifespan(app: FastAPI):
     await ensure_bucket_exists(config.TRACECAT__BLOB_STORAGE_BUCKET_ATTACHMENTS)
     await ensure_bucket_exists(config.TRACECAT__BLOB_STORAGE_BUCKET_REGISTRY)
     await ensure_bucket_exists(config.TRACECAT__BLOB_STORAGE_BUCKET_SKILLS)
+    await ensure_bucket_exists(config.TRACECAT__BLOB_STORAGE_BUCKET_AGENT)
 
     # Workflow bucket with lifecycle expiration
     await ensure_bucket_exists(config.TRACECAT__BLOB_STORAGE_BUCKET_WORKFLOW)

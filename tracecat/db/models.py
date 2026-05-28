@@ -16,6 +16,7 @@ from pydantic import GetCoreSchemaHandler
 from pydantic_core import CoreSchema, core_schema, to_json
 from sqlalchemy import (
     TIMESTAMP,
+    BigInteger,
     Boolean,
     CheckConstraint,
     Enum,
@@ -2911,6 +2912,50 @@ class AgentSessionHistory(WorkspaceModel):
     session: Mapped[AgentSession] = relationship(
         "AgentSession",
         back_populates="history",
+    )
+
+
+class AgentSessionFilesystemSnapshot(WorkspaceModel):
+    """Durable archive metadata for an agent session work dir snapshot."""
+
+    __tablename__ = "agent_session_fs_snapshot"
+    __table_args__ = (
+        Index(
+            "ix_agent_session_fs_snapshot_session_created",
+            "session_id",
+            "created_at",
+            "surrogate_id",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        default=uuid.uuid4,
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+    session_id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        ForeignKey("agent_session.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    bucket: Mapped[str] = mapped_column(String(255), nullable=False)
+    key: Mapped[str] = mapped_column(String(1024), nullable=False)
+    sha256: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    size_bytes: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    uncompressed_size_bytes: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    file_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    archive_format: Mapped[str] = mapped_column(
+        String(32),
+        nullable=False,
+        default="tar.gz",
+    )
+    compression: Mapped[str] = mapped_column(
+        String(32),
+        nullable=False,
+        default="gzip",
     )
 
 

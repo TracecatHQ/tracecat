@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -33,6 +34,8 @@ class ClaudeTurnRequest:
     llm_socket_path: Path
     enable_internet_access: bool
     skills_dir: Path | None = None
+    hydrate_work_dir: Callable[[Path], Awaitable[None]] | None = None
+    persist_work_dir: Callable[[Path], Awaitable[None]] | None = None
 
 
 class ClaudeRuntimeBroker:
@@ -85,6 +88,8 @@ class ClaudeRuntimeBroker:
             path_mapping = self._build_path_mapping(
                 session_id=str(request.init_payload.session_id)
             )
+            if request.hydrate_work_dir is not None:
+                await request.hydrate_work_dir(path_mapping.host_work_dir)
             runtime = ClaudeAgentRuntime(
                 handler,
                 transport_factory=lambda options: SandboxedCLITransport(
@@ -103,6 +108,8 @@ class ClaudeRuntimeBroker:
                 cwd_setup_path=path_mapping.host_work_dir,
             )
             await runtime.run(request.init_payload)
+            if request.persist_work_dir is not None and handler.build_result().success:
+                await request.persist_work_dir(path_mapping.host_work_dir)
         finally:
             async with self._lock:
                 self._active_turns.pop(session_key, None)

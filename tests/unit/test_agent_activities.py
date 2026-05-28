@@ -1132,6 +1132,95 @@ class TestSandboxedAgentExecutorHelpers:
         mock_with_session.assert_not_called()
 
 
+class TestSandboxedAgentExecutorFilesystemPersistence:
+    """Tests for feature-flagged agent work-dir hydration and snapshotting."""
+
+    @pytest.mark.anyio
+    async def test_run_hydrates_and_snapshots_when_feature_enabled(
+        self,
+        mock_role: Role,
+        mock_session_id: uuid.UUID,
+        mock_agent_config: AgentConfig,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        mock_executor_input = AgentExecutorInput(
+            session_id=mock_session_id,
+            workspace_id=mock_role.workspace_id or uuid.uuid4(),
+            user_prompt="Test prompt",
+            config=mock_agent_config,
+            role=mock_role,
+            mcp_auth_token="mock-jwt-token",
+            llm_gateway_auth_token="mock-llm-token",
+        )
+        executor = SandboxedAgentExecutor(input=mock_executor_input)
+        job_dir = tmp_path / "job"
+        socket_dir = job_dir / "sockets"
+        work_dir = tmp_path / "work"
+        events: list[str] = []
+
+        async def fake_create_job_directory() -> Path:
+            socket_dir.mkdir(parents=True)
+            return job_dir
+
+        async def fake_create_llm_socket_proxy(_socket_path: Path) -> AsyncMock:
+            return AsyncMock()
+
+        class FakeBroker:
+            async def run_turn(self, request: Any, handler: Any) -> None:
+                assert request.hydrate_work_dir is not None
+                assert request.persist_work_dir is not None
+                await request.hydrate_work_dir(work_dir)
+                events.append("broker")
+                handler._result = LoopbackResult(success=True)
+                await request.persist_work_dir(work_dir)
+
+            async def cancel_turn(self, _session_id: str) -> None:
+                raise AssertionError("cancel_turn should not be called")
+
+        async def fake_hydrate_agent_work_dir(**kwargs: Any) -> None:
+            events.append("hydrate")
+            assert kwargs["session_id"] == mock_session_id
+            assert kwargs["work_dir"] == work_dir
+
+        async def fake_persist_agent_work_dir(**kwargs: Any) -> None:
+            events.append("snapshot")
+            assert kwargs["session_id"] == mock_session_id
+            assert kwargs["workspace_id"] == mock_executor_input.workspace_id
+            assert kwargs["work_dir"] == work_dir
+
+        monkeypatch.setattr(
+            executor, "_create_job_directory", fake_create_job_directory
+        )
+        monkeypatch.setattr(
+            executor,
+            "_create_llm_socket_proxy",
+            fake_create_llm_socket_proxy,
+        )
+        monkeypatch.setattr(executor, "_cleanup", AsyncMock())
+        monkeypatch.setattr(
+            "tracecat.agent.executor.activity._agent_fs_persistence_enabled",
+            lambda: True,
+        )
+        monkeypatch.setattr(
+            "tracecat.agent.executor.activity.get_claude_runtime_broker",
+            lambda: FakeBroker(),
+        )
+        monkeypatch.setattr(
+            "tracecat.agent.executor.activity.hydrate_agent_work_dir",
+            fake_hydrate_agent_work_dir,
+        )
+        monkeypatch.setattr(
+            "tracecat.agent.executor.activity.persist_agent_work_dir",
+            fake_persist_agent_work_dir,
+        )
+
+        result = await executor.run()
+
+        assert result.success is True
+        assert events == ["hydrate", "broker", "snapshot"]
+
+
 class TestSandboxedAgentExecutorSkillCaching:
     """Tests for cached skill staging in the sandbox executor."""
 
