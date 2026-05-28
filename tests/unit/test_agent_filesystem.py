@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import io
-import json
 import shutil
 import stat
 import tarfile
@@ -19,6 +18,7 @@ from tracecat import config
 from tracecat.agent.filesystem import (
     AgentFilesystemService,
     AgentFilesystemSnapshotLimitExceeded,
+    compute_work_dir_state,
     create_work_dir_archive,
     extract_work_dir_archive,
     hydrate_agent_work_dir,
@@ -79,6 +79,40 @@ def test_archive_enforces_snapshot_size_limit(tmp_path: Path) -> None:
         )
 
 
+def test_work_dir_state_hash_is_stable_and_tracks_file_boundaries(
+    tmp_path: Path,
+) -> None:
+    work_dir = tmp_path / "work"
+    work_dir.mkdir()
+    (work_dir / "a.txt").write_text("hello")
+    (work_dir / "b.txt").write_text("world")
+
+    first_state = compute_work_dir_state(
+        work_dir,
+        max_uncompressed_bytes=1024,
+        max_file_count=10,
+    )
+    second_state = compute_work_dir_state(
+        work_dir,
+        max_uncompressed_bytes=1024,
+        max_file_count=10,
+    )
+
+    assert first_state == second_state
+    assert len(first_state.state_hash) == 64
+
+    (work_dir / "a.txt").write_text("helloworld")
+    (work_dir / "b.txt").write_text("")
+    changed_state = compute_work_dir_state(
+        work_dir,
+        max_uncompressed_bytes=1024,
+        max_file_count=10,
+    )
+
+    assert changed_state.uncompressed_size_bytes == first_state.uncompressed_size_bytes
+    assert changed_state.state_hash != first_state.state_hash
+
+
 def test_extract_rejects_path_traversal(tmp_path: Path) -> None:
     archive_path = tmp_path / "malicious.tar.gz"
     payload = b"escape"
@@ -124,7 +158,8 @@ async def test_persist_and_hydrate_round_trip_through_blob_cache(
             session_id: uuid.UUID,
             bucket: str,
             key: str,
-            stats: Any,
+            archive_stats: Any,
+            state_stats: Any,
         ) -> SimpleNamespace:
             nonlocal latest_snapshot
             latest_snapshot = SimpleNamespace(
@@ -132,10 +167,11 @@ async def test_persist_and_hydrate_round_trip_through_blob_cache(
                 session_id=session_id,
                 bucket=bucket,
                 key=key,
-                sha256=stats.sha256,
-                size_bytes=stats.size_bytes,
-                uncompressed_size_bytes=stats.uncompressed_size_bytes,
-                file_count=stats.file_count,
+                state_hash=state_stats.state_hash,
+                sha256=archive_stats.sha256,
+                size_bytes=archive_stats.size_bytes,
+                uncompressed_size_bytes=state_stats.uncompressed_size_bytes,
+                file_count=state_stats.file_count,
             )
             return latest_snapshot
 
@@ -222,10 +258,19 @@ async def test_persist_skips_initial_empty_work_dir(
     work_dir = tmp_path / "session" / "agent-work-dir"
     work_dir.mkdir(parents=True)
 
+    class FakeService:
+        async def get_latest_snapshot_for_hydration(
+            self,
+            _session_id: uuid.UUID,
+        ) -> None:
+            return None
+
+        async def record_snapshot(self, **_kwargs: Any) -> None:
+            raise AssertionError("empty initial work dir should not record a snapshot")
+
     @asynccontextmanager
-    async def fail_with_session(**_kwargs: Any):
-        raise AssertionError("empty initial work dir should not record a snapshot")
-        yield
+    async def fake_with_session(**_kwargs: Any):
+        yield FakeService()
 
     async def fail_upload_file_from_path(*_args: Any, **_kwargs: Any) -> None:
         raise AssertionError("empty initial work dir should not upload an archive")
@@ -238,7 +283,7 @@ async def test_persist_skips_initial_empty_work_dir(
     monkeypatch.setattr(
         AgentFilesystemService,
         "with_session",
-        staticmethod(fail_with_session),
+        staticmethod(fake_with_session),
     )
     monkeypatch.setattr(
         "tracecat.agent.filesystem.blob.upload_file_from_path",
@@ -257,7 +302,7 @@ async def test_persist_skips_initial_empty_work_dir(
 
 
 @pytest.mark.anyio
-async def test_persist_records_empty_work_dir_after_prior_snapshot_marker(
+async def test_persist_records_empty_work_dir_after_prior_snapshot(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -265,20 +310,29 @@ async def test_persist_records_empty_work_dir_after_prior_snapshot_marker(
     workspace_id = uuid.uuid4()
     work_dir = tmp_path / "session" / "agent-work-dir"
     work_dir.mkdir(parents=True)
-    (work_dir.parent / ".agent-fs-snapshot.json").write_text(
-        json.dumps({"snapshot_id": str(uuid.uuid4()), "sha256": "0" * 64})
-    )
     uploaded: dict[tuple[str, str], bytes] = {}
+    latest_snapshot = SimpleNamespace(
+        id=uuid.uuid4(),
+        state_hash="0" * 64,
+        sha256="0" * 64,
+    )
     recorded_snapshot: SimpleNamespace | None = None
 
     class FakeService:
+        async def get_latest_snapshot_for_hydration(
+            self,
+            _session_id: uuid.UUID,
+        ) -> SimpleNamespace:
+            return latest_snapshot
+
         async def record_snapshot(
             self,
             *,
             session_id: uuid.UUID,
             bucket: str,
             key: str,
-            stats: Any,
+            archive_stats: Any,
+            state_stats: Any,
         ) -> SimpleNamespace:
             nonlocal recorded_snapshot
             recorded_snapshot = SimpleNamespace(
@@ -286,10 +340,11 @@ async def test_persist_records_empty_work_dir_after_prior_snapshot_marker(
                 session_id=session_id,
                 bucket=bucket,
                 key=key,
-                sha256=stats.sha256,
-                size_bytes=stats.size_bytes,
-                uncompressed_size_bytes=stats.uncompressed_size_bytes,
-                file_count=stats.file_count,
+                state_hash=state_stats.state_hash,
+                sha256=archive_stats.sha256,
+                size_bytes=archive_stats.size_bytes,
+                uncompressed_size_bytes=state_stats.uncompressed_size_bytes,
+                file_count=state_stats.file_count,
             )
             return recorded_snapshot
 
@@ -335,3 +390,66 @@ async def test_persist_records_empty_work_dir_after_prior_snapshot_marker(
     assert recorded_snapshot.file_count == 0
     assert recorded_snapshot.uncompressed_size_bytes == 0
     assert uploaded.keys() == {("agent-bucket", recorded_snapshot.key)}
+
+
+@pytest.mark.anyio
+async def test_persist_skips_unchanged_state_without_local_marker(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    session_id = uuid.uuid4()
+    workspace_id = uuid.uuid4()
+    work_dir = tmp_path / "session" / "agent-work-dir"
+    work_dir.mkdir(parents=True)
+    (work_dir / "notes.txt").write_text("durable state")
+    state_stats = compute_work_dir_state(
+        work_dir,
+        max_uncompressed_bytes=1024,
+        max_file_count=10,
+    )
+    latest_snapshot = SimpleNamespace(
+        id=uuid.uuid4(),
+        state_hash=state_stats.state_hash,
+        sha256="0" * 64,
+    )
+
+    class FakeService:
+        async def get_latest_snapshot_for_hydration(
+            self,
+            _session_id: uuid.UUID,
+        ) -> SimpleNamespace:
+            return latest_snapshot
+
+        async def record_snapshot(self, **_kwargs: Any) -> None:
+            raise AssertionError("unchanged state should not record a snapshot")
+
+    @asynccontextmanager
+    async def fake_with_session(**_kwargs: Any):
+        yield FakeService()
+
+    async def fail_upload_file_from_path(*_args: Any, **_kwargs: Any) -> None:
+        raise AssertionError("unchanged state should not upload an archive")
+
+    monkeypatch.setattr(
+        config,
+        "TRACECAT__AGENT_FS_CACHE_DIR",
+        str(tmp_path / "cache"),
+    )
+    monkeypatch.setattr(
+        AgentFilesystemService,
+        "with_session",
+        staticmethod(fake_with_session),
+    )
+    monkeypatch.setattr(
+        "tracecat.agent.filesystem.blob.upload_file_from_path",
+        fail_upload_file_from_path,
+    )
+
+    snapshot = await persist_agent_work_dir(
+        role=cast(Any, object()),
+        session_id=session_id,
+        workspace_id=workspace_id,
+        work_dir=work_dir,
+    )
+
+    assert snapshot is None

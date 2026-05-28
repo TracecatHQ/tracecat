@@ -30,6 +30,7 @@ def upgrade() -> None:
         sa.Column("session_id", sa.UUID(), nullable=False),
         sa.Column("bucket", sa.String(length=255), nullable=False),
         sa.Column("key", sa.String(length=1024), nullable=False),
+        sa.Column("state_hash", sa.String(length=64), nullable=False),
         sa.Column("sha256", sa.String(length=64), nullable=False),
         sa.Column("size_bytes", sa.BigInteger(), nullable=False),
         sa.Column("uncompressed_size_bytes", sa.BigInteger(), nullable=False),

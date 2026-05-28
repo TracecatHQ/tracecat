@@ -13,7 +13,7 @@ import tarfile
 import uuid
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
-from typing import BinaryIO
+from typing import BinaryIO, Protocol
 
 from sqlalchemy import select
 
@@ -28,6 +28,14 @@ AGENT_FS_ARCHIVE_FORMAT = "tar.gz"
 AGENT_FS_COMPRESSION = "gzip"
 AGENT_FS_CONTENT_TYPE = "application/gzip"
 SNAPSHOT_MARKER_FILENAME = ".agent-fs-snapshot.json"
+STATE_HASH_ALGORITHM = "blake2b-256"
+_STATE_HASH_DIGEST_SIZE = 32
+
+
+class _HashUpdater(Protocol):
+    """Minimal hash object protocol used by streaming helpers."""
+
+    def update(self, data: bytes, /) -> None: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -36,6 +44,15 @@ class AgentFilesystemArchiveStats:
 
     sha256: str
     size_bytes: int
+    uncompressed_size_bytes: int
+    file_count: int
+
+
+@dataclass(frozen=True, slots=True)
+class AgentFilesystemStateStats:
+    """Canonical agent work-dir state statistics."""
+
+    state_hash: str
     uncompressed_size_bytes: int
     file_count: int
 
@@ -94,7 +111,8 @@ class AgentFilesystemService(BaseWorkspaceService):
         session_id: uuid.UUID,
         bucket: str,
         key: str,
-        stats: AgentFilesystemArchiveStats,
+        archive_stats: AgentFilesystemArchiveStats,
+        state_stats: AgentFilesystemStateStats,
     ) -> AgentSessionFilesystemSnapshot:
         """Persist metadata for an uploaded agent work-dir archive."""
         snapshot = AgentSessionFilesystemSnapshot(
@@ -102,10 +120,11 @@ class AgentFilesystemService(BaseWorkspaceService):
             session_id=session_id,
             bucket=bucket,
             key=key,
-            sha256=stats.sha256,
-            size_bytes=stats.size_bytes,
-            uncompressed_size_bytes=stats.uncompressed_size_bytes,
-            file_count=stats.file_count,
+            state_hash=state_stats.state_hash,
+            sha256=archive_stats.sha256,
+            size_bytes=archive_stats.size_bytes,
+            uncompressed_size_bytes=state_stats.uncompressed_size_bytes,
+            file_count=state_stats.file_count,
             archive_format=AGENT_FS_ARCHIVE_FORMAT,
             compression=AGENT_FS_COMPRESSION,
         )
@@ -143,12 +162,13 @@ async def hydrate_agent_work_dir(
         return None
 
     marker = _read_snapshot_marker(work_dir)
-    if marker is not None and marker.get("sha256") == snapshot.sha256:
+    if marker is not None and _snapshot_marker_matches(marker, snapshot):
         if work_dir.exists():
             logger.debug(
                 "Agent filesystem snapshot already hydrated",
                 session_id=str(session_id),
                 snapshot_id=str(snapshot.id),
+                state_hash=getattr(snapshot, "state_hash", None),
                 sha256=snapshot.sha256,
             )
             return snapshot
@@ -160,6 +180,7 @@ async def hydrate_agent_work_dir(
         "Hydrated agent filesystem snapshot",
         session_id=str(session_id),
         snapshot_id=str(snapshot.id),
+        state_hash=getattr(snapshot, "state_hash", None),
         sha256=snapshot.sha256,
         size_bytes=snapshot.size_bytes,
         file_count=snapshot.file_count,
@@ -181,42 +202,55 @@ async def persist_agent_work_dir(
     temp_archive = staging_dir / f"{session_id}-{uuid.uuid4().hex}.tar.gz"
 
     try:
-        stats = await asyncio.to_thread(
+        state_stats = await asyncio.to_thread(
+            compute_work_dir_state,
+            work_dir,
+            max_uncompressed_bytes=config.TRACECAT__AGENT_FS_MAX_UNCOMPRESSED_BYTES,
+            max_file_count=config.TRACECAT__AGENT_FS_MAX_FILE_COUNT,
+        )
+
+        async with AgentFilesystemService.with_session(role=role) as service:
+            latest_snapshot = await service.get_latest_snapshot_for_hydration(
+                session_id
+            )
+
+        if (
+            latest_snapshot is not None
+            and getattr(latest_snapshot, "state_hash", None) == state_stats.state_hash
+        ):
+            logger.debug(
+                "Skipping unchanged agent filesystem snapshot",
+                session_id=str(session_id),
+                snapshot_id=str(latest_snapshot.id),
+                state_hash=state_stats.state_hash,
+            )
+            return None
+
+        if latest_snapshot is None and state_stats.file_count == 0:
+            logger.debug(
+                "Skipping empty initial agent filesystem snapshot",
+                session_id=str(session_id),
+                state_hash=state_stats.state_hash,
+            )
+            return None
+
+        archive_stats = await asyncio.to_thread(
             create_work_dir_archive,
             work_dir,
             temp_archive,
             max_uncompressed_bytes=config.TRACECAT__AGENT_FS_MAX_UNCOMPRESSED_BYTES,
             max_file_count=config.TRACECAT__AGENT_FS_MAX_FILE_COUNT,
         )
-        marker = _read_snapshot_marker(work_dir)
-        if marker is not None and marker.get("sha256") == stats.sha256:
-            temp_archive.unlink(missing_ok=True)
-            logger.debug(
-                "Skipping unchanged agent filesystem snapshot",
-                session_id=str(session_id),
-                sha256=stats.sha256,
-            )
-            return None
-
-        if marker is None and stats.file_count == 0:
-            temp_archive.unlink(missing_ok=True)
-            logger.debug(
-                "Skipping empty initial agent filesystem snapshot",
-                session_id=str(session_id),
-                sha256=stats.sha256,
-            )
-            return None
-
         archive_path = await asyncio.to_thread(
             _promote_archive_to_cache,
             temp_archive,
-            stats.sha256,
+            archive_stats.sha256,
         )
         bucket = config.TRACECAT__BLOB_STORAGE_BUCKET_AGENT
         key = build_agent_fs_snapshot_key(
             workspace_id=workspace_id,
             session_id=session_id,
-            sha256=stats.sha256,
+            sha256=archive_stats.sha256,
         )
         await blob.upload_file_from_path(
             archive_path,
@@ -231,21 +265,94 @@ async def persist_agent_work_dir(
                 session_id=session_id,
                 bucket=bucket,
                 key=key,
-                stats=stats,
+                archive_stats=archive_stats,
+                state_stats=state_stats,
             )
         await asyncio.to_thread(_write_snapshot_marker, work_dir, snapshot)
         logger.info(
             "Persisted agent filesystem snapshot",
             session_id=str(session_id),
             snapshot_id=str(snapshot.id),
-            sha256=stats.sha256,
-            size_bytes=stats.size_bytes,
-            uncompressed_size_bytes=stats.uncompressed_size_bytes,
-            file_count=stats.file_count,
+            state_hash=state_stats.state_hash,
+            sha256=archive_stats.sha256,
+            size_bytes=archive_stats.size_bytes,
+            uncompressed_size_bytes=state_stats.uncompressed_size_bytes,
+            file_count=state_stats.file_count,
         )
         return snapshot
     finally:
         temp_archive.unlink(missing_ok=True)
+
+
+def compute_work_dir_state(
+    work_dir: Path,
+    *,
+    max_uncompressed_bytes: int,
+    max_file_count: int,
+) -> AgentFilesystemStateStats:
+    """Compute a stable logical state hash for regular files and directories."""
+    work_dir = work_dir.resolve()
+    state_hasher = hashlib.blake2b(digest_size=_STATE_HASH_DIGEST_SIZE)
+    _hash_state_field(state_hasher, b"tracecat-agent-fs-state-v1")
+    total_bytes = 0
+    file_count = 0
+
+    for root, dirs, files in os.walk(work_dir, followlinks=False):
+        root_path = Path(root)
+        kept_dirs: list[str] = []
+        for dirname in sorted(dirs):
+            dir_path = root_path / dirname
+            try:
+                dir_stat = dir_path.lstat()
+            except FileNotFoundError:
+                continue
+            if not stat.S_ISDIR(dir_stat.st_mode):
+                continue
+            kept_dirs.append(dirname)
+            _hash_state_entry(
+                state_hasher,
+                entry_type="dir",
+                relative_path=dir_path.relative_to(work_dir).as_posix(),
+                mode=stat.S_IMODE(dir_stat.st_mode),
+                size_bytes=0,
+                content_hash="",
+            )
+        dirs[:] = kept_dirs
+
+        for filename in sorted(files):
+            file_path = root_path / filename
+            try:
+                file_stat = file_path.lstat()
+            except FileNotFoundError:
+                continue
+            if not stat.S_ISREG(file_stat.st_mode):
+                continue
+            file_count += 1
+            if file_count > max_file_count:
+                raise AgentFilesystemSnapshotLimitExceeded(
+                    "Agent filesystem snapshot exceeds max file count: "
+                    f"{file_count} > {max_file_count}"
+                )
+            total_bytes += file_stat.st_size
+            if total_bytes > max_uncompressed_bytes:
+                raise AgentFilesystemSnapshotLimitExceeded(
+                    "Agent filesystem snapshot exceeds max uncompressed bytes: "
+                    f"{total_bytes} > {max_uncompressed_bytes}"
+                )
+            _hash_state_entry(
+                state_hasher,
+                entry_type="file",
+                relative_path=file_path.relative_to(work_dir).as_posix(),
+                mode=stat.S_IMODE(file_stat.st_mode),
+                size_bytes=file_stat.st_size,
+                content_hash=_blake2b_file(file_path),
+            )
+
+    return AgentFilesystemStateStats(
+        state_hash=state_hasher.hexdigest(),
+        uncompressed_size_bytes=total_bytes,
+        file_count=file_count,
+    )
 
 
 def create_work_dir_archive(
@@ -482,9 +589,37 @@ def _sha256_file(path: Path) -> str:
     return hasher.hexdigest()
 
 
-def _copy_to_hash(source: BinaryIO, hasher: hashlib._Hash) -> None:
+def _blake2b_file(path: Path) -> str:
+    hasher = hashlib.blake2b(digest_size=_STATE_HASH_DIGEST_SIZE)
+    with path.open("rb") as f:
+        _copy_to_hash(f, hasher)
+    return hasher.hexdigest()
+
+
+def _copy_to_hash(source: BinaryIO, hasher: _HashUpdater) -> None:
     while chunk := source.read(1024 * 1024):
         hasher.update(chunk)
+
+
+def _hash_state_entry(
+    hasher: _HashUpdater,
+    *,
+    entry_type: str,
+    relative_path: str,
+    mode: int,
+    size_bytes: int,
+    content_hash: str,
+) -> None:
+    _hash_state_field(hasher, entry_type.encode())
+    _hash_state_field(hasher, relative_path.encode("utf-8", errors="surrogateescape"))
+    _hash_state_field(hasher, str(mode).encode())
+    _hash_state_field(hasher, str(size_bytes).encode())
+    _hash_state_field(hasher, content_hash.encode())
+
+
+def _hash_state_field(hasher: _HashUpdater, value: bytes) -> None:
+    hasher.update(len(value).to_bytes(8, "big"))
+    hasher.update(value)
 
 
 def _snapshot_marker_path(work_dir: Path) -> Path:
@@ -504,7 +639,20 @@ def _read_snapshot_marker(work_dir: Path) -> dict[str, str] | None:
     sha256 = marker.get("sha256")
     if not isinstance(snapshot_id, str) or not isinstance(sha256, str):
         return None
-    return {"snapshot_id": snapshot_id, "sha256": sha256}
+    state_hash = marker.get("state_hash")
+    parsed_marker = {"snapshot_id": snapshot_id, "sha256": sha256}
+    if isinstance(state_hash, str):
+        parsed_marker["state_hash"] = state_hash
+    return parsed_marker
+
+
+def _snapshot_marker_matches(
+    marker: dict[str, str],
+    snapshot: AgentSessionFilesystemSnapshot,
+) -> bool:
+    if marker.get("state_hash") == getattr(snapshot, "state_hash", None):
+        return True
+    return marker.get("sha256") == snapshot.sha256
 
 
 def _write_snapshot_marker(
@@ -518,6 +666,7 @@ def _write_snapshot_marker(
         json.dump(
             {
                 "snapshot_id": str(snapshot.id),
+                "state_hash": snapshot.state_hash,
                 "sha256": snapshot.sha256,
             },
             f,

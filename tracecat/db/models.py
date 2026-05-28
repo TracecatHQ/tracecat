@@ -2920,8 +2920,9 @@ class AgentSessionFilesystemSnapshot(WorkspaceModel):
 
     Each row points to one compressed work-dir archive in blob storage. The
     executor hydrates the newest snapshot for a session before a turn and writes
-    a new row only after a successful turn. Parent-session fallback lives in the
-    filesystem service; this model remains the workspace-scoped snapshot ledger.
+    a new row only after a successful turn that changes the logical filesystem
+    state. Parent-session fallback lives in the filesystem service; this model
+    remains the workspace-scoped snapshot ledger.
     """
 
     __tablename__ = "agent_session_fs_snapshot"
@@ -2958,6 +2959,11 @@ class AgentSessionFilesystemSnapshot(WorkspaceModel):
         String(1024),
         nullable=False,
         doc="Blob storage key for the compressed archive.",
+    )
+    state_hash: Mapped[str] = mapped_column(
+        String(64),
+        nullable=False,
+        doc="BLAKE2b-256 digest of the canonical work-dir state used to skip unchanged snapshots.",
     )
     sha256: Mapped[str] = mapped_column(
         String(64),
