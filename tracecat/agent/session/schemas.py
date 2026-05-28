@@ -12,6 +12,7 @@ from tracecat.agent.adapter.vercel import UIMessage
 from tracecat.agent.common.stream_types import HarnessType
 from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.agent.subagents import ResolvedAgentsConfig
+from tracecat.artifacts.schemas import Artifact
 
 
 class AgentSessionCreate(BaseModel):
@@ -121,6 +122,7 @@ class AgentSessionRead(BaseModel):
     harness_type: str | None
     # Stream tracking
     last_stream_id: str | None = None
+    artifacts: list[Artifact] = Field(default_factory=list)
     # Fork tracking
     parent_session_id: uuid.UUID | None = None
     # Timestamps
@@ -144,6 +146,12 @@ class AgentSessionReadVercel(AgentSessionRead):
     messages: list[UIMessage] = Field(
         default_factory=list, description="Session messages in Vercel UI format"
     )
+
+
+class AgentSessionArtifactsRead(BaseModel):
+    """Response schema for persisted agent session artifacts."""
+
+    artifacts: list[Artifact] = Field(default_factory=list)
 
 
 class AgentSessionForkRequest(BaseModel):

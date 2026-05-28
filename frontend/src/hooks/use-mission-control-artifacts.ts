@@ -24,12 +24,16 @@ export type UseMissionControlArtifactsResult = {
 /** Options for projecting artifact stream parts into Mission Control state. */
 export type UseMissionControlArtifactsOptions = {
   enabled?: boolean
+  persistedArtifacts?: MissionControlArtifact[]
+  onCloseArtifact?: (type: ArtifactType, id: string) => void | Promise<void>
 }
 
 type MissionControlMessageStreamPart = {
   eventKey: string
   part: MissionControlStreamPart
 }
+
+const EMPTY_ARTIFACTS: MissionControlArtifact[] = []
 
 function reduceArtifactPayload(
   next: Map<string, MissionControlArtifact>,
@@ -105,10 +109,21 @@ function messageStreamPartEventKey(
   }
 }
 
-function artifactMapFromMessageStreamParts(
-  streamParts: MissionControlMessageStreamPart[]
+function artifactMapFromArtifacts(
+  artifacts: MissionControlArtifact[]
 ): Map<string, MissionControlArtifact> {
   const next = new Map<string, MissionControlArtifact>()
+  for (const artifact of artifacts) {
+    next.set(artifactKey(artifact), artifact)
+  }
+  return next
+}
+
+function artifactMapFromArtifactsAndMessageStreamParts(
+  artifacts: MissionControlArtifact[],
+  streamParts: MissionControlMessageStreamPart[]
+): Map<string, MissionControlArtifact> {
+  const next = artifactMapFromArtifacts(artifacts)
   for (const { part } of streamParts) {
     reduceMissionControlStreamPart(next, part)
   }
@@ -131,18 +146,43 @@ function lastUpsertKey(
   return nextKey
 }
 
+function lastArtifactKey(artifacts: MissionControlArtifact[]): string | null {
+  const artifact = artifacts.at(-1)
+  return artifact ? artifactKey(artifact) : null
+}
+
+function artifactSignature(artifacts: MissionControlArtifact[]): string {
+  return artifacts
+    .map((artifact) => `${artifactKey(artifact)}:${JSON.stringify(artifact)}`)
+    .join("|")
+}
+
 /** Derive Mission Control artifacts from Vercel UI message data parts. */
 export function useMissionControlArtifacts(
   messages: UIMessage[],
   options: UseMissionControlArtifactsOptions = {}
 ): UseMissionControlArtifactsResult {
   const enabled = options.enabled ?? true
+  const persistedArtifacts = options.persistedArtifacts ?? EMPTY_ARTIFACTS
+  const persistedArtifactSignature = useMemo(
+    () => artifactSignature(persistedArtifacts),
+    [persistedArtifacts]
+  )
   const processedMessagePartKeysRef = useRef<Set<string>>(new Set())
   const previousFirstMessageIdRef = useRef<string | null>(
     messages[0]?.id ?? null
   )
+  const previousPersistedArtifactSignatureRef = useRef(
+    persistedArtifactSignature
+  )
   const [activeArtifactKey, setActiveArtifactKey] = useState<string | null>(
-    null
+    () => {
+      if (!enabled) {
+        return null
+      }
+      const initialParts = messageStreamParts(messages)
+      return lastUpsertKey(initialParts) ?? lastArtifactKey(persistedArtifacts)
+    }
   )
   const [streamArtifacts, setStreamArtifacts] = useState<
     Map<string, MissionControlArtifact>
@@ -154,7 +194,10 @@ export function useMissionControlArtifacts(
     for (const { eventKey } of initialParts) {
       processedMessagePartKeysRef.current.add(eventKey)
     }
-    return artifactMapFromMessageStreamParts(initialParts)
+    return artifactMapFromArtifactsAndMessageStreamParts(
+      persistedArtifacts,
+      initialParts
+    )
   })
 
   useEffect(() => {
@@ -162,6 +205,10 @@ export function useMissionControlArtifacts(
     const firstMessageChanged =
       previousFirstMessageIdRef.current !== firstMessageId
     previousFirstMessageIdRef.current = firstMessageId
+    const persistedArtifactsChanged =
+      previousPersistedArtifactSignatureRef.current !==
+      persistedArtifactSignature
+    previousPersistedArtifactSignatureRef.current = persistedArtifactSignature
 
     if (!enabled) {
       processedMessagePartKeysRef.current.clear()
@@ -175,14 +222,38 @@ export function useMissionControlArtifacts(
       processedMessagePartKeysRef.current = new Set(
         currentParts.map(({ eventKey }) => eventKey)
       )
-      setStreamArtifacts(artifactMapFromMessageStreamParts(currentParts))
-      setActiveArtifactKey(lastUpsertKey(currentParts))
+      setStreamArtifacts(
+        artifactMapFromArtifactsAndMessageStreamParts(
+          persistedArtifacts,
+          currentParts
+        )
+      )
+      setActiveArtifactKey(
+        lastUpsertKey(currentParts) ?? lastArtifactKey(persistedArtifacts)
+      )
       return
     }
 
     const pendingParts = currentParts.filter(
       ({ eventKey }) => !processedMessagePartKeysRef.current.has(eventKey)
     )
+
+    if (persistedArtifactsChanged) {
+      for (const { eventKey } of pendingParts) {
+        processedMessagePartKeysRef.current.add(eventKey)
+      }
+      setStreamArtifacts(
+        artifactMapFromArtifactsAndMessageStreamParts(
+          persistedArtifacts,
+          pendingParts
+        )
+      )
+      const nextActiveArtifactKey =
+        lastUpsertKey(pendingParts) ?? lastArtifactKey(persistedArtifacts)
+      setActiveArtifactKey(nextActiveArtifactKey)
+      return
+    }
+
     if (pendingParts.length === 0) {
       return
     }
@@ -202,7 +273,7 @@ export function useMissionControlArtifacts(
     if (nextActiveArtifactKey) {
       setActiveArtifactKey(nextActiveArtifactKey)
     }
-  }, [enabled, messages])
+  }, [enabled, messages, persistedArtifactSignature, persistedArtifacts])
 
   const artifacts = useMemo(() => {
     if (!enabled) {
@@ -288,8 +359,9 @@ export function useMissionControlArtifacts(
         )
         setActiveArtifactKey(fallback ? artifactKey(fallback) : null)
       }
+      void options.onCloseArtifact?.(type, id)
     },
-    [activeArtifactKey, artifacts]
+    [activeArtifactKey, artifacts, options.onCloseArtifact]
   )
 
   return {

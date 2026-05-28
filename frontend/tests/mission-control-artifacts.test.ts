@@ -165,6 +165,23 @@ describe("mission control artifacts", () => {
     expect(result.current.activeArtifactKey).toBe("case:case-1")
   })
 
+  it("hydrates artifacts from the persisted session projection", () => {
+    const artifact = {
+      type: "case",
+      id: "case-1",
+      title: "Investigate suspicious login",
+      severity: "high",
+      status: "new",
+    } satisfies ArtifactDataPayload["artifact"]
+
+    const { result } = renderHook(() =>
+      useMissionControlArtifacts([], { persistedArtifacts: [artifact] })
+    )
+
+    expect(result.current.artifacts).toEqual([artifact])
+    expect(result.current.activeArtifactKey).toBe("case:case-1")
+  })
+
   it("does not replay already processed message parts after local close", () => {
     const artifact = {
       type: "case",
@@ -205,6 +222,59 @@ describe("mission control artifacts", () => {
     expect(result.current.artifacts).toEqual([])
 
     rerender({ currentMessages: [...messages] })
+
+    expect(result.current.artifacts).toEqual([])
+  })
+
+  it("keeps a closed artifact removed when the persisted projection updates", () => {
+    const artifact = {
+      type: "case",
+      id: "case-1",
+      title: "Investigate suspicious login",
+      severity: "high",
+      status: "new",
+    } satisfies ArtifactDataPayload["artifact"]
+    const messages = [
+      {
+        id: "msg-1",
+        role: "assistant",
+        parts: [
+          {
+            type: "data-artifact",
+            data: {
+              op: "upsert",
+              artifact,
+            },
+          },
+        ],
+      },
+    ] as UIMessage[]
+    const onCloseArtifact = jest.fn()
+    const { result, rerender } = renderHook(
+      ({
+        persistedArtifacts,
+      }: {
+        persistedArtifacts: ArtifactDataPayload["artifact"][]
+      }) =>
+        useMissionControlArtifacts(messages, {
+          persistedArtifacts,
+          onCloseArtifact,
+        }),
+      {
+        initialProps: { persistedArtifacts: [artifact] },
+      }
+    )
+
+    expect(result.current.artifacts).toEqual([artifact])
+
+    act(() => {
+      result.current.closeArtifact("case", "case-1")
+    })
+
+    expect(onCloseArtifact).toHaveBeenCalledWith("case", "case-1")
+    expect(result.current.artifacts).toEqual([])
+
+    rerender({ persistedArtifacts: [] })
 
     expect(result.current.artifacts).toEqual([])
   })

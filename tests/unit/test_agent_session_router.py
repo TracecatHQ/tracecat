@@ -21,11 +21,12 @@ from tracecat.agent.session.router import (
     get_session,
     get_session_vercel,
     list_sessions,
+    remove_session_artifact,
     send_message,
     stream_session_events,
 )
 from tracecat.agent.session.types import AgentSessionEntity
-from tracecat.artifacts.schemas import ARTIFACT_DATA_PART_TYPE, CaseArtifact
+from tracecat.artifacts.schemas import CaseArtifact
 from tracecat.auth.types import Role
 from tracecat.cases.enums import CaseSeverity, CaseStatus
 from tracecat.chat.schemas import (
@@ -64,6 +65,7 @@ def _agent_session_stub(**overrides: Any) -> SimpleNamespace:
         "created_at": now,
         "updated_at": now,
         "last_stream_id": None,
+        "artifacts": [],
     }
     values.update(overrides)
     return SimpleNamespace(**values)
@@ -181,6 +183,7 @@ async def test_get_session_includes_agents_binding() -> None:
         get_session=AsyncMock(return_value=session_stub),
         list_messages=AsyncMock(return_value=[]),
         build_initial_artifact=AsyncMock(return_value=None),
+        list_artifacts=Mock(return_value=[]),
     )
 
     with patch(
@@ -206,6 +209,7 @@ async def test_get_session_vercel_includes_agents_binding() -> None:
         get_session=AsyncMock(return_value=session_stub),
         list_messages=AsyncMock(return_value=[]),
         build_initial_artifact=AsyncMock(return_value=None),
+        list_artifacts=Mock(return_value=[]),
     )
 
     with patch(
@@ -225,7 +229,7 @@ async def test_get_session_vercel_includes_agents_binding() -> None:
 
 
 @pytest.mark.anyio
-async def test_get_session_vercel_includes_initial_artifact() -> None:
+async def test_get_session_vercel_includes_persisted_artifacts() -> None:
     session_stub = _agent_session_stub()
     artifact = CaseArtifact(
         id=str(session_stub.entity_id),
@@ -236,7 +240,7 @@ async def test_get_session_vercel_includes_initial_artifact() -> None:
     fake_svc = SimpleNamespace(
         get_session=AsyncMock(return_value=session_stub),
         list_messages=AsyncMock(return_value=[]),
-        build_initial_artifact=AsyncMock(return_value=artifact),
+        list_artifacts=Mock(return_value=[artifact]),
     )
 
     with patch(
@@ -249,17 +253,62 @@ async def test_get_session_vercel_includes_initial_artifact() -> None:
             session=AsyncMock(),
         )
 
-    payload = response.model_dump(mode="json")["messages"][0]["parts"][0]
-    assert payload["type"] == ARTIFACT_DATA_PART_TYPE
-    assert payload["data"] == {
-        "op": "upsert",
-        "artifact": {
+    payload = response.model_dump(mode="json")
+    assert payload["messages"] == []
+    assert payload["artifacts"] == [
+        {
             "type": "case",
             "id": str(session_stub.entity_id),
             "title": "Investigate suspicious login",
+            "scope": None,
             "severity": "high",
             "status": "new",
-        },
+        }
+    ]
+
+
+@pytest.mark.anyio
+async def test_remove_session_artifact_removes_and_returns_artifacts() -> None:
+    session_stub = _agent_session_stub()
+    artifact = CaseArtifact(
+        id="case-2",
+        title="Investigate suspicious login",
+        severity=CaseSeverity.HIGH,
+        status=CaseStatus.NEW,
+    )
+    fake_svc = SimpleNamespace(
+        is_legacy_session=AsyncMock(return_value=False),
+        remove_artifact=AsyncMock(return_value=[artifact]),
+    )
+
+    with patch(
+        "tracecat.agent.session.router.AgentSessionService", return_value=fake_svc
+    ):
+        raw_remove_session_artifact = cast(Any, remove_session_artifact).__wrapped__
+        response = await raw_remove_session_artifact(
+            session_id=session_stub.id,
+            artifact_type="case",
+            artifact_id="case-1",
+            role=_read_role(session_stub.workspace_id),
+            session=AsyncMock(),
+        )
+
+    fake_svc.remove_artifact.assert_awaited_once_with(
+        session_stub.id,
+        artifact_type="case",
+        artifact_id="case-1",
+    )
+    assert response.model_dump(mode="json") == {
+        "artifacts": [
+            {
+                "type": "case",
+                "id": "case-2",
+                "title": "Investigate suspicious login",
+                "scope": None,
+                "severity": "high",
+                "status": "new",
+            }
+        ]
     }
 
 
@@ -429,6 +478,7 @@ async def test_send_message_new_turn_appends_initial_artifact() -> None:
         validate_turn_request=AsyncMock(return_value=agent_session),
         run_turn=AsyncMock(return_value=None),
         build_initial_artifact=AsyncMock(return_value=artifact),
+        apply_artifact_side_effects=AsyncMock(return_value=[artifact]),
     )
     fake_stream = SimpleNamespace(
         reset_for_new_turn=AsyncMock(return_value=None),
@@ -473,6 +523,12 @@ async def test_send_message_new_turn_appends_initial_artifact() -> None:
         "severity": "high",
         "status": "new",
     }
+    fake_svc.apply_artifact_side_effects.assert_awaited_once()
+    apply_args = fake_svc.apply_artifact_side_effects.await_args.args
+    assert apply_args[0] == session_id
+    assert len(apply_args[1]) == 1
+    assert apply_args[1][0].op == "upsert"
+    assert apply_args[1][0].artifact == artifact
     fake_svc.run_turn.assert_awaited_once_with(
         session_id=session_id,
         request=request,

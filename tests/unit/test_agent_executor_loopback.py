@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import uuid
 from pathlib import Path
+from types import TracebackType
 from unittest.mock import AsyncMock
 from uuid import UUID
 
@@ -19,6 +20,10 @@ from tracecat.agent.executor.loopback import (
     LoopbackHandler,
     LoopbackInput,
 )
+from tracecat.artifacts.bindings import ArtifactSideEffect
+from tracecat.artifacts.schemas import CaseArtifact
+from tracecat.auth.types import Role
+from tracecat.cases.enums import CaseSeverity, CaseStatus
 
 
 class _FakeStream:
@@ -33,6 +38,27 @@ class _FakeExternalSink:
         self.append = AsyncMock()
         self.error = AsyncMock()
         self.done = AsyncMock()
+
+
+class _FakeSessionContext:
+    def __init__(self, session: object) -> None:
+        self._session = session
+
+    async def __aenter__(self) -> object:
+        return self._session
+
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        tb: TracebackType | None,
+    ) -> bool:
+        return False
+
+
+class _FakeArtifactPersistenceSession:
+    def __init__(self, organization_id: UUID | None) -> None:
+        self.scalar = AsyncMock(return_value=organization_id)
 
 
 def _reader_for_envelopes(*envelopes: RuntimeEventEnvelope) -> asyncio.StreamReader:
@@ -258,6 +284,8 @@ async def test_tool_result_emits_artifact_side_effect_from_tracked_call() -> Non
     handler = _make_handler()
     stream = _FakeStream()
     handler._stream_sink = stream
+    persist_artifact_side_effects = AsyncMock()
+    handler._persist_artifact_side_effects = persist_artifact_side_effects
 
     await handler.send_stream_event(
         UnifiedStreamEvent(
@@ -304,6 +332,60 @@ async def test_tool_result_emits_artifact_side_effect_from_tracked_call() -> Non
         "severity": "high",
         "status": "new",
     }
+    persist_artifact_side_effects.assert_awaited_once()
+    persist_call = persist_artifact_side_effects.await_args
+    assert persist_call is not None
+    artifact_effects = persist_call.args[0]
+    assert len(artifact_effects) == 1
+    assert artifact_effects[0].op == "upsert"
+
+
+@pytest.mark.anyio
+async def test_persist_artifact_side_effects_uses_workspace_organization(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    handler = _make_handler()
+    organization_id = UUID("00000000-0000-0000-0000-000000000003")
+    fake_session = _FakeArtifactPersistenceSession(organization_id)
+    apply_artifact_side_effects = AsyncMock()
+    captured_roles: list[Role] = []
+
+    class FakeAgentSessionService:
+        def __init__(self, session: object, role: Role) -> None:
+            assert session is fake_session
+            captured_roles.append(role)
+            self.apply_artifact_side_effects = apply_artifact_side_effects
+
+    monkeypatch.setattr(
+        "tracecat.agent.executor.loopback.get_async_session_bypass_rls_context_manager",
+        lambda: _FakeSessionContext(fake_session),
+    )
+    monkeypatch.setattr(
+        "tracecat.agent.executor.loopback.AgentSessionService",
+        FakeAgentSessionService,
+    )
+
+    effect = ArtifactSideEffect(
+        op="upsert",
+        artifact=CaseArtifact(
+            id="case_123",
+            title="Suspicious login",
+            severity=CaseSeverity.HIGH,
+            status=CaseStatus.NEW,
+        ),
+    )
+
+    await handler._persist_artifact_side_effects([effect])
+
+    fake_session.scalar.assert_awaited_once()
+    assert len(captured_roles) == 1
+    role = captured_roles[0]
+    assert role.workspace_id == handler.input.workspace_id
+    assert role.organization_id == organization_id
+    apply_artifact_side_effects.assert_awaited_once_with(
+        handler.input.session_id,
+        [effect],
+    )
 
 
 @pytest.mark.anyio

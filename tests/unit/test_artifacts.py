@@ -4,7 +4,14 @@ from types import SimpleNamespace
 
 from tracecat.artifacts.bindings import (
     ARTIFACT_BINDINGS,
+    ArtifactSideEffect,
     artifact_side_effects_for_tool_result,
+)
+from tracecat.artifacts.projection import (
+    apply_artifact_side_effects,
+    remove_artifact,
+    serialize_artifacts,
+    validate_artifacts,
 )
 from tracecat.artifacts.schemas import (
     ArtifactAdapter,
@@ -51,6 +58,71 @@ def test_artifact_adapter_validates_aliases() -> None:
 
     assert isinstance(artifact, WorkflowArtifact)
     assert artifact.is_published is False
+
+
+def test_artifact_projection_applies_upsert_and_remove_operations() -> None:
+    first = CaseArtifact(
+        id="case_1",
+        title="Initial title",
+        severity=CaseSeverity.LOW,
+        status=CaseStatus.NEW,
+    )
+    updated = CaseArtifact(
+        id="case_1",
+        title="Updated title",
+        severity=CaseSeverity.HIGH,
+        status=CaseStatus.IN_PROGRESS,
+    )
+    second = CaseArtifact(
+        id="case_2",
+        title="Second case",
+        severity=CaseSeverity.MEDIUM,
+        status=CaseStatus.NEW,
+    )
+
+    projected = apply_artifact_side_effects(
+        [first],
+        [
+            ArtifactSideEffect(op="upsert", artifact=updated),
+            ArtifactSideEffect(op="upsert", artifact=second),
+            ArtifactSideEffect(op="remove", artifact=updated),
+        ],
+    )
+
+    assert projected == [second]
+
+
+def test_artifact_projection_serializes_and_validates_jsonb_payload() -> None:
+    artifact = CaseArtifact(
+        id="case_1",
+        title="Suspicious login",
+        severity=CaseSeverity.HIGH,
+        status=CaseStatus.NEW,
+    )
+
+    serialized = serialize_artifacts([artifact])
+
+    assert serialized == [
+        {
+            "type": "case",
+            "id": "case_1",
+            "title": "Suspicious login",
+            "severity": "high",
+            "status": "new",
+        }
+    ]
+    assert validate_artifacts(serialized) == [artifact]
+
+
+def test_remove_artifact_filters_by_type_and_id() -> None:
+    artifact = CaseArtifact(
+        id="case_1",
+        title="Suspicious login",
+        severity=CaseSeverity.HIGH,
+        status=CaseStatus.NEW,
+    )
+
+    assert remove_artifact([artifact], artifact_type="case", artifact_id="case_1") == []
 
 
 def test_case_artifact_uses_case_domain_enums() -> None:

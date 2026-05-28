@@ -12,6 +12,16 @@ from tracecat.cases.enums import CaseSeverity, CaseStatus
 ARTIFACT_DATA_PART_TYPE = "data-artifact"
 
 type ArtifactOp = Literal["upsert", "remove"]
+type ArtifactType = Literal[
+    "case",
+    "workflow",
+    "run",
+    "table",
+    "alert",
+    "integration",
+    "secret",
+    "generic",
+]
 
 
 class ArtifactSchema(BaseModel):

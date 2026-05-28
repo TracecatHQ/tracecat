@@ -170,3 +170,8 @@ async def test_reconcile_tool_results_appends_artifact_side_effect(
         "severity": "high",
         "status": "new",
     }
+    service.apply_artifact_side_effects.assert_awaited_once()
+    apply_args = service.apply_artifact_side_effects.await_args.args
+    assert apply_args[0] == input.session_id
+    assert len(apply_args[1]) == 1
+    assert apply_args[1][0].op == "upsert"

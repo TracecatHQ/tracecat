@@ -60,6 +60,10 @@ interface ChatInterfaceProps {
   surface?: ChatSurface
   /** Called on every chat message update; lets parents derive side-panel state. */
   onMessagesChange?: (messages: UIMessage[]) => void
+  /** Called when the selected chat payload changes. */
+  onChatChange?: (
+    chat: AgentSessionsGetSessionVercelResponse | undefined
+  ) => void
   /** Extra slot rendered before the New-chat button in the header. */
   headerActions?: ReactNode
 }
@@ -84,6 +88,7 @@ export function ChatInterface({
   placeholder,
   surface = "regular",
   onMessagesChange,
+  onChatChange,
   headerActions,
 }: ChatInterfaceProps) {
   const workspaceId = useWorkspaceId()
@@ -120,6 +125,10 @@ export function ChatInterface({
     workspaceId,
   })
   const { updateChat, isUpdating } = useUpdateChat(workspaceId)
+
+  useEffect(() => {
+    onChatChange?.(selectedChatId ? chat : undefined)
+  }, [chat, onChatChange, selectedChatId])
 
   const presetsEnabled =
     agentAddonsEnabled && (entityType === "case" || entityType === "copilot")

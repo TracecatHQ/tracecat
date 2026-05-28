@@ -2,7 +2,8 @@
 
 import type { UIMessage } from "ai"
 import { PanelLeftIcon } from "lucide-react"
-import { useCallback, useEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import type { AgentSessionsGetSessionVercelResponse } from "@/client"
 import { useScopeCheck } from "@/components/auth/scope-guard"
 import { ChatInterface } from "@/components/chat/chat-interface"
 import { EntitlementRequiredEmptyState } from "@/components/entitlement-required-empty-state"
@@ -14,11 +15,26 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
+import { useRemoveSessionArtifact } from "@/hooks/use-chat"
 import { useEntitlements } from "@/hooks/use-entitlements"
 import { useMissionControlArtifacts } from "@/hooks/use-mission-control-artifacts"
 import { useWorkspaceId } from "@/providers/workspace-id"
+import type {
+  ArtifactType,
+  MissionControlArtifact,
+} from "@/types/mission-control"
 
 const EMPTY_MESSAGES: UIMessage[] = []
+const EMPTY_ARTIFACTS: MissionControlArtifact[] = []
+
+function sessionArtifacts(
+  chat: AgentSessionsGetSessionVercelResponse | undefined
+): MissionControlArtifact[] {
+  if (!chat || !("artifacts" in chat) || !Array.isArray(chat.artifacts)) {
+    return EMPTY_ARTIFACTS
+  }
+  return chat.artifacts as MissionControlArtifact[]
+}
 
 export function MissionControlView() {
   const workspaceId = useWorkspaceId()
@@ -27,8 +43,30 @@ export function MissionControlView() {
   const agentAddonsEnabled = hasEntitlement("agent_addons")
 
   const [messages, setMessages] = useState<UIMessage[]>(EMPTY_MESSAGES)
+  const [chat, setChat] = useState<
+    AgentSessionsGetSessionVercelResponse | undefined
+  >()
   const [isPanelCollapsed, setIsPanelCollapsed] = useState(true)
-  const artifactsState = useMissionControlArtifacts(messages, { enabled: true })
+  const { removeArtifact } = useRemoveSessionArtifact(workspaceId)
+  const persistedArtifacts = useMemo(() => sessionArtifacts(chat), [chat])
+  const closePersistedArtifact = useCallback(
+    (type: ArtifactType, id: string) => {
+      if (!chat || !("artifacts" in chat)) {
+        return
+      }
+      void removeArtifact({
+        sessionId: chat.id,
+        artifactType: type,
+        artifactId: id,
+      })
+    },
+    [chat, removeArtifact]
+  )
+  const artifactsState = useMissionControlArtifacts(messages, {
+    enabled: true,
+    persistedArtifacts,
+    onCloseArtifact: closePersistedArtifact,
+  })
   const artifactCount = artifactsState.artifacts.length
   const hasArtifacts = artifactCount > 0
 
@@ -82,6 +120,7 @@ export function MissionControlView() {
           placeholder="Ask Mission Control..."
           surface="mission-control"
           onMessagesChange={setMessages}
+          onChatChange={setChat}
           headerActions={
             showExpandButton ? (
               <Tooltip>

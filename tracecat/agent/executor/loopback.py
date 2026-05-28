@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import uuid
-from collections.abc import Awaitable, Callable, Mapping
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from time import perf_counter
 from typing import Any, Literal, NotRequired, Protocol, TypedDict, cast
@@ -36,14 +36,25 @@ from tracecat.agent.common.stream_types import (
     ToolCallContent,
     UnifiedStreamEvent,
 )
+from tracecat.agent.session.service import AgentSessionService
 from tracecat.agent.session.types import AgentSessionEntity
-from tracecat.agent.stream.artifacts import artifact_stream_events_for_tool_result
+from tracecat.agent.stream.artifacts import artifact_stream_event
 from tracecat.agent.stream.connector import AgentStream
+from tracecat.artifacts.bindings import (
+    ArtifactSideEffect,
+    artifact_side_effects_for_tool_result,
+)
+from tracecat.auth.types import Role
 from tracecat.db.engine import (
     get_async_session_bypass_rls_context_manager,
     get_async_session_context_manager,
 )
-from tracecat.db.models import AgentChannelToken, AgentSession, AgentSessionHistory
+from tracecat.db.models import (
+    AgentChannelToken,
+    AgentSession,
+    AgentSessionHistory,
+    Workspace,
+)
 from tracecat.exceptions import TracecatValidationError
 from tracecat.logger import logger
 
@@ -621,19 +632,65 @@ class LoopbackHandler:
             if tool_input is None:
                 tool_input = self._tool_inputs_by_call_id.get(tool_call_id)
 
-        artifact_events = artifact_stream_events_for_tool_result(
-            tool_name=tool_name,
-            tool_input=tool_input,
-            tool_output=event.tool_output,
-            is_error=event.is_error,
-            tool_call_id=tool_call_id,
+        artifact_effects = list(
+            artifact_side_effects_for_tool_result(
+                tool_name=tool_name,
+                tool_input=tool_input,
+                tool_output=event.tool_output,
+                is_error=event.is_error,
+                tool_call_id=tool_call_id,
+            )
         )
-        for artifact_event in artifact_events:
-            await stream_sink.append(artifact_event)
+        await self._persist_artifact_side_effects(artifact_effects)
+
+        for artifact_effect in artifact_effects:
+            await stream_sink.append(
+                artifact_stream_event(artifact_effect.op, artifact_effect.artifact)
+            )
 
         if tool_call_id is not None:
             self._tool_names_by_call_id.pop(tool_call_id, None)
             self._tool_inputs_by_call_id.pop(tool_call_id, None)
+
+    async def _persist_artifact_side_effects(
+        self,
+        artifact_effects: Sequence[ArtifactSideEffect],
+    ) -> None:
+        if not artifact_effects:
+            return
+
+        try:
+            async with get_async_session_bypass_rls_context_manager() as session:
+                organization_id = await session.scalar(
+                    select(Workspace.organization_id).where(
+                        Workspace.id == self.input.workspace_id
+                    )
+                )
+                if organization_id is None:
+                    logger.warning(
+                        "Failed to persist artifact side effects: workspace not found",
+                        session_id=self.input.session_id,
+                        workspace_id=self.input.workspace_id,
+                    )
+                    return
+
+                role = Role(
+                    type="service",
+                    service_id="tracecat-executor",
+                    workspace_id=self.input.workspace_id,
+                    organization_id=organization_id,
+                )
+                service = AgentSessionService(session, role)
+                await service.apply_artifact_side_effects(
+                    self.input.session_id,
+                    artifact_effects,
+                )
+        except Exception as e:
+            logger.warning(
+                "Failed to persist artifact side effects",
+                session_id=self.input.session_id,
+                error=str(e),
+            )
 
     async def send_stream_event(self, event: UnifiedStreamEvent) -> None:
         """Handle a stream event emitted by the runtime."""
