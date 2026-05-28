@@ -24,6 +24,7 @@ from typing import Any, Literal, NotRequired, Protocol, TypedDict, cast
 import orjson
 from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.agent.channels.schemas import ChannelType
 from tracecat.agent.channels.service import PENDING_SLACK_BOT_TOKEN, AgentChannelService
@@ -222,9 +223,51 @@ def _session_line_from_json(session_line: str) -> ClaudeSessionLine:
     return cast(ClaudeSessionLine, decoded)
 
 
+def _jsonb_safe_value(value: object) -> object:
+    match value:
+        case str() as text:
+            return text.replace("\x00", "\\u0000")
+        case list() as items:
+            return [_jsonb_safe_value(item) for item in items]
+        case dict() as mapping:
+            return {
+                key.replace("\x00", "\\u0000") if isinstance(key, str) else key: (
+                    _jsonb_safe_value(item)
+                )
+                for key, item in mapping.items()
+            }
+        case _:
+            return value
+
+
 def _session_line_db_content(line: ClaudeSessionLine) -> dict[str, Any]:
     """Return a SQLAlchemy JSONB payload for an already validated session line."""
     return cast(dict[str, Any], line)
+
+
+def _session_line_jsonb_safe_content(line: ClaudeSessionLine) -> dict[str, Any]:
+    """Return a JSONB-safe fallback payload for retrying rare NUL failures."""
+    return cast(dict[str, Any], _jsonb_safe_value(line))
+
+
+def _is_jsonb_nul_error(exc: SQLAlchemyError) -> bool:
+    """Return True when PostgreSQL rejected a JSONB value containing NUL text."""
+    error_text = str(exc).lower()
+    if not any(marker in error_text for marker in ("\\u0000", "\x00", "nul")):
+        return False
+    if "unsupported unicode escape sequence" in error_text:
+        return True
+    if "cannot be converted to text" in error_text:
+        return True
+
+    candidates: list[object | None] = [exc, getattr(exc, "orig", None)]
+    candidates.extend([exc.__cause__, exc.__context__])
+    candidates.extend(
+        getattr(candidate, "__cause__", None) for candidate in tuple(candidates)
+    )
+    return any(
+        getattr(candidate, "sqlstate", None) == "22P05" for candidate in candidates
+    )
 
 
 class LoopbackHandler:
@@ -814,7 +857,7 @@ class LoopbackHandler:
             session_line: Raw JSONL line from the SDK session file.
             internal: If True, this is internal state not shown in UI timeline.
         """
-        # Parse and sanitize to prevent XSS from untrusted content (e.g., tool results)
+        # Parse for validation. Rare JSONB NUL failures are sanitized on retry.
         line_data = _session_line_from_json(session_line)
         if not internal and line_data.get("type") == "assistant":
             self._received_assistant_content = True
@@ -837,10 +880,14 @@ class LoopbackHandler:
             uuid=line_uuid,
         )
 
-        async with get_async_session_bypass_rls_context_manager() as session:
-            # On first session line, update AgentSession with sdk_session_id
-            if self._sdk_session_id is None:
-                self._sdk_session_id = sdk_session_id
+        should_set_sdk_session_id = self._sdk_session_id is None
+
+        async def stage_history_entry(
+            session: AsyncSession, content: dict[str, Any]
+        ) -> bool:
+            did_set_sdk_session_id = False
+            # On first session line, update AgentSession with sdk_session_id.
+            if should_set_sdk_session_id:
                 stmt = select(AgentSession).where(
                     AgentSession.id == self.input.session_id,
                     AgentSession.workspace_id == self.input.workspace_id,
@@ -849,11 +896,7 @@ class LoopbackHandler:
                 agent_session = result.scalar_one_or_none()
                 if agent_session and agent_session.sdk_session_id is None:
                     agent_session.sdk_session_id = sdk_session_id
-                    logger.info(
-                        "Updated AgentSession with sdk_session_id",
-                        session_id=self.input.session_id,
-                        sdk_session_id=sdk_session_id,
-                    )
+                    did_set_sdk_session_id = True
 
             # Use explicit internal flag from runtime, not content-based heuristics
             kind: SessionLineKind = "internal" if internal else "chat-message"
@@ -869,11 +912,41 @@ class LoopbackHandler:
             history_entry = AgentSessionHistory(
                 session_id=self.input.session_id,
                 workspace_id=self.input.workspace_id,
-                content=_session_line_db_content(line_data),
+                content=content,
                 kind=kind,
             )
             session.add(history_entry)
-            await session.commit()
+            return did_set_sdk_session_id
+
+        async with get_async_session_bypass_rls_context_manager() as session:
+            did_set_sdk_session_id = await stage_history_entry(
+                session, _session_line_db_content(line_data)
+            )
+            try:
+                await session.commit()
+            except SQLAlchemyError as exc:
+                await session.rollback()
+                if not _is_jsonb_nul_error(exc):
+                    raise
+
+                logger.warning(
+                    "Retrying session line persistence with JSONB-safe content",
+                    session_id=self.input.session_id,
+                    sdk_session_id=sdk_session_id,
+                    uuid=line_uuid,
+                )
+                did_set_sdk_session_id = await stage_history_entry(
+                    session, _session_line_jsonb_safe_content(line_data)
+                )
+                await session.commit()
+            if should_set_sdk_session_id:
+                self._sdk_session_id = sdk_session_id
+            if did_set_sdk_session_id:
+                logger.info(
+                    "Updated AgentSession with sdk_session_id",
+                    session_id=self.input.session_id,
+                    sdk_session_id=sdk_session_id,
+                )
 
         # Track as persisted after successful commit
         if isinstance(line_uuid, str):
