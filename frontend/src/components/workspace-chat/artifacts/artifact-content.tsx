@@ -3,11 +3,6 @@
 import { ExternalLink } from "lucide-react"
 import Link from "next/link"
 import { CasePanelView } from "@/components/cases/case-panel-view"
-import {
-  getArtifactConfig,
-  getArtifactHref,
-} from "@/components/mission-control/artifact-registry"
-import { ArtifactIcon } from "@/components/mission-control/artifact-tabs"
 import { AlertNotification } from "@/components/notifications"
 import { TablePanelProvider } from "@/components/tables/table-panel-context"
 import { TableSelectionProvider } from "@/components/tables/table-selection-context"
@@ -15,12 +10,17 @@ import { DatabaseTable } from "@/components/tables/table-view"
 import { Button } from "@/components/ui/button"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Skeleton } from "@/components/ui/skeleton"
+import {
+  getArtifactConfig,
+  getArtifactHref,
+} from "@/components/workspace-chat/artifacts/artifact-registry"
+import { ArtifactIcon } from "@/components/workspace-chat/artifacts/artifact-tabs"
 import { useGetTable } from "@/lib/hooks"
 import { cn } from "@/lib/utils"
-import type { MissionControlArtifact } from "@/types/mission-control"
+import type { WorkspaceChatArtifact } from "@/types/workspace-chat-artifacts"
 
 export interface ArtifactContentProps {
-  artifact: MissionControlArtifact
+  artifact: WorkspaceChatArtifact
   workspaceId: string
 }
 
@@ -45,7 +45,7 @@ function EmbeddedTableArtifact({
   artifact,
   workspaceId,
 }: {
-  artifact: Extract<MissionControlArtifact, { type: "table" }>
+  artifact: Extract<WorkspaceChatArtifact, { type: "table" }>
   workspaceId: string
 }) {
   const { table, tableIsLoading, tableError } = useGetTable({
@@ -90,7 +90,7 @@ function ArtifactSummary({
   artifact,
   workspaceId,
 }: {
-  artifact: MissionControlArtifact
+  artifact: WorkspaceChatArtifact
   workspaceId: string
 }) {
   const config = getArtifactConfig(artifact)
@@ -126,7 +126,7 @@ function ArtifactSummary({
   )
 }
 
-function ArtifactFields({ artifact }: { artifact: MissionControlArtifact }) {
+function ArtifactFields({ artifact }: { artifact: WorkspaceChatArtifact }) {
   switch (artifact.type) {
     case "workflow":
       return (

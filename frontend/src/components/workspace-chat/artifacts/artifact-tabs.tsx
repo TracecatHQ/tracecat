@@ -3,26 +3,26 @@
 import { ExternalLink, PanelLeftIcon, X } from "lucide-react"
 import Link from "next/link"
 import { type ComponentType, useEffect, useRef } from "react"
-import {
-  getArtifactConfig,
-  getArtifactHref,
-} from "@/components/mission-control/artifact-registry"
 import { Button } from "@/components/ui/button"
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
+import {
+  getArtifactConfig,
+  getArtifactHref,
+} from "@/components/workspace-chat/artifacts/artifact-registry"
 import { cn } from "@/lib/utils"
 import {
   type ArtifactType,
   artifactKey,
-  type MissionControlArtifact,
-} from "@/types/mission-control"
+  type WorkspaceChatArtifact,
+} from "@/types/workspace-chat-artifacts"
 
 export interface ArtifactTabsProps {
-  artifacts: MissionControlArtifact[]
-  activeArtifact: MissionControlArtifact
+  artifacts: WorkspaceChatArtifact[]
+  activeArtifact: WorkspaceChatArtifact
   activeArtifactKey: string | null
   setActiveArtifactKey: (key: string | null) => void
   closeArtifact: (type: ArtifactType, id: string) => void
@@ -30,7 +30,7 @@ export interface ArtifactTabsProps {
   onCollapse?: () => void
 }
 
-/** Horizontal artifact tab strip for the Mission Control panel. */
+/** Horizontal artifact tab strip for the Chat panel. */
 export function ArtifactTabs({
   artifacts,
   activeArtifact,
@@ -126,7 +126,7 @@ function ArtifactTab({
   setActiveArtifactKey,
   closeArtifact,
 }: {
-  artifact: MissionControlArtifact
+  artifact: WorkspaceChatArtifact
   active: boolean
   setActiveArtifactKey: (key: string | null) => void
   closeArtifact: (type: ArtifactType, id: string) => void
@@ -170,7 +170,7 @@ export function ArtifactIcon({
   artifact,
   icon: Icon,
 }: {
-  artifact: MissionControlArtifact
+  artifact: WorkspaceChatArtifact
   icon: ComponentType<{ className?: string }>
 }) {
   if (artifact.type === "workflow") {
@@ -189,7 +189,7 @@ function ArtifactOpenButton({
   artifact,
   workspaceId,
 }: {
-  artifact: MissionControlArtifact
+  artifact: WorkspaceChatArtifact
   workspaceId: string
 }) {
   const href = getArtifactHref(artifact, workspaceId)

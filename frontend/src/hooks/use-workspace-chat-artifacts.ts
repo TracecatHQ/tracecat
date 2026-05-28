@@ -6,37 +6,37 @@ import {
   type ArtifactLane,
   type ArtifactType,
   artifactKey,
-  type MissionControlArtifact,
-  type MissionControlStreamPart,
-  parseMissionControlStreamPart,
-} from "@/types/mission-control"
+  parseWorkspaceChatArtifactStreamPart,
+  type WorkspaceChatArtifact,
+  type WorkspaceChatArtifactStreamPart,
+} from "@/types/workspace-chat-artifacts"
 
-/** Derived artifact state for the Mission Control side panel. */
-export type UseMissionControlArtifactsResult = {
-  artifacts: MissionControlArtifact[]
+/** Derived artifact state for the workspace chat side panel. */
+export type UseWorkspaceChatArtifactsResult = {
+  artifacts: WorkspaceChatArtifact[]
   lanes: ArtifactLane[]
   activeArtifactKey: string | null
   setActiveArtifactKey: (key: string | null) => void
   closeArtifact: (type: ArtifactType, id: string) => void
-  applyStreamPart: (part: MissionControlStreamPart) => void
+  applyStreamPart: (part: WorkspaceChatArtifactStreamPart) => void
 }
 
-/** Options for projecting artifact stream parts into Mission Control state. */
-export type UseMissionControlArtifactsOptions = {
+/** Options for projecting artifact stream parts into workspace chat state. */
+export type UseWorkspaceChatArtifactsOptions = {
   enabled?: boolean
-  persistedArtifacts?: MissionControlArtifact[]
+  persistedArtifacts?: WorkspaceChatArtifact[]
   onCloseArtifact?: (type: ArtifactType, id: string) => void | Promise<void>
 }
 
-type MissionControlMessageStreamPart = {
+type WorkspaceChatArtifactMessageStreamPart = {
   eventKey: string
-  part: MissionControlStreamPart
+  part: WorkspaceChatArtifactStreamPart
 }
 
-const EMPTY_ARTIFACTS: MissionControlArtifact[] = []
+const EMPTY_ARTIFACTS: WorkspaceChatArtifact[] = []
 
 function reduceArtifactPayload(
-  next: Map<string, MissionControlArtifact>,
+  next: Map<string, WorkspaceChatArtifact>,
   payload: ArtifactDataPayload
 ) {
   const key = artifactKey(payload.artifact)
@@ -50,9 +50,9 @@ function reduceArtifactPayload(
   }
 }
 
-function reduceMissionControlStreamPart(
-  next: Map<string, MissionControlArtifact>,
-  part: MissionControlStreamPart
+function reduceWorkspaceChatArtifactStreamPart(
+  next: Map<string, WorkspaceChatArtifact>,
+  part: WorkspaceChatArtifactStreamPart
 ) {
   switch (part.type) {
     case ARTIFACT_DATA_PART_TYPE:
@@ -61,24 +61,24 @@ function reduceMissionControlStreamPart(
   }
 }
 
-/** Project Vercel UI message parts into Mission Control artifact state. */
-export function reduceMissionControlArtifacts(
+/** Project Vercel UI message parts into Workspace chat artifact state. */
+export function reduceWorkspaceChatArtifacts(
   messages: UIMessage[]
-): MissionControlArtifact[] {
-  const next = new Map<string, MissionControlArtifact>()
+): WorkspaceChatArtifact[] {
+  const next = new Map<string, WorkspaceChatArtifact>()
   for (const { part } of messageStreamParts(messages)) {
-    reduceMissionControlStreamPart(next, part)
+    reduceWorkspaceChatArtifactStreamPart(next, part)
   }
   return Array.from(next.values())
 }
 
 function messageStreamParts(
   messages: UIMessage[]
-): MissionControlMessageStreamPart[] {
-  const streamParts: MissionControlMessageStreamPart[] = []
+): WorkspaceChatArtifactMessageStreamPart[] {
+  const streamParts: WorkspaceChatArtifactMessageStreamPart[] = []
   for (const message of messages) {
     for (const [partIndex, rawPart] of (message.parts ?? []).entries()) {
-      const part = parseMissionControlStreamPart(rawPart)
+      const part = parseWorkspaceChatArtifactStreamPart(rawPart)
       if (!part) {
         continue
       }
@@ -94,7 +94,7 @@ function messageStreamParts(
 function messageStreamPartEventKey(
   messageId: string,
   partIndex: number,
-  part: MissionControlStreamPart
+  part: WorkspaceChatArtifactStreamPart
 ): string {
   switch (part.type) {
     case ARTIFACT_DATA_PART_TYPE:
@@ -110,9 +110,9 @@ function messageStreamPartEventKey(
 }
 
 function artifactMapFromArtifacts(
-  artifacts: MissionControlArtifact[]
-): Map<string, MissionControlArtifact> {
-  const next = new Map<string, MissionControlArtifact>()
+  artifacts: WorkspaceChatArtifact[]
+): Map<string, WorkspaceChatArtifact> {
+  const next = new Map<string, WorkspaceChatArtifact>()
   for (const artifact of artifacts) {
     next.set(artifactKey(artifact), artifact)
   }
@@ -120,18 +120,18 @@ function artifactMapFromArtifacts(
 }
 
 function artifactMapFromArtifactsAndMessageStreamParts(
-  artifacts: MissionControlArtifact[],
-  streamParts: MissionControlMessageStreamPart[]
-): Map<string, MissionControlArtifact> {
+  artifacts: WorkspaceChatArtifact[],
+  streamParts: WorkspaceChatArtifactMessageStreamPart[]
+): Map<string, WorkspaceChatArtifact> {
   const next = artifactMapFromArtifacts(artifacts)
   for (const { part } of streamParts) {
-    reduceMissionControlStreamPart(next, part)
+    reduceWorkspaceChatArtifactStreamPart(next, part)
   }
   return next
 }
 
 function lastUpsertKey(
-  streamParts: MissionControlMessageStreamPart[]
+  streamParts: WorkspaceChatArtifactMessageStreamPart[]
 ): string | null {
   let nextKey: string | null = null
   for (const { part } of streamParts) {
@@ -146,22 +146,22 @@ function lastUpsertKey(
   return nextKey
 }
 
-function lastArtifactKey(artifacts: MissionControlArtifact[]): string | null {
+function lastArtifactKey(artifacts: WorkspaceChatArtifact[]): string | null {
   const artifact = artifacts.at(-1)
   return artifact ? artifactKey(artifact) : null
 }
 
-function artifactSignature(artifacts: MissionControlArtifact[]): string {
+function artifactSignature(artifacts: WorkspaceChatArtifact[]): string {
   return artifacts
     .map((artifact) => `${artifactKey(artifact)}:${JSON.stringify(artifact)}`)
     .join("|")
 }
 
-/** Derive Mission Control artifacts from Vercel UI message data parts. */
-export function useMissionControlArtifacts(
+/** Derive Workspace chat artifacts from Vercel UI message data parts. */
+export function useWorkspaceChatArtifacts(
   messages: UIMessage[],
-  options: UseMissionControlArtifactsOptions = {}
-): UseMissionControlArtifactsResult {
+  options: UseWorkspaceChatArtifactsOptions = {}
+): UseWorkspaceChatArtifactsResult {
   const enabled = options.enabled ?? true
   const persistedArtifacts = options.persistedArtifacts ?? EMPTY_ARTIFACTS
   const persistedArtifactSignature = useMemo(
@@ -186,7 +186,7 @@ export function useMissionControlArtifacts(
     }
   )
   const [streamArtifacts, setStreamArtifacts] = useState<
-    Map<string, MissionControlArtifact>
+    Map<string, WorkspaceChatArtifact>
   >(() => {
     if (!enabled) {
       return new Map()
@@ -269,7 +269,7 @@ export function useMissionControlArtifacts(
     setStreamArtifacts((current) => {
       const next = new Map(current)
       for (const { part } of pendingParts) {
-        reduceMissionControlStreamPart(next, part)
+        reduceWorkspaceChatArtifactStreamPart(next, part)
       }
       return next
     })
@@ -288,14 +288,14 @@ export function useMissionControlArtifacts(
   }, [enabled, streamArtifacts])
 
   const applyStreamPart = useCallback(
-    (part: MissionControlStreamPart) => {
+    (part: WorkspaceChatArtifactStreamPart) => {
       if (!enabled) {
         return
       }
 
       setStreamArtifacts((current) => {
         const next = new Map(current)
-        reduceMissionControlStreamPart(next, part)
+        reduceWorkspaceChatArtifactStreamPart(next, part)
         return next
       })
 

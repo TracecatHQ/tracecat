@@ -326,7 +326,7 @@ class AgentSessionService(BaseWorkspaceService):
     async def build_initial_artifact(
         self, agent_session: AgentSession
     ) -> Artifact | None:
-        """Build the session's initial Mission Control artifact, if supported."""
+        """Build the session's initial chat artifact, if supported."""
         entity_type = AgentSessionEntity(agent_session.entity_type)
         match entity_type:
             case AgentSessionEntity.CASE:

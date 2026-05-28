@@ -68,7 +68,7 @@ export type GenericArtifact = BaseArtifact & {
   data?: Record<string, unknown>
 }
 
-export type MissionControlArtifact =
+export type WorkspaceChatArtifact =
   | CaseArtifact
   | WorkflowArtifact
   | RunArtifact
@@ -78,13 +78,13 @@ export type MissionControlArtifact =
   | SecretArtifact
   | GenericArtifact
 
-export type ArtifactType = MissionControlArtifact["type"]
+export type ArtifactType = WorkspaceChatArtifact["type"]
 
 export type ArtifactOp = "upsert" | "remove"
 
 export type ArtifactDataPayload = {
   op: ArtifactOp
-  artifact: MissionControlArtifact
+  artifact: WorkspaceChatArtifact
 }
 
 export const ARTIFACT_DATA_PART_TYPE = "data-artifact"
@@ -94,12 +94,12 @@ export type ArtifactDataPart = {
   data: ArtifactDataPayload
 }
 
-export type MissionControlStreamPart = ArtifactDataPart
+export type WorkspaceChatArtifactStreamPart = ArtifactDataPart
 
 export type ArtifactLane = {
   agentType: string | undefined
   agentId: string | undefined
-  artifacts: MissionControlArtifact[]
+  artifacts: WorkspaceChatArtifact[]
 }
 
 type UnknownRecord = Record<string, unknown>
@@ -107,9 +107,9 @@ type StreamPartInput =
   | UIMessage["parts"][number]
   | { type: string; data?: unknown }
 
-/** Build the stable tab key for a Mission Control artifact. */
+/** Build the stable tab key for a Workspace chat artifact. */
 export function artifactKey(
-  artifact: Pick<MissionControlArtifact, "type" | "id">
+  artifact: Pick<WorkspaceChatArtifact, "type" | "id">
 ): string {
   return `${artifact.type}:${artifact.id}`
 }
@@ -140,7 +140,7 @@ function isArtifactScope(value: unknown): value is ArtifactScope {
   )
 }
 
-function isArtifact(value: unknown): value is MissionControlArtifact {
+function isArtifact(value: unknown): value is WorkspaceChatArtifact {
   if (!isRecord(value)) {
     return false
   }
@@ -220,10 +220,10 @@ function parseArtifactDataPayload(
   return data as ArtifactDataPayload
 }
 
-/** Parse a Vercel UI message part as a typed Mission Control stream part. */
-export function parseMissionControlStreamPart(
+/** Parse a Vercel UI message part as a typed workspace chat stream part. */
+export function parseWorkspaceChatArtifactStreamPart(
   part: StreamPartInput
-): MissionControlStreamPart | undefined {
+): WorkspaceChatArtifactStreamPart | undefined {
   switch (part.type) {
     case ARTIFACT_DATA_PART_TYPE: {
       if (!("data" in part)) {

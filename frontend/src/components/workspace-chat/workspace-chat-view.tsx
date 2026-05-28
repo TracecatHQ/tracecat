@@ -8,7 +8,6 @@ import type { AgentSessionsGetSessionVercelResponse } from "@/client"
 import { useScopeCheck } from "@/components/auth/scope-guard"
 import { ChatInterface } from "@/components/chat/chat-interface"
 import { CenteredSpinner } from "@/components/loading/spinner"
-import { ArtifactPanel } from "@/components/mission-control/artifact-panel"
 import { Button } from "@/components/ui/button"
 import {
   ResizableHandle,
@@ -20,28 +19,29 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
+import { ArtifactPanel } from "@/components/workspace-chat/artifacts/artifact-panel"
 import { useRemoveSessionArtifact } from "@/hooks/use-chat"
 import { useEntitlements } from "@/hooks/use-entitlements"
-import { useMissionControlArtifacts } from "@/hooks/use-mission-control-artifacts"
+import { useWorkspaceChatArtifacts } from "@/hooks/use-workspace-chat-artifacts"
 import { useWorkspaceId } from "@/providers/workspace-id"
 import type {
   ArtifactType,
-  MissionControlArtifact,
-} from "@/types/mission-control"
+  WorkspaceChatArtifact,
+} from "@/types/workspace-chat-artifacts"
 
 const EMPTY_MESSAGES: UIMessage[] = []
-const EMPTY_ARTIFACTS: MissionControlArtifact[] = []
+const EMPTY_ARTIFACTS: WorkspaceChatArtifact[] = []
 
 function sessionArtifacts(
   chat: AgentSessionsGetSessionVercelResponse | undefined
-): MissionControlArtifact[] {
+): WorkspaceChatArtifact[] {
   if (!chat || !("artifacts" in chat) || !Array.isArray(chat.artifacts)) {
     return EMPTY_ARTIFACTS
   }
-  return chat.artifacts as MissionControlArtifact[]
+  return chat.artifacts as WorkspaceChatArtifact[]
 }
 
-export function MissionControlView() {
+export function WorkspaceChatView() {
   const router = useRouter()
   const workspaceId = useWorkspaceId()
   const canAccessMissionControl = useScopeCheck(
@@ -72,7 +72,7 @@ export function MissionControlView() {
     },
     [chat, removeArtifact]
   )
-  const artifactsState = useMissionControlArtifacts(messages, {
+  const artifactsState = useWorkspaceChatArtifacts(messages, {
     enabled: true,
     persistedArtifacts,
     onCloseArtifact: closePersistedArtifact,
@@ -124,7 +124,7 @@ export function MissionControlView() {
       className="relative size-full min-h-0 overflow-hidden"
     >
       <ResizablePanel
-        id="mission-control-chat"
+        id="workspace-chat"
         order={1}
         defaultSize={showArtifactPanel ? 50 : 100}
         minSize={30}
@@ -135,8 +135,8 @@ export function MissionControlView() {
             entityType="copilot"
             entityId={workspaceId}
             bodyClassName="min-h-0"
-            placeholder="Ask Mission Control..."
-            surface="mission-control"
+            placeholder="Ask Tracecat..."
+            surface="workspace-chat"
             onMessagesChange={setMessages}
             onChatChange={setChat}
             headerActions={
@@ -165,7 +165,7 @@ export function MissionControlView() {
         <>
           <ResizableHandle className="z-10 -mx-1 w-2 bg-transparent after:w-px after:bg-border" />
           <ResizablePanel
-            id="mission-control-artifacts"
+            id="workspace-chat-artifacts"
             order={2}
             defaultSize={50}
             minSize={30}

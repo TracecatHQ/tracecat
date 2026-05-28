@@ -66,7 +66,7 @@ export function AppMenu({ workspaceId }: { workspaceId: string }) {
     }
     const relativePath = currentPath.replace(/^\/workspaces\/[^/]+/, "")
     const normalizedPath =
-      relativePath && relativePath !== "/" ? relativePath : "/mission-control"
+      relativePath && relativePath !== "/" ? relativePath : "/chat"
 
     return `/workspaces/${targetWorkspaceId}${normalizedPath}${
       search ? `?${search}` : ""

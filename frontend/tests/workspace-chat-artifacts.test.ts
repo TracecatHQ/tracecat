@@ -1,19 +1,19 @@
 import { act, renderHook } from "@testing-library/react"
 import type { UIMessage } from "ai"
 import {
-  reduceMissionControlArtifacts,
-  useMissionControlArtifacts,
-} from "@/hooks/use-mission-control-artifacts"
+  reduceWorkspaceChatArtifacts,
+  useWorkspaceChatArtifacts,
+} from "@/hooks/use-workspace-chat-artifacts"
 import { CHAT_SURFACE_CAPABILITIES } from "@/types/chat-surface"
 import {
   ARTIFACT_DATA_PART_TYPE,
   type ArtifactDataPayload,
   artifactKey,
-  type MissionControlStreamPart,
-  parseMissionControlStreamPart,
-} from "@/types/mission-control"
+  parseWorkspaceChatArtifactStreamPart,
+  type WorkspaceChatArtifactStreamPart,
+} from "@/types/workspace-chat-artifacts"
 
-describe("mission control artifacts", () => {
+describe("workspace chat artifacts", () => {
   it("parses data-artifact UI message parts", () => {
     const [part] = [
       {
@@ -31,7 +31,7 @@ describe("mission control artifacts", () => {
       },
     ] as UIMessage["parts"]
 
-    expect(parseMissionControlStreamPart(part)).toEqual({
+    expect(parseWorkspaceChatArtifactStreamPart(part)).toEqual({
       type: ARTIFACT_DATA_PART_TYPE,
       data: {
         op: "upsert",
@@ -60,7 +60,7 @@ describe("mission control artifacts", () => {
       },
     ] as UIMessage["parts"]
 
-    expect(parseMissionControlStreamPart(part)).toBeUndefined()
+    expect(parseWorkspaceChatArtifactStreamPart(part)).toBeUndefined()
   })
 
   it("rejects incomplete artifact subtype payloads", () => {
@@ -137,7 +137,7 @@ describe("mission control artifacts", () => {
       },
     ] as UIMessage[]
 
-    expect(reduceMissionControlArtifacts(messages)).toEqual([
+    expect(reduceWorkspaceChatArtifacts(messages)).toEqual([
       {
         type: "generic",
         id: "artifact-1",
@@ -157,11 +157,11 @@ describe("mission control artifacts", () => {
         status: "new",
       },
     }
-    const streamPart: MissionControlStreamPart = {
+    const streamPart: WorkspaceChatArtifactStreamPart = {
       type: ARTIFACT_DATA_PART_TYPE,
       data: payload,
     }
-    const { result } = renderHook(() => useMissionControlArtifacts([]))
+    const { result } = renderHook(() => useWorkspaceChatArtifacts([]))
 
     act(() => {
       result.current.applyStreamPart(streamPart)
@@ -195,7 +195,7 @@ describe("mission control artifacts", () => {
     } satisfies ArtifactDataPayload["artifact"]
 
     const { result } = renderHook(() =>
-      useMissionControlArtifacts([], { persistedArtifacts: [artifact] })
+      useWorkspaceChatArtifacts([], { persistedArtifacts: [artifact] })
     )
 
     expect(result.current.artifacts).toEqual([artifact])
@@ -259,7 +259,7 @@ describe("mission control artifacts", () => {
     ] as UIMessage[]
     const { result, rerender } = renderHook(
       ({ currentMessages }: { currentMessages: UIMessage[] }) =>
-        useMissionControlArtifacts(currentMessages),
+        useWorkspaceChatArtifacts(currentMessages),
       {
         initialProps: { currentMessages: messages },
       }
@@ -308,7 +308,7 @@ describe("mission control artifacts", () => {
       }: {
         persistedArtifacts: ArtifactDataPayload["artifact"][]
       }) =>
-        useMissionControlArtifacts(messages, {
+        useWorkspaceChatArtifacts(messages, {
           persistedArtifacts,
           onCloseArtifact,
         }),
@@ -335,8 +335,8 @@ describe("mission control artifacts", () => {
     expect(artifactKey({ type: "workflow", id: "wf-1" })).toBe("workflow:wf-1")
   })
 
-  it("enables artifact projection only for the Mission Control surface", () => {
+  it("enables artifact projection only for the workspace chat surface", () => {
     expect(CHAT_SURFACE_CAPABILITIES.regular.artifacts).toBe(false)
-    expect(CHAT_SURFACE_CAPABILITIES["mission-control"].artifacts).toBe(true)
+    expect(CHAT_SURFACE_CAPABILITIES["workspace-chat"].artifacts).toBe(true)
   })
 })

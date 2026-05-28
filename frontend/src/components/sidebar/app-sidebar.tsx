@@ -144,10 +144,10 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const navWorkspace: NavItem[] = useMemo(
     () => [
       {
-        title: "Mission Control",
-        url: `${basePath}/mission-control`,
+        title: "Chat",
+        url: `${basePath}/chat`,
         icon: BotIcon,
-        isActive: pathname?.startsWith(`${basePath}/mission-control`),
+        isActive: pathname?.startsWith(`${basePath}/chat`),
         visible: canAccessMissionControl,
         isLocked: entitlementsIsLoading || !agentAddonsEnabled,
         onSelect: entitlementsIsLoading

@@ -131,13 +131,11 @@ export async function createOrganizationInvitation(
 }
 
 /**
- * Wait until the workspace redirect settles on Mission Control.
+ * Wait until the workspace redirect settles on Chat.
  */
 export async function expectWorkspaceLanding(page: Page): Promise<void> {
-  await page.waitForURL(/\/workspaces\/[^/]+\/mission-control(\/|$|\?)/)
-  await expect(
-    page.getByRole("link", { name: "Mission Control" })
-  ).toBeVisible()
+  await page.waitForURL(/\/workspaces\/[^/]+\/chat(\/|$|\?)/)
+  await expect(page.getByRole("link", { name: "Chat" })).toBeVisible()
 }
 
 /**

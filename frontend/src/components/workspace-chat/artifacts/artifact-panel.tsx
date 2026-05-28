@@ -1,16 +1,16 @@
 "use client"
 
-import { ArtifactContent } from "@/components/mission-control/artifact-content"
-import { ArtifactTabs } from "@/components/mission-control/artifact-tabs"
+import { ArtifactContent } from "@/components/workspace-chat/artifacts/artifact-content"
+import { ArtifactTabs } from "@/components/workspace-chat/artifacts/artifact-tabs"
 import { cn } from "@/lib/utils"
 import {
   type ArtifactType,
   artifactKey,
-  type MissionControlArtifact,
-} from "@/types/mission-control"
+  type WorkspaceChatArtifact,
+} from "@/types/workspace-chat-artifacts"
 
 export interface ArtifactPanelProps {
-  artifacts: MissionControlArtifact[]
+  artifacts: WorkspaceChatArtifact[]
   activeArtifactKey: string | null
   setActiveArtifactKey: (key: string | null) => void
   closeArtifact: (type: ArtifactType, id: string) => void
@@ -21,7 +21,7 @@ export interface ArtifactPanelProps {
 }
 
 /**
- * Mission Control artifact panel.
+ * Workspace chat artifact panel.
  *
  * Parent layouts own sizing and collapse state. This shell fills the artifact
  * slot and renders the active artifact when one exists.

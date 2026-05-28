@@ -61,7 +61,7 @@ describe("WorkspacePage", () => {
     expect(screen.getByText("No accessible pages")).toBeInTheDocument()
   })
 
-  it("redirects to Mission Control when the workspace shell is readable", async () => {
+  it("redirects to Chat when the workspace shell is readable", async () => {
     mockScopes = {
       "workspace:read": true,
     }
@@ -70,7 +70,7 @@ describe("WorkspacePage", () => {
 
     await waitFor(() => {
       expect(mockRouterReplace).toHaveBeenCalledWith(
-        "/workspaces/workspace-1/mission-control"
+        "/workspaces/workspace-1/chat"
       )
     })
   })

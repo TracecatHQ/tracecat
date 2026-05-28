@@ -111,7 +111,7 @@ import {
 import { useBuilderRegistryActions } from "@/lib/hooks"
 import { cn } from "@/lib/utils"
 import type { ChatSurface } from "@/types/chat-surface"
-import { ARTIFACT_DATA_PART_TYPE } from "@/types/mission-control"
+import { ARTIFACT_DATA_PART_TYPE } from "@/types/workspace-chat-artifacts"
 
 const MAX_TOOL_MENTION_RESULTS = 40
 const AGENT_TOOL_NAMES = new Set(["Agent", "Task"])
@@ -279,11 +279,11 @@ export function ChatSessionPane({
     () => (chat?.messages || []).map(toUIMessage),
     [chat?.messages]
   )
-  const isMissionControl = surface === "mission-control"
-  const chatContentCenterClass = isMissionControl
+  const isWorkspaceChat = surface === "workspace-chat"
+  const chatContentCenterClass = isWorkspaceChat
     ? "mx-auto w-full max-w-[56rem]"
     : undefined
-  const promptCenterClass = isMissionControl
+  const promptCenterClass = isWorkspaceChat
     ? "relative mx-auto w-full max-w-[56rem]"
     : "relative"
   const { sendMessage, messages, status, regenerate, lastError, clearError } =

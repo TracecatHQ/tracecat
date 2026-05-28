@@ -133,7 +133,7 @@ export function ChatInterface({
   const presetsEnabled =
     agentAddonsEnabled && (entityType === "case" || entityType === "copilot")
   const headerRowClassName =
-    surface === "mission-control"
+    surface === "workspace-chat"
       ? "mx-auto flex w-full max-w-[56rem] items-center justify-between"
       : "flex items-center justify-between"
 

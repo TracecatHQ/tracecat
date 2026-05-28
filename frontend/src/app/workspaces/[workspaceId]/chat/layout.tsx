@@ -1,10 +1,10 @@
 import type { Metadata } from "next"
 
 export const metadata: Metadata = {
-  title: "Mission Control",
+  title: "Chat",
 }
 
-export default function MissionControlLayout({
+export default function WorkspaceChatLayout({
   children,
 }: {
   children: React.ReactNode

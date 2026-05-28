@@ -11,13 +11,13 @@ import {
   Plug,
   Table2,
 } from "lucide-react"
-import type { MissionControlArtifact } from "@/types/mission-control"
+import type { WorkspaceChatArtifact } from "@/types/workspace-chat-artifacts"
 
 export type ArtifactConfig = {
   label: string
   singularLabel: string
   icon: LucideIcon
-  href?: (artifact: MissionControlArtifact, workspaceId: string) => string
+  href?: (artifact: WorkspaceChatArtifact, workspaceId: string) => string
 }
 
 export const ARTIFACT_REGISTRY = {
@@ -71,7 +71,7 @@ export const ARTIFACT_REGISTRY = {
     singularLabel: "Result",
     icon: FileText,
   },
-} satisfies Record<MissionControlArtifact["type"], ArtifactConfig>
+} satisfies Record<WorkspaceChatArtifact["type"], ArtifactConfig>
 
 const UNKNOWN_ARTIFACT_CONFIG: ArtifactConfig = {
   label: "Results",
@@ -79,9 +79,9 @@ const UNKNOWN_ARTIFACT_CONFIG: ArtifactConfig = {
   icon: FileText,
 }
 
-/** Return display metadata for a Mission Control artifact. */
+/** Return display metadata for a Workspace chat artifact. */
 export function getArtifactConfig(
-  artifact: MissionControlArtifact
+  artifact: WorkspaceChatArtifact
 ): ArtifactConfig {
   return (
     ARTIFACT_REGISTRY[artifact.type as keyof typeof ARTIFACT_REGISTRY] ??
@@ -91,7 +91,7 @@ export function getArtifactConfig(
 
 /** Return the full-page href for an artifact when one exists. */
 export function getArtifactHref(
-  artifact: MissionControlArtifact,
+  artifact: WorkspaceChatArtifact,
   workspaceId: string
 ): string | undefined {
   return getArtifactConfig(artifact).href?.(artifact, workspaceId)
