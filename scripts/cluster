@@ -536,7 +536,7 @@ build_env() {
     else
         # Default to direct executor backend for development
         export TRACECAT__DISABLE_NSJAIL=true
-        export TRACECAT__EXECUTOR_BACKEND="${TRACECAT__EXECUTOR_BACKEND:-direct}"
+        export TRACECAT__EXECUTOR_BACKEND=direct
     fi
 
     # Cluster development always defaults to multi-tenant mode. Only the
