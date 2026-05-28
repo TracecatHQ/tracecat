@@ -10,12 +10,12 @@ from tracecat.agent.common.config import TRACECAT__DISABLE_NSJAIL
 from tracecat.agent.common.protocol import RuntimeInitPayload
 from tracecat.agent.executor.loopback import LoopbackHandler
 from tracecat.agent.runtime.claude_code.runtime import ClaudeAgentRuntime
-from tracecat.agent.runtime.claude_code.session_paths import (
-    ClaudeSandboxPathMapping,
-    build_claude_sandbox_path_mapping,
-)
 from tracecat.agent.runtime.claude_code.transport import (
     SandboxedCLITransport,
+)
+from tracecat.agent.runtime.session_paths import (
+    AgentSandboxPathMapping,
+    build_agent_sandbox_path_mapping,
 )
 
 
@@ -99,8 +99,8 @@ class ClaudeRuntimeBroker:
                     skills_dir=request.skills_dir,
                 ),
                 session_home_dir=path_mapping.host_home_dir,
-                cwd=path_mapping.runtime_cwd,
-                cwd_setup_path=path_mapping.host_project_dir,
+                cwd=path_mapping.runtime_work_dir,
+                cwd_setup_path=path_mapping.host_work_dir,
             )
             await runtime.run(request.init_payload)
         finally:
@@ -115,14 +115,13 @@ class ClaudeRuntimeBroker:
             task.cancel()
 
     @staticmethod
-    def _build_path_mapping(*, session_id: str) -> ClaudeSandboxPathMapping:
+    def _build_path_mapping(*, session_id: str) -> AgentSandboxPathMapping:
         """Build stable host/runtime path mapping for one Claude session.
 
-        The broker path must preserve Claude's home/project directories across turns
-        so `--resume <sdk_session_id>` can find the same session metadata and JSONL
-        history on resumed turns.
+        The broker path must preserve the agent home and work dir across turns
+        so harness-specific resume metadata and JSONL history remain stable.
         """
-        return build_claude_sandbox_path_mapping(
+        return build_agent_sandbox_path_mapping(
             session_id=session_id,
             disable_nsjail=TRACECAT__DISABLE_NSJAIL,
         )

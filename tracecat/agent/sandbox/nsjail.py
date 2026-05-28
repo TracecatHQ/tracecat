@@ -41,6 +41,11 @@ from tracecat.agent.common.exceptions import (
     AgentSandboxExecutionError,
     AgentSandboxTimeoutError,
 )
+from tracecat.agent.runtime.session_paths import (
+    JAILED_AGENT_HOME_DIR,
+    JAILED_AGENT_JOB_DIR,
+    JAILED_AGENT_WORK_DIR,
+)
 from tracecat.agent.sandbox.config import (
     JAILED_SHIM_ENTRYPOINT_PATH,
     AgentSandboxConfig,
@@ -55,7 +60,7 @@ from tracecat.logger import logger
 
 BROKER_SHIM_SCRIPT_NAME = Path(JAILED_SHIM_ENTRYPOINT_PATH).name
 SESSION_HOME_ENV_VAR = "TRACECAT__AGENT_SESSION_HOME_DIR"
-SESSION_PROJECT_ENV_VAR = "TRACECAT__AGENT_SESSION_PROJECT_DIR"
+SESSION_WORK_DIR_ENV_VAR = "TRACECAT__AGENT_SESSION_WORK_DIR"
 CLAUDE_SHIM_STDIO_LIMIT_BYTES = 5 * 1024 * 1024
 
 
@@ -132,7 +137,7 @@ async def spawn_jailed_runtime(
     pipe_stdin: bool = False,
     job_dir: Path | None = None,
     session_home_dir: Path | None = None,
-    session_project_dir: Path | None = None,
+    session_work_dir: Path | None = None,
     enable_internet_access: bool = False,
     skills_dir: Path | None = None,
     inherited_fds: tuple[int, ...] = (),
@@ -205,7 +210,7 @@ async def spawn_jailed_runtime(
             control_socket_required=control_socket_required,
             pipe_stdin=pipe_stdin,
             session_home_dir=session_home_dir,
-            session_project_dir=session_project_dir,
+            session_work_dir=session_work_dir,
             skills_dir=skills_dir,
             inherited_fds=inherited_fds,
         )
@@ -229,7 +234,7 @@ async def spawn_jailed_runtime(
         pipe_stdin=pipe_stdin,
         job_dir=job_dir,
         session_home_dir=session_home_dir,
-        session_project_dir=session_project_dir,
+        session_work_dir=session_work_dir,
         enable_internet_access=enable_internet_access,
         skills_dir=skills_dir,
     )
@@ -266,7 +271,7 @@ async def _spawn_direct_runtime(
     control_socket_required: bool,
     pipe_stdin: bool,
     session_home_dir: Path | None,
-    session_project_dir: Path | None,
+    session_work_dir: Path | None,
     skills_dir: Path | None,
     inherited_fds: tuple[int, ...] = (),
 ) -> SpawnedRuntime:
@@ -325,9 +330,9 @@ async def _spawn_direct_runtime(
         session_home_dir.mkdir(parents=True, exist_ok=True)
         env[SESSION_HOME_ENV_VAR] = str(session_home_dir)
         env["HOME"] = str(session_home_dir)
-    if session_project_dir is not None:
-        session_project_dir.mkdir(parents=True, exist_ok=True)
-        env[SESSION_PROJECT_ENV_VAR] = str(session_project_dir)
+    if session_work_dir is not None:
+        session_work_dir.mkdir(parents=True, exist_ok=True)
+        env[SESSION_WORK_DIR_ENV_VAR] = str(session_work_dir)
     await _sync_direct_skills_dir(
         skills_dir=skills_dir,
         session_home_dir=session_home_dir,
@@ -359,14 +364,14 @@ async def _spawn_nsjail_runtime(
     pipe_stdin: bool,
     job_dir: Path | None,
     session_home_dir: Path | None,
-    session_project_dir: Path | None,
+    session_work_dir: Path | None,
     enable_internet_access: bool = False,
     skills_dir: Path | None = None,
 ) -> SpawnedRuntime:
     """Spawn the Claude shim inside an NSJail sandbox (production mode).
 
     The host copies the standalone shim script into the job directory and the
-    nsjail config executes that script from the mounted /work directory.
+    nsjail config executes that script from the mounted /run/tracecat/job directory.
     """
     rootfs = Path(rootfs_path)
     nsjail = Path(nsjail_path)
@@ -397,6 +402,10 @@ async def _spawn_nsjail_runtime(
     jailed_init_payload_path = job_dir / "init.json"
 
     try:
+        if session_home_dir is not None:
+            session_home_dir.mkdir(parents=True, exist_ok=True)
+        if session_work_dir is not None:
+            session_work_dir.mkdir(parents=True, exist_ok=True)
         if skills_dir is not None:
             skills_dir.mkdir(parents=True, exist_ok=True)
             if session_home_dir is not None:
@@ -427,7 +436,7 @@ async def _spawn_nsjail_runtime(
             if control_socket_required
             else None,
             session_home_dir=session_home_dir,
-            session_project_dir=session_project_dir,
+            session_work_dir=session_work_dir,
             enable_internet_access=enable_internet_access,
             skills_dir=skills_dir,
         )
@@ -439,11 +448,14 @@ async def _spawn_nsjail_runtime(
 
         # Build environment
         env_map = build_agent_env_map(config)
-        env_map["TRACECAT__AGENT_INIT_PAYLOAD_PATH"] = "/work/init.json"
+        env_map["TRACECAT__AGENT_INIT_PAYLOAD_PATH"] = str(
+            JAILED_AGENT_JOB_DIR / "init.json"
+        )
         if session_home_dir is not None:
-            env_map[SESSION_HOME_ENV_VAR] = "/work/claude-home"
-        if session_project_dir is not None:
-            env_map[SESSION_PROJECT_ENV_VAR] = "/work/claude-project"
+            env_map[SESSION_HOME_ENV_VAR] = str(JAILED_AGENT_HOME_DIR)
+            env_map["HOME"] = str(JAILED_AGENT_HOME_DIR)
+        if session_work_dir is not None:
+            env_map[SESSION_WORK_DIR_ENV_VAR] = str(JAILED_AGENT_WORK_DIR)
         env_args: list[str] = []
         for key, value in env_map.items():
             env_args.extend(["--env", f"{key}={value}"])

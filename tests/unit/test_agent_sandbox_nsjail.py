@@ -7,17 +7,17 @@ import pytest
 
 from tracecat.agent.sandbox.nsjail import (
     SESSION_HOME_ENV_VAR,
-    SESSION_PROJECT_ENV_VAR,
+    SESSION_WORK_DIR_ENV_VAR,
     _spawn_direct_runtime,
 )
 
 
 @pytest.mark.anyio
-async def test_spawn_direct_runtime_sets_explicit_claude_session_paths(
+async def test_spawn_direct_runtime_sets_explicit_agent_session_paths(
     tmp_path: Path,
 ) -> None:
-    session_home_dir = tmp_path / "claude-home"
-    session_project_dir = tmp_path / "claude-project"
+    session_home_dir = tmp_path / "agent-home"
+    session_work_dir = tmp_path / "agent-work-dir"
     mock_process = MagicMock()
 
     with patch(
@@ -32,7 +32,7 @@ async def test_spawn_direct_runtime_sets_explicit_claude_session_paths(
             control_socket_required=True,
             pipe_stdin=False,
             session_home_dir=session_home_dir,
-            session_project_dir=session_project_dir,
+            session_work_dir=session_work_dir,
             skills_dir=None,
         )
 
@@ -47,9 +47,9 @@ async def test_spawn_direct_runtime_sets_explicit_claude_session_paths(
     )
     assert create_subprocess_exec.await_args.kwargs["pass_fds"] == ()
     assert env[SESSION_HOME_ENV_VAR] == str(session_home_dir)
-    assert env[SESSION_PROJECT_ENV_VAR] == str(session_project_dir)
+    assert env[SESSION_WORK_DIR_ENV_VAR] == str(session_work_dir)
     assert session_home_dir.is_dir()
-    assert session_project_dir.is_dir()
+    assert session_work_dir.is_dir()
 
 
 @pytest.mark.anyio
@@ -68,7 +68,7 @@ async def test_spawn_direct_runtime_passes_inherited_fds(tmp_path: Path) -> None
             control_socket_required=False,
             pipe_stdin=True,
             session_home_dir=None,
-            session_project_dir=None,
+            session_work_dir=None,
             skills_dir=None,
             inherited_fds=(42,),
         )

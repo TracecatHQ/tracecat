@@ -107,8 +107,8 @@ async def test_read_shim_init_payload_validates_shape(tmp_path: Path) -> None:
         orjson.dumps(
             {
                 "command": ["claude", "--print"],
-                "env": {"HOME": "/work/claude-home"},
-                "cwd": "/work/claude-project",
+                "env": {"HOME": "/home/agent"},
+                "cwd": "/work",
                 "mcp_bridge_port": 4101,
             }
         )
@@ -118,8 +118,8 @@ async def test_read_shim_init_payload_validates_shape(tmp_path: Path) -> None:
 
     assert payload == {
         "command": ["claude", "--print"],
-        "env": {"HOME": "/work/claude-home"},
-        "cwd": "/work/claude-project",
+        "env": {"HOME": "/home/agent"},
+        "cwd": "/work",
         "mcp_bridge_port": 4101,
     }
 
@@ -131,8 +131,8 @@ async def test_read_shim_init_payload_allows_port_zero(tmp_path: Path) -> None:
         orjson.dumps(
             {
                 "command": ["claude", "--print"],
-                "env": {"HOME": "/work/claude-home"},
-                "cwd": "/work/claude-project",
+                "env": {"HOME": "/home/agent"},
+                "cwd": "/work",
                 "mcp_bridge_port": 0,
             }
         )
@@ -152,8 +152,8 @@ async def test_read_shim_init_payload_accepts_inherited_mcp_bridge_fd(
         orjson.dumps(
             {
                 "command": ["claude", "--print"],
-                "env": {"HOME": "/work/claude-home"},
-                "cwd": "/work/claude-project",
+                "env": {"HOME": "/home/agent"},
+                "cwd": "/work",
                 "mcp_bridge_port": 54321,
                 "mcp_bridge_fd": 42,
             }
