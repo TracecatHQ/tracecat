@@ -7,20 +7,18 @@ import contextlib
 import errno
 import gzip
 import hashlib
-import json
 import os
 import shutil
 import stat
 import tarfile
-import threading
 import uuid
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
-from types import TracebackType
 from typing import BinaryIO, Protocol
 
+from pydantic import BaseModel, ConfigDict, ValidationError
 from sqlalchemy import select
 
 from tracecat import config
@@ -33,65 +31,24 @@ from tracecat.storage import blob
 AGENT_FS_ARCHIVE_FORMAT = "tar.gz"
 AGENT_FS_COMPRESSION = "gzip"
 AGENT_FS_CONTENT_TYPE = "application/gzip"
-SNAPSHOT_MARKER_FILENAME = ".agent-fs-snapshot.json"
 STATE_HASH_ALGORITHM = "blake2b-256"
 _STATE_HASH_DIGEST_SIZE = 32
-_archive_cache_locks: dict[str, asyncio.Lock] = {}
-_archive_cache_locks_guard = asyncio.Lock()
-_archive_cache_usage_counts: dict[Path, int] = {}
-_archive_cache_usage_guard = threading.Lock()
 
 
 @dataclass(frozen=True, slots=True)
-class _ArchiveCacheEntry:
+class _SnapshotDirectoryEntry:
     path: Path
-    size_bytes: int
-    last_used_ns: int
+    relative_path: str
+    path_stat: os.stat_result
 
 
-@dataclass(slots=True)
-class _ArchiveCacheLease:
+@dataclass(frozen=True, slots=True)
+class _SnapshotFileEntry:
     path: Path
-    resolved_path: Path
-    _released: bool = False
+    relative_path: str
 
-    def __enter__(self) -> Path:
-        if self._released:
-            raise RuntimeError("Archive cache lease already released")
-        return self.path
 
-    async def __aenter__(self) -> Path:
-        return self.__enter__()
-
-    def __exit__(
-        self,
-        exc_type: type[BaseException] | None,
-        exc: BaseException | None,
-        traceback: TracebackType | None,
-    ) -> None:
-        self.release()
-
-    async def __aexit__(
-        self,
-        exc_type: type[BaseException] | None,
-        exc: BaseException | None,
-        traceback: TracebackType | None,
-    ) -> None:
-        await asyncio.to_thread(self.release)
-
-    def release(self) -> None:
-        if self._released:
-            return
-        with _archive_cache_usage_guard:
-            current_count = _archive_cache_usage_counts.get(self.resolved_path)
-            if current_count is None:
-                self._released = True
-                return
-            if current_count <= 1:
-                _archive_cache_usage_counts.pop(self.resolved_path, None)
-            else:
-                _archive_cache_usage_counts[self.resolved_path] = current_count - 1
-            self._released = True
+type _SnapshotEntry = _SnapshotDirectoryEntry | _SnapshotFileEntry
 
 
 class _HashUpdater(Protocol):
@@ -124,9 +81,10 @@ class AgentFilesystemStateStats:
         return self.file_count + self.dir_count
 
 
-@dataclass(frozen=True, slots=True)
-class AgentFilesystemSnapshotMetadata:
+class AgentFilesystemSnapshotMetadata(BaseModel):
     """Current durable snapshot pointer stored on an agent session."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
 
     bucket: str
     key: str
@@ -147,37 +105,13 @@ class AgentFilesystemSnapshotMetadata:
         if raw is None:
             return None
         try:
-            return cls(
-                bucket=_required_str(raw, "bucket"),
-                key=_required_str(raw, "key"),
-                state_hash=_required_str(raw, "state_hash"),
-                sha256=_required_str(raw, "sha256"),
-                size_bytes=_required_int(raw, "size_bytes"),
-                uncompressed_size_bytes=_required_int(raw, "uncompressed_size_bytes"),
-                file_count=_required_int(raw, "file_count"),
-                dir_count=_required_int(raw, "dir_count"),
-                archive_format=_required_str(raw, "archive_format"),
-                compression=_required_str(raw, "compression"),
-                created_at=_required_str(raw, "created_at"),
-            )
-        except (TypeError, ValueError, KeyError):
+            return cls.model_validate(raw)
+        except ValidationError:
             logger.warning("Ignoring malformed agent filesystem snapshot metadata")
             return None
 
     def to_dict(self) -> dict[str, object]:
-        return {
-            "bucket": self.bucket,
-            "key": self.key,
-            "state_hash": self.state_hash,
-            "sha256": self.sha256,
-            "size_bytes": self.size_bytes,
-            "uncompressed_size_bytes": self.uncompressed_size_bytes,
-            "file_count": self.file_count,
-            "dir_count": self.dir_count,
-            "archive_format": self.archive_format,
-            "compression": self.compression,
-            "created_at": self.created_at,
-        }
+        return self.model_dump(mode="json")
 
 
 class AgentFilesystemSnapshotLimitExceeded(ValueError):
@@ -270,12 +204,7 @@ async def hydrate_agent_work_dir(
         work_dir.mkdir(parents=True, exist_ok=True)
         return None
 
-    marker = _read_snapshot_marker(work_dir)
-    if (
-        marker is not None
-        and _snapshot_marker_matches(marker, snapshot)
-        and await asyncio.to_thread(_work_dir_matches_snapshot, work_dir, snapshot)
-    ):
+    if await asyncio.to_thread(_work_dir_matches_snapshot, work_dir, snapshot):
         logger.debug(
             "Agent filesystem snapshot already hydrated",
             session_id=str(session_id),
@@ -284,10 +213,19 @@ async def hydrate_agent_work_dir(
         )
         return snapshot
 
-    archive_lease = await _ensure_snapshot_archive_cached(snapshot)
-    async with archive_lease as archive_path:
-        await asyncio.to_thread(_extract_archive_to_work_dir, archive_path, work_dir)
-    await asyncio.to_thread(_write_snapshot_marker, work_dir, snapshot)
+    staging_dir = _staging_dir()
+    temp_archive = staging_dir / f"{session_id}-{uuid.uuid4().hex}.tar.gz"
+    try:
+        await blob.download_file_to_path(
+            key=snapshot.key,
+            bucket=snapshot.bucket,
+            output_path=temp_archive,
+            max_bytes=snapshot.size_bytes,
+            expected_sha256=snapshot.sha256,
+        )
+        await asyncio.to_thread(_extract_archive_to_work_dir, temp_archive, work_dir)
+    finally:
+        temp_archive.unlink(missing_ok=True)
     logger.info(
         "Hydrated agent filesystem snapshot",
         session_id=str(session_id),
@@ -308,9 +246,7 @@ async def persist_agent_work_dir(
     work_dir: Path,
 ) -> AgentFilesystemSnapshotMetadata | None:
     """Create, upload, and record a durable snapshot of ``work_dir``."""
-    cache_root = _cache_root()
-    staging_dir = cache_root / "staging"
-    staging_dir.mkdir(parents=True, exist_ok=True)
+    staging_dir = _staging_dir()
     temp_archive = staging_dir / f"{session_id}-{uuid.uuid4().hex}.tar.gz"
 
     try:
@@ -352,20 +288,14 @@ async def persist_agent_work_dir(
             max_uncompressed_bytes=config.TRACECAT__AGENT_FS_MAX_UNCOMPRESSED_BYTES,
             max_file_count=config.TRACECAT__AGENT_FS_MAX_FILE_COUNT,
         )
-        archive_lease = await asyncio.to_thread(
-            _promote_archive_to_cache,
-            temp_archive,
-            archive_stats.sha256,
-        )
         bucket = config.TRACECAT__BLOB_STORAGE_BUCKET_AGENT
         key = build_agent_fs_snapshot_key(sha256=archive_stats.sha256)
-        async with archive_lease as archive_path:
-            await blob.upload_file_from_path(
-                archive_path,
-                key=key,
-                bucket=bucket,
-                content_type=AGENT_FS_CONTENT_TYPE,
-            )
+        await blob.upload_file_from_path(
+            temp_archive,
+            key=key,
+            bucket=bucket,
+            content_type=AGENT_FS_CONTENT_TYPE,
+        )
         snapshot = AgentFilesystemSnapshotMetadata(
             bucket=bucket,
             key=key,
@@ -384,7 +314,6 @@ async def persist_agent_work_dir(
                 session_id=session_id,
                 snapshot=snapshot,
             )
-        await asyncio.to_thread(_write_snapshot_marker, work_dir, snapshot)
         logger.info(
             "Persisted agent filesystem snapshot",
             session_id=str(session_id),
@@ -399,6 +328,39 @@ async def persist_agent_work_dir(
         return snapshot
     finally:
         temp_archive.unlink(missing_ok=True)
+
+
+def _iter_snapshot_entries(work_dir: Path) -> Iterator[_SnapshotEntry]:
+    """Yield canonical snapshot candidates in stable directory order."""
+    for root, dirs, files in os.walk(
+        work_dir,
+        followlinks=False,
+        onerror=_raise_work_dir_walk_error,
+    ):
+        root_path = Path(root)
+        kept_dirs: list[str] = []
+        for dirname in sorted(dirs):
+            dir_path = root_path / dirname
+            try:
+                dir_stat = dir_path.lstat()
+            except FileNotFoundError:
+                continue
+            if not stat.S_ISDIR(dir_stat.st_mode):
+                continue
+            kept_dirs.append(dirname)
+            yield _SnapshotDirectoryEntry(
+                path=dir_path,
+                relative_path=dir_path.relative_to(work_dir).as_posix(),
+                path_stat=dir_stat,
+            )
+        dirs[:] = kept_dirs
+
+        for filename in sorted(files):
+            file_path = root_path / filename
+            yield _SnapshotFileEntry(
+                path=file_path,
+                relative_path=file_path.relative_to(work_dir).as_posix(),
+            )
 
 
 def compute_work_dir_state(
@@ -416,43 +378,26 @@ def compute_work_dir_state(
     dir_count = 0
     entry_count = 0
 
-    for root, dirs, files in os.walk(
-        work_dir,
-        followlinks=False,
-        onerror=_raise_work_dir_walk_error,
-    ):
-        root_path = Path(root)
-        kept_dirs: list[str] = []
-        for dirname in sorted(dirs):
-            dir_path = root_path / dirname
-            try:
-                dir_stat = dir_path.lstat()
-            except FileNotFoundError:
-                continue
-            if not stat.S_ISDIR(dir_stat.st_mode):
-                continue
-            kept_dirs.append(dirname)
+    for entry in _iter_snapshot_entries(work_dir):
+        if isinstance(entry, _SnapshotDirectoryEntry):
             dir_count += 1
             entry_count += 1
             _raise_if_snapshot_entry_limit_exceeded(entry_count, max_file_count)
             _hash_state_entry(
                 state_hasher,
                 entry_type="dir",
-                relative_path=dir_path.relative_to(work_dir).as_posix(),
-                mode=stat.S_IMODE(dir_stat.st_mode),
+                relative_path=entry.relative_path,
+                mode=stat.S_IMODE(entry.path_stat.st_mode),
                 size_bytes=0,
                 content_hash="",
             )
-        dirs[:] = kept_dirs
+            continue
 
-        for filename in sorted(files):
-            file_path = root_path / filename
-            try:
-                file_stat = file_path.lstat()
-            except FileNotFoundError:
-                continue
-            if not stat.S_ISREG(file_stat.st_mode):
-                continue
+        opened_file = _open_regular_file_for_snapshot(entry.path)
+        if opened_file is None:
+            continue
+        source, file_stat = opened_file
+        with source:
             file_count += 1
             entry_count += 1
             _raise_if_snapshot_entry_limit_exceeded(entry_count, max_file_count)
@@ -465,10 +410,10 @@ def compute_work_dir_state(
             _hash_state_entry(
                 state_hasher,
                 entry_type="file",
-                relative_path=file_path.relative_to(work_dir).as_posix(),
+                relative_path=entry.relative_path,
                 mode=stat.S_IMODE(file_stat.st_mode),
                 size_bytes=file_stat.st_size,
-                content_hash=_blake2b_file(file_path),
+                content_hash=_blake2b_stream(source),
             )
 
     return AgentFilesystemStateStats(
@@ -505,22 +450,8 @@ def create_work_dir_archive(
                     dereference=False,
                     format=tarfile.PAX_FORMAT,
                 ) as tar:
-                    for root, dirs, files in os.walk(
-                        work_dir,
-                        followlinks=False,
-                        onerror=_raise_work_dir_walk_error,
-                    ):
-                        root_path = Path(root)
-                        kept_dirs: list[str] = []
-                        for dirname in sorted(dirs):
-                            dir_path = root_path / dirname
-                            try:
-                                dir_stat = dir_path.lstat()
-                            except FileNotFoundError:
-                                continue
-                            if not stat.S_ISDIR(dir_stat.st_mode):
-                                continue
-                            kept_dirs.append(dirname)
+                    for entry in _iter_snapshot_entries(work_dir):
+                        if isinstance(entry, _SnapshotDirectoryEntry):
                             entry_count += 1
                             _raise_if_snapshot_entry_limit_exceeded(
                                 entry_count,
@@ -528,40 +459,34 @@ def create_work_dir_archive(
                             )
                             _add_directory_to_archive(
                                 tar,
-                                dir_path,
-                                work_dir,
-                                dir_stat,
+                                relative_path=entry.relative_path,
+                                path_stat=entry.path_stat,
                             )
-                        dirs[:] = kept_dirs
+                            continue
 
-                        for filename in sorted(files):
-                            file_path = root_path / filename
-                            opened_file = _open_regular_file_for_snapshot(file_path)
-                            if opened_file is None:
-                                continue
-                            source, file_stat = opened_file
+                        opened_file = _open_regular_file_for_snapshot(entry.path)
+                        if opened_file is None:
+                            continue
+                        source, file_stat = opened_file
+                        with source:
                             file_count += 1
                             entry_count += 1
-                            try:
-                                _raise_if_snapshot_entry_limit_exceeded(
-                                    entry_count,
-                                    max_file_count,
+                            _raise_if_snapshot_entry_limit_exceeded(
+                                entry_count,
+                                max_file_count,
+                            )
+                            total_bytes += file_stat.st_size
+                            if total_bytes > max_uncompressed_bytes:
+                                raise AgentFilesystemSnapshotLimitExceeded(
+                                    "Agent filesystem snapshot exceeds max uncompressed bytes: "
+                                    f"{total_bytes} > {max_uncompressed_bytes}"
                                 )
-                                total_bytes += file_stat.st_size
-                                if total_bytes > max_uncompressed_bytes:
-                                    raise AgentFilesystemSnapshotLimitExceeded(
-                                        "Agent filesystem snapshot exceeds max uncompressed bytes: "
-                                        f"{total_bytes} > {max_uncompressed_bytes}"
-                                    )
-                                _add_regular_file_to_archive(
-                                    tar,
-                                    file_path,
-                                    work_dir,
-                                    source,
-                                    file_stat,
-                                )
-                            finally:
-                                source.close()
+                            _add_regular_file_to_archive(
+                                tar,
+                                relative_path=entry.relative_path,
+                                source=source,
+                                path_stat=file_stat,
+                            )
         os.replace(temp_path, output_path)
     except Exception:
         temp_path.unlink(missing_ok=True)
@@ -638,30 +563,6 @@ def extract_work_dir_archive(
         raise
 
 
-async def _ensure_snapshot_archive_cached(
-    snapshot: AgentFilesystemSnapshotMetadata,
-) -> _ArchiveCacheLease:
-    archive_path = _archive_cache_path(snapshot.sha256)
-    lock = await _get_archive_cache_lock(snapshot.sha256)
-    async with lock:
-        lease = await asyncio.to_thread(_acquire_archive_cache_lease, archive_path)
-        try:
-            if not _cached_archive_matches(archive_path, snapshot):
-                await blob.download_file_to_path(
-                    key=snapshot.key,
-                    bucket=snapshot.bucket,
-                    output_path=archive_path,
-                    max_bytes=snapshot.size_bytes,
-                    expected_sha256=snapshot.sha256,
-                )
-            await asyncio.to_thread(_touch_archive_for_lru, archive_path)
-            await asyncio.to_thread(_prune_archive_cache, keep_path=archive_path)
-        except Exception:
-            await asyncio.to_thread(lease.release)
-            raise
-        return lease
-
-
 def _extract_archive_to_work_dir(archive_path: Path, work_dir: Path) -> None:
     work_dir.parent.mkdir(parents=True, exist_ok=True)
     temp_dir = work_dir.with_name(f".tmp-{work_dir.name}-{uuid.uuid4().hex}")
@@ -679,137 +580,18 @@ def _extract_archive_to_work_dir(archive_path: Path, work_dir: Path) -> None:
         raise
 
 
-def _promote_archive_to_cache(temp_archive: Path, sha256: str) -> _ArchiveCacheLease:
-    archive_path = _archive_cache_path(sha256)
-    archive_path.parent.mkdir(parents=True, exist_ok=True)
-    lease = _acquire_archive_cache_lease(archive_path)
-    try:
-        if archive_path.exists():
-            temp_archive.unlink(missing_ok=True)
-        else:
-            os.replace(temp_archive, archive_path)
-        _touch_archive_for_lru(archive_path)
-        _prune_archive_cache(keep_path=archive_path)
-    except Exception:
-        lease.release()
-        raise
-    return lease
-
-
-def _archive_cache_path(sha256: str) -> Path:
-    return _cache_root() / "archives" / f"{sha256}.tar.gz"
-
-
-def _cache_root() -> Path:
-    root = Path(config.TRACECAT__AGENT_FS_CACHE_DIR)
-    root.mkdir(parents=True, exist_ok=True)
-    return root
-
-
-def _cached_archive_matches(
-    archive_path: Path,
-    snapshot: AgentFilesystemSnapshotMetadata,
-) -> bool:
-    if not archive_path.exists() or archive_path.stat().st_size != snapshot.size_bytes:
-        return False
-    return _sha256_file(archive_path) == snapshot.sha256
-
-
-def _acquire_archive_cache_lease(archive_path: Path) -> _ArchiveCacheLease:
-    resolved_path = archive_path.resolve(strict=False)
-    with _archive_cache_usage_guard:
-        _archive_cache_usage_counts[resolved_path] = (
-            _archive_cache_usage_counts.get(resolved_path, 0) + 1
-        )
-    return _ArchiveCacheLease(path=archive_path, resolved_path=resolved_path)
-
-
-def _touch_archive_for_lru(archive_path: Path) -> None:
-    with contextlib.suppress(OSError):
-        os.utime(archive_path)
-
-
-def _prune_archive_cache(*, keep_path: Path | None = None) -> None:
-    max_bytes = max(0, config.TRACECAT__AGENT_FS_ARCHIVE_CACHE_MAX_BYTES)
-    archives_dir = _cache_root() / "archives"
-    if not archives_dir.exists():
-        return
-
-    keep_resolved = keep_path.resolve(strict=False) if keep_path is not None else None
-    with _archive_cache_usage_guard:
-        entries: list[_ArchiveCacheEntry] = []
-        total_bytes = 0
-        for archive_path in archives_dir.glob("*.tar.gz"):
-            try:
-                archive_stat = archive_path.stat()
-            except FileNotFoundError:
-                continue
-            if not stat.S_ISREG(archive_stat.st_mode):
-                continue
-            entries.append(
-                _ArchiveCacheEntry(
-                    path=archive_path,
-                    size_bytes=archive_stat.st_size,
-                    last_used_ns=archive_stat.st_mtime_ns,
-                )
-            )
-            total_bytes += archive_stat.st_size
-        if total_bytes <= max_bytes:
-            return
-
-        pruned_count = 0
-        pruned_bytes = 0
-        for entry in sorted(
-            entries, key=lambda item: (item.last_used_ns, item.path.name)
-        ):
-            if total_bytes <= max_bytes:
-                break
-            entry_resolved = entry.path.resolve(strict=False)
-            if (
-                keep_resolved is not None and entry_resolved == keep_resolved
-            ) or entry_resolved in _archive_cache_usage_counts:
-                continue
-            try:
-                entry.path.unlink()
-            except FileNotFoundError:
-                pass
-            except OSError as e:
-                logger.warning(
-                    "Failed to prune agent filesystem archive cache entry",
-                    path=str(entry.path),
-                    error=str(e),
-                )
-                continue
-            total_bytes -= entry.size_bytes
-            pruned_count += 1
-            pruned_bytes += entry.size_bytes
-
-    if pruned_count:
-        logger.info(
-            "Pruned agent filesystem archive cache",
-            pruned_count=pruned_count,
-            pruned_bytes=pruned_bytes,
-            remaining_bytes=total_bytes,
-            max_bytes=max_bytes,
-        )
-
-
-async def _get_archive_cache_lock(sha256: str) -> asyncio.Lock:
-    async with _archive_cache_locks_guard:
-        lock = _archive_cache_locks.get(sha256)
-        if lock is None:
-            lock = asyncio.Lock()
-            _archive_cache_locks[sha256] = lock
-        return lock
+def _staging_dir() -> Path:
+    staging_dir = Path(config.TRACECAT__AGENT_FS_CACHE_DIR) / "staging"
+    staging_dir.mkdir(parents=True, exist_ok=True)
+    return staging_dir
 
 
 def _add_directory_to_archive(
     tar: tarfile.TarFile,
-    path: Path,
-    work_dir: Path,
+    *,
+    relative_path: str,
     path_stat: os.stat_result,
 ) -> None:
-    relative_path = path.relative_to(work_dir).as_posix()
     tarinfo = _snapshot_tarinfo(
         name=relative_path,
         mode=path_stat.st_mode,
@@ -821,12 +603,11 @@ def _add_directory_to_archive(
 
 def _add_regular_file_to_archive(
     tar: tarfile.TarFile,
-    path: Path,
-    work_dir: Path,
+    *,
+    relative_path: str,
     source: BinaryIO,
     path_stat: os.stat_result,
 ) -> None:
-    relative_path = path.relative_to(work_dir).as_posix()
     tarinfo = _snapshot_tarinfo(
         name=relative_path,
         mode=path_stat.st_mode,
@@ -921,10 +702,9 @@ def _sha256_file(path: Path) -> str:
     return hasher.hexdigest()
 
 
-def _blake2b_file(path: Path) -> str:
+def _blake2b_stream(source: BinaryIO) -> str:
     hasher = hashlib.blake2b(digest_size=_STATE_HASH_DIGEST_SIZE)
-    with path.open("rb") as f:
-        _copy_to_hash(f, hasher)
+    _copy_to_hash(source, hasher)
     return hasher.hexdigest()
 
 
@@ -954,20 +734,6 @@ def _hash_state_field(hasher: _HashUpdater, value: bytes) -> None:
     hasher.update(value)
 
 
-def _required_str(raw: Mapping[str, object], key: str) -> str:
-    value = raw[key]
-    if not isinstance(value, str):
-        raise TypeError(f"Expected string field {key}")
-    return value
-
-
-def _required_int(raw: Mapping[str, object], key: str) -> int:
-    value = raw[key]
-    if not isinstance(value, int):
-        raise TypeError(f"Expected integer field {key}")
-    return value
-
-
 def _work_dir_matches_snapshot(
     work_dir: Path,
     snapshot: AgentFilesystemSnapshotMetadata,
@@ -982,58 +748,9 @@ def _work_dir_matches_snapshot(
         )
     except Exception as e:
         logger.debug(
-            "Failed to verify hydrated agent filesystem marker",
+            "Failed to verify existing agent filesystem work dir",
             error=str(e),
             sha256=snapshot.sha256,
         )
         return False
     return state_stats.state_hash == snapshot.state_hash
-
-
-def _snapshot_marker_path(work_dir: Path) -> Path:
-    return work_dir.parent / SNAPSHOT_MARKER_FILENAME
-
-
-def _read_snapshot_marker(work_dir: Path) -> dict[str, str] | None:
-    marker_path = _snapshot_marker_path(work_dir)
-    try:
-        with marker_path.open("r") as f:
-            marker = json.load(f)
-    except (FileNotFoundError, json.JSONDecodeError, OSError):
-        return None
-    if not isinstance(marker, dict):
-        return None
-    sha256 = marker.get("sha256")
-    state_hash = marker.get("state_hash")
-    if not isinstance(sha256, str) or not isinstance(state_hash, str):
-        return None
-    return {"sha256": sha256, "state_hash": state_hash}
-
-
-def _snapshot_marker_matches(
-    marker: dict[str, str],
-    snapshot: AgentFilesystemSnapshotMetadata,
-) -> bool:
-    return (
-        marker.get("state_hash") == snapshot.state_hash
-        and marker.get("sha256") == snapshot.sha256
-    )
-
-
-def _write_snapshot_marker(
-    work_dir: Path,
-    snapshot: AgentFilesystemSnapshotMetadata,
-) -> None:
-    marker_path = _snapshot_marker_path(work_dir)
-    marker_path.parent.mkdir(parents=True, exist_ok=True)
-    temp_path = marker_path.with_name(f"{marker_path.name}.tmp")
-    with temp_path.open("w") as f:
-        json.dump(
-            {
-                "state_hash": snapshot.state_hash,
-                "sha256": snapshot.sha256,
-            },
-            f,
-            sort_keys=True,
-        )
-    os.replace(temp_path, marker_path)

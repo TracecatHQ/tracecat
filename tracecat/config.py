@@ -567,13 +567,7 @@ TRACECAT__AGENT_FS_CACHE_DIR = os.environ.get(
     "TRACECAT__AGENT_FS_CACHE_DIR",
     f"{TRACECAT__SANDBOX_CACHE_DIR}/agent-fs",
 )
-"""Worker-local cache for downloaded and extracted agent filesystem snapshots."""
-
-TRACECAT__AGENT_FS_ARCHIVE_CACHE_MAX_BYTES = int(
-    os.environ.get("TRACECAT__AGENT_FS_ARCHIVE_CACHE_MAX_BYTES")
-    or 10 * 1024 * 1024 * 1024
-)
-"""Maximum compressed bytes retained in the worker-local agent snapshot archive cache."""
+"""Worker-local staging directory for agent filesystem snapshot archives."""
 
 TRACECAT__AGENT_FS_MAX_UNCOMPRESSED_BYTES = int(
     os.environ.get("TRACECAT__AGENT_FS_MAX_UNCOMPRESSED_BYTES") or 1024 * 1024 * 1024

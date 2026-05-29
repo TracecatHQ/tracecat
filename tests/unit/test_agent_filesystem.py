@@ -21,16 +21,41 @@ from tracecat.agent.filesystem import (
     AgentFilesystemService,
     AgentFilesystemSnapshotLimitExceeded,
     AgentFilesystemSnapshotMetadata,
-    _acquire_archive_cache_lease,
-    _ensure_snapshot_archive_cached,
-    _promote_archive_to_cache,
-    _touch_archive_for_lru,
     compute_work_dir_state,
     create_work_dir_archive,
     extract_work_dir_archive,
     hydrate_agent_work_dir,
     persist_agent_work_dir,
 )
+
+
+def test_snapshot_metadata_round_trips_strict_json_dict() -> None:
+    raw_snapshot = {
+        "bucket": "agent-bucket",
+        "key": "agent-fs/blobs/current.tar.gz",
+        "state_hash": "1" * 64,
+        "sha256": "2" * 64,
+        "size_bytes": 10,
+        "uncompressed_size_bytes": 20,
+        "file_count": 1,
+        "dir_count": 2,
+        "archive_format": "tar.gz",
+        "compression": "gzip",
+        "created_at": "2026-05-28T00:00:00+00:00",
+    }
+
+    snapshot = AgentFilesystemSnapshotMetadata.from_raw(raw_snapshot)
+
+    assert snapshot is not None
+    assert snapshot.to_dict() == raw_snapshot
+    assert (
+        AgentFilesystemSnapshotMetadata.from_raw({**raw_snapshot, "size_bytes": "10"})
+        is None
+    )
+    assert (
+        AgentFilesystemSnapshotMetadata.from_raw({**raw_snapshot, "extra": "field"})
+        is None
+    )
 
 
 def test_archive_round_trips_regular_files_and_empty_dirs(tmp_path: Path) -> None:
@@ -355,140 +380,67 @@ def test_extract_rejects_path_traversal(tmp_path: Path) -> None:
     assert not (tmp_path / "escape.txt").exists()
 
 
-def test_promote_archive_prunes_oldest_cached_archives(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    monkeypatch.setattr(
-        config,
-        "TRACECAT__AGENT_FS_CACHE_DIR",
-        str(tmp_path / "cache"),
-    )
-    monkeypatch.setattr(config, "TRACECAT__AGENT_FS_ARCHIVE_CACHE_MAX_BYTES", 8)
-    archive_dir = tmp_path / "cache" / "archives"
-    archive_dir.mkdir(parents=True)
-    oldest = archive_dir / f"{'a' * 64}.tar.gz"
-    newer = archive_dir / f"{'b' * 64}.tar.gz"
-    oldest.write_bytes(b"1111")
-    newer.write_bytes(b"2222")
-    os.utime(oldest, (1, 1))
-    os.utime(newer, (2, 2))
-    temp_archive = tmp_path / "new.tar.gz"
-    temp_archive.write_bytes(b"3333")
-
-    with _promote_archive_to_cache(temp_archive, "c" * 64) as promoted:
-        assert promoted.exists()
-        assert promoted.read_bytes() == b"3333"
-
-    assert not oldest.exists()
-    assert newer.exists()
-    assert sum(path.stat().st_size for path in archive_dir.glob("*.tar.gz")) <= 8
-
-
-def test_promote_archive_does_not_prune_leased_archive(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    monkeypatch.setattr(
-        config,
-        "TRACECAT__AGENT_FS_CACHE_DIR",
-        str(tmp_path / "cache"),
-    )
-    monkeypatch.setattr(config, "TRACECAT__AGENT_FS_ARCHIVE_CACHE_MAX_BYTES", 8)
-    archive_dir = tmp_path / "cache" / "archives"
-    archive_dir.mkdir(parents=True)
-    leased = archive_dir / f"{'a' * 64}.tar.gz"
-    prunable = archive_dir / f"{'b' * 64}.tar.gz"
-    leased.write_bytes(b"1111")
-    prunable.write_bytes(b"2222")
-    os.utime(leased, (1, 1))
-    os.utime(prunable, (2, 2))
-    temp_archive = tmp_path / "new.tar.gz"
-    temp_archive.write_bytes(b"3333")
-
-    with _acquire_archive_cache_lease(leased):
-        with _promote_archive_to_cache(temp_archive, "c" * 64) as promoted:
-            assert promoted.exists()
-
-        assert leased.exists()
-        assert not prunable.exists()
-        assert sum(path.stat().st_size for path in archive_dir.glob("*.tar.gz")) <= 8
-
-
-def test_touch_archive_for_lru_does_not_create_missing_archive(
-    tmp_path: Path,
-) -> None:
-    missing_archive = tmp_path / f"{'a' * 64}.tar.gz"
-
-    _touch_archive_for_lru(missing_archive)
-
-    assert not missing_archive.exists()
-
-
 @pytest.mark.anyio
-async def test_downloaded_archive_prunes_oldest_cached_archives(
+async def test_hydrate_skips_download_when_work_dir_already_matches_snapshot(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    monkeypatch.setattr(
-        config,
-        "TRACECAT__AGENT_FS_CACHE_DIR",
-        str(tmp_path / "cache"),
+    session_id = uuid.uuid4()
+    work_dir = tmp_path / "session" / "agent-work-dir"
+    work_dir.mkdir(parents=True)
+    (work_dir / "notes.txt").write_text("durable state")
+    state_stats = compute_work_dir_state(
+        work_dir,
+        max_uncompressed_bytes=1024,
+        max_file_count=10,
     )
-    monkeypatch.setattr(config, "TRACECAT__AGENT_FS_ARCHIVE_CACHE_MAX_BYTES", 8)
-    archive_dir = tmp_path / "cache" / "archives"
-    archive_dir.mkdir(parents=True)
-    oldest = archive_dir / f"{'a' * 64}.tar.gz"
-    newer = archive_dir / f"{'b' * 64}.tar.gz"
-    oldest.write_bytes(b"1111")
-    newer.write_bytes(b"2222")
-    os.utime(oldest, (1, 1))
-    os.utime(newer, (2, 2))
-    content = b"3333"
-    sha256 = hashlib.sha256(content).hexdigest()
-    snapshot = AgentFilesystemSnapshotMetadata(
+    current_snapshot = AgentFilesystemSnapshotMetadata(
         bucket="agent-bucket",
-        key="agent-fs/blobs/downloaded.tar.gz",
-        state_hash="0" * 64,
-        sha256=sha256,
-        size_bytes=len(content),
-        uncompressed_size_bytes=len(content),
-        file_count=1,
-        dir_count=0,
+        key="agent-fs/blobs/current.tar.gz",
+        state_hash=state_stats.state_hash,
+        sha256="0" * 64,
+        size_bytes=1,
+        uncompressed_size_bytes=state_stats.uncompressed_size_bytes,
+        file_count=state_stats.file_count,
+        dir_count=state_stats.dir_count,
         archive_format="tar.gz",
         compression="gzip",
         created_at="2026-05-28T00:00:00+00:00",
     )
 
-    async def fake_download_file_to_path(
-        *,
-        key: str,
-        bucket: str,
-        output_path: Path,
-        max_bytes: int | None = None,
-        expected_sha256: str | None = None,
-    ) -> int:
-        assert key == snapshot.key
-        assert bucket == snapshot.bucket
-        assert max_bytes == snapshot.size_bytes
-        assert expected_sha256 == snapshot.sha256
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        output_path.write_bytes(content)
-        return len(content)
+    class FakeService:
+        async def get_current_snapshot(
+            self,
+            requested_session_id: uuid.UUID,
+        ) -> AgentFilesystemSnapshotMetadata | None:
+            assert requested_session_id == session_id
+            return current_snapshot
+
+    @asynccontextmanager
+    async def fake_with_session(**_kwargs: Any):
+        yield FakeService()
+
+    async def fail_download_file_to_path(*_args: Any, **_kwargs: Any) -> int:
+        raise AssertionError("matching work dir should not download a snapshot")
 
     monkeypatch.setattr(
+        AgentFilesystemService,
+        "with_session",
+        staticmethod(fake_with_session),
+    )
+    monkeypatch.setattr(
         "tracecat.agent.filesystem.blob.download_file_to_path",
-        fake_download_file_to_path,
+        fail_download_file_to_path,
     )
 
-    archive_lease = await _ensure_snapshot_archive_cached(snapshot)
-    async with archive_lease as archive_path:
-        assert archive_path.exists()
-        assert archive_path.read_bytes() == content
+    hydrated = await hydrate_agent_work_dir(
+        role=cast(Any, object()),
+        session_id=session_id,
+        work_dir=work_dir,
+    )
 
-    assert not oldest.exists()
-    assert newer.exists()
-    assert sum(path.stat().st_size for path in archive_dir.glob("*.tar.gz")) <= 8
+    assert hydrated is current_snapshot
+    assert (work_dir / "notes.txt").read_text() == "durable state"
 
 
 @pytest.mark.anyio
@@ -580,7 +532,7 @@ async def test_hydrate_restores_restrictive_directory_from_archive(
 
 
 @pytest.mark.anyio
-async def test_persist_and_hydrate_round_trip_through_blob_cache(
+async def test_persist_and_hydrate_round_trip_through_blob_storage(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -733,7 +685,7 @@ async def test_persist_skips_initial_empty_work_dir(
     )
 
     assert snapshot is None
-    assert not (work_dir.parent / ".agent-fs-snapshot.json").exists()
+    assert not any((tmp_path / "cache" / "staging").glob("*.tar.gz"))
 
 
 @pytest.mark.anyio
@@ -900,7 +852,7 @@ async def test_persist_records_empty_work_dir_after_prior_snapshot(
 
 
 @pytest.mark.anyio
-async def test_persist_skips_unchanged_state_without_local_marker(
+async def test_persist_skips_unchanged_state_after_recomputing_work_dir(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
