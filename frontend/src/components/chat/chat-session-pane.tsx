@@ -2,6 +2,7 @@
 
 import { useQueryClient } from "@tanstack/react-query"
 import {
+  type ChatOnDataCallback,
   type ChatStatus,
   getToolName,
   isToolUIPart,
@@ -192,6 +193,7 @@ export interface ChatSessionPaneProps {
   className?: string
   placeholder?: string
   onMessagesChange?: (messages: UIMessage[]) => void
+  onData?: ChatOnDataCallback<UIMessage>
   modelInfo: ModelInfo
   toolsEnabled?: boolean
   /** Autofocus the prompt input when the pane mounts. */
@@ -206,6 +208,11 @@ export interface ChatSessionPaneProps {
     messageText: string,
     selectedTools?: string[]
   ) => Promise<string | null>
+  /**
+   * Render a temporary user message and assistant loading dots while
+   * onBeforeSend is creating a session or fork before the real stream mounts.
+   */
+  optimisticBeforeSend?: boolean
   /**
    * Message to send immediately on mount. Used after forking a session
    * to send the user's message to the newly forked session.
@@ -241,10 +248,12 @@ export function ChatSessionPane({
   className,
   placeholder = "Ask your question...",
   onMessagesChange,
+  onData,
   modelInfo,
   toolsEnabled = true,
   autoFocusInput = false,
   onBeforeSend,
+  optimisticBeforeSend = false,
   pendingMessage,
   onPendingMessageSent,
   inputDisabled = false,
@@ -269,6 +278,9 @@ export function ChatSessionPane({
   const [input, setInput] = useState<string>("")
   const [toolMention, setToolMention] = useState<ToolMentionState>()
   const [selectedTools, setSelectedTools] = useState<string[]>([])
+  const [optimisticMessageText, setOptimisticMessageText] = useState<
+    string | null
+  >(null)
   const { updateChat, isUpdating: isUpdatingTools } = useUpdateChat(workspaceId)
   const { registryActions, registryActionsIsLoading } =
     useBuilderRegistryActions()
@@ -296,7 +308,29 @@ export function ChatSessionPane({
       workspaceId,
       messages: uiMessages,
       modelInfo,
+      onData,
     })
+
+  const hasOptimisticMessageInStream = useMemo(
+    () =>
+      optimisticMessageText
+        ? messages.some((message) =>
+            message.role === "user"
+              ? message.parts.some(
+                  (part) =>
+                    part.type === "text" && part.text === optimisticMessageText
+                )
+              : false
+          )
+        : false,
+    [messages, optimisticMessageText]
+  )
+
+  useEffect(() => {
+    if (hasOptimisticMessageInStream) {
+      setOptimisticMessageText(null)
+    }
+  }, [hasOptimisticMessageInStream])
 
   // Track pending message sends to avoid duplicate sends
   const pendingMessageSentRef = useRef<string | null>(null)
@@ -345,7 +379,9 @@ export function ChatSessionPane({
     return false
   }, [status, messages])
 
-  const isInputDisabled = isReadonly || inputDisabled || !canSubmit
+  const isOptimisticBeforeSendPending = optimisticMessageText !== null
+  const isInputDisabled =
+    isReadonly || inputDisabled || isOptimisticBeforeSendPending || !canSubmit
   const isInputDisabledRef = useRef(isInputDisabled)
   isInputDisabledRef.current = isInputDisabled
   const wasInputDisabledRef = useRef(isInputDisabled)
@@ -853,11 +889,19 @@ export function ChatSessionPane({
     const messageText = message.text || ""
 
     if (onBeforeSend) {
+      if (optimisticBeforeSend) {
+        setOptimisticMessageText(messageText)
+        setInput("")
+      }
+
       const result = await onBeforeSend(messageText, selectedTools)
       // Only clear input if onBeforeSend succeeded (non-null)
       // If null, the action was cancelled and user keeps their draft
       if (result !== null) {
         setInput("")
+      } else if (optimisticBeforeSend) {
+        setOptimisticMessageText(null)
+        setInput(messageText)
       }
       // Parent will handle switching sessions and sending via pendingMessage
       return
@@ -982,7 +1026,8 @@ export function ChatSessionPane({
             placeholder={
               isReadonly
                 ? "This is a legacy session (read-only)"
-                : inputDisabled && inputDisabledPlaceholder
+                : (inputDisabled || isOptimisticBeforeSendPending) &&
+                    inputDisabledPlaceholder
                   ? inputDisabledPlaceholder
                   : placeholder
             }
@@ -1017,6 +1062,7 @@ export function ChatSessionPane({
     isWorkspaceChat &&
     !isReadonly &&
     !lastError &&
+    !optimisticMessageText &&
     !isWaitingForResponse &&
     transformedMessages.length === 0
 
@@ -1045,6 +1091,9 @@ export function ChatSessionPane({
                   <AlertDescription>{lastError}</AlertDescription>
                 </Alert>
               )}
+              {optimisticMessageText ? (
+                <OptimisticPendingMessage text={optimisticMessageText} />
+              ) : null}
               {transformedMessages.map(({ id, role, parts }) => {
                 const visibleParts = parts?.filter(
                   (part) => part.type !== ARTIFACT_DATA_PART_TYPE
@@ -1136,6 +1185,27 @@ export function ChatSessionPane({
         </div>
       </div>
     </div>
+  )
+}
+
+function OptimisticPendingMessage({ text }: { text: string }) {
+  return (
+    <>
+      <Message from="user">
+        <MessageContent variant="flat">
+          <Response>{text}</Response>
+        </MessageContent>
+      </Message>
+      <motion.div
+        className="mt-5"
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        transition={{ duration: 0.3, ease: "easeInOut" }}
+      >
+        <Dots />
+      </motion.div>
+    </>
   )
 }
 

@@ -45,7 +45,14 @@ function sessionArtifacts(
   return chat.artifacts as WorkspaceChatArtifact[]
 }
 
-export function WorkspaceChatView() {
+/**
+ * Workspace chat surface. When `chatId` is provided (deep link via
+ * /chat/:chatId) it opens that session; otherwise it starts a fresh draft.
+ *
+ * `chatId` is the chat session id (a.k.a. sessionId) — the chat client names
+ * it `chatId` everywhere, so the prop matches that convention.
+ */
+export function WorkspaceChatView({ chatId }: { chatId?: string }) {
   const workspaceId = useWorkspaceId()
   const queryClient = useQueryClient()
   const canAccessMissionControl = useScopeCheck(
@@ -154,6 +161,7 @@ export function WorkspaceChatView() {
       >
         <div className="flex size-full min-w-[320px] flex-col">
           <ChatInterface
+            chatId={chatId}
             entityType="copilot"
             entityId={workspaceId}
             bodyClassName="min-h-0"

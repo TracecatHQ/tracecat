@@ -1,6 +1,7 @@
 "use client"
 
-import type { UIMessage } from "ai"
+import { useQueryClient } from "@tanstack/react-query"
+import type { ChatOnDataCallback, UIMessage } from "ai"
 import { ArrowRight, ChevronDown, Plus } from "lucide-react"
 import Link from "next/link"
 import { type ReactNode, useEffect, useState } from "react"
@@ -69,6 +70,8 @@ interface ChatInterfaceProps {
   surface?: ChatSurface
   /** Called on every chat message update; lets parents derive side-panel state. */
   onMessagesChange?: (messages: UIMessage[]) => void
+  /** Called for data stream parts as soon as the chat transport receives them. */
+  onData?: ChatOnDataCallback<UIMessage>
   /** Called when the selected chat payload changes. */
   onChatChange?: (
     chat: AgentSessionsGetSessionVercelResponse | undefined
@@ -87,6 +90,8 @@ type PresetConfigLike = Pick<
   "model_name" | "model_provider" | "base_url"
 >
 
+const NOOP = () => {}
+
 export function ChatInterface({
   chatId,
   entityType,
@@ -97,10 +102,12 @@ export function ChatInterface({
   placeholder,
   surface = "regular",
   onMessagesChange,
+  onData,
   onChatChange,
   headerActions,
 }: ChatInterfaceProps) {
   const workspaceId = useWorkspaceId()
+  const queryClient = useQueryClient()
   const { hasEntitlement } = useEntitlements()
   const agentAddonsEnabled = hasEntitlement("agent_addons")
   const [selectedChatId, setSelectedChatId] = useState<string | undefined>(
@@ -108,7 +115,7 @@ export function ChatInterface({
   )
   const [newChatDialogOpen, setNewChatDialogOpen] = useState(false)
   const [autoCreateAttempted, setAutoCreateAttempted] = useState(false)
-  const [isCaseDraftChat, setIsCaseDraftChat] = useState(false)
+  const [isDraftChat, setIsDraftChat] = useState(false)
   const [pendingFirstMessage, setPendingFirstMessage] =
     useState<PendingFirstMessage | null>(null)
 
@@ -116,7 +123,7 @@ export function ChatInterface({
   useEffect(() => {
     setSelectedChatId(chatId)
     if (chatId) {
-      setIsCaseDraftChat(false)
+      setIsDraftChat(false)
     }
   }, [chatId])
 
@@ -141,7 +148,25 @@ export function ChatInterface({
 
   const presetsEnabled =
     agentAddonsEnabled && (entityType === "case" || entityType === "copilot")
-  const headerRowClassName = "flex w-full items-center justify-between"
+  const inWorkspaceChat = surface === "workspace-chat"
+  // Surfaces that defer server-side session creation until the first message,
+  // showing a draft composer instead of an eagerly-created empty session.
+  const deferSessionCreation = entityType === "case" || inWorkspaceChat
+
+  // Mirror the active workspace-chat session into the URL so sessions are
+  // deep-linkable (/chat/:sessionId). Uses replaceState to avoid remounting the
+  // chat view, keeping the optimistic first-message flow intact.
+  useEffect(() => {
+    if (!inWorkspaceChat || typeof window === "undefined") {
+      return
+    }
+    const base = `/workspaces/${workspaceId}/chat`
+    const nextPath = selectedChatId ? `${base}/${selectedChatId}` : base
+    if (window.location.pathname !== nextPath) {
+      const nextUrl = `${nextPath}${window.location.search}`
+      window.history.replaceState(window.history.state, "", nextUrl)
+    }
+  }, [inWorkspaceChat, workspaceId, selectedChatId])
 
   const {
     presets: presetOptions,
@@ -172,27 +197,28 @@ export function ChatInterface({
 
   useEffect(() => {
     setAutoCreateAttempted(false)
-    setIsCaseDraftChat(false)
+    setIsDraftChat(false)
     setPendingFirstMessage(null)
   }, [entityType, entityId])
 
   // Auto-select the first chat when available.
-  // For non-case entities we preserve the legacy behavior of creating a chat
-  // automatically when none exists.
+  // Workspace chat always opens a fresh draft, so it never auto-selects.
+  // Surfaces that defer session creation skip the legacy auto-create path.
   useEffect(() => {
     if (!chats || chatsLoading || createChatPending) return
 
     if (
       chats.length > 0 &&
       !selectedChatId &&
-      !(entityType === "case" && isCaseDraftChat)
+      !inWorkspaceChat &&
+      !(entityType === "case" && isDraftChat)
     ) {
       // Select first existing chat
       const firstChatId = chats[0].id
       setSelectedChatId(firstChatId)
       onChatSelect?.(firstChatId)
     } else if (
-      entityType !== "case" &&
+      !deferSessionCreation &&
       chats.length === 0 &&
       !selectedChatId &&
       !autoCreateAttempted
@@ -222,14 +248,16 @@ export function ChatInterface({
     entityType,
     entityId,
     autoCreateAttempted,
-    isCaseDraftChat,
+    isDraftChat,
+    inWorkspaceChat,
+    deferSessionCreation,
   ])
 
   const handleCreateChat = async () => {
     setNewChatDialogOpen(false)
 
-    if (entityType === "case") {
-      setIsCaseDraftChat(true)
+    if (deferSessionCreation) {
+      setIsDraftChat(true)
       setPendingFirstMessage(null)
       setSelectedChatId(undefined)
       return
@@ -248,25 +276,33 @@ export function ChatInterface({
     }
   }
 
-  const handleCreateCaseChatOnFirstSend = async (
+  const handleCreateSessionOnFirstSend = async (
     messageText: string,
     selectedTools?: string[]
   ) => {
-    if (entityType !== "case" || createChatPending) {
+    if (!deferSessionCreation || createChatPending) {
       return null
     }
 
     try {
       const newChat = await createChat({
         title: `Chat ${(chats?.length || 0) + 1}`,
-        entity_type: "case",
+        entity_type: entityType,
         entity_id: entityId,
         tools: selectedTools,
         agent_preset_id: effectivePresetId,
         agent_preset_version_id: selectedPresetVersionId,
       })
 
-      setIsCaseDraftChat(false)
+      // Prime the vercel chat cache with the freshly created (empty) session so
+      // the session view mounts and sends the pending message immediately,
+      // rather than waiting on a fetch of a session we already know is empty.
+      queryClient.setQueryData<AgentSessionsGetSessionVercelResponse>(
+        ["chat", newChat.id, workspaceId, "vercel"],
+        { ...newChat, messages: [] }
+      )
+
+      setIsDraftChat(false)
       setSelectedChatId(newChat.id)
       setPendingFirstMessage({
         chatId: newChat.id,
@@ -275,7 +311,7 @@ export function ChatInterface({
       onChatSelect?.(newChat.id)
       return newChat.id
     } catch (error) {
-      console.error("Failed to create case chat on first message:", error)
+      console.error("Failed to create chat on first message:", error)
       toast({
         title: "Failed to create chat",
         description: parseChatError(error),
@@ -286,7 +322,7 @@ export function ChatInterface({
   }
 
   const handleSelectChat = (chatId: string) => {
-    setIsCaseDraftChat(false)
+    setIsDraftChat(false)
     setSelectedChatId(chatId)
     onChatSelect?.(chatId)
   }
@@ -294,7 +330,7 @@ export function ChatInterface({
   // Show loading while chats are loading or being auto-created
   if (
     chatsLoading ||
-    (entityType !== "case" && chats && chats.length === 0 && createChatPending)
+    (!deferSessionCreation && chats && chats.length === 0 && createChatPending)
   ) {
     return (
       <div className="flex h-full items-center justify-center">
@@ -311,11 +347,38 @@ export function ChatInterface({
     )
   }
 
+  const toolsEnabled = !activePreset && !inWorkspaceChat
+  const draftMode =
+    deferSessionCreation &&
+    (inWorkspaceChat || isDraftChat || chats?.length === 0)
+  const presetSelector = presetsEnabled
+    ? {
+        label: presetMenuLabel,
+        presets: presetOptions,
+        presetsError,
+        presetsIsLoading,
+        selectedPresetId: effectivePresetId,
+        disabled: presetMenuDisabled,
+        showSpinner: showPresetSpinner,
+        noPresetDescription: "Use workspace default case agent instructions.",
+        onSelect: (presetId: string | null) =>
+          void handlePresetChange(presetId),
+      }
+    : undefined
+  const pendingMessageText =
+    selectedChatId && pendingFirstMessage?.chatId === selectedChatId
+      ? pendingFirstMessage.text
+      : null
+  const handlePendingMessageSent = () =>
+    setPendingFirstMessage((current) =>
+      current?.chatId === selectedChatId ? null : current
+    )
+
   return (
     <div className="flex h-full min-h-0 flex-col">
       {/* Chat Header */}
       <div className="px-4 py-2">
-        <div className={headerRowClassName}>
+        <div className="flex w-full items-center justify-between">
           {/* Unified New-chat / History dropdown */}
           <div className="flex items-center gap-2">
             {title ? (
@@ -359,8 +422,8 @@ export function ChatInterface({
                 <AlertDialogHeader>
                   <AlertDialogTitle>Start a new chat?</AlertDialogTitle>
                   <AlertDialogDescription>
-                    {entityType === "case"
-                      ? "This opens a fresh case chat draft. A new conversation will be created after you send your first message."
+                    {deferSessionCreation
+                      ? "This starts a fresh chat. A new conversation is created after you send your first message."
                       : "This will create a new conversation. Your current chat will remain accessible from the conversations menu."}
                   </AlertDialogDescription>
                 </AlertDialogHeader>
@@ -389,42 +452,18 @@ export function ChatInterface({
           chatError={chatError}
           selectedPreset={activePreset}
           selectedPresetConfigError={selectedPresetConfigError}
-          toolsEnabled={!activePreset}
-          draftMode={
-            entityType === "case" && (isCaseDraftChat || chats?.length === 0)
-          }
-          presetSelector={
-            presetsEnabled
-              ? {
-                  label: presetMenuLabel,
-                  presets: presetOptions,
-                  presetsError,
-                  presetsIsLoading,
-                  selectedPresetId: effectivePresetId,
-                  disabled: presetMenuDisabled,
-                  showSpinner: showPresetSpinner,
-                  noPresetDescription:
-                    "Use workspace default case agent instructions.",
-                  onSelect: (presetId) => void handlePresetChange(presetId),
-                }
-              : undefined
-          }
+          toolsEnabled={toolsEnabled}
+          draftMode={draftMode}
+          presetSelector={presetSelector}
           onCreateSessionBeforeSend={
-            entityType === "case" ? handleCreateCaseChatOnFirstSend : undefined
+            deferSessionCreation ? handleCreateSessionOnFirstSend : undefined
           }
           draftInputDisabled={createChatPending}
-          pendingMessage={
-            selectedChatId && pendingFirstMessage?.chatId === selectedChatId
-              ? pendingFirstMessage.text
-              : null
-          }
-          onPendingMessageSent={() =>
-            setPendingFirstMessage((current) =>
-              current?.chatId === selectedChatId ? null : current
-            )
-          }
+          pendingMessage={pendingMessageText}
+          onPendingMessageSent={handlePendingMessageSent}
           surface={surface}
           onMessagesChange={onMessagesChange}
+          onData={onData}
         />
       </div>
     </div>
@@ -464,6 +503,7 @@ interface ChatBodyProps {
   onPendingMessageSent: () => void
   surface: ChatSurface
   onMessagesChange?: (messages: UIMessage[]) => void
+  onData?: ChatOnDataCallback<UIMessage>
 }
 
 function ChatBody({
@@ -486,6 +526,7 @@ function ChatBody({
   onPendingMessageSent,
   surface,
   onMessagesChange,
+  onData,
 }: ChatBodyProps) {
   const {
     ready: chatReady,
@@ -589,10 +630,12 @@ function ChatBody({
         toolsEnabled={toolsEnabled}
         presetSelector={presetSelector}
         onBeforeSend={onCreateSessionBeforeSend}
+        optimisticBeforeSend
         inputDisabled={draftInputDisabled}
         inputDisabledPlaceholder="Creating chat..."
         surface={surface}
         onMessagesChange={onMessagesChange}
+        onData={onData}
       />
     )
   }
@@ -620,6 +663,7 @@ function ChatBody({
       onPendingMessageSent={onPendingMessageSent}
       surface={surface}
       onMessagesChange={onMessagesChange}
+      onData={onData}
     />
   )
 }
@@ -630,11 +674,10 @@ function ChatBody({
  * settings where a default model can be selected.
  */
 function NoDefaultModelComposer() {
-  const noop = () => {}
   return (
     <div className="space-y-3">
       <PromptInput
-        onSubmit={noop}
+        onSubmit={NOOP}
         aria-disabled="true"
         className="pointer-events-none select-none [&_[data-slot=input-group]]:rounded-2xl [&_[data-slot=input-group]]:border-muted-foreground/25 [&_[data-slot=input-group]]:shadow-none"
       >
