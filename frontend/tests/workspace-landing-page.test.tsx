@@ -9,6 +9,7 @@ const mockRouterReplace = jest.fn()
 const mockUseScopeCheck = jest.fn<boolean | undefined, [string]>()
 const mockHasEntitlement = jest.fn<boolean, [string]>()
 let mockScopes: Record<string, boolean | undefined> = {}
+let mockEntitlements: Record<string, boolean> = {}
 
 jest.mock("next/navigation", () => ({
   useRouter: () => ({ replace: mockRouterReplace }),
@@ -48,8 +49,11 @@ describe("WorkspacePage", () => {
     mockUseScopeCheck.mockReset()
     mockHasEntitlement.mockReset()
     mockScopes = {}
+    mockEntitlements = {}
     mockUseScopeCheck.mockImplementation((scope) => mockScopes[scope] ?? false)
-    mockHasEntitlement.mockReturnValue(false)
+    mockHasEntitlement.mockImplementation(
+      (entitlement) => mockEntitlements[entitlement] ?? false
+    )
   })
 
   it("does not redirect service-account-only users into the workspace shell", () => {
@@ -89,7 +93,9 @@ describe("WorkspacePage", () => {
       "agent:read": true,
       "workspace:read": true,
     }
-    mockHasEntitlement.mockReturnValue(true)
+    mockEntitlements = {
+      workspace_chat: true,
+    }
 
     render(<WorkspacePage />)
 
@@ -100,14 +106,11 @@ describe("WorkspacePage", () => {
     })
   })
 
-  it("falls back to an accessible section when chat is unavailable", async () => {
+  it("falls back when Chat is not entitled", async () => {
     mockScopes = {
-      "agent:execute": true,
-      "agent:read": true,
-      "workflow:read": true,
       "workspace:read": true,
+      "workflow:read": true,
     }
-    mockHasEntitlement.mockReturnValue(false)
 
     render(<WorkspacePage />)
 

@@ -26,6 +26,7 @@ from tracecat.agent.session.schemas import (
     AgentSessionRead,
     AgentSessionReadWithMessages,
 )
+from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.agent.subagents import ResolvedAgentsConfig
 from tracecat.agent.tokens import InternalToolContext, MCPTokenClaims
 from tracecat.auth.types import Role
@@ -402,7 +403,6 @@ async def update_preset(args: dict[str, Any], claims: MCPTokenClaims) -> dict[st
 async def list_sessions(args: dict[str, Any], claims: MCPTokenClaims) -> dict[str, Any]:
     """List agent sessions where this agent preset is being used by end users."""
     from tracecat.agent.session.service import AgentSessionService
-    from tracecat.agent.session.types import AgentSessionEntity
 
     preset_id = _get_preset_id(claims.internal_tool_context)
     role = _build_role(claims)
@@ -474,7 +474,7 @@ async def get_session(args: dict[str, Any], claims: MCPTokenClaims) -> dict[str,
                 workspace_id=session.workspace_id,
                 title=session.title,
                 created_by=session.created_by,
-                entity_type=session.entity_type,
+                entity_type=AgentSessionEntity(session.entity_type),
                 entity_id=session.entity_id,
                 channel_context=session.channel_context,
                 tools=session.tools,

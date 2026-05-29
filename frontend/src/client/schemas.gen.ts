@@ -3463,7 +3463,7 @@ Determines the context and behavior of the session:
 - CASE: Chat attached to a Case entity for investigation
 - AGENT_PRESET: Live chat testing a preset configuration
 - AGENT_PRESET_BUILDER: Builder chat for editing/configuring a preset
-- COPILOT: Workspace-level copilot assistant
+- WORKSPACE_CHAT: Workspace-level chat assistant (wire value: copilot)
 - WORKFLOW: Workflow-initiated agent run (from action)
 - APPROVAL: Inbox approval continuation (hidden from main chat list)
 - EXTERNAL_CHANNEL: External channel session (e.g. Slack thread)`,
@@ -3518,8 +3518,7 @@ export const $AgentSessionRead = {
       title: "Created By",
     },
     entity_type: {
-      type: "string",
-      title: "Entity Type",
+      $ref: "#/components/schemas/AgentSessionEntity",
     },
     entity_id: {
       type: "string",
@@ -3687,8 +3686,7 @@ export const $AgentSessionReadVercel = {
       title: "Created By",
     },
     entity_type: {
-      type: "string",
-      title: "Entity Type",
+      $ref: "#/components/schemas/AgentSessionEntity",
     },
     entity_id: {
       type: "string",
@@ -3864,8 +3862,7 @@ export const $AgentSessionReadWithMessages = {
       title: "Created By",
     },
     entity_type: {
-      type: "string",
-      title: "Entity Type",
+      $ref: "#/components/schemas/AgentSessionEntity",
     },
     entity_id: {
       type: "string",
@@ -9151,8 +9148,7 @@ export const $ChatRead = {
       description: "ID of the user who owns the chat",
     },
     entity_type: {
-      type: "string",
-      title: "Entity Type",
+      $ref: "#/components/schemas/AgentSessionEntity",
       description: "Type of entity this chat is associated with",
     },
     entity_id: {
@@ -9270,8 +9266,7 @@ export const $ChatReadMinimal = {
       description: "ID of the user who owns the chat",
     },
     entity_type: {
-      type: "string",
-      title: "Entity Type",
+      $ref: "#/components/schemas/AgentSessionEntity",
       description: "Type of entity this chat is associated with",
     },
     entity_id: {
@@ -9383,8 +9378,7 @@ export const $ChatReadVercel = {
       description: "ID of the user who owns the chat",
     },
     entity_type: {
-      type: "string",
-      title: "Entity Type",
+      $ref: "#/components/schemas/AgentSessionEntity",
       description: "Type of entity this chat is associated with",
     },
     entity_id: {
@@ -12112,6 +12106,12 @@ export const $EffectiveEntitlements = {
       description: "Whether service accounts for API key access are enabled",
       default: false,
     },
+    workspace_chat: {
+      type: "boolean",
+      title: "Workspace Chat",
+      description: "Whether Workspace Chat is enabled",
+      default: false,
+    },
     watchtower: {
       type: "boolean",
       title: "Watchtower",
@@ -12161,6 +12161,11 @@ export const $EntitlementsDict = {
       type: "boolean",
       title: "Service Accounts",
       description: "Whether service accounts for API key access are enabled",
+    },
+    workspace_chat: {
+      type: "boolean",
+      title: "Workspace Chat",
+      description: "Whether Workspace Chat is enabled",
     },
     watchtower: {
       type: "boolean",

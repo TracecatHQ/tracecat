@@ -43,6 +43,10 @@ class EntitlementsDict(TypedDict, total=False):
         bool,
         Field(description="Whether service accounts for API key access are enabled"),
     ]
+    workspace_chat: Annotated[
+        bool,
+        Field(description="Whether Workspace Chat is enabled"),
+    ]
     watchtower: Annotated[
         bool,
         Field(

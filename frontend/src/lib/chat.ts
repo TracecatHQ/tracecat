@@ -19,7 +19,9 @@ export function isAgentSessionEntity(
     value === "agent_preset" ||
     value === "agent_preset_builder" ||
     value === "copilot" ||
-    value === "workflow"
+    value === "workflow" ||
+    value === "approval" ||
+    value === "external_channel"
   )
 }
 

@@ -111,7 +111,7 @@ class AgentSessionRead(BaseModel):
     # Metadata
     title: str
     created_by: uuid.UUID | None
-    entity_type: str
+    entity_type: AgentSessionEntity
     entity_id: uuid.UUID
     channel_context: dict[str, Any] | None
     tools: list[str] | None

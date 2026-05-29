@@ -50,6 +50,7 @@ export default function WorkspacePage() {
   const { hasEntitlement, isLoading: entitlementsLoading } = useEntitlements()
   const agentAddonsEnabled = hasEntitlement("agent_addons")
   const serviceAccountsEnabled = hasEntitlement("service_accounts")
+  const workspaceChatEnabled = hasEntitlement("workspace_chat")
 
   const isLoading =
     entitlementsLoading ||
@@ -77,7 +78,7 @@ export default function WorkspacePage() {
       canReadWorkspace === true &&
       canViewAgents === true &&
       canExecuteAgents === true &&
-      agentAddonsEnabled
+      workspaceChatEnabled
 
     if (canUseWorkspaceChat) {
       return getWorkspaceLandingPath(workspaceId)
@@ -120,6 +121,7 @@ export default function WorkspacePage() {
   }, [
     agentAddonsEnabled,
     canExecuteAgents,
+    workspaceChatEnabled,
     canViewAgents,
     canViewCases,
     canViewInbox,

@@ -115,7 +115,7 @@ class ChatReadMinimal(BaseModel):
     id: UUID4 = Field(..., description="Unique chat identifier")
     title: str = Field(..., description="Human-readable title for the chat")
     user_id: UUID4 = Field(..., description="ID of the user who owns the chat")
-    entity_type: str = Field(
+    entity_type: AgentSessionEntity = Field(
         ..., description="Type of entity this chat is associated with"
     )
     entity_id: UUID4 = Field(..., description="ID of the associated entity")

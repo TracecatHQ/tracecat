@@ -132,6 +132,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
     enabled: shouldLoadEntitlements,
   })
   const agentAddonsEnabled = hasEntitlement("agent_addons")
+  const workspaceChatEnabled = hasEntitlement("workspace_chat")
   const serviceAccountsEnabled = hasEntitlement("service_accounts")
   const { data: pendingApprovalsCount = 0 } = usePendingApprovalsCount(
     workspaceId,
@@ -149,7 +150,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
         icon: BotIcon,
         isActive: pathname?.startsWith(`${basePath}/chat`),
         visible: canAccessMissionControl,
-        isLocked: entitlementsIsLoading || !agentAddonsEnabled,
+        isLocked: entitlementsIsLoading || !workspaceChatEnabled,
         onSelect: entitlementsIsLoading
           ? undefined
           : () => setLockedFeatureDialogOpen(true),
@@ -245,6 +246,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       canViewIntegrations,
       entitlementsIsLoading,
       agentAddonsEnabled,
+      workspaceChatEnabled,
       canViewAgents,
       canViewActions,
     ]

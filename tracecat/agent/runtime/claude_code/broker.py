@@ -8,6 +8,11 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from pathlib import Path
 
+from tracecat.agent.artifacts.providers import get_artifact_working_set_provider
+from tracecat.agent.artifacts.working_set import (
+    ArtifactWorkingSetContext,
+    ArtifactWorkingSetInput,
+)
 from tracecat.agent.common.config import TRACECAT__DISABLE_NSJAIL
 from tracecat.agent.common.protocol import RuntimeInitPayload
 from tracecat.agent.executor.loopback import LoopbackHandler
@@ -34,6 +39,7 @@ class ClaudeTurnRequest:
     socket_dir: Path
     llm_socket_path: Path
     enable_internet_access: bool
+    artifact_working_set: ArtifactWorkingSetInput | None = None
     skills_dir: Path | None = None
     hydrate_work_dir: Callable[[Path], Awaitable[None]] | None = None
 
@@ -128,6 +134,21 @@ class ClaudeRuntimeBroker:
             )
             if request.hydrate_work_dir is not None:
                 await request.hydrate_work_dir(path_mapping.host_work_dir)
+
+            artifact_prompt_fragment = None
+            if request.artifact_working_set is not None:
+                provider = get_artifact_working_set_provider()
+                working_set = await provider.prepare_turn(
+                    ArtifactWorkingSetContext(
+                        session_id=request.init_payload.session_id,
+                        workspace_id=request.artifact_working_set.workspace_id,
+                        role=request.artifact_working_set.role,
+                        artifacts=request.artifact_working_set.artifacts,
+                        host_work_dir=path_mapping.host_work_dir,
+                        runtime_work_dir=path_mapping.runtime_work_dir,
+                    )
+                )
+                artifact_prompt_fragment = working_set.prompt_fragment
             runtime = ClaudeAgentRuntime(
                 handler,
                 transport_factory=lambda options: SandboxedCLITransport(
@@ -144,6 +165,9 @@ class ClaudeRuntimeBroker:
                 session_home_dir=path_mapping.host_home_dir,
                 cwd=path_mapping.runtime_work_dir,
                 cwd_setup_path=path_mapping.host_work_dir,
+                system_prompt_fragments=(artifact_prompt_fragment,)
+                if artifact_prompt_fragment
+                else (),
             )
             await runtime.run(request.init_payload)
         finally:

@@ -34,7 +34,7 @@ from tracecat.chat.schemas import (
     ContinueRunRequest,
     VercelChatRequest,
 )
-from tracecat.exceptions import TracecatNotFoundError
+from tracecat.exceptions import EntitlementRequired, TracecatNotFoundError
 
 
 async def _empty_event_stream() -> AsyncIterator[None]:
@@ -268,6 +268,34 @@ async def test_get_session_vercel_includes_persisted_artifacts() -> None:
 
 
 @pytest.mark.anyio
+async def test_get_workspace_chat_session_requires_entitlement() -> None:
+    session_stub = _agent_session_stub(entity_type=AgentSessionEntity.WORKSPACE_CHAT)
+    fake_svc = SimpleNamespace(
+        get_session=AsyncMock(return_value=session_stub),
+        list_messages=AsyncMock(return_value=[]),
+        list_artifacts=Mock(return_value=[]),
+    )
+
+    with (
+        patch(
+            "tracecat.agent.session.router.AgentSessionService",
+            return_value=fake_svc,
+        ),
+        patch(
+            "tracecat.agent.session.router.require_workspace_chat_entitlement_for_entity",
+            AsyncMock(side_effect=EntitlementRequired("workspace_chat")),
+        ),
+    ):
+        raw_get_session = cast(Any, get_session).__wrapped__
+        with pytest.raises(EntitlementRequired):
+            await raw_get_session(
+                session_id=session_stub.id,
+                role=_read_role(session_stub.workspace_id),
+                session=AsyncMock(),
+            )
+
+
+@pytest.mark.anyio
 async def test_remove_session_artifact_removes_and_returns_artifacts() -> None:
     session_stub = _agent_session_stub()
     artifact = CaseArtifact(
@@ -278,6 +306,7 @@ async def test_remove_session_artifact_removes_and_returns_artifacts() -> None:
     )
     fake_svc = SimpleNamespace(
         is_legacy_session=AsyncMock(return_value=False),
+        get_session=AsyncMock(return_value=session_stub),
         remove_artifact=AsyncMock(return_value=[artifact]),
     )
 
@@ -316,6 +345,7 @@ async def test_remove_session_artifact_removes_and_returns_artifacts() -> None:
 async def test_send_message_continue_uses_path_session_id_for_stream_key() -> None:
     session_id = uuid.uuid4()
     workspace_id = uuid.uuid4()
+    agent_session = _agent_session_stub(id=session_id, workspace_id=workspace_id)
     role = Role(
         type="service",
         service_id="tracecat-api",
@@ -335,7 +365,7 @@ async def test_send_message_continue_uses_path_session_id_for_stream_key() -> No
 
     fake_svc = SimpleNamespace(
         is_legacy_session=AsyncMock(return_value=False),
-        validate_turn_request=AsyncMock(return_value=None),
+        validate_turn_request=AsyncMock(return_value=agent_session),
         run_turn=AsyncMock(return_value=None),
         build_initial_artifact=AsyncMock(return_value=None),
     )

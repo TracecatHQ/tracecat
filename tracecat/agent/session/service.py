@@ -1517,7 +1517,7 @@ class AgentSessionService(BaseWorkspaceService):
                     "Agent preset builder requires a default AI model with valid provider credentials. "
                     "Configure credentials in Workspace settings before chatting."
                 ) from exc
-        elif session_entity is AgentSessionEntity.COPILOT:
+        elif session_entity is AgentSessionEntity.WORKSPACE_CHAT:
             # Copilot uses org-level credentials, not workspace credentials
             entity_instructions = await self._entity_to_prompt(agent_session)
             if agent_session.agent_preset_id:
@@ -1628,7 +1628,7 @@ class AgentSessionService(BaseWorkspaceService):
                 )
             prompt = AgentPresetBuilderPrompt(preset=preset)
             return prompt.instructions
-        if entity_type == AgentSessionEntity.COPILOT:
+        if entity_type == AgentSessionEntity.WORKSPACE_CHAT:
             return WorkspaceCopilotPrompts().instructions
         else:
             raise ValueError(
