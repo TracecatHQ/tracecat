@@ -176,7 +176,7 @@ function ArtifactField({
       <dd
         className={cn("min-w-0 break-words text-xs", monospace && "font-mono")}
       >
-        {String(value).replaceAll("_", " ")}
+        {monospace ? String(value) : String(value).replaceAll("_", " ")}
       </dd>
     </>
   )

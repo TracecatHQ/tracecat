@@ -73,11 +73,20 @@ export const ARTIFACT_REGISTRY = {
   },
 } satisfies Record<MissionControlArtifact["type"], ArtifactConfig>
 
+const UNKNOWN_ARTIFACT_CONFIG: ArtifactConfig = {
+  label: "Results",
+  singularLabel: "Result",
+  icon: FileText,
+}
+
 /** Return display metadata for a Mission Control artifact. */
 export function getArtifactConfig(
   artifact: MissionControlArtifact
 ): ArtifactConfig {
-  return ARTIFACT_REGISTRY[artifact.type]
+  return (
+    ARTIFACT_REGISTRY[artifact.type as keyof typeof ARTIFACT_REGISTRY] ??
+    UNKNOWN_ARTIFACT_CONFIG
+  )
 }
 
 /** Return the full-page href for an artifact when one exists. */

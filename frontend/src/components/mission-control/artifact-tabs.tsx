@@ -197,9 +197,17 @@ function ArtifactOpenButton({
     return (
       <Tooltip>
         <TooltipTrigger asChild>
-          <Button size="sm" variant="ghost" className="size-7 p-0" disabled>
-            <ExternalLink className="size-3.5" />
-          </Button>
+          <span aria-label="No full view" className="inline-flex" tabIndex={0}>
+            <Button
+              aria-hidden="true"
+              size="sm"
+              variant="ghost"
+              className="pointer-events-none size-7 p-0"
+              disabled
+            >
+              <ExternalLink className="size-3.5" />
+            </Button>
+          </span>
         </TooltipTrigger>
         <TooltipContent side="bottom">No full view</TooltipContent>
       </Tooltip>

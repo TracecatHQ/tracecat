@@ -47,6 +47,7 @@ export function ArtifactPanel({
   return (
     <aside
       aria-hidden={isCollapsed}
+      inert={isCollapsed}
       className={cn(
         "flex h-full min-h-0 shrink-0 flex-col overflow-hidden bg-background transition-[width,min-width,border-left-width] duration-200 ease-[cubic-bezier(0.25,0.1,0.25,1)]",
         isCollapsed ? "w-0 min-w-0 border-l-0" : "w-1/2 min-w-[360px] border-l",
