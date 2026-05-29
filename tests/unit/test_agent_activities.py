@@ -13,7 +13,7 @@ import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, cast
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -85,9 +85,13 @@ def mock_session_id() -> uuid.UUID:
 @pytest.fixture
 def mock_agent_config() -> AgentConfig:
     """Create a mock agent config for testing."""
-    return AgentConfig(
-        model_name="claude-3-5-sonnet-20241022",
-        model_provider="anthropic",
+    agent_config = cast(Any, AgentConfig)
+    return cast(
+        AgentConfig,
+        agent_config(
+            model_name="claude-3-5-sonnet-20241022",
+            model_provider="anthropic",
+        ),
     )
 
 
@@ -1043,7 +1047,10 @@ class TestSandboxedAgentExecutorHelpers:
         assert payload.user_prompt == executor_input.user_prompt
         assert payload.mcp_auth_token == executor_input.mcp_auth_token
         assert payload.llm_gateway_auth_token == executor_input.llm_gateway_auth_token
-        assert payload.config.model_name == executor_input.config.model_name
+        assert (
+            cast(Any, payload.config).model_name
+            == cast(Any, executor_input.config).model_name
+        )
 
     def test_apply_loopback_result_omits_output_for_approval_turn(
         self,
@@ -1160,6 +1167,92 @@ class TestSandboxedAgentExecutorHelpers:
 
 class TestSandboxedAgentExecutorFilesystemPersistence:
     """Tests for feature-flagged agent work-dir hydration and snapshotting."""
+
+    @pytest.mark.anyio
+    async def test_run_skips_filesystem_persistence_when_feature_disabled(
+        self,
+        mock_role: Role,
+        mock_session_id: uuid.UUID,
+        mock_agent_config: AgentConfig,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        mock_executor_input = AgentExecutorInput(
+            session_id=mock_session_id,
+            workspace_id=mock_role.workspace_id or uuid.uuid4(),
+            user_prompt="Test prompt",
+            config=mock_agent_config,
+            role=mock_role,
+            mcp_auth_token="mock-jwt-token",
+            llm_gateway_auth_token="mock-llm-token",
+        )
+        executor = SandboxedAgentExecutor(input=mock_executor_input)
+        job_dir = tmp_path / "job"
+        socket_dir = job_dir / "sockets"
+        events: list[str] = []
+
+        async def fake_create_job_directory() -> Path:
+            socket_dir.mkdir(parents=True)
+            return job_dir
+
+        async def fake_create_llm_socket_proxy(_socket_path: Path) -> AsyncMock:
+            return AsyncMock()
+
+        class FakeBroker:
+            def session_turn_lease(self, session_id: str):
+                @asynccontextmanager
+                async def lease():
+                    assert session_id == str(mock_session_id)
+                    yield
+
+                return lease()
+
+            async def run_turn_in_session_lease(
+                self, request: Any, handler: Any
+            ) -> None:
+                assert request.hydrate_work_dir is None
+                events.append("broker")
+                handler._result = LoopbackResult(success=True)
+
+            async def cancel_turn(self, _session_id: str) -> None:
+                raise AssertionError("cancel_turn should not be called")
+
+        async def fail_hydrate_agent_work_dir(**_kwargs: Any) -> None:
+            raise AssertionError("hydrate should not run when feature is disabled")
+
+        async def fail_persist_agent_work_dir(**_kwargs: Any) -> None:
+            raise AssertionError("snapshot should not run when feature is disabled")
+
+        monkeypatch.setattr(
+            executor, "_create_job_directory", fake_create_job_directory
+        )
+        monkeypatch.setattr(
+            executor,
+            "_create_llm_socket_proxy",
+            fake_create_llm_socket_proxy,
+        )
+        monkeypatch.setattr(executor, "_cleanup", AsyncMock())
+        monkeypatch.setattr(
+            "tracecat.agent.executor.activity._agent_fs_persistence_enabled",
+            lambda: False,
+        )
+        monkeypatch.setattr(
+            "tracecat.agent.executor.activity.get_claude_runtime_broker",
+            lambda: FakeBroker(),
+        )
+        monkeypatch.setattr(
+            "tracecat.agent.executor.activity.hydrate_agent_work_dir",
+            fail_hydrate_agent_work_dir,
+        )
+        monkeypatch.setattr(
+            "tracecat.agent.executor.activity.persist_agent_work_dir",
+            fail_persist_agent_work_dir,
+        )
+
+        result = await executor.run()
+
+        assert result.success is True
+        assert events == ["broker"]
 
     @pytest.mark.anyio
     async def test_run_hydrates_and_snapshots_when_feature_enabled(
@@ -1594,7 +1687,7 @@ class TestSandboxedAgentExecutorSkillCaching:
     ) -> None:
         """Resolved skill staging copies cached skill directories in a worker thread."""
 
-        mock_agent_config.resolved_skills = [
+        cast(Any, mock_agent_config).resolved_skills = [
             ResolvedSkillRef(
                 skill_id=uuid.uuid4(),
                 skill_name="skill-a",

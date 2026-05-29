@@ -38,6 +38,13 @@ _archive_cache_locks: dict[str, asyncio.Lock] = {}
 _archive_cache_locks_guard = asyncio.Lock()
 
 
+@dataclass(frozen=True, slots=True)
+class _ArchiveCacheEntry:
+    path: Path
+    size_bytes: int
+    last_used_ns: int
+
+
 class _HashUpdater(Protocol):
     """Minimal hash object protocol used by streaming helpers."""
 
@@ -540,11 +547,16 @@ async def _ensure_snapshot_archive_cached(
 ) -> Path:
     archive_path = _archive_cache_path(snapshot.sha256)
     if _cached_archive_matches(archive_path, snapshot):
+        await asyncio.to_thread(_touch_archive_for_lru, archive_path)
+        await asyncio.to_thread(_prune_archive_cache, keep_path=archive_path)
         return archive_path
 
     lock = await _get_archive_cache_lock(snapshot.sha256)
     async with lock:
-        if not _cached_archive_matches(archive_path, snapshot):
+        if _cached_archive_matches(archive_path, snapshot):
+            await asyncio.to_thread(_touch_archive_for_lru, archive_path)
+            await asyncio.to_thread(_prune_archive_cache, keep_path=archive_path)
+        else:
             await blob.download_file_to_path(
                 key=snapshot.key,
                 bucket=snapshot.bucket,
@@ -552,6 +564,8 @@ async def _ensure_snapshot_archive_cached(
                 max_bytes=snapshot.size_bytes,
                 expected_sha256=snapshot.sha256,
             )
+            await asyncio.to_thread(_touch_archive_for_lru, archive_path)
+            await asyncio.to_thread(_prune_archive_cache, keep_path=archive_path)
     return archive_path
 
 
@@ -577,8 +591,12 @@ def _promote_archive_to_cache(temp_archive: Path, sha256: str) -> Path:
     archive_path.parent.mkdir(parents=True, exist_ok=True)
     if archive_path.exists():
         temp_archive.unlink(missing_ok=True)
+        _touch_archive_for_lru(archive_path)
+        _prune_archive_cache(keep_path=archive_path)
         return archive_path
     os.replace(temp_archive, archive_path)
+    _touch_archive_for_lru(archive_path)
+    _prune_archive_cache(keep_path=archive_path)
     return archive_path
 
 
@@ -599,6 +617,71 @@ def _cached_archive_matches(
     if not archive_path.exists() or archive_path.stat().st_size != snapshot.size_bytes:
         return False
     return _sha256_file(archive_path) == snapshot.sha256
+
+
+def _touch_archive_for_lru(archive_path: Path) -> None:
+    with contextlib.suppress(OSError):
+        archive_path.touch()
+
+
+def _prune_archive_cache(*, keep_path: Path | None = None) -> None:
+    max_bytes = max(0, config.TRACECAT__AGENT_FS_ARCHIVE_CACHE_MAX_BYTES)
+    archives_dir = _cache_root() / "archives"
+    if not archives_dir.exists():
+        return
+
+    keep_resolved = keep_path.resolve() if keep_path is not None else None
+    entries: list[_ArchiveCacheEntry] = []
+    total_bytes = 0
+    for archive_path in archives_dir.glob("*.tar.gz"):
+        try:
+            archive_stat = archive_path.stat()
+        except FileNotFoundError:
+            continue
+        if not stat.S_ISREG(archive_stat.st_mode):
+            continue
+        entries.append(
+            _ArchiveCacheEntry(
+                path=archive_path,
+                size_bytes=archive_stat.st_size,
+                last_used_ns=archive_stat.st_mtime_ns,
+            )
+        )
+        total_bytes += archive_stat.st_size
+
+    if total_bytes <= max_bytes:
+        return
+
+    pruned_count = 0
+    pruned_bytes = 0
+    for entry in sorted(entries, key=lambda item: (item.last_used_ns, item.path.name)):
+        if total_bytes <= max_bytes:
+            break
+        if keep_resolved is not None and entry.path.resolve() == keep_resolved:
+            continue
+        try:
+            entry.path.unlink()
+        except FileNotFoundError:
+            pass
+        except OSError as e:
+            logger.warning(
+                "Failed to prune agent filesystem archive cache entry",
+                path=str(entry.path),
+                error=str(e),
+            )
+            continue
+        total_bytes -= entry.size_bytes
+        pruned_count += 1
+        pruned_bytes += entry.size_bytes
+
+    if pruned_count:
+        logger.info(
+            "Pruned agent filesystem archive cache",
+            pruned_count=pruned_count,
+            pruned_bytes=pruned_bytes,
+            remaining_bytes=total_bytes,
+            max_bytes=max_bytes,
+        )
 
 
 async def _get_archive_cache_lock(sha256: str) -> asyncio.Lock:

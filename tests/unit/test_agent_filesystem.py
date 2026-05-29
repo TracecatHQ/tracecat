@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import io
 import os
 import shutil
@@ -19,6 +20,8 @@ from tracecat.agent.filesystem import (
     AgentFilesystemService,
     AgentFilesystemSnapshotLimitExceeded,
     AgentFilesystemSnapshotMetadata,
+    _ensure_snapshot_archive_cached,
+    _promote_archive_to_cache,
     compute_work_dir_state,
     create_work_dir_archive,
     extract_work_dir_archive,
@@ -230,6 +233,101 @@ def test_extract_rejects_path_traversal(tmp_path: Path) -> None:
         )
 
     assert not (tmp_path / "escape.txt").exists()
+
+
+def test_promote_archive_prunes_oldest_cached_archives(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(
+        config,
+        "TRACECAT__AGENT_FS_CACHE_DIR",
+        str(tmp_path / "cache"),
+    )
+    monkeypatch.setattr(config, "TRACECAT__AGENT_FS_ARCHIVE_CACHE_MAX_BYTES", 8)
+    archive_dir = tmp_path / "cache" / "archives"
+    archive_dir.mkdir(parents=True)
+    oldest = archive_dir / f"{'a' * 64}.tar.gz"
+    newer = archive_dir / f"{'b' * 64}.tar.gz"
+    oldest.write_bytes(b"1111")
+    newer.write_bytes(b"2222")
+    os.utime(oldest, (1, 1))
+    os.utime(newer, (2, 2))
+    temp_archive = tmp_path / "new.tar.gz"
+    temp_archive.write_bytes(b"3333")
+
+    promoted = _promote_archive_to_cache(temp_archive, "c" * 64)
+
+    assert promoted.exists()
+    assert promoted.read_bytes() == b"3333"
+    assert not oldest.exists()
+    assert newer.exists()
+    assert sum(path.stat().st_size for path in archive_dir.glob("*.tar.gz")) <= 8
+
+
+@pytest.mark.anyio
+async def test_downloaded_archive_prunes_oldest_cached_archives(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(
+        config,
+        "TRACECAT__AGENT_FS_CACHE_DIR",
+        str(tmp_path / "cache"),
+    )
+    monkeypatch.setattr(config, "TRACECAT__AGENT_FS_ARCHIVE_CACHE_MAX_BYTES", 8)
+    archive_dir = tmp_path / "cache" / "archives"
+    archive_dir.mkdir(parents=True)
+    oldest = archive_dir / f"{'a' * 64}.tar.gz"
+    newer = archive_dir / f"{'b' * 64}.tar.gz"
+    oldest.write_bytes(b"1111")
+    newer.write_bytes(b"2222")
+    os.utime(oldest, (1, 1))
+    os.utime(newer, (2, 2))
+    content = b"3333"
+    sha256 = hashlib.sha256(content).hexdigest()
+    snapshot = AgentFilesystemSnapshotMetadata(
+        bucket="agent-bucket",
+        key="agent-fs/blobs/downloaded.tar.gz",
+        state_hash="0" * 64,
+        sha256=sha256,
+        size_bytes=len(content),
+        uncompressed_size_bytes=len(content),
+        file_count=1,
+        dir_count=0,
+        archive_format="tar.gz",
+        compression="gzip",
+        created_at="2026-05-28T00:00:00+00:00",
+    )
+
+    async def fake_download_file_to_path(
+        *,
+        key: str,
+        bucket: str,
+        output_path: Path,
+        max_bytes: int | None = None,
+        expected_sha256: str | None = None,
+    ) -> int:
+        assert key == snapshot.key
+        assert bucket == snapshot.bucket
+        assert max_bytes == snapshot.size_bytes
+        assert expected_sha256 == snapshot.sha256
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_bytes(content)
+        return len(content)
+
+    monkeypatch.setattr(
+        "tracecat.agent.filesystem.blob.download_file_to_path",
+        fake_download_file_to_path,
+    )
+
+    archive_path = await _ensure_snapshot_archive_cached(snapshot)
+
+    assert archive_path.exists()
+    assert archive_path.read_bytes() == content
+    assert not oldest.exists()
+    assert newer.exists()
+    assert sum(path.stat().st_size for path in archive_dir.glob("*.tar.gz")) <= 8
 
 
 @pytest.mark.anyio
