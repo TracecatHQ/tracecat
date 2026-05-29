@@ -20,7 +20,7 @@ overrides = [
     { name = "boto3", specifier = "==1.40.61" },
     { name = "chardet", specifier = "<7" },
     { name = "cryptography", specifier = "==46.0.7" },
-    { name = "fastapi", specifier = "==0.120.3" },
+    { name = "fastapi", specifier = "==0.136.3" },
     { name = "fastapi-sso", specifier = "==0.19.0" },
     { name = "fickling", specifier = "==0.1.10" },
     { name = "grpcio", specifier = "==1.75.1" },
@@ -1183,17 +1183,18 @@ wheels = [
 
 [[package]]
 name = "fastapi"
-version = "0.120.3"
+version = "0.136.3"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "annotated-doc" },
     { name = "pydantic" },
     { name = "starlette" },
     { name = "typing-extensions" },
+    { name = "typing-inspection" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/85/c6/f324c07f5ebe34237b56b6396a94568d2d4a705df8a2ff82fa45029e7252/fastapi-0.120.3.tar.gz", hash = "sha256:17db50718ee86c9e01e54f9d8600abf130f6f762711cd0d8f02eb392668271ba", size = 339363, upload-time = "2025-10-30T20:41:33.072Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/81/2d/ff8d91d7b564d464629a0fd50a4489c97fcb836ac230bf3a7269232a9b1f/fastapi-0.136.3.tar.gz", hash = "sha256:e487fae93ad408e6f47641ee4dfe389864fd7bec92e547ea8498fc13f43e83ab", size = 396410, upload-time = "2026-05-23T18:53:15.192Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/37/3a/1eef3ab55ede5af09186723898545a94d0a32b7ac9ea4e7af7bcb95f132a/fastapi-0.120.3-py3-none-any.whl", hash = "sha256:bfee21c98db9128dc425a686eafd14899e26e4471aab33076bff2427fd6dcd22", size = 108255, upload-time = "2025-10-30T20:41:31.247Z" },
+    { url = "https://files.pythonhosted.org/packages/e0/82/45359b62a067409bd929ae8a56b8ed13e5a8c8a61194b3c236920999ab83/fastapi-0.136.3-py3-none-any.whl", hash = "sha256:3d2a69bdf04b7e9f3afa292c3bc7a98816bbfafa10bc9b45f3f3700d2f761620", size = 117481, upload-time = "2026-05-23T18:53:16.924Z" },
 ]
 
 [[package]]
@@ -4302,15 +4303,15 @@ wheels = [
 
 [[package]]
 name = "starlette"
-version = "0.49.3"
+version = "1.0.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "anyio" },
     { name = "typing-extensions", marker = "python_full_version < '3.13'" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/de/1a/608df0b10b53b0beb96a37854ee05864d182ddd4b1156a22f1ad3860425a/starlette-0.49.3.tar.gz", hash = "sha256:1c14546f299b5901a1ea0e34410575bc33bbd741377a10484a54445588d00284", size = 2655031, upload-time = "2025-11-01T15:12:26.13Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/08/a3/84e821cc54b4ab50ae6dbc6ac3800a651b65ec35f045cc73785380654057/starlette-1.0.1.tar.gz", hash = "sha256:512399c5f1de7fac99c88572212ded9ddeddef2fb32afa82d724000e88b38f4f", size = 2659596, upload-time = "2026-05-21T21:58:58.433Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/a3/e0/021c772d6a662f43b63044ab481dc6ac7592447605b5b35a957785363122/starlette-0.49.3-py3-none-any.whl", hash = "sha256:b579b99715fdc2980cf88c8ec96d3bf1ce16f5a8051a7c2b84ef9b1cdecaea2f", size = 74340, upload-time = "2025-11-01T15:12:24.387Z" },
+    { url = "https://files.pythonhosted.org/packages/ec/e1/b2df4bc09a1e51ff664c1e17018a4274b42e5e9352e4a478ea540512dc88/starlette-1.0.1-py3-none-any.whl", hash = "sha256:7c0e69b2ee1c848bd54669d908500117a3ee13de603a21427e5c6fc1adf98dcd", size = 72802, upload-time = "2026-05-21T21:58:56.551Z" },
 ]
 
 [[package]]
@@ -4580,7 +4581,7 @@ requires-dist = [
     { name = "dateparser", specifier = "==1.2.2" },
     { name = "defusedxml", specifier = "==0.7.1" },
     { name = "email-validator", specifier = "==2.2.0" },
-    { name = "fastapi", extras = ["standard"], specifier = "==0.120.3" },
+    { name = "fastapi", extras = ["standard"], specifier = "==0.136.3" },
     { name = "fastapi-users", extras = ["oauth", "sqlalchemy"], specifier = "==15.0.2" },
     { name = "fastmcp", specifier = "==3.2.0" },
     { name = "google-auth", specifier = "==2.48.0" },
@@ -4606,7 +4607,7 @@ requires-dist = [
     { name = "redis", extras = ["hiredis"], specifier = "==7.1.0" },
     { name = "sentry-sdk", specifier = "==2.24.1" },
     { name = "sqlalchemy", specifier = "==2.0.45" },
-    { name = "starlette", specifier = "==0.49.3" },
+    { name = "starlette", specifier = "==1.0.1" },
     { name = "temporalio", specifier = "==1.20.0" },
     { name = "tenacity", specifier = "==8.3.0" },
     { name = "tomli", specifier = "==2.2.1" },
