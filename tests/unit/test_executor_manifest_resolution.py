@@ -239,7 +239,7 @@ async def test_prepare_step_context_uses_manifest_for_template_steps(
     assert step_ctx.action_impl.type == "udf"
     assert step_ctx.action_impl.module == "manifest.module"
     assert step_ctx.action_impl.name == "manifest_fn"
-    assert step_ctx.secret_projection is parent_resolved.secret_projection
+    assert step_ctx.secret_projection is None
 
 
 @pytest.mark.anyio

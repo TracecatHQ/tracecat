@@ -1,7 +1,7 @@
 """add agent session artifacts
 
 Revision ID: 03dbf6e4b31f
-Revises: a3d7c9e8b4f2
+Revises: 2f54d8c0e1ab
 Create Date: 2026-05-27 00:00:00.000000
 
 """
@@ -15,7 +15,7 @@ from alembic import op
 
 # revision identifiers, used by Alembic.
 revision: str = "03dbf6e4b31f"
-down_revision: str | None = "a3d7c9e8b4f2"
+down_revision: str | None = "2f54d8c0e1ab"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
