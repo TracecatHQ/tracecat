@@ -394,6 +394,7 @@ async def reconcile_tool_results_activity(
                     tool_call_id=result.tool_call_id,
                     error=str(e),
                 )
+                raise
 
         for artifact_effect in artifact_effects:
             await stream.append(

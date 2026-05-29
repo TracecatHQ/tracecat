@@ -691,6 +691,7 @@ class LoopbackHandler:
                 session_id=self.input.session_id,
                 error=str(e),
             )
+            raise
 
     async def send_stream_event(self, event: UnifiedStreamEvent) -> None:
         """Handle a stream event emitted by the runtime."""
