@@ -10,7 +10,7 @@ from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
 from time import perf_counter
-from typing import Any
+from typing import Any, cast
 
 from pydantic import AliasChoices, BaseModel, Field
 from temporalio import activity
@@ -267,10 +267,11 @@ class SandboxedAgentExecutor:
         """
         # Keep all root/subagent semantics on the executor side. The proxy only
         # receives model-key routes and does not know which agent emitted them.
+        config = cast(Any, self.input.config)
         return LLMRoutingPlan(
             managed_route=LLMRoute(
                 base_url=app_config.TRACECAT__LITELLM_BASE_URL.rstrip("/"),
-                model_provider=self.input.config.model_provider,
+                model_provider=config.model_provider,
                 mode="managed",
                 # Managed subagent requests use synthetic LiteLLM route keys, so
                 # the proxy should let LiteLLM do provider-specific body cleanup.
@@ -295,12 +296,13 @@ class SandboxedAgentExecutor:
             Direct passthrough routes keyed by request model.
         """
         routes: dict[str, LLMRoute] = {}
-        if self.input.config.passthrough:
+        config = cast(Any, self.input.config)
+        if config.passthrough:
             # Root routing is keyed by the model string the root agent sends.
-            routes[self.input.config.model_name] = self._direct_passthrough_route(
-                self.input.config.base_url,
-                model_provider=self.input.config.model_provider,
-                catalog_id=self.input.config.catalog_id,
+            routes[config.model_name] = self._direct_passthrough_route(
+                config.base_url,
+                model_provider=config.model_provider,
+                catalog_id=config.catalog_id,
             )
 
         for subagent in self.input.subagents:
@@ -446,7 +448,7 @@ class SandboxedAgentExecutor:
             work_dir.mkdir(parents=True, exist_ok=True)
         self._log_benchmark_phase("agent_fs_hydrate_complete")
 
-    async def _persist_agent_filesystem(self, work_dir: Path) -> None:
+    async def _persist_agent_filesystem(self, work_dir: Path) -> str | None:
         """Persist the agent work dir after a successful runtime turn."""
         self._log_benchmark_phase("agent_fs_snapshot_start")
         try:
@@ -463,8 +465,10 @@ class SandboxedAgentExecutor:
                 workspace_id=str(self.input.workspace_id),
                 error=str(e),
             )
-        else:
-            self._log_benchmark_phase("agent_fs_snapshot_complete")
+            return f"Failed to persist agent filesystem snapshot: {e}"
+
+        self._log_benchmark_phase("agent_fs_snapshot_complete")
+        return None
 
     @staticmethod
     def _apply_loopback_result(
@@ -585,9 +589,13 @@ class SandboxedAgentExecutor:
                                 session_id=str(self.input.session_id),
                                 disable_nsjail=TRACECAT__DISABLE_NSJAIL,
                             )
-                            await self._persist_agent_filesystem(
+                            snapshot_error = await self._persist_agent_filesystem(
                                 path_mapping.host_work_dir
                             )
+                            if snapshot_error is not None:
+                                result.success = False
+                                result.error = snapshot_error
+                                result.terminal_stream_error_emitted = False
                     break
                 else:
                     result.error = (
@@ -654,7 +662,8 @@ class SandboxedAgentExecutor:
     async def _stage_resolved_skills(self, skills_dir: Path) -> None:
         """Stage resolved published skills into the per-run home directory."""
 
-        resolved_skills = self.input.config.resolved_skills or []
+        config = cast(Any, self.input.config)
+        resolved_skills = config.resolved_skills or []
         if not resolved_skills:
             return
         duplicate_names = sorted(
@@ -835,9 +844,8 @@ async def run_agent_activity(input: AgentExecutorInput) -> AgentExecutorResult:
     # configs in ``input.config.mcp_servers`` arrive in refs-only shape
     # (no ``env``) — hydrate from the DB here so the spawned process gets
     # its credentials.
-    input.config.mcp_servers = await _hydrate_stdio_env(
-        input.config.mcp_servers, role=input.role
-    )
+    config = cast(Any, input.config)
+    config.mcp_servers = await _hydrate_stdio_env(config.mcp_servers, role=input.role)
 
     executor = SandboxedAgentExecutor(input=input)
     result = await executor.run()
