@@ -23,6 +23,7 @@ from tracecat.agent.stream.artifacts import artifact_stream_event
 from tracecat.agent.stream.connector import AgentStream
 from tracecat.agent.subagents import ResolvedAgentsConfig
 from tracecat.artifacts.bindings import artifact_side_effects_for_tool_result
+from tracecat.artifacts.resolution import resolve_artifact_side_effects
 from tracecat.auth.types import Role
 from tracecat.chat.schemas import ChatMessage
 from tracecat.contexts import ctx_role
@@ -383,10 +384,16 @@ async def reconcile_tool_results_activity(
         if artifact_effects:
             try:
                 async with AgentSessionService.with_session(role=input.role) as service:
-                    await service.apply_artifact_side_effects(
-                        input.session_id,
+                    artifact_effects = await resolve_artifact_side_effects(
                         artifact_effects,
+                        session=service.session,
+                        role=service.role,
                     )
+                    if artifact_effects:
+                        await service.apply_artifact_side_effects(
+                            input.session_id,
+                            artifact_effects,
+                        )
             except Exception as e:
                 logger.warning(
                     "Failed to persist artifact side effects",

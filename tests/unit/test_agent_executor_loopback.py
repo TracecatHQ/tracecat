@@ -284,7 +284,13 @@ async def test_tool_result_emits_artifact_side_effect_from_tracked_call() -> Non
     handler = _make_handler()
     stream = _FakeStream()
     handler._stream_sink = stream
-    persist_artifact_side_effects = AsyncMock()
+
+    async def persist_passthrough(
+        effects: list[ArtifactSideEffect],
+    ) -> list[ArtifactSideEffect]:
+        return effects
+
+    persist_artifact_side_effects = AsyncMock(side_effect=persist_passthrough)
     handler._persist_artifact_side_effects = persist_artifact_side_effects
 
     await handler.send_stream_event(

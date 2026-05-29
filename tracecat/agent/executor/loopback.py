@@ -44,6 +44,7 @@ from tracecat.artifacts.bindings import (
     ArtifactSideEffect,
     artifact_side_effects_for_tool_result,
 )
+from tracecat.artifacts.resolution import resolve_artifact_side_effects
 from tracecat.auth.types import Role
 from tracecat.db.engine import (
     get_async_session_bypass_rls_context_manager,
@@ -641,7 +642,7 @@ class LoopbackHandler:
                 tool_call_id=tool_call_id,
             )
         )
-        await self._persist_artifact_side_effects(artifact_effects)
+        artifact_effects = await self._persist_artifact_side_effects(artifact_effects)
 
         for artifact_effect in artifact_effects:
             await stream_sink.append(
@@ -655,9 +656,9 @@ class LoopbackHandler:
     async def _persist_artifact_side_effects(
         self,
         artifact_effects: Sequence[ArtifactSideEffect],
-    ) -> None:
+    ) -> Sequence[ArtifactSideEffect]:
         if not artifact_effects:
-            return
+            return artifact_effects
 
         try:
             async with get_async_session_bypass_rls_context_manager() as session:
@@ -672,7 +673,7 @@ class LoopbackHandler:
                         session_id=self.input.session_id,
                         workspace_id=self.input.workspace_id,
                     )
-                    return
+                    return artifact_effects
 
                 role = Role(
                     type="service",
@@ -680,6 +681,14 @@ class LoopbackHandler:
                     workspace_id=self.input.workspace_id,
                     organization_id=organization_id,
                 )
+                artifact_effects = await resolve_artifact_side_effects(
+                    artifact_effects,
+                    session=session,
+                    role=role,
+                )
+                if not artifact_effects:
+                    return artifact_effects
+
                 service = AgentSessionService(session, role)
                 await service.apply_artifact_side_effects(
                     self.input.session_id,
@@ -692,6 +701,7 @@ class LoopbackHandler:
                 error=str(e),
             )
             raise
+        return artifact_effects
 
     async def send_stream_event(self, event: UnifiedStreamEvent) -> None:
         """Handle a stream event emitted by the runtime."""
