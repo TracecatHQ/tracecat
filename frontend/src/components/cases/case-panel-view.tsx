@@ -77,6 +77,22 @@ import { cn, undoSlugify } from "@/lib/utils"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
 type CasePanelTab = "comments" | "activity" | "attachments" | "rows" | "payload"
+const CASE_PANEL_TABS = new Set<CasePanelTab>([
+  "comments",
+  "activity",
+  "attachments",
+  "rows",
+  "payload",
+])
+
+function parseCasePanelTab(
+  value: string | null | undefined
+): CasePanelTab | null {
+  if (!value || !CASE_PANEL_TABS.has(value as CasePanelTab)) {
+    return null
+  }
+  return value as CasePanelTab
+}
 
 function isCustomFieldValueEmpty(value: unknown): boolean {
   if (value === null || value === undefined) return true
@@ -92,11 +108,15 @@ function isCustomFieldValueEmpty(value: unknown): boolean {
 interface CasePanelContentProps {
   caseId: string
   embedded?: boolean
+  initialTab?: string | null
+  onTabChange?: (tab: string) => void
 }
 
 export function CasePanelView({
   caseId,
   embedded = false,
+  initialTab,
+  onTabChange,
 }: CasePanelContentProps) {
   const workspaceId = useWorkspaceId()
   const { members } = useWorkspaceMembers(workspaceId)
@@ -138,10 +158,9 @@ export function CasePanelView({
     [caseData?.fields]
   )
   const [showAllCustomFields, setShowAllCustomFields] = useState(false)
-  const [embeddedTab, setEmbeddedTab] = useState<CasePanelTab>("comments")
-  useEffect(() => {
-    setEmbeddedTab("comments")
-  }, [caseId])
+  const [embeddedTab, setEmbeddedTab] = useState<CasePanelTab>(
+    () => parseCasePanelTab(initialTab) ?? "comments"
+  )
   const visibleCustomFields = useMemo(
     () =>
       showAllCustomFields
@@ -165,26 +184,31 @@ export function CasePanelView({
   )
 
   // Get active tab from URL query params, default to "comments"
-  const routeTab = (
-    searchParams &&
-    ["comments", "activity", "attachments", "rows", "payload"].includes(
-      searchParams.get("tab") || ""
-    )
-      ? (searchParams.get("tab") ?? "comments")
-      : "comments"
-  ) as CasePanelTab
+  const routeTab = parseCasePanelTab(searchParams?.get("tab")) ?? "comments"
   const activeTab = embedded ? embeddedTab : routeTab
+
+  useEffect(() => {
+    if (!embedded) {
+      return
+    }
+    const nextTab = parseCasePanelTab(initialTab) ?? "comments"
+    if (nextTab !== embeddedTab) {
+      setEmbeddedTab(nextTab)
+    }
+  }, [caseId, embedded, embeddedTab, initialTab])
 
   // Function to handle tab changes and update URL
   const handleTabChange = useCallback(
     (tab: string) => {
+      const nextTab = parseCasePanelTab(tab) ?? "comments"
       if (embedded) {
-        setEmbeddedTab(tab as CasePanelTab)
+        setEmbeddedTab(nextTab)
+        onTabChange?.(nextTab)
         return
       }
-      router.push(`/workspaces/${workspaceId}/cases/${caseId}?tab=${tab}`)
+      router.push(`/workspaces/${workspaceId}/cases/${caseId}?tab=${nextTab}`)
     },
-    [embedded, router, workspaceId, caseId]
+    [embedded, router, workspaceId, caseId, onTabChange]
   )
 
   if (caseDataIsLoading) {

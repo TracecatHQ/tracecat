@@ -51,6 +51,10 @@ export type TableArtifact = BaseArtifact & {
   rowCount?: number
 }
 
+export type AgentArtifact = BaseArtifact & {
+  type: "agent"
+}
+
 export type AlertArtifact = BaseArtifact & {
   type: "alert"
 }
@@ -73,6 +77,7 @@ export type WorkspaceChatArtifact =
   | WorkflowArtifact
   | RunArtifact
   | TableArtifact
+  | AgentArtifact
   | AlertArtifact
   | IntegrationArtifact
   | SecretArtifact

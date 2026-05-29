@@ -34,7 +34,14 @@ import {
 } from "lucide-react"
 import Link from "next/link"
 import { useRouter, useSearchParams } from "next/navigation"
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import {
+  type FormEvent,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react"
 import {
   type FieldErrors,
   type UseFormReturn,
@@ -711,6 +718,117 @@ export function AgentPresetsBuilder({
   )
 }
 
+/**
+ * Embeds the preset builder in surfaces that need a stacked, narrow layout.
+ */
+export function AgentPresetArtifactView({
+  preset,
+  workspaceId,
+  initialTab,
+  onTabChange,
+}: {
+  preset: AgentPresetRead
+  workspaceId: string
+  initialTab?: string | null
+  onTabChange?: (tab: string) => void
+}) {
+  const { presets } = useAgentPresets(workspaceId)
+  const { registryActions } = useRegistryActions()
+  const { models, providers } = useWorkspaceAgentModels(workspaceId)
+  const enabledModelsLoaded = models !== undefined
+  const { mcpIntegrations, mcpIntegrationsIsLoading } =
+    useListMcpIntegrations(workspaceId)
+  const { updateAgentPreset, updateAgentPresetIsPending } =
+    useUpdateAgentPreset(workspaceId)
+
+  const actionSuggestions: Suggestion[] = useMemo(() => {
+    if (!registryActions) {
+      return []
+    }
+    return registryActions
+      .map((action) => ({
+        id: action.id,
+        label: action.default_title ?? action.name,
+        value: action.action,
+        description: action.description,
+        group: action.namespace,
+        icon: getIcon(action.action, {
+          className: "size-6 p-[3px] border-[0.5px]",
+        }),
+      }))
+      .sort((a, b) => a.label.localeCompare(b.label))
+  }, [registryActions])
+
+  const namespaceSuggestions: Suggestion[] = useMemo(() => {
+    if (!registryActions) {
+      return []
+    }
+    const seen = new Set<string>()
+    const entries: Suggestion[] = []
+    for (const action of registryActions) {
+      if (action.namespace && !seen.has(action.namespace)) {
+        seen.add(action.namespace)
+        entries.push({
+          id: action.namespace,
+          label: action.namespace,
+          value: action.namespace,
+        })
+      }
+    }
+    return entries.sort((a, b) => a.label.localeCompare(b.label))
+  }, [registryActions])
+
+  const enabledModelOptions = useMemo(
+    () => buildEnabledModelOptions(models, providers),
+    [models, providers]
+  )
+
+  const mcpIntegrationsForForm = useMemo(() => {
+    if (!mcpIntegrations) {
+      return []
+    }
+
+    return mcpIntegrations
+      .map((integration) => ({
+        id: integration.id,
+        name: integration.name,
+        description: integration.description,
+        providerId: getMcpProviderId(integration.slug),
+      }))
+      .sort((a, b) => a.name.localeCompare(b.name))
+  }, [mcpIntegrations])
+
+  return (
+    <AgentPresetForm
+      key={preset.id}
+      preset={preset}
+      mode="edit"
+      workspaceId={workspaceId}
+      agentPresets={presets ?? []}
+      onCreate={async () => {
+        throw new Error("Agent artifacts cannot create presets.")
+      }}
+      onUpdate={async (presetId, payload) => {
+        return await updateAgentPreset({
+          presetId,
+          ...payload,
+        })
+      }}
+      isSaving={updateAgentPresetIsPending}
+      isDeleting={false}
+      actionSuggestions={actionSuggestions}
+      namespaceSuggestions={namespaceSuggestions}
+      enabledModelOptions={enabledModelOptions}
+      enabledModelsLoaded={enabledModelsLoaded}
+      mcpIntegrations={mcpIntegrationsForForm}
+      mcpIntegrationsIsLoading={mcpIntegrationsIsLoading}
+      layout="stacked"
+      initialTab={parseAgentPresetSideTab(initialTab) ?? "configuration"}
+      onTabChange={onTabChange}
+    />
+  )
+}
+
 function AgentPresetChatPane({
   preset,
   workspaceId,
@@ -1306,6 +1424,7 @@ type AgentPresetFormProps = {
   enabledModelsLoaded: boolean
   mcpIntegrations: McpIntegrationOption[]
   mcpIntegrationsIsLoading: boolean
+  layout?: "split" | "stacked"
   initialTab?: AgentPresetSideTab
   onTabChange?: (tab: AgentPresetSideTab) => void
 }
@@ -1328,6 +1447,7 @@ function AgentPresetForm({
   enabledModelsLoaded,
   mcpIntegrations,
   mcpIntegrationsIsLoading,
+  layout = "split",
   initialTab = "live-chat",
   onTabChange,
 }: AgentPresetFormProps) {
@@ -1602,72 +1722,99 @@ function AgentPresetForm({
     [appendSkillBinding]
   )
 
+  const documentPanel = (
+    <AgentPresetDocumentPanel
+      form={form}
+      mode={mode}
+      isSaving={isSaving}
+      isDeleting={isDeleting}
+      canSubmit={canSubmit}
+      presetName={preset?.name ?? ""}
+      onDuplicate={onDuplicate ? handleDuplicate : undefined}
+      isDuplicating={isDuplicating}
+      onDelete={onDelete}
+      deleteDialogOpen={deleteDialogOpen}
+      onDeleteDialogChange={handleDeleteDialogChange}
+      onConfirmDelete={handleConfirmDelete}
+    />
+  )
+
+  const rightPanel = (
+    <AgentPresetRightPanel
+      activeTab={effectiveTab}
+      onTabChange={handleTabChange}
+      channelsEnabled={channelsEnabled}
+      preset={preset}
+      workspaceId={workspaceId}
+      agentPresets={agentPresets}
+      subagentVersionsByPresetId={subagentVersionsByPresetId}
+      subagentVersionsByPresetIdIsLoading={subagentVersionsByPresetIdIsLoading}
+      builderPrompt={builderPrompt}
+      form={form}
+      isSaving={isSaving}
+      actionSuggestions={actionSuggestions}
+      namespaceSuggestions={namespaceSuggestions}
+      enabledModelOptions={enabledModelOptions}
+      enabledModelsLoaded={enabledModelsLoaded}
+      mcpIntegrations={mcpIntegrations}
+      mcpIntegrationsIsLoading={mcpIntegrationsIsLoading}
+      skillFields={skillFields}
+      onAddSkillBinding={handleAddSkillBinding}
+      onRemoveSkillBinding={removeSkillBinding}
+      toolApprovalFields={toolApprovalFields}
+      onAddToolApproval={handleAddToolApproval}
+      onRemoveToolApproval={removeToolApproval}
+      subagentFields={subagentFields}
+      onAddSubagent={handleAddSubagent}
+      onRemoveSubagent={removeSubagent}
+    />
+  )
+
+  const handleFormSubmit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    // Ignore submits bubbling from nested forms (e.g., chat prompt inputs).
+    if (event.target !== event.currentTarget) {
+      return
+    }
+    void handleSubmit()
+  }
+
   return (
     <Form {...form}>
-      <form
-        onSubmit={(event) => {
-          event.preventDefault()
-          // Ignore submits bubbling from nested forms (e.g., chat prompt inputs).
-          if (event.target !== event.currentTarget) {
-            return
-          }
-          void handleSubmit()
-        }}
-        className="h-full"
-      >
-        <ResizablePanelGroup direction="horizontal" className="h-full">
-          <ResizablePanel defaultSize={62} minSize={40}>
-            <AgentPresetDocumentPanel
-              form={form}
-              mode={mode}
-              isSaving={isSaving}
-              isDeleting={isDeleting}
-              canSubmit={canSubmit}
-              presetName={preset?.name ?? ""}
-              onDuplicate={onDuplicate ? handleDuplicate : undefined}
-              isDuplicating={isDuplicating}
-              onDelete={onDelete}
-              deleteDialogOpen={deleteDialogOpen}
-              onDeleteDialogChange={handleDeleteDialogChange}
-              onConfirmDelete={handleConfirmDelete}
-            />
-          </ResizablePanel>
+      <form onSubmit={handleFormSubmit} className="h-full min-h-0">
+        {layout === "stacked" ? (
+          <ResizablePanelGroup direction="vertical" className="h-full">
+            <ResizablePanel
+              defaultSize={42}
+              minSize={28}
+              className="overflow-hidden"
+            >
+              {documentPanel}
+            </ResizablePanel>
 
-          <ResizableHandle withHandle />
+            <ResizableHandle />
 
-          <ResizablePanel defaultSize={38} minSize={26}>
-            <AgentPresetRightPanel
-              activeTab={effectiveTab}
-              onTabChange={handleTabChange}
-              channelsEnabled={channelsEnabled}
-              preset={preset}
-              workspaceId={workspaceId}
-              agentPresets={agentPresets}
-              subagentVersionsByPresetId={subagentVersionsByPresetId}
-              subagentVersionsByPresetIdIsLoading={
-                subagentVersionsByPresetIdIsLoading
-              }
-              builderPrompt={builderPrompt}
-              form={form}
-              isSaving={isSaving}
-              actionSuggestions={actionSuggestions}
-              namespaceSuggestions={namespaceSuggestions}
-              enabledModelOptions={enabledModelOptions}
-              enabledModelsLoaded={enabledModelsLoaded}
-              mcpIntegrations={mcpIntegrations}
-              mcpIntegrationsIsLoading={mcpIntegrationsIsLoading}
-              skillFields={skillFields}
-              onAddSkillBinding={handleAddSkillBinding}
-              onRemoveSkillBinding={removeSkillBinding}
-              toolApprovalFields={toolApprovalFields}
-              onAddToolApproval={handleAddToolApproval}
-              onRemoveToolApproval={removeToolApproval}
-              subagentFields={subagentFields}
-              onAddSubagent={handleAddSubagent}
-              onRemoveSubagent={removeSubagent}
-            />
-          </ResizablePanel>
-        </ResizablePanelGroup>
+            <ResizablePanel
+              defaultSize={58}
+              minSize={32}
+              className="overflow-hidden"
+            >
+              {rightPanel}
+            </ResizablePanel>
+          </ResizablePanelGroup>
+        ) : (
+          <ResizablePanelGroup direction="horizontal" className="h-full">
+            <ResizablePanel defaultSize={62} minSize={40}>
+              {documentPanel}
+            </ResizablePanel>
+
+            <ResizableHandle withHandle />
+
+            <ResizablePanel defaultSize={38} minSize={26}>
+              {rightPanel}
+            </ResizablePanel>
+          </ResizablePanelGroup>
+        )}
       </form>
     </Form>
   )
