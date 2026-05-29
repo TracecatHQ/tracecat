@@ -873,13 +873,19 @@ async def dispatch_action(backend: ExecutorBackend, input: RunActionInput) -> An
 
     logger.info("Running for_each on action in parallel", action=task.action)
 
-    # Handle for_each by creating parallel executions
+    # Handle for_each by creating bounded parallel executions
     base_context = input.exec_context
     # We have a list of iterators that give a variable assignment path ".path.to.value"
     # and a collection of values as a tuple.
     iterators = get_iterables_from_expression(expr=task.for_each, operand=base_context)
 
     max_concurrency = max(1, config.TRACECAT__EXECUTOR_FOR_EACH_MAX_CONCURRENCY)
+    # Use a fixed worker pool instead of a semaphore around one task per loop item.
+    # A semaphore would cap active invokes, but still schedules every iteration and
+    # retains per-item task state for large loops. Workers pull lazily from the
+    # iterator, so memory and event-loop pressure scale with max_concurrency.
+    # Keep this loop-local; cross-activity caps must not use asyncio primitives
+    # because activities can run on different event loops.
     loop_items = iter(enumerate(zip(*iterators, strict=False)))
     results: dict[int, ExecutionResult] = {}
     iteration_count = 0
