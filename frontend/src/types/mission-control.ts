@@ -118,15 +118,91 @@ function isRecord(value: unknown): value is UnknownRecord {
   return typeof value === "object" && value !== null
 }
 
-function isArtifact(value: unknown): value is MissionControlArtifact {
+function isStringInSet<T extends string>(
+  value: unknown,
+  allowedValues: readonly T[]
+): value is T {
+  return typeof value === "string" && allowedValues.includes(value as T)
+}
+
+function isArtifactScope(value: unknown): value is ArtifactScope {
+  if (value === undefined) {
+    return true
+  }
   if (!isRecord(value)) {
     return false
   }
   return (
-    typeof value.type === "string" &&
-    typeof value.id === "string" &&
-    typeof value.title === "string"
+    (value.agentId === undefined || typeof value.agentId === "string") &&
+    (value.agentType === undefined || typeof value.agentType === "string") &&
+    (value.parentToolCallId === undefined ||
+      typeof value.parentToolCallId === "string")
   )
+}
+
+function isArtifact(value: unknown): value is MissionControlArtifact {
+  if (!isRecord(value)) {
+    return false
+  }
+  if (
+    typeof value.id !== "string" ||
+    typeof value.title !== "string" ||
+    !isArtifactScope(value.scope)
+  ) {
+    return false
+  }
+
+  switch (value.type) {
+    case "case":
+      return (
+        isStringInSet(value.severity, [
+          "unknown",
+          "informational",
+          "low",
+          "medium",
+          "high",
+          "critical",
+          "fatal",
+          "other",
+        ]) &&
+        isStringInSet(value.status, [
+          "unknown",
+          "new",
+          "in_progress",
+          "on_hold",
+          "resolved",
+          "closed",
+          "other",
+        ])
+      )
+    case "workflow":
+      return (
+        typeof value.color === "string" &&
+        (value.isPublished === undefined ||
+          typeof value.isPublished === "boolean")
+      )
+    case "run":
+      return (
+        typeof value.workflowId === "string" &&
+        isStringInSet(value.status, [
+          "running",
+          "success",
+          "failed",
+          "cancelled",
+        ]) &&
+        typeof value.startedAt === "string"
+      )
+    case "table":
+      return value.rowCount === undefined || typeof value.rowCount === "number"
+    case "alert":
+    case "integration":
+    case "secret":
+      return true
+    case "generic":
+      return value.data === undefined || isRecord(value.data)
+    default:
+      return false
+  }
 }
 
 function parseArtifactDataPayload(

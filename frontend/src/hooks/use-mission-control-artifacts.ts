@@ -169,6 +169,7 @@ export function useMissionControlArtifacts(
     [persistedArtifacts]
   )
   const processedMessagePartKeysRef = useRef<Set<string>>(new Set())
+  const previousEnabledRef = useRef(enabled)
   const previousFirstMessageIdRef = useRef<string | null>(
     messages[0]?.id ?? null
   )
@@ -202,6 +203,8 @@ export function useMissionControlArtifacts(
 
   useEffect(() => {
     const firstMessageId = messages[0]?.id ?? null
+    const enabledChanged = previousEnabledRef.current !== enabled
+    previousEnabledRef.current = enabled
     const firstMessageChanged =
       previousFirstMessageIdRef.current !== firstMessageId
     previousFirstMessageIdRef.current = firstMessageId
@@ -212,13 +215,15 @@ export function useMissionControlArtifacts(
 
     if (!enabled) {
       processedMessagePartKeysRef.current.clear()
-      setStreamArtifacts(new Map())
-      setActiveArtifactKey(null)
+      setStreamArtifacts((current) =>
+        current.size === 0 ? current : new Map()
+      )
+      setActiveArtifactKey((current) => (current === null ? current : null))
       return
     }
 
     const currentParts = messageStreamParts(messages)
-    if (firstMessageChanged) {
+    if (enabledChanged || firstMessageChanged) {
       processedMessagePartKeysRef.current = new Set(
         currentParts.map(({ eventKey }) => eventKey)
       )

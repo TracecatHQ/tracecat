@@ -63,6 +63,26 @@ describe("mission control artifacts", () => {
     expect(parseMissionControlStreamPart(part)).toBeUndefined()
   })
 
+  it("rejects incomplete artifact subtype payloads", () => {
+    const [part] = [
+      {
+        type: "data-artifact",
+        data: {
+          op: "upsert",
+          artifact: {
+            type: "run",
+            id: "run-1",
+            title: "Workflow run",
+            status: "success",
+            startedAt: "2026-05-29T12:00:00.000Z",
+          },
+        },
+      },
+    ] as UIMessage["parts"]
+
+    expect(parseMissionControlStreamPart(part)).toBeUndefined()
+  })
+
   it("reduces typed artifact stream parts by operation", () => {
     const messages = [
       {
@@ -177,6 +197,38 @@ describe("mission control artifacts", () => {
     const { result } = renderHook(() =>
       useMissionControlArtifacts([], { persistedArtifacts: [artifact] })
     )
+
+    expect(result.current.artifacts).toEqual([artifact])
+    expect(result.current.activeArtifactKey).toBe("case:case-1")
+  })
+
+  it("rehydrates persisted artifacts after re-enabling", () => {
+    const artifact = {
+      type: "case",
+      id: "case-1",
+      title: "Investigate suspicious login",
+      severity: "high",
+      status: "new",
+    } satisfies ArtifactDataPayload["artifact"]
+
+    const { result, rerender } = renderHook(
+      ({ enabled }: { enabled: boolean }) =>
+        useMissionControlArtifacts([], {
+          enabled,
+          persistedArtifacts: [artifact],
+        }),
+      {
+        initialProps: { enabled: true },
+      }
+    )
+
+    expect(result.current.artifacts).toEqual([artifact])
+
+    rerender({ enabled: false })
+
+    expect(result.current.artifacts).toEqual([])
+
+    rerender({ enabled: true })
 
     expect(result.current.artifacts).toEqual([artifact])
     expect(result.current.activeArtifactKey).toBe("case:case-1")
