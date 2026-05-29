@@ -7761,6 +7761,43 @@ def test_mcp_instructions_prefer_edit_workflow_for_existing_workflows() -> None:
     assert "bulk-updating the workflow definition" in mcp_server._MCP_INSTRUCTIONS
 
 
+def test_mcp_instructions_include_automation_authoring_best_practices() -> None:
+    instructions = mcp_server._MCP_INSTRUCTIONS
+
+    assert "Prefer linear, readable workflow graphs" in instructions
+    assert "Do not use `core.transform.scatter` / `core.transform.gather`" in (
+        instructions
+    )
+    assert "from tracecat_registry.core.http import http_request" in instructions
+    assert "from tracecat_registry.core.table import create_table" in instructions
+    assert "Keep `insert_rows` batches at or below 1000 rows" in instructions
+    assert "requires a unique index on that table first" in instructions
+    assert "append `?echo=true` to the webhook URL" in instructions
+
+
+def test_mcp_instructions_prefer_agent_model_object() -> None:
+    instructions = mcp_server._MCP_INSTRUCTIONS
+
+    assert "Prefer the current `model` object field for `ai.agent`" in instructions
+    assert "top-level `model_name` and `model_provider` as deprecated" in instructions
+    assert "model:\n    model_name: claude-sonnet-4-6" in instructions
+
+
+def test_dsl_reference_uses_current_agent_model_shape() -> None:
+    dsl_reference = mcp_server._DSL_REFERENCE_TEXT
+    agent_example = dsl_reference.split("### AI Agent (With Tool Calling)", 1)[1].split(
+        "### For-each Loop", 1
+    )[0]
+
+    assert "model:\n        model_name: claude-sonnet-4-6" in agent_example
+    assert "top-level `model_name` and" in agent_example
+    assert "from tracecat_registry.core.table import create_table" in dsl_reference
+    assert "insert_rows(..., upsert=True)" in dsl_reference
+    assert "model_name: claude-sonnet-4-20250514" not in agent_example
+    assert "\n      model_name:" not in agent_example
+    assert "\n      model_provider:" not in agent_example
+
+
 @pytest.mark.anyio
 async def test_collect_agent_response_returns_text(
     monkeypatch: pytest.MonkeyPatch,

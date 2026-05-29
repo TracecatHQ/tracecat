@@ -2732,6 +2732,60 @@ they want.
 `core.script.run_python` unless the user requests a specific third-party \
 integration.
 
+## Workflow authoring best practices
+- Prefer linear, readable workflow graphs when parallelism is not materially \
+useful. Avoid accidental branch joins and redundant diamond dependencies.
+- Do not use `core.transform.scatter` / `core.transform.gather` for ordinary \
+data transformation. Normalize, dedupe, join, filter, sort, batch upsert, and \
+similar work usually belongs in one `core.script.run_python` action.
+- Use bounded async concurrency inside `core.script.run_python` for bulk HTTP or \
+table operations. Keep run-python outputs intentionally small: return \
+downstream-required rows, summary counts, and bounded error samples rather than \
+full intermediate datasets.
+- Prefer the current `model` object field for `ai.agent` workflow YAML. Treat \
+top-level `model_name` and `model_provider` as deprecated unless the user \
+explicitly asks for that legacy shape:
+```yaml
+args:
+  model:
+    model_name: claude-sonnet-4-6
+    model_provider: anthropic
+```
+
+## Tracecat imports in run-python actions
+Use direct core action imports inside `core.script.run_python` when consolidating \
+table or HTTP side effects reduces graph noise:
+```python
+from tracecat_registry.core.http import http_request
+from tracecat_registry.core.table import create_table, insert_row, insert_rows, lookup, update_row
+```
+Define `async def main(...)`, `await` imported actions, pass named arguments, \
+chunk table writes, and return compact summaries/errors. Keep `insert_rows` \
+batches at or below 1000 rows.
+
+## Table guidance
+- `core.table.create_table` creates columns but does not create unique indexes.
+- Any workflow action that uses `insert_rows(..., upsert=True)` requires a unique \
+index on that table first. Use table index tooling to create the unique index \
+before relying on upsert behavior.
+- Use table actions or `tracecat_registry.core.table` imports for durable \
+workflow state; keep lookup keys as strings when identifiers may exceed integer \
+limits.
+
+## Slack bot workflow tips
+- Build Slack bots with `ai.agent` or `ai.preset_agent`, and give the agent the \
+Slack tools it needs, such as send/post message, list messages/replies, and any \
+read tools required for thread context.
+- Put the workflow webhook URL in Slack interactivity at \
+`https://api.slack.com/apps/{app_id}/interactive-messages`.
+- For @mention back-and-forth chat, configure Slack event subscriptions for app \
+mentions and append `?echo=true` to the webhook URL placed in Slack. The echo \
+flag is required for reliable mention-thread loops.
+- If you are truly stuck on Tracecat DSL behavior, Tracecat is open source at \
+https://github.com/TracecatHQ/tracecat and sample workflow files are available. \
+The Google OAuth workflow in `platform/automations/001_google_oauth/workflow.yaml` \
+is the clean reference shape for automation authoring.
+
 ## Expression syntax (used in action `args:` values)
 - `${{ TRIGGER.<field> }}` — workflow trigger input
 - `${{ ACTIONS.<ref>.result }}` — output from a completed action
@@ -3104,6 +3158,42 @@ action: tools.<integration_slug>.search
 
 ## Common Workflow Patterns
 
+### Recommended Workflow Shape
+Keep automation workflows linear and easy to review unless parallelism materially \
+improves the run. Use `core.script.run_python` for ordinary transforms such as \
+normalization, dedupe, joins, filtering, sorting, and batch table upserts. Use \
+scatter/gather only for true fan-out/fan-in work.
+
+Inside `core.script.run_python`, direct Tracecat imports are supported for \
+consolidating table or HTTP side effects:
+
+```python
+from tracecat_registry.core.http import http_request
+from tracecat_registry.core.table import create_table, insert_row, insert_rows, lookup, update_row
+
+async def main(rows):
+    await create_table(
+        name="ioc_inventory",
+        columns=[
+            {"name": "ioc", "type": "TEXT"},
+            {"name": "source", "type": "TEXT"},
+        ],
+        raise_on_duplicate=False,
+    )
+    inserted = 0
+    for start in range(0, len(rows), 1000):
+        inserted += await insert_rows(
+            table="ioc_inventory",
+            rows_data=rows[start:start + 1000],
+            upsert=True,
+        )
+    return {"inserted": inserted, "input_rows": len(rows)}
+```
+
+Keep `insert_rows` batches at or below 1000 rows. Before using \
+`insert_rows(..., upsert=True)`, create a unique index on the intended key \
+column; table creation alone does not create unique indexes.
+
 ### HTTP Request → HTTP Request
 ```yaml
 actions:
@@ -3171,14 +3261,18 @@ actions:
     action: ai.agent
     args:
       user_prompt: "Investigate this alert and recommend case next-steps."
-      model_name: claude-sonnet-4-20250514
-      model_provider: anthropic
+      model:
+        model_name: claude-sonnet-4-6
+        model_provider: anthropic
       actions:
         - core.http_request
         - core.script.run_python
       instructions: "You are a SOC analyst. Be thorough."
       max_tool_calls: 10
 ```
+Prefer the `model` object for `ai.agent`; top-level `model_name` and \
+`model_provider` are deprecated unless the user explicitly asks for that legacy \
+shape.
 
 ### For-each Loop
 ```yaml
