@@ -143,6 +143,16 @@ output "s3_workflow_bucket_arn" {
   value       = module.ecs.s3_workflow_bucket_arn
 }
 
+output "s3_agent_bucket_name" {
+  description = "The name of the S3 bucket used for agent filesystem storage"
+  value       = module.ecs.s3_agent_bucket_name
+}
+
+output "s3_agent_bucket_arn" {
+  description = "The ARN of the S3 bucket used for agent filesystem storage"
+  value       = module.ecs.s3_agent_bucket_arn
+}
+
 # =============================================================================
 # DATABASE OUTPUTS
 # =============================================================================

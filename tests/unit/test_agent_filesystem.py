@@ -9,7 +9,6 @@ import tarfile
 import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
-from types import SimpleNamespace
 from typing import Any, cast
 
 import pytest
@@ -18,6 +17,7 @@ from tracecat import config
 from tracecat.agent.filesystem import (
     AgentFilesystemService,
     AgentFilesystemSnapshotLimitExceeded,
+    AgentFilesystemSnapshotMetadata,
     compute_work_dir_state,
     create_work_dir_archive,
     extract_work_dir_archive,
@@ -30,6 +30,7 @@ def test_archive_round_trips_regular_files_and_empty_dirs(tmp_path: Path) -> Non
     work_dir = tmp_path / "work"
     work_dir.mkdir()
     (work_dir / "README.md").write_text("# Agent work\n")
+    (work_dir / "README-hardlink.md").hardlink_to(work_dir / "README.md")
     scripts_dir = work_dir / "scripts"
     scripts_dir.mkdir()
     script = scripts_dir / "run.sh"
@@ -54,11 +55,14 @@ def test_archive_round_trips_regular_files_and_empty_dirs(tmp_path: Path) -> Non
         max_file_count=10,
     )
 
-    assert stats.file_count == 2
-    assert stats.uncompressed_size_bytes == len("# Agent work\n") + len("#!/bin/sh\n")
+    assert stats.file_count == 3
+    assert stats.uncompressed_size_bytes == (
+        len("# Agent work\n") * 2 + len("#!/bin/sh\n")
+    )
     assert stats.size_bytes == archive_path.stat().st_size
     assert len(stats.sha256) == 64
     assert (restored_dir / "README.md").read_text() == "# Agent work\n"
+    assert (restored_dir / "README-hardlink.md").read_text() == "# Agent work\n"
     assert (restored_dir / "scripts" / "run.sh").read_text() == "#!/bin/sh\n"
     assert (restored_dir / "empty").is_dir()
     assert not (restored_dir / "link").exists()
@@ -77,6 +81,31 @@ def test_archive_enforces_snapshot_size_limit(tmp_path: Path) -> None:
             max_uncompressed_bytes=4,
             max_file_count=10,
         )
+
+
+def test_archive_hash_is_stable_for_same_work_dir_state(tmp_path: Path) -> None:
+    work_dir = tmp_path / "work"
+    work_dir.mkdir()
+    (work_dir / "notes.txt").write_text("durable state")
+    (work_dir / "empty").mkdir()
+
+    first_archive = tmp_path / "first.tar.gz"
+    second_archive = tmp_path / "second.tar.gz"
+    first_stats = create_work_dir_archive(
+        work_dir,
+        first_archive,
+        max_uncompressed_bytes=1024,
+        max_file_count=10,
+    )
+    second_stats = create_work_dir_archive(
+        work_dir,
+        second_archive,
+        max_uncompressed_bytes=1024,
+        max_file_count=10,
+    )
+
+    assert first_stats.sha256 == second_stats.sha256
+    assert first_archive.read_bytes() == second_archive.read_bytes()
 
 
 def test_work_dir_state_hash_is_stable_and_tracks_file_boundaries(
@@ -143,37 +172,26 @@ async def test_persist_and_hydrate_round_trip_through_blob_cache(
     work_dir.mkdir(parents=True)
     (work_dir / "notes.txt").write_text("durable state")
     uploaded: dict[tuple[str, str], bytes] = {}
-    latest_snapshot: SimpleNamespace | None = None
+    current_snapshot: AgentFilesystemSnapshotMetadata | None = None
+    expected_session_id = session_id
 
     class FakeService:
-        async def get_latest_snapshot_for_hydration(
+        async def get_current_snapshot(
             self,
             _session_id: uuid.UUID,
-        ) -> SimpleNamespace | None:
-            return latest_snapshot
+        ) -> AgentFilesystemSnapshotMetadata | None:
+            return current_snapshot
 
-        async def record_snapshot(
+        async def update_current_snapshot(
             self,
             *,
             session_id: uuid.UUID,
-            bucket: str,
-            key: str,
-            archive_stats: Any,
-            state_stats: Any,
-        ) -> SimpleNamespace:
-            nonlocal latest_snapshot
-            latest_snapshot = SimpleNamespace(
-                id=uuid.uuid4(),
-                session_id=session_id,
-                bucket=bucket,
-                key=key,
-                state_hash=state_stats.state_hash,
-                sha256=archive_stats.sha256,
-                size_bytes=archive_stats.size_bytes,
-                uncompressed_size_bytes=state_stats.uncompressed_size_bytes,
-                file_count=state_stats.file_count,
-            )
-            return latest_snapshot
+            snapshot: AgentFilesystemSnapshotMetadata,
+        ) -> AgentFilesystemSnapshotMetadata:
+            nonlocal current_snapshot
+            assert session_id == expected_session_id
+            current_snapshot = snapshot
+            return current_snapshot
 
     @asynccontextmanager
     async def fake_with_session(**_kwargs: Any):
@@ -230,13 +248,12 @@ async def test_persist_and_hydrate_round_trip_through_blob_cache(
         work_dir=work_dir,
     )
 
-    assert snapshot is latest_snapshot
-    assert latest_snapshot is not None
-    assert uploaded.keys() == {("agent-bucket", latest_snapshot.key)}
+    assert snapshot is current_snapshot
+    assert current_snapshot is not None
+    assert uploaded.keys() == {("agent-bucket", current_snapshot.key)}
 
     shutil.rmtree(work_dir)
     shutil.rmtree(tmp_path / "cache")
-    (work_dir.parent / ".agent-fs-snapshot.json").unlink()
 
     hydrated = await hydrate_agent_work_dir(
         role=cast(Any, object()),
@@ -244,7 +261,7 @@ async def test_persist_and_hydrate_round_trip_through_blob_cache(
         work_dir=work_dir,
     )
 
-    assert hydrated is latest_snapshot
+    assert hydrated is current_snapshot
     assert (work_dir / "notes.txt").read_text() == "durable state"
 
 
@@ -259,13 +276,13 @@ async def test_persist_skips_initial_empty_work_dir(
     work_dir.mkdir(parents=True)
 
     class FakeService:
-        async def get_latest_snapshot_for_hydration(
+        async def get_current_snapshot(
             self,
             _session_id: uuid.UUID,
         ) -> None:
             return None
 
-        async def record_snapshot(self, **_kwargs: Any) -> None:
+        async def update_current_snapshot(self, **_kwargs: Any) -> None:
             raise AssertionError("empty initial work dir should not record a snapshot")
 
     @asynccontextmanager
@@ -302,6 +319,81 @@ async def test_persist_skips_initial_empty_work_dir(
 
 
 @pytest.mark.anyio
+async def test_persist_records_initial_directory_only_work_dir(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    session_id = uuid.uuid4()
+    workspace_id = uuid.uuid4()
+    work_dir = tmp_path / "session" / "agent-work-dir"
+    (work_dir / "empty").mkdir(parents=True)
+    uploaded: dict[tuple[str, str], bytes] = {}
+    recorded_snapshot: AgentFilesystemSnapshotMetadata | None = None
+    expected_session_id = session_id
+
+    class FakeService:
+        async def get_current_snapshot(
+            self,
+            _session_id: uuid.UUID,
+        ) -> None:
+            return None
+
+        async def update_current_snapshot(
+            self,
+            *,
+            session_id: uuid.UUID,
+            snapshot: AgentFilesystemSnapshotMetadata,
+        ) -> AgentFilesystemSnapshotMetadata:
+            nonlocal recorded_snapshot
+            assert session_id == expected_session_id
+            recorded_snapshot = snapshot
+            return snapshot
+
+    @asynccontextmanager
+    async def fake_with_session(**_kwargs: Any):
+        yield FakeService()
+
+    async def fake_upload_file_from_path(
+        path: Path,
+        *,
+        key: str,
+        bucket: str,
+        content_type: str | None = None,
+    ) -> None:
+        assert content_type == "application/gzip"
+        uploaded[(bucket, key)] = path.read_bytes()
+
+    monkeypatch.setattr(
+        config,
+        "TRACECAT__AGENT_FS_CACHE_DIR",
+        str(tmp_path / "cache"),
+    )
+    monkeypatch.setattr(config, "TRACECAT__BLOB_STORAGE_BUCKET_AGENT", "agent-bucket")
+    monkeypatch.setattr(
+        AgentFilesystemService,
+        "with_session",
+        staticmethod(fake_with_session),
+    )
+    monkeypatch.setattr(
+        "tracecat.agent.filesystem.blob.upload_file_from_path",
+        fake_upload_file_from_path,
+    )
+
+    snapshot = await persist_agent_work_dir(
+        role=cast(Any, object()),
+        session_id=session_id,
+        workspace_id=workspace_id,
+        work_dir=work_dir,
+    )
+
+    assert snapshot is recorded_snapshot
+    assert recorded_snapshot is not None
+    assert recorded_snapshot.file_count == 0
+    assert recorded_snapshot.dir_count == 1
+    assert uploaded.keys() == {("agent-bucket", recorded_snapshot.key)}
+
+
+@pytest.mark.anyio
 async def test_persist_records_empty_work_dir_after_prior_snapshot(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -311,41 +403,38 @@ async def test_persist_records_empty_work_dir_after_prior_snapshot(
     work_dir = tmp_path / "session" / "agent-work-dir"
     work_dir.mkdir(parents=True)
     uploaded: dict[tuple[str, str], bytes] = {}
-    latest_snapshot = SimpleNamespace(
-        id=uuid.uuid4(),
+    expected_session_id = session_id
+    current_snapshot = AgentFilesystemSnapshotMetadata(
+        bucket="agent-bucket",
+        key="agent-fs/blobs/0.tar.gz",
         state_hash="0" * 64,
         sha256="0" * 64,
+        size_bytes=1,
+        uncompressed_size_bytes=1,
+        file_count=1,
+        dir_count=0,
+        archive_format="tar.gz",
+        compression="gzip",
+        created_at="2026-05-28T00:00:00+00:00",
     )
-    recorded_snapshot: SimpleNamespace | None = None
+    recorded_snapshot: AgentFilesystemSnapshotMetadata | None = None
 
     class FakeService:
-        async def get_latest_snapshot_for_hydration(
+        async def get_current_snapshot(
             self,
             _session_id: uuid.UUID,
-        ) -> SimpleNamespace:
-            return latest_snapshot
+        ) -> AgentFilesystemSnapshotMetadata:
+            return current_snapshot
 
-        async def record_snapshot(
+        async def update_current_snapshot(
             self,
             *,
             session_id: uuid.UUID,
-            bucket: str,
-            key: str,
-            archive_stats: Any,
-            state_stats: Any,
-        ) -> SimpleNamespace:
+            snapshot: AgentFilesystemSnapshotMetadata,
+        ) -> AgentFilesystemSnapshotMetadata:
             nonlocal recorded_snapshot
-            recorded_snapshot = SimpleNamespace(
-                id=uuid.uuid4(),
-                session_id=session_id,
-                bucket=bucket,
-                key=key,
-                state_hash=state_stats.state_hash,
-                sha256=archive_stats.sha256,
-                size_bytes=archive_stats.size_bytes,
-                uncompressed_size_bytes=state_stats.uncompressed_size_bytes,
-                file_count=state_stats.file_count,
-            )
+            assert session_id == expected_session_id
+            recorded_snapshot = snapshot
             return recorded_snapshot
 
     @asynccontextmanager
@@ -407,20 +496,28 @@ async def test_persist_skips_unchanged_state_without_local_marker(
         max_uncompressed_bytes=1024,
         max_file_count=10,
     )
-    latest_snapshot = SimpleNamespace(
-        id=uuid.uuid4(),
+    current_snapshot = AgentFilesystemSnapshotMetadata(
+        bucket="agent-bucket",
+        key="agent-fs/blobs/0.tar.gz",
         state_hash=state_stats.state_hash,
         sha256="0" * 64,
+        size_bytes=1,
+        uncompressed_size_bytes=state_stats.uncompressed_size_bytes,
+        file_count=state_stats.file_count,
+        dir_count=state_stats.dir_count,
+        archive_format="tar.gz",
+        compression="gzip",
+        created_at="2026-05-28T00:00:00+00:00",
     )
 
     class FakeService:
-        async def get_latest_snapshot_for_hydration(
+        async def get_current_snapshot(
             self,
             _session_id: uuid.UUID,
-        ) -> SimpleNamespace:
-            return latest_snapshot
+        ) -> AgentFilesystemSnapshotMetadata:
+            return current_snapshot
 
-        async def record_snapshot(self, **_kwargs: Any) -> None:
+        async def update_current_snapshot(self, **_kwargs: Any) -> None:
             raise AssertionError("unchanged state should not record a snapshot")
 
     @asynccontextmanager

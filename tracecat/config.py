@@ -474,13 +474,9 @@ TRACECAT__BLOB_STORAGE_BUCKET_WORKFLOW = os.environ.get(
 """Bucket for externalized workflow data (action results, triggers, etc.)."""
 
 TRACECAT__BLOB_STORAGE_BUCKET_AGENT = os.environ.get(
-    "TRACECAT__BLOB_STORAGE_BUCKET_AGENT", TRACECAT__BLOB_STORAGE_BUCKET_WORKFLOW
+    "TRACECAT__BLOB_STORAGE_BUCKET_AGENT", "tracecat-agent"
 )
-"""Bucket for durable agent filesystem snapshots.
-
-Defaults to the workflow bucket so existing deployments do not need a new bucket
-until the feature is explicitly pointed at one.
-"""
+"""Bucket for durable agent filesystem snapshots."""
 
 TRACECAT__WORKFLOW_ARTIFACT_RETENTION_DAYS = int(
     os.environ.get("TRACECAT__WORKFLOW_ARTIFACT_RETENTION_DAYS") or 30

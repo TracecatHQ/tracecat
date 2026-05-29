@@ -14,6 +14,10 @@ resource "random_id" "workflow_bucket_suffix" {
   byte_length = 4
 }
 
+resource "random_id" "agent_bucket_suffix" {
+  byte_length = 4
+}
+
 # S3 bucket for Tracecat case attachments
 resource "aws_s3_bucket" "attachments" {
   bucket = "${var.name_prefix}-attachments-${var.tracecat_app_env}-${random_id.attachments_bucket_suffix.hex}"
@@ -459,6 +463,90 @@ resource "aws_s3_bucket_policy" "workflow" {
         Resource = [
           aws_s3_bucket.workflow.arn,
           "${aws_s3_bucket.workflow.arn}/*"
+        ]
+        Condition = {
+          Bool = {
+            "aws:SecureTransport" = "false"
+          }
+        }
+      }
+    ]
+  })
+}
+
+# S3 bucket for durable agent filesystem snapshots
+resource "aws_s3_bucket" "agent" {
+  bucket = "${var.name_prefix}-agent-${var.tracecat_app_env}-${random_id.agent_bucket_suffix.hex}"
+
+  tags = {
+    Name        = "Tracecat agent filesystem storage"
+    Environment = var.tracecat_app_env
+    Service     = "tracecat"
+    Purpose     = "agent"
+    ManagedBy   = "terraform"
+  }
+}
+
+resource "aws_s3_bucket_public_access_block" "agent" {
+  bucket = aws_s3_bucket.agent.id
+
+  block_public_acls       = true
+  block_public_policy     = true
+  ignore_public_acls      = true
+  restrict_public_buckets = true
+}
+
+resource "aws_s3_bucket_versioning" "agent" {
+  bucket = aws_s3_bucket.agent.id
+  versioning_configuration {
+    status = "Enabled"
+  }
+}
+
+resource "aws_s3_bucket_server_side_encryption_configuration" "agent" {
+  bucket = aws_s3_bucket.agent.id
+
+  rule {
+    apply_server_side_encryption_by_default {
+      sse_algorithm = "AES256"
+    }
+    bucket_key_enabled = true
+  }
+}
+
+resource "aws_s3_bucket_policy" "agent" {
+  bucket = aws_s3_bucket.agent.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid    = "AllowECSTaskAccess"
+        Effect = "Allow"
+        Principal = {
+          AWS = [aws_iam_role.api_worker_task.arn, aws_iam_role.executor_task.arn]
+        }
+        Action = [
+          "s3:GetObject",
+          "s3:PutObject",
+          "s3:DeleteObject",
+          "s3:ListBucket"
+        ]
+        Resource = [
+          "${aws_s3_bucket.agent.arn}/*",
+          aws_s3_bucket.agent.arn
+        ]
+      },
+      {
+        Sid    = "DenyInsecureConnections"
+        Effect = "Deny"
+        Principal = {
+          AWS = [aws_iam_role.api_worker_task.arn, aws_iam_role.executor_task.arn]
+        }
+        Action = "s3:*"
+        Resource = [
+          aws_s3_bucket.agent.arn,
+          "${aws_s3_bucket.agent.arn}/*"
         ]
         Condition = {
           Bool = {

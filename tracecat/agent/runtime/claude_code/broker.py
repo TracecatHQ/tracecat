@@ -35,7 +35,6 @@ class ClaudeTurnRequest:
     enable_internet_access: bool
     skills_dir: Path | None = None
     hydrate_work_dir: Callable[[Path], Awaitable[None]] | None = None
-    persist_work_dir: Callable[[Path], Awaitable[None]] | None = None
 
 
 class ClaudeRuntimeBroker:
@@ -108,8 +107,6 @@ class ClaudeRuntimeBroker:
                 cwd_setup_path=path_mapping.host_work_dir,
             )
             await runtime.run(request.init_payload)
-            if request.persist_work_dir is not None and handler.build_result().success:
-                await request.persist_work_dir(path_mapping.host_work_dir)
         finally:
             async with self._lock:
                 self._active_turns.pop(session_key, None)

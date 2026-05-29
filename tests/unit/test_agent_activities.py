@@ -11,6 +11,7 @@ import asyncio
 import shutil
 import uuid
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -1169,11 +1170,9 @@ class TestSandboxedAgentExecutorFilesystemPersistence:
         class FakeBroker:
             async def run_turn(self, request: Any, handler: Any) -> None:
                 assert request.hydrate_work_dir is not None
-                assert request.persist_work_dir is not None
                 await request.hydrate_work_dir(work_dir)
                 events.append("broker")
                 handler._result = LoopbackResult(success=True)
-                await request.persist_work_dir(work_dir)
 
             async def cancel_turn(self, _session_id: str) -> None:
                 raise AssertionError("cancel_turn should not be called")
@@ -1207,6 +1206,10 @@ class TestSandboxedAgentExecutorFilesystemPersistence:
             lambda: FakeBroker(),
         )
         monkeypatch.setattr(
+            "tracecat.agent.executor.activity.build_agent_sandbox_path_mapping",
+            lambda **_kwargs: SimpleNamespace(host_work_dir=work_dir),
+        )
+        monkeypatch.setattr(
             "tracecat.agent.executor.activity.hydrate_agent_work_dir",
             fake_hydrate_agent_work_dir,
         )
@@ -1219,6 +1222,43 @@ class TestSandboxedAgentExecutorFilesystemPersistence:
 
         assert result.success is True
         assert events == ["hydrate", "broker", "snapshot"]
+
+    @pytest.mark.anyio
+    async def test_hydrate_failure_falls_back_to_empty_work_dir(
+        self,
+        mock_role: Role,
+        mock_session_id: uuid.UUID,
+        mock_agent_config: AgentConfig,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        executor = SandboxedAgentExecutor(
+            input=AgentExecutorInput(
+                session_id=mock_session_id,
+                workspace_id=mock_role.workspace_id or uuid.uuid4(),
+                user_prompt="Test prompt",
+                config=mock_agent_config,
+                role=mock_role,
+                mcp_auth_token="mock-jwt-token",
+                llm_gateway_auth_token="mock-llm-token",
+            )
+        )
+        work_dir = tmp_path / "work"
+        work_dir.mkdir()
+        (work_dir / "stale.txt").write_text("stale")
+
+        async def fail_hydrate_agent_work_dir(**_kwargs: Any) -> None:
+            raise RuntimeError("snapshot missing")
+
+        monkeypatch.setattr(
+            "tracecat.agent.executor.activity.hydrate_agent_work_dir",
+            fail_hydrate_agent_work_dir,
+        )
+
+        await executor._hydrate_agent_filesystem(work_dir)
+
+        assert work_dir.is_dir()
+        assert list(work_dir.iterdir()) == []
 
 
 class TestSandboxedAgentExecutorSkillCaching:

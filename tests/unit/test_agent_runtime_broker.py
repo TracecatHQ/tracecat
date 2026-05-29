@@ -163,7 +163,7 @@ async def test_broker_rechecks_closed_state_after_waiting_for_lock(
 
 
 @pytest.mark.anyio
-async def test_broker_runs_work_dir_callbacks_while_session_is_active(
+async def test_broker_hydrates_work_dir_while_session_is_active(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -178,9 +178,6 @@ async def test_broker_runs_work_dir_callbacks_while_session_is_active(
 
     async def hydrate_work_dir(_work_dir: Path) -> None:
         events.append(("hydrate", session_key in broker._active_turns))
-
-    async def persist_work_dir(_work_dir: Path) -> None:
-        events.append(("persist", session_key in broker._active_turns))
 
     monkeypatch.setattr(broker_module, "ClaudeAgentRuntime", FakeRuntime)
     monkeypatch.setattr(
@@ -197,7 +194,6 @@ async def test_broker_runs_work_dir_callbacks_while_session_is_active(
         llm_socket_path=request.llm_socket_path,
         enable_internet_access=request.enable_internet_access,
         hydrate_work_dir=hydrate_work_dir,
-        persist_work_dir=persist_work_dir,
     )
     session_key = str(request.init_payload.session_id)
     handler = cast(
@@ -214,7 +210,6 @@ async def test_broker_runs_work_dir_callbacks_while_session_is_active(
     assert events == [
         ("hydrate", True),
         ("runtime", True),
-        ("persist", True),
     ]
 
 

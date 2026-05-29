@@ -16,7 +16,6 @@ from pydantic import GetCoreSchemaHandler
 from pydantic_core import CoreSchema, core_schema, to_json
 from sqlalchemy import (
     TIMESTAMP,
-    BigInteger,
     Boolean,
     CheckConstraint,
     Enum,
@@ -2851,6 +2850,15 @@ class AgentSession(WorkspaceModel):
         nullable=True,
         doc="Last processed Redis stream ID - used to resume streaming from correct position",
     )
+    work_dir_snapshot: Mapped[dict[str, Any] | None] = mapped_column(
+        JSONB,
+        nullable=True,
+        doc=(
+            "Current durable agent work-dir snapshot pointer. Stores blob bucket/key, "
+            "archive hash, state hash, sizes, and entry counts for hydrating the "
+            "latest filesystem state."
+        ),
+    )
     # Parent session for forked sessions (approval continuations)
     parent_session_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID,
@@ -2912,91 +2920,6 @@ class AgentSessionHistory(WorkspaceModel):
     session: Mapped[AgentSession] = relationship(
         "AgentSession",
         back_populates="history",
-    )
-
-
-class AgentSessionFilesystemSnapshot(WorkspaceModel):
-    """Durable archive metadata for an agent session work dir snapshot.
-
-    Each row points to one compressed work-dir archive in blob storage. The
-    executor hydrates the newest snapshot for a session before a turn and writes
-    a new row only after a successful turn that changes the logical filesystem
-    state. Parent-session fallback lives in the filesystem service; this model
-    remains the workspace-scoped snapshot ledger.
-    """
-
-    __tablename__ = "agent_session_fs_snapshot"
-    __table_args__ = (
-        Index(
-            "ix_agent_session_fs_snapshot_session_created",
-            "session_id",
-            "created_at",
-            "surrogate_id",
-        ),
-    )
-
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID,
-        default=uuid.uuid4,
-        nullable=False,
-        unique=True,
-        index=True,
-        doc="Stable external snapshot identifier.",
-    )
-    session_id: Mapped[uuid.UUID] = mapped_column(
-        UUID,
-        ForeignKey("agent_session.id", ondelete="CASCADE"),
-        nullable=False,
-        index=True,
-        doc="Agent session whose work directory produced this snapshot.",
-    )
-    bucket: Mapped[str] = mapped_column(
-        String(255),
-        nullable=False,
-        doc="Blob storage bucket containing the compressed archive.",
-    )
-    key: Mapped[str] = mapped_column(
-        String(1024),
-        nullable=False,
-        doc="Blob storage key for the compressed archive.",
-    )
-    state_hash: Mapped[str] = mapped_column(
-        String(64),
-        nullable=False,
-        doc="BLAKE2b-256 digest of the canonical work-dir state used to skip unchanged snapshots.",
-    )
-    sha256: Mapped[str] = mapped_column(
-        String(64),
-        nullable=False,
-        index=True,
-        doc="SHA-256 digest of the compressed archive used for cache identity and integrity checks.",
-    )
-    size_bytes: Mapped[int] = mapped_column(
-        BigInteger,
-        nullable=False,
-        doc="Compressed archive size in bytes.",
-    )
-    uncompressed_size_bytes: Mapped[int] = mapped_column(
-        BigInteger,
-        nullable=False,
-        doc="Total size in bytes of regular files captured before compression.",
-    )
-    file_count: Mapped[int] = mapped_column(
-        Integer,
-        nullable=False,
-        doc="Number of regular files captured in the archive.",
-    )
-    archive_format: Mapped[str] = mapped_column(
-        String(32),
-        nullable=False,
-        default="tar.gz",
-        doc="Archive format for the stored work-dir snapshot.",
-    )
-    compression: Mapped[str] = mapped_column(
-        String(32),
-        nullable=False,
-        default="gzip",
-        doc="Compression algorithm used by the archive.",
     )
 
 

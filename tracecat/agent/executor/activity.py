@@ -44,6 +44,7 @@ from tracecat.agent.runtime.claude_code.broker import (
     ClaudeTurnRequest,
     ConcurrentSessionTurnError,
 )
+from tracecat.agent.runtime.session_paths import build_agent_sandbox_path_mapping
 from tracecat.agent.runtime_services import get_claude_runtime_broker
 from tracecat.agent.sandbox.llm_proxy import (
     LLM_SOCKET_NAME,
@@ -392,11 +393,21 @@ class SandboxedAgentExecutor:
     async def _hydrate_agent_filesystem(self, work_dir: Path) -> None:
         """Hydrate the persistent agent work dir before runtime startup."""
         self._log_benchmark_phase("agent_fs_hydrate_start")
-        await hydrate_agent_work_dir(
-            role=self.input.role,
-            session_id=self.input.session_id,
-            work_dir=work_dir,
-        )
+        try:
+            await hydrate_agent_work_dir(
+                role=self.input.role,
+                session_id=self.input.session_id,
+                work_dir=work_dir,
+            )
+        except Exception as e:
+            logger.warning(
+                "Failed to hydrate agent filesystem snapshot; using empty work dir",
+                session_id=str(self.input.session_id),
+                workspace_id=str(self.input.workspace_id),
+                error=str(e),
+            )
+            shutil.rmtree(work_dir, ignore_errors=True)
+            work_dir.mkdir(parents=True, exist_ok=True)
         self._log_benchmark_phase("agent_fs_hydrate_complete")
 
     async def _persist_agent_filesystem(self, work_dir: Path) -> None:
@@ -472,9 +483,6 @@ class SandboxedAgentExecutor:
             hydrate_work_dir=self._hydrate_agent_filesystem
             if _agent_fs_persistence_enabled()
             else None,
-            persist_work_dir=self._persist_agent_filesystem
-            if _agent_fs_persistence_enabled()
-            else None,
         )
         broker_task = asyncio.create_task(broker.run_turn(request, handler))
         self._log_benchmark_phase("broker_turn_dispatched")
@@ -518,6 +526,12 @@ class SandboxedAgentExecutor:
                     success=result.success,
                     approval_requested=result.approval_requested,
                 )
+                if _agent_fs_persistence_enabled() and result.success:
+                    path_mapping = build_agent_sandbox_path_mapping(
+                        session_id=str(self.input.session_id),
+                        disable_nsjail=TRACECAT__DISABLE_NSJAIL,
+                    )
+                    await self._persist_agent_filesystem(path_mapping.host_work_dir)
                 break
             else:
                 result.error = (

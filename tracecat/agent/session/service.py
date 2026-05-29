@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import contextlib
+import copy
 import hashlib
 import uuid
 from collections.abc import AsyncIterator, Sequence
@@ -2003,6 +2004,7 @@ class AgentSessionService(BaseWorkspaceService):
             channel_context=parent.channel_context,
             tools=[],
             agent_preset_id=None,
+            work_dir_snapshot=copy.deepcopy(parent.work_dir_snapshot),
             # Harness - inherit from parent
             harness_type=parent.harness_type,
             # Fork reference
