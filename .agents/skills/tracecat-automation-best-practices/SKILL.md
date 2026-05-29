@@ -25,6 +25,7 @@ When stuck on DSL behavior, Tracecat is open source at https://github.com/Tracec
 - Use workflow folders to group related parent workflows, subflows, and support utilities.
 - Do not use `core.transform.scatter` / `core.transform.gather` for ordinary data transforms. Normalize, dedupe, join, filter, sort, and batch upsert inside `core.script.run_python`.
 - Prefer agents or agent presets for judgment, summarization, investigation, and tool-using decisions. If the task is just one deterministic API call, use `core.http_request` instead of an agent.
+- Do not give `core.http_request` to an agent unless the user explicitly accepts the risk. It effectively gives the agent unbounded curl-like access. Put deterministic HTTP calls in the workflow graph or a tightly scoped subflow instead.
 - Use HTTP pagination actions for paginated APIs. For transforms, especially nested loops, joins, grouping, dedupe, or large collection shaping, use `core.script.run_python` instead of expression chains.
 - Keep run-python outputs small: downstream rows, summary counts, and bounded error samples.
 - Prefer agent presets when an appropriate preset already exists. Use inline `ai.agent` only when the behavior is tightly coupled to one workflow and the prompt should travel with that workflow.
