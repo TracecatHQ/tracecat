@@ -32,6 +32,7 @@ from tracecat.agent.executor.activity import (
     AgentExecutorInput,
     AgentExecutorResult,
     SandboxedAgentExecutor,
+    _cancel_task_with_timeout,
     _hydrate_sdk_session_history,
     run_agent_activity,
 )
@@ -1093,6 +1094,29 @@ class TestSandboxedAgentExecutorHelpers:
         assert result.success is False
         assert result.error == "runtime failed"
         assert result.terminal_stream_error_emitted is True
+
+    @pytest.mark.anyio
+    async def test_cancel_task_with_timeout_does_not_wait_forever(self) -> None:
+        release = asyncio.Event()
+
+        async def stubborn_task() -> None:
+            try:
+                await asyncio.Future()
+            except asyncio.CancelledError:
+                await release.wait()
+
+        task = asyncio.create_task(stubborn_task())
+        await asyncio.sleep(0)
+
+        await _cancel_task_with_timeout(
+            task,
+            task_name="stubborn_task",
+            timeout_seconds=0.01,
+        )
+
+        assert not task.done()
+        release.set()
+        await task
 
     @pytest.mark.anyio
     @patch("tracecat.agent.executor.activity.AgentSessionService.with_session")

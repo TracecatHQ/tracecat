@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import shutil
 import tempfile
 import uuid
@@ -71,6 +70,8 @@ from .schemas import (
     DeniedToolCall,
     ToolExecutionResult,
 )
+
+BROKER_TASK_CANCEL_TIMEOUT_SECONDS = 5.0
 
 
 class AgentExecutorInput(BaseModel):
@@ -156,6 +157,38 @@ class ExecuteApprovedToolsResult(BaseModel):
 def _agent_fs_persistence_enabled() -> bool:
     """Return whether durable agent work-dir snapshots should run."""
     return is_feature_enabled(FeatureFlag.AGENT_FS_PERSISTENCE)
+
+
+async def _cancel_task_with_timeout(
+    task: asyncio.Task[Any] | None,
+    *,
+    task_name: str,
+    timeout_seconds: float = BROKER_TASK_CANCEL_TIMEOUT_SECONDS,
+) -> None:
+    """Cancel an asyncio task without allowing cleanup to hang this activity."""
+    if task is None or task.done():
+        return
+    task.cancel()
+    done, pending = await asyncio.wait({task}, timeout=timeout_seconds)
+    if pending:
+        logger.warning(
+            "Timed out waiting for cancelled task",
+            task_name=task_name,
+            timeout_seconds=timeout_seconds,
+        )
+        return
+    [completed_task] = done
+    try:
+        await completed_task
+    except asyncio.CancelledError:
+        pass
+    except Exception as e:
+        logger.debug(
+            "Cancelled task finished with error",
+            task_name=task_name,
+            error=str(e),
+            error_type=type(e).__name__,
+        )
 
 
 @dataclass
@@ -522,13 +555,15 @@ class SandboxedAgentExecutor:
                     if fatal_error_task in done:
                         error_msg = fatal_error_task.result()
                         result.error = error_msg
-                        await broker.cancel_turn(str(self.input.session_id))
-                        broker_task.cancel()
-                        with contextlib.suppress(asyncio.CancelledError):
-                            await broker_task
                         result.terminal_stream_error_emitted = (
                             await handler.emit_terminal_error(error_msg)
                         )
+                        await broker.cancel_turn(str(self.input.session_id))
+                        await _cancel_task_with_timeout(
+                            broker_task,
+                            task_name="broker_task",
+                        )
+                        broker_task = None
                         break
 
                     await broker_task
@@ -558,13 +593,15 @@ class SandboxedAgentExecutor:
                     result.error = (
                         f"Agent execution timed out after {self.timeout_seconds}s"
                     )
-                    await broker.cancel_turn(str(self.input.session_id))
-                    broker_task.cancel()
-                    with contextlib.suppress(asyncio.CancelledError):
-                        await broker_task
                     result.terminal_stream_error_emitted = (
                         await handler.emit_terminal_error(result.error)
                     )
+                    await broker.cancel_turn(str(self.input.session_id))
+                    await _cancel_task_with_timeout(
+                        broker_task,
+                        task_name="broker_task",
+                    )
+                    broker_task = None
         except Exception as e:
             result.error = str(e)
             result.terminal_stream_error_emitted = await handler.emit_terminal_error(
@@ -577,10 +614,7 @@ class SandboxedAgentExecutor:
             raise
         finally:
             for task in (fatal_error_task, broker_task):
-                if task is not None and not task.done():
-                    task.cancel()
-                    with contextlib.suppress(asyncio.CancelledError):
-                        await task
+                await _cancel_task_with_timeout(task, task_name="agent_executor_task")
 
     async def _create_job_directory(self) -> Path:
         """Create a temporary job directory with socket subdirectory."""
