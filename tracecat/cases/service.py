@@ -16,6 +16,7 @@ from sqlalchemy.orm import selectinload
 from sqlalchemy.orm.attributes import flag_modified
 from sqlalchemy.sql.elements import ColumnElement
 
+from tracecat import config
 from tracecat.audit.enums import AuditEventStatus
 from tracecat.audit.logger import audit_log
 from tracecat.audit.service import AuditService
@@ -30,6 +31,9 @@ from tracecat.cases.dropdowns.schemas import (
 from tracecat.cases.dropdowns.service import CaseDropdownValuesService
 from tracecat.cases.durations.schemas import CaseDurationRead
 from tracecat.cases.durations.service import CaseDurationService
+from tracecat.cases.durations.sync_queue import (
+    enqueue_case_duration_sync_after_commit,
+)
 from tracecat.cases.enums import (
     CaseEventType,
     CasePriority,
@@ -869,6 +873,7 @@ class CasesService(BaseWorkspaceService):
             await self.events.create_event(
                 case=case,
                 event=CreatedEvent(wf_exec_id=run_ctx.wf_exec_id if run_ctx else None),
+                duration_sync="inline",
             )
 
             if params.dropdown_values is not None:
@@ -2364,6 +2369,7 @@ class CaseEventsService(BaseWorkspaceService):
         event: CaseEventVariant,
         *,
         publish_case_trigger: bool = True,
+        duration_sync: Literal["async", "inline", "none"] = "async",
     ) -> CaseEvent:
         """Create a new activity record for a case with variant-specific data.
 
@@ -2371,8 +2377,8 @@ class CaseEventsService(BaseWorkspaceService):
         wrapping operations in a transaction and committing once at the end
         to preserve atomicity across multi-step updates.
 
-        Duration sync is performed automatically after each event is created,
-        so callers do not need to call sync_case_durations separately.
+        Duration sync is queued after commit by default. Callers that need
+        immediate materialization can request inline sync.
         """
 
         db_event = CaseEvent(
@@ -2407,9 +2413,21 @@ class CaseEventsService(BaseWorkspaceService):
 
             add_after_commit_callback(self.session, _publish_case_event)
 
-        # Auto-sync durations whenever an event is created
-        durations_service = CaseDurationService(session=self.session, role=self.role)
-        await durations_service.sync_case_durations(case)
+        if duration_sync == "inline" or (
+            duration_sync == "async" and not config.TRACECAT__CASE_DURATION_SYNC_ENABLED
+        ):
+            durations_service = CaseDurationService(
+                session=self.session, role=self.role
+            )
+            await durations_service.sync_case_durations(case)
+        elif duration_sync == "async":
+            enqueue_case_duration_sync_after_commit(
+                self.session,
+                workspace_id=case.workspace_id,
+                case_id=case.id,
+                event_type=event_type,
+                reason="case_event",
+            )
 
         return db_event
 
@@ -2446,7 +2464,11 @@ class CaseEventsService(BaseWorkspaceService):
                 if now_utc - last_created_at < dedupe_window:
                     return None
 
-        return await self.create_event(case=case, event=CaseViewedEvent())
+        return await self.create_event(
+            case=case,
+            event=CaseViewedEvent(),
+            duration_sync="none",
+        )
 
 
 class CaseTasksService(BaseWorkspaceService):
