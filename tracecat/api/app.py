@@ -121,7 +121,7 @@ from tracecat.deduplicate.internal_router import (
 )
 from tracecat.editor.router import router as editor_router
 from tracecat.exceptions import EntitlementRequired, ScopeDeniedError, TracecatException
-from tracecat.feature_flags import FlagLike, is_feature_enabled
+from tracecat.feature_flags import FeatureFlag, FlagLike, is_feature_enabled
 from tracecat.feature_flags.router import router as feature_flags_router
 from tracecat.inbox.router import router as inbox_router
 from tracecat.integrations.router import (
@@ -209,7 +209,8 @@ async def lifespan(app: FastAPI):
     await ensure_bucket_exists(config.TRACECAT__BLOB_STORAGE_BUCKET_ATTACHMENTS)
     await ensure_bucket_exists(config.TRACECAT__BLOB_STORAGE_BUCKET_REGISTRY)
     await ensure_bucket_exists(config.TRACECAT__BLOB_STORAGE_BUCKET_SKILLS)
-    await ensure_bucket_exists(config.TRACECAT__BLOB_STORAGE_BUCKET_AGENT)
+    if is_feature_enabled(FeatureFlag.AGENT_FS_PERSISTENCE):
+        await ensure_bucket_exists(config.TRACECAT__BLOB_STORAGE_BUCKET_AGENT)
 
     # Workflow bucket with lifecycle expiration
     await ensure_bucket_exists(config.TRACECAT__BLOB_STORAGE_BUCKET_WORKFLOW)

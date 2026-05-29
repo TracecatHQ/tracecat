@@ -538,12 +538,10 @@ resource "aws_s3_bucket_policy" "agent" {
         ]
       },
       {
-        Sid    = "DenyInsecureConnections"
-        Effect = "Deny"
-        Principal = {
-          AWS = [aws_iam_role.api_worker_task.arn, aws_iam_role.executor_task.arn]
-        }
-        Action = "s3:*"
+        Sid       = "DenyInsecureConnections"
+        Effect    = "Deny"
+        Principal = "*"
+        Action    = "s3:*"
         Resource = [
           aws_s3_bucket.agent.arn,
           "${aws_s3_bucket.agent.arn}/*"
