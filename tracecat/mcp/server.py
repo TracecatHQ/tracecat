@@ -2814,6 +2814,13 @@ bulk-updating the workflow definition from inline YAML
 them and create the smallest RFC 6902 patch that changes the intended fields.
 Call `get_workflow` only when the latest draft is missing, stale, or a revision
 conflict says the draft changed.
+- Patch paths are rooted at `draft_document`, so action edits use
+`/definition/actions/N/...`, not `/actions/N/...`.
+- `patch_ops` are applied sequentially. Do not parallelize `edit_workflow` calls
+against the same draft; every successful write returns a new `draft_revision`.
+Use that revision, or refetch with `get_workflow`, before the next patch.
+- RFC 6902 array rules apply: `/-` appends, and indexes shift after
+`add`, `remove`, and `move`.
 - Use `update_workflow` without `definition_yaml` for metadata-only updates.
 - Use inline YAML on `create_workflow` and `update_workflow` only when creating a
 workflow from YAML or intentionally replacing/bulk-updating the definition.
@@ -2822,6 +2829,174 @@ Inline YAML payloads are supported up to the configured MCP input limit.
 when the workflow fits within that limit; otherwise it returns
 `definition_transport: "too_large"`. Use `draft_document` and `draft_revision`
 with `edit_workflow` for targeted edits.
+
+### Sequential JSON Patch cookbook
+Use `get_workflow` -> `edit_workflow(validate_only=true)` ->
+`edit_workflow(validate_only=false)` for nontrivial draft edits:
+```json
+{
+  "base_revision": "<draft_revision from get_workflow>",
+  "validate_only": true,
+  "patch_ops": [
+    {
+      "op": "replace",
+      "path": "/definition/actions/2/args/script",
+      "value": "def main(): return {'ok': True}"
+    },
+    {
+      "op": "add",
+      "path": "/definition/actions/-",
+      "value": {
+        "ref": "notify_owner",
+        "action": "core.noop",
+        "depends_on": ["parse_event"],
+        "args": {}
+      }
+    },
+    {
+      "op": "add",
+      "path": "/layout/actions/-",
+      "value": {"ref": "notify_owner", "x": 600, "y": 120}
+    }
+  ]
+}
+```
+If validation succeeds, repeat the same patch with `validate_only: false` and
+the same `base_revision`. For another patch afterward, use the returned
+`draft_revision` as the new `base_revision`, or call `get_workflow` again.
+
+When renaming an action ref, patch the action `ref`, every dependent
+`depends_on` entry, and the matching layout action `ref` in the same call:
+```json
+{
+  "patch_ops": [
+    {
+      "op": "replace",
+      "path": "/definition/actions/1/ref",
+      "value": "parse_event"
+    },
+    {
+      "op": "replace",
+      "path": "/definition/actions/2/depends_on/0",
+      "value": "parse_event"
+    },
+    {
+      "op": "replace",
+      "path": "/layout/actions/1/ref",
+      "value": "parse_event"
+    }
+  ]
+}
+```
+
+### Complete workflow YAML cookbook
+When passing inline `definition_yaml`, put workflow fields under top-level
+`definition:`. Action examples below are fragments unless wrapped under
+`definition.actions`. Declare trigger inputs in `entrypoint.expects` before
+referencing them as `TRIGGER.*`. Quote YAML scalars that contain expressions and
+inner quotes with single quotes.
+```yaml
+definition:
+  title: Event summary
+  description: Summarize trigger events.
+  entrypoint:
+    ref: summarize_events
+    expects:
+      events_json:
+        type: str
+        default: "[]"
+        description: JSON array of event objects.
+      owner:
+        type: str
+        default: unassigned
+  actions:
+    - ref: summarize_events
+      action: core.script.run_python
+      args:
+        inputs:
+          events_json: '${{ TRIGGER.events_json }}'
+          owner: '${{ TRIGGER.owner || "unassigned" }}'
+        timeout_seconds: 60
+        allow_network: false
+        script: |
+          import json
+
+          def main(events_json, owner):
+              events = json.loads(events_json or "[]")
+              return {
+                  "event_count": len(events),
+                  "owner": owner or "unassigned",
+              }
+  returns: '${{ ACTIONS.summarize_events.result }}'
+```
+
+### Core action snippets
+`core.script.run_python` supports bounded inputs, timeouts, optional network
+access, and direct core action imports. Avoid list literal fallbacks such as
+an empty-list fallback in expressions; use `entrypoint.expects` defaults or
+handle defaults in Python.
+```yaml
+- ref: enrich_rows
+  action: core.script.run_python
+  args:
+    inputs:
+      rows_json: '${{ ACTIONS.fetch_rows.result.rows_json }}'
+    timeout_seconds: 120
+    allow_network: true
+    script: |
+      import json
+      from tracecat_registry.core.http import http_request
+      from tracecat_registry.core.table import insert_rows, lookup
+
+      def main(rows_json):
+          rows = json.loads(rows_json or "[]")
+          return {"count": len(rows), "rows": rows[:100]}
+```
+
+Use `core.http_request` for single requests with headers, query params, JSON
+payloads, and inline encoding:
+```yaml
+- ref: submit_review
+  action: core.http_request
+  args:
+    method: POST
+    url: 'https://api.example.com/users/${{ FN.url_encode(TRIGGER.user_id) }}'
+    headers:
+      Authorization: Bearer ${{ SECRETS.example.API_TOKEN }}
+      Accept: application/json
+    params:
+      include: profile,groups
+    payload:
+      reason: '${{ TRIGGER.reason || "manual_review" }}'
+      owner: '${{ TRIGGER.owner || "unassigned" }}'
+```
+
+Use `core.http_paginate` when an API returns a repeated item path and a next
+cursor or URL. Check `get_workflow_authoring_context` for the current schema;
+`stop_condition` and `next_request` are Python lambda strings.
+```yaml
+- ref: list_events
+  action: core.http_paginate
+  args:
+    method: GET
+    url: https://api.example.com/events
+    headers:
+      Authorization: Bearer ${{ SECRETS.example.API_TOKEN }}
+    params:
+      since: '${{ FN.to_isoformat(FN.now() - FN.hours(24)) }}'
+    items_jsonpath: $.data[*]
+    stop_condition: "lambda response: response['data'].get('next_cursor') is None"
+    next_request: "lambda response: {'url': 'https://api.example.com/events', 'method': 'GET', 'params': {'cursor': response['data'].get('next_cursor')}}"
+```
+
+Common inline expression patterns:
+```yaml
+args:
+  display_name: '${{ TRIGGER.name || "unknown" }}'
+  summary: '${{ FN.concat("Found ", FN.length(ACTIONS.list_events.result.items), " events") }}'
+  joined_ids: '${{ FN.join(ACTIONS.normalize.result.ids, ",") }}'
+  since: '${{ FN.to_isoformat(FN.now() - FN.hours(4)) }}'
+```
 
 ## Template and CSV file tools
 - {_TEMPLATE_FILE_WARNING}

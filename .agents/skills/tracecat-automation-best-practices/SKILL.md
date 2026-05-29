@@ -19,9 +19,9 @@ When stuck on DSL behavior, Tracecat is open source at https://github.com/Tracec
 
 ## Authoring Defaults
 
-- Prefer linear, readable workflow graphs when parallelism is not materially useful.
-- Keep a workflow to roughly 20 nodes or fewer. If it grows beyond that, split it into named subflows with clear inputs and outputs.
-- Keep agentic workflows to roughly 6 nodes or fewer. The graph should set context, call the agent or preset, and handle the result; move surrounding collection work into subflows or scripts.
+- Prefer linear, readable workflow graphs by default. Visual ease and fewer branches are usually more valuable than maximum parallelism.
+- Keep a workflow to roughly 20 nodes or fewer. First try to simplify or consolidate with `core.script.run_python` or an agent/preset; split into named subflows only when the remaining work is a real orchestration boundary with clear inputs and outputs.
+- Keep agentic workflows to roughly 6 nodes or fewer. The graph should set context, call the agent or preset, and handle the result; move deterministic collection, joins, filtering, and batching into scripts unless subflows are clearly needed.
 - Use workflow folders to group related parent workflows, subflows, and support utilities.
 - Do not use `core.transform.scatter` / `core.transform.gather` for ordinary data transforms. Normalize, dedupe, join, filter, sort, and batch upsert inside `core.script.run_python`.
 - Prefer agents or agent presets for judgment, summarization, investigation, and tool-using decisions. If the task is just one deterministic API call, use `core.http_request` instead of an agent.
@@ -42,11 +42,13 @@ Use `ai.preset_agent` when a reusable agent should be maintained separately from
 
 ## Workflow Architecture
 
-- Break large automations into a small orchestrator workflow plus focused subflows. The parent should route, checkpoint, and call subflows; subflows should do one coherent job.
+- Start with a linear workflow and consolidate deterministic work before adding branches. Prefer `core.script.run_python` for data shaping, API loops, table writes, batching, dedupe, joins, retries, and per-item error handling. Prefer `ai.agent` or `ai.preset_agent` for investigation, judgment, summarization, and tool-using decisions.
+- Break large automations into a small orchestrator workflow plus focused subflows only when consolidation would hide important runtime boundaries or when each child workflow is independently useful. The parent should route, checkpoint, and call subflows; subflows should do one coherent job.
 - Use `core.workflow.execute` for subflows. Prefer `workflow_alias` over hard-coded workflow IDs when aliases are available.
-- For collection fan-out, prefer scattering into subflows instead of building a large parent workflow graph. Keep the parent responsible for preparing inputs and aggregating/checkpointing results.
-- Use subflow `loop_strategy: batch` for most bulk work. It is the default and is safer than fully parallel fan-out.
-- Default subflow loop options are `loop_strategy: batch`, `batch_size: 32`, `fail_strategy: isolated`, and `wait_strategy: detach`.
+- Do not use subflow fan-out just to avoid writing a compact script. Use subflow fan-out when each item needs the workflow runtime boundary, separate execution history, retries, approvals, long-running actions, or independent checkpointing.
+- For collection fan-out that really is a subflow use case, prefer looped `core.workflow.execute` over building a large parent workflow graph. Keep the parent responsible for preparing inputs and aggregating/checkpointing results.
+- Use subflow `loop_strategy: batch` for most bulk work. It is safer than fully parallel fan-out.
+- Default subflow loop options are `loop_strategy: batch`, `batch_size: 32`, `fail_strategy: isolated`, and `wait_strategy: wait`. Set `wait_strategy: detach` explicitly when the parent should not wait.
 - For batched subflows, start with `batch_size: 32`. Lower it for rate-limited APIs or expensive actions; raise it only when the downstream system and Tracecat tier can handle the concurrency.
 - Use `wait_strategy: detach` for fire-and-forget fan-out where the parent only needs child workflow IDs. Use `wait_strategy: wait` when the parent must aggregate child results or gate downstream actions on subflow success.
 - Keep `fail_strategy: isolated` for bulk work so one failed item does not fail the whole batch. Use `fail_strategy: all` only when any subflow failure should fail the parent action.
