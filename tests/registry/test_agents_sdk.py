@@ -14,6 +14,7 @@ from tracecat_registry.sdk.agents import AgentConfig, AgentsClient
 def mock_tracecat_client() -> MagicMock:
     client = MagicMock()
     client.get = AsyncMock()
+    client.patch = AsyncMock()
     client.post = AsyncMock()
     return client
 
@@ -172,4 +173,68 @@ async def test_restore_skill_version_uses_restore_endpoint(
     assert result == {"current_version_id": "version-id"}
     mock_tracecat_client.post.assert_awaited_once_with(
         "/agent/skills/skill-id/versions/version-id/restore"
+    )
+
+
+@pytest.mark.anyio
+async def test_create_preset_omits_model_fields_when_not_provided(
+    agents_client: AgentsClient,
+    mock_tracecat_client: MagicMock,
+) -> None:
+    await agents_client.create_preset(
+        name="Case Triage",
+        actions=["core.cases.create_case"],
+        enable_internet_access=True,
+    )
+
+    mock_tracecat_client.post.assert_awaited_once_with(
+        "/agent/presets",
+        json={
+            "name": "Case Triage",
+            "actions": ["core.cases.create_case"],
+            "enable_internet_access": True,
+        },
+    )
+
+
+@pytest.mark.anyio
+async def test_create_preset_accepts_canonical_catalog_id_without_legacy_model_fields(
+    agents_client: AgentsClient,
+    mock_tracecat_client: MagicMock,
+) -> None:
+    await agents_client.create_preset(
+        name="Case Triage",
+        catalog_id="catalog_123",
+    )
+
+    mock_tracecat_client.post.assert_awaited_once_with(
+        "/agent/presets",
+        json={
+            "name": "Case Triage",
+            "catalog_id": "catalog_123",
+        },
+    )
+
+
+@pytest.mark.anyio
+async def test_update_preset_serializes_authoring_fields(
+    agents_client: AgentsClient,
+    mock_tracecat_client: MagicMock,
+) -> None:
+    await agents_client.update_preset(
+        "case-triage",
+        instructions="Triage cases.",
+        tool_approvals={"core.cases.update_case": True},
+        agents={"enabled": True, "subagents": []},
+        skills=[{"slug": "triage", "settings": {}}],
+    )
+
+    mock_tracecat_client.patch.assert_awaited_once_with(
+        "/agent/presets/by-slug/case-triage",
+        json={
+            "instructions": "Triage cases.",
+            "tool_approvals": {"core.cases.update_case": True},
+            "agents": {"enabled": True, "subagents": []},
+            "skills": [{"slug": "triage", "settings": {}}],
+        },
     )

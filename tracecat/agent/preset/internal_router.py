@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Annotated, cast
+from typing import Annotated, Any, cast
 
 from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel, Field, StringConstraints
@@ -17,12 +17,13 @@ from tracecat.agent.preset.schemas import (
     build_subagent_eligibility,
 )
 from tracecat.agent.preset.service import AgentPresetService
+from tracecat.agent.service import AgentManagementService
 from tracecat.agent.subagents import AgentSubagentsConfig, has_manual_tool_approvals
 from tracecat.agent.types import OutputType
 from tracecat.auth.dependencies import ExecutorWorkspaceRole
 from tracecat.authz.controls import require_scope
 from tracecat.db.dependencies import AsyncDBSession
-from tracecat.exceptions import TracecatValidationError
+from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
 
 router = APIRouter(
     prefix="/internal/agent/presets",
@@ -48,14 +49,35 @@ class PresetCreateRequest(BaseModel):
     """Request body for creating an agent preset."""
 
     name: PresetName
-    model_name: PresetModelField
-    model_provider: PresetModelField
+    model_name: PresetModelField | None = Field(
+        default=None,
+        description=(
+            "Deprecated legacy model name field retained for backward "
+            "compatibility. Prefer catalog_id, which is the canonical model selector."
+        ),
+    )
+    model_provider: PresetModelField | None = Field(
+        default=None,
+        description=(
+            "Deprecated legacy model provider field retained for backward "
+            "compatibility. Prefer catalog_id, which is the canonical model selector."
+        ),
+    )
+    catalog_id: str | None = Field(
+        default=None,
+        description="Canonical model catalog row ID backing this preset.",
+    )
     slug: PresetSlug | None = None
     description: str | None = Field(default=None, max_length=1000)
     instructions: str | None = Field(default=None)
     base_url: str | None = Field(default=None, max_length=500)
     output_type: OutputType | None = Field(default=None)
     actions: list[str] | None = Field(default=None)
+    namespaces: list[str] | None = Field(default=None)
+    tool_approvals: dict[str, bool] | None = Field(default=None)
+    mcp_integrations: list[str] | None = Field(default=None)
+    agents: AgentSubagentsConfig | None = Field(default=None)
+    retries: int | None = Field(default=None, ge=0)
     enable_thinking: bool = Field(default=True)
     enable_internet_access: bool = Field(default=False)
     skills: list[AgentPresetSkillBindingBase] | None = Field(default=None)
@@ -68,14 +90,62 @@ class PresetUpdateRequest(BaseModel):
     slug: PresetSlug | None = None
     description: str | None = Field(default=None, max_length=1000)
     instructions: str | None = Field(default=None)
-    model_name: PresetModelField | None = None
-    model_provider: PresetModelField | None = None
+    model_name: PresetModelField | None = Field(
+        default=None,
+        description=(
+            "Deprecated legacy model name field retained for backward "
+            "compatibility. Prefer catalog_id, which is the canonical model selector."
+        ),
+    )
+    model_provider: PresetModelField | None = Field(
+        default=None,
+        description=(
+            "Deprecated legacy model provider field retained for backward "
+            "compatibility. Prefer catalog_id, which is the canonical model selector."
+        ),
+    )
+    catalog_id: str | None = Field(
+        default=None,
+        description="Canonical model catalog row ID backing this preset.",
+    )
     base_url: str | None = Field(default=None, max_length=500)
     output_type: OutputType | None = Field(default=None)
     actions: list[str] | None = Field(default=None)
+    namespaces: list[str] | None = Field(default=None)
+    tool_approvals: dict[str, bool] | None = Field(default=None)
+    mcp_integrations: list[str] | None = Field(default=None)
+    agents: AgentSubagentsConfig | None = Field(default=None)
+    retries: int | None = Field(default=None, ge=0)
     enable_thinking: bool | None = Field(default=None)
     enable_internet_access: bool | None = Field(default=None)
     skills: list[AgentPresetSkillBindingBase] | None = Field(default=None)
+
+
+async def _create_payload_with_default_model(
+    *,
+    role: ExecutorWorkspaceRole,
+    session: AsyncDBSession,
+    params: PresetCreateRequest,
+) -> dict[str, Any]:
+    """Fill omitted legacy model fields from the canonical default catalog model."""
+    payload = params.model_dump(exclude_unset=True)
+    if payload.get("model_name") and payload.get("model_provider"):
+        return payload
+
+    default_model = await AgentManagementService(
+        session,
+        role=role,
+    ).get_default_model_selection()
+    if default_model is None:
+        raise TracecatNotFoundError("No default model set")
+    if not payload.get("model_name"):
+        payload["model_name"] = default_model.model_name
+    if not payload.get("model_provider"):
+        payload["model_provider"] = default_model.model_provider
+    # AgentPresetCreate still requires the legacy model fields. catalog_id is
+    # canonical for new callers; model_name/provider are backfilled for compat.
+    payload.setdefault("catalog_id", default_model.catalog_id)
+    return payload
 
 
 @router.get("", response_model=list[AgentPresetReadMinimal])
@@ -125,11 +195,19 @@ async def create_preset(
     """Create a new agent preset."""
     service = AgentPresetService(session, role=role)
     try:
-        preset = await service.create_preset(
-            AgentPresetCreate(**params.model_dump(exclude_unset=True))
+        payload = await _create_payload_with_default_model(
+            role=role,
+            session=session,
+            params=params,
         )
+        preset = await service.create_preset(AgentPresetCreate(**payload))
         return await service.build_preset_read(preset)
     except TracecatValidationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+    except TracecatNotFoundError as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(exc),

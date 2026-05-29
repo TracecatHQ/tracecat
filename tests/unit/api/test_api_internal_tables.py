@@ -9,7 +9,7 @@ from fastapi import status
 from fastapi.testclient import TestClient
 
 from tracecat.auth.types import Role
-from tracecat.db.models import Table, Workspace
+from tracecat.db.models import Table, TableColumn, Workspace
 from tracecat.tables import internal_router as internal_tables_router
 
 
@@ -24,6 +24,111 @@ def mock_table(test_workspace: Workspace) -> Table:
     )
     table.columns = []
     return table
+
+
+@pytest.fixture
+def mock_table_column(mock_table: Table) -> TableColumn:
+    column = TableColumn(
+        id=uuid.UUID("eeeeeeee-eeee-4eee-eeee-eeeeeeeeeeee"),
+        table_id=mock_table.id,
+        name="score",
+        type="NUMERIC",
+        nullable=True,
+        default=None,
+    )
+    column.table = mock_table
+    mock_table.columns = [column]
+    return column
+
+
+@pytest.mark.anyio
+async def test_internal_update_table_returns_metadata(
+    client: TestClient,
+    test_admin_role: Role,
+    mock_table: Table,
+) -> None:
+    with patch.object(internal_tables_router, "TablesService") as MockService:
+        mock_svc = AsyncMock()
+        mock_table.name = "indicators_v2"
+        mock_svc.get_table_by_name.return_value = mock_table
+        mock_svc.update_table.return_value = mock_table
+        mock_svc.get_index.return_value = set()
+        MockService.return_value = mock_svc
+
+        response = client.patch(
+            "/internal/tables/indicators",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
+            json={"name": "indicators_v2"},
+        )
+
+    assert response.status_code == status.HTTP_200_OK
+    assert response.json() == {
+        "id": str(mock_table.id),
+        "name": "indicators_v2",
+        "columns": [],
+    }
+
+
+@pytest.mark.anyio
+async def test_internal_create_column_returns_refreshed_metadata(
+    client: TestClient,
+    test_admin_role: Role,
+    mock_table: Table,
+    mock_table_column: TableColumn,
+) -> None:
+    with patch.object(internal_tables_router, "TablesService") as MockService:
+        mock_svc = AsyncMock()
+        mock_svc.get_table_by_name.return_value = mock_table
+        mock_svc.create_column.return_value = mock_table_column
+        mock_svc.get_table.return_value = mock_table
+        mock_svc.get_index.return_value = {"score"}
+        MockService.return_value = mock_svc
+
+        response = client.post(
+            f"/internal/tables/{mock_table.name}/columns",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
+            json={"name": "score", "type": "NUMERIC"},
+        )
+
+    assert response.status_code == status.HTTP_200_OK
+    assert response.json() == {
+        "id": str(mock_table.id),
+        "name": mock_table.name,
+        "columns": [
+            {
+                "id": str(mock_table_column.id),
+                "name": "score",
+                "type": "NUMERIC",
+                "nullable": True,
+                "default": None,
+                "is_index": True,
+                "options": None,
+            }
+        ],
+    }
+
+
+@pytest.mark.anyio
+async def test_internal_update_column_404s_when_column_missing(
+    client: TestClient,
+    test_admin_role: Role,
+    mock_table: Table,
+) -> None:
+    with patch.object(internal_tables_router, "TablesService") as MockService:
+        mock_svc = AsyncMock()
+        mock_svc.get_table_by_name.return_value = mock_table
+        MockService.return_value = mock_svc
+
+        response = client.patch(
+            f"/internal/tables/{mock_table.name}/columns/missing",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
+            json={"nullable": False},
+        )
+
+    assert response.status_code == status.HTTP_404_NOT_FOUND
+    assert (
+        response.json()["detail"] == "Column 'missing' not found in table 'test_table'"
+    )
 
 
 @pytest.mark.anyio

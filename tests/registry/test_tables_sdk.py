@@ -14,6 +14,8 @@ from tracecat_registry.types import TableSearchResponse
 def mock_tracecat_client() -> MagicMock:
     """Create a mock TracecatClient."""
     client = MagicMock()
+    client.delete = AsyncMock()
+    client.patch = AsyncMock()
     client.post = AsyncMock()
     return client
 
@@ -52,6 +54,40 @@ async def test_search_rows_normalizes_legacy_rows_payload(
     assert paginated_result["has_more"] is True
     assert paginated_result["has_previous"] is False
     assert paginated_result.get("total_estimate") == 7
+
+
+@pytest.mark.anyio
+async def test_table_schema_helpers_use_internal_table_paths(
+    tables_client: TablesClient, mock_tracecat_client: MagicMock
+) -> None:
+    """Schema editing helpers call the expected internal table endpoints."""
+    column = {"name": "score", "type": "NUMERIC"}
+    update = {"nullable": False}
+
+    await tables_client.update_table(name="indicators", new_name="indicators_v2")
+    await tables_client.create_column(table="indicators_v2", column=column)
+    await tables_client.update_column(
+        table="indicators_v2",
+        column="score",
+        update=update,
+    )
+    await tables_client.delete_column(table="indicators_v2", column="score")
+
+    mock_tracecat_client.patch.assert_any_await(
+        "/tables/indicators",
+        json={"name": "indicators_v2"},
+    )
+    mock_tracecat_client.post.assert_any_await(
+        "/tables/indicators_v2/columns",
+        json=column,
+    )
+    mock_tracecat_client.patch.assert_any_await(
+        "/tables/indicators_v2/columns/score",
+        json=update,
+    )
+    mock_tracecat_client.delete.assert_awaited_once_with(
+        "/tables/indicators_v2/columns/score"
+    )
 
 
 @pytest.mark.anyio

@@ -7,9 +7,75 @@ from unittest.mock import AsyncMock
 import pytest
 from fastapi import HTTPException, status
 
+from tracecat.agent.preset import internal_router as agent_preset_internal_router
 from tracecat.agent.preset import router as agent_preset_router
 from tracecat.auth.types import Role
-from tracecat.exceptions import TracecatValidationError
+from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
+
+
+@pytest.mark.anyio
+async def test_create_preset_payload_backfills_legacy_model_fields(
+    test_admin_role: Role,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    catalog_id = uuid.uuid4()
+
+    class FakeAgentManagementService:
+        def __init__(self, *args, **kwargs) -> None:
+            pass
+
+        async def get_default_model_selection(self) -> SimpleNamespace:
+            return SimpleNamespace(
+                model_name="claude-sonnet-4",
+                model_provider="anthropic",
+                catalog_id=catalog_id,
+            )
+
+    monkeypatch.setattr(
+        agent_preset_internal_router,
+        "AgentManagementService",
+        FakeAgentManagementService,
+    )
+
+    payload = await agent_preset_internal_router._create_payload_with_default_model(
+        role=test_admin_role,
+        session=AsyncMock(),
+        params=agent_preset_internal_router.PresetCreateRequest(name="Case Triage"),
+    )
+
+    assert payload == {
+        "name": "Case Triage",
+        # AgentPresetCreate still requires these deprecated legacy fields.
+        "model_name": "claude-sonnet-4",
+        "model_provider": "anthropic",
+        "catalog_id": catalog_id,
+    }
+
+
+@pytest.mark.anyio
+async def test_create_preset_payload_requires_default_model_selection(
+    test_admin_role: Role,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FakeAgentManagementService:
+        def __init__(self, *args, **kwargs) -> None:
+            pass
+
+        async def get_default_model_selection(self) -> None:
+            return None
+
+    monkeypatch.setattr(
+        agent_preset_internal_router,
+        "AgentManagementService",
+        FakeAgentManagementService,
+    )
+
+    with pytest.raises(TracecatNotFoundError, match="No default model set"):
+        await agent_preset_internal_router._create_payload_with_default_model(
+            role=test_admin_role,
+            session=AsyncMock(),
+            params=agent_preset_internal_router.PresetCreateRequest(name="Case Triage"),
+        )
 
 
 @pytest.mark.anyio

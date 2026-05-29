@@ -17,6 +17,7 @@ from tracecat import config
 from tracecat.auth.dependencies import ExecutorWorkspaceRole
 from tracecat.authz.controls import require_scope
 from tracecat.db.dependencies import AsyncDBSession
+from tracecat.db.models import Table
 from tracecat.exceptions import TracecatNotFoundError
 from tracecat.expressions.functions import tabulate
 from tracecat.logger import logger
@@ -26,10 +27,12 @@ from tracecat.tables.enums import SqlType
 from tracecat.tables.schemas import (
     TableColumnCreate,
     TableColumnRead,
+    TableColumnUpdate,
     TableCreate,
     TableRead,
     TableRowInsert,
     TableRowInsertBatch,
+    TableUpdate,
 )
 from tracecat.tables.service import TablesService
 
@@ -79,6 +82,27 @@ class TableRowUpdate(BaseModel):
 
 
 TableDownloadFormat = Literal["json", "ndjson", "csv", "markdown"]
+
+
+async def _build_table_read(service: TablesService, table: Table) -> TableRead:
+    """Build table metadata with index flags for internal callers."""
+    index_columns = await service.get_index(table)
+    return TableRead(
+        id=table.id,
+        name=table.name,
+        columns=[
+            TableColumnRead(
+                id=column.id,
+                name=column.name,
+                type=SqlType(column.type),
+                nullable=column.nullable,
+                default=column.default,
+                is_index=column.name in index_columns,
+                options=column.options,
+            )
+            for column in table.columns
+        ],
+    )
 
 
 @router.get("")
@@ -134,6 +158,38 @@ async def create_table(
     return table.to_dict()
 
 
+@router.patch("/{table_name}", response_model=TableRead)
+@require_scope("table:update")
+async def update_table(
+    *,
+    role: ExecutorWorkspaceRole,
+    session: AsyncDBSession,
+    table_name: str,
+    params: TableUpdate,
+) -> TableRead:
+    """Update table metadata by name."""
+    service = TablesService(session, role=role)
+    try:
+        table = await service.get_table_by_name(table_name)
+        updated = await service.update_table(table, params)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+    except TracecatNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from exc
+    except ProgrammingError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc.__cause__ or exc),
+        ) from exc
+    return await _build_table_read(service, updated)
+
+
 @router.get("/{table_name}/metadata", response_model=TableRead)
 @require_scope("table:read")
 async def get_table_metadata(
@@ -157,23 +213,121 @@ async def get_table_metadata(
             detail=str(exc),
         ) from exc
 
-    index_columns = await service.get_index(table)
-    return TableRead(
-        id=table.id,
-        name=table.name,
-        columns=[
-            TableColumnRead(
-                id=column.id,
-                name=column.name,
-                type=SqlType(column.type),
-                nullable=column.nullable,
-                default=column.default,
-                is_index=column.name in index_columns,
-                options=column.options,
+    return await _build_table_read(service, table)
+
+
+@router.post("/{table_name}/columns", response_model=TableRead)
+@require_scope("table:create")
+async def create_column(
+    *,
+    role: ExecutorWorkspaceRole,
+    session: AsyncDBSession,
+    table_name: str,
+    params: TableColumnCreate,
+) -> TableRead:
+    """Add a column to a table by name."""
+    service = TablesService(session, role=role)
+    try:
+        table = await service.get_table_by_name(table_name)
+        await service.create_column(table, params)
+        refreshed = await service.get_table(table.id)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+    except TracecatNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from exc
+    except ProgrammingError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc.__cause__ or exc),
+        ) from exc
+    return await _build_table_read(service, refreshed)
+
+
+@router.patch("/{table_name}/columns/{column_name}", response_model=TableRead)
+@require_scope("table:update")
+async def update_column(
+    *,
+    role: ExecutorWorkspaceRole,
+    session: AsyncDBSession,
+    table_name: str,
+    column_name: str,
+    params: TableColumnUpdate,
+) -> TableRead:
+    """Update a column on a table by table and column name."""
+    service = TablesService(session, role=role)
+    try:
+        table = await service.get_table_by_name(table_name)
+        column = next(
+            (column for column in table.columns if column.name == column_name), None
+        )
+        if column is None:
+            raise TracecatNotFoundError(
+                f"Column '{column_name}' not found in table '{table_name}'"
             )
-            for column in table.columns
-        ],
-    )
+        await service.update_column(column, params)
+        refreshed = await service.get_table(table.id)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+    except TracecatNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from exc
+    except ProgrammingError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc.__cause__ or exc),
+        ) from exc
+    return await _build_table_read(service, refreshed)
+
+
+@router.delete("/{table_name}/columns/{column_name}", response_model=TableRead)
+@require_scope("table:delete")
+async def delete_column(
+    *,
+    role: ExecutorWorkspaceRole,
+    session: AsyncDBSession,
+    table_name: str,
+    column_name: str,
+) -> TableRead:
+    """Delete a column from a table by table and column name."""
+    service = TablesService(session, role=role)
+    try:
+        table = await service.get_table_by_name(table_name)
+        column = next(
+            (column for column in table.columns if column.name == column_name), None
+        )
+        if column is None:
+            raise TracecatNotFoundError(
+                f"Column '{column_name}' not found in table '{table_name}'"
+            )
+        await service.delete_column(column)
+        refreshed = await service.get_table(table.id)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+    except TracecatNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from exc
+    except ProgrammingError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc.__cause__ or exc),
+        ) from exc
+    return await _build_table_read(service, refreshed)
 
 
 @router.post("/{table_name}/lookup")
