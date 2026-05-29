@@ -173,6 +173,29 @@ class AgentFilesystemSnapshotLimitExceeded(ValueError):
     """Raised when an agent work-dir snapshot exceeds configured limits."""
 
 
+def _raise_if_snapshot_entry_limit_exceeded(
+    entry_count: int,
+    max_entry_count: int,
+    *,
+    phase: str | None = None,
+) -> None:
+    if entry_count <= max_entry_count:
+        return
+    phase_suffix = f" {phase}" if phase else ""
+    raise AgentFilesystemSnapshotLimitExceeded(
+        f"Agent filesystem snapshot exceeds max entry count{phase_suffix}: "
+        f"{entry_count} > {max_entry_count}"
+    )
+
+
+def _raise_work_dir_walk_error(error: OSError) -> None:
+    raise OSError(
+        error.errno,
+        "Failed to traverse agent filesystem work dir during snapshot",
+        error.filename,
+    ) from error
+
+
 class AgentFilesystemService(BaseWorkspaceService):
     """Service for durable agent filesystem snapshot metadata."""
 
@@ -380,8 +403,13 @@ def compute_work_dir_state(
     total_bytes = 0
     file_count = 0
     dir_count = 0
+    entry_count = 0
 
-    for root, dirs, files in os.walk(work_dir, followlinks=False):
+    for root, dirs, files in os.walk(
+        work_dir,
+        followlinks=False,
+        onerror=_raise_work_dir_walk_error,
+    ):
         root_path = Path(root)
         kept_dirs: list[str] = []
         for dirname in sorted(dirs):
@@ -394,6 +422,8 @@ def compute_work_dir_state(
                 continue
             kept_dirs.append(dirname)
             dir_count += 1
+            entry_count += 1
+            _raise_if_snapshot_entry_limit_exceeded(entry_count, max_file_count)
             _hash_state_entry(
                 state_hasher,
                 entry_type="dir",
@@ -413,11 +443,8 @@ def compute_work_dir_state(
             if not stat.S_ISREG(file_stat.st_mode):
                 continue
             file_count += 1
-            if file_count > max_file_count:
-                raise AgentFilesystemSnapshotLimitExceeded(
-                    "Agent filesystem snapshot exceeds max file count: "
-                    f"{file_count} > {max_file_count}"
-                )
+            entry_count += 1
+            _raise_if_snapshot_entry_limit_exceeded(entry_count, max_file_count)
             total_bytes += file_stat.st_size
             if total_bytes > max_uncompressed_bytes:
                 raise AgentFilesystemSnapshotLimitExceeded(
@@ -454,6 +481,7 @@ def create_work_dir_archive(
     temp_path = output_path.with_name(f"{output_path.name}.part")
     total_bytes = 0
     file_count = 0
+    entry_count = 0
 
     try:
         with temp_path.open("wb") as raw_output:
@@ -466,7 +494,11 @@ def create_work_dir_archive(
                     dereference=False,
                     format=tarfile.PAX_FORMAT,
                 ) as tar:
-                    for root, dirs, files in os.walk(work_dir, followlinks=False):
+                    for root, dirs, files in os.walk(
+                        work_dir,
+                        followlinks=False,
+                        onerror=_raise_work_dir_walk_error,
+                    ):
                         root_path = Path(root)
                         kept_dirs: list[str] = []
                         for dirname in sorted(dirs):
@@ -478,6 +510,11 @@ def create_work_dir_archive(
                             if not stat.S_ISDIR(dir_stat.st_mode):
                                 continue
                             kept_dirs.append(dirname)
+                            entry_count += 1
+                            _raise_if_snapshot_entry_limit_exceeded(
+                                entry_count,
+                                max_file_count,
+                            )
                             _add_directory_to_archive(
                                 tar,
                                 dir_path,
@@ -493,12 +530,12 @@ def create_work_dir_archive(
                                 continue
                             source, file_stat = opened_file
                             file_count += 1
+                            entry_count += 1
                             try:
-                                if file_count > max_file_count:
-                                    raise AgentFilesystemSnapshotLimitExceeded(
-                                        "Agent filesystem snapshot exceeds max file count: "
-                                        f"{file_count} > {max_file_count}"
-                                    )
+                                _raise_if_snapshot_entry_limit_exceeded(
+                                    entry_count,
+                                    max_file_count,
+                                )
                                 total_bytes += file_stat.st_size
                                 if total_bytes > max_uncompressed_bytes:
                                     raise AgentFilesystemSnapshotLimitExceeded(
@@ -541,6 +578,7 @@ def extract_work_dir_archive(
     destination_dir.mkdir(parents=True)
     total_bytes = 0
     file_count = 0
+    entry_count = 0
     directory_modes: list[tuple[Path, int]] = []
 
     try:
@@ -549,6 +587,12 @@ def extract_work_dir_archive(
                 member_path = _validate_archive_member(member)
                 target_path = destination_dir / Path(*member_path.parts)
                 if member.isdir():
+                    entry_count += 1
+                    _raise_if_snapshot_entry_limit_exceeded(
+                        entry_count,
+                        max_file_count,
+                        phase="during extraction",
+                    )
                     target_path.mkdir(parents=True, exist_ok=True)
                     directory_modes.append((target_path, member.mode & 0o777))
                     continue
@@ -556,11 +600,12 @@ def extract_work_dir_archive(
                     continue
 
                 file_count += 1
-                if file_count > max_file_count:
-                    raise AgentFilesystemSnapshotLimitExceeded(
-                        "Agent filesystem snapshot exceeds max file count during extraction: "
-                        f"{file_count} > {max_file_count}"
-                    )
+                entry_count += 1
+                _raise_if_snapshot_entry_limit_exceeded(
+                    entry_count,
+                    max_file_count,
+                    phase="during extraction",
+                )
                 total_bytes += member.size
                 if total_bytes > max_uncompressed_bytes:
                     raise AgentFilesystemSnapshotLimitExceeded(

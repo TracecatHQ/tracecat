@@ -9,6 +9,7 @@ import shutil
 import stat
 import tarfile
 import uuid
+from collections.abc import Callable, Iterator
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, cast
@@ -87,6 +88,123 @@ def test_archive_enforces_snapshot_size_limit(tmp_path: Path) -> None:
             max_uncompressed_bytes=4,
             max_file_count=10,
         )
+
+
+def test_work_dir_state_counts_directories_against_entry_limit(
+    tmp_path: Path,
+) -> None:
+    work_dir = tmp_path / "work"
+    (work_dir / "one").mkdir(parents=True)
+    (work_dir / "two").mkdir()
+
+    with pytest.raises(AgentFilesystemSnapshotLimitExceeded, match="max entry count"):
+        compute_work_dir_state(
+            work_dir,
+            max_uncompressed_bytes=1024,
+            max_file_count=1,
+        )
+
+
+def test_archive_counts_directories_against_entry_limit(tmp_path: Path) -> None:
+    work_dir = tmp_path / "work"
+    (work_dir / "one").mkdir(parents=True)
+    (work_dir / "two").mkdir()
+    archive_path = tmp_path / "snapshot.tar.gz"
+
+    with pytest.raises(AgentFilesystemSnapshotLimitExceeded, match="max entry count"):
+        create_work_dir_archive(
+            work_dir,
+            archive_path,
+            max_uncompressed_bytes=1024,
+            max_file_count=1,
+        )
+
+    assert not archive_path.exists()
+    assert not archive_path.with_name(f"{archive_path.name}.part").exists()
+
+
+def test_extract_counts_directories_against_entry_limit(tmp_path: Path) -> None:
+    archive_path = tmp_path / "snapshot.tar.gz"
+    with tarfile.open(archive_path, mode="w:gz") as tar:
+        for name in ("one", "two"):
+            info = tarfile.TarInfo(name)
+            info.type = tarfile.DIRTYPE
+            info.mode = 0o755
+            tar.addfile(info)
+
+    destination = tmp_path / "restored"
+    with pytest.raises(AgentFilesystemSnapshotLimitExceeded, match="max entry count"):
+        extract_work_dir_archive(
+            archive_path,
+            destination,
+            max_uncompressed_bytes=1024,
+            max_file_count=1,
+        )
+
+    assert not destination.exists()
+
+
+def test_work_dir_state_fails_on_walk_error(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    work_dir = tmp_path / "work"
+    work_dir.mkdir()
+    restricted_dir = work_dir / "restricted"
+
+    def failing_walk(
+        top: Path | str,
+        topdown: bool = True,
+        onerror: Callable[[OSError], object] | None = None,
+        followlinks: bool = False,
+    ) -> Iterator[tuple[str, list[str], list[str]]]:
+        del topdown, followlinks
+        assert onerror is not None
+        onerror(PermissionError(13, "permission denied", str(restricted_dir)))
+        return iter(((str(top), [], []),))
+
+    monkeypatch.setattr("tracecat.agent.filesystem.os.walk", failing_walk)
+
+    with pytest.raises(OSError, match="Failed to traverse"):
+        compute_work_dir_state(
+            work_dir,
+            max_uncompressed_bytes=1024,
+            max_file_count=10,
+        )
+
+
+def test_archive_fails_on_walk_error(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    work_dir = tmp_path / "work"
+    work_dir.mkdir()
+    restricted_dir = work_dir / "restricted"
+    archive_path = tmp_path / "snapshot.tar.gz"
+
+    def failing_walk(
+        top: Path | str,
+        topdown: bool = True,
+        onerror: Callable[[OSError], object] | None = None,
+        followlinks: bool = False,
+    ) -> Iterator[tuple[str, list[str], list[str]]]:
+        del topdown, followlinks
+        assert onerror is not None
+        onerror(PermissionError(13, "permission denied", str(restricted_dir)))
+        return iter(((str(top), [], []),))
+
+    monkeypatch.setattr("tracecat.agent.filesystem.os.walk", failing_walk)
+
+    with pytest.raises(OSError, match="Failed to traverse"):
+        create_work_dir_archive(
+            work_dir,
+            archive_path,
+            max_uncompressed_bytes=1024,
+            max_file_count=10,
+        )
+
+    assert not archive_path.exists()
+    assert not archive_path.with_name(f"{archive_path.name}.part").exists()
 
 
 def test_archive_hash_is_stable_for_same_work_dir_state(tmp_path: Path) -> None:
@@ -379,46 +497,39 @@ async def test_hydrate_restores_restrictive_directory_from_archive(
     tmp_path: Path,
 ) -> None:
     session_id = uuid.uuid4()
-    workspace_id = uuid.uuid4()
     work_dir = tmp_path / "session" / "agent-work-dir"
-    restricted_dir = work_dir / "restricted"
-    restricted_dir.mkdir(parents=True)
-    restricted_dir.chmod(0)
-    uploaded: dict[tuple[str, str], bytes] = {}
-    current_snapshot: AgentFilesystemSnapshotMetadata | None = None
-    expected_session_id = session_id
+    archive_path = tmp_path / "restricted.tar.gz"
+    with tarfile.open(archive_path, mode="w:gz") as tar:
+        info = tarfile.TarInfo("restricted")
+        info.type = tarfile.DIRTYPE
+        info.mode = 0
+        tar.addfile(info)
+    archive_content = archive_path.read_bytes()
+    current_snapshot = AgentFilesystemSnapshotMetadata(
+        bucket="agent-bucket",
+        key="agent-fs/blobs/restricted.tar.gz",
+        state_hash="0" * 64,
+        sha256=hashlib.sha256(archive_content).hexdigest(),
+        size_bytes=len(archive_content),
+        uncompressed_size_bytes=0,
+        file_count=0,
+        dir_count=1,
+        archive_format="tar.gz",
+        compression="gzip",
+        created_at="2026-05-28T00:00:00+00:00",
+    )
 
     class FakeService:
         async def get_current_snapshot(
             self,
-            _session_id: uuid.UUID,
+            requested_session_id: uuid.UUID,
         ) -> AgentFilesystemSnapshotMetadata | None:
+            assert requested_session_id == session_id
             return current_snapshot
-
-        async def update_current_snapshot(
-            self,
-            *,
-            session_id: uuid.UUID,
-            snapshot: AgentFilesystemSnapshotMetadata,
-        ) -> AgentFilesystemSnapshotMetadata:
-            nonlocal current_snapshot
-            assert session_id == expected_session_id
-            current_snapshot = snapshot
-            return snapshot
 
     @asynccontextmanager
     async def fake_with_session(**_kwargs: Any):
         yield FakeService()
-
-    async def fake_upload_file_from_path(
-        path: Path,
-        *,
-        key: str,
-        bucket: str,
-        content_type: str | None = None,
-    ) -> None:
-        assert content_type == "application/gzip"
-        uploaded[(bucket, key)] = path.read_bytes()
 
     async def fake_download_file_to_path(
         *,
@@ -428,11 +539,13 @@ async def test_hydrate_restores_restrictive_directory_from_archive(
         max_bytes: int | None = None,
         expected_sha256: str | None = None,
     ) -> int:
-        del max_bytes, expected_sha256
-        content = uploaded[(bucket, key)]
+        assert key == current_snapshot.key
+        assert bucket == current_snapshot.bucket
+        assert max_bytes == current_snapshot.size_bytes
+        assert expected_sha256 == current_snapshot.sha256
         output_path.parent.mkdir(parents=True, exist_ok=True)
-        output_path.write_bytes(content)
-        return len(content)
+        output_path.write_bytes(archive_content)
+        return len(archive_content)
 
     monkeypatch.setattr(
         config,
@@ -446,28 +559,9 @@ async def test_hydrate_restores_restrictive_directory_from_archive(
         staticmethod(fake_with_session),
     )
     monkeypatch.setattr(
-        "tracecat.agent.filesystem.blob.upload_file_from_path",
-        fake_upload_file_from_path,
-    )
-    monkeypatch.setattr(
         "tracecat.agent.filesystem.blob.download_file_to_path",
         fake_download_file_to_path,
     )
-
-    try:
-        snapshot = await persist_agent_work_dir(
-            role=cast(Any, object()),
-            session_id=session_id,
-            workspace_id=workspace_id,
-            work_dir=work_dir,
-        )
-        assert snapshot is current_snapshot
-        assert current_snapshot is not None
-    finally:
-        restricted_dir.chmod(0o700)
-
-    shutil.rmtree(work_dir)
-    shutil.rmtree(tmp_path / "cache")
 
     hydrated = await hydrate_agent_work_dir(
         role=cast(Any, object()),
