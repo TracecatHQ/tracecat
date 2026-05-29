@@ -96,9 +96,17 @@ async def parse_uri(uri: str) -> tuple[str, str]:
 async def call_method(
     method_name: Annotated[str, Doc("S3 method name.")],
     params: Annotated[dict[str, Any], Doc("S3 method parameters.")],
+    endpoint_url: Annotated[
+        str | None,
+        Doc("Endpoint URL for the AWS S3 service."),
+    ] = None,
+    region_name: Annotated[
+        str | None,
+        Doc("AWS region to use for this request. Overrides the AWS_REGION secret."),
+    ] = None,
 ) -> dict[str, Any]:
-    session = await aws_boto3.get_session()
-    async with session.client("s3") as s3_client:  # type: ignore
+    session = await aws_boto3.get_session(region_name=region_name)
+    async with session.client("s3", endpoint_url=endpoint_url) as s3_client:  # type: ignore
         return await getattr(s3_client, method_name)(**params)
 
 
@@ -117,8 +125,12 @@ async def get_object(
         str | None,
         Doc("Endpoint URL for the AWS S3 service."),
     ] = None,
+    region_name: Annotated[
+        str | None,
+        Doc("AWS region to use for this request. Overrides the AWS_REGION secret."),
+    ] = None,
 ) -> str:
-    session = await aws_boto3.get_session()
+    session = await aws_boto3.get_session(region_name=region_name)
     async with session.client("s3", endpoint_url=endpoint_url) as s3_client:  # type: ignore
         obj = await s3_client.get_object(Bucket=bucket, Key=key)
         body = await obj["Body"].read()
@@ -145,8 +157,12 @@ async def list_objects(
         str | None,
         Doc("Endpoint URL for the AWS S3 service."),
     ] = None,
+    region_name: Annotated[
+        str | None,
+        Doc("AWS region to use for this request. Overrides the AWS_REGION secret."),
+    ] = None,
 ) -> ListObjectsV2OutputTypeDef:
-    session = await aws_boto3.get_session()
+    session = await aws_boto3.get_session(region_name=region_name)
     async with session.client("s3", endpoint_url=endpoint_url) as s3_client:  # type: ignore
         if prefix:
             response = await s3_client.list_objects_v2(
@@ -178,6 +194,10 @@ async def copy_objects(
         str | None,
         Doc("Endpoint URL for the AWS S3 service."),
     ] = None,
+    region_name: Annotated[
+        str | None,
+        Doc("AWS region to use for this request. Overrides the AWS_REGION secret."),
+    ] = None,
 ) -> list[dict[str, Any]]:
     """Copy S3 objects from one bucket to another.
 
@@ -187,7 +207,7 @@ async def copy_objects(
     Returns:
         A list of copy operation results from S3.
     """
-    session = await aws_boto3.get_session()
+    session = await aws_boto3.get_session(region_name=region_name)
     results = []
 
     async with session.client("s3", endpoint_url=endpoint_url) as s3_client:
@@ -246,6 +266,10 @@ async def get_objects(
         str | None,
         Doc("Endpoint URL for the AWS S3 service."),
     ] = None,
+    region_name: Annotated[
+        str | None,
+        Doc("AWS region to use for this request. Overrides the AWS_REGION secret."),
+    ] = None,
 ) -> list[str]:
     # To prevent Amazon S3 rate limits and resource exhaustion
     @retry(
@@ -254,7 +278,9 @@ async def get_objects(
     async def get_object_fn(key: str) -> str:
         # Use semaphore to limit concurrent S3 operations
         async with _s3_semaphore:
-            return await get_object(bucket, key, endpoint_url)
+            return await get_object(
+                bucket, key, endpoint_url=endpoint_url, region_name=region_name
+            )
 
     return await asyncio.gather(*[get_object_fn(key) for key in keys])
 
@@ -274,6 +300,10 @@ async def put_object(
     endpoint_url: Annotated[
         str | None,
         Doc("Endpoint URL for the AWS S3 service."),
+    ] = None,
+    region_name: Annotated[
+        str | None,
+        Doc("AWS region to use for this request. Overrides the AWS_REGION secret."),
     ] = None,
 ) -> None:
     """Uploads an object to S3. The object key is validated and content decoded.
@@ -301,7 +331,7 @@ async def put_object(
             f"{TRACECAT__MAX_FILE_SIZE_BYTES // 1024 // 1024}MB."
         )
 
-    session = await aws_boto3.get_session()
+    session = await aws_boto3.get_session(region_name=region_name)
     async with session.client("s3", endpoint_url=endpoint_url) as s3_client:  # type: ignore
         await s3_client.put_object(Bucket=bucket, Key=key, Body=content_bytes)
 
@@ -321,8 +351,12 @@ async def delete_object(
         str | None,
         Doc("Endpoint URL for the AWS S3 service."),
     ] = None,
+    region_name: Annotated[
+        str | None,
+        Doc("AWS region to use for this request. Overrides the AWS_REGION secret."),
+    ] = None,
 ) -> DeleteObjectOutputTypeDef:
-    session = await aws_boto3.get_session()
+    session = await aws_boto3.get_session(region_name=region_name)
     async with session.client("s3", endpoint_url=endpoint_url) as s3_client:  # type: ignore
         response = await s3_client.delete_object(Bucket=bucket, Key=key)
     return response
