@@ -2,6 +2,8 @@
 
 import { ExternalLink } from "lucide-react"
 import Link from "next/link"
+import { useEffect, useMemo } from "react"
+import { AgentPresetArtifactView } from "@/components/agents/agent-presets-builder"
 import { CasePanelView } from "@/components/cases/case-panel-view"
 import { AlertNotification } from "@/components/notifications"
 import { TablePanelProvider } from "@/components/tables/table-panel-context"
@@ -15,29 +17,97 @@ import {
   getArtifactHref,
 } from "@/components/workspace-chat/artifacts/artifact-registry"
 import { ArtifactIcon } from "@/components/workspace-chat/artifacts/artifact-tabs"
+import { useAgentPreset } from "@/hooks/use-agent-presets"
 import { useGetTable } from "@/lib/hooks"
 import { cn } from "@/lib/utils"
 import type { WorkspaceChatArtifact } from "@/types/workspace-chat-artifacts"
 
+const CASE_ARTIFACT_TABS = new Set([
+  "comments",
+  "activity",
+  "attachments",
+  "rows",
+  "payload",
+])
+const AGENT_ARTIFACT_TABS = new Set([
+  "live-chat",
+  "assistant",
+  "configuration",
+  "subagents",
+  "skills",
+  "channels",
+  "structured-output",
+  "versions",
+])
+
 export interface ArtifactContentProps {
   artifact: WorkspaceChatArtifact
   workspaceId: string
+  activeTab: string | null
+  onTabChange: (tab: string | null) => void
 }
 
 /** Render the active artifact content with type-specific embedded views. */
 export function ArtifactContent({
   artifact,
   workspaceId,
+  activeTab,
+  onTabChange,
 }: ArtifactContentProps) {
+  const normalizedTab = useMemo(
+    () => normalizeArtifactTab(artifact, activeTab),
+    [artifact, activeTab]
+  )
+
+  useEffect(() => {
+    if (activeTab !== null && normalizedTab === null) {
+      onTabChange(null)
+    }
+  }, [activeTab, normalizedTab, onTabChange])
+
   switch (artifact.type) {
     case "case":
-      return <CasePanelView caseId={artifact.id} embedded />
+      return (
+        <CasePanelView
+          caseId={artifact.id}
+          embedded
+          initialTab={normalizedTab}
+          onTabChange={onTabChange}
+        />
+      )
     case "table":
       return (
         <EmbeddedTableArtifact artifact={artifact} workspaceId={workspaceId} />
       )
+    case "agent":
+      return (
+        <EmbeddedAgentArtifact
+          artifact={artifact}
+          workspaceId={workspaceId}
+          activeTab={normalizedTab}
+          onTabChange={onTabChange}
+        />
+      )
     default:
       return <ArtifactSummary artifact={artifact} workspaceId={workspaceId} />
+  }
+}
+
+function normalizeArtifactTab(
+  artifact: WorkspaceChatArtifact,
+  tab: string | null
+): string | null {
+  if (!tab) {
+    return null
+  }
+
+  switch (artifact.type) {
+    case "case":
+      return CASE_ARTIFACT_TABS.has(tab) ? tab : null
+    case "agent":
+      return AGENT_ARTIFACT_TABS.has(tab) ? tab : null
+    default:
+      return null
   }
 }
 
@@ -83,6 +153,53 @@ function EmbeddedTableArtifact({
         </TablePanelProvider>
       </TableSelectionProvider>
     </div>
+  )
+}
+
+function EmbeddedAgentArtifact({
+  artifact,
+  workspaceId,
+  activeTab,
+  onTabChange,
+}: {
+  artifact: Extract<WorkspaceChatArtifact, { type: "agent" }>
+  workspaceId: string
+  activeTab: string | null
+  onTabChange: (tab: string | null) => void
+}) {
+  const { preset, presetIsLoading, presetError } = useAgentPreset(
+    workspaceId,
+    artifact.id
+  )
+
+  if (presetIsLoading) {
+    return (
+      <div className="flex h-full flex-col gap-3 p-4">
+        <Skeleton className="h-5 w-1/2" />
+        <Skeleton className="h-4 w-2/3" />
+        <Skeleton className="h-16 w-full" />
+      </div>
+    )
+  }
+
+  if (presetError || !preset) {
+    return (
+      <div className="p-4">
+        <AlertNotification
+          message={presetError?.message ?? "Error loading agent"}
+          variant="error"
+        />
+      </div>
+    )
+  }
+
+  return (
+    <AgentPresetArtifactView
+      preset={preset}
+      workspaceId={workspaceId}
+      initialTab={activeTab}
+      onTabChange={onTabChange}
+    />
   )
 }
 

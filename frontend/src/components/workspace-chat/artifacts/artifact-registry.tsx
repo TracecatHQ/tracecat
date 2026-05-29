@@ -8,6 +8,7 @@ import {
   KeyRound,
   LayersIcon,
   ListVideoIcon,
+  MousePointerClickIcon,
   Table2Icon,
   WorkflowIcon,
 } from "lucide-react"
@@ -82,6 +83,33 @@ export const ARTIFACT_REGISTRY = {
       })
       queryClient.invalidateQueries({
         queryKey: ["tables", workspaceId],
+      })
+      queryClient.invalidateQueries({
+        queryKey: ["rows", artifact.id],
+      })
+      queryClient.invalidateQueries({
+        queryKey: ["rows", "paginated", artifact.id, workspaceId],
+      })
+    },
+  },
+  agent: {
+    label: "Agents",
+    singularLabel: "Agent",
+    icon: MousePointerClickIcon,
+    href: (artifact, workspaceId) =>
+      `/workspaces/${workspaceId}/agents/${artifact.id}`,
+    invalidateQueries: (queryClient, workspaceId, artifact) => {
+      queryClient.invalidateQueries({
+        queryKey: ["agent-preset", workspaceId, artifact.id],
+      })
+      queryClient.invalidateQueries({
+        queryKey: ["agent-presets", workspaceId],
+      })
+      queryClient.invalidateQueries({
+        queryKey: ["agent-directory-items", workspaceId],
+      })
+      queryClient.invalidateQueries({
+        queryKey: ["agent-preset-versions", workspaceId, artifact.id],
       })
     },
   },

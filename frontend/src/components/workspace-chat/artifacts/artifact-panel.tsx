@@ -15,6 +15,8 @@ export interface ArtifactPanelProps {
   setActiveArtifactKey: (key: string | null) => void
   closeArtifact: (type: ArtifactType, id: string) => void
   workspaceId: string
+  artifactTab: string | null
+  setArtifactTab: (tab: string | null) => void
   className?: string
   /** Triggered when the user manually collapses the panel. */
   onCollapse: () => void
@@ -32,6 +34,8 @@ export function ArtifactPanel({
   setActiveArtifactKey,
   closeArtifact,
   workspaceId,
+  artifactTab,
+  setArtifactTab,
   className,
   onCollapse,
 }: ArtifactPanelProps) {
@@ -61,6 +65,8 @@ export function ArtifactPanel({
             <ArtifactContent
               artifact={activeArtifact}
               workspaceId={workspaceId}
+              activeTab={artifactTab}
+              onTabChange={setArtifactTab}
             />
           </div>
         </>
