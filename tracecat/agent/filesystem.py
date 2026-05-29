@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import errno
 import gzip
 import hashlib
 import json
@@ -402,7 +403,7 @@ def create_work_dir_archive(
     max_uncompressed_bytes: int,
     max_file_count: int,
 ) -> AgentFilesystemArchiveStats:
-    """Create a gzip-compressed tar snapshot of regular files in ``work_dir``."""
+    """Create a gzip-compressed tar snapshot of regular files and directories."""
     work_dir = work_dir.resolve()
     output_path.parent.mkdir(parents=True, exist_ok=True)
     temp_path = output_path.with_name(f"{output_path.name}.part")
@@ -417,7 +418,7 @@ def create_work_dir_archive(
                 with tarfile.open(
                     fileobj=gzip_output,
                     mode="w",
-                    dereference=True,
+                    dereference=False,
                     format=tarfile.PAX_FORMAT,
                 ) as tar:
                     for root, dirs, files in os.walk(work_dir, followlinks=False):
@@ -432,30 +433,42 @@ def create_work_dir_archive(
                             if not stat.S_ISDIR(dir_stat.st_mode):
                                 continue
                             kept_dirs.append(dirname)
-                            _add_path_to_archive(tar, dir_path, work_dir)
+                            _add_directory_to_archive(
+                                tar,
+                                dir_path,
+                                work_dir,
+                                dir_stat,
+                            )
                         dirs[:] = kept_dirs
 
                         for filename in sorted(files):
                             file_path = root_path / filename
-                            try:
-                                file_stat = file_path.lstat()
-                            except FileNotFoundError:
+                            opened_file = _open_regular_file_for_snapshot(file_path)
+                            if opened_file is None:
                                 continue
-                            if not stat.S_ISREG(file_stat.st_mode):
-                                continue
+                            source, file_stat = opened_file
                             file_count += 1
-                            if file_count > max_file_count:
-                                raise AgentFilesystemSnapshotLimitExceeded(
-                                    "Agent filesystem snapshot exceeds max file count: "
-                                    f"{file_count} > {max_file_count}"
+                            try:
+                                if file_count > max_file_count:
+                                    raise AgentFilesystemSnapshotLimitExceeded(
+                                        "Agent filesystem snapshot exceeds max file count: "
+                                        f"{file_count} > {max_file_count}"
+                                    )
+                                total_bytes += file_stat.st_size
+                                if total_bytes > max_uncompressed_bytes:
+                                    raise AgentFilesystemSnapshotLimitExceeded(
+                                        "Agent filesystem snapshot exceeds max uncompressed bytes: "
+                                        f"{total_bytes} > {max_uncompressed_bytes}"
+                                    )
+                                _add_regular_file_to_archive(
+                                    tar,
+                                    file_path,
+                                    work_dir,
+                                    source,
+                                    file_stat,
                                 )
-                            total_bytes += file_stat.st_size
-                            if total_bytes > max_uncompressed_bytes:
-                                raise AgentFilesystemSnapshotLimitExceeded(
-                                    "Agent filesystem snapshot exceeds max uncompressed bytes: "
-                                    f"{total_bytes} > {max_uncompressed_bytes}"
-                                )
-                            _add_path_to_archive(tar, file_path, work_dir)
+                            finally:
+                                source.close()
         os.replace(temp_path, output_path)
     except Exception:
         temp_path.unlink(missing_ok=True)
@@ -618,21 +631,95 @@ async def _get_archive_cache_lock(sha256: str) -> asyncio.Lock:
         return lock
 
 
-def _add_path_to_archive(tar: tarfile.TarFile, path: Path, work_dir: Path) -> None:
+def _add_directory_to_archive(
+    tar: tarfile.TarFile,
+    path: Path,
+    work_dir: Path,
+    path_stat: os.stat_result,
+) -> None:
     relative_path = path.relative_to(work_dir).as_posix()
-    tar.add(path, arcname=relative_path, recursive=False, filter=_normalize_tarinfo)
+    tarinfo = _snapshot_tarinfo(
+        name=relative_path,
+        mode=path_stat.st_mode,
+        size=0,
+        entry_type=tarfile.DIRTYPE,
+    )
+    tar.addfile(tarinfo)
 
 
-def _normalize_tarinfo(tarinfo: tarfile.TarInfo) -> tarfile.TarInfo | None:
-    if not (tarinfo.isfile() or tarinfo.isdir()):
-        return None
+def _add_regular_file_to_archive(
+    tar: tarfile.TarFile,
+    path: Path,
+    work_dir: Path,
+    source: BinaryIO,
+    path_stat: os.stat_result,
+) -> None:
+    relative_path = path.relative_to(work_dir).as_posix()
+    tarinfo = _snapshot_tarinfo(
+        name=relative_path,
+        mode=path_stat.st_mode,
+        size=path_stat.st_size,
+        entry_type=tarfile.REGTYPE,
+    )
+    tar.addfile(tarinfo, source)
+
+
+def _snapshot_tarinfo(
+    *,
+    name: str,
+    mode: int,
+    size: int,
+    entry_type: bytes,
+) -> tarfile.TarInfo:
+    tarinfo = tarfile.TarInfo(name)
+    tarinfo.type = entry_type
+    tarinfo.size = size
     tarinfo.uid = 0
     tarinfo.gid = 0
     tarinfo.uname = ""
     tarinfo.gname = ""
-    tarinfo.mode &= 0o777
+    tarinfo.mode = mode & 0o777
     tarinfo.mtime = 0
     return tarinfo
+
+
+def _open_regular_file_for_snapshot(
+    path: Path,
+) -> tuple[BinaryIO, os.stat_result] | None:
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+    try:
+        fd = os.open(path, flags)
+    except OSError as e:
+        if e.errno in {errno.ENOENT, errno.ENOTDIR, errno.ELOOP}:
+            return None
+        raise
+
+    try:
+        path_stat = os.fstat(fd)
+        if not stat.S_ISREG(path_stat.st_mode):
+            os.close(fd)
+            return None
+        if not _path_still_names_open_file(path, path_stat):
+            os.close(fd)
+            return None
+        return os.fdopen(fd, "rb"), path_stat
+    except Exception:
+        os.close(fd)
+        raise
+
+
+def _path_still_names_open_file(path: Path, open_stat: os.stat_result) -> bool:
+    try:
+        path_stat = path.lstat()
+    except OSError as e:
+        if e.errno in {errno.ENOENT, errno.ENOTDIR}:
+            return False
+        raise
+    return (
+        stat.S_ISREG(path_stat.st_mode)
+        and path_stat.st_dev == open_stat.st_dev
+        and path_stat.st_ino == open_stat.st_ino
+    )
 
 
 def _validate_archive_member(member: tarfile.TarInfo) -> PurePosixPath:

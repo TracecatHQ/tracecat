@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import io
+import os
 import shutil
 import stat
 import tarfile
@@ -106,6 +107,45 @@ def test_archive_hash_is_stable_for_same_work_dir_state(tmp_path: Path) -> None:
 
     assert first_stats.sha256 == second_stats.sha256
     assert first_archive.read_bytes() == second_archive.read_bytes()
+
+
+def test_archive_does_not_follow_file_replaced_by_symlink(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    work_dir = tmp_path / "work"
+    work_dir.mkdir()
+    victim = work_dir / "victim.txt"
+    victim.write_text("safe")
+    secret = tmp_path / "secret.txt"
+    secret.write_text("outside work dir")
+    real_open = os.open
+
+    def racing_open(path: os.PathLike[str] | str, flags: int, mode: int = 0o777) -> int:
+        if Path(path) == victim and victim.exists():
+            victim.unlink()
+            victim.symlink_to(secret)
+        return real_open(path, flags, mode)
+
+    monkeypatch.setattr("tracecat.agent.filesystem.os.open", racing_open)
+
+    archive_path = tmp_path / "snapshot.tar.gz"
+    stats = create_work_dir_archive(
+        work_dir,
+        archive_path,
+        max_uncompressed_bytes=1024,
+        max_file_count=10,
+    )
+    restored_dir = tmp_path / "restored"
+    extract_work_dir_archive(
+        archive_path,
+        restored_dir,
+        max_uncompressed_bytes=1024,
+        max_file_count=10,
+    )
+
+    assert stats.file_count == 0
+    assert not (restored_dir / "victim.txt").exists()
 
 
 def test_work_dir_state_hash_is_stable_and_tracks_file_boundaries(
