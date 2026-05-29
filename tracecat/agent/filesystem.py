@@ -205,8 +205,8 @@ async def hydrate_agent_work_dir(
         )
         return snapshot
 
-    cached_dir = await _ensure_snapshot_cached(snapshot)
-    await asyncio.to_thread(_copy_cached_work_dir, cached_dir, work_dir)
+    archive_path = await _ensure_snapshot_archive_cached(snapshot)
+    await asyncio.to_thread(_extract_archive_to_work_dir, archive_path, work_dir)
     await asyncio.to_thread(_write_snapshot_marker, work_dir, snapshot)
     logger.info(
         "Hydrated agent filesystem snapshot",
@@ -285,8 +285,6 @@ async def persist_agent_work_dir(
             bucket=bucket,
             content_type=AGENT_FS_CONTENT_TYPE,
         )
-        await asyncio.to_thread(_ensure_unpacked_cache_from_archive, archive_path)
-
         snapshot = AgentFilesystemSnapshotMetadata(
             bucket=bucket,
             key=key,
@@ -537,14 +535,12 @@ def extract_work_dir_archive(
         raise
 
 
-async def _ensure_snapshot_cached(
+async def _ensure_snapshot_archive_cached(
     snapshot: AgentFilesystemSnapshotMetadata,
 ) -> Path:
     archive_path = _archive_cache_path(snapshot.sha256)
     if _cached_archive_matches(archive_path, snapshot):
-        return await asyncio.to_thread(
-            _ensure_unpacked_cache_from_archive, archive_path
-        )
+        return archive_path
 
     lock = await _get_archive_cache_lock(snapshot.sha256)
     async with lock:
@@ -556,16 +552,12 @@ async def _ensure_snapshot_cached(
                 max_bytes=snapshot.size_bytes,
                 expected_sha256=snapshot.sha256,
             )
-    return await asyncio.to_thread(_ensure_unpacked_cache_from_archive, archive_path)
+    return archive_path
 
 
-def _ensure_unpacked_cache_from_archive(archive_path: Path) -> Path:
-    sha256 = archive_path.stem.removesuffix(".tar")
-    unpacked_dir = _unpacked_cache_path(sha256)
-    if unpacked_dir.exists():
-        return unpacked_dir
-
-    temp_dir = unpacked_dir.with_name(f".tmp-{sha256}-{uuid.uuid4().hex}")
+def _extract_archive_to_work_dir(archive_path: Path, work_dir: Path) -> None:
+    work_dir.parent.mkdir(parents=True, exist_ok=True)
+    temp_dir = work_dir.with_name(f".tmp-{work_dir.name}-{uuid.uuid4().hex}")
     try:
         extract_work_dir_archive(
             archive_path,
@@ -573,20 +565,11 @@ def _ensure_unpacked_cache_from_archive(archive_path: Path) -> Path:
             max_uncompressed_bytes=config.TRACECAT__AGENT_FS_MAX_UNCOMPRESSED_BYTES,
             max_file_count=config.TRACECAT__AGENT_FS_MAX_FILE_COUNT,
         )
-        try:
-            temp_dir.rename(unpacked_dir)
-        except FileExistsError:
-            shutil.rmtree(temp_dir, ignore_errors=True)
+        shutil.rmtree(work_dir, ignore_errors=True)
+        temp_dir.rename(work_dir)
     except Exception:
         shutil.rmtree(temp_dir, ignore_errors=True)
         raise
-    return unpacked_dir
-
-
-def _copy_cached_work_dir(cached_dir: Path, work_dir: Path) -> None:
-    work_dir.parent.mkdir(parents=True, exist_ok=True)
-    shutil.rmtree(work_dir, ignore_errors=True)
-    shutil.copytree(cached_dir, work_dir)
 
 
 def _promote_archive_to_cache(temp_archive: Path, sha256: str) -> Path:
@@ -601,10 +584,6 @@ def _promote_archive_to_cache(temp_archive: Path, sha256: str) -> Path:
 
 def _archive_cache_path(sha256: str) -> Path:
     return _cache_root() / "archives" / f"{sha256}.tar.gz"
-
-
-def _unpacked_cache_path(sha256: str) -> Path:
-    return _cache_root() / "unpacked" / sha256
 
 
 def _cache_root() -> Path:
@@ -686,7 +665,7 @@ def _snapshot_tarinfo(
 def _open_regular_file_for_snapshot(
     path: Path,
 ) -> tuple[BinaryIO, os.stat_result] | None:
-    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
     try:
         fd = os.open(path, flags)
     except OSError as e:

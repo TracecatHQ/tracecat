@@ -148,6 +148,37 @@ def test_archive_does_not_follow_file_replaced_by_symlink(
     assert not (restored_dir / "victim.txt").exists()
 
 
+def test_archive_opens_candidate_files_nonblocking(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    work_dir = tmp_path / "work"
+    work_dir.mkdir()
+    (work_dir / "notes.txt").write_text("durable state")
+    real_open = os.open
+    observed_flags: list[int] = []
+
+    def recording_open(
+        path: os.PathLike[str] | str,
+        flags: int,
+        mode: int = 0o777,
+    ) -> int:
+        observed_flags.append(flags)
+        return real_open(path, flags, mode)
+
+    monkeypatch.setattr("tracecat.agent.filesystem.os.open", recording_open)
+
+    create_work_dir_archive(
+        work_dir,
+        tmp_path / "snapshot.tar.gz",
+        max_uncompressed_bytes=1024,
+        max_file_count=10,
+    )
+
+    assert observed_flags
+    assert all(flags & os.O_NONBLOCK for flags in observed_flags)
+
+
 def test_work_dir_state_hash_is_stable_and_tracks_file_boundaries(
     tmp_path: Path,
 ) -> None:
@@ -199,6 +230,118 @@ def test_extract_rejects_path_traversal(tmp_path: Path) -> None:
         )
 
     assert not (tmp_path / "escape.txt").exists()
+
+
+@pytest.mark.anyio
+async def test_hydrate_restores_restrictive_directory_from_archive(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    session_id = uuid.uuid4()
+    workspace_id = uuid.uuid4()
+    work_dir = tmp_path / "session" / "agent-work-dir"
+    restricted_dir = work_dir / "restricted"
+    restricted_dir.mkdir(parents=True)
+    restricted_dir.chmod(0)
+    uploaded: dict[tuple[str, str], bytes] = {}
+    current_snapshot: AgentFilesystemSnapshotMetadata | None = None
+    expected_session_id = session_id
+
+    class FakeService:
+        async def get_current_snapshot(
+            self,
+            _session_id: uuid.UUID,
+        ) -> AgentFilesystemSnapshotMetadata | None:
+            return current_snapshot
+
+        async def update_current_snapshot(
+            self,
+            *,
+            session_id: uuid.UUID,
+            snapshot: AgentFilesystemSnapshotMetadata,
+        ) -> AgentFilesystemSnapshotMetadata:
+            nonlocal current_snapshot
+            assert session_id == expected_session_id
+            current_snapshot = snapshot
+            return snapshot
+
+    @asynccontextmanager
+    async def fake_with_session(**_kwargs: Any):
+        yield FakeService()
+
+    async def fake_upload_file_from_path(
+        path: Path,
+        *,
+        key: str,
+        bucket: str,
+        content_type: str | None = None,
+    ) -> None:
+        assert content_type == "application/gzip"
+        uploaded[(bucket, key)] = path.read_bytes()
+
+    async def fake_download_file_to_path(
+        *,
+        key: str,
+        bucket: str,
+        output_path: Path,
+        max_bytes: int | None = None,
+        expected_sha256: str | None = None,
+    ) -> int:
+        del max_bytes, expected_sha256
+        content = uploaded[(bucket, key)]
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_bytes(content)
+        return len(content)
+
+    monkeypatch.setattr(
+        config,
+        "TRACECAT__AGENT_FS_CACHE_DIR",
+        str(tmp_path / "cache"),
+    )
+    monkeypatch.setattr(config, "TRACECAT__BLOB_STORAGE_BUCKET_AGENT", "agent-bucket")
+    monkeypatch.setattr(
+        AgentFilesystemService,
+        "with_session",
+        staticmethod(fake_with_session),
+    )
+    monkeypatch.setattr(
+        "tracecat.agent.filesystem.blob.upload_file_from_path",
+        fake_upload_file_from_path,
+    )
+    monkeypatch.setattr(
+        "tracecat.agent.filesystem.blob.download_file_to_path",
+        fake_download_file_to_path,
+    )
+
+    try:
+        snapshot = await persist_agent_work_dir(
+            role=cast(Any, object()),
+            session_id=session_id,
+            workspace_id=workspace_id,
+            work_dir=work_dir,
+        )
+        assert snapshot is current_snapshot
+        assert current_snapshot is not None
+    finally:
+        restricted_dir.chmod(0o700)
+
+    shutil.rmtree(work_dir)
+    shutil.rmtree(tmp_path / "cache")
+
+    hydrated = await hydrate_agent_work_dir(
+        role=cast(Any, object()),
+        session_id=session_id,
+        work_dir=work_dir,
+    )
+
+    restored_restricted_dir = work_dir / "restricted"
+    try:
+        assert hydrated is current_snapshot
+        assert restored_restricted_dir.is_dir()
+        assert stat.S_IMODE(restored_restricted_dir.stat().st_mode) == 0
+    finally:
+        if restored_restricted_dir.exists():
+            restored_restricted_dir.chmod(0o700)
 
 
 @pytest.mark.anyio
