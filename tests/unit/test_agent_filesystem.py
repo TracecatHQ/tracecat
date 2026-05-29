@@ -20,6 +20,7 @@ from tracecat.agent.filesystem import (
     AgentFilesystemService,
     AgentFilesystemSnapshotLimitExceeded,
     AgentFilesystemSnapshotMetadata,
+    _acquire_archive_cache_lease,
     _ensure_snapshot_archive_cached,
     _promote_archive_to_cache,
     compute_work_dir_state,
@@ -256,13 +257,43 @@ def test_promote_archive_prunes_oldest_cached_archives(
     temp_archive = tmp_path / "new.tar.gz"
     temp_archive.write_bytes(b"3333")
 
-    promoted = _promote_archive_to_cache(temp_archive, "c" * 64)
+    with _promote_archive_to_cache(temp_archive, "c" * 64) as promoted:
+        assert promoted.exists()
+        assert promoted.read_bytes() == b"3333"
 
-    assert promoted.exists()
-    assert promoted.read_bytes() == b"3333"
     assert not oldest.exists()
     assert newer.exists()
     assert sum(path.stat().st_size for path in archive_dir.glob("*.tar.gz")) <= 8
+
+
+def test_promote_archive_does_not_prune_leased_archive(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(
+        config,
+        "TRACECAT__AGENT_FS_CACHE_DIR",
+        str(tmp_path / "cache"),
+    )
+    monkeypatch.setattr(config, "TRACECAT__AGENT_FS_ARCHIVE_CACHE_MAX_BYTES", 8)
+    archive_dir = tmp_path / "cache" / "archives"
+    archive_dir.mkdir(parents=True)
+    leased = archive_dir / f"{'a' * 64}.tar.gz"
+    prunable = archive_dir / f"{'b' * 64}.tar.gz"
+    leased.write_bytes(b"1111")
+    prunable.write_bytes(b"2222")
+    os.utime(leased, (1, 1))
+    os.utime(prunable, (2, 2))
+    temp_archive = tmp_path / "new.tar.gz"
+    temp_archive.write_bytes(b"3333")
+
+    with _acquire_archive_cache_lease(leased):
+        with _promote_archive_to_cache(temp_archive, "c" * 64) as promoted:
+            assert promoted.exists()
+
+        assert leased.exists()
+        assert not prunable.exists()
+        assert sum(path.stat().st_size for path in archive_dir.glob("*.tar.gz")) <= 8
 
 
 @pytest.mark.anyio
@@ -321,10 +352,11 @@ async def test_downloaded_archive_prunes_oldest_cached_archives(
         fake_download_file_to_path,
     )
 
-    archive_path = await _ensure_snapshot_archive_cached(snapshot)
+    archive_lease = await _ensure_snapshot_archive_cached(snapshot)
+    with archive_lease as archive_path:
+        assert archive_path.exists()
+        assert archive_path.read_bytes() == content
 
-    assert archive_path.exists()
-    assert archive_path.read_bytes() == content
     assert not oldest.exists()
     assert newer.exists()
     assert sum(path.stat().st_size for path in archive_dir.glob("*.tar.gz")) <= 8

@@ -12,11 +12,13 @@ import os
 import shutil
 import stat
 import tarfile
+import threading
 import uuid
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
+from types import TracebackType
 from typing import BinaryIO, Protocol
 
 from sqlalchemy import select
@@ -36,6 +38,8 @@ STATE_HASH_ALGORITHM = "blake2b-256"
 _STATE_HASH_DIGEST_SIZE = 32
 _archive_cache_locks: dict[str, asyncio.Lock] = {}
 _archive_cache_locks_guard = asyncio.Lock()
+_archive_cache_usage_counts: dict[Path, int] = {}
+_archive_cache_usage_guard = threading.Lock()
 
 
 @dataclass(frozen=True, slots=True)
@@ -43,6 +47,40 @@ class _ArchiveCacheEntry:
     path: Path
     size_bytes: int
     last_used_ns: int
+
+
+@dataclass(slots=True)
+class _ArchiveCacheLease:
+    path: Path
+    resolved_path: Path
+    _released: bool = False
+
+    def __enter__(self) -> Path:
+        if self._released:
+            raise RuntimeError("Archive cache lease already released")
+        return self.path
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> None:
+        self.release()
+
+    def release(self) -> None:
+        if self._released:
+            return
+        with _archive_cache_usage_guard:
+            current_count = _archive_cache_usage_counts.get(self.resolved_path)
+            if current_count is None:
+                self._released = True
+                return
+            if current_count <= 1:
+                _archive_cache_usage_counts.pop(self.resolved_path, None)
+            else:
+                _archive_cache_usage_counts[self.resolved_path] = current_count - 1
+            self._released = True
 
 
 class _HashUpdater(Protocol):
@@ -212,8 +250,9 @@ async def hydrate_agent_work_dir(
         )
         return snapshot
 
-    archive_path = await _ensure_snapshot_archive_cached(snapshot)
-    await asyncio.to_thread(_extract_archive_to_work_dir, archive_path, work_dir)
+    archive_lease = await _ensure_snapshot_archive_cached(snapshot)
+    with archive_lease as archive_path:
+        await asyncio.to_thread(_extract_archive_to_work_dir, archive_path, work_dir)
     await asyncio.to_thread(_write_snapshot_marker, work_dir, snapshot)
     logger.info(
         "Hydrated agent filesystem snapshot",
@@ -279,19 +318,20 @@ async def persist_agent_work_dir(
             max_uncompressed_bytes=config.TRACECAT__AGENT_FS_MAX_UNCOMPRESSED_BYTES,
             max_file_count=config.TRACECAT__AGENT_FS_MAX_FILE_COUNT,
         )
-        archive_path = await asyncio.to_thread(
+        archive_lease = await asyncio.to_thread(
             _promote_archive_to_cache,
             temp_archive,
             archive_stats.sha256,
         )
         bucket = config.TRACECAT__BLOB_STORAGE_BUCKET_AGENT
         key = build_agent_fs_snapshot_key(sha256=archive_stats.sha256)
-        await blob.upload_file_from_path(
-            archive_path,
-            key=key,
-            bucket=bucket,
-            content_type=AGENT_FS_CONTENT_TYPE,
-        )
+        with archive_lease as archive_path:
+            await blob.upload_file_from_path(
+                archive_path,
+                key=key,
+                bucket=bucket,
+                content_type=AGENT_FS_CONTENT_TYPE,
+            )
         snapshot = AgentFilesystemSnapshotMetadata(
             bucket=bucket,
             key=key,
@@ -544,29 +584,26 @@ def extract_work_dir_archive(
 
 async def _ensure_snapshot_archive_cached(
     snapshot: AgentFilesystemSnapshotMetadata,
-) -> Path:
+) -> _ArchiveCacheLease:
     archive_path = _archive_cache_path(snapshot.sha256)
-    if _cached_archive_matches(archive_path, snapshot):
-        await asyncio.to_thread(_touch_archive_for_lru, archive_path)
-        await asyncio.to_thread(_prune_archive_cache, keep_path=archive_path)
-        return archive_path
-
     lock = await _get_archive_cache_lock(snapshot.sha256)
     async with lock:
-        if _cached_archive_matches(archive_path, snapshot):
+        lease = _acquire_archive_cache_lease(archive_path)
+        try:
+            if not _cached_archive_matches(archive_path, snapshot):
+                await blob.download_file_to_path(
+                    key=snapshot.key,
+                    bucket=snapshot.bucket,
+                    output_path=archive_path,
+                    max_bytes=snapshot.size_bytes,
+                    expected_sha256=snapshot.sha256,
+                )
             await asyncio.to_thread(_touch_archive_for_lru, archive_path)
             await asyncio.to_thread(_prune_archive_cache, keep_path=archive_path)
-        else:
-            await blob.download_file_to_path(
-                key=snapshot.key,
-                bucket=snapshot.bucket,
-                output_path=archive_path,
-                max_bytes=snapshot.size_bytes,
-                expected_sha256=snapshot.sha256,
-            )
-            await asyncio.to_thread(_touch_archive_for_lru, archive_path)
-            await asyncio.to_thread(_prune_archive_cache, keep_path=archive_path)
-    return archive_path
+        except Exception:
+            lease.release()
+            raise
+        return lease
 
 
 def _extract_archive_to_work_dir(archive_path: Path, work_dir: Path) -> None:
@@ -586,18 +623,21 @@ def _extract_archive_to_work_dir(archive_path: Path, work_dir: Path) -> None:
         raise
 
 
-def _promote_archive_to_cache(temp_archive: Path, sha256: str) -> Path:
+def _promote_archive_to_cache(temp_archive: Path, sha256: str) -> _ArchiveCacheLease:
     archive_path = _archive_cache_path(sha256)
     archive_path.parent.mkdir(parents=True, exist_ok=True)
-    if archive_path.exists():
-        temp_archive.unlink(missing_ok=True)
+    lease = _acquire_archive_cache_lease(archive_path)
+    try:
+        if archive_path.exists():
+            temp_archive.unlink(missing_ok=True)
+        else:
+            os.replace(temp_archive, archive_path)
         _touch_archive_for_lru(archive_path)
         _prune_archive_cache(keep_path=archive_path)
-        return archive_path
-    os.replace(temp_archive, archive_path)
-    _touch_archive_for_lru(archive_path)
-    _prune_archive_cache(keep_path=archive_path)
-    return archive_path
+    except Exception:
+        lease.release()
+        raise
+    return lease
 
 
 def _archive_cache_path(sha256: str) -> Path:
@@ -619,6 +659,15 @@ def _cached_archive_matches(
     return _sha256_file(archive_path) == snapshot.sha256
 
 
+def _acquire_archive_cache_lease(archive_path: Path) -> _ArchiveCacheLease:
+    resolved_path = archive_path.resolve(strict=False)
+    with _archive_cache_usage_guard:
+        _archive_cache_usage_counts[resolved_path] = (
+            _archive_cache_usage_counts.get(resolved_path, 0) + 1
+        )
+    return _ArchiveCacheLease(path=archive_path, resolved_path=resolved_path)
+
+
 def _touch_archive_for_lru(archive_path: Path) -> None:
     with contextlib.suppress(OSError):
         archive_path.touch()
@@ -630,49 +679,54 @@ def _prune_archive_cache(*, keep_path: Path | None = None) -> None:
     if not archives_dir.exists():
         return
 
-    keep_resolved = keep_path.resolve() if keep_path is not None else None
-    entries: list[_ArchiveCacheEntry] = []
-    total_bytes = 0
-    for archive_path in archives_dir.glob("*.tar.gz"):
-        try:
-            archive_stat = archive_path.stat()
-        except FileNotFoundError:
-            continue
-        if not stat.S_ISREG(archive_stat.st_mode):
-            continue
-        entries.append(
-            _ArchiveCacheEntry(
-                path=archive_path,
-                size_bytes=archive_stat.st_size,
-                last_used_ns=archive_stat.st_mtime_ns,
+    keep_resolved = keep_path.resolve(strict=False) if keep_path is not None else None
+    with _archive_cache_usage_guard:
+        entries: list[_ArchiveCacheEntry] = []
+        total_bytes = 0
+        for archive_path in archives_dir.glob("*.tar.gz"):
+            try:
+                archive_stat = archive_path.stat()
+            except FileNotFoundError:
+                continue
+            if not stat.S_ISREG(archive_stat.st_mode):
+                continue
+            entries.append(
+                _ArchiveCacheEntry(
+                    path=archive_path,
+                    size_bytes=archive_stat.st_size,
+                    last_used_ns=archive_stat.st_mtime_ns,
+                )
             )
-        )
-        total_bytes += archive_stat.st_size
-
-    if total_bytes <= max_bytes:
-        return
-
-    pruned_count = 0
-    pruned_bytes = 0
-    for entry in sorted(entries, key=lambda item: (item.last_used_ns, item.path.name)):
+            total_bytes += archive_stat.st_size
         if total_bytes <= max_bytes:
-            break
-        if keep_resolved is not None and entry.path.resolve() == keep_resolved:
-            continue
-        try:
-            entry.path.unlink()
-        except FileNotFoundError:
-            pass
-        except OSError as e:
-            logger.warning(
-                "Failed to prune agent filesystem archive cache entry",
-                path=str(entry.path),
-                error=str(e),
-            )
-            continue
-        total_bytes -= entry.size_bytes
-        pruned_count += 1
-        pruned_bytes += entry.size_bytes
+            return
+
+        pruned_count = 0
+        pruned_bytes = 0
+        for entry in sorted(
+            entries, key=lambda item: (item.last_used_ns, item.path.name)
+        ):
+            if total_bytes <= max_bytes:
+                break
+            entry_resolved = entry.path.resolve(strict=False)
+            if (
+                keep_resolved is not None and entry_resolved == keep_resolved
+            ) or entry_resolved in _archive_cache_usage_counts:
+                continue
+            try:
+                entry.path.unlink()
+            except FileNotFoundError:
+                pass
+            except OSError as e:
+                logger.warning(
+                    "Failed to prune agent filesystem archive cache entry",
+                    path=str(entry.path),
+                    error=str(e),
+                )
+                continue
+            total_bytes -= entry.size_bytes
+            pruned_count += 1
+            pruned_bytes += entry.size_bytes
 
     if pruned_count:
         logger.info(
