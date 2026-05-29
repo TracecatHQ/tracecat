@@ -116,7 +116,6 @@ async def run_action_untrusted(
             secrets=secrets,
             role=role,
             run_context=input.run_context,
-            action_args=evaluated_args,
         )
 
     # Initialize registry secrets context for SDK mode

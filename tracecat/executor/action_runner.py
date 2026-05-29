@@ -226,7 +226,6 @@ class ActionRunner:
                 secrets=resolved_context.secrets,
                 role=role,
                 run_context=input.run_context,
-                action_args=resolved_context.evaluated_args,
             )
 
         if use_sandbox:

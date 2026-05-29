@@ -39,7 +39,6 @@ class SecretPreprocessor(Protocol):
         secrets: Mapping[str, Any],
         role: Role,
         run_context: RunContext,
-        action_args: Mapping[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Return a transformed secret view for runtime injection."""
         ...
@@ -52,7 +51,6 @@ async def _assume_role_via_irsa(
     workspace_id: str,
     run_id: str,
     role_session_name: str | None = None,
-    region_name: str | None = None,
 ) -> dict[str, str]:
     """Assume an AWS IAM role using the host IRSA identity."""
     if role_session_name:
@@ -63,11 +61,7 @@ async def _assume_role_via_irsa(
         session_name = f"tracecat-ws-{ws_short}-run-{run_short}"[:64]
 
     try:
-        session = (
-            aioboto3.Session(region_name=region_name)
-            if region_name
-            else aioboto3.Session()
-        )
+        session = aioboto3.Session()
         async with session.client("sts") as sts_client:
             response = await sts_client.assume_role(
                 RoleArn=role_arn,
@@ -158,24 +152,6 @@ class AwsAssumeRoleSecretPreprocessor:
             return None
         return aws_role_session_name
 
-    def _get_region_name(
-        self,
-        secret_values: dict[str, Any],
-        action_args: Mapping[str, Any] | None,
-    ) -> str | None:
-        """Return the action-level region override or the secret AWS region."""
-        if action_args is not None and isinstance(
-            action_region := action_args.get("region_name"), str
-        ):
-            if action_region := action_region.strip():
-                return action_region
-
-        if not isinstance(aws_region := secret_values.get("AWS_REGION"), str):
-            return None
-        if not (aws_region := aws_region.strip()):
-            return None
-        return aws_region
-
     def _apply_credentials(
         self, secret_values: dict[str, Any], creds: dict[str, str]
     ) -> None:
@@ -192,7 +168,6 @@ class AwsAssumeRoleSecretPreprocessor:
         secrets: Mapping[str, Any],
         role: Role,
         run_context: RunContext,
-        action_args: Mapping[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Project protected AWS secrets into env-ready session credentials."""
         projected_secrets = copy.deepcopy(dict(secrets))
@@ -219,7 +194,6 @@ class AwsAssumeRoleSecretPreprocessor:
                 workspace_id=str(role.workspace_id),
                 run_id=str(run_context.wf_run_id),
                 role_session_name=self._get_role_session_name(secret_values),
-                region_name=self._get_region_name(secret_values, action_args),
             )
             self._apply_credentials(secret_values, creds)
 
@@ -251,7 +225,6 @@ async def project_secret_env(
     secrets: dict[str, Any],
     role: Role,
     run_context: RunContext,
-    action_args: Mapping[str, Any] | None = None,
     preprocessors: Sequence[SecretPreprocessor] = _DEFAULT_SECRET_PREPROCESSORS,
 ) -> SecretEnvProjection:
     """Build the env-ready secret view for runtime injection."""
@@ -262,7 +235,6 @@ async def project_secret_env(
                 secrets=projected_secrets,
                 role=role,
                 run_context=run_context,
-                action_args=action_args,
             )
 
     env = secrets_manager.flatten_secrets(projected_secrets)
