@@ -3,7 +3,15 @@
 import { useControllableState } from "@radix-ui/react-use-controllable-state"
 import { BrainIcon, ChevronDownIcon } from "lucide-react"
 import type { ComponentProps } from "react"
-import { createContext, memo, useContext, useEffect, useState } from "react"
+import {
+  createContext,
+  memo,
+  useCallback,
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+} from "react"
 import {
   Collapsible,
   CollapsibleContent,
@@ -39,6 +47,8 @@ export type ReasoningProps = ComponentProps<typeof Collapsible> & {
 
 const AUTO_CLOSE_DELAY = 1000
 const MS_IN_S = 1000
+// Treat the user as "pinned" when within this many px of the bottom.
+const STICK_TO_BOTTOM_THRESHOLD_PX = 16
 
 export const Reasoning = memo(
   ({
@@ -168,18 +178,54 @@ export type ReasoningContentProps = ComponentProps<
 }
 
 export const ReasoningContent = memo(
-  ({ className, children, ...props }: ReasoningContentProps) => (
-    <CollapsibleContent
-      className={cn(
-        "mt-4 text-sm",
-        "data-[state=closed]:fade-out-0 data-[state=closed]:slide-out-to-top-2 data-[state=open]:slide-in-from-top-2 text-muted-foreground outline-none data-[state=closed]:animate-out data-[state=open]:animate-in",
-        className
-      )}
-      {...props}
-    >
-      <Response className="grid gap-2">{children}</Response>
-    </CollapsibleContent>
-  )
+  ({ className, children, ...props }: ReasoningContentProps) => {
+    const { isStreaming } = useReasoning()
+    const scrollRef = useRef<HTMLDivElement>(null)
+    // Stay pinned to the latest reasoning unless the user scrolls away.
+    const pinnedToBottomRef = useRef(true)
+
+    const handleScroll = useCallback(() => {
+      const el = scrollRef.current
+      if (!el) {
+        return
+      }
+      const distanceFromBottom =
+        el.scrollHeight - el.scrollTop - el.clientHeight
+      pinnedToBottomRef.current =
+        distanceFromBottom <= STICK_TO_BOTTOM_THRESHOLD_PX
+    }, [])
+
+    // Follow streaming deltas by scrolling to the bottom while pinned.
+    useEffect(() => {
+      if (!isStreaming || !pinnedToBottomRef.current) {
+        return
+      }
+      const el = scrollRef.current
+      if (el) {
+        el.scrollTop = el.scrollHeight
+      }
+    }, [children, isStreaming])
+
+    return (
+      <CollapsibleContent
+        className={cn(
+          "mt-4 text-sm",
+          "data-[state=closed]:fade-out-0 data-[state=closed]:slide-out-to-top-2 data-[state=open]:slide-in-from-top-2 text-muted-foreground outline-none data-[state=closed]:animate-out data-[state=open]:animate-in",
+          className
+        )}
+        {...props}
+      >
+        <div
+          ref={scrollRef}
+          onScroll={handleScroll}
+          data-slot="reasoning-content"
+          className="max-h-60 overflow-y-auto overscroll-contain pr-1"
+        >
+          <Response className="grid gap-2">{children}</Response>
+        </div>
+      </CollapsibleContent>
+    )
+  }
 )
 
 Reasoning.displayName = "Reasoning"
