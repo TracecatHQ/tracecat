@@ -569,6 +569,24 @@ class TestSkillService:
             "skill_id": "duplicate-skill",
         }
 
+    async def test_get_skill_by_identifier_rejects_id_name_collision(
+        self,
+        skill_service: SkillService,
+    ) -> None:
+        """A UUID-like identifier matching one skill's id and a different
+        skill's name must be reported as ambiguous, not silently resolved."""
+
+        by_id = await skill_service.create_skill(SkillCreate(name="collision-id"))
+        await skill_service.create_skill(SkillCreate(name=str(by_id.id)))
+
+        with pytest.raises(TracecatValidationError) as exc_info:
+            await skill_service.get_skill_by_identifier(str(by_id.id))
+
+        assert exc_info.value.detail == {
+            "code": "ambiguous_skill_id",
+            "skill_id": str(by_id.id),
+        }
+
     async def test_patch_draft_enforces_revision(
         self,
         skill_service: SkillService,

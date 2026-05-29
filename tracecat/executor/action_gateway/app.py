@@ -113,6 +113,9 @@ def _include_internal_routers(app: FastAPI) -> None:
     from tracecat.agent.preset.internal_router import (
         router as internal_agent_preset_router,
     )
+    from tracecat.agent.skill.internal_router import (
+        router as internal_agent_skill_router,
+    )
     from tracecat.cases.attachments.internal_router import (
         router as internal_case_attachments_router,
     )
@@ -136,6 +139,7 @@ def _include_internal_routers(app: FastAPI) -> None:
 
     app.include_router(internal_agent_router)
     app.include_router(internal_agent_preset_router)
+    app.include_router(internal_agent_skill_router)
     app.include_router(internal_case_attachments_router)
     app.include_router(internal_cases_router)
     app.include_router(internal_deduplicate_router)

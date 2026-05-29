@@ -1109,16 +1109,17 @@ class SkillService(BaseWorkspaceService):
             parsed_skill_id = uuid.UUID(skill_id)
         except ValueError:
             parsed_skill_id = None
-        if parsed_skill_id is not None and (
-            skill := await self.get_skill(
+
+        uuid_match: Skill | None = None
+        if parsed_skill_id is not None:
+            uuid_match = await self.get_skill(
                 parsed_skill_id, include_archived=include_archived
             )
-        ):
-            return skill
+
         try:
             skill_name = SKILL_NAME_ADAPTER.validate_python(skill_id)
         except ValidationError:
-            return None
+            return uuid_match
         predicates = [
             Skill.workspace_id == self.workspace_id,
             Skill.name == skill_name,
@@ -1127,7 +1128,14 @@ class SkillService(BaseWorkspaceService):
             predicates.append(Skill.archived_at.is_(None))
         stmt = select(Skill).where(*predicates)
         skills = (await self.session.execute(stmt)).scalars().all()
-        if len(skills) > 1:
+
+        # A UUID string is also a valid skill name and names are not unique, so
+        # the identifier is ambiguous if multiple skills share the name, or if
+        # the id match and a name match point at different skills.
+        resolved_ids = {skill.id for skill in skills}
+        if uuid_match is not None:
+            resolved_ids.add(uuid_match.id)
+        if len(resolved_ids) > 1:
             raise TracecatValidationError(
                 "Skill identifier is ambiguous",
                 detail={
@@ -1135,7 +1143,7 @@ class SkillService(BaseWorkspaceService):
                     "skill_id": skill_name,
                 },
             ) from None
-        return skills[0] if skills else None
+        return uuid_match or (skills[0] if skills else None)
 
     async def _get_active_version(
         self, *, skill_id: uuid.UUID, version_id: uuid.UUID
