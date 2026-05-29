@@ -205,6 +205,7 @@ class TestBackend(ExecutorBackend):
                 secrets=resolved_context.secrets,
                 role=role,
                 run_context=input.run_context,
+                action_args=resolved_context.evaluated_args,
             )
         secrets_token = registry_secrets.set_context(secret_projection.env)
 

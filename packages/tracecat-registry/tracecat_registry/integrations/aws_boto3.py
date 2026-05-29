@@ -93,10 +93,29 @@ def _get_role_session_name() -> str:
     return "-".join(parts)[:64]
 
 
+def _get_region_name(region_name: str | None = None) -> str | None:
+    """Return the per-call AWS region override or the configured secret region."""
+    if region_name is not None:
+        if not isinstance(region_name, str):
+            raise TypeError("region_name must be a string when configured.")
+        if region_name := region_name.strip():
+            return region_name
+        return None
+
+    aws_region = secrets.get_or_default("AWS_REGION")
+    if aws_region is not None and not isinstance(aws_region, str):
+        raise TypeError("AWS_REGION must be a string when configured.")
+    return aws_region.strip() if aws_region else None
+
+
 async def get_temporary_credentials(
     role_arn: str,
+    region_name: str | None = None,
 ) -> AsyncCredentialsTypeDef:
-    async with aioboto3.Session().client("sts") as sts_client:
+    sts_session = (
+        aioboto3.Session(region_name=region_name) if region_name else aioboto3.Session()
+    )
+    async with sts_session.client("sts") as sts_client:
         response = await sts_client.assume_role(
             RoleArn=role_arn,
             RoleSessionName=_get_role_session_name(),
@@ -108,8 +127,12 @@ async def get_temporary_credentials(
 
 def get_sync_temporary_credentials(
     role_arn: str,
+    region_name: str | None = None,
 ) -> CredentialsTypeDef:
-    sts_client = boto3.Session().client("sts")
+    sts_session = (
+        boto3.Session(region_name=region_name) if region_name else boto3.Session()
+    )
+    sts_client = sts_session.client("sts")
     response = sts_client.assume_role(
         RoleArn=role_arn,
         RoleSessionName=_get_role_session_name(),
@@ -119,7 +142,7 @@ def get_sync_temporary_credentials(
     return creds
 
 
-async def get_session() -> aioboto3.Session:
+async def get_session(region_name: str | None = None) -> aioboto3.Session:
     """Build an aioboto3 session from secrets.
 
     Credential precedence:
@@ -129,14 +152,14 @@ async def get_session() -> aioboto3.Session:
     4. ``AWS_BEARER_TOKEN_BEDROCK`` (Bedrock-only bearer token)
     """
     aws_role_arn = secrets.get_or_default("AWS_ROLE_ARN")
-    aws_region = secrets.get_or_default("AWS_REGION")
+    aws_region = _get_region_name(region_name)
     aws_access_key_id = secrets.get_or_default("AWS_ACCESS_KEY_ID")
     aws_secret_access_key = secrets.get_or_default("AWS_SECRET_ACCESS_KEY")
     aws_session_token = secrets.get_or_default("AWS_SESSION_TOKEN")
     aws_bearer_token_bedrock = secrets.get_or_default("AWS_BEARER_TOKEN_BEDROCK")
 
     if aws_role_arn:
-        creds = await get_temporary_credentials(aws_role_arn)
+        creds = await get_temporary_credentials(aws_role_arn, region_name=aws_region)
         session = aioboto3.Session(
             aws_access_key_id=creds["AccessKeyId"],
             aws_secret_access_key=creds["SecretAccessKey"],
@@ -169,7 +192,7 @@ async def get_session() -> aioboto3.Session:
     return session
 
 
-def get_sync_session() -> boto3.Session:
+def get_sync_session(region_name: str | None = None) -> boto3.Session:
     """Build a boto3 session from secrets.
 
     Credential precedence:
@@ -179,14 +202,14 @@ def get_sync_session() -> boto3.Session:
     4. ``AWS_BEARER_TOKEN_BEDROCK`` (Bedrock-only bearer token)
     """
     aws_role_arn = secrets.get_or_default("AWS_ROLE_ARN")
-    aws_region = secrets.get_or_default("AWS_REGION")
+    aws_region = _get_region_name(region_name)
     aws_access_key_id = secrets.get_or_default("AWS_ACCESS_KEY_ID")
     aws_secret_access_key = secrets.get_or_default("AWS_SECRET_ACCESS_KEY")
     aws_session_token = secrets.get_or_default("AWS_SESSION_TOKEN")
     aws_bearer_token_bedrock = secrets.get_or_default("AWS_BEARER_TOKEN_BEDROCK")
 
     if aws_role_arn:
-        creds = get_sync_temporary_credentials(aws_role_arn)
+        creds = get_sync_temporary_credentials(aws_role_arn, region_name=aws_region)
         session = boto3.Session(
             aws_access_key_id=creds["AccessKeyId"],
             aws_secret_access_key=creds["SecretAccessKey"],
@@ -266,13 +289,17 @@ async def call_api(
         str | None,
         Doc("Endpoint URL for the AWS service."),
     ] = None,
+    region_name: Annotated[
+        str | None,
+        Doc("AWS region to use for this request. Overrides the AWS_REGION secret."),
+    ] = None,
     params: Annotated[
         dict[str, Any] | None,
         Doc("Parameters for the API method."),
     ] = None,
 ) -> dict[str, Any]:
     params = params or {}
-    session = await get_session()
+    session = await get_session(region_name=region_name)
     async with session.client(service_name, endpoint_url=endpoint_url) as client:  # type: ignore
         response = await getattr(client, method_name)(**params)
         return await _read_streaming_values(response)
@@ -299,13 +326,17 @@ async def call_paginated_api(
         str | None,
         Doc("Endpoint URL for the AWS service."),
     ] = None,
+    region_name: Annotated[
+        str | None,
+        Doc("AWS region to use for this request. Overrides the AWS_REGION secret."),
+    ] = None,
     params: Annotated[
         dict[str, Any] | None,
         Doc("Parameters for the API paginator."),
     ] = None,
 ) -> list[dict[str, Any]]:
     params = params or {}
-    session = await get_session()
+    session = await get_session(region_name=region_name)
     async with session.client(service_name, endpoint_url=endpoint_url) as client:  # type: ignore
         paginator = client.get_paginator(paginator_name)
         pages = paginator.paginate(**params)

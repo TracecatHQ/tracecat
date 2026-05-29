@@ -369,7 +369,7 @@ async def _run_single_template_step(
         result = await _run_template_steps(defn, nested_context)
     else:
         logger.trace("Running UDF async", action=action.name)
-        secret_projection = await _get_template_secret_projection(context)
+        secret_projection = await _get_template_secret_projection(context, args=args)
         with secrets_manager.env_sandbox(secret_projection.env):
             result = await _run_action_direct(action=action, args=args)
 
@@ -420,7 +420,9 @@ async def _prepare_step_context(
         run_id=parent_resolved.run_id,
         executor_token=executor_token,  # Mint new token for step
         logical_time=parent_resolved.logical_time,
-        secret_projection=parent_resolved.secret_projection,
+        # Recompute secret projection for each leaf step so action-level inputs
+        # like AWS `region_name` can affect host-side credential preprocessing.
+        secret_projection=None,
     )
 
 
@@ -616,6 +618,7 @@ class PreparedContext:
 
 async def _get_template_secret_projection(
     context: TemplateExecutionContext,
+    args: Mapping[str, Any] | None = None,
 ) -> SecretEnvProjection:
     secrets = context.get("SECRETS", {})
     role = ctx_role.get()
@@ -632,6 +635,7 @@ async def _get_template_secret_projection(
         secrets=secrets,
         role=role,
         run_context=run_context,
+        action_args=args,
     )
 
 
@@ -718,6 +722,7 @@ async def prepare_resolved_context(
         secrets=secrets,
         role=role,
         run_context=input.run_context,
+        action_args=evaluated_args,
     )
 
     # Build root-level masks from the runtime projection so host-side credential

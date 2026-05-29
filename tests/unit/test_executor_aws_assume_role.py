@@ -160,6 +160,31 @@ class TestAssumeRoleViaIrsa:
         assert result["SecretAccessKey"] == "temp_secret"
         assert result["SessionToken"] == "temp_token"
 
+    @pytest.mark.anyio
+    async def test_region_name_is_used_for_sts_session(self) -> None:
+        """Custom AWS regions should be used when assuming roles via STS."""
+        mock_sts_client = AsyncMock()
+        mock_sts_client.assume_role = AsyncMock(
+            return_value={"Credentials": _TEMP_CREDS}
+        )
+
+        with patch(
+            "tracecat.executor.secret_preprocessors.aioboto3.Session"
+        ) as mock_session_cls:
+            mock_session = mock_session_cls.return_value
+            mock_session.client.return_value.__aenter__.return_value = mock_sts_client
+
+            await _assume_role_via_irsa(
+                role_arn=_VALID_ROLE_ARN,
+                external_id=_EXTERNAL_ID,
+                workspace_id=str(_WORKSPACE_ID),
+                run_id=str(uuid.uuid4()),
+                region_name="us-gov-west-1",
+            )
+
+        mock_session_cls.assert_called_once_with(region_name="us-gov-west-1")
+        mock_session.client.assert_called_once_with("sts")
+
 
 class TestProjectSecretEnv:
     @pytest.mark.anyio
@@ -248,6 +273,7 @@ class TestProjectSecretEnv:
             workspace_id=str(_WORKSPACE_ID),
             run_id=str(run_context.wf_run_id),
             role_session_name="custom-audit-session",
+            region_name="us-east-1",
         )
 
     @pytest.mark.anyio
@@ -272,6 +298,83 @@ class TestProjectSecretEnv:
             workspace_id=str(_WORKSPACE_ID),
             run_id=str(run_context.wf_run_id),
             role_session_name="custom-audit-session",
+            region_name="us-east-1",
+        )
+
+    @pytest.mark.anyio
+    async def test_region_name_is_forwarded_to_assume_role(
+        self, role: Role, run_context: RunContext
+    ) -> None:
+        """AWS_REGION should also select the STS region during role assumption."""
+        secrets = _base_aws_secrets()
+        secrets["amazon_s3"]["AWS_REGION"] = " us-gov-west-1 "
+        mock_assume_role = _mock_assume_role()
+
+        with patch(_IRSA_PATCH, mock_assume_role):
+            await project_secret_env(
+                secrets=secrets,
+                role=role,
+                run_context=run_context,
+            )
+
+        mock_assume_role.assert_awaited_once_with(
+            role_arn=_VALID_ROLE_ARN,
+            external_id=_EXTERNAL_ID,
+            workspace_id=str(_WORKSPACE_ID),
+            run_id=str(run_context.wf_run_id),
+            role_session_name=None,
+            region_name="us-gov-west-1",
+        )
+
+    @pytest.mark.anyio
+    async def test_action_region_name_is_forwarded_to_assume_role(
+        self, role: Role, run_context: RunContext
+    ) -> None:
+        """Per-action region_name should select the STS region before UDF execution."""
+        secrets = _base_aws_secrets()
+        secrets["amazon_s3"].pop("AWS_REGION")
+        mock_assume_role = _mock_assume_role()
+
+        with patch(_IRSA_PATCH, mock_assume_role):
+            await project_secret_env(
+                secrets=secrets,
+                role=role,
+                run_context=run_context,
+                action_args={"region_name": "us-gov-west-1"},
+            )
+
+        mock_assume_role.assert_awaited_once_with(
+            role_arn=_VALID_ROLE_ARN,
+            external_id=_EXTERNAL_ID,
+            workspace_id=str(_WORKSPACE_ID),
+            run_id=str(run_context.wf_run_id),
+            role_session_name=None,
+            region_name="us-gov-west-1",
+        )
+
+    @pytest.mark.anyio
+    async def test_action_region_name_overrides_secret_region_for_assume_role(
+        self, role: Role, run_context: RunContext
+    ) -> None:
+        """Per-action region_name should override AWS_REGION during role preprocessing."""
+        secrets = _base_aws_secrets()
+        mock_assume_role = _mock_assume_role()
+
+        with patch(_IRSA_PATCH, mock_assume_role):
+            await project_secret_env(
+                secrets=secrets,
+                role=role,
+                run_context=run_context,
+                action_args={"region_name": " us-gov-west-1 "},
+            )
+
+        mock_assume_role.assert_awaited_once_with(
+            role_arn=_VALID_ROLE_ARN,
+            external_id=_EXTERNAL_ID,
+            workspace_id=str(_WORKSPACE_ID),
+            run_id=str(run_context.wf_run_id),
+            role_session_name=None,
+            region_name="us-gov-west-1",
         )
 
     @pytest.mark.anyio
