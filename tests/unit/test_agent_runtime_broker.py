@@ -138,6 +138,25 @@ async def test_broker_rejects_second_turn_for_same_session(
 
 
 @pytest.mark.anyio
+async def test_broker_session_lease_blocks_second_turn(tmp_path: Path) -> None:
+    broker = ClaudeRuntimeBroker()
+    await broker.start()
+    request = _make_request(tmp_path)
+    handler = cast(
+        Any,
+        SimpleNamespace(
+            prepare=AsyncMock(),
+            process_envelope=AsyncMock(),
+        ),
+    )
+    session_key = str(request.init_payload.session_id)
+
+    async with broker.session_turn_lease(session_key):
+        with pytest.raises(ConcurrentSessionTurnError):
+            await broker.run_turn(request, handler)
+
+
+@pytest.mark.anyio
 async def test_broker_rechecks_closed_state_after_waiting_for_lock(
     tmp_path: Path,
 ) -> None:

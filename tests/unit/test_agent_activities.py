@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import shutil
 import uuid
+from contextlib import asynccontextmanager
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -1159,6 +1160,7 @@ class TestSandboxedAgentExecutorFilesystemPersistence:
         socket_dir = job_dir / "sockets"
         work_dir = tmp_path / "work"
         events: list[str] = []
+        leased = False
 
         async def fake_create_job_directory() -> Path:
             socket_dir.mkdir(parents=True)
@@ -1168,7 +1170,23 @@ class TestSandboxedAgentExecutorFilesystemPersistence:
             return AsyncMock()
 
         class FakeBroker:
-            async def run_turn(self, request: Any, handler: Any) -> None:
+            def session_turn_lease(self, session_id: str):
+                @asynccontextmanager
+                async def lease():
+                    nonlocal leased
+                    assert session_id == str(mock_session_id)
+                    leased = True
+                    try:
+                        yield
+                    finally:
+                        leased = False
+
+                return lease()
+
+            async def run_turn_in_session_lease(
+                self, request: Any, handler: Any
+            ) -> None:
+                assert leased is True
                 assert request.hydrate_work_dir is not None
                 await request.hydrate_work_dir(work_dir)
                 events.append("broker")
@@ -1184,6 +1202,7 @@ class TestSandboxedAgentExecutorFilesystemPersistence:
 
         async def fake_persist_agent_work_dir(**kwargs: Any) -> None:
             events.append("snapshot")
+            assert leased is True
             assert kwargs["session_id"] == mock_session_id
             assert kwargs["workspace_id"] == mock_executor_input.workspace_id
             assert kwargs["work_dir"] == work_dir
@@ -1222,6 +1241,98 @@ class TestSandboxedAgentExecutorFilesystemPersistence:
 
         assert result.success is True
         assert events == ["hydrate", "broker", "snapshot"]
+
+    @pytest.mark.anyio
+    async def test_run_skips_snapshot_after_hydrate_fallback(
+        self,
+        mock_role: Role,
+        mock_session_id: uuid.UUID,
+        mock_agent_config: AgentConfig,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        mock_executor_input = AgentExecutorInput(
+            session_id=mock_session_id,
+            workspace_id=mock_role.workspace_id or uuid.uuid4(),
+            user_prompt="Test prompt",
+            config=mock_agent_config,
+            role=mock_role,
+            mcp_auth_token="mock-jwt-token",
+            llm_gateway_auth_token="mock-llm-token",
+        )
+        executor = SandboxedAgentExecutor(input=mock_executor_input)
+        job_dir = tmp_path / "job"
+        socket_dir = job_dir / "sockets"
+        work_dir = tmp_path / "work"
+        work_dir.mkdir()
+        (work_dir / "stale.txt").write_text("stale")
+        events: list[str] = []
+
+        async def fake_create_job_directory() -> Path:
+            socket_dir.mkdir(parents=True)
+            return job_dir
+
+        async def fake_create_llm_socket_proxy(_socket_path: Path) -> AsyncMock:
+            return AsyncMock()
+
+        class FakeBroker:
+            def session_turn_lease(self, _session_id: str):
+                @asynccontextmanager
+                async def lease():
+                    yield
+
+                return lease()
+
+            async def run_turn_in_session_lease(
+                self, request: Any, handler: Any
+            ) -> None:
+                assert request.hydrate_work_dir is not None
+                await request.hydrate_work_dir(work_dir)
+                events.append("broker")
+                handler._result = LoopbackResult(success=True)
+
+            async def cancel_turn(self, _session_id: str) -> None:
+                raise AssertionError("cancel_turn should not be called")
+
+        async def fail_hydrate_agent_work_dir(**_kwargs: Any) -> None:
+            events.append("hydrate")
+            raise RuntimeError("snapshot missing")
+
+        async def fail_persist_agent_work_dir(**_kwargs: Any) -> None:
+            raise AssertionError("hydrate fallback should not be persisted")
+
+        monkeypatch.setattr(
+            executor, "_create_job_directory", fake_create_job_directory
+        )
+        monkeypatch.setattr(
+            executor,
+            "_create_llm_socket_proxy",
+            fake_create_llm_socket_proxy,
+        )
+        monkeypatch.setattr(executor, "_cleanup", AsyncMock())
+        monkeypatch.setattr(
+            "tracecat.agent.executor.activity._agent_fs_persistence_enabled",
+            lambda: True,
+        )
+        monkeypatch.setattr(
+            "tracecat.agent.executor.activity.get_claude_runtime_broker",
+            lambda: FakeBroker(),
+        )
+        monkeypatch.setattr(
+            "tracecat.agent.executor.activity.hydrate_agent_work_dir",
+            fail_hydrate_agent_work_dir,
+        )
+        monkeypatch.setattr(
+            "tracecat.agent.executor.activity.persist_agent_work_dir",
+            fail_persist_agent_work_dir,
+        )
+
+        result = await executor.run()
+
+        assert result.success is True
+        assert events == ["hydrate", "broker"]
+        assert work_dir.is_dir()
+        assert list(work_dir.iterdir()) == []
 
     @pytest.mark.anyio
     async def test_hydrate_failure_falls_back_to_empty_work_dir(

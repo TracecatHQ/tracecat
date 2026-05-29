@@ -182,6 +182,7 @@ class SandboxedAgentExecutor:
     _fatal_error_event: asyncio.Event = field(
         default_factory=asyncio.Event, init=False, repr=False
     )
+    _agent_fs_hydration_failed: bool = field(default=False, init=False, repr=False)
     _turn_started_at: float = field(
         default_factory=perf_counter, init=False, repr=False
     )
@@ -393,6 +394,7 @@ class SandboxedAgentExecutor:
     async def _hydrate_agent_filesystem(self, work_dir: Path) -> None:
         """Hydrate the persistent agent work dir before runtime startup."""
         self._log_benchmark_phase("agent_fs_hydrate_start")
+        self._agent_fs_hydration_failed = False
         try:
             await hydrate_agent_work_dir(
                 role=self.input.role,
@@ -406,6 +408,7 @@ class SandboxedAgentExecutor:
                 workspace_id=str(self.input.workspace_id),
                 error=str(e),
             )
+            self._agent_fs_hydration_failed = True
             shutil.rmtree(work_dir, ignore_errors=True)
             work_dir.mkdir(parents=True, exist_ok=True)
         self._log_benchmark_phase("agent_fs_hydrate_complete")
@@ -484,63 +487,84 @@ class SandboxedAgentExecutor:
             if _agent_fs_persistence_enabled()
             else None,
         )
-        broker_task = asyncio.create_task(broker.run_turn(request, handler))
-        self._log_benchmark_phase("broker_turn_dispatched")
 
         async def wait_fatal_error() -> str:
             await self._fatal_error_event.wait()
             return self._fatal_error or "Unknown LLM error"
 
-        fatal_error_task = asyncio.create_task(wait_fatal_error())
-        heartbeat_interval = 30
-        elapsed = 0
-
+        broker_task: asyncio.Task[None] | None = None
+        fatal_error_task: asyncio.Task[str] | None = None
         try:
-            while elapsed < self.timeout_seconds:
-                done, _ = await asyncio.wait(
-                    [broker_task, fatal_error_task],
-                    timeout=heartbeat_interval,
-                    return_when=asyncio.FIRST_COMPLETED,
+            async with broker.session_turn_lease(str(self.input.session_id)):
+                broker_task = asyncio.create_task(
+                    broker.run_turn_in_session_lease(request, handler)
                 )
+                self._log_benchmark_phase("broker_turn_dispatched")
 
-                if not done:
-                    elapsed += heartbeat_interval
-                    activity.heartbeat(
-                        f"Agent running: {self.input.session_id} ({elapsed}s elapsed)"
-                    )
-                    continue
+                fatal_error_task = asyncio.create_task(wait_fatal_error())
+                heartbeat_interval = 30
+                elapsed = 0
 
-                if fatal_error_task in done:
-                    error_msg = fatal_error_task.result()
-                    result.error = error_msg
-                    await broker.cancel_turn(str(self.input.session_id))
-                    result.terminal_stream_error_emitted = (
-                        await handler.emit_terminal_error(error_msg)
+                while elapsed < self.timeout_seconds:
+                    done, _ = await asyncio.wait(
+                        [broker_task, fatal_error_task],
+                        timeout=heartbeat_interval,
+                        return_when=asyncio.FIRST_COMPLETED,
                     )
+
+                    if not done:
+                        elapsed += heartbeat_interval
+                        activity.heartbeat(
+                            f"Agent running: {self.input.session_id} ({elapsed}s elapsed)"
+                        )
+                        continue
+
+                    if fatal_error_task in done:
+                        error_msg = fatal_error_task.result()
+                        result.error = error_msg
+                        await broker.cancel_turn(str(self.input.session_id))
+                        broker_task.cancel()
+                        with contextlib.suppress(asyncio.CancelledError):
+                            await broker_task
+                        result.terminal_stream_error_emitted = (
+                            await handler.emit_terminal_error(error_msg)
+                        )
+                        break
+
+                    await broker_task
+                    self._apply_loopback_result(result, handler.build_result())
+                    self._log_benchmark_phase(
+                        "broker_activity_complete",
+                        success=result.success,
+                        approval_requested=result.approval_requested,
+                    )
+                    if _agent_fs_persistence_enabled() and result.success:
+                        if self._agent_fs_hydration_failed:
+                            logger.warning(
+                                "Skipping agent filesystem snapshot after hydrate fallback",
+                                session_id=str(self.input.session_id),
+                                workspace_id=str(self.input.workspace_id),
+                            )
+                        else:
+                            path_mapping = build_agent_sandbox_path_mapping(
+                                session_id=str(self.input.session_id),
+                                disable_nsjail=TRACECAT__DISABLE_NSJAIL,
+                            )
+                            await self._persist_agent_filesystem(
+                                path_mapping.host_work_dir
+                            )
                     break
-
-                await broker_task
-                self._apply_loopback_result(result, handler.build_result())
-                self._log_benchmark_phase(
-                    "broker_activity_complete",
-                    success=result.success,
-                    approval_requested=result.approval_requested,
-                )
-                if _agent_fs_persistence_enabled() and result.success:
-                    path_mapping = build_agent_sandbox_path_mapping(
-                        session_id=str(self.input.session_id),
-                        disable_nsjail=TRACECAT__DISABLE_NSJAIL,
+                else:
+                    result.error = (
+                        f"Agent execution timed out after {self.timeout_seconds}s"
                     )
-                    await self._persist_agent_filesystem(path_mapping.host_work_dir)
-                break
-            else:
-                result.error = (
-                    f"Agent execution timed out after {self.timeout_seconds}s"
-                )
-                await broker.cancel_turn(str(self.input.session_id))
-                result.terminal_stream_error_emitted = (
-                    await handler.emit_terminal_error(result.error)
-                )
+                    await broker.cancel_turn(str(self.input.session_id))
+                    broker_task.cancel()
+                    with contextlib.suppress(asyncio.CancelledError):
+                        await broker_task
+                    result.terminal_stream_error_emitted = (
+                        await handler.emit_terminal_error(result.error)
+                    )
         except Exception as e:
             result.error = str(e)
             result.terminal_stream_error_emitted = await handler.emit_terminal_error(
@@ -553,7 +577,7 @@ class SandboxedAgentExecutor:
             raise
         finally:
             for task in (fatal_error_task, broker_task):
-                if not task.done():
+                if task is not None and not task.done():
                     task.cancel()
                     with contextlib.suppress(asyncio.CancelledError):
                         await task

@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -42,6 +43,7 @@ class ClaudeRuntimeBroker:
 
     def __init__(self) -> None:
         self._closed = False
+        self._leased_sessions: set[str] = set()
         self._active_turns: dict[str, asyncio.Task[None]] = {}
         self._lock = asyncio.Lock()
 
@@ -69,6 +71,41 @@ class ClaudeRuntimeBroker:
     ) -> None:
         """Run one Claude turn through the warm broker."""
         session_key = str(request.init_payload.session_id)
+        async with self.session_turn_lease(session_key):
+            await self.run_turn_in_session_lease(request, handler)
+
+    @asynccontextmanager
+    async def session_turn_lease(self, session_id: str) -> AsyncIterator[None]:
+        """Hold the worker-local same-session turn lease.
+
+        The lease covers broker execution plus any activity-owned post-turn work
+        that must finish before the next same-session turn can start.
+        """
+        if asyncio.current_task() is None:
+            raise RuntimeError("Session turn lease must run inside an asyncio task")
+
+        async with self._lock:
+            if self._closed:
+                raise RuntimeError("Claude runtime broker is not running")
+            if session_id in self._leased_sessions:
+                raise ConcurrentSessionTurnError(
+                    f"Session {session_id} already has an active turn"
+                )
+            self._leased_sessions.add(session_id)
+
+        try:
+            yield
+        finally:
+            async with self._lock:
+                self._leased_sessions.discard(session_id)
+
+    async def run_turn_in_session_lease(
+        self,
+        request: ClaudeTurnRequest,
+        handler: LoopbackHandler,
+    ) -> None:
+        """Run one Claude turn while the caller holds ``session_turn_lease``."""
+        session_key = str(request.init_payload.session_id)
         current_task = asyncio.current_task()
         if current_task is None:
             raise RuntimeError("Broker turn must run inside an asyncio task")
@@ -76,6 +113,8 @@ class ClaudeRuntimeBroker:
         async with self._lock:
             if self._closed:
                 raise RuntimeError("Claude runtime broker is not running")
+            if session_key not in self._leased_sessions:
+                raise RuntimeError("Session turn lease must be held before run_turn")
             if session_key in self._active_turns:
                 raise ConcurrentSessionTurnError(
                     f"Session {session_key} already has an active turn"
@@ -109,7 +148,8 @@ class ClaudeRuntimeBroker:
             await runtime.run(request.init_payload)
         finally:
             async with self._lock:
-                self._active_turns.pop(session_key, None)
+                if self._active_turns.get(session_key) is current_task:
+                    self._active_turns.pop(session_key, None)
 
     async def cancel_turn(self, session_id: str) -> None:
         """Cancel an active turn for the provided session, if one exists."""
