@@ -41,6 +41,9 @@ from tracecat.cases.durations.schemas import (
     CaseDurationRead,
     CaseDurationUpdate,
 )
+from tracecat.cases.durations.sync_queue import (
+    enqueue_case_duration_sync_after_commit,
+)
 from tracecat.cases.enums import CaseEventType
 from tracecat.concurrency import cooperative_every
 from tracecat.db.models import Case, CaseDuration, CaseEvent
@@ -101,6 +104,11 @@ class CaseDurationDefinitionService(BaseWorkspaceService):
             **self._anchor_attributes(params.end_anchor, "end"),
         )
         self.session.add(entity)
+        enqueue_case_duration_sync_after_commit(
+            self.session,
+            workspace_id=self.workspace_id,
+            reason="duration_definition_created",
+        )
         await self.session.commit()
         await self.session.refresh(entity)
         return self._to_read_model(entity)
@@ -142,6 +150,11 @@ class CaseDurationDefinitionService(BaseWorkspaceService):
             self._apply_anchor(entity, end_anchor, "end")
 
         self.session.add(entity)
+        enqueue_case_duration_sync_after_commit(
+            self.session,
+            workspace_id=self.workspace_id,
+            reason="duration_definition_updated",
+        )
         await self.session.commit()
         await self.session.refresh(entity)
         return self._to_read_model(entity)

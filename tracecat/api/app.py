@@ -80,6 +80,7 @@ from tracecat.authz.seeding import seed_all_system_data
 from tracecat.cases.attachments.router import router as case_attachments_router
 from tracecat.cases.dropdowns.router import definitions_router as case_dropdowns_router
 from tracecat.cases.dropdowns.router import values_router as case_dropdown_values_router
+from tracecat.cases.durations.consumer import start_case_duration_sync_consumer
 from tracecat.cases.durations.router import router as case_durations_router
 from tracecat.cases.router import case_fields_router as case_fields_router
 from tracecat.cases.router import cases_router as cases_router
@@ -222,6 +223,14 @@ async def lifespan(app: FastAPI):
         )
         logger.debug("Spawned background task for case trigger consumer")
 
+    case_duration_sync_task = None
+    if config.TRACECAT__CASE_DURATION_SYNC_ENABLED:
+        case_duration_sync_task = asyncio.create_task(
+            start_case_duration_sync_consumer(),
+            name="case_duration_sync_consumer",
+        )
+        logger.debug("Spawned background task for case duration sync consumer")
+
     logger.info(
         "Feature flags", feature_flags=[f.value for f in config.TRACECAT__FEATURE_FLAGS]
     )
@@ -291,6 +300,15 @@ async def lifespan(app: FastAPI):
             logger.debug("Case trigger consumer task cancelled")
         except Exception as e:
             logger.warning("Case trigger consumer stopped with error", error=e)
+
+    if case_duration_sync_task is not None:
+        case_duration_sync_task.cancel()
+        try:
+            await case_duration_sync_task
+        except asyncio.CancelledError:
+            logger.debug("Case duration sync consumer task cancelled")
+        except Exception as e:
+            logger.warning("Case duration sync consumer stopped with error", error=e)
 
     await close_storage_client_cache()
 
