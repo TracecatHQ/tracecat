@@ -10,6 +10,7 @@ from tracecat.agent.tags import definitions_router as agent_tag_definitions_rout
 from tracecat.auth.types import Role
 from tracecat.cases.dropdowns import router as case_dropdowns_router
 from tracecat.cases.durations import router as case_durations_router
+from tracecat.cases.rows import router as case_rows_router
 from tracecat.cases.tag_definitions import router as case_tag_definitions_router
 from tracecat.cases.tags import internal_router as internal_case_tags_router
 from tracecat.cases.tags import router as case_tags_router
@@ -53,6 +54,37 @@ async def _assert_endpoint_requires_scope(
         type="user",
         service_id="tracecat-api",
         scopes=allowed_scopes,
+    )
+    token = ctx_role.set(allowed_role)
+    try:
+        with pytest.raises(TypeError):
+            await endpoint()
+    finally:
+        ctx_role.reset(token)
+
+
+async def _assert_endpoint_requires_all_scopes(
+    endpoint: AsyncEndpoint, required_scopes: Sequence[str]
+) -> None:
+    required = frozenset(required_scopes)
+
+    for missing_scope in required:
+        partial_role = Role(
+            type="user",
+            service_id="tracecat-api",
+            scopes=required - {missing_scope},
+        )
+        token = ctx_role.set(partial_role)
+        try:
+            with pytest.raises(ScopeDeniedError):
+                await endpoint()
+        finally:
+            ctx_role.reset(token)
+
+    allowed_role = Role(
+        type="user",
+        service_id="tracecat-api",
+        scopes=required,
     )
     token = ctx_role.set(allowed_role)
     try:
@@ -368,6 +400,14 @@ async def test_workflow_execution_stop_scope_guards(
 )
 async def test_case_scope_guards(endpoint: AsyncEndpoint, required_scope: str) -> None:
     await _assert_endpoint_requires_scope(endpoint, required_scope)
+
+
+@pytest.mark.anyio
+async def test_insert_case_row_requires_case_update_and_table_create() -> None:
+    await _assert_endpoint_requires_all_scopes(
+        case_rows_router.insert_case_row,
+        ("case:update", "table:create"),
+    )
 
 
 @pytest.mark.anyio

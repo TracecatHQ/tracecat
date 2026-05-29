@@ -81,7 +81,7 @@ async def link_case_row(
 
 
 @router.post("/{case_id}/rows/insert", status_code=HTTP_201_CREATED)
-@require_scope("case:update")
+@require_scope("case:update", "table:create")
 async def insert_case_row(
     *,
     role: WorkspaceActorRouteRole,
