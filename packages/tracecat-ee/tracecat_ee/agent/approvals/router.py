@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat.agent.approvals.enums import ApprovalStatus
 from tracecat.agent.session.service import AgentSessionService
 from tracecat.agent.types import ToolApproved, ToolDenied
-from tracecat.auth.dependencies import WorkspaceUserRouteRole
+from tracecat.auth.dependencies import WorkspaceUserRouteRole, get_api_key
 from tracecat.authz.controls import require_scope
 from tracecat.chat.schemas import ApprovalDecision, ContinueRunRequest
 from tracecat.db.engine import get_async_session
@@ -79,6 +79,7 @@ async def submit_approvals(
     session_id: uuid.UUID,
     payload: ApprovalSubmission,
     session: AsyncSession = Depends(get_async_session),
+    api_key: str = Depends(get_api_key),
 ) -> None:
     """Submit approval decisions to a running agent workflow.
 
@@ -90,9 +91,11 @@ async def submit_approvals(
         session_id: The agent session ID (used to lookup the workflow).
         payload: The approval decisions mapping tool_call_id to decision.
         session: Database session for workspace-scoped lookups.
+        api_key: The API key provided by the user.
 
     Raises:
         HTTPException 400: If the approval submission fails validation.
+        HTTPException 403: If no API key is provided.
         HTTPException 404: If the agent session/workflow is not found.
         HTTPException 500: For unexpected errors.
     """
@@ -158,6 +161,7 @@ async def delete_approval(
     role: WorkspaceUserRouteRole,
     session_id: uuid.UUID,
     session: AsyncSession = Depends(get_async_session),
+    api_key: str = Depends(get_api_key),
 ) -> None:
     """Dismiss all pending approvals for a session.
 
