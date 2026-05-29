@@ -129,6 +129,11 @@ TRACECAT__EXECUTOR_QUEUE = os.environ.get(
 )
 """Task queue for the ExecutorWorker (Temporal activity queue)."""
 
+TRACECAT__EXECUTOR_FOR_EACH_MAX_CONCURRENCY = int(
+    os.environ.get("TRACECAT__EXECUTOR_FOR_EACH_MAX_CONCURRENCY") or 4
+)
+"""Maximum concurrent iterations for a single executor-side action for_each loop."""
+
 TRACECAT__ACTIVITY_HEARTBEAT_TIMEOUT = int(
     os.environ.get("TRACECAT__ACTIVITY_HEARTBEAT_TIMEOUT") or 60
 )

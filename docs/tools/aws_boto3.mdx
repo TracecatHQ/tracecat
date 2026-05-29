@@ -48,6 +48,14 @@ Default: `null`.
 
 </ParamField>
 
+<ParamField path="region_name" type="string | null">
+
+AWS region to use for this request. Overrides the AWS_REGION secret.
+
+Default: `null`.
+
+</ParamField>
+
 ## Call paginator
 
 Action ID: `tools.aws_boto3.call_paginated_api`
@@ -87,6 +95,14 @@ Default: `null`.
 <ParamField path="params" type="object | null">
 
 Parameters for the API paginator.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="region_name" type="string | null">
+
+AWS region to use for this request. Overrides the AWS_REGION secret.
 
 Default: `null`.
 
