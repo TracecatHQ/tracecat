@@ -14,7 +14,6 @@ from tracecat import config
 from tracecat.auth.executor_tokens import mint_executor_token
 from tracecat.auth.types import Role
 from tracecat.authz.controls import require_action_scope
-from tracecat.concurrency import GatheringTaskGroup
 from tracecat.contexts import (
     ctx_interaction,
     ctx_logical_time,
@@ -874,31 +873,50 @@ async def dispatch_action(backend: ExecutorBackend, input: RunActionInput) -> An
 
     logger.info("Running for_each on action in parallel", action=task.action)
 
-    # Handle for_each by creating parallel executions
+    # Handle for_each by creating bounded parallel executions
     base_context = input.exec_context
     # We have a list of iterators that give a variable assignment path ".path.to.value"
     # and a collection of values as a tuple.
     iterators = get_iterables_from_expression(expr=task.for_each, operand=base_context)
 
-    tasks: list[asyncio.Task[ExecutionResult]] = []
+    max_concurrency = max(1, config.TRACECAT__EXECUTOR_FOR_EACH_MAX_CONCURRENCY)
+    # Use a fixed worker pool instead of a semaphore around one task per loop item.
+    # A semaphore would cap active invokes, but still schedules every iteration and
+    # retains per-item task state for large loops. Workers pull lazily from the
+    # iterator, so memory and event-loop pressure scale with max_concurrency.
+    # Keep this loop-local; cross-activity caps must not use asyncio primitives
+    # because activities can run on different event loops.
+    loop_items = iter(enumerate(zip(*iterators, strict=False)))
+    results: dict[int, ExecutionResult] = {}
+    iteration_count = 0
+
+    async def worker() -> None:
+        nonlocal iteration_count
+
+        while True:
+            try:
+                i, items = next(loop_items)
+            except StopIteration:
+                return
+
+            iteration_count += 1
+            new_context = base_context.copy()
+            # Patch each loop variable
+            for iterator_path, iterator_value in items:
+                patch_object(
+                    obj=cast(MutableMapping[str, Any], new_context),
+                    path=ExprContext.LOCAL_VARS + iterator_path,
+                    value=iterator_value,
+                )
+            # Create a new task with the patched context
+            new_input = input.model_copy(update={"exec_context": new_context})
+            results[i] = await invoke_once(backend, new_input, ctx, iteration=i)
+
     try:
-        # Create a generator that zips the iterables together
-        # Iterate over the for_each items
-        async with GatheringTaskGroup() as tg:
-            for i, items in enumerate(zip(*iterators, strict=False)):
-                new_context = base_context.copy()
-                # Patch each loop variable
-                for iterator_path, iterator_value in items:
-                    patch_object(
-                        obj=cast(MutableMapping[str, Any], new_context),
-                        path=ExprContext.LOCAL_VARS + iterator_path,
-                        value=iterator_value,
-                    )
-                # Create a new task with the patched context
-                new_input = input.model_copy(update={"exec_context": new_context})
-                coro = invoke_once(backend, new_input, ctx, iteration=i)
-                tasks.append(tg.create_task(coro))
-        return tg.results()
+        async with asyncio.TaskGroup() as tg:
+            for _ in range(max_concurrency):
+                tg.create_task(worker())
+        return [results[i] for i in range(iteration_count)]
     except* ExecutionError as eg:
         loop_errors = flatten_wrapped_exc_error_group(eg)
         raise LoopExecutionError(loop_errors) from eg
@@ -914,10 +932,6 @@ async def dispatch_action(backend: ExecutorBackend, input: RunActionInput) -> An
             ),
             detail={"errors": errors},
         ) from eg
-    finally:
-        logger.debug("Shut down any pending tasks")
-        for t in tasks:
-            t.cancel()
 
 
 """Utilities"""
