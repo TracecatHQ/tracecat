@@ -252,7 +252,8 @@ def _iter_explicit_artifact_side_effects(
         return
 
     for key, op in _EXPLICIT_ARTIFACT_SOURCES:
-        for raw_item in _iter_artifact_items(data.get(key)):
+        source = data if key == "artifact" and "op" in data else data.get(key)
+        for raw_item in _iter_artifact_items(source):
             if effect := _explicit_effect_from_value(raw_item, op, tool_call_id):
                 yield effect
 
@@ -405,6 +406,9 @@ def _mapping_from_tool_output(value: Any) -> Mapping[str, Any] | None:
 
 
 def _mapping_from_content_blocks(value: Any) -> Mapping[str, Any] | None:
+    if isinstance(value, Mapping):
+        return _mapping_from_content_block(value) or cast(Mapping[str, Any], value)
+
     if not isinstance(value, Iterable) or isinstance(value, str | bytes):
         return None
 

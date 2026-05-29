@@ -177,6 +177,38 @@ def test_case_tool_result_emits_upsert_side_effect() -> None:
     }
 
 
+def test_explicit_artifact_wrapper_preserves_remove_operation() -> None:
+    effects = list(
+        artifact_side_effects_for_tool_result(
+            tool_name="custom.tool",
+            tool_input=None,
+            tool_output={
+                "op": "remove",
+                "artifact": {
+                    "type": "generic",
+                    "id": "artifact_123",
+                    "title": "Artifact 123",
+                },
+            },
+            is_error=False,
+            tool_call_id="toolu_123",
+        )
+    )
+
+    assert len(effects) == 1
+    assert effects[0].op == "remove"
+    payload = artifact_data_payload(effects[0].op, effects[0].artifact)
+    assert payload == {
+        "op": "remove",
+        "artifact": {
+            "type": "generic",
+            "id": "artifact_123",
+            "title": "Artifact 123",
+            "scope": {"parentToolCallId": "toolu_123"},
+        },
+    }
+
+
 def test_artifact_bindings_list_canonical_tool_names() -> None:
     tool_names = [
         tool_name for binding in ARTIFACT_BINDINGS for tool_name in binding.tool_names
@@ -238,6 +270,37 @@ def test_table_tool_result_content_block_emits_upsert_side_effect() -> None:
                     ),
                 }
             ],
+            is_error=False,
+            tool_call_id="toolu_123",
+        )
+    )
+
+    assert len(effects) == 1
+    assert effects[0].op == "upsert"
+    payload = artifact_data_payload(effects[0].op, effects[0].artifact)
+    assert payload == {
+        "op": "upsert",
+        "artifact": {
+            "type": "table",
+            "id": "table_123",
+            "title": "indicators",
+            "scope": {"parentToolCallId": "toolu_123"},
+        },
+    }
+
+
+def test_table_tool_result_mapping_content_emits_upsert_side_effect() -> None:
+    effects = list(
+        artifact_side_effects_for_tool_result(
+            tool_name="core.table.create_table",
+            tool_input={"name": "indicators"},
+            tool_output={
+                "content": {
+                    "id": "table_123",
+                    "name": "indicators",
+                    "workspace_id": "workspace_123",
+                }
+            },
             is_error=False,
             tool_call_id="toolu_123",
         )
