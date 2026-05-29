@@ -20,9 +20,12 @@ When stuck on DSL behavior, Tracecat is open source at https://github.com/Tracec
 ## Authoring Defaults
 
 - Prefer linear, readable workflow graphs when parallelism is not materially useful.
+- Keep a workflow to roughly 20 nodes or fewer. If it grows beyond that, split it into named subflows with clear inputs and outputs.
+- Use workflow folders to group related parent workflows, subflows, and support utilities.
 - Do not use `core.transform.scatter` / `core.transform.gather` for ordinary data transforms. Normalize, dedupe, join, filter, sort, and batch upsert inside `core.script.run_python`.
 - Keep run-python outputs small: downstream rows, summary counts, and bounded error samples.
-- Prefer the `model` object for `ai.agent`; top-level `model_name` and `model_provider` are deprecated unless the user explicitly asks for the legacy shape.
+- Prefer agent presets when an appropriate preset already exists. Use inline `ai.agent` only when the behavior is tightly coupled to one workflow and the prompt should travel with that workflow.
+- Prefer the `model` object for inline `ai.agent`; top-level `model_name` and `model_provider` are deprecated unless the user explicitly asks for the legacy shape.
 
 ```yaml
 args:
@@ -31,7 +34,19 @@ args:
     model_provider: anthropic
 ```
 
-Use `ai.preset_agent` when a reusable agent should be maintained separately from a workflow. Use inline `ai.agent` when the behavior is tightly coupled to one workflow and the prompt should travel with that workflow.
+Use `ai.preset_agent` when a reusable agent should be maintained separately from a workflow.
+
+## Workflow Architecture
+
+- Break large automations into a small orchestrator workflow plus focused subflows. The parent should route, checkpoint, and call subflows; subflows should do one coherent job.
+- Use `core.workflow.execute` for subflows. Prefer `workflow_alias` over hard-coded workflow IDs when aliases are available.
+- For collection fan-out, prefer scattering into subflows instead of building a large parent workflow graph. Keep the parent responsible for preparing inputs and aggregating/checkpointing results.
+- Use subflow `loop_strategy: batch` for most bulk work. It is the default and is safer than fully parallel fan-out.
+- Default subflow loop options are `loop_strategy: batch`, `batch_size: 32`, `fail_strategy: isolated`, and `wait_strategy: detach`.
+- For batched subflows, start with `batch_size: 32`. Lower it for rate-limited APIs or expensive actions; raise it only when the downstream system and Tracecat tier can handle the concurrency.
+- Use `wait_strategy: detach` for fire-and-forget fan-out where the parent only needs child workflow IDs. Use `wait_strategy: wait` when the parent must aggregate child results or gate downstream actions on subflow success.
+- Keep `fail_strategy: isolated` for bulk work so one failed item does not fail the whole batch. Use `fail_strategy: all` only when any subflow failure should fail the parent action.
+- Use tables as checkpoints between stages and subflows. Store normalized inputs, per-item status, run IDs, timestamps, and bounded error samples so reruns can resume or explain partial progress.
 
 ## Run-Python Imports
 
