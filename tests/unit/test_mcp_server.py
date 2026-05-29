@@ -7783,6 +7783,28 @@ def test_mcp_instruction_action_args_match_registry_signatures() -> None:
     assert seen_actions == set(action_functions)
 
 
+def test_mcp_instruction_expressions_respect_prompt_action_result_shapes() -> None:
+    action_refs = {
+        fragment["ref"]: fragment["action"] for fragment in _mcp_yaml_action_fragments()
+    }
+    list_result_refs = {
+        ref
+        for ref, action_name in action_refs.items()
+        if action_name == "core.http_paginate"
+    }
+
+    invalid_dereferences = []
+    for ref in list_result_refs:
+        invalid_dereferences.extend(
+            re.findall(
+                rf"ACTIONS\.{re.escape(ref)}\.result\.([A-Za-z_][A-Za-z0-9_]*)",
+                mcp_server._MCP_INSTRUCTIONS,
+            )
+        )
+
+    assert not invalid_dereferences
+
+
 def test_mcp_instruction_text_stays_within_context_budget() -> None:
     assert len(mcp_server._MCP_INSTRUCTIONS) <= 18500, (
         "MCP instructions exceeded the prompt budget. Compress existing guidance "

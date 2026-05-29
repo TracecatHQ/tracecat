@@ -2993,7 +2993,7 @@ Common inline expression patterns:
 ```yaml
 args:
   display_name: '${{ TRIGGER.name || "unknown" }}'
-  summary: '${{ FN.concat("Found ", FN.length(ACTIONS.list_events.result.items), " events") }}'
+  summary: '${{ FN.concat("Found ", FN.length(ACTIONS.list_events.result), " events") }}'
   joined_ids: '${{ FN.join(ACTIONS.normalize.result.ids, ",") }}'
   since: '${{ FN.to_isoformat(FN.now() - FN.hours(4)) }}'
 ```
