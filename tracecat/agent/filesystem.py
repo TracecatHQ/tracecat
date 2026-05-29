@@ -670,7 +670,7 @@ def _acquire_archive_cache_lease(archive_path: Path) -> _ArchiveCacheLease:
 
 def _touch_archive_for_lru(archive_path: Path) -> None:
     with contextlib.suppress(OSError):
-        archive_path.touch()
+        os.utime(archive_path)
 
 
 def _prune_archive_cache(*, keep_path: Path | None = None) -> None:

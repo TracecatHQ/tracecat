@@ -23,6 +23,7 @@ from tracecat.agent.filesystem import (
     _acquire_archive_cache_lease,
     _ensure_snapshot_archive_cached,
     _promote_archive_to_cache,
+    _touch_archive_for_lru,
     compute_work_dir_state,
     create_work_dir_archive,
     extract_work_dir_archive,
@@ -294,6 +295,16 @@ def test_promote_archive_does_not_prune_leased_archive(
         assert leased.exists()
         assert not prunable.exists()
         assert sum(path.stat().st_size for path in archive_dir.glob("*.tar.gz")) <= 8
+
+
+def test_touch_archive_for_lru_does_not_create_missing_archive(
+    tmp_path: Path,
+) -> None:
+    missing_archive = tmp_path / f"{'a' * 64}.tar.gz"
+
+    _touch_archive_for_lru(missing_archive)
+
+    assert not missing_archive.exists()
 
 
 @pytest.mark.anyio
