@@ -12,6 +12,7 @@ from tracecat.agent.session.service import AgentSessionService
 from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.agent.subagents import ResolvedAgentsConfig
 from tracecat.auth.types import Role
+from tracecat.chat.tools import WORKSPACE_CHAT_DEFAULT_TOOLS
 from tracecat.db.models import AgentSession
 from tracecat.exceptions import TracecatValidationError
 
@@ -63,6 +64,28 @@ async def test_create_session_preserves_null_preset_version_for_current() -> Non
     assert created.agent_preset_id == preset_id
     assert created.agent_preset_version_id is None
     assert created.agents_binding is None
+    session.add.assert_called_once_with(created)
+    session.commit.assert_awaited_once()
+    session.refresh.assert_awaited_once_with(created)
+
+
+@pytest.mark.anyio
+async def test_create_workspace_chat_session_applies_current_default_tools() -> None:
+    service, session, _role = _build_service()
+    validate_mock = AsyncMock(return_value=None)
+    agents_binding_mock = AsyncMock(return_value=None)
+    service._validate_preset_version_for_assignment = validate_mock
+    service._resolve_agents_binding_for_preset_version_id = agents_binding_mock
+
+    created = await service.create_session(
+        AgentSessionCreate(
+            title="Chat",
+            entity_type=AgentSessionEntity.WORKSPACE_CHAT,
+            entity_id=uuid.uuid4(),
+        )
+    )
+
+    assert created.tools == WORKSPACE_CHAT_DEFAULT_TOOLS
     session.add.assert_called_once_with(created)
     session.commit.assert_awaited_once()
     session.refresh.assert_awaited_once_with(created)
