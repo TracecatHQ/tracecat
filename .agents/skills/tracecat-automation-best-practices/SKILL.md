@@ -21,8 +21,11 @@ When stuck on DSL behavior, Tracecat is open source at https://github.com/Tracec
 
 - Prefer linear, readable workflow graphs when parallelism is not materially useful.
 - Keep a workflow to roughly 20 nodes or fewer. If it grows beyond that, split it into named subflows with clear inputs and outputs.
+- Keep agentic workflows to roughly 6 nodes or fewer. The graph should set context, call the agent or preset, and handle the result; move surrounding collection work into subflows or scripts.
 - Use workflow folders to group related parent workflows, subflows, and support utilities.
 - Do not use `core.transform.scatter` / `core.transform.gather` for ordinary data transforms. Normalize, dedupe, join, filter, sort, and batch upsert inside `core.script.run_python`.
+- Prefer agents or agent presets for judgment, summarization, investigation, and tool-using decisions. If the task is just one deterministic API call, use `core.http_request` instead of an agent.
+- Use HTTP pagination actions for paginated APIs. For transforms, especially nested loops, joins, grouping, dedupe, or large collection shaping, use `core.script.run_python` instead of expression chains.
 - Keep run-python outputs small: downstream rows, summary counts, and bounded error samples.
 - Prefer agent presets when an appropriate preset already exists. Use inline `ai.agent` only when the behavior is tightly coupled to one workflow and the prompt should travel with that workflow.
 - Prefer the `model` object for inline `ai.agent`; top-level `model_name` and `model_provider` are deprecated unless the user explicitly asks for the legacy shape.
