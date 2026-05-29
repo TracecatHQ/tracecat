@@ -10,7 +10,7 @@ import {
   X,
 } from "lucide-react"
 import { useRouter, useSearchParams } from "next/navigation"
-import { useCallback, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import type {
   CaseDropdownDefinitionRead,
   CaseFieldRead,
@@ -139,6 +139,9 @@ export function CasePanelView({
   )
   const [showAllCustomFields, setShowAllCustomFields] = useState(false)
   const [embeddedTab, setEmbeddedTab] = useState<CasePanelTab>("comments")
+  useEffect(() => {
+    setEmbeddedTab("comments")
+  }, [caseId])
   const visibleCustomFields = useMemo(
     () =>
       showAllCustomFields
