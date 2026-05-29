@@ -6,16 +6,11 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { render, screen } from "@testing-library/react"
 import { WorkspaceChatView } from "@/components/workspace-chat/workspace-chat-view"
 
-const mockRouterReplace = jest.fn()
 const mockUseScopeCheck = jest.fn<
   boolean | undefined,
   [string | undefined, string[] | undefined, { all?: boolean } | undefined]
 >()
 const mockHasEntitlement = jest.fn<boolean, [string]>()
-
-jest.mock("next/navigation", () => ({
-  useRouter: () => ({ replace: mockRouterReplace }),
-}))
 
 jest.mock("@/components/auth/scope-guard", () => ({
   useScopeCheck: (
@@ -76,7 +71,6 @@ function renderWorkspaceChatView() {
 
 describe("WorkspaceChatView", () => {
   beforeEach(() => {
-    mockRouterReplace.mockReset()
     mockUseScopeCheck.mockReset()
     mockHasEntitlement.mockReset()
     mockUseScopeCheck.mockReturnValue(true)
@@ -102,12 +96,12 @@ describe("WorkspaceChatView", () => {
     expect(screen.queryByTestId("mission-control-chat")).not.toBeInTheDocument()
   })
 
-  it("redirects to workspaces when agent add-ons are unavailable", () => {
+  it("shows upgrade state when workspace chat is unavailable", () => {
     mockHasEntitlement.mockReturnValue(false)
 
     renderWorkspaceChatView()
 
-    expect(mockRouterReplace).toHaveBeenCalledWith("/workspaces")
+    expect(screen.getByText("Upgrade required")).toBeInTheDocument()
     expect(screen.queryByTestId("mission-control-chat")).not.toBeInTheDocument()
   })
 })

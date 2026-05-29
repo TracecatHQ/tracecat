@@ -54,7 +54,7 @@ def _build_workflow_args(role: Role) -> AgentWorkflowArgs:
                 actions=["core.http_request"],
             ),
         ),
-        entity_type=AgentSessionEntity.COPILOT,
+        entity_type=AgentSessionEntity.WORKSPACE_CHAT,
         entity_id=uuid.uuid4(),
     )
 
@@ -387,7 +387,7 @@ async def test_build_config_prefers_pinned_preset_version_id() -> None:
                 ),
             ),
         ),
-        entity_type=AgentSessionEntity.COPILOT,
+        entity_type=AgentSessionEntity.WORKSPACE_CHAT,
         entity_id=uuid.uuid4(),
         agent_preset_version_id=pinned_version_id,
     )

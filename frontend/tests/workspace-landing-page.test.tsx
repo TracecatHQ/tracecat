@@ -8,6 +8,7 @@ import WorkspacePage from "@/app/workspaces/[workspaceId]/page"
 const mockRouterReplace = jest.fn()
 const mockUseScopeCheck = jest.fn<boolean | undefined, [string]>()
 let mockScopes: Record<string, boolean | undefined> = {}
+let mockEntitlements: Record<string, boolean> = {}
 
 jest.mock("next/navigation", () => ({
   useRouter: () => ({ replace: mockRouterReplace }),
@@ -32,7 +33,8 @@ jest.mock("@/components/loading/spinner", () => ({
 
 jest.mock("@/hooks", () => ({
   useEntitlements: () => ({
-    hasEntitlement: () => false,
+    hasEntitlement: (entitlement: string) =>
+      mockEntitlements[entitlement] ?? false,
     isLoading: false,
   }),
 }))
@@ -46,6 +48,7 @@ describe("WorkspacePage", () => {
     mockRouterReplace.mockReset()
     mockUseScopeCheck.mockReset()
     mockScopes = {}
+    mockEntitlements = {}
     mockUseScopeCheck.mockImplementation((scope) => mockScopes[scope] ?? false)
   })
 
@@ -65,12 +68,30 @@ describe("WorkspacePage", () => {
     mockScopes = {
       "workspace:read": true,
     }
+    mockEntitlements = {
+      workspace_chat: true,
+    }
 
     render(<WorkspacePage />)
 
     await waitFor(() => {
       expect(mockRouterReplace).toHaveBeenCalledWith(
         "/workspaces/workspace-1/chat"
+      )
+    })
+  })
+
+  it("falls back when Chat is not entitled", async () => {
+    mockScopes = {
+      "workspace:read": true,
+      "workflow:read": true,
+    }
+
+    render(<WorkspacePage />)
+
+    await waitFor(() => {
+      expect(mockRouterReplace).toHaveBeenCalledWith(
+        "/workspaces/workspace-1/workflows"
       )
     })
   })

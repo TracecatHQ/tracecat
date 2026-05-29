@@ -4,7 +4,7 @@ import { ChatInterface } from "@/components/chat/chat-interface"
 import { ResizableSidebar } from "@/components/ui/resizable-sidebar"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
-export function WorkspaceCopilotSidebar() {
+export function WorkspaceChatSidebar() {
   const workspaceId = useWorkspaceId()
 
   return (

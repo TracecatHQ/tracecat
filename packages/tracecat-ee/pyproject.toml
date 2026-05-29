@@ -33,5 +33,8 @@ ee_impl = "tracecat_ee.store.git_sync:sync_repo_workflows"
 [project.entry-points."tracecat.workflows.git_store"]
 ee_impl = "tracecat_ee.store.git_store:GitWorkflowStore"
 
+[project.entry-points."tracecat.agent_artifact_provider"]
+workspace_chat = "tracecat_ee.agent.artifacts.mount_only_provider:build_provider"
+
 [tool.hatch.version]
 path = "tracecat_ee/__init__.py"

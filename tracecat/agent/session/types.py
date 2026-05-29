@@ -10,7 +10,7 @@ class AgentSessionEntity(StrEnum):
     - CASE: Chat attached to a Case entity for investigation
     - AGENT_PRESET: Live chat testing a preset configuration
     - AGENT_PRESET_BUILDER: Builder chat for editing/configuring a preset
-    - COPILOT: Workspace-level copilot assistant
+    - WORKSPACE_CHAT: Workspace-level chat assistant (wire value: copilot)
     - WORKFLOW: Workflow-initiated agent run (from action)
     - APPROVAL: Inbox approval continuation (hidden from main chat list)
     - EXTERNAL_CHANNEL: External channel session (e.g. Slack thread)
@@ -19,7 +19,9 @@ class AgentSessionEntity(StrEnum):
     CASE = "case"
     AGENT_PRESET = "agent_preset"
     AGENT_PRESET_BUILDER = "agent_preset_builder"
-    COPILOT = "copilot"
+    # Keep the wire/storage value as "copilot" for rollback compatibility while
+    # exposing the product concept as WORKSPACE_CHAT in backend code.
+    WORKSPACE_CHAT = "copilot"
     WORKFLOW = "workflow"
     APPROVAL = "approval"
     EXTERNAL_CHANNEL = "external_channel"

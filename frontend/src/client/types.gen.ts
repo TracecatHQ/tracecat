@@ -822,7 +822,7 @@ export type AgentSessionCreate = {
  * - CASE: Chat attached to a Case entity for investigation
  * - AGENT_PRESET: Live chat testing a preset configuration
  * - AGENT_PRESET_BUILDER: Builder chat for editing/configuring a preset
- * - COPILOT: Workspace-level copilot assistant
+ * - WORKSPACE_CHAT: Workspace-level chat assistant (wire value: copilot)
  * - WORKFLOW: Workflow-initiated agent run (from action)
  * - APPROVAL: Inbox approval continuation (hidden from main chat list)
  * - EXTERNAL_CHANNEL: External channel session (e.g. Slack thread)
@@ -854,7 +854,7 @@ export type AgentSessionRead = {
   workspace_id: string
   title: string
   created_by: string | null
-  entity_type: string
+  entity_type: AgentSessionEntity
   entity_id: string
   channel_context: {
     [key: string]: unknown
@@ -879,7 +879,7 @@ export type AgentSessionReadVercel = {
   workspace_id: string
   title: string
   created_by: string | null
-  entity_type: string
+  entity_type: AgentSessionEntity
   entity_id: string
   channel_context: {
     [key: string]: unknown
@@ -908,7 +908,7 @@ export type AgentSessionReadWithMessages = {
   workspace_id: string
   title: string
   created_by: string | null
-  entity_type: string
+  entity_type: AgentSessionEntity
   entity_id: string
   channel_context: {
     [key: string]: unknown
@@ -2457,7 +2457,7 @@ export type ChatRead = {
   /**
    * Type of entity this chat is associated with
    */
-  entity_type: string
+  entity_type: AgentSessionEntity
   /**
    * ID of the associated entity
    */
@@ -2517,7 +2517,7 @@ export type ChatReadMinimal = {
   /**
    * Type of entity this chat is associated with
    */
-  entity_type: string
+  entity_type: AgentSessionEntity
   /**
    * ID of the associated entity
    */
@@ -2571,7 +2571,7 @@ export type ChatReadVercel = {
   /**
    * Type of entity this chat is associated with
    */
-  entity_type: string
+  entity_type: AgentSessionEntity
   /**
    * ID of the associated entity
    */
@@ -3572,6 +3572,10 @@ export type EffectiveEntitlements = {
    */
   service_accounts?: boolean
   /**
+   * Whether Workspace Chat is enabled
+   */
+  workspace_chat?: boolean
+  /**
    * Whether Watchtower agent monitoring is enabled (agent sessions, tool-call telemetry, and controls)
    */
   watchtower?: boolean
@@ -3607,6 +3611,10 @@ export type EntitlementsDict = {
    * Whether service accounts for API key access are enabled
    */
   service_accounts?: boolean
+  /**
+   * Whether Workspace Chat is enabled
+   */
+  workspace_chat?: boolean
   /**
    * Whether Watchtower agent monitoring is enabled (agent sessions, tool-call telemetry, and controls)
    */

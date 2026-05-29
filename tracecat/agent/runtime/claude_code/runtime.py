@@ -16,7 +16,7 @@ import os
 import re
 import tempfile
 import uuid
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncIterator, Callable, Sequence
 from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
@@ -253,6 +253,7 @@ class ClaudeAgentRuntime:
         session_home_dir: Path | None = None,
         cwd: Path | None = None,
         cwd_setup_path: Path | None = None,
+        system_prompt_fragments: Sequence[str] = (),
     ):
         self._event_writer = event_writer
         self._session_id: uuid.UUID | None = None
@@ -279,6 +280,7 @@ class ClaudeAgentRuntime:
         self._cwd_setup_path = cwd_setup_path
         self._session_home_dir = session_home_dir
         self._transport_factory = transport_factory
+        self._system_prompt_fragments = tuple(system_prompt_fragments)
         # Tracks Stop hook retries within this run to break structured-output loops
         self._stop_hook_retries: int = 0
 
@@ -1008,7 +1010,11 @@ class ClaudeAgentRuntime:
                 " after the structured output. This applies to every response, not just the first one."
             )
 
-        return f"{base}\n\n{instructions}" if instructions else base
+        prompt_parts = [base]
+        if instructions:
+            prompt_parts.append(instructions)
+        prompt_parts.extend(self._system_prompt_fragments)
+        return "\n\n".join(prompt_parts)
 
     def _build_agent_definitions(
         self,
