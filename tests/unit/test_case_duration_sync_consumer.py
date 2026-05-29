@@ -1,0 +1,162 @@
+import uuid
+from typing import Any, cast
+from unittest.mock import AsyncMock, MagicMock
+
+import pytest
+
+from tracecat.cases.durations.consumer import CaseDurationSyncConsumer
+from tracecat.redis.client import RedisClient
+
+
+class FakeRedisClient:
+    def __init__(self) -> None:
+        self.acked: list[list[str]] = []
+
+    async def xack(
+        self,
+        stream_key: str,
+        group_name: str,
+        message_ids: list[str],
+    ) -> None:
+        del stream_key, group_name
+        self.acked.append(message_ids)
+
+
+@pytest.mark.anyio
+async def test_consumer_coalesces_case_jobs_by_case(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = FakeRedisClient()
+    consumer = CaseDurationSyncConsumer(cast(RedisClient, client))
+    workspace_id = uuid.uuid4()
+    case_id = uuid.uuid4()
+    sync_mock = AsyncMock(return_value=True)
+    monkeypatch.setattr(consumer, "_sync_case_duration", sync_mock)
+
+    await consumer._handle_entries(
+        [
+            (
+                "1-0",
+                {
+                    "workspace_id": str(workspace_id),
+                    "case_id": str(case_id),
+                    "reason": "case_event",
+                    "event_type": "case_updated",
+                },
+            ),
+            (
+                "2-0",
+                {
+                    "workspace_id": str(workspace_id),
+                    "case_id": str(case_id),
+                    "reason": "case_event",
+                    "event_type": "case_updated",
+                },
+            ),
+        ]
+    )
+
+    sync_mock.assert_awaited_once_with(
+        workspace_id,
+        case_id,
+        event_types={"case_updated"},
+    )
+    assert client.acked == [["1-0", "2-0"]]
+
+
+@pytest.mark.anyio
+async def test_consumer_leaves_locked_case_jobs_pending(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = FakeRedisClient()
+    consumer = CaseDurationSyncConsumer(cast(RedisClient, client))
+    sync_mock = AsyncMock(return_value=False)
+    monkeypatch.setattr(consumer, "_sync_case_duration", sync_mock)
+
+    await consumer._handle_entries(
+        [
+            (
+                "1-0",
+                {
+                    "workspace_id": str(uuid.uuid4()),
+                    "case_id": str(uuid.uuid4()),
+                    "reason": "case_event",
+                },
+            )
+        ]
+    )
+
+    sync_mock.assert_awaited_once()
+    assert client.acked == []
+
+
+@pytest.mark.anyio
+async def test_consumer_leaves_failed_case_jobs_pending(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = FakeRedisClient()
+    consumer = CaseDurationSyncConsumer(cast(RedisClient, client))
+    sync_mock = AsyncMock(side_effect=RuntimeError("transient db failure"))
+    logger_mock = MagicMock()
+    monkeypatch.setattr(consumer, "_sync_case_duration", sync_mock)
+    monkeypatch.setattr(
+        "tracecat.cases.durations.consumer.logger.exception",
+        logger_mock,
+    )
+
+    await consumer._handle_entries(
+        [
+            (
+                "1-0",
+                {
+                    "workspace_id": str(uuid.uuid4()),
+                    "case_id": str(uuid.uuid4()),
+                    "reason": "case_event",
+                },
+            )
+        ]
+    )
+
+    sync_mock.assert_awaited_once()
+    logger_mock.assert_called_once()
+    assert client.acked == []
+
+
+@pytest.mark.anyio
+async def test_consumer_acks_malformed_jobs() -> None:
+    client = FakeRedisClient()
+    consumer = CaseDurationSyncConsumer(cast(RedisClient, client))
+
+    await consumer._handle_entries([("1-0", {"reason": "case_event"})])
+
+    assert client.acked == [["1-0"]]
+
+
+@pytest.mark.anyio
+async def test_consumer_acks_successful_backfill_jobs(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = FakeRedisClient()
+    consumer = CaseDurationSyncConsumer(cast(RedisClient, client))
+    workspace_id = uuid.uuid4()
+    backfill_mock = AsyncMock(return_value=True)
+    monkeypatch.setattr(consumer, "_process_backfill_job", backfill_mock)
+
+    await consumer._handle_entries(
+        [
+            (
+                "1-0",
+                {
+                    "workspace_id": str(workspace_id),
+                    "reason": "duration_definition_created",
+                },
+            )
+        ]
+    )
+
+    backfill_mock.assert_awaited_once()
+    await_args = backfill_mock.await_args
+    assert await_args is not None
+    job = await_args.args[0]
+    assert cast(Any, job).workspace_id == workspace_id
+    assert client.acked == [["1-0"]]
