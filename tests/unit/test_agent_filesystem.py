@@ -482,7 +482,7 @@ async def test_downloaded_archive_prunes_oldest_cached_archives(
     )
 
     archive_lease = await _ensure_snapshot_archive_cached(snapshot)
-    with archive_lease as archive_path:
+    async with archive_lease as archive_path:
         assert archive_path.exists()
         assert archive_path.read_bytes() == content
 

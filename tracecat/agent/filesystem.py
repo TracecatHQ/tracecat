@@ -60,6 +60,9 @@ class _ArchiveCacheLease:
             raise RuntimeError("Archive cache lease already released")
         return self.path
 
+    async def __aenter__(self) -> Path:
+        return self.__enter__()
+
     def __exit__(
         self,
         exc_type: type[BaseException] | None,
@@ -67,6 +70,14 @@ class _ArchiveCacheLease:
         traceback: TracebackType | None,
     ) -> None:
         self.release()
+
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> None:
+        await asyncio.to_thread(self.release)
 
     def release(self) -> None:
         if self._released:
@@ -274,7 +285,7 @@ async def hydrate_agent_work_dir(
         return snapshot
 
     archive_lease = await _ensure_snapshot_archive_cached(snapshot)
-    with archive_lease as archive_path:
+    async with archive_lease as archive_path:
         await asyncio.to_thread(_extract_archive_to_work_dir, archive_path, work_dir)
     await asyncio.to_thread(_write_snapshot_marker, work_dir, snapshot)
     logger.info(
@@ -348,7 +359,7 @@ async def persist_agent_work_dir(
         )
         bucket = config.TRACECAT__BLOB_STORAGE_BUCKET_AGENT
         key = build_agent_fs_snapshot_key(sha256=archive_stats.sha256)
-        with archive_lease as archive_path:
+        async with archive_lease as archive_path:
             await blob.upload_file_from_path(
                 archive_path,
                 key=key,
@@ -633,7 +644,7 @@ async def _ensure_snapshot_archive_cached(
     archive_path = _archive_cache_path(snapshot.sha256)
     lock = await _get_archive_cache_lock(snapshot.sha256)
     async with lock:
-        lease = _acquire_archive_cache_lease(archive_path)
+        lease = await asyncio.to_thread(_acquire_archive_cache_lease, archive_path)
         try:
             if not _cached_archive_matches(archive_path, snapshot):
                 await blob.download_file_to_path(
@@ -646,7 +657,7 @@ async def _ensure_snapshot_archive_cached(
             await asyncio.to_thread(_touch_archive_for_lru, archive_path)
             await asyncio.to_thread(_prune_archive_cache, keep_path=archive_path)
         except Exception:
-            lease.release()
+            await asyncio.to_thread(lease.release)
             raise
         return lease
 
