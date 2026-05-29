@@ -12,7 +12,7 @@ import shutil
 import stat
 import tarfile
 import uuid
-from collections.abc import Iterator, Mapping
+from collections.abc import Callable, Iterator, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
@@ -573,11 +573,28 @@ def _extract_archive_to_work_dir(archive_path: Path, work_dir: Path) -> None:
             max_uncompressed_bytes=config.TRACECAT__AGENT_FS_MAX_UNCOMPRESSED_BYTES,
             max_file_count=config.TRACECAT__AGENT_FS_MAX_FILE_COUNT,
         )
-        shutil.rmtree(work_dir, ignore_errors=True)
+        _remove_existing_work_dir(work_dir)
         temp_dir.rename(work_dir)
     except Exception:
         shutil.rmtree(temp_dir, ignore_errors=True)
         raise
+
+
+def _remove_existing_work_dir(work_dir: Path) -> None:
+    if not work_dir.exists():
+        return
+    shutil.rmtree(work_dir, onexc=_chmod_and_retry_remove)
+
+
+def _chmod_and_retry_remove(
+    function: Callable[..., object],
+    path: str,
+    exc: BaseException,
+) -> None:
+    if not isinstance(exc, OSError) or exc.errno not in {errno.EACCES, errno.EPERM}:
+        raise exc
+    os.chmod(path, stat.S_IRWXU)
+    function(path)
 
 
 def _staging_dir() -> Path:

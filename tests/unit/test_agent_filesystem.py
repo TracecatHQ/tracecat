@@ -21,6 +21,7 @@ from tracecat.agent.filesystem import (
     AgentFilesystemService,
     AgentFilesystemSnapshotLimitExceeded,
     AgentFilesystemSnapshotMetadata,
+    _extract_archive_to_work_dir,
     compute_work_dir_state,
     create_work_dir_archive,
     extract_work_dir_archive,
@@ -378,6 +379,37 @@ def test_extract_rejects_path_traversal(tmp_path: Path) -> None:
         )
 
     assert not (tmp_path / "escape.txt").exists()
+
+
+def test_extract_to_work_dir_surfaces_existing_work_dir_removal_failure(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    archive_path = tmp_path / "snapshot.tar.gz"
+    payload = b"new"
+    with tarfile.open(archive_path, mode="w:gz") as tar:
+        info = tarfile.TarInfo("new.txt")
+        info.size = len(payload)
+        tar.addfile(info, io.BytesIO(payload))
+
+    work_dir = tmp_path / "agent-work-dir"
+    work_dir.mkdir()
+    (work_dir / "old.txt").write_text("old")
+    original_rmtree = shutil.rmtree
+
+    def fake_rmtree(path: str | Path, *args: Any, **kwargs: Any) -> None:
+        if Path(path) == work_dir:
+            assert kwargs.get("ignore_errors") is not True
+            raise PermissionError("permission denied")
+        original_rmtree(path, *args, **kwargs)
+
+    monkeypatch.setattr("tracecat.agent.filesystem.shutil.rmtree", fake_rmtree)
+
+    with pytest.raises(PermissionError, match="permission denied"):
+        _extract_archive_to_work_dir(archive_path, work_dir)
+
+    assert (work_dir / "old.txt").read_text() == "old"
+    assert not (work_dir / "new.txt").exists()
 
 
 @pytest.mark.anyio
