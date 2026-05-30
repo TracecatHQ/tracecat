@@ -183,10 +183,12 @@ async def accept_invitation_for_user(
                 role_id=invitation.role_id,
             )
             .on_conflict_do_update(
-                index_elements=[UserRoleAssignment.user_id],
+                index_elements=[
+                    UserRoleAssignment.organization_id,
+                    UserRoleAssignment.user_id,
+                ],
                 index_where=UserRoleAssignment.workspace_id.is_(None),
                 set_={"role_id": invitation.role_id},
-                where=UserRoleAssignment.organization_id == invitation.organization_id,
             )
         )
         await session.execute(assignment_stmt)

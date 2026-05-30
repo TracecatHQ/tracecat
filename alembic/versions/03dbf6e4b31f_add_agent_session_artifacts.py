@@ -1,8 +1,8 @@
-"""add_agent_session_work_dir_snapshot
+"""add agent session artifacts
 
-Revision ID: b7f0d1e2c3a4
-Revises: 03dbf6e4b31f
-Create Date: 2026-05-28 03:10:00.000000
+Revision ID: 03dbf6e4b31f
+Revises: 2f54d8c0e1ab
+Create Date: 2026-05-27 00:00:00.000000
 
 """
 
@@ -14,8 +14,8 @@ from sqlalchemy.dialects import postgresql
 from alembic import op
 
 # revision identifiers, used by Alembic.
-revision: str = "b7f0d1e2c3a4"
-down_revision: str | None = "03dbf6e4b31f"
+revision: str = "03dbf6e4b31f"
+down_revision: str | None = "2f54d8c0e1ab"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
@@ -24,12 +24,13 @@ def upgrade() -> None:
     op.add_column(
         "agent_session",
         sa.Column(
-            "work_dir_snapshot",
+            "artifacts",
             postgresql.JSONB(astext_type=sa.Text()),
-            nullable=True,
+            server_default=sa.text("'[]'::jsonb"),
+            nullable=False,
         ),
     )
 
 
 def downgrade() -> None:
-    op.drop_column("agent_session", "work_dir_snapshot")
+    op.drop_column("agent_session", "artifacts")

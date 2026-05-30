@@ -38,6 +38,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.ext.hybrid import hybrid_property
+from sqlalchemy.ext.mutable import MutableList
 from sqlalchemy.orm import (
     DeclarativeBase,
     Mapped,
@@ -2859,6 +2860,13 @@ class AgentSession(WorkspaceModel):
             "latest filesystem state."
         ),
     )
+    artifacts: Mapped[list[dict[str, Any]]] = mapped_column(
+        MutableList.as_mutable(JSONB),
+        nullable=False,
+        default=list,
+        server_default=text("'[]'::jsonb"),
+        doc="Durable artifact panel projection for artifact-capable sessions",
+    )
     # Parent session for forked sessions (approval continuations)
     parent_session_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID,
@@ -5139,6 +5147,7 @@ class UserRoleAssignment(Base):
         # Partial unique index for org-wide assignments (workspace_id IS NULL)
         Index(
             "ix_user_role_assignment_user_org_unique",
+            "organization_id",
             "user_id",
             unique=True,
             postgresql_where=text("workspace_id IS NULL"),
