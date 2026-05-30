@@ -593,6 +593,13 @@ def _chmod_and_retry_remove(
 ) -> None:
     if not isinstance(exc, OSError) or exc.errno not in {errno.EACCES, errno.EPERM}:
         raise exc
+    # Unlinking or rmdir-ing an entry needs write permission on its parent
+    # directory, while scandir-ing a directory needs it on the entry itself.
+    # Restore both so the retry can make progress regardless of which step
+    # failed (e.g. a child file under a non-writable ``chmod 555`` directory).
+    parent = os.path.dirname(path)
+    if parent:
+        os.chmod(parent, stat.S_IRWXU)
     os.chmod(path, stat.S_IRWXU)
     function(path)
 
