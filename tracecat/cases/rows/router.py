@@ -10,7 +10,7 @@ from starlette.status import (
 )
 
 from tracecat import config
-from tracecat.auth.dependencies import WorkspaceUserRouteRole
+from tracecat.auth.dependencies import WorkspaceActorRouteRole
 from tracecat.authz.controls import require_scope
 from tracecat.cases.rows.exceptions import raise_case_row_link_integrity_error
 from tracecat.cases.rows.schemas import (
@@ -30,7 +30,7 @@ router = APIRouter(prefix="/cases", tags=["cases"])
 @require_scope("case:read")
 async def list_case_rows(
     *,
-    role: WorkspaceUserRouteRole,
+    role: WorkspaceActorRouteRole,
     session: AsyncDBSession,
     case_id: uuid.UUID,
     limit: int = Query(
@@ -61,7 +61,7 @@ async def list_case_rows(
 @require_scope("case:update")
 async def link_case_row(
     *,
-    role: WorkspaceUserRouteRole,
+    role: WorkspaceActorRouteRole,
     session: AsyncDBSession,
     case_id: uuid.UUID,
     params: CaseTableRowLinkCreate,
@@ -81,10 +81,10 @@ async def link_case_row(
 
 
 @router.post("/{case_id}/rows/insert", status_code=HTTP_201_CREATED)
-@require_scope("case:update")
+@require_scope("case:update", "table:create")
 async def insert_case_row(
     *,
-    role: WorkspaceUserRouteRole,
+    role: WorkspaceActorRouteRole,
     session: AsyncDBSession,
     case_id: uuid.UUID,
     params: CaseTableRowInsertCreate,
@@ -105,7 +105,7 @@ async def insert_case_row(
 @require_scope("case:update")
 async def unlink_case_row(
     *,
-    role: WorkspaceUserRouteRole,
+    role: WorkspaceActorRouteRole,
     session: AsyncDBSession,
     case_id: uuid.UUID,
     table_id: uuid.UUID,
