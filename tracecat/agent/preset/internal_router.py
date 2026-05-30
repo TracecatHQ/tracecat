@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import uuid
 from collections.abc import Mapping
 from typing import Annotated, Any, cast
 
@@ -63,7 +64,7 @@ class PresetCreateRequest(BaseModel):
             "compatibility. Prefer catalog_id, which is the canonical model selector."
         ),
     )
-    catalog_id: str | None = Field(
+    catalog_id: uuid.UUID | None = Field(
         default=None,
         description="Canonical model catalog row ID backing this preset.",
     )
@@ -104,7 +105,7 @@ class PresetUpdateRequest(BaseModel):
             "compatibility. Prefer catalog_id, which is the canonical model selector."
         ),
     )
-    catalog_id: str | None = Field(
+    catalog_id: uuid.UUID | None = Field(
         default=None,
         description="Canonical model catalog row ID backing this preset.",
     )

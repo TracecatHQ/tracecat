@@ -107,6 +107,19 @@ def test_agent_preset_request_schemas_reject_blank_trimmed_values(
         schema_cls.model_validate(kwargs)
 
 
+@pytest.mark.parametrize("schema_cls", [PresetCreateRequest, PresetUpdateRequest])
+def test_internal_agent_preset_request_schemas_reject_invalid_catalog_id(
+    schema_cls: type[BaseModel],
+) -> None:
+    with pytest.raises(ValidationError):
+        schema_cls.model_validate(
+            {
+                "name": "Triage preset",
+                "catalog_id": "not-a-uuid",
+            }
+        )
+
+
 def test_agent_preset_read_schema_accepts_legacy_whitespace_model_fields() -> None:
     payload = AgentPresetRead.model_validate(
         {
