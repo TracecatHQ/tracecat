@@ -236,10 +236,12 @@ class BaseRegistrySyncService[
         return version, None
 
     def _generate_collision_version(self, base_version: str) -> str:
-        """Generate a unique post-release version for manifest collisions."""
+        """Append a unique local collision label without changing the release."""
         suffix = datetime.now(UTC).strftime("%Y%m%d%H%M%S%f")
         tiebreaker = cast(int, uuid.uuid4().int) % 1_000_000
-        return f"{base_version}.post{suffix}+collision.{tiebreaker:06d}"
+        collision_label = f"collision.{suffix}.{tiebreaker:06d}"
+        separator = "." if "+" in base_version else "+"
+        return f"{base_version}{separator}{collision_label}"
 
     def _build_validation_failure_message(
         self,
