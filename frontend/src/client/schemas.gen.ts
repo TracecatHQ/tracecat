@@ -3329,6 +3329,21 @@ export const $AgentPresetVersionReadMinimal = {
   description: "Metadata returned when listing immutable preset versions.",
 } as const
 
+export const $AgentSessionArtifactsRead = {
+  properties: {
+    artifacts: {
+      items: {
+        $ref: "#/components/schemas/Artifact",
+      },
+      type: "array",
+      title: "Artifacts",
+    },
+  },
+  type: "object",
+  title: "AgentSessionArtifactsRead",
+  description: "Response schema for persisted agent session artifacts.",
+} as const
+
 export const $AgentSessionCreate = {
   properties: {
     id: {
@@ -3593,6 +3608,13 @@ export const $AgentSessionRead = {
       ],
       title: "Last Stream Id",
     },
+    artifacts: {
+      items: {
+        $ref: "#/components/schemas/Artifact",
+      },
+      type: "array",
+      title: "Artifacts",
+    },
     parent_session_id: {
       anyOf: [
         {
@@ -3754,6 +3776,13 @@ export const $AgentSessionReadVercel = {
         },
       ],
       title: "Last Stream Id",
+    },
+    artifacts: {
+      items: {
+        $ref: "#/components/schemas/Artifact",
+      },
+      type: "array",
+      title: "Artifacts",
     },
     parent_session_id: {
       anyOf: [
@@ -3924,6 +3953,13 @@ export const $AgentSessionReadWithMessages = {
         },
       ],
       title: "Last Stream Id",
+    },
+    artifacts: {
+      items: {
+        $ref: "#/components/schemas/Artifact",
+      },
+      type: "array",
+      title: "Artifacts",
     },
     parent_session_id: {
       anyOf: [
@@ -4216,6 +4252,40 @@ export const $AgentTagRead = {
   required: ["id", "name", "ref", "color"],
   title: "AgentTagRead",
   description: "Tag data.",
+} as const
+
+export const $AlertArtifact = {
+  properties: {
+    id: {
+      type: "string",
+      title: "Id",
+    },
+    title: {
+      type: "string",
+      title: "Title",
+    },
+    scope: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/ArtifactScope",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    type: {
+      type: "string",
+      const: "alert",
+      title: "Type",
+      default: "alert",
+    },
+  },
+  additionalProperties: false,
+  type: "object",
+  required: ["id", "title"],
+  title: "AlertArtifact",
+  description: "Alert artifact stub. Extend when alert surfaces are wired.",
 } as const
 
 export const $AnyAttachedSubagentRef = {
@@ -4567,6 +4637,104 @@ export const $ApprovalSubmission = {
   required: ["approvals"],
   title: "ApprovalSubmission",
   description: "Request model for submitting approval decisions.",
+} as const
+
+export const $Artifact = {
+  oneOf: [
+    {
+      $ref: "#/components/schemas/CaseArtifact",
+    },
+    {
+      $ref: "#/components/schemas/WorkflowArtifact",
+    },
+    {
+      $ref: "#/components/schemas/RunArtifact",
+    },
+    {
+      $ref: "#/components/schemas/TableArtifact",
+    },
+    {
+      $ref: "#/components/schemas/AlertArtifact",
+    },
+    {
+      $ref: "#/components/schemas/IntegrationArtifact",
+    },
+    {
+      $ref: "#/components/schemas/SecretArtifact",
+    },
+    {
+      $ref: "#/components/schemas/GenericArtifact",
+    },
+  ],
+  discriminator: {
+    propertyName: "type",
+    mapping: {
+      alert: "#/components/schemas/AlertArtifact",
+      case: "#/components/schemas/CaseArtifact",
+      generic: "#/components/schemas/GenericArtifact",
+      integration: "#/components/schemas/IntegrationArtifact",
+      run: "#/components/schemas/RunArtifact",
+      secret: "#/components/schemas/SecretArtifact",
+      table: "#/components/schemas/TableArtifact",
+      workflow: "#/components/schemas/WorkflowArtifact",
+    },
+  },
+} as const
+
+export const $ArtifactScope = {
+  properties: {
+    agentId: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Agentid",
+    },
+    agentType: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Agenttype",
+    },
+    parentToolCallId: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Parenttoolcallid",
+    },
+  },
+  additionalProperties: false,
+  type: "object",
+  title: "ArtifactScope",
+  description: "Attribution scope for artifact data parts.",
+} as const
+
+export const $ArtifactType = {
+  type: "string",
+  enum: [
+    "case",
+    "workflow",
+    "run",
+    "table",
+    "alert",
+    "integration",
+    "secret",
+    "generic",
+  ],
 } as const
 
 export const $AssigneeChangedEventRead = {
@@ -5856,6 +6024,46 @@ export const $CachePoint = {
   },
   type: "object",
   title: "CachePoint",
+} as const
+
+export const $CaseArtifact = {
+  properties: {
+    id: {
+      type: "string",
+      title: "Id",
+    },
+    title: {
+      type: "string",
+      title: "Title",
+    },
+    scope: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/ArtifactScope",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    type: {
+      type: "string",
+      const: "case",
+      title: "Type",
+      default: "case",
+    },
+    severity: {
+      $ref: "#/components/schemas/CaseSeverity",
+    },
+    status: {
+      $ref: "#/components/schemas/CaseStatus",
+    },
+  },
+  additionalProperties: false,
+  type: "object",
+  required: ["id", "title", "severity", "status"],
+  title: "CaseArtifact",
+  description: "Case artifact shown in artifact-capable chat surfaces.",
 } as const
 
 export const $CaseAttachmentDownloadResponse = {
@@ -12732,6 +12940,53 @@ export const $FolderDirectoryItem = {
   title: "FolderDirectoryItem",
 } as const
 
+export const $GenericArtifact = {
+  properties: {
+    id: {
+      type: "string",
+      title: "Id",
+    },
+    title: {
+      type: "string",
+      title: "Title",
+    },
+    scope: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/ArtifactScope",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    type: {
+      type: "string",
+      const: "generic",
+      title: "Type",
+      default: "generic",
+    },
+    data: {
+      anyOf: [
+        {
+          additionalProperties: true,
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Data",
+    },
+  },
+  additionalProperties: false,
+  type: "object",
+  required: ["id", "title"],
+  title: "GenericArtifact",
+  description:
+    "Escape hatch for surfaced objects without a dedicated panel view.",
+} as const
+
 export const $GetWorkflowDefinitionActivityInputs = {
   properties: {
     role: {
@@ -13925,6 +14180,41 @@ export const $Integer = {
   },
   type: "object",
   title: "Integer",
+} as const
+
+export const $IntegrationArtifact = {
+  properties: {
+    id: {
+      type: "string",
+      title: "Id",
+    },
+    title: {
+      type: "string",
+      title: "Title",
+    },
+    scope: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/ArtifactScope",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    type: {
+      type: "string",
+      const: "integration",
+      title: "Type",
+      default: "integration",
+    },
+  },
+  additionalProperties: false,
+  type: "object",
+  required: ["id", "title"],
+  title: "IntegrationArtifact",
+  description:
+    "Integration artifact stub. Extend when integration surfaces are wired.",
 } as const
 
 export const $IntegrationOAuthCallback = {
@@ -19219,6 +19509,54 @@ export const $RunActionInput = {
     "This object contains all the information needed to execute an action.",
 } as const
 
+export const $RunArtifact = {
+  properties: {
+    id: {
+      type: "string",
+      title: "Id",
+    },
+    title: {
+      type: "string",
+      title: "Title",
+    },
+    scope: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/ArtifactScope",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    type: {
+      type: "string",
+      const: "run",
+      title: "Type",
+      default: "run",
+    },
+    workflowId: {
+      type: "string",
+      title: "Workflowid",
+    },
+    status: {
+      type: "string",
+      enum: ["running", "success", "failed", "cancelled"],
+      title: "Status",
+    },
+    startedAt: {
+      type: "string",
+      format: "date-time",
+      title: "Startedat",
+    },
+  },
+  additionalProperties: false,
+  type: "object",
+  required: ["id", "title", "workflowId", "status", "startedAt"],
+  title: "RunArtifact",
+  description: "Workflow run artifact shown in artifact-capable chat surfaces.",
+} as const
+
 export const $RunContext = {
   properties: {
     wf_id: {
@@ -19911,6 +20249,40 @@ export const $ScopeSource = {
   enum: ["platform", "custom"],
   title: "ScopeSource",
   description: "Source/ownership of a scope definition.",
+} as const
+
+export const $SecretArtifact = {
+  properties: {
+    id: {
+      type: "string",
+      title: "Id",
+    },
+    title: {
+      type: "string",
+      title: "Title",
+    },
+    scope: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/ArtifactScope",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    type: {
+      type: "string",
+      const: "secret",
+      title: "Type",
+      default: "secret",
+    },
+  },
+  additionalProperties: false,
+  type: "object",
+  required: ["id", "title"],
+  title: "SecretArtifact",
+  description: "Secret artifact stub. Extend when secret surfaces are wired.",
 } as const
 
 export const $SecretCreate = {
@@ -22096,6 +22468,51 @@ export const $SystemMessage = {
   type: "object",
   required: ["subtype", "data"],
   title: "SystemMessage",
+} as const
+
+export const $TableArtifact = {
+  properties: {
+    id: {
+      type: "string",
+      title: "Id",
+    },
+    title: {
+      type: "string",
+      title: "Title",
+    },
+    scope: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/ArtifactScope",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    type: {
+      type: "string",
+      const: "table",
+      title: "Type",
+      default: "table",
+    },
+    rowCount: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Rowcount",
+    },
+  },
+  additionalProperties: false,
+  type: "object",
+  required: ["id", "title"],
+  title: "TableArtifact",
+  description: "Table artifact shown in artifact-capable chat surfaces.",
 } as const
 
 export const $TableColumnCreate = {
@@ -26867,6 +27284,55 @@ export const $WorkflowAlias = {
   },
   type: "object",
   title: "WorkflowAlias",
+} as const
+
+export const $WorkflowArtifact = {
+  properties: {
+    id: {
+      type: "string",
+      title: "Id",
+    },
+    title: {
+      type: "string",
+      title: "Title",
+    },
+    scope: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/ArtifactScope",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    type: {
+      type: "string",
+      const: "workflow",
+      title: "Type",
+      default: "workflow",
+    },
+    color: {
+      type: "string",
+      title: "Color",
+    },
+    isPublished: {
+      anyOf: [
+        {
+          type: "boolean",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Ispublished",
+    },
+  },
+  additionalProperties: false,
+  type: "object",
+  required: ["id", "title", "color"],
+  title: "WorkflowArtifact",
+  description: "Workflow artifact shown in artifact-capable chat surfaces.",
 } as const
 
 export const $WorkflowCommitResponse = {

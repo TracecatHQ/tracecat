@@ -110,6 +110,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   // Scope checks for sidebar items
   const canViewWorkflows = useScopeCheck("workflow:read")
   const canViewAgents = useScopeCheck("agent:read")
+  const canExecuteAgents = useScopeCheck("agent:execute")
   const canViewTables = useScopeCheck("table:read")
   const canViewVariables = useScopeCheck("variable:read")
   const canViewSecrets = useScopeCheck("secret:read")
@@ -120,8 +121,11 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const canViewServiceAccounts = useScopeCheck("workspace:service_account:read")
   const canViewMcpAccess = useScopeCheck("workspace:read")
   const canViewCases = useScopeCheck("case:read")
+  const canAccessMissionControl =
+    canExecuteAgents === true && canViewAgents === true
   const shouldLoadEntitlements =
     canViewAgents === true ||
+    canExecuteAgents === true ||
     canViewServiceAccounts === true ||
     canViewInbox === true
   const { hasEntitlement, isLoading: entitlementsIsLoading } = useEntitlements({
@@ -139,6 +143,17 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
 
   const navWorkspace: NavItem[] = useMemo(
     () => [
+      {
+        title: "Mission Control",
+        url: `${basePath}/mission-control`,
+        icon: BotIcon,
+        isActive: pathname?.startsWith(`${basePath}/mission-control`),
+        visible: canAccessMissionControl,
+        isLocked: entitlementsIsLoading || !agentAddonsEnabled,
+        onSelect: entitlementsIsLoading
+          ? undefined
+          : () => setLockedFeatureDialogOpen(true),
+      },
       {
         title: "Workflows",
         url: `${basePath}/workflows`,
@@ -223,6 +238,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       pathname,
       canViewWorkflows,
       canViewCases,
+      canAccessMissionControl,
       canViewTables,
       canViewVariables,
       canViewSecrets,

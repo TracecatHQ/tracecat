@@ -34,6 +34,7 @@ from temporalio.common import TypedSearchAttributes
 from tracecat_registry._internal.exceptions import SecretNotFoundError
 
 import tracecat.agent.adapter.vercel
+import tracecat.artifacts.projection as artifact_projection
 from tracecat import config
 from tracecat.agent.approvals.enums import ApprovalStatus
 from tracecat.agent.llm import LLMCompletionError
@@ -60,6 +61,8 @@ from tracecat.agent.subagents import (
     ResolvedAgentsConfig,
 )
 from tracecat.agent.types import AgentConfig, ClaudeSDKMessageTA, StreamKey
+from tracecat.artifacts.bindings import ArtifactSideEffect
+from tracecat.artifacts.schemas import Artifact, ArtifactAdapter, ArtifactType
 from tracecat.audit.logger import audit_log
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.cases.prompts import CaseCopilotPrompts
@@ -78,7 +81,14 @@ from tracecat.chat.schemas import (
 )
 from tracecat.chat.service import ChatService
 from tracecat.chat.tools import get_default_tools
-from tracecat.db.models import AgentSession, AgentSessionHistory, Approval, Chat
+from tracecat.db.models import (
+    AgentSession,
+    AgentSessionHistory,
+    Approval,
+    Case,
+    Chat,
+    Workflow,
+)
 from tracecat.dsl.client import get_temporal_client
 from tracecat.dsl.common import RETRY_POLICIES
 from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
@@ -312,6 +322,128 @@ class AgentSessionService(BaseWorkspaceService):
         )
         result = await self.session.execute(stmt)
         return result.scalar_one_or_none()
+
+    async def build_initial_artifact(
+        self, agent_session: AgentSession
+    ) -> Artifact | None:
+        """Build the session's initial Mission Control artifact, if supported."""
+        entity_type = AgentSessionEntity(agent_session.entity_type)
+        match entity_type:
+            case AgentSessionEntity.CASE:
+                stmt = select(Case).where(
+                    Case.id == agent_session.entity_id,
+                    Case.workspace_id == self.workspace_id,
+                )
+                result = await self.session.execute(stmt)
+                case = result.scalar_one_or_none()
+                if case is None:
+                    return None
+                return ArtifactAdapter.validate_python(
+                    {
+                        "type": "case",
+                        "id": str(case.id),
+                        "title": case.summary,
+                        "severity": case.severity.value,
+                        "status": case.status.value,
+                    }
+                )
+            case AgentSessionEntity.WORKFLOW:
+                stmt = select(Workflow).where(
+                    Workflow.id == agent_session.entity_id,
+                    Workflow.workspace_id == self.workspace_id,
+                )
+                result = await self.session.execute(stmt)
+                workflow = result.scalar_one_or_none()
+                if workflow is None:
+                    return None
+                return ArtifactAdapter.validate_python(
+                    {
+                        "type": "workflow",
+                        "id": str(workflow.id),
+                        "title": workflow.title,
+                        "color": "#64748b",
+                        "isPublished": workflow.status == "online",
+                    }
+                )
+            case _:
+                return None
+
+    def list_artifacts(self, agent_session: AgentSession) -> list[Artifact]:
+        """Return the persisted artifact projection for a session."""
+        return artifact_projection.validate_artifacts(
+            getattr(agent_session, "artifacts", [])
+        )
+
+    async def apply_artifact_side_effects(
+        self,
+        session_id: uuid.UUID,
+        effects: Sequence[ArtifactSideEffect],
+    ) -> list[Artifact]:
+        """Persist artifact side effects onto the session projection."""
+        if not effects:
+            agent_session = await self.get_session(session_id)
+            if agent_session is None:
+                raise TracecatNotFoundError(f"Session {session_id} not found")
+            return self.list_artifacts(agent_session)
+
+        stmt = (
+            select(AgentSession)
+            .where(
+                AgentSession.id == session_id,
+                AgentSession.workspace_id == self.workspace_id,
+            )
+            .with_for_update()
+        )
+        result = await self.session.execute(stmt)
+        agent_session = result.scalar_one_or_none()
+        if agent_session is None:
+            raise TracecatNotFoundError(f"Session {session_id} not found")
+
+        current_artifacts = self.list_artifacts(agent_session)
+        next_artifacts = artifact_projection.apply_artifact_side_effects(
+            current_artifacts,
+            effects,
+        )
+        agent_session.artifacts = artifact_projection.serialize_artifacts(
+            next_artifacts
+        )
+        await self.session.commit()
+        await self.session.refresh(agent_session)
+        return self.list_artifacts(agent_session)
+
+    async def remove_artifact(
+        self,
+        session_id: uuid.UUID,
+        *,
+        artifact_type: ArtifactType,
+        artifact_id: str,
+    ) -> list[Artifact]:
+        """Remove one artifact from the persisted session projection."""
+        stmt = (
+            select(AgentSession)
+            .where(
+                AgentSession.id == session_id,
+                AgentSession.workspace_id == self.workspace_id,
+            )
+            .with_for_update()
+        )
+        result = await self.session.execute(stmt)
+        agent_session = result.scalar_one_or_none()
+        if agent_session is None:
+            raise TracecatNotFoundError(f"Session {session_id} not found")
+
+        current_artifacts = self.list_artifacts(agent_session)
+        next_artifacts = artifact_projection.remove_artifact(
+            current_artifacts,
+            artifact_type=artifact_type,
+            artifact_id=artifact_id,
+        )
+        agent_session.artifacts = artifact_projection.serialize_artifacts(
+            next_artifacts
+        )
+        await self.session.commit()
+        await self.session.refresh(agent_session)
+        return self.list_artifacts(agent_session)
 
     async def is_legacy_session(self, session_id: uuid.UUID) -> bool:
         """Check if a session ID refers to a legacy Chat record.
@@ -729,6 +861,10 @@ class AgentSessionService(BaseWorkspaceService):
         )
         result = await self.session.execute(stmt)
         return result.scalar_one_or_none() is None
+
+    async def should_seed_initial_artifact(self, agent_session: AgentSession) -> bool:
+        """Return whether the session should receive its initial artifact seed."""
+        return await self._is_first_prompt_for_session(agent_session.id)
 
     async def has_pending_approvals(self, session_id: uuid.UUID) -> bool:
         """Return whether the session has pending approval decisions."""

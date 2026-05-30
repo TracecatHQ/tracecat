@@ -767,6 +767,13 @@ export type AgentPresetVersionReadMinimal = {
 }
 
 /**
+ * Response schema for persisted agent session artifacts.
+ */
+export type AgentSessionArtifactsRead = {
+  artifacts?: Array<Artifact>
+}
+
+/**
  * Request schema for creating an agent session.
  */
 export type AgentSessionCreate = {
@@ -858,6 +865,7 @@ export type AgentSessionRead = {
   agents_binding?: ResolvedAgentsConfig | null
   harness_type: string | null
   last_stream_id?: string | null
+  artifacts?: Array<Artifact>
   parent_session_id?: string | null
   created_at: string
   updated_at: string
@@ -882,6 +890,7 @@ export type AgentSessionReadVercel = {
   agents_binding?: ResolvedAgentsConfig | null
   harness_type: string | null
   last_stream_id?: string | null
+  artifacts?: Array<Artifact>
   parent_session_id?: string | null
   created_at: string
   updated_at: string
@@ -910,6 +919,7 @@ export type AgentSessionReadWithMessages = {
   agents_binding?: ResolvedAgentsConfig | null
   harness_type: string | null
   last_stream_id?: string | null
+  artifacts?: Array<Artifact>
   parent_session_id?: string | null
   created_at: string
   updated_at: string
@@ -995,6 +1005,16 @@ export type AgentTagRead = {
   name: string
   ref: string
   color: string | null
+}
+
+/**
+ * Alert artifact stub. Extend when alert surfaces are wired.
+ */
+export type AlertArtifact = {
+  id: string
+  title: string
+  scope?: ArtifactScope | null
+  type?: "alert"
 }
 
 export type AnyAttachedSubagentRef =
@@ -1128,6 +1148,35 @@ export type ApprovalStatus = "pending" | "approved" | "rejected"
 export type ApprovalSubmission = {
   approvals: ApprovalMap
 }
+
+export type Artifact =
+  | CaseArtifact
+  | WorkflowArtifact
+  | RunArtifact
+  | TableArtifact
+  | AlertArtifact
+  | IntegrationArtifact
+  | SecretArtifact
+  | GenericArtifact
+
+/**
+ * Attribution scope for artifact data parts.
+ */
+export type ArtifactScope = {
+  agentId?: string | null
+  agentType?: string | null
+  parentToolCallId?: string | null
+}
+
+export type ArtifactType =
+  | "case"
+  | "workflow"
+  | "run"
+  | "table"
+  | "alert"
+  | "integration"
+  | "secret"
+  | "generic"
 
 /**
  * Event for when a case assignee is changed.
@@ -1503,6 +1552,18 @@ export type CachePoint = {
 }
 
 export type ttl = "5m" | "1h"
+
+/**
+ * Case artifact shown in artifact-capable chat surfaces.
+ */
+export type CaseArtifact = {
+  id: string
+  title: string
+  scope?: ArtifactScope | null
+  type?: "case"
+  severity: CaseSeverity
+  status: CaseStatus
+}
 
 /**
  * Model for attachment download URL response.
@@ -3776,6 +3837,19 @@ export type FolderDirectoryItem = {
   num_items: number
 }
 
+/**
+ * Escape hatch for surfaced objects without a dedicated panel view.
+ */
+export type GenericArtifact = {
+  id: string
+  title: string
+  scope?: ArtifactScope | null
+  type?: "generic"
+  data?: {
+    [key: string]: unknown
+  } | null
+}
+
 export type GetWorkflowDefinitionActivityInputs = {
   role: Role
   workflow_id: string
@@ -4262,6 +4336,16 @@ export type Integer = {
   min_val?: number | null
   max_val?: number | null
   step?: number
+}
+
+/**
+ * Integration artifact stub. Extend when integration surfaces are wired.
+ */
+export type IntegrationArtifact = {
+  id: string
+  title: string
+  scope?: ArtifactScope | null
+  type?: "integration"
 }
 
 /**
@@ -5886,6 +5970,21 @@ export type RunActionInput = {
 }
 
 /**
+ * Workflow run artifact shown in artifact-capable chat surfaces.
+ */
+export type RunArtifact = {
+  id: string
+  title: string
+  scope?: ArtifactScope | null
+  type?: "run"
+  workflowId: string
+  status: "running" | "success" | "failed" | "cancelled"
+  startedAt: string
+}
+
+export type status4 = "running" | "success" | "failed" | "cancelled"
+
+/**
  * This is the runtime context model for a workflow run. Passed into activities.
  */
 export type RunContext = {
@@ -6064,6 +6163,16 @@ export type ScopeRead = {
  * Source/ownership of a scope definition.
  */
 export type ScopeSource = "platform" | "custom"
+
+/**
+ * Secret artifact stub. Extend when secret surfaces are wired.
+ */
+export type SecretArtifact = {
+  id: string
+  title: string
+  scope?: ArtifactScope | null
+  type?: "secret"
+}
 
 /**
  * Create a new secret.
@@ -6682,6 +6791,17 @@ export type SystemMessage = {
   data: {
     [key: string]: unknown
   }
+}
+
+/**
+ * Table artifact shown in artifact-capable chat surfaces.
+ */
+export type TableArtifact = {
+  id: string
+  title: string
+  scope?: ArtifactScope | null
+  type?: "table"
+  rowCount?: number | null
 }
 
 /**
@@ -8027,6 +8147,18 @@ export type WorkflowAlias = {
   component_id?: "workflow-alias"
 }
 
+/**
+ * Workflow artifact shown in artifact-capable chat surfaces.
+ */
+export type WorkflowArtifact = {
+  id: string
+  title: string
+  scope?: ArtifactScope | null
+  type?: "workflow"
+  color: string
+  isPublished?: boolean | null
+}
+
 export type WorkflowCommitResponse = {
   workflow_id: string
   status: "success" | "failure"
@@ -8037,7 +8169,7 @@ export type WorkflowCommitResponse = {
   } | null
 }
 
-export type status4 = "success" | "failure"
+export type status5 = "success" | "failure"
 
 /**
  * API response model for persisted workflow definitions.
@@ -8096,7 +8228,7 @@ export type WorkflowDslPublishResult = {
   message: string
 }
 
-export type status5 = "committed" | "no_op"
+export type status6 = "committed" | "no_op"
 
 export type WorkflowEntrypointValidationRequest = {
   expects?: {
@@ -8414,7 +8546,7 @@ export type WorkflowExecutionRead = {
   interactions?: Array<InteractionRead>
 }
 
-export type status6 =
+export type status7 =
   | "RUNNING"
   | "COMPLETED"
   | "FAILED"
@@ -10738,6 +10870,16 @@ export type AgentSessionsGetSessionVercelData = {
 export type AgentSessionsGetSessionVercelResponse =
   | AgentSessionReadVercel
   | ChatReadVercel
+
+export type AgentSessionsRemoveSessionArtifactData = {
+  artifactId: string
+  artifactType: ArtifactType
+  sessionId: string
+  workspaceId: string
+}
+
+export type AgentSessionsRemoveSessionArtifactResponse =
+  AgentSessionArtifactsRead
 
 export type AgentSessionsSendMessageData = {
   requestBody: VercelChatRequest | ContinueRunRequest
@@ -15723,6 +15865,21 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: AgentSessionReadVercel | ChatReadVercel
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/agent/sessions/{session_id}/artifacts/{artifact_type}/{artifact_id}": {
+    delete: {
+      req: AgentSessionsRemoveSessionArtifactData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: AgentSessionArtifactsRead
         /**
          * Validation Error
          */

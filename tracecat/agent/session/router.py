@@ -11,6 +11,7 @@ from fastapi.responses import Response, StreamingResponse
 from tracecat import config
 from tracecat.agent.adapter import vercel
 from tracecat.agent.session.schemas import (
+    AgentSessionArtifactsRead,
     AgentSessionCreate,
     AgentSessionForkRequest,
     AgentSessionRead,
@@ -20,9 +21,12 @@ from tracecat.agent.session.schemas import (
 )
 from tracecat.agent.session.service import AgentSessionService
 from tracecat.agent.session.types import AgentSessionEntity
+from tracecat.agent.stream.artifacts import artifact_stream_event
 from tracecat.agent.stream.connector import AgentStream
 from tracecat.agent.stream.events import StreamFormat
 from tracecat.agent.subagents import ResolvedAgentsConfig
+from tracecat.artifacts.bindings import ArtifactSideEffect
+from tracecat.artifacts.schemas import ArtifactType
 from tracecat.auth.dependencies import WorkspaceActorRouteRole
 from tracecat.authz.controls import require_scope
 from tracecat.chat.schemas import (
@@ -129,6 +133,7 @@ async def get_session(
             created_at=agent_session.created_at,
             updated_at=agent_session.updated_at,
             last_stream_id=agent_session.last_stream_id,
+            artifacts=svc.list_artifacts(agent_session),
             messages=messages,
         )
 
@@ -198,6 +203,7 @@ async def get_session_vercel(
             created_at=agent_session.created_at,
             updated_at=agent_session.updated_at,
             last_stream_id=agent_session.last_stream_id,
+            artifacts=svc.list_artifacts(agent_session),
             messages=ui_messages,
         )
 
@@ -254,6 +260,39 @@ async def update_session(
 
     updated = await svc.update_session(agent_session, params=params)
     return AgentSessionRead.model_validate(updated, from_attributes=True)
+
+
+@router.delete("/{session_id}/artifacts/{artifact_type}/{artifact_id}")
+@require_scope("agent:execute")
+async def remove_session_artifact(
+    session_id: uuid.UUID,
+    artifact_type: ArtifactType,
+    artifact_id: str,
+    role: WorkspaceActorRouteRole,
+    session: AsyncDBSession,
+) -> AgentSessionArtifactsRead:
+    """Remove one artifact from a session's persisted artifact projection."""
+    svc = AgentSessionService(session, role)
+
+    if await svc.is_legacy_session(session_id):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Legacy chat sessions do not support artifacts",
+        )
+
+    try:
+        artifacts = await svc.remove_artifact(
+            session_id,
+            artifact_type=artifact_type,
+            artifact_id=artifact_id,
+        )
+    except TracecatNotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        ) from e
+
+    return AgentSessionArtifactsRead(artifacts=artifacts)
 
 
 @router.delete("/{session_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -316,7 +355,10 @@ async def send_message(
                     detail="Legacy chat sessions are read-only and cannot receive new messages",
                 )
 
-            await svc.validate_turn_request(session_id=session_id, request=request)
+            agent_session = await svc.validate_turn_request(
+                session_id=session_id,
+                request=request,
+            )
 
             if isinstance(request, ContinueRunRequest):
                 # Continuations should follow only newly appended events. Resuming
@@ -330,6 +372,14 @@ async def send_message(
                 # Read from the beginning of the freshly cleared stream so we still
                 # pick up events emitted before the SSE response starts consuming.
                 start_id = "0-0"
+                if await svc.should_seed_initial_artifact(agent_session) and (
+                    artifact := await svc.build_initial_artifact(agent_session)
+                ):
+                    await svc.apply_artifact_side_effects(
+                        session_id,
+                        [ArtifactSideEffect(op="upsert", artifact=artifact)],
+                    )
+                    await stream.append(artifact_stream_event("upsert", artifact))
 
             # Run session turn (spawns DurableAgentWorkflow)
             try:

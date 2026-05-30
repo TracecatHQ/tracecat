@@ -5,7 +5,11 @@ import {
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query"
-import { DefaultChatTransport, type UIMessage } from "ai"
+import {
+  type ChatOnDataCallback,
+  DefaultChatTransport,
+  type UIMessage,
+} from "ai"
 import { useCallback, useMemo, useState } from "react"
 import {
   type AgentSessionCreate,
@@ -14,6 +18,8 @@ import {
   type AgentSessionsGetSessionResponse,
   type AgentSessionsGetSessionVercelResponse,
   type AgentSessionsListSessionsResponse,
+  type AgentSessionsRemoveSessionArtifactData,
+  type AgentSessionsRemoveSessionArtifactResponse,
   type AgentSessionUpdate,
   type ApiError,
   agentSessionsCreateSession,
@@ -21,6 +27,7 @@ import {
   agentSessionsGetSession,
   agentSessionsGetSessionVercel,
   agentSessionsListSessions,
+  agentSessionsRemoveSessionArtifact,
   agentSessionsUpdateSession,
   type ContinueRunRequest,
   type VercelChatRequest,
@@ -44,6 +51,11 @@ type UpdateChatContext = {
     [readonly unknown[], AgentSessionsListSessionsResponse | undefined]
   >
 }
+
+type RemoveSessionArtifactInput = Omit<
+  AgentSessionsRemoveSessionArtifactData,
+  "workspaceId"
+>
 
 function applyOptimisticChatUpdate<T extends UpdateableChatRecord>(
   chat: T,
@@ -373,17 +385,59 @@ export function useGetChatVercel({
   return { chat, chatLoading, chatError }
 }
 
+function applyArtifactsToVercelChat(
+  chat: AgentSessionsGetSessionVercelResponse | undefined,
+  response: AgentSessionsRemoveSessionArtifactResponse
+): AgentSessionsGetSessionVercelResponse | undefined {
+  if (!chat || !("artifacts" in chat)) {
+    return chat
+  }
+  return {
+    ...chat,
+    artifacts: response.artifacts ?? [],
+  }
+}
+
+export function useRemoveSessionArtifact(workspaceId: string) {
+  const queryClient = useQueryClient()
+  const mutation = useMutation({
+    mutationFn: async (input: RemoveSessionArtifactInput) =>
+      await agentSessionsRemoveSessionArtifact({
+        ...input,
+        workspaceId,
+      }),
+    onSuccess: (response, variables) => {
+      queryClient.setQueryData<
+        AgentSessionsGetSessionVercelResponse | undefined
+      >(["chat", variables.sessionId, workspaceId, "vercel"], (current) =>
+        applyArtifactsToVercelChat(current, response)
+      )
+      queryClient.invalidateQueries({
+        queryKey: ["chat", variables.sessionId, workspaceId, "vercel"],
+      })
+    },
+  })
+
+  return {
+    removeArtifact: mutation.mutateAsync,
+    isRemovingArtifact: mutation.isPending,
+    removeArtifactError: mutation.error,
+  }
+}
+
 // Combined hook for chat functionality with Vercel AI SDK streaming
 export function useVercelChat({
   chatId,
   workspaceId,
   messages,
   modelInfo,
+  onData,
 }: {
   chatId?: string
   workspaceId: string
   messages: UIMessage[]
   modelInfo: ModelInfo
+  onData?: ChatOnDataCallback<UIMessage>
 }) {
   const queryClient = useQueryClient()
   const [lastError, setLastError] = useState<string | null>(null)
@@ -456,6 +510,7 @@ export function useVercelChat({
       })
       queryClient.invalidateQueries({ queryKey: ["chats", workspaceId] })
     },
+    onData,
   })
 
   return {

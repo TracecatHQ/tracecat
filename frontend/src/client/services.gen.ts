@@ -173,6 +173,8 @@ import type {
   AgentSessionsGetSessionVercelResponse,
   AgentSessionsListSessionsData,
   AgentSessionsListSessionsResponse,
+  AgentSessionsRemoveSessionArtifactData,
+  AgentSessionsRemoveSessionArtifactResponse,
   AgentSessionsSendMessageData,
   AgentSessionsSendMessageResponse,
   AgentSessionsStreamSessionEventsData,
@@ -6603,6 +6605,35 @@ export const agentSessionsGetSessionVercel = (
     url: "/workspaces/{workspace_id}/agent/sessions/{session_id}/vercel",
     path: {
       session_id: data.sessionId,
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Remove Session Artifact
+ * Remove one artifact from a session's persisted artifact projection.
+ * @param data The data for the request.
+ * @param data.sessionId
+ * @param data.artifactType
+ * @param data.artifactId
+ * @param data.workspaceId
+ * @returns AgentSessionArtifactsRead Successful Response
+ * @throws ApiError
+ */
+export const agentSessionsRemoveSessionArtifact = (
+  data: AgentSessionsRemoveSessionArtifactData
+): CancelablePromise<AgentSessionsRemoveSessionArtifactResponse> => {
+  return __request(OpenAPI, {
+    method: "DELETE",
+    url: "/workspaces/{workspace_id}/agent/sessions/{session_id}/artifacts/{artifact_type}/{artifact_id}",
+    path: {
+      session_id: data.sessionId,
+      artifact_type: data.artifactType,
+      artifact_id: data.artifactId,
       workspace_id: data.workspaceId,
     },
     errors: {

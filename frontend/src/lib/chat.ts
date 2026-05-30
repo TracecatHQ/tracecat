@@ -327,7 +327,8 @@ export function transformMessages(messages: ai.UIMessage[]): ai.UIMessage[] {
               ignorePos.add(currState.approval) // Hide approval state
             }
           } else {
-            console.warn(`Tool call ${toolCallId} not found in states`)
+            states.set(toolCallId, { close: posKey })
+            continue
           }
           // add close state
           states.set(toolCallId, { ...currState, close: posKey })

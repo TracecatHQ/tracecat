@@ -19,8 +19,10 @@ from tracecat.agent.executor.schemas import ToolExecutionResult
 from tracecat.agent.session.schemas import AgentSessionCreate
 from tracecat.agent.session.service import AgentSessionService
 from tracecat.agent.session.types import AgentSessionEntity
+from tracecat.agent.stream.artifacts import artifact_stream_event
 from tracecat.agent.stream.connector import AgentStream
 from tracecat.agent.subagents import ResolvedAgentsConfig
+from tracecat.artifacts.bindings import artifact_side_effects_for_tool_result
 from tracecat.auth.types import Role
 from tracecat.chat.schemas import ChatMessage
 from tracecat.contexts import ctx_role
@@ -64,6 +66,7 @@ class PendingToolResult(BaseModel):
 
     tool_call_id: str
     tool_name: str
+    tool_input: dict[str, Any] | None = None
     stored_result: StoredObject | None = None
     raw_result: Any = None
     is_error: bool = False
@@ -368,6 +371,35 @@ async def reconcile_tool_results_activity(
                 is_error=result.is_error,
             )
         )
+        artifact_effects = list(
+            artifact_side_effects_for_tool_result(
+                tool_name=result.tool_name,
+                tool_input=pending.tool_input,
+                tool_output=result.result,
+                is_error=result.is_error,
+                tool_call_id=result.tool_call_id,
+            )
+        )
+        if artifact_effects:
+            try:
+                async with AgentSessionService.with_session(role=input.role) as service:
+                    await service.apply_artifact_side_effects(
+                        input.session_id,
+                        artifact_effects,
+                    )
+            except Exception as e:
+                logger.warning(
+                    "Failed to persist artifact side effects",
+                    session_id=input.session_id,
+                    tool_call_id=result.tool_call_id,
+                    error=str(e),
+                )
+                raise
+
+        for artifact_effect in artifact_effects:
+            await stream.append(
+                artifact_stream_event(artifact_effect.op, artifact_effect.artifact)
+            )
 
     if results:
         async with AgentSessionService.with_session(role=input.role) as service:
