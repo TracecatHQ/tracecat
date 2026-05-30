@@ -162,7 +162,8 @@ async def test_sync_creates_collision_version_for_manifest_changes(
 
     assert first.version.version == "1.2.3"
     assert first.version.id != second.version.id
-    assert second.version.version.startswith("1.2.3.dev")
+    assert second.version.version.startswith("1.2.3.post")
+    assert "+collision." in second.version.version
     # Re-syncing unchanged content should reuse the active collision version.
     assert third.version.id == second.version.id
     assert repo.current_version_id == second.version.id
