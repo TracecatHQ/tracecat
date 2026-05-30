@@ -36,15 +36,28 @@ async def create_preset(
         ),
     ],
     model_name: Annotated[
-        str,
+        str | None,
         Doc(
-            "The LLM model name to use (e.g., 'gpt-4', 'claude-3-opus', 'gemini-pro')."
+            "Deprecated legacy model name retained for backward compatibility. "
+            "Prefer `catalog_id`, which is the canonical model selector. If omitted, "
+            "the workspace default model is used."
         ),
-    ],
+    ] = None,
     model_provider: Annotated[
-        str,
-        Doc("The LLM provider identifier (e.g., 'openai', 'anthropic', 'google')."),
-    ],
+        str | None,
+        Doc(
+            "Deprecated legacy model provider retained for backward compatibility. "
+            "Prefer `catalog_id`, which is the canonical model selector. If omitted, "
+            "the workspace default provider is used."
+        ),
+    ] = None,
+    catalog_id: Annotated[
+        str | None,
+        Doc(
+            "Canonical model catalog row ID backing this preset. Prefer this over "
+            "legacy `model_name` and `model_provider`."
+        ),
+    ] = None,
     slug: Annotated[
         str | None,
         Doc(
@@ -79,19 +92,51 @@ async def create_preset(
             "List of action identifiers that the agent can use as tools. Format: 'namespace.action' (e.g., ['core.cases.create_case', 'core.cases.update_case']). These actions become available to the agent during execution."
         ),
     ] = None,
-    skills: Annotated[
-        list[dict[str, str]] | None,
+    namespaces: Annotated[
+        list[str] | None,
+        Doc("Optional namespaces to scope dynamic tool discovery."),
+    ] = None,
+    tool_approvals: Annotated[
+        dict[str, bool] | None,
         Doc(
-            "List of skill bindings to attach to the preset. Each entry must include 'skill_id' and 'skill_version_id' UUID strings for a published skill version."
+            "Per-tool approval map. True means the tool requires manual approval; false means auto-run."
         ),
+    ] = None,
+    mcp_integrations: Annotated[
+        list[str] | None,
+        Doc("Optional workspace MCP integration IDs to expose to the preset."),
+    ] = None,
+    agents: Annotated[
+        dict[str, Any] | None,
+        Doc("Optional subagent configuration with `enabled` and `subagents` fields."),
+    ] = None,
+    retries: Annotated[
+        int | None,
+        Doc("Maximum retry count for the preset."),
+    ] = None,
+    enable_thinking: Annotated[
+        bool | None,
+        Doc("Whether to enable model thinking where supported."),
+    ] = None,
+    enable_internet_access: Annotated[
+        bool | None,
+        Doc("Whether to enable internet access for the preset runtime."),
+    ] = None,
+    skills: Annotated[
+        list[dict[str, Any]] | None,
+        Doc("Optional skill bindings for the preset."),
     ] = None,
 ) -> dict[str, Any]:
     # Build kwargs, only including non-None values
-    kwargs: dict[str, Any] = {
-        "name": name,
-        "model_name": model_name,
-        "model_provider": model_provider,
-    }
+    kwargs: dict[str, Any] = {"name": name}
+    # Deprecated legacy fields retained for backward compatibility.
+    # catalog_id is the canonical model selector for new callers.
+    if model_name is not None:
+        kwargs["model_name"] = model_name
+    if model_provider is not None:
+        kwargs["model_provider"] = model_provider
+    if catalog_id is not None:
+        kwargs["catalog_id"] = catalog_id
     if slug is not None:
         kwargs["slug"] = slug
     if description is not None:
@@ -104,6 +149,20 @@ async def create_preset(
         kwargs["output_type"] = output_type
     if actions is not None:
         kwargs["actions"] = actions
+    if namespaces is not None:
+        kwargs["namespaces"] = namespaces
+    if tool_approvals is not None:
+        kwargs["tool_approvals"] = tool_approvals
+    if mcp_integrations is not None:
+        kwargs["mcp_integrations"] = mcp_integrations
+    if agents is not None:
+        kwargs["agents"] = agents
+    if retries is not None:
+        kwargs["retries"] = retries
+    if enable_thinking is not None:
+        kwargs["enable_thinking"] = enable_thinking
+    if enable_internet_access is not None:
+        kwargs["enable_internet_access"] = enable_internet_access
     if skills is not None:
         kwargs["skills"] = skills
 
@@ -157,11 +216,24 @@ async def update_preset(
     ] = None,
     model_name: Annotated[
         str | None,
-        Doc("The updated LLM model name (e.g., 'gpt-4', 'claude-3-opus')."),
+        Doc(
+            "Deprecated legacy model name retained for backward compatibility. "
+            "Prefer `catalog_id`, which is the canonical model selector."
+        ),
     ] = None,
     model_provider: Annotated[
         str | None,
-        Doc("The updated LLM provider identifier (e.g., 'openai', 'anthropic')."),
+        Doc(
+            "Deprecated legacy model provider retained for backward compatibility. "
+            "Prefer `catalog_id`, which is the canonical model selector."
+        ),
+    ] = None,
+    catalog_id: Annotated[
+        str | None,
+        Doc(
+            "The updated canonical model catalog row ID backing this preset. Prefer "
+            "this over legacy `model_name` and `model_provider`."
+        ),
     ] = None,
     new_slug: Annotated[
         str | None,
@@ -197,21 +269,55 @@ async def update_preset(
             "The updated list of action identifiers that the agent can use as tools. Format: 'namespace.action' (e.g., ['core.cases.create_case'])."
         ),
     ] = None,
-    skills: Annotated[
-        list[dict[str, str]] | None,
+    namespaces: Annotated[
+        list[str] | None,
+        Doc("The updated namespaces to scope dynamic tool discovery."),
+    ] = None,
+    tool_approvals: Annotated[
+        dict[str, bool] | None,
         Doc(
-            "The updated skill bindings for the preset. Each entry must include 'skill_id' and 'skill_version_id' UUID strings for a published skill version."
+            "The updated per-tool approval map. True means the tool requires manual approval; false means auto-run."
         ),
+    ] = None,
+    mcp_integrations: Annotated[
+        list[str] | None,
+        Doc("The updated workspace MCP integration IDs to expose to the preset."),
+    ] = None,
+    agents: Annotated[
+        dict[str, Any] | None,
+        Doc(
+            "The updated subagent configuration with `enabled` and `subagents` fields."
+        ),
+    ] = None,
+    retries: Annotated[
+        int | None,
+        Doc("The updated retry count."),
+    ] = None,
+    enable_thinking: Annotated[
+        bool | None,
+        Doc("Whether to enable model thinking where supported."),
+    ] = None,
+    enable_internet_access: Annotated[
+        bool | None,
+        Doc("Whether to enable internet access for the preset runtime."),
+    ] = None,
+    skills: Annotated[
+        list[dict[str, Any]] | None,
+        Doc("The updated skill bindings for the preset."),
     ] = None,
 ) -> dict[str, Any]:
     # Build kwargs, only including non-None values
     kwargs: dict[str, Any] = {}
     if name is not None:
         kwargs["name"] = name
+    # Deprecated legacy fields retained for backward compatibility.
+    # catalog_id is the canonical model selector for new callers.
     if model_name is not None:
         kwargs["model_name"] = model_name
     if model_provider is not None:
         kwargs["model_provider"] = model_provider
+    if catalog_id is not None:
+        kwargs["catalog_id"] = catalog_id
     if new_slug is not None:
         kwargs["new_slug"] = new_slug
     if description is not None:
@@ -224,6 +330,20 @@ async def update_preset(
         kwargs["output_type"] = output_type
     if actions is not None:
         kwargs["actions"] = actions
+    if namespaces is not None:
+        kwargs["namespaces"] = namespaces
+    if tool_approvals is not None:
+        kwargs["tool_approvals"] = tool_approvals
+    if mcp_integrations is not None:
+        kwargs["mcp_integrations"] = mcp_integrations
+    if agents is not None:
+        kwargs["agents"] = agents
+    if retries is not None:
+        kwargs["retries"] = retries
+    if enable_thinking is not None:
+        kwargs["enable_thinking"] = enable_thinking
+    if enable_internet_access is not None:
+        kwargs["enable_internet_access"] = enable_internet_access
     if skills is not None:
         kwargs["skills"] = skills
 

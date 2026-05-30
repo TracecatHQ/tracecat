@@ -588,22 +588,35 @@ class AgentsClient:
         self,
         *,
         name: str,
-        model_name: str,
-        model_provider: str,
+        model_name: str | Unset = UNSET,
+        model_provider: str | Unset = UNSET,
+        catalog_id: str | Unset = UNSET,
         slug: str | Unset = UNSET,
         description: str | Unset = UNSET,
         instructions: str | Unset = UNSET,
         base_url: str | Unset = UNSET,
         output_type: str | dict[str, Any] | Unset = UNSET,
         actions: list[str] | Unset = UNSET,
-        skills: list[AgentPresetSkillBinding] | Unset = UNSET,
+        namespaces: list[str] | Unset = UNSET,
+        tool_approvals: dict[str, bool] | Unset = UNSET,
+        mcp_integrations: list[str] | Unset = UNSET,
+        agents: dict[str, Any] | Unset = UNSET,
+        retries: int | Unset = UNSET,
+        enable_thinking: bool | Unset = UNSET,
+        enable_internet_access: bool | Unset = UNSET,
+        skills: list[dict[str, Any]] | Unset = UNSET,
     ) -> dict[str, Any]:
         """Create a new agent preset.
 
         Args:
             name: Human-readable name for the preset.
-            model_name: LLM model name (e.g., 'gpt-4', 'claude-3-opus').
-            model_provider: LLM provider identifier (e.g., 'openai', 'anthropic').
+            model_name: Deprecated legacy model name retained for backward
+                compatibility. Prefer catalog_id. Defaults to workspace default
+                if omitted.
+            model_provider: Deprecated legacy model provider retained for backward
+                compatibility. Prefer catalog_id. Defaults to workspace default
+                if omitted.
+            catalog_id: Canonical model catalog row ID backing this preset.
             slug: URL-friendly identifier. Auto-generated from name if not provided.
             description: Brief description of the preset's purpose.
             instructions: System instructions/prompt for the agent.
@@ -614,11 +627,15 @@ class AgentsClient:
         Returns:
             Created preset data.
         """
-        data: dict[str, Any] = {
-            "name": name,
-            "model_name": model_name,
-            "model_provider": model_provider,
-        }
+        data: dict[str, Any] = {"name": name}
+        # Deprecated legacy fields retained for backward compatibility.
+        # catalog_id is the canonical model selector for new callers.
+        if is_set(model_name):
+            data["model_name"] = model_name
+        if is_set(model_provider):
+            data["model_provider"] = model_provider
+        if is_set(catalog_id):
+            data["catalog_id"] = catalog_id
         if is_set(slug):
             data["slug"] = slug
         if is_set(description):
@@ -631,6 +648,20 @@ class AgentsClient:
             data["output_type"] = output_type
         if is_set(actions):
             data["actions"] = actions
+        if is_set(namespaces):
+            data["namespaces"] = namespaces
+        if is_set(tool_approvals):
+            data["tool_approvals"] = tool_approvals
+        if is_set(mcp_integrations):
+            data["mcp_integrations"] = mcp_integrations
+        if is_set(agents):
+            data["agents"] = agents
+        if is_set(retries):
+            data["retries"] = retries
+        if is_set(enable_thinking):
+            data["enable_thinking"] = enable_thinking
+        if is_set(enable_internet_access):
+            data["enable_internet_access"] = enable_internet_access
         if is_set(skills):
             data["skills"] = skills
         return await self._client.post("/agent/presets", json=data)
@@ -659,10 +690,18 @@ class AgentsClient:
         instructions: str | Unset = UNSET,
         model_name: str | Unset = UNSET,
         model_provider: str | Unset = UNSET,
+        catalog_id: str | Unset = UNSET,
         base_url: str | Unset = UNSET,
         output_type: str | dict[str, Any] | Unset = UNSET,
         actions: list[str] | Unset = UNSET,
-        skills: list[AgentPresetSkillBinding] | Unset = UNSET,
+        namespaces: list[str] | Unset = UNSET,
+        tool_approvals: dict[str, bool] | Unset = UNSET,
+        mcp_integrations: list[str] | Unset = UNSET,
+        agents: dict[str, Any] | Unset = UNSET,
+        retries: int | Unset = UNSET,
+        enable_thinking: bool | Unset = UNSET,
+        enable_internet_access: bool | Unset = UNSET,
+        skills: list[dict[str, Any]] | Unset = UNSET,
     ) -> dict[str, Any]:
         """Update an existing agent preset.
 
@@ -672,8 +711,11 @@ class AgentsClient:
             new_slug: Updated slug identifier.
             description: Updated description.
             instructions: Updated system instructions.
-            model_name: Updated LLM model name.
-            model_provider: Updated LLM provider.
+            model_name: Deprecated legacy model name retained for backward
+                compatibility. Prefer catalog_id.
+            model_provider: Deprecated legacy model provider retained for backward
+                compatibility. Prefer catalog_id.
+            catalog_id: Canonical model catalog row ID backing this preset.
             base_url: Updated custom API endpoint URL.
             output_type: Updated output format.
             actions: Updated list of action identifiers.
@@ -693,16 +735,34 @@ class AgentsClient:
             data["description"] = description
         if is_set(instructions):
             data["instructions"] = instructions
+        # Deprecated legacy fields retained for backward compatibility.
+        # catalog_id is the canonical model selector for new callers.
         if is_set(model_name):
             data["model_name"] = model_name
         if is_set(model_provider):
             data["model_provider"] = model_provider
+        if is_set(catalog_id):
+            data["catalog_id"] = catalog_id
         if is_set(base_url):
             data["base_url"] = base_url
         if is_set(output_type):
             data["output_type"] = output_type
         if is_set(actions):
             data["actions"] = actions
+        if is_set(namespaces):
+            data["namespaces"] = namespaces
+        if is_set(tool_approvals):
+            data["tool_approvals"] = tool_approvals
+        if is_set(mcp_integrations):
+            data["mcp_integrations"] = mcp_integrations
+        if is_set(agents):
+            data["agents"] = agents
+        if is_set(retries):
+            data["retries"] = retries
+        if is_set(enable_thinking):
+            data["enable_thinking"] = enable_thinking
+        if is_set(enable_internet_access):
+            data["enable_internet_access"] = enable_internet_access
         if is_set(skills):
             data["skills"] = skills
         return await self._client.patch(f"/agent/presets/by-slug/{slug}", json=data)

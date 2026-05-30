@@ -71,6 +71,21 @@ def test_agent_preset_create_trims_required_fields() -> None:
     assert payload.model_provider == "openai"
 
 
+def test_agent_preset_create_rejects_catalog_without_legacy_model_fields() -> None:
+    with pytest.raises(ValidationError):
+        AgentPresetCreate.model_validate(
+            {
+                "name": "Catalog preset",
+                "catalog_id": str(uuid.uuid4()),
+            }
+        )
+
+
+def test_agent_preset_create_requires_model_fields_without_catalog_id() -> None:
+    with pytest.raises(ValidationError):
+        AgentPresetCreate.model_validate({"name": "Legacy preset"})
+
+
 @pytest.mark.parametrize(
     ("schema_cls", "kwargs"),
     [
@@ -105,6 +120,19 @@ def test_agent_preset_request_schemas_reject_blank_trimmed_values(
 ) -> None:
     with pytest.raises(ValidationError):
         schema_cls.model_validate(kwargs)
+
+
+@pytest.mark.parametrize("schema_cls", [PresetCreateRequest, PresetUpdateRequest])
+def test_internal_agent_preset_request_schemas_reject_invalid_catalog_id(
+    schema_cls: type[BaseModel],
+) -> None:
+    with pytest.raises(ValidationError):
+        schema_cls.model_validate(
+            {
+                "name": "Triage preset",
+                "catalog_id": "not-a-uuid",
+            }
+        )
 
 
 def test_agent_preset_read_schema_accepts_legacy_whitespace_model_fields() -> None:

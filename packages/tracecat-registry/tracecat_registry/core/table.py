@@ -332,6 +332,99 @@ async def get_table_metadata(
 
 
 @registry.register(
+    default_title="Update table",
+    description="Rename a table by name.",
+    display_group="Tables",
+    namespace="core.table",
+)
+async def update_table(
+    name: Annotated[
+        str,
+        Doc("The current name of the table to update."),
+    ],
+    new_name: Annotated[
+        str,
+        Doc("The new table name."),
+    ],
+) -> types.TableRead:
+    return await get_context().tables.update_table(name=name, new_name=new_name)
+
+
+@registry.register(
+    default_title="Create column",
+    description="Add a column to an existing table.",
+    display_group="Tables",
+    namespace="core.table",
+)
+async def create_column(
+    table: Annotated[
+        str,
+        Doc("The table to add the column to."),
+    ],
+    column: Annotated[
+        dict[str, Any],
+        Doc(
+            "Column definition with required `name` and uppercase `type`, plus "
+            "optional `nullable`, `default`, and `options` fields. Use `TEXT`, "
+            "`INTEGER`, `NUMERIC`, `BOOLEAN`, `DATE`, `TIMESTAMPTZ`, `JSONB`, "
+            "`SELECT`, or `MULTI_SELECT`. `options` is required for `SELECT` "
+            "and `MULTI_SELECT`."
+        ),
+    ],
+) -> types.TableRead:
+    return await get_context().tables.create_column(table=table, column=column)
+
+
+@registry.register(
+    default_title="Update column",
+    description="Update a table column's name, type, nullability, default, index, or options.",
+    display_group="Tables",
+    namespace="core.table",
+)
+async def update_column(
+    table: Annotated[
+        str,
+        Doc("The table containing the column."),
+    ],
+    column: Annotated[
+        str,
+        Doc("The current column name."),
+    ],
+    update: Annotated[
+        dict[str, Any],
+        Doc(
+            "Partial column update. Supported fields: `name`, `type`, "
+            "`nullable`, `default`, `is_index`, and `options`."
+        ),
+    ],
+) -> types.TableRead:
+    return await get_context().tables.update_column(
+        table=table,
+        column=column,
+        update=update,
+    )
+
+
+@registry.register(
+    default_title="Delete column",
+    description="Delete a column from an existing table.",
+    display_group="Tables",
+    namespace="core.table",
+)
+async def delete_column(
+    table: Annotated[
+        str,
+        Doc("The table containing the column."),
+    ],
+    column: Annotated[
+        str,
+        Doc("The column name to delete."),
+    ],
+) -> types.TableRead:
+    return await get_context().tables.delete_column(table=table, column=column)
+
+
+@registry.register(
     default_title="Download table data",
     description="Download a table's data by name as list of dicts, JSON string, NDJSON string, CSV or Markdown.",
     display_group="Tables",

@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Literal
+from typing import Any, Literal, NoReturn
 from uuid import UUID
 
 import orjson
-from asyncpg import DuplicateTableError
+from asyncpg import DuplicateColumnError, DuplicateTableError
 from fastapi import APIRouter, HTTPException, Query, status
 from pydantic import BaseModel, Field
 from pydantic_core import to_jsonable_python
@@ -17,6 +17,7 @@ from tracecat import config
 from tracecat.auth.dependencies import ExecutorWorkspaceRole
 from tracecat.authz.controls import require_scope
 from tracecat.db.dependencies import AsyncDBSession
+from tracecat.db.models import Table, TableColumn
 from tracecat.exceptions import TracecatNotFoundError
 from tracecat.expressions.functions import tabulate
 from tracecat.logger import logger
@@ -26,12 +27,14 @@ from tracecat.tables.enums import SqlType
 from tracecat.tables.schemas import (
     TableColumnCreate,
     TableColumnRead,
+    TableColumnUpdate,
     TableCreate,
     TableRead,
     TableRowInsert,
     TableRowInsertBatch,
+    TableUpdate,
 )
-from tracecat.tables.service import TablesService
+from tracecat.tables.service import TablesService, validate_identifier
 
 router = APIRouter(
     prefix="/internal/tables", tags=["internal-tables"], include_in_schema=False
@@ -81,6 +84,76 @@ class TableRowUpdate(BaseModel):
 TableDownloadFormat = Literal["json", "ndjson", "csv", "markdown"]
 
 
+def _programming_error_root(exc: ProgrammingError) -> BaseException:
+    root: BaseException = exc
+    while root.__cause__ is not None:
+        root = root.__cause__
+    return root
+
+
+def _raise_table_programming_error(
+    exc: ProgrammingError,
+    *,
+    action: str,
+) -> NoReturn:
+    root = _programming_error_root(exc)
+    if isinstance(root, DuplicateTableError):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Table already exists",
+        ) from exc
+    if isinstance(root, DuplicateColumnError):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Column already exists",
+        ) from exc
+    logger.error("Unexpected table DDL error", action=action, error=str(root))
+    raise HTTPException(
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        detail=f"An error occurred while {action}",
+    ) from exc
+
+
+async def _build_table_read(service: TablesService, table: Table) -> TableRead:
+    """Build table metadata with index flags for internal callers."""
+    index_columns = await service.get_index(table)
+    return TableRead(
+        id=table.id,
+        name=table.name,
+        columns=[
+            TableColumnRead(
+                id=column.id,
+                name=column.name,
+                type=SqlType(column.type),
+                nullable=column.nullable,
+                default=column.default,
+                is_index=column.name in index_columns,
+                options=column.options,
+            )
+            for column in table.columns
+        ],
+    )
+
+
+def _find_column_by_name(table: Table, column_name: str) -> TableColumn:
+    column = next(
+        (column for column in table.columns if column.name == column_name),
+        None,
+    )
+    if column is not None:
+        return column
+    normalized_name = validate_identifier(column_name)
+    column = next(
+        (column for column in table.columns if column.name == normalized_name),
+        None,
+    )
+    if column is None:
+        raise TracecatNotFoundError(
+            f"Column '{column_name}' not found in table '{table.name}'"
+        )
+    return column
+
+
 @router.get("")
 @require_scope("table:read")
 async def list_tables(
@@ -109,10 +182,8 @@ async def create_table(
             TableCreate(name=params.name, columns=params.columns)
         )
     except ProgrammingError as exc:
-        # Drill down to the root cause
-        while (cause := exc.__cause__) is not None:
-            exc = cause
-        if isinstance(exc, DuplicateTableError):
+        root = _programming_error_root(exc)
+        if isinstance(root, DuplicateTableError):
             if params.raise_on_duplicate:
                 raise HTTPException(
                     status_code=status.HTTP_409_CONFLICT,
@@ -121,17 +192,42 @@ async def create_table(
             await session.rollback()
             table = await service.get_table_by_name(params.name)
         else:
-            logger.error("Unexpected error creating table", error=str(exc))
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="An error occurred while creating the table",
-            ) from exc
+            _raise_table_programming_error(exc, action="creating the table")
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(exc),
         ) from exc
     return table.to_dict()
+
+
+@router.patch("/{table_name}", response_model=TableRead)
+@require_scope("table:update")
+async def update_table(
+    *,
+    role: ExecutorWorkspaceRole,
+    session: AsyncDBSession,
+    table_name: str,
+    params: TableUpdate,
+) -> TableRead:
+    """Update table metadata by name."""
+    service = TablesService(session, role=role)
+    try:
+        table = await service.get_table_by_name(table_name)
+        updated = await service.update_table(table, params)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+    except TracecatNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from exc
+    except ProgrammingError as exc:
+        _raise_table_programming_error(exc, action="updating the table")
+    return await _build_table_read(service, updated)
 
 
 @router.get("/{table_name}/metadata", response_model=TableRead)
@@ -157,23 +253,100 @@ async def get_table_metadata(
             detail=str(exc),
         ) from exc
 
-    index_columns = await service.get_index(table)
-    return TableRead(
-        id=table.id,
-        name=table.name,
-        columns=[
-            TableColumnRead(
-                id=column.id,
-                name=column.name,
-                type=SqlType(column.type),
-                nullable=column.nullable,
-                default=column.default,
-                is_index=column.name in index_columns,
-                options=column.options,
-            )
-            for column in table.columns
-        ],
-    )
+    return await _build_table_read(service, table)
+
+
+@router.post("/{table_name}/columns", response_model=TableRead)
+@require_scope("table:create")
+async def create_column(
+    *,
+    role: ExecutorWorkspaceRole,
+    session: AsyncDBSession,
+    table_name: str,
+    params: TableColumnCreate,
+) -> TableRead:
+    """Add a column to a table by name."""
+    service = TablesService(session, role=role)
+    try:
+        table = await service.get_table_by_name(table_name)
+        await service.create_column(table, params)
+        refreshed = await service.get_table(table.id, populate_existing=True)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+    except TracecatNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from exc
+    except ProgrammingError as exc:
+        _raise_table_programming_error(exc, action="creating the column")
+    return await _build_table_read(service, refreshed)
+
+
+@router.patch("/{table_name}/columns/{column_name}", response_model=TableRead)
+@require_scope("table:update")
+async def update_column(
+    *,
+    role: ExecutorWorkspaceRole,
+    session: AsyncDBSession,
+    table_name: str,
+    column_name: str,
+    params: TableColumnUpdate,
+) -> TableRead:
+    """Update a column on a table by table and column name."""
+    service = TablesService(session, role=role)
+    try:
+        table = await service.get_table_by_name(table_name)
+        column = _find_column_by_name(table, column_name)
+        await service.update_column(column, params)
+        refreshed = await service.get_table(table.id, populate_existing=True)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+    except TracecatNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from exc
+    except ProgrammingError as exc:
+        _raise_table_programming_error(exc, action="updating the column")
+    return await _build_table_read(service, refreshed)
+
+
+@router.delete("/{table_name}/columns/{column_name}", response_model=TableRead)
+@require_scope("table:delete")
+async def delete_column(
+    *,
+    role: ExecutorWorkspaceRole,
+    session: AsyncDBSession,
+    table_name: str,
+    column_name: str,
+) -> TableRead:
+    """Delete a column from a table by table and column name."""
+    service = TablesService(session, role=role)
+    try:
+        table = await service.get_table_by_name(table_name)
+        column = _find_column_by_name(table, column_name)
+        await service.delete_column(column)
+        refreshed = await service.get_table(table.id, populate_existing=True)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+    except TracecatNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from exc
+    except ProgrammingError as exc:
+        _raise_table_programming_error(exc, action="deleting the column")
+    return await _build_table_read(service, refreshed)
 
 
 @router.post("/{table_name}/lookup")
