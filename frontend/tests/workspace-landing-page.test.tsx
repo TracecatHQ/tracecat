@@ -7,6 +7,7 @@ import WorkspacePage from "@/app/workspaces/[workspaceId]/page"
 
 const mockRouterReplace = jest.fn()
 const mockUseScopeCheck = jest.fn<boolean | undefined, [string]>()
+const mockHasEntitlement = jest.fn<boolean, [string]>()
 let mockScopes: Record<string, boolean | undefined> = {}
 
 jest.mock("next/navigation", () => ({
@@ -32,7 +33,7 @@ jest.mock("@/components/loading/spinner", () => ({
 
 jest.mock("@/hooks", () => ({
   useEntitlements: () => ({
-    hasEntitlement: () => false,
+    hasEntitlement: mockHasEntitlement,
     isLoading: false,
   }),
 }))
@@ -45,8 +46,10 @@ describe("WorkspacePage", () => {
   beforeEach(() => {
     mockRouterReplace.mockReset()
     mockUseScopeCheck.mockReset()
+    mockHasEntitlement.mockReset()
     mockScopes = {}
     mockUseScopeCheck.mockImplementation((scope) => mockScopes[scope] ?? false)
+    mockHasEntitlement.mockReturnValue(false)
   })
 
   it("does not redirect service-account-only users into the workspace shell", () => {
@@ -63,14 +66,35 @@ describe("WorkspacePage", () => {
 
   it("redirects to Chat when the workspace shell is readable", async () => {
     mockScopes = {
+      "agent:execute": true,
+      "agent:read": true,
       "workspace:read": true,
     }
+    mockHasEntitlement.mockReturnValue(true)
 
     render(<WorkspacePage />)
 
     await waitFor(() => {
       expect(mockRouterReplace).toHaveBeenCalledWith(
         "/workspaces/workspace-1/chat"
+      )
+    })
+  })
+
+  it("falls back to an accessible section when chat is unavailable", async () => {
+    mockScopes = {
+      "agent:execute": true,
+      "agent:read": true,
+      "workflow:read": true,
+      "workspace:read": true,
+    }
+    mockHasEntitlement.mockReturnValue(false)
+
+    render(<WorkspacePage />)
+
+    await waitFor(() => {
+      expect(mockRouterReplace).toHaveBeenCalledWith(
+        "/workspaces/workspace-1/workflows"
       )
     })
   })

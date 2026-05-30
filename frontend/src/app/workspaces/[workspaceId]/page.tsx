@@ -37,6 +37,7 @@ export default function WorkspacePage() {
   const canViewWorkflows = useScopeCheck("workflow:read")
   const canViewCases = useScopeCheck("case:read")
   const canViewAgents = useScopeCheck("agent:read")
+  const canExecuteAgents = useScopeCheck("agent:execute")
   const canViewTables = useScopeCheck("table:read")
   const canViewVariables = useScopeCheck("variable:read")
   const canViewSecrets = useScopeCheck("secret:read")
@@ -54,6 +55,7 @@ export default function WorkspacePage() {
       canViewWorkflows,
       canViewCases,
       canViewAgents,
+      canExecuteAgents,
       canViewTables,
       canViewVariables,
       canViewSecrets,
@@ -68,7 +70,13 @@ export default function WorkspacePage() {
       return undefined
     }
     const basePath = `/workspaces/${workspaceId}`
-    if (canReadWorkspace === true) {
+    const canUseWorkspaceChat =
+      canReadWorkspace === true &&
+      canViewAgents === true &&
+      canExecuteAgents === true &&
+      agentAddonsEnabled
+
+    if (canUseWorkspaceChat) {
       return getWorkspaceLandingPath(workspaceId)
     }
     if (canViewWorkflows === true) {
@@ -101,6 +109,7 @@ export default function WorkspacePage() {
     return null
   }, [
     agentAddonsEnabled,
+    canExecuteAgents,
     canViewAgents,
     canViewCases,
     canViewInbox,

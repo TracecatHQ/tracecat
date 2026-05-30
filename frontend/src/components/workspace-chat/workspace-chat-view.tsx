@@ -118,17 +118,26 @@ export function WorkspaceChatView() {
   const expandPanel = useCallback(() => setIsPanelCollapsed(false), [])
 
   useEffect(() => {
-    if (!isLoading && !agentAddonsEnabled) {
-      router.replace("/workspaces")
+    if (isLoading || canAccessMissionControl === undefined) {
+      return
     }
-  }, [agentAddonsEnabled, isLoading, router])
+    if (!canAccessMissionControl || !agentAddonsEnabled) {
+      router.replace(`/workspaces/${workspaceId}`)
+    }
+  }, [
+    agentAddonsEnabled,
+    canAccessMissionControl,
+    isLoading,
+    router,
+    workspaceId,
+  ])
 
   if (isLoading || canAccessMissionControl === undefined) {
     return <CenteredSpinner />
   }
 
   if (!canAccessMissionControl) {
-    return null
+    return <CenteredSpinner />
   }
 
   if (!agentAddonsEnabled) {

@@ -99,6 +99,7 @@ describe("WorkspaceChatView", () => {
 
     renderWorkspaceChatView()
 
+    expect(mockRouterReplace).toHaveBeenCalledWith("/workspaces/workspace-1")
     expect(screen.queryByTestId("mission-control-chat")).not.toBeInTheDocument()
   })
 
@@ -107,7 +108,7 @@ describe("WorkspaceChatView", () => {
 
     renderWorkspaceChatView()
 
-    expect(mockRouterReplace).toHaveBeenCalledWith("/workspaces")
+    expect(mockRouterReplace).toHaveBeenCalledWith("/workspaces/workspace-1")
     expect(screen.queryByTestId("mission-control-chat")).not.toBeInTheDocument()
   })
 })
