@@ -16,7 +16,6 @@ from tracecat.agent.common.stream_types import HarnessType
 from tracecat.agent.session.router import (
     get_session,
     get_session_vercel,
-    list_sessions,
     send_message,
     stream_session_events,
 )
@@ -73,17 +72,6 @@ def _read_role(workspace_id: uuid.UUID) -> Role:
     )
 
 
-def _service_account_read_role(workspace_id: uuid.UUID) -> Role:
-    return Role(
-        type="service_account",
-        service_id="tracecat-api",
-        workspace_id=workspace_id,
-        organization_id=uuid.uuid4(),
-        service_account_id=uuid.uuid4(),
-        scopes=frozenset({"agent:read"}),
-    )
-
-
 class _AsyncContext:
     def __init__(self, value: Any) -> None:
         self._value = value
@@ -93,26 +81,6 @@ class _AsyncContext:
 
     async def __aexit__(self, exc_type: Any, exc: Any, tb: Any) -> None:
         return None
-
-
-@pytest.mark.anyio
-async def test_list_sessions_accepts_service_account_role_without_user_id() -> None:
-    workspace_id = uuid.uuid4()
-    fake_svc = SimpleNamespace(list_sessions=AsyncMock(return_value=[]))
-
-    with patch(
-        "tracecat.agent.session.router.AgentSessionService", return_value=fake_svc
-    ):
-        raw_list_sessions = cast(Any, list_sessions).__wrapped__
-        response = await raw_list_sessions(
-            role=_service_account_read_role(workspace_id),
-            session=AsyncMock(),
-        )
-
-    assert response == []
-    fake_svc.list_sessions.assert_awaited_once()
-    assert fake_svc.list_sessions.await_args.kwargs["created_by"] is None
-    assert fake_svc.list_sessions.await_args.kwargs["filter_created_by_none"] is True
 
 
 @pytest.mark.anyio

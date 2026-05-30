@@ -351,7 +351,6 @@ class AgentSessionService(BaseWorkspaceService):
         self,
         *,
         created_by: UserID | None = None,
-        filter_created_by_none: bool = False,
         entity_type: AgentSessionEntity | None = None,
         entity_id: uuid.UUID | None = None,
         exclude_entity_types: list[AgentSessionEntity] | None = None,
@@ -365,7 +364,6 @@ class AgentSessionService(BaseWorkspaceService):
 
         Args:
             created_by: Filter by user who created the session.
-            filter_created_by_none: Filter to sessions without a creating user.
             entity_type: Filter by entity type.
             entity_id: Filter by entity ID.
             exclude_entity_types: Entity types to exclude from results.
@@ -381,8 +379,6 @@ class AgentSessionService(BaseWorkspaceService):
         )
         if created_by is not None:
             session_stmt = session_stmt.where(AgentSession.created_by == created_by)
-        elif filter_created_by_none:
-            session_stmt = session_stmt.where(AgentSession.created_by.is_(None))
         if entity_type is not None:
             session_stmt = session_stmt.where(
                 AgentSession.entity_type == entity_type.value
@@ -416,8 +412,6 @@ class AgentSessionService(BaseWorkspaceService):
             chat_stmt = select(Chat).where(Chat.workspace_id == self.workspace_id)
             if created_by is not None:
                 chat_stmt = chat_stmt.where(Chat.user_id == created_by)
-            elif filter_created_by_none:
-                chat_stmt = chat_stmt.where(Chat.user_id.is_(None))
             if entity_type is not None:
                 chat_stmt = chat_stmt.where(Chat.entity_type == entity_type.value)
             if entity_id is not None:
