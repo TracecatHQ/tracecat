@@ -29,9 +29,9 @@ export function ChatEmptyHero({ children, className }: ChatEmptyHeroProps) {
       )}
     >
       <div className="mx-auto w-full max-w-[48rem] -translate-y-8">
-        <h2 className="mb-6 text-center text-2xl font-medium tracking-tight text-foreground">
+        <h1 className="mb-6 text-center text-2xl font-medium tracking-tight text-foreground">
           {greeting}
-        </h2>
+        </h1>
         {children}
       </div>
     </div>
