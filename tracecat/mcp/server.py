@@ -13,7 +13,7 @@ import hashlib
 import json
 import uuid
 from collections import defaultdict, deque
-from collections.abc import Callable, Collection, Iterator, Mapping, Sequence
+from collections.abc import Collection, Iterator, Mapping, Sequence
 from datetime import UTC, datetime, timedelta
 from io import StringIO
 from pathlib import PurePosixPath
@@ -2686,26 +2686,20 @@ _CASE_EVENT_TYPE_VALUES_JSON = json.dumps(
 _MCP_INSTRUCTIONS = """\
 Tracecat workflow management server.
 
-## MCP tool namespaces
-MCP tools are namespaced by resource type and exposed as `<namespace>_<tool_name>`:
-- `workspaces_*` (e.g. `workspaces_list_workspaces`)
-- `workflows_*` (workflow lifecycle, execution, tags, webhook/case-trigger config)
-- `cases_*` (case CRUD, search, comments, tasks, events, tags, custom fields)
-- `tables_*`, `variables_*`, `secrets_*`, `integrations_*`, `agents_*`
-
-Use `workspaces_list_workspaces` to discover available workspaces, then pass \
+## MCP tools
+Use `list_workspaces` to discover available workspaces, then pass \
 `workspace_id` to workspace-scoped tools.
 
 ## MCP tools vs workflow actions
 MCP tools manage Tracecat objects directly. Workflow action names are used only \
 inside workflow YAML under `definition.actions[*].action`.
 
-- MCP examples: `workflows_create_workflow`, `workflows_edit_workflow`, \
-`cases_create_case`, `tables_search_table_rows`
+- MCP examples: `create_workflow`, `edit_workflow`, `create_case`, \
+`search_table_rows`
 - Action namespaces: `core.*` built-ins, `ai.*` LLM actions, and \
 `tools.<integration_slug>.<action_name>` third-party integration actions
-- Discover actions with `workflows_list_actions`; inspect exact schemas with \
-`workflows_get_action_context` or `workflows_get_workflow_authoring_context`
+- Discover actions with `list_actions`; inspect exact schemas with \
+`get_action_context` or `get_workflow_authoring_context`
 - `tracecat://platform/dsl-reference` is a workflow YAML/DSL reference, not an \
 MCP tool argument reference. MCP tool schemas and tool docstrings are the source \
 of truth for tool calls.
@@ -3056,7 +3050,7 @@ extract_ipv4, extract_ipv6, extract_mac, extract_urls, normalize_email
 ## Registered Core and AI Actions
 
 Use these exact registered action names. For argument schemas, call
-`workflows_list_actions` and `workflows_get_action_context`.
+`list_actions` and `get_action_context`.
 
 HTTP: `core.http_request`, `core.http_paginate`, `core.http_poll`
 
@@ -3770,135 +3764,6 @@ def _serialize_temporal_exception(error: BaseException) -> dict[str, Any]:
         payload["cause"] = _serialize_temporal_exception(nested_cause)
 
     return payload
-
-
-workspaces_mcp = FastMCP("tracecat-workspaces")
-workflows_mcp = FastMCP("tracecat-workflows-tools")
-cases_mcp = FastMCP("tracecat-cases")
-tables_mcp = FastMCP("tracecat-tables")
-variables_mcp = FastMCP("tracecat-variables")
-secrets_mcp = FastMCP("tracecat-secrets")
-integrations_mcp = FastMCP("tracecat-integrations")
-agents_mcp = FastMCP("tracecat-agents")
-
-mcp.mount(workspaces_mcp, namespace="workspaces")
-mcp.mount(workflows_mcp, namespace="workflows")
-mcp.mount(cases_mcp, namespace="cases")
-mcp.mount(tables_mcp, namespace="tables")
-mcp.mount(variables_mcp, namespace="variables")
-mcp.mount(secrets_mcp, namespace="secrets")
-mcp.mount(integrations_mcp, namespace="integrations")
-mcp.mount(agents_mcp, namespace="agents")
-
-_TOOL_NAMESPACE_BY_NAME: dict[str, str] = {
-    "list_workspaces": "workspaces",
-    "create_workflow": "workflows",
-    "get_workflow": "workflows",
-    "update_workflow": "workflows",
-    "edit_workflow": "workflows",
-    "list_workflows": "workflows",
-    "list_workflow_tree": "workflows",
-    "create_workflow_folder": "workflows",
-    "move_workflows": "workflows",
-    "list_actions": "workflows",
-    "get_action_context": "workflows",
-    "get_workflow_authoring_context": "workflows",
-    "validate_workflow": "workflows",
-    "prepare_template_file_upload": "workflows",
-    "validate_template_action": "workflows",
-    "sync_custom_registry": "workflows",
-    "publish_workflow": "workflows",
-    "run_draft_workflow": "workflows",
-    "run_published_workflow": "workflows",
-    "list_workflow_executions": "workflows",
-    "get_workflow_execution": "workflows",
-    "get_webhook": "workflows",
-    "update_webhook": "workflows",
-    "get_case_trigger": "workflows",
-    "update_case_trigger": "workflows",
-    "list_workflow_tags": "workflows",
-    "create_workflow_tag": "workflows",
-    "update_workflow_tag": "workflows",
-    "delete_workflow_tag": "workflows",
-    "list_tags_for_workflow": "workflows",
-    "add_workflow_tag": "workflows",
-    "remove_workflow_tag": "workflows",
-    "list_cases": "cases",
-    "search_cases": "cases",
-    "get_case": "cases",
-    "create_case": "cases",
-    "update_case": "cases",
-    "list_case_comments": "cases",
-    "list_case_comment_threads": "cases",
-    "create_case_comment": "cases",
-    "update_case_comment": "cases",
-    "delete_case_comment": "cases",
-    "list_case_tasks": "cases",
-    "get_case_task": "cases",
-    "create_case_task": "cases",
-    "update_case_task": "cases",
-    "run_case_task": "cases",
-    "list_case_events": "cases",
-    "list_case_tags": "cases",
-    "create_case_tag": "cases",
-    "update_case_tag": "cases",
-    "delete_case_tag": "cases",
-    "list_tags_for_case": "cases",
-    "add_case_tag": "cases",
-    "remove_case_tag": "cases",
-    "list_case_fields": "cases",
-    "create_case_field": "cases",
-    "update_case_field": "cases",
-    "list_tables": "tables",
-    "create_table": "tables",
-    "get_table": "tables",
-    "update_table": "tables",
-    "insert_table_row": "tables",
-    "update_table_row": "tables",
-    "search_table_rows": "tables",
-    "export_csv": "tables",
-    "create_column_index": "tables",
-    "drop_column_index": "tables",
-    "list_variables": "variables",
-    "get_variable": "variables",
-    "list_secrets_metadata": "secrets",
-    "get_secret_metadata": "secrets",
-    "list_integrations": "integrations",
-    "get_agent_preset_authoring_context": "agents",
-    "create_agent_preset": "agents",
-    "update_agent_preset": "agents",
-    "upload_skill": "agents",
-    "list_agent_presets": "agents",
-    "get_agent_preset": "agents",
-    "run_agent_preset": "agents",
-}
-
-_TOOL_NAMESPACE_SERVERS: dict[str, FastMCP] = {
-    "workspaces": workspaces_mcp,
-    "workflows": workflows_mcp,
-    "cases": cases_mcp,
-    "tables": tables_mcp,
-    "variables": variables_mcp,
-    "secrets": secrets_mcp,
-    "integrations": integrations_mcp,
-    "agents": agents_mcp,
-}
-
-
-def _namespaced_tool(*args: Any, **kwargs: Any) -> Callable[[Any], Any]:
-    def decorator(func: Any) -> Any:
-        try:
-            namespace = _TOOL_NAMESPACE_BY_NAME[func.__name__]
-        except KeyError as e:
-            raise ValueError(
-                f"Tool namespace mapping missing for function '{func.__name__}'"
-            ) from e
-        return _TOOL_NAMESPACE_SERVERS[namespace].tool(*args, **kwargs)(func)
-
-    return decorator
-
-
-mcp.tool = cast(Any, _namespaced_tool)
 
 
 @mcp.tool()

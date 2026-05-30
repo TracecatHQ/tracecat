@@ -5609,13 +5609,13 @@ async def test_list_workspaces_returns_multi_org_workspaces(monkeypatch):
     assert str(WS_B) in returned_ids
 
 
-def test_tool_namespace_mapping_includes_get_agent_preset() -> None:
-    assert mcp_server._TOOL_NAMESPACE_BY_NAME["get_agent_preset"] == "agents"
-    assert mcp_server._TOOL_NAMESPACE_BY_NAME["update_agent_preset"] == "agents"
+def test_agent_preset_tools_are_registered() -> None:
+    assert hasattr(mcp_server, "get_agent_preset")
+    assert hasattr(mcp_server, "update_agent_preset")
 
 
-def test_tool_namespace_mapping_includes_sync_custom_registry() -> None:
-    assert mcp_server._TOOL_NAMESPACE_BY_NAME["sync_custom_registry"] == "workflows"
+def test_sync_custom_registry_tool_is_registered() -> None:
+    assert hasattr(mcp_server, "sync_custom_registry")
 
 
 def _registry_role(
@@ -6081,7 +6081,6 @@ def test_workflow_file_tools_removed():
         "create_workflow_from_uploaded_file",
         "update_workflow_from_uploaded_file",
     }
-    assert removed_tools.isdisjoint(mcp_server._TOOL_NAMESPACE_BY_NAME)
     for tool_name in removed_tools:
         assert not hasattr(mcp_server, tool_name)
 
@@ -6092,7 +6091,6 @@ def test_destructive_case_tools_removed():
         "delete_case_task",
         "delete_case_field",
     }
-    assert removed_tools.isdisjoint(mcp_server._TOOL_NAMESPACE_BY_NAME)
     for tool_name in removed_tools:
         assert not hasattr(mcp_server, tool_name)
 

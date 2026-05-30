@@ -404,23 +404,23 @@ def schema_input_failure_text(text: str) -> bool:
 
 
 def workflow_ids_from_call(call: McpToolCall) -> list[str]:
-    if call.tool_name == "workflows_create_workflow":
+    if call.tool_name == "create_workflow":
         return ids_from_payload_keys(call.payload, "id")
     if call.tool_name in {
-        "workflows_edit_workflow",
-        "workflows_get_workflow",
-        "workflows_validate_workflow",
-        "workflows_run_draft_workflow",
-        "workflows_run_published_workflow",
+        "edit_workflow",
+        "get_workflow",
+        "validate_workflow",
+        "run_draft_workflow",
+        "run_published_workflow",
     }:
         return ids_from_payload_keys(call.payload, "workflow_id", "id")
     return []
 
 
 def changed_workflow_ids_from_call(call: McpToolCall) -> list[str]:
-    if call.tool_name == "workflows_create_workflow":
+    if call.tool_name == "create_workflow":
         return ids_from_payload_keys(call.payload, "id")
-    if call.tool_name != "workflows_edit_workflow":
+    if call.tool_name != "edit_workflow":
         return []
     if call.arguments.get("validate_only") is True:
         return []
@@ -509,16 +509,14 @@ async def choose_workspace(mcp: TracecatMCP) -> str:
     if workspace_id:
         return workspace_id
 
-    response = await mcp.call("workspaces_list_workspaces", {"limit": 20})
+    response = await mcp.call("list_workspaces", {"limit": 20})
     workspaces = normalize_item_list(response)
     if not workspaces:
-        raise RuntimeError("workspaces_list_workspaces returned no workspaces")
+        raise RuntimeError("list_workspaces returned no workspaces")
     for key in ("id", "workspace_id"):
         if key in workspaces[0]:
             return str(workspaces[0][key])
-    raise RuntimeError(
-        "Could not find workspace id in workspaces_list_workspaces response"
-    )
+    raise RuntimeError("Could not find workspace id in list_workspaces response")
 
 
 def isolated_workspace(case_dir: Path) -> Path:
@@ -580,7 +578,7 @@ async def seed_case_workflow(
 ) -> str:
     title = f"{run_prefix}-{case_id}-seed"
     response = await mcp.call(
-        "workflows_create_workflow",
+        "create_workflow",
         {
             "workspace_id": workspace_id,
             "title": title,
@@ -863,27 +861,95 @@ def normalize_tool_name(name: str) -> str:
     return name
 
 
+TRACECAT_MCP_TOOL_NAMES = {
+    "add_case_tag",
+    "add_workflow_tag",
+    "create_agent_preset",
+    "create_case",
+    "create_case_comment",
+    "create_case_field",
+    "create_case_tag",
+    "create_case_task",
+    "create_column_index",
+    "create_table",
+    "create_workflow",
+    "create_workflow_folder",
+    "create_workflow_tag",
+    "delete_case_comment",
+    "delete_case_tag",
+    "delete_workflow_tag",
+    "drop_column_index",
+    "edit_workflow",
+    "export_csv",
+    "get_action_context",
+    "get_agent_preset",
+    "get_agent_preset_authoring_context",
+    "get_case",
+    "get_case_task",
+    "get_case_trigger",
+    "get_secret_metadata",
+    "get_table",
+    "get_variable",
+    "get_webhook",
+    "get_workflow",
+    "get_workflow_authoring_context",
+    "get_workflow_execution",
+    "insert_table_row",
+    "list_actions",
+    "list_agent_presets",
+    "list_case_comment_threads",
+    "list_case_comments",
+    "list_case_events",
+    "list_case_fields",
+    "list_case_tags",
+    "list_case_tasks",
+    "list_cases",
+    "list_integrations",
+    "list_secrets_metadata",
+    "list_tables",
+    "list_tags_for_case",
+    "list_tags_for_workflow",
+    "list_variables",
+    "list_workflow_executions",
+    "list_workflow_tags",
+    "list_workflow_tree",
+    "list_workflows",
+    "list_workspaces",
+    "move_workflows",
+    "prepare_template_file_upload",
+    "publish_workflow",
+    "remove_case_tag",
+    "remove_workflow_tag",
+    "run_agent_preset",
+    "run_case_task",
+    "run_draft_workflow",
+    "run_published_workflow",
+    "search_cases",
+    "search_table_rows",
+    "sync_custom_registry",
+    "update_agent_preset",
+    "update_case",
+    "update_case_comment",
+    "update_case_field",
+    "update_case_tag",
+    "update_case_task",
+    "update_case_trigger",
+    "update_table",
+    "update_table_row",
+    "update_webhook",
+    "update_workflow",
+    "update_workflow_tag",
+    "upload_skill",
+    "validate_template_action",
+    "validate_workflow",
+}
+
+
 def tracecat_tool_name(value: Any) -> str | None:
     if not isinstance(value, str):
         return None
     name = normalize_tool_name(value)
-    if name in {
-        "workspaces_list_workspaces",
-        "workflows_get_workflow_authoring_context",
-        "workflows_create_workflow",
-        "workflows_get_workflow",
-        "workflows_edit_workflow",
-        "workflows_validate_workflow",
-        "workflows_run_draft_workflow",
-        "workflows_run_published_workflow",
-        "workflows_list_workflow_executions",
-        "workflows_get_workflow_execution",
-    }:
-        return name
-    if re.fullmatch(
-        r"(workspaces|workflows|cases|tables|variables|secrets|integrations|agents)_[a-z_]+",
-        name,
-    ):
+    if name in TRACECAT_MCP_TOOL_NAMES:
         return name
     return None
 
@@ -963,7 +1029,7 @@ async def fetch_workflow_snapshot(
     workflow_id: str,
 ) -> WorkflowSnapshot:
     raw = await mcp.call(
-        "workflows_get_workflow",
+        "get_workflow",
         {
             "workspace_id": workspace_id,
             "workflow_id": workflow_id,
@@ -971,7 +1037,7 @@ async def fetch_workflow_snapshot(
         },
     )
     if not isinstance(raw, dict):
-        raise RuntimeError(f"workflows_get_workflow returned non-object: {raw!r}")
+        raise RuntimeError(f"get_workflow returned non-object: {raw!r}")
 
     definition_yaml = raw.get("definition_yaml")
     yaml_payload = None
@@ -1007,7 +1073,7 @@ async def fetch_action_schemas(
         return {}
     try:
         response = await mcp.call(
-            "workflows_get_workflow_authoring_context",
+            "get_workflow_authoring_context",
             {
                 "workspace_id": workspace_id,
                 "actions": {"action_names": sorted(set(action_names))},
@@ -1235,7 +1301,7 @@ def mcp_tool_called(calls: Sequence[McpToolCall], tool_name: str) -> bool:
 
 def update_workflow_metadata_only(calls: Sequence[McpToolCall]) -> bool:
     for call in calls:
-        if call.tool_name != "workflows_update_workflow":
+        if call.tool_name != "update_workflow":
             continue
         if "definition_yaml" in call.arguments:
             continue
@@ -1251,7 +1317,7 @@ def update_workflow_metadata_only(calls: Sequence[McpToolCall]) -> bool:
 
 def no_update_workflow_patch_ops(calls: Sequence[McpToolCall]) -> bool:
     return not any(
-        call.tool_name == "workflows_update_workflow" and "patch_ops" in call.arguments
+        call.tool_name == "update_workflow" and "patch_ops" in call.arguments
         for call in calls
     )
 
@@ -1276,15 +1342,15 @@ def table_columns_are_valid(columns: object) -> bool:
 
 def created_table_with_valid_columns(calls: Sequence[McpToolCall]) -> bool:
     return any(
-        call.tool_name == "tables_create_table"
+        call.tool_name == "create_table"
         and table_columns_are_valid(call.arguments.get("columns"))
         for call in calls
     )
 
 
 def created_table_index_from_fetched_table(calls: Sequence[McpToolCall]) -> bool:
-    return mcp_tool_called(calls, "tables_get_table") and mcp_tool_called(
-        calls, "tables_create_column_index"
+    return mcp_tool_called(calls, "get_table") and mcp_tool_called(
+        calls, "create_column_index"
     )
 
 
@@ -1310,16 +1376,12 @@ def case_field_args_are_valid(args: Mapping[str, Any]) -> bool:
 
 
 def created_and_updated_case_fields(calls: Sequence[McpToolCall]) -> bool:
-    create_calls = [
-        call for call in calls if call.tool_name == "cases_create_case_field"
-    ]
-    update_calls = [
-        call for call in calls if call.tool_name == "cases_update_case_field"
-    ]
+    create_calls = [call for call in calls if call.tool_name == "create_case_field"]
+    update_calls = [call for call in calls if call.tool_name == "update_case_field"]
     return (
         bool(create_calls)
         and bool(update_calls)
-        and mcp_tool_called(calls, "cases_list_case_fields")
+        and mcp_tool_called(calls, "list_case_fields")
         and all(case_field_args_are_valid(call.arguments) for call in create_calls)
         and all(case_field_args_are_valid(call.arguments) for call in update_calls)
     )
@@ -1340,21 +1402,18 @@ def evaluate_rubric_item(
 
     checks: dict[str, tuple[bool, str]] = {
         "discovered_workspace": (
-            transcript_contains(transcript, "workspaces_list_workspaces"),
-            "Expected workspaces_list_workspaces in transcript.",
+            transcript_contains(transcript, "list_workspaces"),
+            "Expected list_workspaces in transcript.",
         ),
         "starts_from_live_context": (
-            transcript_contains(transcript, "workspaces_list_workspaces")
-            and transcript_contains(
-                transcript, "workflows_get_workflow_authoring_context"
-            ),
-            "Expected workspaces_list_workspaces and "
-            "workflows_get_workflow_authoring_context in transcript.",
+            transcript_contains(transcript, "list_workspaces")
+            and transcript_contains(transcript, "get_workflow_authoring_context"),
+            "Expected list_workspaces and "
+            "get_workflow_authoring_context in transcript.",
         ),
         "created_workflow": (
-            transcript_contains(transcript, "workflows_create_workflow")
-            and bool(workflow_ids),
-            "Expected workflows_create_workflow and returned workflow id.",
+            transcript_contains(transcript, "create_workflow") and bool(workflow_ids),
+            "Expected create_workflow and returned workflow id.",
         ),
         "valid_workflow_yaml": (
             bool(snapshots) and all(snapshot.definition for snapshot in snapshots),
@@ -1393,12 +1452,12 @@ def evaluate_rubric_item(
             "Expected direct list handling of core.http_paginate result.",
         ),
         "fetched_existing_workflow": (
-            transcript_contains(transcript, "workflows_get_workflow"),
-            "Expected workflows_get_workflow before editing.",
+            transcript_contains(transcript, "get_workflow"),
+            "Expected get_workflow before editing.",
         ),
         "used_edit_workflow": (
-            transcript_count(transcript, "workflows_edit_workflow") >= 1,
-            "Expected workflows_edit_workflow.",
+            transcript_count(transcript, "edit_workflow") >= 1,
+            "Expected edit_workflow.",
         ),
         "used_validate_only_edit": (
             transcript_contains(transcript, "validate_only")
@@ -1454,37 +1513,37 @@ def evaluate_rubric_item(
             "Expected core HTTP scaffolding or provider confirmation note.",
         ),
         "validated_workflow": (
-            transcript_contains(transcript, "workflows_validate_workflow"),
-            "Expected workflows_validate_workflow.",
+            transcript_contains(transcript, "validate_workflow"),
+            "Expected validate_workflow.",
         ),
         "ran_draft_workflow": (
-            transcript_contains(transcript, "workflows_run_draft_workflow"),
-            "Expected workflows_run_draft_workflow.",
+            transcript_contains(transcript, "run_draft_workflow"),
+            "Expected run_draft_workflow.",
         ),
         "inspected_execution": (
-            transcript_contains(transcript, "workflows_get_workflow_execution")
-            or transcript_contains(transcript, "workflows_list_workflow_executions"),
+            transcript_contains(transcript, "get_workflow_execution")
+            or transcript_contains(transcript, "list_workflow_executions"),
             "Expected execution inspection.",
         ),
         "used_update_workflow_metadata_only": (
             update_workflow_metadata_only(mcp_calls),
-            "Expected workflows_update_workflow for metadata only, without definition_yaml or patch_ops.",
+            "Expected update_workflow for metadata only, without definition_yaml or patch_ops.",
         ),
         "no_update_workflow_patch_ops": (
             no_update_workflow_patch_ops(mcp_calls),
-            "Expected no patch_ops argument on workflows_update_workflow.",
+            "Expected no patch_ops argument on update_workflow.",
         ),
         "created_table_with_valid_columns": (
             created_table_with_valid_columns(mcp_calls),
-            "Expected tables_create_table with valid uppercase column types and select options only on select fields.",
+            "Expected create_table with valid uppercase column types and select options only on select fields.",
         ),
         "created_table_index_from_fetched_table": (
             created_table_index_from_fetched_table(mcp_calls),
-            "Expected tables_get_table followed by tables_create_column_index using real table/column UUIDs.",
+            "Expected get_table followed by create_column_index using real table/column UUIDs.",
         ),
         "created_and_updated_case_fields": (
             created_and_updated_case_fields(mcp_calls),
-            "Expected cases_list_case_fields plus valid cases_create_case_field and cases_update_case_field calls.",
+            "Expected list_case_fields plus valid create_case_field and update_case_field calls.",
         ),
     }
     passed, detail = checks.get(item, (False, f"Unknown rubric item for {case.id}"))
@@ -1982,7 +2041,7 @@ def validate_prompt_table_upsert_examples(
 ) -> CheckResult:
     upsert_pattern = re.compile(r"\bupsert\s*[:=]\s*[Tt]rue\b")
     unique_index_pattern = re.compile(
-        r"(?i)(unique index|tables_create_column_index|create_column_index|"
+        r"(?i)(unique index|create_column_index|create_column_index|"
         r"unique\s*[:=]\s*true)"
     )
     unsafe_hits: list[str] = []

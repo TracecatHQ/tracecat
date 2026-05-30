@@ -42,7 +42,7 @@ uv run python scripts/evals/tracecat_authoring/run_local.py \
 ```
 
 The runner uses `TRACECAT_EVAL_WORKSPACE_ID` when set. Otherwise it uses the
-first workspace returned by `workspaces_list_workspaces`. If the MCP server
+first workspace returned by `list_workspaces`. If the MCP server
 requires a bearer token, set `TRACECAT_MCP_BEARER_TOKEN`.
 
 ## Codex vs Claude Code

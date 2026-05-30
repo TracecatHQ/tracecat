@@ -9,11 +9,11 @@ description: Use when building, editing, validating, or debugging generic Tracec
 
 Start from live MCP context rather than guessing:
 
-1. Discover the workspace with `workspaces_list_workspaces`.
+1. Discover the workspace with `list_workspaces`.
 2. Read `tracecat://platform/dsl-reference` when DSL syntax or examples are needed.
-3. Use `workflows_get_workflow_authoring_context` for action schemas, variables, and secrets.
-4. For existing workflows, use `workflows_get_workflow`, then targeted `workflows_edit_workflow` patches against `draft_document` and `draft_revision`.
-5. Validate with `workflows_validate_workflow`, run a draft or published execution when appropriate, then inspect failures with `workflows_list_workflow_executions` and `workflows_get_workflow_execution`.
+3. Use `get_workflow_authoring_context` for action schemas, variables, and secrets.
+4. For existing workflows, use `get_workflow`, then targeted `edit_workflow` patches against `draft_document` and `draft_revision`.
+5. Validate with `validate_workflow`, run a draft or published execution when appropriate, then inspect failures with `list_workflow_executions` and `get_workflow_execution`.
 
 Clarify production choices that change the workflow contract: workspace, integration/provider, secret source, publish/run behavior, destructive side effects, approvals, or acceptance criteria. If the request is already specific enough, proceed.
 
@@ -45,9 +45,9 @@ args:
 
 ## Existing Workflow Edits
 
-- Prefer `workflows_edit_workflow` over replacing full YAML for focused changes.
-- Patch against the `draft_document` returned by `workflows_get_workflow`; action paths start under `/definition/actions/...`, not `/actions/...`.
-- For nontrivial edits, call `workflows_edit_workflow` with `validate_only: true`, then apply the same patch with `validate_only: false` against the same `base_revision`.
+- Prefer `edit_workflow` over replacing full YAML for focused changes.
+- Patch against the `draft_document` returned by `get_workflow`; action paths start under `/definition/actions/...`, not `/actions/...`.
+- For nontrivial edits, call `edit_workflow` with `validate_only: true`, then apply the same patch with `validate_only: false` against the same `base_revision`.
 - Treat `draft_revision` as sequential state. After a successful write, use the returned revision before the next patch.
 - When adding or renaming actions, update `depends_on` and matching layout action refs in the same edit.
 
@@ -90,18 +90,18 @@ Use `async def main(...)`, `await` imported actions, pass named arguments, and c
 - Keep opaque identifiers as strings, especially numeric-looking IDs that may exceed integer limits.
 - Keep table names, column names, and case field names under 63 characters.
 
-For MCP table operations, use `tables_list_tables`, `tables_get_table`, `tables_create_column_index`, `tables_search_table_rows`, and `tables_export_csv`. For workflow YAML, use `core.table.*` actions or `tracecat_registry.core.table` imports inside run-python.
+For MCP table operations, use `list_tables`, `get_table`, `create_column_index`, `search_table_rows`, and `export_csv`. For workflow YAML, use `core.table.*` actions or `tracecat_registry.core.table` imports inside run-python.
 
 ## Common Mistakes
 
-- Workflow action names are not MCP tool names. Use MCP tools such as `workflows_create_workflow` to manage workflows, and use action names such as `core.http_request` only inside workflow YAML.
-- Do not invent `tools.*` action names. Discover actions with `workflows_list_actions`, then inspect exact schemas with `workflows_get_action_context`.
+- Workflow action names are not MCP tool names. Use MCP tools such as `create_workflow` to manage workflows, and use action names such as `core.http_request` only inside workflow YAML.
+- Do not invent `tools.*` action names. Discover actions with `list_actions`, then inspect exact schemas with `get_action_context`.
 - Use `core.script.run_python` for ordinary collection processing; avoid `for_each` and scatter/gather for normal loops, batching, filtering, joins, or table writes.
 - Do not use table `insert_rows(..., upsert=True)` unless the table has a unique index on the key column used to match existing rows.
 - Do not grant `core.http_request` to an agent unless the user explicitly approves broad network access.
 
 ## Agent Presets
 
-Before creating or updating presets, call `agents_get_agent_preset_authoring_context` and `integrations_list_integrations`. Check workspace model credentials, attachable MCP integrations, output type options, variables, and available tools.
+Before creating or updating presets, call `get_agent_preset_authoring_context` and `list_integrations`. Check workspace model credentials, attachable MCP integrations, output type options, variables, and available tools.
 
 Give presets only the tools they need. Encode routing, table names, output style, and production action rules directly in the preset instructions; the agent reads its own instructions, not repo files.

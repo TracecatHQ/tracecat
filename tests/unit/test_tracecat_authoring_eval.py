@@ -21,7 +21,7 @@ def test_workflow_ids_from_call_decodes_mcp_text_content() -> None:
     workflow_id = "123e4567-e89b-12d3-a456-426614174000"
     call = run_local.McpToolCall(
         call_id="call_1",
-        tool_name="workflows_create_workflow",
+        tool_name="create_workflow",
         payload=[
             {
                 "type": "text",
