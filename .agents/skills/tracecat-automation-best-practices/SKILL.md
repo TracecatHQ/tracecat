@@ -1,6 +1,6 @@
 ---
 name: tracecat-automation-best-practices
-description: Use when building, editing, validating, or debugging generic Tracecat automations through Tracecat MCP, including workflow DSL/YAML authoring, table design, unique indexes, run-python Tracecat imports, agent presets, ai.agent or ai.preset_agent workflows, executions, validation, and workflow best practices. Do not use for Slack bot-specific setup unless the user asks for Slack, app mentions, interactive messages, or event subscriptions.
+description: Use when building, editing, validating, or debugging generic Tracecat automations through Tracecat MCP, including workflow DSL/YAML authoring, table design, unique indexes, run-python Tracecat imports, agent presets, ai.agent or ai.preset_agent workflows, executions, validation, and workflow best practices.
 ---
 
 # Tracecat Automation Best Practices
