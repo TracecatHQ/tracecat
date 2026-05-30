@@ -66,6 +66,9 @@ jest.mock("@/components/editor/codemirror/code-editor", () => ({
     />
   ),
 }))
+jest.mock("@/hooks/use-auth", () => ({
+  useAuth: () => ({ user: { firstName: "Daryl" } }),
+}))
 jest.mock("@/providers/workspace-id", () => ({
   useWorkspaceId: () => "workspace-1",
 }))
@@ -184,6 +187,55 @@ describe("ChatSessionPane", () => {
       // biome-ignore lint/suspicious/noExplicitAny: mock return type needs flexibility for testing
     } as any)
   }
+
+  it("shows the empty hero for artifact-only workspace chat messages", () => {
+    mockUseVercelChat.mockReturnValue({
+      sendMessage: jest.fn(),
+      regenerate: jest.fn(),
+      messages: [
+        {
+          id: "message-1",
+          role: "assistant",
+          parts: [
+            {
+              type: "data-artifact",
+              data: {
+                op: "upsert",
+                artifact: {
+                  id: "artifact-1",
+                  title: "Investigation notes",
+                  type: "generic",
+                },
+              },
+            },
+          ],
+        },
+      ],
+      status: "ready",
+      lastError: null,
+      clearError: jest.fn(),
+      // biome-ignore lint/suspicious/noExplicitAny: mock return type needs flexibility for testing
+    } as any)
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <TooltipProvider>
+          <ChatSessionPane
+            chat={createChatFixture()}
+            workspaceId="workspace-1"
+            entityType="copilot"
+            entityId="workspace-1"
+            modelInfo={{ name: "gpt-4o-mini", provider: "openai" }}
+            surface="workspace-chat"
+          />
+        </TooltipProvider>
+      </QueryClientProvider>
+    )
+
+    expect(
+      screen.getByText("What should we get done, Daryl?")
+    ).toBeInTheDocument()
+  })
 
   it("logs and recovers when sendMessage throws", async () => {
     const sendMessage = jest.fn(() => {

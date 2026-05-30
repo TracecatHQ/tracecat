@@ -138,6 +138,10 @@ type ToolSuggestion = {
   group?: string
 }
 
+function messageHasVisibleParts(message: UIMessage): boolean {
+  return message.parts.some((part) => part.type !== ARTIFACT_DATA_PART_TYPE)
+}
+
 function areToolListsEqual(left: string[], right: string[]): boolean {
   return (
     left.length === right.length &&
@@ -1018,7 +1022,7 @@ export function ChatSessionPane({
     !isReadonly &&
     !lastError &&
     !isWaitingForResponse &&
-    transformedMessages.length === 0
+    !transformedMessages.some(messageHasVisibleParts)
 
   if (showEmptyHero) {
     return (
