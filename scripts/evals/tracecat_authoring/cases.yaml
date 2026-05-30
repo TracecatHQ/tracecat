@@ -50,7 +50,8 @@ cases:
       - `source`: string
 
       Use targeted JSON Patch edits against the draft document. First perform a
-      validate-only edit, then apply the real edit with the returned revision.
+      validate-only edit, then apply the real edit by reusing the original
+      `draft_revision` returned by `workflows_get_workflow`.
       Keep the layout entries consistent with the definition action refs.
     rubric:
       - starts_from_live_context
