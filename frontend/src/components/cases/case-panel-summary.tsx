@@ -44,6 +44,9 @@ export function CasePanelSummary({
     e: React.KeyboardEvent<HTMLInputElement | HTMLTextAreaElement>
   ) => {
     if (e.key === "Enter") {
+      if (e.currentTarget instanceof HTMLTextAreaElement && e.shiftKey) {
+        return
+      }
       e.preventDefault()
       handleSummarySubmit(form.getValues())
       e.currentTarget.blur()
