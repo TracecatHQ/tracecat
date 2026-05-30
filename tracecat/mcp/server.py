@@ -2728,6 +2728,9 @@ that specific integration/tool by name.
 you may discover and present candidate tools, but do NOT add any third-party \
 tool to workflow YAML until the user explicitly confirms the exact integration \
 they want.
+- Do not invent `tools.*` action names. Discover integrations with \
+`workflows_list_actions`, then inspect exact schemas with \
+`workflows_get_action_context` before authoring workflow YAML.
 - Prefer tool-agnostic workflow scaffolding with `core.http_request` and \
 `core.script.run_python` unless the user requests a specific third-party \
 integration.
@@ -2743,8 +2746,14 @@ args:
 ```
 - `core.script.run_python` can import Tracecat core actions:
 ```python
-from tracecat_registry.core.http import http_request
-from tracecat_registry.core.table import create_table, insert_row, insert_rows, lookup, update_row
+from tracecat_registry.core.http import http_request, http_paginate
+from tracecat_registry.core.table import create_table, insert_rows, lookup, update_row
+
+async def main(rows):
+    await create_table(name="inventory", columns=[{"name": "external_id", "type": "TEXT"}])
+    for start in range(0, len(rows), 1000):
+        await insert_rows(table="inventory", rows_data=rows[start:start + 1000], upsert=False)
+    return {"input_rows": len(rows), "sample": rows[:5]}
 ```
 
 ## Expression syntax (used in action `args:` values)
@@ -2760,21 +2769,41 @@ from tracecat_registry.core.table import create_table, insert_row, insert_rows, 
 Use `core.script.run_python` for list transformations, or `for_each` on actions.
 - **Important**: Use `None` (Python-style) NOT `null` (JSON-style) in expressions.
 
-## Scatter/Gather pattern (parallel fan-out)
-Within a scatter stream, each child action accesses its item via \
-`ACTIONS.<scatter_ref>.result`:
+## Loop and batching guidance
+- Use action-level `for_each` for simple per-item repetition of one action. It \
+runs iterations in parallel, so keep rate limits in mind.
+- Use `core.loop.start` / `core.loop.end` for while-style workflow loops where \
+the next iteration depends on prior action output.
+- Use `core.transform.scatter` / `core.transform.gather` only for true parallel \
+fan-out/fan-in where each item needs its own workflow execution stream. \
+Scatter/gather has overhead and can be much slower than `core.script.run_python` \
+for ordinary batched transforms.
+- Prefer `core.script.run_python` for list transforms, batching, joins, \
+dedupe, sorting, grouping, chunked table writes, and bounded async HTTP loops.
+
+Example `for_each`:
 ```yaml
-- ref: my_scatter
-  action: core.transform.scatter
-  args:
-    collection: ${{ ACTIONS.previous_step.result }}
 - ref: process_item
   action: core.http_request
-  depends_on: [my_scatter]
+  for_each: "${{ for var.item in TRIGGER.items }}"
   args:
-    url: "https://api.example.com/${{ ACTIONS.my_scatter.result.id }}"
+    url: "https://api.example.com/items/${{ var.item.id }}"
+    method: POST
+```
+
+Example scatter/gather for real parallel fan-out:
+```yaml
+- ref: scatter_items
+  action: core.transform.scatter
+  args:
+    collection: ${{ TRIGGER.items }}
+- ref: process_item
+  action: core.http_request
+  depends_on: [scatter_items]
+  args:
+    url: "https://api.example.com/items/${{ ACTIONS.scatter_items.result.id }}"
     method: GET
-- ref: my_gather
+- ref: gather_results
   action: core.transform.gather
   depends_on: [process_item]
   args:
@@ -2848,9 +2877,13 @@ Use `get_workflow` -> `edit_workflow(validate_only=true)` ->
       "path": "/definition/actions/-",
       "value": {
         "ref": "notify_owner",
-        "action": "core.noop",
+        "action": "core.http_request",
         "depends_on": ["parse_event"],
-        "args": {}
+        "args": {
+          "method": "POST",
+          "url": "https://api.example.com/notify",
+          "payload": {"owner": "${{ ACTIONS.parse_event.result.owner }}"}
+        }
       }
     },
     {
@@ -2945,11 +2978,17 @@ handle defaults in Python.
     allow_network: true
     script: |
       import json
-      from tracecat_registry.core.http import http_request
+      from tracecat_registry.core.http import http_paginate, http_request
       from tracecat_registry.core.table import insert_rows, lookup
 
-      def main(rows_json):
+      async def main(rows_json):
           rows = json.loads(rows_json or "[]")
+          for start in range(0, len(rows), 1000):
+              await insert_rows(
+                  table="automation_inventory",
+                  rows_data=rows[start:start + 1000],
+                  upsert=False,
+              )
           return {"count": len(rows), "rows": rows[:100]}
 ```
 
@@ -3017,7 +3056,7 @@ args:
 After running a workflow, use `list_workflow_executions` to see recent runs and their \
 statuses (COMPLETED, FAILED, RUNNING, etc.). Then use `get_workflow_execution` with the \
 execution ID to get a detailed event timeline showing each action's status, timing, \
-inputs, results, and errors. This is essential for diagnosing failed runs.
+inputs, results, and errors.
 
 ## Important: workflow actions vs MCP tools
 Action names like `core.http_request` are for use *inside* workflow YAML definitions \
@@ -3252,23 +3291,64 @@ extract_ipv4, extract_ipv6, extract_mac, extract_urls, normalize_email
 
 **IO**: parse_csv
 
-## Core Built-in Actions
+## Registered Core and AI Actions
 
-| Action | Description |
-|--------|-------------|
-| `core.http_request` | Make an HTTP request (GET, POST, PUT, DELETE, PATCH) |
-| `core.transform.reshape` | Reshape data using expressions |
-| `core.transform.scatter` | Fan-out: scatter a collection into parallel streams |
-| `core.transform.gather` | Fan-in: gather results from parallel streams into a list |
-| `core.transform.filter` | Filter a collection using a Python lambda |
-| `core.transform.map` | Map over items |
-| `core.script.run_python` | Run inline Python script in a sandbox |
-| `core.table.insert_row` | Insert a row into a table |
-| `core.table.lookup` | Lookup a value in a table |
-| `core.workflow.execute` | Execute a child workflow |
-| `ai.action` | Call an LLM (no tools), supports structured output via `output_type` |
-| `ai.agent` | AI agent with tool calling (can invoke Tracecat actions) |
-| `ai.preset_agent` | Run a saved agent preset by slug |
+Use these exact registered action names. For argument schemas, call
+`workflows_list_actions` and `workflows_get_action_context`.
+
+HTTP: `core.http_request`, `core.http_paginate`, `core.http_poll`
+
+Email: `core.send_email_smtp`
+
+DuckDB: `core.duckdb.execute_sql`
+
+SQL: `core.sql.execute_query`
+
+SSH: `core.ssh.execute_command`
+
+gRPC: `core.grpc.request`
+
+Transforms: `core.transform.apply`, `core.transform.deduplicate`,
+`core.transform.drop_nulls`, `core.transform.eval_jsonpaths`,
+`core.transform.filter`, `core.transform.flatten_json`,
+`core.transform.gather`, `core.transform.is_duplicate`,
+`core.transform.is_in`, `core.transform.map`, `core.transform.not_in`,
+`core.transform.reshape`, `core.transform.scatter`
+
+Loops: `core.loop.start`, `core.loop.end`
+
+Workflow: `core.workflow.execute`, `core.workflow.get_status`
+
+Tables: `core.table.create_table`, `core.table.delete_row`,
+`core.table.download`, `core.table.get_table_metadata`,
+`core.table.insert_row`, `core.table.insert_rows`, `core.table.is_in`,
+`core.table.list_tables`, `core.table.lookup`, `core.table.lookup_many`,
+`core.table.search_rows`, `core.table.update_row`
+
+Cases: `core.cases.add_case_tag`, `core.cases.assign_user`,
+`core.cases.assign_user_by_email`, `core.cases.create_case`,
+`core.cases.create_comment`, `core.cases.create_task`,
+`core.cases.delete_attachment`, `core.cases.delete_case`,
+`core.cases.delete_task`, `core.cases.download_attachment`,
+`core.cases.get_attachment`, `core.cases.get_attachment_download_url`,
+`core.cases.get_case`, `core.cases.get_case_metrics`,
+`core.cases.get_comment_thread`, `core.cases.get_task`,
+`core.cases.insert_row`, `core.cases.link_row`,
+`core.cases.list_attachments`, `core.cases.list_case_events`,
+`core.cases.list_cases`, `core.cases.list_comment_threads`,
+`core.cases.list_comments`, `core.cases.list_tasks`,
+`core.cases.remove_case_tag`, `core.cases.reply_to_comment`,
+`core.cases.search_cases`, `core.cases.unlink_row`,
+`core.cases.update_case`, `core.cases.update_comment`,
+`core.cases.update_task`, `core.cases.upload_attachment`,
+`core.cases.upload_attachment_from_url`
+
+Require/Python: `core.require`, `core.script.run_python`
+
+AI: `ai.action`, `ai.agent`, `ai.preset_agent`, `ai.rank_documents`,
+`ai.select_field`, `ai.select_fields`, `ai.agent.create_preset`,
+`ai.agent.delete_preset`, `ai.agent.get_preset`, `ai.agent.list_presets`,
+`ai.agent.update_preset`
 
 ## Third-Party Integration Action Syntax
 
@@ -3315,6 +3395,9 @@ actions:
 ```
 
 ### Scatter/Gather (Parallel Fan-out/Fan-in)
+Use scatter/gather only when each item needs its own workflow execution stream.
+It has orchestration overhead and can be much slower than a run-python loop for
+ordinary list transforms, batching, joins, dedupe, or chunked table writes.
 ```yaml
 actions:
   - ref: get_items

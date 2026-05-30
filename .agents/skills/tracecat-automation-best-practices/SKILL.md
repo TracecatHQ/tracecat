@@ -35,7 +35,7 @@ this skill.
 - Keep a workflow to roughly 20 nodes or fewer. First try to simplify or consolidate with `core.script.run_python` or an agent/preset; split into named subflows only when the remaining work is a real orchestration boundary with clear inputs and outputs.
 - Keep agentic workflows to roughly 6 nodes or fewer. The graph should set context, call the agent or preset, and handle the result; move deterministic collection, joins, filtering, and batching into scripts unless subflows are clearly needed.
 - Use workflow folders to group related parent workflows, subflows, and support utilities.
-- Do not use `core.transform.scatter` / `core.transform.gather` for ordinary data transforms. Normalize, dedupe, join, filter, sort, and batch upsert inside `core.script.run_python`.
+- Do not use `core.transform.scatter` / `core.transform.gather` for ordinary data transforms. Scatter/gather has orchestration overhead and can be much slower than a run-python loop for normal batched transforms. Normalize, dedupe, join, filter, sort, and chunked table writes inside `core.script.run_python`.
 - Prefer agents or agent presets for judgment, summarization, investigation, and tool-using decisions. If the task is just one deterministic API call, use `core.http_request` instead of an agent.
 - Do not give `core.http_request` to an agent unless the user explicitly accepts the risk. It effectively gives the agent unbounded curl-like access. Put deterministic HTTP calls in the workflow graph or a tightly scoped subflow instead.
 - Use HTTP pagination actions for paginated APIs. For transforms, especially nested loops, joins, grouping, dedupe, or large collection shaping, use `core.script.run_python` instead of expression chains.
@@ -56,13 +56,14 @@ Use `ai.preset_agent` when a reusable agent should be maintained separately from
 
 - Prefer `workflows_edit_workflow` over replacing full YAML for focused changes.
 - Patch against the `draft_document` returned by `workflows_get_workflow`; action paths start under `/definition/actions/...`, not `/actions/...`.
-- For nontrivial edits, call `workflows_edit_workflow` with `validate_only: true`, then apply the same patch with `validate_only: false` and the revision returned by validation.
+- For nontrivial edits, call `workflows_edit_workflow` with `validate_only: true`, then apply the same patch with `validate_only: false` against the same `base_revision`. For another patch afterward, use the `draft_revision` returned by the successful write.
 - Treat `draft_revision` as sequential state. Do not run parallel edits against the same workflow draft; use the returned revision before the next patch.
 - When adding or renaming actions, update `depends_on` and matching layout action refs in the same edit so the graph stays valid and readable.
 
 ## Workflow Architecture
 
 - Start with a linear workflow and consolidate deterministic work before adding branches. Prefer `core.script.run_python` for data shaping, API loops, table writes, batching, dedupe, joins, retries, and per-item error handling. Prefer `ai.agent` or `ai.preset_agent` for investigation, judgment, summarization, and tool-using decisions.
+- Use action-level `for_each` for simple per-item repetition of one action. Use `core.loop.start` / `core.loop.end` for while-style loops where the next iteration depends on prior action output. Reserve `core.transform.scatter` / `core.transform.gather` for true parallel fan-out/fan-in where each item needs a separate workflow execution stream; prefer `core.script.run_python` loops with batching for ordinary collection processing.
 - Break large automations into a small orchestrator workflow plus focused subflows only when consolidation would hide important runtime boundaries or when each child workflow is independently useful. The parent should route, checkpoint, and call subflows; subflows should do one coherent job.
 - Use `core.workflow.execute` for subflows. Prefer `workflow_alias` over hard-coded workflow IDs when aliases are available.
 - Do not use subflow fan-out just to avoid writing a compact script. Use subflow fan-out when each item needs the workflow runtime boundary, separate execution history, retries, approvals, long-running actions, or independent checkpointing.
@@ -79,8 +80,8 @@ Use `ai.preset_agent` when a reusable agent should be maintained separately from
 Use direct Tracecat imports inside `core.script.run_python` when consolidating table or HTTP side effects reduces graph noise:
 
 ```python
-from tracecat_registry.core.http import http_request
-from tracecat_registry.core.table import create_table, insert_row, insert_rows, lookup, update_row
+from tracecat_registry.core.http import http_request, http_paginate
+from tracecat_registry.core.table import create_table, insert_rows, lookup, update_row
 
 async def main(rows):
     await create_table(
@@ -97,7 +98,7 @@ async def main(rows):
         inserted += await insert_rows(
             table="automation_inventory",
             rows_data=rows[start:start + 1000],
-            upsert=True,
+            upsert=False,
         )
     return {"input_rows": len(rows), "inserted": inserted}
 ```
@@ -113,6 +114,14 @@ Use `async def main(...)`, `await` imported actions, pass named arguments, and c
 - Keep opaque identifiers as strings, especially numeric-looking IDs that may exceed integer limits.
 
 For MCP table operations, use `tables_list_tables`, `tables_get_table`, `tables_create_column_index`, `tables_search_table_rows`, and `tables_export_csv` as needed. For workflow YAML, use `core.table.*` actions or `tracecat_registry.core.table` imports inside run-python.
+
+## Common Mistakes
+
+- Workflow action names are not MCP tool names. Use MCP tools such as `workflows_create_workflow` to manage workflows, and use action names such as `core.http_request` only inside workflow YAML.
+- Do not invent `tools.*` action names. Discover actions with `workflows_list_actions`, then inspect exact schemas with `workflows_get_action_context`.
+- Do not use scatter/gather for ordinary batching, dedupe, joins, filtering, or table writes. Use `core.script.run_python` for normal collection processing.
+- Do not use `upsert=True` unless the table already has a unique index on the intended key column.
+- Do not grant `core.http_request` to an agent unless the user explicitly approves that broad network capability.
 
 ## Agent Presets
 

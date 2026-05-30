@@ -3,9 +3,11 @@ from __future__ import annotations
 import argparse
 import ast
 import asyncio
+import importlib
 import inspect
 import json
 import os
+import pkgutil
 import re
 import shlex
 import shutil
@@ -63,6 +65,12 @@ class CheckResult:
 
     def as_dict(self) -> dict[str, Any]:
         return {"name": self.name, "passed": self.passed, "detail": self.detail}
+
+
+@dataclass(frozen=True)
+class PromptSource:
+    name: str
+    text: str
 
 
 @dataclass
@@ -1376,7 +1384,8 @@ async def score_case(
     if not changed_ids:
         changed_ids = transcript_analysis.changed_workflow_ids
     snapshots: list[WorkflowSnapshot] = []
-    for workflow_id in workflow_ids or changed_ids:
+    snapshot_workflow_ids = list(dict.fromkeys([*workflow_ids, *changed_ids]))
+    for workflow_id in snapshot_workflow_ids:
         try:
             snapshots.append(
                 await fetch_workflow_snapshot(
@@ -1467,6 +1476,15 @@ def as_patch_ops(value: Any) -> list[dict[str, Any]] | None:
 
 def validate_yaml_block(block: Any, label: str) -> list[CheckResult]:
     checks: list[CheckResult] = []
+
+    def validatable_action(item: Any) -> dict[str, Any] | None:
+        if not isinstance(item, dict) or "action" not in item:
+            return None
+        action_name = item["action"]
+        if isinstance(action_name, str) and ("<" in action_name or ">" in action_name):
+            return None
+        return item
+
     try:
         if isinstance(block, dict) and "definition" in block:
             WorkflowYamlPayload.model_validate(block)
@@ -1478,12 +1496,19 @@ def validate_yaml_block(block: Any, label: str) -> list[CheckResult]:
             checks.append(CheckResult(f"{label}:dsl_input", True))
         elif isinstance(block, list):
             for index, item in enumerate(block):
-                if isinstance(item, dict) and "action" in item:
+                if validatable_action(item) is not None:
                     action = {"ref": f"snippet_{index}", **item}
                     ActionStatement.model_validate(action)
-            if any(isinstance(item, dict) and "action" in item for item in block):
+            if any(validatable_action(item) is not None for item in block):
                 checks.append(CheckResult(f"{label}:action_snippets", True))
-        elif isinstance(block, dict) and "action" in block:
+        elif isinstance(block, dict) and isinstance(block.get("actions"), list):
+            for index, item in enumerate(block["actions"]):
+                if validatable_action(item) is not None:
+                    action = {"ref": f"snippet_{index}", **item}
+                    ActionStatement.model_validate(action)
+            if any(validatable_action(item) is not None for item in block["actions"]):
+                checks.append(CheckResult(f"{label}:action_snippets", True))
+        elif validatable_action(block) is not None:
             action = {"ref": "snippet", **block}
             ActionStatement.model_validate(action)
             checks.append(CheckResult(f"{label}:action_snippet", True))
@@ -1499,7 +1524,10 @@ def yaml_action_fragments(text: str) -> list[dict[str, Any]]:
     for lang, body in fenced_blocks(text):
         if lang not in {"yaml", "yml"}:
             continue
-        parsed = yaml.safe_load(body)
+        try:
+            parsed = yaml.safe_load(body)
+        except yaml.YAMLError:
+            continue
         if isinstance(parsed, list):
             fragments.extend(
                 item
@@ -1508,6 +1536,20 @@ def yaml_action_fragments(text: str) -> list[dict[str, Any]]:
                 and isinstance(item.get("ref"), str)
                 and isinstance(item.get("action"), str)
             )
+        elif isinstance(parsed, dict) and isinstance(parsed.get("actions"), list):
+            fragments.extend(
+                item
+                for item in parsed["actions"]
+                if isinstance(item, dict)
+                and isinstance(item.get("ref"), str)
+                and isinstance(item.get("action"), str)
+            )
+        elif (
+            isinstance(parsed, dict)
+            and isinstance(parsed.get("ref"), str)
+            and isinstance(parsed.get("action"), str)
+        ):
+            fragments.append(parsed)
     return fragments
 
 
@@ -1533,7 +1575,7 @@ def validate_prompt_action_signatures(text: str) -> list[CheckResult]:
             re.findall(r"ACTIONS\.([A-Za-z_][A-Za-z0-9_]*)", json.dumps(fragment))
         )
         upstream_stubs = [
-            {"ref": ref, "action": "core.noop", "args": {}}
+            {"ref": ref, "action": "core.transform.reshape", "args": {"value": {}}}
             for ref in sorted(action_refs - {fragment["ref"]})
         ]
         actions = [*upstream_stubs, fragment]
@@ -1617,9 +1659,178 @@ def validate_prompt_result_shapes(text: str) -> CheckResult:
     )
 
 
+def registered_core_ai_action_names() -> set[str]:
+    import tracecat_registry.core as core_pkg
+
+    actions: set[str] = set()
+    for module_info in pkgutil.walk_packages(
+        core_pkg.__path__, core_pkg.__name__ + "."
+    ):
+        if "._" in module_info.name:
+            continue
+        module = importlib.import_module(module_info.name)
+        for _, obj in inspect.getmembers(module):
+            action_name = getattr(obj, "__tracecat_udf_key", None)
+            if isinstance(action_name, str) and action_name.startswith(
+                ("core.", "ai.")
+            ):
+                actions.add(action_name)
+    return actions
+
+
+def action_literals(text: str) -> set[str]:
+    pattern = re.compile(
+        r"(?<![A-Za-z0-9_.])(?:core|ai|tools)\."
+        r"[A-Za-z0-9_<>{}.*-]+(?:\.[A-Za-z0-9_<>{}.*-]+)*"
+    )
+    return set(pattern.findall(text))
+
+
+def validate_prompt_action_literals(text: str) -> CheckResult:
+    registered = registered_core_ai_action_names()
+    unknown_core_ai = sorted(
+        literal
+        for literal in action_literals(text)
+        if literal.startswith(("core.", "ai."))
+        and "*" not in literal
+        and "<" not in literal
+        and literal not in registered
+    )
+    concrete_tools = sorted(
+        literal
+        for literal in action_literals(text)
+        if literal.startswith("tools.") and "*" not in literal and "<" not in literal
+    )
+    passed = not unknown_core_ai and not concrete_tools
+    return CheckResult(
+        "prompt_action_literals_registered",
+        passed,
+        f"unknown_core_ai={unknown_core_ai} concrete_tools={concrete_tools}",
+    )
+
+
+def registered_action_section_names(text: str) -> set[str]:
+    match = re.search(
+        r"## Registered Core and AI Actions\n(?P<body>.*?)(?:\n## |\Z)",
+        text,
+        re.DOTALL,
+    )
+    if not match:
+        return set()
+    return {
+        literal
+        for literal in action_literals(match.group("body"))
+        if literal.startswith(("core.", "ai."))
+        and "*" not in literal
+        and "<" not in literal
+    }
+
+
+def validate_registered_action_section(text: str) -> CheckResult:
+    actual = registered_core_ai_action_names()
+    listed = registered_action_section_names(text)
+    missing = sorted(actual - listed)
+    extra = sorted(listed - actual)
+    return CheckResult(
+        "registered_core_ai_action_list_matches_registry",
+        bool(listed) and not missing and not extra,
+        f"missing={missing} extra={extra}",
+    )
+
+
+def prompt_facing_sources() -> list[PromptSource]:
+    return [
+        PromptSource("mcp_instructions", load_mcp_instructions()),
+        PromptSource(
+            "dsl_reference", load_server_string_literal("_DSL_REFERENCE_TEXT")
+        ),
+        PromptSource("best_practices_skill", SKILL_SOURCE.read_text(encoding="utf-8")),
+    ]
+
+
+def combine_prompt_sources(sources: Sequence[PromptSource]) -> str:
+    return "\n".join(source.text for source in sources)
+
+
+def validate_prompt_fenced_blocks(sources: Sequence[PromptSource]) -> list[CheckResult]:
+    checks: list[CheckResult] = []
+    parsed_blocks = 0
+    for source in sources:
+        for index, (lang, body) in enumerate(fenced_blocks(source.text), start=1):
+            label = f"{source.name}:fence_{index}_{lang or 'plain'}"
+            if lang == "json":
+                try:
+                    value = json.loads(body)
+                    parsed_blocks += 1
+                    checks.append(CheckResult(f"{label}:json_parse", True))
+                    if patch_ops := as_patch_ops(value):
+                        ops = [
+                            JsonPatchOperation.model_validate(op) for op in patch_ops
+                        ]
+                        validate_patch_paths(
+                            ops,
+                            allowed_top_level_paths=ALLOWED_PATCH_ROOTS,
+                        )
+                        checks.append(CheckResult(f"{label}:json_patch", True))
+                except Exception as exc:
+                    checks.append(
+                        CheckResult(label, False, f"{type(exc).__name__}: {exc}")
+                    )
+            elif lang in {"yaml", "yml"}:
+                try:
+                    value = yaml.safe_load(body)
+                    parsed_blocks += 1
+                    checks.append(CheckResult(f"{label}:yaml_parse", True))
+                    checks.extend(validate_yaml_block(value, label))
+                except Exception as exc:
+                    checks.append(
+                        CheckResult(label, False, f"{type(exc).__name__}: {exc}")
+                    )
+
+    checks.append(
+        CheckResult(
+            "fenced_blocks_parsed",
+            parsed_blocks > 0,
+            f"parsed {parsed_blocks} JSON/YAML fenced blocks",
+        )
+    )
+    return checks
+
+
+def validate_prompt_table_upsert_examples(
+    sources: Sequence[PromptSource],
+) -> CheckResult:
+    upsert_pattern = re.compile(r"\bupsert\s*[:=]\s*[Tt]rue\b")
+    unique_index_pattern = re.compile(
+        r"(?i)(unique index|tables_create_column_index|create_column_index|"
+        r"unique\s*[:=]\s*true)"
+    )
+    unsafe_hits: list[str] = []
+
+    for source in sources:
+        lines = source.text.splitlines()
+        for line_number, line in enumerate(lines, start=1):
+            if not upsert_pattern.search(line):
+                continue
+            start = max(0, line_number - 8)
+            end = min(len(lines), line_number + 8)
+            nearby_text = "\n".join(lines[start:end])
+            if not unique_index_pattern.search(nearby_text):
+                unsafe_hits.append(f"{source.name}:{line_number}:{line.strip()}")
+
+    return CheckResult(
+        "prompt_table_upserts_have_unique_index_guidance",
+        not unsafe_hits,
+        f"unsafe upsert examples={unsafe_hits}",
+    )
+
+
 def static_prompt_checks() -> list[CheckResult]:
     checks: list[CheckResult] = []
-    text = load_mcp_instructions()
+    sources = prompt_facing_sources()
+    text = sources[0].text
+    dsl_text = sources[1].text
+    prompt_facing_text = combine_prompt_sources(sources)
     checks.append(
         CheckResult(
             "prompt_budget",
@@ -1645,60 +1856,35 @@ def static_prompt_checks() -> list[CheckResult]:
         CheckResult("no_non_example_emails", not email_hits, f"hits={email_hits[:3]}")
     )
 
-    parsed_blocks = 0
-    for index, (lang, body) in enumerate(fenced_blocks(text), start=1):
-        label = f"fence_{index}_{lang or 'plain'}"
-        if lang == "json":
-            try:
-                value = json.loads(body)
-                parsed_blocks += 1
-                checks.append(CheckResult(f"{label}:json_parse", True))
-                if patch_ops := as_patch_ops(value):
-                    ops = [JsonPatchOperation.model_validate(op) for op in patch_ops]
-                    validate_patch_paths(
-                        ops,
-                        allowed_top_level_paths=ALLOWED_PATCH_ROOTS,
-                    )
-                    checks.append(CheckResult(f"{label}:json_patch", True))
-            except Exception as exc:
-                checks.append(CheckResult(label, False, f"{type(exc).__name__}: {exc}"))
-        elif lang in {"yaml", "yml"}:
-            try:
-                value = yaml.safe_load(body)
-                parsed_blocks += 1
-                checks.append(CheckResult(f"{label}:yaml_parse", True))
-                checks.extend(validate_yaml_block(value, label))
-            except Exception as exc:
-                checks.append(CheckResult(label, False, f"{type(exc).__name__}: {exc}"))
-
-    checks.append(
-        CheckResult(
-            "fenced_blocks_parsed",
-            parsed_blocks > 0,
-            f"parsed {parsed_blocks} JSON/YAML fenced blocks",
-        )
-    )
-    checks.extend(validate_prompt_action_signatures(text))
-    checks.append(validate_prompt_result_shapes(text))
+    checks.extend(validate_prompt_fenced_blocks(sources))
+    checks.extend(validate_prompt_action_signatures(prompt_facing_text))
+    checks.append(validate_prompt_result_shapes(prompt_facing_text))
+    checks.append(validate_prompt_action_literals(prompt_facing_text))
+    checks.append(validate_prompt_table_upsert_examples(sources))
+    checks.append(validate_registered_action_section(dsl_text))
     return checks
 
 
 def load_mcp_instructions() -> str:
+    return load_server_string_literal("_MCP_INSTRUCTIONS")
+
+
+def load_server_string_literal(name: str) -> str:
     server_path = REPO_ROOT / "tracecat/mcp/server.py"
     tree = ast.parse(server_path.read_text())
     for node in tree.body:
         if not isinstance(node, ast.Assign):
             continue
         if not any(
-            isinstance(target, ast.Name) and target.id == "_MCP_INSTRUCTIONS"
+            isinstance(target, ast.Name) and target.id == name
             for target in node.targets
         ):
             continue
         value = ast.literal_eval(node.value)
         if not isinstance(value, str):
-            raise TypeError("_MCP_INSTRUCTIONS is not a string literal")
+            raise TypeError(f"{name} is not a string literal")
         return value
-    raise RuntimeError("_MCP_INSTRUCTIONS assignment not found")
+    raise RuntimeError(f"{name} assignment not found")
 
 
 async def run_agent_cases(args: argparse.Namespace) -> list[CaseResult]:
@@ -1782,8 +1968,10 @@ async def run_agent_cases(args: argparse.Namespace) -> list[CaseResult]:
 
 
 def parse_agents(args: argparse.Namespace) -> list[str]:
-    raw = args.agents or args.agent
+    raw = args.agents if args.agents is not None else args.agent
     agents = [agent.strip() for agent in raw.split(",") if agent.strip()]
+    if not agents:
+        raise SystemExit("At least one agent must be specified.")
     valid = {"codex", "claude-code"}
     invalid = set(agents) - valid
     if invalid:
