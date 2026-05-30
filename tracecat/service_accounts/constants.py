@@ -21,6 +21,7 @@ WORKSPACE_SERVICE_ACCOUNT_ASSIGNABLE_SCOPES: frozenset[str] = frozenset(
         "secret:create",
         "secret:update",
         "secret:delete",
+        "table:create",
         "tag:read",
         "tag:create",
         "tag:update",
