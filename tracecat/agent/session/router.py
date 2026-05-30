@@ -79,15 +79,10 @@ async def list_sessions(
     Returns a list of sessions including both active AgentSessions and legacy
     Chat records. Legacy chats have is_readonly=True.
     """
-    if role.user_id is None:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="User ID is required",
-        )
-
     svc = AgentSessionService(session, role)
     return await svc.list_sessions(
         created_by=role.user_id,
+        filter_created_by_none=role.type == "service_account",
         entity_type=entity_type,
         entity_id=entity_id,
         exclude_entity_types=exclude_entity_types,

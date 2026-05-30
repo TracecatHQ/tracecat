@@ -38,7 +38,7 @@ def _build_service() -> tuple[AgentSessionService, SimpleNamespace, Role]:
 def _agent_session_row(
     *,
     workspace_id: uuid.UUID,
-    user_id: uuid.UUID,
+    user_id: uuid.UUID | None,
     parent_session_id: uuid.UUID | None,
 ) -> SimpleNamespace:
     now = datetime.now(UTC)
@@ -83,4 +83,28 @@ async def test_list_sessions_parent_session_filter_excludes_legacy_chats() -> No
     session.execute.assert_awaited_once()
     assert results == [
         AgentSessionRead.model_validate(child_session, from_attributes=True)
+    ]
+
+
+@pytest.mark.anyio
+async def test_list_sessions_filter_created_by_none_excludes_legacy_chats() -> None:
+    service, session, role = _build_service()
+    assert role.workspace_id is not None
+    session_row = _agent_session_row(
+        workspace_id=role.workspace_id,
+        user_id=None,
+        parent_session_id=None,
+    )
+    session.execute.return_value = _mock_scalar_result([session_row])
+
+    results = await service.list_sessions(
+        filter_created_by_none=True,
+        limit=1,
+    )
+
+    session.execute.assert_awaited_once()
+    executed_stmt = session.execute.await_args.args[0]
+    assert "agent_session.created_by IS NULL" in str(executed_stmt)
+    assert results == [
+        AgentSessionRead.model_validate(session_row, from_attributes=True)
     ]
