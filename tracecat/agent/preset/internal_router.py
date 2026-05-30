@@ -6,11 +6,9 @@ import uuid
 from collections.abc import Mapping
 from typing import Annotated, Any, cast
 
-import sqlalchemy as sa
 from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel, Field, StringConstraints
 
-from tracecat.agent.access.service import AgentModelAccessService
 from tracecat.agent.preset.schemas import (
     AgentPresetCreate,
     AgentPresetRead,
@@ -26,7 +24,6 @@ from tracecat.agent.types import OutputType
 from tracecat.auth.dependencies import ExecutorWorkspaceRole
 from tracecat.authz.controls import require_scope
 from tracecat.db.dependencies import AsyncDBSession
-from tracecat.db.models import AgentCatalog
 from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
 
 router = APIRouter(
@@ -125,35 +122,6 @@ class PresetUpdateRequest(BaseModel):
     skills: list[AgentPresetSkillBindingBase] | None = Field(default=None)
 
 
-async def _get_enabled_catalog_entry(
-    *,
-    role: ExecutorWorkspaceRole,
-    session: AsyncDBSession,
-    catalog_id: uuid.UUID,
-) -> AgentCatalog:
-    access_service = AgentModelAccessService(session=session, role=role)
-    if not await access_service.is_catalog_enabled(
-        catalog_id,
-        workspace_id=role.workspace_id,
-    ):
-        raise TracecatValidationError(
-            f"Catalog entry {catalog_id} is not enabled for this workspace"
-        )
-    stmt = sa.select(AgentCatalog).where(
-        AgentCatalog.id == catalog_id,
-        sa.or_(
-            AgentCatalog.organization_id.is_(None),
-            AgentCatalog.organization_id == role.organization_id,
-        ),
-    )
-    catalog_entry = (await session.execute(stmt)).scalar_one_or_none()
-    if catalog_entry is None:
-        raise TracecatValidationError(
-            f"Catalog entry {catalog_id} is not enabled for this workspace"
-        )
-    return catalog_entry
-
-
 async def _create_payload_with_default_model(
     *,
     role: ExecutorWorkspaceRole,
@@ -162,7 +130,7 @@ async def _create_payload_with_default_model(
 ) -> dict[str, Any]:
     """Fill omitted legacy model fields from the canonical default catalog model."""
     payload = params.model_dump(exclude_unset=True)
-    for defaulted_field in ("agents", "retries"):
+    for defaulted_field in ("agents", "retries", "catalog_id"):
         if payload.get(defaulted_field) is None:
             payload.pop(defaulted_field, None)
     has_model_name = bool(payload.get("model_name"))
@@ -172,11 +140,8 @@ async def _create_payload_with_default_model(
             "model_name and model_provider must be provided together"
         )
     if catalog_id := payload.get("catalog_id"):
-        catalog_entry = await _get_enabled_catalog_entry(
-            role=role,
-            session=session,
-            catalog_id=catalog_id,
-        )
+        service = AgentPresetService(session, role=role)
+        catalog_entry = await service._get_enabled_catalog_entry(catalog_id)
         payload.setdefault("model_name", catalog_entry.model_name)
         payload.setdefault("model_provider", catalog_entry.model_provider)
         return payload
