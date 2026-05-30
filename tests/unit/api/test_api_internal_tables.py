@@ -5,12 +5,20 @@ from datetime import UTC, datetime
 from unittest.mock import AsyncMock, patch
 
 import pytest
+from asyncpg import DuplicateColumnError, DuplicateTableError
 from fastapi import status
 from fastapi.testclient import TestClient
+from sqlalchemy.exc import ProgrammingError
 
 from tracecat.auth.types import Role
 from tracecat.db.models import Table, TableColumn, Workspace
 from tracecat.tables import internal_router as internal_tables_router
+
+
+def _programming_error(cause: BaseException) -> ProgrammingError:
+    error = ProgrammingError("", {}, cause)
+    error.__cause__ = cause
+    return error
 
 
 @pytest.fixture
@@ -70,6 +78,30 @@ async def test_internal_update_table_returns_metadata(
 
 
 @pytest.mark.anyio
+async def test_internal_update_table_duplicate_name_returns_409(
+    client: TestClient,
+    test_admin_role: Role,
+    mock_table: Table,
+) -> None:
+    with patch.object(internal_tables_router, "TablesService") as MockService:
+        mock_svc = AsyncMock()
+        mock_svc.get_table_by_name.return_value = mock_table
+        mock_svc.update_table.side_effect = _programming_error(
+            DuplicateTableError("relation already exists: internal details")
+        )
+        MockService.return_value = mock_svc
+
+        response = client.patch(
+            "/internal/tables/indicators",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
+            json={"name": "indicators_v2"},
+        )
+
+    assert response.status_code == status.HTTP_409_CONFLICT
+    assert response.json()["detail"] == "Table already exists"
+
+
+@pytest.mark.anyio
 async def test_internal_create_column_returns_refreshed_metadata(
     client: TestClient,
     test_admin_role: Role,
@@ -106,6 +138,54 @@ async def test_internal_create_column_returns_refreshed_metadata(
             }
         ],
     }
+
+
+@pytest.mark.anyio
+async def test_internal_create_column_duplicate_name_returns_409(
+    client: TestClient,
+    test_admin_role: Role,
+    mock_table: Table,
+) -> None:
+    with patch.object(internal_tables_router, "TablesService") as MockService:
+        mock_svc = AsyncMock()
+        mock_svc.get_table_by_name.return_value = mock_table
+        mock_svc.create_column.side_effect = _programming_error(
+            DuplicateColumnError("column already exists: internal details")
+        )
+        MockService.return_value = mock_svc
+
+        response = client.post(
+            f"/internal/tables/{mock_table.name}/columns",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
+            json={"name": "score", "type": "NUMERIC"},
+        )
+
+    assert response.status_code == status.HTTP_409_CONFLICT
+    assert response.json()["detail"] == "Column already exists"
+
+
+@pytest.mark.anyio
+async def test_internal_create_column_unexpected_db_error_is_sanitized(
+    client: TestClient,
+    test_admin_role: Role,
+    mock_table: Table,
+) -> None:
+    with patch.object(internal_tables_router, "TablesService") as MockService:
+        mock_svc = AsyncMock()
+        mock_svc.get_table_by_name.return_value = mock_table
+        mock_svc.create_column.side_effect = _programming_error(
+            RuntimeError("raw database details")
+        )
+        MockService.return_value = mock_svc
+
+        response = client.post(
+            f"/internal/tables/{mock_table.name}/columns",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
+            json={"name": "score", "type": "NUMERIC"},
+        )
+
+    assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
+    assert response.json()["detail"] == "An error occurred while creating the column"
 
 
 @pytest.mark.anyio

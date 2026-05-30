@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Literal
+from typing import Any, Literal, NoReturn
 from uuid import UUID
 
 import orjson
-from asyncpg import DuplicateTableError
+from asyncpg import DuplicateColumnError, DuplicateTableError
 from fastapi import APIRouter, HTTPException, Query, status
 from pydantic import BaseModel, Field
 from pydantic_core import to_jsonable_python
@@ -84,6 +84,36 @@ class TableRowUpdate(BaseModel):
 TableDownloadFormat = Literal["json", "ndjson", "csv", "markdown"]
 
 
+def _programming_error_root(exc: ProgrammingError) -> BaseException:
+    root: BaseException = exc
+    while root.__cause__ is not None:
+        root = root.__cause__
+    return root
+
+
+def _raise_table_programming_error(
+    exc: ProgrammingError,
+    *,
+    action: str,
+) -> NoReturn:
+    root = _programming_error_root(exc)
+    if isinstance(root, DuplicateTableError):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Table already exists",
+        ) from exc
+    if isinstance(root, DuplicateColumnError):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Column already exists",
+        ) from exc
+    logger.error("Unexpected table DDL error", action=action, error=str(root))
+    raise HTTPException(
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        detail=f"An error occurred while {action}",
+    ) from exc
+
+
 async def _build_table_read(service: TablesService, table: Table) -> TableRead:
     """Build table metadata with index flags for internal callers."""
     index_columns = await service.get_index(table)
@@ -133,10 +163,8 @@ async def create_table(
             TableCreate(name=params.name, columns=params.columns)
         )
     except ProgrammingError as exc:
-        # Drill down to the root cause
-        while (cause := exc.__cause__) is not None:
-            exc = cause
-        if isinstance(exc, DuplicateTableError):
+        root = _programming_error_root(exc)
+        if isinstance(root, DuplicateTableError):
             if params.raise_on_duplicate:
                 raise HTTPException(
                     status_code=status.HTTP_409_CONFLICT,
@@ -145,11 +173,7 @@ async def create_table(
             await session.rollback()
             table = await service.get_table_by_name(params.name)
         else:
-            logger.error("Unexpected error creating table", error=str(exc))
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="An error occurred while creating the table",
-            ) from exc
+            _raise_table_programming_error(exc, action="creating the table")
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -183,10 +207,7 @@ async def update_table(
             detail=str(exc),
         ) from exc
     except ProgrammingError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(exc.__cause__ or exc),
-        ) from exc
+        _raise_table_programming_error(exc, action="updating the table")
     return await _build_table_read(service, updated)
 
 
@@ -242,10 +263,7 @@ async def create_column(
             detail=str(exc),
         ) from exc
     except ProgrammingError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(exc.__cause__ or exc),
-        ) from exc
+        _raise_table_programming_error(exc, action="creating the column")
     return await _build_table_read(service, refreshed)
 
 
@@ -283,10 +301,7 @@ async def update_column(
             detail=str(exc),
         ) from exc
     except ProgrammingError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(exc.__cause__ or exc),
-        ) from exc
+        _raise_table_programming_error(exc, action="updating the column")
     return await _build_table_read(service, refreshed)
 
 
@@ -323,10 +338,7 @@ async def delete_column(
             detail=str(exc),
         ) from exc
     except ProgrammingError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(exc.__cause__ or exc),
-        ) from exc
+        _raise_table_programming_error(exc, action="deleting the column")
     return await _build_table_read(service, refreshed)
 
 
