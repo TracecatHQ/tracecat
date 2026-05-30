@@ -130,6 +130,9 @@ async def _create_payload_with_default_model(
 ) -> dict[str, Any]:
     """Fill omitted legacy model fields from the canonical default catalog model."""
     payload = params.model_dump(exclude_unset=True)
+    for defaulted_field in ("agents", "retries"):
+        if payload.get(defaulted_field) is None:
+            payload.pop(defaulted_field, None)
     if payload.get("catalog_id"):
         return payload
     if payload.get("model_name") and payload.get("model_provider"):

@@ -113,6 +113,46 @@ async def test_create_preset_payload_allows_catalog_id_without_default_model(
 
 
 @pytest.mark.anyio
+async def test_create_preset_payload_drops_null_defaulted_fields(
+    test_admin_role: Role,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    catalog_id = uuid.uuid4()
+
+    class FakeAgentManagementService:
+        def __init__(self, *args, **kwargs) -> None:
+            pass
+
+        async def get_default_model_selection(self) -> SimpleNamespace:
+            return SimpleNamespace(
+                model_name="claude-sonnet-4",
+                model_provider="anthropic",
+                catalog_id=catalog_id,
+            )
+
+    monkeypatch.setattr(
+        agent_preset_internal_router,
+        "AgentManagementService",
+        FakeAgentManagementService,
+    )
+
+    payload = await agent_preset_internal_router._create_payload_with_default_model(
+        role=test_admin_role,
+        session=AsyncMock(),
+        params=agent_preset_internal_router.PresetCreateRequest(
+            name="Case Triage",
+            agents=None,
+            retries=None,
+        ),
+    )
+
+    assert "agents" not in payload
+    assert "retries" not in payload
+    assert payload["model_name"] == "claude-sonnet-4"
+    assert payload["model_provider"] == "anthropic"
+
+
+@pytest.mark.anyio
 async def test_restore_agent_preset_version_maps_validation_error(
     test_admin_role: Role,
     monkeypatch: pytest.MonkeyPatch,
