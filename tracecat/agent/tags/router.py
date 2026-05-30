@@ -6,7 +6,7 @@ from pydantic import UUID4
 from tracecat import config
 from tracecat.agent.tags.schemas import AgentPresetTagCreate, AgentTagRead
 from tracecat.agent.tags.service import AgentTagsService
-from tracecat.auth.dependencies import WorkspaceUserRouteRole
+from tracecat.auth.dependencies import WorkspaceActorRouteRole
 from tracecat.authz.controls import require_scope
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
@@ -18,7 +18,7 @@ router = APIRouter(prefix="/agent/presets", tags=["agent-presets"])
 @router.get("/{preset_id}/tags", response_model=CursorPaginatedResponse[AgentTagRead])
 @require_scope("agent:read")
 async def list_preset_tags(
-    role: WorkspaceUserRouteRole,
+    role: WorkspaceActorRouteRole,
     session: AsyncDBSession,
     preset_id: UUID4,
     limit: int = Query(
@@ -63,7 +63,7 @@ async def list_preset_tags(
 @router.post("/{preset_id}/tags", status_code=status.HTTP_201_CREATED)
 @require_scope("agent:update")
 async def add_preset_tag(
-    role: WorkspaceUserRouteRole,
+    role: WorkspaceActorRouteRole,
     session: AsyncDBSession,
     preset_id: UUID4,
     params: AgentPresetTagCreate,
@@ -82,7 +82,7 @@ async def add_preset_tag(
 @router.delete("/{preset_id}/tags/{tag_id}", status_code=status.HTTP_204_NO_CONTENT)
 @require_scope("agent:update")
 async def remove_preset_tag(
-    role: WorkspaceUserRouteRole,
+    role: WorkspaceActorRouteRole,
     session: AsyncDBSession,
     preset_id: UUID4,
     tag_id: UUID4,

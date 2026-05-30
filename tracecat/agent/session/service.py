@@ -351,6 +351,7 @@ class AgentSessionService(BaseWorkspaceService):
         self,
         *,
         created_by: UserID | None = None,
+        filter_created_by_none: bool = False,
         entity_type: AgentSessionEntity | None = None,
         entity_id: uuid.UUID | None = None,
         exclude_entity_types: list[AgentSessionEntity] | None = None,
@@ -364,6 +365,7 @@ class AgentSessionService(BaseWorkspaceService):
 
         Args:
             created_by: Filter by user who created the session.
+            filter_created_by_none: Filter to sessions without a user creator.
             entity_type: Filter by entity type.
             entity_id: Filter by entity ID.
             exclude_entity_types: Entity types to exclude from results.
@@ -379,6 +381,8 @@ class AgentSessionService(BaseWorkspaceService):
         )
         if created_by is not None:
             session_stmt = session_stmt.where(AgentSession.created_by == created_by)
+        elif filter_created_by_none:
+            session_stmt = session_stmt.where(AgentSession.created_by.is_(None))
         if entity_type is not None:
             session_stmt = session_stmt.where(
                 AgentSession.entity_type == entity_type.value
@@ -404,7 +408,7 @@ class AgentSessionService(BaseWorkspaceService):
         sessions = list(session_result.scalars().all())
 
         legacy_chats: list[Chat] = []
-        if parent_session_id is None:
+        if parent_session_id is None and not filter_created_by_none:
             # Query legacy Chat table
             # Note: exclude_entity_types is not applied here because legacy Chat records
             # predate entity types like WORKFLOW and APPROVAL that are typically excluded.

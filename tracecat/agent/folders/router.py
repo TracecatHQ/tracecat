@@ -17,7 +17,7 @@ from tracecat.agent.folders.service import (
     AgentFolderErrorCode,
     AgentFolderService,
 )
-from tracecat.auth.dependencies import WorkspaceUserRouteRole
+from tracecat.auth.dependencies import WorkspaceActorRouteRole
 from tracecat.authz.controls import require_scope
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
@@ -44,7 +44,7 @@ def _folder_http_exception(err: TracecatValidationError) -> HTTPException:
 @router.get("/directory", response_model=list[DirectoryItem])
 @require_scope("agent:read")
 async def get_directory(
-    role: WorkspaceUserRouteRole,
+    role: WorkspaceActorRouteRole,
     session: AsyncDBSession,
     path: str = Query(default="/", description="Folder path"),
 ) -> list[DirectoryItem]:
@@ -61,7 +61,7 @@ async def get_directory(
 @router.get("", response_model=CursorPaginatedResponse[AgentFolderRead])
 @require_scope("agent:read")
 async def list_folders(
-    role: WorkspaceUserRouteRole,
+    role: WorkspaceActorRouteRole,
     session: AsyncDBSession,
     parent_path: str = Query(default="/", description="Parent folder path"),
     limit: int = Query(
@@ -98,7 +98,7 @@ async def list_folders(
 @router.post("", status_code=status.HTTP_201_CREATED)
 @require_scope("agent:create")
 async def create_folder(
-    role: WorkspaceUserRouteRole,
+    role: WorkspaceActorRouteRole,
     session: AsyncDBSession,
     params: AgentFolderCreate,
 ) -> AgentFolderRead:
@@ -116,7 +116,7 @@ async def create_folder(
 @router.get("/{folder_id}")
 @require_scope("agent:read")
 async def get_folder(
-    role: WorkspaceUserRouteRole,
+    role: WorkspaceActorRouteRole,
     session: AsyncDBSession,
     folder_id: UUID,
 ) -> AgentFolderRead:
@@ -133,7 +133,7 @@ async def get_folder(
 @router.patch("/{folder_id}")
 @require_scope("agent:update")
 async def update_folder(
-    role: WorkspaceUserRouteRole,
+    role: WorkspaceActorRouteRole,
     session: AsyncDBSession,
     folder_id: UUID,
     params: AgentFolderUpdate,
@@ -159,7 +159,7 @@ async def update_folder(
 @router.delete("/{folder_id}", status_code=status.HTTP_204_NO_CONTENT)
 @require_scope("agent:delete")
 async def delete_folder(
-    role: WorkspaceUserRouteRole,
+    role: WorkspaceActorRouteRole,
     session: AsyncDBSession,
     folder_id: UUID,
     params: AgentFolderDelete | None = None,
@@ -176,7 +176,7 @@ async def delete_folder(
 @router.post("/{folder_id}/move")
 @require_scope("agent:update")
 async def move_folder(
-    role: WorkspaceUserRouteRole,
+    role: WorkspaceActorRouteRole,
     session: AsyncDBSession,
     folder_id: UUID,
     params: AgentFolderMove,

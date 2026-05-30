@@ -16,6 +16,7 @@ from tracecat.agent.common.stream_types import HarnessType
 from tracecat.agent.session.router import (
     get_session,
     get_session_vercel,
+    list_sessions,
     send_message,
     stream_session_events,
 )
@@ -72,6 +73,18 @@ def _read_role(workspace_id: uuid.UUID) -> Role:
     )
 
 
+def _service_account_role(workspace_id: uuid.UUID) -> Role:
+    return Role(
+        type="service_account",
+        service_id="tracecat-api",
+        workspace_id=workspace_id,
+        bound_workspace_id=workspace_id,
+        organization_id=uuid.uuid4(),
+        service_account_id=uuid.uuid4(),
+        scopes=frozenset({"agent:read"}),
+    )
+
+
 class _AsyncContext:
     def __init__(self, value: Any) -> None:
         self._value = value
@@ -81,6 +94,78 @@ class _AsyncContext:
 
     async def __aexit__(self, exc_type: Any, exc: Any, tb: Any) -> None:
         return None
+
+
+@pytest.mark.anyio
+async def test_list_sessions_service_account_filters_null_created_by() -> None:
+    workspace_id = uuid.uuid4()
+    role = _service_account_role(workspace_id)
+    fake_svc = SimpleNamespace(list_sessions=AsyncMock(return_value=[]))
+
+    with patch(
+        "tracecat.agent.session.router.AgentSessionService", return_value=fake_svc
+    ):
+        raw_list_sessions = cast(Any, list_sessions).__wrapped__
+        response = await raw_list_sessions(
+            role=role,
+            session=AsyncMock(),
+            entity_type=None,
+            entity_id=None,
+            exclude_entity_types=None,
+            parent_session_id=None,
+            limit=100,
+        )
+
+    assert response == []
+    fake_svc.list_sessions.assert_awaited_once_with(
+        created_by=None,
+        filter_created_by_none=True,
+        entity_type=None,
+        entity_id=None,
+        exclude_entity_types=None,
+        parent_session_id=None,
+        limit=100,
+    )
+
+
+@pytest.mark.anyio
+async def test_list_sessions_user_filters_by_user_id() -> None:
+    workspace_id = uuid.uuid4()
+    user_id = uuid.uuid4()
+    role = Role(
+        type="user",
+        service_id="tracecat-api",
+        user_id=user_id,
+        workspace_id=workspace_id,
+        organization_id=uuid.uuid4(),
+        scopes=frozenset({"agent:read"}),
+    )
+    fake_svc = SimpleNamespace(list_sessions=AsyncMock(return_value=[]))
+
+    with patch(
+        "tracecat.agent.session.router.AgentSessionService", return_value=fake_svc
+    ):
+        raw_list_sessions = cast(Any, list_sessions).__wrapped__
+        response = await raw_list_sessions(
+            role=role,
+            session=AsyncMock(),
+            entity_type=None,
+            entity_id=None,
+            exclude_entity_types=None,
+            parent_session_id=None,
+            limit=100,
+        )
+
+    assert response == []
+    fake_svc.list_sessions.assert_awaited_once_with(
+        created_by=user_id,
+        filter_created_by_none=False,
+        entity_type=None,
+        entity_id=None,
+        exclude_entity_types=None,
+        parent_session_id=None,
+        limit=100,
+    )
 
 
 @pytest.mark.anyio
