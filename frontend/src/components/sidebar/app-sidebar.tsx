@@ -121,6 +121,8 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const canViewServiceAccounts = useScopeCheck("workspace:service_account:read")
   const canViewMcpAccess = useScopeCheck("workspace:read")
   const canViewCases = useScopeCheck("case:read")
+  const canAccessMissionControl =
+    canExecuteAgents === true && canViewAgents === true
   const shouldLoadEntitlements =
     canViewAgents === true ||
     canExecuteAgents === true ||
@@ -146,7 +148,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
         url: `${basePath}/mission-control`,
         icon: BotIcon,
         isActive: pathname?.startsWith(`${basePath}/mission-control`),
-        visible: canExecuteAgents === true,
+        visible: canAccessMissionControl,
         isLocked: entitlementsIsLoading || !agentAddonsEnabled,
         onSelect: entitlementsIsLoading
           ? undefined
@@ -236,7 +238,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       pathname,
       canViewWorkflows,
       canViewCases,
-      canExecuteAgents,
+      canAccessMissionControl,
       canViewTables,
       canViewVariables,
       canViewSecrets,
