@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING
 
 import aioboto3
 import aiofiles
+from aiobotocore.config import AioConfig
 from boto3.s3.transfer import TransferConfig
 from botocore.exceptions import ClientError
 
@@ -31,6 +32,18 @@ DEFAULT_UPLOAD_CHUNK_SIZE_BYTES = 8 * 1024 * 1024  # 8MB
 DEFAULT_UPLOAD_MAX_CONCURRENCY = 4
 DEFAULT_UPLOAD_MAX_IO_QUEUE_SIZE = 2
 
+# Shared S3/MinIO client config: explicit standard-mode retries so transient
+# failures (throttling, 5xx, connection resets) are retried with backoff instead
+# of surfacing on the first error.
+_STORAGE_CLIENT_CONFIG = AioConfig(
+    retries={
+        # botocore's "max_attempts" means retries-after-initial; use
+        # "total_max_attempts" so the knob is the total request count.
+        "total_max_attempts": config.TRACECAT__BLOB_STORAGE_MAX_ATTEMPTS,
+        "mode": "standard",
+    },
+)
+
 
 @asynccontextmanager
 async def get_storage_client() -> AsyncIterator[S3Client]:
@@ -46,6 +59,7 @@ async def get_storage_client() -> AsyncIterator[S3Client]:
         async with session.client(
             "s3",
             endpoint_url=config.TRACECAT__BLOB_STORAGE_ENDPOINT,
+            config=_STORAGE_CLIENT_CONFIG,
             # Defaults to minio default credentials. MUST REPLACE WITH PRODUCTION CREDENTIALS.
             aws_access_key_id=os.environ.get(
                 "AWS_ACCESS_KEY_ID",
@@ -59,7 +73,7 @@ async def get_storage_client() -> AsyncIterator[S3Client]:
             yield client
     else:
         # AWS S3 configuration - use AWS credentials from environment or default credential chain
-        async with session.client("s3") as client:
+        async with session.client("s3", config=_STORAGE_CLIENT_CONFIG) as client:
             yield client
 
 

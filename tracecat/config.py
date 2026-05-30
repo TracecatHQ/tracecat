@@ -456,6 +456,12 @@ TRACECAT__BLOB_STORAGE_BUCKET_SKILLS = os.environ.get(
 TRACECAT__BLOB_STORAGE_ENDPOINT = os.environ.get("TRACECAT__BLOB_STORAGE_ENDPOINT", "")
 """Endpoint URL for blob storage."""
 
+TRACECAT__BLOB_STORAGE_MAX_ATTEMPTS = int(
+    os.environ.get("TRACECAT__BLOB_STORAGE_MAX_ATTEMPTS") or 5
+)
+"""Total blob storage request attempts (initial try + retries) for transient
+S3/MinIO failures. Uses botocore's "standard" retry mode with backoff."""
+
 TRACECAT__BLOB_STORAGE_PRESIGNED_URL_ENDPOINT = os.environ.get(
     "TRACECAT__BLOB_STORAGE_PRESIGNED_URL_ENDPOINT", None
 )
