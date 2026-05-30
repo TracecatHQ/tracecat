@@ -2,11 +2,11 @@
 
 import type { UIMessage } from "ai"
 import { PanelLeftIcon } from "lucide-react"
+import { useRouter } from "next/navigation"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import type { AgentSessionsGetSessionVercelResponse } from "@/client"
 import { useScopeCheck } from "@/components/auth/scope-guard"
 import { ChatInterface } from "@/components/chat/chat-interface"
-import { EntitlementRequiredEmptyState } from "@/components/entitlement-required-empty-state"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { ArtifactPanel } from "@/components/mission-control/artifact-panel"
 import { Button } from "@/components/ui/button"
@@ -37,8 +37,13 @@ function sessionArtifacts(
 }
 
 export function MissionControlView() {
+  const router = useRouter()
   const workspaceId = useWorkspaceId()
-  const canExecuteAgents = useScopeCheck("agent:execute")
+  const canAccessMissionControl = useScopeCheck(
+    undefined,
+    ["agent:execute", "agent:read"],
+    { all: true }
+  )
   const { hasEntitlement, isLoading } = useEntitlements()
   const agentAddonsEnabled = hasEntitlement("agent_addons")
 
@@ -87,25 +92,22 @@ export function MissionControlView() {
   const collapsePanel = useCallback(() => setIsPanelCollapsed(true), [])
   const expandPanel = useCallback(() => setIsPanelCollapsed(false), [])
 
-  if (isLoading || canExecuteAgents === undefined) {
+  useEffect(() => {
+    if (!isLoading && !agentAddonsEnabled) {
+      router.replace("/workspaces")
+    }
+  }, [agentAddonsEnabled, isLoading, router])
+
+  if (isLoading || canAccessMissionControl === undefined) {
     return <CenteredSpinner />
   }
 
-  if (!canExecuteAgents) {
+  if (!canAccessMissionControl) {
     return null
   }
 
   if (!agentAddonsEnabled) {
-    return (
-      <div className="size-full overflow-auto">
-        <div className="mx-auto flex h-full w-full max-w-3xl flex-1 items-center justify-center py-12">
-          <EntitlementRequiredEmptyState
-            title="Upgrade required"
-            description="Mission Control is unavailable on your current plan."
-          />
-        </div>
-      </div>
-    )
+    return <CenteredSpinner />
   }
 
   const showExpandButton = hasArtifacts && isPanelCollapsed
