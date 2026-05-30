@@ -460,7 +460,7 @@ async def test_startup_sync_schedules_artifact_for_resolved_version(
 
     mock_result = SimpleNamespace(
         version=SimpleNamespace(id=uuid.uuid4()),
-        version_string="1.0.0.dev20260522140000",
+        version_string="1.0.0.post20260522140000+collision.123456",
         num_actions=0,
         actions=[],
     )
@@ -480,7 +480,7 @@ async def test_startup_sync_schedules_artifact_for_resolved_version(
         await _sync_as_leader(session, "1.0.0")
 
         schedule_build.assert_called_once_with(
-            "1.0.0.dev20260522140000",
+            "1.0.0.post20260522140000+collision.123456",
             promote_version_id=None,
             expected_current_version_id=None,
         )
@@ -584,7 +584,7 @@ async def test_promote_after_artifact_build_promotes_collision_version(
     )
     collision_version = PlatformRegistryVersion(
         repository_id=repo.id,
-        version="1.2.3.dev20260522140000",
+        version="1.2.3.post20260522140000+collision.123456",
         manifest=_make_manifest(["test.action_v2"]),
         tarball_uri="s3://test/collision.tar.gz",
     )
@@ -596,7 +596,7 @@ async def test_promote_after_artifact_build_promotes_collision_version(
 
     await _promote_platform_registry_version_after_artifact_build(
         session,
-        target_version="1.2.3.dev20260522140000",
+        target_version="1.2.3.post20260522140000+collision.123456",
         version_id=collision_version.id,
         artifact_uri="s3://test/collision.tar.gz",
         expected_current_version_id=old_version.id,

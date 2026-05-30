@@ -236,10 +236,10 @@ class BaseRegistrySyncService[
         return version, None
 
     def _generate_collision_version(self, base_version: str) -> str:
-        """Generate a unique dev version for same-version manifest changes."""
+        """Generate a unique post-release version for manifest collisions."""
         suffix = datetime.now(UTC).strftime("%Y%m%d%H%M%S%f")
         tiebreaker = cast(int, uuid.uuid4().int) % 1_000_000
-        return f"{base_version}.dev{suffix}{tiebreaker:06d}"
+        return f"{base_version}.post{suffix}+collision.{tiebreaker:06d}"
 
     def _build_validation_failure_message(
         self,
