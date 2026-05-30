@@ -862,6 +862,10 @@ class AgentSessionService(BaseWorkspaceService):
         result = await self.session.execute(stmt)
         return result.scalar_one_or_none() is None
 
+    async def should_seed_initial_artifact(self, agent_session: AgentSession) -> bool:
+        """Return whether the session should receive its initial artifact seed."""
+        return await self._is_first_prompt_for_session(agent_session.id)
+
     async def has_pending_approvals(self, session_id: uuid.UUID) -> bool:
         """Return whether the session has pending approval decisions."""
         stmt = (

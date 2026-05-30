@@ -372,7 +372,9 @@ async def send_message(
                 # Read from the beginning of the freshly cleared stream so we still
                 # pick up events emitted before the SSE response starts consuming.
                 start_id = "0-0"
-                if artifact := await svc.build_initial_artifact(agent_session):
+                if await svc.should_seed_initial_artifact(agent_session) and (
+                    artifact := await svc.build_initial_artifact(agent_session)
+                ):
                     await svc.apply_artifact_side_effects(
                         session_id,
                         [ArtifactSideEffect(op="upsert", artifact=artifact)],

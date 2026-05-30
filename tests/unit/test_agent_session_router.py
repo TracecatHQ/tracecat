@@ -408,6 +408,7 @@ async def test_send_message_new_turn_resets_stream_before_streaming() -> None:
         is_legacy_session=AsyncMock(return_value=False),
         validate_turn_request=AsyncMock(return_value=agent_session),
         run_turn=AsyncMock(return_value=None),
+        should_seed_initial_artifact=AsyncMock(return_value=False),
         build_initial_artifact=AsyncMock(return_value=None),
     )
     fake_stream = SimpleNamespace(
@@ -440,6 +441,8 @@ async def test_send_message_new_turn_resets_stream_before_streaming() -> None:
     assert isinstance(response, StreamingResponse)
     with_session_mock.assert_called_once_with(role=role)
     fake_stream.reset_for_new_turn.assert_awaited_once()
+    fake_svc.should_seed_initial_artifact.assert_awaited_once_with(agent_session)
+    fake_svc.build_initial_artifact.assert_not_awaited()
     fake_stream.abort_new_turn.assert_not_awaited()
     fake_stream.sse.assert_called_once()
     assert fake_stream.sse.call_args.kwargs["last_id"] == "0-0"
@@ -477,6 +480,7 @@ async def test_send_message_new_turn_appends_initial_artifact() -> None:
         is_legacy_session=AsyncMock(return_value=False),
         validate_turn_request=AsyncMock(return_value=agent_session),
         run_turn=AsyncMock(return_value=None),
+        should_seed_initial_artifact=AsyncMock(return_value=True),
         build_initial_artifact=AsyncMock(return_value=artifact),
         apply_artifact_side_effects=AsyncMock(return_value=[artifact]),
     )
@@ -510,6 +514,8 @@ async def test_send_message_new_turn_appends_initial_artifact() -> None:
 
     assert isinstance(response, StreamingResponse)
     fake_stream.reset_for_new_turn.assert_awaited_once()
+    fake_svc.should_seed_initial_artifact.assert_awaited_once_with(agent_session)
+    fake_svc.build_initial_artifact.assert_awaited_once_with(agent_session)
     fake_stream.append.assert_awaited_once()
     artifact_event = fake_stream.append.await_args.args[0]
     assert isinstance(artifact_event, UnifiedStreamEvent)
@@ -529,6 +535,84 @@ async def test_send_message_new_turn_appends_initial_artifact() -> None:
     assert len(apply_args[1]) == 1
     assert apply_args[1][0].op == "upsert"
     assert apply_args[1][0].artifact == artifact
+    fake_svc.run_turn.assert_awaited_once_with(
+        session_id=session_id,
+        request=request,
+    )
+
+
+@pytest.mark.anyio
+async def test_send_message_new_turn_skips_initial_artifact_after_first_prompt() -> (
+    None
+):
+    session_id = uuid.uuid4()
+    workspace_id = uuid.uuid4()
+    agent_session = _agent_session_stub(id=session_id, workspace_id=workspace_id)
+    artifact = CaseArtifact(
+        id=str(agent_session.entity_id),
+        title="Investigate suspicious login",
+        severity=CaseSeverity.HIGH,
+        status=CaseStatus.NEW,
+    )
+    role = Role(
+        type="service",
+        service_id="tracecat-api",
+        workspace_id=workspace_id,
+        organization_id=uuid.uuid4(),
+        scopes=frozenset({"agent:execute"}),
+    )
+    request = VercelChatRequest(
+        message=UIMessage(
+            id="msg-2",
+            role="user",
+            parts=[{"type": "text", "text": "next turn"}],
+        ),
+        model="gpt-4o-mini",
+        model_provider="openai",
+    )
+
+    fake_svc = SimpleNamespace(
+        is_legacy_session=AsyncMock(return_value=False),
+        validate_turn_request=AsyncMock(return_value=agent_session),
+        run_turn=AsyncMock(return_value=None),
+        should_seed_initial_artifact=AsyncMock(return_value=False),
+        build_initial_artifact=AsyncMock(return_value=artifact),
+        apply_artifact_side_effects=AsyncMock(return_value=[artifact]),
+    )
+    fake_stream = SimpleNamespace(
+        reset_for_new_turn=AsyncMock(return_value=None),
+        append=AsyncMock(return_value=None),
+        abort_new_turn=AsyncMock(return_value=None),
+        sse=Mock(return_value=_empty_event_stream()),
+    )
+
+    with (
+        patch(
+            "tracecat.agent.session.router.AgentSessionService.with_session",
+            return_value=_AsyncContext(fake_svc),
+        ),
+        patch(
+            "tracecat.agent.session.router.AgentStream.new",
+            AsyncMock(return_value=fake_stream),
+        ),
+    ):
+        raw_send_message = cast(Any, send_message).__wrapped__
+        response = await raw_send_message(
+            session_id=session_id,
+            request=request,
+            role=role,
+            http_request=cast(
+                Any,
+                SimpleNamespace(is_disconnected=AsyncMock(return_value=False)),
+            ),
+        )
+
+    assert isinstance(response, StreamingResponse)
+    fake_stream.reset_for_new_turn.assert_awaited_once()
+    fake_svc.should_seed_initial_artifact.assert_awaited_once_with(agent_session)
+    fake_svc.build_initial_artifact.assert_not_awaited()
+    fake_svc.apply_artifact_side_effects.assert_not_awaited()
+    fake_stream.append.assert_not_awaited()
     fake_svc.run_turn.assert_awaited_once_with(
         session_id=session_id,
         request=request,
@@ -561,6 +645,7 @@ async def test_send_message_new_turn_clears_stream_when_startup_fails() -> None:
         is_legacy_session=AsyncMock(return_value=False),
         validate_turn_request=AsyncMock(return_value=agent_session),
         run_turn=AsyncMock(side_effect=RuntimeError("temporal unavailable")),
+        should_seed_initial_artifact=AsyncMock(return_value=False),
         build_initial_artifact=AsyncMock(return_value=None),
     )
     fake_stream = SimpleNamespace(
@@ -593,6 +678,8 @@ async def test_send_message_new_turn_clears_stream_when_startup_fails() -> None:
 
     assert exc_info.value.status_code == 500
     fake_stream.reset_for_new_turn.assert_awaited_once()
+    fake_svc.should_seed_initial_artifact.assert_awaited_once_with(agent_session)
+    fake_svc.build_initial_artifact.assert_not_awaited()
     fake_svc.run_turn.assert_awaited_once_with(
         session_id=session_id,
         request=request,
