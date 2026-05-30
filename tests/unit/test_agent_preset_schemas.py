@@ -71,22 +71,19 @@ def test_agent_preset_create_trims_required_fields() -> None:
     assert payload.model_provider == "openai"
 
 
-def test_agent_preset_create_accepts_catalog_without_legacy_model_fields() -> None:
-    catalog_id = uuid.uuid4()
-
-    payload = AgentPresetCreate(
-        name="Catalog preset",
-        catalog_id=catalog_id,
-    )
-
-    assert payload.catalog_id == catalog_id
-    assert payload.model_name is None
-    assert payload.model_provider is None
+def test_agent_preset_create_rejects_catalog_without_legacy_model_fields() -> None:
+    with pytest.raises(ValidationError):
+        AgentPresetCreate.model_validate(
+            {
+                "name": "Catalog preset",
+                "catalog_id": str(uuid.uuid4()),
+            }
+        )
 
 
 def test_agent_preset_create_requires_model_fields_without_catalog_id() -> None:
     with pytest.raises(ValidationError):
-        AgentPresetCreate(name="Legacy preset")
+        AgentPresetCreate.model_validate({"name": "Legacy preset"})
 
 
 @pytest.mark.parametrize(

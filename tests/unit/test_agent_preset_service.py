@@ -420,41 +420,6 @@ class TestAgentPresetService:
         assert preset.model_name == catalog.model_name
         assert preset.model_provider == catalog.model_provider
 
-    async def test_create_preset_allows_catalog_id_without_legacy_model_fields(
-        self,
-        session: AsyncSession,
-        svc_organization: Organization,
-        agent_preset_service: AgentPresetService,
-    ) -> None:
-        catalog = AgentCatalog(
-            organization_id=None,
-            custom_provider_id=None,
-            model_provider="openai",
-            model_name="gpt-4.1",
-            model_metadata={},
-        )
-        session.add(catalog)
-        await session.flush()
-        session.add(
-            AgentModelAccess(
-                organization_id=svc_organization.id,
-                workspace_id=None,
-                catalog_id=catalog.id,
-            )
-        )
-        await session.commit()
-
-        preset = await agent_preset_service.create_preset(
-            AgentPresetCreate(
-                name="Catalog preset",
-                catalog_id=catalog.id,
-            )
-        )
-
-        assert preset.catalog_id == catalog.id
-        assert preset.model_name == catalog.model_name
-        assert preset.model_provider == catalog.model_provider
-
     async def test_create_preset_uses_catalog_model_fields_when_catalog_id_is_set(
         self,
         session: AsyncSession,

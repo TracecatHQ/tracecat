@@ -79,36 +79,46 @@ async def test_create_preset_payload_requires_default_model_selection(
 
 
 @pytest.mark.anyio
-async def test_create_preset_payload_allows_catalog_id_without_default_model(
+async def test_create_preset_payload_resolves_catalog_id_without_default_model(
     test_admin_role: Role,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    class FakeAgentManagementService:
-        def __init__(self, *args, **kwargs) -> None:
-            pass
+    expected_catalog_id = uuid.uuid4()
 
-        async def get_default_model_selection(self) -> None:
-            return None
+    async def fake_get_enabled_catalog_entry(
+        *,
+        role: Role,
+        session: object,
+        catalog_id: uuid.UUID,
+    ) -> SimpleNamespace:
+        assert role == test_admin_role
+        assert session is not None
+        assert catalog_id == expected_catalog_id
+        return SimpleNamespace(
+            model_name="claude-sonnet-4",
+            model_provider="anthropic",
+        )
 
     monkeypatch.setattr(
         agent_preset_internal_router,
-        "AgentManagementService",
-        FakeAgentManagementService,
+        "_get_enabled_catalog_entry",
+        fake_get_enabled_catalog_entry,
     )
-    catalog_id = uuid.uuid4()
 
     payload = await agent_preset_internal_router._create_payload_with_default_model(
         role=test_admin_role,
         session=AsyncMock(),
         params=agent_preset_internal_router.PresetCreateRequest(
             name="Case Triage",
-            catalog_id=catalog_id,
+            catalog_id=expected_catalog_id,
         ),
     )
 
     assert payload == {
         "name": "Case Triage",
-        "catalog_id": catalog_id,
+        "catalog_id": expected_catalog_id,
+        "model_name": "claude-sonnet-4",
+        "model_provider": "anthropic",
     }
 
 
