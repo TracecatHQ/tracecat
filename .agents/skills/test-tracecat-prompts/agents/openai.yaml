@@ -1,0 +1,4 @@
+interface:
+  display_name: "Test Tracecat Prompts"
+  short_description: "Run local Tracecat prompt evals."
+  default_prompt: "Run the local Tracecat prompt eval harness and compare agents."

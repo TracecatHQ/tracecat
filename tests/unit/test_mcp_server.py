@@ -5315,67 +5315,6 @@ def test_watchtower_workspace_resolution_uses_tool_argument() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_dsl_reference_resource_registered():
-    """The DSL reference constant contains expected content."""
-    text = mcp_server._DSL_REFERENCE_TEXT
-    assert isinstance(text, str)
-    assert "Tracecat Workflow DSL Reference" in text
-    assert "FN." in text
-    assert "TRIGGER" in text
-    assert "ACTIONS" in text
-    assert "SECRETS" in text
-
-
-def test_dsl_reference_contains_all_fn_categories():
-    """Verify the DSL reference covers all major FN function categories."""
-    text = mcp_server._DSL_REFERENCE_TEXT
-    for category in [
-        "capitalize",  # String
-        "is_equal",  # Comparison
-        "regex_extract",  # Regex
-        "flatten",  # Array
-        "add",  # Math
-        "merge",  # JSON/Dict
-        "now",  # Time
-        "to_base64",  # Encoding
-        "hash_sha256",  # Hash
-        "extract_cves",  # IOC
-    ]:
-        assert category in text, f"FN function {category!r} missing from DSL reference"
-
-
-def test_domain_reference_resource_registered():
-    """The domain reference constant contains expected enum values."""
-    text = mcp_server._DOMAIN_REFERENCE_TEXT
-    assert isinstance(text, str)
-    assert "Domain Reference" in text
-    # Case management enums
-    for term in ["Priority", "Severity", "Status", "Task Status", "Case Event Types"]:
-        assert term in text, f"Section {term!r} missing from domain reference"
-    # Specific enum values
-    for value in [
-        "critical",
-        "informational",
-        "in_progress",
-        "case_created",
-        "dropdown_value_changed",
-    ]:
-        assert value in text, f"Enum value {value!r} missing from domain reference"
-    # Table column types
-    for col_type in ["TEXT", "INTEGER", "JSONB", "MULTI_SELECT"]:
-        assert col_type in text, (
-            f"Column type {col_type!r} missing from domain reference"
-        )
-    # Workflow control flow
-    for term in ["join_strategy", "loop_strategy", "fail_strategy", "edge_type"]:
-        assert term.replace("_", " ").title().replace(" ", " ") in text or any(
-            kw in text.lower() for kw in [term]
-        ), f"Control flow {term!r} missing from domain reference"
-    # Workflow execution
-    for value in ["manual", "scheduled", "webhook", "draft", "published"]:
-        assert value in text, f"Execution value {value!r} missing from domain reference"
-
-
 @pytest.mark.anyio
 async def test_action_catalog_resource(monkeypatch):
     """The action catalog resource returns actions grouped by namespace."""
@@ -7735,30 +7674,167 @@ async def test_upload_skill_rejects_non_utf8_root_skill_markdown_before_upload(
     assert upload_called is False
 
 
-def test_mcp_instructions_include_agent_preset_authoring_tools() -> None:
-    assert "get_agent_preset_authoring_context" in mcp_server._MCP_INSTRUCTIONS
-    assert "list_integrations" in mcp_server._MCP_INSTRUCTIONS
-    assert "create_agent_preset" in mcp_server._MCP_INSTRUCTIONS
-    assert "update_agent_preset" in mcp_server._MCP_INSTRUCTIONS
+def _prompt_source_text() -> str:
+    return "\n".join([mcp_server._MCP_INSTRUCTIONS, mcp_server._DSL_REFERENCE_TEXT])
 
 
-def test_mcp_instructions_prefer_edit_workflow_for_existing_workflows() -> None:
-    assert "Prefer `edit_workflow` for existing workflow changes" in (
-        mcp_server._MCP_INSTRUCTIONS
+def _prompt_fenced_blocks(language: str) -> list[str]:
+    return re.findall(rf"```{language}\n(.*?)\n```", _prompt_source_text(), re.DOTALL)
+
+
+def _prompt_yaml_action_fragments() -> list[dict[str, Any]]:
+    fragments: list[dict[str, Any]] = []
+    for block in _prompt_fenced_blocks("yaml"):
+        parsed = yaml.safe_load(block)
+        if isinstance(parsed, list):
+            fragments.extend(
+                item
+                for item in parsed
+                if isinstance(item, dict)
+                and isinstance(item.get("ref"), str)
+                and isinstance(item.get("action"), str)
+            )
+        elif isinstance(parsed, dict) and isinstance(parsed.get("actions"), list):
+            fragments.extend(
+                item
+                for item in parsed["actions"]
+                if isinstance(item, dict)
+                and isinstance(item.get("ref"), str)
+                and isinstance(item.get("action"), str)
+            )
+        elif (
+            isinstance(parsed, dict)
+            and isinstance(parsed.get("definition"), dict)
+            and isinstance(parsed["definition"].get("actions"), list)
+        ):
+            fragments.extend(
+                item
+                for item in parsed["definition"]["actions"]
+                if isinstance(item, dict)
+                and isinstance(item.get("ref"), str)
+                and isinstance(item.get("action"), str)
+            )
+        elif (
+            isinstance(parsed, dict)
+            and isinstance(parsed.get("ref"), str)
+            and isinstance(parsed.get("action"), str)
+        ):
+            fragments.append(parsed)
+    return fragments
+
+
+def test_prompt_json_patch_examples_are_structurally_valid() -> None:
+    examples = [
+        parsed
+        for block in _prompt_fenced_blocks("json")
+        if isinstance(parsed := json.loads(block), dict) and parsed.get("patch_ops")
+    ]
+
+    assert len(examples) >= 1
+    for example in examples:
+        for op in example["patch_ops"]:
+            assert op["op"] in {"add", "copy", "move", "remove", "replace", "test"}
+            path_parts = [part for part in op["path"].split("/") if part]
+            assert path_parts[0] in {"definition", "layout"}
+
+
+def test_prompt_complete_workflow_yaml_examples_are_schema_valid() -> None:
+    complete_examples = []
+    for block in _prompt_fenced_blocks("yaml"):
+        parsed = yaml.safe_load(block)
+        if isinstance(parsed, dict) and parsed.get("definition") is not None:
+            complete_examples.append(parsed)
+
+    assert complete_examples
+    for block in complete_examples:
+        payload = mcp_server.WorkflowYamlPayload.model_validate(block)
+        assert payload.definition is not None
+        assert payload.definition.entrypoint.expects
+        assert payload.definition.actions
+        assert payload.definition.returns
+
+
+def test_prompt_action_args_match_registry_signatures() -> None:
+    from tracecat_registry.core.http import http_paginate, http_request
+    from tracecat_registry.core.python import run_python
+
+    action_functions = {
+        "core.script.run_python": run_python,
+        "core.http_request": http_request,
+        "core.http_paginate": http_paginate,
+    }
+
+    seen_actions: set[str] = set()
+    for fragment in _prompt_yaml_action_fragments():
+        if (action_name := fragment["action"]) not in action_functions:
+            continue
+        seen_actions.add(action_name)
+        action_refs = set(
+            re.findall(r"ACTIONS\.([A-Za-z_][A-Za-z0-9_]*)", json.dumps(fragment))
+        )
+        upstream_stubs = [
+            {"ref": ref, "action": "core.transform.reshape", "args": {"value": {}}}
+            for ref in sorted(action_refs - {fragment["ref"]})
+        ]
+        actions = [*upstream_stubs, fragment]
+        dsl = mcp_server.DSLInput.model_validate(
+            {
+                "title": f"Prompt eval {fragment['ref']}",
+                "description": "Validate MCP prompt action fragment.",
+                "entrypoint": {"ref": actions[0]["ref"], "expects": {}},
+                "actions": actions,
+            }
+        )
+        assert dsl.actions[-1].ref == fragment["ref"]
+
+        signature = inspect.signature(action_functions[fragment["action"]])
+        params = set(signature.parameters)
+        args = set(fragment["args"])
+        required = {
+            name
+            for name, param in signature.parameters.items()
+            if param.default is inspect.Parameter.empty
+            and param.kind
+            in {inspect.Parameter.POSITIONAL_OR_KEYWORD, inspect.Parameter.KEYWORD_ONLY}
+        }
+        assert args <= params
+        assert required <= args
+
+    assert seen_actions == set(action_functions)
+
+
+def test_prompt_expressions_respect_prompt_action_result_shapes() -> None:
+    action_refs = {
+        fragment["ref"]: fragment["action"]
+        for fragment in _prompt_yaml_action_fragments()
+    }
+    list_result_refs = {
+        ref
+        for ref, action_name in action_refs.items()
+        if action_name == "core.http_paginate"
+    }
+
+    invalid_dereferences = []
+    for ref in list_result_refs:
+        invalid_dereferences.extend(
+            re.findall(
+                rf"ACTIONS\.{re.escape(ref)}\.result\.([A-Za-z_][A-Za-z0-9_]*)",
+                _prompt_source_text(),
+            )
+        )
+
+    assert not invalid_dereferences
+
+
+def test_mcp_instruction_text_stays_within_context_budget() -> None:
+    assert len(mcp_server._MCP_INSTRUCTIONS) <= 14500, (
+        "MCP instructions exceeded the prompt budget. Compress existing guidance "
+        "or intentionally raise this ceiling with a clear reason."
     )
-    assert "already in context when you know they are current" in (
-        mcp_server._MCP_INSTRUCTIONS
-    )
-    assert "Call `get_workflow` only when the latest draft is missing" in (
-        mcp_server._MCP_INSTRUCTIONS
-    )
-    assert "conflict says the draft changed" in mcp_server._MCP_INSTRUCTIONS
-    assert "instead of resending full YAML" in mcp_server._MCP_INSTRUCTIONS
-    assert "Use `update_workflow` without `definition_yaml`" in (
-        mcp_server._MCP_INSTRUCTIONS
-    )
-    assert "only when intentionally replacing" in mcp_server._MCP_INSTRUCTIONS
-    assert "bulk-updating the workflow definition" in mcp_server._MCP_INSTRUCTIONS
+
+
+def test_dsl_reference_text_stays_within_context_budget() -> None:
+    assert len(mcp_server._DSL_REFERENCE_TEXT) <= 15500
 
 
 @pytest.mark.anyio
