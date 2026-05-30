@@ -310,12 +310,23 @@ class BaseTablesService(BaseWorkspaceService):
         result = await self.session.execute(statement)
         return result.scalars().all()
 
-    async def get_table(self, table_id: TableID) -> Table:
+    async def get_table(
+        self,
+        table_id: TableID,
+        *,
+        populate_existing: bool = False,
+    ) -> Table:
         """Get a lookup table by ID."""
-        statement = select(Table).where(
-            Table.workspace_id == self.ws_uuid,
-            Table.id == table_id,
+        statement = (
+            select(Table)
+            .options(selectinload(Table.columns))
+            .where(
+                Table.workspace_id == self.ws_uuid,
+                Table.id == table_id,
+            )
         )
+        if populate_existing:
+            statement = statement.execution_options(populate_existing=True)
         result = await self.session.execute(statement)
         table = result.scalars().first()
         if table is None:

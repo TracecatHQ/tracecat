@@ -251,7 +251,7 @@ async def create_column(
     try:
         table = await service.get_table_by_name(table_name)
         await service.create_column(table, params)
-        refreshed = await service.get_table(table.id)
+        refreshed = await service.get_table(table.id, populate_existing=True)
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -289,7 +289,7 @@ async def update_column(
                 f"Column '{column_name}' not found in table '{table_name}'"
             )
         await service.update_column(column, params)
-        refreshed = await service.get_table(table.id)
+        refreshed = await service.get_table(table.id, populate_existing=True)
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -326,7 +326,7 @@ async def delete_column(
                 f"Column '{column_name}' not found in table '{table_name}'"
             )
         await service.delete_column(column)
-        refreshed = await service.get_table(table.id)
+        refreshed = await service.get_table(table.id, populate_existing=True)
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
