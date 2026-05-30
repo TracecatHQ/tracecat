@@ -62,6 +62,23 @@ def _agent_session_row(
 
 
 @pytest.mark.anyio
+async def test_list_sessions_filters_sessions_without_creating_user() -> None:
+    service, session, _role = _build_service()
+    session.execute.return_value = _mock_scalar_result([])
+
+    await service.list_sessions(
+        created_by=None,
+        filter_created_by_none=True,
+        parent_session_id=uuid.uuid4(),
+        limit=1,
+    )
+
+    session.execute.assert_awaited_once()
+    stmt = str(session.execute.await_args.args[0])
+    assert "agent_session.created_by IS NULL" in stmt
+
+
+@pytest.mark.anyio
 async def test_list_sessions_parent_session_filter_excludes_legacy_chats() -> None:
     service, session, role = _build_service()
     assert role.workspace_id is not None
