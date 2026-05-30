@@ -1360,7 +1360,7 @@ class TestSandboxedAgentExecutorFilesystemPersistence:
         assert events == ["hydrate", "broker", "snapshot"]
 
     @pytest.mark.anyio
-    async def test_run_fails_when_snapshot_after_success_fails(
+    async def test_run_succeeds_when_snapshot_after_success_fails(
         self,
         mock_role: Role,
         mock_session_id: uuid.UUID,
@@ -1448,11 +1448,10 @@ class TestSandboxedAgentExecutorFilesystemPersistence:
 
         result = await executor.run()
 
-        assert result.success is False
-        assert result.error == (
-            "Failed to persist agent filesystem snapshot: snapshot store unavailable"
-        )
-        assert result.terminal_stream_error_emitted is False
+        # Fail-open: a snapshot persistence failure is logged but the
+        # already-successful turn is not failed.
+        assert result.success is True
+        assert result.error is None
         assert events == ["hydrate", "broker", "snapshot"]
 
     @pytest.mark.anyio

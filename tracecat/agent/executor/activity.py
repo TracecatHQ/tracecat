@@ -448,8 +448,12 @@ class SandboxedAgentExecutor:
             work_dir.mkdir(parents=True, exist_ok=True)
         self._log_benchmark_phase("agent_fs_hydrate_complete")
 
-    async def _persist_agent_filesystem(self, work_dir: Path) -> str | None:
-        """Persist the agent work dir after a successful runtime turn."""
+    async def _persist_agent_filesystem(self, work_dir: Path) -> None:
+        """Persist the agent work dir after a successful runtime turn.
+
+        Best-effort: a persistence failure is logged but does not fail the turn.
+        The next turn falls back to the previous snapshot or an empty work dir.
+        """
         self._log_benchmark_phase("agent_fs_snapshot_start")
         try:
             await persist_agent_work_dir(
@@ -465,10 +469,9 @@ class SandboxedAgentExecutor:
                 workspace_id=str(self.input.workspace_id),
                 error=str(e),
             )
-            return f"Failed to persist agent filesystem snapshot: {e}"
+            return
 
         self._log_benchmark_phase("agent_fs_snapshot_complete")
-        return None
 
     @staticmethod
     def _apply_loopback_result(
@@ -589,13 +592,9 @@ class SandboxedAgentExecutor:
                                 session_id=str(self.input.session_id),
                                 disable_nsjail=TRACECAT__DISABLE_NSJAIL,
                             )
-                            snapshot_error = await self._persist_agent_filesystem(
+                            await self._persist_agent_filesystem(
                                 path_mapping.host_work_dir
                             )
-                            if snapshot_error is not None:
-                                result.success = False
-                                result.error = snapshot_error
-                                result.terminal_stream_error_emitted = False
                     break
                 else:
                     result.error = (
