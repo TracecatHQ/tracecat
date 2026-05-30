@@ -136,6 +136,12 @@ async def _build_table_read(service: TablesService, table: Table) -> TableRead:
 
 
 def _find_column_by_name(table: Table, column_name: str) -> TableColumn:
+    column = next(
+        (column for column in table.columns if column.name == column_name),
+        None,
+    )
+    if column is not None:
+        return column
     normalized_name = validate_identifier(column_name)
     column = next(
         (column for column in table.columns if column.name == normalized_name),

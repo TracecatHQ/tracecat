@@ -163,6 +163,24 @@ async def test_create_preset_payload_drops_null_defaulted_fields(
 
 
 @pytest.mark.anyio
+async def test_create_preset_payload_rejects_partial_legacy_model_fields(
+    test_admin_role: Role,
+) -> None:
+    with pytest.raises(
+        TracecatValidationError,
+        match="model_name and model_provider must be provided together",
+    ):
+        await agent_preset_internal_router._create_payload_with_default_model(
+            role=test_admin_role,
+            session=AsyncMock(),
+            params=agent_preset_internal_router.PresetCreateRequest(
+                name="Case Triage",
+                model_name="gpt-4o-mini",
+            ),
+        )
+
+
+@pytest.mark.anyio
 async def test_restore_agent_preset_version_maps_validation_error(
     test_admin_role: Role,
     monkeypatch: pytest.MonkeyPatch,

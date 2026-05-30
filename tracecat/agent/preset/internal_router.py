@@ -165,6 +165,12 @@ async def _create_payload_with_default_model(
     for defaulted_field in ("agents", "retries"):
         if payload.get(defaulted_field) is None:
             payload.pop(defaulted_field, None)
+    has_model_name = bool(payload.get("model_name"))
+    has_model_provider = bool(payload.get("model_provider"))
+    if has_model_name != has_model_provider:
+        raise TracecatValidationError(
+            "model_name and model_provider must be provided together"
+        )
     if catalog_id := payload.get("catalog_id"):
         catalog_entry = await _get_enabled_catalog_entry(
             role=role,
@@ -174,7 +180,7 @@ async def _create_payload_with_default_model(
         payload.setdefault("model_name", catalog_entry.model_name)
         payload.setdefault("model_provider", catalog_entry.model_provider)
         return payload
-    if payload.get("model_name") and payload.get("model_provider"):
+    if has_model_name and has_model_provider:
         return payload
 
     default_model = await AgentManagementService(
