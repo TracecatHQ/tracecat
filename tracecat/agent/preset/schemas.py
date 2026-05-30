@@ -7,7 +7,7 @@ from collections.abc import Mapping
 from datetime import datetime
 from typing import TYPE_CHECKING, Annotated, Any, Literal, cast
 
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
 
 from tracecat.agent.subagents import AgentSubagentsConfig, has_manual_tool_approvals
 from tracecat.agent.types import AgentConfig, OutputType
@@ -97,8 +97,8 @@ class AgentPresetExecutionConfigWrite(Schema):
     """Write-time execution validation for mutable preset fields."""
 
     instructions: str | None = Field(default=None)
-    model_name: PresetModelWriteField
-    model_provider: PresetModelWriteField
+    model_name: PresetModelWriteField | None = Field(default=None)
+    model_provider: PresetModelWriteField | None = Field(default=None)
     catalog_id: uuid.UUID | None = Field(default=None)
     base_url: str | None = Field(default=None, max_length=500)
     output_type: OutputType | None = Field(default=None)
@@ -124,6 +124,16 @@ class AgentPresetCreate(AgentPresetBase):
 
     name: PresetName
     slug: PresetSlug | None = None
+
+    @model_validator(mode="after")
+    def require_model_fields_or_catalog(self) -> AgentPresetCreate:
+        if self.catalog_id is None and (
+            self.model_name is None or self.model_provider is None
+        ):
+            raise ValueError(
+                "Either catalog_id or both model_name and model_provider are required"
+            )
+        return self
 
 
 class AgentPresetMoveToFolder(BaseModel):

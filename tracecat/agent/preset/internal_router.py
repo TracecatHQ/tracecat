@@ -130,6 +130,8 @@ async def _create_payload_with_default_model(
 ) -> dict[str, Any]:
     """Fill omitted legacy model fields from the canonical default catalog model."""
     payload = params.model_dump(exclude_unset=True)
+    if payload.get("catalog_id"):
+        return payload
     if payload.get("model_name") and payload.get("model_provider"):
         return payload
 

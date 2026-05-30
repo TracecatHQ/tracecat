@@ -2004,15 +2004,29 @@ export const $AgentPresetCreate = {
       title: "Instructions",
     },
     model_name: {
-      type: "string",
-      maxLength: 120,
-      minLength: 1,
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 120,
+          minLength: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
       title: "Model Name",
     },
     model_provider: {
-      type: "string",
-      maxLength: 120,
-      minLength: 1,
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 120,
+          minLength: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
       title: "Model Provider",
     },
     catalog_id: {
@@ -2171,7 +2185,7 @@ export const $AgentPresetCreate = {
     },
   },
   type: "object",
-  required: ["model_name", "model_provider", "name"],
+  required: ["name"],
   title: "AgentPresetCreate",
   description: "Payload for creating a new agent preset.",
 } as const

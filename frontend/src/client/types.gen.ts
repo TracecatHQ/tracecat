@@ -531,8 +531,8 @@ export type AgentPresetCapability =
  */
 export type AgentPresetCreate = {
   instructions?: string | null
-  model_name: string
-  model_provider: string
+  model_name?: string | null
+  model_provider?: string | null
   catalog_id?: string | null
   base_url?: string | null
   output_type?: OutputType | null

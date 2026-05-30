@@ -268,22 +268,24 @@ class AgentPresetService(BaseWorkspaceService):
         catalog_entry: AgentCatalog | None = None
         if params.catalog_id is not None:
             catalog_entry = await self._get_enabled_catalog_entry(params.catalog_id)
+        if catalog_entry is not None:
+            model_name = catalog_entry.model_name
+            model_provider = catalog_entry.model_provider
+        elif params.model_name is None or params.model_provider is None:
+            raise TracecatValidationError(
+                "Either catalog_id or both model_name and model_provider are required"
+            )
+        else:
+            model_name = params.model_name
+            model_provider = params.model_provider
         preset = AgentPreset(
             workspace_id=self.workspace_id,
             slug=slug,
             name=params.name,
             description=params.description,
             instructions=params.instructions,
-            model_name=(
-                catalog_entry.model_name
-                if catalog_entry is not None
-                else params.model_name
-            ),
-            model_provider=(
-                catalog_entry.model_provider
-                if catalog_entry is not None
-                else params.model_provider
-            ),
+            model_name=model_name,
+            model_provider=model_provider,
             catalog_id=params.catalog_id,
             base_url=params.base_url,
             output_type=params.output_type,
