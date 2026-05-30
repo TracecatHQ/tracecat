@@ -104,12 +104,16 @@ class _FakeClaudeOptions:
     agents: object = None
 
 
+def _agent_config(**kwargs: Any) -> AgentConfig:
+    return cast(AgentConfig, cast(Any, AgentConfig)(**kwargs))
+
+
 def _make_executor_input(*, enable_internet_access: bool) -> AgentExecutorInput:
     return AgentExecutorInput(
         session_id=uuid.uuid4(),
         workspace_id=uuid.uuid4(),
         user_prompt="hello",
-        config=AgentConfig(
+        config=_agent_config(
             model_name="gpt-5",
             model_provider="openai",
             enable_internet_access=enable_internet_access,
@@ -127,7 +131,7 @@ def _make_passthrough_executor_input(
         session_id=uuid.uuid4(),
         workspace_id=uuid.uuid4(),
         user_prompt="hello",
-        config=AgentConfig(
+        config=_agent_config(
             model_name="customer-alias",
             model_provider="custom-model-provider",
             base_url=base_url,
@@ -293,7 +297,19 @@ class _FakeBroker:
         self.requests: list[ClaudeTurnRequest] = []
         self.cancelled_session_ids: list[str] = []
 
+    @contextlib.asynccontextmanager
+    async def session_turn_lease(self, _session_id: str) -> AsyncIterator[None]:
+        yield
+
     async def run_turn(
+        self,
+        request: ClaudeTurnRequest,
+        handler: _FakeLoopbackHandler,
+    ) -> None:
+        async with self.session_turn_lease(str(request.init_payload.session_id)):
+            await self.run_turn_in_session_lease(request, handler)
+
+    async def run_turn_in_session_lease(
         self,
         request: ClaudeTurnRequest,
         handler: _FakeLoopbackHandler,
@@ -1633,7 +1649,7 @@ async def test_run_agent_activity_plumbs_subagents_to_runtime_in_each_sandbox_mo
             parameters_json_schema={"type": "object"},
         )
     }
-    child_config = AgentConfig(
+    child_config = _agent_config(
         model_name="gpt-5-mini",
         model_provider="openai",
         enable_internet_access=False,
@@ -1641,7 +1657,7 @@ async def test_run_agent_activity_plumbs_subagents_to_runtime_in_each_sandbox_mo
     )
     executor_input = _make_executor_input(enable_internet_access=False).model_copy(
         update={
-            "config": AgentConfig(
+            "config": _agent_config(
                 model_name="gpt-5",
                 model_provider="openai",
                 agents=cast(

@@ -84,6 +84,7 @@ class TestS3Operations:
             mock_session.client.assert_called_once_with(
                 "s3",
                 endpoint_url="http://localhost:9002",
+                config=blob_module._STORAGE_CLIENT_CONFIG,
                 aws_access_key_id="minioadmin",
                 aws_secret_access_key="minioadmin",
             )
@@ -105,7 +106,9 @@ class TestS3Operations:
 
             async with get_storage_client() as client:
                 assert client is mock_client
-            mock_session.client.assert_called_once_with("s3")
+            mock_session.client.assert_called_once_with(
+                "s3", config=blob_module._STORAGE_CLIENT_CONFIG
+            )
 
     @pytest.mark.anyio
     @patch("tracecat.storage.blob.get_storage_client")

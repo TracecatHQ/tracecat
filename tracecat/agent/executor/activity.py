@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import shutil
 import tempfile
 import uuid
@@ -11,7 +10,7 @@ from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
 from time import perf_counter
-from typing import Any
+from typing import Any, cast
 
 from pydantic import AliasChoices, BaseModel, Field
 from temporalio import activity
@@ -37,12 +36,14 @@ from tracecat.agent.executor.loopback import (
     LoopbackInput,
     LoopbackResult,
 )
+from tracecat.agent.filesystem import hydrate_agent_work_dir, persist_agent_work_dir
 from tracecat.agent.llm_routing import get_litellm_route_model
 from tracecat.agent.preset.service import AgentPresetService
 from tracecat.agent.runtime.claude_code.broker import (
     ClaudeTurnRequest,
     ConcurrentSessionTurnError,
 )
+from tracecat.agent.runtime.session_paths import build_agent_sandbox_path_mapping
 from tracecat.agent.runtime_services import get_claude_runtime_broker
 from tracecat.agent.sandbox.llm_proxy import (
     LLM_SOCKET_NAME,
@@ -59,6 +60,7 @@ from tracecat.config import (
     TRACECAT__AGENT_SKILL_CACHE_DIR,
     TRACECAT__AGENT_SKILL_CACHE_MAX_CONCURRENT_DOWNLOADS,
 )
+from tracecat.feature_flags import FeatureFlag, is_feature_enabled
 from tracecat.logger import logger
 from tracecat.registry.lock.types import RegistryLock
 from tracecat.storage import blob
@@ -68,6 +70,8 @@ from .schemas import (
     DeniedToolCall,
     ToolExecutionResult,
 )
+
+BROKER_TASK_CANCEL_TIMEOUT_SECONDS = 5.0
 
 
 class AgentExecutorInput(BaseModel):
@@ -150,6 +154,43 @@ class ExecuteApprovedToolsResult(BaseModel):
     error: str | None = None
 
 
+def _agent_fs_persistence_enabled() -> bool:
+    """Return whether durable agent work-dir snapshots should run."""
+    return is_feature_enabled(FeatureFlag.AGENT_FS_PERSISTENCE)
+
+
+async def _cancel_task_with_timeout(
+    task: asyncio.Task[Any] | None,
+    *,
+    task_name: str,
+    timeout_seconds: float = BROKER_TASK_CANCEL_TIMEOUT_SECONDS,
+) -> None:
+    """Cancel an asyncio task without allowing cleanup to hang this activity."""
+    if task is None or task.done():
+        return
+    task.cancel()
+    done, pending = await asyncio.wait({task}, timeout=timeout_seconds)
+    if pending:
+        logger.warning(
+            "Timed out waiting for cancelled task",
+            task_name=task_name,
+            timeout_seconds=timeout_seconds,
+        )
+        return
+    [completed_task] = done
+    try:
+        await completed_task
+    except asyncio.CancelledError:
+        pass
+    except Exception as e:
+        logger.debug(
+            "Cancelled task finished with error",
+            task_name=task_name,
+            error=str(e),
+            error_type=type(e).__name__,
+        )
+
+
 @dataclass
 class SandboxedAgentExecutor:
     """Executes an agent turn through the worker-global runtime broker.
@@ -174,6 +215,7 @@ class SandboxedAgentExecutor:
     _fatal_error_event: asyncio.Event = field(
         default_factory=asyncio.Event, init=False, repr=False
     )
+    _agent_fs_hydration_failed: bool = field(default=False, init=False, repr=False)
     _turn_started_at: float = field(
         default_factory=perf_counter, init=False, repr=False
     )
@@ -225,10 +267,11 @@ class SandboxedAgentExecutor:
         """
         # Keep all root/subagent semantics on the executor side. The proxy only
         # receives model-key routes and does not know which agent emitted them.
+        config = cast(Any, self.input.config)
         return LLMRoutingPlan(
             managed_route=LLMRoute(
                 base_url=app_config.TRACECAT__LITELLM_BASE_URL.rstrip("/"),
-                model_provider=self.input.config.model_provider,
+                model_provider=config.model_provider,
                 mode="managed",
                 # Managed subagent requests use synthetic LiteLLM route keys, so
                 # the proxy should let LiteLLM do provider-specific body cleanup.
@@ -253,12 +296,13 @@ class SandboxedAgentExecutor:
             Direct passthrough routes keyed by request model.
         """
         routes: dict[str, LLMRoute] = {}
-        if self.input.config.passthrough:
+        config = cast(Any, self.input.config)
+        if config.passthrough:
             # Root routing is keyed by the model string the root agent sends.
-            routes[self.input.config.model_name] = self._direct_passthrough_route(
-                self.input.config.base_url,
-                model_provider=self.input.config.model_provider,
-                catalog_id=self.input.config.catalog_id,
+            routes[config.model_name] = self._direct_passthrough_route(
+                config.base_url,
+                model_provider=config.model_provider,
+                catalog_id=config.catalog_id,
             )
 
         for subagent in self.input.subagents:
@@ -382,6 +426,53 @@ class SandboxedAgentExecutor:
 
         return result
 
+    async def _hydrate_agent_filesystem(self, work_dir: Path) -> None:
+        """Hydrate the persistent agent work dir before runtime startup."""
+        self._log_benchmark_phase("agent_fs_hydrate_start")
+        self._agent_fs_hydration_failed = False
+        try:
+            await hydrate_agent_work_dir(
+                role=self.input.role,
+                session_id=self.input.session_id,
+                work_dir=work_dir,
+            )
+        except Exception as e:
+            logger.warning(
+                "Failed to hydrate agent filesystem snapshot; using empty work dir",
+                session_id=str(self.input.session_id),
+                workspace_id=str(self.input.workspace_id),
+                error=str(e),
+            )
+            self._agent_fs_hydration_failed = True
+            shutil.rmtree(work_dir, ignore_errors=True)
+            work_dir.mkdir(parents=True, exist_ok=True)
+        self._log_benchmark_phase("agent_fs_hydrate_complete")
+
+    async def _persist_agent_filesystem(self, work_dir: Path) -> None:
+        """Persist the agent work dir after a successful runtime turn.
+
+        Best-effort: a persistence failure is logged but does not fail the turn.
+        The next turn falls back to the previous snapshot or an empty work dir.
+        """
+        self._log_benchmark_phase("agent_fs_snapshot_start")
+        try:
+            await persist_agent_work_dir(
+                role=self.input.role,
+                session_id=self.input.session_id,
+                workspace_id=self.input.workspace_id,
+                work_dir=work_dir,
+            )
+        except Exception as e:
+            logger.exception(
+                "Failed to persist agent filesystem snapshot",
+                session_id=str(self.input.session_id),
+                workspace_id=str(self.input.workspace_id),
+                error=str(e),
+            )
+            return
+
+        self._log_benchmark_phase("agent_fs_snapshot_complete")
+
     @staticmethod
     def _apply_loopback_result(
         result: AgentExecutorResult, loopback_result: LoopbackResult
@@ -432,58 +523,92 @@ class SandboxedAgentExecutor:
             llm_socket_path=llm_socket_path,
             enable_internet_access=init_payload.config.enable_internet_access,
             skills_dir=self._skills_dir(),
+            hydrate_work_dir=self._hydrate_agent_filesystem
+            if _agent_fs_persistence_enabled()
+            else None,
         )
-        broker_task = asyncio.create_task(broker.run_turn(request, handler))
-        self._log_benchmark_phase("broker_turn_dispatched")
 
         async def wait_fatal_error() -> str:
             await self._fatal_error_event.wait()
             return self._fatal_error or "Unknown LLM error"
 
-        fatal_error_task = asyncio.create_task(wait_fatal_error())
-        heartbeat_interval = 30
-        elapsed = 0
-
+        broker_task: asyncio.Task[None] | None = None
+        fatal_error_task: asyncio.Task[str] | None = None
         try:
-            while elapsed < self.timeout_seconds:
-                done, _ = await asyncio.wait(
-                    [broker_task, fatal_error_task],
-                    timeout=heartbeat_interval,
-                    return_when=asyncio.FIRST_COMPLETED,
+            async with broker.session_turn_lease(str(self.input.session_id)):
+                broker_task = asyncio.create_task(
+                    broker.run_turn_in_session_lease(request, handler)
                 )
+                self._log_benchmark_phase("broker_turn_dispatched")
 
-                if not done:
-                    elapsed += heartbeat_interval
-                    activity.heartbeat(
-                        f"Agent running: {self.input.session_id} ({elapsed}s elapsed)"
-                    )
-                    continue
+                fatal_error_task = asyncio.create_task(wait_fatal_error())
+                heartbeat_interval = 30
+                elapsed = 0
 
-                if fatal_error_task in done:
-                    error_msg = fatal_error_task.result()
-                    result.error = error_msg
-                    await broker.cancel_turn(str(self.input.session_id))
-                    result.terminal_stream_error_emitted = (
-                        await handler.emit_terminal_error(error_msg)
+                while elapsed < self.timeout_seconds:
+                    done, _ = await asyncio.wait(
+                        [broker_task, fatal_error_task],
+                        timeout=heartbeat_interval,
+                        return_when=asyncio.FIRST_COMPLETED,
                     )
+
+                    if not done:
+                        elapsed += heartbeat_interval
+                        activity.heartbeat(
+                            f"Agent running: {self.input.session_id} ({elapsed}s elapsed)"
+                        )
+                        continue
+
+                    if fatal_error_task in done:
+                        error_msg = fatal_error_task.result()
+                        result.error = error_msg
+                        result.terminal_stream_error_emitted = (
+                            await handler.emit_terminal_error(error_msg)
+                        )
+                        await broker.cancel_turn(str(self.input.session_id))
+                        await _cancel_task_with_timeout(
+                            broker_task,
+                            task_name="broker_task",
+                        )
+                        broker_task = None
+                        break
+
+                    await broker_task
+                    self._apply_loopback_result(result, handler.build_result())
+                    self._log_benchmark_phase(
+                        "broker_activity_complete",
+                        success=result.success,
+                        approval_requested=result.approval_requested,
+                    )
+                    if _agent_fs_persistence_enabled() and result.success:
+                        if self._agent_fs_hydration_failed:
+                            logger.warning(
+                                "Skipping agent filesystem snapshot after hydrate fallback",
+                                session_id=str(self.input.session_id),
+                                workspace_id=str(self.input.workspace_id),
+                            )
+                        else:
+                            path_mapping = build_agent_sandbox_path_mapping(
+                                session_id=str(self.input.session_id),
+                                disable_nsjail=TRACECAT__DISABLE_NSJAIL,
+                            )
+                            await self._persist_agent_filesystem(
+                                path_mapping.host_work_dir
+                            )
                     break
-
-                await broker_task
-                self._apply_loopback_result(result, handler.build_result())
-                self._log_benchmark_phase(
-                    "broker_activity_complete",
-                    success=result.success,
-                    approval_requested=result.approval_requested,
-                )
-                break
-            else:
-                result.error = (
-                    f"Agent execution timed out after {self.timeout_seconds}s"
-                )
-                await broker.cancel_turn(str(self.input.session_id))
-                result.terminal_stream_error_emitted = (
-                    await handler.emit_terminal_error(result.error)
-                )
+                else:
+                    result.error = (
+                        f"Agent execution timed out after {self.timeout_seconds}s"
+                    )
+                    result.terminal_stream_error_emitted = (
+                        await handler.emit_terminal_error(result.error)
+                    )
+                    await broker.cancel_turn(str(self.input.session_id))
+                    await _cancel_task_with_timeout(
+                        broker_task,
+                        task_name="broker_task",
+                    )
+                    broker_task = None
         except Exception as e:
             result.error = str(e)
             result.terminal_stream_error_emitted = await handler.emit_terminal_error(
@@ -496,10 +621,7 @@ class SandboxedAgentExecutor:
             raise
         finally:
             for task in (fatal_error_task, broker_task):
-                if not task.done():
-                    task.cancel()
-                    with contextlib.suppress(asyncio.CancelledError):
-                        await task
+                await _cancel_task_with_timeout(task, task_name="agent_executor_task")
 
     async def _create_job_directory(self) -> Path:
         """Create a temporary job directory with socket subdirectory."""
@@ -539,7 +661,8 @@ class SandboxedAgentExecutor:
     async def _stage_resolved_skills(self, skills_dir: Path) -> None:
         """Stage resolved published skills into the per-run home directory."""
 
-        resolved_skills = self.input.config.resolved_skills or []
+        config = cast(Any, self.input.config)
+        resolved_skills = config.resolved_skills or []
         if not resolved_skills:
             return
         duplicate_names = sorted(
@@ -720,9 +843,8 @@ async def run_agent_activity(input: AgentExecutorInput) -> AgentExecutorResult:
     # configs in ``input.config.mcp_servers`` arrive in refs-only shape
     # (no ``env``) — hydrate from the DB here so the spawned process gets
     # its credentials.
-    input.config.mcp_servers = await _hydrate_stdio_env(
-        input.config.mcp_servers, role=input.role
-    )
+    config = cast(Any, input.config)
+    config.mcp_servers = await _hydrate_stdio_env(config.mcp_servers, role=input.role)
 
     executor = SandboxedAgentExecutor(input=input)
     result = await executor.run()

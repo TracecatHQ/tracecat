@@ -456,6 +456,12 @@ TRACECAT__BLOB_STORAGE_BUCKET_SKILLS = os.environ.get(
 TRACECAT__BLOB_STORAGE_ENDPOINT = os.environ.get("TRACECAT__BLOB_STORAGE_ENDPOINT", "")
 """Endpoint URL for blob storage."""
 
+TRACECAT__BLOB_STORAGE_MAX_ATTEMPTS = int(
+    os.environ.get("TRACECAT__BLOB_STORAGE_MAX_ATTEMPTS") or 5
+)
+"""Total blob storage request attempts (initial try + retries) for transient
+S3/MinIO failures. Uses botocore's "standard" retry mode with backoff."""
+
 TRACECAT__BLOB_STORAGE_PRESIGNED_URL_ENDPOINT = os.environ.get(
     "TRACECAT__BLOB_STORAGE_PRESIGNED_URL_ENDPOINT", None
 )
@@ -477,6 +483,11 @@ TRACECAT__BLOB_STORAGE_BUCKET_WORKFLOW = os.environ.get(
     "TRACECAT__BLOB_STORAGE_BUCKET_WORKFLOW", "tracecat-workflow"
 )
 """Bucket for externalized workflow data (action results, triggers, etc.)."""
+
+TRACECAT__BLOB_STORAGE_BUCKET_AGENT = os.environ.get(
+    "TRACECAT__BLOB_STORAGE_BUCKET_AGENT", "tracecat-agent"
+)
+"""Bucket for durable agent filesystem snapshots."""
 
 TRACECAT__WORKFLOW_ARTIFACT_RETENTION_DAYS = int(
     os.environ.get("TRACECAT__WORKFLOW_ARTIFACT_RETENTION_DAYS") or 30
@@ -562,6 +573,22 @@ TRACECAT__SANDBOX_CACHE_DIR = os.environ.get(
     "TRACECAT__SANDBOX_CACHE_DIR", "/var/lib/tracecat/sandbox-cache"
 )
 """Base directory for sandbox caching (packages, uv cache)."""
+
+TRACECAT__AGENT_FS_CACHE_DIR = os.environ.get(
+    "TRACECAT__AGENT_FS_CACHE_DIR",
+    f"{TRACECAT__SANDBOX_CACHE_DIR}/agent-fs",
+)
+"""Worker-local staging directory for agent filesystem snapshot archives."""
+
+TRACECAT__AGENT_FS_MAX_UNCOMPRESSED_BYTES = int(
+    os.environ.get("TRACECAT__AGENT_FS_MAX_UNCOMPRESSED_BYTES") or 1024 * 1024 * 1024
+)
+"""Maximum uncompressed bytes allowed in one agent filesystem snapshot."""
+
+TRACECAT__AGENT_FS_MAX_FILE_COUNT = int(
+    os.environ.get("TRACECAT__AGENT_FS_MAX_FILE_COUNT") or 50_000
+)
+"""Maximum number of regular files allowed in one agent filesystem snapshot."""
 
 TRACECAT__SANDBOX_DEFAULT_TIMEOUT = int(
     os.environ.get("TRACECAT__SANDBOX_DEFAULT_TIMEOUT") or 300

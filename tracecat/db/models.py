@@ -2851,6 +2851,15 @@ class AgentSession(WorkspaceModel):
         nullable=True,
         doc="Last processed Redis stream ID - used to resume streaming from correct position",
     )
+    work_dir_snapshot: Mapped[dict[str, Any] | None] = mapped_column(
+        JSONB,
+        nullable=True,
+        doc=(
+            "Current durable agent work-dir snapshot pointer. Stores blob bucket/key, "
+            "archive hash, state hash, sizes, and entry counts for hydrating the "
+            "latest filesystem state."
+        ),
+    )
     artifacts: Mapped[list[dict[str, Any]]] = mapped_column(
         MutableList.as_mutable(JSONB),
         nullable=False,
