@@ -33,6 +33,7 @@ from tracecat.agent.skill.schemas import (
     SkillUpload,
     SkillUploadFile,
     SkillUploadSessionCreate,
+    SkillVersionPublish,
     SkillVersionReadMinimal,
 )
 from tracecat.agent.skill.service import SkillService
@@ -523,6 +524,68 @@ class TestSkillService:
         assert isinstance(listing.items[0], SkillReadMinimal)
         assert listing.items[0].id == active.id
         assert listing.items[0].name == active.name
+
+    async def test_get_skill_by_identifier_accepts_uuid_or_name(
+        self,
+        skill_service: SkillService,
+    ) -> None:
+        created = await skill_service.create_skill(SkillCreate(name="lookup-skill"))
+
+        by_uuid = await skill_service.get_skill_by_identifier(created.id)
+        by_uuid_string = await skill_service.get_skill_by_identifier(str(created.id))
+        by_name = await skill_service.get_skill_by_identifier("lookup-skill")
+
+        assert by_uuid is not None
+        assert by_uuid.id == created.id
+        assert by_uuid_string is not None
+        assert by_uuid_string.id == created.id
+        assert by_name is not None
+        assert by_name.id == created.id
+
+    async def test_get_skill_by_identifier_falls_back_to_uuid_like_name(
+        self,
+        skill_service: SkillService,
+    ) -> None:
+        uuid_like_name = "00000000-0000-4000-8000-000000000001"
+        created = await skill_service.create_skill(SkillCreate(name=uuid_like_name))
+
+        by_uuid_like_name = await skill_service.get_skill_by_identifier(uuid_like_name)
+
+        assert by_uuid_like_name is not None
+        assert by_uuid_like_name.id == created.id
+
+    async def test_get_skill_by_identifier_rejects_ambiguous_names(
+        self,
+        skill_service: SkillService,
+    ) -> None:
+        await skill_service.create_skill(SkillCreate(name="duplicate-skill"))
+        await skill_service.create_skill(SkillCreate(name="duplicate-skill"))
+
+        with pytest.raises(TracecatValidationError) as exc_info:
+            await skill_service.get_skill_by_identifier("duplicate-skill")
+
+        assert exc_info.value.detail == {
+            "code": "ambiguous_skill_id",
+            "skill_id": "duplicate-skill",
+        }
+
+    async def test_get_skill_by_identifier_rejects_id_name_collision(
+        self,
+        skill_service: SkillService,
+    ) -> None:
+        """A UUID-like identifier matching one skill's id and a different
+        skill's name must be reported as ambiguous, not silently resolved."""
+
+        by_id = await skill_service.create_skill(SkillCreate(name="collision-id"))
+        await skill_service.create_skill(SkillCreate(name=str(by_id.id)))
+
+        with pytest.raises(TracecatValidationError) as exc_info:
+            await skill_service.get_skill_by_identifier(str(by_id.id))
+
+        assert exc_info.value.detail == {
+            "code": "ambiguous_skill_id",
+            "skill_id": str(by_id.id),
+        }
 
     async def test_patch_draft_enforces_revision(
         self,
@@ -1275,6 +1338,107 @@ class TestSkillService:
         with pytest.raises(TracecatValidationError, match="failed validation"):
             await skill_service.publish_skill(created.id)
 
+    async def test_publish_skill_version_uses_files_without_rewriting_draft(
+        self,
+        skill_service: SkillService,
+    ) -> None:
+        """Workflow publishes should create versions without mutating the draft."""
+
+        created = await skill_service.create_skill(SkillCreate(name="reflect-skill"))
+        draft_before = await skill_service.get_draft(created.id)
+        assert draft_before is not None
+
+        published = await skill_service.publish_skill_version(
+            skill_id=created.id,
+            params=SkillVersionPublish(
+                files=[
+                    SkillUploadFile(
+                        path="SKILL.md",
+                        content_base64=base64.b64encode(
+                            b"---\n"
+                            b"name: reflected-skill\n"
+                            b"description: Learned from signals\n"
+                            b"---\n\n"
+                            b"# reflected-skill\n"
+                        ).decode(),
+                        content_type="text/markdown; charset=utf-8",
+                    ),
+                    SkillUploadFile(
+                        path="signals.md",
+                        content_base64=base64.b64encode(
+                            b"Escalate correlated endpoint alerts."
+                        ).decode(),
+                        content_type="text/markdown; charset=utf-8",
+                    ),
+                ],
+            ),
+        )
+        draft_after = await skill_service.get_draft(created.id)
+        version_file = await skill_service.get_version_file(
+            skill_id=created.id,
+            version_id=published.id,
+            path="signals.md",
+        )
+        skill_read = await skill_service.get_skill_read(created.id)
+
+        assert published.version == 1
+        assert published.name == "reflected-skill"
+        assert published.description == "Learned from signals"
+        assert draft_after is not None
+        assert draft_after.draft_revision == draft_before.draft_revision
+        assert draft_after.name == draft_before.name
+        assert version_file is not None
+        assert version_file.kind == "inline"
+        assert version_file.text_content == "Escalate correlated endpoint alerts."
+        assert skill_read is not None
+        assert skill_read.current_version_id == published.id
+        assert skill_read.name == "reflected-skill"
+
+    async def test_publish_skill_version_rejects_stale_base_version(
+        self,
+        skill_service: SkillService,
+    ) -> None:
+        """Workflow publishes require the caller's observed current version."""
+
+        created = await skill_service.create_skill(SkillCreate(name="conflict-skill"))
+        first = await skill_service.publish_skill_version(
+            skill_id=created.id,
+            params=SkillVersionPublish(
+                base_version_id=None,
+                files=[
+                    SkillUploadFile(
+                        path="SKILL.md",
+                        content_base64=base64.b64encode(
+                            b"---\nname: conflict-one\n---\n\n# conflict-one\n"
+                        ).decode(),
+                        content_type="text/markdown; charset=utf-8",
+                    )
+                ],
+            ),
+        )
+
+        with pytest.raises(TracecatValidationError) as exc_info:
+            await skill_service.publish_skill_version(
+                skill_id=created.id,
+                params=SkillVersionPublish(
+                    base_version_id=None,
+                    files=[
+                        SkillUploadFile(
+                            path="SKILL.md",
+                            content_base64=base64.b64encode(
+                                b"---\nname: conflict-two\n---\n\n# conflict-two\n"
+                            ).decode(),
+                            content_type="text/markdown; charset=utf-8",
+                        )
+                    ],
+                ),
+            )
+
+        assert exc_info.value.detail == {
+            "code": "skill_version_conflict",
+            "current_version_id": str(first.id),
+        }
+
     async def test_publish_skill_concurrently_allocates_unique_versions(
         self,
         svc_role: Role,
@@ -1573,6 +1737,21 @@ class TestSkillService:
             "SKILL.md",
             "references/guide.md",
         ]
+        assert not hasattr(detailed_version.files[0], "content_base64")
+
+        snapshot = await skill_service.get_version_snapshot_read(
+            skill_id=created.id,
+            version_id=published.id,
+        )
+        snapshot_files = {file.path: file for file in snapshot.files}
+        assert sorted(snapshot_files) == ["SKILL.md", "references/guide.md"]
+        assert (
+            base64.b64decode(snapshot_files["references/guide.md"].content_base64)
+            == b"Version one"
+        )
+        assert snapshot_files["references/guide.md"].content_type.startswith(
+            "text/plain"
+        )
 
     async def test_archived_skill_hides_published_version_reads(
         self,
