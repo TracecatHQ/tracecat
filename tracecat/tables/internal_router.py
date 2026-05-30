@@ -17,7 +17,7 @@ from tracecat import config
 from tracecat.auth.dependencies import ExecutorWorkspaceRole
 from tracecat.authz.controls import require_scope
 from tracecat.db.dependencies import AsyncDBSession
-from tracecat.db.models import Table
+from tracecat.db.models import Table, TableColumn
 from tracecat.exceptions import TracecatNotFoundError
 from tracecat.expressions.functions import tabulate
 from tracecat.logger import logger
@@ -34,7 +34,7 @@ from tracecat.tables.schemas import (
     TableRowInsertBatch,
     TableUpdate,
 )
-from tracecat.tables.service import TablesService
+from tracecat.tables.service import TablesService, validate_identifier
 
 router = APIRouter(
     prefix="/internal/tables", tags=["internal-tables"], include_in_schema=False
@@ -133,6 +133,19 @@ async def _build_table_read(service: TablesService, table: Table) -> TableRead:
             for column in table.columns
         ],
     )
+
+
+def _find_column_by_name(table: Table, column_name: str) -> TableColumn:
+    normalized_name = validate_identifier(column_name)
+    column = next(
+        (column for column in table.columns if column.name == normalized_name),
+        None,
+    )
+    if column is None:
+        raise TracecatNotFoundError(
+            f"Column '{column_name}' not found in table '{table.name}'"
+        )
+    return column
 
 
 @router.get("")
@@ -281,13 +294,7 @@ async def update_column(
     service = TablesService(session, role=role)
     try:
         table = await service.get_table_by_name(table_name)
-        column = next(
-            (column for column in table.columns if column.name == column_name), None
-        )
-        if column is None:
-            raise TracecatNotFoundError(
-                f"Column '{column_name}' not found in table '{table_name}'"
-            )
+        column = _find_column_by_name(table, column_name)
         await service.update_column(column, params)
         refreshed = await service.get_table(table.id, populate_existing=True)
     except ValueError as exc:
@@ -318,13 +325,7 @@ async def delete_column(
     service = TablesService(session, role=role)
     try:
         table = await service.get_table_by_name(table_name)
-        column = next(
-            (column for column in table.columns if column.name == column_name), None
-        )
-        if column is None:
-            raise TracecatNotFoundError(
-                f"Column '{column_name}' not found in table '{table_name}'"
-            )
+        column = _find_column_by_name(table, column_name)
         await service.delete_column(column)
         refreshed = await service.get_table(table.id, populate_existing=True)
     except ValueError as exc:

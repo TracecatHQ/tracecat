@@ -216,6 +216,64 @@ async def test_internal_update_column_404s_when_column_missing(
 
 
 @pytest.mark.anyio
+async def test_internal_update_column_normalizes_path_name(
+    client: TestClient,
+    test_admin_role: Role,
+    mock_table: Table,
+    mock_table_column: TableColumn,
+) -> None:
+    with patch.object(internal_tables_router, "TablesService") as MockService:
+        mock_svc = AsyncMock()
+        mock_svc.get_table_by_name.return_value = mock_table
+        mock_svc.update_column.return_value = mock_table_column
+        mock_svc.get_table.return_value = mock_table
+        mock_svc.get_index.return_value = set()
+        MockService.return_value = mock_svc
+
+        response = client.patch(
+            f"/internal/tables/{mock_table.name}/columns/Score",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
+            json={"nullable": False},
+        )
+
+    assert response.status_code == status.HTTP_200_OK
+    mock_svc.update_column.assert_awaited_once()
+    assert mock_svc.update_column.await_args.args[0] is mock_table_column
+
+
+@pytest.mark.anyio
+async def test_internal_delete_column_normalizes_path_name(
+    client: TestClient,
+    test_admin_role: Role,
+    mock_table: Table,
+    mock_table_column: TableColumn,
+) -> None:
+    refreshed_table = Table(
+        id=mock_table.id,
+        workspace_id=mock_table.workspace_id,
+        name=mock_table.name,
+        created_at=mock_table.created_at,
+        updated_at=mock_table.updated_at,
+    )
+    refreshed_table.columns = []
+    with patch.object(internal_tables_router, "TablesService") as MockService:
+        mock_svc = AsyncMock()
+        mock_svc.get_table_by_name.return_value = mock_table
+        mock_svc.delete_column.return_value = None
+        mock_svc.get_table.return_value = refreshed_table
+        mock_svc.get_index.return_value = set()
+        MockService.return_value = mock_svc
+
+        response = client.delete(
+            f"/internal/tables/{mock_table.name}/columns/Score",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
+        )
+
+    assert response.status_code == status.HTTP_200_OK
+    mock_svc.delete_column.assert_awaited_once_with(mock_table_column)
+
+
+@pytest.mark.anyio
 async def test_internal_delete_column_returns_refreshed_metadata(
     client: TestClient,
     test_admin_role: Role,
