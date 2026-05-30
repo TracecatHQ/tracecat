@@ -42,7 +42,11 @@ ALLOWED_PATCH_ROOTS = {
     "schedules",
     "case_trigger",
 }
-PROMPT_MAX_CHARS = 18_500
+PROMPT_SOURCE_MAX_CHARS = {
+    "mcp_instructions": 14_500,
+    "dsl_reference": 15_500,
+    "best_practices_skill": 9_500,
+}
 
 
 class Case(BaseModel):
@@ -138,6 +142,7 @@ class McpToolCallMetrics:
 @dataclass
 class TranscriptAnalysis:
     mcp_metrics: McpToolCallMetrics
+    mcp_calls: list[McpToolCall] = field(default_factory=list)
     workflow_ids: list[str] = field(default_factory=list)
     changed_workflow_ids: list[str] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
@@ -284,6 +289,7 @@ def analyze_transcript(transcript_path: Path | None) -> TranscriptAnalysis:
 
     return TranscriptAnalysis(
         mcp_metrics=metrics,
+        mcp_calls=list(calls.values()),
         workflow_ids=unique_strings(workflow_ids),
         changed_workflow_ids=unique_strings(changed_workflow_ids),
         notes=[note for note in notes if note.strip()],
@@ -1204,12 +1210,122 @@ def provider_gating_note_or_core_http(
     )
 
 
+MCP_SQL_TYPES = {
+    "TEXT",
+    "INTEGER",
+    "NUMERIC",
+    "DATE",
+    "BOOLEAN",
+    "TIMESTAMPTZ",
+    "JSONB",
+    "SELECT",
+    "MULTI_SELECT",
+}
+
+
+def mcp_tool_called(calls: Sequence[McpToolCall], tool_name: str) -> bool:
+    return any(call.tool_name == tool_name for call in calls)
+
+
+def update_workflow_metadata_only(calls: Sequence[McpToolCall]) -> bool:
+    for call in calls:
+        if call.tool_name != "workflows_update_workflow":
+            continue
+        if "definition_yaml" in call.arguments:
+            continue
+        if "patch_ops" in call.arguments:
+            continue
+        if any(
+            key in call.arguments
+            for key in ("title", "description", "status", "alias", "error_handler")
+        ):
+            return True
+    return False
+
+
+def no_update_workflow_patch_ops(calls: Sequence[McpToolCall]) -> bool:
+    return not any(
+        call.tool_name == "workflows_update_workflow" and "patch_ops" in call.arguments
+        for call in calls
+    )
+
+
+def table_columns_are_valid(columns: object) -> bool:
+    if not isinstance(columns, list) or not columns:
+        return False
+    for column in columns:
+        if not isinstance(column, dict):
+            return False
+        column_type = column.get("type")
+        if column_type not in MCP_SQL_TYPES:
+            return False
+        has_options = "options" in column and column.get("options") is not None
+        if column_type in {"SELECT", "MULTI_SELECT"}:
+            if not isinstance(column.get("options"), list) or not column["options"]:
+                return False
+        elif has_options:
+            return False
+    return True
+
+
+def created_table_with_valid_columns(calls: Sequence[McpToolCall]) -> bool:
+    return any(
+        call.tool_name == "tables_create_table"
+        and table_columns_are_valid(call.arguments.get("columns"))
+        for call in calls
+    )
+
+
+def created_table_index_from_fetched_table(calls: Sequence[McpToolCall]) -> bool:
+    return mcp_tool_called(calls, "tables_get_table") and mcp_tool_called(
+        calls, "tables_create_column_index"
+    )
+
+
+def case_field_args_are_valid(args: Mapping[str, Any]) -> bool:
+    field_type = args.get("type")
+    if field_type is not None and field_type not in MCP_SQL_TYPES:
+        return False
+    kind = args.get("kind")
+    if kind == "LONG_TEXT" and field_type not in {None, "TEXT"}:
+        return False
+    if kind == "URL" and field_type not in {None, "JSONB"}:
+        return False
+    if kind is not None and kind not in {"LONG_TEXT", "URL"}:
+        return False
+    options = args.get("options")
+    if options is not None and not isinstance(options, list):
+        return False
+    if field_type in {"SELECT", "MULTI_SELECT"}:
+        return isinstance(options, list) and bool(options)
+    if field_type is not None and options is not None:
+        return False
+    return True
+
+
+def created_and_updated_case_fields(calls: Sequence[McpToolCall]) -> bool:
+    create_calls = [
+        call for call in calls if call.tool_name == "cases_create_case_field"
+    ]
+    update_calls = [
+        call for call in calls if call.tool_name == "cases_update_case_field"
+    ]
+    return (
+        bool(create_calls)
+        and bool(update_calls)
+        and mcp_tool_called(calls, "cases_list_case_fields")
+        and all(case_field_args_are_valid(call.arguments) for call in create_calls)
+        and all(case_field_args_are_valid(call.arguments) for call in update_calls)
+    )
+
+
 def evaluate_rubric_item(
     item: str,
     *,
     case: Case,
     snapshots: Sequence[WorkflowSnapshot],
     transcript: str,
+    mcp_calls: Sequence[McpToolCall],
     final_response: Mapping[str, Any],
     seed_workflow_id: str | None,
 ) -> CheckResult:
@@ -1217,6 +1333,10 @@ def evaluate_rubric_item(
     changed_ids = [str(x) for x in final_response.get("changed_workflow_ids", [])]
 
     checks: dict[str, tuple[bool, str]] = {
+        "discovered_workspace": (
+            transcript_contains(transcript, "workspaces_list_workspaces"),
+            "Expected workspaces_list_workspaces in transcript.",
+        ),
         "starts_from_live_context": (
             transcript_contains(transcript, "workspaces_list_workspaces")
             and transcript_contains(
@@ -1340,6 +1460,26 @@ def evaluate_rubric_item(
             or transcript_contains(transcript, "workflows_list_workflow_executions"),
             "Expected execution inspection.",
         ),
+        "used_update_workflow_metadata_only": (
+            update_workflow_metadata_only(mcp_calls),
+            "Expected workflows_update_workflow for metadata only, without definition_yaml or patch_ops.",
+        ),
+        "no_update_workflow_patch_ops": (
+            no_update_workflow_patch_ops(mcp_calls),
+            "Expected no patch_ops argument on workflows_update_workflow.",
+        ),
+        "created_table_with_valid_columns": (
+            created_table_with_valid_columns(mcp_calls),
+            "Expected tables_create_table with valid uppercase column types and select options only on select fields.",
+        ),
+        "created_table_index_from_fetched_table": (
+            created_table_index_from_fetched_table(mcp_calls),
+            "Expected tables_get_table followed by tables_create_column_index using real table/column UUIDs.",
+        ),
+        "created_and_updated_case_fields": (
+            created_and_updated_case_fields(mcp_calls),
+            "Expected cases_list_case_fields plus valid cases_create_case_field and cases_update_case_field calls.",
+        ),
     }
     passed, detail = checks.get(item, (False, f"Unknown rubric item for {case.id}"))
     return CheckResult(item, passed, "" if passed else detail)
@@ -1365,6 +1505,13 @@ async def score_case(
             "no_failed_mcp_schema_inputs",
             mcp_metrics.schema_input_failures == 0,
             f"{mcp_metrics.schema_input_failures} MCP schema/input failures.",
+        )
+    )
+    checks.append(
+        CheckResult(
+            "no_failed_mcp_tool_calls",
+            mcp_metrics.failed == 0,
+            f"{mcp_metrics.failed} failed MCP tool calls.",
         )
     )
 
@@ -1416,6 +1563,7 @@ async def score_case(
                 case=case,
                 snapshots=snapshots,
                 transcript=transcript,
+                mcp_calls=transcript_analysis.mcp_calls,
                 final_response=final_response,
                 seed_workflow_id=seed_workflow_id,
             )
@@ -1752,6 +1900,32 @@ def combine_prompt_sources(sources: Sequence[PromptSource]) -> str:
     return "\n".join(source.text for source in sources)
 
 
+def validate_prompt_source_budgets(
+    sources: Sequence[PromptSource],
+) -> list[CheckResult]:
+    checks: list[CheckResult] = []
+    seen = {source.name for source in sources}
+    for source_name, max_chars in PROMPT_SOURCE_MAX_CHARS.items():
+        if source_name not in seen:
+            checks.append(
+                CheckResult(
+                    f"prompt_budget:{source_name}",
+                    False,
+                    "source is missing",
+                )
+            )
+            continue
+        source = next(item for item in sources if item.name == source_name)
+        checks.append(
+            CheckResult(
+                f"prompt_budget:{source.name}",
+                len(source.text) <= max_chars,
+                f"{len(source.text)} chars > {max_chars}",
+            )
+        )
+    return checks
+
+
 def validate_prompt_fenced_blocks(sources: Sequence[PromptSource]) -> list[CheckResult]:
     checks: list[CheckResult] = []
     parsed_blocks = 0
@@ -1825,19 +1999,44 @@ def validate_prompt_table_upsert_examples(
     )
 
 
+def validate_prompt_loop_parallelism_guardrails(text: str) -> CheckResult:
+    required_phrases = [
+        "Prefer `core.script.run_python` loops over action-level `for_each`",
+        "Prefer `core.script.run_python` loops over `core.transform.scatter` / `core.transform.gather`",
+        "hurt the scheduler",
+    ]
+    missing = [phrase for phrase in required_phrases if phrase not in text]
+    return CheckResult(
+        "prompt_loop_parallelism_guardrails",
+        not missing,
+        f"missing={missing}",
+    )
+
+
+def validate_prompt_mcp_tool_argument_guardrails(text: str) -> CheckResult:
+    required_phrases = [
+        "not an MCP tool argument reference",
+        "MCP tool schemas and tool docstrings are the source of truth",
+        "do not pass `patch_ops`",
+        "call `get_table`, then `create_column_index`",
+        "Case field `type` must be an uppercase SqlType value",
+        "under 63 characters",
+    ]
+    missing = [phrase for phrase in required_phrases if phrase not in text]
+    return CheckResult(
+        "prompt_mcp_tool_argument_guardrails",
+        not missing,
+        f"missing={missing}",
+    )
+
+
 def static_prompt_checks() -> list[CheckResult]:
     checks: list[CheckResult] = []
     sources = prompt_facing_sources()
     text = sources[0].text
     dsl_text = sources[1].text
     prompt_facing_text = combine_prompt_sources(sources)
-    checks.append(
-        CheckResult(
-            "prompt_budget",
-            len(text) <= PROMPT_MAX_CHARS,
-            f"{len(text)} chars > {PROMPT_MAX_CHARS}",
-        )
-    )
+    checks.extend(validate_prompt_source_budgets(sources))
 
     secret_pattern = re.compile(
         r"(?i)(sk-[a-z0-9]{20,}|ghp_[a-z0-9]{20,}|xox[baprs]-[a-z0-9-]{20,})"
@@ -1861,6 +2060,8 @@ def static_prompt_checks() -> list[CheckResult]:
     checks.append(validate_prompt_result_shapes(prompt_facing_text))
     checks.append(validate_prompt_action_literals(prompt_facing_text))
     checks.append(validate_prompt_table_upsert_examples(sources))
+    checks.append(validate_prompt_loop_parallelism_guardrails(prompt_facing_text))
+    checks.append(validate_prompt_mcp_tool_argument_guardrails(prompt_facing_text))
     checks.append(validate_registered_action_section(dsl_text))
     return checks
 

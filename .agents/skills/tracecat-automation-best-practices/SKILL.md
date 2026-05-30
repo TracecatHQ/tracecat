@@ -7,41 +7,34 @@ description: Use when building, editing, validating, or debugging generic Tracec
 
 ## Workflow
 
-Use this skill for generic Tracecat automation work. Start from live MCP context rather than guessing:
+Start from live MCP context rather than guessing:
 
 1. Discover the workspace with `workspaces_list_workspaces`.
-2. Read `tracecat://platform/dsl-reference` if DSL syntax or examples are needed.
+2. Read `tracecat://platform/dsl-reference` when DSL syntax or examples are needed.
 3. Use `workflows_get_workflow_authoring_context` for action schemas, variables, and secrets.
 4. For existing workflows, use `workflows_get_workflow`, then targeted `workflows_edit_workflow` patches against `draft_document` and `draft_revision`.
 5. Validate with `workflows_validate_workflow`, run a draft or published execution when appropriate, then inspect failures with `workflows_list_workflow_executions` and `workflows_get_workflow_execution`.
 
-When stuck on DSL behavior, Tracecat is open source at https://github.com/TracecatHQ/tracecat and the repo has sample workflows. Treat `platform/automations/001_google_oauth/workflow.yaml` as the clean reference for a readable production automation.
+Clarify production choices that change the workflow contract: workspace, integration/provider, secret source, publish/run behavior, destructive side effects, approvals, or acceptance criteria. If the request is already specific enough, proceed.
 
-Before building, ask the user to clarify any missing production choice that
-changes the workflow contract: target workspace, provider/integration, secret or
-credential source, publish/run behavior, destructive side effects, approval
-requirements, or acceptance criteria. If the request is already specific enough,
-proceed.
-
-Sketch the workflow shape before authoring it. Prefer a visually readable
-left-to-right or top-to-bottom flow, keep refs human-readable, minimize branch
-fan-out, and keep layout action refs aligned with definition action refs. Use
-the live MCP DSL reference for exact syntax instead of copying examples from
-this skill.
+Sketch the workflow shape before authoring. Prefer readable left-to-right or top-to-bottom flows, human-readable refs, few branches, and layout refs aligned with definition refs. Use the live DSL reference for exact syntax.
 
 ## Authoring Defaults
 
-- Prefer linear, readable workflow graphs by default. Visual ease and fewer branches are usually more valuable than maximum parallelism.
-- Keep a workflow to roughly 20 nodes or fewer. First try to simplify or consolidate with `core.script.run_python` or an agent/preset; split into named subflows only when the remaining work is a real orchestration boundary with clear inputs and outputs.
-- Keep agentic workflows to roughly 6 nodes or fewer. The graph should set context, call the agent or preset, and handle the result; move deterministic collection, joins, filtering, and batching into scripts unless subflows are clearly needed.
-- Use workflow folders to group related parent workflows, subflows, and support utilities.
-- Do not use `core.transform.scatter` / `core.transform.gather` for ordinary data transforms. Scatter/gather has orchestration overhead and can be much slower than a run-python loop for normal batched transforms. Normalize, dedupe, join, filter, sort, and chunked table writes inside `core.script.run_python`.
-- Prefer agents or agent presets for judgment, summarization, investigation, and tool-using decisions. If the task is just one deterministic API call, use `core.http_request` instead of an agent.
-- Do not give `core.http_request` to an agent unless the user explicitly accepts the risk. It effectively gives the agent unbounded curl-like access. Put deterministic HTTP calls in the workflow graph or a tightly scoped subflow instead.
-- Use HTTP pagination actions for paginated APIs. For transforms, especially nested loops, joins, grouping, dedupe, or large collection shaping, use `core.script.run_python` instead of expression chains.
-- Keep run-python outputs small: downstream rows, summary counts, and bounded error samples.
-- Prefer agent presets when an appropriate preset already exists. Use inline `ai.agent` only when the behavior is tightly coupled to one workflow and the prompt should travel with that workflow.
-- Prefer the `model` object for inline `ai.agent`; top-level `model_name` and `model_provider` are deprecated unless the user explicitly asks for the legacy shape.
+- Prefer linear, readable graphs. Keep ordinary workflows around 20 nodes or fewer and agentic workflows around 6 nodes or fewer.
+- Consolidate deterministic work with `core.script.run_python`: data shaping, API loops, retries, batching, dedupe, joins, sorting, chunked table writes, and per-item error handling.
+- Prefer `ai.agent` or `ai.preset_agent` for investigation, judgment, summarization, and tool-using decisions. Use `core.http_request` for deterministic API calls.
+- Do not give `core.http_request` to an agent unless the user explicitly accepts the broad network capability. Put deterministic HTTP in the workflow graph or a tightly scoped subflow.
+- Use HTTP pagination actions for paginated APIs. Keep paginated results bounded before storing or returning them.
+- Prefer `core.script.run_python` loops over action-level `for_each`, even for bounded lists. `for_each` can create enough scheduled work to hurt the scheduler. Use it only when the user explicitly needs separate workflow action runs per item and accepts the concurrency tradeoff.
+- Prefer `core.script.run_python` loops over `core.transform.scatter` / `core.transform.gather`. Scatter/gather has the same scheduler/concurrency risk and should be reserved for explicit workflow-stream fan-out/fan-in requirements.
+- Use `core.loop.start` / `core.loop.end` only when each iteration depends on prior action output.
+- Split into subflows only when there is a real orchestration boundary, reusable child workflow, separate execution history, approvals, long-running actions, retries, or independent checkpointing.
+- Use `core.workflow.execute` for subflows and prefer `workflow_alias` over hard-coded workflow IDs.
+- For subflow bulk work, default to `loop_strategy: batch`, `batch_size: 32`, `fail_strategy: isolated`, and `wait_strategy: wait`. Use `wait_strategy: detach` only when the parent does not need child results.
+- Keep run-python and agent outputs small: downstream rows, summary counts, and bounded error samples.
+- Prefer agent presets when reusable behavior already exists. Use inline `ai.agent` only when the prompt should live with one workflow.
+- Prefer the `model` object for inline `ai.agent`; top-level `model_name` and `model_provider` are deprecated unless the user asks for the legacy shape.
 
 ```yaml
 args:
@@ -50,30 +43,13 @@ args:
     model_provider: anthropic
 ```
 
-Use `ai.preset_agent` when a reusable agent should be maintained separately from a workflow.
-
 ## Existing Workflow Edits
 
 - Prefer `workflows_edit_workflow` over replacing full YAML for focused changes.
 - Patch against the `draft_document` returned by `workflows_get_workflow`; action paths start under `/definition/actions/...`, not `/actions/...`.
-- For nontrivial edits, call `workflows_edit_workflow` with `validate_only: true`, then apply the same patch with `validate_only: false` against the same `base_revision`. For another patch afterward, use the `draft_revision` returned by the successful write.
-- Treat `draft_revision` as sequential state. Do not run parallel edits against the same workflow draft; use the returned revision before the next patch.
-- When adding or renaming actions, update `depends_on` and matching layout action refs in the same edit so the graph stays valid and readable.
-
-## Workflow Architecture
-
-- Start with a linear workflow and consolidate deterministic work before adding branches. Prefer `core.script.run_python` for data shaping, API loops, table writes, batching, dedupe, joins, retries, and per-item error handling. Prefer `ai.agent` or `ai.preset_agent` for investigation, judgment, summarization, and tool-using decisions.
-- Use action-level `for_each` for simple per-item repetition of one action. Use `core.loop.start` / `core.loop.end` for while-style loops where the next iteration depends on prior action output. Reserve `core.transform.scatter` / `core.transform.gather` for true parallel fan-out/fan-in where each item needs a separate workflow execution stream; prefer `core.script.run_python` loops with batching for ordinary collection processing.
-- Break large automations into a small orchestrator workflow plus focused subflows only when consolidation would hide important runtime boundaries or when each child workflow is independently useful. The parent should route, checkpoint, and call subflows; subflows should do one coherent job.
-- Use `core.workflow.execute` for subflows. Prefer `workflow_alias` over hard-coded workflow IDs when aliases are available.
-- Do not use subflow fan-out just to avoid writing a compact script. Use subflow fan-out when each item needs the workflow runtime boundary, separate execution history, retries, approvals, long-running actions, or independent checkpointing.
-- For collection fan-out that really is a subflow use case, prefer looped `core.workflow.execute` over building a large parent workflow graph. Keep the parent responsible for preparing inputs and aggregating/checkpointing results.
-- Use subflow `loop_strategy: batch` for most bulk work. It is safer than fully parallel fan-out.
-- Default subflow loop options are `loop_strategy: batch`, `batch_size: 32`, `fail_strategy: isolated`, and `wait_strategy: wait`. Set `wait_strategy: detach` explicitly when the parent should not wait.
-- For batched subflows, start with `batch_size: 32`. Lower it for rate-limited APIs or expensive actions; raise it only when the downstream system and Tracecat tier can handle the concurrency.
-- Use `wait_strategy: detach` for fire-and-forget fan-out where the parent only needs child workflow IDs. Use `wait_strategy: wait` when the parent must aggregate child results or gate downstream actions on subflow success.
-- Keep `fail_strategy: isolated` for bulk work so one failed item does not fail the whole batch. Use `fail_strategy: all` only when any subflow failure should fail the parent action.
-- Use tables as checkpoints between stages and subflows. Store normalized inputs, per-item status, run IDs, timestamps, and bounded error samples so reruns can resume or explain partial progress.
+- For nontrivial edits, call `workflows_edit_workflow` with `validate_only: true`, then apply the same patch with `validate_only: false` against the same `base_revision`.
+- Treat `draft_revision` as sequential state. After a successful write, use the returned revision before the next patch.
+- When adding or renaming actions, update `depends_on` and matching layout action refs in the same edit.
 
 ## Run-Python Imports
 
@@ -110,16 +86,17 @@ Use `async def main(...)`, `await` imported actions, pass named arguments, and c
 - `core.table.create_table` creates columns but not unique indexes.
 - Before using `insert_rows(..., upsert=True)`, create a unique index on the intended key column.
 - Keep `insert_rows` batches at or below 1000 rows.
-- Use table storage for durable workflow state and agent-readable inventory.
+- Use table storage for durable workflow state, checkpoints between stages and subflows, per-item status, run IDs, timestamps, and bounded error samples.
 - Keep opaque identifiers as strings, especially numeric-looking IDs that may exceed integer limits.
+- Keep table names, column names, and case field names under 63 characters.
 
-For MCP table operations, use `tables_list_tables`, `tables_get_table`, `tables_create_column_index`, `tables_search_table_rows`, and `tables_export_csv` as needed. For workflow YAML, use `core.table.*` actions or `tracecat_registry.core.table` imports inside run-python.
+For MCP table operations, use `tables_list_tables`, `tables_get_table`, `tables_create_column_index`, `tables_search_table_rows`, and `tables_export_csv`. For workflow YAML, use `core.table.*` actions or `tracecat_registry.core.table` imports inside run-python.
 
 ## Common Mistakes
 
 - Workflow action names are not MCP tool names. Use MCP tools such as `workflows_create_workflow` to manage workflows, and use action names such as `core.http_request` only inside workflow YAML.
 - Do not invent `tools.*` action names. Discover actions with `workflows_list_actions`, then inspect exact schemas with `workflows_get_action_context`.
-- Do not use scatter/gather for ordinary batching, dedupe, joins, filtering, or table writes. Use `core.script.run_python` for normal collection processing.
+- Do not use `for_each` or scatter/gather for ordinary loops, batching, dedupe, joins, filtering, or table writes. Use `core.script.run_python` loops for normal collection processing.
 - Do not use `upsert=True` unless the table already has a unique index on the intended key column.
 - Do not grant `core.http_request` to an agent unless the user explicitly approves that broad network capability.
 

@@ -61,6 +61,57 @@ cases:
       - layout_refs_match_actions
       - changed_seed_workflow
 
+  - id: workflow_metadata_update_tool
+    groups: [builder, full]
+    seed_workflow: true
+    prompt: |
+      Update the existing seeded workflow metadata only. Set a clearer title,
+      description, offline status, and a unique alias that starts with the run
+      prefix. Use the MCP workflow metadata update tool for metadata only.
+
+      Do not replace or edit the workflow definition for this task. Do not use
+      the workflow YAML reference as the source of truth for MCP tool arguments;
+      use the live MCP tool schema.
+    rubric:
+      - discovered_workspace
+      - fetched_existing_workflow
+      - used_update_workflow_metadata_only
+      - no_update_workflow_patch_ops
+
+  - id: builder_table_schema_and_index
+    groups: [builder, full]
+    prompt: |
+      Create a workspace table for automation builder test assets. Include
+      columns for an external id, status, optional metadata JSON, and a
+      multi-select tag list. Use uppercase table column types and only put
+      options on select-style fields. Use a short table name under 63
+      characters.
+
+      After creating the table, fetch the table definition and create a unique
+      index on the external id column using the real column UUID from the table
+      response.
+    rubric:
+      - discovered_workspace
+      - created_table_with_valid_columns
+      - created_table_index_from_fetched_table
+
+  - id: builder_custom_case_fields
+    groups: [builder, full]
+    prompt: |
+      Create custom case fields for automation builder triage:
+
+      - a long-text analyst notes field
+      - a URL field for evidence links
+      - a select field for triage state with three options
+
+      Use the MCP case field tools and exact live tool schemas. List fields
+      first, create the fields with valid uppercase SQL types and valid kind
+      values, then update the select field options to add one more allowed
+      value.
+    rubric:
+      - discovered_workspace
+      - created_and_updated_case_fields
+
   - id: bulk_rows_consolidation
     groups: [full]
     prompt: |

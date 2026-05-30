@@ -2687,74 +2687,35 @@ _MCP_INSTRUCTIONS = """\
 Tracecat workflow management server.
 
 ## MCP tool namespaces
-All MCP tools are namespaced by resource type and exposed as \
-`<namespace>_<tool_name>`:
+MCP tools are namespaced by resource type and exposed as `<namespace>_<tool_name>`:
 - `workspaces_*` (e.g. `workspaces_list_workspaces`)
 - `workflows_*` (workflow lifecycle, execution, tags, webhook/case-trigger config)
 - `cases_*` (case CRUD, search, comments, tasks, events, tags, custom fields)
 - `tables_*`, `variables_*`, `secrets_*`, `integrations_*`, `agents_*`
 
 Use `workspaces_list_workspaces` to discover available workspaces, then pass \
-`workspace_id` to all other tools.
+`workspace_id` to workspace-scoped tools.
 
-For readability, references below use unprefixed tool names (e.g. \
-`create_workflow`), which correspond to namespaced MCP tools \
-like `workflows_create_workflow`.
+## MCP tools vs workflow actions
+MCP tools manage Tracecat objects directly. Workflow action names are used only \
+inside workflow YAML under `definition.actions[*].action`.
 
-## Action namespaces
-- `core.*` — built-in platform actions (core.http_request, core.script.run_python, \
-core.transform.*, core.table.*, etc.)
-- `core.transform.*` — data transforms (reshape, scatter, gather, filter, map)
-- `tools.*` — third-party integrations
-  - Third-party action name syntax: `tools.<integration_slug>.<action_name>`
-  - Third-party namespace examples: `tools.<integration_slug>.*`
-- `ai.*` — AI/LLM actions:
-  - `ai.action` — simple LLM call (no tools), supports `output_type` for structured output
-  - `ai.agent` — full AI agent with tool calling via `actions` list
-  - `ai.preset_agent` — run a saved agent preset by slug
-
-Use `workflows_list_actions` to discover available actions. Use \
-`workflows_get_action_context` or `workflows_get_workflow_authoring_context` \
-to get parameter schemas for any action \
-(including platform/interface actions like ai.agent, scatter, gather, etc.). \
-Use `agents_get_agent_preset_authoring_context` before creating agent presets \
-to inspect \
-available models, integration options, and output_type configuration.
-
-## Tool selection policy (strict)
-- Only include third-party `tools.*` actions when the user explicitly asks for \
-that specific integration/tool by name.
-- If the user asks for a generic capability (for example, "threat enrichment"), \
-you may discover and present candidate tools, but do NOT add any third-party \
-tool to workflow YAML until the user explicitly confirms the exact integration \
-they want.
-- Do not invent `tools.*` action names. Discover integrations with \
-`workflows_list_actions`, then inspect exact schemas with \
-`workflows_get_action_context` before authoring workflow YAML.
-- Prefer tool-agnostic workflow scaffolding with `core.http_request` and \
-`core.script.run_python` unless the user requests a specific third-party \
-integration.
-
-## Key workflow syntax
-- For `ai.agent`, use the `model` object unless the user explicitly asks for \
-legacy top-level model fields:
-```yaml
-args:
-  model:
-    model_name: claude-sonnet-4-6
-    model_provider: anthropic
-```
-- `core.script.run_python` can import Tracecat core actions:
-```python
-from tracecat_registry.core.http import http_request, http_paginate
-from tracecat_registry.core.table import create_table, insert_rows, lookup, update_row
-
-async def main(rows):
-    await create_table(name="inventory", columns=[{"name": "external_id", "type": "TEXT"}])
-    for start in range(0, len(rows), 1000):
-        await insert_rows(table="inventory", rows_data=rows[start:start + 1000], upsert=False)
-    return {"input_rows": len(rows), "sample": rows[:5]}
-```
+- MCP examples: `workflows_create_workflow`, `workflows_edit_workflow`, \
+`cases_create_case`, `tables_search_table_rows`
+- Action namespaces: `core.*` built-ins, `ai.*` LLM actions, and \
+`tools.<integration_slug>.<action_name>` third-party integration actions
+- Discover actions with `workflows_list_actions`; inspect exact schemas with \
+`workflows_get_action_context` or `workflows_get_workflow_authoring_context`
+- `tracecat://platform/dsl-reference` is a workflow YAML/DSL reference, not an \
+MCP tool argument reference. MCP tool schemas and tool docstrings are the source \
+of truth for tool calls.
+- Do not invent `tools.*` action names. Add third-party actions only after the \
+user explicitly names or confirms the integration/tool. For generic requests, \
+show candidate integrations first.
+- Prefer tool-agnostic scaffolding with `core.http_request` and \
+`core.script.run_python` unless a specific integration is requested.
+- For `ai.agent`, prefer the `model` object. Use legacy top-level \
+`model_name`/`model_provider` only when requested.
 
 ## Expression syntax (used in action `args:` values)
 - `${{ TRIGGER.<field> }}` — workflow trigger input
@@ -2762,53 +2723,26 @@ async def main(rows):
 - `${{ SECRETS.<name>.<KEY> }}` — secret value
 - `${{ VARS.<name>.<key> }}` — workspace variable
 - `${{ FN.<func>(<args>) }}` — built-in function call (e.g. FN.length, FN.join, FN.now)
-- Operators: `||`, `&&`, `==`, `!=`, `<`, `>`, `<=`, `>=`, `+`, `-`, `*`, `/`
-- Ternary: `${{ condition -> true_value : false_value }}`
+- Operators include `||`, `&&`, comparisons, arithmetic, and ternary \
+`${{ condition -> true_value : false_value }}`
 - Literals: `None` (NOT `null`), `true`, `false`, strings, numbers
-- **Important**: There is NO inline `for` comprehension syntax in expressions. \
-Use `core.script.run_python` for list transformations, or `for_each` on actions.
-- **Important**: Use `None` (Python-style) NOT `null` (JSON-style) in expressions.
+- There is NO inline `for` comprehension syntax in expressions. \
+Use `core.script.run_python` for list transformations and loops.
+- Use `None` (Python-style), not `null`, in expressions.
+- Read `tracecat://platform/dsl-reference` for full syntax, functions, and examples.
 
 ## Loop and batching guidance
-- Use action-level `for_each` for simple per-item repetition of one action. It \
-runs iterations in parallel, so keep rate limits in mind.
+- Prefer `core.script.run_python` loops over action-level `for_each`, even for \
+bounded lists. `for_each` can create enough scheduled work to hurt the scheduler.
+- Use `for_each` only when the user explicitly needs separate workflow action \
+runs per item and accepts the scheduler/concurrency tradeoff.
 - Use `core.loop.start` / `core.loop.end` for while-style workflow loops where \
 the next iteration depends on prior action output.
-- Use `core.transform.scatter` / `core.transform.gather` only for true parallel \
-fan-out/fan-in where each item needs its own workflow execution stream. \
-Scatter/gather has overhead and can be much slower than `core.script.run_python` \
-for ordinary batched transforms.
-- Prefer `core.script.run_python` for list transforms, batching, joins, \
-dedupe, sorting, grouping, chunked table writes, and bounded async HTTP loops.
-
-Example `for_each`:
-```yaml
-- ref: process_item
-  action: core.http_request
-  for_each: "${{ for var.item in TRIGGER.items }}"
-  args:
-    url: "https://api.example.com/items/${{ var.item.id }}"
-    method: POST
-```
-
-Example scatter/gather for real parallel fan-out:
-```yaml
-- ref: scatter_items
-  action: core.transform.scatter
-  args:
-    collection: ${{ TRIGGER.items }}
-- ref: process_item
-  action: core.http_request
-  depends_on: [scatter_items]
-  args:
-    url: "https://api.example.com/items/${{ ACTIONS.scatter_items.result.id }}"
-    method: GET
-- ref: gather_results
-  action: core.transform.gather
-  depends_on: [process_item]
-  args:
-    items: ${{ ACTIONS.process_item.result }}
-```
+- Prefer `core.script.run_python` loops over `core.transform.scatter` / \
+`core.transform.gather`. Scatter/gather has the same scheduler/concurrency risk \
+and should be reserved for explicit workflow-stream fan-out/fan-in requirements.
+- Use `core.script.run_python` for list transforms, batching, joins, dedupe, \
+sorting, grouping, chunked table writes, and bounded async HTTP loops.
 
 ## Key DSL fields (inside each action under `actions:`)
 - `ref` — unique slug identifier for the action
@@ -2823,19 +2757,10 @@ Example scatter/gather for real parallel fan-out:
 
 ## Recommended authoring sequence
 1. `get_workflow_authoring_context` — get action schemas, secrets, and variables
-2. Use `create_workflow` to create a blank workflow shell when needed
-3. For existing workflows, use the latest `draft_document` plus `draft_revision`
-already in context when you know they are current; otherwise call `get_workflow`
-4. Prefer `edit_workflow` for existing workflow changes — apply small RFC 6902
-JSON Patch operations to the draft document instead of resending full YAML
-5. Use `get_workflow(include_definition_yaml=true)` when you want full inline YAML,
-or `update_workflow(definition_yaml=...)` only when intentionally replacing or
-bulk-updating the workflow definition from inline YAML
-6. `validate_workflow` — check for structural and expression errors
-7. `publish_workflow` — freeze a versioned snapshot
-8. `run_published_workflow` or `run_draft_workflow` — execute it
-9. `list_workflow_executions` — see run history, find execution IDs
-10. `get_workflow_execution` — inspect execution status, per-action results/errors
+2. `create_workflow` for new workflows, or `get_workflow` for current draft state
+3. Prefer `edit_workflow` for focused existing-workflow edits
+4. `validate_workflow`, then publish and run only when appropriate
+5. Debug runs with `list_workflow_executions` and `get_workflow_execution`
 
 ## Workflow definition editing
 - Default to `edit_workflow` for existing workflows. If the latest
@@ -2845,23 +2770,15 @@ Call `get_workflow` only when the latest draft is missing, stale, or a revision
 conflict says the draft changed.
 - Patch paths are rooted at `draft_document`, so action edits use
 `/definition/actions/N/...`, not `/actions/N/...`.
-- `patch_ops` are applied sequentially. Do not parallelize `edit_workflow` calls
-against the same draft; every successful write returns a new `draft_revision`.
-Use that revision, or refetch with `get_workflow`, before the next patch.
-- RFC 6902 array rules apply: `/-` appends, and indexes shift after
-`add`, `remove`, and `move`.
-- Use `update_workflow` without `definition_yaml` for metadata-only updates.
-- Use inline YAML on `create_workflow` and `update_workflow` only when creating a
-workflow from YAML or intentionally replacing/bulk-updating the definition.
-Inline YAML payloads are supported up to the configured MCP input limit.
-- `get_workflow(include_definition_yaml=true)` returns inline `definition_yaml`
-when the workflow fits within that limit; otherwise it returns
-`definition_transport: "too_large"`. Use `draft_document` and `draft_revision`
-with `edit_workflow` for targeted edits.
+- `patch_ops` are applied sequentially. Every successful write returns a new \
+`draft_revision`; use it as the next `base_revision`, or refetch.
+- For nontrivial patches, run `edit_workflow(validate_only=true)`, then repeat \
+the same patch with `validate_only=false` and the same `base_revision`.
+- RFC 6902 array rules apply: `/-` appends, and indexes shift after array edits.
+- Use `update_workflow` without `definition_yaml` for metadata-only updates. Use \
+inline YAML on `create_workflow`/`update_workflow` only for creation or intentional \
+bulk replacement.
 
-### Sequential JSON Patch cookbook
-Use `get_workflow` -> `edit_workflow(validate_only=true)` ->
-`edit_workflow(validate_only=false)` for nontrivial draft edits:
 ```json
 {
   "base_revision": "<draft_revision from get_workflow>",
@@ -2894,148 +2811,6 @@ Use `get_workflow` -> `edit_workflow(validate_only=true)` ->
   ]
 }
 ```
-If validation succeeds, repeat the same patch with `validate_only: false` and
-the same `base_revision`. For another patch afterward, use the returned
-`draft_revision` as the new `base_revision`, or call `get_workflow` again.
-
-When renaming an action ref, patch the action `ref`, every dependent
-`depends_on` entry, and the matching layout action `ref` in the same call:
-```json
-{
-  "patch_ops": [
-    {
-      "op": "replace",
-      "path": "/definition/actions/1/ref",
-      "value": "parse_event"
-    },
-    {
-      "op": "replace",
-      "path": "/definition/actions/2/depends_on/0",
-      "value": "parse_event"
-    },
-    {
-      "op": "replace",
-      "path": "/layout/actions/1/ref",
-      "value": "parse_event"
-    }
-  ]
-}
-```
-
-### Complete workflow YAML cookbook
-When passing inline `definition_yaml`, put workflow fields under top-level
-`definition:`. Action examples below are fragments unless wrapped under
-`definition.actions`. Declare trigger inputs in `entrypoint.expects` before
-referencing them as `TRIGGER.*`. Quote YAML scalars that contain expressions and
-inner quotes with single quotes.
-```yaml
-definition:
-  title: Event summary
-  description: Summarize trigger events.
-  entrypoint:
-    ref: summarize_events
-    expects:
-      events_json:
-        type: str
-        default: "[]"
-        description: JSON array of event objects.
-      owner:
-        type: str
-        default: unassigned
-  actions:
-    - ref: summarize_events
-      action: core.script.run_python
-      args:
-        inputs:
-          events_json: '${{ TRIGGER.events_json }}'
-          owner: '${{ TRIGGER.owner || "unassigned" }}'
-        timeout_seconds: 60
-        allow_network: false
-        script: |
-          import json
-
-          def main(events_json, owner):
-              events = json.loads(events_json or "[]")
-              return {
-                  "event_count": len(events),
-                  "owner": owner or "unassigned",
-              }
-  returns: '${{ ACTIONS.summarize_events.result }}'
-```
-
-### Core action snippets
-`core.script.run_python` supports bounded inputs, timeouts, optional network
-access, and direct core action imports. Avoid list literal fallbacks such as
-an empty-list fallback in expressions; use `entrypoint.expects` defaults or
-handle defaults in Python.
-```yaml
-- ref: enrich_rows
-  action: core.script.run_python
-  args:
-    inputs:
-      rows_json: '${{ ACTIONS.fetch_rows.result.rows_json }}'
-    timeout_seconds: 120
-    allow_network: true
-    script: |
-      import json
-      from tracecat_registry.core.http import http_paginate, http_request
-      from tracecat_registry.core.table import insert_rows, lookup
-
-      async def main(rows_json):
-          rows = json.loads(rows_json or "[]")
-          for start in range(0, len(rows), 1000):
-              await insert_rows(
-                  table="automation_inventory",
-                  rows_data=rows[start:start + 1000],
-                  upsert=False,
-              )
-          return {"count": len(rows), "rows": rows[:100]}
-```
-
-Use `core.http_request` for single requests with headers, query params, JSON
-payloads, and inline encoding:
-```yaml
-- ref: submit_review
-  action: core.http_request
-  args:
-    method: POST
-    url: 'https://api.example.com/users/${{ FN.url_encode(TRIGGER.user_id) }}'
-    headers:
-      Authorization: Bearer ${{ SECRETS.example.API_TOKEN }}
-      Accept: application/json
-    params:
-      include: profile,groups
-    payload:
-      reason: '${{ TRIGGER.reason || "manual_review" }}'
-      owner: '${{ TRIGGER.owner || "unassigned" }}'
-```
-
-Use `core.http_paginate` when an API returns a repeated item path and a next
-cursor or URL. Check `get_workflow_authoring_context` for the current schema;
-`stop_condition` and `next_request` are Python lambda strings.
-```yaml
-- ref: list_events
-  action: core.http_paginate
-  args:
-    method: GET
-    url: https://api.example.com/events
-    headers:
-      Authorization: Bearer ${{ SECRETS.example.API_TOKEN }}
-    params:
-      since: '${{ FN.to_isoformat(FN.now() - FN.hours(24)) }}'
-    items_jsonpath: $.data[*]
-    stop_condition: "lambda response: response['data'].get('next_cursor') is None"
-    next_request: "lambda response: {'url': 'https://api.example.com/events', 'method': 'GET', 'params': {'cursor': response['data'].get('next_cursor')}}"
-```
-
-Common inline expression patterns:
-```yaml
-args:
-  display_name: '${{ TRIGGER.name || "unknown" }}'
-  summary: '${{ FN.concat("Found ", FN.length(ACTIONS.list_events.result), " events") }}'
-  joined_ids: '${{ FN.join(ACTIONS.normalize.result.ids, ",") }}'
-  since: '${{ FN.to_isoformat(FN.now() - FN.hours(4)) }}'
-```
 
 ## Template and CSV file tools
 - {_TEMPLATE_FILE_WARNING}
@@ -3044,26 +2819,17 @@ args:
 - `export_csv` returns a short-lived download URL for remote `/mcp` clients.
 
 ## Agent preset authoring
-1. `get_agent_preset_authoring_context` — inspect models, provider readiness, integrations, variables, and output_type options
-2. `list_integrations` — inspect workspace MCP integrations and broader provider status
-3. `list_actions` / `get_action_context` — choose preset tools and inspect arg schemas
-4. `create_agent_preset` — create a reusable preset
-5. `update_agent_preset` — revise an existing preset by slug when its prompts, tools, or model settings need to change
-6. `list_agent_presets` — find reusable agents you can invoke by slug without loading their full prompts or tool configs
-7. `get_agent_preset` / `run_agent_preset` — fetch a preset's full configuration when you need to inspect it, or run it once you know which slug to use
+1. `get_agent_preset_authoring_context` — inspect models, integrations, variables, and output_type options
+2. `list_integrations` — inspect attachable MCP integrations and provider status
+3. `list_actions` / `get_action_context` — choose exact tools and schemas
+4. `create_agent_preset` or `update_agent_preset`
+5. `list_agent_presets`, `get_agent_preset`, or `run_agent_preset` as needed
 
 ## Debugging workflow runs
 After running a workflow, use `list_workflow_executions` to see recent runs and their \
 statuses (COMPLETED, FAILED, RUNNING, etc.). Then use `get_workflow_execution` with the \
 execution ID to get a detailed event timeline showing each action's status, timing, \
 inputs, results, and errors.
-
-## Important: workflow actions vs MCP tools
-Action names like `core.http_request` are for use *inside* workflow YAML definitions \
-(in the `action:` field of a workflow action step). They are NOT MCP tool names. \
-To manage cases directly, use the MCP tools `create_case`, `list_cases`, `get_case`, \
-and `update_case`. Similarly, use `create_workflow` (not \
-`core.workflow.execute`) to create workflows via MCP.
 
 ## Tag and case field argument rules
 - Workflow tag definition tools (`list_workflow_tags`, `create_workflow_tag`, \
@@ -3091,19 +2857,19 @@ field name/column id, not a UUID.
 `options` are required for `SELECT` and `MULTI_SELECT`, and invalid for other types.
 
 ## Structured argument schema quick reference
-- `update_webhook.status`: `"online"` or `"offline"`.
-- `update_webhook.methods`: list of uppercase HTTP method strings, e.g. \
-`["GET","POST"]`.
-- `update_webhook.allowlisted_cidrs`: list of CIDR strings, e.g. \
-`["10.0.0.0/8","192.168.1.0/24"]`.
-- `update_case_trigger.status`: `"online"` or `"offline"`.
-- `update_case_trigger.event_types`: list of case event strings. Valid values: \
+- Webhook status: `"online"` or `"offline"`; methods are uppercase HTTP verbs; \
+allowlisted CIDRs are CIDR strings.
+- Case trigger status: `"online"` or `"offline"`; event type values: \
 `{_CASE_EVENT_TYPE_VALUES_JSON}`.
-- `update_case_trigger.tag_filters`: list of tag ref strings, e.g. \
-`["malware","phishing"]`.
 - `create_table.columns`: list of column objects with schema \
 `{{"name": str, "type": SqlType, "nullable": bool?, "default": any?, "options": list[str]?}}`. \
-`options` are only valid for `SELECT` and `MULTI_SELECT`.
+`options` are only valid for `SELECT` and `MULTI_SELECT`. `create_table` does \
+not create unique indexes; call `get_table`, then `create_column_index` with \
+the table UUID and column UUID.
+- Keep table names, column names, and case field names under 63 characters.
+- `update_workflow` accepts metadata plus optional `definition_yaml` and \
+`update_mode`; do not pass `patch_ops` to it. Use `edit_workflow` for RFC 6902 \
+draft patches with `base_revision`.
 - `create_case_field.options` and `update_case_field.options`: list of strings, \
 e.g. `["low","medium","high"]`; use `[]` to clear options on update.
 - Tag `color` values should be hex strings such as `"#ff0000"` when provided.
@@ -3146,6 +2912,10 @@ mcp.add_middleware(
 _DSL_REFERENCE_TEXT = """\
 # Tracecat Workflow DSL Reference
 
+This resource covers workflow YAML/DSL syntax and examples. It is not the source
+of truth for MCP tool arguments; use each MCP tool schema and docstring for calls
+such as workflow updates, table management, and case field changes.
+
 ## Workflow YAML Structure
 
 A workflow definition YAML has four optional top-level sections:
@@ -3179,6 +2949,7 @@ definition:
         payload:
           alert_id: "${{ TRIGGER.alert_id }}"
           result: "${{ ACTIONS.first_action.result }}"
+  returns: "${{ ACTIONS.post_alert.result }}"
 
 layout:                # Optional UI positioning
   trigger:
@@ -3374,7 +3145,7 @@ action: tools.<integration_slug>.search
 
 ## Common Workflow Patterns
 
-### HTTP Request → HTTP Request
+### HTTP Request
 ```yaml
 actions:
   - ref: fetch_data
@@ -3384,31 +3155,19 @@ actions:
       method: GET
       headers:
         Authorization: "Bearer ${{ SECRETS.api_creds.API_TOKEN }}"
-  - ref: forward_data
-    action: core.http_request
-    depends_on: [fetch_data]
-    args:
-      url: "https://api.example.com/ingest"
-      method: POST
-      payload:
-        data: "${{ ACTIONS.fetch_data.result }}"
 ```
 
 ### Scatter/Gather (Parallel Fan-out/Fan-in)
-Use scatter/gather only when each item needs its own workflow execution stream.
-It has orchestration overhead and can be much slower than a run-python loop for
-ordinary list transforms, batching, joins, dedupe, or chunked table writes.
+Prefer `core.script.run_python` loops over scatter/gather, even for bounded
+lists. Scatter/gather creates per-item scheduled work and can hurt the scheduler.
+Use it only when the user explicitly needs separate workflow execution streams
+and accepts the concurrency tradeoff.
 ```yaml
 actions:
-  - ref: get_items
-    action: core.transform.reshape
-    args:
-      value: ${{ TRIGGER.items }}
   - ref: scatter_items
     action: core.transform.scatter
-    depends_on: [get_items]
     args:
-      collection: ${{ ACTIONS.get_items.result }}
+      collection: ${{ TRIGGER.items }}
   - ref: process_item
     action: core.http_request
     depends_on: [scatter_items]
@@ -3455,7 +3214,11 @@ actions:
 ```
 Use top-level `model_name` and `model_provider` only when explicitly requested.
 
-### For-each Loop
+### For-each Syntax (Avoid by Default)
+Prefer `core.script.run_python` loops over `for_each`, even for bounded lists.
+`for_each` creates per-item scheduled work and can hurt the scheduler. Use it
+only when the user explicitly needs separate workflow action runs per item and
+accepts the concurrency tradeoff.
 ```yaml
 actions:
   - ref: process_items
@@ -3464,6 +3227,24 @@ actions:
     args:
       url: "https://api.example.com/process/${{ var.x }}"
       method: POST
+```
+
+### HTTP Pagination
+`core.http_paginate` returns a list of items from `items_jsonpath`; reference
+`ACTIONS.<ref>.result` directly as the list, not `.items` or `.data`.
+`stop_condition` and `next_request` are Python lambda strings.
+```yaml
+actions:
+  - ref: list_events
+    action: core.http_paginate
+    args:
+      method: GET
+      url: https://api.example.com/events
+      headers:
+        Authorization: "Bearer ${{ SECRETS.api.TOKEN }}"
+      items_jsonpath: $.data[*]
+      stop_condition: "lambda response: response['data'].get('next_cursor') is None"
+      next_request: "lambda response: {'method': 'GET', 'url': 'https://api.example.com/events', 'params': {'cursor': response['data'].get('next_cursor')}}"
 ```
 
 ### Conditional Execution
@@ -3494,22 +3275,6 @@ actions:
             return [item for item in raw_data if item["status"] == "active"]
 ```
 
-### HTTP Request with JSON Payload
-```yaml
-actions:
-  - ref: create_ticket
-    action: core.http_request
-    args:
-      url: "https://api.example.com/tickets"
-      method: POST
-      headers:
-        Authorization: "Bearer ${{ SECRETS.api.TOKEN }}"
-        Content-Type: "application/json"
-      payload:
-        title: "${{ TRIGGER.title }}"
-        priority: "${{ TRIGGER.severity }}"
-```
-
 ### Case-Triggered Workflow (Event Ingestion)
 ```yaml
 case_trigger:
@@ -3518,63 +3283,14 @@ case_trigger:
   tag_filters: ["high-priority", "triage"]
 
 actions:
-  - ref: enrich_case
-    action: core.http_request
-    args:
-      url: "https://api.example.com/enrich"
-      method: POST
-      payload:
-        case_id: "${{ TRIGGER.payload.id }}"
-        summary: "${{ TRIGGER.payload.summary }}"
-        tags: "${{ TRIGGER.payload.tags }}"
-  - ref: summarize_enrichment
+  - ref: summarize_case
     action: core.script.run_python
-    depends_on: [enrich_case]
     args:
       inputs:
-        enrichment: "${{ ACTIONS.enrich_case.result }}"
+        case_payload: "${{ TRIGGER.payload }}"
       script: |
-        def main(enrichment):
-            score = enrichment.get("risk_score", 0)
-            return {
-                "risk_score": score,
-                "recommendation": "escalate" if score >= 80 else "monitor",
-            }
-```
-
-### Case Update Pipeline (Read → Analyze → Patch)
-```yaml
-actions:
-  - ref: get_case_context
-    action: core.http_request
-    args:
-      url: "https://api.example.com/cases/${{ TRIGGER.case_id }}"
-      method: GET
-      headers:
-        Authorization: "Bearer ${{ SECRETS.case_api.TOKEN }}"
-  - ref: compute_priority
-    action: core.script.run_python
-    depends_on: [get_case_context]
-    args:
-      inputs:
-        case_data: "${{ ACTIONS.get_case_context.result }}"
-      script: |
-        def main(case_data):
-            indicators = case_data.get("indicators", [])
-            severity = case_data.get("severity", "unknown")
-            if severity in {"critical", "high"} or len(indicators) >= 5:
-                return {"priority": "high"}
-            return {"priority": "medium"}
-  - ref: patch_case
-    action: core.http_request
-    depends_on: [compute_priority]
-    args:
-      url: "https://api.example.com/cases/${{ TRIGGER.case_id }}"
-      method: PATCH
-      headers:
-        Authorization: "Bearer ${{ SECRETS.case_api.TOKEN }}"
-      payload:
-        priority: "${{ ACTIONS.compute_priority.result.priority }}"
+        def main(case_payload):
+            return {"case_id": case_payload.get("id"), "tags": case_payload.get("tags", [])}
 ```
 """
 

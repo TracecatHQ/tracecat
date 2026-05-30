@@ -7674,53 +7674,73 @@ async def test_upload_skill_rejects_non_utf8_root_skill_markdown_before_upload(
     assert upload_called is False
 
 
-def _mcp_fenced_blocks(language: str) -> list[str]:
-    return re.findall(
-        rf"```{language}\n(.*?)\n```", mcp_server._MCP_INSTRUCTIONS, re.DOTALL
-    )
+def _prompt_source_text() -> str:
+    return "\n".join([mcp_server._MCP_INSTRUCTIONS, mcp_server._DSL_REFERENCE_TEXT])
 
 
-def _mcp_yaml_action_fragments() -> list[dict[str, Any]]:
+def _prompt_fenced_blocks(language: str) -> list[str]:
+    return re.findall(rf"```{language}\n(.*?)\n```", _prompt_source_text(), re.DOTALL)
+
+
+def _prompt_yaml_action_fragments() -> list[dict[str, Any]]:
     fragments: list[dict[str, Any]] = []
-    for block in _mcp_fenced_blocks("yaml"):
+    for block in _prompt_fenced_blocks("yaml"):
         parsed = yaml.safe_load(block)
         if isinstance(parsed, list):
-            fragments.extend(parsed)
+            fragments.extend(
+                item
+                for item in parsed
+                if isinstance(item, dict)
+                and isinstance(item.get("ref"), str)
+                and isinstance(item.get("action"), str)
+            )
+        elif isinstance(parsed, dict) and isinstance(parsed.get("actions"), list):
+            fragments.extend(
+                item
+                for item in parsed["actions"]
+                if isinstance(item, dict)
+                and isinstance(item.get("ref"), str)
+                and isinstance(item.get("action"), str)
+            )
+        elif (
+            isinstance(parsed, dict)
+            and isinstance(parsed.get("definition"), dict)
+            and isinstance(parsed["definition"].get("actions"), list)
+        ):
+            fragments.extend(
+                item
+                for item in parsed["definition"]["actions"]
+                if isinstance(item, dict)
+                and isinstance(item.get("ref"), str)
+                and isinstance(item.get("action"), str)
+            )
+        elif (
+            isinstance(parsed, dict)
+            and isinstance(parsed.get("ref"), str)
+            and isinstance(parsed.get("action"), str)
+        ):
+            fragments.append(parsed)
     return fragments
 
 
-def test_mcp_instruction_json_patch_examples_are_structurally_valid() -> None:
+def test_prompt_json_patch_examples_are_structurally_valid() -> None:
     examples = [
         parsed
-        for block in _mcp_fenced_blocks("json")
+        for block in _prompt_fenced_blocks("json")
         if isinstance(parsed := json.loads(block), dict) and parsed.get("patch_ops")
     ]
 
-    assert len(examples) == 2
+    assert len(examples) >= 1
     for example in examples:
         for op in example["patch_ops"]:
             assert op["op"] in {"add", "copy", "move", "remove", "replace", "test"}
             path_parts = [part for part in op["path"].split("/") if part]
             assert path_parts[0] in {"definition", "layout"}
 
-    path_parts = [
-        [part for part in op["path"].split("/") if part]
-        for op in examples[1]["patch_ops"]
-    ]
-    assert any(
-        parts[:2] == ["definition", "actions"] and parts[-1] == "ref"
-        for parts in path_parts
-    )
-    assert any("depends_on" in parts for parts in path_parts)
-    assert any(
-        parts[:2] == ["layout", "actions"] and parts[-1] == "ref"
-        for parts in path_parts
-    )
 
-
-def test_mcp_instruction_complete_workflow_yaml_examples_are_schema_valid() -> None:
+def test_prompt_complete_workflow_yaml_examples_are_schema_valid() -> None:
     complete_examples = []
-    for block in _mcp_fenced_blocks("yaml"):
+    for block in _prompt_fenced_blocks("yaml"):
         parsed = yaml.safe_load(block)
         if isinstance(parsed, dict) and parsed.get("definition") is not None:
             complete_examples.append(parsed)
@@ -7734,7 +7754,7 @@ def test_mcp_instruction_complete_workflow_yaml_examples_are_schema_valid() -> N
         assert payload.definition.returns
 
 
-def test_mcp_instruction_action_args_match_registry_signatures() -> None:
+def test_prompt_action_args_match_registry_signatures() -> None:
     from tracecat_registry.core.http import http_paginate, http_request
     from tracecat_registry.core.python import run_python
 
@@ -7745,7 +7765,7 @@ def test_mcp_instruction_action_args_match_registry_signatures() -> None:
     }
 
     seen_actions: set[str] = set()
-    for fragment in _mcp_yaml_action_fragments():
+    for fragment in _prompt_yaml_action_fragments():
         if (action_name := fragment["action"]) not in action_functions:
             continue
         seen_actions.add(action_name)
@@ -7753,7 +7773,7 @@ def test_mcp_instruction_action_args_match_registry_signatures() -> None:
             re.findall(r"ACTIONS\.([A-Za-z_][A-Za-z0-9_]*)", json.dumps(fragment))
         )
         upstream_stubs = [
-            {"ref": ref, "action": "core.noop", "args": {}}
+            {"ref": ref, "action": "core.transform.reshape", "args": {"value": {}}}
             for ref in sorted(action_refs - {fragment["ref"]})
         ]
         actions = [*upstream_stubs, fragment]
@@ -7783,9 +7803,10 @@ def test_mcp_instruction_action_args_match_registry_signatures() -> None:
     assert seen_actions == set(action_functions)
 
 
-def test_mcp_instruction_expressions_respect_prompt_action_result_shapes() -> None:
+def test_prompt_expressions_respect_prompt_action_result_shapes() -> None:
     action_refs = {
-        fragment["ref"]: fragment["action"] for fragment in _mcp_yaml_action_fragments()
+        fragment["ref"]: fragment["action"]
+        for fragment in _prompt_yaml_action_fragments()
     }
     list_result_refs = {
         ref
@@ -7798,7 +7819,7 @@ def test_mcp_instruction_expressions_respect_prompt_action_result_shapes() -> No
         invalid_dereferences.extend(
             re.findall(
                 rf"ACTIONS\.{re.escape(ref)}\.result\.([A-Za-z_][A-Za-z0-9_]*)",
-                mcp_server._MCP_INSTRUCTIONS,
+                _prompt_source_text(),
             )
         )
 
@@ -7806,10 +7827,14 @@ def test_mcp_instruction_expressions_respect_prompt_action_result_shapes() -> No
 
 
 def test_mcp_instruction_text_stays_within_context_budget() -> None:
-    assert len(mcp_server._MCP_INSTRUCTIONS) <= 18500, (
+    assert len(mcp_server._MCP_INSTRUCTIONS) <= 14500, (
         "MCP instructions exceeded the prompt budget. Compress existing guidance "
         "or intentionally raise this ceiling with a clear reason."
     )
+
+
+def test_dsl_reference_text_stays_within_context_budget() -> None:
+    assert len(mcp_server._DSL_REFERENCE_TEXT) <= 15500
 
 
 @pytest.mark.anyio

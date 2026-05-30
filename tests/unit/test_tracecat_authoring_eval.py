@@ -89,6 +89,53 @@ def test_prompt_action_literal_check_rejects_concrete_tools_action() -> None:
     assert "tools.slack.post_message" in result.detail
 
 
+def test_prompt_action_literal_check_allows_placeholder_tools_syntax() -> None:
+    result = run_local.validate_prompt_action_literals(
+        "Use `tools.<integration_slug>.<action_name>` after discovery."
+    )
+
+    assert result.passed
+
+
+def test_prompt_facing_sources_stay_within_named_budgets() -> None:
+    results = run_local.validate_prompt_source_budgets(
+        run_local.prompt_facing_sources()
+    )
+
+    assert all(result.passed for result in results), [
+        result.detail for result in results if not result.passed
+    ]
+
+
+def test_prompt_action_signature_coverage_spans_all_prompt_sources() -> None:
+    results = run_local.validate_prompt_action_signatures(
+        run_local.combine_prompt_sources(run_local.prompt_facing_sources())
+    )
+    coverage = next(
+        result
+        for result in results
+        if result.name == "prompt_action_signature_coverage"
+    )
+
+    assert coverage.passed, coverage.detail
+
+
+def test_prompt_facing_sources_prefer_run_python_over_workflow_fanout() -> None:
+    result = run_local.validate_prompt_loop_parallelism_guardrails(
+        run_local.combine_prompt_sources(run_local.prompt_facing_sources())
+    )
+
+    assert result.passed, result.detail
+
+
+def test_prompt_facing_sources_include_mcp_tool_argument_guardrails() -> None:
+    result = run_local.validate_prompt_mcp_tool_argument_guardrails(
+        run_local.combine_prompt_sources(run_local.prompt_facing_sources())
+    )
+
+    assert result.passed, result.detail
+
+
 def test_prompt_fenced_block_validation_covers_all_prompt_sources() -> None:
     sources = [
         run_local.PromptSource("mcp_instructions", ""),
