@@ -16,12 +16,16 @@ these evals local-only; do not wire them into CI unless the user explicitly asks
 uv run python scripts/evals/tracecat_authoring/run_local.py --static-only
 ```
 
-2. For live generation evals, first confirm a local Tracecat MCP server is
-running, usually at `http://127.0.0.1:8099/mcp`. Then run a smoke set:
+2. For live generation evals, use the active local cluster MCP URL. Check it
+with `./scripts/cluster ports` and use the `MCP:` URL. If no local cluster is
+running, start one with `just cluster up -d`. Use `http://127.0.0.1:8099/mcp`
+only when you are intentionally running the MCP server directly outside the
+cluster helper.
 
 ```bash
+MCP_URL="$(./scripts/cluster ports | awk '/MCP:/ {print $2}')"
 uv run python scripts/evals/tracecat_authoring/run_local.py \
-  --mcp-url http://127.0.0.1:8099/mcp \
+  --mcp-url "$MCP_URL" \
   --cases smoke \
   --agent codex
 ```
@@ -29,9 +33,10 @@ uv run python scripts/evals/tracecat_authoring/run_local.py \
 3. To compare Claude Code against Codex, run both agents against the same cases:
 
 ```bash
+MCP_URL="$(./scripts/cluster ports | awk '/MCP:/ {print $2}')"
 TRACECAT_EVAL_CLAUDE_MODEL=claude-opus-4-7 \
 uv run python scripts/evals/tracecat_authoring/run_local.py \
-  --mcp-url http://127.0.0.1:8099/mcp \
+  --mcp-url "$MCP_URL" \
   --cases smoke \
   --agents codex,claude-code
 ```
@@ -52,10 +57,14 @@ report starts with a performance matrix:
 
 - Speed is wall-clock duration per agent run.
 - Accuracy is the fraction of structural/rubric checks passed.
-- Improvements are derived from failed rubric checks and invocation errors.
+- MCP efficiency and reliability come from on-disk transcripts: total MCP tool
+  calls, successful calls, failed calls, and schema/input failures.
+- Improvements are derived from failed rubric checks, invocation errors, and
+  failed transcript-derived MCP checks.
 
-If an agent fails before producing structured JSON, inspect that agent's
-`transcript.jsonl` and `final.json` under the case artifact directory.
+Claude Code may return prose instead of strict structured JSON. Inspect
+`transcript.jsonl` and `final.json` under the case artifact directory; the
+transcript is the source of truth for MCP tool-call behavior.
 
 ## Guardrails
 

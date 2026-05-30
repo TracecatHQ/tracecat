@@ -17,6 +17,18 @@ Use this skill for generic Tracecat automation work. Start from live MCP context
 
 When stuck on DSL behavior, Tracecat is open source at https://github.com/TracecatHQ/tracecat and the repo has sample workflows. Treat `platform/automations/001_google_oauth/workflow.yaml` as the clean reference for a readable production automation.
 
+Before building, ask the user to clarify any missing production choice that
+changes the workflow contract: target workspace, provider/integration, secret or
+credential source, publish/run behavior, destructive side effects, approval
+requirements, or acceptance criteria. If the request is already specific enough,
+proceed.
+
+Sketch the workflow shape before authoring it. Prefer a visually readable
+left-to-right or top-to-bottom flow, keep refs human-readable, minimize branch
+fan-out, and keep layout action refs aligned with definition action refs. Use
+the live MCP DSL reference for exact syntax instead of copying examples from
+this skill.
+
 ## Authoring Defaults
 
 - Prefer linear, readable workflow graphs by default. Visual ease and fewer branches are usually more valuable than maximum parallelism.
@@ -39,6 +51,14 @@ args:
 ```
 
 Use `ai.preset_agent` when a reusable agent should be maintained separately from a workflow.
+
+## Existing Workflow Edits
+
+- Prefer `workflows_edit_workflow` over replacing full YAML for focused changes.
+- Patch against the `draft_document` returned by `workflows_get_workflow`; action paths start under `/definition/actions/...`, not `/actions/...`.
+- For nontrivial edits, call `workflows_edit_workflow` with `validate_only: true`, then apply the same patch with `validate_only: false` and the revision returned by validation.
+- Treat `draft_revision` as sequential state. Do not run parallel edits against the same workflow draft; use the returned revision before the next patch.
+- When adding or renaming actions, update `depends_on` and matching layout action refs in the same edit so the graph stays valid and readable.
 
 ## Workflow Architecture
 

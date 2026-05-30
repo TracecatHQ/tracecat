@@ -17,13 +17,26 @@ JSON Patch examples structurally, validate complete workflow YAML examples with
 run budget plus PII/secret regex checks. These checks are parser/schema driven,
 not brittle string comparisons.
 
+## Local MCP URL
+
+Live evals should target the active local cluster MCP server:
+
+```bash
+MCP_URL="$(./scripts/cluster ports | awk '/MCP:/ {print $2}')"
+```
+
+If no local cluster is running, start one with `just cluster up -d`. Use
+`http://127.0.0.1:8099/mcp` only when intentionally running the MCP server
+directly outside the cluster helper.
+
 ## Smoke agent eval
 
 Start a local Tracecat app plus MCP server, then run:
 
 ```bash
+MCP_URL="$(./scripts/cluster ports | awk '/MCP:/ {print $2}')"
 uv run python scripts/evals/tracecat_authoring/run_local.py \
-  --mcp-url http://127.0.0.1:8099/mcp \
+  --mcp-url "$MCP_URL" \
   --cases smoke \
   --agent codex
 ```
@@ -37,17 +50,20 @@ requires a bearer token, set `TRACECAT_MCP_BEARER_TOKEN`.
 Run both agents against the same case set:
 
 ```bash
+MCP_URL="$(./scripts/cluster ports | awk '/MCP:/ {print $2}')"
 TRACECAT_EVAL_CLAUDE_MODEL=claude-opus-4-7 \
 uv run python scripts/evals/tracecat_authoring/run_local.py \
-  --mcp-url http://127.0.0.1:8099/mcp \
+  --mcp-url "$MCP_URL" \
   --cases smoke \
   --agents codex,claude-code
 ```
 
 `report.md` and `report.json` include a performance matrix with per-agent model,
 pass rate, average rubric accuracy, average wall-clock duration, transcript MCP
-tool-call count, workflow node count, branch count, and failed-check-driven
-improvement notes.
+tool-call count, failed MCP calls, schema/input failures, workflow node count,
+branch count, and failed-check-driven improvement notes. Claude Code may return
+prose; transcript-derived MCP behavior is the source of truth for tool-call
+reliability.
 
 ## Full local eval
 
