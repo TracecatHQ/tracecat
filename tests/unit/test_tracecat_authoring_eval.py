@@ -17,6 +17,22 @@ def test_parse_agents_rejects_explicit_empty_agents() -> None:
         run_local.parse_agents(args)
 
 
+def test_workflow_ids_from_call_decodes_mcp_text_content() -> None:
+    workflow_id = "123e4567-e89b-12d3-a456-426614174000"
+    call = run_local.McpToolCall(
+        call_id="call_1",
+        tool_name="workflows_create_workflow",
+        payload=[
+            {
+                "type": "text",
+                "text": f'{{"id":"{workflow_id}","title":"Created"}}',
+            }
+        ],
+    )
+
+    assert run_local.workflow_ids_from_call(call) == [workflow_id]
+
+
 @pytest.mark.anyio
 async def test_score_case_fetches_created_and_changed_workflow_snapshots(
     monkeypatch: pytest.MonkeyPatch,

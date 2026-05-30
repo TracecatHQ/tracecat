@@ -73,4 +73,5 @@ transcript is the source of truth for MCP tool-call behavior.
 - Do not treat existing unit tests as live generation coverage.
 - Do not inspect or score unrelated dirty repo changes while running the evals.
 - For existing workflow edit cases, expect the agent to use `get_workflow`,
-  validate-only `edit_workflow`, then apply the edit using the returned revision.
+  validate-only `edit_workflow`, then apply the edit using the original
+  `draft_revision` returned by `get_workflow`.

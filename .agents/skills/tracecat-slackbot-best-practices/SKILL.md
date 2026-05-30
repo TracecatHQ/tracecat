@@ -36,8 +36,7 @@ For setup:
 
 - Configure the Tracecat workflow webhook.
 - Add the webhook to Slack interactivity at `https://api.slack.com/apps/{app_id}/interactive-messages`.
-- For @mention back-and-forth chat, configure Slack event subscriptions for app mentions and put the webhook URL in Slack with `?echo=true` appended.
-- The `?echo=true` suffix is required for reliable mention-thread loops.
+- For @mention back-and-forth chat, configure Slack event subscriptions for app mentions and put the webhook URL in Slack with `?echo=true` appended for reliable mention-thread loops.
 
 Typical event handling:
 

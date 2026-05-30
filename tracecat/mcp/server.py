@@ -2728,8 +2728,6 @@ show candidate integrations first.
 - Literals: `None` (NOT `null`), `true`, `false`, strings, numbers
 - There is NO inline `for` comprehension syntax in expressions. \
 Use `core.script.run_python` for list transformations and loops.
-- Use `None` (Python-style), not `null`, in expressions.
-- Read `tracecat://platform/dsl-reference` for full syntax, functions, and examples.
 
 ## Loop and batching guidance
 - Prefer `core.script.run_python` loops over action-level `for_each`, even for \
@@ -2750,8 +2748,7 @@ sorting, grouping, chunked table writes, and bounded async HTTP loops.
 - `args` — action arguments as key-value pairs
 - `depends_on` — list of action refs this action waits for
 - `run_if` — conditional expression to skip execution
-- `for_each` — iterate over a list \
-(syntax: `${{ for var.x in ACTIONS.step.result }}`, access item as `${{ var.x }}`)
+- `for_each` — iterate over a list
 - `retry_policy` — {{max_attempts, timeout}}
 - `join_strategy` — `all` (default) or `any`
 
@@ -2824,12 +2821,6 @@ bulk replacement.
 3. `list_actions` / `get_action_context` — choose exact tools and schemas
 4. `create_agent_preset` or `update_agent_preset`
 5. `list_agent_presets`, `get_agent_preset`, or `run_agent_preset` as needed
-
-## Debugging workflow runs
-After running a workflow, use `list_workflow_executions` to see recent runs and their \
-statuses (COMPLETED, FAILED, RUNNING, etc.). Then use `get_workflow_execution` with the \
-execution ID to get a detailed event timeline showing each action's status, timing, \
-inputs, results, and errors.
 
 ## Tag and case field argument rules
 - Workflow tag definition tools (`list_workflow_tags`, `create_workflow_tag`, \

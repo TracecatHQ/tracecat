@@ -442,7 +442,13 @@ def ids_from_payload_keys(payload: Any, *keys: str) -> list[str]:
             value = payload.get(key)
             if isinstance(value, str) and UUID_PATTERN.fullmatch(value):
                 ids.append(value)
-        for key in ("content", "structuredContent", "structured_content", "result"):
+        for key in (
+            "content",
+            "structuredContent",
+            "structured_content",
+            "result",
+            "text",
+        ):
             if key in payload:
                 ids.extend(ids_from_payload_keys(payload[key], *keys))
     return ids

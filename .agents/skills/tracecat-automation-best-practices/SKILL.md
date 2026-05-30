@@ -96,9 +96,9 @@ For MCP table operations, use `tables_list_tables`, `tables_get_table`, `tables_
 
 - Workflow action names are not MCP tool names. Use MCP tools such as `workflows_create_workflow` to manage workflows, and use action names such as `core.http_request` only inside workflow YAML.
 - Do not invent `tools.*` action names. Discover actions with `workflows_list_actions`, then inspect exact schemas with `workflows_get_action_context`.
-- Do not use `for_each` or scatter/gather for ordinary loops, batching, dedupe, joins, filtering, or table writes. Use `core.script.run_python` loops for normal collection processing.
-- Do not use `upsert=True` unless the table already has a unique index on the intended key column.
-- Do not grant `core.http_request` to an agent unless the user explicitly approves that broad network capability.
+- Use `core.script.run_python` for ordinary collection processing; avoid `for_each` and scatter/gather for normal loops, batching, filtering, joins, or table writes.
+- Do not use table `insert_rows(..., upsert=True)` unless the table has a unique index on the key column used to match existing rows.
+- Do not grant `core.http_request` to an agent unless the user explicitly approves broad network access.
 
 ## Agent Presets
 
