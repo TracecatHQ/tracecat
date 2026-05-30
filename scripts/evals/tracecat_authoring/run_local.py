@@ -31,7 +31,7 @@ from tracecat.mcp.schemas import JsonPatchOperation, WorkflowYamlPayload
 SCRIPT_DIR = Path(__file__).resolve().parent
 REPO_ROOT = SCRIPT_DIR.parents[2]
 SKILL_SOURCE = REPO_ROOT / ".agents/skills/tracecat-automation-best-practices/SKILL.md"
-DEFAULT_MCP_URL = "http://127.0.0.1:8099/mcp"
+DEFAULT_DIRECT_MCP_URL = "http://127.0.0.1:8099/mcp"
 DEFAULT_ARTIFACT_ROOT = REPO_ROOT / ".tracecat/evals/tracecat_authoring"
 ALLOWED_PATCH_ROOTS = {
     "metadata",
@@ -80,6 +80,9 @@ class CaseResult:
     duration_seconds: float | None = None
     accuracy: float | None = None
     mcp_tool_calls: int | None = None
+    mcp_tool_successes: int | None = None
+    mcp_tool_failures: int | None = None
+    mcp_schema_input_failures: int | None = None
     workflow_node_count: int | None = None
     branch_count: int | None = None
 
@@ -98,9 +101,38 @@ class CaseResult:
             "duration_seconds": self.duration_seconds,
             "accuracy": self.accuracy,
             "mcp_tool_calls": self.mcp_tool_calls,
+            "mcp_tool_successes": self.mcp_tool_successes,
+            "mcp_tool_failures": self.mcp_tool_failures,
+            "mcp_schema_input_failures": self.mcp_schema_input_failures,
             "workflow_node_count": self.workflow_node_count,
             "branch_count": self.branch_count,
         }
+
+
+@dataclass
+class McpToolCall:
+    call_id: str
+    tool_name: str
+    arguments: dict[str, Any] = field(default_factory=dict)
+    status: str = "unknown"
+    text: str = ""
+    payload: Any = None
+
+
+@dataclass
+class McpToolCallMetrics:
+    total: int = 0
+    succeeded: int = 0
+    failed: int = 0
+    schema_input_failures: int = 0
+
+
+@dataclass
+class TranscriptAnalysis:
+    mcp_metrics: McpToolCallMetrics
+    workflow_ids: list[str] = field(default_factory=list)
+    changed_workflow_ids: list[str] = field(default_factory=list)
+    notes: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -198,6 +230,247 @@ def extract_json_object(text: str) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise ValueError("Final response is not a JSON object")
     return value
+
+
+UUID_FRAGMENT = r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
+UUID_PATTERN = re.compile(rf"\b{UUID_FRAGMENT}\b", re.IGNORECASE)
+
+
+def unique_strings(values: Iterable[Any]) -> list[str]:
+    seen: set[str] = set()
+    result: list[str] = []
+    for value in values:
+        if value is None:
+            continue
+        text = str(value)
+        if text not in seen:
+            seen.add(text)
+            result.append(text)
+    return result
+
+
+def analyze_transcript(transcript_path: Path | None) -> TranscriptAnalysis:
+    calls: dict[str, McpToolCall] = {}
+    notes: list[str] = []
+    for event in transcript_json_events(transcript_path):
+        collect_actual_mcp_tool_calls(event, calls)
+        if isinstance(event.get("result"), str):
+            notes.append(event["result"])
+
+    metrics = McpToolCallMetrics(total=len(calls))
+    workflow_ids: list[str] = []
+    changed_workflow_ids: list[str] = []
+
+    for call in calls.values():
+        if mcp_call_failed(call):
+            call.status = "failed"
+            metrics.failed += 1
+            if schema_input_failure_text(call.text):
+                metrics.schema_input_failures += 1
+        else:
+            call.status = "succeeded"
+            metrics.succeeded += 1
+
+        workflow_ids.extend(workflow_ids_from_call(call))
+        changed_workflow_ids.extend(changed_workflow_ids_from_call(call))
+
+    return TranscriptAnalysis(
+        mcp_metrics=metrics,
+        workflow_ids=unique_strings(workflow_ids),
+        changed_workflow_ids=unique_strings(changed_workflow_ids),
+        notes=[note for note in notes if note.strip()],
+    )
+
+
+def collect_actual_mcp_tool_calls(value: Any, calls: dict[str, McpToolCall]) -> None:
+    if isinstance(value, list):
+        for item in value:
+            collect_actual_mcp_tool_calls(item, calls)
+        return
+    if not isinstance(value, dict):
+        return
+
+    if (
+        value.get("type") == "tool_use"
+        and isinstance(value.get("name"), str)
+        and value["name"].startswith("mcp__")
+    ):
+        tool_name = tracecat_tool_name(value["name"])
+        if tool_name:
+            calls[str(value["id"])] = McpToolCall(
+                call_id=str(value["id"]),
+                tool_name=tool_name,
+                arguments=value.get("input")
+                if isinstance(value.get("input"), dict)
+                else {},
+            )
+
+    if value.get("type") == "mcp_tool_call":
+        tool_name = tracecat_tool_name(str(value.get("tool", "")))
+        call_id = value.get("id")
+        if tool_name and isinstance(call_id, str):
+            call = calls.setdefault(call_id, McpToolCall(call_id, tool_name))
+            call.tool_name = tool_name
+            if isinstance(value.get("arguments"), dict):
+                call.arguments = value["arguments"]
+            if isinstance(value.get("status"), str):
+                call.status = value["status"].lower()
+            if "result" in value:
+                call.payload = value["result"]
+                call.text += " " + compact_text(value["result"])
+            if "error" in value:
+                call.text += " " + compact_text(value["error"])
+
+    if (
+        value.get("type") == "tool_result"
+        and isinstance(value.get("tool_use_id"), str)
+        and value["tool_use_id"] in calls
+    ):
+        call = calls[value["tool_use_id"]]
+        call.payload = value.get("content")
+        call.text += " " + compact_text(value.get("content"))
+
+    for item in value.values():
+        collect_actual_mcp_tool_calls(item, calls)
+
+
+def compact_text(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return value
+    if isinstance(value, list):
+        return " ".join(compact_text(item) for item in value)
+    if isinstance(value, dict):
+        return " ".join(compact_text(item) for item in value.values())
+    return str(value)
+
+
+def mcp_call_failed(call: McpToolCall) -> bool:
+    text = call.text.lower()
+    if call.status in {"failed", "error", "errored"}:
+        return True
+    if call.status in {"unknown", "in_progress"} and not text.strip():
+        return True
+    return any(
+        needle in text
+        for needle in (
+            "toolerror",
+            "internal error:",
+            "input validation",
+            "invalid arguments",
+            "invalid input",
+            "401 unauthorized",
+            "403 forbidden",
+            "404 not found",
+            "500 internal server error",
+        )
+    )
+
+
+def schema_input_failure_text(text: str) -> bool:
+    lowered = text.lower()
+    return any(
+        needle in lowered
+        for needle in (
+            "input validation",
+            "invalid arguments",
+            "invalid input",
+            "json schema",
+            "schema validation",
+            "field required",
+            "extra_forbidden",
+            "additional properties",
+            "unexpected keyword",
+            "missing required",
+            "pydantic",
+            "model_validate",
+        )
+    )
+
+
+def workflow_ids_from_call(call: McpToolCall) -> list[str]:
+    if call.tool_name == "workflows_create_workflow":
+        return ids_from_payload_keys(call.payload, "id")
+    if call.tool_name in {
+        "workflows_edit_workflow",
+        "workflows_get_workflow",
+        "workflows_validate_workflow",
+        "workflows_run_draft_workflow",
+        "workflows_run_published_workflow",
+    }:
+        return ids_from_payload_keys(call.payload, "workflow_id", "id")
+    return []
+
+
+def changed_workflow_ids_from_call(call: McpToolCall) -> list[str]:
+    if call.tool_name == "workflows_create_workflow":
+        return ids_from_payload_keys(call.payload, "id")
+    if call.tool_name != "workflows_edit_workflow":
+        return []
+    if call.arguments.get("validate_only") is True:
+        return []
+    return ids_from_payload_keys(call.payload, "workflow_id")
+
+
+def ids_from_payload_keys(payload: Any, *keys: str) -> list[str]:
+    ids: list[str] = []
+    if isinstance(payload, str):
+        try:
+            payload = json.loads(payload)
+        except json.JSONDecodeError:
+            return []
+    if isinstance(payload, list):
+        for item in payload:
+            ids.extend(ids_from_payload_keys(item, *keys))
+    elif isinstance(payload, dict):
+        for key in keys:
+            value = payload.get(key)
+            if isinstance(value, str) and UUID_PATTERN.fullmatch(value):
+                ids.append(value)
+        for key in ("content", "structuredContent", "structured_content", "result"):
+            if key in payload:
+                ids.extend(ids_from_payload_keys(payload[key], *keys))
+    return ids
+
+
+def normalize_final_response(
+    raw: Mapping[str, Any], *, case_id: str, analysis: TranscriptAnalysis
+) -> dict[str, Any]:
+    workflow_ids = response_id_list(raw, "workflow_ids", "workflow_id")
+    changed_workflow_ids = response_id_list(
+        raw, "changed_workflow_ids", "changed_workflow_id"
+    )
+    if not workflow_ids:
+        workflow_ids = analysis.workflow_ids
+    if not changed_workflow_ids:
+        changed_workflow_ids = analysis.changed_workflow_ids
+
+    notes = raw.get("notes")
+    if isinstance(notes, str):
+        normalized_notes = [notes]
+    elif isinstance(notes, list):
+        normalized_notes = [str(note) for note in notes if note is not None]
+    else:
+        normalized_notes = analysis.notes
+
+    return {
+        "case_id": str(raw.get("case_id") or case_id),
+        "workflow_ids": unique_strings(workflow_ids),
+        "changed_workflow_ids": unique_strings(changed_workflow_ids),
+        "notes": normalized_notes,
+    }
+
+
+def response_id_list(raw: Mapping[str, Any], *keys: str) -> list[str]:
+    values: list[str] = []
+    for key in keys:
+        value = raw.get(key)
+        if isinstance(value, str):
+            values.append(value)
+        elif isinstance(value, list):
+            values.extend(str(item) for item in value)
+    return [value for value in values if UUID_PATTERN.fullmatch(value)]
 
 
 def normalize_item_list(value: Any) -> list[dict[str, Any]]:
@@ -328,7 +601,7 @@ Important constraints:
 - Use synthetic data only. Use example.com for placeholder endpoints. Do not use real people, real tokens, or provider-specific integrations unless the case names them.
 - Do not inspect the Tracecat source repository. This temporary workspace intentionally contains only the generic automation skill.
 - Do not inspect environment variables or print credential-bearing process state.
-- Final response must match the required JSON schema.
+- Final response may be concise prose or JSON, but it must include the workflow IDs you created or edited when a workflow was created or edited.
 
 Task:
 {case.prompt}
@@ -446,8 +719,6 @@ def run_agent(
             "--mcp-config",
             str(mcp_config_path),
             "--strict-mcp-config",
-            "--json-schema",
-            schema_path.read_text(),
             prompt,
         ]
     else:
@@ -471,11 +742,17 @@ def run_agent(
     duration_seconds = time.monotonic() - started
     if completed.returncode != 0:
         raise RuntimeError(f"Agent exited with code {completed.returncode}")
+    analysis = analyze_transcript(transcript_path)
     if final_path.exists():
-        final_response = extract_json_object(final_path.read_text())
+        raw_final_response = extract_json_object(final_path.read_text())
     else:
-        final_response = extract_final_response_from_transcript(transcript_path)
-        write_json(final_path, final_response)
+        raw_final_response = extract_final_response_from_transcript(transcript_path)
+    final_response = normalize_final_response(
+        raw_final_response,
+        case_id=case.id,
+        analysis=analysis,
+    )
+    write_json(final_path, final_response)
     return AgentRun(
         final_response=final_response,
         duration_seconds=duration_seconds,
@@ -504,7 +781,9 @@ def extract_final_response_from_transcript(transcript_path: Path) -> dict[str, A
             return extract_json_object(candidate)
         except Exception:
             continue
-    raise RuntimeError("Could not extract structured final response from transcript")
+    if candidates:
+        return {"notes": [candidates[-1]]}
+    raise RuntimeError("Could not extract final response from transcript")
 
 
 def iter_text_candidates(value: Any) -> Iterable[str]:
@@ -637,26 +916,24 @@ def iter_tracecat_tool_calls(value: Any) -> Iterable[tuple[str | None, str]]:
 
 
 def count_mcp_tool_calls(transcript_path: Path | None) -> int:
-    seen_ids: set[str] = set()
-    count = 0
-    for event in transcript_json_events(transcript_path):
-        for call_id, _tool_name in iter_tracecat_tool_calls(event):
-            if call_id is not None:
-                if call_id in seen_ids:
-                    continue
-                seen_ids.add(call_id)
-            count += 1
-    return count
+    return analyze_transcript(transcript_path).mcp_metrics.total
 
 
 def source_inspection_detected(transcript: str) -> bool:
     repo = str(REPO_ROOT)
     artifact_root = str(DEFAULT_ARTIFACT_ROOT)
-    transcript = transcript.replace(artifact_root, "")
-    if repo not in transcript:
-        return False
     suspicious_commands = ("sed ", "cat ", "rg ", "grep ", "find ", "ls ")
-    return any(command in transcript for command in suspicious_commands)
+    for line in transcript.splitlines():
+        line = line.replace(artifact_root, "")
+        if repo not in line:
+            continue
+        if not any(command in line for command in suspicious_commands):
+            continue
+        if re.search(r'"(cmd|command)"\s*:', line) or re.search(
+            r'"name"\s*:\s*"(Bash|Read|Grep|Glob|LS|exec_command)"', line
+        ):
+            return True
+    return False
 
 
 async def fetch_workflow_snapshot(
@@ -1072,32 +1349,16 @@ async def score_case(
     seed_workflow_id: str | None,
     duration_seconds: float,
 ) -> CaseResult:
-    schema = json.loads((SCRIPT_DIR / "codex_output_schema.json").read_text())
-    mcp_tool_calls = count_mcp_tool_calls(transcript_path)
-    schema_errors = sorted(
-        Draft202012Validator(schema).iter_errors(final_response),
-        key=lambda error: list(error.path),
-    )
+    transcript_analysis = analyze_transcript(transcript_path)
+    mcp_metrics = transcript_analysis.mcp_metrics
     checks: list[CheckResult] = []
-    if schema_errors:
-        checks.append(
-            CheckResult("final_response_schema", False, schema_errors[0].message)
+    checks.append(
+        CheckResult(
+            "no_failed_mcp_schema_inputs",
+            mcp_metrics.schema_input_failures == 0,
+            f"{mcp_metrics.schema_input_failures} MCP schema/input failures.",
         )
-        return CaseResult(
-            case_id=case.id,
-            agent=agent,
-            passed=False,
-            model=agent_model(agent),
-            checks=checks,
-            transcript_path=str(transcript_path),
-            final_response_path=str(final_path),
-            duration_seconds=duration_seconds,
-            accuracy=accuracy_from_checks(checks),
-            mcp_tool_calls=mcp_tool_calls,
-            workflow_node_count=0,
-            branch_count=0,
-        )
-    checks.append(CheckResult("final_response_schema", True))
+    )
 
     transcript = transcript_text(transcript_path)
     checks.append(
@@ -1110,6 +1371,10 @@ async def score_case(
 
     workflow_ids = [str(x) for x in final_response.get("workflow_ids", [])]
     changed_ids = [str(x) for x in final_response.get("changed_workflow_ids", [])]
+    if not workflow_ids:
+        workflow_ids = transcript_analysis.workflow_ids
+    if not changed_ids:
+        changed_ids = transcript_analysis.changed_workflow_ids
     snapshots: list[WorkflowSnapshot] = []
     for workflow_id in workflow_ids or changed_ids:
         try:
@@ -1160,7 +1425,10 @@ async def score_case(
         final_response_path=str(final_path),
         duration_seconds=duration_seconds,
         accuracy=accuracy_from_checks(checks),
-        mcp_tool_calls=mcp_tool_calls,
+        mcp_tool_calls=mcp_metrics.total,
+        mcp_tool_successes=mcp_metrics.succeeded,
+        mcp_tool_failures=mcp_metrics.failed,
+        mcp_schema_input_failures=mcp_metrics.schema_input_failures,
         workflow_node_count=workflow_node_count(snapshots),
         branch_count=workflow_branch_count(snapshots),
     )
@@ -1490,6 +1758,7 @@ async def run_agent_cases(args: argparse.Namespace) -> list[CaseResult]:
                         duration_seconds=run.duration_seconds,
                     )
                 except Exception as exc:
+                    mcp_metrics = analyze_transcript(transcript_path).mcp_metrics
                     result = CaseResult(
                         case_id=case.id,
                         agent=agent,
@@ -1498,7 +1767,10 @@ async def run_agent_cases(args: argparse.Namespace) -> list[CaseResult]:
                         transcript_path=str(transcript_path),
                         final_response_path=str(final_path),
                         error=f"{type(exc).__name__}: {exc}",
-                        mcp_tool_calls=count_mcp_tool_calls(transcript_path),
+                        mcp_tool_calls=mcp_metrics.total,
+                        mcp_tool_successes=mcp_metrics.succeeded,
+                        mcp_tool_failures=mcp_metrics.failed,
+                        mcp_schema_input_failures=mcp_metrics.schema_input_failures,
                         workflow_node_count=0,
                         branch_count=0,
                     )
@@ -1537,14 +1809,15 @@ def write_reports(artifact_dir: Path, results: Sequence[CaseResult]) -> None:
         "",
         "## Performance matrix",
         "",
-        "| Agent | Model | Cases | Pass rate | Avg accuracy | Avg duration | Avg MCP calls | Avg workflow nodes | Avg branches | Key failures | Improvements |",
-        "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- |",
+        "| Agent | Model | Cases | Pass rate | Avg accuracy | Avg duration | Avg MCP calls | Failed MCP calls | Schema/input failures | Avg workflow nodes | Avg branches | Key failures | Improvements |",
+        "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- |",
     ]
     for row in matrix:
         lines.append(
             "| {agent} | {model} | {cases} | {pass_rate:.0%} | "
             "{avg_accuracy:.0%} | {avg_duration_seconds:.1f}s | "
-            "{avg_mcp_tool_calls:.1f} | {avg_workflow_nodes:.1f} | "
+            "{avg_mcp_tool_calls:.1f} | {mcp_tool_failures} | "
+            "{mcp_schema_input_failures} | {avg_workflow_nodes:.1f} | "
             "{avg_branch_count:.1f} | {key_failures} | {improvements} |".format(**row)
         )
     lines.append("")
@@ -1559,6 +1832,14 @@ def write_reports(artifact_dir: Path, results: Sequence[CaseResult]) -> None:
             lines.append(f"- accuracy: {result.accuracy:.0%}")
         if result.mcp_tool_calls is not None:
             lines.append(f"- mcp_tool_calls: {result.mcp_tool_calls}")
+        if result.mcp_tool_successes is not None:
+            lines.append(f"- mcp_tool_successes: {result.mcp_tool_successes}")
+        if result.mcp_tool_failures is not None:
+            lines.append(f"- mcp_tool_failures: {result.mcp_tool_failures}")
+        if result.mcp_schema_input_failures is not None:
+            lines.append(
+                f"- mcp_schema_input_failures: {result.mcp_schema_input_failures}"
+            )
         if result.workflow_node_count is not None:
             lines.append(f"- workflow_node_count: {result.workflow_node_count}")
         if result.branch_count is not None:
@@ -1602,6 +1883,10 @@ def performance_matrix(results: Sequence[CaseResult]) -> list[dict[str, Any]]:
             result.mcp_tool_calls
             for result in agent_results
             if result.mcp_tool_calls is not None
+        ]
+        mcp_tool_failures = [result.mcp_tool_failures or 0 for result in agent_results]
+        mcp_schema_input_failures = [
+            result.mcp_schema_input_failures or 0 for result in agent_results
         ]
         workflow_nodes = [
             result.workflow_node_count
@@ -1647,6 +1932,8 @@ def performance_matrix(results: Sequence[CaseResult]) -> list[dict[str, Any]]:
                 "avg_mcp_tool_calls": sum(mcp_tool_calls) / len(mcp_tool_calls)
                 if mcp_tool_calls
                 else 0.0,
+                "mcp_tool_failures": sum(mcp_tool_failures),
+                "mcp_schema_input_failures": sum(mcp_schema_input_failures),
                 "avg_workflow_nodes": sum(workflow_nodes) / len(workflow_nodes)
                 if workflow_nodes
                 else 0.0,
@@ -1660,9 +1947,55 @@ def performance_matrix(results: Sequence[CaseResult]) -> list[dict[str, Any]]:
     return rows
 
 
+def discover_cluster_mcp_url() -> str | None:
+    cluster_script = REPO_ROOT / "scripts/cluster"
+    if not cluster_script.exists():
+        return None
+    try:
+        completed = subprocess.run(
+            [str(cluster_script), "ports"],
+            cwd=REPO_ROOT,
+            capture_output=True,
+            stdin=subprocess.DEVNULL,
+            text=True,
+            check=False,
+            timeout=10,
+        )
+    except subprocess.TimeoutExpired:
+        return None
+    if completed.returncode != 0:
+        return None
+    match = re.search(r"^\s*MCP:\s+(\S+)\s*$", completed.stdout, re.MULTILINE)
+    if not match:
+        return None
+    return match.group(1)
+
+
+def resolve_mcp_url(explicit_url: str | None) -> str:
+    if explicit_url:
+        return explicit_url
+    if env_url := os.getenv("TRACECAT_EVAL_MCP_URL"):
+        return env_url
+    if cluster_url := discover_cluster_mcp_url():
+        return cluster_url
+    raise RuntimeError(
+        "Could not discover a local Tracecat cluster MCP URL. "
+        "Start one with `just cluster up -d`, set TRACECAT_EVAL_MCP_URL, "
+        f"or pass --mcp-url {DEFAULT_DIRECT_MCP_URL} when running the MCP "
+        "server directly."
+    )
+
+
 def parse_args(argv: Sequence[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--mcp-url", default=DEFAULT_MCP_URL)
+    parser.add_argument(
+        "--mcp-url",
+        default=None,
+        help=(
+            "Tracecat MCP URL. Defaults to TRACECAT_EVAL_MCP_URL or the MCP URL "
+            "reported by ./scripts/cluster ports."
+        ),
+    )
     parser.add_argument("--agent", default="codex", choices=["codex", "claude-code"])
     parser.add_argument(
         "--agents",
@@ -1705,6 +2038,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"Wrote static eval artifacts to {artifact_dir}")
         return 0 if results[0].passed else 1
 
+    args.mcp_url = resolve_mcp_url(args.mcp_url)
     results = asyncio.run(run_agent_cases(args))
     return 0 if all(result.passed for result in results) else 1
 
