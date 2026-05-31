@@ -1,7 +1,17 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { fireEvent, render, screen, waitFor } from "@testing-library/react"
+import type { UIMessage } from "ai"
 import type { ReactNode } from "react"
 import { ChatSessionPane } from "@/components/chat/chat-session-pane"
+
+const mockUseVercelChatResult = {
+  clearError: jest.fn(),
+  lastError: null as string | null,
+  messages: [] as UIMessage[],
+  regenerate: jest.fn(),
+  sendMessage: jest.fn(),
+  status: "ready" as const,
+}
 
 jest.mock("@/components/chat/chat-empty-hero", () => ({
   ChatEmptyHero: ({ children }: { children: ReactNode }) => (
@@ -43,14 +53,7 @@ jest.mock("@/hooks/use-chat", () => ({
     isUpdating: false,
     updateChat: jest.fn(),
   }),
-  useVercelChat: () => ({
-    clearError: jest.fn(),
-    lastError: null,
-    messages: [],
-    regenerate: jest.fn(),
-    sendMessage: jest.fn(),
-    status: "ready",
-  }),
+  useVercelChat: () => mockUseVercelChatResult,
 }))
 
 jest.mock("@/lib/hooks", () => ({
@@ -69,22 +72,40 @@ function renderChatSessionPane(
     },
   })
 
-  return render(
-    <QueryClientProvider client={queryClient}>
-      <ChatSessionPane
-        workspaceId="workspace-1"
-        modelInfo={{ name: "gpt-test", provider: "openai" }}
-        placeholder="Ask Tracecat..."
-        inputDisabledPlaceholder="Creating chat..."
-        surface="workspace-chat"
-        toolsEnabled={false}
-        {...props}
-      />
-    </QueryClientProvider>
-  )
+  function renderPane(nextProps = props) {
+    return (
+      <QueryClientProvider client={queryClient}>
+        <ChatSessionPane
+          workspaceId="workspace-1"
+          modelInfo={{ name: "gpt-test", provider: "openai" }}
+          placeholder="Ask Tracecat..."
+          inputDisabledPlaceholder="Creating chat..."
+          surface="workspace-chat"
+          toolsEnabled={false}
+          {...nextProps}
+        />
+      </QueryClientProvider>
+    )
+  }
+
+  const view = render(renderPane())
+  return {
+    ...view,
+    rerenderChatSessionPane: (nextProps = props) =>
+      view.rerender(renderPane(nextProps)),
+  }
 }
 
 describe("ChatSessionPane optimistic first send", () => {
+  beforeEach(() => {
+    mockUseVercelChatResult.clearError.mockClear()
+    mockUseVercelChatResult.regenerate.mockClear()
+    mockUseVercelChatResult.sendMessage.mockClear()
+    mockUseVercelChatResult.lastError = null
+    mockUseVercelChatResult.messages = []
+    mockUseVercelChatResult.status = "ready"
+  })
+
   it("shows the submitted message and loading dots before a session exists", async () => {
     const onBeforeSend = jest.fn(
       () => new Promise<string | null>(() => undefined)
@@ -129,5 +150,50 @@ describe("ChatSessionPane optimistic first send", () => {
     await waitFor(() => expect(input).not.toBeDisabled())
     expect(input).toHaveValue("Try again")
     expect(screen.queryByTestId("dots-loader")).not.toBeInTheDocument()
+  })
+
+  it("keeps the optimistic message when prior history has matching text", async () => {
+    const onBeforeSend = jest.fn(
+      () => new Promise<string | null>(() => undefined)
+    )
+    const priorMessage: UIMessage = {
+      id: "message-old",
+      role: "user",
+      parts: [{ type: "text", text: "Repeat this" }],
+    }
+    mockUseVercelChatResult.messages = [priorMessage]
+
+    const props = {
+      onBeforeSend,
+      optimisticBeforeSend: true,
+    }
+    const { rerenderChatSessionPane } = renderChatSessionPane(props)
+
+    const input = screen.getByPlaceholderText("Ask Tracecat...")
+    fireEvent.change(input, {
+      target: { value: "Repeat this" },
+    })
+    fireEvent.click(screen.getByRole("button", { name: "Submit" }))
+
+    await waitFor(() => expect(onBeforeSend).toHaveBeenCalled())
+    expect(screen.getByTestId("dots-loader")).toBeInTheDocument()
+
+    rerenderChatSessionPane(props)
+
+    expect(screen.getByTestId("dots-loader")).toBeInTheDocument()
+
+    mockUseVercelChatResult.messages = [
+      priorMessage,
+      {
+        id: "message-new",
+        role: "user",
+        parts: [{ type: "text", text: "Repeat this" }],
+      },
+    ]
+    rerenderChatSessionPane(props)
+
+    await waitFor(() =>
+      expect(screen.queryByTestId("dots-loader")).not.toBeInTheDocument()
+    )
   })
 })

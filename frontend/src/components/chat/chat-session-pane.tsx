@@ -143,6 +143,37 @@ function messageHasVisibleParts(message: UIMessage): boolean {
   return message.parts.some((part) => part.type !== ARTIFACT_DATA_PART_TYPE)
 }
 
+function matchingUserTextPartKeys(
+  messages: UIMessage[],
+  text: string
+): Set<string> {
+  const keys = new Set<string>()
+  for (const message of messages) {
+    if (message.role !== "user") {
+      continue
+    }
+    for (const [partIndex, part] of message.parts.entries()) {
+      if (part.type === "text" && part.text === text) {
+        keys.add(`${message.id}:${partIndex}`)
+      }
+    }
+  }
+  return keys
+}
+
+function hasNewMatchingUserTextPart(
+  messages: UIMessage[],
+  text: string,
+  knownKeys: Set<string>
+): boolean {
+  for (const key of matchingUserTextPartKeys(messages, text)) {
+    if (!knownKeys.has(key)) {
+      return true
+    }
+  }
+  return false
+}
+
 function areToolListsEqual(left: string[], right: string[]): boolean {
   return (
     left.length === right.length &&
@@ -285,6 +316,7 @@ export function ChatSessionPane({
   const [optimisticMessageText, setOptimisticMessageText] = useState<
     string | null
   >(null)
+  const optimisticMessageKnownTextPartKeysRef = useRef<Set<string>>(new Set())
   const { updateChat, isUpdating: isUpdatingTools } = useUpdateChat(workspaceId)
   const { registryActions, registryActionsIsLoading } =
     useBuilderRegistryActions()
@@ -318,13 +350,10 @@ export function ChatSessionPane({
   const hasOptimisticMessageInStream = useMemo(
     () =>
       optimisticMessageText
-        ? messages.some((message) =>
-            message.role === "user"
-              ? message.parts.some(
-                  (part) =>
-                    part.type === "text" && part.text === optimisticMessageText
-                )
-              : false
+        ? hasNewMatchingUserTextPart(
+            messages,
+            optimisticMessageText,
+            optimisticMessageKnownTextPartKeysRef.current
           )
         : false,
     [messages, optimisticMessageText]
@@ -332,6 +361,7 @@ export function ChatSessionPane({
 
   useEffect(() => {
     if (hasOptimisticMessageInStream) {
+      optimisticMessageKnownTextPartKeysRef.current = new Set()
       setOptimisticMessageText(null)
     }
   }, [hasOptimisticMessageInStream])
@@ -894,6 +924,8 @@ export function ChatSessionPane({
 
     if (onBeforeSend) {
       if (optimisticBeforeSend) {
+        optimisticMessageKnownTextPartKeysRef.current =
+          matchingUserTextPartKeys(messages, messageText)
         setOptimisticMessageText(messageText)
         setInput("")
       }
@@ -904,6 +936,7 @@ export function ChatSessionPane({
       if (result !== null) {
         setInput("")
       } else if (optimisticBeforeSend) {
+        optimisticMessageKnownTextPartKeysRef.current = new Set()
         setOptimisticMessageText(null)
         setInput(messageText)
       }
