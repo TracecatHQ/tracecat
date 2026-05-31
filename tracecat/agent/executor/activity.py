@@ -661,6 +661,12 @@ class SandboxedAgentExecutor:
 
     async def _load_artifact_working_set(self) -> ArtifactWorkingSetInput | None:
         """Load Workspace Chat artifact projection for the mount-only provider."""
+        if (
+            self.input.role.organization_id is None
+            or self.input.role.workspace_id is None
+        ):
+            return None
+
         async with AgentSessionService.with_session(role=self.input.role) as svc:
             agent_session = await svc.get_session(self.input.session_id)
             if agent_session is None:

@@ -619,7 +619,9 @@ class _FakeRuntimeConnectingTransport:
         session_home_dir: Path,
         cwd: Path,
         cwd_setup_path: Path,
+        system_prompt_fragments: object = (),
     ) -> None:
+        del system_prompt_fragments
         self.transport_factory = transport_factory
         self.session_home_dir = session_home_dir
         self.cwd = cwd
@@ -648,7 +650,9 @@ class _FakeRuntimeReadingTransport:
         session_home_dir: Path,
         cwd: Path,
         cwd_setup_path: Path,
+        system_prompt_fragments: object = (),
     ) -> None:
+        del system_prompt_fragments
         self.transport_factory = transport_factory
         self.session_home_dir = session_home_dir
         self.cwd = cwd
@@ -681,7 +685,9 @@ class _FakeRuntimeReadingDuckDBTransport:
         session_home_dir: Path,
         cwd: Path,
         cwd_setup_path: Path,
+        system_prompt_fragments: object = (),
     ) -> None:
+        del system_prompt_fragments
         self.transport_factory = transport_factory
         self.session_home_dir = session_home_dir
         self.cwd = cwd
@@ -717,8 +723,9 @@ class _FakeLoopbackRuntime:
         session_home_dir: Path,
         cwd: Path,
         cwd_setup_path: Path,
+        system_prompt_fragments: object = (),
     ) -> None:
-        del transport_factory
+        del transport_factory, system_prompt_fragments
         self.handler = handler
         self.session_home_dir = session_home_dir
         self.cwd = cwd
@@ -2322,6 +2329,26 @@ async def test_executor_starts_llm_socket_proxy_for_passthrough_provider_with_in
         tmp_path / "sockets" / LLM_SOCKET_NAME
     )
     assert fake_broker.requests[0].enable_internet_access is True
+
+
+@pytest.mark.anyio
+async def test_executor_skips_artifact_working_set_without_scoped_role(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fail_with_session(**_kwargs: object) -> object:
+        raise AssertionError("unscoped executor role should not load artifacts")
+
+    monkeypatch.setattr(
+        executor_activity.AgentSessionService,
+        "with_session",
+        fail_with_session,
+    )
+
+    executor = SandboxedAgentExecutor(
+        input=_make_executor_input(enable_internet_access=False)
+    )
+
+    assert await executor._load_artifact_working_set() is None
 
 
 @pytest.mark.anyio
