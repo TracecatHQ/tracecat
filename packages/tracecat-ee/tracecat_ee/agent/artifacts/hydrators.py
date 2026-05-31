@@ -153,6 +153,8 @@ class TableArtifactHydrator:
             )
             return None
 
+        _require_table_read_scope(ctx)
+
         async with get_async_session_context_manager() as session:
             service = TablesService(session, ctx.role)
             table = await service.get_table(table_id)
@@ -249,10 +251,18 @@ def build_hydrator_registry() -> ArtifactHydratorRegistry:
 
 
 def _require_case_read_scope(ctx: ArtifactHydrationContext) -> None:
+    _require_artifact_scope(ctx, "case:read")
+
+
+def _require_table_read_scope(ctx: ArtifactHydrationContext) -> None:
+    _require_artifact_scope(ctx, "table:read")
+
+
+def _require_artifact_scope(ctx: ArtifactHydrationContext, required_scope: str) -> None:
     scopes = ctx.role.scopes or frozenset()
-    if has_scope(scopes, "case:read"):
+    if has_scope(scopes, required_scope):
         return
     raise ScopeDeniedError(
-        required_scopes=["case:read"],
-        missing_scopes=["case:read"],
+        required_scopes=[required_scope],
+        missing_scopes=[required_scope],
     )
