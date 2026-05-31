@@ -888,6 +888,7 @@ async def dispatch_action(backend: ExecutorBackend, input: RunActionInput) -> An
     # because activities can run on different event loops.
     loop_items = iter(enumerate(zip(*iterators, strict=False)))
     results: dict[int, ExecutionResult] = {}
+    loop_errors: dict[int, ExecutionError] = {}
     iteration_count = 0
 
     async def worker() -> None:
@@ -910,16 +911,18 @@ async def dispatch_action(backend: ExecutorBackend, input: RunActionInput) -> An
                 )
             # Create a new task with the patched context
             new_input = input.model_copy(update={"exec_context": new_context})
-            results[i] = await invoke_once(backend, new_input, ctx, iteration=i)
+            try:
+                results[i] = await invoke_once(backend, new_input, ctx, iteration=i)
+            except ExecutionError as e:
+                loop_errors[i] = e
 
     try:
         async with asyncio.TaskGroup() as tg:
             for _ in range(max_concurrency):
                 tg.create_task(worker())
-        return [results[i] for i in range(iteration_count)]
     except* ExecutionError as eg:
-        loop_errors = flatten_wrapped_exc_error_group(eg)
-        raise LoopExecutionError(loop_errors) from eg
+        grouped_loop_errors = flatten_wrapped_exc_error_group(eg)
+        raise LoopExecutionError(grouped_loop_errors) from eg
     except* Exception as eg:
         errors = [str(x) for x in eg.exceptions]
         logger.error("Unexpected error(s) in loop", errors=errors, exc_group=eg)
@@ -932,6 +935,9 @@ async def dispatch_action(backend: ExecutorBackend, input: RunActionInput) -> An
             ),
             detail={"errors": errors},
         ) from eg
+    if loop_errors:
+        raise LoopExecutionError([loop_errors[i] for i in sorted(loop_errors)])
+    return [results[i] for i in range(iteration_count)]
 
 
 """Utilities"""

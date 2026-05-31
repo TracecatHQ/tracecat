@@ -907,6 +907,65 @@ async def test_dispatch_action_for_each_uses_configured_worker_limit(
     assert max_active_iterations == 2
 
 
+@pytest.mark.anyio
+async def test_dispatch_action_for_each_finishes_after_iteration_error(
+    monkeypatch,
+    test_role,
+    mock_run_context,
+):
+    monkeypatch.setattr(config, "TRACECAT__EXECUTOR_FOR_EACH_MAX_CONCURRENCY", 1)
+
+    seen: list[int] = []
+
+    async def fake_invoke_once(
+        backend: TestBackend,
+        input: RunActionInput,
+        ctx: Any,
+        iteration: int | None = None,
+    ) -> int:
+        assert iteration is not None
+        local_vars = input.exec_context.get("var")
+        assert local_vars is not None
+        value = local_vars["x"]
+        seen.append(value)
+        if value == 2:
+            raise ExecutionError(
+                info=ExecutorActionErrorInfo(
+                    action_name=input.task.action,
+                    type="ValueError",
+                    message="bad loop item",
+                    filename=__file__,
+                    function="fake_invoke_once",
+                    loop_iteration=iteration,
+                    loop_vars=local_vars,
+                )
+            )
+        return value
+
+    monkeypatch.setattr(executor_service, "invoke_once", fake_invoke_once)
+
+    input = RunActionInput(
+        task=ActionStatement(
+            ref="test",
+            action="testing.add_100",
+            run_if=None,
+            args={"num": "${{ var.x }}"},
+            for_each="${{ for var.x in [1,2,3] }}",
+        ),
+        exec_context=create_default_execution_context(),
+        run_context=mock_run_context,
+        registry_lock=make_registry_lock("testing.add_100"),
+    )
+
+    with pytest.raises(LoopExecutionError) as e:
+        await dispatch_action(TestBackend(), input)
+
+    assert seen == [1, 2, 3]
+    assert len(e.value.loop_errors) == 1
+    assert e.value.loop_errors[0].info.loop_iteration == 1
+    assert e.value.loop_errors[0].info.loop_vars == {"x": 2}
+
+
 @pytest.fixture
 def sample_execution_error() -> ExecutionError:
     """Create a sample ExecutionError for testing."""
