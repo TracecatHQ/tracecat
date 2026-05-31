@@ -118,7 +118,6 @@ class MountOnlyArtifactWorkingSetProvider:
             "hydrated": False,
             "projection_path": str(projection_runtime_path),
         }
-        content_preview = _json_preview(projection_payload)
 
         content = await self._hydrate_artifact(artifact, ctx=ctx)
         if content is not None:
@@ -126,7 +125,6 @@ class MountOnlyArtifactWorkingSetProvider:
             self._write_json(host_root / primary_relative_path, content.payload)
             metadata["hydrated"] = True
             metadata["content_type"] = content.content_type
-            content_preview = _json_preview(content.payload)
 
         runtime_path = runtime_root / primary_relative_path
         logger.info(
@@ -139,7 +137,6 @@ class MountOnlyArtifactWorkingSetProvider:
             path=str(runtime_path),
             hydrated=metadata["hydrated"],
             content_type=metadata.get("content_type"),
-            preview=content_preview,
         )
 
         return ArtifactWorkingSetEntry(
@@ -224,11 +221,6 @@ def _remove_path_without_following_symlink(path: Path) -> None:
         shutil.rmtree(path)
     else:
         path.unlink()
-
-
-def _json_preview(payload: Any) -> str:
-    text = orjson.dumps(payload, default=str).decode("utf-8")
-    return _preview_text(text)
 
 
 def _preview_text(text: str) -> str:
