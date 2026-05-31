@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation"
 import { useEffect } from "react"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { useWorkspaceManager } from "@/lib/hooks"
+import { getWorkspaceLandingPath } from "@/lib/workspace-navigation"
 
 export default function WorkspacesPage() {
   const { workspaces, createWorkspace, getLastWorkspaceId } =
@@ -19,7 +20,9 @@ export default function WorkspacesPage() {
     if (workspaces.length === 0) {
       console.log("Creating a new workspace")
       createWorkspace({ name: "New Workspace" })
-        .then((workspace) => router.replace(`/workspaces/${workspace.id}`))
+        .then((workspace) =>
+          router.replace(getWorkspaceLandingPath(workspace.id))
+        )
         .catch((error) => {
           console.error("Error creating workspace", error)
         })
@@ -42,7 +45,7 @@ export default function WorkspacesPage() {
     }
 
     if (targetWorkspaceId) {
-      router.replace(`/workspaces/${targetWorkspaceId}`)
+      router.replace(getWorkspaceLandingPath(targetWorkspaceId))
     }
   }, [createWorkspace, getLastWorkspaceId, router, workspaces])
 

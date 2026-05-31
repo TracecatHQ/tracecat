@@ -1,7 +1,7 @@
 "use client"
 
 import type { UIMessage } from "ai"
-import { ChevronDown, Plus } from "lucide-react"
+import { ArrowRight, ChevronDown, Plus } from "lucide-react"
 import Link from "next/link"
 import { type ReactNode, useEffect, useState } from "react"
 import type {
@@ -10,6 +10,15 @@ import type {
   AgentSessionEntity,
   AgentSessionsGetSessionVercelResponse,
 } from "@/client"
+import {
+  PromptInput,
+  PromptInputBody,
+  PromptInputFooter,
+  PromptInputSubmit,
+  PromptInputTextarea,
+  PromptInputTools,
+} from "@/components/ai-elements/prompt-input"
+import { ChatEmptyHero } from "@/components/chat/chat-empty-hero"
 import { ChatHistoryDropdown } from "@/components/chat/chat-history-dropdown"
 import { ChatSessionPane } from "@/components/chat/chat-session-pane"
 import { NoMessages } from "@/components/chat/messages"
@@ -132,10 +141,7 @@ export function ChatInterface({
 
   const presetsEnabled =
     agentAddonsEnabled && (entityType === "case" || entityType === "copilot")
-  const headerRowClassName =
-    surface === "mission-control"
-      ? "mx-auto flex w-full max-w-[56rem] items-center justify-between"
-      : "flex items-center justify-between"
+  const headerRowClassName = "flex w-full items-center justify-between"
 
   const {
     presets: presetOptions,
@@ -532,25 +538,31 @@ function ChatBody({
   // Render active chat session when ready
   if (!chatReady || !modelInfo) {
     // Render configuration required state
+    if (surface === "workspace-chat") {
+      return (
+        <ChatEmptyHero>
+          <NoDefaultModelComposer />
+        </ChatEmptyHero>
+      )
+    }
+
     return (
       <>
         <NoMessages />
         <Link
           href="/organization/settings/agent"
-          className="block rounded-md border border-border bg-gradient-to-r from-muted/30 to-muted/50 p-4 backdrop-blur-sm transition-all duration-200 hover:from-muted/40 hover:to-muted/60"
+          className="block rounded-md border border-border bg-muted/40 p-4 transition-colors hover:bg-muted/60"
         >
-          <div className="p-4">
-            <div className="flex items-center gap-3">
-              <div className="flex-1">
-                <h4 className="mb-1 text-sm font-medium text-foreground">
-                  No default model
-                </h4>
-                <p className="text-xs text-muted-foreground">
-                  Select a default model in agent settings to enable chat.
-                </p>
-              </div>
-              <ChevronDown className="size-4 rotate-[-90deg] text-muted-foreground" />
+          <div className="flex items-center gap-3">
+            <div className="flex-1">
+              <h4 className="mb-1 text-sm font-medium text-foreground">
+                No default model
+              </h4>
+              <p className="text-xs text-muted-foreground">
+                Select a default model in agent settings to enable chat.
+              </p>
             </div>
+            <ChevronDown className="size-4 rotate-[-90deg] text-muted-foreground" />
           </div>
         </Link>
       </>
@@ -609,5 +621,51 @@ function ChatBody({
       surface={surface}
       onMessagesChange={onMessagesChange}
     />
+  )
+}
+
+/**
+ * Disabled chat composer shown when no default model is configured. Mirrors the
+ * real prompt input but is non-interactive, with a CTA linking to agent
+ * settings where a default model can be selected.
+ */
+function NoDefaultModelComposer() {
+  const noop = () => {}
+  return (
+    <div className="space-y-3">
+      <PromptInput
+        onSubmit={noop}
+        aria-disabled="true"
+        className="pointer-events-none select-none [&_[data-slot=input-group]]:rounded-2xl [&_[data-slot=input-group]]:border-muted-foreground/25 [&_[data-slot=input-group]]:shadow-none"
+      >
+        <PromptInputBody>
+          <PromptInputTextarea
+            placeholder="Select a default model to start chatting..."
+            readOnly
+            tabIndex={-1}
+            aria-disabled="true"
+            className="cursor-default"
+          />
+        </PromptInputBody>
+        <PromptInputFooter>
+          <PromptInputTools />
+          <PromptInputSubmit
+            disabled
+            aria-disabled="true"
+            className="text-muted-foreground/80"
+          />
+        </PromptInputFooter>
+      </PromptInput>
+      <div className="flex items-center justify-center gap-1.5 text-xs text-muted-foreground">
+        <span>No default model configured.</span>
+        <Link
+          href="/organization/settings/agent"
+          className="inline-flex items-center gap-0.5 font-medium text-foreground underline-offset-4 hover:underline"
+        >
+          Select one in agent settings
+          <ArrowRight className="size-3" />
+        </Link>
+      </div>
+    </div>
   )
 }

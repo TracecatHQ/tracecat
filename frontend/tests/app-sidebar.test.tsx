@@ -106,7 +106,7 @@ describe("AppSidebar", () => {
     mockUseScopeCheck.mockImplementation((scope) => mockScopes[scope] ?? false)
   })
 
-  it("hides Mission Control when the user can execute agents but cannot read them", () => {
+  it("hides Chat when the user can execute agents but cannot read them", () => {
     mockScopes = {
       "agent:execute": true,
       "agent:read": false,
@@ -115,11 +115,11 @@ describe("AppSidebar", () => {
 
     render(<AppSidebar />)
 
-    expect(screen.queryByText("Mission Control")).not.toBeInTheDocument()
+    expect(screen.queryByText("Chat")).not.toBeInTheDocument()
     expect(screen.getByText("Workflows")).toBeInTheDocument()
   })
 
-  it("shows Mission Control when the user can execute and read agents", () => {
+  it("shows Chat when the user can execute and read agents", () => {
     mockScopes = {
       "agent:execute": true,
       "agent:read": true,
@@ -127,6 +127,6 @@ describe("AppSidebar", () => {
 
     render(<AppSidebar />)
 
-    expect(screen.getByText("Mission Control")).toBeInTheDocument()
+    expect(screen.getByText("Chat")).toBeInTheDocument()
   })
 })

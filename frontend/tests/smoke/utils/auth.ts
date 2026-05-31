@@ -131,16 +131,11 @@ export async function createOrganizationInvitation(
 }
 
 /**
- * Wait until the workspace redirect settles on the workflows dashboard.
+ * Wait until the workspace redirect settles on Chat.
  */
 export async function expectWorkspaceLanding(page: Page): Promise<void> {
-  await page.waitForURL(/\/workspaces\/[^/]+(\/workflows)?(\/|$|\?)/)
-  const createNewButton = page.getByRole("button", { name: /Create new/i })
-  if (!(await createNewButton.isVisible())) {
-    await page.getByRole("link", { name: "Workflows" }).click()
-    await page.waitForURL(/\/workspaces\/[^/]+\/workflows(\/|$|\?)/)
-  }
-  await expect(createNewButton).toBeVisible()
+  await page.waitForURL(/\/workspaces\/[^/]+\/chat(\/|$|\?)/)
+  await expect(page.getByRole("link", { name: "Chat" })).toBeVisible()
 }
 
 /**

@@ -73,7 +73,7 @@ import {
   useSetCaseDropdownValue,
   useUpdateCase,
 } from "@/lib/hooks"
-import { undoSlugify } from "@/lib/utils"
+import { cn, undoSlugify } from "@/lib/utils"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
 type CasePanelTab = "comments" | "activity" | "attachments" | "rows" | "payload"
@@ -292,8 +292,12 @@ export function CasePanelView({
     }
   }
 
-  const panelFieldRowClassName =
-    "group -mx-2 flex h-7 w-full cursor-pointer items-center gap-2 rounded-sm px-2 transition-colors hover:bg-muted/70 focus-within:bg-muted/70"
+  const panelFieldRowClassName = cn(
+    "group -mx-2 flex h-7 w-full min-w-0 max-w-full cursor-pointer items-center gap-2 rounded-sm px-2 transition-colors hover:bg-muted/70 focus-within:bg-muted/70",
+    embedded
+      ? "[@container(max-width:360px)]:h-auto [@container(max-width:360px)]:min-h-12 [@container(max-width:360px)]:flex-col [@container(max-width:360px)]:items-stretch [@container(max-width:360px)]:gap-0.5 [@container(max-width:360px)]:py-1"
+      : undefined
+  )
   const panelFieldRowInteractiveSelector =
     "input:not([type='hidden']):not([disabled]), textarea:not([disabled]), [role='combobox']:not([aria-disabled='true']), button:not([disabled])"
   const panelFieldRowTargetSelector =
@@ -307,7 +311,7 @@ export function CasePanelView({
     }
 
     const controlContainer = event.currentTarget.querySelector<HTMLElement>(
-      ".tc-panel-row-control"
+      ".tc-case-panel-row-control"
     )
     const control = controlContainer?.querySelector<HTMLElement>(
       panelFieldRowInteractiveSelector
@@ -326,19 +330,226 @@ export function CasePanelView({
     control.focus()
   }
 
+  const tabTriggerClassName =
+    "flex h-full shrink-0 items-center justify-center rounded-none py-0 text-xs font-medium data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+  const panelSelectTriggerClassName = cn(
+    "h-7 w-full min-w-0 max-w-full justify-end border-none px-2 text-right text-sm hover:bg-transparent focus:ring-0 focus-visible:ring-0 focus-visible:ring-offset-0 data-[state=open]:border-none data-[state=open]:ring-0 [&>span]:min-w-0 [&>span]:w-full",
+    embedded
+      ? "[@container(max-width:360px)]:justify-start [@container(max-width:360px)]:px-0 [@container(max-width:360px)]:text-left"
+      : undefined
+  )
+  const panelControlClassName = cn(
+    "tc-case-panel-row-control ml-auto min-w-0 max-w-full flex-1",
+    embedded
+      ? "[@container(max-width:360px)]:ml-0 [@container(max-width:360px)]:w-full [@container(max-width:360px)]:flex-none"
+      : undefined
+  )
+  const panelLabelClassName = cn(
+    "min-w-0 truncate text-sm text-muted-foreground",
+    embedded && "[@container(max-width:360px)]:w-full"
+  )
+  const caseDetailsContent = (
+    <>
+      <SidebarGroup>
+        <SidebarGroupLabel>Properties</SidebarGroupLabel>
+        <SidebarGroupContent className="px-2">
+          <div className="flex flex-col gap-2">
+            <div
+              className={panelFieldRowClassName}
+              onClick={handlePanelFieldRowClick}
+            >
+              <span className={panelLabelClassName}>Status</span>
+              <div className={panelControlClassName}>
+                <StatusSelect
+                  status={caseData.status}
+                  onValueChange={handleStatusChange}
+                  showLabel={false}
+                  triggerClassName={panelSelectTriggerClassName}
+                  valueClassName="text-sm"
+                />
+              </div>
+            </div>
+            <div
+              className={panelFieldRowClassName}
+              onClick={handlePanelFieldRowClick}
+            >
+              <span className={panelLabelClassName}>Priority</span>
+              <div className={panelControlClassName}>
+                <PrioritySelect
+                  priority={caseData.priority || "unknown"}
+                  onValueChange={handlePriorityChange}
+                  showLabel={false}
+                  triggerClassName={panelSelectTriggerClassName}
+                  valueClassName="text-sm"
+                />
+              </div>
+            </div>
+            <div
+              className={panelFieldRowClassName}
+              onClick={handlePanelFieldRowClick}
+            >
+              <span className={panelLabelClassName}>Severity</span>
+              <div className={panelControlClassName}>
+                <SeveritySelect
+                  severity={caseData.severity || "unknown"}
+                  onValueChange={handleSeverityChange}
+                  showLabel={false}
+                  triggerClassName={panelSelectTriggerClassName}
+                  valueClassName="text-sm"
+                />
+              </div>
+            </div>
+            <div
+              className={panelFieldRowClassName}
+              onClick={handlePanelFieldRowClick}
+            >
+              <span className={panelLabelClassName}>Assignee</span>
+              <div className={panelControlClassName}>
+                <AssigneeSelect
+                  assignee={caseData.assignee}
+                  workspaceMembers={members ?? []}
+                  onValueChange={handleAssigneeChange}
+                  showLabel={false}
+                  triggerClassName={panelSelectTriggerClassName}
+                  valueClassName="text-sm"
+                />
+              </div>
+            </div>
+            {caseAddonsEnabled &&
+              dropdownDefinitions?.map((def: CaseDropdownDefinitionRead) => {
+                const currentValue = caseData.dropdown_values?.find(
+                  (dv) => dv.definition_id === def.id
+                )
+                return (
+                  <div
+                    key={def.id}
+                    className={panelFieldRowClassName}
+                    onClick={handlePanelFieldRowClick}
+                  >
+                    <span className={panelLabelClassName} title={def.name}>
+                      {def.name}
+                    </span>
+                    <div className={panelControlClassName}>
+                      <CaseDropdownSelect
+                        definition={def}
+                        currentValue={currentValue}
+                        onValueChange={(optionId) =>
+                          setDropdownValue.mutate({
+                            caseId: caseData.id,
+                            definitionId: def.id,
+                            optionId,
+                          })
+                        }
+                        showLabel={false}
+                        triggerClassName={panelSelectTriggerClassName}
+                        valueClassName="text-sm"
+                      />
+                    </div>
+                  </div>
+                )
+              })}
+          </div>
+        </SidebarGroupContent>
+      </SidebarGroup>
+      <SidebarGroup>
+        <SidebarGroupLabel>Fields</SidebarGroupLabel>
+        <SidebarGroupContent className="px-2">
+          <div className="flex flex-col gap-2">
+            {visibleCustomFields.length > 0 ? (
+              visibleCustomFields.map((field) => {
+                const label = undoSlugify(field.id)
+                return (
+                  <div
+                    key={field.id}
+                    className={panelFieldRowClassName}
+                    onClick={handlePanelFieldRowClick}
+                  >
+                    {showAllCustomFields && (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        type="button"
+                        className="h-7 w-7 shrink-0 text-muted-foreground hover:text-foreground"
+                        onClick={() => handleCustomFieldClear(field)}
+                      >
+                        <X className="h-3.5 w-3.5" />
+                        <span className="sr-only">Clear {label} field</span>
+                      </Button>
+                    )}
+                    <span className={panelLabelClassName} title={label}>
+                      {label}
+                    </span>
+                    <div className={panelControlClassName}>
+                      <div className="flex h-7 w-full items-center gap-2">
+                        <div className="min-w-0 flex-1">
+                          <CustomField
+                            customField={field}
+                            updateCase={updateCase}
+                            formClassName="w-full min-w-0 max-w-full"
+                            inputClassName={cn(
+                              "w-full min-w-0 max-w-full border-none text-sm hover:bg-transparent focus:ring-0 focus-visible:ring-0 focus-visible:ring-offset-0",
+                              embedded &&
+                                "[@container(max-width:360px)]:px-0 [@container(max-width:360px)]:text-left"
+                            )}
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )
+              })
+            ) : customFields.length === 0 ? (
+              <span className="text-sm text-muted-foreground">
+                No custom fields configured
+              </span>
+            ) : null}
+            {customFields.length > 0 && (
+              <button
+                type="button"
+                className="h-7 text-left text-sm text-muted-foreground underline-offset-4 hover:underline"
+                onClick={() => setShowAllCustomFields((prev) => !prev)}
+              >
+                {showAllCustomFields ? "Hide empty fields" : "View all fields"}
+              </button>
+            )}
+          </div>
+        </SidebarGroupContent>
+      </SidebarGroup>
+    </>
+  )
+
   return (
     <>
       <CaseWorkflowTrigger caseData={caseData} />
-      <div className="flex h-full w-full min-w-0">
+      <div
+        className={cn(
+          "tc-case-panel flex h-full w-full min-w-0",
+          embedded && "@container"
+        )}
+      >
         <div className="min-w-0 flex-1">
-          <ScrollArea className="h-full min-w-0 bg-muted/20">
-            <div className="mx-auto max-w-4xl px-6 py-8 pb-24">
+          <ScrollArea
+            className={cn(
+              "h-full min-w-0 bg-muted/20",
+              embedded &&
+                "[&_[data-radix-scroll-area-viewport]>div]:!block [&_[data-radix-scroll-area-viewport]>div]:!w-full [&_[data-radix-scroll-area-viewport]>div]:!min-w-0 [&_[data-radix-scroll-area-viewport]>div]:!max-w-full"
+            )}
+          >
+            <div
+              className={cn(
+                "mx-auto w-full min-w-0 max-w-4xl",
+                embedded
+                  ? "px-4 py-5 pb-12 [@container(max-width:280px)]:px-3 [@container(max-width:360px)]:px-3.5"
+                  : "px-6 py-8 pb-24"
+              )}
+            >
               <div className="mb-2">
                 <div className="flex flex-col">
                   <div className="py-1.5 first:pt-0 last:pb-0">
                     <CasePanelSummary
                       caseData={caseData}
                       updateCase={updateCase}
+                      compact={embedded}
                     />
                   </div>
                   <div className="flex flex-wrap items-center justify-between gap-3 py-1.5 first:pt-0 last:pb-0">
@@ -401,6 +612,7 @@ export function CasePanelView({
                 <CasePanelDescription
                   caseData={caseData}
                   updateCase={updateCase}
+                  compact={embedded}
                 />
               </div>
 
@@ -414,44 +626,38 @@ export function CasePanelView({
                 </div>
               )}
 
+              {embedded && (
+                <div className="mb-6 border-y bg-background/80 py-2">
+                  {caseDetailsContent}
+                </div>
+              )}
+
               <Tabs
                 value={activeTab}
                 onValueChange={handleTabChange}
-                className="mt-[4.5rem] w-full"
+                className={cn("w-full", embedded ? "mt-6" : "mt-[4.5rem]")}
               >
-                <TabsList className="h-8 w-full justify-start rounded-none bg-transparent p-0">
-                  <TabsTrigger
-                    className="flex h-full items-center justify-center rounded-none py-0 text-xs font-medium data-[state=active]:bg-transparent data-[state=active]:shadow-none"
-                    value="comments"
-                  >
+                <TabsList className="h-8 w-full justify-start gap-6 overflow-x-auto rounded-none bg-transparent p-0">
+                  <TabsTrigger className={tabTriggerClassName} value="comments">
                     <MessageSquare className="mr-1.5 h-3.5 w-3.5" />
                     Comments
                   </TabsTrigger>
-                  <TabsTrigger
-                    className="ml-6 flex h-full items-center justify-center rounded-none py-0 text-xs font-medium data-[state=active]:bg-transparent data-[state=active]:shadow-none"
-                    value="activity"
-                  >
+                  <TabsTrigger className={tabTriggerClassName} value="activity">
                     <Activity className="mr-1.5 h-3.5 w-3.5" />
                     Activity
                   </TabsTrigger>
                   <TabsTrigger
-                    className="ml-6 flex h-full items-center justify-center rounded-none py-0 text-xs font-medium data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+                    className={tabTriggerClassName}
                     value="attachments"
                   >
                     <Paperclip className="mr-1.5 h-3.5 w-3.5" />
                     Attachments
                   </TabsTrigger>
-                  <TabsTrigger
-                    className="ml-6 flex h-full items-center justify-center rounded-none py-0 text-xs font-medium data-[state=active]:bg-transparent data-[state=active]:shadow-none"
-                    value="rows"
-                  >
+                  <TabsTrigger className={tabTriggerClassName} value="rows">
                     <Table2 className="mr-1.5 h-3.5 w-3.5" />
                     Tables
                   </TabsTrigger>
-                  <TabsTrigger
-                    className="ml-6 flex h-full items-center justify-center rounded-none py-0 text-xs font-medium data-[state=active]:bg-transparent data-[state=active]:shadow-none"
-                    value="payload"
-                  >
+                  <TabsTrigger className={tabTriggerClassName} value="payload">
                     <Braces className="mr-1.5 h-3.5 w-3.5" />
                     Payload
                   </TabsTrigger>
@@ -484,195 +690,17 @@ export function CasePanelView({
             </div>
           </ScrollArea>
         </div>
-        <Sidebar
-          side="right"
-          collapsible="none"
-          className="w-[22rem] shrink-0 border-l border-border bg-background text-foreground"
-        >
-          <SidebarContent className="h-full">
-            <SidebarGroup>
-              <SidebarGroupLabel>Properties</SidebarGroupLabel>
-              <SidebarGroupContent className="px-2">
-                <div className="space-y-2">
-                  <div
-                    className={panelFieldRowClassName}
-                    onClick={handlePanelFieldRowClick}
-                  >
-                    <span className="text-sm text-muted-foreground">
-                      Status
-                    </span>
-                    <div className="ml-auto min-w-0 flex-1 tc-panel-row-control">
-                      <StatusSelect
-                        status={caseData.status}
-                        onValueChange={handleStatusChange}
-                        showLabel={false}
-                        triggerClassName="h-7 w-full justify-end border-none px-2 text-sm hover:bg-transparent focus:ring-0 focus-visible:ring-0 focus-visible:ring-offset-0 data-[state=open]:border-none data-[state=open]:ring-0 [&>span]:w-full"
-                        valueClassName="text-sm"
-                      />
-                    </div>
-                  </div>
-                  <div
-                    className={panelFieldRowClassName}
-                    onClick={handlePanelFieldRowClick}
-                  >
-                    <span className="text-sm text-muted-foreground">
-                      Priority
-                    </span>
-                    <div className="ml-auto min-w-0 flex-1 tc-panel-row-control">
-                      <PrioritySelect
-                        priority={caseData.priority || "unknown"}
-                        onValueChange={handlePriorityChange}
-                        showLabel={false}
-                        triggerClassName="h-7 w-full justify-end border-none px-2 text-sm hover:bg-transparent focus:ring-0 focus-visible:ring-0 focus-visible:ring-offset-0 data-[state=open]:border-none data-[state=open]:ring-0 [&>span]:w-full"
-                        valueClassName="text-sm"
-                      />
-                    </div>
-                  </div>
-                  <div
-                    className={panelFieldRowClassName}
-                    onClick={handlePanelFieldRowClick}
-                  >
-                    <span className="text-sm text-muted-foreground">
-                      Severity
-                    </span>
-                    <div className="ml-auto min-w-0 flex-1 tc-panel-row-control">
-                      <SeveritySelect
-                        severity={caseData.severity || "unknown"}
-                        onValueChange={handleSeverityChange}
-                        showLabel={false}
-                        triggerClassName="h-7 w-full justify-end border-none px-2 text-sm hover:bg-transparent focus:ring-0 focus-visible:ring-0 focus-visible:ring-offset-0 data-[state=open]:border-none data-[state=open]:ring-0 [&>span]:w-full"
-                        valueClassName="text-sm"
-                      />
-                    </div>
-                  </div>
-                  <div
-                    className={panelFieldRowClassName}
-                    onClick={handlePanelFieldRowClick}
-                  >
-                    <span className="text-sm text-muted-foreground">
-                      Assignee
-                    </span>
-                    <div className="ml-auto min-w-0 flex-1 tc-panel-row-control">
-                      <AssigneeSelect
-                        assignee={caseData.assignee}
-                        workspaceMembers={members ?? []}
-                        onValueChange={handleAssigneeChange}
-                        showLabel={false}
-                        triggerClassName="h-7 w-full justify-end border-none px-2 text-sm hover:bg-transparent focus:ring-0 focus-visible:ring-0 focus-visible:ring-offset-0 data-[state=open]:border-none data-[state=open]:ring-0 [&>span]:w-full"
-                        valueClassName="text-sm"
-                      />
-                    </div>
-                  </div>
-                  {caseAddonsEnabled &&
-                    dropdownDefinitions?.map(
-                      (def: CaseDropdownDefinitionRead) => {
-                        const currentValue = caseData.dropdown_values?.find(
-                          (dv) => dv.definition_id === def.id
-                        )
-                        return (
-                          <div
-                            key={def.id}
-                            className={panelFieldRowClassName}
-                            onClick={handlePanelFieldRowClick}
-                          >
-                            <span
-                              className="truncate text-sm text-muted-foreground"
-                              title={def.name}
-                            >
-                              {def.name}
-                            </span>
-                            <div className="ml-auto min-w-0 flex-1 tc-panel-row-control">
-                              <CaseDropdownSelect
-                                definition={def}
-                                currentValue={currentValue}
-                                onValueChange={(optionId) =>
-                                  setDropdownValue.mutate({
-                                    caseId: caseData.id,
-                                    definitionId: def.id,
-                                    optionId,
-                                  })
-                                }
-                                showLabel={false}
-                                triggerClassName="h-7 w-full justify-end border-none px-2 text-sm hover:bg-transparent focus:ring-0 focus-visible:ring-0 focus-visible:ring-offset-0 data-[state=open]:border-none data-[state=open]:ring-0 [&>span]:w-full"
-                                valueClassName="text-sm"
-                              />
-                            </div>
-                          </div>
-                        )
-                      }
-                    )}
-                </div>
-              </SidebarGroupContent>
-            </SidebarGroup>
-            <SidebarGroup>
-              <SidebarGroupLabel>Fields</SidebarGroupLabel>
-              <SidebarGroupContent className="px-2">
-                <div className="space-y-2">
-                  {visibleCustomFields.length > 0 ? (
-                    visibleCustomFields.map((field) => {
-                      const label = undoSlugify(field.id)
-                      return (
-                        <div
-                          key={field.id}
-                          className={panelFieldRowClassName}
-                          onClick={handlePanelFieldRowClick}
-                        >
-                          {showAllCustomFields && (
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              type="button"
-                              className="h-7 w-7 shrink-0 text-muted-foreground hover:text-foreground"
-                              onClick={() => handleCustomFieldClear(field)}
-                            >
-                              <X className="h-3.5 w-3.5" />
-                              <span className="sr-only">
-                                Clear {label} field
-                              </span>
-                            </Button>
-                          )}
-                          <span
-                            className="truncate text-sm text-muted-foreground"
-                            title={label}
-                          >
-                            {label}
-                          </span>
-                          <div className="ml-auto min-w-0 flex-1 tc-panel-row-control">
-                            <div className="flex h-7 w-full items-center gap-2">
-                              <div className="min-w-0 flex-1">
-                                <CustomField
-                                  customField={field}
-                                  updateCase={updateCase}
-                                  formClassName="w-full"
-                                  inputClassName="w-full min-w-0 border-none text-sm hover:bg-transparent focus:ring-0 focus-visible:ring-0 focus-visible:ring-offset-0"
-                                />
-                              </div>
-                            </div>
-                          </div>
-                        </div>
-                      )
-                    })
-                  ) : customFields.length === 0 ? (
-                    <span className="text-sm text-muted-foreground">
-                      No custom fields configured
-                    </span>
-                  ) : null}
-                  {customFields.length > 0 && (
-                    <button
-                      type="button"
-                      className="h-7 text-sm text-muted-foreground underline-offset-4 hover:underline"
-                      onClick={() => setShowAllCustomFields((prev) => !prev)}
-                    >
-                      {showAllCustomFields
-                        ? "Hide empty fields"
-                        : "View all fields"}
-                    </button>
-                  )}
-                </div>
-              </SidebarGroupContent>
-            </SidebarGroup>
-          </SidebarContent>
-        </Sidebar>
+        {!embedded && (
+          <Sidebar
+            side="right"
+            collapsible="none"
+            className="w-[22rem] shrink-0 border-l border-border bg-background text-foreground"
+          >
+            <SidebarContent className="h-full">
+              {caseDetailsContent}
+            </SidebarContent>
+          </Sidebar>
+        )}
       </div>
       {closureDialog && (
         <CaseClosureDialog

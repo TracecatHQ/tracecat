@@ -1,19 +1,21 @@
+import { QueryClient } from "@tanstack/react-query"
 import { act, renderHook } from "@testing-library/react"
 import type { UIMessage } from "ai"
+import { invalidateArtifactQueries } from "@/components/workspace-chat/artifacts/artifact-registry"
 import {
-  reduceMissionControlArtifacts,
-  useMissionControlArtifacts,
-} from "@/hooks/use-mission-control-artifacts"
+  reduceWorkspaceChatArtifacts,
+  useWorkspaceChatArtifacts,
+} from "@/hooks/use-workspace-chat-artifacts"
 import { CHAT_SURFACE_CAPABILITIES } from "@/types/chat-surface"
 import {
   ARTIFACT_DATA_PART_TYPE,
   type ArtifactDataPayload,
   artifactKey,
-  type MissionControlStreamPart,
-  parseMissionControlStreamPart,
-} from "@/types/mission-control"
+  parseWorkspaceChatArtifactStreamPart,
+  type WorkspaceChatArtifactStreamPart,
+} from "@/types/workspace-chat-artifacts"
 
-describe("mission control artifacts", () => {
+describe("workspace chat artifacts", () => {
   it("parses data-artifact UI message parts", () => {
     const [part] = [
       {
@@ -31,7 +33,7 @@ describe("mission control artifacts", () => {
       },
     ] as UIMessage["parts"]
 
-    expect(parseMissionControlStreamPart(part)).toEqual({
+    expect(parseWorkspaceChatArtifactStreamPart(part)).toEqual({
       type: ARTIFACT_DATA_PART_TYPE,
       data: {
         op: "upsert",
@@ -60,7 +62,7 @@ describe("mission control artifacts", () => {
       },
     ] as UIMessage["parts"]
 
-    expect(parseMissionControlStreamPart(part)).toBeUndefined()
+    expect(parseWorkspaceChatArtifactStreamPart(part)).toBeUndefined()
   })
 
   it("rejects incomplete artifact subtype payloads", () => {
@@ -80,7 +82,7 @@ describe("mission control artifacts", () => {
       },
     ] as UIMessage["parts"]
 
-    expect(parseMissionControlStreamPart(part)).toBeUndefined()
+    expect(parseWorkspaceChatArtifactStreamPart(part)).toBeUndefined()
   })
 
   it("reduces typed artifact stream parts by operation", () => {
@@ -137,7 +139,7 @@ describe("mission control artifacts", () => {
       },
     ] as UIMessage[]
 
-    expect(reduceMissionControlArtifacts(messages)).toEqual([
+    expect(reduceWorkspaceChatArtifacts(messages)).toEqual([
       {
         type: "generic",
         id: "artifact-1",
@@ -157,11 +159,11 @@ describe("mission control artifacts", () => {
         status: "new",
       },
     }
-    const streamPart: MissionControlStreamPart = {
+    const streamPart: WorkspaceChatArtifactStreamPart = {
       type: ARTIFACT_DATA_PART_TYPE,
       data: payload,
     }
-    const { result } = renderHook(() => useMissionControlArtifacts([]))
+    const { result } = renderHook(() => useWorkspaceChatArtifacts([]))
 
     act(() => {
       result.current.applyStreamPart(streamPart)
@@ -185,6 +187,69 @@ describe("mission control artifacts", () => {
     expect(result.current.activeArtifactKey).toBe("case:case-1")
   })
 
+  it("notifies when explicit artifact stream parts are applied", () => {
+    const streamPart: WorkspaceChatArtifactStreamPart = {
+      type: ARTIFACT_DATA_PART_TYPE,
+      data: {
+        op: "upsert",
+        artifact: {
+          type: "case",
+          id: "case-1",
+          title: "Investigate suspicious login",
+          severity: "high",
+          status: "new",
+        },
+      },
+    }
+    const onArtifactStreamPart = jest.fn()
+    const { result } = renderHook(() =>
+      useWorkspaceChatArtifacts([], { onArtifactStreamPart })
+    )
+
+    act(() => {
+      result.current.applyStreamPart(streamPart)
+    })
+
+    expect(onArtifactStreamPart).toHaveBeenCalledWith(streamPart)
+  })
+
+  it("notifies when new artifact message parts arrive", () => {
+    const streamPart: WorkspaceChatArtifactStreamPart = {
+      type: ARTIFACT_DATA_PART_TYPE,
+      data: {
+        op: "upsert",
+        artifact: {
+          type: "case",
+          id: "case-1",
+          title: "Investigate suspicious login",
+          severity: "high",
+          status: "new",
+        },
+      },
+    }
+    const messages = [
+      {
+        id: "msg-1",
+        role: "assistant",
+        parts: [streamPart],
+      },
+    ] as UIMessage[]
+    const onArtifactStreamPart = jest.fn()
+    const { rerender } = renderHook(
+      ({ currentMessages }: { currentMessages: UIMessage[] }) =>
+        useWorkspaceChatArtifacts(currentMessages, {
+          onArtifactStreamPart,
+        }),
+      {
+        initialProps: { currentMessages: [] as UIMessage[] },
+      }
+    )
+
+    rerender({ currentMessages: messages })
+
+    expect(onArtifactStreamPart).toHaveBeenCalledWith(streamPart)
+  })
+
   it("hydrates artifacts from the persisted session projection", () => {
     const artifact = {
       type: "case",
@@ -195,7 +260,7 @@ describe("mission control artifacts", () => {
     } satisfies ArtifactDataPayload["artifact"]
 
     const { result } = renderHook(() =>
-      useMissionControlArtifacts([], { persistedArtifacts: [artifact] })
+      useWorkspaceChatArtifacts([], { persistedArtifacts: [artifact] })
     )
 
     expect(result.current.artifacts).toEqual([artifact])
@@ -213,7 +278,7 @@ describe("mission control artifacts", () => {
 
     const { result, rerender } = renderHook(
       ({ enabled }: { enabled: boolean }) =>
-        useMissionControlArtifacts([], {
+        useWorkspaceChatArtifacts([], {
           enabled,
           persistedArtifacts: [artifact],
         }),
@@ -259,7 +324,7 @@ describe("mission control artifacts", () => {
     ] as UIMessage[]
     const { result, rerender } = renderHook(
       ({ currentMessages }: { currentMessages: UIMessage[] }) =>
-        useMissionControlArtifacts(currentMessages),
+        useWorkspaceChatArtifacts(currentMessages),
       {
         initialProps: { currentMessages: messages },
       }
@@ -308,7 +373,7 @@ describe("mission control artifacts", () => {
       }: {
         persistedArtifacts: ArtifactDataPayload["artifact"][]
       }) =>
-        useMissionControlArtifacts(messages, {
+        useWorkspaceChatArtifacts(messages, {
           persistedArtifacts,
           onCloseArtifact,
         }),
@@ -335,8 +400,32 @@ describe("mission control artifacts", () => {
     expect(artifactKey({ type: "workflow", id: "wf-1" })).toBe("workflow:wf-1")
   })
 
-  it("enables artifact projection only for the Mission Control surface", () => {
+  it("enables artifact projection only for the workspace chat surface", () => {
     expect(CHAT_SURFACE_CAPABILITIES.regular.artifacts).toBe(false)
-    expect(CHAT_SURFACE_CAPABILITIES["mission-control"].artifacts).toBe(true)
+    expect(CHAT_SURFACE_CAPABILITIES["workspace-chat"].artifacts).toBe(true)
+  })
+
+  it("invalidates case artifact queries for embedded artifact refreshes", () => {
+    const queryClient = new QueryClient()
+    const invalidateQueries = jest.spyOn(queryClient, "invalidateQueries")
+
+    invalidateArtifactQueries(queryClient, "workspace-1", {
+      type: "case",
+      id: "case-1",
+      title: "Investigate suspicious login",
+      severity: "high",
+      status: "new",
+    })
+
+    expect(invalidateQueries).toHaveBeenCalledWith({
+      queryKey: ["case", "case-1"],
+    })
+    expect(invalidateQueries).toHaveBeenCalledWith({
+      queryKey: ["cases", "workspace-1"],
+    })
+    expect(invalidateQueries).toHaveBeenCalledWith({
+      queryKey: ["cases", "paginated"],
+      exact: false,
+    })
   })
 })

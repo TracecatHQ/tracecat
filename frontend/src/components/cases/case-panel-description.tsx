@@ -16,11 +16,13 @@ type DescriptionFormSchema = z.infer<typeof descriptionFormSchema>
 interface CasePanelDescriptionProps {
   caseData: CaseRead
   updateCase: (caseData: CaseUpdate) => Promise<void>
+  compact?: boolean
 }
 
 export function CasePanelDescription({
   caseData,
   updateCase,
+  compact = false,
 }: CasePanelDescriptionProps) {
   const [isMacPlatform, setIsMacPlatform] = useState(false)
 
@@ -156,7 +158,11 @@ export function CasePanelDescription({
               <FormItem className="relative">
                 <FormControl>
                   <CaseDescriptionEditor
-                    className="min-h-[250px]"
+                    className={
+                      compact
+                        ? "case-description-editor--compact min-h-[160px]"
+                        : "min-h-[250px]"
+                    }
                     initialContent={caseData.description}
                     onChange={(content) => {
                       field.onChange(content)

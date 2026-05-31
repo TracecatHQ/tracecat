@@ -1,5 +1,5 @@
 /** Chat UI variants backed by the shared Tracecat chat stream. */
-export type ChatSurface = "regular" | "mission-control"
+export type ChatSurface = "regular" | "workspace-chat"
 
 /** Product capabilities enabled for a chat stream projection. */
 export type ChatStreamCapabilities = {
@@ -11,7 +11,7 @@ export const CHAT_SURFACE_CAPABILITIES = {
   regular: {
     artifacts: false,
   },
-  "mission-control": {
+  "workspace-chat": {
     artifacts: true,
   },
 } satisfies Record<ChatSurface, ChatStreamCapabilities>

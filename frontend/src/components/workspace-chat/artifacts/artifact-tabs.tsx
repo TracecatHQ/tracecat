@@ -2,27 +2,28 @@
 
 import { ExternalLink, PanelLeftIcon, X } from "lucide-react"
 import Link from "next/link"
-import { type ComponentType, useEffect, useRef } from "react"
-import {
-  getArtifactConfig,
-  getArtifactHref,
-} from "@/components/mission-control/artifact-registry"
+import { useEffect, useRef } from "react"
 import { Button } from "@/components/ui/button"
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
+import {
+  type ArtifactIconComponent,
+  getArtifactConfig,
+  getArtifactHref,
+} from "@/components/workspace-chat/artifacts/artifact-registry"
 import { cn } from "@/lib/utils"
 import {
   type ArtifactType,
   artifactKey,
-  type MissionControlArtifact,
-} from "@/types/mission-control"
+  type WorkspaceChatArtifact,
+} from "@/types/workspace-chat-artifacts"
 
 export interface ArtifactTabsProps {
-  artifacts: MissionControlArtifact[]
-  activeArtifact: MissionControlArtifact
+  artifacts: WorkspaceChatArtifact[]
+  activeArtifact: WorkspaceChatArtifact
   activeArtifactKey: string | null
   setActiveArtifactKey: (key: string | null) => void
   closeArtifact: (type: ArtifactType, id: string) => void
@@ -30,7 +31,7 @@ export interface ArtifactTabsProps {
   onCollapse?: () => void
 }
 
-/** Horizontal artifact tab strip for the Mission Control panel. */
+/** Horizontal artifact tab strip for the Chat panel. */
 export function ArtifactTabs({
   artifacts,
   activeArtifact,
@@ -126,7 +127,7 @@ function ArtifactTab({
   setActiveArtifactKey,
   closeArtifact,
 }: {
-  artifact: MissionControlArtifact
+  artifact: WorkspaceChatArtifact
   active: boolean
   setActiveArtifactKey: (key: string | null) => void
   closeArtifact: (type: ArtifactType, id: string) => void
@@ -139,7 +140,7 @@ function ArtifactTab({
     <div
       data-artifact-tab-id={key}
       className={cn(
-        "group flex h-7 max-w-[14rem] shrink-0 items-center rounded-sm text-xs",
+        "group flex h-7 min-w-0 max-w-[min(14rem,100%)] shrink-0 items-center rounded-sm text-xs",
         active
           ? "bg-muted text-foreground"
           : "text-muted-foreground hover:bg-muted/70 hover:text-foreground"
@@ -151,7 +152,7 @@ function ArtifactTab({
         className="flex h-full min-w-0 items-center gap-1.5 px-2"
         title={artifact.title}
       >
-        <ArtifactIcon artifact={artifact} icon={Icon} />
+        <Icon className="size-3.5 shrink-0" />
         <span className="truncate">{artifact.title}</span>
       </button>
       <button
@@ -170,8 +171,8 @@ export function ArtifactIcon({
   artifact,
   icon: Icon,
 }: {
-  artifact: MissionControlArtifact
-  icon: ComponentType<{ className?: string }>
+  artifact: WorkspaceChatArtifact
+  icon: ArtifactIconComponent
 }) {
   if (artifact.type === "workflow") {
     return (
@@ -189,7 +190,7 @@ function ArtifactOpenButton({
   artifact,
   workspaceId,
 }: {
-  artifact: MissionControlArtifact
+  artifact: WorkspaceChatArtifact
   workspaceId: string
 }) {
   const href = getArtifactHref(artifact, workspaceId)
