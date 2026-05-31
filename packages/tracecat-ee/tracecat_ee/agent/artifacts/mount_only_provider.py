@@ -29,7 +29,6 @@ from tracecat.logger import logger
 from tracecat_ee.agent.artifacts.hydrators import build_hydrator_registry
 
 _SAFE_PATH_SEGMENT_RE = re.compile(r"[^A-Za-z0-9_.-]+")
-_LOG_PREVIEW_BYTES = 4000
 
 
 class MountOnlyArtifactWorkingSetProvider:
@@ -79,9 +78,6 @@ class MountOnlyArtifactWorkingSetProvider:
             session_id=str(ctx.session_id),
             manifest_path=str(runtime_root / "manifest.json"),
             artifact_count=len(entries),
-            prompt_fragment_preview=_preview_text(_build_prompt_fragment(manifest))
-            if entries
-            else None,
         )
         return ArtifactWorkingSetResult(
             manifest=manifest,
@@ -221,12 +217,6 @@ def _remove_path_without_following_symlink(path: Path) -> None:
         shutil.rmtree(path)
     else:
         path.unlink()
-
-
-def _preview_text(text: str) -> str:
-    if len(text) <= _LOG_PREVIEW_BYTES:
-        return text
-    return f"{text[:_LOG_PREVIEW_BYTES]}... [truncated]"
 
 
 def _build_prompt_fragment(manifest: ArtifactWorkingSetManifest) -> str:

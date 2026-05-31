@@ -26,8 +26,6 @@ from tracecat.agent.runtime.session_paths import (
 )
 from tracecat.logger import logger
 
-_LOG_PREVIEW_CHARS = 4000
-
 
 class ConcurrentSessionTurnError(RuntimeError):
     """Raised when a second concurrent turn is started for the same session."""
@@ -157,9 +155,6 @@ class ClaudeRuntimeBroker:
                     session_id=str(request.init_payload.session_id),
                     artifact_count=len(working_set.manifest.artifacts),
                     artifact_root=working_set.manifest.root,
-                    prompt_fragment_preview=_preview_text(
-                        artifact_prompt_fragment or ""
-                    ),
                 )
             runtime = ClaudeAgentRuntime(
                 handler,
@@ -205,9 +200,3 @@ class ClaudeRuntimeBroker:
             session_id=session_id,
             disable_nsjail=TRACECAT__DISABLE_NSJAIL,
         )
-
-
-def _preview_text(text: str) -> str:
-    if len(text) <= _LOG_PREVIEW_CHARS:
-        return text
-    return f"{text[:_LOG_PREVIEW_CHARS]}... [truncated]"
