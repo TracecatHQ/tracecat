@@ -42,12 +42,14 @@ export default function WorkspacePage() {
   const canViewVariables = useScopeCheck("variable:read")
   const canViewSecrets = useScopeCheck("secret:read")
   const canViewIntegrations = useScopeCheck("integration:read")
+  const canViewServiceAccounts = useScopeCheck("workspace:service_account:read")
   const canViewMembers = useScopeCheck("workspace:member:read")
   const canViewInbox = useScopeCheck("inbox:read")
   const canReadWorkspace = useScopeCheck("workspace:read")
 
   const { hasEntitlement, isLoading: entitlementsLoading } = useEntitlements()
   const agentAddonsEnabled = hasEntitlement("agent_addons")
+  const serviceAccountsEnabled = hasEntitlement("service_accounts")
 
   const isLoading =
     entitlementsLoading ||
@@ -60,6 +62,7 @@ export default function WorkspacePage() {
       canViewVariables,
       canViewSecrets,
       canViewIntegrations,
+      canViewServiceAccounts,
       canViewMembers,
       canViewInbox,
       canReadWorkspace,
@@ -100,6 +103,13 @@ export default function WorkspacePage() {
     if (canViewIntegrations === true) {
       return `${basePath}/integrations`
     }
+    if (
+      canReadWorkspace === true &&
+      canViewServiceAccounts === true &&
+      serviceAccountsEnabled
+    ) {
+      return `${basePath}/service-accounts`
+    }
     if (canViewMembers === true) {
       return `${basePath}/members`
     }
@@ -116,11 +126,13 @@ export default function WorkspacePage() {
     canViewIntegrations,
     canViewMembers,
     canViewSecrets,
+    canViewServiceAccounts,
     canReadWorkspace,
     canViewTables,
     canViewVariables,
     canViewWorkflows,
     isLoading,
+    serviceAccountsEnabled,
     workspaceId,
   ])
 

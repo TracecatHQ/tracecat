@@ -57,11 +57,30 @@ describe("WorkspacePage", () => {
       "workspace:service_account:read": true,
       "workspace:read": false,
     }
+    mockHasEntitlement.mockReturnValue(true)
 
     render(<WorkspacePage />)
 
     expect(mockRouterReplace).not.toHaveBeenCalled()
     expect(screen.getByText("No accessible pages")).toBeInTheDocument()
+  })
+
+  it("redirects workspace-readable service-account users to service accounts", async () => {
+    mockScopes = {
+      "workspace:service_account:read": true,
+      "workspace:read": true,
+    }
+    mockHasEntitlement.mockImplementation(
+      (entitlement) => entitlement === "service_accounts"
+    )
+
+    render(<WorkspacePage />)
+
+    await waitFor(() => {
+      expect(mockRouterReplace).toHaveBeenCalledWith(
+        "/workspaces/workspace-1/service-accounts"
+      )
+    })
   })
 
   it("redirects to Chat when the workspace shell is readable", async () => {
