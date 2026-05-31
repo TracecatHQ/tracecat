@@ -6,7 +6,7 @@ from datetime import datetime
 from typing import Any
 
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, ValidationError, field_validator
 from starlette.status import (
     HTTP_200_OK,
     HTTP_201_CREATED,
@@ -29,6 +29,7 @@ from tracecat.workflow.executions.enums import TriggerType
 from tracecat.workflow.executions.service import WorkflowExecutionsService
 from tracecat.workflow.management.definitions import WorkflowDefinitionsService
 from tracecat.workflow.management.management import WorkflowsManagementService
+from tracecat.workflow.management.schemas import WorkflowCreate
 
 router = APIRouter(
     prefix="/internal/workflows",
@@ -101,6 +102,54 @@ class InternalWorkflowStatusResponse(BaseModel):
     )
     error: str | None = Field(
         default=None, description="Error message (if workflow failed)"
+    )
+
+
+class InternalWorkflowCreateRequest(BaseModel):
+    """Request to create a new workflow."""
+
+    title: str | None = Field(
+        default=None, description="Workflow title (3-100 characters)"
+    )
+    description: str | None = Field(
+        default=None, description="Optional workflow description"
+    )
+
+
+class InternalWorkflowCreateResponse(BaseModel):
+    """Response from workflow creation."""
+
+    id: WorkflowID = Field(..., description="Workflow ID (short wf_... format)")
+    title: str = Field(..., description="Workflow title")
+
+    @field_validator("id", mode="before")
+    @classmethod
+    def validate_id(cls, v: AnyWorkflowID) -> WorkflowID:
+        """Convert any valid workflow ID format to WorkflowUUID."""
+        return WorkflowUUID.new(v)
+
+
+@router.post("", status_code=HTTP_201_CREATED)
+@require_scope("workflow:create")
+async def create_workflow(
+    *,
+    role: ExecutorWorkspaceRole,
+    session: AsyncDBSession,
+    params: InternalWorkflowCreateRequest,
+) -> InternalWorkflowCreateResponse:
+    """Create a new empty workflow in the current workspace."""
+    service = WorkflowsManagementService(session, role)
+    try:
+        workflow = await service.create_workflow(
+            WorkflowCreate(title=params.title, description=params.description)
+        )
+    except (ValueError, ValidationError) as e:
+        raise HTTPException(
+            status_code=HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        ) from e
+    return InternalWorkflowCreateResponse(
+        id=WorkflowUUID.new(workflow.id), title=workflow.title
     )
 
 

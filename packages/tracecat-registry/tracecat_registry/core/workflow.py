@@ -132,6 +132,37 @@ async def execute(
 
 @registry.register(
     namespace="core.workflow",
+    description=(
+        "Create a new empty workflow in the current workspace and return its id "
+        "and title. Use this when the user asks to create, scaffold, or start a new "
+        "workflow. The workflow starts empty (only a trigger) and can be edited in "
+        "the workflow builder afterwards."
+    ),
+    default_title="Create workflow",
+    display_group="Workflows",
+)
+async def create_workflow(
+    *,
+    title: Annotated[
+        str | None,
+        Doc(
+            "Title for the new workflow (3-100 characters). If omitted, a "
+            "timestamped title is used."
+        ),
+    ] = None,
+    description: Annotated[
+        str | None,
+        Doc("Optional description for the new workflow (up to 1000 characters)."),
+    ] = None,
+) -> dict[str, Any]:
+    """Create a new empty workflow and return ``{"id", "title"}``."""
+    return await get_context().workflows.create_workflow(
+        title=title, description=description
+    )
+
+
+@registry.register(
+    namespace="core.workflow",
     description="Get the status of a workflow execution.",
     default_title="Get workflow status",
     display_group="Workflows",

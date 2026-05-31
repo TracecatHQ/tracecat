@@ -1,6 +1,7 @@
 "use client"
 
 import { ExternalLink } from "lucide-react"
+import dynamic from "next/dynamic"
 import Link from "next/link"
 import { useEffect, useMemo } from "react"
 import { AgentPresetArtifactView } from "@/components/agents/agent-presets-builder"
@@ -21,6 +22,25 @@ import { useAgentPreset } from "@/hooks/use-agent-presets"
 import { useGetTable } from "@/lib/hooks"
 import { cn } from "@/lib/utils"
 import type { WorkspaceChatArtifact } from "@/types/workspace-chat-artifacts"
+
+// Lazy-loaded: this pulls in React Flow and the full workflow builder, which
+// would otherwise be statically compiled into the workspace-chat route and
+// bloat its bundle/dev compile. Loaded on demand when a workflow artifact opens.
+const WorkflowArtifactView = dynamic(
+  () =>
+    import("@/components/workspace-chat/artifacts/workflow-artifact-view").then(
+      (mod) => mod.WorkflowArtifactView
+    ),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="flex h-full flex-col gap-3 p-4">
+        <Skeleton className="h-5 w-1/2" />
+        <Skeleton className="min-h-0 w-full flex-1" />
+      </div>
+    ),
+  }
+)
 
 const CASE_ARTIFACT_TABS = new Set([
   "comments",
@@ -78,6 +98,13 @@ export function ArtifactContent({
     case "table":
       return (
         <EmbeddedTableArtifact artifact={artifact} workspaceId={workspaceId} />
+      )
+    case "workflow":
+      return (
+        <WorkflowArtifactView
+          workflowId={artifact.id}
+          workspaceId={workspaceId}
+        />
       )
     case "agent":
       return (
@@ -245,16 +272,6 @@ function ArtifactSummary({
 
 function ArtifactFields({ artifact }: { artifact: WorkspaceChatArtifact }) {
   switch (artifact.type) {
-    case "workflow":
-      return (
-        <dl className="grid grid-cols-[6rem_1fr] gap-x-3 gap-y-2">
-          <ArtifactField
-            label="Published"
-            value={artifact.isPublished ? "yes" : "no"}
-          />
-          <ArtifactField label="Workflow ID" value={artifact.id} monospace />
-        </dl>
-      )
     case "run":
       return (
         <dl className="grid grid-cols-[6rem_1fr] gap-x-3 gap-y-2">

@@ -56,6 +56,16 @@ class AgentArtifactPayload(TypedDict):
     title: str
 
 
+class WorkflowArtifactPayload(TypedDict):
+    """Raw payload used to validate a workflow artifact."""
+
+    type: Literal["workflow"]
+    id: str
+    title: str
+    color: str
+    isPublished: NotRequired[bool]
+
+
 class RunArtifactPayload(TypedDict):
     """Raw payload used to validate a workflow run artifact."""
 
@@ -119,6 +129,18 @@ class _AgentPresetToolResult(_ArtifactProjectionModel):
     title: str | None = Field(
         default=None,
         validation_alias=AliasChoices("name", "title"),
+    )
+
+
+class _WorkflowToolResult(_ArtifactProjectionModel):
+    id: str = Field(
+        validation_alias=AliasChoices("id", "workflow_id", "workflowId", "wf_id")
+    )
+    title: str | None = Field(
+        default=None, validation_alias=AliasChoices("title", "name")
+    )
+    is_published: bool | None = Field(
+        default=None, validation_alias=AliasChoices("is_published", "isPublished")
     )
 
 
@@ -249,6 +271,10 @@ def _build_workflow_run_artifact(ctx: ArtifactProjectionContext) -> Artifact | N
     return _run_artifact_from_output(ctx.tool_output, ctx.tool_input, ctx.tool_call_id)
 
 
+def _build_workflow_artifact(ctx: ArtifactProjectionContext) -> Artifact | None:
+    return _workflow_artifact_from_output(ctx.tool_output, ctx.tool_call_id)
+
+
 ARTIFACT_BINDINGS: tuple[ArtifactBinding, ...] = (
     ArtifactBinding(
         tool_names=(
@@ -321,6 +347,11 @@ ARTIFACT_BINDINGS: tuple[ArtifactBinding, ...] = (
         tool_names=("core.workflow.execute", "core.workflow.get_status"),
         op="upsert",
         build=_build_workflow_run_artifact,
+    ),
+    ArtifactBinding(
+        tool_names=("core.workflow.create_workflow",),
+        op="upsert",
+        build=_build_workflow_artifact,
     ),
 )
 
@@ -628,6 +659,34 @@ def _agent_artifacts_from_output(
             yield ArtifactAdapter.validate_python(
                 _with_parent_scope(payload, tool_call_id)
             )
+
+
+# Default swatch color for workflow artifacts created via the chat copilot.
+# Workflows have no inherent color; the UI uses this for the artifact tab swatch.
+_DEFAULT_WORKFLOW_ARTIFACT_COLOR = "#6E56CF"
+
+
+def _workflow_artifact_from_output(
+    value: Any, tool_call_id: str | None
+) -> Artifact | None:
+    data = _mapping_from_tool_output(value)
+    if data is None:
+        return None
+
+    result = _WorkflowToolResult.try_validate(data)
+    if result is None:
+        return None
+
+    payload: WorkflowArtifactPayload = {
+        "type": "workflow",
+        "id": result.id,
+        "title": result.title or result.id,
+        "color": _DEFAULT_WORKFLOW_ARTIFACT_COLOR,
+    }
+    if result.is_published is not None:
+        payload["isPublished"] = result.is_published
+
+    return ArtifactAdapter.validate_python(_with_parent_scope(payload, tool_call_id))
 
 
 def _run_artifact_from_output(
