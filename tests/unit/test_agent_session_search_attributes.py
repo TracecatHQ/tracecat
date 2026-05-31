@@ -63,7 +63,7 @@ def _build_session(role: Role, *, session_id: uuid.UUID) -> AgentSession:
     session = AgentSession(
         workspace_id=role.workspace_id,
         title="Test session",
-        entity_type=AgentSessionEntity.COPILOT.value,
+        entity_type=AgentSessionEntity.WORKSPACE_CHAT.value,
         entity_id=uuid.uuid4(),
         tools=["core.http_request"],
     )

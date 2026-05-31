@@ -8,6 +8,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import type { AgentSessionsGetSessionVercelResponse } from "@/client"
 import { useScopeCheck } from "@/components/auth/scope-guard"
 import { ChatInterface } from "@/components/chat/chat-interface"
+import { EntitlementRequiredEmptyState } from "@/components/entitlement-required-empty-state"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { Button } from "@/components/ui/button"
 import {
@@ -46,8 +47,8 @@ function sessionArtifacts(
 }
 
 export function WorkspaceChatView() {
-  const router = useRouter()
   const workspaceId = useWorkspaceId()
+  const router = useRouter()
   const queryClient = useQueryClient()
   const canAccessMissionControl = useScopeCheck(
     undefined,
@@ -55,7 +56,7 @@ export function WorkspaceChatView() {
     { all: true }
   )
   const { hasEntitlement, isLoading } = useEntitlements()
-  const agentAddonsEnabled = hasEntitlement("agent_addons")
+  const workspaceChatEnabled = hasEntitlement("workspace_chat")
 
   const [messages, setMessages] = useState<UIMessage[]>(EMPTY_MESSAGES)
   const [chat, setChat] = useState<
@@ -121,16 +122,10 @@ export function WorkspaceChatView() {
     if (isLoading || canAccessMissionControl === undefined) {
       return
     }
-    if (!canAccessMissionControl || !agentAddonsEnabled) {
+    if (!canAccessMissionControl) {
       router.replace(`/workspaces/${workspaceId}`)
     }
-  }, [
-    agentAddonsEnabled,
-    canAccessMissionControl,
-    isLoading,
-    router,
-    workspaceId,
-  ])
+  }, [canAccessMissionControl, isLoading, router, workspaceId])
 
   if (isLoading || canAccessMissionControl === undefined) {
     return <CenteredSpinner />
@@ -140,8 +135,17 @@ export function WorkspaceChatView() {
     return <CenteredSpinner />
   }
 
-  if (!agentAddonsEnabled) {
-    return <CenteredSpinner />
+  if (!workspaceChatEnabled) {
+    return (
+      <div className="size-full overflow-auto">
+        <div className="mx-auto flex h-full w-full max-w-3xl flex-1 items-center justify-center py-12">
+          <EntitlementRequiredEmptyState
+            title="Upgrade required"
+            description="Chat is unavailable on your current plan."
+          />
+        </div>
+      </div>
+    )
   }
 
   const showExpandButton = hasArtifacts && isPanelCollapsed

@@ -66,6 +66,10 @@ class EffectiveEntitlements(Schema):
         default=False,
         description="Whether service accounts for API key access are enabled",
     )
+    workspace_chat: bool = Field(
+        default=False,
+        description="Whether Workspace Chat is enabled",
+    )
     watchtower: bool = Field(
         default=False,
         description="Whether Watchtower agent monitoring is enabled"

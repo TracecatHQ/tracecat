@@ -14,8 +14,12 @@ from typing import Any, cast
 
 from pydantic import AliasChoices, BaseModel, Field
 from temporalio import activity
+from tracecat_ee.workspace_chat.policy import (
+    is_workspace_chat_entitled,
+)
 
 from tracecat import config as app_config
+from tracecat.agent.artifacts.working_set import ArtifactWorkingSetInput
 from tracecat.agent.common.config import (
     TRACECAT__AGENT_SANDBOX_MEMORY_MB,
     TRACECAT__AGENT_SANDBOX_TIMEOUT,
@@ -52,6 +56,7 @@ from tracecat.agent.sandbox.llm_proxy import (
     LLMSocketProxy,
 )
 from tracecat.agent.session.service import AgentSessionService
+from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.agent.skill.service import SkillService
 from tracecat.agent.types import AgentConfig
 from tracecat.auth.types import Role
@@ -406,6 +411,7 @@ class SandboxedAgentExecutor:
 
             llm_socket_path = socket_dir / LLM_SOCKET_NAME
             self._llm_proxy = await self._create_llm_socket_proxy(llm_socket_path)
+            artifact_working_set = await self._load_artifact_working_set()
 
             await self._run_with_broker(
                 result=result,
@@ -413,6 +419,7 @@ class SandboxedAgentExecutor:
                 init_payload=init_payload,
                 socket_dir=socket_dir,
                 llm_socket_path=llm_socket_path,
+                artifact_working_set=artifact_working_set,
             )
 
         except AgentSandboxExecutionError as e:
@@ -500,6 +507,7 @@ class SandboxedAgentExecutor:
         init_payload: RuntimeInitPayload,
         socket_dir: Path,
         llm_socket_path: Path,
+        artifact_working_set: ArtifactWorkingSetInput | None,
     ) -> None:
         """Execute the Claude turn through the worker-global warm broker."""
         if self._job_dir is None:
@@ -522,6 +530,7 @@ class SandboxedAgentExecutor:
             socket_dir=socket_dir,
             llm_socket_path=llm_socket_path,
             enable_internet_access=init_payload.config.enable_internet_access,
+            artifact_working_set=artifact_working_set,
             skills_dir=self._skills_dir(),
             hydrate_work_dir=self._hydrate_agent_filesystem
             if _agent_fs_persistence_enabled()
@@ -649,6 +658,28 @@ class SandboxedAgentExecutor:
         except BaseException:
             await asyncio.to_thread(shutil.rmtree, job_dir, True)
             raise
+
+    async def _load_artifact_working_set(self) -> ArtifactWorkingSetInput | None:
+        """Load Workspace Chat artifact projection for the mount-only provider."""
+        if (
+            self.input.role.organization_id is None
+            or self.input.role.workspace_id is None
+        ):
+            return None
+
+        async with AgentSessionService.with_session(role=self.input.role) as svc:
+            agent_session = await svc.get_session(self.input.session_id)
+            if agent_session is None:
+                return None
+            if agent_session.entity_type != AgentSessionEntity.WORKSPACE_CHAT:
+                return None
+            if not await is_workspace_chat_entitled(svc.session, self.input.role):
+                return None
+            return ArtifactWorkingSetInput(
+                workspace_id=self.input.workspace_id,
+                role=self.input.role,
+                artifacts=tuple(svc.list_artifacts(agent_session)),
+            )
 
     def _skills_dir(self) -> Path | None:
         """Return the per-run staged skills directory."""

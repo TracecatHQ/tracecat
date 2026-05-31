@@ -33,7 +33,7 @@ import {
   Webhook,
 } from "lucide-react"
 import Link from "next/link"
-import { useRouter } from "next/navigation"
+import { useRouter, useSearchParams } from "next/navigation"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import {
   type FieldErrors,
@@ -187,6 +187,7 @@ const RESERVED_SUBAGENT_ALIASES = new Set([
   "root",
   "task",
 ])
+const AGENT_PRESET_TAB_QUERY_PARAM = "tab"
 
 /**
  * Maps MCP integration slugs to provider IDs for icon lookup.
@@ -476,10 +477,14 @@ export function AgentPresetsBuilder({
   builderPrompt?: string
 }) {
   const router = useRouter()
+  const searchParams = useSearchParams()
   const workspaceId = useWorkspaceId()
   const { hasEntitlement, isLoading: entitlementsLoading } = useEntitlements()
   const agentAddonsEnabled = hasEntitlement("agent_addons")
   const activePresetId = presetId
+  const queryTab = parseAgentPresetSideTab(
+    searchParams.get(AGENT_PRESET_TAB_QUERY_PARAM)
+  )
 
   const { presets, presetsIsLoading, presetsError } = useAgentPresets(
     workspaceId,
@@ -527,9 +532,24 @@ export function AgentPresetsBuilder({
         return
       }
       const nextPath = `/workspaces/${workspaceId}/agents/${normalizedId}`
-      router.replace(nextPath)
+      const params = new URLSearchParams(searchParams.toString())
+      const queryString = params.toString()
+      router.replace(queryString ? `${nextPath}?${queryString}` : nextPath)
     },
-    [activePresetId, router, workspaceId]
+    [activePresetId, router, searchParams, workspaceId]
+  )
+
+  const handleTabChange = useCallback(
+    (tab: AgentPresetSideTab) => {
+      const params = new URLSearchParams(searchParams.toString())
+      params.set(AGENT_PRESET_TAB_QUERY_PARAM, tab)
+      const queryString = params.toString()
+      const path = activePresetId
+        ? `/workspaces/${workspaceId}/agents/${activePresetId}`
+        : `/workspaces/${workspaceId}/agents`
+      router.replace(queryString ? `${path}?${queryString}` : path)
+    },
+    [activePresetId, router, searchParams, workspaceId]
   )
 
   const {
@@ -684,6 +704,8 @@ export function AgentPresetsBuilder({
               }
             : undefined
         }
+        initialTab={queryTab ?? "live-chat"}
+        onTabChange={handleTabChange}
       />
     </div>
   )
@@ -1025,6 +1047,26 @@ type AgentPresetSideTab =
   | "structured-output"
   | "versions"
 
+const AGENT_PRESET_SIDE_TABS = new Set<AgentPresetSideTab>([
+  "live-chat",
+  "assistant",
+  "configuration",
+  "subagents",
+  "skills",
+  "channels",
+  "structured-output",
+  "versions",
+])
+
+function parseAgentPresetSideTab(
+  value: string | null | undefined
+): AgentPresetSideTab | null {
+  if (!value || !AGENT_PRESET_SIDE_TABS.has(value as AgentPresetSideTab)) {
+    return null
+  }
+  return value as AgentPresetSideTab
+}
+
 function getAgentPresetErrorTab(
   errors: FieldErrors<AgentPresetFormValues>
 ): AgentPresetSideTab | null {
@@ -1264,6 +1306,8 @@ type AgentPresetFormProps = {
   enabledModelsLoaded: boolean
   mcpIntegrations: McpIntegrationOption[]
   mcpIntegrationsIsLoading: boolean
+  initialTab?: AgentPresetSideTab
+  onTabChange?: (tab: AgentPresetSideTab) => void
 }
 
 function AgentPresetForm({
@@ -1284,11 +1328,13 @@ function AgentPresetForm({
   enabledModelsLoaded,
   mcpIntegrations,
   mcpIntegrationsIsLoading,
+  initialTab = "live-chat",
+  onTabChange,
 }: AgentPresetFormProps) {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
   const [isDuplicating, setIsDuplicating] = useState(false)
   const isDuplicatingRef = useRef(false)
-  const [activeTab, setActiveTab] = useState<AgentPresetSideTab>("live-chat")
+  const [activeTab, setActiveTab] = useState<AgentPresetSideTab>(initialTab)
   const { isFeatureEnabled: isFeatureEnabledFlag } = useFeatureFlag()
   const channelsEnabled = isFeatureEnabledFlag("agent-channels")
   const form = useForm<AgentPresetFormValues>({
@@ -1326,6 +1372,18 @@ function AgentPresetForm({
       enabled:
         watchedAgentsEnabled && selectedPinnedSubagentPresetIds.length > 0,
     }
+  )
+
+  useEffect(() => {
+    setActiveTab(initialTab)
+  }, [initialTab])
+
+  const handleTabChange = useCallback(
+    (tab: AgentPresetSideTab) => {
+      setActiveTab(tab)
+      onTabChange?.(tab)
+    },
+    [onTabChange]
   )
 
   const handleConfirmDelete = async () => {
@@ -1453,7 +1511,7 @@ function AgentPresetForm({
               message: eligibilityIssue.message,
             }
           )
-          setActiveTab("subagents")
+          handleTabChange("subagents")
           return
         }
       }
@@ -1473,7 +1531,7 @@ function AgentPresetForm({
     (errors) => {
       const nextTab = getAgentPresetErrorTab(errors)
       if (nextTab) {
-        setActiveTab(nextTab)
+        handleTabChange(nextTab)
       }
     }
   )
@@ -1580,7 +1638,7 @@ function AgentPresetForm({
           <ResizablePanel defaultSize={38} minSize={26}>
             <AgentPresetRightPanel
               activeTab={effectiveTab}
-              onTabChange={setActiveTab}
+              onTabChange={handleTabChange}
               channelsEnabled={channelsEnabled}
               preset={preset}
               workspaceId={workspaceId}

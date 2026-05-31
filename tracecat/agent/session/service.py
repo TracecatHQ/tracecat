@@ -543,14 +543,15 @@ class AgentSessionService(BaseWorkspaceService):
         legacy_chats: list[Chat] = []
         if parent_session_id is None and not filter_created_by_none:
             # Query legacy Chat table
-            # Note: exclude_entity_types is not applied here because legacy Chat records
-            # predate entity types like WORKFLOW and APPROVAL that are typically excluded.
-            # Legacy chats only have entity types like "case" or "agent_preset".
             chat_stmt = select(Chat).where(Chat.workspace_id == self.workspace_id)
             if created_by is not None:
                 chat_stmt = chat_stmt.where(Chat.user_id == created_by)
             if entity_type is not None:
                 chat_stmt = chat_stmt.where(Chat.entity_type == entity_type.value)
+            if exclude_entity_types:
+                chat_stmt = chat_stmt.where(
+                    Chat.entity_type.notin_([et.value for et in exclude_entity_types])
+                )
             if entity_id is not None:
                 chat_stmt = chat_stmt.where(Chat.entity_id == entity_id)
             # Bound query cost at the database layer; we still merge+sort below.
@@ -1517,7 +1518,7 @@ class AgentSessionService(BaseWorkspaceService):
                     "Agent preset builder requires a default AI model with valid provider credentials. "
                     "Configure credentials in Workspace settings before chatting."
                 ) from exc
-        elif session_entity is AgentSessionEntity.COPILOT:
+        elif session_entity is AgentSessionEntity.WORKSPACE_CHAT:
             # Copilot uses org-level credentials, not workspace credentials
             entity_instructions = await self._entity_to_prompt(agent_session)
             if agent_session.agent_preset_id:
@@ -1628,7 +1629,7 @@ class AgentSessionService(BaseWorkspaceService):
                 )
             prompt = AgentPresetBuilderPrompt(preset=preset)
             return prompt.instructions
-        if entity_type == AgentSessionEntity.COPILOT:
+        if entity_type == AgentSessionEntity.WORKSPACE_CHAT:
             return WorkspaceCopilotPrompts().instructions
         else:
             raise ValueError(

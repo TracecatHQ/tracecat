@@ -103,12 +103,12 @@ describe("WorkspaceChatView", () => {
     expect(screen.queryByTestId("mission-control-chat")).not.toBeInTheDocument()
   })
 
-  it("redirects to workspaces when agent add-ons are unavailable", () => {
+  it("shows upgrade state when workspace chat is unavailable", () => {
     mockHasEntitlement.mockReturnValue(false)
 
     renderWorkspaceChatView()
 
-    expect(mockRouterReplace).toHaveBeenCalledWith("/workspaces/workspace-1")
+    expect(screen.getByText("Upgrade required")).toBeInTheDocument()
     expect(screen.queryByTestId("mission-control-chat")).not.toBeInTheDocument()
   })
 })

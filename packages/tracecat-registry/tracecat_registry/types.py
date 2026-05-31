@@ -699,14 +699,27 @@ class AgentPresetRead(TypedDict):
     """Agent preset information."""
 
     id: UUID
+    workspace_id: UUID
     name: str
     slug: str
+    # Deprecated legacy model fields retained for backward compatibility.
+    # catalog_id is the canonical model selector for new callers.
     model_name: str
     model_provider: str
+    catalog_id: UUID | None
     description: str | None
     instructions: str | None
     base_url: str | None
     output_type: Any
     actions: list[str] | None
+    namespaces: list[str] | None
+    tool_approvals: dict[str, bool] | None
+    mcp_integrations: list[str] | None
+    agents: dict[str, Any]
+    retries: int
+    enable_thinking: bool
+    enable_internet_access: bool
+    skills: list[dict[str, Any]]
+    current_version_id: UUID | None
     created_at: datetime
     updated_at: datetime

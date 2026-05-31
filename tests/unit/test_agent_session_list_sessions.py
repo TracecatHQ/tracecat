@@ -10,6 +10,7 @@ import pytest
 
 from tracecat.agent.session.schemas import AgentSessionRead
 from tracecat.agent.session.service import AgentSessionService
+from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.auth.types import Role
 
 
@@ -108,3 +109,24 @@ async def test_list_sessions_filter_created_by_none_excludes_legacy_chats() -> N
     assert results == [
         AgentSessionRead.model_validate(session_row, from_attributes=True)
     ]
+
+
+@pytest.mark.anyio
+async def test_list_sessions_excludes_legacy_workspace_chats() -> None:
+    service, session, role = _build_service()
+    assert role.user_id is not None
+    session.execute.side_effect = [
+        _mock_scalar_result([]),
+        _mock_scalar_result([]),
+    ]
+
+    results = await service.list_sessions(
+        created_by=role.user_id,
+        exclude_entity_types=[AgentSessionEntity.WORKSPACE_CHAT],
+        limit=1,
+    )
+
+    assert results == []
+    assert session.execute.await_count == 2
+    chat_stmt = session.execute.await_args_list[1].args[0]
+    assert "chat.entity_type NOT IN" in str(chat_stmt)
