@@ -1,5 +1,5 @@
 from tracecat.agent.session.types import AgentSessionEntity
-from tracecat.chat.tools import get_default_tools
+from tracecat.chat.tools import WORKSPACE_CHAT_AGENT_DEFAULT_TOOLS, get_default_tools
 
 
 def test_workspace_chat_default_tools_include_authoring_actions() -> None:
@@ -33,3 +33,16 @@ def test_workspace_chat_default_tools_include_authoring_actions() -> None:
         "core.cases.get_case",
         "core.cases.search_cases",
     ]
+
+
+def test_workspace_chat_default_tools_exclude_agent_actions_without_entitlement() -> (
+    None
+):
+    tools = get_default_tools(
+        AgentSessionEntity.WORKSPACE_CHAT.value,
+        agent_addons_enabled=False,
+    )
+
+    assert all(tool not in tools for tool in WORKSPACE_CHAT_AGENT_DEFAULT_TOOLS)
+    assert "core.table.list_tables" in tools
+    assert "core.cases.list_cases" in tools

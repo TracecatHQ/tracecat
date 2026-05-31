@@ -12,12 +12,28 @@ from tracecat.agent.session.service import AgentSessionService
 from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.agent.subagents import ResolvedAgentsConfig
 from tracecat.auth.types import Role
-from tracecat.chat.tools import WORKSPACE_CHAT_DEFAULT_TOOLS
+from tracecat.chat.tools import WORKSPACE_CHAT_DEFAULT_TOOLS, get_default_tools
 from tracecat.db.models import AgentSession
 from tracecat.exceptions import TracecatValidationError
+from tracecat.tiers.enums import Entitlement
 
 
-def _build_service() -> tuple[AgentSessionService, SimpleNamespace, Role]:
+class _TestAgentSessionService(AgentSessionService):
+    agent_addons_enabled: bool = True
+    entitlement_checks: list[Entitlement]
+
+    def __init__(self, session: Any, role: Role) -> None:
+        super().__init__(session, role)
+        self.entitlement_checks = []
+
+    async def has_entitlement(self, entitlement: Entitlement) -> bool:
+        self.entitlement_checks.append(entitlement)
+        if entitlement is Entitlement.AGENT_ADDONS:
+            return self.agent_addons_enabled
+        return True
+
+
+def _build_service() -> tuple[_TestAgentSessionService, SimpleNamespace, Role]:
     workspace_id = uuid.uuid4()
     role = Role(
         type="service",
@@ -31,7 +47,8 @@ def _build_service() -> tuple[AgentSessionService, SimpleNamespace, Role]:
         commit=AsyncMock(),
         refresh=AsyncMock(),
     )
-    return AgentSessionService(cast(Any, session), role), session, role
+    service = _TestAgentSessionService(cast(Any, session), role)
+    return service, session, role
 
 
 @pytest.mark.anyio
@@ -86,6 +103,35 @@ async def test_create_workspace_chat_session_applies_current_default_tools() -> 
     )
 
     assert created.tools == WORKSPACE_CHAT_DEFAULT_TOOLS
+    session.add.assert_called_once_with(created)
+    session.commit.assert_awaited_once()
+    session.refresh.assert_awaited_once_with(created)
+
+
+@pytest.mark.anyio
+async def test_create_workspace_chat_session_omits_agent_tools_without_entitlement() -> (
+    None
+):
+    service, session, _role = _build_service()
+    service.agent_addons_enabled = False
+    validate_mock = AsyncMock(return_value=None)
+    agents_binding_mock = AsyncMock(return_value=None)
+    service._validate_preset_version_for_assignment = validate_mock
+    service._resolve_agents_binding_for_preset_version_id = agents_binding_mock
+
+    created = await service.create_session(
+        AgentSessionCreate(
+            title="Chat",
+            entity_type=AgentSessionEntity.WORKSPACE_CHAT,
+            entity_id=uuid.uuid4(),
+        )
+    )
+
+    assert created.tools == get_default_tools(
+        AgentSessionEntity.WORKSPACE_CHAT.value,
+        agent_addons_enabled=False,
+    )
+    assert service.entitlement_checks == [Entitlement.AGENT_ADDONS]
     session.add.assert_called_once_with(created)
     session.commit.assert_awaited_once()
     session.refresh.assert_awaited_once_with(created)
