@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import html
 import re
+import shutil
 from pathlib import Path
 from typing import Any
 
@@ -41,6 +43,11 @@ class MountOnlyArtifactWorkingSetProvider:
         """Prepare scratch artifact files for a Workspace Chat turn."""
         host_root = ctx.host_work_dir / ".tracecat" / "artifacts"
         runtime_root = ctx.runtime_work_dir / ".tracecat" / "artifacts"
+        if host_root.exists():
+            if host_root.is_dir() and not host_root.is_symlink():
+                shutil.rmtree(host_root)
+            else:
+                host_root.unlink()
         host_root.mkdir(parents=True, exist_ok=True)
 
         entries = [
@@ -154,7 +161,10 @@ def _safe_path_segment(value: str) -> str:
 
 def _build_prompt_fragment(manifest: ArtifactWorkingSetManifest) -> str:
     artifacts = "\n".join(
-        f"- {entry.artifact_id}: {entry.title} at `{entry.path}`"
+        "- "
+        f'artifact_id="{_prompt_string(entry.artifact_id)}" '
+        f'title="{_prompt_string(entry.title)}" '
+        f'path="{_prompt_string(entry.path)}"'
         for entry in manifest.artifacts
     )
     return (
@@ -169,3 +179,7 @@ def _build_prompt_fragment(manifest: ArtifactWorkingSetManifest) -> str:
         f"{artifacts}\n"
         "</TracecatArtifacts>"
     )
+
+
+def _prompt_string(value: str) -> str:
+    return html.escape(value, quote=True).replace("\r", "\\r").replace("\n", "\\n")

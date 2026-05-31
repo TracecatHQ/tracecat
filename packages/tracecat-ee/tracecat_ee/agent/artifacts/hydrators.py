@@ -11,6 +11,7 @@ from tracecat.agent.artifacts.hydration import (
 )
 from tracecat.artifacts.schemas import Artifact, CaseArtifact
 from tracecat.auth.schemas import UserRead
+from tracecat.authz.controls import has_scope
 from tracecat.cases.dropdowns.schemas import CaseDropdownValueRead
 from tracecat.cases.dropdowns.service import CaseDropdownValuesService
 from tracecat.cases.rows.service import CaseTableRowsService
@@ -22,6 +23,7 @@ from tracecat.cases.schemas import (
 from tracecat.cases.service import CasesService
 from tracecat.cases.tags.schemas import CaseTagRead
 from tracecat.db.engine import get_async_session_context_manager
+from tracecat.exceptions import ScopeDeniedError
 from tracecat.logger import logger
 from tracecat.tiers.enums import Entitlement
 
@@ -46,6 +48,8 @@ class CaseArtifactHydrator:
                 artifact_id=artifact.id,
             )
             return None
+
+        _require_case_read_scope(ctx)
 
         async with get_async_session_context_manager() as session:
             service = CasesService(session, ctx.role)
@@ -119,3 +123,13 @@ class CaseArtifactHydrator:
 def build_hydrator_registry() -> ArtifactHydratorRegistry:
     """Build the EE source-available artifact hydrator registry."""
     return ArtifactHydratorRegistry({"case": CaseArtifactHydrator()})
+
+
+def _require_case_read_scope(ctx: ArtifactHydrationContext) -> None:
+    scopes = ctx.role.scopes or frozenset()
+    if has_scope(scopes, "case:read"):
+        return
+    raise ScopeDeniedError(
+        required_scopes=["case:read"],
+        missing_scopes=["case:read"],
+    )

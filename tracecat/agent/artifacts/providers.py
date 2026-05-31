@@ -44,6 +44,14 @@ def build_noop_provider() -> ArtifactWorkingSetProvider:
     return NoopArtifactWorkingSetProvider()
 
 
+def _validate_provider(candidate: object) -> ArtifactWorkingSetProvider:
+    if not callable(getattr(candidate, "prepare_turn", None)):
+        raise TypeError("Artifact provider must define a callable prepare_turn method.")
+    if not callable(getattr(candidate, "mcp_tools", None)):
+        raise TypeError("Artifact provider must define a callable mcp_tools method.")
+    return cast(ArtifactWorkingSetProvider, candidate)
+
+
 def _load_provider_from_import_path(import_path: str) -> ArtifactWorkingSetProvider:
     module_name, separator, attribute = import_path.partition(":")
     if not separator or not module_name or not attribute:
@@ -53,9 +61,9 @@ def _load_provider_from_import_path(import_path: str) -> ArtifactWorkingSetProvi
         )
     module = import_module(module_name)
     candidate = getattr(module, attribute)
-    if callable(candidate):
+    if not callable(getattr(candidate, "prepare_turn", None)) and callable(candidate):
         candidate = candidate()
-    return cast(ArtifactWorkingSetProvider, candidate)
+    return _validate_provider(candidate)
 
 
 @lru_cache(maxsize=1)
@@ -64,10 +72,23 @@ def get_artifact_working_set_provider() -> ArtifactWorkingSetProvider:
     if import_path := os.environ.get(ARTIFACT_PROVIDER_ENV):
         return _load_provider_from_import_path(import_path)
 
-    for entry_point in entry_points(group=ARTIFACT_PROVIDER_ENTRY_POINT_GROUP):
-        candidate = entry_point.load()
-        if callable(candidate):
+    provider_entry_points = list(
+        entry_points(group=ARTIFACT_PROVIDER_ENTRY_POINT_GROUP)
+    )
+    if len(provider_entry_points) > 1:
+        names = ", ".join(
+            sorted(entry_point.name for entry_point in provider_entry_points)
+        )
+        raise RuntimeError(
+            "Multiple artifact provider entry points installed "
+            f"({names}); set {ARTIFACT_PROVIDER_ENV} explicitly."
+        )
+    if provider_entry_points:
+        candidate = provider_entry_points[0].load()
+        if not callable(getattr(candidate, "prepare_turn", None)) and callable(
+            candidate
+        ):
             candidate = candidate()
-        return cast(ArtifactWorkingSetProvider, candidate)
+        return _validate_provider(candidate)
 
     return build_noop_provider()

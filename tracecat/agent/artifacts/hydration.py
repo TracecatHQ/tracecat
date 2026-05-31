@@ -49,7 +49,7 @@ class ArtifactHydratorRegistry:
         self,
         hydrators: dict[ArtifactType, ArtifactHydrator] | None = None,
     ) -> None:
-        self._hydrators = hydrators or {}
+        self._hydrators = dict(hydrators) if hydrators is not None else {}
 
     def register(self, artifact_type: ArtifactType, hydrator: ArtifactHydrator) -> None:
         """Register a hydrator for an artifact type."""
