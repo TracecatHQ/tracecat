@@ -4,6 +4,7 @@ This router consolidates chat and session endpoints into a unified /agent/sessio
 """
 
 import uuid
+from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query, Request, status
 from fastapi.responses import Response, StreamingResponse
@@ -45,6 +46,33 @@ from tracecat.exceptions import EntitlementRequired, TracecatNotFoundError
 from tracecat.logger import logger
 
 router = APIRouter(prefix="/agent/sessions", tags=["agent-sessions"])
+
+
+async def _require_workspace_chat_entitlement_for_session_tree(
+    *,
+    svc: AgentSessionService,
+    session: AsyncDBSession,
+    role: WorkspaceActorRouteRole,
+    agent_session: Any,
+) -> None:
+    """Require Workspace Chat access for a session and inherited parents."""
+    seen: set[uuid.UUID] = set()
+    current = agent_session
+    while current is not None:
+        current_id = getattr(current, "id", None)
+        if isinstance(current_id, uuid.UUID):
+            if current_id in seen:
+                return
+            seen.add(current_id)
+        await require_workspace_chat_entitlement_for_entity(
+            session=session,
+            role=role,
+            entity_type=AgentSessionEntity(current.entity_type),
+        )
+        parent_session_id = getattr(current, "parent_session_id", None)
+        if parent_session_id is None:
+            return
+        current = await svc.get_session(parent_session_id)
 
 
 @router.post("")
@@ -131,10 +159,11 @@ async def get_session(
     # Try AgentSession first
     agent_session = await svc.get_session(session_id)
     if agent_session:
-        await require_workspace_chat_entitlement_for_entity(
+        await _require_workspace_chat_entitlement_for_session_tree(
+            svc=svc,
             session=session,
             role=role,
-            entity_type=AgentSessionEntity(agent_session.entity_type),
+            agent_session=agent_session,
         )
         messages = await svc.list_messages(session_id)
         logger.info("Session read", session_id=agent_session.id, messages=len(messages))
@@ -211,10 +240,11 @@ async def get_session_vercel(
     # Try AgentSession first
     agent_session = await svc.get_session(session_id)
     if agent_session:
-        await require_workspace_chat_entitlement_for_entity(
+        await _require_workspace_chat_entitlement_for_session_tree(
+            svc=svc,
             session=session,
             role=role,
-            entity_type=AgentSessionEntity(agent_session.entity_type),
+            agent_session=agent_session,
         )
         messages = await svc.list_messages(session_id)
         ui_messages = vercel.convert_chat_messages_to_ui(messages)
@@ -419,12 +449,12 @@ async def send_message(
                 session_id=session_id,
                 request=request,
             )
-            if agent_session.entity_type == AgentSessionEntity.WORKSPACE_CHAT:
-                await require_workspace_chat_entitlement_for_entity(
-                    session=svc.session,
-                    role=role,
-                    entity_type=agent_session.entity_type,
-                )
+            await _require_workspace_chat_entitlement_for_session_tree(
+                svc=svc,
+                session=svc.session,
+                role=role,
+                agent_session=agent_session,
+            )
 
             if isinstance(request, ContinueRunRequest):
                 # Continuations should follow only newly appended events. Resuming
@@ -539,14 +569,22 @@ async def stream_session_events(
     async with AgentSessionService.with_session(role=role) as svc:
         agent_session = await svc.get_session(session_id)
         if agent_session is not None:
-            entity_type = getattr(agent_session, "entity_type", None)
-            if entity_type == AgentSessionEntity.WORKSPACE_CHAT:
+            await _require_workspace_chat_entitlement_for_session_tree(
+                svc=svc,
+                session=svc.session,
+                role=role,
+                agent_session=agent_session,
+            )
+            last_stream_id = agent_session.last_stream_id
+        else:
+            legacy_chat = await svc.get_legacy_chat(session_id)
+            if legacy_chat is not None:
                 await require_workspace_chat_entitlement_for_entity(
                     session=svc.session,
                     role=role,
-                    entity_type=entity_type,
+                    entity_type=AgentSessionEntity(legacy_chat.entity_type),
                 )
-            last_stream_id = agent_session.last_stream_id
+                last_stream_id = legacy_chat.last_stream_id
 
     last_event_id = request.headers.get("Last-Event-ID")
     if last_stream_id is None and not last_event_id:
@@ -592,13 +630,19 @@ async def fork_session(
     """
     try:
         svc = AgentSessionService(session, role)
+        parent_session = await svc.get_session(session_id)
+        if parent_session is None:
+            raise TracecatNotFoundError(
+                f"Parent session with ID {session_id} not found"
+            )
+        await _require_workspace_chat_entitlement_for_session_tree(
+            svc=svc,
+            session=session,
+            role=role,
+            agent_session=parent_session,
+        )
         entity_type = request.entity_type if request else None
         if entity_type is None:
-            parent_session = await svc.get_session(session_id)
-            if parent_session is None:
-                raise TracecatNotFoundError(
-                    f"Parent session with ID {session_id} not found"
-                )
             entity_type = AgentSessionEntity(parent_session.entity_type)
         await require_workspace_chat_entitlement_for_entity(
             session=session,
