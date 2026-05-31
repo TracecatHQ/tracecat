@@ -218,6 +218,8 @@ class AgentArtifactHydrator:
             )
             return None
 
+        _require_agent_read_scope(ctx)
+
         async with AgentPresetService.with_session(role=ctx.role) as service:
             preset = await service.get_preset(preset_id)
             if preset is None:
@@ -256,6 +258,10 @@ def _require_case_read_scope(ctx: ArtifactHydrationContext) -> None:
 
 def _require_table_read_scope(ctx: ArtifactHydrationContext) -> None:
     _require_artifact_scope(ctx, "table:read")
+
+
+def _require_agent_read_scope(ctx: ArtifactHydrationContext) -> None:
+    _require_artifact_scope(ctx, "agent:read")
 
 
 def _require_artifact_scope(ctx: ArtifactHydrationContext, required_scope: str) -> None:
