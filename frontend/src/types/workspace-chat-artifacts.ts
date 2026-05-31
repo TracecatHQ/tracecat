@@ -199,6 +199,8 @@ function isArtifact(value: unknown): value is WorkspaceChatArtifact {
       )
     case "table":
       return value.rowCount === undefined || typeof value.rowCount === "number"
+    case "agent":
+      return true
     case "alert":
     case "integration":
     case "secret":
