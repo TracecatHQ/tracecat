@@ -1184,7 +1184,6 @@ class ClaudeAgentRuntime:
             session_id=str(payload.session_id),
             system_prompt_length=len(system_prompt),
             system_prompt_fragment_count=len(self._system_prompt_fragments),
-            system_prompt_preview=_preview_text(system_prompt),
         )
         return ClaudeAgentOptions(
             include_partial_messages=True,
