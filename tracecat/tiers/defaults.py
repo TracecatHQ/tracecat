@@ -88,7 +88,7 @@ def resolve_oss_default_entitlements(
         case_addons=case_addons_enabled,
         rbac_addons=rbac_enabled,
         service_accounts=False,
-        workspace_chat=False,
+        workspace_chat=agent_addons_enabled,
         watchtower=False,
     )
 

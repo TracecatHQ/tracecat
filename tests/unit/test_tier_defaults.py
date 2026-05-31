@@ -28,7 +28,7 @@ def test_resolve_oss_default_entitlements_maps_legacy_feature_flags() -> None:
     assert entitlements.agent_addons is True
     assert entitlements.case_addons is True
     assert entitlements.service_accounts is False
-    assert entitlements.workspace_chat is False
+    assert entitlements.workspace_chat is True
     assert entitlements.watchtower is False
 
 
