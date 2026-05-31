@@ -225,6 +225,53 @@ async def test_resolve_artifact_side_effects_resolves_table_id_identity(
 
 
 @pytest.mark.anyio
+async def test_resolve_artifact_side_effects_skips_invalid_table_name_ref(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def fake_get_table_by_name(
+        _service: object,
+        _table_name: str,
+    ) -> None:
+        raise ValueError("Invalid table name")
+
+    monkeypatch.setattr(
+        "tracecat.artifacts.resolution.TablesService.get_table_by_name",
+        fake_get_table_by_name,
+    )
+
+    artifact = ArtifactAdapter.validate_python(
+        {
+            "type": "table",
+            "id": "bad-name",
+            "title": "bad-name",
+        }
+    )
+
+    resolved = await resolve_artifact_side_effects(
+        [
+            ArtifactSideEffect(
+                op="upsert",
+                artifact=artifact,
+                identity_ref=ArtifactIdentityRef(
+                    artifact_type="table",
+                    ref="bad-name",
+                    ref_kind="name",
+                ),
+            )
+        ],
+        session=cast(AsyncSession, object()),
+        role=Role(
+            type="service",
+            service_id="tracecat-api",
+            workspace_id=uuid.uuid4(),
+            organization_id=uuid.uuid4(),
+        ),
+    )
+
+    assert resolved == []
+
+
+@pytest.mark.anyio
 async def test_tool_result_artifact_pipeline_persists_and_streams_data_part() -> None:
     """Cover tool result -> projection -> Redis event -> Vercel data-artifact."""
     effects = list(

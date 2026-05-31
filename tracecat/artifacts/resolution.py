@@ -80,7 +80,7 @@ async def _resolve_table_identity_ref(
         case "name":
             try:
                 table = await table_service.get_table_by_name(identity_ref.ref)
-            except TracecatNotFoundError:
+            except (TracecatNotFoundError, ValueError):
                 return None
         case "id":
             try:
