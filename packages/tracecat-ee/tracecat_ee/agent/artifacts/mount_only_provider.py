@@ -5,6 +5,7 @@ from __future__ import annotations
 import html
 import re
 import shutil
+import stat
 from pathlib import Path
 from typing import Any
 
@@ -41,14 +42,8 @@ class MountOnlyArtifactWorkingSetProvider:
         ctx: ArtifactWorkingSetContext,
     ) -> ArtifactWorkingSetResult:
         """Prepare scratch artifact files for a Workspace Chat turn."""
-        host_root = ctx.host_work_dir / ".tracecat" / "artifacts"
+        host_root = _prepare_host_artifact_root(ctx.host_work_dir)
         runtime_root = ctx.runtime_work_dir / ".tracecat" / "artifacts"
-        if host_root.exists():
-            if host_root.is_dir() and not host_root.is_symlink():
-                shutil.rmtree(host_root)
-            else:
-                host_root.unlink()
-        host_root.mkdir(parents=True, exist_ok=True)
 
         entries = [
             await self._write_artifact_files(
@@ -157,6 +152,41 @@ def build_provider() -> ArtifactWorkingSetProvider:
 def _safe_path_segment(value: str) -> str:
     safe_value = _SAFE_PATH_SEGMENT_RE.sub("_", value).strip("._")
     return safe_value or "artifact"
+
+
+def _prepare_host_artifact_root(host_work_dir: Path) -> Path:
+    tracecat_root = host_work_dir / ".tracecat"
+    _ensure_real_directory(tracecat_root)
+    artifact_root = tracecat_root / "artifacts"
+    _remove_path_without_following_symlink(artifact_root)
+    artifact_root.mkdir(parents=True, exist_ok=True)
+    return artifact_root
+
+
+def _ensure_real_directory(path: Path) -> None:
+    try:
+        path_stat = path.lstat()
+    except FileNotFoundError:
+        path.mkdir(parents=True, exist_ok=True)
+        return
+
+    if stat.S_ISDIR(path_stat.st_mode):
+        return
+
+    path.unlink()
+    path.mkdir(parents=True, exist_ok=True)
+
+
+def _remove_path_without_following_symlink(path: Path) -> None:
+    try:
+        path_stat = path.lstat()
+    except FileNotFoundError:
+        return
+
+    if stat.S_ISDIR(path_stat.st_mode):
+        shutil.rmtree(path)
+    else:
+        path.unlink()
 
 
 def _build_prompt_fragment(manifest: ArtifactWorkingSetManifest) -> str:

@@ -320,3 +320,39 @@ async def test_mount_only_provider_writes_manifest_and_artifact_files(tmp_path) 
         "severity": "high",
         "fields": [{"id": "customer", "name": "Customer", "value": "Acme"}],
     }
+
+
+@pytest.mark.anyio
+async def test_mount_only_provider_replaces_tracecat_symlink_without_following(
+    tmp_path,
+) -> None:
+    provider = MountOnlyArtifactWorkingSetProvider(
+        hydrators=ArtifactHydratorRegistry({})
+    )
+    workspace_id = uuid.uuid4()
+    host_work_dir = tmp_path / "host"
+    host_work_dir.mkdir()
+    outside_root = tmp_path / "outside"
+    outside_artifacts = outside_root / "artifacts"
+    outside_artifacts.mkdir(parents=True)
+    outside_marker = outside_artifacts / "keep.json"
+    outside_marker.write_text("keep", encoding="utf-8")
+    (host_work_dir / ".tracecat").symlink_to(outside_root, target_is_directory=True)
+
+    result = await provider.prepare_turn(
+        ArtifactWorkingSetContext(
+            session_id=uuid.uuid4(),
+            workspace_id=workspace_id,
+            role=_role(workspace_id),
+            artifacts=[],
+            host_work_dir=host_work_dir,
+            runtime_work_dir=tmp_path / "runtime",
+        )
+    )
+
+    tracecat_root = host_work_dir / ".tracecat"
+    assert outside_marker.read_text(encoding="utf-8") == "keep"
+    assert not tracecat_root.is_symlink()
+    assert tracecat_root.is_dir()
+    assert (tracecat_root / "artifacts" / "manifest.json").is_file()
+    assert result.manifest.artifacts == []
