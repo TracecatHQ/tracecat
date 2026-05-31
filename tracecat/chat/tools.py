@@ -15,6 +15,10 @@ TOOL_DEFAULTS = {
     AgentSessionEntity.WORKSPACE_CHAT: [
         "core.table.list_tables",
         "core.table.get_table_metadata",
+        "core.table.update_table",
+        "core.table.create_column",
+        "core.table.update_column",
+        "core.table.delete_column",
         "core.table.lookup",
         "core.table.search_rows",
         "core.cases.list_cases",
