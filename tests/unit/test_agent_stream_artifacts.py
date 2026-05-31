@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock
 
 import orjson
 import pytest
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.agent.adapter.vercel import (
     DataEventPayload,
@@ -19,13 +20,20 @@ from tracecat.agent.stream.artifacts import (
     artifact_stream_events_for_tool_result,
 )
 from tracecat.agent.stream.connector import AgentStream
-from tracecat.artifacts.bindings import artifact_side_effects_for_tool_result
+from tracecat.artifacts.bindings import (
+    ArtifactIdentityRef,
+    ArtifactSideEffect,
+    artifact_side_effects_for_tool_result,
+)
 from tracecat.artifacts.projection import (
     apply_artifact_side_effects,
     serialize_artifacts,
 )
+from tracecat.artifacts.resolution import resolve_artifact_side_effects
 from tracecat.artifacts.schemas import ArtifactAdapter
+from tracecat.auth.types import Role
 from tracecat.chat import tokens
+from tracecat.exceptions import TracecatNotFoundError
 from tracecat.redis.client import RedisClient
 
 
@@ -96,6 +104,171 @@ def test_artifact_stream_events_for_tool_result_projects_side_effects() -> None:
         "severity": "high",
         "status": "new",
     }
+
+
+@pytest.mark.anyio
+async def test_resolve_artifact_side_effects_resolves_table_name_identity(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def fake_get_table_by_name(
+        _service: object,
+        table_name: str,
+    ) -> SimpleNamespace:
+        return SimpleNamespace(
+            id=uuid.UUID("11111111-1111-4111-8111-111111111111"),
+            name=table_name,
+        )
+
+    monkeypatch.setattr(
+        "tracecat.artifacts.resolution.TablesService.get_table_by_name",
+        fake_get_table_by_name,
+    )
+
+    artifact = ArtifactAdapter.validate_python(
+        {
+            "type": "table",
+            "id": "indicators",
+            "title": "indicators",
+        }
+    )
+    effects = [
+        ArtifactSideEffect(
+            op="upsert",
+            artifact=artifact,
+            identity_ref=ArtifactIdentityRef(
+                artifact_type="table",
+                ref="indicators",
+                ref_kind="name",
+            ),
+        )
+    ]
+
+    resolved = await resolve_artifact_side_effects(
+        effects,
+        session=cast(AsyncSession, object()),
+        role=Role(
+            type="service",
+            service_id="tracecat-api",
+            workspace_id=uuid.uuid4(),
+            organization_id=uuid.uuid4(),
+        ),
+    )
+
+    assert len(resolved) == 1
+    assert resolved[0].op == "upsert"
+    assert resolved[0].artifact.id == "11111111-1111-4111-8111-111111111111"
+    assert resolved[0].artifact.title == "indicators"
+    assert resolved[0].identity_ref is None
+
+
+@pytest.mark.anyio
+async def test_resolve_artifact_side_effects_resolves_table_id_identity(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    table_id = uuid.UUID("22222222-2222-4222-8222-222222222222")
+
+    async def fake_get_table_by_name(
+        _service: object,
+        _table_name: str,
+    ) -> None:
+        raise TracecatNotFoundError("Table not found")
+
+    async def fake_get_table(
+        _service: object,
+        requested_table_id: uuid.UUID,
+    ) -> SimpleNamespace:
+        assert requested_table_id == table_id
+        return SimpleNamespace(id=table_id, name="indicators")
+
+    monkeypatch.setattr(
+        "tracecat.artifacts.resolution.TablesService.get_table_by_name",
+        fake_get_table_by_name,
+    )
+    monkeypatch.setattr(
+        "tracecat.artifacts.resolution.TablesService.get_table",
+        fake_get_table,
+    )
+
+    artifact = ArtifactAdapter.validate_python(
+        {
+            "type": "table",
+            "id": str(table_id),
+            "title": str(table_id),
+        }
+    )
+
+    resolved = await resolve_artifact_side_effects(
+        [
+            ArtifactSideEffect(
+                op="upsert",
+                artifact=artifact,
+                identity_ref=ArtifactIdentityRef(
+                    artifact_type="table",
+                    ref=str(table_id),
+                    ref_kind="id",
+                ),
+            )
+        ],
+        session=cast(AsyncSession, object()),
+        role=Role(
+            type="service",
+            service_id="tracecat-api",
+            workspace_id=uuid.uuid4(),
+            organization_id=uuid.uuid4(),
+        ),
+    )
+
+    assert len(resolved) == 1
+    assert resolved[0].artifact.id == str(table_id)
+    assert resolved[0].artifact.title == "indicators"
+    assert resolved[0].identity_ref is None
+
+
+@pytest.mark.anyio
+async def test_resolve_artifact_side_effects_skips_invalid_table_name_ref(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def fake_get_table_by_name(
+        _service: object,
+        _table_name: str,
+    ) -> None:
+        raise ValueError("Invalid table name")
+
+    monkeypatch.setattr(
+        "tracecat.artifacts.resolution.TablesService.get_table_by_name",
+        fake_get_table_by_name,
+    )
+
+    artifact = ArtifactAdapter.validate_python(
+        {
+            "type": "table",
+            "id": "bad-name",
+            "title": "bad-name",
+        }
+    )
+
+    resolved = await resolve_artifact_side_effects(
+        [
+            ArtifactSideEffect(
+                op="upsert",
+                artifact=artifact,
+                identity_ref=ArtifactIdentityRef(
+                    artifact_type="table",
+                    ref="bad-name",
+                    ref_kind="name",
+                ),
+            )
+        ],
+        session=cast(AsyncSession, object()),
+        role=Role(
+            type="service",
+            service_id="tracecat-api",
+            workspace_id=uuid.uuid4(),
+            organization_id=uuid.uuid4(),
+        ),
+    )
+
+    assert resolved == []
 
 
 @pytest.mark.anyio

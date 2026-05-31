@@ -320,6 +320,16 @@ export type AdminUserRead = {
 }
 
 /**
+ * Agent preset artifact shown in artifact-capable chat surfaces.
+ */
+export type AgentArtifact = {
+  id: string
+  title: string
+  scope?: ArtifactScope | null
+  type?: "agent"
+}
+
+/**
  * List catalog entries with pagination.
  */
 export type AgentCatalogListResponse = {
@@ -1154,6 +1164,7 @@ export type Artifact =
   | WorkflowArtifact
   | RunArtifact
   | TableArtifact
+  | AgentArtifact
   | AlertArtifact
   | IntegrationArtifact
   | SecretArtifact
@@ -1173,6 +1184,7 @@ export type ArtifactType =
   | "workflow"
   | "run"
   | "table"
+  | "agent"
   | "alert"
   | "integration"
   | "secret"

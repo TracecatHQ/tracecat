@@ -17,6 +17,7 @@ type ArtifactType = Literal[
     "workflow",
     "run",
     "table",
+    "agent",
     "alert",
     "integration",
     "secret",
@@ -78,6 +79,12 @@ class TableArtifact(BaseArtifact):
     row_count: int | None = Field(default=None, alias="rowCount")
 
 
+class AgentArtifact(BaseArtifact):
+    """Agent preset artifact shown in artifact-capable chat surfaces."""
+
+    type: Literal["agent"] = "agent"
+
+
 class AlertArtifact(BaseArtifact):
     """Alert artifact stub. Extend when alert surfaces are wired."""
 
@@ -108,6 +115,7 @@ type Artifact = Annotated[
     | WorkflowArtifact
     | RunArtifact
     | TableArtifact
+    | AgentArtifact
     | AlertArtifact
     | IntegrationArtifact
     | SecretArtifact

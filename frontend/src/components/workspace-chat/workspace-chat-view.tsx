@@ -1,9 +1,9 @@
 "use client"
 
 import { useQueryClient } from "@tanstack/react-query"
-import type { UIMessage } from "ai"
+import type { ChatOnDataCallback, UIMessage } from "ai"
 import { PanelLeftIcon } from "lucide-react"
-import { useRouter } from "next/navigation"
+import { useRouter, useSearchParams } from "next/navigation"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import type { AgentSessionsGetSessionVercelResponse } from "@/client"
 import { useScopeCheck } from "@/components/auth/scope-guard"
@@ -30,12 +30,48 @@ import { useWorkspaceId } from "@/providers/workspace-id"
 import {
   ARTIFACT_DATA_PART_TYPE,
   type ArtifactType,
+  parseWorkspaceChatArtifactStreamPart,
   type WorkspaceChatArtifact,
   type WorkspaceChatArtifactStreamPart,
 } from "@/types/workspace-chat-artifacts"
 
 const EMPTY_MESSAGES: UIMessage[] = []
 const EMPTY_ARTIFACTS: WorkspaceChatArtifact[] = []
+const ARTIFACT_QUERY_PARAM = "artifact"
+const ARTIFACT_TAB_QUERY_PARAM = "tab"
+const ARTIFACT_TYPES = new Set<ArtifactType>([
+  "case",
+  "workflow",
+  "run",
+  "table",
+  "agent",
+  "alert",
+  "integration",
+  "secret",
+  "generic",
+])
+
+function parseArtifactQueryValue(value: string | null): string | null {
+  if (!value) {
+    return null
+  }
+  const separatorIndex = value.indexOf(":")
+  if (separatorIndex <= 0 || separatorIndex === value.length - 1) {
+    return null
+  }
+  const type = value.slice(0, separatorIndex)
+  if (!ARTIFACT_TYPES.has(type as ArtifactType)) {
+    return null
+  }
+  return value
+}
+
+function parseArtifactTabQueryValue(value: string | null): string | null {
+  if (!value || !/^[a-z0-9-]+$/.test(value)) {
+    return null
+  }
+  return value
+}
 
 function sessionArtifacts(
   chat: AgentSessionsGetSessionVercelResponse | undefined
@@ -46,9 +82,23 @@ function sessionArtifacts(
   return chat.artifacts as WorkspaceChatArtifact[]
 }
 
-export function WorkspaceChatView() {
+/**
+ * Workspace chat surface. When `chatId` is provided (deep link via
+ * /chat/:chatId) it opens that session; otherwise it starts a fresh draft.
+ *
+ * `chatId` is the chat session id (a.k.a. sessionId) — the chat client names
+ * it `chatId` everywhere, so the prop matches that convention.
+ */
+export function WorkspaceChatView({ chatId }: { chatId?: string }) {
   const workspaceId = useWorkspaceId()
   const router = useRouter()
+  const searchParams = useSearchParams()
+  const initialArtifactKeyRef = useRef(
+    parseArtifactQueryValue(searchParams.get(ARTIFACT_QUERY_PARAM))
+  )
+  const initialArtifactTabRef = useRef(
+    parseArtifactTabQueryValue(searchParams.get(ARTIFACT_TAB_QUERY_PARAM))
+  )
   const queryClient = useQueryClient()
   const canAccessMissionControl = useScopeCheck(
     undefined,
@@ -63,6 +113,9 @@ export function WorkspaceChatView() {
     AgentSessionsGetSessionVercelResponse | undefined
   >()
   const [isPanelCollapsed, setIsPanelCollapsed] = useState(true)
+  const [artifactTab, setArtifactTab] = useState<string | null>(
+    initialArtifactTabRef.current
+  )
   const { removeArtifact } = useRemoveSessionArtifact(workspaceId)
   const persistedArtifacts = useMemo(() => sessionArtifacts(chat), [chat])
   const closePersistedArtifact = useCallback(
@@ -92,8 +145,19 @@ export function WorkspaceChatView() {
     },
     [queryClient, workspaceId]
   )
+  const handleStreamData = useCallback<ChatOnDataCallback<UIMessage>>(
+    (dataPart) => {
+      const part = parseWorkspaceChatArtifactStreamPart(dataPart)
+      if (!part) {
+        return
+      }
+      handleArtifactStreamPart(part)
+    },
+    [handleArtifactStreamPart]
+  )
   const artifactsState = useWorkspaceChatArtifacts(messages, {
     enabled: true,
+    initialActiveArtifactKey: initialArtifactKeyRef.current,
     persistedArtifacts,
     onArtifactStreamPart: handleArtifactStreamPart,
     onCloseArtifact: closePersistedArtifact,
@@ -114,6 +178,30 @@ export function WorkspaceChatView() {
     }
     prevHasArtifactsRef.current = next
   }, [artifactCount])
+
+  useEffect(() => {
+    if (chat === undefined && !hasArtifacts) {
+      return
+    }
+
+    const url = new URL(window.location.href)
+    if (artifactsState.activeArtifactKey) {
+      url.searchParams.set(
+        ARTIFACT_QUERY_PARAM,
+        artifactsState.activeArtifactKey
+      )
+      if (artifactTab) {
+        url.searchParams.set(ARTIFACT_TAB_QUERY_PARAM, artifactTab)
+      } else {
+        url.searchParams.delete(ARTIFACT_TAB_QUERY_PARAM)
+      }
+    } else {
+      url.searchParams.delete(ARTIFACT_QUERY_PARAM)
+      url.searchParams.delete(ARTIFACT_TAB_QUERY_PARAM)
+    }
+    url.hash = ""
+    window.history.replaceState(window.history.state, "", url.toString())
+  }, [artifactTab, artifactsState.activeArtifactKey, chat, hasArtifacts])
 
   const collapsePanel = useCallback(() => setIsPanelCollapsed(true), [])
   const expandPanel = useCallback(() => setIsPanelCollapsed(false), [])
@@ -165,12 +253,14 @@ export function WorkspaceChatView() {
       >
         <div className="flex size-full min-w-[320px] flex-col">
           <ChatInterface
+            chatId={chatId}
             entityType="copilot"
             entityId={workspaceId}
             bodyClassName="min-h-0"
             placeholder="Ask Tracecat..."
             surface="workspace-chat"
             onMessagesChange={setMessages}
+            onData={handleStreamData}
             onChatChange={setChat}
             headerActions={
               showExpandButton ? (
@@ -211,6 +301,8 @@ export function WorkspaceChatView() {
               setActiveArtifactKey={artifactsState.setActiveArtifactKey}
               closeArtifact={artifactsState.closeArtifact}
               workspaceId={workspaceId}
+              artifactTab={artifactTab}
+              setArtifactTab={setArtifactTab}
               onCollapse={collapsePanel}
             />
           </ResizablePanel>

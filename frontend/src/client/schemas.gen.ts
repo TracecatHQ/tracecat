@@ -1212,6 +1212,40 @@ export const $AdminUserRead = {
   description: "Admin view of a user.",
 } as const
 
+export const $AgentArtifact = {
+  properties: {
+    id: {
+      type: "string",
+      title: "Id",
+    },
+    title: {
+      type: "string",
+      title: "Title",
+    },
+    scope: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/ArtifactScope",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    type: {
+      type: "string",
+      const: "agent",
+      title: "Type",
+      default: "agent",
+    },
+  },
+  additionalProperties: false,
+  type: "object",
+  required: ["id", "title"],
+  title: "AgentArtifact",
+  description: "Agent preset artifact shown in artifact-capable chat surfaces.",
+} as const
+
 export const $AgentCatalogListResponse = {
   properties: {
     items: {
@@ -4651,6 +4685,9 @@ export const $Artifact = {
       $ref: "#/components/schemas/TableArtifact",
     },
     {
+      $ref: "#/components/schemas/AgentArtifact",
+    },
+    {
       $ref: "#/components/schemas/AlertArtifact",
     },
     {
@@ -4666,6 +4703,7 @@ export const $Artifact = {
   discriminator: {
     propertyName: "type",
     mapping: {
+      agent: "#/components/schemas/AgentArtifact",
       alert: "#/components/schemas/AlertArtifact",
       case: "#/components/schemas/CaseArtifact",
       generic: "#/components/schemas/GenericArtifact",
@@ -4727,6 +4765,7 @@ export const $ArtifactType = {
     "workflow",
     "run",
     "table",
+    "agent",
     "alert",
     "integration",
     "secret",

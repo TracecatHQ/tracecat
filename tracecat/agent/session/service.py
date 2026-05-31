@@ -80,7 +80,10 @@ from tracecat.chat.schemas import (
     VercelChatRequest,
 )
 from tracecat.chat.service import ChatService
-from tracecat.chat.tools import get_default_tools
+from tracecat.chat.tools import (
+    filter_workspace_chat_tools_for_entitlements,
+    get_default_tools,
+)
 from tracecat.db.models import (
     AgentSession,
     AgentSessionHistory,
@@ -127,6 +130,28 @@ class AgentSessionService(BaseWorkspaceService):
 
     service_name = "agent-session"
 
+    async def _get_default_tools(self, entity_type: AgentSessionEntity) -> list[str]:
+        """Get entitlement-aware default tools for a session entity type."""
+        agent_addons_enabled = True
+        if entity_type is AgentSessionEntity.WORKSPACE_CHAT:
+            agent_addons_enabled = await self.has_entitlement(Entitlement.AGENT_ADDONS)
+        return get_default_tools(
+            entity_type.value,
+            agent_addons_enabled=agent_addons_enabled,
+        )
+
+    async def _workspace_chat_tools_for_entitlements(
+        self,
+        tools: list[str] | None,
+    ) -> list[str] | None:
+        """Filter stored Workspace chat tools by current entitlements."""
+        if tools is None:
+            return None
+        return filter_workspace_chat_tools_for_entitlements(
+            tools,
+            agent_addons_enabled=await self.has_entitlement(Entitlement.AGENT_ADDONS),
+        )
+
     def _build_direct_agent_search_attributes(
         self, session_id: uuid.UUID
     ) -> TypedSearchAttributes:
@@ -171,7 +196,7 @@ class AgentSessionService(BaseWorkspaceService):
         # Apply default tools based on entity type if tools not provided
         tools = args.tools
         if not tools and args.entity_type:
-            tools = get_default_tools(args.entity_type.value)
+            tools = await self._get_default_tools(args.entity_type)
         logical_preset_id = self._resolve_logical_preset_id(
             entity_type=args.entity_type,
             entity_id=args.entity_id,
@@ -1536,12 +1561,15 @@ class AgentSessionService(BaseWorkspaceService):
             else:
                 # Copilot without preset uses org-level credentials (default)
                 async with agent_svc.with_model_config() as model_config:
+                    actions = await self._workspace_chat_tools_for_entitlements(
+                        agent_session.tools
+                    )
                     yield AgentConfig(
                         instructions=entity_instructions,
                         model_name=model_config.name,
                         model_provider=model_config.provider,
                         catalog_id=model_config.catalog_id,
-                        actions=agent_session.tools,
+                        actions=actions,
                     )
         elif session_entity in (
             AgentSessionEntity.WORKFLOW,

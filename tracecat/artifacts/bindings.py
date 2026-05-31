@@ -16,10 +16,17 @@ from pydantic import (
     ValidationError,
 )
 
-from tracecat.artifacts.schemas import Artifact, ArtifactAdapter, ArtifactOp
+from tracecat.artifacts.schemas import (
+    Artifact,
+    ArtifactAdapter,
+    ArtifactOp,
+    ArtifactSchema,
+    ArtifactType,
+)
 from tracecat.cases.enums import CaseSeverity, CaseStatus
 
 type RunStatus = Literal["running", "success", "failed", "cancelled"]
+type ArtifactIdentityRefKind = Literal["id", "name"]
 
 
 class CaseArtifactPayload(TypedDict):
@@ -39,6 +46,14 @@ class TableArtifactPayload(TypedDict):
     id: str
     title: str
     rowCount: NotRequired[int]
+
+
+class AgentArtifactPayload(TypedDict):
+    """Raw payload used to validate an agent preset artifact."""
+
+    type: Literal["agent"]
+    id: str
+    title: str
 
 
 class RunArtifactPayload(TypedDict):
@@ -89,6 +104,24 @@ class _TableToolResult(_ArtifactProjectionModel):
     )
 
 
+class _TableMutationToolInput(_ArtifactProjectionModel):
+    table: str = Field(
+        validation_alias=AliasChoices("table", "name", "table_id", "tableId")
+    )
+
+
+class _TableIdToolInput(_ArtifactProjectionModel):
+    table_id: str = Field(validation_alias=AliasChoices("table_id", "tableId"))
+
+
+class _AgentPresetToolResult(_ArtifactProjectionModel):
+    id: str
+    title: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("name", "title"),
+    )
+
+
 class _WorkflowRunToolResult(_ArtifactProjectionModel):
     run_id: str = Field(
         validation_alias=AliasChoices("wf_exec_id", "wfExecId", "run_id", "id")
@@ -113,11 +146,21 @@ class _WorkflowRunToolInput(_ArtifactProjectionModel):
 
 
 @dataclass(frozen=True, kw_only=True, slots=True)
+class ArtifactIdentityRef:
+    """Unresolved reference to the domain object backing an artifact."""
+
+    artifact_type: ArtifactType
+    ref: str
+    ref_kind: ArtifactIdentityRefKind
+
+
+@dataclass(frozen=True, kw_only=True, slots=True)
 class ArtifactSideEffect:
     """Artifact operation derived from an action result."""
 
     op: ArtifactOp
     artifact: Artifact
+    identity_ref: ArtifactIdentityRef | None = None
 
 
 @dataclass(frozen=True, kw_only=True, slots=True)
@@ -131,7 +174,13 @@ class ArtifactProjectionContext:
     tool_call_id: str | None
 
 
-type ArtifactBuilder = Callable[[ArtifactProjectionContext], Artifact | None]
+type ArtifactBuilder = Callable[
+    [ArtifactProjectionContext], Artifact | Iterable[Artifact] | None
+]
+type ArtifactIdentityBuilder = Callable[
+    [ArtifactProjectionContext],
+    ArtifactIdentityRef | None,
+]
 
 
 @dataclass(frozen=True, kw_only=True, slots=True)
@@ -141,18 +190,59 @@ class ArtifactBinding:
     tool_names: tuple[str, ...]
     op: ArtifactOp
     build: ArtifactBuilder
+    identity: ArtifactIdentityBuilder | None = None
 
 
 def _build_case_artifact(ctx: ArtifactProjectionContext) -> Artifact | None:
     return _case_artifact_from_output(ctx.tool_output, ctx.tool_call_id)
 
 
+def _build_case_artifacts(ctx: ArtifactProjectionContext) -> Iterable[Artifact]:
+    return _case_artifacts_from_output(ctx.tool_output, ctx.tool_call_id)
+
+
 def _build_deleted_case_artifact(ctx: ArtifactProjectionContext) -> Artifact | None:
     return _deleted_case_artifact(ctx.tool_input, ctx.tool_call_id)
 
 
-def _build_table_artifact(ctx: ArtifactProjectionContext) -> Artifact | None:
+def _build_table_mutation_artifact(ctx: ArtifactProjectionContext) -> Artifact | None:
+    artifact = _table_artifact_from_output(ctx.tool_output, ctx.tool_call_id)
+    if artifact is not None:
+        return artifact
+    return _table_artifact_from_input(ctx.tool_input, ctx.tool_call_id)
+
+
+def _build_table_input_artifact(ctx: ArtifactProjectionContext) -> Artifact | None:
+    artifact = _table_artifact_from_input(ctx.tool_input, ctx.tool_call_id)
+    if artifact is not None:
+        return artifact
     return _table_artifact_from_output(ctx.tool_output, ctx.tool_call_id)
+
+
+def _table_identity_from_input(
+    ctx: ArtifactProjectionContext,
+) -> ArtifactIdentityRef | None:
+    return _table_identity_ref_from_input(ctx.tool_input)
+
+
+def _table_identity_from_input_when_output_missing(
+    ctx: ArtifactProjectionContext,
+) -> ArtifactIdentityRef | None:
+    if _table_artifact_from_output(ctx.tool_output, ctx.tool_call_id) is not None:
+        return None
+    return _table_identity_ref_from_input(ctx.tool_input)
+
+
+def _build_table_artifacts(ctx: ArtifactProjectionContext) -> Iterable[Artifact]:
+    return _table_artifacts_from_output(ctx.tool_output, ctx.tool_call_id)
+
+
+def _build_agent_artifact(ctx: ArtifactProjectionContext) -> Artifact | None:
+    return _agent_artifact_from_output(ctx.tool_output, ctx.tool_call_id)
+
+
+def _build_agent_artifacts(ctx: ArtifactProjectionContext) -> Iterable[Artifact]:
+    return _agent_artifacts_from_output(ctx.tool_output, ctx.tool_call_id)
 
 
 def _build_workflow_run_artifact(ctx: ArtifactProjectionContext) -> Artifact | None:
@@ -161,9 +251,18 @@ def _build_workflow_run_artifact(ctx: ArtifactProjectionContext) -> Artifact | N
 
 ARTIFACT_BINDINGS: tuple[ArtifactBinding, ...] = (
     ArtifactBinding(
-        tool_names=("core.cases.create_case", "core.cases.update_case"),
+        tool_names=(
+            "core.cases.create_case",
+            "core.cases.update_case",
+            "core.cases.get_case",
+        ),
         op="upsert",
         build=_build_case_artifact,
+    ),
+    ArtifactBinding(
+        tool_names=("core.cases.list_cases", "core.cases.search_cases"),
+        op="upsert",
+        build=_build_case_artifacts,
     ),
     ArtifactBinding(
         tool_names=("core.cases.delete_case",),
@@ -171,9 +270,52 @@ ARTIFACT_BINDINGS: tuple[ArtifactBinding, ...] = (
         build=_build_deleted_case_artifact,
     ),
     ArtifactBinding(
-        tool_names=("core.table.create_table",),
+        tool_names=(
+            "core.table.create_table",
+            "core.table.get_table_metadata",
+            "core.table.update_table",
+            "core.table.create_column",
+            "core.table.update_column",
+            "core.table.delete_column",
+        ),
         op="upsert",
-        build=_build_table_artifact,
+        build=_build_table_mutation_artifact,
+        identity=_table_identity_from_input_when_output_missing,
+    ),
+    ArtifactBinding(
+        tool_names=("core.table.list_tables",),
+        op="upsert",
+        build=_build_table_artifacts,
+    ),
+    ArtifactBinding(
+        tool_names=(
+            "core.table.lookup",
+            "core.table.lookup_many",
+            "core.table.is_in",
+            "core.table.search_rows",
+            "core.table.insert_row",
+            "core.table.insert_rows",
+            "core.table.update_row",
+            "core.table.delete_row",
+            "core.table.download",
+        ),
+        op="upsert",
+        build=_build_table_input_artifact,
+        identity=_table_identity_from_input,
+    ),
+    ArtifactBinding(
+        tool_names=(
+            "ai.agent.create_preset",
+            "ai.agent.get_preset",
+            "ai.agent.update_preset",
+        ),
+        op="upsert",
+        build=_build_agent_artifact,
+    ),
+    ArtifactBinding(
+        tool_names=("ai.agent.list_presets",),
+        op="upsert",
+        build=_build_agent_artifacts,
     ),
     ArtifactBinding(
         tool_names=("core.workflow.execute", "core.workflow.get_status"),
@@ -196,6 +338,18 @@ def _index_artifact_bindings(
 
 
 _ARTIFACT_BINDINGS_BY_TOOL_NAME = _index_artifact_bindings(ARTIFACT_BINDINGS)
+
+
+def _artifact_tuple(
+    artifacts: Artifact | Iterable[Artifact] | None,
+) -> tuple[Artifact, ...]:
+    match artifacts:
+        case None:
+            return ()
+        case ArtifactSchema():
+            return (artifacts,)
+        case _:
+            return tuple(artifacts)
 
 
 def artifact_side_effects_for_tool_result(
@@ -231,8 +385,17 @@ def artifact_side_effects_for_tool_result(
     if binding is None:
         return
 
-    if artifact := binding.build(ctx):
-        yield ArtifactSideEffect(op=binding.op, artifact=artifact)
+    artifacts = _artifact_tuple(binding.build(ctx))
+    if not artifacts:
+        return
+
+    identity_ref = binding.identity(ctx) if binding.identity else None
+    for artifact in artifacts:
+        yield ArtifactSideEffect(
+            op=binding.op,
+            artifact=artifact,
+            identity_ref=identity_ref,
+        )
 
 
 _EXPLICIT_ARTIFACT_SOURCES: tuple[tuple[str, ArtifactOp], ...] = (
@@ -316,6 +479,23 @@ def _case_artifact_from_output(value: Any, tool_call_id: str | None) -> Artifact
     return ArtifactAdapter.validate_python(_with_parent_scope(payload, tool_call_id))
 
 
+def _case_artifacts_from_output(
+    value: Any, tool_call_id: str | None
+) -> Iterator[Artifact]:
+    for data in _iter_mappings_from_tool_output(value):
+        if result := _CaseToolResult.try_validate(data):
+            payload: CaseArtifactPayload = {
+                "type": "case",
+                "id": result.id,
+                "title": result.title or result.id,
+                "severity": result.severity,
+                "status": result.status,
+            }
+            yield ArtifactAdapter.validate_python(
+                _with_parent_scope(payload, tool_call_id)
+            )
+
+
 def _deleted_case_artifact(
     tool_input: Mapping[str, Any] | None, tool_call_id: str | None
 ) -> Artifact | None:
@@ -356,6 +536,98 @@ def _table_artifact_from_output(
         payload["rowCount"] = result.row_count
 
     return ArtifactAdapter.validate_python(_with_parent_scope(payload, tool_call_id))
+
+
+def _table_artifacts_from_output(
+    value: Any, tool_call_id: str | None
+) -> Iterator[Artifact]:
+    for data in _iter_mappings_from_tool_output(value):
+        if result := _TableToolResult.try_validate(data):
+            payload: TableArtifactPayload = {
+                "type": "table",
+                "id": result.id,
+                "title": result.title or result.id,
+            }
+            if result.row_count is not None:
+                payload["rowCount"] = result.row_count
+            yield ArtifactAdapter.validate_python(
+                _with_parent_scope(payload, tool_call_id)
+            )
+
+
+def _table_artifact_from_input(
+    value: Mapping[str, Any] | None, tool_call_id: str | None
+) -> Artifact | None:
+    if value is None:
+        return None
+
+    result = _TableMutationToolInput.try_validate(value)
+    if result is None:
+        return None
+
+    payload: TableArtifactPayload = {
+        "type": "table",
+        "id": result.table,
+        "title": result.table,
+    }
+    return ArtifactAdapter.validate_python(_with_parent_scope(payload, tool_call_id))
+
+
+def _table_identity_ref_from_input(
+    value: Mapping[str, Any] | None,
+) -> ArtifactIdentityRef | None:
+    if value is None:
+        return None
+
+    if table_id := _TableIdToolInput.try_validate(value):
+        return ArtifactIdentityRef(
+            artifact_type="table",
+            ref=table_id.table_id,
+            ref_kind="id",
+        )
+
+    if table := _TableMutationToolInput.try_validate(value):
+        return ArtifactIdentityRef(
+            artifact_type="table",
+            ref=table.table,
+            ref_kind="name",
+        )
+    return None
+
+
+def _agent_artifact_from_output(
+    value: Any, tool_call_id: str | None
+) -> Artifact | None:
+    data = _mapping_from_tool_output(value)
+    if data is None:
+        return None
+
+    result = _AgentPresetToolResult.try_validate(data)
+    if result is None:
+        return None
+
+    payload: AgentArtifactPayload = {
+        "type": "agent",
+        "id": result.id,
+        "title": result.title or result.id,
+    }
+
+    return ArtifactAdapter.validate_python(_with_parent_scope(payload, tool_call_id))
+
+
+def _agent_artifacts_from_output(
+    value: Any, tool_call_id: str | None
+) -> Iterator[Artifact]:
+    for data in _iter_mappings_from_tool_output(value):
+        if result := _AgentPresetToolResult.try_validate(data):
+            payload: AgentArtifactPayload = {
+                "type": "agent",
+                "id": result.id,
+                "title": result.title or result.id,
+            }
+            yield ArtifactAdapter.validate_python(
+                _with_parent_scope(payload, tool_call_id)
+            )
 
 
 def _run_artifact_from_output(
@@ -403,6 +675,43 @@ def _mapping_from_tool_output(value: Any) -> Mapping[str, Any] | None:
             return _mapping_from_content_blocks(items)
         case _:
             return None
+
+
+def _iter_mappings_from_tool_output(value: Any) -> Iterator[Mapping[str, Any]]:
+    match value:
+        case Mapping() as mapping:
+            if content := mapping.get("content"):
+                yield from _iter_mappings_from_tool_output(content)
+                return
+
+            text = mapping.get("text")
+            if isinstance(text, str):
+                if decoded := _json_value_from_text(text):
+                    yield from _iter_mappings_from_tool_output(decoded)
+                    return
+
+            if items := mapping.get("items"):
+                yield from _iter_mappings_from_tool_output(items)
+                return
+
+            yield cast(Mapping[str, Any], mapping)
+        case str() as text:
+            if decoded := _json_value_from_text(text):
+                yield from _iter_mappings_from_tool_output(decoded)
+        case list() as items:
+            for item in items:
+                yield from _iter_mappings_from_tool_output(item)
+        case tuple() as items:
+            for item in items:
+                yield from _iter_mappings_from_tool_output(item)
+        case _:
+            model_dump = getattr(value, "model_dump", None)
+            if callable(model_dump):
+                try:
+                    dumped = model_dump()
+                except Exception:
+                    return
+                yield from _iter_mappings_from_tool_output(dumped)
 
 
 def _mapping_from_content_blocks(value: Any) -> Mapping[str, Any] | None:
@@ -454,13 +763,17 @@ def _mapping_from_content_block(item: Any) -> Mapping[str, Any] | None:
 
 
 def _mapping_from_json_text(text: str) -> Mapping[str, Any] | None:
-    try:
-        decoded = orjson.loads(text)
-    except orjson.JSONDecodeError:
-        return None
+    decoded = _json_value_from_text(text)
     if isinstance(decoded, dict):
         return cast(Mapping[str, Any], decoded)
     return None
+
+
+def _json_value_from_text(text: str) -> Any | None:
+    try:
+        return orjson.loads(text)
+    except orjson.JSONDecodeError:
+        return None
 
 
 def _with_parent_scope(

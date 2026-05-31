@@ -6,7 +6,11 @@ from types import SimpleNamespace
 
 import orjson
 import pytest
-from tracecat_ee.agent.artifacts.hydrators import CaseArtifactHydrator
+from tracecat_ee.agent.artifacts.hydrators import (
+    AgentArtifactHydrator,
+    CaseArtifactHydrator,
+    TableArtifactHydrator,
+)
 from tracecat_ee.agent.artifacts.mount_only_provider import (
     MountOnlyArtifactWorkingSetProvider,
 )
@@ -26,10 +30,12 @@ from tracecat.agent.artifacts.providers import (
 )
 from tracecat.agent.artifacts.working_set import ArtifactWorkingSetContext
 from tracecat.artifacts.schemas import (
+    AgentArtifact,
     Artifact,
     ArtifactType,
     CaseArtifact,
     GenericArtifact,
+    TableArtifact,
 )
 from tracecat.auth.types import Role
 from tracecat.cases.enums import CaseSeverity, CaseStatus
@@ -182,6 +188,42 @@ async def test_case_artifact_hydrator_requires_case_read_scope() -> None:
                 title="Case",
                 severity=CaseSeverity.HIGH,
                 status=CaseStatus.NEW,
+            ),
+            ArtifactHydrationContext(
+                session_id=uuid.uuid4(),
+                workspace_id=workspace_id,
+                role=_role(workspace_id),
+            ),
+        )
+
+
+@pytest.mark.anyio
+async def test_table_artifact_hydrator_requires_table_read_scope() -> None:
+    workspace_id = uuid.uuid4()
+
+    with pytest.raises(ScopeDeniedError):
+        await TableArtifactHydrator().hydrate(
+            TableArtifact(
+                id=str(uuid.uuid4()),
+                title="Table",
+            ),
+            ArtifactHydrationContext(
+                session_id=uuid.uuid4(),
+                workspace_id=workspace_id,
+                role=_role(workspace_id),
+            ),
+        )
+
+
+@pytest.mark.anyio
+async def test_agent_artifact_hydrator_requires_agent_read_scope() -> None:
+    workspace_id = uuid.uuid4()
+
+    with pytest.raises(ScopeDeniedError):
+        await AgentArtifactHydrator().hydrate(
+            AgentArtifact(
+                id=str(uuid.uuid4()),
+                title="Agent",
             ),
             ArtifactHydrationContext(
                 session_id=uuid.uuid4(),

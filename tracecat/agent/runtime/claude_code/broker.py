@@ -24,6 +24,7 @@ from tracecat.agent.runtime.session_paths import (
     AgentSandboxPathMapping,
     build_agent_sandbox_path_mapping,
 )
+from tracecat.logger import logger
 
 
 class ConcurrentSessionTurnError(RuntimeError):
@@ -149,6 +150,12 @@ class ClaudeRuntimeBroker:
                     )
                 )
                 artifact_prompt_fragment = working_set.prompt_fragment
+                logger.info(
+                    "Prepared artifact prompt fragment for Claude runtime",
+                    session_id=str(request.init_payload.session_id),
+                    artifact_count=len(working_set.manifest.artifacts),
+                    artifact_root=working_set.manifest.root,
+                )
             runtime = ClaudeAgentRuntime(
                 handler,
                 transport_factory=lambda options: SandboxedCLITransport(

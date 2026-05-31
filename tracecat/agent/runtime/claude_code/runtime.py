@@ -84,6 +84,7 @@ from tracecat.logger import logger
 
 CLAUDE_PROJECT_DIR_MAX_LENGTH = 200
 CLAUDE_PROJECT_DIR_SANITIZE_RE = re.compile(r"[^a-zA-Z0-9]")
+LOG_PREVIEW_CHARS = 8000
 
 
 def _claude_project_dir_name(cwd: Path) -> str:
@@ -106,6 +107,12 @@ def _claude_project_dir_name(cwd: Path) -> str:
 def _ensure_supported_claude_project_dir_name(cwd: Path) -> None:
     """Ensure Claude can persist sessions under the runtime cwd."""
     _claude_project_dir_name(cwd)
+
+
+def _preview_text(text: str, *, limit: int = LOG_PREVIEW_CHARS) -> str:
+    if len(text) <= limit:
+        return text
+    return f"{text[:limit]}... [truncated]"
 
 
 class RuntimeEventWriter(Protocol):
@@ -1168,6 +1175,16 @@ class ClaudeAgentRuntime:
         stderr: Callable[[str], None],
     ) -> ClaudeAgentOptions:
         """Build Claude SDK options from runtime policy and payload config."""
+        system_prompt = self._build_system_prompt(
+            payload.config.instructions,
+            payload.config.output_type,
+        )
+        logger.info(
+            "Claude runtime system prompt prepared",
+            session_id=str(payload.session_id),
+            system_prompt_length=len(system_prompt),
+            system_prompt_fragment_count=len(self._system_prompt_fragments),
+        )
         return ClaudeAgentOptions(
             include_partial_messages=True,
             resume=resume_session_id,
@@ -1184,9 +1201,7 @@ class ClaudeAgentRuntime:
                 model_name=payload.config.model_name,
                 passthrough=payload.config.passthrough,
             ),
-            system_prompt=self._build_system_prompt(
-                payload.config.instructions, payload.config.output_type
-            ),
+            system_prompt=system_prompt,
             mcp_servers=mcp_servers,
             allowed_tools=self._root_allowed_tools(
                 actions=payload.allowed_actions,
@@ -1361,11 +1376,24 @@ class ClaudeAgentRuntime:
                     "prompt_length": len(APPROVAL_CONTINUATION_PROMPT),
                     "is_meta": True,
                 }
-                logger.debug("Approval continuation with meta prompt")
+                logger.info(
+                    "Claude runtime user prompt prepared",
+                    session_id=str(payload.session_id),
+                    is_continuation=True,
+                    is_meta=True,
+                    prompt_length=len(APPROVAL_CONTINUATION_PROMPT),
+                    prompt_preview=_preview_text(APPROVAL_CONTINUATION_PROMPT),
+                )
             else:
                 query_input = payload.user_prompt
                 query_log_extra = {"prompt_length": len(query_input)}
-                logger.debug("Normal turn with user prompt")
+                logger.info(
+                    "Claude runtime user prompt prepared",
+                    session_id=str(payload.session_id),
+                    is_continuation=False,
+                    is_meta=False,
+                    prompt_length=len(query_input),
+                )
 
             transport = self._transport_factory(options)
             client = ClaudeSDKClient(options=options, transport=transport)

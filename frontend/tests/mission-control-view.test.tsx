@@ -15,6 +15,7 @@ const mockHasEntitlement = jest.fn<boolean, [string]>()
 
 jest.mock("next/navigation", () => ({
   useRouter: () => ({ replace: mockRouterReplace }),
+  useSearchParams: () => new URLSearchParams(),
 }))
 
 jest.mock("@/components/auth/scope-guard", () => ({

@@ -24,6 +24,7 @@ export type UseWorkspaceChatArtifactsResult = {
 /** Options for projecting artifact stream parts into workspace chat state. */
 export type UseWorkspaceChatArtifactsOptions = {
   enabled?: boolean
+  initialActiveArtifactKey?: string | null
   persistedArtifacts?: WorkspaceChatArtifact[]
   onArtifactStreamPart?: (part: WorkspaceChatArtifactStreamPart) => void
   onCloseArtifact?: (type: ArtifactType, id: string) => void | Promise<void>
@@ -39,7 +40,7 @@ const EMPTY_ARTIFACTS: WorkspaceChatArtifact[] = []
 function reduceArtifactPayload(
   next: Map<string, WorkspaceChatArtifact>,
   payload: ArtifactDataPayload
-) {
+): void {
   const key = artifactKey(payload.artifact)
   switch (payload.op) {
     case "upsert":
@@ -54,7 +55,7 @@ function reduceArtifactPayload(
 function reduceWorkspaceChatArtifactStreamPart(
   next: Map<string, WorkspaceChatArtifact>,
   part: WorkspaceChatArtifactStreamPart
-) {
+): void {
   switch (part.type) {
     case ARTIFACT_DATA_PART_TYPE:
       reduceArtifactPayload(next, part.data)
@@ -152,6 +153,20 @@ function lastArtifactKey(artifacts: WorkspaceChatArtifact[]): string | null {
   return artifact ? artifactKey(artifact) : null
 }
 
+function selectActiveArtifactKey(
+  artifacts: WorkspaceChatArtifact[],
+  preferredKey: string | null,
+  fallbackKey: string | null
+): string | null {
+  if (
+    preferredKey &&
+    artifacts.some((artifact) => artifactKey(artifact) === preferredKey)
+  ) {
+    return preferredKey
+  }
+  return fallbackKey
+}
+
 function notifyArtifactStreamParts(
   streamParts: WorkspaceChatArtifactMessageStreamPart[],
   onArtifactStreamPart: UseWorkspaceChatArtifactsOptions["onArtifactStreamPart"]
@@ -176,6 +191,7 @@ export function useWorkspaceChatArtifacts(
   options: UseWorkspaceChatArtifactsOptions = {}
 ): UseWorkspaceChatArtifactsResult {
   const enabled = options.enabled ?? true
+  const initialActiveArtifactKey = options.initialActiveArtifactKey ?? null
   const persistedArtifacts = options.persistedArtifacts ?? EMPTY_ARTIFACTS
   const onArtifactStreamPart = options.onArtifactStreamPart
   const onCloseArtifact = options.onCloseArtifact
@@ -191,13 +207,24 @@ export function useWorkspaceChatArtifacts(
   const previousPersistedArtifactSignatureRef = useRef(
     persistedArtifactSignature
   )
+  const initialActiveArtifactKeyRef = useRef(initialActiveArtifactKey)
   const [activeArtifactKey, setActiveArtifactKey] = useState<string | null>(
     () => {
       if (!enabled) {
         return null
       }
       const initialParts = messageStreamParts(messages)
-      return lastUpsertKey(initialParts) ?? lastArtifactKey(persistedArtifacts)
+      const initialArtifacts = Array.from(
+        artifactMapFromArtifactsAndMessageStreamParts(
+          persistedArtifacts,
+          initialParts
+        ).values()
+      )
+      return selectActiveArtifactKey(
+        initialArtifacts,
+        initialActiveArtifactKeyRef.current,
+        lastUpsertKey(initialParts) ?? lastArtifactKey(persistedArtifacts)
+      )
     }
   )
   const [streamArtifacts, setStreamArtifacts] = useState<
@@ -215,6 +242,13 @@ export function useWorkspaceChatArtifacts(
       initialParts
     )
   })
+  const setActiveArtifactKeyAndClearInitial = useCallback(
+    (key: string | null) => {
+      initialActiveArtifactKeyRef.current = null
+      setActiveArtifactKey(key)
+    },
+    []
+  )
 
   useEffect(() => {
     const firstMessageId = messages[0]?.id ?? null
@@ -249,14 +283,17 @@ export function useWorkspaceChatArtifacts(
       processedMessagePartKeysRef.current = new Set(
         currentParts.map(({ eventKey }) => eventKey)
       )
-      setStreamArtifacts(
-        artifactMapFromArtifactsAndMessageStreamParts(
-          persistedArtifacts,
-          currentParts
-        )
+      const nextArtifacts = artifactMapFromArtifactsAndMessageStreamParts(
+        persistedArtifacts,
+        currentParts
       )
+      setStreamArtifacts(nextArtifacts)
       setActiveArtifactKey(
-        lastUpsertKey(currentParts) ?? lastArtifactKey(persistedArtifacts)
+        selectActiveArtifactKey(
+          Array.from(nextArtifacts.values()),
+          initialActiveArtifactKeyRef.current,
+          lastUpsertKey(currentParts) ?? lastArtifactKey(persistedArtifacts)
+        )
       )
       return
     }
@@ -270,15 +307,20 @@ export function useWorkspaceChatArtifacts(
       for (const { eventKey } of pendingParts) {
         processedMessagePartKeysRef.current.add(eventKey)
       }
-      setStreamArtifacts(
-        artifactMapFromArtifactsAndMessageStreamParts(
-          persistedArtifacts,
-          pendingParts
-        )
+      const nextArtifacts = artifactMapFromArtifactsAndMessageStreamParts(
+        persistedArtifacts,
+        pendingParts
       )
+      setStreamArtifacts(nextArtifacts)
       const nextActiveArtifactKey =
         lastUpsertKey(pendingParts) ?? lastArtifactKey(persistedArtifacts)
-      setActiveArtifactKey(nextActiveArtifactKey)
+      setActiveArtifactKey(
+        selectActiveArtifactKey(
+          Array.from(nextArtifacts.values()),
+          initialActiveArtifactKeyRef.current,
+          nextActiveArtifactKey
+        )
+      )
       return
     }
 
@@ -300,6 +342,7 @@ export function useWorkspaceChatArtifacts(
 
     const nextActiveArtifactKey = lastUpsertKey(pendingParts)
     if (nextActiveArtifactKey) {
+      initialActiveArtifactKeyRef.current = null
       setActiveArtifactKey(nextActiveArtifactKey)
     }
   }, [
@@ -333,6 +376,7 @@ export function useWorkspaceChatArtifacts(
       switch (part.type) {
         case ARTIFACT_DATA_PART_TYPE:
           if (part.data.op === "upsert") {
+            initialActiveArtifactKeyRef.current = null
             setActiveArtifactKey(artifactKey(part.data.artifact))
           }
           return
@@ -375,6 +419,18 @@ export function useWorkspaceChatArtifacts(
       return
     }
 
+    if (
+      initialActiveArtifactKeyRef.current &&
+      artifacts.some(
+        (artifact) =>
+          artifactKey(artifact) === initialActiveArtifactKeyRef.current
+      )
+    ) {
+      setActiveArtifactKey(initialActiveArtifactKeyRef.current)
+      return
+    }
+
+    initialActiveArtifactKeyRef.current = null
     setActiveArtifactKey(artifactKey(artifacts[artifacts.length - 1]))
   }, [activeArtifactKey, artifacts])
 
@@ -390,6 +446,7 @@ export function useWorkspaceChatArtifacts(
         return next
       })
       if (activeArtifactKey === key) {
+        initialActiveArtifactKeyRef.current = null
         const fallback = artifacts.find(
           (artifact) => artifactKey(artifact) !== key
         )
@@ -404,7 +461,7 @@ export function useWorkspaceChatArtifacts(
     artifacts,
     lanes,
     activeArtifactKey,
-    setActiveArtifactKey,
+    setActiveArtifactKey: setActiveArtifactKeyAndClearInitial,
     closeArtifact,
     applyStreamPart,
   }
