@@ -1394,7 +1394,6 @@ class ClaudeAgentRuntime:
                     is_continuation=False,
                     is_meta=False,
                     prompt_length=len(query_input),
-                    prompt_preview=_preview_text(query_input),
                 )
 
             transport = self._transport_factory(options)
