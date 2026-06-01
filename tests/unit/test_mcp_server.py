@@ -5913,6 +5913,117 @@ async def test_list_workflow_tree_paginates_items(
 
 
 @pytest.mark.anyio
+async def test_insert_rows_returns_insert_count(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace_id = uuid.uuid4()
+    table_id = uuid.uuid4()
+
+    async def _resolve(_workspace_id: str) -> tuple[uuid.UUID, SimpleNamespace]:
+        return workspace_id, SimpleNamespace()
+
+    captured: dict[str, Any] = {}
+    fake_table = SimpleNamespace(id=table_id)
+
+    class _TableService:
+        async def get_table(self, parsed_table_id: uuid.UUID) -> SimpleNamespace:
+            assert parsed_table_id == table_id
+            return fake_table
+
+        async def batch_insert_rows(
+            self,
+            table: Any,
+            rows: list[dict[str, Any]],
+            *,
+            upsert: bool = False,
+        ) -> int:
+            captured["table"] = table
+            captured["rows"] = rows
+            captured["upsert"] = upsert
+            return 2
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server.TablesService,
+        "with_session",
+        lambda role: _AsyncContext(_TableService()),
+    )
+
+    payload = _payload(
+        await _tool(mcp_server.insert_rows)(
+            workspace_id=str(workspace_id),
+            table_id=str(table_id),
+            rows=[
+                mcp_server.TableRowPayload.model_validate({"ioc": "1.1.1.1"}),
+                mcp_server.TableRowPayload.model_validate({"ioc": "2.2.2.2"}),
+            ],
+            upsert=True,
+        )
+    )
+
+    assert payload == {"rows_inserted": 2}
+    assert captured == {
+        "table": fake_table,
+        "rows": [{"ioc": "1.1.1.1"}, {"ioc": "2.2.2.2"}],
+        "upsert": True,
+    }
+
+
+@pytest.mark.anyio
+async def test_update_rows_returns_update_count(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace_id = uuid.uuid4()
+    table_id = uuid.uuid4()
+    row_ids = [uuid.uuid4(), uuid.uuid4()]
+
+    async def _resolve(_workspace_id: str) -> tuple[uuid.UUID, SimpleNamespace]:
+        return workspace_id, SimpleNamespace()
+
+    captured: dict[str, Any] = {}
+    fake_table = SimpleNamespace(id=table_id)
+
+    class _TableService:
+        async def get_table(self, parsed_table_id: uuid.UUID) -> SimpleNamespace:
+            assert parsed_table_id == table_id
+            return fake_table
+
+        async def batch_update_rows(
+            self,
+            table: Any,
+            parsed_row_ids: list[uuid.UUID],
+            row_data: dict[str, Any],
+        ) -> int:
+            captured["table"] = table
+            captured["row_ids"] = parsed_row_ids
+            captured["row_data"] = row_data
+            return 2
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server.TablesService,
+        "with_session",
+        lambda role: _AsyncContext(_TableService()),
+    )
+
+    payload = _payload(
+        await _tool(mcp_server.update_rows)(
+            workspace_id=str(workspace_id),
+            table_id=str(table_id),
+            row_ids=[str(row_id) for row_id in row_ids],
+            row=mcp_server.TableRowPayload.model_validate({"status": "blocked"}),
+        )
+    )
+
+    assert payload == {"rows_updated": 2}
+    assert captured == {
+        "table": fake_table,
+        "row_ids": row_ids,
+        "row_data": {"status": "blocked"},
+    }
+
+
+@pytest.mark.anyio
 async def test_search_table_rows_returns_paginated_payload(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

@@ -1100,6 +1100,28 @@ class TableRowPayload(BaseModel):
     model_config = ConfigDict(extra="allow")
 
 
+class TableRowsInsertResponse(BaseModel):
+    """Batch table row insert response."""
+
+    rows_inserted: int
+
+
+class TableRowsUpdateResponse(BaseModel):
+    """Batch table row update response."""
+
+    rows_updated: int
+
+
+def _table_row_payload_to_dict(
+    row: TableRowPayload | Mapping[str, Any],
+) -> dict[str, Any]:
+    """Normalize a dynamic table row write payload."""
+
+    if isinstance(row, TableRowPayload):
+        return row.model_dump()
+    return dict(row)
+
+
 class CSVExportResponse(BaseModel):
     """CSV staged download response."""
 
@@ -7288,6 +7310,42 @@ async def insert_table_row(
 
 
 @mcp.tool()
+async def insert_rows(
+    workspace_id: uuid.UUID,
+    table_id: uuid.UUID,
+    rows: list[TableRowPayload],
+    upsert: bool = False,
+) -> TableRowsInsertResponse:
+    """Insert multiple table rows.
+
+    Args:
+        workspace_id: The workspace ID.
+        table_id: The table ID.
+        rows: Array of row objects to insert.
+        upsert: If true, update existing rows on conflict using the table's
+            unique index.
+
+    Returns the number of rows inserted or upserted.
+    """
+
+    try:
+        table_id = _coerce_uuid_arg(table_id, "table_id")
+        rows_data = [_table_row_payload_to_dict(row) for row in rows]
+        _, role = await _resolve_workspace_role(workspace_id)
+        async with TablesService.with_session(role=role) as svc:
+            table = await svc.get_table(table_id)
+            count = await svc.batch_insert_rows(table, rows_data, upsert=upsert)
+            return TableRowsInsertResponse(rows_inserted=count)
+    except ToolError:
+        raise
+    except ValueError as e:
+        raise ToolError(str(e)) from e
+    except Exception as e:
+        logger.error("Failed to insert table rows", error=str(e))
+        raise ToolError(f"Failed to insert table rows: {e}") from None
+
+
+@mcp.tool()
 async def update_table_row(
     workspace_id: uuid.UUID,
     table_id: uuid.UUID,
@@ -7299,7 +7357,7 @@ async def update_table_row(
     try:
         table_id = _coerce_uuid_arg(table_id, "table_id")
         row_id = _coerce_uuid_arg(row_id, "row_id")
-        row_data = row.model_dump()
+        row_data = _table_row_payload_to_dict(row)
         _, role = await _resolve_workspace_role(workspace_id)
         async with TablesService.with_session(role=role) as svc:
             table = await svc.get_table(table_id)
@@ -7312,6 +7370,48 @@ async def update_table_row(
     except Exception as e:
         logger.error("Failed to update table row", error=str(e))
         raise ToolError(f"Failed to update table row: {e}") from None
+
+
+@mcp.tool()
+async def update_rows(
+    workspace_id: uuid.UUID,
+    table_id: uuid.UUID,
+    row_ids: list[uuid.UUID],
+    row: TableRowPayload,
+) -> TableRowsUpdateResponse:
+    """Update multiple table rows with the same values.
+
+    Args:
+        workspace_id: The workspace ID.
+        table_id: The table ID.
+        row_ids: Array of row IDs to update. Maximum 1000 IDs.
+        row: Row fields and values to set on each matching row.
+
+    Returns the number of rows updated.
+    """
+
+    try:
+        table_id = _coerce_uuid_arg(table_id, "table_id")
+        parsed_row_ids = [_coerce_uuid_arg(row_id, "row_id") for row_id in row_ids]
+        if not parsed_row_ids:
+            raise ToolError("row_ids must contain at least one row ID")
+        if len(parsed_row_ids) > 1000:
+            raise ToolError("row_ids cannot contain more than 1000 row IDs")
+        row_data = _table_row_payload_to_dict(row)
+        if not row_data:
+            raise ToolError("row must contain at least one field to update")
+        _, role = await _resolve_workspace_role(workspace_id)
+        async with TablesService.with_session(role=role) as svc:
+            table = await svc.get_table(table_id)
+            count = await svc.batch_update_rows(table, parsed_row_ids, row_data)
+            return TableRowsUpdateResponse(rows_updated=count)
+    except ToolError:
+        raise
+    except ValueError as e:
+        raise ToolError(str(e)) from e
+    except Exception as e:
+        logger.error("Failed to update table rows", error=str(e))
+        raise ToolError(f"Failed to update table rows: {e}") from None
 
 
 @mcp.tool()
