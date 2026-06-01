@@ -867,6 +867,7 @@ describe("ChatSessionPane", () => {
             modelInfo={{ name: "gpt-4o-mini", provider: "openai" }}
             surface="workspace-chat"
             toolsEnabled
+            mcpEnabled
           />
         </TooltipProvider>
       </QueryClientProvider>
@@ -946,6 +947,7 @@ describe("ChatSessionPane", () => {
             modelInfo={{ name: "gpt-4o-mini", provider: "openai" }}
             surface="workspace-chat"
             toolsEnabled
+            mcpEnabled
           />
         </TooltipProvider>
       </QueryClientProvider>
@@ -984,6 +986,7 @@ describe("ChatSessionPane", () => {
             modelInfo={{ name: "gpt-4o-mini", provider: "openai" }}
             surface="workspace-chat"
             toolsEnabled
+            mcpEnabled
           />
         </TooltipProvider>
       </QueryClientProvider>
@@ -1016,6 +1019,43 @@ describe("ChatSessionPane", () => {
             entityType="case"
             entityId="case-1"
             modelInfo={{ name: "gpt-4o-mini", provider: "openai" }}
+            toolsEnabled
+          />
+        </TooltipProvider>
+      </QueryClientProvider>
+    )
+
+    expect(mockUseListMcpIntegrations).toHaveBeenCalledWith(
+      "workspace-1",
+      undefined,
+      { enabled: false }
+    )
+  })
+
+  it("does not fetch MCP integrations for copilot when MCP is disabled", () => {
+    mockUseVercelChat.mockReturnValue({
+      sendMessage: jest.fn(),
+      regenerate: jest.fn(),
+      messages: [],
+      status: "ready",
+      lastError: null,
+      clearError: jest.fn(),
+      // biome-ignore lint/suspicious/noExplicitAny: mock return type needs flexibility for testing
+    } as any)
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <TooltipProvider>
+          <ChatSessionPane
+            chat={createChatFixture({
+              entity_type: "copilot",
+              entity_id: "workspace-1",
+            })}
+            workspaceId="workspace-1"
+            entityType="copilot"
+            entityId="workspace-1"
+            modelInfo={{ name: "gpt-4o-mini", provider: "openai" }}
+            surface="workspace-chat"
             toolsEnabled
           />
         </TooltipProvider>

@@ -233,6 +233,7 @@ export interface ChatSessionPaneProps {
   onData?: ChatOnDataCallback<UIMessage>
   modelInfo: ModelInfo
   toolsEnabled?: boolean
+  mcpEnabled?: boolean
   /** Autofocus the prompt input when the pane mounts. */
   autoFocusInput?: boolean
   /**
@@ -289,6 +290,7 @@ export function ChatSessionPane({
   onData,
   modelInfo,
   toolsEnabled = true,
+  mcpEnabled = false,
   autoFocusInput = false,
   onBeforeSend,
   optimisticBeforeSend = false,
@@ -326,7 +328,7 @@ export function ChatSessionPane({
   const { updateChat, isUpdating: isUpdatingTools } = useUpdateChat(workspaceId)
   const { registryActions, registryActionsIsLoading } =
     useBuilderRegistryActions()
-  const sessionMcpEnabled = entityType === "copilot"
+  const sessionMcpEnabled = mcpEnabled && entityType === "copilot"
   const { mcpIntegrations } = useListMcpIntegrations(workspaceId, undefined, {
     enabled: toolsEnabled && sessionMcpEnabled,
   })
