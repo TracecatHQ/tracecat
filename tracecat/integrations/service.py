@@ -17,6 +17,7 @@ from tracecat.auth.secrets import get_db_encryption_key
 from tracecat.authz.controls import require_scope
 from tracecat.db.models import (
     AgentPreset,
+    AgentSession,
     MCPIntegration,
     OAuthIntegration,
     WorkspaceOAuthProvider,
@@ -1203,6 +1204,20 @@ class IntegrationService(BaseWorkspaceService):
         ).all()
         await self._version_pruned_agent_presets(preset_ids=pruned_preset_ids)
 
+        await self.session.execute(
+            update(AgentSession)
+            .where(
+                AgentSession.workspace_id == self.workspace_id,
+                AgentSession.mcp_integrations.isnot(None),
+                candidate_exists,
+                AgentSession.mcp_integrations.op("?|")(candidate_ids),
+            )
+            .values(
+                mcp_integrations=AgentSession.mcp_integrations.op("-")(candidate_ids)
+            )
+            .execution_options(synchronize_session="fetch")
+        )
+
         deleted = await self.session.scalars(
             sa.delete(MCPIntegration)
             .where(MCPIntegration.id.in_(select(candidate_mcp_integrations.c.id)))
@@ -1562,6 +1577,19 @@ class IntegrationService(BaseWorkspaceService):
                 )
             ).all()
             await self._version_pruned_agent_presets(preset_ids=pruned_preset_ids)
+
+            await self.session.execute(
+                update(AgentSession)
+                .where(
+                    and_(
+                        AgentSession.workspace_id == self.workspace_id,
+                        AgentSession.mcp_integrations.isnot(None),
+                        AgentSession.mcp_integrations.contains([id_str]),
+                    )
+                )
+                .values(mcp_integrations=AgentSession.mcp_integrations.op("-")(id_str))
+                .execution_options(synchronize_session="fetch")
+            )
 
             # If backed by an OAuth integration, lock it to serialize deletes for shared refs.
             oauth_integration = None

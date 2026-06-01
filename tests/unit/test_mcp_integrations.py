@@ -19,11 +19,13 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.agent.preset.service import AgentPresetService
+from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import ADMIN_SCOPES
 from tracecat.db.models import (
     AgentPreset,
     AgentPresetVersion,
+    AgentSession,
     MCPIntegration,
     OAuthIntegration,
 )
@@ -450,6 +452,13 @@ class TestMCPIntegrationCRUD:
             oauth_integration_id=oauth_integration.id,
         )
         created = await integration_service.create_mcp_integration(params=params)
+        other_mcp_id = uuid.uuid4()
+        agent_session = AgentSession(
+            workspace_id=integration_service.workspace_id,
+            entity_type=AgentSessionEntity.WORKSPACE_CHAT.value,
+            entity_id=integration_service.workspace_id,
+            mcp_integrations=[str(created.id), str(other_mcp_id)],
+        )
         preset = AgentPreset(
             workspace_id=integration_service.workspace_id,
             name="Delete MCP preset",
@@ -458,8 +467,10 @@ class TestMCPIntegrationCRUD:
             model_provider="openai",
             mcp_integrations=[str(created.id)],
         )
+        integration_service.session.add(agent_session)
         integration_service.session.add(preset)
         await integration_service.session.flush()
+        agent_session_id = agent_session.id
         preset_id = preset.id
         initial_version = AgentPresetVersion(
             workspace_id=integration_service.workspace_id,
@@ -494,6 +505,14 @@ class TestMCPIntegrationCRUD:
         assert refreshed_preset.current_version_id != initial_version_id
         assert refreshed_preset.mcp_integrations is not None
         assert str(created.id) not in refreshed_preset.mcp_integrations
+
+        refreshed_session_result = await integration_service.session.execute(
+            select(AgentSession).where(AgentSession.id == agent_session_id)
+        )
+        refreshed_session = refreshed_session_result.scalars().one()
+        assert refreshed_session.mcp_integrations is not None
+        assert str(created.id) not in refreshed_session.mcp_integrations
+        assert str(other_mcp_id) in refreshed_session.mcp_integrations
 
         current_version_result = await integration_service.session.execute(
             select(AgentPresetVersion).where(
@@ -685,8 +704,21 @@ class TestMCPIntegrationCRUD:
                 str(workspace_created_id),
             ],
         )
+        agent_session = AgentSession(
+            workspace_id=integration_service.workspace_id,
+            entity_type=AgentSessionEntity.WORKSPACE_CHAT.value,
+            entity_id=integration_service.workspace_id,
+            mcp_integrations=[
+                str(mcp_integration_id),
+                str(duplicate_managed_mcp_id),
+                str(wildcard_collision_mcp_id),
+                str(workspace_created_id),
+            ],
+        )
+        integration_service.session.add(agent_session)
         integration_service.session.add(preset)
         await integration_service.session.flush()
+        agent_session_id = agent_session.id
         preset_id = preset.id
         initial_version = AgentPresetVersion(
             workspace_id=integration_service.workspace_id,
@@ -742,6 +774,16 @@ class TestMCPIntegrationCRUD:
         assert str(workspace_created_id) in refreshed_preset.mcp_integrations
         assert refreshed_preset.current_version_id != initial_version_id
 
+        refreshed_session_result = await integration_service.session.execute(
+            select(AgentSession).where(AgentSession.id == agent_session_id)
+        )
+        refreshed_session = refreshed_session_result.scalars().one()
+        assert refreshed_session.mcp_integrations is not None
+        assert str(mcp_integration_id) not in refreshed_session.mcp_integrations
+        assert str(duplicate_managed_mcp_id) not in refreshed_session.mcp_integrations
+        assert str(wildcard_collision_mcp_id) in refreshed_session.mcp_integrations
+        assert str(workspace_created_id) in refreshed_session.mcp_integrations
+
         current_version_result = await integration_service.session.execute(
             select(AgentPresetVersion).where(
                 AgentPresetVersion.id == refreshed_preset.current_version_id
@@ -779,9 +821,17 @@ class TestMCPIntegrationCRUD:
             model_provider="openai",
             mcp_integrations=[str(created_id)],
         )
+        agent_session = AgentSession(
+            workspace_id=integration_service.workspace_id,
+            entity_type=AgentSessionEntity.WORKSPACE_CHAT.value,
+            entity_id=integration_service.workspace_id,
+            mcp_integrations=[str(created_id)],
+        )
         integration_service.session.add(preset)
+        integration_service.session.add(agent_session)
         await integration_service.session.commit()
         preset_id = preset.id
+        agent_session_id = agent_session.id
 
         conflicting_preset = AgentPreset(
             workspace_id=integration_service.workspace_id,
@@ -814,6 +864,14 @@ class TestMCPIntegrationCRUD:
         assert refreshed_preset is not None
         assert refreshed_preset.mcp_integrations is not None
         assert str(created_id) in refreshed_preset.mcp_integrations
+
+        refreshed_session_result = await integration_service.session.execute(
+            select(AgentSession).where(AgentSession.id == agent_session_id)
+        )
+        refreshed_session = refreshed_session_result.scalars().first()
+        assert refreshed_session is not None
+        assert refreshed_session.mcp_integrations is not None
+        assert str(created_id) in refreshed_session.mcp_integrations
 
 
 @pytest.mark.anyio
