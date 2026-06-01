@@ -2809,6 +2809,12 @@ class AgentSession(WorkspaceModel):
         nullable=True,
         doc="The tools available to the agent for this session",
     )
+    mcp_integrations: Mapped[list[str] | None] = mapped_column(
+        JSONB,
+        default=None,
+        nullable=True,
+        doc="MCP integration IDs attached to this session",
+    )
     agent_preset_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID,
         ForeignKey("agent_preset.id", ondelete="SET NULL"),

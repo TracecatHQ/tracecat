@@ -61,6 +61,11 @@ jest.mock("@/lib/hooks", () => ({
     registryActions: [],
     registryActionsIsLoading: false,
   }),
+  useListMcpIntegrations: () => ({
+    mcpIntegrations: [],
+    mcpIntegrationsIsLoading: false,
+    mcpIntegrationsError: null,
+  }),
 }))
 
 function renderChatSessionPane(

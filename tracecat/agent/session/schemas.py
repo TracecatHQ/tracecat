@@ -43,7 +43,12 @@ class AgentSessionCreate(BaseModel):
     )
     tools: list[str] | None = Field(
         default=None,
-        description="Tools available to the agent for this session",
+        description="Extra tools added to this session alongside entity defaults",
+        max_length=50,
+    )
+    mcp_integrations: list[str] | None = Field(
+        default=None,
+        description="MCP integration IDs attached to this session",
         max_length=50,
     )
     agent_preset_id: uuid.UUID | None = Field(
@@ -70,7 +75,14 @@ class AgentSessionUpdate(BaseModel):
         default=None, description="Session title", min_length=1, max_length=200
     )
     tools: list[str] | None = Field(
-        default=None, description="Tools available to the agent", max_length=50
+        default=None,
+        description="Extra tools added to this session alongside entity defaults",
+        max_length=50,
+    )
+    mcp_integrations: list[str] | None = Field(
+        default=None,
+        description="MCP integration IDs attached to this session",
+        max_length=50,
     )
     agent_preset_id: uuid.UUID | None = Field(
         default=None, description="Agent preset to use for this session"
@@ -115,6 +127,7 @@ class AgentSessionRead(BaseModel):
     entity_id: uuid.UUID
     channel_context: dict[str, Any] | None
     tools: list[str] | None
+    mcp_integrations: list[str] | None
     agent_preset_id: uuid.UUID | None
     agent_preset_version_id: uuid.UUID | None
     agents_binding: ResolvedAgentsConfig | None = None

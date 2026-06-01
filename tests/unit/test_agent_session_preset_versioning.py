@@ -102,7 +102,13 @@ async def test_create_workspace_chat_session_applies_current_default_tools() -> 
         )
     )
 
-    assert created.tools == WORKSPACE_CHAT_DEFAULT_TOOLS
+    # Workspace chat no longer freezes defaults into the session; they are
+    # merged at runtime so the session always reflects the current defaults.
+    assert created.tools is None
+    assert (
+        await service._resolve_workspace_chat_actions(created)
+        == WORKSPACE_CHAT_DEFAULT_TOOLS
+    )
     session.add.assert_called_once_with(created)
     session.commit.assert_awaited_once()
     session.refresh.assert_awaited_once_with(created)
@@ -127,11 +133,15 @@ async def test_create_workspace_chat_session_omits_agent_tools_without_entitleme
         )
     )
 
-    assert created.tools == get_default_tools(
+    # Defaults are resolved at runtime; without the agent addon entitlement the
+    # agent preset tools are filtered out of the merged result.
+    assert created.tools is None
+    resolved = await service._resolve_workspace_chat_actions(created)
+    assert resolved == get_default_tools(
         AgentSessionEntity.WORKSPACE_CHAT.value,
         agent_addons_enabled=False,
     )
-    assert service.entitlement_checks == [Entitlement.AGENT_ADDONS]
+    assert Entitlement.AGENT_ADDONS in service.entitlement_checks
     session.add.assert_called_once_with(created)
     session.commit.assert_awaited_once()
     session.refresh.assert_awaited_once_with(created)

@@ -88,6 +88,7 @@ import {
   ToolOutput,
 } from "@/components/ai-elements/tool"
 import { ChatEmptyHero } from "@/components/chat/chat-empty-hero"
+import { ChatToolsPicker } from "@/components/chat/chat-tools-picker"
 import { SmoothResponse } from "@/components/chat/smooth-response"
 import { CodeEditor } from "@/components/editor/codemirror/code-editor"
 import { getIcon, ProviderIcon } from "@/components/icons"
@@ -111,7 +112,7 @@ import {
   toUIMessage,
   transformMessages,
 } from "@/lib/chat"
-import { useBuilderRegistryActions } from "@/lib/hooks"
+import { useBuilderRegistryActions, useListMcpIntegrations } from "@/lib/hooks"
 import { cn } from "@/lib/utils"
 import type { ChatSurface } from "@/types/chat-surface"
 import { ARTIFACT_DATA_PART_TYPE } from "@/types/workspace-chat-artifacts"
@@ -314,6 +315,9 @@ export function ChatSessionPane({
   const [input, setInput] = useState<string>("")
   const [toolMention, setToolMention] = useState<ToolMentionState>()
   const [selectedTools, setSelectedTools] = useState<string[]>([])
+  const [selectedMcpIntegrations, setSelectedMcpIntegrations] = useState<
+    string[]
+  >([])
   const [optimisticMessageText, setOptimisticMessageText] = useState<
     string | null
   >(null)
@@ -321,6 +325,7 @@ export function ChatSessionPane({
   const { updateChat, isUpdating: isUpdatingTools } = useUpdateChat(workspaceId)
   const { registryActions, registryActionsIsLoading } =
     useBuilderRegistryActions()
+  const { mcpIntegrations } = useListMcpIntegrations(workspaceId)
 
   // Check if this is a legacy read-only session
   const isReadonly = chat ? "is_readonly" in chat && chat.is_readonly : false
@@ -606,6 +611,39 @@ export function ChatSessionPane({
       void queuePersistTools(next)
     },
     [chat, isReadonly, queuePersistTools]
+  )
+
+  const persistMcpChainRef = useRef<Promise<void>>(Promise.resolve())
+
+  useEffect(() => {
+    setSelectedMcpIntegrations(chat?.mcp_integrations ?? [])
+  }, [chat?.id, chat?.mcp_integrations])
+
+  const commitSelectedMcpIntegrations = useCallback(
+    (next: string[]) => {
+      setSelectedMcpIntegrations(next)
+      if (!chat || isReadonly) {
+        return
+      }
+      const chatId = chat.id
+      persistMcpChainRef.current = persistMcpChainRef.current
+        .catch(() => undefined)
+        .then(async () => {
+          try {
+            await updateChat({
+              chatId,
+              update: { mcp_integrations: next },
+            })
+          } catch (error) {
+            toast({
+              title: "Failed to update MCP integrations",
+              description: parseChatError(error),
+              variant: "destructive",
+            })
+          }
+        })
+    },
+    [chat, isReadonly, updateChat]
   )
 
   const addSelectedTool = useCallback(
@@ -1025,7 +1063,9 @@ export function ChatSessionPane({
         </div>
       )}
       <PromptInput onSubmit={handleSubmit} className={promptInputClassName}>
-        {toolsEnabled && selectedToolBadges.length > 0 && (
+        {/* Workspace chat surfaces attached tools via the Tools popover, so the
+            header chip row is reserved for the other chat surfaces. */}
+        {toolsEnabled && !isWorkspaceChat && selectedToolBadges.length > 0 && (
           <PromptInputHeader className="gap-1.5 px-3 pt-3">
             {selectedToolBadges.map((tool) => (
               <Badge
@@ -1080,6 +1120,17 @@ export function ChatSessionPane({
               <PromptPresetSelector
                 selector={presetSelector}
                 disabled={inputDisabled || !canSubmit}
+              />
+            )}
+            {toolsEnabled && !isReadonly && (
+              <ChatToolsPicker
+                registryActions={registryActions ?? []}
+                selectedTools={selectedTools}
+                onToolsChange={commitSelectedTools}
+                mcpIntegrations={mcpIntegrations ?? []}
+                selectedMcpIntegrations={selectedMcpIntegrations}
+                onMcpChange={commitSelectedMcpIntegrations}
+                disabled={inputDisabled || isUpdatingTools}
               />
             )}
             {!isReadonly ? (

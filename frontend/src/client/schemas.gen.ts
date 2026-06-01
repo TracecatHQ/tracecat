@@ -3438,7 +3438,24 @@ export const $AgentSessionCreate = {
         },
       ],
       title: "Tools",
-      description: "Tools available to the agent for this session",
+      description:
+        "Extra tools added to this session alongside entity defaults",
+    },
+    mcp_integrations: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+          maxItems: 50,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Mcp Integrations",
+      description: "MCP integration IDs attached to this session",
     },
     agent_preset_id: {
       anyOf: [
@@ -3585,6 +3602,20 @@ export const $AgentSessionRead = {
       ],
       title: "Tools",
     },
+    mcp_integrations: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Mcp Integrations",
+    },
     agent_preset_id: {
       anyOf: [
         {
@@ -3681,6 +3712,7 @@ export const $AgentSessionRead = {
     "entity_id",
     "channel_context",
     "tools",
+    "mcp_integrations",
     "agent_preset_id",
     "agent_preset_version_id",
     "harness_type",
@@ -3752,6 +3784,20 @@ export const $AgentSessionReadVercel = {
         },
       ],
       title: "Tools",
+    },
+    mcp_integrations: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Mcp Integrations",
     },
     agent_preset_id: {
       anyOf: [
@@ -3857,6 +3903,7 @@ export const $AgentSessionReadVercel = {
     "entity_id",
     "channel_context",
     "tools",
+    "mcp_integrations",
     "agent_preset_id",
     "agent_preset_version_id",
     "harness_type",
@@ -3928,6 +3975,20 @@ export const $AgentSessionReadWithMessages = {
         },
       ],
       title: "Tools",
+    },
+    mcp_integrations: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Mcp Integrations",
     },
     agent_preset_id: {
       anyOf: [
@@ -4031,6 +4092,7 @@ export const $AgentSessionReadWithMessages = {
     "entity_id",
     "channel_context",
     "tools",
+    "mcp_integrations",
     "agent_preset_id",
     "agent_preset_version_id",
     "harness_type",
@@ -4071,7 +4133,24 @@ export const $AgentSessionUpdate = {
         },
       ],
       title: "Tools",
-      description: "Tools available to the agent",
+      description:
+        "Extra tools added to this session alongside entity defaults",
+    },
+    mcp_integrations: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+          maxItems: 50,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Mcp Integrations",
+      description: "MCP integration IDs attached to this session",
     },
     agent_preset_id: {
       anyOf: [
@@ -9204,6 +9283,14 @@ export const $ChatRead = {
       title: "Tools",
       description: "Tools available to the agent",
     },
+    mcp_integrations: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Mcp Integrations",
+      description: "MCP integration IDs attached to this chat",
+    },
     agent_preset_id: {
       anyOf: [
         {
@@ -9322,6 +9409,14 @@ export const $ChatReadMinimal = {
       title: "Tools",
       description: "Tools available to the agent",
     },
+    mcp_integrations: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Mcp Integrations",
+      description: "MCP integration IDs attached to this chat",
+    },
     agent_preset_id: {
       anyOf: [
         {
@@ -9433,6 +9528,14 @@ export const $ChatReadVercel = {
       type: "array",
       title: "Tools",
       description: "Tools available to the agent",
+    },
+    mcp_integrations: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Mcp Integrations",
+      description: "MCP integration IDs attached to this chat",
     },
     agent_preset_id: {
       anyOf: [

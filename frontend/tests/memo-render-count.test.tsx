@@ -125,6 +125,7 @@ const chatFixture = {
   entity_id: "case-1",
   channel_context: null,
   tools: [],
+  mcp_integrations: [],
   agent_preset_id: null,
   agent_preset_version_id: null,
   agents_binding: null,

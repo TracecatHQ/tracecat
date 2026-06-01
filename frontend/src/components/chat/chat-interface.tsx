@@ -347,7 +347,9 @@ export function ChatInterface({
     )
   }
 
-  const toolsEnabled = !activePreset && !inWorkspaceChat
+  // Workspace chat exposes tool + MCP selection so users can add extras
+  // alongside the always-on platform defaults. Presets still own their tools.
+  const toolsEnabled = !activePreset
   const draftMode =
     deferSessionCreation &&
     (inWorkspaceChat || isDraftChat || chats?.length === 0)

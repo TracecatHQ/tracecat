@@ -32,6 +32,11 @@ jest.mock("@/lib/hooks", () => ({
     registryActions: [],
     registryActionsIsLoading: false,
   })),
+  useListMcpIntegrations: jest.fn(() => ({
+    mcpIntegrations: [],
+    mcpIntegrationsIsLoading: false,
+    mcpIntegrationsError: null,
+  })),
 }))
 jest.mock("@/components/ai-elements/code-block", () => ({
   CodeBlock: ({
@@ -105,6 +110,7 @@ const createChatFixture = (
   entity_id: "case-1",
   channel_context: null,
   tools: [],
+  mcp_integrations: [],
   agent_preset_id: null,
   agents_binding: null,
   harness_type: null,

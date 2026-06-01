@@ -66,6 +66,9 @@ function applyOptimisticChatUpdate<T extends UpdateableChatRecord>(
     updated_at: new Date().toISOString(),
     ...(typeof update.title === "string" ? { title: update.title } : {}),
     ...(update.tools !== undefined ? { tools: update.tools ?? [] } : {}),
+    ...(update.mcp_integrations !== undefined
+      ? { mcp_integrations: update.mcp_integrations ?? [] }
+      : {}),
     ...(update.agent_preset_id !== undefined
       ? { agent_preset_id: update.agent_preset_id }
       : {}),
