@@ -51,6 +51,35 @@ class WorkflowsClient:
     def __init__(self, client: TracecatClient) -> None:
         self._client = client
 
+    async def create_workflow(
+        self,
+        *,
+        title: str | None = None,
+        description: str | None = None,
+    ) -> dict[str, Any]:
+        """Create a new empty workflow in the current workspace.
+
+        Args:
+            title: Workflow title (3-100 characters). If omitted, the API assigns
+                a timestamped title.
+            description: Optional workflow description.
+
+        Returns:
+            dict containing:
+                - id: Workflow ID in short ``wf_...`` format.
+                - title: The workflow title.
+
+        Raises:
+            TracecatValidationError: If the title is invalid.
+            TracecatAPIError: For other API errors.
+        """
+        data: dict[str, Any] = {}
+        if title is not None:
+            data["title"] = title
+        if description is not None:
+            data["description"] = description
+        return await self._client.post("/workflows", json=data)
+
     async def execute(
         self,
         *,

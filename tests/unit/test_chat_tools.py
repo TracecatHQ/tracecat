@@ -32,6 +32,7 @@ def test_workspace_chat_default_tools_include_authoring_actions() -> None:
         "core.cases.list_cases",
         "core.cases.get_case",
         "core.cases.search_cases",
+        "core.workflow.create_workflow",
     ]
 
 

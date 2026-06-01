@@ -1,51 +1,23 @@
 "use client"
 
-import {
-  CalendarSearchIcon,
-  FileInputIcon,
-  MessagesSquare,
-  ShapesIcon,
-  WorkflowIcon,
-} from "lucide-react"
 import { useEffect, useState } from "react"
 import type { ImperativePanelHandle } from "react-resizable-panels"
-import { $TriggerType, type TriggerType } from "@/client"
-import { ActionEventPane } from "@/components/builder/events/events-selected-action"
+import {
+  buildEventsTabItems,
+  EventsLoading,
+  type EventsSidebarTabs,
+  useResolvedLastExecution,
+} from "@/components/builder/events/events-shared"
 import { EventsSidebarEmpty } from "@/components/builder/events/events-sidebar-empty"
-import { WorkflowInteractions } from "@/components/builder/events/events-sidebar-interactions"
-import {
-  WorkflowEvents,
-  WorkflowEventsHeader,
-} from "@/components/builder/events/events-workflow"
-import { Spinner } from "@/components/loading/spinner"
 import { AlertNotification } from "@/components/notifications"
-import {
-  Empty,
-  EmptyDescription,
-  EmptyHeader,
-  EmptyMedia,
-  EmptyTitle,
-} from "@/components/ui/empty"
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area"
 import { Separator } from "@/components/ui/separator"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { useLocalStorage } from "@/hooks/use-local-storage"
-import {
-  useCompactWorkflowExecution,
-  useLastExecution,
-  useOrgAppSettings,
-} from "@/lib/hooks"
+import { useCompactWorkflowExecution, useOrgAppSettings } from "@/lib/hooks"
 import { useWorkflowBuilder } from "@/providers/builder"
-import { useWorkflow } from "@/providers/workflow"
 
-// Define the available trigger types for UI generation
-const AVAILABLE_TRIGGER_TYPES: readonly TriggerType[] = $TriggerType.enum
+export type { EventsSidebarTabs }
 
-export type EventsSidebarTabs =
-  | "workflow-events"
-  | "action-input"
-  | "action-result"
-  | "action-interaction"
 /**
  * Interface for controlling the events sidebar through a ref
  */
@@ -61,34 +33,11 @@ export interface EventsSidebarRef extends ImperativePanelHandle {
 }
 
 export function BuilderSidebarEvents() {
-  const { workflowId } = useWorkflow()
-  const { sidebarRef, currentExecutionId } = useWorkflowBuilder()
+  const { sidebarRef } = useWorkflowBuilder()
   const [activeTab, setActiveTab] =
     useState<EventsSidebarTabs>("workflow-events")
   const [open, setOpen] = useState(false)
-  const [selectedTriggerTypes] = useLocalStorage<TriggerType[]>(
-    "selected-trigger-types",
-    [...AVAILABLE_TRIGGER_TYPES]
-  )
-
-  const { lastExecution, lastExecutionIsLoading, lastExecutionError } =
-    useLastExecution({
-      workflowId: currentExecutionId ? undefined : workflowId,
-      triggerTypes: selectedTriggerTypes,
-    })
-
-  // Determine which execution ID to use
-  // Prefer currentExecutionId (from direct trigger) over lastExecution.id (from query)
-  const executionId = currentExecutionId || lastExecution?.id
-
-  console.debug({
-    currentExecId: currentExecutionId,
-    lastExecId: lastExecution?.id,
-    executionIdUsed: executionId,
-    lastExecIsLoading: lastExecutionIsLoading,
-    lastExecError: lastExecutionError,
-    selectedTriggers: selectedTriggerTypes,
-  })
+  const resolved = useResolvedLastExecution()
 
   // Set up the ref methods
   useEffect(() => {
@@ -105,49 +54,15 @@ export function BuilderSidebarEvents() {
     }
   }, [sidebarRef, activeTab, setOpen, open])
 
-  // If we have a direct execution ID, we can skip the loading state for last execution
-  if (!currentExecutionId && lastExecutionIsLoading) {
-    return (
-      <div className="flex h-full flex-col items-center justify-center space-y-2">
-        <span className="text-xs text-muted-foreground">
-          Fetching last execution...
-        </span>
-        <Spinner className="size-6" />
-      </div>
-    )
+  if (resolved.status === "pending") {
+    return resolved.node
   }
 
-  if (!currentExecutionId && lastExecutionError) {
-    return (
-      <AlertNotification
-        level="error"
-        message={`Error loading last execution: ${lastExecutionError.message}`}
-      />
-    )
-  }
-
-  // If we have no execution ID (neither current nor last), show the empty state
-  if (!executionId) {
-    return (
-      <div className="flex h-full items-center justify-center">
-        <Empty className="border-none">
-          <EmptyHeader>
-            <EmptyMedia variant="icon">
-              <WorkflowIcon />
-            </EmptyMedia>
-            <EmptyTitle>No workflow runs</EmptyTitle>
-            <EmptyDescription>
-              Get started by running your workflow
-            </EmptyDescription>
-          </EmptyHeader>
-        </Empty>
-      </div>
-    )
-  }
-
-  // We have an execution ID to use
   return (
-    <BuilderSidebarEventsList activeTab={activeTab} executionId={executionId} />
+    <BuilderSidebarEventsList
+      activeTab={activeTab}
+      executionId={resolved.executionId}
+    />
   )
 }
 
@@ -164,21 +79,8 @@ function BuilderSidebarEventsList({
   const { execution, executionIsLoading, executionError } =
     useCompactWorkflowExecution(executionId)
 
-  console.debug({
-    execId: execution?.id,
-    execIsLoading: executionIsLoading,
-    execError: executionError,
-  })
-
   if (executionIsLoading) {
-    return (
-      <div className="flex h-full flex-col items-center justify-center space-y-2">
-        <span className="text-xs text-muted-foreground">
-          Fetching events...
-        </span>
-        <Spinner className="size-6" />
-      </div>
-    )
+    return <EventsLoading message="Fetching events..." />
   }
   if (executionError) {
     return (
@@ -196,42 +98,10 @@ function BuilderSidebarEventsList({
       />
     )
   }
-  const tabItems = [
-    {
-      value: "workflow-events",
-      label: "Events",
-      icon: CalendarSearchIcon,
-      content: (
-        <>
-          <WorkflowEventsHeader execution={execution} />
-          {appSettings?.app_interactions_enabled && (
-            <WorkflowInteractions execution={execution} />
-          )}
-          <WorkflowEvents events={execution.events} status={execution.status} />
-        </>
-      ),
-    },
-    {
-      value: "action-input",
-      label: "Input",
-      icon: FileInputIcon,
-      content: <ActionEventPane execution={execution} type="input" />,
-    },
-    {
-      value: "action-result",
-      label: "Result",
-      icon: ShapesIcon,
-      content: <ActionEventPane execution={execution} type="result" />,
-    },
-  ]
-  if (appSettings?.app_interactions_enabled) {
-    tabItems.push({
-      value: "action-interaction",
-      label: "Interaction",
-      icon: MessagesSquare,
-      content: <ActionEventPane execution={execution} type="interaction" />,
-    })
-  }
+  const tabItems = buildEventsTabItems({
+    execution,
+    interactionsEnabled: !!appSettings?.app_interactions_enabled,
+  })
 
   return (
     <div className="h-full">
