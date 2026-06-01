@@ -1,14 +1,14 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { StrictMode } from "react"
-import type { AgentSessionReadVercel } from "@/client"
+import type { AgentSessionReadVercel, MCPIntegrationRead } from "@/client"
 import {
   ChatSessionPane,
   MessagePart,
 } from "@/components/chat/chat-session-pane"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { useUpdateChat, useVercelChat } from "@/hooks/use-chat"
-import { useBuilderRegistryActions } from "@/lib/hooks"
+import { useBuilderRegistryActions, useListMcpIntegrations } from "@/lib/hooks"
 
 jest.mock("@/hooks/use-chat", () => ({
   useVercelChat: jest.fn(),
@@ -88,6 +88,8 @@ const mockUseBuilderRegistryActions =
   useBuilderRegistryActions as jest.MockedFunction<
     typeof useBuilderRegistryActions
   >
+const mockUseListMcpIntegrations =
+  useListMcpIntegrations as jest.MockedFunction<typeof useListMcpIntegrations>
 
 function createDeferred<T>() {
   let resolve!: (value: T | PromiseLike<T>) => void
@@ -793,6 +795,91 @@ describe("ChatSessionPane", () => {
     expect(sendMessage).not.toHaveBeenCalled()
 
     toolWrite.resolve()
+    await waitFor(() => {
+      expect(sendMessage).toHaveBeenCalledWith({ text: "hello" })
+    })
+  })
+
+  it("waits for pending MCP persistence before sending a message", async () => {
+    const integration = {
+      id: "mcp-1",
+      workspace_id: "workspace-1",
+      name: "RunReveal",
+      description: "RunReveal MCP",
+      slug: "runreveal",
+      server_type: "http",
+      server_uri: "https://mcp.example.test",
+      auth_type: "OAUTH2",
+      oauth_integration_id: null,
+      stdio_command: null,
+      stdio_args: null,
+      has_stdio_env: false,
+      timeout: null,
+      created_at: "2024-01-01T00:00:00.000Z",
+      updated_at: "2024-01-01T00:00:00.000Z",
+    } satisfies MCPIntegrationRead
+    mockUseListMcpIntegrations.mockReturnValue({
+      mcpIntegrations: [integration],
+      mcpIntegrationsIsLoading: false,
+      mcpIntegrationsError: null,
+    })
+
+    const mcpWrite = createDeferred<void>()
+    const updateChat = jest.fn().mockImplementation(() => mcpWrite.promise)
+    mockUseUpdateChat.mockReturnValue({
+      updateChat,
+      isUpdating: false,
+      updateError: null,
+    })
+
+    const sendMessage = jest.fn().mockResolvedValue(undefined)
+    mockUseVercelChat.mockReturnValue({
+      sendMessage,
+      regenerate: jest.fn(),
+      messages: [],
+      status: "ready",
+      lastError: null,
+      clearError: jest.fn(),
+      // biome-ignore lint/suspicious/noExplicitAny: mock return type needs flexibility for testing
+    } as any)
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <TooltipProvider>
+          <ChatSessionPane
+            chat={createChatFixture({
+              entity_type: "copilot",
+              entity_id: "workspace-1",
+            })}
+            workspaceId="workspace-1"
+            entityType="copilot"
+            entityId="workspace-1"
+            modelInfo={{ name: "gpt-4o-mini", provider: "openai" }}
+            surface="workspace-chat"
+            toolsEnabled
+          />
+        </TooltipProvider>
+      </QueryClientProvider>
+    )
+
+    fireEvent.click(screen.getByRole("button", { name: "Tools" }))
+    fireEvent.click(await screen.findByText("RunReveal"))
+
+    await waitFor(() => {
+      expect(updateChat).toHaveBeenCalledTimes(1)
+    })
+    expect(updateChat).toHaveBeenCalledWith({
+      chatId: "chat-1",
+      update: { mcp_integrations: ["mcp-1"] },
+    })
+
+    const textarea = screen.getByRole("textbox")
+    fireEvent.change(textarea, { target: { value: "hello" } })
+    fireEvent.keyDown(textarea, { key: "Enter", code: "Enter" })
+
+    expect(sendMessage).not.toHaveBeenCalled()
+
+    mcpWrite.resolve()
     await waitFor(() => {
       expect(sendMessage).toHaveBeenCalledWith({ text: "hello" })
     })

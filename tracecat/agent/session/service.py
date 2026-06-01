@@ -174,7 +174,11 @@ class AgentSessionService(BaseWorkspaceService):
         agent_svc: AgentManagementService,
     ) -> list[MCPServerConfig] | None:
         """Resolve attached MCP integration IDs into boundary-safe server refs."""
-        if not agent_session.mcp_integrations or agent_svc.presets is None:
+        if (
+            not agent_session.mcp_integrations
+            or agent_svc.presets is None
+            or not await self.has_entitlement(Entitlement.AGENT_ADDONS)
+        ):
             return None
         return await agent_svc.presets.resolve_mcp_integration_refs(
             agent_session.mcp_integrations

@@ -998,6 +998,7 @@ export function ChatSessionPane({
 
     try {
       await persistToolsChainRef.current.catch(() => undefined)
+      await persistMcpChainRef.current.catch(() => undefined)
       clearError()
       sendMessage({
         text: messageText,

@@ -148,6 +148,41 @@ async def test_create_workspace_chat_session_omits_agent_tools_without_entitleme
 
 
 @pytest.mark.anyio
+async def test_resolve_session_mcp_servers_requires_agent_addons_entitlement() -> None:
+    service, _session, role = _build_service()
+    service.agent_addons_enabled = False
+    assert role.workspace_id is not None
+    mcp_id = uuid.uuid4()
+    agent_session = AgentSession(
+        workspace_id=role.workspace_id,
+        entity_type=AgentSessionEntity.WORKSPACE_CHAT.value,
+        entity_id=role.workspace_id,
+        mcp_integrations=[str(mcp_id)],
+    )
+    resolver = AsyncMock(
+        return_value=[
+            {
+                "type": "http",
+                "name": "RunReveal",
+                "url": "https://mcp.example.test",
+            }
+        ]
+    )
+    agent_svc = SimpleNamespace(
+        presets=SimpleNamespace(resolve_mcp_integration_refs=resolver)
+    )
+
+    result = await service._resolve_session_mcp_servers(
+        agent_session,
+        cast(Any, agent_svc),
+    )
+
+    assert result is None
+    resolver.assert_not_awaited()
+    assert Entitlement.AGENT_ADDONS in service.entitlement_checks
+
+
+@pytest.mark.anyio
 async def test_create_session_derives_agents_binding_from_pinned_preset_version() -> (
     None
 ):

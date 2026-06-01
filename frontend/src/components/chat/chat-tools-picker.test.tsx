@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react"
+import { fireEvent, render, screen } from "@testing-library/react"
 import type { MCPIntegrationRead } from "@/client"
 import { ChatToolsPicker } from "@/components/chat/chat-tools-picker"
 
@@ -69,5 +69,58 @@ describe("ChatToolsPicker", () => {
     ).toBeInTheDocument()
     expect(screen.getByText("MCP integrations")).toBeInTheDocument()
     expect(screen.getByText("RunReveal")).toBeInTheDocument()
+  })
+
+  it("shows stale selected MCP integrations so they can be removed", () => {
+    const onMcpChange = jest.fn()
+
+    render(
+      <ChatToolsPicker
+        registryActions={[]}
+        selectedTools={[]}
+        onToolsChange={jest.fn()}
+        mcpIntegrations={[]}
+        selectedMcpIntegrations={["missing-mcp"]}
+        onMcpChange={onMcpChange}
+        mcpEnabled
+      />
+    )
+
+    expect(
+      screen.getByRole("button", { name: "Tools (1)" })
+    ).toBeInTheDocument()
+    expect(screen.getByText("missing-mcp")).toBeInTheDocument()
+    expect(
+      screen.getByText("This MCP integration is no longer available.")
+    ).toBeInTheDocument()
+
+    fireEvent.click(screen.getByText("missing-mcp"))
+
+    expect(onMcpChange).toHaveBeenCalledWith([])
+  })
+
+  it("shows stale selected registry tools so they can be removed", () => {
+    const onToolsChange = jest.fn()
+
+    render(
+      <ChatToolsPicker
+        registryActions={[]}
+        selectedTools={["tools.deleted.action"]}
+        onToolsChange={onToolsChange}
+        mcpIntegrations={[]}
+        selectedMcpIntegrations={[]}
+        onMcpChange={jest.fn()}
+      />
+    )
+
+    expect(
+      screen.getByRole("button", { name: "Tools (1)" })
+    ).toBeInTheDocument()
+    expect(screen.getByText("tools.deleted.action")).toBeInTheDocument()
+    expect(screen.getByText("No longer available")).toBeInTheDocument()
+
+    fireEvent.click(screen.getByText("tools.deleted.action"))
+
+    expect(onToolsChange).toHaveBeenCalledWith([])
   })
 })

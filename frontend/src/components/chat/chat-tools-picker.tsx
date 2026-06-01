@@ -29,6 +29,14 @@ type ToolOption = {
   label: string
   group: string
   description: string
+  stale?: boolean
+}
+
+type McpOption = {
+  id: string
+  name: string
+  description?: string
+  stale?: boolean
 }
 
 const TOOL_SEARCH_LIMIT = 24
@@ -71,21 +79,65 @@ export function ChatToolsPicker({
     [toolOptions]
   )
 
+  const selectedToolOptions = useMemo<ToolOption[]>(
+    () =>
+      selectedTools.map(
+        (value) =>
+          optionByValue.get(value) ?? {
+            value,
+            label: value,
+            group: "No longer available",
+            description: "This tool is no longer available.",
+            stale: true,
+          }
+      ),
+    [optionByValue, selectedTools]
+  )
+
   const visibleTools = useMemo<ToolOption[]>(() => {
     const needle = query.trim()
     if (!needle) {
       // No query: surface only the tools already attached so they can be removed.
-      return selectedTools
-        .map((value) => optionByValue.get(value))
-        .filter((option): option is ToolOption => Boolean(option))
+      return selectedToolOptions
     }
+    const searchableTools = [
+      ...toolOptions,
+      ...selectedToolOptions.filter((option) => option.stale),
+    ]
     return fuzzysort
-      .go<ToolOption>(needle, toolOptions, {
+      .go<ToolOption>(needle, searchableTools, {
         keys: ["value", "label", "description", "group"],
         limit: TOOL_SEARCH_LIMIT,
       })
       .map((result) => result.obj)
-  }, [query, toolOptions, optionByValue, selectedTools])
+  }, [query, toolOptions, selectedToolOptions])
+
+  const mcpOptionById = useMemo(
+    () =>
+      new Map(
+        mcpIntegrations.map((integration) => [integration.id, integration])
+      ),
+    [mcpIntegrations]
+  )
+
+  const visibleMcpIntegrations = useMemo<McpOption[]>(
+    () => [
+      ...mcpIntegrations.map((integration) => ({
+        id: integration.id,
+        name: integration.name,
+        description: integration.description ?? undefined,
+      })),
+      ...selectedMcpIntegrations
+        .filter((id) => !mcpOptionById.has(id))
+        .map((id) => ({
+          id,
+          name: id,
+          description: "This MCP integration is no longer available.",
+          stale: true,
+        })),
+    ],
+    [mcpIntegrations, mcpOptionById, selectedMcpIntegrations]
+  )
 
   const toggleTool = (value: string) => {
     if (selectedTools.includes(value)) {
@@ -135,13 +187,15 @@ export function ChatToolsPicker({
           {mcpEnabled && (
             <>
               <GroupLabel>MCP integrations</GroupLabel>
-              {mcpIntegrations.length > 0 ? (
-                mcpIntegrations.map((integration) => (
+              {visibleMcpIntegrations.length > 0 ? (
+                visibleMcpIntegrations.map((integration) => (
                   <Row
                     key={integration.id}
-                    dotClassName="bg-sky-500"
+                    dotClassName={
+                      integration.stale ? "bg-muted-foreground" : "bg-sky-500"
+                    }
                     title={integration.name}
-                    subtitle={integration.description ?? undefined}
+                    subtitle={integration.description}
                     checked={selectedMcpIntegrations.includes(integration.id)}
                     onToggle={() => toggleMcp(integration.id)}
                   />
@@ -159,7 +213,9 @@ export function ChatToolsPicker({
             visibleTools.map((tool) => (
               <Row
                 key={tool.value}
-                dotClassName="bg-amber-500"
+                dotClassName={
+                  tool.stale ? "bg-muted-foreground" : "bg-amber-500"
+                }
                 title={tool.label}
                 subtitle={tool.group}
                 checked={selectedTools.includes(tool.value)}
