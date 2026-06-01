@@ -61,6 +61,12 @@ export const ARTIFACT_REGISTRY = {
     icon: WorkflowIcon,
     href: (artifact, workspaceId) =>
       `/workspaces/${workspaceId}/workflows/${artifact.id}`,
+    invalidateQueries: (queryClient, _workspaceId, artifact) => {
+      // Workflow lists carry a 5-min stale time; refresh them so a chat-created
+      // workflow shows up in dashboards and workflow/subflow pickers immediately.
+      queryClient.invalidateQueries({ queryKey: ["workflows"] })
+      queryClient.invalidateQueries({ queryKey: ["workflow", artifact.id] })
+    },
   },
   run: {
     label: "Runs",
