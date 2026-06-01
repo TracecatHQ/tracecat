@@ -250,6 +250,7 @@ def test_artifact_bindings_list_canonical_tool_names() -> None:
         "ai.agent.update_preset": "upsert",
         "core.workflow.execute": "upsert",
         "core.workflow.get_status": "upsert",
+        "core.workflow.create_workflow": "upsert",
     }
 
 
