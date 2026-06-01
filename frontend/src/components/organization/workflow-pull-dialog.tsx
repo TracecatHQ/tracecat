@@ -26,7 +26,7 @@ import {
   useRepositoryCommits,
   useWorkflowSync,
 } from "@/hooks/use-workspace-sync"
-import { getRelativeTime } from "@/lib/event-history"
+import { formatExactTimestamp } from "@/lib/event-history"
 
 interface WorkflowPullDialogProps {
   open: boolean
@@ -181,7 +181,7 @@ export function WorkflowPullDialog({
                 if (!selectedCommit) return null
 
                 const commitDate = new Date(selectedCommit.date)
-                const relativeTime = getRelativeTime(commitDate)
+                const exactTimestamp = formatExactTimestamp(commitDate)
                 const isHead = commits[0]?.sha === effectiveCommitSha
 
                 return (
@@ -213,11 +213,7 @@ export function WorkflowPullDialog({
                           by {selectedCommit.author} (
                           {selectedCommit.author_email})
                         </span>
-                        <div className="flex items-center space-x-2">
-                          <span>{commitDate.toLocaleDateString()}</span>
-                          <span>•</span>
-                          <span>{relativeTime}</span>
-                        </div>
+                        <div>{exactTimestamp}</div>
                       </div>
                     </div>
                   </div>

@@ -44,7 +44,7 @@ import {
   useCompareAgentPresetVersions,
   useRestoreAgentPresetVersion,
 } from "@/hooks/use-agent-presets"
-import { getRelativeTime } from "@/lib/event-history"
+import { formatExactTimestamp } from "@/lib/event-history"
 
 type VersionsPanelView = "history" | "compare"
 
@@ -256,7 +256,7 @@ function VersionsHistoryView({
                     ) : null}
                   </div>
                   <div className="mt-1 text-xs text-muted-foreground">
-                    {getRelativeTime(new Date(version.created_at))}
+                    {formatExactTimestamp(new Date(version.created_at))}
                   </div>
                 </div>
                 <div className="flex items-center gap-2">

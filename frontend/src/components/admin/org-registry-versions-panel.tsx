@@ -21,7 +21,7 @@ import {
   useAdminOrgRegistry,
   useAdminOrgRepositoryVersions,
 } from "@/hooks/use-admin"
-import { getRelativeTime } from "@/lib/event-history"
+import { formatExactTimestamp } from "@/lib/event-history"
 
 interface OrgRegistryVersionsPanelProps {
   orgId: string
@@ -123,7 +123,7 @@ export function OrgRegistryVersionsPanel({
               </TableCell>
               <TableCell>
                 <span className="text-xs text-muted-foreground">
-                  {getRelativeTime(new Date(version.created_at))}
+                  {formatExactTimestamp(new Date(version.created_at))}
                 </span>
               </TableCell>
               <TableCell>

@@ -3,7 +3,7 @@
 import type { AdminRegistryGetRegistryStatusResponse } from "@/client"
 import { Badge } from "@/components/ui/badge"
 import { Item } from "@/components/ui/item"
-import { getRelativeTime } from "@/lib/event-history"
+import { formatExactTimestamp } from "@/lib/event-history"
 
 type PlatformRegistryStatusProps = {
   status?: AdminRegistryGetRegistryStatusResponse
@@ -33,7 +33,7 @@ export function PlatformRegistryStatus({
           <div className="text-sm text-muted-foreground">Last sync</div>
           <div className="text-lg">
             {status?.last_sync_at
-              ? getRelativeTime(new Date(status.last_sync_at))
+              ? formatExactTimestamp(new Date(status.last_sync_at))
               : "Never"}
           </div>
         </div>

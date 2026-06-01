@@ -16,7 +16,7 @@ jest.mock("@/hooks/use-agent-presets", () => ({
 }))
 
 jest.mock("@/lib/event-history", () => ({
-  getRelativeTime: () => "just now",
+  formatExactTimestamp: () => "2026-01-01 00:00:00.000 UTC",
 }))
 
 jest.mock("react-diff-viewer-continued", () => {

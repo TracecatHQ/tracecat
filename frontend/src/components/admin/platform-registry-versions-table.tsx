@@ -18,7 +18,7 @@ import {
   useAdminRegistrySync,
   useAdminRegistryVersions,
 } from "@/hooks/use-admin"
-import { getRelativeTime } from "@/lib/event-history"
+import { formatExactTimestamp } from "@/lib/event-history"
 
 type RegistryVersionRead =
   tracecat__admin__registry__schemas__RegistryVersionRead
@@ -298,7 +298,7 @@ export function PlatformRegistryVersionsTable() {
               const date = new Date(createdAt)
               return (
                 <div className="text-xs text-muted-foreground">
-                  {getRelativeTime(date)}
+                  {formatExactTimestamp(date)}
                 </div>
               )
             },

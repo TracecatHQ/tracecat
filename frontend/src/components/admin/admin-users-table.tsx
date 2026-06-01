@@ -54,7 +54,7 @@ import { Input } from "@/components/ui/input"
 import { toast } from "@/components/ui/use-toast"
 import { useAdminUsers } from "@/hooks/use-admin"
 import { useAuth } from "@/hooks/use-auth"
-import { getRelativeTime } from "@/lib/event-history"
+import { formatExactTimestamp } from "@/lib/event-history"
 
 const createUserFormSchema = z.object({
   email: z.string().email("Invalid email address"),
@@ -425,11 +425,10 @@ export function AdminUsersTable() {
                   return <div className="text-xs text-muted-foreground">-</div>
                 }
                 const date = new Date(lastLoginAt)
-                const ago = getRelativeTime(date)
+                const exactTimestamp = formatExactTimestamp(date)
                 return (
                   <div className="text-xs text-muted-foreground">
-                    <span>{date.toLocaleDateString()}</span>
-                    <span className="ml-1">({ago})</span>
+                    {exactTimestamp}
                   </div>
                 )
               },

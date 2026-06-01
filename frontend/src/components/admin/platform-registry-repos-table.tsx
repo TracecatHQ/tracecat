@@ -20,7 +20,7 @@ import {
 import { toast } from "@/components/ui/use-toast"
 import { useAdminRegistryStatus, useAdminRegistrySync } from "@/hooks/use-admin"
 import { getApiErrorDetail } from "@/lib/errors"
-import { getRelativeTime } from "@/lib/event-history"
+import { formatExactTimestamp } from "@/lib/event-history"
 
 export function PlatformRegistryReposTable() {
   const [syncingId, setSyncingId] = useState<string | null>(null)
@@ -139,11 +139,10 @@ export function PlatformRegistryReposTable() {
               return <div className="text-xs text-muted-foreground">Never</div>
             }
             const date = new Date(lastSynced)
-            const ago = getRelativeTime(date)
+            const exactTimestamp = formatExactTimestamp(date)
             return (
               <div className="text-xs text-muted-foreground">
-                <span>{date.toLocaleDateString()}</span>
-                <span className="ml-1">({ago})</span>
+                {exactTimestamp}
               </div>
             )
           },
