@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from tracecat.cases.durations.consumer import CaseDurationSyncConsumer
+from tracecat.cases.enums import CaseEventType
 from tracecat.redis.client import RedisClient
 
 
@@ -20,6 +21,28 @@ class FakeRedisClient:
     ) -> None:
         del stream_key, group_name
         self.acked.append(message_ids)
+
+
+class FakeScalarResult:
+    def __init__(self, value: uuid.UUID | None) -> None:
+        self.value = value
+
+    def scalar_one_or_none(self) -> uuid.UUID | None:
+        return self.value
+
+
+class FakeDefinitionMatchSession:
+    async def execute(self, stmt: Any) -> FakeScalarResult:
+        compiled = stmt.compile()
+        event_types = {
+            event_type
+            for value in compiled.params.values()
+            if isinstance(value, list)
+            for event_type in value
+        }
+        return FakeScalarResult(
+            uuid.uuid4() if CaseEventType.STATUS_CHANGED in event_types else None
+        )
 
 
 @pytest.mark.anyio
@@ -160,3 +183,26 @@ async def test_consumer_acks_successful_backfill_jobs(
     job = await_args.args[0]
     assert cast(Any, job).workspace_id == workspace_id
     assert client.acked == [["1-0"]]
+
+
+@pytest.mark.anyio
+async def test_event_types_require_sync_matches_status_changed_aliases() -> None:
+    session = FakeDefinitionMatchSession()
+    consumer = CaseDurationSyncConsumer(cast(RedisClient, FakeRedisClient()))
+    workspace_id = uuid.uuid4()
+
+    assert await consumer._event_types_require_sync(
+        session,
+        workspace_id=workspace_id,
+        event_types={"case_closed"},
+    )
+    assert await consumer._event_types_require_sync(
+        session,
+        workspace_id=workspace_id,
+        event_types={"case_reopened"},
+    )
+    assert not await consumer._event_types_require_sync(
+        session,
+        workspace_id=workspace_id,
+        event_types={"case_updated"},
+    )
