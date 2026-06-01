@@ -88,6 +88,7 @@ import {
   ToolOutput,
 } from "@/components/ai-elements/tool"
 import { ChatEmptyHero } from "@/components/chat/chat-empty-hero"
+import { SmoothResponse } from "@/components/chat/smooth-response"
 import { CodeEditor } from "@/components/editor/codemirror/code-editor"
 import { getIcon, ProviderIcon } from "@/components/icons"
 import { JsonViewWithControls } from "@/components/json-viewer"
@@ -1120,7 +1121,10 @@ export function ChatSessionPane({
     <div className={cn("flex h-full min-h-0 flex-col", className)}>
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         <div className="flex min-h-0 flex-1 flex-col">
-          <Conversation className="flex-1">
+          <Conversation
+            className="flex-1"
+            resize={status === "streaming" ? "instant" : "smooth"}
+          >
             <ConversationContent className={chatContentCenterClass}>
               {lastError && (
                 <Alert variant="destructive" className="mb-4">
@@ -1478,7 +1482,10 @@ export function MessagePart({
     return (
       <Message key={`${id}-${partIdx}`} from={role}>
         <MessageContent variant="flat">
-          <Response>{part.text}</Response>
+          <SmoothResponse
+            text={part.text}
+            animate={status === "streaming" && isLastMessage}
+          />
         </MessageContent>
       </Message>
     )

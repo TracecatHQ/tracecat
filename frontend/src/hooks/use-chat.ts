@@ -454,7 +454,6 @@ export function useVercelChat({
   const chat = aiSdk.useChat({
     id: chatId,
     resume: !!chatId,
-    experimental_throttle: 50,
     messages,
     transport: new DefaultChatTransport({
       api: apiEndpoint,
