@@ -465,12 +465,15 @@ function normalizeRunValidationErrors(
   return [toDslApiErrorResult(message)]
 }
 
-function WorkflowManualTrigger({
+export function WorkflowManualTrigger({
   disabled = true,
   workflowId,
+  onAfterTrigger,
 }: {
   disabled: boolean
   workflowId: string
+  /** Invoked after a run is successfully started (e.g. to reveal events). */
+  onAfterTrigger?: () => void
 }) {
   const { expandSidebarAndFocusEvents, setCurrentExecutionId, triggerPayload } =
     useWorkflowBuilder()
@@ -509,6 +512,7 @@ function WorkflowManualTrigger({
 
       // Expand sidebar immediately
       expandSidebarAndFocusEvents()
+      onAfterTrigger?.()
     } catch (error) {
       if (error instanceof ApiError) {
         const tracecatError = error as TracecatApiError<{

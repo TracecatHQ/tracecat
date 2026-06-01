@@ -5,6 +5,7 @@ import {
   BoxIcon,
   DatabaseIcon,
   LayersIcon,
+  PlusIcon,
   SparklesIcon,
   SquareFunctionIcon,
   Table2Icon,
@@ -271,11 +272,27 @@ function sortActions(
 
 export interface CanvasToolbarProps {
   onAddAction: (action: RegistryActionReadMinimal) => void
+  /**
+   * When true, collapse the toolbar into a small pill that expands into the
+   * full category bar on hover (used in the embedded workflow artifact).
+   */
+  embedded?: boolean
 }
 
-export function CanvasToolbar({ onAddAction }: CanvasToolbarProps) {
+export function CanvasToolbar({
+  onAddAction,
+  embedded = false,
+}: CanvasToolbarProps) {
   const { registryActions, registryActionsIsLoading } =
     useBuilderRegistryActions({ includeLocked: true })
+  const [hovered, setHovered] = useState(false)
+  // Track open category popovers so the bar stays expanded while one is open,
+  // even though the pointer has left the bar to reach the popover.
+  const [openCount, setOpenCount] = useState(0)
+
+  const handleCategoryOpenChange = useCallback((open: boolean) => {
+    setOpenCount((count) => Math.max(0, count + (open ? 1 : -1)))
+  }, [])
 
   const actionsByCategory = useMemo(() => {
     if (!registryActions) return new Map<string, RegistryActionReadMinimal[]>()
@@ -318,24 +335,67 @@ export function CanvasToolbar({ onAddAction }: CanvasToolbarProps) {
     return grouped
   }, [registryActions])
 
+  const bar = (
+    <div
+      className={cn(
+        "flex items-center gap-1 rounded-lg border bg-background/95 p-1 backdrop-blur supports-[backdrop-filter]:bg-background/80",
+        // Keep the standalone builder toolbar elevated; the embedded toolbar stays flat.
+        !embedded && "shadow-lg"
+      )}
+    >
+      {ACTION_CATEGORIES.map((category) => {
+        const Icon = category.icon
+        const actions = actionsByCategory.get(category.id) ?? []
+
+        return (
+          <ToolbarCategoryDropdown
+            key={category.id}
+            category={category}
+            actions={actions}
+            isLoading={registryActionsIsLoading}
+            onAddAction={onAddAction}
+            onOpenChange={embedded ? handleCategoryOpenChange : undefined}
+            Icon={Icon}
+          />
+        )
+      })}
+    </div>
+  )
+
+  if (!embedded) {
+    return <TooltipProvider delayDuration={300}>{bar}</TooltipProvider>
+  }
+
+  // Expanded while hovered or while a category popover is open; otherwise the
+  // bar collapses back into the pill once the pointer leaves.
+  const expanded = hovered || openCount > 0
+
   return (
     <TooltipProvider delayDuration={300}>
-      <div className="flex items-center gap-1 rounded-lg border bg-background/95 p-1 shadow-lg backdrop-blur supports-[backdrop-filter]:bg-background/80">
-        {ACTION_CATEGORIES.map((category) => {
-          const Icon = category.icon
-          const actions = actionsByCategory.get(category.id) ?? []
-
-          return (
-            <ToolbarCategoryDropdown
-              key={category.id}
-              category={category}
-              actions={actions}
-              isLoading={registryActionsIsLoading}
-              onAddAction={onAddAction}
-              Icon={Icon}
-            />
-          )
-        })}
+      <div
+        className="flex items-center justify-center"
+        onMouseEnter={() => setHovered(true)}
+        onMouseLeave={() => setHovered(false)}
+      >
+        {expanded ? (
+          <div className="duration-150 animate-in fade-in-0 zoom-in-95">
+            {bar}
+          </div>
+        ) : (
+          <button
+            type="button"
+            aria-label="Show actions"
+            onClick={() => setHovered(true)}
+            className="flex items-center gap-1 rounded-full border bg-background/95 px-2 py-0.5 text-muted-foreground backdrop-blur transition-colors duration-150 animate-in fade-in-0 zoom-in-95 hover:text-foreground supports-[backdrop-filter]:bg-background/80"
+          >
+            <PlusIcon className="size-3" />
+            <span className="flex items-center gap-0.5">
+              <span className="size-0.5 rounded-full bg-muted-foreground/40" />
+              <span className="size-0.5 rounded-full bg-muted-foreground/40" />
+              <span className="size-0.5 rounded-full bg-muted-foreground/40" />
+            </span>
+          </button>
+        )}
       </div>
     </TooltipProvider>
   )
@@ -347,6 +407,8 @@ interface ToolbarCategoryDropdownProps {
   isLoading: boolean
   onAddAction: (action: RegistryActionReadMinimal) => void
   Icon: LucideIcon
+  /** Notified whenever this category's popover opens or closes. */
+  onOpenChange?: (open: boolean) => void
 }
 
 function ToolbarCategoryDropdown({
@@ -355,10 +417,21 @@ function ToolbarCategoryDropdown({
   isLoading,
   onAddAction,
   Icon,
+  onOpenChange,
 }: ToolbarCategoryDropdownProps) {
   const [open, setOpen] = useState(false)
   const [lockedFeatureOpen, setLockedFeatureOpen] = useState(false)
   const [search, setSearch] = useState("")
+
+  // Single funnel for open/close so the parent is notified for both user-driven
+  // (Radix) and programmatic (select) transitions.
+  const setOpenAndNotify = useCallback(
+    (next: boolean) => {
+      setOpen(next)
+      onOpenChange?.(next)
+    },
+    [onOpenChange]
+  )
   const isAiCategory = category.id === "ai"
   const isAgentCategory = category.id === "agent"
   const categoryStyle = CATEGORY_STYLES[category.id]
@@ -376,16 +449,16 @@ function ToolbarCategoryDropdown({
   const handleSelect = useCallback(
     (action: RegistryActionReadMinimal) => {
       if (isLockedAction(action)) {
-        setOpen(false)
+        setOpenAndNotify(false)
         setSearch("")
         setLockedFeatureOpen(true)
         return
       }
       onAddAction(action)
-      setOpen(false)
+      setOpenAndNotify(false)
       setSearch("")
     },
-    [onAddAction]
+    [onAddAction, setOpenAndNotify]
   )
 
   function renderActionIcon(action: RegistryActionReadMinimal) {
@@ -440,7 +513,7 @@ function ToolbarCategoryDropdown({
         open={lockedFeatureOpen}
         onOpenChange={setLockedFeatureOpen}
       />
-      <Popover open={open} onOpenChange={setOpen}>
+      <Popover open={open} onOpenChange={setOpenAndNotify}>
         <Tooltip>
           <TooltipTrigger asChild>
             <PopoverTrigger asChild>

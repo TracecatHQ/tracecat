@@ -1063,7 +1063,10 @@ export const WorkflowCanvas = React.forwardRef<
           </Button>
         </Panel>
         <Panel position="bottom-center" className="mb-4">
-          <CanvasToolbar onAddAction={handleToolbarAddAction} />
+          <CanvasToolbar
+            onAddAction={handleToolbarAddAction}
+            embedded={embedded}
+          />
         </Panel>
         <NodeSilhouette
           position={silhouettePosition}
