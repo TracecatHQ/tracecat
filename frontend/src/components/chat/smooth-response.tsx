@@ -21,11 +21,11 @@ interface SmoothResponseProps {
 /**
  * Renders streamed markdown with a frame-aligned reveal.
  *
- * The chat SDK flushes streamed text on a fixed timer (`experimental_throttle`),
- * so text grows in visible ~50ms chunks. While `animate` is true this component
- * advances a locally-held reveal length on each animation frame, so the same
- * deltas read as smooth 60fps growth. The reveal state is local, so per-frame
- * updates only re-render this component, not the surrounding message list.
+ * Streamed text can arrive in uneven network-sized chunks. While `animate` is
+ * true this component advances a locally-held reveal length on each animation
+ * frame, so bursty deltas read as smooth 60fps growth. The reveal state is
+ * local, so per-frame updates only re-render this component, not the
+ * surrounding message list.
  */
 export function SmoothResponse({ text, animate }: SmoothResponseProps) {
   const [shownLen, setShownLen] = useState(text.length)
