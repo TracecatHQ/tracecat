@@ -105,11 +105,10 @@ class CaseDurationSyncConsumer:
                 if messages:
                     for _stream, entries in messages:
                         await self._handle_entries(entries)
-                else:
-                    now = monotonic()
-                    if now - last_pending_check >= self._pending_check_interval:
-                        await self._claim_idle_messages()
-                        last_pending_check = now
+                now = monotonic()
+                if now - last_pending_check >= self._pending_check_interval:
+                    await self._claim_idle_messages()
+                    last_pending_check = now
                 await asyncio.sleep(0)
         except asyncio.CancelledError:
             logger.info("Case duration sync consumer cancelled")

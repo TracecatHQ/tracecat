@@ -1,3 +1,4 @@
+import asyncio
 import uuid
 from typing import Any, cast
 from unittest.mock import AsyncMock, MagicMock
@@ -206,3 +207,50 @@ async def test_event_types_require_sync_matches_status_changed_aliases() -> None
         workspace_id=workspace_id,
         event_types={"case_updated"},
     )
+
+
+@pytest.mark.anyio
+async def test_consumer_claims_idle_messages_while_stream_is_busy(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    entries = [
+        (
+            "1-0",
+            {
+                "workspace_id": str(uuid.uuid4()),
+                "case_id": str(uuid.uuid4()),
+                "reason": "case_event",
+            },
+        )
+    ]
+    client = AsyncMock()
+    client.xreadgroup = AsyncMock(
+        side_effect=[
+            [("stream", entries)],
+            asyncio.CancelledError(),
+        ]
+    )
+    consumer = CaseDurationSyncConsumer(cast(RedisClient, client))
+    consumer._pending_check_interval = 10
+    ensure_group_mock = AsyncMock()
+    handle_entries_mock = AsyncMock()
+    claim_idle_mock = AsyncMock()
+    monotonic_mock = MagicMock(side_effect=[0.0, 11.0])
+    monkeypatch.setattr(
+        "tracecat.cases.durations.consumer.config.TRACECAT__CASE_DURATION_SYNC_ENABLED",
+        True,
+    )
+    monkeypatch.setattr(
+        "tracecat.cases.durations.consumer.monotonic",
+        monotonic_mock,
+    )
+    monkeypatch.setattr(consumer, "_ensure_group", ensure_group_mock)
+    monkeypatch.setattr(consumer, "_handle_entries", handle_entries_mock)
+    monkeypatch.setattr(consumer, "_claim_idle_messages", claim_idle_mock)
+
+    with pytest.raises(asyncio.CancelledError):
+        await consumer.run()
+
+    ensure_group_mock.assert_awaited_once()
+    handle_entries_mock.assert_awaited_once_with(entries)
+    claim_idle_mock.assert_awaited_once()
