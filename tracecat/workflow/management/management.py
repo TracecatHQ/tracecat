@@ -939,12 +939,8 @@ class WorkflowsManagementService(BaseWorkspaceService):
             )
 
         dsl = DSLInput.model_validate(definition.content)
-        workflow.title = dsl.title
-        workflow.description = dsl.description
-        workflow.expects = dsl.entrypoint.expects or {}
-        workflow.returns = dsl.returns
-        workflow.config = dsl.config.model_dump()
-        workflow.error_handler = dsl.error_handler
+        for field, value in self._workflow_fields_from_dsl(dsl).items():
+            setattr(workflow, field, value)
         workflow.alias = definition.alias
         workflow.version = definition.version
         workflow.registry_lock = definition.registry_lock
