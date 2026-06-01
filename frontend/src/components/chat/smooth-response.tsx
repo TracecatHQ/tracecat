@@ -34,58 +34,112 @@ interface SmoothResponseProps {
  */
 export function SmoothResponse({ text, animate }: SmoothResponseProps) {
   const [shownLen, setShownLen] = useState(text.length)
+  const animateRef = useRef(animate)
+  animateRef.current = animate
   // Track the latest target length without restarting the RAF loop on every
   // text update.
   const targetLenRef = useRef(text.length)
   targetLenRef.current = text.length
+  const shownLenRef = useRef(shownLen)
+  shownLenRef.current = shownLen
+  const rafIdRef = useRef<number | null>(null)
+  const lastFrameAtRef = useRef(0)
+  const carryRef = useRef(0)
 
   useEffect(() => {
+    return () => {
+      if (rafIdRef.current !== null) {
+        cancelAnimationFrame(rafIdRef.current)
+      }
+    }
+  }, [])
+
+  useEffect(() => {
+    function stopRevealLoop() {
+      if (rafIdRef.current !== null) {
+        cancelAnimationFrame(rafIdRef.current)
+        rafIdRef.current = null
+      }
+      carryRef.current = 0
+    }
+
+    function syncShownLen(nextShownLen: number) {
+      if (shownLenRef.current === nextShownLen) {
+        return
+      }
+      shownLenRef.current = nextShownLen
+      setShownLen(nextShownLen)
+    }
+
     if (!animate) {
       // Snap to the full text when the stream settles.
-      setShownLen(targetLenRef.current)
+      stopRevealLoop()
+      syncShownLen(targetLenRef.current)
       return
     }
 
-    let lastFrameAt = performance.now()
-    let carry = 0
+    const targetLen = targetLenRef.current
+    if (shownLenRef.current > targetLen) {
+      carryRef.current = 0
+      syncShownLen(targetLen)
+      return
+    }
+    if (shownLenRef.current >= targetLen || rafIdRef.current !== null) {
+      carryRef.current = 0
+      return
+    }
 
-    let rafId = requestAnimationFrame(function tick(now) {
-      const elapsedSeconds = Math.min((now - lastFrameAt) / 1000, 0.1)
-      lastFrameAt = now
+    lastFrameAtRef.current = performance.now()
+    rafIdRef.current = requestAnimationFrame(function tick(now) {
+      rafIdRef.current = null
+      if (!animateRef.current) {
+        carryRef.current = 0
+        return
+      }
 
-      setShownLen((prev) => {
-        const target = targetLenRef.current
-        if (prev > target) {
-          carry = 0
-          return target
-        }
-        if (prev >= target) {
-          carry = 0
-          return prev
-        }
+      const elapsedSeconds = Math.min(
+        (now - lastFrameAtRef.current) / 1000,
+        0.1
+      )
+      lastFrameAtRef.current = now
 
+      const prev = shownLenRef.current
+      const target = targetLenRef.current
+      let next = prev
+
+      if (prev > target) {
+        carryRef.current = 0
+        next = target
+      } else if (prev < target) {
         const buffered = target - prev
         const charsPerSecond =
           buffered > CATCHUP_THRESHOLD_CHARS
             ? CATCHUP_CHARS_PER_SECOND
             : STEADY_CHARS_PER_SECOND
-        const exactStep = charsPerSecond * elapsedSeconds + carry
+        const exactStep = charsPerSecond * elapsedSeconds + carryRef.current
         const step = Math.min(
           Math.floor(exactStep),
           MAX_CHARS_PER_FRAME,
           buffered
         )
-        carry = exactStep - Math.floor(exactStep)
+        carryRef.current = exactStep - Math.floor(exactStep)
         if (step < 1) {
-          return prev
+          next = prev
+        } else {
+          next = Math.min(target, prev + step)
         }
-        return Math.min(target, prev + step)
-      })
-      rafId = requestAnimationFrame(tick)
-    })
+      } else {
+        carryRef.current = 0
+      }
 
-    return () => cancelAnimationFrame(rafId)
-  }, [animate])
+      syncShownLen(next)
+      if (next < targetLenRef.current) {
+        rafIdRef.current = requestAnimationFrame(tick)
+      } else {
+        carryRef.current = 0
+      }
+    })
+  }, [animate, text.length])
 
   const shown = animate ? text.slice(0, shownLen) : text
   return <Response>{shown}</Response>
