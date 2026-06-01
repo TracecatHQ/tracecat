@@ -630,9 +630,11 @@ describe("ChatSessionPane", () => {
     fireEvent.keyDown(textarea, { key: "Enter", code: "Enter" })
 
     await waitFor(() => {
-      expect(onBeforeSend).toHaveBeenCalledWith("hello", [
-        "core.cases.list_cases",
-      ])
+      expect(onBeforeSend).toHaveBeenCalledWith(
+        "hello",
+        ["core.cases.list_cases"],
+        []
+      )
     })
   })
 

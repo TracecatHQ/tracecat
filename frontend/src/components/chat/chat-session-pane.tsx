@@ -243,7 +243,8 @@ export interface ChatSessionPaneProps {
    */
   onBeforeSend?: (
     messageText: string,
-    selectedTools?: string[]
+    selectedTools?: string[],
+    selectedMcpIntegrations?: string[]
   ) => Promise<string | null>
   /**
    * Render a temporary user message and assistant loading dots while
@@ -969,7 +970,11 @@ export function ChatSessionPane({
         setInput("")
       }
 
-      const result = await onBeforeSend(messageText, selectedTools)
+      const result = await onBeforeSend(
+        messageText,
+        selectedTools,
+        selectedMcpIntegrations
+      )
       // Only clear input if onBeforeSend succeeded (non-null)
       // If null, the action was cancelled and user keeps their draft
       if (result !== null) {

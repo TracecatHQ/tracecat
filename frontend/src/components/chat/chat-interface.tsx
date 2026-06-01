@@ -278,7 +278,8 @@ export function ChatInterface({
 
   const handleCreateSessionOnFirstSend = async (
     messageText: string,
-    selectedTools?: string[]
+    selectedTools?: string[],
+    selectedMcpIntegrations?: string[]
   ) => {
     if (!deferSessionCreation || createChatPending) {
       return null
@@ -290,6 +291,7 @@ export function ChatInterface({
         entity_type: entityType,
         entity_id: entityId,
         tools: selectedTools,
+        mcp_integrations: selectedMcpIntegrations,
         agent_preset_id: effectivePresetId,
         agent_preset_version_id: selectedPresetVersionId,
       })
@@ -498,7 +500,8 @@ interface ChatBodyProps {
   }
   onCreateSessionBeforeSend?: (
     messageText: string,
-    selectedTools?: string[]
+    selectedTools?: string[],
+    selectedMcpIntegrations?: string[]
   ) => Promise<string | null>
   draftInputDisabled: boolean
   pendingMessage: string | null

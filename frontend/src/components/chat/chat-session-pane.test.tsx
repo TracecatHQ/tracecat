@@ -128,7 +128,11 @@ describe("ChatSessionPane optimistic first send", () => {
     fireEvent.click(screen.getByRole("button", { name: "Submit" }))
 
     await waitFor(() =>
-      expect(onBeforeSend).toHaveBeenCalledWith("Summarize this workspace", [])
+      expect(onBeforeSend).toHaveBeenCalledWith(
+        "Summarize this workspace",
+        [],
+        []
+      )
     )
 
     expect(
