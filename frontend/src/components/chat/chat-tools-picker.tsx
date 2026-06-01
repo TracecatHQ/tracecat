@@ -20,6 +20,7 @@ interface ChatToolsPickerProps {
   mcpIntegrations: MCPIntegrationRead[]
   selectedMcpIntegrations: string[]
   onMcpChange: (next: string[]) => void
+  mcpEnabled?: boolean
   disabled?: boolean
 }
 
@@ -44,11 +45,13 @@ export function ChatToolsPicker({
   mcpIntegrations,
   selectedMcpIntegrations,
   onMcpChange,
+  mcpEnabled = true,
   disabled = false,
 }: ChatToolsPickerProps) {
   const [query, setQuery] = useState("")
 
-  const addedCount = selectedTools.length + selectedMcpIntegrations.length
+  const addedCount =
+    selectedTools.length + (mcpEnabled ? selectedMcpIntegrations.length : 0)
 
   const toolOptions = useMemo<ToolOption[]>(
     () =>
@@ -129,22 +132,26 @@ export function ChatToolsPicker({
             </span>
           </div>
 
-          <GroupLabel>MCP integrations</GroupLabel>
-          {mcpIntegrations.length > 0 ? (
-            mcpIntegrations.map((integration) => (
-              <Row
-                key={integration.id}
-                dotClassName="bg-sky-500"
-                title={integration.name}
-                subtitle={integration.description ?? undefined}
-                checked={selectedMcpIntegrations.includes(integration.id)}
-                onToggle={() => toggleMcp(integration.id)}
-              />
-            ))
-          ) : (
-            <EmptyHint>
-              No MCP integrations connected in this workspace.
-            </EmptyHint>
+          {mcpEnabled && (
+            <>
+              <GroupLabel>MCP integrations</GroupLabel>
+              {mcpIntegrations.length > 0 ? (
+                mcpIntegrations.map((integration) => (
+                  <Row
+                    key={integration.id}
+                    dotClassName="bg-sky-500"
+                    title={integration.name}
+                    subtitle={integration.description ?? undefined}
+                    checked={selectedMcpIntegrations.includes(integration.id)}
+                    onToggle={() => toggleMcp(integration.id)}
+                  />
+                ))
+              ) : (
+                <EmptyHint>
+                  No MCP integrations connected in this workspace.
+                </EmptyHint>
+              )}
+            </>
           )}
 
           <GroupLabel>Tools</GroupLabel>

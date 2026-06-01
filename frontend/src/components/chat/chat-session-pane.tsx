@@ -327,6 +327,7 @@ export function ChatSessionPane({
   const { registryActions, registryActionsIsLoading } =
     useBuilderRegistryActions()
   const { mcpIntegrations } = useListMcpIntegrations(workspaceId)
+  const sessionMcpEnabled = entityType === "copilot"
 
   // Check if this is a legacy read-only session
   const isReadonly = chat ? "is_readonly" in chat && chat.is_readonly : false
@@ -1135,6 +1136,7 @@ export function ChatSessionPane({
                 mcpIntegrations={mcpIntegrations ?? []}
                 selectedMcpIntegrations={selectedMcpIntegrations}
                 onMcpChange={commitSelectedMcpIntegrations}
+                mcpEnabled={sessionMcpEnabled}
                 disabled={inputDisabled || isUpdatingTools}
               />
             )}
