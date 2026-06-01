@@ -103,11 +103,7 @@ export function ChatToolsPicker({
   return (
     <Popover>
       <PopoverTrigger asChild>
-        <PromptInputButton
-          disabled={disabled}
-          tooltip="Add tools and integrations"
-          className="text-xs"
-        >
+        <PromptInputButton disabled={disabled} className="text-xs">
           <SlidersHorizontalIcon className="size-4" />
           <span>{addedCount > 0 ? `Tools (${addedCount})` : "Tools"}</span>
         </PromptInputButton>
