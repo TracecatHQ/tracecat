@@ -88,6 +88,7 @@ import {
   ToolOutput,
 } from "@/components/ai-elements/tool"
 import { ChatEmptyHero } from "@/components/chat/chat-empty-hero"
+import { SmoothResponse } from "@/components/chat/smooth-response"
 import { CodeEditor } from "@/components/editor/codemirror/code-editor"
 import { getIcon, ProviderIcon } from "@/components/icons"
 import { JsonViewWithControls } from "@/components/json-viewer"
@@ -1478,7 +1479,10 @@ export function MessagePart({
     return (
       <Message key={`${id}-${partIdx}`} from={role}>
         <MessageContent variant="flat">
-          <Response>{part.text}</Response>
+          <SmoothResponse
+            text={part.text}
+            animate={status === "streaming" && isLastMessage}
+          />
         </MessageContent>
       </Message>
     )
