@@ -1,39 +1,20 @@
 "use client"
 
 import { ReactFlowProvider } from "@xyflow/react"
-import {
-  CalendarSearchIcon,
-  FileInputIcon,
-  MessagesSquare,
-  ShapesIcon,
-  WorkflowIcon,
-} from "lucide-react"
 import { type MutableRefObject, useEffect, useState } from "react"
-import { $TriggerType, type TriggerType } from "@/client"
 import { WorkflowCanvas } from "@/components/builder/canvas/canvas"
-import { ActionEventPane } from "@/components/builder/events/events-selected-action"
-import type {
-  EventsSidebarRef,
-  EventsSidebarTabs,
-} from "@/components/builder/events/events-sidebar"
-import { EventsSidebarEmpty } from "@/components/builder/events/events-sidebar-empty"
-import { WorkflowInteractions } from "@/components/builder/events/events-sidebar-interactions"
 import {
-  WorkflowEvents,
-  WorkflowEventsHeader,
-} from "@/components/builder/events/events-workflow"
+  buildEventsTabItems,
+  EventsLoading,
+  type EventsSidebarTabs,
+  useResolvedLastExecution,
+} from "@/components/builder/events/events-shared"
+import type { EventsSidebarRef } from "@/components/builder/events/events-sidebar"
+import { EventsSidebarEmpty } from "@/components/builder/events/events-sidebar-empty"
 import { BuilderPanel } from "@/components/builder/panel/builder-panel"
 import { WorkflowBuilderErrorBoundary } from "@/components/error-boundaries"
-import { Spinner } from "@/components/loading/spinner"
 import { WorkflowManualTrigger } from "@/components/nav/builder-nav"
 import { AlertNotification } from "@/components/notifications"
-import {
-  Empty,
-  EmptyDescription,
-  EmptyHeader,
-  EmptyMedia,
-  EmptyTitle,
-} from "@/components/ui/empty"
 import {
   ResizableHandle,
   ResizablePanel,
@@ -42,19 +23,12 @@ import {
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area"
 import { Separator } from "@/components/ui/separator"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { useLocalStorage } from "@/hooks/use-local-storage"
-import {
-  useCompactWorkflowExecution,
-  useLastExecution,
-  useOrgAppSettings,
-} from "@/lib/hooks"
+import { useCompactWorkflowExecution, useOrgAppSettings } from "@/lib/hooks"
 import {
   useWorkflowBuilder,
   WorkflowBuilderProvider,
 } from "@/providers/builder"
-import { useWorkflow, WorkflowProvider } from "@/providers/workflow"
-
-const AVAILABLE_TRIGGER_TYPES: readonly TriggerType[] = $TriggerType.enum
+import { WorkflowProvider } from "@/providers/workflow"
 
 /**
  * Embedded workflow artifact: the workflow DAG on top and a compact events
@@ -142,54 +116,11 @@ function WorkflowArtifactBottomPanel() {
 
 /** Latest-run event timeline for the embedded workflow, without sidebar chrome. */
 function CompactWorkflowEvents() {
-  const { workflowId } = useWorkflow()
-  const { currentExecutionId } = useWorkflowBuilder()
-  const [selectedTriggerTypes] = useLocalStorage<TriggerType[]>(
-    "selected-trigger-types",
-    [...AVAILABLE_TRIGGER_TYPES]
-  )
-
-  const { lastExecution, lastExecutionIsLoading, lastExecutionError } =
-    useLastExecution({
-      workflowId: currentExecutionId ? undefined : workflowId,
-      triggerTypes: selectedTriggerTypes,
-    })
-
-  // Prefer a direct execution id (e.g. a run just triggered) over the query.
-  const executionId = currentExecutionId || lastExecution?.id
-
-  if (!currentExecutionId && lastExecutionIsLoading) {
-    return <EventsLoading message="Fetching last execution..." />
+  const resolved = useResolvedLastExecution()
+  if (resolved.status === "pending") {
+    return resolved.node
   }
-
-  if (!currentExecutionId && lastExecutionError) {
-    return (
-      <AlertNotification
-        level="error"
-        message={`Error loading last execution: ${lastExecutionError.message}`}
-      />
-    )
-  }
-
-  if (!executionId) {
-    return (
-      <div className="flex h-full items-center justify-center">
-        <Empty className="border-none">
-          <EmptyHeader>
-            <EmptyMedia variant="icon">
-              <WorkflowIcon />
-            </EmptyMedia>
-            <EmptyTitle>No workflow runs</EmptyTitle>
-            <EmptyDescription>
-              Get started by running your workflow
-            </EmptyDescription>
-          </EmptyHeader>
-        </Empty>
-      </div>
-    )
-  }
-
-  return <CompactWorkflowEventsList executionId={executionId} />
+  return <CompactWorkflowEventsList executionId={resolved.executionId} />
 }
 
 function CompactWorkflowEventsList({ executionId }: { executionId: string }) {
@@ -243,42 +174,11 @@ function CompactWorkflowEventsList({ executionId }: { executionId: string }) {
     )
   }
 
-  const tabItems = [
-    {
-      value: "workflow-events" as EventsSidebarTabs,
-      label: "Events",
-      icon: CalendarSearchIcon,
-      content: (
-        <>
-          <WorkflowEventsHeader execution={execution} embedded />
-          {appSettings?.app_interactions_enabled && (
-            <WorkflowInteractions execution={execution} />
-          )}
-          <WorkflowEvents events={execution.events} status={execution.status} />
-        </>
-      ),
-    },
-    {
-      value: "action-input" as EventsSidebarTabs,
-      label: "Input",
-      icon: FileInputIcon,
-      content: <ActionEventPane execution={execution} type="input" />,
-    },
-    {
-      value: "action-result" as EventsSidebarTabs,
-      label: "Result",
-      icon: ShapesIcon,
-      content: <ActionEventPane execution={execution} type="result" />,
-    },
-  ]
-  if (appSettings?.app_interactions_enabled) {
-    tabItems.push({
-      value: "action-interaction",
-      label: "Interaction",
-      icon: MessagesSquare,
-      content: <ActionEventPane execution={execution} type="interaction" />,
-    })
-  }
+  const tabItems = buildEventsTabItems({
+    execution,
+    interactionsEnabled: !!appSettings?.app_interactions_enabled,
+    embedded: true,
+  })
 
   return (
     <Tabs
@@ -316,14 +216,5 @@ function CompactWorkflowEventsList({ executionId }: { executionId: string }) {
         ))}
       </div>
     </Tabs>
-  )
-}
-
-function EventsLoading({ message }: { message: string }) {
-  return (
-    <div className="flex h-full flex-col items-center justify-center space-y-2">
-      <span className="text-xs text-muted-foreground">{message}</span>
-      <Spinner className="size-6" />
-    </div>
   )
 }
