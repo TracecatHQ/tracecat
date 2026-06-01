@@ -38,6 +38,9 @@ from tracecat.redis.client import RedisClient, get_redis_client
 CASE_DURATION_SYNC_REASONS = frozenset(
     cast(tuple[str, ...], get_args(CaseDurationSyncReason))
 )
+STATUS_CHANGED_ALIASES = frozenset(
+    (CaseEventType.CASE_CLOSED, CaseEventType.CASE_REOPENED)
+)
 
 
 @dataclass(frozen=True)
@@ -303,13 +306,23 @@ class CaseDurationSyncConsumer:
                 )
                 return True
 
+        matching_event_types = list(parsed_event_types)
+        if (
+            any(
+                event_type in STATUS_CHANGED_ALIASES
+                for event_type in parsed_event_types
+            )
+            and CaseEventType.STATUS_CHANGED not in matching_event_types
+        ):
+            matching_event_types.append(CaseEventType.STATUS_CHANGED)
+
         stmt = (
             select(CaseDurationDefinitionDB.id)
             .where(
                 CaseDurationDefinitionDB.workspace_id == workspace_id,
                 or_(
-                    CaseDurationDefinitionDB.start_event_type.in_(parsed_event_types),
-                    CaseDurationDefinitionDB.end_event_type.in_(parsed_event_types),
+                    CaseDurationDefinitionDB.start_event_type.in_(matching_event_types),
+                    CaseDurationDefinitionDB.end_event_type.in_(matching_event_types),
                 ),
             )
             .limit(1)
