@@ -96,7 +96,7 @@ class WorkflowsManagementService(BaseWorkspaceService):
         return {
             "title": dsl.title,
             "description": dsl.description,
-            "expects": dsl.entrypoint.model_dump().get("expects"),
+            "expects": dsl.entrypoint.model_dump(mode="json").get("expects"),
             "returns": dsl.returns,
             "config": dsl.config.model_dump(),
             "error_handler": dsl.error_handler,
