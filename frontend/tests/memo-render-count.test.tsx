@@ -8,7 +8,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { render } from "@testing-library/react"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { useUpdateChat, useVercelChat } from "@/hooks/use-chat"
-import { useBuilderRegistryActions } from "@/lib/hooks"
+import { useBuilderRegistryActions, useListMcpIntegrations } from "@/lib/hooks"
 
 // Track how many times the CodeBlock mock renders
 let codeBlockRenderCount = 0
@@ -67,6 +67,11 @@ jest.mock("@/lib/hooks", () => ({
     registryActions: [],
     registryActionsIsLoading: false,
   })),
+  useListMcpIntegrations: jest.fn(() => ({
+    mcpIntegrations: [],
+    mcpIntegrationsIsLoading: false,
+    mcpIntegrationsError: null,
+  })),
 }))
 jest.mock("@/providers/workspace-id", () => ({
   useWorkspaceId: () => "workspace-1",
@@ -86,6 +91,8 @@ const mockUseBuilderRegistryActions =
   useBuilderRegistryActions as jest.MockedFunction<
     typeof useBuilderRegistryActions
   >
+const mockUseListMcpIntegrations =
+  useListMcpIntegrations as jest.MockedFunction<typeof useListMcpIntegrations>
 
 /**
  * Build a messages array that simulates a completed tool call.
@@ -165,6 +172,11 @@ describe("MessagePart memoization", () => {
       registryActionsIsLoading: false,
       registryActionsError: null,
       getRegistryAction: () => undefined,
+    })
+    mockUseListMcpIntegrations.mockReturnValue({
+      mcpIntegrations: [],
+      mcpIntegrationsIsLoading: false,
+      mcpIntegrationsError: null,
     })
   })
 
