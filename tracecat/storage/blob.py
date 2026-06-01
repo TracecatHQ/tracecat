@@ -60,6 +60,7 @@ async def get_storage_client() -> AsyncIterator[S3Client]:
             "s3",
             endpoint_url=config.TRACECAT__BLOB_STORAGE_ENDPOINT,
             config=_STORAGE_CLIENT_CONFIG,
+            verify=config.TRACECAT__BLOB_STORAGE_SSL_VERIFY,
             # Defaults to minio default credentials. MUST REPLACE WITH PRODUCTION CREDENTIALS.
             aws_access_key_id=os.environ.get(
                 "AWS_ACCESS_KEY_ID",
@@ -73,7 +74,11 @@ async def get_storage_client() -> AsyncIterator[S3Client]:
             yield client
     else:
         # AWS S3 configuration - use AWS credentials from environment or default credential chain
-        async with session.client("s3", config=_STORAGE_CLIENT_CONFIG) as client:
+        async with session.client(
+            "s3",
+            config=_STORAGE_CLIENT_CONFIG,
+            verify=config.TRACECAT__BLOB_STORAGE_SSL_VERIFY,
+        ) as client:
             yield client
 
 
