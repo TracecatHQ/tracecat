@@ -326,8 +326,10 @@ export function ChatSessionPane({
   const { updateChat, isUpdating: isUpdatingTools } = useUpdateChat(workspaceId)
   const { registryActions, registryActionsIsLoading } =
     useBuilderRegistryActions()
-  const { mcpIntegrations } = useListMcpIntegrations(workspaceId)
   const sessionMcpEnabled = entityType === "copilot"
+  const { mcpIntegrations } = useListMcpIntegrations(workspaceId, undefined, {
+    enabled: toolsEnabled && sessionMcpEnabled,
+  })
 
   // Check if this is a legacy read-only session
   const isReadonly = chat ? "is_readonly" in chat && chat.is_readonly : false
@@ -616,18 +618,62 @@ export function ChatSessionPane({
   )
 
   const persistMcpChainRef = useRef<Promise<void>>(Promise.resolve())
+  const selectedMcpIntegrationsRef = useRef<string[]>([])
+  const pendingPersistedMcpIntegrationsRef = useRef<string[] | null>(null)
+  const syncedMcpChatIdRef = useRef<string | undefined>(undefined)
 
   useEffect(() => {
-    setSelectedMcpIntegrations(chat?.mcp_integrations ?? [])
+    selectedMcpIntegrationsRef.current = selectedMcpIntegrations
+  }, [selectedMcpIntegrations])
+
+  useEffect(() => {
+    const nextChatId = chat?.id
+    const nextMcpIntegrations = chat?.mcp_integrations ?? []
+
+    if (syncedMcpChatIdRef.current !== nextChatId) {
+      syncedMcpChatIdRef.current = nextChatId
+      pendingPersistedMcpIntegrationsRef.current = null
+      selectedMcpIntegrationsRef.current = nextMcpIntegrations
+      setSelectedMcpIntegrations(nextMcpIntegrations)
+      return
+    }
+
+    const pendingMcpIntegrations = pendingPersistedMcpIntegrationsRef.current
+    if (pendingMcpIntegrations) {
+      if (areToolListsEqual(nextMcpIntegrations, pendingMcpIntegrations)) {
+        pendingPersistedMcpIntegrationsRef.current = null
+      } else {
+        // Keep the optimistic MCP selection visible until the invalidated chat
+        // query catches up, matching the selected tools behavior above.
+        return
+      }
+    }
+
+    if (
+      !areToolListsEqual(
+        selectedMcpIntegrationsRef.current,
+        nextMcpIntegrations
+      )
+    ) {
+      selectedMcpIntegrationsRef.current = nextMcpIntegrations
+      setSelectedMcpIntegrations(nextMcpIntegrations)
+    }
   }, [chat?.id, chat?.mcp_integrations])
 
   const commitSelectedMcpIntegrations = useCallback(
     (next: string[]) => {
+      if (areToolListsEqual(selectedMcpIntegrationsRef.current, next)) {
+        return
+      }
+
+      selectedMcpIntegrationsRef.current = next
       setSelectedMcpIntegrations(next)
       if (!chat || isReadonly) {
+        pendingPersistedMcpIntegrationsRef.current = null
         return
       }
       const chatId = chat.id
+      pendingPersistedMcpIntegrationsRef.current = next
       persistMcpChainRef.current = persistMcpChainRef.current
         .catch(() => undefined)
         .then(async () => {
@@ -637,6 +683,15 @@ export function ChatSessionPane({
               update: { mcp_integrations: next },
             })
           } catch (error) {
+            if (
+              pendingPersistedMcpIntegrationsRef.current &&
+              areToolListsEqual(
+                pendingPersistedMcpIntegrationsRef.current,
+                next
+              )
+            ) {
+              pendingPersistedMcpIntegrationsRef.current = null
+            }
             toast({
               title: "Failed to update MCP integrations",
               description: parseChatError(error),

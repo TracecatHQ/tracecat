@@ -184,6 +184,15 @@ class AgentSessionService(BaseWorkspaceService):
             agent_session.mcp_integrations
         )
 
+    async def _validate_session_mcp_integrations(
+        self, mcp_integrations: list[str] | None
+    ) -> None:
+        """Validate session-attached MCP integrations before persistence."""
+        if not mcp_integrations:
+            return
+        preset_service = AgentPresetService(self.session, self.role)
+        await preset_service.validate_mcp_integrations(mcp_integrations)
+
     def _build_direct_agent_search_attributes(
         self, session_id: uuid.UUID
     ) -> TypedSearchAttributes:
@@ -254,6 +263,7 @@ class AgentSessionService(BaseWorkspaceService):
                     pinned_preset_version_id
                 )
             )
+        await self._validate_session_mcp_integrations(args.mcp_integrations)
 
         agent_session = AgentSession(
             workspace_id=self.workspace_id,
@@ -663,6 +673,10 @@ class AgentSessionService(BaseWorkspaceService):
         requested_version_id = set_fields.pop(
             "agent_preset_version_id", agent_session.agent_preset_version_id
         )
+        if "mcp_integrations" in set_fields:
+            await self._validate_session_mcp_integrations(
+                set_fields["mcp_integrations"]
+            )
 
         if preset_id_updated or version_id_updated:
             try:

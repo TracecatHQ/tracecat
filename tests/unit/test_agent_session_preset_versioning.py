@@ -148,6 +148,59 @@ async def test_create_workspace_chat_session_omits_agent_tools_without_entitleme
 
 
 @pytest.mark.anyio
+async def test_create_session_validates_mcp_integrations_before_persisting() -> None:
+    service, session, _role = _build_service()
+    mcp_integrations = [str(uuid.uuid4())]
+    validate_mcp_mock = AsyncMock(return_value=None)
+    validate_preset_mock = AsyncMock(return_value=None)
+    agents_binding_mock = AsyncMock(return_value=None)
+    service._validate_session_mcp_integrations = validate_mcp_mock
+    service._validate_preset_version_for_assignment = validate_preset_mock
+    service._resolve_agents_binding_for_preset_version_id = agents_binding_mock
+
+    created = await service.create_session(
+        AgentSessionCreate(
+            title="Chat",
+            entity_type=AgentSessionEntity.WORKSPACE_CHAT,
+            entity_id=uuid.uuid4(),
+            mcp_integrations=mcp_integrations,
+        )
+    )
+
+    validate_mcp_mock.assert_awaited_once_with(mcp_integrations)
+    assert created.mcp_integrations == mcp_integrations
+    session.add.assert_called_once_with(created)
+    session.commit.assert_awaited_once()
+    session.refresh.assert_awaited_once_with(created)
+
+
+@pytest.mark.anyio
+async def test_update_session_validates_mcp_integrations_before_persisting() -> None:
+    service, session, role = _build_service()
+    assert role.workspace_id is not None
+    mcp_integrations = [str(uuid.uuid4())]
+    validate_mcp_mock = AsyncMock(return_value=None)
+    service._validate_session_mcp_integrations = validate_mcp_mock
+    agent_session = AgentSession(
+        workspace_id=role.workspace_id,
+        entity_type=AgentSessionEntity.WORKSPACE_CHAT.value,
+        entity_id=role.workspace_id,
+        mcp_integrations=[],
+    )
+
+    updated = await service.update_session(
+        agent_session,
+        params=AgentSessionUpdate(mcp_integrations=mcp_integrations),
+    )
+
+    validate_mcp_mock.assert_awaited_once_with(mcp_integrations)
+    assert updated.mcp_integrations == mcp_integrations
+    session.add.assert_called_once_with(updated)
+    session.commit.assert_awaited_once()
+    session.refresh.assert_awaited_once_with(updated)
+
+
+@pytest.mark.anyio
 async def test_resolve_session_mcp_servers_requires_agent_addons_entitlement() -> None:
     service, _session, role = _build_service()
     service.agent_addons_enabled = False
