@@ -1196,6 +1196,7 @@ export function ChatSessionPane({
                 onMcpChange={commitSelectedMcpIntegrations}
                 mcpEnabled={sessionMcpEnabled}
                 disabled={inputDisabled || isUpdatingTools}
+                mcpIntegrationsHref={`/workspaces/${workspaceId}/mcp-servers`}
               />
             )}
             {!isReadonly ? (
