@@ -34,8 +34,8 @@ definition:
       description: JSON schema for synthesized output. Supported root types are text and object.
       default: null
     compliance:
-      type: str | None
-      description: Optional Exa enterprise compliance mode, such as hipaa.
+      type: enum["hipaa"] | None
+      description: Optional Exa enterprise compliance mode.
       default: null
   steps:
     - ref: deep_research

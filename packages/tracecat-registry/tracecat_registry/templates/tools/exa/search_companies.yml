@@ -14,7 +14,7 @@ definition:
       type: str
       description: Natural language company search query. Encode industry, funding stage, headcount, geography, technology, similarity, and timing constraints in the query string.
     type:
-      type: str | None
+      type: enum["instant", "fast", "auto", "deep-lite", "deep", "deep-reasoning"] | None
       description: Search method. Exa recommends auto; deep and deep-reasoning also work.
       default: auto
     numResults:

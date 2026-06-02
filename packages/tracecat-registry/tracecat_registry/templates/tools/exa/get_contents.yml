@@ -46,8 +46,8 @@ definition:
       description: Optional Exa extras options, such as links or imageLinks.
       default: null
     compliance:
-      type: str | None
-      description: Optional Exa enterprise compliance mode, such as hipaa.
+      type: enum["hipaa"] | None
+      description: Optional Exa enterprise compliance mode.
       default: null
   steps:
     - ref: get_contents

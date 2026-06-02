@@ -13,6 +13,10 @@ EXA_ROOT = (
     / "exa"
 )
 EXPECTED_SECRET = [{"name": "exa", "keys": ["EXA_API_KEY"]}]
+EXA_SEARCH_TYPE = (
+    'enum["instant", "fast", "auto", "deep-lite", "deep", "deep-reasoning"] | None'
+)
+EXA_COMPLIANCE = 'enum["hipaa"] | None'
 
 
 def load_template(filename: str) -> dict:
@@ -95,6 +99,8 @@ def test_exa_search_exposes_advanced_current_parameters():
     ]:
         assert field in expects
         assert payload[field] == f"${{{{ inputs.{field} }}}}"
+    assert expects["type"]["type"] == EXA_SEARCH_TYPE
+    assert expects["compliance"]["type"] == EXA_COMPLIANCE
 
 
 def test_exa_vertical_search_wrappers_set_supported_categories():
@@ -119,6 +125,7 @@ def test_exa_vertical_search_wrappers_set_supported_categories():
         ]:
             assert unsupported not in expects
             assert unsupported not in payload
+        assert expects["type"]["type"] == EXA_SEARCH_TYPE
 
 
 def test_exa_contents_uses_top_level_content_options():
@@ -141,6 +148,7 @@ def test_exa_contents_uses_top_level_content_options():
     ]:
         assert payload[field] == f"${{{{ inputs.{field} }}}}"
     assert "contents" not in payload
+    assert expects["compliance"]["type"] == EXA_COMPLIANCE
 
 
 def test_exa_deep_research_replaces_deprecated_research_api():
@@ -150,4 +158,7 @@ def test_exa_deep_research_replaces_deprecated_research_api():
 
     assert "/research/v1" not in combined
     assert payload["type"] == "deep-reasoning"
+    assert (
+        deep_research["definition"]["expects"]["compliance"]["type"] == EXA_COMPLIANCE
+    )
     assert request_step(deep_research)["args"]["url"] == "https://api.exa.ai/search"

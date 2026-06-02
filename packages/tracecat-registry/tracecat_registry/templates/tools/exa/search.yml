@@ -14,7 +14,7 @@ definition:
       type: str
       description: Natural language search query. Supports long, semantically rich descriptions.
     type:
-      type: str | None
+      type: enum["instant", "fast", "auto", "deep-lite", "deep", "deep-reasoning"] | None
       description: Search method. Exa supports auto, instant, fast, deep-lite, deep, and deep-reasoning.
       default: auto
     numResults:
@@ -66,8 +66,8 @@ definition:
       description: Two-letter ISO country code used to bias search results.
       default: null
     compliance:
-      type: str | None
-      description: Optional Exa enterprise compliance mode, such as hipaa.
+      type: enum["hipaa"] | None
+      description: Optional Exa enterprise compliance mode.
       default: null
   steps:
     - ref: search
