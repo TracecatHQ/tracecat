@@ -1199,6 +1199,7 @@ export function ChatSessionPane({
                 agentAddonsEnabled={agentAddonsEnabled}
                 mcpEnabled={sessionMcpEnabled}
                 disabled={inputDisabled || isUpdatingTools}
+                surface={surface}
                 mcpIntegrationsHref={`/workspaces/${workspaceId}/mcp-servers`}
               />
             )}

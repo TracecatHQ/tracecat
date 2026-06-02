@@ -19,6 +19,7 @@ import {
 } from "@/components/ui/popover"
 import { Switch } from "@/components/ui/switch"
 import { cn } from "@/lib/utils"
+import type { ChatSurface } from "@/types/chat-surface"
 
 interface ChatToolsPickerProps {
   registryActions: RegistryActionReadMinimal[]
@@ -30,6 +31,8 @@ interface ChatToolsPickerProps {
   agentAddonsEnabled?: boolean
   mcpEnabled?: boolean
   disabled?: boolean
+  /** Selects which chat surface-specific default capabilities are read-only. */
+  surface?: ChatSurface
   /**
    * Link to the workspace MCP servers page. When provided, the empty MCP
    * state becomes a CTA pointing there.
@@ -123,6 +126,7 @@ const DEFAULT_CAPABILITY_GROUPS: CapabilityGroup[] = [
 const DEFAULT_TOOL_VALUES = new Set(
   DEFAULT_CAPABILITY_GROUPS.flatMap((group) => group.tools)
 )
+const EMPTY_DEFAULT_TOOL_VALUES = new Set<string>()
 
 /** Humanize an action id (e.g. `core.table.list_tables` -> `List tables`). */
 function humanizeAction(action: string): string {
@@ -152,10 +156,15 @@ export function ChatToolsPicker({
   agentAddonsEnabled = true,
   mcpEnabled = true,
   disabled = false,
+  surface = "regular",
   mcpIntegrationsHref,
 }: ChatToolsPickerProps) {
   const [query, setQuery] = useState("")
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
+  const isWorkspaceChat = surface === "workspace-chat"
+  const defaultToolValues = isWorkspaceChat
+    ? DEFAULT_TOOL_VALUES
+    : EMPTY_DEFAULT_TOOL_VALUES
 
   const addedCount =
     selectedTools.length + (mcpEnabled ? selectedMcpIntegrations.length : 0)
@@ -192,17 +201,18 @@ export function ChatToolsPicker({
 
   const visibleCapabilityGroups = useMemo(
     () =>
-      DEFAULT_CAPABILITY_GROUPS.filter(
-        (group) => !group.addon || agentAddonsEnabled
-      ),
-    [agentAddonsEnabled]
+      isWorkspaceChat
+        ? DEFAULT_CAPABILITY_GROUPS.filter(
+            (group) => !group.addon || agentAddonsEnabled
+          )
+        : [],
+    [agentAddonsEnabled, isWorkspaceChat]
   )
 
-  // Tools the user can add: everything except the always-on defaults.
+  // Tools the user can add: everything except this surface's always-on defaults.
   const addableTools = useMemo<ToolOption[]>(
-    () =>
-      toolOptions.filter((option) => !DEFAULT_TOOL_VALUES.has(option.value)),
-    [toolOptions]
+    () => toolOptions.filter((option) => !defaultToolValues.has(option.value)),
+    [defaultToolValues, toolOptions]
   )
 
   // Group addable tools by their integration (display group) for browsing.
@@ -228,7 +238,7 @@ export function ChatToolsPicker({
   const selectedDefaultTools = useMemo<ToolOption[]>(
     () =>
       selectedTools
-        .filter((value) => DEFAULT_TOOL_VALUES.has(value))
+        .filter((value) => defaultToolValues.has(value))
         .map((value) => {
           const option = optionByValue.get(value)
           if (option) {
@@ -244,7 +254,7 @@ export function ChatToolsPicker({
             description: "This tool is already included by default.",
           }
         }),
-    [optionByValue, selectedTools]
+    [defaultToolValues, optionByValue, selectedTools]
   )
 
   // Selected tools that are no longer in the registry, surfaced so they can be
@@ -253,8 +263,7 @@ export function ChatToolsPicker({
     () =>
       selectedTools
         .filter(
-          (value) =>
-            !DEFAULT_TOOL_VALUES.has(value) && !optionByValue.has(value)
+          (value) => !defaultToolValues.has(value) && !optionByValue.has(value)
         )
         .map((value) => ({
           value,
@@ -263,7 +272,7 @@ export function ChatToolsPicker({
           description: "This tool is no longer available.",
           stale: true,
         })),
-    [optionByValue, selectedTools]
+    [defaultToolValues, optionByValue, selectedTools]
   )
 
   const searchResults = useMemo<ToolOption[]>(() => {
@@ -388,16 +397,20 @@ export function ChatToolsPicker({
             </>
           ) : (
             <>
-              <GroupLabel pill="Always on">Active capabilities</GroupLabel>
-              {visibleCapabilityGroups.map((group) => (
-                <CapabilityRow
-                  key={group.id}
-                  group={group}
-                  optionByValue={optionByValue}
-                  open={expanded.has(`cap:${group.id}`)}
-                  onToggle={() => toggleExpanded(`cap:${group.id}`)}
-                />
-              ))}
+              {isWorkspaceChat ? (
+                <>
+                  <GroupLabel pill="Always on">Active capabilities</GroupLabel>
+                  {visibleCapabilityGroups.map((group) => (
+                    <CapabilityRow
+                      key={group.id}
+                      group={group}
+                      optionByValue={optionByValue}
+                      open={expanded.has(`cap:${group.id}`)}
+                      onToggle={() => toggleExpanded(`cap:${group.id}`)}
+                    />
+                  ))}
+                </>
+              ) : null}
 
               {mcpEnabled && (
                 <>
@@ -496,7 +509,8 @@ export function ChatToolsPicker({
         </div>
 
         <div className="border-t px-3 py-2 text-[11px] text-muted-foreground">
-          {addedCount} added · Tracecat defaults always included
+          {addedCount} added
+          {isWorkspaceChat ? " · Tracecat defaults always included" : ""}
         </div>
       </PopoverContent>
     </Popover>

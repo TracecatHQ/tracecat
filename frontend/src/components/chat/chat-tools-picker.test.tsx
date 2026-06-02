@@ -140,6 +140,41 @@ describe("ChatToolsPicker", () => {
     expect(onToolsChange).toHaveBeenCalledWith([])
   })
 
+  it("allows regular chat surfaces to add workspace-chat default tools", () => {
+    const onToolsChange = jest.fn()
+
+    render(
+      <ChatToolsPicker
+        registryActions={[
+          registryAction("core.table.search_rows", {
+            default_title: "Search rows",
+            display_group: "Tables",
+          }),
+        ]}
+        selectedTools={[]}
+        onToolsChange={onToolsChange}
+        mcpIntegrations={[]}
+        selectedMcpIntegrations={[]}
+        onMcpChange={jest.fn()}
+        surface="regular"
+      />
+    )
+
+    fireEvent.change(
+      screen.getByPlaceholderText("Search capabilities & tools..."),
+      {
+        target: { value: "search rows" },
+      }
+    )
+
+    expect(screen.getByText("Search rows")).toBeInTheDocument()
+    expect(screen.queryByText("Included by default")).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByText("Search rows"))
+
+    expect(onToolsChange).toHaveBeenCalledWith(["core.table.search_rows"])
+  })
+
   it("shows selected default registry tools in search so they can be removed", () => {
     const onToolsChange = jest.fn()
 
@@ -156,6 +191,7 @@ describe("ChatToolsPicker", () => {
         mcpIntegrations={[]}
         selectedMcpIntegrations={[]}
         onMcpChange={jest.fn()}
+        surface="workspace-chat"
       />
     )
 
@@ -188,6 +224,7 @@ describe("ChatToolsPicker", () => {
         selectedMcpIntegrations={[]}
         onMcpChange={jest.fn()}
         agentAddonsEnabled={false}
+        surface="workspace-chat"
       />
     )
 
