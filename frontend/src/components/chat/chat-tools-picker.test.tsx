@@ -177,4 +177,21 @@ describe("ChatToolsPicker", () => {
 
     expect(onToolsChange).toHaveBeenCalledWith([])
   })
+
+  it("hides add-on capabilities when agent add-ons are disabled", () => {
+    render(
+      <ChatToolsPicker
+        registryActions={[]}
+        selectedTools={[]}
+        onToolsChange={jest.fn()}
+        mcpIntegrations={[]}
+        selectedMcpIntegrations={[]}
+        onMcpChange={jest.fn()}
+        agentAddonsEnabled={false}
+      />
+    )
+
+    expect(screen.getByText("Cases")).toBeInTheDocument()
+    expect(screen.queryByText("Agent presets")).not.toBeInTheDocument()
+  })
 })

@@ -27,6 +27,7 @@ interface ChatToolsPickerProps {
   mcpIntegrations: MCPIntegrationRead[]
   selectedMcpIntegrations: string[]
   onMcpChange: (next: string[]) => void
+  agentAddonsEnabled?: boolean
   mcpEnabled?: boolean
   disabled?: boolean
   /**
@@ -148,6 +149,7 @@ export function ChatToolsPicker({
   mcpIntegrations,
   selectedMcpIntegrations,
   onMcpChange,
+  agentAddonsEnabled = true,
   mcpEnabled = true,
   disabled = false,
   mcpIntegrationsHref,
@@ -186,6 +188,14 @@ export function ChatToolsPicker({
   const optionByValue = useMemo(
     () => new Map(toolOptions.map((option) => [option.value, option])),
     [toolOptions]
+  )
+
+  const visibleCapabilityGroups = useMemo(
+    () =>
+      DEFAULT_CAPABILITY_GROUPS.filter(
+        (group) => !group.addon || agentAddonsEnabled
+      ),
+    [agentAddonsEnabled]
   )
 
   // Tools the user can add: everything except the always-on defaults.
@@ -379,7 +389,7 @@ export function ChatToolsPicker({
           ) : (
             <>
               <GroupLabel pill="Always on">Active capabilities</GroupLabel>
-              {DEFAULT_CAPABILITY_GROUPS.map((group) => (
+              {visibleCapabilityGroups.map((group) => (
                 <CapabilityRow
                   key={group.id}
                   group={group}

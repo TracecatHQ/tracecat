@@ -458,6 +458,7 @@ export function ChatInterface({
           selectedPreset={activePreset}
           selectedPresetConfigError={selectedPresetConfigError}
           toolsEnabled={toolsEnabled}
+          agentAddonsEnabled={agentAddonsEnabled}
           mcpEnabled={sessionMcpEnabled}
           draftMode={draftMode}
           presetSelector={presetSelector}
@@ -488,6 +489,7 @@ interface ChatBodyProps {
   selectedPreset?: PresetConfigLike
   selectedPresetConfigError?: unknown
   toolsEnabled: boolean
+  agentAddonsEnabled: boolean
   mcpEnabled: boolean
   draftMode: boolean
   presetSelector?: {
@@ -526,6 +528,7 @@ function ChatBody({
   selectedPreset,
   selectedPresetConfigError,
   toolsEnabled,
+  agentAddonsEnabled,
   mcpEnabled,
   draftMode,
   presetSelector,
@@ -637,6 +640,7 @@ function ChatBody({
         className="flex-1 min-h-0"
         modelInfo={modelInfo}
         toolsEnabled={toolsEnabled}
+        agentAddonsEnabled={agentAddonsEnabled}
         mcpEnabled={mcpEnabled}
         presetSelector={presetSelector}
         onBeforeSend={onCreateSessionBeforeSend}
@@ -668,6 +672,7 @@ function ChatBody({
       className="flex-1 min-h-0"
       modelInfo={modelInfo}
       toolsEnabled={toolsEnabled}
+      agentAddonsEnabled={agentAddonsEnabled}
       mcpEnabled={mcpEnabled}
       presetSelector={presetSelector}
       pendingMessage={pendingMessage ?? undefined}

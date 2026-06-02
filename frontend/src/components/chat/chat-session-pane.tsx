@@ -233,6 +233,7 @@ export interface ChatSessionPaneProps {
   onData?: ChatOnDataCallback<UIMessage>
   modelInfo: ModelInfo
   toolsEnabled?: boolean
+  agentAddonsEnabled?: boolean
   mcpEnabled?: boolean
   /** Autofocus the prompt input when the pane mounts. */
   autoFocusInput?: boolean
@@ -290,6 +291,7 @@ export function ChatSessionPane({
   onData,
   modelInfo,
   toolsEnabled = true,
+  agentAddonsEnabled = true,
   mcpEnabled = false,
   autoFocusInput = false,
   onBeforeSend,
@@ -1194,6 +1196,7 @@ export function ChatSessionPane({
                 mcpIntegrations={mcpIntegrations ?? []}
                 selectedMcpIntegrations={selectedMcpIntegrations}
                 onMcpChange={commitSelectedMcpIntegrations}
+                agentAddonsEnabled={agentAddonsEnabled}
                 mcpEnabled={sessionMcpEnabled}
                 disabled={inputDisabled || isUpdatingTools}
                 mcpIntegrationsHref={`/workspaces/${workspaceId}/mcp-servers`}
