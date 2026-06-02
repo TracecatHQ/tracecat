@@ -33,6 +33,8 @@ def test_exa_template_surface_matches_current_core_tools():
 
     assert set(templates) == {
         "search.yml",
+        "search_people.yml",
+        "search_companies.yml",
         "get_contents.yml",
         "answer.yml",
         "deep_research.yml",
@@ -50,6 +52,8 @@ def test_exa_template_surface_matches_current_core_tools():
 def test_exa_templates_use_current_endpoints_and_auth():
     expected = {
         "search.yml": ("search", "https://api.exa.ai/search"),
+        "search_people.yml": ("search_people", "https://api.exa.ai/search"),
+        "search_companies.yml": ("search_companies", "https://api.exa.ai/search"),
         "get_contents.yml": ("get_contents", "https://api.exa.ai/contents"),
         "answer.yml": ("answer", "https://api.exa.ai/answer"),
         "deep_research.yml": ("deep_research", "https://api.exa.ai/search"),
@@ -91,6 +95,30 @@ def test_exa_search_exposes_advanced_current_parameters():
     ]:
         assert field in expects
         assert payload[field] == f"${{{{ inputs.{field} }}}}"
+
+
+def test_exa_vertical_search_wrappers_set_supported_categories():
+    expected = {
+        "search_people.yml": "people",
+        "search_companies.yml": "company",
+    }
+
+    for filename, category in expected.items():
+        template = load_template(filename)
+        expects = template["definition"]["expects"]
+        payload = request_step(template)["args"]["payload"]
+
+        assert payload["category"] == category
+        for supported in ["query", "type", "numResults", "contents", "outputSchema"]:
+            assert supported in expects
+        for unsupported in [
+            "includeDomains",
+            "excludeDomains",
+            "startPublishedDate",
+            "endPublishedDate",
+        ]:
+            assert unsupported not in expects
+            assert unsupported not in payload
 
 
 def test_exa_contents_uses_top_level_content_options():
