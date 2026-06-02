@@ -60,6 +60,7 @@ def _agent_session_stub(**overrides: Any) -> SimpleNamespace:
         "entity_id": uuid.uuid4(),
         "channel_context": None,
         "tools": None,
+        "mcp_integrations": None,
         "agent_preset_id": uuid.uuid4(),
         "agent_preset_version_id": uuid.uuid4(),
         "agents_binding": {"enabled": False},

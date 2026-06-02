@@ -808,9 +808,13 @@ export type AgentSessionCreate = {
    */
   entity_id: string
   /**
-   * Tools available to the agent for this session
+   * Extra tools added to this session alongside entity defaults
    */
   tools?: Array<string> | null
+  /**
+   * MCP integration IDs attached to this session
+   */
+  mcp_integrations?: Array<string> | null
   /**
    * Agent preset used for this session (if any)
    */
@@ -870,6 +874,7 @@ export type AgentSessionRead = {
     [key: string]: unknown
   } | null
   tools: Array<string> | null
+  mcp_integrations: Array<string> | null
   agent_preset_id: string | null
   agent_preset_version_id: string | null
   agents_binding?: ResolvedAgentsConfig | null
@@ -895,6 +900,7 @@ export type AgentSessionReadVercel = {
     [key: string]: unknown
   } | null
   tools: Array<string> | null
+  mcp_integrations: Array<string> | null
   agent_preset_id: string | null
   agent_preset_version_id: string | null
   agents_binding?: ResolvedAgentsConfig | null
@@ -924,6 +930,7 @@ export type AgentSessionReadWithMessages = {
     [key: string]: unknown
   } | null
   tools: Array<string> | null
+  mcp_integrations: Array<string> | null
   agent_preset_id: string | null
   agent_preset_version_id: string | null
   agents_binding?: ResolvedAgentsConfig | null
@@ -948,9 +955,13 @@ export type AgentSessionUpdate = {
    */
   title?: string | null
   /**
-   * Tools available to the agent
+   * Extra tools added to this session alongside entity defaults
    */
   tools?: Array<string> | null
+  /**
+   * MCP integration IDs attached to this session
+   */
+  mcp_integrations?: Array<string> | null
   /**
    * Agent preset to use for this session
    */
@@ -2479,6 +2490,10 @@ export type ChatRead = {
    */
   tools: Array<string>
   /**
+   * MCP integration IDs attached to this chat
+   */
+  mcp_integrations?: Array<string>
+  /**
    * Agent preset used for this chat, if any
    */
   agent_preset_id?: string | null
@@ -2539,6 +2554,10 @@ export type ChatReadMinimal = {
    */
   tools: Array<string>
   /**
+   * MCP integration IDs attached to this chat
+   */
+  mcp_integrations?: Array<string>
+  /**
    * Agent preset used for this chat, if any
    */
   agent_preset_id?: string | null
@@ -2592,6 +2611,10 @@ export type ChatReadVercel = {
    * Tools available to the agent
    */
   tools: Array<string>
+  /**
+   * MCP integration IDs attached to this chat
+   */
+  mcp_integrations?: Array<string>
   /**
    * Agent preset used for this chat, if any
    */

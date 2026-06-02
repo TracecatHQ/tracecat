@@ -37,6 +37,7 @@ import tracecat.agent.adapter.vercel
 import tracecat.artifacts.projection as artifact_projection
 from tracecat import config
 from tracecat.agent.approvals.enums import ApprovalStatus
+from tracecat.agent.common.types import MCPServerConfig
 from tracecat.agent.llm import LLMCompletionError
 from tracecat.agent.mcp.metadata import sanitize_message_tool_inputs
 from tracecat.agent.preset.prompts import AgentPresetBuilderPrompt
@@ -152,6 +153,46 @@ class AgentSessionService(BaseWorkspaceService):
             agent_addons_enabled=await self.has_entitlement(Entitlement.AGENT_ADDONS),
         )
 
+    async def _resolve_workspace_chat_actions(
+        self,
+        agent_session: AgentSession,
+    ) -> list[str] | None:
+        """Merge always-on Workspace chat defaults with the session's extras.
+
+        Defaults are derived at runtime (never frozen per session), so they stay
+        current and are always present. ``agent_session.tools`` holds only the
+        extra tools the user added in the chat tools dialog.
+        """
+        defaults = await self._get_default_tools(AgentSessionEntity.WORKSPACE_CHAT)
+        extras = agent_session.tools or []
+        merged = list(dict.fromkeys([*defaults, *extras]))
+        return await self._workspace_chat_tools_for_entitlements(merged)
+
+    async def _resolve_session_mcp_servers(
+        self,
+        agent_session: AgentSession,
+        agent_svc: AgentManagementService,
+    ) -> list[MCPServerConfig] | None:
+        """Resolve attached MCP integration IDs into boundary-safe server refs."""
+        if (
+            not agent_session.mcp_integrations
+            or agent_svc.presets is None
+            or not await self.has_entitlement(Entitlement.AGENT_ADDONS)
+        ):
+            return None
+        return await agent_svc.presets.resolve_mcp_integration_refs(
+            agent_session.mcp_integrations
+        )
+
+    async def _validate_session_mcp_integrations(
+        self, mcp_integrations: list[str] | None
+    ) -> None:
+        """Validate session-attached MCP integrations before persistence."""
+        if not mcp_integrations:
+            return
+        preset_service = AgentPresetService(self.session, self.role)
+        await preset_service.validate_mcp_integrations(mcp_integrations)
+
     def _build_direct_agent_search_attributes(
         self, session_id: uuid.UUID
     ) -> TypedSearchAttributes:
@@ -193,9 +234,15 @@ class AgentSessionService(BaseWorkspaceService):
         Returns:
             The created AgentSession model.
         """
-        # Apply default tools based on entity type if tools not provided
+        # Apply default tools based on entity type if tools not provided.
+        # Workspace chat merges its always-on defaults at runtime instead, so
+        # ``tools`` stores only the extras the user added (never the defaults).
         tools = args.tools
-        if not tools and args.entity_type:
+        if (
+            not tools
+            and args.entity_type
+            and args.entity_type is not AgentSessionEntity.WORKSPACE_CHAT
+        ):
             tools = await self._get_default_tools(args.entity_type)
         logical_preset_id = self._resolve_logical_preset_id(
             entity_type=args.entity_type,
@@ -216,6 +263,7 @@ class AgentSessionService(BaseWorkspaceService):
                     pinned_preset_version_id
                 )
             )
+        await self._validate_session_mcp_integrations(args.mcp_integrations)
 
         agent_session = AgentSession(
             workspace_id=self.workspace_id,
@@ -226,6 +274,7 @@ class AgentSessionService(BaseWorkspaceService):
             entity_id=args.entity_id,
             channel_context=channel_context,
             tools=tools,
+            mcp_integrations=args.mcp_integrations,
             agent_preset_id=logical_preset_id,
             agent_preset_version_id=pinned_preset_version_id,
             agents_binding=resolved_agents_binding,
@@ -624,6 +673,10 @@ class AgentSessionService(BaseWorkspaceService):
         requested_version_id = set_fields.pop(
             "agent_preset_version_id", agent_session.agent_preset_version_id
         )
+        if "mcp_integrations" in set_fields:
+            await self._validate_session_mcp_integrations(
+                set_fields["mcp_integrations"]
+            )
 
         if preset_id_updated or version_id_updated:
             try:
@@ -1559,10 +1612,13 @@ class AgentSessionService(BaseWorkspaceService):
                     config = replace(preset_config, instructions=combined_instructions)
                     yield config
             else:
-                # Copilot without preset uses org-level credentials (default)
+                # Copilot without preset uses org-level credentials (default).
+                # Always-on defaults merge with session extras at runtime, and
+                # any attached MCP integrations resolve into mcp_servers.
                 async with agent_svc.with_model_config() as model_config:
-                    actions = await self._workspace_chat_tools_for_entitlements(
-                        agent_session.tools
+                    actions = await self._resolve_workspace_chat_actions(agent_session)
+                    mcp_servers = await self._resolve_session_mcp_servers(
+                        agent_session, agent_svc
                     )
                     yield AgentConfig(
                         instructions=entity_instructions,
@@ -1570,6 +1626,7 @@ class AgentSessionService(BaseWorkspaceService):
                         model_provider=model_config.provider,
                         catalog_id=model_config.catalog_id,
                         actions=actions,
+                        mcp_servers=mcp_servers,
                     )
         elif session_entity in (
             AgentSessionEntity.WORKFLOW,

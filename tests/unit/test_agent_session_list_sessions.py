@@ -52,6 +52,7 @@ def _agent_session_row(
         entity_id=uuid.uuid4(),
         channel_context=None,
         tools=None,
+        mcp_integrations=None,
         agent_preset_id=None,
         agent_preset_version_id=None,
         harness_type=None,

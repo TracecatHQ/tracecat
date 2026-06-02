@@ -148,6 +148,7 @@ export function ChatInterface({
 
   const presetsEnabled =
     agentAddonsEnabled && (entityType === "case" || entityType === "copilot")
+  const sessionMcpEnabled = agentAddonsEnabled && entityType === "copilot"
   const inWorkspaceChat = surface === "workspace-chat"
   // Surfaces that defer server-side session creation until the first message,
   // showing a draft composer instead of an eagerly-created empty session.
@@ -278,7 +279,8 @@ export function ChatInterface({
 
   const handleCreateSessionOnFirstSend = async (
     messageText: string,
-    selectedTools?: string[]
+    selectedTools?: string[],
+    selectedMcpIntegrations?: string[]
   ) => {
     if (!deferSessionCreation || createChatPending) {
       return null
@@ -290,6 +292,7 @@ export function ChatInterface({
         entity_type: entityType,
         entity_id: entityId,
         tools: selectedTools,
+        mcp_integrations: selectedMcpIntegrations,
         agent_preset_id: effectivePresetId,
         agent_preset_version_id: selectedPresetVersionId,
       })
@@ -347,7 +350,9 @@ export function ChatInterface({
     )
   }
 
-  const toolsEnabled = !activePreset && !inWorkspaceChat
+  // Workspace chat exposes tool + MCP selection so users can add extras
+  // alongside the always-on platform defaults. Presets still own their tools.
+  const toolsEnabled = !activePreset
   const draftMode =
     deferSessionCreation &&
     (inWorkspaceChat || isDraftChat || chats?.length === 0)
@@ -453,6 +458,7 @@ export function ChatInterface({
           selectedPreset={activePreset}
           selectedPresetConfigError={selectedPresetConfigError}
           toolsEnabled={toolsEnabled}
+          mcpEnabled={sessionMcpEnabled}
           draftMode={draftMode}
           presetSelector={presetSelector}
           onCreateSessionBeforeSend={
@@ -482,6 +488,7 @@ interface ChatBodyProps {
   selectedPreset?: PresetConfigLike
   selectedPresetConfigError?: unknown
   toolsEnabled: boolean
+  mcpEnabled: boolean
   draftMode: boolean
   presetSelector?: {
     label: string
@@ -496,7 +503,8 @@ interface ChatBodyProps {
   }
   onCreateSessionBeforeSend?: (
     messageText: string,
-    selectedTools?: string[]
+    selectedTools?: string[],
+    selectedMcpIntegrations?: string[]
   ) => Promise<string | null>
   draftInputDisabled: boolean
   pendingMessage: string | null
@@ -518,6 +526,7 @@ function ChatBody({
   selectedPreset,
   selectedPresetConfigError,
   toolsEnabled,
+  mcpEnabled,
   draftMode,
   presetSelector,
   onCreateSessionBeforeSend,
@@ -628,6 +637,7 @@ function ChatBody({
         className="flex-1 min-h-0"
         modelInfo={modelInfo}
         toolsEnabled={toolsEnabled}
+        mcpEnabled={mcpEnabled}
         presetSelector={presetSelector}
         onBeforeSend={onCreateSessionBeforeSend}
         optimisticBeforeSend
@@ -658,6 +668,7 @@ function ChatBody({
       className="flex-1 min-h-0"
       modelInfo={modelInfo}
       toolsEnabled={toolsEnabled}
+      mcpEnabled={mcpEnabled}
       presetSelector={presetSelector}
       pendingMessage={pendingMessage ?? undefined}
       onPendingMessageSent={onPendingMessageSent}

@@ -88,6 +88,7 @@ import {
   ToolOutput,
 } from "@/components/ai-elements/tool"
 import { ChatEmptyHero } from "@/components/chat/chat-empty-hero"
+import { ChatToolsPicker } from "@/components/chat/chat-tools-picker"
 import { SmoothResponse } from "@/components/chat/smooth-response"
 import { CodeEditor } from "@/components/editor/codemirror/code-editor"
 import { getIcon, ProviderIcon } from "@/components/icons"
@@ -111,7 +112,7 @@ import {
   toUIMessage,
   transformMessages,
 } from "@/lib/chat"
-import { useBuilderRegistryActions } from "@/lib/hooks"
+import { useBuilderRegistryActions, useListMcpIntegrations } from "@/lib/hooks"
 import { cn } from "@/lib/utils"
 import type { ChatSurface } from "@/types/chat-surface"
 import { ARTIFACT_DATA_PART_TYPE } from "@/types/workspace-chat-artifacts"
@@ -232,6 +233,7 @@ export interface ChatSessionPaneProps {
   onData?: ChatOnDataCallback<UIMessage>
   modelInfo: ModelInfo
   toolsEnabled?: boolean
+  mcpEnabled?: boolean
   /** Autofocus the prompt input when the pane mounts. */
   autoFocusInput?: boolean
   /**
@@ -242,7 +244,8 @@ export interface ChatSessionPaneProps {
    */
   onBeforeSend?: (
     messageText: string,
-    selectedTools?: string[]
+    selectedTools?: string[],
+    selectedMcpIntegrations?: string[]
   ) => Promise<string | null>
   /**
    * Render a temporary user message and assistant loading dots while
@@ -287,6 +290,7 @@ export function ChatSessionPane({
   onData,
   modelInfo,
   toolsEnabled = true,
+  mcpEnabled = false,
   autoFocusInput = false,
   onBeforeSend,
   optimisticBeforeSend = false,
@@ -314,6 +318,9 @@ export function ChatSessionPane({
   const [input, setInput] = useState<string>("")
   const [toolMention, setToolMention] = useState<ToolMentionState>()
   const [selectedTools, setSelectedTools] = useState<string[]>([])
+  const [selectedMcpIntegrations, setSelectedMcpIntegrations] = useState<
+    string[]
+  >([])
   const [optimisticMessageText, setOptimisticMessageText] = useState<
     string | null
   >(null)
@@ -321,6 +328,10 @@ export function ChatSessionPane({
   const { updateChat, isUpdating: isUpdatingTools } = useUpdateChat(workspaceId)
   const { registryActions, registryActionsIsLoading } =
     useBuilderRegistryActions()
+  const sessionMcpEnabled = mcpEnabled && entityType === "copilot"
+  const { mcpIntegrations } = useListMcpIntegrations(workspaceId, undefined, {
+    enabled: toolsEnabled && sessionMcpEnabled,
+  })
 
   // Check if this is a legacy read-only session
   const isReadonly = chat ? "is_readonly" in chat && chat.is_readonly : false
@@ -606,6 +617,92 @@ export function ChatSessionPane({
       void queuePersistTools(next)
     },
     [chat, isReadonly, queuePersistTools]
+  )
+
+  const persistMcpChainRef = useRef<Promise<void>>(Promise.resolve())
+  const selectedMcpIntegrationsRef = useRef<string[]>([])
+  const pendingPersistedMcpIntegrationsRef = useRef<string[] | null>(null)
+  const syncedMcpChatIdRef = useRef<string | undefined>(undefined)
+
+  useEffect(() => {
+    selectedMcpIntegrationsRef.current = selectedMcpIntegrations
+  }, [selectedMcpIntegrations])
+
+  useEffect(() => {
+    const nextChatId = chat?.id
+    const nextMcpIntegrations = chat?.mcp_integrations ?? []
+
+    if (syncedMcpChatIdRef.current !== nextChatId) {
+      syncedMcpChatIdRef.current = nextChatId
+      pendingPersistedMcpIntegrationsRef.current = null
+      selectedMcpIntegrationsRef.current = nextMcpIntegrations
+      setSelectedMcpIntegrations(nextMcpIntegrations)
+      return
+    }
+
+    const pendingMcpIntegrations = pendingPersistedMcpIntegrationsRef.current
+    if (pendingMcpIntegrations) {
+      if (areToolListsEqual(nextMcpIntegrations, pendingMcpIntegrations)) {
+        pendingPersistedMcpIntegrationsRef.current = null
+      } else {
+        // Keep the optimistic MCP selection visible until the invalidated chat
+        // query catches up, matching the selected tools behavior above.
+        return
+      }
+    }
+
+    if (
+      !areToolListsEqual(
+        selectedMcpIntegrationsRef.current,
+        nextMcpIntegrations
+      )
+    ) {
+      selectedMcpIntegrationsRef.current = nextMcpIntegrations
+      setSelectedMcpIntegrations(nextMcpIntegrations)
+    }
+  }, [chat?.id, chat?.mcp_integrations])
+
+  const commitSelectedMcpIntegrations = useCallback(
+    (next: string[]) => {
+      if (areToolListsEqual(selectedMcpIntegrationsRef.current, next)) {
+        return
+      }
+
+      selectedMcpIntegrationsRef.current = next
+      setSelectedMcpIntegrations(next)
+      if (!chat || isReadonly) {
+        pendingPersistedMcpIntegrationsRef.current = null
+        return
+      }
+      const chatId = chat.id
+      pendingPersistedMcpIntegrationsRef.current = next
+      persistMcpChainRef.current = persistMcpChainRef.current
+        .catch(() => undefined)
+        .then(async () => {
+          try {
+            await updateChat({
+              chatId,
+              update: { mcp_integrations: next },
+            })
+          } catch (error) {
+            if (
+              pendingPersistedMcpIntegrationsRef.current &&
+              areToolListsEqual(
+                pendingPersistedMcpIntegrationsRef.current,
+                next
+              )
+            ) {
+              pendingPersistedMcpIntegrationsRef.current = null
+            }
+            toast({
+              title: "Failed to update MCP integrations",
+              description: parseChatError(error),
+              variant: "destructive",
+            })
+          }
+        })
+    },
+    [chat, isReadonly, updateChat]
   )
 
   const addSelectedTool = useCallback(
@@ -931,7 +1028,11 @@ export function ChatSessionPane({
         setInput("")
       }
 
-      const result = await onBeforeSend(messageText, selectedTools)
+      const result = await onBeforeSend(
+        messageText,
+        selectedTools,
+        selectedMcpIntegrations
+      )
       // Only clear input if onBeforeSend succeeded (non-null)
       // If null, the action was cancelled and user keeps their draft
       if (result !== null) {
@@ -954,6 +1055,7 @@ export function ChatSessionPane({
 
     try {
       await persistToolsChainRef.current.catch(() => undefined)
+      await persistMcpChainRef.current.catch(() => undefined)
       clearError()
       sendMessage({
         text: messageText,
@@ -1025,7 +1127,9 @@ export function ChatSessionPane({
         </div>
       )}
       <PromptInput onSubmit={handleSubmit} className={promptInputClassName}>
-        {toolsEnabled && selectedToolBadges.length > 0 && (
+        {/* Workspace chat surfaces attached tools via the Tools popover, so the
+            header chip row is reserved for the other chat surfaces. */}
+        {toolsEnabled && !isWorkspaceChat && selectedToolBadges.length > 0 && (
           <PromptInputHeader className="gap-1.5 px-3 pt-3">
             {selectedToolBadges.map((tool) => (
               <Badge
@@ -1080,6 +1184,18 @@ export function ChatSessionPane({
               <PromptPresetSelector
                 selector={presetSelector}
                 disabled={inputDisabled || !canSubmit}
+              />
+            )}
+            {toolsEnabled && !isReadonly && (
+              <ChatToolsPicker
+                registryActions={registryActions ?? []}
+                selectedTools={selectedTools}
+                onToolsChange={commitSelectedTools}
+                mcpIntegrations={mcpIntegrations ?? []}
+                selectedMcpIntegrations={selectedMcpIntegrations}
+                onMcpChange={commitSelectedMcpIntegrations}
+                mcpEnabled={sessionMcpEnabled}
+                disabled={inputDisabled || isUpdatingTools}
               />
             )}
             {!isReadonly ? (

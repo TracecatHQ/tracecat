@@ -4618,7 +4618,8 @@ export function useCreateMcpIntegration(workspaceId: string) {
  */
 export function useListMcpIntegrations(
   workspaceId: string,
-  source?: McpIntegrationsListMcpIntegrationsData["source"]
+  source?: McpIntegrationsListMcpIntegrationsData["source"],
+  options?: { enabled?: boolean }
 ) {
   const {
     data: mcpIntegrations,
@@ -4628,7 +4629,7 @@ export function useListMcpIntegrations(
     queryKey: ["mcp-integrations", workspaceId, source],
     queryFn: async () =>
       await mcpIntegrationsListMcpIntegrations({ workspaceId, source }),
-    enabled: Boolean(workspaceId),
+    enabled: Boolean(workspaceId) && (options?.enabled ?? true),
     staleTime: 5 * 60 * 1000,
     refetchOnWindowFocus: false,
   })

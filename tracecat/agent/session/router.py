@@ -176,6 +176,7 @@ async def get_session(
             entity_id=agent_session.entity_id,
             channel_context=agent_session.channel_context,
             tools=agent_session.tools,
+            mcp_integrations=agent_session.mcp_integrations,
             agent_preset_id=agent_session.agent_preset_id,
             agent_preset_version_id=agent_session.agent_preset_version_id,
             agents_binding=(
@@ -257,6 +258,7 @@ async def get_session_vercel(
             entity_id=agent_session.entity_id,
             channel_context=agent_session.channel_context,
             tools=agent_session.tools,
+            mcp_integrations=agent_session.mcp_integrations,
             agent_preset_id=agent_session.agent_preset_id,
             agent_preset_version_id=agent_session.agent_preset_version_id,
             agents_binding=(

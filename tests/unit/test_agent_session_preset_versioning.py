@@ -102,7 +102,13 @@ async def test_create_workspace_chat_session_applies_current_default_tools() -> 
         )
     )
 
-    assert created.tools == WORKSPACE_CHAT_DEFAULT_TOOLS
+    # Workspace chat no longer freezes defaults into the session; they are
+    # merged at runtime so the session always reflects the current defaults.
+    assert created.tools is None
+    assert (
+        await service._resolve_workspace_chat_actions(created)
+        == WORKSPACE_CHAT_DEFAULT_TOOLS
+    )
     session.add.assert_called_once_with(created)
     session.commit.assert_awaited_once()
     session.refresh.assert_awaited_once_with(created)
@@ -127,14 +133,106 @@ async def test_create_workspace_chat_session_omits_agent_tools_without_entitleme
         )
     )
 
-    assert created.tools == get_default_tools(
+    # Defaults are resolved at runtime; without the agent addon entitlement the
+    # agent preset tools are filtered out of the merged result.
+    assert created.tools is None
+    resolved = await service._resolve_workspace_chat_actions(created)
+    assert resolved == get_default_tools(
         AgentSessionEntity.WORKSPACE_CHAT.value,
         agent_addons_enabled=False,
     )
-    assert service.entitlement_checks == [Entitlement.AGENT_ADDONS]
+    assert Entitlement.AGENT_ADDONS in service.entitlement_checks
     session.add.assert_called_once_with(created)
     session.commit.assert_awaited_once()
     session.refresh.assert_awaited_once_with(created)
+
+
+@pytest.mark.anyio
+async def test_create_session_validates_mcp_integrations_before_persisting() -> None:
+    service, session, _role = _build_service()
+    mcp_integrations = [str(uuid.uuid4())]
+    validate_mcp_mock = AsyncMock(return_value=None)
+    validate_preset_mock = AsyncMock(return_value=None)
+    agents_binding_mock = AsyncMock(return_value=None)
+    service._validate_session_mcp_integrations = validate_mcp_mock
+    service._validate_preset_version_for_assignment = validate_preset_mock
+    service._resolve_agents_binding_for_preset_version_id = agents_binding_mock
+
+    created = await service.create_session(
+        AgentSessionCreate(
+            title="Chat",
+            entity_type=AgentSessionEntity.WORKSPACE_CHAT,
+            entity_id=uuid.uuid4(),
+            mcp_integrations=mcp_integrations,
+        )
+    )
+
+    validate_mcp_mock.assert_awaited_once_with(mcp_integrations)
+    assert created.mcp_integrations == mcp_integrations
+    session.add.assert_called_once_with(created)
+    session.commit.assert_awaited_once()
+    session.refresh.assert_awaited_once_with(created)
+
+
+@pytest.mark.anyio
+async def test_update_session_validates_mcp_integrations_before_persisting() -> None:
+    service, session, role = _build_service()
+    assert role.workspace_id is not None
+    mcp_integrations = [str(uuid.uuid4())]
+    validate_mcp_mock = AsyncMock(return_value=None)
+    service._validate_session_mcp_integrations = validate_mcp_mock
+    agent_session = AgentSession(
+        workspace_id=role.workspace_id,
+        entity_type=AgentSessionEntity.WORKSPACE_CHAT.value,
+        entity_id=role.workspace_id,
+        mcp_integrations=[],
+    )
+
+    updated = await service.update_session(
+        agent_session,
+        params=AgentSessionUpdate(mcp_integrations=mcp_integrations),
+    )
+
+    validate_mcp_mock.assert_awaited_once_with(mcp_integrations)
+    assert updated.mcp_integrations == mcp_integrations
+    session.add.assert_called_once_with(updated)
+    session.commit.assert_awaited_once()
+    session.refresh.assert_awaited_once_with(updated)
+
+
+@pytest.mark.anyio
+async def test_resolve_session_mcp_servers_requires_agent_addons_entitlement() -> None:
+    service, _session, role = _build_service()
+    service.agent_addons_enabled = False
+    assert role.workspace_id is not None
+    mcp_id = uuid.uuid4()
+    agent_session = AgentSession(
+        workspace_id=role.workspace_id,
+        entity_type=AgentSessionEntity.WORKSPACE_CHAT.value,
+        entity_id=role.workspace_id,
+        mcp_integrations=[str(mcp_id)],
+    )
+    resolver = AsyncMock(
+        return_value=[
+            {
+                "type": "http",
+                "name": "RunReveal",
+                "url": "https://mcp.example.test",
+            }
+        ]
+    )
+    agent_svc = SimpleNamespace(
+        presets=SimpleNamespace(resolve_mcp_integration_refs=resolver)
+    )
+
+    result = await service._resolve_session_mcp_servers(
+        agent_session,
+        cast(Any, agent_svc),
+    )
+
+    assert result is None
+    resolver.assert_not_awaited()
+    assert Entitlement.AGENT_ADDONS in service.entitlement_checks
 
 
 @pytest.mark.anyio
