@@ -53,6 +53,11 @@ async def get_storage_client() -> AsyncIterator[S3Client]:
         Configured aioboto3 S3 client
     """
     session = aioboto3.Session()
+    # Only override TLS verification when it is explicitly disabled. Passing
+    # verify=True would bypass botocore's default CA-bundle resolution
+    # (AWS_CA_BUNDLE / the ca_bundle config), so leave it as None in the default
+    # case to preserve that behavior.
+    verify = None if config.TRACECAT__BLOB_STORAGE_SSL_VERIFY else False
     # Configure client based on protocol
     if config.TRACECAT__BLOB_STORAGE_ENDPOINT:
         # MinIO configuration - use AWS_* or MINIO_ROOT_* credentials
@@ -60,7 +65,7 @@ async def get_storage_client() -> AsyncIterator[S3Client]:
             "s3",
             endpoint_url=config.TRACECAT__BLOB_STORAGE_ENDPOINT,
             config=_STORAGE_CLIENT_CONFIG,
-            verify=config.TRACECAT__BLOB_STORAGE_SSL_VERIFY,
+            verify=verify,
             # Defaults to minio default credentials. MUST REPLACE WITH PRODUCTION CREDENTIALS.
             aws_access_key_id=os.environ.get(
                 "AWS_ACCESS_KEY_ID",
@@ -77,7 +82,7 @@ async def get_storage_client() -> AsyncIterator[S3Client]:
         async with session.client(
             "s3",
             config=_STORAGE_CLIENT_CONFIG,
-            verify=config.TRACECAT__BLOB_STORAGE_SSL_VERIFY,
+            verify=verify,
         ) as client:
             yield client
 
