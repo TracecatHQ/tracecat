@@ -809,6 +809,8 @@ class DSLScheduler:
                     # deadlock detector.
                     await asyncio.sleep(0)
                     discard_done_tasks()
+            if self.task_exceptions:
+                break
             if not self.queue.empty() and len(pending_tasks) >= self.max_pending_tasks:
                 self.logger.debug(
                     "Scheduler throttled by max pending task cap",

@@ -164,10 +164,13 @@ async def test_scheduler_reclaims_completed_tasks_after_spawn_yield(
 async def test_scheduler_stops_spawning_after_failure_during_spawn_yield() -> None:
     total_tasks = scheduler_module._SCHEDULER_TASK_SPAWN_YIELD_EVERY + 1
     started_refs: list[str] = []
+    block_pending_tasks = asyncio.Event()
 
     async def executor(stmt: ActionStatement) -> None:
         started_refs.append(stmt.ref)
-        raise RuntimeError("intentional scheduler test failure")
+        if stmt.ref == "task_0":
+            raise RuntimeError("intentional scheduler test failure")
+        await block_pending_tasks.wait()
 
     scheduler = _build_scheduler(
         total_tasks=total_tasks,
