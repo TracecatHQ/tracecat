@@ -1,5 +1,5 @@
 import { fireEvent, render, screen } from "@testing-library/react"
-import type { MCPIntegrationRead } from "@/client"
+import type { MCPIntegrationRead, RegistryActionReadMinimal } from "@/client"
 import { ChatToolsPicker } from "@/components/chat/chat-tools-picker"
 
 jest.mock("@/components/ui/popover", () => ({
@@ -31,6 +31,22 @@ const runrevealIntegration = {
   created_at: "2024-01-01T00:00:00.000Z",
   updated_at: "2024-01-01T00:00:00.000Z",
 } satisfies MCPIntegrationRead
+
+function registryAction(
+  action: string,
+  overrides: Partial<RegistryActionReadMinimal> = {}
+): RegistryActionReadMinimal {
+  return {
+    id: action,
+    name: action,
+    description: `${action} description`,
+    namespace: action.split(".").slice(0, -1).join("."),
+    type: "udf",
+    origin: "tracecat",
+    action,
+    ...overrides,
+  }
+}
 
 describe("ChatToolsPicker", () => {
   it("hides MCP integrations when they are not enabled for the chat surface", () => {
@@ -122,5 +138,97 @@ describe("ChatToolsPicker", () => {
     fireEvent.click(screen.getByText("tools.deleted.action"))
 
     expect(onToolsChange).toHaveBeenCalledWith([])
+  })
+
+  it("allows regular chat surfaces to add workspace-chat default tools", () => {
+    const onToolsChange = jest.fn()
+
+    render(
+      <ChatToolsPicker
+        registryActions={[
+          registryAction("core.table.search_rows", {
+            default_title: "Search rows",
+            display_group: "Tables",
+          }),
+        ]}
+        selectedTools={[]}
+        onToolsChange={onToolsChange}
+        mcpIntegrations={[]}
+        selectedMcpIntegrations={[]}
+        onMcpChange={jest.fn()}
+        surface="regular"
+      />
+    )
+
+    fireEvent.change(
+      screen.getByPlaceholderText("Search capabilities & tools..."),
+      {
+        target: { value: "search rows" },
+      }
+    )
+
+    expect(screen.getByText("Search rows")).toBeInTheDocument()
+    expect(screen.queryByText("Included by default")).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByText("Search rows"))
+
+    expect(onToolsChange).toHaveBeenCalledWith(["core.table.search_rows"])
+  })
+
+  it("shows selected default registry tools in search so they can be removed", () => {
+    const onToolsChange = jest.fn()
+
+    render(
+      <ChatToolsPicker
+        registryActions={[
+          registryAction("core.cases.list_cases", {
+            default_title: "List cases",
+            display_group: "Cases",
+          }),
+        ]}
+        selectedTools={["core.cases.list_cases"]}
+        onToolsChange={onToolsChange}
+        mcpIntegrations={[]}
+        selectedMcpIntegrations={[]}
+        onMcpChange={jest.fn()}
+        surface="workspace-chat"
+      />
+    )
+
+    expect(
+      screen.getByRole("button", { name: "Tools (1)" })
+    ).toBeInTheDocument()
+
+    fireEvent.change(
+      screen.getByPlaceholderText("Search capabilities & tools..."),
+      {
+        target: { value: "list cases" },
+      }
+    )
+
+    expect(screen.getByText("List cases")).toBeInTheDocument()
+    expect(screen.getByText("Included by default")).toBeInTheDocument()
+
+    fireEvent.click(screen.getByText("List cases"))
+
+    expect(onToolsChange).toHaveBeenCalledWith([])
+  })
+
+  it("hides add-on capabilities when agent add-ons are disabled", () => {
+    render(
+      <ChatToolsPicker
+        registryActions={[]}
+        selectedTools={[]}
+        onToolsChange={jest.fn()}
+        mcpIntegrations={[]}
+        selectedMcpIntegrations={[]}
+        onMcpChange={jest.fn()}
+        agentAddonsEnabled={false}
+        surface="workspace-chat"
+      />
+    )
+
+    expect(screen.getByText("Cases")).toBeInTheDocument()
+    expect(screen.queryByText("Agent presets")).not.toBeInTheDocument()
   })
 })

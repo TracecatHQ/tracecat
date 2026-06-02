@@ -44,6 +44,13 @@ export function ChatHistoryDropdown({
     setOpen(false)
   }
 
+  // Hide the selector entirely when there is no chat history — an empty
+  // dropdown is just noise. Still render while loading or on error so those
+  // states aren't silently swallowed.
+  if (!isLoading && !error && (chats?.length ?? 0) === 0) {
+    return null
+  }
+
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
