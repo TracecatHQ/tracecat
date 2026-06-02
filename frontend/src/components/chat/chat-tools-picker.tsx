@@ -213,12 +213,39 @@ export function ChatToolsPicker({
       .sort((a, b) => a.group.localeCompare(b.group))
   }, [addableTools])
 
+  // Default tools should not be persisted as extras, but older sessions or the
+  // mention menu can still put them in selectedTools. Surface them as removable.
+  const selectedDefaultTools = useMemo<ToolOption[]>(
+    () =>
+      selectedTools
+        .filter((value) => DEFAULT_TOOL_VALUES.has(value))
+        .map((value) => {
+          const option = optionByValue.get(value)
+          if (option) {
+            return {
+              ...option,
+              group: "Included by default",
+            }
+          }
+          return {
+            value,
+            label: humanizeAction(value),
+            group: "Included by default",
+            description: "This tool is already included by default.",
+          }
+        }),
+    [optionByValue, selectedTools]
+  )
+
   // Selected tools that are no longer in the registry, surfaced so they can be
   // removed even when the user is not searching.
   const staleSelectedTools = useMemo<ToolOption[]>(
     () =>
       selectedTools
-        .filter((value) => !optionByValue.has(value))
+        .filter(
+          (value) =>
+            !DEFAULT_TOOL_VALUES.has(value) && !optionByValue.has(value)
+        )
         .map((value) => ({
           value,
           label: value,
@@ -235,12 +262,16 @@ export function ChatToolsPicker({
       return []
     }
     return fuzzysort
-      .go<ToolOption>(needle, [...addableTools, ...staleSelectedTools], {
-        keys: ["value", "label", "description", "group"],
-        limit: TOOL_SEARCH_LIMIT,
-      })
+      .go<ToolOption>(
+        needle,
+        [...addableTools, ...selectedDefaultTools, ...staleSelectedTools],
+        {
+          keys: ["value", "label", "description", "group"],
+          limit: TOOL_SEARCH_LIMIT,
+        }
+      )
       .map((result) => result.obj)
-  }, [query, addableTools, staleSelectedTools])
+  }, [query, addableTools, selectedDefaultTools, staleSelectedTools])
 
   const mcpOptionById = useMemo(
     () =>
@@ -405,6 +436,16 @@ export function ChatToolsPicker({
               )}
 
               <GroupLabel>Add tools</GroupLabel>
+              {selectedDefaultTools.map((tool) => (
+                <Row
+                  key={tool.value}
+                  dotClassName="bg-emerald-500"
+                  title={tool.label}
+                  subtitle={tool.group}
+                  checked
+                  onToggle={() => toggleTool(tool.value)}
+                />
+              ))}
               {staleSelectedTools.map((tool) => (
                 <Row
                   key={tool.value}
@@ -436,7 +477,8 @@ export function ChatToolsPicker({
                     />
                   )
                 })
-              ) : staleSelectedTools.length === 0 ? (
+              ) : staleSelectedTools.length === 0 &&
+                selectedDefaultTools.length === 0 ? (
                 <EmptyHint>No registry tools available.</EmptyHint>
               ) : null}
             </>
