@@ -75,6 +75,8 @@ type NavItem = {
   requiredScope?: string
   badgeCount?: number
   badgeLabel?: string
+  /** Small status pill shown after the title, e.g. "Beta". */
+  tag?: string
   items?: {
     title: string
     url: string
@@ -148,6 +150,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
         title: "Chat",
         url: `${basePath}/chat`,
         icon: BotIcon,
+        tag: "Beta",
         isActive: pathname?.startsWith(`${basePath}/chat`),
         visible: canAccessMissionControl,
         isLocked: entitlementsIsLoading || !workspaceChatEnabled,
@@ -337,6 +340,11 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                               <Link href={item.url!}>
                                 <item.icon />
                                 <span>{item.title}</span>
+                                {item.tag ? (
+                                  <span className="ml-auto shrink-0 rounded-full border px-1.5 py-px text-[10px] font-medium leading-none text-muted-foreground">
+                                    {item.tag}
+                                  </span>
+                                ) : null}
                               </Link>
                             </SidebarMenuButton>
                           )}
