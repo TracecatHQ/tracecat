@@ -367,6 +367,11 @@ class _MCPIntegrationCreateBase(BaseModel):
         le=300,
         description="Timeout in seconds",
     )
+    catalog_slug: str | None = Field(
+        default=None,
+        max_length=255,
+        description="Platform MCP catalog slug this workspace config is created from",
+    )
 
 
 class MCPHttpIntegrationCreate(_MCPIntegrationCreateBase):
@@ -469,7 +474,10 @@ class MCPIntegrationUpdate(BaseModel):
 
     name: str | None = Field(default=None, min_length=3, max_length=255)
     description: str | None = Field(default=None, max_length=512)
-    # Server type cannot be changed after creation (would require migrating fields)
+    server_type: MCPServerType | None = Field(
+        default=None,
+        description="MCP server type. Changing this clears fields from the previous type.",
+    )
     # HTTP-type server fields
     server_uri: str | None = None
     auth_type: MCPAuthType | None = None
@@ -534,6 +542,190 @@ MCPIntegrationSource = Literal["platform", "workspace"]
 """
 
 
+MCPConnectionTarget = Literal[
+    "server_uri",
+    "oauth_client",
+    "http_header",
+    "stdio_env",
+]
+MCPConnectionKind = Literal[
+    "http_oauth2",
+    "http_custom",
+    "http_none",
+    "stdio_oauth2",
+    "stdio_custom",
+    "stdio_none",
+]
+PlatformMCPCatalogStatus = Literal["available", "coming_soon", "deprecated", "hidden"]
+PlatformMCPCatalogState = Literal[
+    "not_configured",
+    "configured",
+    "connected",
+    "error",
+]
+
+
+class MCPConnectionCredential(BaseModel):
+    """User-supplied value needed to materialize a catalog connection."""
+
+    key: str
+    label: str
+    description: str
+    required: bool = True
+    secret: bool = True
+    target: MCPConnectionTarget
+
+
+class MCPPackageOption(BaseModel):
+    """Supported stdio package launch option."""
+
+    manager: str
+    command: str
+    args: list[str] = Field(default_factory=list)
+    package: str | None = None
+
+
+class MCPConfigField(BaseModel):
+    """Typed configure-dialog field declared by a catalog spec."""
+
+    key: str
+    label: str
+    description: str
+    target: MCPConnectionTarget
+    required: bool = True
+    secret: bool = False
+
+
+class _MCPConnectionSpecBase(BaseModel):
+    """Base fields shared by all catalog connection spec variants."""
+
+    requires_config: bool = False
+    config_fields: list[MCPConfigField] = Field(default_factory=list)
+    credentials: list[MCPConnectionCredential] = Field(default_factory=list)
+
+
+class MCPHTTPOAuth2ConnectionSpec(_MCPConnectionSpecBase):
+    """HTTP MCP server using MCP OAuth."""
+
+    kind: Literal["http_oauth2"] = "http_oauth2"
+    server_type: Literal["http"] = "http"
+    auth_type: Literal[MCPAuthType.OAUTH2] = MCPAuthType.OAUTH2
+    server_uri: str
+    allowed_hosts: list[str]
+    scopes: list[str] = Field(default_factory=list)
+    oauth_authorization_endpoint: str | None = None
+    oauth_token_endpoint: str | None = None
+
+
+class MCPHTTPCustomConnectionSpec(_MCPConnectionSpecBase):
+    """HTTP MCP server using user-provided headers or API keys."""
+
+    kind: Literal["http_custom"] = "http_custom"
+    server_type: Literal["http"] = "http"
+    auth_type: Literal[MCPAuthType.CUSTOM] = MCPAuthType.CUSTOM
+    server_uri: str
+
+
+class MCPHTTPNoneConnectionSpec(_MCPConnectionSpecBase):
+    """HTTP MCP server with no authentication."""
+
+    kind: Literal["http_none"] = "http_none"
+    server_type: Literal["http"] = "http"
+    auth_type: Literal[MCPAuthType.NONE] = MCPAuthType.NONE
+    server_uri: str
+
+
+class MCPStdioOAuth2ConnectionSpec(_MCPConnectionSpecBase):
+    """Stdio MCP server that also needs OAuth values."""
+
+    kind: Literal["stdio_oauth2"] = "stdio_oauth2"
+    server_type: Literal["stdio"] = "stdio"
+    auth_type: Literal[MCPAuthType.OAUTH2] = MCPAuthType.OAUTH2
+    stdio_command: str | None = None
+    stdio_args: list[str] = Field(default_factory=list)
+    stdio_env: list[str] = Field(default_factory=list)
+    packages: list[MCPPackageOption] = Field(default_factory=list)
+    scopes: list[str] = Field(default_factory=list)
+
+
+class MCPStdioCustomConnectionSpec(_MCPConnectionSpecBase):
+    """Stdio MCP server using user-provided env vars."""
+
+    kind: Literal["stdio_custom"] = "stdio_custom"
+    server_type: Literal["stdio"] = "stdio"
+    auth_type: Literal[MCPAuthType.CUSTOM] = MCPAuthType.CUSTOM
+    stdio_command: str | None = None
+    stdio_args: list[str] = Field(default_factory=list)
+    stdio_env: list[str] = Field(default_factory=list)
+    packages: list[MCPPackageOption] = Field(default_factory=list)
+
+
+class MCPStdioNoneConnectionSpec(_MCPConnectionSpecBase):
+    """Stdio MCP server with no authentication."""
+
+    kind: Literal["stdio_none"] = "stdio_none"
+    server_type: Literal["stdio"] = "stdio"
+    auth_type: Literal[MCPAuthType.NONE] = MCPAuthType.NONE
+    stdio_command: str | None = None
+    stdio_args: list[str] = Field(default_factory=list)
+    stdio_env: list[str] = Field(default_factory=list)
+    packages: list[MCPPackageOption] = Field(default_factory=list)
+
+
+type MCPConnectionSpec = Annotated[
+    MCPHTTPOAuth2ConnectionSpec
+    | MCPHTTPCustomConnectionSpec
+    | MCPHTTPNoneConnectionSpec
+    | MCPStdioOAuth2ConnectionSpec
+    | MCPStdioCustomConnectionSpec
+    | MCPStdioNoneConnectionSpec,
+    Field(discriminator="kind"),
+]
+
+
+class MCPConnectionOption(BaseModel):
+    """A connectable transport/auth option for one catalog provider."""
+
+    id: str = Field(..., min_length=1, max_length=80)
+    label: str = Field(..., min_length=1, max_length=120)
+    description: str | None = Field(default=None, max_length=512)
+    docs_url: str | None = None
+    connection_spec: MCPConnectionSpec
+
+
+class PlatformMCPCatalogRead(BaseModel):
+    """Catalog row joined with workspace-specific MCP state."""
+
+    id: uuid.UUID
+    slug: str
+    name: str
+    description: str
+    category: str
+    status: PlatformMCPCatalogStatus
+    icon_url: str | None
+    docs_url: str | None
+    provider_id: str | None
+    connection_spec: MCPConnectionSpec | None
+    connection_options: list[MCPConnectionOption] = Field(default_factory=list)
+    locked: bool = Field(
+        description="Whether this platform MCP catalog row is locked by entitlement.",
+    )
+    state: PlatformMCPCatalogState
+    mcp_integration_id: UUID4 | None
+    mcp_server_type: MCPServerType | None = None
+    mcp_auth_type: MCPAuthType | None = None
+    created_at: datetime
+    updated_at: datetime
+    last_refreshed_at: datetime | None
+
+
+class PlatformMCPCatalogListResponse(BaseModel):
+    """Cursor-paginated platform MCP catalog response."""
+
+    items: list[PlatformMCPCatalogRead]
+    next_cursor: str | None = None
+
+
 class MCPIntegrationRead(BaseModel):
     """Response model for MCP integration."""
 
@@ -558,3 +750,12 @@ class MCPIntegrationRead(BaseModel):
     timeout: int | None
     created_at: datetime
     updated_at: datetime
+
+
+class MCPCatalogConnectResponse(BaseModel):
+    """Response for connecting a platform MCP catalog entry."""
+
+    status: Literal["connected", "oauth_redirect"]
+    mcp_integration: MCPIntegrationRead | None = None
+    auth_url: str | None = None
+    provider_id: str | None = None

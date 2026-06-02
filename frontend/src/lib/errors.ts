@@ -66,6 +66,29 @@ export function getApiErrorDetail(error: unknown): string | null {
   return error.message
 }
 
+const MCP_OAUTH_DISCOVERY_ERROR_PATTERNS = [
+  "dynamic registration",
+  "discover oauth",
+  "oauth discovery",
+  "oauth server",
+  "authorization-server",
+  "oauth endpoint host",
+  "registration_endpoint",
+]
+
+export function getMcpOAuthConnectErrorDetail(error: unknown): string {
+  const detail = getApiErrorDetail(error) ?? "Unknown error"
+  const normalized = detail.toLowerCase()
+  if (
+    MCP_OAUTH_DISCOVERY_ERROR_PATTERNS.some((pattern) =>
+      normalized.includes(pattern)
+    )
+  ) {
+    return `MCP OAuth discovery failed. Create an OAuth integration manually, then select it from Advanced. ${detail}`
+  }
+  return detail
+}
+
 /**
  * Extract a structured `code` field from an API error's detail payload, when
  * the backend returns `{ "code": "...", ... }` for machine-readable handling.

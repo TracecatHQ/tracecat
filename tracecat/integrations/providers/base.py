@@ -1,12 +1,15 @@
 """Base OAuth provider using authlib for standardized OAuth2 flows."""
 
 import asyncio
+import ipaddress
 import json
 import secrets
+import socket
 from abc import ABC
+from collections.abc import Sequence
 from json import JSONDecodeError
 from typing import Any, ClassVar, Self, cast
-from urllib.parse import urlparse
+from urllib.parse import urlparse, urlunparse
 
 import httpx
 from authlib.integrations.httpx_client import AsyncOAuth2Client
@@ -14,7 +17,7 @@ from authlib.oauth2.rfc7636 import create_s256_code_challenge
 from pydantic import BaseModel, Field, SecretStr
 
 from tracecat import config
-from tracecat.integrations.enums import OAuthGrantType
+from tracecat.integrations.enums import MCPAuthType, OAuthGrantType
 from tracecat.integrations.schemas import (
     ProviderConfig,
     ProviderMetadata,
@@ -22,6 +25,9 @@ from tracecat.integrations.schemas import (
 )
 from tracecat.integrations.types import TokenResponse
 from tracecat.logger import logger
+
+SocketAddress = tuple[str, int] | tuple[str, int, int, int] | tuple[int, bytes]
+SocketInfo = tuple[socket.AddressFamily, socket.SocketKind, int, str, SocketAddress]
 
 
 class ClientCredentials(BaseModel):
@@ -76,16 +82,109 @@ def validate_oauth_endpoint(url: str, base_domain: str | None = None) -> None:
     if parsed.scheme.lower() != "https":
         raise ValueError(f"OAuth endpoint must use HTTPS: {url}")
 
-    # Check for private/internal IP addresses
     hostname = parsed.hostname
+    if not hostname:
+        raise ValueError(f"OAuth endpoint must include a hostname: {url}")
+    normalized_hostname = hostname.rstrip(".").lower()
+    if normalized_hostname in {"localhost", "localhost.localdomain"}:
+        raise ValueError("OAuth endpoint host is not allowed")
+    try:
+        address = ipaddress.ip_address(normalized_hostname)
+    except ValueError:
+        address = None
+    if address and (
+        address.is_private
+        or address.is_loopback
+        or address.is_link_local
+        or address.is_reserved
+        or address.is_multicast
+        or address.is_unspecified
+    ):
+        raise ValueError("OAuth endpoint host is not allowed")
+
     # Validate against base domain if provided
-    if base_domain and hostname:
+    if base_domain:
         base_parsed = urlparse(base_domain) if base_domain.startswith("http") else None
-        expected_domain = base_parsed.hostname if base_parsed else base_domain
-        if hostname != expected_domain and not hostname.endswith(f".{expected_domain}"):
+        expected_domain = (base_parsed.hostname if base_parsed else base_domain) or ""
+        expected_domain = expected_domain.rstrip(".").lower()
+        if normalized_hostname != expected_domain and not normalized_hostname.endswith(
+            f".{expected_domain}"
+        ):
             raise ValueError(
                 f"OAuth endpoint domain {hostname} does not match expected domain {expected_domain}"
             )
+
+
+def _is_disallowed_oauth_address(
+    address: ipaddress.IPv4Address | ipaddress.IPv6Address,
+) -> bool:
+    return (
+        address.is_private
+        or address.is_loopback
+        or address.is_link_local
+        or address.is_reserved
+        or address.is_multicast
+        or address.is_unspecified
+    )
+
+
+def _validate_oauth_resolved_addresses(infos: Sequence[SocketInfo]) -> None:
+    if not infos:
+        raise ValueError("OAuth endpoint host could not be resolved")
+    for *_, sockaddr in infos:
+        try:
+            address = ipaddress.ip_address(sockaddr[0])
+        except (IndexError, ValueError) as exc:
+            raise ValueError("OAuth endpoint host is not allowed") from exc
+        if _is_disallowed_oauth_address(address):
+            raise ValueError("OAuth endpoint host is not allowed")
+
+
+def validate_oauth_endpoint_resolves_public(
+    url: str, base_domain: str | None = None
+) -> None:
+    """Validate URL and require DNS resolution to public IP addresses."""
+
+    validate_oauth_endpoint(url, base_domain=base_domain)
+    parsed = urlparse(url)
+    hostname = parsed.hostname
+    if not hostname:
+        raise ValueError(f"OAuth endpoint must include a hostname: {url}")
+    port = parsed.port or 443
+    try:
+        infos = socket.getaddrinfo(
+            hostname,
+            port,
+            type=socket.SOCK_STREAM,
+            proto=socket.IPPROTO_TCP,
+        )
+    except socket.gaierror as exc:
+        raise ValueError("OAuth endpoint host could not be resolved") from exc
+    _validate_oauth_resolved_addresses(infos)
+
+
+async def validate_oauth_endpoint_resolves_public_async(
+    url: str, base_domain: str | None = None
+) -> None:
+    """Async wrapper for DNS-backed OAuth endpoint validation."""
+
+    validate_oauth_endpoint(url, base_domain=base_domain)
+    parsed = urlparse(url)
+    hostname = parsed.hostname
+    if not hostname:
+        raise ValueError(f"OAuth endpoint must include a hostname: {url}")
+    port = parsed.port or 443
+    try:
+        infos = await asyncio.to_thread(
+            socket.getaddrinfo,
+            hostname,
+            port,
+            type=socket.SOCK_STREAM,
+            proto=socket.IPPROTO_TCP,
+        )
+    except socket.gaierror as exc:
+        raise ValueError("OAuth endpoint host could not be resolved") from exc
+    _validate_oauth_resolved_addresses(infos)
 
 
 class CustomOAuthProviderMixin:
@@ -97,6 +196,16 @@ class CustomOAuthProviderMixin:
     @classmethod
     def schema(cls) -> dict[str, Any] | None:  # pragma: no cover - trivial override
         return None
+
+
+class BaseMCPProvider(ABC):
+    """Base metadata contract for platform-provided MCP connections."""
+
+    id: ClassVar[str]
+    metadata: ClassVar[ProviderMetadata]
+    mcp_server_uri: ClassVar[str] = ""
+    server_type: ClassVar[str] = "http"
+    auth_type: ClassVar[MCPAuthType]
 
 
 class BaseOAuthProvider(ABC):
@@ -263,12 +372,7 @@ class BaseOAuthProvider(ABC):
     ) -> dict[str, Any]:
         """Send a dynamic registration request asynchronously."""
 
-        # Validate endpoint for security
-        parsed = urlparse(endpoint)
-        if parsed.scheme.lower() != "https":
-            raise ValueError(
-                f"Dynamic registration endpoint must use HTTPS for security: {endpoint}"
-            )
+        await validate_oauth_endpoint_resolves_public_async(endpoint)
 
         async with httpx.AsyncClient() as client:
             response = await client.post(endpoint, json=payload, timeout=10.0)
@@ -618,7 +722,7 @@ class ServiceAccountOAuthProvider(ClientCredentialsOAuthProvider):
         return configured_client_id.strip()
 
 
-class MCPAuthProvider(AuthorizationCodeOAuthProvider):
+class MCPAuthProvider(BaseMCPProvider, AuthorizationCodeOAuthProvider):
     """Base OAuth provider for Model Context Protocol (MCP) servers using OAuth 2.1.
 
     MCP OAuth follows OAuth 2.1 standards with:
@@ -630,6 +734,7 @@ class MCPAuthProvider(AuthorizationCodeOAuthProvider):
     """
 
     mcp_server_uri: ClassVar[str]
+    auth_type: ClassVar[MCPAuthType] = MCPAuthType.OAUTH2
     oauth_endpoint_allowed_hosts: ClassVar[frozenset[str]] = frozenset()
     # Optional fallback endpoints for when discovery fails
     _fallback_auth_endpoint: ClassVar[str | None] = None
@@ -729,6 +834,25 @@ class MCPAuthProvider(AuthorizationCodeOAuthProvider):
         return f"https://{parsed.netloc}"
 
     @classmethod
+    def _get_resource_uri(cls) -> str:
+        """Return the canonical MCP resource URI for OAuth resource indicators."""
+
+        parsed = urlparse(cls.mcp_server_uri)
+        if parsed.scheme.lower() != "https":
+            raise ValueError(
+                "MCP server URI must use HTTPS to ensure secure discovery and registration"
+            )
+        if not parsed.hostname:
+            raise ValueError("MCP server URI is missing a hostname")
+        if parsed.fragment:
+            raise ValueError("MCP server URI cannot include a fragment")
+
+        host = parsed.hostname.lower()
+        netloc = f"{host}:{parsed.port}" if parsed.port else host
+        path = parsed.path if parsed.path and parsed.path != "/" else ""
+        return urlunparse(("https", netloc, path, "", parsed.query, ""))
+
+    @classmethod
     def _validate_discovered_oauth_endpoint(
         cls, endpoint: str, base_domain: str | None
     ) -> None:
@@ -761,6 +885,7 @@ class MCPAuthProvider(AuthorizationCodeOAuthProvider):
 
         try:
             # Synchronous discovery during initialization
+            validate_oauth_endpoint_resolves_public(discovery_url)
             with httpx.Client() as client:
                 response = client.get(discovery_url, timeout=10.0)
                 response.raise_for_status()
@@ -859,6 +984,7 @@ class MCPAuthProvider(AuthorizationCodeOAuthProvider):
         discovery_url = f"{base_url}/.well-known/oauth-authorization-server"
 
         try:
+            await validate_oauth_endpoint_resolves_public_async(discovery_url)
             async with httpx.AsyncClient() as client:
                 response = await client.get(discovery_url, timeout=10.0)
             response.raise_for_status()
@@ -1063,12 +1189,12 @@ class MCPAuthProvider(AuthorizationCodeOAuthProvider):
     def _get_additional_authorize_params(self) -> dict[str, Any]:
         """Add MCP-specific authorization parameters.
 
-        The resource parameter identifies the MCP server that the token will be used with.
-        Per RFC 8707 / MCP spec, this should be the base URL of the resource server
-        (matching the authorization server issuer), not the full MCP endpoint path.
+        The resource parameter identifies the MCP server that the token will be used
+        with. Use the most specific canonical MCP URI so authorization and token
+        requests match strict MCP resource/audience checks.
         """
         params = super()._get_additional_authorize_params()
-        params["resource"] = self._get_base_url()
+        params["resource"] = self._get_resource_uri()
         return params
 
     @classmethod
@@ -1145,5 +1271,5 @@ class MCPAuthProvider(AuthorizationCodeOAuthProvider):
         and must match the value used in the authorization request.
         """
         params = super()._get_additional_token_params()
-        params["resource"] = self._get_base_url()
+        params["resource"] = self._get_resource_uri()
         return params

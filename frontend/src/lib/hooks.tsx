@@ -145,6 +145,7 @@ import {
   type McpIntegrationsListMcpIntegrationsData,
   type ModelCredentialCreate,
   type ModelCredentialUpdate,
+  mcpIntegrationsConnectMcpIntegration,
   mcpIntegrationsCreateMcpIntegration,
   mcpIntegrationsDeleteMcpIntegration,
   mcpIntegrationsGetMcpIntegration,
@@ -363,7 +364,11 @@ import {
 } from "@/lib/case-durations"
 import { invalidateCaseActivityQueries } from "@/lib/cases/invalidation"
 import type { ModelInfo } from "@/lib/chat"
-import { retryHandler, type TracecatApiError } from "@/lib/errors"
+import {
+  getMcpOAuthConnectErrorDetail,
+  retryHandler,
+  type TracecatApiError,
+} from "@/lib/errors"
 import type { WorkflowExecutionReadCompact } from "@/lib/event-history"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
@@ -4565,6 +4570,51 @@ export function useCreateCustomProvider(workspaceId: string) {
     createCustomProvider,
     createCustomProviderIsPending,
     createCustomProviderError,
+  }
+}
+
+export function useConnectMcpIntegration(workspaceId: string) {
+  const queryClient = useQueryClient()
+
+  const {
+    mutateAsync: connectMcpIntegration,
+    isPending: connectMcpIntegrationIsPending,
+    error: connectMcpIntegrationError,
+  } = useMutation({
+    mutationFn: async (params: MCPIntegrationCreate) => {
+      return await mcpIntegrationsConnectMcpIntegration({
+        workspaceId,
+        requestBody: params,
+      })
+    },
+    onSuccess: (result) => {
+      queryClient.invalidateQueries({
+        queryKey: ["mcp-integrations", workspaceId],
+      })
+      if (result.auth_url) {
+        return
+      }
+      if (result.mcp_integration) {
+        toast({
+          title: "MCP integration created",
+          description: `Added ${result.mcp_integration.name}`,
+        })
+      }
+    },
+    onError: (error: TracecatApiError) => {
+      console.error("Failed to connect MCP integration:", error)
+      toast({
+        title: "Failed to connect MCP integration",
+        description: getMcpOAuthConnectErrorDetail(error),
+        variant: "destructive",
+      })
+    },
+  })
+
+  return {
+    connectMcpIntegration,
+    connectMcpIntegrationIsPending,
+    connectMcpIntegrationError,
   }
 }
 

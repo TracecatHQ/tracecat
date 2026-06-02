@@ -22,7 +22,7 @@ import type { ActionType, RegistryActionReadMinimal } from "@/client/types.gen"
 import { CodeEditor } from "@/components/editor/codemirror/code-editor"
 import { YamlStyledEditor } from "@/components/editor/codemirror/yaml-editor"
 import { ExpressionInput } from "@/components/editor/expression-input"
-import { getIcon, ProviderIcon } from "@/components/icons"
+import { getIcon, getMcpProviderIconId, ProviderIcon } from "@/components/icons"
 import {
   LockedFeatureChip,
   LockedFeatureModal,
@@ -1244,34 +1244,6 @@ function AgentModelSelect({
 }
 
 /**
- * Maps an MCP integration slug to its provider icon ID, mirroring the
- * mapping used by the agent presets builder. Falls back to "custom".
- */
-function getMcpProviderId(slug: string): string | undefined {
-  const slugMap: Record<string, string> = {
-    "github-copilot": "github_mcp",
-    github: "github_mcp",
-    sentry: "sentry_mcp",
-    notion: "notion_mcp",
-    linear: "linear_mcp",
-    jira: "jira_mcp",
-    runreveal: "runreveal_mcp",
-    "secure-annex": "secureannex_mcp",
-    secureannex: "secureannex_mcp",
-    wiz: "wiz_mcp",
-  }
-  const normalized = slug.toLowerCase()
-  if (slugMap[normalized]) {
-    return slugMap[normalized]
-  }
-  const match = normalized.match(/^([a-z0-9-]+?)[-_]?mcp$/)
-  if (match) {
-    return `${match[1].replace(/-/g, "")}_mcp`
-  }
-  return undefined
-}
-
-/**
  * Multi-select picker for saved MCP integrations. Stores selected
  * integration UUIDs on the field; integration metadata is fetched via
  * `useListMcpIntegrations`.
@@ -1298,8 +1270,8 @@ function MCPIntegrationField({
         description: integration.description || "MCP integration",
         icon: (
           <ProviderIcon
-            providerId={getMcpProviderId(integration.slug) ?? "custom"}
-            className="size-3 bg-transparent p-0 mx-1"
+            providerId={getMcpProviderIconId(integration.slug)}
+            className="size-4 bg-transparent p-0"
           />
         ),
       }))
