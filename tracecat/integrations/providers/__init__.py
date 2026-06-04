@@ -2,7 +2,10 @@ from typing import Final
 
 from tracecat.integrations.providers.base import BaseOAuthProvider
 from tracecat.integrations.providers.github.mcp import GitHubMCPProvider
-from tracecat.integrations.providers.github.oauth import GitHubOAuthProvider
+from tracecat.integrations.providers.github.oauth import (
+    GitHubAppOAuthProvider,
+    GitHubOAuthProvider,
+)
 from tracecat.integrations.providers.google import (
     GoogleDocsOAuthProvider,
     GoogleServiceAccountOAuthProvider,
@@ -41,6 +44,7 @@ from tracecat.integrations.schemas import ProviderKey
 
 _PROVIDER_CLASSES: list[type[BaseOAuthProvider]] = [
     GitHubOAuthProvider,
+    GitHubAppOAuthProvider,
     GitHubMCPProvider,
     GoogleDocsOAuthProvider,
     GoogleDriveACProvider,
