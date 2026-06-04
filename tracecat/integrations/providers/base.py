@@ -92,14 +92,7 @@ def validate_oauth_endpoint(url: str, base_domain: str | None = None) -> None:
         address = ipaddress.ip_address(normalized_hostname)
     except ValueError:
         address = None
-    if address and (
-        address.is_private
-        or address.is_loopback
-        or address.is_link_local
-        or address.is_reserved
-        or address.is_multicast
-        or address.is_unspecified
-    ):
+    if address and _is_disallowed_oauth_address(address):
         raise ValueError("OAuth endpoint host is not allowed")
 
     # Validate against base domain if provided
@@ -118,8 +111,13 @@ def validate_oauth_endpoint(url: str, base_domain: str | None = None) -> None:
 def _is_disallowed_oauth_address(
     address: ipaddress.IPv4Address | ipaddress.IPv6Address,
 ) -> bool:
+    # ``is_global`` is the authoritative "publicly routable" check and rejects
+    # ranges the explicit flags miss (e.g. CGNAT 100.64.0.0/10, TEST-NET, and
+    # other non-global assignments). Keep the explicit flags for clarity and to
+    # guard against any address class not yet covered by ``is_global``.
     return (
-        address.is_private
+        not address.is_global
+        or address.is_private
         or address.is_loopback
         or address.is_link_local
         or address.is_reserved
@@ -848,6 +846,10 @@ class MCPAuthProvider(BaseMCPProvider, AuthorizationCodeOAuthProvider):
             raise ValueError("MCP server URI cannot include a fragment")
 
         host = parsed.hostname.lower()
+        # ``urlparse`` strips the brackets from IPv6 literals; restore them so
+        # the rebuilt netloc stays a valid authority (e.g. ``[::1]:443``).
+        if ":" in host:
+            host = f"[{host}]"
         netloc = f"{host}:{parsed.port}" if parsed.port else host
         path = parsed.path if parsed.path and parsed.path != "/" else ""
         return urlunparse(("https", netloc, path, "", parsed.query, ""))

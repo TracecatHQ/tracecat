@@ -505,6 +505,10 @@ class IntegrationService(BaseWorkspaceService):
             raise ValueError("MCP OAuth resource URI cannot include a fragment")
 
         host = parsed.hostname.lower()
+        # ``urlparse`` strips the brackets from IPv6 literals; restore them so
+        # the rebuilt netloc stays a valid authority (e.g. ``[::1]:443``).
+        if ":" in host:
+            host = f"[{host}]"
         netloc = f"{host}:{parsed.port}" if parsed.port else host
         path = parsed.path if parsed.path and parsed.path != "/" else ""
         return urlunparse(("https", netloc, path, "", parsed.query, ""))
@@ -710,6 +714,40 @@ class IntegrationService(BaseWorkspaceService):
             else None,
             resource=resource_uri,
         )
+
+    async def _resolve_mcp_oauth_endpoints(
+        self,
+        *,
+        server_uri: str,
+        provider_config: ProviderConfig,
+    ) -> MCPOAuthDiscoveryEndpoints:
+        """Resolve OAuth endpoints for a custom MCP provider.
+
+        Catalog rows that supply static authorization/token endpoints persist
+        them on the ``custom_mcp_*`` provider config. Those providers may not
+        advertise MCP OAuth discovery at all, or advertise endpoints on a
+        different host, so prefer the stored endpoints and only fall back to
+        discovery when the provider config does not carry both. The stored
+        endpoints are still validated against SSRF before use.
+        """
+
+        if provider_config.authorization_endpoint and provider_config.token_endpoint:
+            for endpoint in (
+                provider_config.authorization_endpoint,
+                provider_config.token_endpoint,
+            ):
+                validate_oauth_endpoint(endpoint)
+            return MCPOAuthDiscoveryEndpoints(
+                authorization_endpoint=provider_config.authorization_endpoint,
+                token_endpoint=provider_config.token_endpoint,
+                # The token auth method is selected from client_secret presence
+                # when no discovered methods are available, so an empty list is
+                # safe here.
+                token_methods=[],
+                registration_endpoint=None,
+                resource=self._mcp_resource_uri(server_uri),
+            )
+        return await self._discover_mcp_oauth_endpoints(server_uri=server_uri)
 
     async def _perform_mcp_dynamic_registration(
         self,
@@ -1037,8 +1075,9 @@ class IntegrationService(BaseWorkspaceService):
         if mcp_integration is None or not mcp_integration.server_uri:
             raise ValueError("MCP OAuth integration is not linked to an MCP server")
 
-        endpoints = await self._discover_mcp_oauth_endpoints(
+        endpoints = await self._resolve_mcp_oauth_endpoints(
             server_uri=mcp_integration.server_uri,
+            provider_config=provider_config,
         )
         client_secret = (
             provider_config.client_secret.get_secret_value()
@@ -1101,8 +1140,9 @@ class IntegrationService(BaseWorkspaceService):
         if mcp_integration is None or not mcp_integration.server_uri:
             return integration
 
-        endpoints = await self._discover_mcp_oauth_endpoints(
+        endpoints = await self._resolve_mcp_oauth_endpoints(
             server_uri=mcp_integration.server_uri,
+            provider_config=provider_config,
         )
         client_secret = (
             provider_config.client_secret.get_secret_value()
@@ -2279,8 +2319,9 @@ class IntegrationService(BaseWorkspaceService):
         if provider_config is None or not provider_config.client_id:
             return None
 
-        endpoints = await self._discover_mcp_oauth_endpoints(
+        endpoints = await self._resolve_mcp_oauth_endpoints(
             server_uri=mcp_integration.server_uri,
+            provider_config=provider_config,
         )
         client_secret = (
             provider_config.client_secret.get_secret_value()

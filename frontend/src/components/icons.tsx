@@ -259,37 +259,6 @@ function createIconRenderer(
   )
 }
 
-function createProviderIconRenderer(Icon: (props: IconProps) => JSX.Element) {
-  return ({
-    className,
-    iconClassName,
-    flairsize: _ignored,
-    ...rest
-  }: CustomIconProps) => (
-    <div className={className}>
-      <Icon {...rest} className={cn("size-full", iconClassName)} />
-    </div>
-  )
-}
-
-function createProviderMonogram(
-  label: string,
-  wrapperClassName: string,
-  textClassName = "text-white"
-) {
-  return ({ className }: CustomIconProps) => (
-    <div
-      className={cn(
-        className,
-        wrapperClassName,
-        textClassName,
-        "text-[10px] font-semibold leading-none tracking-normal"
-      )}
-    >
-      {label}
-    </div>
-  )
-}
 export const UDFIcons: Record<string, (props: CustomIconProps) => JSX.Element> =
   {
     // Triggers namespace
@@ -604,77 +573,12 @@ export const providerIcons: Record<
       <SlackIcon {...rest} className={cn("size-full", iconClassName)} />
     </div>
   ),
-  elastic_mcp: createProviderMonogram("EL", "bg-[#00BFB3]"),
-  panther_mcp: createProviderMonogram("PA", "bg-[#111827]"),
-  splunk_mcp: createProviderMonogram("SP", "bg-[#65A637]"),
-  scanner_mcp: createProviderMonogram("SC", "bg-[#111827]"),
-  microsoft_sentinel_mcp: createProviderIconRenderer(MicrosoftSentinelIcon),
-  google_cloud_secops_mcp: createProviderIconRenderer(GoogleSecOpsIcon),
-  sumo_logic_mcp: createProviderMonogram("SL", "bg-[#0F172A]"),
-  datadog_mcp: createProviderIconRenderer(DatadogIcon),
-  clickhouse_mcp: createProviderIconRenderer(ClickHouseIcon),
-  crowdstrike_falcon_mcp: createProviderMonogram("CF", "bg-[#D71920]"),
-  sentinelone_mcp: createProviderMonogram("S1", "bg-[#6D3FF2]"),
-  jamf_mcp: createProviderMonogram("J", "bg-[#00A4EF]"),
-  iru_mcp: createProviderMonogram("K", "bg-[#111827]"),
-  microsoft_defender_xdr_mcp: createProviderIconRenderer(MicrosoftDefenderIcon),
-  greynoise_mcp: createProviderMonogram("GN", "bg-[#64748B]"),
-  feedly_mcp: createProviderMonogram("F", "bg-[#2BB24C]"),
-  virustotal_mcp: createProviderIconRenderer(VirusTotalIcon),
-  microsoft_entra_id_mcp: createProviderIconRenderer(MicrosoftEntraIcon),
-  okta_mcp: createProviderIconRenderer(OktaIcon),
-  hashicorp_vault_mcp: createProviderIconRenderer(VaultIcon),
-  aws_mcp: createProviderIconRenderer(AwsIcon),
-  cloudflare_mcp: createProviderMonogram("CF", "bg-[#F38020]"),
-  zscaler_mcp: createProviderMonogram("ZS", "bg-[#0067B1]"),
-  palo_alto_mcp: createProviderIconRenderer(PaloAltoIcon),
-  sixtyfour_mcp: createProviderMonogram("64", "bg-[#111827]"),
-  atlassian_rovo_mcp: createProviderIconRenderer(JiraIcon),
-  servicenow_mcp: createProviderIconRenderer(ServiceNowIcon),
-  incident_io_mcp: createProviderMonogram("IO", "bg-[#111827]"),
-  pagerduty_mcp: createProviderIconRenderer(PagerDutyIcon),
-  rootly_mcp: createProviderMonogram("R", "bg-[#E11D48]"),
-  slack_mcp: ({ className, iconClassName, flairsize: _ignored, ...rest }) => (
-    <div className={cn("!rounded-sm", className)}>
-      <SlackIcon {...rest} className={cn("size-full", iconClassName)} />
-    </div>
-  ),
-  microsoft_teams_mcp: createProviderIconRenderer(MicrosoftTeamsIcon),
-  gmail_mcp: createProviderIconRenderer(GmailIcon),
-  microsoft_mail_mcp: createProviderIconRenderer(MicrosoftIcon),
-  semgrep_mcp: createProviderMonogram("SG", "bg-[#6C47FF]"),
-  snyk_mcp: createProviderMonogram("SN", "bg-[#4C4A73]"),
-  vanta_mcp: createProviderMonogram("V", "bg-[#111827]"),
-  drata_mcp: createProviderMonogram("D", "bg-[#111827]"),
-  grafana_mcp: createProviderIconRenderer(GrafanaIcon),
-  snowflake_mcp: createProviderMonogram("SF", "bg-[#29B5E8]"),
-  databricks_mcp: createProviderMonogram("DB", "bg-[#FF3621]"),
-  gitlab_mcp: createProviderMonogram("GL", "bg-[#FC6D26]"),
-  terraform_mcp: createProviderIconRenderer(TerraformIcon),
-  ansible_mcp: createProviderIconRenderer(AnsibleIcon),
-  microsoft_graph_me_mcp: createProviderIconRenderer(MicrosoftIcon),
-  microsoft_word_mcp: createProviderIconRenderer(MicrosoftIcon),
-  microsoft_onedrive_mcp: createProviderIconRenderer(MicrosoftIcon),
-  microsoft_sharepoint_mcp: createProviderIconRenderer(MicrosoftIcon),
-  google_drive_mcp: createProviderIconRenderer(GoogleDriveIcon),
-  google_calendar_mcp: createProviderIconRenderer(GoogleIcon),
   custom: ({ className, ...rest }) => (
     <div className={className}>
       <Plug2 {...rest} fill="black" />
     </div>
   ),
-  sentry_mcp: (props) => <SentryIcon {...props} />,
-  notion_mcp: (props) => <NotionIcon {...props} />,
-  linear_mcp: (props) => <LinearIcon {...props} />,
   jira_mcp: (props) => <JiraIcon {...props} />,
-  runreveal_mcp: (props) => <RunRevealIcon {...props} />,
-  secureannex_mcp: (props) => <SecureAnnexIcon {...props} />,
-  wiz_mcp: (props) => <WizIcon {...props} />,
-  github_mcp: ({ className, ...rest }) => (
-    <div className={className}>
-      <GitHubIcon {...rest} />
-    </div>
-  ),
   ...mcpCatalogProviderIcons,
 }
 

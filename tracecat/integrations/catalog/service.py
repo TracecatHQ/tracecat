@@ -262,7 +262,7 @@ class PlatformMCPCatalogService(BaseService):
             if mcp_integration and mcp_integration.server_type in {"http", "stdio"}
             else None,
             mcp_auth_type=mcp_integration.auth_type if mcp_integration else None,
-            created_at=now,
-            updated_at=now,
+            created_at=mcp_integration.created_at if mcp_integration else now,
+            updated_at=mcp_integration.updated_at if mcp_integration else now,
             last_refreshed_at=None,
         )

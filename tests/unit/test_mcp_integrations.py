@@ -977,6 +977,82 @@ class TestMCPIntegrationCRUD:
         assert provider_config.encrypted_client_id
         assert provider_config.encrypted_access_token == b""
 
+    async def test_start_existing_custom_mcp_oauth_prefers_stored_endpoints(
+        self,
+        integration_service: IntegrationService,
+        session: AsyncSession,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Custom MCP providers with stored endpoints must not require discovery.
+
+        Catalog rows that supply static authorization/token endpoints persist
+        them on the custom_mcp_* provider config. The authorize flow must build
+        the redirect URL from those stored endpoints even when the MCP server
+        does not advertise OAuth discovery.
+        """
+        assert integration_service.role.user_id is not None
+        session.add(
+            User(
+                id=integration_service.role.user_id,
+                email=f"mcp-stored-{uuid.uuid4()}@example.com",
+                hashed_password="test_password",
+                is_active=True,
+                is_verified=True,
+                is_superuser=False,
+                last_login_at=None,
+            )
+        )
+        await session.flush()
+
+        provider_key = ProviderKey(
+            id="custom_mcp_stored_endpoints",
+            grant_type=OAuthGrantType.AUTHORIZATION_CODE,
+        )
+        integration = await integration_service.store_provider_config(
+            provider_key=provider_key,
+            client_id="stored-endpoints-client",
+            authorization_endpoint="https://accounts.example.test/o/oauth2/authorize",
+            token_endpoint="https://oauth2.example.test/token",
+        )
+        mcp_integration = MCPIntegration(
+            workspace_id=integration_service.workspace_id,
+            name="Stored Endpoints MCP",
+            slug="stored-endpoints-mcp",
+            server_type="http",
+            server_uri="https://mcp.example.test/mcp",
+            auth_type=MCPAuthType.OAUTH2,
+            oauth_integration_id=integration.id,
+        )
+        session.add(mcp_integration)
+        await session.commit()
+
+        async def fail_discover(
+            *,
+            server_uri: str,
+        ) -> integration_service_module.MCPOAuthDiscoveryEndpoints:
+            raise AssertionError(
+                f"discovery must not run for stored endpoints: {server_uri}"
+            )
+
+        monkeypatch.setattr(
+            integration_service, "_discover_mcp_oauth_endpoints", fail_discover
+        )
+
+        result = await integration_service._start_existing_custom_mcp_oauth(
+            mcp_integration=mcp_integration
+        )
+
+        assert result is not None
+        assert result.oauth_connect is not None
+        parsed = urlparse(result.oauth_connect.auth_url)
+        # The redirect must point at the stored authorization endpoint, and the
+        # OAuth `resource` parameter must reflect the MCP server URI.
+        assert parsed.scheme == "https"
+        assert parsed.hostname == "accounts.example.test"
+        assert parsed.path == "/o/oauth2/authorize"
+        query = parse_qs(parsed.query)
+        assert query["resource"] == ["https://mcp.example.test/mcp"]
+
     async def test_get_mcp_integration(
         self,
         integration_service: IntegrationService,
