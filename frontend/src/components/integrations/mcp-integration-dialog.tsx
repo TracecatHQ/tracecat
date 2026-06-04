@@ -18,6 +18,7 @@ import {
   providersCreateCustomProvider,
 } from "@/client/services.gen"
 import type {
+  MCPCatalogConnectResponse,
   MCPConnectionSpec,
   MCPHttpIntegrationCreate,
   MCPIntegrationRead,
@@ -567,55 +568,67 @@ export function MCPIntegrationDialog({
               catalogEntry,
               values.connection_option_id
             )
+            if (spec?.server_type !== "http" || spec.auth_type !== "OAUTH2") {
+              throw new Error(
+                "Catalog OAuth client setup requires an HTTP OAuth option"
+              )
+            }
+            const oauthClientCredentials =
+              values.oauth_client_credentials?.trim() ?? ""
+            setCatalogOAuthClientIsPending(true)
+            // Without advertised endpoints, the backend does dynamic registration
+            // from the pasted credentials; otherwise create the OAuth client here.
+            let result: MCPCatalogConnectResponse
             if (
-              spec?.server_type !== "http" ||
-              spec.auth_type !== "OAUTH2" ||
               !spec.oauth_authorization_endpoint ||
               !spec.oauth_token_endpoint
             ) {
-              throw new Error(
-                "Catalog OAuth client setup requires authorization and token endpoints"
+              hookHandledError = true
+              result = await connectMcpIntegration({
+                ...params,
+                custom_credentials: oauthClientCredentials,
+              })
+              hookHandledError = false
+            } else {
+              const { clientId, clientSecret } = readOAuthClientCredentials(
+                oauthClientCredentials
               )
+              const provider = await providersCreateCustomProvider({
+                workspaceId,
+                requestBody: {
+                  provider_id: catalogMcpProviderId(
+                    catalogEntry,
+                    values.connection_option_id
+                  ),
+                  name: `${values.name} OAuth`,
+                  description:
+                    values.description?.trim() ||
+                    `OAuth client for ${values.name}`,
+                  grant_type: "authorization_code",
+                  authorization_endpoint: spec.oauth_authorization_endpoint,
+                  token_endpoint: spec.oauth_token_endpoint,
+                  scopes: spec.scopes ?? [],
+                  client_id: clientId,
+                  client_secret: clientSecret,
+                },
+              })
+              const oauthIntegration = await integrationsGetIntegration({
+                workspaceId,
+                providerId: provider.id,
+                grantType: "authorization_code",
+              })
+              params = {
+                ...params,
+                oauth_integration_id: oauthIntegration.id,
+              }
+              hookHandledError = true
+              await createMcpIntegration(params)
+              hookHandledError = false
+              result = await mcpIntegrationsConnectPlatformMcpCatalog({
+                workspaceId,
+                catalogSlug: catalogEntry.slug,
+              })
             }
-            const { clientId, clientSecret } = readOAuthClientCredentials(
-              values.oauth_client_credentials ?? ""
-            )
-            setCatalogOAuthClientIsPending(true)
-            const provider = await providersCreateCustomProvider({
-              workspaceId,
-              requestBody: {
-                provider_id: catalogMcpProviderId(
-                  catalogEntry,
-                  values.connection_option_id
-                ),
-                name: `${values.name} OAuth`,
-                description:
-                  values.description?.trim() ||
-                  `OAuth client for ${values.name}`,
-                grant_type: "authorization_code",
-                authorization_endpoint: spec.oauth_authorization_endpoint,
-                token_endpoint: spec.oauth_token_endpoint,
-                scopes: spec.scopes ?? [],
-                client_id: clientId,
-                client_secret: clientSecret,
-              },
-            })
-            const oauthIntegration = await integrationsGetIntegration({
-              workspaceId,
-              providerId: provider.id,
-              grantType: "authorization_code",
-            })
-            params = {
-              ...params,
-              oauth_integration_id: oauthIntegration.id,
-            }
-            hookHandledError = true
-            await createMcpIntegration(params)
-            hookHandledError = false
-            const result = await mcpIntegrationsConnectPlatformMcpCatalog({
-              workspaceId,
-              catalogSlug: catalogEntry.slug,
-            })
             if (result.auth_url) {
               window.location.href = result.auth_url
               return

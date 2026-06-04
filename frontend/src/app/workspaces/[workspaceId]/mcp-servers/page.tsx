@@ -95,7 +95,6 @@ function connectionSpecFromIntegration(
       server_type: "http",
       auth_type: "OAUTH2",
       server_uri: serverUri,
-      allowed_hosts: [],
       scopes: [],
     }
   }

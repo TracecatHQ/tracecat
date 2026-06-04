@@ -611,7 +611,6 @@ class MCPHTTPOAuth2ConnectionSpec(_MCPConnectionSpecBase):
     server_type: Literal["http"] = "http"
     auth_type: Literal[MCPAuthType.OAUTH2] = MCPAuthType.OAUTH2
     server_uri: str
-    allowed_hosts: list[str]
     scopes: list[str] = Field(default_factory=list)
     oauth_authorization_endpoint: str | None = None
     oauth_token_endpoint: str | None = None

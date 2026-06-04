@@ -7,7 +7,6 @@ import logging
 import re
 import uuid
 from typing import Any, NotRequired, TypedDict
-from urllib.parse import urlparse
 
 import orjson
 from pydantic import TypeAdapter, ValidationError
@@ -165,13 +164,6 @@ def _config_fields_from_credentials(
     ]
 
 
-def _allowed_hosts_from_uri(server_uri: str | None) -> list[str]:
-    if not server_uri:
-        return []
-    hostname = urlparse(server_uri).hostname
-    return [hostname] if hostname else []
-
-
 def _normalize_connection_spec(row: dict[str, Any]) -> dict[str, Any] | None:
     raw_spec = row.get("connection_spec", row.get("metadata"))
     if not isinstance(raw_spec, dict):
@@ -219,14 +211,6 @@ def _normalize_connection_spec(row: dict[str, Any]) -> dict[str, Any] | None:
             return None
         base["server_uri"] = server_uri or ""
         if auth_type == MCPAuthType.OAUTH2:
-            allowed_hosts = raw_spec.get("allowed_hosts") or raw_spec.get(
-                "oauth_endpoint_allowed_hosts"
-            )
-            base["allowed_hosts"] = (
-                allowed_hosts
-                if isinstance(allowed_hosts, list)
-                else _allowed_hosts_from_uri(server_uri)
-            )
             base["scopes"] = raw_spec.get("scopes") or []
             base["oauth_authorization_endpoint"] = raw_spec.get(
                 "oauth_authorization_endpoint"

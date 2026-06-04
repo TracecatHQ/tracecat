@@ -15290,13 +15290,6 @@ export const $MCPHTTPOAuth2ConnectionSpec = {
       type: "string",
       title: "Server Uri",
     },
-    allowed_hosts: {
-      items: {
-        type: "string",
-      },
-      type: "array",
-      title: "Allowed Hosts",
-    },
     scopes: {
       items: {
         type: "string",
@@ -15328,7 +15321,7 @@ export const $MCPHTTPOAuth2ConnectionSpec = {
     },
   },
   type: "object",
-  required: ["server_uri", "allowed_hosts"],
+  required: ["server_uri"],
   title: "MCPHTTPOAuth2ConnectionSpec",
   description: "HTTP MCP server using MCP OAuth.",
 } as const

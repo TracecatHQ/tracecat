@@ -400,7 +400,6 @@ class TestMCPIntegrationCRUD:
                 "config_fields": [],
                 "credentials": [],
                 "server_uri": "https://mcp.example.com/mcp",
-                "allowed_hosts": ["mcp.example.com"],
                 "scopes": [],
                 "oauth_authorization_endpoint": None,
                 "oauth_token_endpoint": None,
@@ -1657,6 +1656,91 @@ class TestMCPIntegrationCRUD:
         assert str(wildcard_collision_mcp_id) in current_version.mcp_integrations
         assert str(workspace_created_id) in current_version.mcp_integrations
 
+    async def test_disconnect_custom_mcp_oauth_removes_linked_mcp_integrations(
+        self,
+        integration_service: IntegrationService,
+    ) -> None:
+        """Disconnecting a generic MCP OAuth provider removes linked MCP rows."""
+        provider_key = ProviderKey(
+            id="custom_mcp_disconnect_test",
+            grant_type=OAuthGrantType.AUTHORIZATION_CODE,
+        )
+        oauth_integration = await integration_service.store_integration(
+            provider_key=provider_key,
+            access_token=SecretStr("test_access_token"),
+            refresh_token=SecretStr("test_refresh_token"),
+            expires_in=3600,
+        )
+        created = await integration_service.create_mcp_integration(
+            params=MCPHttpIntegrationCreate(
+                name="Custom MCP OAuth",
+                server_uri="https://mcp.example.com/mcp",
+                auth_type=MCPAuthType.OAUTH2,
+                oauth_integration_id=oauth_integration.id,
+            )
+        )
+        preset = AgentPreset(
+            workspace_id=integration_service.workspace_id,
+            name="Custom MCP preset",
+            slug="custom-mcp-preset",
+            model_name="gpt-4o-mini",
+            model_provider="openai",
+            mcp_integrations=[str(created.id)],
+        )
+        agent_session = AgentSession(
+            workspace_id=integration_service.workspace_id,
+            entity_type=AgentSessionEntity.WORKSPACE_CHAT.value,
+            entity_id=integration_service.workspace_id,
+            mcp_integrations=[str(created.id)],
+        )
+        integration_service.session.add(preset)
+        integration_service.session.add(agent_session)
+        await integration_service.session.flush()
+        preset_id = preset.id
+        agent_session_id = agent_session.id
+        initial_version = AgentPresetVersion(
+            workspace_id=integration_service.workspace_id,
+            preset_id=preset_id,
+            version=1,
+            model_name=preset.model_name,
+            model_provider=preset.model_provider,
+            mcp_integrations=list(preset.mcp_integrations or []),
+        )
+        integration_service.session.add(initial_version)
+        await integration_service.session.flush()
+        initial_version_id = initial_version.id
+        preset.current_version_id = initial_version_id
+        await integration_service.session.commit()
+
+        await integration_service.disconnect_integration(integration=oauth_integration)
+
+        refreshed_oauth = await integration_service.session.get(
+            OAuthIntegration, oauth_integration.id
+        )
+        assert refreshed_oauth is not None
+        assert await integration_service.get_access_token(refreshed_oauth) is None
+        assert (
+            await integration_service.get_mcp_integration(mcp_integration_id=created.id)
+            is None
+        )
+
+        refreshed_preset = (
+            await integration_service.session.scalars(
+                select(AgentPreset).where(AgentPreset.id == preset_id)
+            )
+        ).one()
+        assert refreshed_preset.mcp_integrations is not None
+        assert str(created.id) not in refreshed_preset.mcp_integrations
+        assert refreshed_preset.current_version_id != initial_version_id
+
+        refreshed_session = (
+            await integration_service.session.scalars(
+                select(AgentSession).where(AgentSession.id == agent_session_id)
+            )
+        ).one()
+        assert refreshed_session.mcp_integrations is not None
+        assert str(created.id) not in refreshed_session.mcp_integrations
+
     async def test_delete_mcp_integration_rolls_back_on_disconnect_failure(
         self,
         integration_service: IntegrationService,
@@ -2431,19 +2515,19 @@ class TestMCPIntegrationEdgeCases:
 class TestMCPProviderOAuth:
     """Test MCP OAuth provider behavior and OAuth discovery."""
 
-    async def test_generic_mcp_discovery_allows_direct_metadata_endpoint_hosts(
+    async def test_generic_mcp_discovery_allows_direct_metadata_host_endpoints(
         self,
         integration_service: IntegrationService,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        """Generic MCP DCR trusts HTTPS endpoints from resource metadata."""
+        """Generic MCP DCR trusts endpoints on the metadata document host."""
         docs = {
             "https://mcp.example.com/.well-known/oauth-protected-resource": None,
             "https://mcp.example.com/.well-known/oauth-protected-resource/mcp": None,
             "https://mcp.example.com/.well-known/oauth-authorization-server": {
-                "authorization_endpoint": "https://app.example.com/oauth/authorize",
-                "token_endpoint": "https://api.example.com/oauth/token",
-                "registration_endpoint": "https://api.example.com/oauth/register",
+                "authorization_endpoint": "https://mcp.example.com/oauth/authorize",
+                "token_endpoint": "https://mcp.example.com/oauth/token",
+                "registration_endpoint": "https://mcp.example.com/oauth/register",
                 "token_endpoint_auth_methods_supported": ["none"],
             },
         }
@@ -2456,19 +2540,14 @@ class TestMCPProviderOAuth:
 
         endpoints = await integration_service._discover_mcp_oauth_endpoints(
             server_uri="https://mcp.example.com/mcp",
-            allowed_hosts={
-                "mcp.example.com",
-                "app.example.com",
-                "api.example.com",
-            },
         )
 
         assert endpoints.authorization_endpoint == (
-            "https://app.example.com/oauth/authorize"
+            "https://mcp.example.com/oauth/authorize"
         )
-        assert endpoints.token_endpoint == "https://api.example.com/oauth/token"
+        assert endpoints.token_endpoint == "https://mcp.example.com/oauth/token"
         assert endpoints.registration_endpoint == (
-            "https://api.example.com/oauth/register"
+            "https://mcp.example.com/oauth/register"
         )
         assert endpoints.resource == "https://mcp.example.com/mcp"
 
@@ -2488,8 +2567,10 @@ class TestMCPProviderOAuth:
                 "authorization_endpoint": (
                     "https://login.example-idp.com/oauth/authorize"
                 ),
-                "token_endpoint": "https://api.example-idp.com/oauth/token",
-                "registration_endpoint": ("https://api.example-idp.com/oauth/register"),
+                "token_endpoint": "https://login.example-idp.com/oauth/token",
+                "registration_endpoint": (
+                    "https://login.example-idp.com/oauth/register"
+                ),
                 "token_endpoint_auth_methods_supported": ["client_secret_post"],
             },
         }
@@ -2502,15 +2583,14 @@ class TestMCPProviderOAuth:
 
         endpoints = await integration_service._discover_mcp_oauth_endpoints(
             server_uri="https://tenant.example.com/mcp",
-            allowed_hosts={"tenant.example.com", "api.example-idp.com"},
         )
 
         assert endpoints.authorization_endpoint == (
             "https://login.example-idp.com/oauth/authorize"
         )
-        assert endpoints.token_endpoint == "https://api.example-idp.com/oauth/token"
+        assert endpoints.token_endpoint == "https://login.example-idp.com/oauth/token"
         assert endpoints.registration_endpoint == (
-            "https://api.example-idp.com/oauth/register"
+            "https://login.example-idp.com/oauth/register"
         )
         assert endpoints.token_methods == ["client_secret_post"]
         assert endpoints.resource == "https://tenant.example.com/mcp"
@@ -2592,9 +2672,7 @@ class TestMCPProviderOAuth:
         async def fake_discover(
             *,
             server_uri: str,
-            allowed_hosts: set[str] | None = None,
         ) -> integration_service_module.MCPOAuthDiscoveryEndpoints:
-            _ = allowed_hosts
             assert server_uri == "https://mcp.example.test/mcp"
             return integration_service_module.MCPOAuthDiscoveryEndpoints(
                 authorization_endpoint="https://auth.example.test/oauth/authorize",
@@ -2686,9 +2764,7 @@ class TestMCPProviderOAuth:
         async def fake_discover(
             *,
             server_uri: str,
-            allowed_hosts: set[str] | None = None,
         ) -> integration_service_module.MCPOAuthDiscoveryEndpoints:
-            _ = allowed_hosts
             assert server_uri == "https://mcp.example.test/mcp"
             return integration_service_module.MCPOAuthDiscoveryEndpoints(
                 authorization_endpoint="https://auth.example.test/oauth/authorize",
@@ -2751,7 +2827,7 @@ class TestMCPProviderOAuth:
         integration_service: IntegrationService,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        """Generic MCP DCR endpoints must stay on trusted metadata/allowlist hosts."""
+        """Generic MCP DCR endpoints must stay on the metadata document host."""
         docs = {
             "https://mcp.example.com/.well-known/oauth-protected-resource/mcp": None,
             "https://mcp.example.com/.well-known/oauth-protected-resource": None,
@@ -2772,7 +2848,6 @@ class TestMCPProviderOAuth:
         with pytest.raises(ValueError, match="does not match expected domain"):
             await integration_service._discover_mcp_oauth_endpoints(
                 server_uri="https://mcp.example.com/mcp",
-                allowed_hosts={"mcp.example.com"},
             )
 
     async def test_generic_mcp_discovery_uses_protected_resource_identifier(
@@ -2806,7 +2881,6 @@ class TestMCPProviderOAuth:
 
         endpoints = await integration_service._discover_mcp_oauth_endpoints(
             server_uri="https://tenant.example.com/mcp",
-            allowed_hosts={"tenant.example.com"},
         )
 
         assert endpoints.authorization_endpoint == (

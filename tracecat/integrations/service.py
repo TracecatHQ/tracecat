@@ -535,33 +535,19 @@ class IntegrationService(BaseWorkspaceService):
         endpoint: str,
         *,
         base_domain: str | None = None,
-        allowed_hosts: set[str] | None = None,
     ) -> str:
         """Validate a generic MCP OAuth endpoint discovered from metadata.
 
         Generic BYO/catalog DCR follows the trust chain from the user-supplied
         MCP server URI to protected-resource or authorization-server metadata.
-        Endpoint hosts are therefore not pinned to catalog JSON; catalog
-        allowed_hosts remain a compatibility hint for older rows/providers.
+        Endpoint hosts must match the metadata host that advertised them.
         """
         hostname = urlparse(endpoint).hostname
         if not hostname:
             raise InsecureOAuthEndpointError(
                 f"oauth_endpoint must include a hostname: {endpoint}"
             )
-        try:
-            # Strict path: endpoint host must match the metadata host it came from.
-            validate_oauth_endpoint(endpoint, base_domain=base_domain)
-        except ValueError as exc:
-            # Back-compat fallback: legacy catalog rows pin trusted endpoint hosts
-            # in allowed_hosts. If the host is explicitly allow-listed, re-validate
-            # without the base_domain pin (but still enforce HTTPS / non-private IP).
-            normalized_allowed_hosts = {
-                host.rstrip(".").lower() for host in allowed_hosts or set()
-            }
-            if hostname.rstrip(".").lower() not in normalized_allowed_hosts:
-                raise InsecureOAuthEndpointError(str(exc)) from exc
-            validate_oauth_endpoint(endpoint)
+        validate_oauth_endpoint(endpoint, base_domain=base_domain)
         return endpoint
 
     @staticmethod
@@ -640,7 +626,6 @@ class IntegrationService(BaseWorkspaceService):
         self,
         *,
         server_uri: str,
-        allowed_hosts: set[str] | None = None,
     ) -> MCPOAuthDiscoveryEndpoints:
         resource_uri = self._mcp_resource_uri(server_uri)
         resource_host = urlparse(resource_uri).hostname
@@ -654,7 +639,6 @@ class IntegrationService(BaseWorkspaceService):
         auth_server_metadata_urls: list[str] = []
         direct_metadata: dict[str, object] | None = None
         direct_metadata_host: str | None = None
-        endpoint_allowed_hosts = set(allowed_hosts or set())
         for metadata_url in self._mcp_oauth_metadata_urls(server_uri):
             metadata = await self._fetch_oauth_json(metadata_url)
             if not metadata:
@@ -712,18 +696,15 @@ class IntegrationService(BaseWorkspaceService):
             authorization_endpoint=self._validate_mcp_oauth_endpoint(
                 authorization_endpoint,
                 base_domain=direct_metadata_host,
-                allowed_hosts=endpoint_allowed_hosts,
             ),
             token_endpoint=self._validate_mcp_oauth_endpoint(
                 token_endpoint,
                 base_domain=direct_metadata_host,
-                allowed_hosts=endpoint_allowed_hosts,
             ),
             token_methods=token_methods,
             registration_endpoint=self._validate_mcp_oauth_endpoint(
                 registration_endpoint,
                 base_domain=direct_metadata_host,
-                allowed_hosts=endpoint_allowed_hosts,
             )
             if registration_endpoint
             else None,
@@ -882,32 +863,43 @@ class IntegrationService(BaseWorkspaceService):
                 mcp_integration=await self.create_mcp_integration(params=params)
             )
 
-        allowed_hosts: set[str] = set()
         scopes: list[str] | None = None
+        if catalog_spec is None and params.catalog_slug:
+            catalog = get_platform_mcp_catalog_entry_by_slug(
+                params.catalog_slug, include_private=True
+            )
+            if catalog is not None:
+                catalog_spec = self._catalog_connection_spec(catalog)
         if catalog_spec is not None:
             if (
                 catalog_spec.server_type != "http"
                 or catalog_spec.auth_type != MCPAuthType.OAUTH2
             ):
                 raise ValueError("Catalog option is not an HTTP OAuth MCP server")
-            allowed_hosts.update(catalog_spec.allowed_hosts)
             scopes = catalog_spec.scopes
 
         endpoints = await self._discover_mcp_oauth_endpoints(
             server_uri=params.server_uri,
-            allowed_hosts=allowed_hosts,
         )
-        if not endpoints.registration_endpoint:
-            raise ValueError("MCP OAuth server does not advertise dynamic registration")
-
-        registration_auth_method = self._select_mcp_registration_auth_method(
-            endpoints.token_methods
+        # Prefer user-supplied OAuth client credentials; otherwise fall back to
+        # dynamic client registration (DCR) against the discovered endpoint.
+        registration = self._mcp_oauth_client_registration_from_credentials(
+            params=params,
+            catalog_spec=catalog_spec,
         )
-        registration = await self._perform_mcp_dynamic_registration(
-            registration_endpoint=endpoints.registration_endpoint,
-            client_name=params.name,
-            token_auth_method=registration_auth_method,
-        )
+        used_byo_credentials = registration is not None
+        if registration is None:
+            if not endpoints.registration_endpoint:
+                raise ValueError(
+                    "MCP OAuth server does not advertise dynamic registration"
+                )
+            registration = await self._perform_mcp_dynamic_registration(
+                registration_endpoint=endpoints.registration_endpoint,
+                client_name=params.name,
+                token_auth_method=self._select_mcp_registration_auth_method(
+                    endpoints.token_methods
+                ),
+            )
         oauth_integration = await self._create_custom_mcp_oauth_provider(
             name=params.name,
             description=params.description,
@@ -923,9 +915,13 @@ class IntegrationService(BaseWorkspaceService):
             await self.session.refresh(existing_mcp_integration)
             mcp_integration = existing_mcp_integration
         else:
-            create_params = params.model_copy(
-                update={"oauth_integration_id": oauth_integration.id}
-            )
+            overrides: dict[str, object] = {
+                "oauth_integration_id": oauth_integration.id
+            }
+            # Credentials already consumed into the OAuth client; don't persist them.
+            if used_byo_credentials:
+                overrides["custom_credentials"] = None
+            create_params = params.model_copy(update=overrides)
             mcp_integration = await self.create_mcp_integration(params=create_params)
         oauth_connect = await self._start_custom_mcp_oauth_authorization(
             integration=oauth_integration,
@@ -937,6 +933,74 @@ class IntegrationService(BaseWorkspaceService):
             mcp_integration=mcp_integration,
             oauth_connect=oauth_connect,
         )
+
+    @classmethod
+    def _mcp_oauth_client_registration_from_credentials(
+        cls,
+        *,
+        params: MCPHttpIntegrationCreate,
+        catalog_spec: MCPConnectionSpec | None,
+    ) -> MCPOAuthRegistrationResult | None:
+        if (
+            catalog_spec is None
+            or catalog_spec.server_type != "http"
+            or catalog_spec.auth_type != MCPAuthType.OAUTH2
+            or not params.custom_credentials
+        ):
+            return None
+        if not any(
+            field.target == "oauth_client"
+            for field in [*catalog_spec.config_fields, *catalog_spec.credentials]
+        ):
+            return None
+
+        raw_credentials = params.custom_credentials.get_secret_value().strip()
+        if not raw_credentials:
+            return None
+        try:
+            parsed = orjson.loads(raw_credentials)
+        except orjson.JSONDecodeError as exc:
+            raise ValueError("OAuth client credentials must be valid JSON") from exc
+        if not isinstance(parsed, dict):
+            raise ValueError("OAuth client credentials must be a JSON object")
+
+        entries = [
+            (key, value.strip())
+            for key, value in parsed.items()
+            if isinstance(key, str) and isinstance(value, str) and value.strip()
+        ]
+        client_secret = next(
+            (v for k, v in entries if cls._oauth_client_key_matches(k, "clientsecret")),
+            None,
+        )
+        # Prefer an explicit client_id key; otherwise the first non-secret value.
+        client_id = next(
+            (v for k, v in entries if cls._oauth_client_key_matches(k, "clientid")),
+            None,
+        ) or next(
+            (
+                v
+                for k, v in entries
+                if not cls._oauth_client_key_matches(k, "clientsecret")
+            ),
+            None,
+        )
+        if not client_id:
+            raise ValueError("OAuth client ID is required")
+        return MCPOAuthRegistrationResult(
+            client_id=client_id,
+            client_secret=client_secret,
+            auth_method=None,
+        )
+
+    @staticmethod
+    def _oauth_client_key_matches(key: str, suffix: str) -> bool:
+        """Match an OAuth client_id / client_secret key regardless of separators.
+
+        ``suffix`` is the separator-free form, e.g. ``clientid`` or ``clientsecret``.
+        """
+        normalized = re.sub(r"[^a-z0-9]+", "", key.lower())
+        return normalized in {suffix, f"oauth{suffix}"} or normalized.endswith(suffix)
 
     async def _mcp_integration_for_oauth_integration(
         self, *, oauth_integration_id: uuid.UUID
@@ -1940,28 +2004,26 @@ class IntegrationService(BaseWorkspaceService):
         self, *, integration: OAuthIntegration
     ) -> int:
         """Delete MCP rows backed by a lifecycle-owned OAuth integration."""
-        provider_impl = await self.resolve_provider_impl(
-            provider_key=ProviderKey(
-                id=integration.provider_id,
-                grant_type=integration.grant_type,
+        filters = [
+            MCPIntegration.workspace_id == self.workspace_id,
+            MCPIntegration.oauth_integration_id == integration.id,
+            MCPIntegration.server_type == "http",
+            MCPIntegration.auth_type == MCPAuthType.OAUTH2,
+        ]
+        # Custom MCP providers own every row linked to them; provider-backed rows
+        # must additionally match the provider's server URI and generated slug.
+        if not self._is_custom_mcp_oauth_provider(integration.provider_id):
+            provider_impl = await self.resolve_provider_impl(
+                provider_key=ProviderKey(
+                    id=integration.provider_id,
+                    grant_type=integration.grant_type,
+                )
             )
-        )
-        if provider_impl is None or not issubclass(provider_impl, MCPAuthProvider):
-            return 0
-        provider_impl = cast(type[MCPAuthProvider], provider_impl)
-
-        provider_slug = provider_impl.id
-        escaped_provider_slug = self._escape_like_pattern(provider_slug)
-        candidate_mcp_integrations = (
-            select(
-                MCPIntegration.id.label("id"),
-                sa.cast(MCPIntegration.id, sa.String).label("id_str"),
-            )
-            .where(
-                MCPIntegration.workspace_id == self.workspace_id,
-                MCPIntegration.oauth_integration_id == integration.id,
-                MCPIntegration.server_type == "http",
-                MCPIntegration.auth_type == MCPAuthType.OAUTH2,
+            if provider_impl is None or not issubclass(provider_impl, MCPAuthProvider):
+                return 0
+            provider_slug = provider_impl.id
+            escaped_provider_slug = self._escape_like_pattern(provider_slug)
+            filters += [
                 MCPIntegration.server_uri == provider_impl.mcp_server_uri,
                 or_(
                     MCPIntegration.slug == provider_slug,
@@ -1970,12 +2032,18 @@ class IntegrationService(BaseWorkspaceService):
                             f"{escaped_provider_slug}-%", escape="\\"
                         ),
                         sa.func.substring(
-                            MCPIntegration.slug,
-                            len(provider_slug) + 2,
+                            MCPIntegration.slug, len(provider_slug) + 2
                         ).op("~")(r"^\d+$"),
                     ),
                 ),
+            ]
+
+        candidate_mcp_integrations = (
+            select(
+                MCPIntegration.id.label("id"),
+                sa.cast(MCPIntegration.id, sa.String).label("id_str"),
             )
+            .where(*filters)
             .cte("candidate_mcp_integrations")
         )
 
