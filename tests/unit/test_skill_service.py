@@ -423,6 +423,69 @@ class TestSkillService:
         assert {file.path for file in draft.files} == {"SKILL.md", "payload.bin"}
         assert old_file is None
 
+    async def test_replace_skill_draft_rejects_invalid_manifest_before_blob_upload(
+        self,
+        skill_service: SkillService,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Invalid replacements should fail before writing blob objects."""
+
+        async def _has_entitlement(_entitlement):
+            return True
+
+        monkeypatch.setattr(skill_service, "has_entitlement", _has_entitlement)
+
+        created = await skill_service.upload_skill(
+            SkillUpload(
+                name="invalid-replace-skill",
+                files=[
+                    SkillUploadFile(
+                        path="SKILL.md",
+                        content_base64=base64.b64encode(
+                            b"---\nname: invalid-replace-skill\n---\n\n# Original\n"
+                        ).decode(),
+                        content_type="text/markdown; charset=utf-8",
+                    )
+                ],
+            )
+        )
+        upload_called = False
+
+        async def fake_upload_file(
+            *,
+            content: bytes,
+            key: str,
+            bucket: str,
+            content_type: str,
+        ) -> None:
+            del content, key, bucket, content_type
+            nonlocal upload_called
+            upload_called = True
+
+        monkeypatch.setattr(
+            "tracecat.agent.skill.service.blob.upload_file",
+            fake_upload_file,
+        )
+
+        with pytest.raises(TracecatValidationError, match="failed validation"):
+            await skill_service.replace_skill_draft(
+                skill_id=created.id,
+                params=SkillUpload(
+                    name="invalid-replace-skill",
+                    files=[
+                        SkillUploadFile(
+                            path="notes.txt",
+                            content_base64=base64.b64encode(
+                                b"not a valid skill manifest"
+                            ).decode(),
+                            content_type="text/plain; charset=utf-8",
+                        )
+                    ],
+                ),
+            )
+
+        assert upload_called is False
+
     async def test_upload_skill_reuses_blob_across_distinct_file_content_types(
         self,
         skill_service: SkillService,

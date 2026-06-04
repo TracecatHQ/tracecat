@@ -103,6 +103,14 @@ class PreparedSkillUploadFile:
 
 
 @dataclass(frozen=True, slots=True)
+class PreparedSkillUploadDraft:
+    """Validated one-shot upload files materialized as skill blob references."""
+
+    validation: ManifestValidationResult
+    path_to_blob: dict[str, SkillFileBlobRef]
+
+
+@dataclass(frozen=True, slots=True)
 class PreparedDraftTextFileOp:
     """Validated draft text-file upsert ready for blob materialization."""
 
@@ -897,6 +905,45 @@ class SkillService(BaseWorkspaceService):
             )
         return prepared_files
 
+    async def _prepare_validated_upload_draft(
+        self, params: SkillUpload
+    ) -> PreparedSkillUploadDraft:
+        """Validate and materialize a one-shot upload into draft blob refs."""
+
+        prepared_files = self._prepare_upload_files(params.files)
+        validation = self._validate_prepared_upload_files(prepared_files)
+        if validation.errors:
+            raise TracecatValidationError(
+                "Uploaded skill draft failed validation",
+                detail={
+                    "code": "skill_upload_validation_failed",
+                    "errors": [
+                        error.model_dump(mode="json") for error in validation.errors
+                    ],
+                },
+            )
+        if validation.name != params.name:
+            raise TracecatValidationError(
+                "Uploaded skill name must match the root SKILL.md frontmatter name",
+                detail={
+                    "code": "skill_name_mismatch",
+                    "expected_name": params.name,
+                    "actual_name": validation.name,
+                },
+            )
+
+        path_to_blob = {
+            file.path: SkillFileBlobRef(
+                blob=await self._get_or_create_blob(content=file.content),
+                content_type=file.content_type,
+            )
+            for file in prepared_files
+        }
+        return PreparedSkillUploadDraft(
+            validation=validation,
+            path_to_blob=path_to_blob,
+        )
+
     async def _create_version_from_blob_refs(
         self,
         *,
@@ -1276,44 +1323,19 @@ class SkillService(BaseWorkspaceService):
             The created skill summary.
         """
 
-        prepared_files = self._prepare_upload_files(params.files)
-        validation = self._validate_prepared_upload_files(prepared_files)
-        if validation.errors:
-            raise TracecatValidationError(
-                "Uploaded skill draft failed validation",
-                detail={
-                    "code": "skill_upload_validation_failed",
-                    "errors": [
-                        error.model_dump(mode="json") for error in validation.errors
-                    ],
-                },
-            )
-        if validation.name != params.name:
-            raise TracecatValidationError(
-                "Uploaded skill name must match the root SKILL.md frontmatter name",
-                detail={
-                    "code": "skill_name_mismatch",
-                    "expected_name": params.name,
-                    "actual_name": validation.name,
-                },
-            )
-
-        path_to_blob = {
-            file.path: SkillFileBlobRef(
-                blob=await self._get_or_create_blob(content=file.content),
-                content_type=file.content_type,
-            )
-            for file in prepared_files
-        }
+        prepared_draft = await self._prepare_validated_upload_draft(params)
         skill = Skill(
             workspace_id=self.workspace_id,
             name=params.name,
             draft_revision=0,
-            description=validation.description,
+            description=prepared_draft.validation.description,
         )
         self.session.add(skill)
         await self.session.flush()
-        await self._replace_draft_with_blob_map(skill=skill, path_to_blob=path_to_blob)
+        await self._replace_draft_with_blob_map(
+            skill=skill,
+            path_to_blob=prepared_draft.path_to_blob,
+        )
         await self.session.commit()
         await self.session.refresh(skill)
         return await self._build_skill_read(skill)
@@ -1329,39 +1351,14 @@ class SkillService(BaseWorkspaceService):
         if skill is None:
             raise TracecatNotFoundError(f"Skill '{skill_id}' not found")
 
-        prepared_files = self._prepare_upload_files(params.files)
-        validation = self._validate_prepared_upload_files(prepared_files)
-        if validation.errors:
-            raise TracecatValidationError(
-                "Uploaded skill draft failed validation",
-                detail={
-                    "code": "skill_upload_validation_failed",
-                    "errors": [
-                        error.model_dump(mode="json") for error in validation.errors
-                    ],
-                },
-            )
-        if validation.name != params.name:
-            raise TracecatValidationError(
-                "Uploaded skill name must match the root SKILL.md frontmatter name",
-                detail={
-                    "code": "skill_name_mismatch",
-                    "expected_name": params.name,
-                    "actual_name": validation.name,
-                },
-            )
-
-        path_to_blob = {
-            file.path: SkillFileBlobRef(
-                blob=await self._get_or_create_blob(content=file.content),
-                content_type=file.content_type,
-            )
-            for file in prepared_files
-        }
-        await self._replace_draft_with_blob_map(skill=skill, path_to_blob=path_to_blob)
+        prepared_draft = await self._prepare_validated_upload_draft(params)
+        await self._replace_draft_with_blob_map(
+            skill=skill,
+            path_to_blob=prepared_draft.path_to_blob,
+        )
         if skill.current_version_id is None:
             skill.name = params.name
-            skill.description = validation.description
+            skill.description = prepared_draft.validation.description
             self.session.add(skill)
         await self.session.commit()
         await self.session.refresh(skill)
