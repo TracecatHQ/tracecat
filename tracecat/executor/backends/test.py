@@ -34,6 +34,7 @@ from tracecat.contexts import (
 from tracecat.executor.action_runner import get_action_runner
 from tracecat.executor.backends.base import ExecutorBackend
 from tracecat.executor.backends.registry_helpers import get_registry_artifact_uris
+from tracecat.executor.minimal_runner import materialize_annotated_field_defaults
 from tracecat.executor.schemas import (
     ActionImplementation,
     ExecutorActionErrorInfo,
@@ -210,11 +211,12 @@ class TestBackend(ExecutorBackend):
 
         try:
             args = resolved_context.evaluated_args or {}
+            call_args = materialize_annotated_field_defaults(fn, args)
             with secrets_manager.env_sandbox(secret_projection.env):
                 if asyncio.iscoroutinefunction(fn):
-                    result = await fn(**args)
+                    result = await fn(**call_args)
                 else:
-                    result = await asyncio.to_thread(fn, **args)
+                    result = await asyncio.to_thread(fn, **call_args)
 
             log.trace("Result", result=result)
             return result

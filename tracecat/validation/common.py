@@ -1,4 +1,6 @@
+import operator
 from datetime import datetime
+from functools import reduce
 from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, create_model
@@ -42,6 +44,13 @@ def json_schema_to_pydantic(
             # This preserves enum -> Literal[...] behavior when $ref points to an enum schema.
             return create_field(referenced_schema, enum_field_name)
 
+        if variants := prop_schema.get("anyOf") or prop_schema.get("oneOf"):
+            variant_types = [
+                create_field(variant_schema, enum_field_name)
+                for variant_schema in variants
+            ]
+            return reduce(operator.or_, variant_types)
+
         type_ = prop_schema.get("type")
         if "enum" in prop_schema:
             enum_values = prop_schema["enum"]
@@ -77,6 +86,8 @@ def json_schema_to_pydantic(
             return float
         elif type_ == "boolean":
             return bool
+        elif type_ == "null":
+            return type(None)
         else:
             return Any  # pyright: ignore[reportReturnType]
 
@@ -95,7 +106,7 @@ def json_schema_to_pydantic(
 
         if prop_name not in required:
             field_type = field_type | None  # pyright: ignore[reportOperatorIssue]
-            field_params["default"] = None
+            field_params["default"] = prop_schema_val.get("default", None)
 
         fields[prop_name] = (field_type, Field(**field_params))
 
