@@ -351,6 +351,78 @@ class TestSkillService:
         assert created.name == "duplicate-skill"
         assert created.id is not None
 
+    async def test_replace_skill_draft_updates_existing_skill(
+        self,
+        skill_service: SkillService,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Replacing a draft should update one skill instead of creating a duplicate."""
+
+        async def _has_entitlement(_entitlement):
+            return True
+
+        monkeypatch.setattr(skill_service, "has_entitlement", _has_entitlement)
+
+        created = await skill_service.upload_skill(
+            SkillUpload(
+                name="replace-skill",
+                files=[
+                    SkillUploadFile(
+                        path="SKILL.md",
+                        content_base64=base64.b64encode(
+                            b"---\nname: replace-skill\n---\n\n# Original\n"
+                        ).decode(),
+                        content_type="text/markdown; charset=utf-8",
+                    ),
+                    SkillUploadFile(
+                        path="old.txt",
+                        content_base64=base64.b64encode(b"old").decode(),
+                        content_type="text/plain; charset=utf-8",
+                    ),
+                ],
+            )
+        )
+
+        updated = await skill_service.replace_skill_draft(
+            skill_id=created.id,
+            params=SkillUpload(
+                name="replace-skill",
+                files=[
+                    SkillUploadFile(
+                        path="SKILL.md",
+                        content_base64=base64.b64encode(
+                            b"---\n"
+                            b"name: replace-skill\n"
+                            b"description: Updated description\n"
+                            b"---\n\n"
+                            b"# Updated\n"
+                        ).decode(),
+                        content_type="text/markdown; charset=utf-8",
+                    ),
+                    SkillUploadFile(
+                        path="payload.bin",
+                        content_base64=base64.b64encode(b"\x00\x01").decode(),
+                        content_type="application/octet-stream",
+                    ),
+                ],
+            ),
+        )
+
+        draft = await skill_service.get_draft(created.id)
+        old_file = await skill_service.get_draft_file(
+            skill_id=created.id,
+            path="old.txt",
+        )
+
+        assert updated.id == created.id
+        assert updated.description == "Updated description"
+        assert updated.draft_revision == created.draft_revision + 1
+        assert updated.draft_file_count == 2
+        assert draft is not None
+        assert draft.is_publishable is True
+        assert {file.path for file in draft.files} == {"SKILL.md", "payload.bin"}
+        assert old_file is None
+
     async def test_upload_skill_reuses_blob_across_distinct_file_content_types(
         self,
         skill_service: SkillService,

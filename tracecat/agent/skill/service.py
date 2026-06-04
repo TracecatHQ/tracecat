@@ -1318,6 +1318,55 @@ class SkillService(BaseWorkspaceService):
         await self.session.refresh(skill)
         return await self._build_skill_read(skill)
 
+    @require_scope("agent:update")
+    @requires_entitlement(Entitlement.AGENT_ADDONS)
+    async def replace_skill_draft(
+        self, *, skill_id: uuid.UUID, params: SkillUpload
+    ) -> SkillRead:
+        """Replace an existing skill's mutable draft with a full file tree."""
+
+        skill = await self._get_skill_for_update(skill_id)
+        if skill is None:
+            raise TracecatNotFoundError(f"Skill '{skill_id}' not found")
+
+        prepared_files = self._prepare_upload_files(params.files)
+        validation = self._validate_prepared_upload_files(prepared_files)
+        if validation.errors:
+            raise TracecatValidationError(
+                "Uploaded skill draft failed validation",
+                detail={
+                    "code": "skill_upload_validation_failed",
+                    "errors": [
+                        error.model_dump(mode="json") for error in validation.errors
+                    ],
+                },
+            )
+        if validation.name != params.name:
+            raise TracecatValidationError(
+                "Uploaded skill name must match the root SKILL.md frontmatter name",
+                detail={
+                    "code": "skill_name_mismatch",
+                    "expected_name": params.name,
+                    "actual_name": validation.name,
+                },
+            )
+
+        path_to_blob = {
+            file.path: SkillFileBlobRef(
+                blob=await self._get_or_create_blob(content=file.content),
+                content_type=file.content_type,
+            )
+            for file in prepared_files
+        }
+        await self._replace_draft_with_blob_map(skill=skill, path_to_blob=path_to_blob)
+        if skill.current_version_id is None:
+            skill.name = params.name
+            skill.description = validation.description
+            self.session.add(skill)
+        await self.session.commit()
+        await self.session.refresh(skill)
+        return await self._build_skill_read(skill)
+
     @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def list_skills(
         self, params: CursorPaginationParams
