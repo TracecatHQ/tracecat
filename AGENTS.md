@@ -176,6 +176,9 @@ just gen-functions
   before writing files, and search for the original strings before committing.
 - Do not assume PostgreSQL superuser access in migrations, queries, or scripts.
 - Never add methods to `tracecat/db/models.py`; keep database models minimal.
+- Never branch on exception or error-message strings to choose behavior, status
+  codes, or retry policy. Use explicit exception types, machine-readable error
+  codes in exception details, or structured error objects instead.
 - Use `pnpm` instead of `npm`, and prefer `rg` over slower text-search tools.
 - Ask clarifying questions when the task lacks enough context to make a safe
   change.

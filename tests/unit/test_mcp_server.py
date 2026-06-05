@@ -36,7 +36,10 @@ from tracecat.agent.skill.schemas import (
     SkillVersionRead,
 )
 from tracecat.agent.stream.events import StreamDelta, StreamEnd
-from tracecat.exceptions import BuiltinRegistryHasNoSelectionError
+from tracecat.exceptions import (
+    BuiltinRegistryHasNoSelectionError,
+    TracecatValidationError,
+)
 from tracecat.expressions.common import ExprType
 from tracecat.integrations.enums import MCPAuthType, OAuthGrantType
 from tracecat.tables.service import TablesService
@@ -5617,6 +5620,19 @@ async def test_list_workspaces_returns_multi_org_workspaces(monkeypatch):
 def test_agent_preset_tools_are_registered() -> None:
     assert hasattr(mcp_server, "get_agent_preset")
     assert hasattr(mcp_server, "update_agent_preset")
+    assert hasattr(mcp_server, "list_agent_tree")
+    assert hasattr(mcp_server, "create_agent_folder")
+    assert hasattr(mcp_server, "rename_agent_folder")
+    assert hasattr(mcp_server, "move_agent_folder")
+    assert hasattr(mcp_server, "delete_agent_folder")
+    assert hasattr(mcp_server, "move_agent_presets")
+
+
+def test_workflow_folder_tools_are_registered() -> None:
+    assert hasattr(mcp_server, "create_workflow_folder")
+    assert hasattr(mcp_server, "rename_workflow_folder")
+    assert hasattr(mcp_server, "move_workflow_folder")
+    assert hasattr(mcp_server, "delete_workflow_folder")
 
 
 def test_sync_custom_registry_tool_is_registered() -> None:
@@ -5915,6 +5931,467 @@ async def test_list_workflow_tree_paginates_items(
     assert first_page["has_more"] is True
     assert first_page["next_cursor"] is not None
     assert first_page["root_path"] == "/"
+
+
+@pytest.mark.anyio
+async def test_list_agent_tree_paginates_and_traverses(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace_id = uuid.uuid4()
+    role = SimpleNamespace(workspace_id=workspace_id)
+
+    async def _resolve(_workspace_id: str) -> tuple[uuid.UUID, SimpleNamespace]:
+        return workspace_id, role
+
+    calls: list[str] = []
+
+    class _Item:
+        def __init__(self, payload: dict[str, Any]) -> None:
+            self._payload = payload
+
+        def model_dump(self, *, mode: str = "json") -> dict[str, Any]:
+            assert mode == "json"
+            return self._payload
+
+    class _FolderService:
+        async def get_directory_items(
+            self, path: str, order_by: str = "desc"
+        ) -> list[_Item]:
+            assert order_by == "desc"
+            calls.append(path)
+            if path == "/":
+                return [
+                    _Item({"type": "folder", "path": "/soc/", "name": "soc"}),
+                    _Item(
+                        {
+                            "type": "preset",
+                            "slug": "root-agent",
+                            "name": "Root agent",
+                            "model_provider": "openai",
+                            "model_name": "gpt-4o-mini",
+                            "tags": [],
+                        }
+                    ),
+                ]
+            if path == "/soc/":
+                return [
+                    _Item(
+                        {
+                            "type": "preset",
+                            "slug": "soc-agent",
+                            "name": "SOC agent",
+                            "model_provider": "openai",
+                            "model_name": "gpt-4o",
+                            "tags": [{"name": "triage"}],
+                        }
+                    )
+                ]
+            return []
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server.AgentFolderService,
+        "with_session",
+        lambda role: _AsyncContext(_FolderService()),
+    )
+
+    first_page = _payload(
+        await _tool(mcp_server.list_agent_tree)(
+            workspace_id=str(workspace_id),
+            depth=2,
+            limit=1,
+        )
+    )
+    assert len(first_page["items"]) == 1
+    assert first_page["has_more"] is True
+    assert first_page["next_cursor"] is not None
+    assert first_page["items"][0]["type"] == "folder"
+    assert calls == ["/"]
+
+    full_page = _payload(
+        await _tool(mcp_server.list_agent_tree)(
+            workspace_id=str(workspace_id),
+            depth=2,
+            limit=10,
+        )
+    )
+    assert [item["type"] for item in full_page["items"]] == [
+        "folder",
+        "preset",
+        "preset",
+    ]
+    assert full_page["items"][2]["preset_slug"] == "soc-agent"
+    assert full_page["items"][2]["folder_path"] == "/soc/"
+    assert calls == ["/", "/", "/soc/"]
+
+
+@pytest.mark.anyio
+async def test_create_agent_folder_creates_missing_parents(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace_id = uuid.uuid4()
+    role = SimpleNamespace(workspace_id=workspace_id)
+    created_paths: list[str] = []
+
+    async def _resolve(_workspace_id: str) -> tuple[uuid.UUID, SimpleNamespace]:
+        return workspace_id, role
+
+    class _FolderService:
+        def __init__(self) -> None:
+            self.folders: dict[str, SimpleNamespace] = {}
+
+        async def get_folder_by_path(self, path: str) -> SimpleNamespace | None:
+            return self.folders.get(path)
+
+        async def create_folder(
+            self, name: str, parent_path: str = "/", commit: bool = True
+        ) -> SimpleNamespace:
+            _ = commit
+            path = f"{parent_path}{name}/" if parent_path != "/" else f"/{name}/"
+            folder = SimpleNamespace(id=uuid.uuid4(), name=name, path=path)
+            self.folders[path] = folder
+            created_paths.append(path)
+            return folder
+
+    folder_service = _FolderService()
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server.AgentFolderService,
+        "with_session",
+        lambda role: _AsyncContext(folder_service),
+    )
+
+    result = _payload(
+        await _tool(mcp_server.create_agent_folder)(
+            workspace_id=str(workspace_id),
+            path="/soc/triage/",
+            parents=True,
+        )
+    )
+
+    assert result["path"] == "/soc/triage/"
+    assert result["created_paths"] == ["/soc/", "/soc/triage/"]
+    assert result["already_existed"] is False
+    assert created_paths == ["/soc/", "/soc/triage/"]
+
+
+@pytest.mark.anyio
+async def test_create_agent_folder_without_parents_requires_parent(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace_id = uuid.uuid4()
+    role = SimpleNamespace(workspace_id=workspace_id)
+
+    async def _resolve(_workspace_id: str) -> tuple[uuid.UUID, SimpleNamespace]:
+        return workspace_id, role
+
+    class _FolderService:
+        async def get_folder_by_path(self, _path: str) -> None:
+            return None
+
+        async def create_folder(
+            self, name: str, parent_path: str = "/", commit: bool = True
+        ) -> None:
+            _ = name, parent_path, commit
+            raise TracecatValidationError("Parent path /soc/ not found")
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server.AgentFolderService,
+        "with_session",
+        lambda role: _AsyncContext(_FolderService()),
+    )
+
+    with pytest.raises(ToolError, match="Parent path /soc/ not found"):
+        await _tool(mcp_server.create_agent_folder)(
+            workspace_id=str(workspace_id),
+            path="/soc/triage/",
+            parents=False,
+        )
+
+
+@pytest.mark.anyio
+async def test_move_agent_presets_dry_run_reports_invalid_and_missing_slugs(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace_id = uuid.uuid4()
+    role = SimpleNamespace(workspace_id=workspace_id)
+    destination_folder = SimpleNamespace(id=uuid.uuid4(), path="/soc/")
+    preset_id = uuid.uuid4()
+
+    async def _resolve(_workspace_id: str) -> tuple[uuid.UUID, SimpleNamespace]:
+        return workspace_id, role
+
+    class _FolderService:
+        session = SimpleNamespace(rollback=AsyncMock())
+
+        async def get_folder_by_path(self, path: str) -> SimpleNamespace | None:
+            return destination_folder if path == "/soc/" else None
+
+    class _PresetService:
+        async def get_preset_by_slug(self, slug: str) -> SimpleNamespace | None:
+            if slug == "triage":
+                return SimpleNamespace(id=preset_id, slug=slug, name="Triage")
+            return None
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server.AgentFolderService,
+        "with_session",
+        lambda role: _AsyncContext(_FolderService()),
+    )
+    monkeypatch.setattr(
+        mcp_server.AgentPresetService,
+        "with_session",
+        lambda role: _AsyncContext(_PresetService()),
+    )
+
+    result = _payload(
+        await _tool(mcp_server.move_agent_presets)(
+            workspace_id=str(workspace_id),
+            preset_slugs=["triage", "", "missing"],
+            destination_path="/soc/",
+            dry_run=True,
+        )
+    )
+
+    assert result["destination_path"] == "/soc/"
+    assert result["requested_count"] == 3
+    assert result["movable_count"] == 1
+    assert result["movable_presets"] == [{"preset_slug": "triage", "name": "Triage"}]
+    assert [error["preset_slug"] for error in result["errors"]] == ["", "missing"]
+
+
+@pytest.mark.anyio
+async def test_move_agent_presets_to_root_moves_with_none_folder(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace_id = uuid.uuid4()
+    role = SimpleNamespace(workspace_id=workspace_id)
+    preset_id = uuid.uuid4()
+    moved: dict[str, Any] = {}
+
+    async def _resolve(_workspace_id: str) -> tuple[uuid.UUID, SimpleNamespace]:
+        return workspace_id, role
+
+    class _FolderService:
+        session = SimpleNamespace(rollback=AsyncMock())
+
+        async def move_preset(
+            self, requested_preset_id: uuid.UUID, folder: Any | None = None
+        ) -> None:
+            moved["preset_id"] = requested_preset_id
+            moved["folder"] = folder
+
+    class _PresetService:
+        async def get_preset_by_slug(self, slug: str) -> SimpleNamespace | None:
+            return SimpleNamespace(id=preset_id, slug=slug, name="Triage")
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server.AgentFolderService,
+        "with_session",
+        lambda role: _AsyncContext(_FolderService()),
+    )
+    monkeypatch.setattr(
+        mcp_server.AgentPresetService,
+        "with_session",
+        lambda role: _AsyncContext(_PresetService()),
+    )
+
+    result = _payload(
+        await _tool(mcp_server.move_agent_presets)(
+            workspace_id=str(workspace_id),
+            preset_slugs=["triage"],
+            destination_path="/",
+        )
+    )
+
+    assert moved == {"preset_id": preset_id, "folder": None}
+    assert result["moved_count"] == 1
+    assert result["moved_presets"][0]["preset_slug"] == "triage"
+
+
+@pytest.mark.anyio
+async def test_move_agent_presets_rejects_missing_destination(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace_id = uuid.uuid4()
+    role = SimpleNamespace(workspace_id=workspace_id)
+
+    async def _resolve(_workspace_id: str) -> tuple[uuid.UUID, SimpleNamespace]:
+        return workspace_id, role
+
+    class _FolderService:
+        async def get_folder_by_path(self, _path: str) -> None:
+            return None
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server.AgentFolderService,
+        "with_session",
+        lambda role: _AsyncContext(_FolderService()),
+    )
+
+    with pytest.raises(ToolError, match="Folder /missing/ not found"):
+        await _tool(mcp_server.move_agent_presets)(
+            workspace_id=str(workspace_id),
+            preset_slugs=["triage"],
+            destination_path="/missing/",
+        )
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("tool_name", "service_name", "expected_path"),
+    [
+        ("rename_agent_folder", "AgentFolderService", "/renamed/"),
+        ("rename_workflow_folder", "WorkflowFolderService", "/renamed/"),
+    ],
+)
+async def test_mcp_rename_folder_tools_delegate_by_path(
+    monkeypatch: pytest.MonkeyPatch,
+    tool_name: str,
+    service_name: str,
+    expected_path: str,
+) -> None:
+    workspace_id = uuid.uuid4()
+    role = SimpleNamespace(workspace_id=workspace_id)
+    folder = SimpleNamespace(id=uuid.uuid4(), path="/old/")
+
+    async def _resolve(_workspace_id: str) -> tuple[uuid.UUID, SimpleNamespace]:
+        return workspace_id, role
+
+    class _FolderService:
+        async def get_folder_by_path(self, path: str) -> SimpleNamespace | None:
+            assert path == "/old/"
+            return folder
+
+        async def rename_folder(
+            self, folder_id: uuid.UUID, new_name: str
+        ) -> SimpleNamespace:
+            assert folder_id == folder.id
+            assert new_name == "renamed"
+            return SimpleNamespace(id=folder.id, path=expected_path)
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        getattr(mcp_server, service_name),
+        "with_session",
+        lambda role: _AsyncContext(_FolderService()),
+    )
+
+    result = _payload(
+        await _tool(getattr(mcp_server, tool_name))(
+            workspace_id=str(workspace_id),
+            path="/old/",
+            new_name="renamed",
+        )
+    )
+
+    assert result["folder_id"] == str(folder.id)
+    assert result["path"] == expected_path
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("tool_name", "service_name"),
+    [
+        ("move_agent_folder", "AgentFolderService"),
+        ("move_workflow_folder", "WorkflowFolderService"),
+    ],
+)
+async def test_mcp_move_folder_tools_delegate_by_path(
+    monkeypatch: pytest.MonkeyPatch,
+    tool_name: str,
+    service_name: str,
+) -> None:
+    workspace_id = uuid.uuid4()
+    role = SimpleNamespace(workspace_id=workspace_id)
+    folder = SimpleNamespace(id=uuid.uuid4(), path="/old/")
+    parent = SimpleNamespace(id=uuid.uuid4(), path="/parent/")
+
+    async def _resolve(_workspace_id: str) -> tuple[uuid.UUID, SimpleNamespace]:
+        return workspace_id, role
+
+    class _FolderService:
+        async def get_folder_by_path(self, path: str) -> SimpleNamespace | None:
+            return {"/old/": folder, "/parent/": parent}.get(path)
+
+        async def move_folder(
+            self, folder_id: uuid.UUID, new_parent_id: uuid.UUID | None
+        ) -> SimpleNamespace:
+            assert folder_id == folder.id
+            assert new_parent_id == parent.id
+            return SimpleNamespace(id=folder.id, path="/parent/old/")
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        getattr(mcp_server, service_name),
+        "with_session",
+        lambda role: _AsyncContext(_FolderService()),
+    )
+
+    result = _payload(
+        await _tool(getattr(mcp_server, tool_name))(
+            workspace_id=str(workspace_id),
+            path="/old/",
+            destination_parent_path="/parent/",
+        )
+    )
+
+    assert result["folder_id"] == str(folder.id)
+    assert result["path"] == "/parent/old/"
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("tool_name", "service_name"),
+    [
+        ("delete_agent_folder", "AgentFolderService"),
+        ("delete_workflow_folder", "WorkflowFolderService"),
+    ],
+)
+async def test_mcp_delete_folder_tools_delegate_by_path(
+    monkeypatch: pytest.MonkeyPatch,
+    tool_name: str,
+    service_name: str,
+) -> None:
+    workspace_id = uuid.uuid4()
+    role = SimpleNamespace(workspace_id=workspace_id)
+    folder = SimpleNamespace(id=uuid.uuid4(), path="/old/")
+    deleted: dict[str, Any] = {}
+
+    async def _resolve(_workspace_id: str) -> tuple[uuid.UUID, SimpleNamespace]:
+        return workspace_id, role
+
+    class _FolderService:
+        async def get_folder_by_path(self, path: str) -> SimpleNamespace | None:
+            assert path == "/old/"
+            return folder
+
+        async def delete_folder(self, folder_id: uuid.UUID, recursive: bool) -> None:
+            deleted["folder_id"] = folder_id
+            deleted["recursive"] = recursive
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        getattr(mcp_server, service_name),
+        "with_session",
+        lambda role: _AsyncContext(_FolderService()),
+    )
+
+    result = _payload(
+        await _tool(getattr(mcp_server, tool_name))(
+            workspace_id=str(workspace_id),
+            path="/old/",
+            recursive=True,
+        )
+    )
+
+    assert deleted == {"folder_id": folder.id, "recursive": True}
+    assert result["folder_id"] == str(folder.id)
+    assert result["recursive"] is True
 
 
 @pytest.mark.anyio

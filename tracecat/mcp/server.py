@@ -55,6 +55,7 @@ from tracecat_registry import RegistryOAuthSecret, RegistrySecret
 from tracecat import config
 from tracecat.agent.access.service import AgentModelAccessService
 from tracecat.agent.common.stream_types import StreamEventType, UnifiedStreamEvent
+from tracecat.agent.folders.service import AgentFolderService
 from tracecat.agent.preset.schemas import (
     AgentPresetCreate,
     AgentPresetRead,
@@ -864,6 +865,90 @@ class WorkflowMoveResponse(BaseModel):
     moved_workflows: list[WorkflowMoveItem] = Field(default_factory=list)
     movable_workflows: list[WorkflowMoveItem] = Field(default_factory=list)
     errors: list[WorkflowMoveError] = Field(default_factory=list)
+
+
+class FolderOperationResponse(BaseModel):
+    """Folder lifecycle operation response."""
+
+    folder_id: uuid.UUID
+    path: str
+    message: str
+
+
+class FolderDeleteResponse(BaseModel):
+    """Folder delete operation response."""
+
+    folder_id: uuid.UUID
+    path: str
+    recursive: bool
+    message: str
+
+
+class AgentFolderCreatedResponse(BaseModel):
+    """Created agent folder response."""
+
+    path: str
+    folder_id: uuid.UUID
+    created_paths: list[str]
+    already_existed: bool
+
+
+class AgentTreeFolderItem(BaseModel):
+    """Folder item in the agent tree response."""
+
+    type: Literal["folder"]
+    path: str
+    name: str
+    depth: int
+
+
+class AgentTreePresetItem(BaseModel):
+    """Agent preset item in the agent tree response."""
+
+    type: Literal["preset"]
+    preset_slug: str
+    name: str
+    folder_path: str
+    depth: int
+    model_provider: str | None = None
+    model_name: str | None = None
+    tags: list[dict[str, Any]] = Field(default_factory=list)
+
+
+AgentTreeItem = AgentTreeFolderItem | AgentTreePresetItem
+
+
+class AgentTreeResponse(MCPPaginatedResponse[AgentTreeItem]):
+    """Paginated agent tree response."""
+
+    root_path: str
+    depth: int | Literal["unlimited"]
+
+
+class AgentPresetMoveItem(BaseModel):
+    """Agent preset move candidate/result item."""
+
+    preset_slug: str
+    name: str
+
+
+class AgentPresetMoveError(BaseModel):
+    """Per-agent-preset move error."""
+
+    preset_slug: str
+    error: str
+
+
+class AgentPresetMoveResponse(BaseModel):
+    """Bulk agent preset move response."""
+
+    destination_path: str
+    requested_count: int
+    moved_count: int | None = None
+    movable_count: int | None = None
+    moved_presets: list[AgentPresetMoveItem] = Field(default_factory=list)
+    movable_presets: list[AgentPresetMoveItem] = Field(default_factory=list)
+    errors: list[AgentPresetMoveError] = Field(default_factory=list)
 
 
 class WorkflowPublishResponse(BaseModel):
@@ -4323,6 +4408,113 @@ async def create_workflow_folder(
     except Exception as e:
         logger.error("Failed to create workflow folder", error=str(e))
         raise ToolError(f"Failed to create workflow folder: {e}") from None
+
+
+@mcp.tool()
+async def rename_workflow_folder(
+    workspace_id: uuid.UUID,
+    path: str,
+    new_name: str,
+) -> FolderOperationResponse:
+    """Rename a workflow folder by absolute path."""
+
+    try:
+        _, role = await _resolve_workspace_role(workspace_id)
+        normalized_path = _normalize_folder_path_arg(path, allow_root=False)
+
+        async with WorkflowFolderService.with_session(role=role) as svc:
+            folder = await svc.get_folder_by_path(normalized_path)
+            if folder is None:
+                raise ToolError(f"Folder {normalized_path} not found")
+            renamed = await svc.rename_folder(folder.id, new_name)
+            return FolderOperationResponse(
+                folder_id=renamed.id,
+                path=renamed.path,
+                message=f"Workflow folder {normalized_path} renamed to {renamed.path}",
+            )
+    except ToolError:
+        raise
+    except (ValueError, TracecatValidationError) as e:
+        raise ToolError(str(e)) from e
+    except Exception as e:
+        logger.error("Failed to rename workflow folder", error=str(e))
+        raise ToolError(f"Failed to rename workflow folder: {e}") from None
+
+
+@mcp.tool()
+async def move_workflow_folder(
+    workspace_id: uuid.UUID,
+    path: str,
+    destination_parent_path: str = "/",
+) -> FolderOperationResponse:
+    """Move a workflow folder under a new parent path."""
+
+    try:
+        _, role = await _resolve_workspace_role(workspace_id)
+        normalized_path = _normalize_folder_path_arg(path, allow_root=False)
+        normalized_parent_path = _normalize_folder_path_arg(destination_parent_path)
+
+        async with WorkflowFolderService.with_session(role=role) as svc:
+            folder = await svc.get_folder_by_path(normalized_path)
+            if folder is None:
+                raise ToolError(f"Folder {normalized_path} not found")
+
+            new_parent_id = None
+            if normalized_parent_path != "/":
+                parent_folder = await svc.get_folder_by_path(normalized_parent_path)
+                if parent_folder is None:
+                    raise ToolError(f"Folder {normalized_parent_path} not found")
+                new_parent_id = parent_folder.id
+
+            moved = await svc.move_folder(folder.id, new_parent_id)
+            return FolderOperationResponse(
+                folder_id=moved.id,
+                path=moved.path,
+                message=(
+                    f"Workflow folder {normalized_path} moved under "
+                    f"{normalized_parent_path}"
+                ),
+            )
+    except ToolError:
+        raise
+    except (ValueError, TracecatValidationError) as e:
+        raise ToolError(str(e)) from e
+    except Exception as e:
+        logger.error("Failed to move workflow folder", error=str(e))
+        raise ToolError(f"Failed to move workflow folder: {e}") from None
+
+
+@mcp.tool()
+async def delete_workflow_folder(
+    workspace_id: uuid.UUID,
+    path: str,
+    recursive: bool = False,
+) -> FolderDeleteResponse:
+    """Delete a workflow folder by absolute path."""
+
+    try:
+        _, role = await _resolve_workspace_role(workspace_id)
+        normalized_path = _normalize_folder_path_arg(path, allow_root=False)
+
+        async with WorkflowFolderService.with_session(role=role) as svc:
+            folder = await svc.get_folder_by_path(normalized_path)
+            if folder is None:
+                raise ToolError(f"Folder {normalized_path} not found")
+            folder_id = folder.id
+            await svc.delete_folder(folder_id, recursive=recursive)
+            return FolderDeleteResponse(
+                folder_id=folder_id,
+                path=normalized_path,
+                recursive=recursive,
+                message=f"Workflow folder {normalized_path} deleted",
+            )
+    except ToolError:
+        raise
+    except (ValueError, TracecatValidationError) as e:
+        raise ToolError(str(e)) from e
+    except Exception as e:
+        logger.error("Failed to delete workflow folder", error=str(e))
+        raise ToolError(f"Failed to delete workflow folder: {e}") from None
 
 
 @mcp.tool()
@@ -8069,6 +8261,373 @@ async def update_agent_preset(
             "Failed to update agent preset", error=str(e), preset_slug=preset_slug
         )
         raise ToolError(f"Failed to update agent preset: {e}") from None
+
+
+@mcp.tool()
+async def list_agent_tree(
+    workspace_id: uuid.UUID,
+    path: str = "/",
+    depth: int = 1,
+    include_presets: bool = True,
+    limit: int = config.TRACECAT__LIMIT_DEFAULT,
+    cursor: str | None = None,
+) -> AgentTreeResponse:
+    """List agent folders and presets under a path."""
+
+    try:
+        if depth < 0:
+            raise ToolError("depth must be >= 0")
+
+        _, role = await _resolve_workspace_role(workspace_id)
+        root_path = _normalize_folder_path_arg(path)
+        limit = _normalize_limit(
+            limit,
+            default=config.TRACECAT__LIMIT_DEFAULT,
+            max_limit=config.TRACECAT__LIMIT_CURSOR_MAX,
+        )
+        filters = {
+            "path": root_path,
+            "depth": depth,
+            "include_presets": include_presets,
+        }
+        fingerprint = _pagination_fingerprint("list_agent_tree", **filters)
+        start = (
+            _decode_offset_cursor(cursor, expected_fingerprint=fingerprint)
+            if cursor is not None
+            else 0
+        )
+        end = start + limit
+
+        async with AgentFolderService.with_session(role=role) as svc:
+            queue: deque[tuple[str, int]] = deque([(root_path, 1)])
+            items: list[AgentTreeItem] = []
+            seen_items = 0
+            has_more = False
+
+            def collect_item(item: AgentTreeItem) -> None:
+                nonlocal seen_items, has_more
+                if seen_items >= end:
+                    has_more = True
+                    return
+                if seen_items >= start:
+                    items.append(item)
+                seen_items += 1
+
+            while queue and not has_more:
+                current_path, current_depth = queue.popleft()
+                for item in await svc.get_directory_items(
+                    current_path, order_by="desc"
+                ):
+                    payload = item.model_dump(mode="json")
+                    if payload["type"] == "folder":
+                        collect_item(
+                            AgentTreeFolderItem(
+                                type="folder",
+                                path=payload["path"],
+                                name=payload["name"],
+                                depth=current_depth,
+                            )
+                        )
+                        if depth == 0 or current_depth < depth:
+                            queue.append((payload["path"], current_depth + 1))
+                    elif include_presets:
+                        collect_item(
+                            AgentTreePresetItem(
+                                type="preset",
+                                preset_slug=payload["slug"],
+                                name=payload["name"],
+                                folder_path=current_path,
+                                depth=current_depth,
+                                model_provider=payload.get("model_provider"),
+                                model_name=payload.get("model_name"),
+                                tags=payload.get("tags") or [],
+                            )
+                        )
+                    if has_more:
+                        break
+
+            next_cursor = _encode_offset_cursor(end, fingerprint) if has_more else None
+            prev_start = max(0, start - limit)
+            prev_cursor = (
+                _encode_offset_cursor(prev_start, fingerprint) if start > 0 else None
+            )
+            return AgentTreeResponse(
+                items=items,
+                next_cursor=next_cursor,
+                prev_cursor=prev_cursor,
+                has_more=next_cursor is not None,
+                has_previous=start > 0,
+                root_path=root_path,
+                depth="unlimited" if depth == 0 else depth,
+            )
+    except ToolError:
+        raise
+    except ValueError as e:
+        raise ToolError(str(e)) from e
+    except Exception as e:
+        logger.error("Failed to list agent tree", error=str(e))
+        raise ToolError(f"Failed to list agent tree: {e}") from None
+
+
+@mcp.tool()
+async def create_agent_folder(
+    workspace_id: uuid.UUID,
+    path: str,
+    parents: bool = False,
+) -> AgentFolderCreatedResponse:
+    """Create an agent folder by absolute path."""
+
+    try:
+        _, role = await _resolve_workspace_role(workspace_id)
+        normalized_path = _normalize_folder_path_arg(path, allow_root=False)
+        parts = [part for part in normalized_path.strip("/").split("/") if part]
+
+        async with AgentFolderService.with_session(role=role) as svc:
+            if not parents:
+                parent_parts = parts[:-1]
+                parent_path = f"/{'/'.join(parent_parts)}/" if parent_parts else "/"
+                if existing := await svc.get_folder_by_path(normalized_path):
+                    folder = existing
+                    created_paths = []
+                else:
+                    folder = await svc.create_folder(
+                        name=parts[-1], parent_path=parent_path
+                    )
+                    created_paths = [normalized_path]
+            else:
+                current_path = "/"
+                created_paths: list[str] = []
+                folder = None
+                for part in parts:
+                    next_path = (
+                        f"{current_path}{part}/" if current_path != "/" else f"/{part}/"
+                    )
+                    if existing := await svc.get_folder_by_path(next_path):
+                        folder = existing
+                    else:
+                        folder = await svc.create_folder(
+                            name=part,
+                            parent_path=current_path,
+                        )
+                        created_paths.append(next_path)
+                    current_path = next_path
+
+                if folder is None:
+                    raise ToolError(f"Failed to create folder {normalized_path}")
+
+            return AgentFolderCreatedResponse(
+                path=normalized_path,
+                folder_id=folder.id,
+                created_paths=created_paths,
+                already_existed=not created_paths,
+            )
+    except ToolError:
+        raise
+    except (ValueError, TracecatValidationError) as e:
+        raise ToolError(str(e)) from e
+    except Exception as e:
+        logger.error("Failed to create agent folder", error=str(e))
+        raise ToolError(f"Failed to create agent folder: {e}") from None
+
+
+@mcp.tool()
+async def rename_agent_folder(
+    workspace_id: uuid.UUID,
+    path: str,
+    new_name: str,
+) -> FolderOperationResponse:
+    """Rename an agent folder by absolute path."""
+
+    try:
+        _, role = await _resolve_workspace_role(workspace_id)
+        normalized_path = _normalize_folder_path_arg(path, allow_root=False)
+
+        async with AgentFolderService.with_session(role=role) as svc:
+            folder = await svc.get_folder_by_path(normalized_path)
+            if folder is None:
+                raise ToolError(f"Folder {normalized_path} not found")
+            renamed = await svc.rename_folder(folder.id, new_name)
+            return FolderOperationResponse(
+                folder_id=renamed.id,
+                path=renamed.path,
+                message=f"Agent folder {normalized_path} renamed to {renamed.path}",
+            )
+    except ToolError:
+        raise
+    except (ValueError, TracecatValidationError) as e:
+        raise ToolError(str(e)) from e
+    except Exception as e:
+        logger.error("Failed to rename agent folder", error=str(e))
+        raise ToolError(f"Failed to rename agent folder: {e}") from None
+
+
+@mcp.tool()
+async def move_agent_folder(
+    workspace_id: uuid.UUID,
+    path: str,
+    destination_parent_path: str = "/",
+) -> FolderOperationResponse:
+    """Move an agent folder under a new parent path."""
+
+    try:
+        _, role = await _resolve_workspace_role(workspace_id)
+        normalized_path = _normalize_folder_path_arg(path, allow_root=False)
+        normalized_parent_path = _normalize_folder_path_arg(destination_parent_path)
+
+        async with AgentFolderService.with_session(role=role) as svc:
+            folder = await svc.get_folder_by_path(normalized_path)
+            if folder is None:
+                raise ToolError(f"Folder {normalized_path} not found")
+
+            new_parent_id = None
+            if normalized_parent_path != "/":
+                parent_folder = await svc.get_folder_by_path(normalized_parent_path)
+                if parent_folder is None:
+                    raise ToolError(f"Folder {normalized_parent_path} not found")
+                new_parent_id = parent_folder.id
+
+            moved = await svc.move_folder(folder.id, new_parent_id)
+            return FolderOperationResponse(
+                folder_id=moved.id,
+                path=moved.path,
+                message=(
+                    f"Agent folder {normalized_path} moved under "
+                    f"{normalized_parent_path}"
+                ),
+            )
+    except ToolError:
+        raise
+    except (ValueError, TracecatValidationError) as e:
+        raise ToolError(str(e)) from e
+    except Exception as e:
+        logger.error("Failed to move agent folder", error=str(e))
+        raise ToolError(f"Failed to move agent folder: {e}") from None
+
+
+@mcp.tool()
+async def delete_agent_folder(
+    workspace_id: uuid.UUID,
+    path: str,
+    recursive: bool = False,
+) -> FolderDeleteResponse:
+    """Delete an agent folder by absolute path."""
+
+    try:
+        _, role = await _resolve_workspace_role(workspace_id)
+        normalized_path = _normalize_folder_path_arg(path, allow_root=False)
+
+        async with AgentFolderService.with_session(role=role) as svc:
+            folder = await svc.get_folder_by_path(normalized_path)
+            if folder is None:
+                raise ToolError(f"Folder {normalized_path} not found")
+            folder_id = folder.id
+            await svc.delete_folder(folder_id, recursive=recursive)
+            return FolderDeleteResponse(
+                folder_id=folder_id,
+                path=normalized_path,
+                recursive=recursive,
+                message=f"Agent folder {normalized_path} deleted",
+            )
+    except ToolError:
+        raise
+    except (ValueError, TracecatValidationError) as e:
+        raise ToolError(str(e)) from e
+    except Exception as e:
+        logger.error("Failed to delete agent folder", error=str(e))
+        raise ToolError(f"Failed to delete agent folder: {e}") from None
+
+
+@mcp.tool()
+async def move_agent_presets(
+    workspace_id: uuid.UUID,
+    preset_slugs: list[str],
+    destination_path: str = "/",
+    dry_run: bool = False,
+) -> AgentPresetMoveResponse:
+    """Move agent presets into or out of a folder by preset slug."""
+
+    try:
+        if not preset_slugs:
+            raise ToolError("preset_slugs must not be empty")
+
+        _, role = await _resolve_workspace_role(workspace_id)
+        normalized_destination = _normalize_folder_path_arg(destination_path)
+
+        async with AgentFolderService.with_session(role=role) as folder_svc:
+            folder = None
+            if normalized_destination != "/":
+                folder = await folder_svc.get_folder_by_path(normalized_destination)
+                if folder is None:
+                    raise ToolError(f"Folder {normalized_destination} not found")
+
+            validated: list[tuple[uuid.UUID, AgentPresetMoveItem]] = []
+            errors: list[AgentPresetMoveError] = []
+            async with AgentPresetService.with_session(role=role) as preset_svc:
+                for preset_slug in preset_slugs:
+                    if not preset_slug.strip():
+                        errors.append(
+                            AgentPresetMoveError(
+                                preset_slug=preset_slug,
+                                error="Preset slug cannot be empty",
+                            )
+                        )
+                        continue
+                    preset = await preset_svc.get_preset_by_slug(preset_slug)
+                    if preset is None:
+                        errors.append(
+                            AgentPresetMoveError(
+                                preset_slug=preset_slug,
+                                error=f"Agent preset '{preset_slug}' not found",
+                            )
+                        )
+                        continue
+                    validated.append(
+                        (
+                            preset.id,
+                            AgentPresetMoveItem(
+                                preset_slug=preset.slug,
+                                name=preset.name,
+                            ),
+                        )
+                    )
+
+            if dry_run:
+                return AgentPresetMoveResponse(
+                    destination_path=normalized_destination,
+                    requested_count=len(preset_slugs),
+                    movable_count=len(validated),
+                    movable_presets=[item for _, item in validated],
+                    errors=errors,
+                )
+
+            moved: list[AgentPresetMoveItem] = []
+            for preset_id, preset_info in validated:
+                try:
+                    await folder_svc.move_preset(preset_id, folder)
+                    moved.append(preset_info)
+                except Exception as e:
+                    await folder_svc.session.rollback()
+                    errors.append(
+                        AgentPresetMoveError(
+                            preset_slug=preset_info.preset_slug,
+                            error=str(e),
+                        )
+                    )
+
+            return AgentPresetMoveResponse(
+                destination_path=normalized_destination,
+                requested_count=len(preset_slugs),
+                moved_count=len(moved),
+                moved_presets=moved,
+                errors=errors,
+            )
+    except ToolError:
+        raise
+    except ValueError as e:
+        raise ToolError(str(e)) from e
+    except Exception as e:
+        logger.error("Failed to move agent presets", error=str(e))
+        raise ToolError(f"Failed to move agent presets: {e}") from None
 
 
 @mcp.tool()

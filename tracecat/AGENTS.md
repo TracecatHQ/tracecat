@@ -39,6 +39,10 @@ Keep type layers separate to avoid circular imports and make reviews easier.
   role fallback, and `with_session()` lifecycle handling.
 - Request-scoped state lives in `tracecat/contexts.py`; use existing context
   variables instead of threading ad hoc state through unrelated layers.
+- Never inspect exception or error-message strings to decide API behavior,
+  status codes, retries, or control flow. Use explicit exception types,
+  `StrEnum`/`Literal` error codes in exception details, or typed structured
+  errors instead.
 - Keep router, service, schema, and type responsibilities separate:
   router for transport, service for business logic, schema for API contracts,
   and `types.py` for domain typing.
