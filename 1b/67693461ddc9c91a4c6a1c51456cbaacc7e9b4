@@ -1,0 +1,23 @@
+docs/tools/wiz.mdx
+  ai_agent 40,46,48
+docs/tools/slack_sdk.mdx
+  ai_agent 11,25
+docs/tools/sentry.mdx
+  ai_agent 40,46,48
+docs/tools/github.mdx
+  ai_agent 40,46,48
+docs/tools/linear.mdx
+  ai_agent 40,46,48
+docs/tools/runreveal.mdx
+  ai_agent 40,46,48
+docs/tools/notion.mdx
+  ai_agent 40,46,48
+docs/tools/jira.mdx
+  ai_agent 410,416,418
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.3",
+  "base_commit_sha": "1b67693461ddc9c91a4c6a1c51456cbaacc7e9b4",
+  "prompts": {}
+}
