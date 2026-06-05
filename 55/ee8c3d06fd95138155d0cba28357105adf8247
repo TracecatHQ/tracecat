@@ -1,0 +1,25 @@
+packages/tracecat-ee/tracecat_ee/watchtower/types.py
+  b0e503b617b9e9c5 16
+packages/tracecat-ee/tracecat_ee/watchtower/service.py
+  b0e503b617b9e9c5 482-483
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.8",
+  "base_commit_sha": "55ee8c3d06fd95138155d0cba28357105adf8247",
+  "prompts": {
+    "b0e503b617b9e9c5": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6f9bd23d-ae98-4996-be0f-98cd1a10cdc2",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 3,
+      "total_deletions": 0,
+      "accepted_lines": 3,
+      "overriden_lines": 0
+    }
+  }
+}

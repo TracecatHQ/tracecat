@@ -1,0 +1,23 @@
+pyproject.toml
+  159e76a17a7f8aa4 31
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.20",
+  "base_commit_sha": "527e8a1cd056045483412b2d37d5abf113c593df",
+  "prompts": {
+    "159e76a17a7f8aa4": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "74cb33fb-82be-4387-8e72-b86f4cff3c7f",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 1,
+      "total_deletions": 1,
+      "accepted_lines": 1,
+      "overriden_lines": 0
+    }
+  }
+}

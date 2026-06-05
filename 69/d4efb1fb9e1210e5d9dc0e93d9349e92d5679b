@@ -1,0 +1,29 @@
+tracecat/workflow/tags/router.py
+  6d67e2a2243eb246 42-46
+tests/unit/api/test_api_workflow_tags.py
+  6d67e2a2243eb246 1-64
+tracecat/workflow/tags/service.py
+  6d67e2a2243eb246 4,75,77-79
+tests/unit/test_tags_service.py
+  6d67e2a2243eb246 46-53,375-387
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.5",
+  "base_commit_sha": "69d4efb1fb9e1210e5d9dc0e93d9349e92d5679b",
+  "prompts": {
+    "6d67e2a2243eb246": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019c9fcb-6b3c-7a41-a300-55c38026b3e7",
+        "model": "gpt-5.3-codex"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 97,
+      "total_deletions": 10,
+      "accepted_lines": 96,
+      "overriden_lines": 0
+    }
+  }
+}

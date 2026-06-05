@@ -1,0 +1,29 @@
+frontend/src/lib/auth-return-url.test.ts
+  5cba64c1dcdb1865 1-48
+frontend/src/lib/auth-return-url.ts
+  5cba64c1dcdb1865 5-9,16-24,42
+frontend/src/components/auth/sign-in.tsx
+  5cba64c1dcdb1865 35,62-64
+frontend/src/app/sign-in/[[...sign-in]]/page.tsx
+  5cba64c1dcdb1865 8,14,19
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.8",
+  "base_commit_sha": "18de16f749f919042e5365410a153f5504313c5f",
+  "prompts": {
+    "5cba64c1dcdb1865": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019cc55d-07b7-7871-aa3a-9ac7e7f2001d",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 73,
+      "total_deletions": 15,
+      "accepted_lines": 73,
+      "overriden_lines": 0
+    }
+  }
+}

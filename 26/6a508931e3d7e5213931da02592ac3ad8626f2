@@ -1,0 +1,9 @@
+tracecat/workflow/schedules/bridge.py
+  93a5c45e1871c4ed 86-99,101-106,201
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.2",
+  "base_commit_sha": "266a508931e3d7e5213931da02592ac3ad8626f2",
+  "prompts": {}
+}

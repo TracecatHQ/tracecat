@@ -1,0 +1,12 @@
+frontend/src/client/schemas.gen.ts
+  e78dd32d3b4abd56 17818,17822,17824-17831,17833-17845,17847-17850,17852-17857,17861,17863-17870,17872-17884,17886-17889,17891-17895
+  afa7c9e73fe4b7c6 17832,17846,17851,17885,17890
+frontend/src/client/types.gen.ts
+  e78dd32d3b4abd56 5501-5506,9064,12923
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.8",
+  "base_commit_sha": "f92864e4d92aebd4cf7a009c295ad385b9809e98",
+  "prompts": {}
+}

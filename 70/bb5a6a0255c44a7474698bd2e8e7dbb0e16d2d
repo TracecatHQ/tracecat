@@ -1,0 +1,117 @@
+tests/temporal/test_workflow_concurrency_limits.py
+  e9db6cc7f58a5410 886-890,892-895,901-902,911-914,916-917,925-926,928-937,943-946,960-961,963-965,967-968,970-972,975-978,981-985
+  cdb56513ef71071b 31,34-37,411-416,615-723
+  50bcbc5454b2ae6d 13,19,22,201,208,224,231,241,328,337,737,746,823,832,881,891
+  dde86d8a55d9cc15 17,143-156,158-160,166,168-171,174-175,177,185-189
+tests/unit/test_tiers_semaphore.py
+  cdb56513ef71071b 3,27,34-35,45,50,55-56,66,70,74,78,83,87,90-91
+  50bcbc5454b2ae6d 17,19,28,42,63
+tracecat/tiers/semaphore.py
+  cdb56513ef71071b 16,110,205-206
+  50bcbc5454b2ae6d 32-37,66-78,80-83,101-102,111,117-121,123,204,220-222,229,232,253-314
+tracecat/dsl/workflow.py
+  18310c524f5b0ff9 787-817,851-866,1130-1133,1188-1197,1393-1403,1406-1408,1410-1425,1572-1582,1584-1591,1598-1604,2157-2257,2263-2264,2266,2268,2291-2308,2314,2319-2375,2382-2383,2387,2405-2427,2429
+  cdb56513ef71071b 751-753,764-766,848-850,867
+tracecat/tiers/activities.py
+  0a428bbf53d26ac2 153-155
+  d7f185447b1f7a4f 237
+  cdb56513ef71071b 9,20-21,31-32,40-41,48-81,99,130,158,160-225,239
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.5",
+  "base_commit_sha": "70bb5a6a0255c44a7474698bd2e8e7dbb0e16d2d",
+  "prompts": {
+    "0a428bbf53d26ac2": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "560ddd24-9938-42c4-becf-873e456a886e",
+        "model": "gpt-5.3-codex-spark-preview-high"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 11,
+      "total_deletions": 12,
+      "accepted_lines": 3,
+      "overriden_lines": 0
+    },
+    "18310c524f5b0ff9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019c908d-b743-7bb2-8e68-91d98a55fc00",
+        "model": "gpt-5.3-codex"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 325,
+      "overriden_lines": 0
+    },
+    "50bcbc5454b2ae6d": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "d2303db1-9ab3-4d23-aac0-64d96133beaf",
+        "model": "gpt-5.3-codex-spark-preview-xhigh"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 121,
+      "overriden_lines": 0
+    },
+    "cdb56513ef71071b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019c90bd-d8ca-7751-beb5-3fa0d15d8f90",
+        "model": "gpt-5.3-codex"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 261,
+      "overriden_lines": 0
+    },
+    "d7f185447b1f7a4f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019c9aa1-02c3-7e01-b828-27130537e0f0",
+        "model": "gpt-5.3-codex"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 1,
+      "total_deletions": 2,
+      "accepted_lines": 1,
+      "overriden_lines": 0
+    },
+    "dde86d8a55d9cc15": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0796d8db-f096-47cd-9546-5aca9e045937",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 31,
+      "overriden_lines": 0
+    },
+    "e9db6cc7f58a5410": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "327e51aa-0ace-4800-892c-00518c9099c5",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 52,
+      "overriden_lines": 0
+    }
+  }
+}

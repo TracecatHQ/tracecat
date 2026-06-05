@@ -1,0 +1,97 @@
+tests/unit/executor/test_startup_warm_cache.py
+  b3b787d2bb0bba4f 5,151-183,187-231
+  c0f65f8998cbd36e 1-4,6-150,184-186
+docker-compose.local.yml
+  c0f65f8998cbd36e 222-227,247-252
+tests/unit/executor/test_warm_readiness.py
+  c0f65f8998cbd36e 1-42
+tracecat/executor/startup_warm_cache.py
+  c0f65f8998cbd36e 15-18,21-36,47,49-50,53-67,70-77,79-87,90-92,98-101,103-115,118-122,133-135,141-144,146-173,176-180,191-195,197-219,221-235,237-242,244-270,272-304,310-354
+  4cc669c488e9441b 1-14,19-20,37-46,48,51-52,68-69,78,88-89,93-97,102,116-117,123-132,136-140,145,174-175,181-186,196,220,236,243,271,305-309
+deployments/eks/modules/eks/helm.tf
+  c0f65f8998cbd36e 256-280
+deployments/helm/tracecat/templates/_helpers.tpl
+  c0f65f8998cbd36e 749-760
+tracecat/executor/worker.py
+  c0f65f8998cbd36e 63-67,126-127,131-151
+deployments/fargate/modules/ecs/ecs-executor.tf
+  c0f65f8998cbd36e 31-37
+deployments/fargate/modules/ecs/locals.tf
+  c0f65f8998cbd36e 116-121
+docker-compose.yml
+  c0f65f8998cbd36e 212-217,240-245
+deployments/helm/tracecat/templates/executor-deployment.yaml
+  c0f65f8998cbd36e 63-78
+tracecat/executor/warm_readiness.py
+  4cc669c488e9441b 1-10,20,25,31-34,43
+  c0f65f8998cbd36e 11-19,21-24,26-30,35-42,44
+docker-compose.dev.yml
+  c0f65f8998cbd36e 202-207,229-234
+deployments/eks/modules/eks/variables.tf
+  c0f65f8998cbd36e 349-378
+deployments/fargate/variables.tf
+  c0f65f8998cbd36e 461-520
+tracecat/executor/healthcheck.py
+  4cc669c488e9441b 1-9,19
+  c0f65f8998cbd36e 10-18,20-30
+deployments/eks/variables.tf
+  c0f65f8998cbd36e 359-388
+deployments/eks/main.tf
+  c0f65f8998cbd36e 84-88
+deployments/helm/tracecat/values.yaml
+  c0f65f8998cbd36e 297-313
+deployments/fargate/main.tf
+  c0f65f8998cbd36e 136-145
+deployments/fargate/modules/ecs/variables.tf
+  c0f65f8998cbd36e 501-560
+tracecat/config.py
+  c0f65f8998cbd36e 41-70
+tests/unit/executor/test_healthcheck.py
+  c0f65f8998cbd36e 1-22
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.7",
+  "base_commit_sha": "fe5313c16000d53b47aad0a64934147c578c1f31",
+  "prompts": {
+    "4cc669c488e9441b": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "fd4bd0e9-cda1-4bb9-98a7-9a396d6eb70b",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 185,
+      "total_deletions": 190,
+      "accepted_lines": 103,
+      "overriden_lines": 0
+    },
+    "b3b787d2bb0bba4f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019cb0d2-05ae-7cb2-b113-709c7e116a19",
+        "model": "gpt-5.3-codex"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 76,
+      "total_deletions": 0,
+      "accepted_lines": 79,
+      "overriden_lines": 0
+    },
+    "c0f65f8998cbd36e": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019caf0f-614c-7482-9855-8c6fab033ce0",
+        "model": "gpt-5.3-codex"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 1090,
+      "total_deletions": 69,
+      "accepted_lines": 910,
+      "overriden_lines": 0
+    }
+  }
+}

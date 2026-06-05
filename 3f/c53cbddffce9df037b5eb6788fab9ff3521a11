@@ -1,0 +1,25 @@
+tracecat/workflow/management/management.py
+  749576c0b04bb5c9 34,86-96,928,1026-1027,1032
+tests/unit/test_export.py
+  749576c0b04bb5c9 265-355
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.12",
+  "base_commit_sha": "3fc53cbddffce9df037b5eb6788fab9ff3521a11",
+  "prompts": {
+    "749576c0b04bb5c9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019cfd1e-b3f7-7160-ad89-026ad45b419f",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 109,
+      "total_deletions": 8,
+      "accepted_lines": 109,
+      "overriden_lines": 0
+    }
+  }
+}

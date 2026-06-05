@@ -1,0 +1,25 @@
+tracecat/tables/service.py
+  d96a61b3821b3ced 2243
+tests/unit/test_dynamic_workspace_service_rls.py
+  d96a61b3821b3ced 1-2,4-29,37,40-246
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.11",
+  "base_commit_sha": "b98ca099239eb7e609e8f7a6ad10f7503ad8e6a0",
+  "prompts": {
+    "d96a61b3821b3ced": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019cd58d-05eb-7e02-b542-333f7a5a4d27",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 236,
+      "total_deletions": 0,
+      "accepted_lines": 237,
+      "overriden_lines": 0
+    }
+  }
+}

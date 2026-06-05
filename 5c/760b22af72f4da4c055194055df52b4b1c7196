@@ -1,0 +1,25 @@
+tracecat/temporal/codec.py
+  7a90caad148eb060 372-379,392-418,483-484
+tests/unit/test_temporal_codec.py
+  7a90caad148eb060 28,717-757
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.2",
+  "base_commit_sha": "5c760b22af72f4da4c055194055df52b4b1c7196",
+  "prompts": {
+    "7a90caad148eb060": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019db0bd-df35-7973-b4af-4a02077751e9",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 87,
+      "total_deletions": 16,
+      "accepted_lines": 81,
+      "overriden_lines": 0
+    }
+  }
+}

@@ -1,0 +1,26 @@
+frontend/src/components/skills/use-skills-studio.ts
+  7a57ed7b18619e83 154,223,246-250,322-323,340-341,575-576,587,596-599,630-631,640
+  0654838314e74edc 220-222
+frontend/tests/skills-studio.test.ts
+  4f6102d2a606520a 5-8,10,18,44,63,67,131,170,175,183,187,191,195,198,202,211,259,266,270,274,280,282,287,292,294,298,304,312,316,320,325,329,336,340,345,350,368,372,374,378
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.8",
+  "base_commit_sha": "e26e1060ed1c14b44273a1b6c7ce58a5709d7cbf",
+  "prompts": {
+    "4f6102d2a606520a": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019d73f0-7451-7541-a0c3-b01b259809e9",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 31,
+      "total_deletions": 2,
+      "accepted_lines": 7,
+      "overriden_lines": 0
+    }
+  }
+}

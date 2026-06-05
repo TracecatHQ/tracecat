@@ -1,0 +1,38 @@
+tests/unit/test_agent_internal_tools.py
+  f7c6d73df48c6648 11,43-48,264-265,282
+tests/unit/test_mcp_server.py
+  f7c6d73df48c6648 26,79-89,3613,4004,4099,4196,4321
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.7",
+  "base_commit_sha": "20a038c1957476445e07bf7806c8f1ba650ee2c7",
+  "prompts": {
+    "40ea4f14a0ae4f84": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "3c49d8d3-a978-449a-939c-095be212f8b8",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 236,
+      "overriden_lines": 0
+    },
+    "f7c6d73df48c6648": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019d73f4-f530-7a32-8209-65d854061eba",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 28,
+      "total_deletions": 5,
+      "accepted_lines": 28,
+      "overriden_lines": 0
+    }
+  }
+}

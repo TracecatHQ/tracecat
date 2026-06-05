@@ -1,0 +1,76 @@
+frontend/src/components/sidebar/app-menu.tsx
+  c6c07d72bc3c5e37 9,229-238
+tracecat/mcp/auth.py
+  c6c07d72bc3c5e37 11,26,124-137,437,444-450,473-490,492-545,614
+tracecat/tiers/schemas.py
+  c6c07d72bc3c5e37 65-69
+tests/unit/test_tier_defaults.py
+  c6c07d72bc3c5e37 16,28,40
+frontend/src/components/sidebar/watchtower-sidebar.tsx
+  c6c07d72bc3c5e37 1-85
+tracecat/mcp/server.py
+  c6c07d72bc3c5e37 78,784
+frontend/src/client/schemas.gen.ts
+  c6c07d72bc3c5e37 7986-7992,8031-8035,20343-20366,20370-20518,20522-20568,20572-20743,20747-20794,20798-20875,20879-20908,20912-20928,20932-20948,20952-20953
+frontend/src/components/watchtower/watchtower-monitor.tsx
+  86611a788fe2fab9 17,48-94,127,149,186-193,195-196,198,204,217,219,230,232,282,363-367,370,374,381-383,388,396-397,406,415,417,419-421,423,428,431,434-442,444-448,450-452,454-459,462-484,489-503,505-531,533-535,544,547,553-556,578,582-583,585-624
+tracecat/api/app.py
+  c6c07d72bc3c5e37 16,424
+tracecat/tiers/defaults.py
+  c6c07d72bc3c5e37 57,88
+tracecat/mcp/middleware.py
+  c6c07d72bc3c5e37 6-9,13,18,107-327
+tests/unit/test_mcp_server.py
+  c6c07d72bc3c5e37 1023-1067
+tracecat/tiers/service.py
+  c6c07d72bc3c5e37 176
+tracecat/db/models.py
+  c6c07d72bc3c5e37 2490-2849
+frontend/src/client/services.gen.ts
+  c6c07d72bc3c5e37 599-610,4274-4293,4300-4325,4332-4355,4362-4381,4387-4406,4412-4431,4437
+alembic/versions/929ee467543f_add_watchtower_agent_monitor_tables.py
+  c6c07d72bc3c5e37 1-400
+frontend/src/hooks/use-watchtower.ts
+  c6c07d72bc3c5e37 1-156
+tests/unit/test_watchtower_service.py
+  c6c07d72bc3c5e37 1-84
+frontend/src/client/types.gen.ts
+  c6c07d72bc3c5e37 2429-2432,2461-2464,6360-6475,8434-8483,12079-12081,12086,12094-12096,12101,12109-12111,12116,12124-12126,12131,12139-12141,12146,12154-12156
+tracecat/tiers/types.py
+  c6c07d72bc3c5e37 42-48
+tracecat/tiers/enums.py
+  c6c07d72bc3c5e37 14
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.8",
+  "base_commit_sha": "586d878c5356e5ba7109fee0428ce8839df84c74",
+  "prompts": {
+    "86611a788fe2fab9": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "2d05d6bb-5043-49e9-8ae7-312dfcb080f7",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 294,
+      "total_deletions": 238,
+      "accepted_lines": 229,
+      "overriden_lines": 0
+    },
+    "c6c07d72bc3c5e37": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019cb4e9-46dc-7b22-9bff-4f81c0a3ba62",
+        "model": "gpt-5.3-codex"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 2580,
+      "total_deletions": 137,
+      "accepted_lines": 2437,
+      "overriden_lines": 0
+    }
+  }
+}

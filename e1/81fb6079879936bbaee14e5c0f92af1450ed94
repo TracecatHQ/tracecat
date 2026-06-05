@@ -1,0 +1,27 @@
+tracecat/workflow/tags/service.py
+  8a5bccb13eaddba0 83
+tests/unit/api/test_api_workflow_tags.py
+  8a5bccb13eaddba0 16,20,34
+tests/unit/test_tags_service.py
+  8a5bccb13eaddba0 332,339,345,350-351
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.5",
+  "base_commit_sha": "e181fb6079879936bbaee14e5c0f92af1450ed94",
+  "prompts": {
+    "8a5bccb13eaddba0": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019d4ef4-d756-73f1-a71a-6d99e40923de",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 9,
+      "total_deletions": 32,
+      "accepted_lines": 9,
+      "overriden_lines": 0
+    }
+  }
+}

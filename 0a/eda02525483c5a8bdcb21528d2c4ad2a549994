@@ -1,0 +1,25 @@
+frontend/src/components/executions/event-details.tsx
+  18310c524f5b0ff9 73-74
+frontend/src/components/builder/events/events-selected-action.tsx
+  18310c524f5b0ff9 779
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.4",
+  "base_commit_sha": "0aeda02525483c5a8bdcb21528d2c4ad2a549994",
+  "prompts": {
+    "18310c524f5b0ff9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019c908d-b743-7bb2-8e68-91d98a55fc00",
+        "model": "gpt-5.3-codex"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 3,
+      "overriden_lines": 0
+    }
+  }
+}

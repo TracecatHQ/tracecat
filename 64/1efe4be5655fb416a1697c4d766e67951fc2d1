@@ -1,0 +1,23 @@
+.github/workflows/run-integration-tests.yml
+  17e7577ddc5974d3 181,183
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.2",
+  "base_commit_sha": "641efe4be5655fb416a1697c4d766e67951fc2d1",
+  "prompts": {
+    "17e7577ddc5974d3": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019db19c-e96a-7520-a64d-0191d4a19ec5",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 4,
+      "total_deletions": 6,
+      "accepted_lines": 4,
+      "overriden_lines": 0
+    }
+  }
+}

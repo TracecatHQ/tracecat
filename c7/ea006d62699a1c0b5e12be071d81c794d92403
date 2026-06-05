@@ -1,0 +1,77 @@
+.github/workflows/lint-python.yml
+  9aa1913c49883517 35,41
+AGENTS.md
+  571ab6427747edb7 303,404
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.22",
+  "base_commit_sha": "c7ea006d62699a1c0b5e12be071d81c794d92403",
+  "prompts": {
+    "3239bb116ba91c5b": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "1c0c31fc-6da3-4c85-8f06-4e957e1ea72f",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 7,
+      "total_deletions": 1,
+      "accepted_lines": 0,
+      "overriden_lines": 0
+    },
+    "571ab6427747edb7": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "75f6751f-70f3-45fb-a42d-0061dd577cbd",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 2,
+      "total_deletions": 0,
+      "accepted_lines": 2,
+      "overriden_lines": 0
+    },
+    "843a616258084d27": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ac4fbae9-8ddf-492c-b33e-6bcde0371d99",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 8,
+      "total_deletions": 0,
+      "accepted_lines": 0,
+      "overriden_lines": 0
+    },
+    "9aa1913c49883517": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ae1e41dd-63ee-4bdb-a333-da001cd4ea61",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 2,
+      "total_deletions": 2,
+      "accepted_lines": 2,
+      "overriden_lines": 0
+    },
+    "ce3765b67ffa543a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6842ea2b-6208-4797-8e9b-b550be167fc4",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 3,
+      "total_deletions": 1,
+      "accepted_lines": 0,
+      "overriden_lines": 0
+    }
+  }
+}

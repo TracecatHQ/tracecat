@@ -1,0 +1,23 @@
+frontend/src/components/registry/registry-actions-table.tsx
+  d80e1621a0892d2d 4-5,83,88,97-115,118-120,122,124,128-132,134,136,141,144-145,147-148,150,158,160,177-178,180-186,188,196,204,225-226,229,231,233-234
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.9",
+  "base_commit_sha": "6873535d99c51c4c5bfe13f0d833fa48220baf8e",
+  "prompts": {
+    "d80e1621a0892d2d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019cd36a-d1d6-7211-976d-e6405873a592",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 146,
+      "total_deletions": 295,
+      "accepted_lines": 62,
+      "overriden_lines": 0
+    }
+  }
+}

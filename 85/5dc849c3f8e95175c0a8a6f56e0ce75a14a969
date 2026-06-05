@@ -1,0 +1,55 @@
+packages/tracecat-ee/tracecat_ee/agent/approvals/service.py
+  f7372348e0f84315 26,723,726-730
+tests/unit/test_watchtower_service.py
+  f7372348e0f84315 133-147
+tracecat/agent/adapter/vercel.py
+  b3cff55e0562535b 675-678,946-947,970,1221-1224
+  f7372348e0f84315 63,916,1343,1369
+tracecat/agent/mcp/proxy_server.py
+  f7372348e0f84315 24-28
+tracecat/agent/session/service.py
+  f7372348e0f84315 28,1527-1529,1531,1536
+tests/unit/test_approvals_manager.py
+  f7372348e0f84315 409-442
+tests/unit/test_agent_mcp_metadata.py
+  f7372348e0f84315 1-71
+packages/tracecat-ee/tracecat_ee/watchtower/service.py
+  f7372348e0f84315 16,1150-1151,1156,1159,1164
+tracecat/chat/schemas.py
+  f7372348e0f84315 15,220,222,224
+tracecat/agent/mcp/metadata.py
+  f7372348e0f84315 1-93
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.3",
+  "base_commit_sha": "855dc849c3f8e95175c0a8a6f56e0ce75a14a969",
+  "prompts": {
+    "b3cff55e0562535b": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "1fd1df75-bed3-442a-9d3f-32d71d189f4a",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 14,
+      "total_deletions": 12,
+      "accepted_lines": 11,
+      "overriden_lines": 0
+    },
+    "f7372348e0f84315": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019d4a80-2239-7b92-b5f6-f845d6c72ad1",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 255,
+      "total_deletions": 48,
+      "accepted_lines": 245,
+      "overriden_lines": 0
+    }
+  }
+}

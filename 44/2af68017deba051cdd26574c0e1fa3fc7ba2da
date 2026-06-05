@@ -1,0 +1,25 @@
+tests/unit/api/test_api_agent_presets.py
+  1c2c9f1b21034b99 1-49
+tracecat/agent/preset/router.py
+  1c2c9f1b21034b99 255-261
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.2",
+  "base_commit_sha": "442af68017deba051cdd26574c0e1fa3fc7ba2da",
+  "prompts": {
+    "1c2c9f1b21034b99": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019db5f9-d24e-7d40-a088-24d145f0d04f",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 56,
+      "total_deletions": 1,
+      "accepted_lines": 56,
+      "overriden_lines": 0
+    }
+  }
+}

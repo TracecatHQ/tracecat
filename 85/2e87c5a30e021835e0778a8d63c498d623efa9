@@ -1,0 +1,25 @@
+.github/docker-compose.integration.yml
+  542cfd8a011642e9 1-16
+.github/workflows/run-integration-tests.yml
+  542cfd8a011642e9 13,27,105-107,129,131,138-154,164,184,191-194,208,212-213,216,219,222,225,228,231,234,237,241-242,244
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.2",
+  "base_commit_sha": "852e87c5a30e021835e0778a8d63c498d623efa9",
+  "prompts": {
+    "542cfd8a011642e9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019db1fd-89e9-7df1-bdaa-fbff335e4bd5",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 60,
+      "total_deletions": 16,
+      "accepted_lines": 60,
+      "overriden_lines": 0
+    }
+  }
+}

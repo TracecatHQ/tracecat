@@ -1,0 +1,25 @@
+packages/tracecat-ee/tracecat_ee/agent/workflows/durable.py
+  4950d0835456999a 29,96
+tests/unit/test_durable_agent_workflow_search_attributes.py
+  4950d0835456999a 273-303
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.5",
+  "base_commit_sha": "aafa040fdecf5e1dc26e030e89aa30d691d55e3c",
+  "prompts": {
+    "4950d0835456999a": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019d514c-847d-79f1-a3d5-0222e7ff8589",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 33,
+      "total_deletions": 1,
+      "accepted_lines": 33,
+      "overriden_lines": 0
+    }
+  }
+}

@@ -1,0 +1,25 @@
+frontend/src/components/agents/agent-presets-builder.tsx
+  f9759fd526f79bba 118,131,1071-1072,1106-1107,1143
+  e2366595845a235a 1145-1146,1182,1227,1533,1535,1963,1975,1982-1984,1994-1997,2003,2006-2007,2035,2049-2051,2076-2079,2085,2101,2105,2109-2110,2117-2118,2121-2122,2125,2128-2129,2134-2135,2146,2153,2157-2163,2165,2185,2187-2194,2196-2267,2275-2283,2393-2395,2434,2482,2554-2565,2568,2570-2679,2681,2689-2697,2725-2726
+  9e0fa2bede874c7f 1525,1595,2156,2553,2566,2569
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.2",
+  "base_commit_sha": "bf8acbd1c9a4b6bf811b5635d2e1be667aa3134a",
+  "prompts": {
+    "e2366595845a235a": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019d5548-3858-7db1-9443-c64ad289fda3",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 4,
+      "overriden_lines": 0
+    }
+  }
+}

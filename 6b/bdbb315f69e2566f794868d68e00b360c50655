@@ -1,0 +1,21 @@
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.5",
+  "base_commit_sha": "6bbdbb315f69e2566f794868d68e00b360c50655",
+  "prompts": {
+    "128ffc0ae9b9690c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019d69b3-3b82-7eb1-a8c0-9912a18b74f7",
+        "model": "gpt-5.4"
+      },
+      "human_author": null,
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 412,
+      "overriden_lines": 0
+    }
+  }
+}

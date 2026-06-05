@@ -1,0 +1,29 @@
+tracecat/dsl/worker.py
+  efb5f9c9730cbbcc 22-24,93
+tracecat/agent/worker.py
+  efb5f9c9730cbbcc 61,273
+tests/unit/test_worker_activity_registration.py
+  efb5f9c9730cbbcc 1-41
+tests/unit/test_agent_preset_activities.py
+  efb5f9c9730cbbcc 4,28-35
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.9",
+  "base_commit_sha": "d9bb399a8c4f50dc55e5ffd6f27dd69ff0874c84",
+  "prompts": {
+    "efb5f9c9730cbbcc": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019cd83e-edbd-7ec1-bff5-3296a835b62f",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 60,
+      "total_deletions": 0,
+      "accepted_lines": 58,
+      "overriden_lines": 0
+    }
+  }
+}

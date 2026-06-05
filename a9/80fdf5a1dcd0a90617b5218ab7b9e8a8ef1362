@@ -1,0 +1,51 @@
+tracecat/auth/dependencies.py
+  777aa8cace8dc70e 4,89-91,102-106
+tracecat/workspaces/service.py
+  777aa8cace8dc70e 108-111,115
+tracecat/auth/credentials.py
+  777aa8cace8dc70e 283-288,297,299-301,324,360-363,365,383,387,397,896-897,908-910
+tracecat/auth/types.py
+  777aa8cace8dc70e 10,31,48-50,52,54,56-60,100-101
+  fd0744485ce6863b 28,30,32,34,36,38,40
+tests/unit/test_auth_credentials_api_keys.py
+  777aa8cace8dc70e 86,91,110,141,146-152,156,161-162,168,175,180,208,213-277
+tests/unit/test_role_headers.py
+  777aa8cace8dc70e 50,56,61-62,72,100-110,204-230
+tests/unit/api/test_api_actor_roles.py
+  777aa8cace8dc70e 23,33,40-50,99,122,128,142,156,162,176,179,188,197-198,240,242,258,265,271
+tests/unit/test_workspace_service.py
+  777aa8cace8dc70e 182
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.11",
+  "base_commit_sha": "a980fdf5a1dcd0a90617b5218ab7b9e8a8ef1362",
+  "prompts": {
+    "777aa8cace8dc70e": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019ce38c-f7fb-7973-93ad-4134736c57f0",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 313,
+      "total_deletions": 193,
+      "accepted_lines": 217,
+      "overriden_lines": 0
+    },
+    "fd0744485ce6863b": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9a661935-8600-4fc9-9e3a-33a3afbfb57d",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 8,
+      "total_deletions": 17,
+      "accepted_lines": 7,
+      "overriden_lines": 0
+    }
+  }
+}

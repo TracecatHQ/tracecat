@@ -1,0 +1,23 @@
+tracecat/executor/activities.py
+  f16cc875748bbea6 125-134,148-150,268-274
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.3",
+  "base_commit_sha": "69420ea01ad41a5e16886d59f3389faecacb021f",
+  "prompts": {
+    "f16cc875748bbea6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "66107bdd-2db1-41b6-85e6-5257a4dfb5b0",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 20,
+      "total_deletions": 23,
+      "accepted_lines": 20,
+      "overriden_lines": 0
+    }
+  }
+}

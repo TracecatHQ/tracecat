@@ -1,0 +1,35 @@
+tracecat/registry/actions/service.py
+  96bb0d2f1fe2431b 4,68,79,176,200-215,337-339,345-346,451-453,457-458,466-467,594-595,598-599,601-610,628-630,748-750,754-755,900-902,908-909
+tracecat/registry/lock/service.py
+  96bb0d2f1fe2431b 16,21,99-111,113-114,119,127-132,151-159
+tracecat/executor/registry_resolver.py
+  96bb0d2f1fe2431b 22,33-34,165-209,216-217,376
+tests/unit/test_registry_actions_custom_entitlement.py
+  96bb0d2f1fe2431b 1-291
+tracecat/agent/mcp/trusted_server.py
+  96bb0d2f1fe2431b 37,116-117
+tests/unit/test_registry_lock_service.py
+  96bb0d2f1fe2431b 12-13,26,266-361
+tests/unit/test_registry_resolver.py
+  96bb0d2f1fe2431b 8,204-293
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.4",
+  "base_commit_sha": "b0dd5d5def23a43b71624342deb206746b0334cb",
+  "prompts": {
+    "96bb0d2f1fe2431b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019c7b99-7bfc-7e52-8430-30ce922fafc0",
+        "model": "gpt-5.3-codex"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 701,
+      "total_deletions": 71,
+      "accepted_lines": 627,
+      "overriden_lines": 0
+    }
+  }
+}

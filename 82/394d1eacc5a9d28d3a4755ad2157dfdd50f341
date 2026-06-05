@@ -1,0 +1,42 @@
+alembic/versions/cd84c08340a5_add_cascade_delete_to_membership_.py
+  325aa7ee93111c51 1-48
+alembic/versions/0a1e3100a432_remove_legacy_org_scoped_builtin_.py
+  325aa7ee93111c51 17
+tracecat/registry/repositories/router.py
+  baffc6a2ebfc68d0 457-465,523-524,526-533
+tests/unit/test_registry_repositories_router.py
+  baffc6a2ebfc68d0 1-77
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.10",
+  "base_commit_sha": "82394d1eacc5a9d28d3a4755ad2157dfdd50f341",
+  "prompts": {
+    "325aa7ee93111c51": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019cdf30-2723-78b3-999a-43850daa1175",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 49,
+      "total_deletions": 1,
+      "accepted_lines": 49,
+      "overriden_lines": 0
+    },
+    "baffc6a2ebfc68d0": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019cdeec-fae6-79a3-b6c1-cc4789af8824",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 228,
+      "total_deletions": 64,
+      "accepted_lines": 96,
+      "overriden_lines": 0
+    }
+  }
+}

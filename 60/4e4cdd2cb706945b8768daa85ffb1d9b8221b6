@@ -1,0 +1,23 @@
+tests/unit/test_agent_preset_service.py
+  3760d4d5661662c9 421-423
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.2",
+  "base_commit_sha": "604e4cdd2cb706945b8768daa85ffb1d9b8221b6",
+  "prompts": {
+    "3760d4d5661662c9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019db5bf-f773-7cd1-9d82-15f83002f477",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 3,
+      "total_deletions": 1,
+      "accepted_lines": 3,
+      "overriden_lines": 0
+    }
+  }
+}

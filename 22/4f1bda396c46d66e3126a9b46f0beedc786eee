@@ -1,0 +1,9 @@
+frontend/src/components/tiptap-templates/plain/plain-text-editor.tsx
+  7a57ed7b18619e83 1-96,98-115,117-119,121-124,126-144,146-170,173-225
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.8",
+  "base_commit_sha": "224f1bda396c46d66e3126a9b46f0beedc786eee",
+  "prompts": {}
+}

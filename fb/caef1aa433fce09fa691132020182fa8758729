@@ -1,0 +1,23 @@
+tracecat/api_keys/router.py
+  05d5766cc6da0f2d 76,80-81,197,201-202
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.10",
+  "base_commit_sha": "fbcaef1aa433fce09fa691132020182fa8758729",
+  "prompts": {
+    "05d5766cc6da0f2d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019ce004-2984-7ac2-a50a-b990a3279802",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 12,
+      "total_deletions": 6,
+      "accepted_lines": 6,
+      "overriden_lines": 0
+    }
+  }
+}

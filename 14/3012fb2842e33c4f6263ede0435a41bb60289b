@@ -1,0 +1,23 @@
+tracecat/config.py
+  7841ca2e41dee6e5 32,37,42,62,67,72
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.5",
+  "base_commit_sha": "143012fb2842e33c4f6263ede0435a41bb60289b",
+  "prompts": {
+    "7841ca2e41dee6e5": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019ca022-8c34-7db1-b32d-b8778d3c1ca5",
+        "model": "gpt-5.3-codex"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 6,
+      "total_deletions": 6,
+      "accepted_lines": 6,
+      "overriden_lines": 0
+    }
+  }
+}

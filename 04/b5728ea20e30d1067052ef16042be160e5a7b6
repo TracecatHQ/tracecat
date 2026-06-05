@@ -1,0 +1,50 @@
+tracecat/contexts.py
+  6b5cb6519dbe0cc2 13,25-26,45-48,61-70
+tracecat/config.py
+  6b5cb6519dbe0cc2 310-349
+tracecat/temporal/__init__.py
+  6f375bd2a36cec9e 1
+tracecat/temporal/codec.py
+  6f375bd2a36cec9e 1-433
+tracecat/dsl/_converter.py
+  6b5cb6519dbe0cc2 11,17,104,106
+tests/unit/test_temporal_codec.py
+  6f375bd2a36cec9e 1-114
+tracecat/temporal/visibility.py
+  6f375bd2a36cec9e 1-78
+tracecat/dsl/compression.py
+  6b5cb6519dbe0cc2 1,3
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.8",
+  "base_commit_sha": "04b5728ea20e30d1067052ef16042be160e5a7b6",
+  "prompts": {
+    "6b5cb6519dbe0cc2": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019cca6e-2e4b-7400-8d1e-c1a728392075",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 71,
+      "total_deletions": 213,
+      "accepted_lines": 70,
+      "overriden_lines": 2
+    },
+    "6f375bd2a36cec9e": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019cca33-a4d5-71e3-b620-52d10fec8882",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 626,
+      "total_deletions": 0,
+      "accepted_lines": 626,
+      "overriden_lines": 0
+    }
+  }
+}

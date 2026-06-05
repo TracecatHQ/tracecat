@@ -1,0 +1,23 @@
+frontend/src/components/ui/checkbox.tsx
+  f1a99b36dd86a1af 16
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "05b75e7f93ebfeabeb1c16ea997da301bde898dc",
+  "prompts": {
+    "f1a99b36dd86a1af": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019cd38d-d952-7dd3-b517-0a71741355d3",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 1,
+      "total_deletions": 1,
+      "accepted_lines": 1,
+      "overriden_lines": 0
+    }
+  }
+}

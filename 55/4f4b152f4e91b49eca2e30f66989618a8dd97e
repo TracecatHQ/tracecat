@@ -1,0 +1,10 @@
+frontend/src/components/skills/create-skill-dialog.tsx
+  7a57ed7b18619e83 14-15,47-50,84-88,90-97
+  0654838314e74edc 111
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.8",
+  "base_commit_sha": "554f4b152f4e91b49eca2e30f66989618a8dd97e",
+  "prompts": {}
+}

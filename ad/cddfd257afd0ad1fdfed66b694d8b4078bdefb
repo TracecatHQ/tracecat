@@ -1,0 +1,31 @@
+tests/unit/test_rls_policies.py
+  3021130414de9293 8,44
+frontend/src/client/schemas.gen.ts
+  3021130414de9293 8387
+tracecat/db/rls.py
+  3021130414de9293 64,66
+frontend/src/client/types.gen.ts
+  3021130414de9293 2560
+tests/unit/test_rls.py
+  3021130414de9293 100-101,107-108,110,115,126,129,131,198,204,206,300,303,305,389,408,440
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.5",
+  "base_commit_sha": "adcddfd257afd0ad1fdfed66b694d8b4078bdefb",
+  "prompts": {
+    "3021130414de9293": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019c97d2-6811-77c2-aa16-4987487cc7c8",
+        "model": "gpt-5.3-codex"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 33,
+      "total_deletions": 86,
+      "accepted_lines": 24,
+      "overriden_lines": 0
+    }
+  }
+}

@@ -1,0 +1,25 @@
+tests/unit/test_registry_sync_base_service.py
+  53c306e232056da3 14,249,265-303
+tracecat/registry/sync/base_service.py
+  53c306e232056da3 22,603
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.2",
+  "base_commit_sha": "81611884a3e9ce31d310142eb3931c6a7c9f0b12",
+  "prompts": {
+    "53c306e232056da3": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019db18d-f456-7300-a746-e9c11feb6e7b",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 279,
+      "total_deletions": 2,
+      "accepted_lines": 279,
+      "overriden_lines": 0
+    }
+  }
+}

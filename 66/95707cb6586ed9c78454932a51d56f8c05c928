@@ -1,0 +1,23 @@
+tracecat/tables/service.py
+  d96a61b3821b3ced 2326
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.22",
+  "base_commit_sha": "6695707cb6586ed9c78454932a51d56f8c05c928",
+  "prompts": {
+    "d96a61b3821b3ced": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019cd58d-05eb-7e02-b542-333f7a5a4d27",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 1,
+      "total_deletions": 5,
+      "accepted_lines": 1,
+      "overriden_lines": 0
+    }
+  }
+}

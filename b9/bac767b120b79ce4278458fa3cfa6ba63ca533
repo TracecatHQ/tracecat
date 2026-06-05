@@ -1,0 +1,39 @@
+tests/unit/test_dsl_workflow_concurrency.py
+  f39043122c256e05 291-292
+  0b8a4cfcb7eaee99 15,29,241-290,293-294,325-343
+tracecat/feature_flags/enums.py
+  0b8a4cfcb7eaee99 1-11
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.7",
+  "base_commit_sha": "b9bac767b120b79ce4278458fa3cfa6ba63ca533",
+  "prompts": {
+    "0b8a4cfcb7eaee99": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019cb0a1-bbff-7323-8ba5-e88041393f35",
+        "model": "gpt-5.3-codex"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 87,
+      "total_deletions": 1,
+      "accepted_lines": 86,
+      "overriden_lines": 0
+    },
+    "f39043122c256e05": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019cb086-0280-7e40-b2d3-e89f0a45c592",
+        "model": "gpt-5.3-codex"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 2,
+      "total_deletions": 1,
+      "accepted_lines": 2,
+      "overriden_lines": 0
+    }
+  }
+}

@@ -1,0 +1,27 @@
+tests/unit/test_registry_sync_base_service.py
+  0301f3d96d733ece 95,98,101
+tests/integration/test_install_and_run_custom_remote_registry_flow.py
+  0301f3d96d733ece 40,194
+tracecat/registry/sync/base_service.py
+  0301f3d96d733ece 22-25,242,265
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.15",
+  "base_commit_sha": "e6d3e168ad284736be31a490ec807b3aa62b8ea2",
+  "prompts": {
+    "0301f3d96d733ece": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019d020a-9694-7031-bc9e-57d85f0ccf48",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 17,
+      "total_deletions": 6,
+      "accepted_lines": 11,
+      "overriden_lines": 0
+    }
+  }
+}

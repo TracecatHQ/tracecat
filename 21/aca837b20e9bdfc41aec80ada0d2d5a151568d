@@ -1,0 +1,14 @@
+frontend/src/components/skills/working-copy-bar.tsx
+  647ef2ee78532672 8,120,123,135-136
+frontend/src/components/skills/skills-studio.tsx
+  7a57ed7b18619e83 110-119
+frontend/src/components/skills/use-skills-studio.ts
+  7a57ed7b18619e83 149,214,219,237-246,277,300-301,304,309-310,326-328,344-345,399-400,417-418,538-539,542,548-551,555,559,565-568,593-594,611,613,628-629,632,638-640
+  0654838314e74edc 213,216-218,274-276
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.2",
+  "base_commit_sha": "21aca837b20e9bdfc41aec80ada0d2d5a151568d",
+  "prompts": {}
+}

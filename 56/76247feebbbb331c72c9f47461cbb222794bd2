@@ -1,0 +1,37 @@
+packages/tracecat-ee/tracecat_ee/admin/organizations/service.py
+  b63d127006b45fb0 10,38-42,224-226,228,239-281,284-312
+frontend/src/client/services.gen.ts
+  b63d127006b45fb0 5113-5116,5130-5132
+frontend/src/client/schemas.gen.ts
+  b63d127006b45fb0 8486-8548
+frontend/src/client/types.gen.ts
+  b63d127006b45fb0 2429-2452,9352-9353,9355,9360,13376
+frontend/src/hooks/use-admin.ts
+  b63d127006b45fb0 278
+tests/unit/api/test_api_admin_organizations.py
+  b63d127006b45fb0 23,307-313,317-318,323-325,329-333,337-357
+tests/unit/test_admin_org_invitations_service.py
+  b63d127006b45fb0 27,209-240,242-269
+packages/tracecat-ee/tracecat_ee/admin/organizations/router.py
+  b63d127006b45fb0 15,165,173-180,184-191,193-196
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.2",
+  "base_commit_sha": "5676247feebbbb331c72c9f47461cbb222794bd2",
+  "prompts": {
+    "b63d127006b45fb0": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019db2b4-d82c-7c23-80e6-a8bad90c76d4",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 306,
+      "total_deletions": 26,
+      "accepted_lines": 306,
+      "overriden_lines": 0
+    }
+  }
+}

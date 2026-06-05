@@ -1,0 +1,44 @@
+tracecat/agent/session/activities.py
+  h_a05ba93e776158 150
+  a8e91cb3a693d21a 23,144-146,151
+tests/unit/test_agent_activities.py
+  a8e91cb3a693d21a 327-355
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "bea17fbd6ef0e925389a0f16100264a709e2236b",
+  "prompts": {
+    "a8e91cb3a693d21a": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019dc17a-d4c5-78b3-84b2-d28b7d05a8cf",
+        "model": "gpt-5.5"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 40,
+      "total_deletions": 16,
+      "accepted_lines": 36,
+      "overriden_lines": 1
+    },
+    "cd6c4dd883f760dc": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019dc0fa-8157-7d20-b490-e87471e0b85d",
+        "model": "gpt-5.5"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 236,
+      "total_deletions": 0,
+      "accepted_lines": 236,
+      "overriden_lines": 0
+    }
+  },
+  "humans": {
+    "h_a05ba93e776158": {
+      "author": "Daryl Lim"
+    }
+  }
+}

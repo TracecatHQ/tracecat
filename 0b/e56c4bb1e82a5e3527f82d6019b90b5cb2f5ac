@@ -1,0 +1,49 @@
+frontend/src/client/types.gen.ts
+  b0e503b617b9e9c5 6415,6456,6477,6515-6520,8657,8677
+  3f68e0534bde1a53 6453-6455,6512-6514,6521
+frontend/src/client/schemas.gen.ts
+  3f68e0534bde1a53 20837,21023
+  b0e503b617b9e9c5 20574,20838-20843,20915,21024-21028
+packages/tracecat-ee/tracecat_ee/watchtower/router.py
+  3f68e0534bde1a53 24-28,60,135
+packages/tracecat-ee/tracecat_ee/watchtower/schemas.py
+  3f68e0534bde1a53 10-14,36,73
+packages/tracecat-ee/tracecat_ee/watchtower/service.py
+  3f68e0534bde1a53 38-42,70,83,85,90,226-227,277,302-303,316,442,444,446-447,543-549
+  b0e503b617b9e9c5 595-605,615-616,637-638,646-647,663-664,682-683,705-719,745-746,760,787-788,800-802,823-824,835,852-853,878-889,910-911,921-922,943,969-981,991-992,1014-1016,1030
+packages/tracecat-ee/tracecat_ee/watchtower/types.py
+  3f68e0534bde1a53 18-25
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.8",
+  "base_commit_sha": "0be56c4bb1e82a5e3527f82d6019b90b5cb2f5ac",
+  "prompts": {
+    "3f68e0534bde1a53": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019cba8d-2124-7380-a0eb-5abb0575e113",
+        "model": "gpt-5.3-codex"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 90,
+      "total_deletions": 32,
+      "accepted_lines": 62,
+      "overriden_lines": 0
+    },
+    "b0e503b617b9e9c5": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6f9bd23d-ae98-4996-be0f-98cd1a10cdc2",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 35919,
+      "total_deletions": 34328,
+      "accepted_lines": 29234,
+      "overriden_lines": 0
+    }
+  }
+}

@@ -1,0 +1,53 @@
+tests/unit/test_workflow_store_service.py
+  a56e952fe0eb7ebf 1-194
+tracecat/sync.py
+  a56e952fe0eb7ebf 47-53,85-86,88-96,101-106,113-114,116-117,122-138,235-236
+tests/unit/test_workflow_sync_service.py
+  a56e952fe0eb7ebf 3,5,8,14,16,73-79,87,93,101,106-158,160,162-186,255,313,386,400,405-406,408,411-416,418-427,429-439,441,544-1386,1491,1530
+tracecat/workflow/store/service.py
+  a56e952fe0eb7ebf 1-3,6,8-12,15,17,20,23-26,28,34-42,44-45,51-56,59-66,77-78,84-151,153-246,249-262,264,269,271-272,286,288-294,296-300,302-303,307,310-316,318,324-334,338-352,355-410,412-428,431-474,476-571,573-632
+frontend/src/client/services.gen.ts
+  a56e952fe0eb7ebf 414-415,432-433,442-443,1868-1916,1945-1962
+tracecat/workflow/store/schemas.py
+  a56e952fe0eb7ebf 1,3,6,11-13,15,24-61,66-68,71-79,98-158,160-199,201-213,215,250-255,257-261,263,334-335
+frontend/src/components/dashboard/workflow-bulk-push-dialog.tsx
+  a56e952fe0eb7ebf 1-702
+tracecat/workflow/store/sync.py
+  a56e952fe0eb7ebf 9,13-17,21,24,32,34,201,323-324,334-339,342-345,347-358,361-381,383,385-389,395-399,402-411,413-415,418,422-430,432-436,439-454,456-474,476-491,493-545,547-552,554-585,589-590,592-608,611,613-638,640,642-643,646-647,649,651,653-659,661-669,671-689,692,695-696,699-752,754-767,856-894
+tests/unit/api/test_api_workflow_store_publish.py
+  a56e952fe0eb7ebf 1-452
+frontend/src/client/schemas.gen.ts
+  a56e952fe0eb7ebf 6871-6899,15532-15870,16149-16174
+frontend/src/components/dashboard/workflow-folders-table.tsx
+  a56e952fe0eb7ebf 34,52-53,56,74,84,90,137-138,141-186
+frontend/src/components/dashboard/workflows-dashboard.tsx
+  a56e952fe0eb7ebf 3,5-6,9,12,14,20-66,71-84,87-93,98,101-105,107,111-116,119-123,137-139,147-157,160-166
+tracecat/registry/repositories/schemas.py
+  a56e952fe0eb7ebf 122-142
+tracecat/workflow/store/router.py
+  a56e952fe0eb7ebf 9,14,18-22,24-25,35,70-74,80-123,125-127,129-133,139-143,213-214,230-233,241-306
+frontend/src/components/dashboard/dashboard-table.tsx
+  a56e952fe0eb7ebf 22,39-43,80-82,84-125
+frontend/src/client/types.gen.ts
+  a56e952fe0eb7ebf 2109-2125,4905-4974,4987,5029-5031,5180,5911-5917,5919-5925,5940-5948,8117-8124,8132-8146,8162-8169
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.8",
+  "base_commit_sha": "420e537ec61eeedf41ebf5cc7905944097332270",
+  "prompts": {
+    "a56e952fe0eb7ebf": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019cd2e4-a44d-7010-8406-8a3bd7f705a6",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 4652,
+      "total_deletions": 213,
+      "accepted_lines": 4617,
+      "overriden_lines": 0
+    }
+  }
+}

@@ -1,0 +1,25 @@
+tracecat/api/app.py
+  d4234d380c5d7e58 37,583
+tracecat/api/common.py
+  d4234d380c5d7e58 1,42-64
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.0",
+  "base_commit_sha": "f97d556d81a486ffacc2b3c1a93a95206717df5d",
+  "prompts": {
+    "d4234d380c5d7e58": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "8c8342e5-ab57-4395-b898-4e5f38f175a5",
+        "model": "claude-opus-4-5-20251101"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 27,
+      "total_deletions": 2,
+      "accepted_lines": 26,
+      "overriden_lines": 0
+    }
+  }
+}

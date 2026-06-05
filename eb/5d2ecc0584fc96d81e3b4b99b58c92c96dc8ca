@@ -1,0 +1,23 @@
+frontend/src/components/builder/canvas/action-node.tsx
+  f1a99b36dd86a1af 385-387,436,444,542-557
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.9",
+  "base_commit_sha": "eb5d2ecc0584fc96d81e3b4b99b58c92c96dc8ca",
+  "prompts": {
+    "f1a99b36dd86a1af": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019cd38d-d952-7dd3-b517-0a71741355d3",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 21,
+      "total_deletions": 0,
+      "accepted_lines": 21,
+      "overriden_lines": 0
+    }
+  }
+}

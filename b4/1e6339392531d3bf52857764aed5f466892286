@@ -1,0 +1,25 @@
+tests/unit/test_agent_sandbox_entrypoint.py
+  c6bcad19faf4df48 18,136-141,143-144,152-187
+tracecat/agent/sandbox/shim_entrypoint.py
+  c6bcad19faf4df48 248,312-326,329-343,345-357
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.2",
+  "base_commit_sha": "b41e6339392531d3bf52857764aed5f466892286",
+  "prompts": {
+    "c6bcad19faf4df48": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019db2c7-d1f5-7c70-bb3a-bb810c6fa48f",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 89,
+      "total_deletions": 29,
+      "accepted_lines": 89,
+      "overriden_lines": 0
+    }
+  }
+}

@@ -1,0 +1,38 @@
+.github/ISSUE_TEMPLATE/bug_report.md
+  abab79411da50456 42
+deployments/fargate/README.md
+  abab79411da50456 72
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.0",
+  "base_commit_sha": "02b9bd40c3a3a851e484eb347b733af84c146586",
+  "prompts": {
+    "4171eecb4e8d1387": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "2631362a-6af1-48bf-aa95-2b8138c811d4",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 138,
+      "total_deletions": 0,
+      "accepted_lines": 138,
+      "overriden_lines": 0
+    },
+    "abab79411da50456": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a38cf8dd-c33e-4843-bdcb-eafe4295bd68",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 2,
+      "total_deletions": 2,
+      "accepted_lines": 2,
+      "overriden_lines": 0
+    }
+  }
+}

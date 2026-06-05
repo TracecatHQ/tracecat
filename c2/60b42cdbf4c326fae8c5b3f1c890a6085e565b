@@ -1,0 +1,23 @@
+frontend/src/components/organization/service-accounts-manager.tsx
+  f51581f14533d6bb 6,14,76,212-216,229-255,417-418,421,439,441-442,445,468,471-472,474-475,488,512-519,563,958-961,998-999,1003-1005,1008-1013,1015-1016,1020,1023-1031,1067
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.12",
+  "base_commit_sha": "c260b42cdbf4c326fae8c5b3f1c890a6085e565b",
+  "prompts": {
+    "f51581f14533d6bb": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019ced54-95af-78b3-bd7d-1d22f43e3f3f",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 131,
+      "total_deletions": 93,
+      "accepted_lines": 87,
+      "overriden_lines": 0
+    }
+  }
+}

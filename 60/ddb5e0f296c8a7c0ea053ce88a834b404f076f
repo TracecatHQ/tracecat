@@ -1,0 +1,25 @@
+frontend/tests/auth-ui-matrix.test.tsx
+  6e546d4fc91133af 6,22,26,29,41-42,98,105,110-120,134-135,250-260
+frontend/src/app/sign-in/[[...sign-in]]/page.tsx
+  6e546d4fc91133af 30
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.2",
+  "base_commit_sha": "60ddb5e0f296c8a7c0ea053ce88a834b404f076f",
+  "prompts": {
+    "6e546d4fc91133af": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019db560-5fe5-7c90-b77a-75b81a7893e8",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 35,
+      "total_deletions": 5,
+      "accepted_lines": 35,
+      "overriden_lines": 0
+    }
+  }
+}

@@ -1,0 +1,23 @@
+tracecat/auth/credentials.py
+  a47d330ee40860f5 205
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.4",
+  "base_commit_sha": "6e9eb8687d66a8fb48e73b23331069ff5b89f6e5",
+  "prompts": {
+    "a47d330ee40860f5": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019c7ca8-1c66-7e52-95ca-f88c5282bf3d",
+        "model": "gpt-5.3-codex"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 8,
+      "total_deletions": 5,
+      "accepted_lines": 1,
+      "overriden_lines": 0
+    }
+  }
+}

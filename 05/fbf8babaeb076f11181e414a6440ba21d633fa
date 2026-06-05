@@ -1,0 +1,23 @@
+CLAUDE.md
+  945c962e53104a11 305
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.5",
+  "base_commit_sha": "05fbf8babaeb076f11181e414a6440ba21d633fa",
+  "prompts": {
+    "945c962e53104a11": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "10bfa2fa-6810-4a8a-b019-f548489de907",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 1,
+      "total_deletions": 0,
+      "accepted_lines": 1,
+      "overriden_lines": 0
+    }
+  }
+}

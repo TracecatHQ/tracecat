@@ -1,0 +1,23 @@
+tracecat/agent/executor_worker.py
+  03b406bd5ec6d46c 42,59
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.2",
+  "base_commit_sha": "4c489d0f65e38a9ad078f75a9ae2e6725c8693ab",
+  "prompts": {
+    "03b406bd5ec6d46c": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "8af6d0d8-327c-4854-8d37-c89a4d841865",
+        "model": "claude-opus-4-5-20251101"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 2,
+      "total_deletions": 36,
+      "accepted_lines": 2,
+      "overriden_lines": 0
+    }
+  }
+}

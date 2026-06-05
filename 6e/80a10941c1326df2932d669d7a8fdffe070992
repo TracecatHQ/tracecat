@@ -1,0 +1,36 @@
+tracecat/api/app.py
+  e77b576ff6e99bfb 669
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.0",
+  "base_commit_sha": "6e80a10941c1326df2932d669d7a8fdffe070992",
+  "prompts": {
+    "4171eecb4e8d1387": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "2631362a-6af1-48bf-aa95-2b8138c811d4",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 138,
+      "overriden_lines": 0
+    },
+    "e77b576ff6e99bfb": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "920a472a-0e38-4ec0-b086-10d0767af8d1",
+        "model": "claude-opus-4-5-20251101"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 1,
+      "total_deletions": 2,
+      "accepted_lines": 1,
+      "overriden_lines": 0
+    }
+  }
+}

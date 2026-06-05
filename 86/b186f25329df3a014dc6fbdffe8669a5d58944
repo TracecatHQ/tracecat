@@ -1,0 +1,54 @@
+.github/workflows/lint-python.yml
+  19e12e5c1b1f1811 28,46
+.github/workflows/create-release.yml
+  19e12e5c1b1f1811 27
+.github/workflows/run-integration-tests.yml
+  19e12e5c1b1f1811 93
+.github/workflows/test-pnpm-build.yml
+  19e12e5c1b1f1811 22
+.github/workflows/lint-frontend.yml
+  19e12e5c1b1f1811 24
+.github/workflows/publish-release.yml
+  19e12e5c1b1f1811 25,171
+.github/workflows/test-frontend.yml
+  19e12e5c1b1f1811 20
+.github/workflows/test-python.yml
+  19e12e5c1b1f1811 43,67
+.github/workflows/build-push-images.yml
+  19e12e5c1b1f1811 39,42,109,169,172,251
+.github/workflows/release-drafter.yml
+  19e12e5c1b1f1811 14
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.8",
+  "base_commit_sha": "86b186f25329df3a014dc6fbdffe8669a5d58944",
+  "prompts": {
+    "19e12e5c1b1f1811": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019d88c1-3941-7e11-afbb-b9ee46bbc2cf",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 20,
+      "total_deletions": 20,
+      "accepted_lines": 18,
+      "overriden_lines": 0
+    },
+    "9aa1913c49883517": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ae1e41dd-63ee-4bdb-a333-da001cd4ea61",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 2,
+      "total_deletions": 2,
+      "accepted_lines": 2,
+      "overriden_lines": 0
+    }
+  }
+}

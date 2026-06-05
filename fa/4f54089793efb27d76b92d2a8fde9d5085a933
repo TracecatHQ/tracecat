@@ -1,0 +1,25 @@
+frontend/src/hooks/pagination/use-cursor-pagination.tsx
+  81dcd76bbcd388e3 42-43,67-68,114-115
+frontend/src/hooks/use-workflow-runs.ts
+  81dcd76bbcd388e3 29,178-180
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.7",
+  "base_commit_sha": "fa4f54089793efb27d76b92d2a8fde9d5085a933",
+  "prompts": {
+    "81dcd76bbcd388e3": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019cb497-8d89-7f93-9229-26d644d83b40",
+        "model": "gpt-5.3-codex"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 16,
+      "total_deletions": 4,
+      "accepted_lines": 16,
+      "overriden_lines": 0
+    }
+  }
+}

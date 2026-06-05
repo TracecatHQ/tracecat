@@ -1,0 +1,25 @@
+alembic/CLAUDE.md
+  32500701599980a2 1
+alembic/AGENTS.md
+  32500701599980a2 1-108
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.8",
+  "base_commit_sha": "9188a01701474142de0f6b6d800d2ddcaf2ae2e3",
+  "prompts": {
+    "32500701599980a2": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019d88ae-d930-7410-88d1-6acdfd37b562",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 540,
+      "total_deletions": 0,
+      "accepted_lines": 324,
+      "overriden_lines": 0
+    }
+  }
+}

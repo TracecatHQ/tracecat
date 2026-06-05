@@ -1,0 +1,30 @@
+tests/registry/test_cases_characterization.py
+  45508ae7d680a89b 78,171
+tests/unit/api/conftest.py
+  45508ae7d680a89b 30,92
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.2",
+  "base_commit_sha": "993fc68a2301d0b31b2938de02ba7d949d994972",
+  "prompts": {
+    "45508ae7d680a89b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019db5a2-2863-7460-b9f2-0024395ae451",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 4,
+      "total_deletions": 5,
+      "accepted_lines": 4,
+      "overriden_lines": 0
+    }
+  },
+  "humans": {
+    "h_a05ba93e776158": {
+      "author": "Daryl Lim"
+    }
+  }
+}

@@ -1,0 +1,25 @@
+frontend/src/lib/auth-redirect.ts
+  6bd6f4ad2fefad8b 7-27,36-38
+frontend/src/lib/auth-redirect.test.ts
+  6bd6f4ad2fefad8b 14-33
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.2",
+  "base_commit_sha": "1ebaccf77bf2cd117b15b240d36e23752ccfc29b",
+  "prompts": {
+    "6bd6f4ad2fefad8b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019db1ad-5a60-7592-8b23-1833d3bc89d9",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 44,
+      "total_deletions": 0,
+      "accepted_lines": 44,
+      "overriden_lines": 0
+    }
+  }
+}

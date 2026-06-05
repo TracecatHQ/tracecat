@@ -1,0 +1,9 @@
+tracecat/agent/skill/service.py
+  05c0b59f5e164c30 12,22,31,234,240,269-277,406-416,418,551-553,605-607,826,838,844,1030
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.7",
+  "base_commit_sha": "b93a5103b2225251a29a1bb28e898bb34b8ab44b",
+  "prompts": {}
+}

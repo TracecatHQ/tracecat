@@ -1,0 +1,43 @@
+packages/tracecat-registry/tracecat_registry/templates/tools/terraform_cloud/refresh_state.yml
+  45da222a1cb16124 56
+packages/tracecat-registry/tracecat_registry/templates/tools/terraform_cloud/list_workspaces.yml
+  45da222a1cb16124 44
+packages/tracecat-registry/tracecat_registry/templates/tools/terraform_cloud/plan_run.yml
+  45da222a1cb16124 56
+packages/tracecat-registry/tracecat_registry/templates/tools/confluence/get_page_children.yml
+  45da222a1cb16124 61
+packages/tracecat-registry/tracecat_registry/templates/tools/confluence/update_page.yml
+  45da222a1cb16124 105
+packages/tracecat-registry/tracecat_registry/templates/tools/confluence/search_content.yml
+  45da222a1cb16124 71
+packages/tracecat-registry/tracecat_registry/templates/tools/confluence/create_page.yml
+  45da222a1cb16124 71
+packages/tracecat-registry/tracecat_registry/templates/tools/confluence/get_page_by_title.yml
+  45da222a1cb16124 52
+packages/tracecat-registry/tracecat_registry/templates/tools/terraform_cloud/get_workspace_details.yml
+  45da222a1cb16124 44
+packages/tracecat-registry/tracecat_registry/templates/tools/confluence/add_page_comment.yml
+  45da222a1cb16124 55
+packages/tracecat-registry/tracecat_registry/templates/tools/terraform_cloud/apply_run.yml
+  45da222a1cb16124 39
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.5",
+  "base_commit_sha": "0aed92919a9fd7de0bc674abae9661390aaee314",
+  "prompts": {
+    "45da222a1cb16124": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ba83597f-52b6-480f-929a-966032f3c64c",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 11,
+      "total_deletions": 11,
+      "accepted_lines": 11,
+      "overriden_lines": 0
+    }
+  }
+}

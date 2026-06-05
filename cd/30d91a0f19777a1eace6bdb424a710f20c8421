@@ -1,0 +1,33 @@
+tracecat/agent/preset/internal_router.py
+  e2366595845a235a 14
+  920a6c1f157048fc 5,12,94,116,136
+tests/unit/test_agent_preset_service.py
+  40ea4f14a0ae4f84 1094-1113
+tracecat/agent/preset/router.py
+  40ea4f14a0ae4f84 176-177,179-182,184
+tracecat/agent/preset/service.py
+  05c0b59f5e164c30 18-20,189,274,390,138
+  40ea4f14a0ae4f84 470,1263
+tracecat/mcp/server.py
+  05c0b59f5e164c30 6148-6153,6155-6163,6165-6166
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.7",
+  "base_commit_sha": "cd30d91a0f19777a1eace6bdb424a710f20c8421",
+  "prompts": {
+    "05c0b59f5e164c30": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "25a43b03-05ad-4105-8375-12fa36350f6d",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 1,
+      "overriden_lines": 0
+    }
+  }
+}

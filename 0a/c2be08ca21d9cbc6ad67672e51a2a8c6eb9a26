@@ -1,0 +1,25 @@
+tests/unit/test_mcp_server.py
+  3760d4d5661662c9 3649
+tests/unit/test_agent_preset_service.py
+  3760d4d5661662c9 421-423
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.2",
+  "base_commit_sha": "0ac2be08ca21d9cbc6ad67672e51a2a8c6eb9a26",
+  "prompts": {
+    "3760d4d5661662c9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019db5bf-f773-7cd1-9d82-15f83002f477",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 4,
+      "total_deletions": 2,
+      "accepted_lines": 4,
+      "overriden_lines": 0
+    }
+  }
+}

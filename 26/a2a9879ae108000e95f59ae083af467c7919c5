@@ -1,0 +1,23 @@
+tests/unit/test_agent_activities.py
+  e78dd32d3b4abd56 618,621-627,629,636-647,654,658,662-663,666,670-671,674-675,678-679,681,689,692-698,700-710,715,717,721-722,725-726,728
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.8",
+  "base_commit_sha": "26a2a9879ae108000e95f59ae083af467c7919c5",
+  "prompts": {
+    "e78dd32d3b4abd56": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019d8165-6f07-7d43-8c91-6d3bce483ab4",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 104,
+      "total_deletions": 0,
+      "accepted_lines": 26,
+      "overriden_lines": 0
+    }
+  }
+}

@@ -1,0 +1,23 @@
+pyproject.toml
+  560f59c8440197f6 35
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.8",
+  "base_commit_sha": "8a385b29eb1a79422f6b0420cf994980e646068f",
+  "prompts": {
+    "560f59c8440197f6": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019cc9e5-3572-7261-a743-21cb4edc467e",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 1,
+      "total_deletions": 0,
+      "accepted_lines": 1,
+      "overriden_lines": 0
+    }
+  }
+}

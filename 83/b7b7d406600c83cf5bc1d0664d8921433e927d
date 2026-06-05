@@ -1,0 +1,79 @@
+tracecat/api/app.py
+  ab9548044a351211 82,612
+tests/unit/test_rls_failure_repros.py
+  ab9548044a351211 19,331-336,347-382,386-394,398-405
+tracecat/auth/saml.py
+  ab9548044a351211 48,51,86,635,686
+tracecat/db/rls.py
+  3021130414de9293 48
+tests/unit/test_rls.py
+  3021130414de9293 62-64,67-72,80,83-84,100-104,130-134,152,158-159,173-177,193-197,217-221,236,239-240,251-255,324-325,346-347,381-382
+tests/unit/test_rls_policies.py
+  3021130414de9293 8,41
+frontend/src/client/schemas.gen.ts
+  3021130414de9293 8826
+frontend/src/client/types.gen.ts
+  3021130414de9293 2923-2924
+alembic/versions/c76f9b01fad7_add_rls_policies.py
+  e92d2af802378183 21-26,28,77,80,105,108,113,123,125-129
+  95aa715c4768f64a 27
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.8",
+  "base_commit_sha": "83b7b7d406600c83cf5bc1d0664d8921433e927d",
+  "prompts": {
+    "3021130414de9293": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019c97d2-6811-77c2-aa16-4987487cc7c8",
+        "model": "gpt-5.3-codex"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 33,
+      "total_deletions": 86,
+      "accepted_lines": 60,
+      "overriden_lines": 0
+    },
+    "95aa715c4768f64a": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019ca014-4710-7233-b169-e7acafe4d06c",
+        "model": "gpt-5.3-codex"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 1,
+      "total_deletions": 1,
+      "accepted_lines": 1,
+      "overriden_lines": 0
+    },
+    "ab9548044a351211": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019ca02a-c3f0-7193-88cf-7d84242fceee",
+        "model": "gpt-5.3-codex"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 18,
+      "total_deletions": 7,
+      "accepted_lines": 67,
+      "overriden_lines": 0
+    },
+    "e92d2af802378183": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019c9821-83b0-7de0-b295-1f419c406774",
+        "model": "gpt-5.3-codex"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 48,
+      "total_deletions": 8,
+      "accepted_lines": 18,
+      "overriden_lines": 0
+    }
+  }
+}

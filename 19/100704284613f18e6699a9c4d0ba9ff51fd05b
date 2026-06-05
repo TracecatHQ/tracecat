@@ -1,0 +1,49 @@
+packages/tracecat-ee/tracecat_ee/agent/workflows/durable.py
+  66fbd9976fc06733 301
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.8",
+  "base_commit_sha": "19100704284613f18e6699a9c4d0ba9ff51fd05b",
+  "prompts": {
+    "152fa925f029d278": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "fb7e5395-0b07-4112-b2e0-dd084c0b974d",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 236,
+      "overriden_lines": 0
+    },
+    "66fbd9976fc06733": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "2ef8198e-4732-4243-bb3a-c768da38b210",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 1,
+      "overriden_lines": 0
+    },
+    "b8abca1744101855": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a99e0be5-b4bd-42b6-b180-39fe903e62e6",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 0,
+      "overriden_lines": 0
+    }
+  }
+}

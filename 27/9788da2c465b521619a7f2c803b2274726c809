@@ -1,0 +1,25 @@
+tracecat/cases/tags/service.py
+  8a5bccb13eaddba0 242,252-261
+tests/unit/test_case_tags_service.py
+  8a5bccb13eaddba0 13,314-330,448-464
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.5",
+  "base_commit_sha": "279788da2c465b521619a7f2c803b2274726c809",
+  "prompts": {
+    "8a5bccb13eaddba0": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019d4ef4-d756-73f1-a71a-6d99e40923de",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 48,
+      "total_deletions": 4,
+      "accepted_lines": 48,
+      "overriden_lines": 0
+    }
+  }
+}

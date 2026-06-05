@@ -1,0 +1,25 @@
+tests/unit/test_agent_llm_proxy.py
+  3140bcc3f4627ebb 44,48,66,70-71,75-81,89-96,231-299
+tracecat/agent/sandbox/llm_proxy.py
+  3140bcc3f4627ebb 24,69-82,108-132,380-381,386-554,556-558,563-587,589-602,605-606,610,613,615-628,630-637,639-648
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.20",
+  "base_commit_sha": "8e512c3d369e7ad9f37fed05f86511c317929686",
+  "prompts": {
+    "3140bcc3f4627ebb": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019d2f91-5592-7f03-a9dd-f0a2e830c993",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 380,
+      "total_deletions": 167,
+      "accepted_lines": 380,
+      "overriden_lines": 0
+    }
+  }
+}

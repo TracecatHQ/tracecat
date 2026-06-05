@@ -1,0 +1,25 @@
+tracecat/executor/minimal_runner.py
+  5ce07bc6b6140aba 23,272,274,335,337,413-414
+tests/unit/executor/test_minimal_runner_protocol.py
+  5ce07bc6b6140aba 86,89-93,120-126
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.5",
+  "base_commit_sha": "1fd3151ef986c997420a5fa608064925d99b2e00",
+  "prompts": {
+    "5ce07bc6b6140aba": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019d5186-c509-7411-8b09-a5ba7efd44ea",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 20,
+      "total_deletions": 24,
+      "accepted_lines": 20,
+      "overriden_lines": 0
+    }
+  }
+}

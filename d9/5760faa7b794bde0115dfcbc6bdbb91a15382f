@@ -1,0 +1,55 @@
+tracecat/workflow/management/router.py
+  b92d021f09ea03b2 326
+tests/unit/test_workflow_sync_service.py
+  b92d021f09ea03b2 3,8,16,176,234,307,436-794,796-836
+frontend/src/client/schemas.gen.ts
+  b92d021f09ea03b2 8452-8473,20033-20059,20065-20125,21241-21250
+tracecat/sync.py
+  b92d021f09ea03b2 47-53,85-89,99-100,102-103,108-121,218-219
+frontend/src/client/types.gen.ts
+  b92d021f09ea03b2 2587-2599,6227-6229,6232-6240,6243-6244,6464,6630,7438,7454-7462,10438,10461-10468
+frontend/src/components/nav/builder-nav.tsx
+  b92d021f09ea03b2 4,25,28,30,66,76-85,188,376-377,380,591,596-597,600,603,606-619,625-626,630-683,688-690,695-700,758,761-848,860-877,881-886,889
+tracecat/workflow/management/schemas.py
+  b92d021f09ea03b2 44
+tracecat/workflow/store/schemas.py
+  b92d021f09ea03b2 1,5,10-11,22-57,60-73
+tracecat/workflow/store/service.py
+  b92d021f09ea03b2 13,22-23,40,135-160,162-170,181-187,192,195-209
+tracecat/db/models.py
+  b92d021f09ea03b2 856-860
+tests/unit/api/test_api_workflow_store_publish.py
+  b92d021f09ea03b2 1-271
+frontend/src/providers/workflow.tsx
+  b92d021f09ea03b2 22,30,47,140-155,158-172,174
+frontend/src/client/services.gen.ts
+  b92d021f09ea03b2 625-626,2405,2454-2473
+tracecat/workflow/store/router.py
+  b92d021f09ea03b2 11,16,20,22-24,34,42,59,70,80,151-152,177-242
+tracecat/workflow/store/sync.py
+  b92d021f09ea03b2 22,31,333-338,341-346,348-352,355-357,359-371,373-377,383-455,457-467,470-517,519-522,524-551,553-556,559-560,562-564,566-571,573-576,580-588,590-607,609-614,616,618,620,622-624,626,628,630-636,638-650,652-687,689,777-814
+alembic/versions/672fecea1d32_add_workflow_git_sync_branch.py
+  b92d021f09ea03b2 1-27
+tests/unit/test_workflows_store.py
+  b92d021f09ea03b2 8,181-220
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.4",
+  "base_commit_sha": "d95760faa7b794bde0115dfcbc6bdbb91a15382f",
+  "prompts": {
+    "b92d021f09ea03b2": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019c7e3e-0e1b-7600-9e7e-22b21d36f603",
+        "model": "gpt-5.3-codex"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 1861,
+      "total_deletions": 174,
+      "accepted_lines": 1828,
+      "overriden_lines": 0
+    }
+  }
+}

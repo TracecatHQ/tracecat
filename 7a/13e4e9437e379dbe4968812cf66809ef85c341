@@ -1,0 +1,23 @@
+alembic/versions/0a1e3100a432_remove_legacy_org_scoped_builtin_.py
+  325aa7ee93111c51 4
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.10",
+  "base_commit_sha": "7a13e4e9437e379dbe4968812cf66809ef85c341",
+  "prompts": {
+    "325aa7ee93111c51": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019cdf30-2723-78b3-999a-43850daa1175",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 1,
+      "total_deletions": 1,
+      "accepted_lines": 1,
+      "overriden_lines": 0
+    }
+  }
+}

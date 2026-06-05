@@ -1,0 +1,29 @@
+tests/unit/test_agent_runtime.py
+  8f748c481296a40f 254-256,306-308,350-352,393-395,421-423,459-461,494-496,534-536,616,670-672,712-714,742-744,774-776,799-801,825-827,868-870,891-893
+tests/unit/test_agent_socket_io.py
+  8f748c481296a40f 133-135,232-234,307-309
+tracecat/agent/runtime/claude_code/runtime.py
+  8f748c481296a40f 214,794,840
+tests/unit/test_agent_mcp_proxy_server.py
+  8f748c481296a40f 175
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.2",
+  "base_commit_sha": "a7b2af02a62796d94e9fddd7920c38249d6cc019",
+  "prompts": {
+    "8f748c481296a40f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "2475dc73-77ff-4549-a99f-ba48e6916c0b",
+        "model": "claude-opus-4-5-20251101"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 62,
+      "total_deletions": 37,
+      "accepted_lines": 62,
+      "overriden_lines": 0
+    }
+  }
+}

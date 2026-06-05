@@ -1,0 +1,40 @@
+tests/unit/test_dynamic_workspace_service_rls.py
+  d96a61b3821b3ced 1-2,4-29,37,40-246
+alembic/versions/cd84c08340a5_add_cascade_delete_to_membership_.py
+  186f10f99973f3e8 4,15
+tracecat/tables/service.py
+  d96a61b3821b3ced 2243
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.12",
+  "base_commit_sha": "51e3b8d02f0feb9d885c411e79a2d969b4b27f6d",
+  "prompts": {
+    "186f10f99973f3e8": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019ce78e-13b1-7c72-b1ec-3aeb278ff740",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 2,
+      "total_deletions": 2,
+      "accepted_lines": 2,
+      "overriden_lines": 0
+    },
+    "d96a61b3821b3ced": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019cd58d-05eb-7e02-b542-333f7a5a4d27",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 236,
+      "total_deletions": 0,
+      "accepted_lines": 237,
+      "overriden_lines": 0
+    }
+  }
+}

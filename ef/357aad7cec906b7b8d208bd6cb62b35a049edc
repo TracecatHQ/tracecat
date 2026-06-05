@@ -1,0 +1,56 @@
+frontend/src/components/watchtower/watchtower-monitor.tsx
+  3f68e0534bde1a53 4,8,10-13,17-18,21,23,25-26,28-37,40-47,55-59,130-227,253-259,297-314,354,357-358,361-362,386,389-390,393-394,435-436,442-444,460-466,469-471,473,476,481-487,490-512,514-520,529-535,538-540,542,544,558-561,563-565,567-582,584-591,593-623,625-626,628-644,647-648,650-670,672-688,690-693,695-696,698,700,702-719,721-724,726-747,749-751,760,769-772,797,802,806-880,882-927,941-943,963-988,993,1004-1005,1008,1010-1011,1013,1015-1017,1020-1021,1023-1028,1031-1032,1036-1042,1044-1060,1062-1108,1112-1193
+  a3eb74bda00f0067 19,548,550-556,583,592,671,689,697,748,752-759,762-768,773,775-784,787-796,799,805
+tracecat/mcp/auth.py
+  a3eb74bda00f0067 147-153,155-163,519,521-522
+tests/unit/test_mcp_auth.py
+  a3eb74bda00f0067 122-163
+packages/tracecat-ee/tracecat_ee/watchtower/service.py
+  6f7fa87df4d2469d 12,100,103-114,123-128
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.8",
+  "base_commit_sha": "ef357aad7cec906b7b8d208bd6cb62b35a049edc",
+  "prompts": {
+    "3f68e0534bde1a53": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019cba8d-2124-7380-a0eb-5abb0575e113",
+        "model": "gpt-5.3-codex"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 969,
+      "total_deletions": 457,
+      "accepted_lines": 763,
+      "overriden_lines": 0
+    },
+    "6f7fa87df4d2469d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "131105d7-423f-4549-ac63-165a97b04c2e",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 23,
+      "total_deletions": 26,
+      "accepted_lines": 20,
+      "overriden_lines": 0
+    },
+    "a3eb74bda00f0067": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019cba80-8364-7d40-a20d-1f7c2d60b806",
+        "model": "gpt-5.3-codex"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 283,
+      "total_deletions": 217,
+      "accepted_lines": 117,
+      "overriden_lines": 0
+    }
+  }
+}

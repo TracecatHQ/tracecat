@@ -1,0 +1,14 @@
+frontend/src/client/schemas.gen.ts
+  e78dd32d3b4abd56 18429-18439,18441,18454-18477,18482-18502,18528-18530
+frontend/src/client/types.gen.ts
+  e78dd32d3b4abd56 5695-5696
+tracecat/agent/skill/schemas.py
+  05c0b59f5e164c30 46-47,56,59-60,63-68,108,186-187,200
+  e78dd32d3b4abd56 75-76,133
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.8",
+  "base_commit_sha": "45e5f882eef79014ba120b271f9db517e3f8a8a0",
+  "prompts": {}
+}

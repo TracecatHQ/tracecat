@@ -1,0 +1,25 @@
+tracecat/mcp/oidc/endpoints.py
+  5379d11495e32a4c 16,137-162,315,321-322,325,391
+tests/unit/test_mcp_oidc_endpoints.py
+  5379d11495e32a4c 14,311-315,502-528,1437-1471
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.2",
+  "base_commit_sha": "73f00677dc2ae6dd328ff1f250f2ff8cced4d697",
+  "prompts": {
+    "5379d11495e32a4c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019db2f2-1662-7340-87b1-1db3c1d1d833",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 102,
+      "total_deletions": 6,
+      "accepted_lines": 102,
+      "overriden_lines": 0
+    }
+  }
+}

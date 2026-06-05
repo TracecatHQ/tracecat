@@ -1,0 +1,45 @@
+tests/unit/test_agent_runtime_broker.py
+  bc2cd51243e80fea 15,113-115,134-136,148-150
+tracecat/agent/runtime/claude_code/session_paths.py
+  bc2cd51243e80fea 1-44
+tests/unit/test_agent_sandbox_entrypoint.py
+  bc2cd51243e80fea 14-15,18,71-93
+tests/unit/test_agent_sandbox_nsjail.py
+  bc2cd51243e80fea 1-44
+tracecat/agent/sandbox/nsjail.py
+  bc2cd51243e80fea 28,57-58,206-207,242-243,292-298,400-403
+tracecat/agent/runtime/claude_code/broker.py
+  bc2cd51243e80fea 13,15-17,122-124
+tracecat/agent/sandbox/entrypoint.py
+  bc2cd51243e80fea 40-41,89-102,145,148-153
+tracecat/agent/runtime/claude_code/transport.py
+  bc2cd51243e80fea 24
+tracecat/agent/runtime/base.py
+  bc2cd51243e80fea 5,19-26
+tests/unit/test_agent_runtime.py
+  bc2cd51243e80fea 573-646
+tracecat/agent/executor/activity.py
+  bc2cd51243e80fea 39-41,525-528,533-534
+tracecat/agent/runtime/claude_code/runtime.py
+  bc2cd51243e80fea 814-819
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.0",
+  "base_commit_sha": "a720bcda7602a0fa63816a00dfbb9639b660ed7b",
+  "prompts": {
+    "bc2cd51243e80fea": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019dac85-e535-7bb2-844b-6252c1e94852",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 202,
+      "total_deletions": 29,
+      "accepted_lines": 508,
+      "overriden_lines": 0
+    }
+  }
+}

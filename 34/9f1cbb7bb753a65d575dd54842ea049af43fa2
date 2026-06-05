@@ -1,0 +1,23 @@
+scripts/update-version.sh
+  c781c50eca6323fd 155-156
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.15",
+  "base_commit_sha": "349f1cbb7bb753a65d575dd54842ea049af43fa2",
+  "prompts": {
+    "c781c50eca6323fd": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019d0703-fef1-7c22-8c94-9717b55bdd85",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 7,
+      "total_deletions": 169,
+      "accepted_lines": 2,
+      "overriden_lines": 0
+    }
+  }
+}

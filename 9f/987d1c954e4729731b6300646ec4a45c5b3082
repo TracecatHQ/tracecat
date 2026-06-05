@@ -1,0 +1,49 @@
+deployments/helm/tracecat/Chart.yaml
+  40834c5dafddc885 27-36
+deployments/helm/tracecat/dashboards/tracecat-rightsizing.json
+  40834c5dafddc885 1-235
+deployments/helm/tracecat/examples/values-orbstack.yaml
+  40834c5dafddc885 6,9-11,13-21,23,26,31,33,40-41,97-98,249,253,263,267,282-295
+  7bcb1c6e23618cbb 1-5,7-8,12,22,24-25,27-30,32,34-39,42-86,89-93,95-96,99-248,250-252,254-262,264-266,268-281
+deployments/helm/README.md
+  40834c5dafddc885 100-107,138-142,144-146,177-186
+deployments/helm/examples/values-orbstack.yaml
+  40834c5dafddc885 7-8,12-14,21,33-54
+deployments/helm/tracecat/templates/monitoring-rightsizing-dashboard-configmap.yaml
+  40834c5dafddc885 1-14
+deployments/helm/tracecat/values.yaml
+  40834c5dafddc885 120-139
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.12",
+  "base_commit_sha": "9f987d1c954e4729731b6300646ec4a45c5b3082",
+  "prompts": {
+    "40834c5dafddc885": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019cf72f-12de-7061-a692-9c4007104d20",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 376,
+      "total_deletions": 19,
+      "accepted_lines": 374,
+      "overriden_lines": 0
+    },
+    "7bcb1c6e23618cbb": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b0d559cb-bd27-492d-9cc1-13197d9b4d82",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 278,
+      "total_deletions": 8,
+      "accepted_lines": 253,
+      "overriden_lines": 3
+    }
+  }
+}

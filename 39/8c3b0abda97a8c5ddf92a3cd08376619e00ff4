@@ -1,0 +1,11 @@
+frontend/src/components/agents/agent-presets-builder.tsx
+  f9759fd526f79bba 130,1082-1083
+  e2366595845a235a 1203,2345-2347,2386,2434,2506-2517,2520,2522-2632,2640-2648
+  9e0fa2bede874c7f 1570,2505,2518,2521
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.8",
+  "base_commit_sha": "398c3b0abda97a8c5ddf92a3cd08376619e00ff4",
+  "prompts": {}
+}

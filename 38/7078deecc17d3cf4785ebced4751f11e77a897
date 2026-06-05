@@ -1,0 +1,31 @@
+tracecat/mcp/oidc/endpoints.py
+  bda8442756a6389e 302,323-331
+tests/unit/test_mcp_oidc_session.py
+  bda8442756a6389e 1-26
+frontend/src/lib/auth-return-url.test.ts
+  bda8442756a6389e 35-38
+tracecat/mcp/oidc/schemas.py
+  bda8442756a6389e 32
+tracecat/mcp/oidc/session.py
+  bda8442756a6389e 73
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.2",
+  "base_commit_sha": "387078deecc17d3cf4785ebced4751f11e77a897",
+  "prompts": {
+    "bda8442756a6389e": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019db133-d236-7602-a3fb-b00f0c2eccc4",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 38,
+      "total_deletions": 83,
+      "accepted_lines": 43,
+      "overriden_lines": 0
+    }
+  }
+}

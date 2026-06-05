@@ -1,0 +1,237 @@
+tracecat/cases/tag_definitions/router.py
+  777aa8cace8dc70e 4-5,16,19,29,32,52,74,77,110
+  548bbc2fac5894ec 49,107
+frontend/src/components/organization/service-accounts-manager.tsx
+  1c4334265371b141 1-864
+tracecat/vcs/router.py
+  548bbc2fac5894ec 7,31,130,183,209
+frontend/src/components/organization/workspace-service-accounts.tsx
+  1c4334265371b141 1-96
+tracecat/workflow/graph/router.py
+  777aa8cace8dc70e 10-11,27,29,49,51
+tracecat/cases/dropdowns/router.py
+  777aa8cace8dc70e 9-10,34,37,54,57,74,77,93,96,120,123,146,149,177,180,213,216,242,245,267,270,283,286
+tracecat/service_accounts/router.py
+  777aa8cace8dc70e 149,190,215,230,248,273,338,379,405,423,441,467
+tracecat/integrations/dependencies.py
+  777aa8cace8dc70e 8,24,39,68,101
+tracecat/workflow/management/router.py
+  777aa8cace8dc70e 26,93,147,214,309,366,403,421,538,659,672,692,710,739,767,808,833,853,877,931,967,996
+tracecat/workflow/actions/router.py
+  777aa8cace8dc70e 6,33,54,78,110,180,201
+tests/unit/test_service_accounts_validation.py
+  1c4334265371b141 6,9,13-15,17
+tests/unit/api/test_api_service_accounts.py
+  777aa8cace8dc70e 74-79,268-327
+  1c4334265371b141 1-73,80-267
+tracecat/cases/durations/router.py
+  777aa8cace8dc70e 9-10,38,41,50,53,78,81,113,116,163,166,187,190,215,218,243,246,280,283,321,324
+tracecat/workflow/management/folders/router.py
+  777aa8cace8dc70e 6,26,42,65,86,103,134,160
+tracecat/editor/router.py
+  777aa8cace8dc70e 10,144,191,223
+tests/unit/api/test_api_actor_roles.py
+  777aa8cace8dc70e 1-38,45-130,133,136-164,167,170-200,202-203,205-241,243-396,398,400-501
+tracecat/integrations/router.py
+  777aa8cace8dc70e 13,557,635,683,729,776,811,853,891,932,982
+tests/unit/test_workspace_service.py
+  777aa8cace8dc70e 24-25,27-28,32,162-205,207-210,212-249,251-315
+frontend/src/hooks/use-service-accounts.ts
+  1c4334265371b141 1-268
+tracecat/workflow/tags/router.py
+  777aa8cace8dc70e 5,20,33,46
+tracecat/workflow/executions/router.py
+  777aa8cace8dc70e 17-18,50-53,297,321,367,371,407,414,529,551,581,597,637,706,786,852,944,996,1074,1102
+tracecat/workflow/schedules/router.py
+  777aa8cace8dc70e 4,27,39,71,91,117,134
+tracecat/secrets/router.py
+  548bbc2fac5894ec 8,257,276,297,324,359
+  f6fffe411dae6b91 72,105,124,136,163,183,207,237
+tracecat/workspaces/service.py
+  777aa8cace8dc70e 15,32,100-120,233,237,239-252
+tests/unit/test_organization_service.py
+  1c4334265371b141 21-22,424,431-438,440-442,467-468,471
+tests/unit/test_service_accounts_update.py
+  1c4334265371b141 11,16,31,34,38,41,47,50-52,54-55,66,69,76,81,95,97,103,107,111,116,119,123,126,133,136-138,141,155,157,163,167-168
+tracecat/organization/router.py
+  548bbc2fac5894ec 10,72,103,146,181
+  777aa8cace8dc70e 178
+tracecat/settings/router.py
+  548bbc2fac5894ec 6,71,112,127,140,164,179,193,205,223,235,249
+tracecat/workflow/store/router.py
+  777aa8cace8dc70e 4,38,90,182,252
+tests/unit/test_service_accounts_pagination.py
+  1c4334265371b141 11,13-16,20,44,47,49,56-57,61,63-64,70-71,75,79-80
+frontend/src/components/organization/org-settings-service-accounts.tsx
+  1c4334265371b141 1-66
+tracecat/tags/router.py
+  777aa8cace8dc70e 6,22,34,53,72,93
+tracecat/audit/service.py
+  1c4334265371b141 17,189-191,220-221
+  507c8312207b9fff 187,192,215-216,219,222-223,227-228,247,249
+tracecat/authz/seeding.py
+  1c4334265371b141 93-94,96,99-100,102,105-106,108,111-114,210-211,213,216-217,219,222-223,225,228-231
+  507c8312207b9fff 92,95,97-98,101,103-104,107,109-110,115,209,212,214-215,218,220-221,224,226-227
+tracecat/api/app.py
+  1c4334265371b141 39-44,423,436
+tracecat/audit/enums.py
+  1c4334265371b141 8
+tracecat/audit/logger.py
+  507c8312207b9fff 59
+tracecat/authz/scopes.py
+  1c4334265371b141 92-96,130-134,158-161,230-234,258-261
+tracecat/agent/router.py
+  ea92e9bfa7e171cb 219
+tracecat/auth/credentials.py
+  1c4334265371b141 28,32,132,298,323-325,331-332,342,348-371,374-377,386,388-390,393,399
+  507c8312207b9fff 8,25,31,33,70,72-75,133-134,310-313,315-320,326,335-341,343-345,347,381-385,387,394,423-427,786-787,790,801,828-831,833-835,876,909,911,927-928,931,941-1013,1015-1017,1028-1029,1032,1037,1045-1119,1121,1132-1133,1136,1141,1146-1214,1216,1225-1226,1229,1234
+  777aa8cace8dc70e 291-292,373,891,900
+tracecat/auth/api_keys.py
+  507c8312207b9fff 11-12,16,32-54,116-133,138,140-157
+tracecat/db/models.py
+  507c8312207b9fff 277-278,970-974,977-1010,1012-1016,1026-1028,4030-4046,4052,4054,4056,4058-4063
+  1c4334265371b141 967-968,1022-1025,4050-4051,4053,4055,4057
+tracecat/workspaces/router.py
+  777aa8cace8dc70e 14,58,75,78-79,82-83,85,123
+  507c8312207b9fff 49
+  548bbc2fac5894ec 12,61,93,126
+tracecat/audit/types.py
+  1c4334265371b141 34-35
+frontend/src/client/services.gen.ts
+  1c4334265371b141 1345,1351,1354-1356,1359,1375,1379,1382-1384,1387,1400,1403,1406-1408,1411,1422,1424,1426,1429-1431,1434,1436,1446,1448,1451,1454-1456,1459,1461,1473,1475,1480-1482,1485,1487,3995,4000,4003-4005,4008,4021,4024,4027-4029,4032,4042-4043,4046-4047,4050,4055,4057-4058,4061-4063,4066,4068,4077,4079,4081,4084-4086,4089,4091,4102,4104,4108-4110,4113,4115
+frontend/src/components/sidebar/app-sidebar.tsx
+  1c4334265371b141 110,174-175,177-178
+frontend/src/app/workspaces/[workspaceId]/page.tsx
+  1c4334265371b141 43,60,91-92,112
+frontend/src/components/nav/controls-header.tsx
+  1c4334265371b141 940-941,946,964,1293,1295-1296
+frontend/src/components/sidebar/organization-sidebar.tsx
+  1c4334265371b141 44,73-74,76-77
+tests/unit/test_auth_credentials_api_keys.py
+  507c8312207b9fff 1-14,16-17,19-27,29-44,48-51,53-72,74-76,79-81,84,86-97
+  1c4334265371b141 28,45-47,77-78
+  777aa8cace8dc70e 85,98-108,110-114,116-136
+tests/unit/test_auth_api_keys.py
+  507c8312207b9fff 9-10,12-13,40-56
+tests/unit/api/conftest.py
+  1c4334265371b141 27
+  777aa8cace8dc70e 66
+tracecat/auth/dependencies.py
+  777aa8cace8dc70e 4,9,28,73,75-77
+  507c8312207b9fff 21
+tests/unit/test_role_headers.py
+  507c8312207b9fff 65-66,76,78-79,84-88,90
+  777aa8cace8dc70e 3-6,24-25,69-75,80-81,92,94,98-99
+  1c4334265371b141 1,26,49,64,77,82-83,89,102,140,165
+tracecat/auth/types.py
+  1c4334265371b141 39,74-76,92,97,99-100
+  777aa8cace8dc70e 11
+  507c8312207b9fff 1,71-73,77,123-125
+frontend/src/client/types.gen.ts
+  1c4334265371b141 3-4,674-697,2434-2435,2517-2532,4296-4316,5035,5060,7703-7723,8123,8130,8133-8134,8138,8140,8144,8146-8147,8151,8153-8154,8159,8161-8162,8166,8906,8912,8915-8916,8919,8922,8924-8925,8928,8930-8931,8935,8937-8938,8941,11292,11294,11299,11307,11312,11320,11322,11327,11335,11337,11342,11350,11355,11363,11365,12686,12688,12693,12701,12706,12714,12720,12724,12726,12731,12739,12744,12752,12754
+frontend/src/client/schemas.gen.ts
+  1c4334265371b141 3-8,2948-2958,2962-2965,2976-2982,2993,2997-3003,3007,3041,3045-3047,8400,8404,8460,8650-8661,8670-8673,8682-8700,13827,13838-13842,13864,13866,13868,13870,13872,13876,13882,13906,13930-13932,13944-13956,13963-13964,13979-13985,14002,14018,16171,16227-16228,16238-16240,16249-16251,16286-16296,17573,17575,17578-17583,17589,17591,17594-17596,17602,17606-17608,17615,17618,17620-17626,17630-17632,17635,17637,17639-17641,17643,17645-17646,17648,17650-17651,17653,17656,17663,17672,17674-17680,17684-17687,17689,17701,17706,17710,25304-25306,25317-25321,25341,25409-25411,25415-25419
+alembic/versions/548aa7691799_add_api_key_tables.py
+  1c4334265371b141 1,17,22,39,43,48,65,68,74,78,80,83-84,87-90,93-94,100,130,142,146-148,151-152,155-156,158,161-163,166-170,174-175,186,207-209,213,215,219-220,224-227,229,232-233,236,238-239,242-243,245
+  507c8312207b9fff 2-3,5-14,19-21,24-38,40-42,44-47,49-64,66-67,69-73,76-77,79,81,85-86,91-92,95,98-99,101-129,131-141,143-145,149,153-154,157,159-160,164-165,172-173,176-185,187-206,210-212,214,216-218,221-223,228,230-231,234-235,237,240-241,244,246-247
+tracecat/db/tenant_rls.py
+  1c4334265371b141 79-80,82
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.12",
+  "base_commit_sha": "cefc0210acbb178046edc1ec0a475d8fa132f84c",
+  "prompts": {
+    "1c4334265371b141": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019cdf2e-45e5-7f80-9e60-98171c812a46",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 3656,
+      "total_deletions": 5113,
+      "accepted_lines": 2310,
+      "overriden_lines": 0
+    },
+    "507c8312207b9fff": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019cde2d-d564-7ff1-864b-902e369a8aba",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 768,
+      "overriden_lines": 0
+    },
+    "548bbc2fac5894ec": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019ce827-afa3-7a51-96f9-507ff1cf4015",
+        "model": "unknown"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 34,
+      "total_deletions": 34,
+      "accepted_lines": 34,
+      "overriden_lines": 0
+    },
+    "777aa8cace8dc70e": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019ce38c-f7fb-7973-93ad-4134736c57f0",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 78,
+      "total_deletions": 0,
+      "accepted_lines": 1001,
+      "overriden_lines": 0
+    },
+    "ea92e9bfa7e171cb": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019ce519-7eea-7b20-8289-1a86594faef9",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 11,
+      "total_deletions": 23,
+      "accepted_lines": 1,
+      "overriden_lines": 0
+    },
+    "f6fffe411dae6b91": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019ce827-5791-72e0-a560-f2736741880c",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 8,
+      "total_deletions": 10,
+      "accepted_lines": 8,
+      "overriden_lines": 0
+    },
+    "fd0744485ce6863b": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9a661935-8600-4fc9-9e3a-33a3afbfb57d",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 8,
+      "total_deletions": 17,
+      "accepted_lines": 0,
+      "overriden_lines": 0
+    }
+  }
+}

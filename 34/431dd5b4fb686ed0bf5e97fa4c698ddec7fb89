@@ -1,0 +1,23 @@
+tests/unit/test_workspace_service.py
+  10fff343a650a5c8 8,211,217-218,224,227-228,233,235,238-244
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.11",
+  "base_commit_sha": "34431dd5b4fb686ed0bf5e97fa4c698ddec7fb89",
+  "prompts": {
+    "10fff343a650a5c8": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019ce7ce-48ae-77e1-b37b-e768cc07474a",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 21,
+      "total_deletions": 36,
+      "accepted_lines": 17,
+      "overriden_lines": 0
+    }
+  }
+}

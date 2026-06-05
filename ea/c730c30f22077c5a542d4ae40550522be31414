@@ -1,0 +1,23 @@
+tests/temporal/test_payload_encryption.py
+  da254da91bec9d15 1-288
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.2",
+  "base_commit_sha": "eac730c30f22077c5a542d4ae40550522be31414",
+  "prompts": {
+    "da254da91bec9d15": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019dacd9-b4ae-7383-9ea7-4991514c6f0f",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 288,
+      "overriden_lines": 0
+    }
+  }
+}

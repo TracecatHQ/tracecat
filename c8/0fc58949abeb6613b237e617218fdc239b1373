@@ -1,0 +1,37 @@
+tracecat/tiers/defaults.py
+  a870a4d6f231dc3b 7,11,26-41,49-53,62-81
+tracecat/api/app.py
+  a870a4d6f231dc3b 135-136,187-191
+scripts/cluster
+  a870a4d6f231dc3b 332,717
+tracecat/tiers/service.py
+  a870a4d6f231dc3b 6,13,22,93-131
+tests/unit/test_tier_defaults.py
+  a870a4d6f231dc3b 4,6,51-84
+docker-compose.dev.yml
+  a870a4d6f231dc3b 50
+.env.example
+  a870a4d6f231dc3b 161-163
+tests/unit/test_tier_entitlements.py
+  a870a4d6f231dc3b 12-13,23,166-227
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.5",
+  "base_commit_sha": "c80fc58949abeb6613b237e617218fdc239b1373",
+  "prompts": {
+    "a870a4d6f231dc3b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019d6d97-9b6f-76a0-9530-66f50099731d",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 218,
+      "total_deletions": 14,
+      "accepted_lines": 204,
+      "overriden_lines": 0
+    }
+  }
+}

@@ -1,0 +1,1419 @@
+packages/tracecat-ee/tracecat_ee/agent/workflows/durable.py
+  2da528cda642a53b 10,16,24-30,35,41-42,45,58,61-63,78-105,130-133,226-231,282-303,322-323,359,362,367-368,372,387,418-429,431-437,469,471,478-479,484,503,508,513,515,520,522,560-562,593,598,690-775
+packages/tracecat-registry/tracecat_registry/core/table.py
+  2da528cda642a53b 287-292
+docs/agents/ai-action.mdx
+  2da528cda642a53b 1-157
+tracecat/cases/durations/service.py
+  2da528cda642a53b 28,614-625,681-694
+deployments/fargate/variables.tf
+  2da528cda642a53b 59,231-248,266-271,310,409,414,439-460,501,510,512-519,534-587,610-615,632-715,796-801
+tracecat/cases/router.py
+  2da528cda642a53b 16,105-111,195-198,210,243-268,334-337,373,406-431,541,615,623-627,634,637,827-828,852-864,877-880
+packages/tracecat-registry/tracecat_registry/integrations/crowdstrike_falconpy.py
+  2da528cda642a53b 9,59-66,68
+frontend/src/components/cases/case-panel-selectors.tsx
+  2da528cda642a53b 3,337-338,369,391-392,420,426-427
+tracecat/expressions/ioc_extractors/email.py
+  2da528cda642a53b 34-35
+tracecat/auth/executor_tokens.py
+  2da528cda642a53b 11,64,76
+tracecat/agent/runtime/claude_code/adapter.py
+  2da528cda642a53b 84-88,93,217-222
+pyproject.toml
+  2da528cda642a53b 7,24,26,31-33,37,43,46,50,73,75,94,97-98,101,105-107,111-115,122-123,132,192
+tracecat/workflow/tags/service.py
+  2da528cda642a53b 3,5,8,17-35,37-45,54-63,73
+tracecat/mcp/oidc/session.py
+  2da528cda642a53b 1-153
+tracecat/temporal/__init__.py
+  2da528cda642a53b 1
+deployments/fargate/modules/ecs/alb.tf
+  2da528cda642a53b 123-149,367-481,485,545-553
+deployments/fargate/modules/ecs/iam.tf
+  2da528cda642a53b 157-193,249-253,310-315,373-378,443-572
+tracecat/agent/common/output_format.py
+  2da528cda642a53b 13-17,41-87,97-103,114
+docs/cheatsheets/functions.mdx
+  2da528cda642a53b 2-3,6-91
+docs/tools/aws_boto3.mdx
+  2da528cda642a53b 1-93
+tests/unit/test_dynamic_workspace_service_rls.py
+  2da528cda642a53b 1-246
+tracecat/workflow/executions/common.py
+  2da528cda642a53b 3,7,21,112-126,266-287,330,406-414
+tracecat/__init__.py
+  2da528cda642a53b 3
+tests/integration/test_install_and_run_custom_remote_registry_flow.py
+  2da528cda642a53b 35,41-196,249-251,353
+.github/workflows/publish-release.yml
+  2da528cda642a53b 8-10,14-16,19-24,28-29,41-44,48,128,162,166-198
+packages/tracecat-ee/tracecat_ee/agent/approvals/service.py
+  2da528cda642a53b 26,723,726-730
+.config/wt.toml
+  2da528cda642a53b 6
+docs/automations/cases.mdx
+  2da528cda642a53b 2-3,6-7,9,11-51,53,55-56,58-61,63,65-66,68,70-71,73,75-76,78,80-197
+frontend/src/components/sidebar/admin-sidebar.tsx
+  2da528cda642a53b 63-68
+tests/unit/test_webhook.py
+  2da528cda642a53b 14,431,461,490
+tracecat/agent/mcp/executor.py
+  2da528cda642a53b 1,5-12,14,16-21,25,33,36-42,53-78,84,86,112,115-135,137,140,144-149,164,167-170,179-249
+.github/workflows/test-python.yml
+  2da528cda642a53b 43,46,49,54,67,77,80,87,91-95,97,123,129,131
+docs/automations/core-concepts/variables.mdx
+  2da528cda642a53b 1-59
+deployments/fargate/modules/ecs/ecs-mcp.tf
+  2da528cda642a53b 1-10,12-14,17-50,52-58,60-67,70-81,85-90,95-99,101-104
+docs/tools/microsoft_defender_endpoint.mdx
+  2da528cda642a53b 1-1083
+frontend/src/components/builder/canvas/selector-node.tsx
+  2da528cda642a53b 14,55-58,221,317,321-324,478-521,526-529,535,545-547
+frontend/tests/cases-feed-event.test.tsx
+  2da528cda642a53b 97,105-106
+packages/tracecat-registry/tracecat_registry/templates/tools/terraform_cloud/get_workspace_details.yml
+  2da528cda642a53b 44
+docs/self-hosting/environment-variables.mdx
+  2da528cda642a53b 2-3,6,8,10-15,17,20-30,33-53
+docs/automations/core-actions/case-actions/attachments.mdx
+  2da528cda642a53b 1-490
+tests/unit/test_oauth_state.py
+  2da528cda642a53b 14,60
+docs/tools/google_api.mdx
+  2da528cda642a53b 1-37
+frontend/src/components/cases/cases-layout.tsx
+  2da528cda642a53b 7-8,63-66,106-109,271-290,336-339,414-416
+deployments/fargate/modules/ecs/security_groups.tf
+  2da528cda642a53b 75-82,124-127
+docs/tools/ipinfo.mdx
+  2da528cda642a53b 1-4,6-7,9,11,13,15,17,19,21,23,25,27
+tests/unit/test_executor_manifest_resolution.py
+  2da528cda642a53b 4,11-12,228-231,242-316
+.github/ISSUE_TEMPLATE/bug_report.md
+  2da528cda642a53b 42
+tracecat/chat/constants.py
+  2da528cda642a53b 8-10
+tracecat/mcp/README.md
+  2da528cda642a53b 6-10,13,21-22,27,49,55-57,67,71,77,81,87-88,92-102,105,111,122,124,126-138
+frontend/src/components/workspaces/workspace-credentials-inventory.tsx
+  2da528cda642a53b 47,70-73,293-295,299-305,315-319,322-328,465-516,522,528,538
+tests/unit/test_agent_mcp_utils.py
+  2da528cda642a53b 1-31
+scripts/cluster
+  2da528cda642a53b 214,224-225,247-248,432-445,449-470
+docs/tools/google_drive.mdx
+  2da528cda642a53b 1-357
+scripts/generate_tool_docs.py
+  2da528cda642a53b 1-30,34-237,239-242,244-247,249,252-254,257-258,261-265,268-276,279-287,289-319,321-322,324,327-333,336-341,344-345,348-430
+docs/automations/core-actions/memory-actions/filesystem.mdx
+  2da528cda642a53b 2-3,7-8,11-12
+frontend/src/components/cases/case-description-editor.tsx
+  2da528cda642a53b 16,25,78
+tracecat/agent/sandbox/llm_proxy.py
+  2da528cda642a53b 4-6,13-14,16-17,20-21,23-26,54,56-82,86,95,97-100,106,108-113,116-120,125-156,164-165,172,175-178,194,204,217-227,232,236-257,275,278,286,305,315,381,384-388,390-445,448,453-472,474-476,478-479,488-498,500-559,561-562,564-577,579-587,589-623,626-657
+tests/unit/test_agent_mcp_executor.py
+  2da528cda642a53b 1-175
+frontend/src/components/admin/platform-registry-settings.tsx
+  2da528cda642a53b 20,25,99
+docs/automations/integrations/prebuilt-credentials.mdx
+  2da528cda642a53b 1-70
+docs/tools/abuseipdb.mdx
+  2da528cda642a53b 1-35
+tests/unit/test_agent_runtime_services.py
+  2da528cda642a53b 1-87
+tracecat/tables/service.py
+  2da528cda642a53b 19-20,47,49,56,77-108,121,124-137,150-193,264,266-269,290,359,364-377,400,428-433,443-445,468,483,509-519,543-544,555,557-559,566,582,585-586,622-627,659-664,675-679,695,698-705,707-710,713-714,717-727,729,732-733,752-753,769,780,792,806,814,857,892,982,1081,1083-1084,1086-1093,1095,1170-1171,1174-1181,1306,1922,1926-1946,1948-1951,1963-1971,1985-1987,1994,1996-1998,2008,2011-2012,2026,2041,2045-2046,2051-2064,2080,2090,2099,2103,2106,2109,2111,2116,2120-2121,2128,2133,2144,2195,2219-2223,2248,2269-2273,2302,2327,2329-2332,2334-2362
+tracecat/agent/stream/connector.py
+  2da528cda642a53b 142,147,161,237,239
+tracecat/agent/preset/internal_router.py
+  2da528cda642a53b 55-56,71-72
+tracecat/mcp/schemas.py
+  2da528cda642a53b 7,13-14,159-177
+frontend/src/components/ui/hover-card.tsx
+  2da528cda642a53b 16-27
+tests/unit/test_vercel_stream_context.py
+  2da528cda642a53b 27-31,352-385
+frontend/src/lib/git.ts
+  2da528cda642a53b 4,25-27,30,35,93
+docs/tools/servicenow.mdx
+  2da528cda642a53b 2-3,6-7,9,11,13,15,17,19,21,23,25,27,29,31,33,35,37,39,41,43,45,47,49,51,53,55,57-215
+frontend/src/components/cases/case-duration-options.ts
+  2da528cda642a53b 8,10-12,86-115,189-194
+tests/migration/test_dynamic_workspace_rls_migration.py
+  2da528cda642a53b 1-1233
+tests/unit/test_agent_session_messages.py
+  2da528cda642a53b 1-76
+tests/unit/test_registry_lock_resolution.py
+  2da528cda642a53b 14-15,17-18,25,28,30,32,67-95,99,101,113-139,163-180
+frontend/src/components/cases/cases-feed.tsx
+  2da528cda642a53b 37-38,67-99,247-260
+tests/unit/test_agent_sandbox_litellm.py
+  2da528cda642a53b 1-1235
+tests/unit/test_executor_activities.py
+  2da528cda642a53b 115,130-131
+frontend/src/components/cases/case-panel-view.tsx
+  2da528cda642a53b 23,69,126,128-131,209-238,664-696
+tests/unit/test_tenant_rls_registry.py
+  2da528cda642a53b 3,5,9-10,20,88-110
+tracecat/mcp/auth.py
+  2da528cda642a53b 12,15,17-19,21-23,32-33,47-50,52-54,63-70,93-97,115-123,134,183-225,312-384,654-665,667-684,689-713,719,721-725,727-729,749,753,768,781,783-802,804,808,811,814,816-824,827-828,830-831,833,835-852,888-892,921-924,926-958,1022,1024,1033-1035,1038-1039,1043,1045-1048,1050-1054,1058-1062,1065,1092,1113,1132,1193,1219-1222
+tests/unit/test_agent_executor_loopback.py
+  2da528cda642a53b 3,9,13-14,38-50,53,133-178,250-375
+tests/unit/test_action_runner.py
+  2da528cda642a53b 32,93-97,328,355,386,427,483,533,570,577-608
+packages/tracecat-registry/tracecat_registry/core/transform.py
+  2da528cda642a53b 16-17,19-20,22-32,37,47,135,138,140-141,143-145,147-153,217
+tracecat/registry/actions/service.py
+  2da528cda642a53b 77,167-182,234-237,245-252,260,392-394,1036-1041,1049,1059-1067,1079
+tracecat/secrets/enums.py
+  2da528cda642a53b 8,10-11
+packages/tracecat-registry/tracecat_registry/templates/tools/okta_oar/create_message.yml
+  2da528cda642a53b 15
+packages/tracecat-registry/tracecat_registry/templates/tools/okta_oar/get_user.yml
+  2da528cda642a53b 15
+alembic/env.py
+  2da528cda642a53b 33,37
+docs/tools/virustotal.mdx
+  2da528cda642a53b 1-123
+tracecat/custom_fields/schemas.py
+  2da528cda642a53b 14,32,58
+alembic/versions/3431033d29fd_unify_secret_type_casing_to_snake_case.py
+  2da528cda642a53b 1-44
+tracecat/agent/runtime/claude_code/runtime.py
+  2da528cda642a53b 18,20-21,29,34,52-56,63-64,66-67,69-116,118-136,138-142,170-172,174-187,204-213,230-280,300-301,303-304,314,329-392,398,403,415-420,427-430,459-460,483-484,543,575,626-641,643,646-682,684,688-696,709-720,722-723,737-739,741-742,744,746-758,790,820-824,826-838,840-847,854,858,866,872-874,878,891,897-900,902,904,908,914-916,950,952-953,955-977,979,981-996,998-1000,1003-1005,1013,1028-1031,1033,1039,1043
+packages/tracecat-registry/tracecat_registry/core/python.py
+  2da528cda642a53b 11,59
+tracecat/registry/sync/jobs.py
+  2da528cda642a53b 106-119
+docs/tools/microsoft_teams.mdx
+  2da528cda642a53b 1-313
+docs/automations/integrations/oauth-integrations.mdx
+  2da528cda642a53b 1-76
+frontend/src/components/tags-input.tsx
+  2da528cda642a53b 9,61-62,144-149,152,213,293-294,298,309-321
+docs/agents/ai-slackbot.mdx
+  2da528cda642a53b 2-4,7,9
+frontend/tests/chat-session-pane.test.tsx
+  2da528cda642a53b 317,382,467,542,606,617
+tests/temporal/test_payload_encryption.py
+  2da528cda642a53b 1-288
+tests/unit/test_registry_resolver.py
+  2da528cda642a53b 231-271
+tests/unit/test_temporal_codec.py
+  2da528cda642a53b 1-1012
+tracecat/dsl/schemas.py
+  2da528cda642a53b 67
+packages/tracecat-registry/tracecat_registry/templates/tools/jira/assign_issue.yml
+  2da528cda642a53b 15
+AGENTS.md
+  2da528cda642a53b 1,3-4,6,8-26,34-35,38,43-46,52-58,60,62,65-74,77-80,84-87,91,93,97-101,103-104,107,109-111,113-114,117,120-128,131-132,153-155,157,166-254
+docs/tools/sublime.mdx
+  2da528cda642a53b 1-131
+frontend/src/components/cases/cases-header.tsx
+  2da528cda642a53b 12,26-27,39,392-395,448-451,491,495,509,512,610-620,624-625
+tests/unit/test_workflow_definitions_activities.py
+  2da528cda642a53b 11,57-90
+tests/unit/test_registry_core_ssh.py
+  2da528cda642a53b 1-97
+docs/tools/alertmedia.mdx
+  2da528cda642a53b 1-495
+alembic/versions/b742858f7d69_add_mcp_refresh_token_table.py
+  2da528cda642a53b 1-108
+packages/tracecat-registry/tracecat_registry/core/email.py
+  2da528cda642a53b 176
+tracecat/config.py
+  2da528cda642a53b 132-146,272,337,366-389,663-675,681-730,737-743
+docs/tools/google_docs.mdx
+  2da528cda642a53b 1-95
+docs/tools/google_secops_soar.mdx
+  2da528cda642a53b 1-603
+frontend/src/components/builder/canvas/graph-layout.ts
+  2da528cda642a53b 1-115
+tests/unit/api/test_api_workflow_tags.py
+  2da528cda642a53b 1-60
+frontend/src/lib/agent-presets.ts
+  2da528cda642a53b 49
+frontend/tests/canvas-toolbar.test.tsx
+  2da528cda642a53b 1-110
+tracecat/agent/runtime/claude_code/session_paths.py
+  2da528cda642a53b 1-44
+tests/unit/test_build_agent_args.py
+  2da528cda642a53b 260-302
+frontend/src/lib/case-field-display.ts
+  2da528cda642a53b 1-162
+docs/tools/gmail.mdx
+  2da528cda642a53b 1-213
+tracecat/auth/credentials.py
+  2da528cda642a53b 35,268
+tracecat/chat/enums.py
+  2da528cda642a53b 24-26
+tests/unit/test_git.py
+  2da528cda642a53b 39-48,158-175
+tracecat/executor/minimal_runner.py
+  2da528cda642a53b 105,121,137,149,162,180,195,213,253-255,284,316-318,328,345-366,369-373,376,378,382-390,398-399,410,428,430-431,433-434,441-442
+tracecat/workflow/management/management.py
+  2da528cda642a53b 11,34,85-96,294-299,379-389,944,1042-1043,1048
+tests/unit/api/test_api_secrets.py
+  2da528cda642a53b 157,164-181
+docs/automations/core-actions/case-actions/linked-rows.mdx
+  2da528cda642a53b 1-162
+docs/deployment/overview.mdx
+  2da528cda642a53b 2-3,6,8
+frontend/tests/org-settings-custom-registry-form.test.ts
+  2da528cda642a53b 25-38,48,95
+tests/unit/test_secrets.py
+  2da528cda642a53b 364-365,392,396-397
+tracecat/executor/worker.py
+  2da528cda642a53b 45,157
+packages/tracecat-registry/tracecat_registry/core/agent.py
+  2da528cda642a53b 60,73,76-77,85-87,132-134,145-149,157-161,171-176,180-191,200,234-239,248-251,301-306,345-348
+docs/tools/tavily.mdx
+  2da528cda642a53b 1-51
+docs/automations/core-concepts/functions.mdx
+  2da528cda642a53b 1-50
+justfile
+  2da528cda642a53b 88-97
+tracecat/custom_fields/service.py
+  2da528cda642a53b 14,17-27,64-106,131,190,194,196-197
+tracecat/dsl/common.py
+  2da528cda642a53b 75,1081-1083,1087-1088,1124-1138,1140,1144-1150,1154,1160
+docs/tools/caldera.mdx
+  2da528cda642a53b 1-807
+tracecat/agent/litellm.py
+  2da528cda642a53b 1-72
+deployments/fargate/README.md
+  2da528cda642a53b 31,38-39,43-44,51,53-55,72,77
+docs/automations/core-concepts/jsonpath.mdx
+  2da528cda642a53b 2-3,6,8,10,12,14-26,28,30-42,44,46,48-62,64,66,68-80,82,84,86,89-101,104,106-108,111-119,121-132
+docs/tools/sentinel_one.mdx
+  2da528cda642a53b 1-719
+tests/unit/test_registry_sync_base_service.py
+  2da528cda642a53b 8-9,13-14,20-23,27-28,101-109,154-303
+.gitmodules
+  2da528cda642a53b 1-4
+frontend/tests/graph-layout.test.ts
+  2da528cda642a53b 1-143
+packages/tracecat-registry/tracecat_registry/templates/tools/terraform_cloud/list_workspaces.yml
+  2da528cda642a53b 44
+tests/temporal/test_workflow_timers.py
+  2da528cda642a53b 500-501,506-507
+tests/unit/test_agent_internal_tools.py
+  2da528cda642a53b 4,8,12-13,57,64-89,135-137,151-155,191-193,207-211,221-309
+tracecat/agent/config.py
+  2da528cda642a53b 178-190,300-306,335,342-363,382-418
+frontend/src/hooks/use-chat.ts
+  2da528cda642a53b 9,455
+frontend/src/components/admin/admin-org-registry-table.tsx
+  2da528cda642a53b 18,44-46,49
+frontend/src/components/tables/cell-display.tsx
+  2da528cda642a53b 6-15,52-53,55-60,63-75,77-81,93-95,116-117,142-144,146,148-157,159
+frontend/tests/memo-render-count.test.tsx
+  2da528cda642a53b 1-408
+packages/tracecat-registry/tracecat_registry/templates/tools/jira/get_priority_schemes.yml
+  2da528cda642a53b 15
+frontend/src/components/workspaces/create-credential-dialog.tsx
+  2da528cda642a53b 227,271,301,368-380,398,478,487,658,670,848,869
+frontend/src/components/builder/panel/action-panel-fields.tsx
+  2da528cda642a53b 26-29,81,595,598,645-653,659-723,725-739,741-749,760-761,776-777,784-796
+tracecat/agent/executor/schemas.py
+  2da528cda642a53b 1-42
+tracecat/git/types.py
+  2da528cda642a53b 11,16
+scripts/generate_functions_docs.py
+  2da528cda642a53b 1-159
+frontend/src/hooks/use-entitlements.ts
+  2da528cda642a53b 10-14,19-21,29,38,42
+packages/tracecat-registry/tracecat_registry/templates/tools/confluence/get_page_by_title.yml
+  2da528cda642a53b 52
+frontend/src/components/tables/table-insert-row-dialog.tsx
+  2da528cda642a53b 51-61,65-75,244
+packages/tracecat-registry/tracecat_registry/templates/tools/okta/list_groups_in_org.yml
+  2da528cda642a53b 15
+tests/unit/conftest.py
+  2da528cda642a53b 1
+tests/unit/test_agent_sandbox_config.py
+  2da528cda642a53b 1-66
+frontend/package.json
+  2da528cda642a53b 91,105,132,177-178,181-186,189-203
+deployments/fargate/modules/ecs/variables.tf
+  2da528cda642a53b 111,283-300,318-323,362,491-512,553,562,564-571,586-639,662-667,684-765,876
+docs/automations/tracecat-mcp.mdx
+  2da528cda642a53b 1-106
+frontend/src/components/cases/case-task-dialog.tsx
+  2da528cda642a53b 270-277
+packages/tracecat-registry/tracecat_registry/templates/tools/okta/add_to_group.yml
+  2da528cda642a53b 15
+tracecat/agent/runtime/claude_code/transport.py
+  2da528cda642a53b 1-353
+packages/tracecat-registry/tracecat_registry/core/grpc.py
+  2da528cda642a53b 67,81
+tracecat/git/constants.py
+  2da528cda642a53b 4,6
+docs/AGENTS.md
+  2da528cda642a53b 1-13,15-20,22-81
+docs/automations/core-actions/request-actions/http.mdx
+  2da528cda642a53b 1-429
+docs/tools/hibp.mdx
+  2da528cda642a53b 1-131
+docs/tools/wazuh.mdx
+  2da528cda642a53b 2-3,6-7,9,11,13,15,17,19,21,23,25,27,29,31,33,35,37,39,41,43,45,47,49,51,53,55,57-97
+docs/automations/actions.mdx
+  2da528cda642a53b 2-3,6,8,10,12,14-15,17,19,21,23,25,27,29-37,39,41,43,45-47,49,51,53,55,57,59,61-69,71-88,90,92-105,108-117,119-125,127-133,135-183
+docs/snippets/generate-secrets.mdx
+  2da528cda642a53b 1-15,18-19
+frontend/src/lib/sql-value-validation.ts
+  2da528cda642a53b 1-3,5-10,13-18
+packages/tracecat-registry/tracecat_registry/templates/tools/terraform_cloud/apply_run.yml
+  2da528cda642a53b 39
+frontend/src/hooks/use-organization.ts
+  2da528cda642a53b 14-18,26
+tracecat/authz/seeding.py
+  2da528cda642a53b 237-242
+tracecat/webhooks/router.py
+  2da528cda642a53b 15-16,90-98,397-409,414-425,447-456
+frontend/src/components/builder/panel/workflow-panel.tsx
+  2da528cda642a53b 385
+docs/automations/core-concepts/workflow-definition.mdx
+  2da528cda642a53b 2-3,6,9,11-17,20-27,30,32-44,46,48-50,52-54,56-58,60-62,64-66,68-70,72-74,76-78,80,82-91,93,95-99,101,103-105,107-109,111-113,115-116,118-119,121-123,125-128,130-132,134-136,138-140,142-144,146-148,150,152-162,165,167,169,171,173-192,195-197,200-231,233,235-266,268-270,272,274,276-292,294,296,298,300-307,309,311,313-351
+docs/tools/pymongo.mdx
+  2da528cda642a53b 1-47
+frontend/src/lib/data-type.ts
+  2da528cda642a53b 8,10,15,37-57
+frontend/src/lib/sql-value-validation.test.ts
+  2da528cda642a53b 1-37
+.github/docker-compose.integration.yml
+  2da528cda642a53b 1-16
+tracecat/secrets/common.py
+  2da528cda642a53b 17-19
+tests/unit/api/test_api_workflows.py
+  2da528cda642a53b 24,221-310
+docs/tools/ldap.mdx
+  2da528cda642a53b 1-181
+tests/unit/test_workflow_executions.py
+  2da528cda642a53b 22-23,25,33,35,212-213,247,397-442,725-726,834-835,921-922,1239-1240,1759-1760,1780,1787-1829,1849,1856-1857,1871,1915-1971
+tracecat/expressions/functions.py
+  2da528cda642a53b 1275-1282
+.env.example
+  2da528cda642a53b 50,52,108,138,140,146,148-151,156
+docs/self-hosting/architecture.mdx
+  2da528cda642a53b 1-4,6,8,10-26,28,30,32,34-40,42,44,46,48,50,52,54-59,61,63,65,67-69,71,73,75,77,79,81,83,85-87,89-90,92-93,95-96,98-100,102-103,105-107
+tracecat/registry/sync/service.py
+  2da528cda642a53b 10,15
+docs/tools/linear.mdx
+  2da528cda642a53b 1-55
+tracecat/agent/worker.py
+  2da528cda642a53b 1,11,28,34,83,97,99,101-107,109-122,124-141
+.github/workflows/run-integration-tests.yml
+  2da528cda642a53b 13,27,41-47,51,55,60,65,87-92,94-95,98,101,105-107,110,114-118,120,129,131,138-154,164,184,191-194,205,207-208,212-213,216,219,222,225,228,231,234,237,241-242,244
+tests/unit/test_repositories.py
+  2da528cda642a53b 13,18,39
+frontend/src/components/cases/case-item.tsx
+  2da528cda642a53b 7,19,22-23,37,43,64-69,71-73,77-152,163-165,178-180,198-303,557-618,620-624,626-636,638-639,641-647,753,760,764,777
+docs/docs.json
+  2da528cda642a53b 3-4,6-12,20-21,23-24,28-29,31-106,108,110-115,119,121-123,126-127,129,131-132,134-167,173,176-177,179-244,249,253-322,325-326,329-386,390-391,393-394,397-402,404-406,409-419
+docs/automations/core-actions/request-actions/sql.mdx
+  2da528cda642a53b 1-95
+docs/automations/core-actions/workflow-actions/run-subflow.mdx
+  2da528cda642a53b 1-134
+alembic/versions/bf38f2aa1c77_add_required_on_closure_to_dropdown_.py
+  2da528cda642a53b 1-35
+frontend/tests/case-field-display.test.ts
+  2da528cda642a53b 1-43
+docs/tools/terraform.mdx
+  2da528cda642a53b 1-421
+packages/tracecat-registry/tracecat_registry/core/ssh.py
+  2da528cda642a53b 6,17,33-42,96-109,125-127,135-161
+tests/temporal/test_durable_agent_workflow.py
+  2da528cda642a53b 17,25,27-32,45,60-64,66,70-71,73,75,187-188,191-198,201-212,215-220,222,224,226,231,239,250-251,357,382-385,388,507-1406
+frontend/src/client/services.gen.ts
+  2da528cda642a53b 456,857,875-877,879,3176,6761-6762,6766-6779,7636-7637,7654-7655,7713-7714,7743-7744
+docs/tools/rootly.mdx
+  2da528cda642a53b 1-247
+tracecat/mcp/oidc/schemas.py
+  2da528cda642a53b 1-64
+packages/tracecat-registry/tracecat_registry/context.py
+  2da528cda642a53b 21,112-115
+tracecat/secrets/router.py
+  2da528cda642a53b 127,129-133
+docs/automations/core-actions/case-actions/cases.mdx
+  2da528cda642a53b 1-713
+docs/automations/core-actions/case-actions/tasks.mdx
+  2da528cda642a53b 2-3,6,8,10,12,14,16,18,20,22,24,26,28-40,42,44,46,48,50,52,54,56,58,60,62,64,66,68,70,72,74,76,78-111,114-164,166-215,218,220,222,224,226,228,230,232,234,236,238,240,242,244,246,248,250,252,254,256,258,260,262,264,266,268,270,272,274,276,278,280,282,284,286,288,290,292-376
+docs/custom-actions/custom-registry.mdx
+  2da528cda642a53b 2-3,6,8,10-12,14,16-17,19,21-23,25-30,32-33,35-40,42-46,48,50-51,53,55,57,59-62,64-66,68-70,72,74-77,79-81,83-84,86-101
+frontend/src/components/tables/ag-grid-table.tsx
+  2da528cda642a53b 8,28,32,52,77,118,124-127,236-247,252,259,285-293,298,311-313,315-318,321,326,336-339,342,347
+tests/unit/api/test_api_tables.py
+  2da528cda642a53b 245-266,347-369
+tracecat/agent/sandbox/config.py
+  2da528cda642a53b 8,13,16-17,19,123-125,138-139,224,226-229,241-248,259-262,268-287,311-313,366-370,372-376,380-407,422,427-428,448-449
+docs/automations/core-actions/transform-actions/require.mdx
+  2da528cda642a53b 1-48
+frontend/src/components/workspaces/edit-workspace-secret.tsx
+  2da528cda642a53b 65,69,93,95
+packages/tracecat-registry/tracecat_registry/templates/tools/jira/update_issue_status.yml
+  2da528cda642a53b 21
+tracecat/mcp/middleware.py
+  2da528cda642a53b 15
+tracecat/mcp/oidc/storage.py
+  2da528cda642a53b 1-199
+docs/automations/triggers/comment-triggers.mdx
+  2da528cda642a53b 1-53,56
+frontend/src/components/settings/workspace-sync-settings.tsx
+  2da528cda642a53b 74
+docs/custom-actions/python-udf.mdx
+  2da528cda642a53b 1-4,6-10,14,16-18,29-31,37,44,52-113
+packages/tracecat-ee/tracecat_ee/agent/schemas.py
+  2da528cda642a53b 1,17,32,47
+packages/tracecat-registry/tracecat_registry/templates/tools/okta/assign_group_to_app.yml
+  2da528cda642a53b 15
+packages/tracecat-registry/tracecat_registry/templates/tools/okta/get_group_members.yml
+  2da528cda642a53b 15
+tests/unit/test_rbac_service.py
+  2da528cda642a53b 17-18,345-429
+docs/snippets/environment-variables.mdx
+  2da528cda642a53b 1-96
+tests/unit/test_agent_output_format.py
+  2da528cda642a53b 1-82
+tracecat/workflow/tags/router.py
+  2da528cda642a53b 40-46
+deployments/fargate/modules/ecs/secrets.tf
+  2da528cda642a53b 1,6-12,30-33,127,211-215,246-251,254,256,294,324-331
+docs/tools/okta.mdx
+  2da528cda642a53b 1-761
+frontend/tests/git.test.ts
+  2da528cda642a53b 8,13,20
+tracecat/executor/service.py
+  2da528cda642a53b 22,54-57,373-374,424,480,618-638,680,718-733,753
+docs/tools/runreveal.mdx
+  2da528cda642a53b 1-55
+tracecat/vcs/github/app.py
+  2da528cda642a53b 196,486,499-511
+packages/tracecat-ee/tracecat_ee/rbac/service.py
+  2da528cda642a53b 448-455,472-476
+packages/tracecat-registry/tracecat_registry/templates/tools/jira/create_issue.yml
+  2da528cda642a53b 50
+packages/tracecat-registry/tracecat_registry/integrations/ansible.py
+  2da528cda642a53b 14
+tracecat/cases/internal_router.py
+  2da528cda642a53b 55,144-147,158,184-202,263-266,317,329-347,390,454,497,525,865,1163,1170,1218-1220,1292-1294
+tracecat/api/app.py
+  2da528cda642a53b 37,50,98-100,112,165-170,402-404,479,516,556,591,679
+deployments/fargate/main.tf
+  2da528cda642a53b 24,57-70,89-92,134-137,147-148,151-161,169,177-195
+tracecat/cases/schemas.py
+  2da528cda642a53b 9,17,20-21,39-40,56-57,126-151,154-163,180-191,193-203,210-224,229-237
+alembic/AGENTS.md
+  2da528cda642a53b 1-108
+tests/temporal/test_workflows.py
+  2da528cda642a53b 2813-2914,3497
+docs/tools/urlscan.mdx
+  2da528cda642a53b 1-35
+packages/tracecat-registry/tracecat_registry/templates/tools/confluence/update_page.yml
+  2da528cda642a53b 105
+docs/tools/microsoft_entra.mdx
+  2da528cda642a53b 1-734
+docs/overview/getting-started.mdx
+  2da528cda642a53b 2,5-6,8-9,11,13-14,17-19,22-23,25-26,28,32,34,36,38,40-41,43
+tracecat/agent/observability.py
+  2da528cda642a53b 1-84
+docs/tools/hackerone.mdx
+  2da528cda642a53b 1-119
+frontend/src/components/cases/case-panel-common.tsx
+  2da528cda642a53b 35-38,42-46,70,77-78
+frontend/src/components/organization/org-secret-update.tsx
+  2da528cda642a53b 61,77
+packages/tracecat-registry/tracecat_registry/templates/tools/okta/activate_user.yml
+  2da528cda642a53b 15
+tracecat/agent/executor_worker.py
+  2da528cda642a53b 1-2,7-8,10,12,15-67,71-81,83-87,90-91,93-100,102-108,111-114,118-129
+docs/self-hosting/security.mdx
+  2da528cda642a53b 1-88
+tracecat/auth/sandbox.py
+  2da528cda642a53b 10,47
+frontend/src/hooks/use-case-column-visibility.ts
+  2da528cda642a53b 1,3-6,8-9,12-14,16-27,31-36,38-50,52,55-65,69-72,74-77,79-115,117-120,122-160,163-177
+tests/conftest.py
+  2da528cda642a53b 608-687,859-860,867,887,938,957,960-981,1043-1060,1182-1183
+tests/unit/test_agent_activities.py
+  2da528cda642a53b 11,15-17,19,24,27,38,42-43,81,95-143,206-261,461,557-592
+frontend/src/components/dashboard/table-actions.tsx
+  2da528cda642a53b 46,55,195-202
+tracecat/cases/tags/service.py
+  2da528cda642a53b 235-244,252-261
+tracecat/dsl/scheduler.py
+  2da528cda642a53b 657-671,687-698,703-704
+tracecat/exceptions.py
+  2da528cda642a53b 126-129
+tests/registry/test_agent.py
+  2da528cda642a53b 6,46,80,151-155
+tests/unit/test_registry_lock_service.py
+  2da528cda642a53b 26-31,126-153,532-707
+tracecat/mcp/oidc/config.py
+  2da528cda642a53b 1-94
+frontend/tests/cases-page.test.tsx
+  2da528cda642a53b 1-200
+tests/unit/test_workflow_import_service.py
+  2da528cda642a53b 21,370-433
+docs/agents/ai-agent.mdx
+  2da528cda642a53b 2-3,6,8,10,12-15,17,19,21-22,24,26,28-29,31,33,35,37,39,41,43,45,47,49-77,79,81,83,85,87,89,91,93,95,97,99-133,136-162,165,168-184,187,189,191,193,195,197,199,201-233,235-288,291-302,304-306,308-311
+frontend/src/components/cases/update-case-duration-dialog.tsx
+  2da528cda642a53b 16,29-58,69-70,94-95,99-100
+tracecat/executor/activities.py
+  2da528cda642a53b 9,22,42-57,123-134,137,152-156,268-274
+tracecat/cases/dropdowns/service.py
+  2da528cda642a53b 97
+docs/overview/introduction.mdx
+  2da528cda642a53b 2,5,7,9,11-13,15-16,18-19,21-22,24-25,27-28,30,32,34,36,38-40,42-43,45-46,48-49,51
+frontend/tests/tags-input.test.tsx
+  2da528cda642a53b 1-2,4-10,13-14,16-30,32-35,37-39
+deployments/fargate/scripts/create-aws-secrets.sh
+  2da528cda642a53b 12,15,24,30,36
+frontend/src/client/schemas.gen.ts
+  2da528cda642a53b 1257-1261,1412-1416,1725-1735,1945-1949,2107-2111,3408-3463,4712-4716,4766-4769,4783-4790,4846-4856,5871-5885,5893-5902,5910,5949-5963,5989,6028-6042,6050-6067,6145-6155,6349-6374,7223-7225,7245-7258,7265,7267-7268,10044-10046,12928-12934,14970-15080,15140-15161,15453-15456,15907-15912,16212-16222,16260-16308,17500,17535-17538,17703,17802,21370-21397,21608-21619,22557-22565
+tests/unit/test_agent_preset_activities.py
+  2da528cda642a53b 13,73-108
+tracecat/mcp/oidc/__init__.py
+  2da528cda642a53b 1,3-5,7-18
+docs/README.md
+  2da528cda642a53b 1,3,5,7,9-10,13,15-16,19,21-28,30,32-33
+.github/workflows/lint-frontend.yml
+  2da528cda642a53b 28,31,39,49,51,54
+tests/unit/test_mcp_oidc_endpoints.py
+  2da528cda642a53b 1-1458
+tracecat/cases/service.py
+  2da528cda642a53b 31,50-51,81,88,122-126,128-132,154-168,388,392,411,427-428,622-623,639-644,663,775,782,786-790,796-799,815-816,890-976,1001-1009,1062,1067,1071,1075-1079,1156-1187,1208-1213,1236-1272,1303-1305,1322-1332,1345-1358,1425-1474,1500-1502,1506-1509,1513-1514,1520,1523,2078
+docs/automations/core-actions/_examples.yaml
+  2da528cda642a53b 1-726
+frontend/src/components/agents/agents-dashboard.tsx
+  2da528cda642a53b 16,278-284,294,430-434
+tests/unit/test_case_tags_service.py
+  2da528cda642a53b 13,37-75,94-112,313-330,432-465
+tests/unit/test_case_trigger_consumer.py
+  2da528cda642a53b 61-131,436-477,690-697
+tracecat/settings/schemas.py
+  2da528cda642a53b 44
+tests/unit/test_agent_management_service.py
+  2da528cda642a53b 11,83-130,182-237
+.github/AGENTS.md
+  2da528cda642a53b 1-39
+deployments/fargate/modules/ecs/locals.tf
+  2da528cda642a53b 51-57,67,99,115-136,140,163,168-230
+frontend/src/components/cases/closure-requirements-view.tsx
+  2da528cda642a53b 1-354
+tests/unit/test_agent_session_activities.py
+  2da528cda642a53b 1-61
+docs/tools/crowdstrike.mdx
+  2da528cda642a53b 1-143
+packages/tracecat-registry/tracecat_registry/templates/tools/okta/get_groups_assigned_to_user.yml
+  2da528cda642a53b 15
+packages/tracecat-registry/tracecat_registry/templates/tools/confluence/add_page_comment.yml
+  2da528cda642a53b 55
+tests/unit/test_mcp_oidc_refresh_tokens.py
+  2da528cda642a53b 1-627
+tests/unit/test_mcp_oidc_signing.py
+  2da528cda642a53b 1-72,74-91,93-109,111-123,125-137,139-169,171
+docs/snippets/mcp-installation.mdx
+  2da528cda642a53b 1-34
+tracecat/tables/common.py
+  2da528cda642a53b 4,9,14-16,21,24,90-91,94-99,101-107,109-196,200-201,204,206,208-213,215-219,221-237,267,285-286,288-289,322,333,335,353
+docs/tools/pagerduty.mdx
+  2da528cda642a53b 1-293
+frontend/src/components/cases/cases-view-toggle.tsx
+  2da528cda642a53b 3-10,25-26,37-38,49-50,85-97
+frontend/src/components/workspaces/credentials-utils.ts
+  2da528cda642a53b 6-8,21-32,35,37-38,95-97,101,111-114
+tests/unit/test_agent_session_approval_sink.py
+  2da528cda642a53b 16,18,140-180
+packages/tracecat-registry/tracecat_registry/core/cases.py
+  2da528cda642a53b 99-102,123-124,180-183,213-214
+tests/unit/test_aws_assume_role.py
+  2da528cda642a53b 6,51-96,102-142,151-152,157-194,196-197,203-205,213-215
+frontend/src/components/agents/agent-presets-builder.tsx
+  2da528cda642a53b 220,282,691-692,699-700,899,1010,1494,1577,1613-1661,2246,2279
+scripts/benchmark/agent_session_first_token_benchmark.py
+  2da528cda642a53b 1-678
+packages/tracecat-ee/tracecat_ee/agent/workflows/registry_tool.py
+  2da528cda642a53b 1-54
+tests/unit/test_mcp_oidc_storage.py
+  2da528cda642a53b 1,3,5-6,8-9,11-12,14-16,19-43,46-49,51-53,55-57,59-105,107-122,124,127-271
+docs/automations/workflows.mdx
+  2da528cda642a53b 1-208
+scripts/update-version.sh
+  2da528cda642a53b 122,130-182,197-204
+docs/custom-actions/local-development.mdx
+  2da528cda642a53b 1-28
+tracecat/agent/preset/schemas.py
+  2da528cda642a53b 46,63,96,140
+tracecat/workflow/executions/service.py
+  2da528cda642a53b 77,120,304-309,311-315,317-324,332-334,340-343,345-358,403,419,435,437,461,465-473,478,480,554,562,622-627,638,642,704,935-939,947,990,998-1002,1012-1017,1040,1144,1164-1168,1175,1229
+docs/snippets/registry-secrets-and-oauth.mdx
+  2da528cda642a53b 1,3,5-7,9,11-12,14-17,19,21-23,25,27,29-30,32,34-35,37,39-42,45,47,49,51-58,61,67,71,73,75,77,79
+frontend/src/client/types.gen.ts
+  2da528cda642a53b 334,357,402,439,465,838-844,1219,1233,1246,1585-1586,1589-1596,1602,1608-1609,1618,1624-1625,1628-1642,1668,1723-1726,1932,1935,1956,1962-1967,3016,4066,4639-4665,4691-4704,4831-4834,4972,4975-4976,5057,5064-5069,5401,5422,5465,5467-5468,5479,6607-6616,6656-6658,6901-6904,7132,7191,7509,8130-8133,9863-9869,10110-10117,10174-10181,11267-11270,14463,14469-14472
+tests/unit/test_cases_service.py
+  2da528cda642a53b 3-4,6,12,25-30,48-66,676-692,952-954,964-967,979-981,989-1021,1084-1109
+frontend/src/components/tables/ag-grid-cell-renderer.tsx
+  2da528cda642a53b 2-3,13,26,40,44-45,60-62,65-67,70,72-85
+tests/integration/test_agent_worker.py
+  2da528cda642a53b 34,119-121,135,149,171-173,220-224
+tracecat/workflow/management/definitions.py
+  2da528cda642a53b 11,125,146-151
+frontend/AGENTS.md
+  2da528cda642a53b 3-30,33-39,43-95,100-104
+tests/unit/test_rls_failure_repros.py
+  2da528cda642a53b 18,257-259
+docs/tools/panther.mdx
+  2da528cda642a53b 1-395
+tests/unit/test_agent_runtime_broker.py
+  2da528cda642a53b 1-218
+packages/tracecat-registry/tracecat_registry/templates/tools/jira/add_comment.yml
+  2da528cda642a53b 21
+packages/tracecat-ee/tracecat_ee/agent/activities.py
+  2da528cda642a53b 12,30,208-218
+frontend/src/lib/hooks.tsx
+  2da528cda642a53b 478-491,525-530,1357,1695,1705,1737,1760,1835-1842,1848-1852,1854-1856,1897-1902,1908,1910-1912,3739,3750,3755,3759,3764,3770,6425-6432,6460-6461,6519-6520,6561-6562,6620,6685
+tests/unit/test_case_duration_service.py
+  2da528cda642a53b 2,4,31-52,220-298,814-898
+packages/tracecat-registry/tracecat_registry/sdk/deduplicate.py
+  2da528cda642a53b 1-36
+tracecat/agent/workflows/__init__.py
+  2da528cda642a53b 1
+tracecat/db/models.py
+  2da528cda642a53b 51,1120,1863-1868,3178-3184,3283-3289,3706-3762
+tests/integration/test_mcp_oidc_flow.py
+  2da528cda642a53b 1-719
+tracecat/tables/internal_router.py
+  2da528cda642a53b 149-153,258-262,303-307,336-340,376-380,414-418,452-456
+docs/automations/triggers/task-triggers.mdx
+  2da528cda642a53b 1-29
+tests/unit/test_deduplicate.py
+  2da528cda642a53b 1-326
+.github/workflows/test-frontend.yml
+  2da528cda642a53b 24,27,29,32,44
+Dockerfile
+  2da528cda642a53b 140
+tracecat/mcp/server.py
+  2da528cda642a53b 10,17,50-54,64,85-89,115-120,139-143,508-514,1262,1552-1562,1759-1774,1786-1788,1790-1791,1874-1876,1905-1906,1908,1910-1912,2303,2418-2534,2691-2801,2805-2808,2815-2825,3354,3360,3362-3388,3390,3404-3405,3461-3474,3476-3479,3674,3702,3706,3732-3739,3904,3909-3917,3921,4198-4222,4416,4435,4438-4441,4443,4468-4478,4792-4796,4806-4816,4915-4920,4931-4942,5024-5028,5038-5048,5147-5152,5163-5174,5251-5255,5259,5267,5271-5278,5280,5293,5298-5300,5306-5308,5320,5323-5328,5411-5415,5422-5430,5432,5456-5457,5597,5603,5610,5612,5710-5711,5719,5729-5737,5739,5781-5782,5805-5816,5905-5939,5942,5945-5951,5957,5967-5978,6022,6053,6078-6157,6231-6236,6238,6244,6247-6248,6250-6258,6260,6268-6284
+packages/tracecat-registry/tracecat_registry/sdk/cases.py
+  2da528cda642a53b 633,673-674,693,741-742
+tests/unit/test_executor_aws_assume_role.py
+  2da528cda642a53b 1-475
+frontend/src/lib/time.ts
+  2da528cda642a53b 58,77,84,86-102
+.github/workflows/test-pnpm-build.yml
+  2da528cda642a53b 26-31,34,37,43,54
+docs/tools/confluence.mdx
+  2da528cda642a53b 1-537
+tracecat/agent/stream/writers.py
+  2da528cda642a53b 174-178
+tracecat/workflow/store/service.py
+  2da528cda642a53b 33
+tracecat/agent/preset/service.py
+  2da528cda642a53b 8,29,74,118,138,425,970,1040,1055,1091,1114
+packages/tracecat-registry/tracecat_registry/templates/tools/jira/get_user_id.yml
+  2da528cda642a53b 15
+tracecat/agent/session/service.py
+  2da528cda642a53b 28,68,97-99,104-106,1038-1040,1381,1511-1538,1544,1556-1558,1560,1565
+docs/tools/elasticsearch.mdx
+  2da528cda642a53b 1-91
+frontend/src/app/oauth/mcp/continue/page.tsx
+  2da528cda642a53b 1-50
+frontend/tests/use-builder-registry-actions.test.tsx
+  2da528cda642a53b 1-66
+tracecat/mcp/oidc/endpoints.py
+  2da528cda642a53b 1-822
+docs/automations/core-actions/request-actions/ssh.mdx
+  2da528cda642a53b 1-81
+packages/tracecat-ee/tracecat_ee/watchtower/service.py
+  2da528cda642a53b 16,1150-1151,1156,1159,1164
+packages/tracecat-registry/tracecat_registry/templates/tools/jira/search_issues.yml
+  2da528cda642a53b 18
+tracecat/agent/litellm_config.yaml
+  2da528cda642a53b 1-4,27-35,48
+frontend/src/components/cases/case-column-picker.tsx
+  2da528cda642a53b 3-25,33,35-54,57-60,62-85,87,89-95,97-108,111-120,122-123,125-130,132-134,137,139,141-145,147-155,158,160,162-251
+frontend/src/components/locked-feature-modal.tsx
+  2da528cda642a53b 1-97
+docs/tools/notion.mdx
+  2da528cda642a53b 1-55
+packages/tracecat-registry/tracecat_registry/templates/tools/jira/update_issue_description.yml
+  2da528cda642a53b 21
+docs/tools/anyrun.mdx
+  2da528cda642a53b 1-113
+tests/unit/test_mcp_server.py
+  2da528cda642a53b 16,27,445-447,786-812,828-888,1756-1757,2093,2223-2224,2358-2364,2380-2383,2405-2412,2449-2505,2960-2963,3023-3026,3044-3047,3099,3103-3174,3188,3216-3217,3222-3226,3263-3434,3606-3712,3877-3964,4055,4101,4131,4140,4144-4351,4428,4455,4458,4497-4568,4612
+docs/automations/triggers/error-workflows.mdx
+  2da528cda642a53b 1-55
+tests/unit/api/test_api_internal_cases.py
+  2da528cda642a53b 13-17,20,164-300
+frontend/src/lib/auth-return-url.test.ts
+  2da528cda642a53b 34-40
+tests/unit/executor/test_minimal_runner_protocol.py
+  2da528cda642a53b 43-44,76-77,96-270,302-303
+docs/tools/microsoft_sentinel.mdx
+  2da528cda642a53b 1-2312
+frontend/src/components/cases/add-case-tag-dialog.tsx
+  2da528cda642a53b 55-57
+frontend/src/components/admin/platform-registry-repos-table.tsx
+  2da528cda642a53b 22,41-43,46
+docker-compose.local.yml
+  2da528cda642a53b 80-84,149-153,222,232-236,262-355,388-389,401,412-417,419-421,423-431,443,445-446,477-481,489-493,496-497
+docs/tools/github.mdx
+  2da528cda642a53b 1-55
+tracecat/executor/schemas.py
+  2da528cda642a53b 14,142-146,173-174
+tests/unit/test_route_scope_guards.py
+  2da528cda642a53b 3,29,31-35,51,153,155-161,165,167
+tracecat/agent/runtime_services.py
+  2da528cda642a53b 1-110
+packages/tracecat-registry/tracecat_registry/templates/tools/jira/get_issue.yml
+  2da528cda642a53b 18
+tests/unit/test_workspace_service.py
+  2da528cda642a53b 435-436,450
+tracecat/executor/untrusted_runner.py
+  2da528cda642a53b 36,113-119,122,126,164-165,169,171
+frontend/src/components/cases/cases-accordion.tsx
+  2da528cda642a53b 19-20,127-129,157-159,173-175,284-286,305-307,499-501
+tracecat/deduplicate/internal_router.py
+  2da528cda642a53b 1-92
+tests/unit/test_tables_service.py
+  2da528cda642a53b 1,8-10,17,21,30-38,43-48,55-87,191-197,213-241,486-491,505,532-646,666-688,740-1013,1036-1053,1109-1139,1269-1312,1428-1570,1619-1621,1913-1928,2005,2039-2041
+tracecat/workflow/executions/correlation.py
+  2da528cda642a53b 1,3,5,8-10,13-15
+tracecat/agent/common/protocol.py
+  2da528cda642a53b 40,74,90
+tests/unit/test_case_comments_service.py
+  2da528cda642a53b 365-366,372-403
+tests/unit/executor/test_test_backend_no_registry_action.py
+  2da528cda642a53b 15,27,244-286
+docs/snippets/mcp-installation-self-hosted.mdx
+  2da528cda642a53b 1-35
+packages/tracecat-registry/tracecat_registry/templates/tools/terraform_cloud/refresh_state.yml
+  2da528cda642a53b 56
+docs/automations/core-actions/case-actions/metrics.mdx
+  2da528cda642a53b 1-33
+deployments/fargate/modules/ecs/ecs-caddy.tf
+  2da528cda642a53b 60-86,93-99,102-103,155-156
+docs/automations/core-actions/workflow-actions/while-loops.mdx
+  2da528cda642a53b 1-79
+frontend/src/hooks/use-cases.ts
+  2da528cda642a53b 108-109,577-582,584-587,935-936,938-944,980-982
+packages/tracecat-registry/tracecat_registry/templates/tools/okta/create_user.yml
+  2da528cda642a53b 15
+docs/automations/core-actions/_manifest.yaml
+  2da528cda642a53b 1-315
+scripts/generate_ai_docs.py
+  2da528cda642a53b 1-165,168-499,502-558
+scripts/generate_core_action_docs.py
+  2da528cda642a53b 1-426
+tests/unit/test_agent_tokens.py
+  2da528cda642a53b 1,3,5-6,9-12,14-17,19-35
+tracecat/authz/scopes.py
+  2da528cda642a53b 48,166,267,350,393
+tracecat/dsl/_converter.py
+  2da528cda642a53b 10-11,16-17,104-109
+frontend/src/components/dashboard/workflows-dashboard.tsx
+  2da528cda642a53b 794-795,806-807,846-853,885,925,936-944,1317-1321,1371-1374
+tracecat/agent/mcp/proxy_server.py
+  2da528cda642a53b 13,23,25-29,72-115,133-136,141-147,150,216,249,260
+frontend/src/components/registry/workspace-actions-inventory.tsx
+  2da528cda642a53b 27-30,70,109-112,255,265,572-575,637-654,656-663,665-668,672-677,679-689,696,734-757
+frontend/src/components/builder/canvas/trigger-node.tsx
+  2da528cda642a53b 6,30-34,340-374
+docs/tools/leakcheck.mdx
+  2da528cda642a53b 1-49
+packages/tracecat-registry/tracecat_registry/__init__.py
+  2da528cda642a53b 3
+tests/unit/api/test_api_cases.py
+  2da528cda642a53b 8,11,16-22,218-258,333-360,419-648,753-775,1048-1148
+tests/unit/api/test_api_workflow_execution_search.py
+  2da528cda642a53b 11-14,22,54-80
+tests/unit/test_integrations_service.py
+  2da528cda642a53b 12,115,1004,1019
+packages/tracecat-registry/tracecat_registry/sdk/client.py
+  2da528cda642a53b 21,70,85-92
+tests/unit/test_agent_sandbox_entrypoint.py
+  2da528cda642a53b 1-187
+tests/unit/test_registry_platform_startup.py
+  2da528cda642a53b 249-278
+tracecat/agent/sandbox/__init__.py
+  2da528cda642a53b 9
+tracecat/agent/common/stream_types.py
+  2da528cda642a53b 45-47,111,144,173-174,189-203
+tracecat/workflow/executions/enums.py
+  2da528cda642a53b 135-146,162-163
+tracecat/agent/schemas.py
+  2da528cda642a53b 50,260
+packages/tracecat-registry/tracecat_registry/templates/tools/okta_oar/get_requests.yml
+  2da528cda642a53b 15
+frontend/src/components/ui/badge.tsx
+  2da528cda642a53b 3,31-42
+frontend/src/components/sidebar/app-sidebar.tsx
+  2da528cda642a53b 10,25-28,75-77,118-123,125,128-133,190-206,213-216,273,275-309,317-329,332,336-363,365-386
+tests/unit/test_agent_llm_proxy.py
+  2da528cda642a53b 1-389
+frontend/src/components/dashboard/add-workflow-tag-dialog.tsx
+  2da528cda642a53b 54
+packages/tracecat-registry/tracecat_registry/templates/tools/okta/list_users.yml
+  2da528cda642a53b 15
+tests/unit/test_webhook_execution_path.py
+  2da528cda642a53b 14,22-23,40,662,710,769,828-829,911,918-1069
+docs/tools/minio.mdx
+  2da528cda642a53b 1-431
+tracecat/secrets/secrets_manager.py
+  2da528cda642a53b 119-123
+tests/unit/test_interactions.py
+  2da528cda642a53b 29
+frontend/src/components/tables/cell-editors.tsx
+  2da528cda642a53b 63-64,97,103-107,112-128,131-143,146,149,151-156,161,163-166,168-173,175-182,184-188,190-192,195-206,269-272,365,367-368,440-446,455-461,466-473,475-482
+docs/automations/triggers/webhooks.mdx
+  2da528cda642a53b 1-138
+docker-compose.dev.yml
+  2da528cda642a53b 63-67,132-136,203,213-217,245-340,352,369-370,382,393-398,400-402,404-412,426,428-429,459-463,473-477,483-484,493
+scripts/openapi/generate_openapi.py
+  2da528cda642a53b 55
+tracecat/agent/common/types.py
+  2da528cda642a53b 108,126-127,138,143,160,165,177,186
+tracecat/executor/registry_resolver.py
+  2da528cda642a53b 225-226
+tracecat/integrations/service.py
+  2da528cda642a53b 15,289
+frontend/src/components/cases/custom-fields-table.tsx
+  2da528cda642a53b 32,89-111,167,171
+tests/unit/test_approvals_manager.py
+  2da528cda642a53b 409-442
+frontend/src/components/dashboard/workflows-header.tsx
+  2da528cda642a53b 219,222-227,232-238,489,518,648
+frontend/src/components/tables/dynamic-column-input.tsx
+  2da528cda642a53b 49-50,55,57,63-64,69,71,83,85-93,152,155-161
+frontend/src/components/nav/controls-header.tsx
+  2da528cda642a53b 10,14,16,26,36-42,53,68,84-92,113-120,149,152,407-415,427-432,442-443,453,484-489,492-493,501-513,576-658,669,677-682,741,754-775,803,840,873-977,1106-1136,1184-1315,1670-1671,1673
+docs/automations/core-actions/workflow-actions/scatter-gather-loops.mdx
+  2da528cda642a53b 1-107
+docs/tools/amazon_s3.mdx
+  2da528cda642a53b 1-292
+tests/registry/test_core_cases.py
+  2da528cda642a53b 187-213,302-319
+tests/unit/test_agent_mcp_proxy_server.py
+  2da528cda642a53b 1-244
+tracecat/agent/mcp/utils.py
+  2da528cda642a53b 13-15,40,42,46,48,60-62,64-66,70-72,74-76,80-85,88-93
+frontend/tests/case-badge.test.tsx
+  2da528cda642a53b 1-37
+tracecat/cases/enums.py
+  2da528cda642a53b 102-127
+tracecat/executor/backends/pool/pool.py
+  2da528cda642a53b 56,58-59,451-453,1066-1072,1078,1154-1157
+packages/tracecat-registry/tracecat_registry/templates/tools/okta/clear_user_sessions.yml
+  2da528cda642a53b 15
+tests/unit/test_agent_session_search_attributes.py
+  2da528cda642a53b 20,122-124,166-168
+tracecat/secrets/service.py
+  2da528cda642a53b 12,48,254,277,337,363-375
+docs/snippets/mcp-tools.mdx
+  2da528cda642a53b 1-286
+packages/tracecat-registry/tracecat_registry/templates/tools/jira/update_issue_fields.yml
+  2da528cda642a53b 30
+tracecat/temporal/codec.py
+  2da528cda642a53b 1-645
+tracecat/workflow/management/schemas.py
+  2da528cda642a53b 123-130
+.github/workflows/release-drafter.yml
+  2da528cda642a53b 4,17
+docs/automations/core-actions/case-actions/comments.mdx
+  2da528cda642a53b 2,5,7,9,11,13,15,17,19,21,23,25,27,29,31,33,35,37,39,41,43,45-79,82-144,147-204,206-257,259-309,312-363
+packages/tracecat-registry/tracecat_registry/core/sql.py
+  2da528cda642a53b 26,29,31
+tests/unit/test_agent_session_first_token_benchmark.py
+  2da528cda642a53b 1-113,117-158
+tracecat/agent/litellm_compat.py
+  2da528cda642a53b 1-78
+tests/unit/test_agent_preset_schemas.py
+  2da528cda642a53b 33,96,106,128,137
+tracecat/workspaces/schemas.py
+  2da528cda642a53b 86
+frontend/src/components/ssh-keys/ssh-key-create-dialog.tsx
+  2da528cda642a53b 91
+docs/tools/gophish.mdx
+  2da528cda642a53b 1-1057
+docs/self-hosting/updating.mdx
+  2da528cda642a53b 2,6,23-24,41,48,61,73,81
+docs/tools/falconpy.mdx
+  2da528cda642a53b 1-4,6-7,9,11-59
+packages/tracecat-registry/tracecat_registry/templates/tools/okta/remove_from_group.yml
+  2da528cda642a53b 15
+docs/tools/elastic_security.mdx
+  2da528cda642a53b 1-65
+tests/unit/test_table_csv_importer.py
+  2da528cda642a53b 4,105-110,376
+tracecat/agent/channels/service.py
+  2da528cda642a53b 31,79,94,137,251,266,301,314
+docs/cheatsheets/jsonpath.mdx
+  2da528cda642a53b 2-3,6,8,10-80,82,84-96,98,100-104,106,108-109,112,114,116-118,121-126,128,130-132,135-149,151-153,156-161,163-165,168-171,173-265
+tracecat/agent/sandbox/shim_entrypoint.py
+  2da528cda642a53b 1,3-5,11-13,15-17,19,21-25,28-29,31-33,36-37,39-44,46-51,53-67,69-81,83-94,96-105,107-118,120-160,162-215,217-219,222-236,238-239,241-246,248-252,255-266,271-384,386-391
+tracecat/agent/types.py
+  2da528cda642a53b 119,134
+tests/unit/test_temporal_search_attribute_registration.py
+  2da528cda642a53b 1-41
+tracecat/settings/service.py
+  2da528cda642a53b 15,58
+tracecat/workflow/executions/schemas.py
+  2da528cda642a53b 19,25,54,57,349,384-393,434,447-457,485-499,518,528-537,555-611,656,673,675-680,682,774-786,866,887-901,919,925-939,975-985
+tracecat/workflow/management/router.py
+  2da528cda642a53b 33-37,276-296,526-546
+deployments/fargate/modules/ecs/rds.tf
+  2da528cda642a53b 63-76,128-132
+docs/authentication/basic.mdx
+  2da528cda642a53b 3,7,10,12-18,24-28,30,32-33
+tracecat/registry/lock/service.py
+  2da528cda642a53b 16-20,22,66,85-103,132,139,157,214-219,221-222
+tests/unit/test_watchtower_service.py
+  2da528cda642a53b 133-147
+frontend/tests/time.test.ts
+  2da528cda642a53b 1,3-14,16-19
+tests/unit/api/test_api_registry_actions.py
+  2da528cda642a53b 1-67
+.pre-commit-config.yaml
+  2da528cda642a53b 69-75
+deployments/fargate/modules/ecs/ecs-worker.tf
+  2da528cda642a53b 30
+docs/tools/hybrid_analysis.mdx
+  2da528cda642a53b 1-123
+packages/tracecat-registry/tracecat_registry/templates/tools/microsoft_sentinel/threat_intelligence/query_threat_intelligence_indicators.yml
+  2da528cda642a53b 6
+tests/unit/test_export.py
+  2da528cda642a53b 265-355
+tests/unit/test_workflow_executions_common.py
+  2da528cda642a53b 3-4,6-7,10-16,49-72
+tests/unit/api/test_api_internal_tables.py
+  2da528cda642a53b 1-70
+tracecat/workflow/store/import_service.py
+  2da528cda642a53b 295-296,301,307-308
+docs/agents/ai-preset-agent.mdx
+  2da528cda642a53b 2-4,6-9
+frontend/src/app/admin/tiers/page.tsx
+  2da528cda642a53b 11,13
+frontend/tests/org-workspace-settings-form.test.ts
+  2da528cda642a53b 9-10,30-31,52
+frontend/tests/use-case-column-visibility.test.tsx
+  2da528cda642a53b 1-151
+frontend/src/app/workspaces/[workspaceId]/cases/closure-requirements/page.tsx
+  2da528cda642a53b 1-10
+docs/tools/urlhaus.mdx
+  2da528cda642a53b 1-29
+frontend/src/lib/chat.ts
+  2da528cda642a53b 250-253,303,357-372
+docs/automations/core-concepts/expressions.mdx
+  2da528cda642a53b 2-3,6-7,9,11,13,15,17,19-24,26,28,30,32,34,36,38,40-45,47,49-52,54-56,58,60,62-65,67,69,72,74,76-79,81-89,91,93-95,98-103,105,107-109,112-117,119,121-124,126-131,133,135-138,140-156,158,160-163,166-172,174,176-179,181-186,188,190-193,195-200,202,204-207,209-221,223,225-228,230-267,269-277,279-283,285-287
+tracecat/db/tenant_rls.py
+  2da528cda642a53b 79-82
+frontend/src/components/editor/codemirror/common.tsx
+  2da528cda642a53b 1473
+frontend/src/components/cases/case-badge.tsx
+  2da528cda642a53b 1,3,5,44-94
+frontend/src/config/site.ts
+  2da528cda642a53b 8
+tests/unit/test_organization_settings.py
+  2da528cda642a53b 330,333,360
+docs/tools/google_secops_detection.mdx
+  2da528cda642a53b 1-499
+alembic/versions/7e1a4d9c2b6f_migrate_uuid_and_timestamp_user_types.py
+  2da528cda642a53b 1-296
+packages/tracecat-registry/tracecat_registry/integrations/aws_boto3.py
+  2da528cda642a53b 7,13,40,43,52-54,57,60-63,77-82,123-130,155,173-180,205,222-247,278,313-315
+tracecat/agent/sandbox/nsjail.py
+  2da528cda642a53b 3-4,14-15,44,55-58,122,128-132,135,137,142,150-152,180,197-201,204-205,207,214,218-222,231-235,237,239,246,253-255,259,274-275,277-278,283-292,296,307-308,313-317,320,322-323,333,341-347,351-359,367-372,383-387,411,419-421,425-426
+tracecat/agent/workflow_config.py
+  2da528cda642a53b 88,101,112,125
+tracecat/auth/users.py
+  2da528cda642a53b 45,81-83
+tracecat/agent/workflows/tool_execution.py
+  2da528cda642a53b 1-35
+docs/CONTRIBUTING.md
+  2da528cda642a53b 1,3-34
+tracecat/sandbox/executor.py
+  2da528cda642a53b 21,250-252,674-675
+frontend/src/components/builder/canvas/canvas-toolbar.tsx
+  2da528cda642a53b 16,124,131-132,153-155,161,219,278,298-300,360,378-383,412-413,419-422,425,438-490
+tests/migration/test_uuid_timestamp_user_type_migration.py
+  2da528cda642a53b 1-407
+tracecat/executor/secret_preprocessors.py
+  2da528cda642a53b 1-244
+tracecat/workflow/store/router.py
+  2da528cda642a53b 36,88,180,250
+docs/tools/sentry.mdx
+  2da528cda642a53b 1-55
+packages/tracecat-registry/tracecat_registry/core/presets.py
+  2da528cda642a53b 29,110,128,139,222
+.github/workflows/lint-python.yml
+  2da528cda642a53b 31,33,35,39,41,49,52
+docs/agents/secrets-variables.mdx
+  2da528cda642a53b 1-163
+frontend/src/components/cases/add-case-duration-dialog.tsx
+  2da528cda642a53b 33-34,38-39
+docs/tools/ansible.mdx
+  2da528cda642a53b 1-93
+tests/registry/test_core_transform.py
+  2da528cda642a53b 2,4,7,9,29-68,636-637,643-648,655-660,668-670,672,818-819,821-825,827-829,831
+docs/img/logos/light.svg
+  2da528cda642a53b 1-11
+alembic/versions/b5fc4168fe22_apply_model_a_rls_to_dynamic_workspace_.py
+  2da528cda642a53b 1-581
+tests/unit/test_agent_sandbox_nsjail.py
+  2da528cda642a53b 1-46
+tracecat/workflow/executions/router.py
+  2da528cda642a53b 55,397,487,522
+packages/tracecat-registry/tracecat_registry/templates/tools/okta/get_user.yml
+  2da528cda642a53b 15
+tests/unit/test_search_attributes.py
+  2da528cda642a53b 27-30,571-576,593-608
+tracecat/auth/secrets.py
+  2da528cda642a53b 1-35
+tests/unit/test_case_fields_integration.py
+  2da528cda642a53b 7-12,291-307
+deployments/fargate/modules/ecs/ecs-agent-executor.tf
+  2da528cda642a53b 20
+docs/automations/core-actions/request-actions/grpc.mdx
+  2da528cda642a53b 1-98
+docs/automations/core-concepts/secrets.mdx
+  2da528cda642a53b 2-3,6,8,10,12,14,16-18,20,22,24-29,31,33,35,37-38,40-44,46,48,50,52-55,58,60-62,64-86,88-90,92,94-114,116-127
+docs/tools/azure_log_analytics.mdx
+  2da528cda642a53b 1-105
+packages/tracecat-registry/tracecat_registry/templates/tools/confluence/get_page_children.yml
+  2da528cda642a53b 61
+docs/snippets/functions-reference.mdx
+  2da528cda642a53b 1,3,5,7,9,11,13,15,17,19,21,23,25,27,29,31,33,35,37,39,41,43,45,47,49,51,53,55,57,59,61,63,65,67,69,71,73,75,77,79,81,83,85,87,89,91,93,95,97,99,101,103-1309
+frontend/src/components/cases/case-field-kind-dialogs.tsx
+  2da528cda642a53b 1-31,34-55,57-80,83-87,90-96,98-109,111-116,118-121,123-128,130-169,171,173,175-189,191-196,199-302,305-309,312-325,328-346,349-373,376-387,390-405
+docs/automations/integrations/mcp-integrations.mdx
+  2da528cda642a53b 1-77
+tests/unit/test_github_app.py
+  2da528cda642a53b 21-25,146,183,227,262,267,286,419-420,436-466,475-476,498-499
+tracecat/agent/mcp/trusted_server.py
+  2da528cda642a53b 37-41,75,109-113,132
+docs/automations/triggers/schedules.mdx
+  2da528cda642a53b 1-35
+frontend/src/components/cases/case-panel-custom-fields.tsx
+  2da528cda642a53b 1-8,12-18,35-39,53,63-82,84-89,92-102,105-106,124-127,130,133,138-145,159-292,301-404,476-482,485-486,492-498,501,565-566,576-586,588-601,608,613-635,637-650,766-795,797-810
+tracecat/mcp/oidc/refresh_tokens.py
+  2da528cda642a53b 1-293
+tracecat/agent/executor/loopback.py
+  2da528cda642a53b 4-7,20,31-32,51,178-180,196-212,253-258,278-315,329,341-342,352,355,362,374-416,418-477,480-495,497-510,512-514,516-584,586,753-754,795-802,815-853
+docs/tools/tenable_sc.mdx
+  2da528cda642a53b 1-202
+packages/tracecat-registry/tracecat_registry/templates/tools/okta_oar/get_specific_request.yml
+  2da528cda642a53b 15
+tracecat/dsl/worker.py
+  2da528cda642a53b 7,149,160
+docs/authentication/saml.mdx
+  2da528cda642a53b 6,40,81-84,131,210,217,222
+tracecat/agent/sandbox/llm_bridge.py
+  2da528cda642a53b 5,54,202
+tests/unit/test_registry_sync_workflow.py
+  2da528cda642a53b 1-51
+docs/automations/core-actions/transform-actions/reshape.mdx
+  2da528cda642a53b 2,5,7,9,11-15,17,19,21,23,25,27,30-33,36,39-49,51,53-62
+frontend/tests/use-graph-operations.test.tsx
+  2da528cda642a53b 1-153
+tests/unit/api/test_api_admin_tiers.py
+  2da528cda642a53b 12,85,100
+tracecat/dsl/compression.py
+  2da528cda642a53b 1,3
+docs/automations/core-actions/request-actions/email.mdx
+  2da528cda642a53b 1-157
+docs/tools/zendesk.mdx
+  2da528cda642a53b 1-277
+tracecat/cases/dropdowns/schemas.py
+  2da528cda642a53b 53,65,77
+tests/unit/test_registry_fixture_platform_current.py
+  2da528cda642a53b 1-36
+docs/tools/datadog.mdx
+  2da528cda642a53b 1-57
+frontend/src/components/chat/chat-session-pane.tsx
+  2da528cda642a53b 26,125-126,134-138,321-333,784-786,790-791,793-801,806,1174-1214,1265,1278-1319,1336-1340,1343,1443
+packages/tracecat-registry/tracecat_registry/templates/tools/confluence/search_content.yml
+  2da528cda642a53b 71
+frontend/tests/chat-transform.test.ts
+  2da528cda642a53b 1-39
+tracecat/registry/sync/platform_service.py
+  2da528cda642a53b 12,19
+tracecat/registry/sync/schemas.py
+  2da528cda642a53b 15,61,64-65
+docs/tools/emailrep.mdx
+  2da528cda642a53b 2-3,6-7,9,11,13,15,17,19,21,23,25,27,29,31,33,35
+tracecat/AGENTS.md
+  2da528cda642a53b 1-185
+docs/tools/google_sheets.mdx
+  2da528cda642a53b 1-319
+packages/tracecat-registry/tracecat_registry/templates/tools/jira/get_transitions.yml
+  2da528cda642a53b 18
+tracecat/agent/tokens.py
+  2da528cda642a53b 7,26,90-93,113-114,161-166,176,194,324,339-340,345
+tests/unit/test_managed_litellm_socket_proxy.py
+  2da528cda642a53b 1-16
+frontend/src/app/workspaces/[workspaceId]/cases/page.tsx
+  2da528cda642a53b 3,5,9-14,19-103,139,177-182
+docs/automations/core-actions/transform-actions/data-transforms.mdx
+  2da528cda642a53b 1-477
+docs/automations/core-actions/memory-actions/tables.mdx
+  2da528cda642a53b 2,5-6,8,10-13,15,17,19-56,58-79,82-87,90-99,102-116,118-119,121,123,125,127,129,131,133,135,137,139,141,143,145,147,149-171,173-184,187-202,205,207,209,211,213,215,217,219,221-238,240,242-444,446-769
+docs/snippets/expression-intro.mdx
+  2da528cda642a53b 1
+tracecat/registry/sync/workflow.py
+  2da528cda642a53b 31,35-38,120-146
+docs/tools/wiz.mdx
+  2da528cda642a53b 1-55
+tracecat/agent/session/activities.py
+  2da528cda642a53b 11,15,17-18,22,26,34,59-83,116-136,213-267,273
+tracecat/executor/backends/pool/worker.py
+  2da528cda642a53b 146
+tracecat/secrets/schemas.py
+  2da528cda642a53b 212,255,358
+frontend/src/components/cases/edit-custom-field-dialog.tsx
+  2da528cda642a53b 38,266-275,277,413-445,569-570,579-580,595,597-601
+tracecat/cases/triggers/consumer.py
+  2da528cda642a53b 12,22,339-357,361-366,504-507,511,514-516
+docs/tools/threatstream.mdx
+  2da528cda642a53b 1-105
+frontend/src/styles/ag-grid-overrides.scss
+  2da528cda642a53b 32-37
+tracecat/agent/runtime/base.py
+  2da528cda642a53b 5,19-26
+tracecat/agent/runtime/claude_code/broker.py
+  2da528cda642a53b 1-126
+frontend/src/components/registry/dialogs/repository-sync-dialog.tsx
+  2da528cda642a53b 83,87,89,91,93,95-97
+frontend/src/components/registry/dialogs/repository-versions-dialog.tsx
+  2da528cda642a53b 34,59-63,233-234,255-271,273-284,342-344,374,499,519
+tests/unit/test_agent_socket_io.py
+  2da528cda642a53b 41,49-53,133-135,232-234,307-309
+tracecat/agent/common/config.py
+  2da528cda642a53b 42,63-72
+tracecat/registry/sync/base_service.py
+  2da528cda642a53b 16-17,22-26,30,47,243-273,335,589-591,596-598,600-603,605-606,641-662,674
+tests/unit/test_worker_activity_registration.py
+  2da528cda642a53b 4-6,10-13,49-209
+tests/unit/test_agent_mcp_trusted_server.py
+  2da528cda642a53b 11,14-17,25-26,89-176
+tracecat/agent/gateway.py
+  2da528cda642a53b 1,5-11,15,18-19,27-177,186-194,204-215,217-218,220-221,223,226-236,238-239,246,248-249,267,276-282,296-297,310,316-327,330-331,340-418,426,438-439,453-454,489-497,500-505,514,521-523,525-526,539,541,545,550,556,558,560,565-578,583-584
+frontend/src/components/builder/canvas/canvas.tsx
+  2da528cda642a53b 63,195,218
+tests/unit/test_agent_mcp_metadata.py
+  2da528cda642a53b 1-71
+docs/automations/core-actions/transform-actions/python-script.mdx
+  2da528cda642a53b 1-79
+packages/tracecat-registry/tracecat_registry/templates/tools/terraform_cloud/plan_run.yml
+  2da528cda642a53b 56
+tests/unit/test_agent_gateway.py
+  2da528cda642a53b 1-3,6,9-10,12-19,22,32-39,41-42,45,49,55,58-59,61-63,66,68-71,74-75,77-80,83,85-86,89,108-148,150-153,155-168,171,174-175,178,181-262,265,267-325,327,341-346,359-361,366,368,370,382-383,397-440
+tracecat/executor/action_runner.py
+  2da528cda642a53b 41-44,48,356-363,369,379,390,419,506-508,510-511,514,537,549,625-628,668-670
+tests/unit/test_durable_agent_workflow_search_attributes.py
+  2da528cda642a53b 6,17,20,27-29,91-93,117,169,238-303
+docs/tools/phishlabs.mdx
+  2da528cda642a53b 2-3,6-7,9,11,13,15,17,19,21,23,25,27-29,31,33,35,37,39,41,43,45,47,49,51-170
+tests/unit/test_case_fields_service.py
+  2da528cda642a53b 2-3,13-18,32-37,102,117,131,134-169,188-210,228-294,357-466,482-484,498,507-566,592-606
+docs/self-hosting/aws-fargate.mdx
+  2da528cda642a53b 3,7-10,16-17,20,22,24-27,29,31,33,35-38,40,42,44,46-49,51,53,55-56,58-60,62-65,67-68,70-71,73,75,77-80,82,84,86-88,90-134
+frontend/tests/case-item.test.tsx
+  2da528cda642a53b 1-125
+tracecat/agent/mcp/internal_tools.py
+  2da528cda642a53b 16-17,36-38,86-107,109,114,123-125,133,136,143-159,201-210,235,244-249,291,315,365,376
+tests/unit/test_ai_ranker.py
+  2da528cda642a53b 343,366
+tracecat/auth/org_context.py
+  2da528cda642a53b 12,54
+packages/tracecat-registry/tracecat_registry/templates/tools/jira/get_fields.yml
+  2da528cda642a53b 15
+packages/tracecat-registry/tracecat_registry/templates/tools/okta/search_users.yml
+  2da528cda642a53b 15
+tracecat/clients.py
+  2da528cda642a53b 8,33
+frontend/tests/use-cases.test.tsx
+  2da528cda642a53b 91-100,311-357
+tracecat/chat/schemas.py
+  2da528cda642a53b 15,198,201,217-220,225,227,229
+tracecat/tables/router.py
+  2da528cda642a53b 135-139,274-278
+tests/unit/test_registry_sync_runner.py
+  2da528cda642a53b 1-199
+docker-compose.yml
+  2da528cda642a53b 17,72-76,110,141-145,173,212,222-226,255-345,347,375-376,388,399-404,406-408,410-418,428-429,433,435-436,447,464-468,476-480,483-484,493,529
+tests/unit/test_workflow_execution_workspace_scoping.py
+  2da528cda642a53b 23-27,422-454,491-501,511,526-527
+tracecat/agent/workflow_schemas.py
+  2da528cda642a53b 92,101
+tracecat/registry/repositories/schemas.py
+  2da528cda642a53b 69
+tracecat/registry/sync/runner.py
+  2da528cda642a53b 29-30,44,67-96,162,166,199,211-213,248-271,443,459,474
+alembic/versions/0c9a39e54e2f_add_enable_thinking_to_agent_presets.py
+  2da528cda642a53b 1-45
+tracecat/git/utils.py
+  2da528cda642a53b 38,44-48,69,264
+packages/tracecat-registry/tracecat_registry/templates/tools/confluence/create_page.yml
+  2da528cda642a53b 71
+frontend/src/app/oauth/mcp/select-org/page.tsx
+  2da528cda642a53b 1-117
+docs/tools/slack.mdx
+  2da528cda642a53b 1-654
+tests/integration/test_dsl_agent_wiring.py
+  2da528cda642a53b 3,146,154-155,185-187,232-302
+packages/tracecat-registry/tracecat_registry/integrations/amazon_s3.py
+  2da528cda642a53b 40,43,52-54,57,62-63
+tracecat/executor/backends/test.py
+  2da528cda642a53b 45,202-209,213
+docs/.mintignore
+  2da528cda642a53b 1-7
+frontend/src/lib/errors.test.ts
+  2da528cda642a53b 1,3-7,9-10,12-18,20-23,25-34,36-43
+packages/tracecat-registry/tracecat_registry/templates/tools/jira/get_projects.yml
+  2da528cda642a53b 15
+tracecat/mcp/oidc/features.py
+  2da528cda642a53b 1-36
+docs/snippets/expression-contexts.mdx
+  2da528cda642a53b 1-7
+tracecat/registry/actions/router.py
+  2da528cda642a53b 1,28-31,35
+tracecat/sandbox/seccomp.py
+  2da528cda642a53b 1-66
+docs/tools/splunk.mdx
+  2da528cda642a53b 1-1212
+deployments/fargate/modules/ecs/ecs-agent-worker.tf
+  2da528cda642a53b 1-9,11-13,16-33,35-40,42-48,51-53,55-62,65-68,71-74,78-79
+frontend/src/components/cases/case-closure-dialog.tsx
+  2da528cda642a53b 1-721
+frontend/src/components/cases/add-custom-field-dialog.tsx
+  2da528cda642a53b 8,38,43-66,96,161,169,171,183,228-237,239,304,370-412,441-493,540-541,550-551,566,568-572
+packages/tracecat-registry/tracecat_registry/core/http.py
+  2da528cda642a53b 83,102
+frontend/src/components/cases/case-duration-dialog.tsx
+  2da528cda642a53b 18,20,54-58,65-66,80-85,97-99,129-145,154-169,178,182-183,202-226,233-234,261-264,287-288,294-295,329-331,337-338,340-350,384-388,402-413,419-424,427-429,432-451,458,460-473,475-484,487-495,506-509,602-603,627-664,666-704,706,752-753,777,801-855
+frontend/src/components/tables/ag-grid-cell-editor.tsx
+  2da528cda642a53b 38-45
+docs/automations/tables.mdx
+  2da528cda642a53b 1-4,6,8,10-11,13-17,19-57,60-65,68,70-76,79-108,110-137,139-151
+tests/unit/test_pool.py
+  2da528cda642a53b 14,27,431-482
+packages/tracecat-registry/tracecat_registry/_internal/models.py
+  2da528cda642a53b 76-78,91-115,127
+packages/tracecat-ee/tracecat_ee/admin/settings/service.py
+  2da528cda642a53b 13,41
+tracecat/agent/mcp/metadata.py
+  2da528cda642a53b 1-93
+.github/workflows/create-release.yml
+  2da528cda642a53b 22-26,41,73
+frontend/src/components/organization/org-settings-custom-registry.tsx
+  2da528cda642a53b 109,123
+tracecat/api/common.py
+  2da528cda642a53b 1-2,43-58,155,200,221
+deployments/fargate/modules/ecs/ecs-litellm.tf
+  2da528cda642a53b 1-35,38-45,48,51-77,79-86,91-99
+tracecat/agent/preset/activities.py
+  2da528cda642a53b 7,10,74-136
+tracecat/agent/service.py
+  2da528cda642a53b 3,7,9-12,43-118,255,259-277,290-318,561-564
+tests/unit/test_mcp_auth.py
+  2da528cda642a53b 4,6,10,12-15,18,24-25,35,42-89,94-99,144-149,180-191,203-229,256,276,282,285,288-289,291-301,303-305,331-337,370-371,401,404,411-412,434-781,901-909,1149,1156-1232
+packages/tracecat-registry/tracecat_registry/templates/tools/jira/upload_attachment.yml
+  2da528cda642a53b 27
+tracecat/tables/schemas.py
+  2da528cda642a53b 17-26,63,119-125,245,260,262-264
+frontend/src/lib/errors.ts
+  2da528cda642a53b 5-6,44-66
+scripts/generate_mcp_docs.py
+  2da528cda642a53b 1-167
+tests/unit/test_agent_preset_service.py
+  2da528cda642a53b 177,200,259-275,325-346,1036
+tracecat/agent/adapter/vercel.py
+  2da528cda642a53b 63,77,676-679,690-695,923,953-954,977,1005-1015,1023,1026,1043,1240-1243,1362,1388,1513-1527
+tracecat/registry/actions/types.py
+  2da528cda642a53b 36
+README.md
+  2da528cda642a53b 8,24,26,28,76
+docs/tools/okta_oar.mdx
+  2da528cda642a53b 1-157
+.github/workflows/build-push-images.yml
+  2da528cda642a53b 27-33,39,42,47-52,55,58,66,98,106-112,114,117,123-127,129,132,140,166-172,179,182,187-192,195,198,206,250,258-264,266,269,275-279,281,284,292
+tracecat/mcp/oidc/signing.py
+  2da528cda642a53b 1-158
+tracecat/dsl/workflow.py
+  2da528cda642a53b 937,950,962,1013,1087,1105-1106,1722-1726
+docs/self-hosting/kubernetes.mdx
+  2da528cda642a53b 1-103,105-108,110-117,119,121,127-130,132,141,143,145-149,151,155-161,163,167-216,218-230,232-360,362,364-370,372-375,377,379,381,383-387,389,391,393,395,397,399,401-403,406,409-410,412-413,415-418,420-421,423-424,427,429,431,433-442,444-447,449-467,470-508
+docs/tools/jira.mdx
+  2da528cda642a53b 1-639
+frontend/src/components/ai-elements/tool.tsx
+  2da528cda642a53b 15,287-310,312-316,318-329,331-357,361-367,370-374,380-388,390,397-402,404-411,413-426
+docs/tools/google_maps.mdx
+  2da528cda642a53b 1-27
+tests/unit/test_claude_adapter.py
+  2da528cda642a53b 189-205
+tests/unit/test_dsl_converter.py
+  2da528cda642a53b 13-14,65-66,92,103-152,173,217
+docs/tools/slack_sdk.mdx
+  2da528cda642a53b 1-139
+tests/unit/test_agent_runtime.py
+  2da528cda642a53b 8-9,12,19-22,26,37-45,52,75,113,152-154,162,176-213,235-237,287-289,294-379,402-404,411,417,440-442,449-905,925-927,936,943-946,955-957,966,974-1030,1038-1040,1056,1071-1203
+tests/unit/test_nsjail_seccomp.py
+  2da528cda642a53b 1-95
+docs/self-hosting/docker-compose.mdx
+  2da528cda642a53b 3,6-10,18,20,22,24,28,31,39-41,49,52,55,67-74,76-80,82-88,90-91,93-94,96-98,100-101,103,105-106,108-116,118-120,122-123,125,127,129,131,133-148,150-153,155,157,159-190,192-302
+tests/registry/test_cases_characterization.py
+  2da528cda642a53b 323-343,515-537
+docs/tools/exa.mdx
+  2da528cda642a53b 1-155
+tracecat/registry/actions/schemas.py
+  2da528cda642a53b 190-202,218-221,243-246
+packages/tracecat-registry/tracecat_registry/templates/tools/virustotal/list_threats.yml
+  2da528cda642a53b 6
+tracecat/agent/executor/activity.py
+  2da528cda642a53b 1,6-7,12,18,25-27,33-37,46-47,53,67-69,79-81,101-122,125,129-130,147-207,210,216,222-227,237,239-244,258-363,397,411,415,418-419
+docs/automations/triggers/case-triggers.mdx
+  2da528cda642a53b 1-69
+docs/snippets/action-expressions-section.mdx
+  2da528cda642a53b 1-12
+tests/unit/test_registry.py
+  2da528cda642a53b 55-104,405-425,464
+frontend/src/components/agents/agents-table.tsx
+  2da528cda642a53b 219
+packages/tracecat-registry/tracecat_registry/templates/tools/jira/get_priorities.yml
+  2da528cda642a53b 18
+alembic/CLAUDE.md
+  2da528cda642a53b 1
+docs/img/logos/dark.svg
+  2da528cda642a53b 1-11
+docs/tools/crowdsec.mdx
+  2da528cda642a53b 1-27
+tests/unit/test_tags_service.py
+  2da528cda642a53b 2,32-70,104-125,339,343-344,350-351,395-465
+frontend/src/components/cases/cases-feed-event.tsx
+  2da528cda642a53b 11,35-36,800-833
+docs/custom-actions/yaml-template.mdx
+  2da528cda642a53b 2-3,6,8,10,12,14-37,40-45,47,49,51,53,55-58,61-63,65-68,70-75,78,80-84,86,88,90,92,94-98,100,102-103
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.2",
+  "base_commit_sha": "460b1f556a33e5cff52eab5a3f025f6332992de3",
+  "prompts": {
+    "2da528cda642a53b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019db562-3dc2-77e2-984c-1db5c774e8dc",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 153243,
+      "total_deletions": 122022,
+      "accepted_lines": 153226,
+      "overriden_lines": 0
+    }
+  }
+}

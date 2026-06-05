@@ -1,0 +1,25 @@
+tests/unit/test_agent_sandbox_litellm.py
+  17ad32730b77658c 13,29-34,379-409,663-935
+tests/unit/test_agent_runtime.py
+  17ad32730b77658c 20,22,26,523-791
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.2",
+  "base_commit_sha": "fc96e0a206c69d88edea9281e73e5f3960844127",
+  "prompts": {
+    "17ad32730b77658c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019db1ca-60a3-7ae1-8715-220bcb28c613",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 605,
+      "total_deletions": 21,
+      "accepted_lines": 586,
+      "overriden_lines": 0
+    }
+  }
+}

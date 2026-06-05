@@ -1,0 +1,31 @@
+tracecat/agent/executor_worker.py
+  b4ffbc6ae8ce3329 9,96
+tracecat/agent/worker.py
+  b4ffbc6ae8ce3329 11,135
+tracecat/executor/worker.py
+  b4ffbc6ae8ce3329 45,157
+tracecat/dsl/worker.py
+  b4ffbc6ae8ce3329 7,160
+tests/unit/test_worker_activity_registration.py
+  b4ffbc6ae8ce3329 132,135
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.3",
+  "base_commit_sha": "15d72ae9abf89a9160fc0f3fd5d0a451e202a345",
+  "prompts": {
+    "b4ffbc6ae8ce3329": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c147b6ab-3046-4e2b-be04-b847ac538948",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 10,
+      "total_deletions": 0,
+      "accepted_lines": 10,
+      "overriden_lines": 0
+    }
+  }
+}

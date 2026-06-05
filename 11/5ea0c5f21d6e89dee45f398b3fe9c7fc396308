@@ -1,0 +1,23 @@
+tests/unit/test_agent_sandbox_litellm.py
+  3a89b90b42a29bec 5,9,13,23,29,36,47-61,109-125,144-167,242,284,286,289-314,327-342,390-578,723-739,915-924
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.2",
+  "base_commit_sha": "115ea0c5f21d6e89dee45f398b3fe9c7fc396308",
+  "prompts": {
+    "3a89b90b42a29bec": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019db1ac-5f12-7312-bb76-fb4d939c9c13",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 584,
+      "total_deletions": 268,
+      "accepted_lines": 325,
+      "overriden_lines": 0
+    }
+  }
+}

@@ -1,0 +1,23 @@
+scripts/check_temporal_db.py
+  849bef84e2d88de6 3,6-10,16,18,21,23,26
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.4",
+  "base_commit_sha": "6f906408d15ba372bc217a46b9e90faf971c72a6",
+  "prompts": {
+    "849bef84e2d88de6": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019c78ee-d58c-7913-975a-0e33a2f5ba68",
+        "model": "gpt-5.3-codex"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 25,
+      "total_deletions": 5,
+      "accepted_lines": 11,
+      "overriden_lines": 0
+    }
+  }
+}

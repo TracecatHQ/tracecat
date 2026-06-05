@@ -1,0 +1,51 @@
+tests/unit/test_mcp_integrations.py
+  ff5d87845ecaac7c 30
+tests/migration/test_case_numbers_workspace_migration.py
+  76a50a7f565409f1 1-13
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.8",
+  "base_commit_sha": "c8f20f5f5d22e7548e000a99db72cc5631af5535",
+  "prompts": {
+    "76a50a7f565409f1": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "fefccffe-56fb-4128-9602-eda769852f57",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 13,
+      "total_deletions": 1,
+      "accepted_lines": 13,
+      "overriden_lines": 0
+    },
+    "ef025ea712401975": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019cc452-e4f4-78e1-830b-f0d7f1755ae1",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 30161,
+      "overriden_lines": 0
+    },
+    "ff5d87845ecaac7c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019cc535-2a81-7e00-b75d-1d641367b67a",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 1,
+      "total_deletions": 1,
+      "accepted_lines": 1,
+      "overriden_lines": 0
+    }
+  }
+}

@@ -1,0 +1,25 @@
+tests/unit/test_agent_runtime.py
+  4ec10043bf411357 824-826,845-847,867-869
+tracecat/agent/runtime/claude_code/runtime.py
+  4ec10043bf411357 675
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.2",
+  "base_commit_sha": "2d8407d5ed37374fae34df6c5de7663e389938e8",
+  "prompts": {
+    "4ec10043bf411357": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019db0dd-2ac7-7242-8378-3f8291cc6944",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 10,
+      "total_deletions": 4,
+      "accepted_lines": 10,
+      "overriden_lines": 0
+    }
+  }
+}

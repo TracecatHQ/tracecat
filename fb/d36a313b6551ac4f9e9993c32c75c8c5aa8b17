@@ -1,0 +1,44 @@
+frontend/src/components/agents/agent-presets-builder.tsx
+  f9759fd526f79bba 130,1082-1083
+  e2366595845a235a 1203,2327-2329,2368,2416,2488-2499,2502,2504-2614,2622-2630
+  9e0fa2bede874c7f 1570,2487,2500,2503
+frontend/src/components/skills/skills-studio.tsx
+  7a57ed7b18619e83 151-152
+frontend/next.config.mjs
+  f9759fd526f79bba 8
+frontend/src/components/sidebar/app-sidebar.tsx
+  f9759fd526f79bba 24,81-90,92-93,221-243
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.7",
+  "base_commit_sha": "fbd36a313b6551ac4f9e9993c32c75c8c5aa8b17",
+  "prompts": {
+    "7a57ed7b18619e83": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c715e816-8e48-4375-b308-ce4cc5bb2897",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 975,
+      "total_deletions": 351,
+      "accepted_lines": 2,
+      "overriden_lines": 0
+    },
+    "f9759fd526f79bba": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0443124f-bb93-4ccf-800b-0140f2dcbae3",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 1,
+      "overriden_lines": 0
+    }
+  }
+}

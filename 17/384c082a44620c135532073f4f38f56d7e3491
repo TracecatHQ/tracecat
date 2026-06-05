@@ -1,0 +1,23 @@
+.github/workflows/lint-frontend.yml
+  2e3ea40662d71941 8-9,15-16,30-32,34-37,59,63-65
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.5",
+  "base_commit_sha": "17384c082a44620c135532073f4f38f56d7e3491",
+  "prompts": {
+    "2e3ea40662d71941": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ea3ac48c-df52-4e83-87e0-c24f641e7747",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 65,
+      "total_deletions": 51,
+      "accepted_lines": 22,
+      "overriden_lines": 0
+    }
+  }
+}

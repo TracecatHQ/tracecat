@@ -1,0 +1,36 @@
+tracecat/authz/seeding.py
+  894af0d30469bfad 548,558,563,576-578
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.8",
+  "base_commit_sha": "140e27f9dfe54b297d9c0c37af5f3c8fc0b080c3",
+  "prompts": {
+    "651913135a24f569": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019cc3a2-e5c5-70b3-961f-a95dd4f3aff2",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 194,
+      "total_deletions": 19,
+      "accepted_lines": 175,
+      "overriden_lines": 0
+    },
+    "894af0d30469bfad": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "5b7ae4ca-8b83-4d6b-b441-ccee553e93ab",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 9,
+      "total_deletions": 2,
+      "accepted_lines": 6,
+      "overriden_lines": 0
+    }
+  }
+}

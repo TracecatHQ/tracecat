@@ -1,0 +1,23 @@
+tracecat/dsl/workflow.py
+  379b44aa726e63d4 211,380,383,1963,1995,2048,2106,2165,2188
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.7",
+  "base_commit_sha": "27cd3cba2177bbdee5ed32b162f4e39e38b4b522",
+  "prompts": {
+    "379b44aa726e63d4": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019ca1e0-d27f-7983-b855-45221a87997c",
+        "model": "gpt-5.3-codex"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 9,
+      "total_deletions": 24,
+      "accepted_lines": 9,
+      "overriden_lines": 0
+    }
+  }
+}

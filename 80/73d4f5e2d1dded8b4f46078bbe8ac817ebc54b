@@ -1,0 +1,36 @@
+frontend/src/components/sidebar/app-sidebar.tsx
+  f9759fd526f79bba 23,77-90,218-224,242-251
+frontend/src/components/skills/working-copy-bar.tsx
+  647ef2ee78532672 18,82,84-86,124,131,135,149,152-153,159
+frontend/src/components/skills/skills-studio.tsx
+  7a57ed7b18619e83 116-117,129-136
+frontend/src/components/skills/use-skills-studio.ts
+  7a57ed7b18619e83 153,219,224,242-251,282,309-310,313,318-319,335-337,353-354,410-411,428-429,549-550,553,559-562,566,570,576-579,589-590,610,612,627-628,631,637-639
+  0654838314e74edc 218,221-223,279-281
+frontend/src/components/skills/editor-panel.tsx
+  0654838314e74edc 35,41-44,110-115,271-343,349,351
+  7a57ed7b18619e83 36-39,73-74,102-103,128-145,152-155,157-162,164,174,183,185,188-191,238-270,352-379,382-389
+frontend/src/components/skills/skill-list-panel.tsx
+  7a57ed7b18619e83 3-11,16-21,37,41,54,63,66-67,69-101,126-136,138-140
+  4f6102d2a606520a 137
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.2",
+  "base_commit_sha": "8073d4f5e2d1dded8b4f46078bbe8ac817ebc54b",
+  "prompts": {
+    "647ef2ee78532672": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019d83d5-919f-7861-be9e-41000a93c013",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 689,
+      "total_deletions": 208,
+      "accepted_lines": 12,
+      "overriden_lines": 0
+    }
+  }
+}

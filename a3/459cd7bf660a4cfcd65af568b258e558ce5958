@@ -1,0 +1,25 @@
+tracecat/mcp/server.py
+  cc0610546b37cd98 17,292-311,1645-1659,1779,1784-1786,1798,1801-1809,1847-1849,2863,4426-4430,4436-4438
+tests/unit/test_mcp_server.py
+  cc0610546b37cd98 1192-1265
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "a3459cd7bf660a4cfcd65af568b258e558ce5958",
+  "prompts": {
+    "cc0610546b37cd98": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019dc01f-a7a3-75d2-9e78-bb44f553d329",
+        "model": "gpt-5.5"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 373,
+      "total_deletions": 27,
+      "accepted_lines": 373,
+      "overriden_lines": 0
+    }
+  }
+}

@@ -1,0 +1,23 @@
+tracecat/cases/router.py
+  1fc726f057518adb 563,566
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.12",
+  "base_commit_sha": "445adf496b4c0cc7ec0cbefcb9d30472edb96efa",
+  "prompts": {
+    "1fc726f057518adb": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019cf820-33b0-7252-95bc-36e4029578ea",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 163,
+      "total_deletions": 110,
+      "accepted_lines": 140,
+      "overriden_lines": 0
+    }
+  }
+}

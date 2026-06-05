@@ -1,0 +1,23 @@
+frontend/src/components/builder/panel/action-panel.tsx
+  eca54a1bdc6e2a69 123-134,158-159,161,169,177,185,190,582
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.8",
+  "base_commit_sha": "ef2bfc045360a4274f3ca41e587531b71b633a7a",
+  "prompts": {
+    "eca54a1bdc6e2a69": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019cb9f5-2278-7fe0-9481-2f2b0755d52d",
+        "model": "gpt-5.3-codex"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 33,
+      "overriden_lines": 0
+    }
+  }
+}

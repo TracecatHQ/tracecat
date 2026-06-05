@@ -1,0 +1,37 @@
+docs/quickstart/control-flow.mdx
+  32664877d67db6dc 197-204,228-229
+  da8b0b0df9e7ce22 172-182,205-227
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.5",
+  "base_commit_sha": "669900a6aeb49d8799efdbcf4c38c92b0052f263",
+  "prompts": {
+    "32664877d67db6dc": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019c6c4c-2158-72d0-9c17-cfaa8f2e2851",
+        "model": "gpt-5.3-codex"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 429,
+      "total_deletions": 13,
+      "accepted_lines": 419,
+      "overriden_lines": 0
+    },
+    "da8b0b0df9e7ce22": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "68b32f2e-790f-49f0-9b38-b4d2d3d293cb",
+        "model": "gpt-5.3-codex-spark-preview-high"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 34,
+      "total_deletions": 11,
+      "accepted_lines": 34,
+      "overriden_lines": 0
+    }
+  }
+}

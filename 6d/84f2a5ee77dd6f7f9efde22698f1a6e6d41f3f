@@ -1,0 +1,23 @@
+.github/workflows/publish-helm-chart.yml
+  3239bb116ba91c5b 45-49,51
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.15",
+  "base_commit_sha": "6d84f2a5ee77dd6f7f9efde22698f1a6e6d41f3f",
+  "prompts": {
+    "3239bb116ba91c5b": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "1c0c31fc-6da3-4c85-8f06-4e957e1ea72f",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 7,
+      "total_deletions": 1,
+      "accepted_lines": 6,
+      "overriden_lines": 0
+    }
+  }
+}

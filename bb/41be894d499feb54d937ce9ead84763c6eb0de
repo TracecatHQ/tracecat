@@ -1,0 +1,23 @@
+frontend/.npmrc
+  f2fa04d214380103 1-5
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.3",
+  "base_commit_sha": "bb41be894d499feb54d937ce9ead84763c6eb0de",
+  "prompts": {
+    "f2fa04d214380103": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b034ff82-6edb-4140-9389-03bf64230584",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 14,
+      "total_deletions": 7,
+      "accepted_lines": 6,
+      "overriden_lines": 0
+    }
+  }
+}

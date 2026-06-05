@@ -1,0 +1,29 @@
+frontend/src/components/cases/cases-layout.tsx
+  22b7c5c05a6d7a9f 21-23
+frontend/src/hooks/use-cases.ts
+  22b7c5c05a6d7a9f 20
+frontend/src/components/cases/cases-header.tsx
+  22b7c5c05a6d7a9f 37-41
+frontend/src/components/cases/case-sort.ts
+  22b7c5c05a6d7a9f 1-19
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.11",
+  "base_commit_sha": "e4c4f9392eec81ff3033929d586d2f205bb982e9",
+  "prompts": {
+    "22b7c5c05a6d7a9f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019ce2f7-db8f-7232-8292-eec64928a4d5",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 128,
+      "total_deletions": 22,
+      "accepted_lines": 128,
+      "overriden_lines": 0
+    }
+  }
+}

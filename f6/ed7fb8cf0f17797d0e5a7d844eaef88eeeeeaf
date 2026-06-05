@@ -1,0 +1,27 @@
+tests/unit/test_dsl_converter.py
+  462f2376dba52a1e 11,145-172
+tracecat/agent/workflow_schemas.py
+  462f2376dba52a1e 11,13,15-27,71-87
+tests/temporal/test_agent_config_workflow_boundary.py
+  462f2376dba52a1e 123-137,192-210
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.8",
+  "base_commit_sha": "f6ed7fb8cf0f17797d0e5a7d844eaef88eeeeeaf",
+  "prompts": {
+    "462f2376dba52a1e": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019cc58a-8b2a-7b83-84bd-e0f9b67b0834",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 102,
+      "total_deletions": 1,
+      "accepted_lines": 95,
+      "overriden_lines": 0
+    }
+  }
+}

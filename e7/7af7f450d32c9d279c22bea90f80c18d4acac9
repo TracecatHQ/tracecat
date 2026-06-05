@@ -1,0 +1,27 @@
+.env.example
+  b23090542fcba33d 84-87
+tracecat/mcp/auth.py
+  b23090542fcba33d 8,11,22-26,71-81,83-85,87-94,455-498,500-524,578-582,716
+tests/unit/test_mcp_auth.py
+  b23090542fcba33d 11-22,61,67,104-132
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.8",
+  "base_commit_sha": "e77af7f450d32c9d279c22bea90f80c18d4acac9",
+  "prompts": {
+    "b23090542fcba33d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019cbe98-eb8c-7b22-ba0e-fddeefff6a3b",
+        "model": "gpt-5.3-codex"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 154,
+      "total_deletions": 2,
+      "accepted_lines": 156,
+      "overriden_lines": 0
+    }
+  }
+}

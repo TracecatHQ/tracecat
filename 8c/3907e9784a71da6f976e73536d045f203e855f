@@ -1,0 +1,43 @@
+frontend/src/components/nav/builder-nav.tsx
+  ccb43810c31932f4 1006
+  e089c1d23eabb15d 28,932-937,944,985-989,1003-1005
+tracecat/workflow/management/router.py
+  e089c1d23eabb15d 662,666
+frontend/src/client/types.gen.ts
+  e089c1d23eabb15d 8197,11345
+frontend/src/client/services.gen.ts
+  e089c1d23eabb15d 1566
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.8",
+  "base_commit_sha": "8c3907e9784a71da6f976e73536d045f203e855f",
+  "prompts": {
+    "ccb43810c31932f4": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "d5fbbb8c-694d-41fd-8fc7-6bd1ee0205d2",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 38,
+      "overriden_lines": 0
+    },
+    "e089c1d23eabb15d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ae985fe0-53c0-4ccc-a173-7215b37cf9ca",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 1323,
+      "total_deletions": 1077,
+      "accepted_lines": 258,
+      "overriden_lines": 0
+    }
+  }
+}

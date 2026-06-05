@@ -1,0 +1,25 @@
+tracecat/dsl/scheduler.py
+  80c627cd7cfed3b4 922-933
+tests/unit/test_dsl_scheduler_run_if.py
+  80c627cd7cfed3b4 1-73
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.8",
+  "base_commit_sha": "ca6d970a6819b5949e46b8690e4352b3d4df87aa",
+  "prompts": {
+    "80c627cd7cfed3b4": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019d9120-4c5d-71f3-9837-4836d12a9975",
+        "model": "gpt-5.3-codex"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 86,
+      "total_deletions": 1,
+      "accepted_lines": 85,
+      "overriden_lines": 0
+    }
+  }
+}

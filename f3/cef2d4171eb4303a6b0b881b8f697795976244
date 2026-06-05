@@ -1,0 +1,23 @@
+tests/unit/test_materialize_context.py
+  6110e1f881de8263 105-121
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.4",
+  "base_commit_sha": "f3cef2d4171eb4303a6b0b881b8f697795976244",
+  "prompts": {
+    "6110e1f881de8263": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019c7b9b-5778-7e42-b85e-9897b2bba8b0",
+        "model": "gpt-5.3-codex"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 17,
+      "total_deletions": 0,
+      "accepted_lines": 17,
+      "overriden_lines": 0
+    }
+  }
+}

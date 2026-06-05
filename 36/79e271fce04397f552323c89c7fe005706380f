@@ -1,0 +1,29 @@
+tests/unit/test_action_runner.py
+  8a0cae669eefcb6f 152,154,410,424,752,771,832,858
+tracecat/config.py
+  8a0cae669eefcb6f 76
+tracecat/executor/outbound_http_gateway_sitecustomize.py
+  8a0cae669eefcb6f 34-36,50,57,256,327,345-378,381-384,390,395,403,448,589-594,596,620-631,634,645,665,677,680-683
+tests/unit/executor/test_outbound_http_gateway_bootstrap.py
+  8a0cae669eefcb6f 107,148,150,268-273,616-620,642-646,728,733-737,757-788
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.12",
+  "base_commit_sha": "3679e271fce04397f552323c89c7fe005706380f",
+  "prompts": {
+    "8a0cae669eefcb6f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019ce3be-af83-7832-aa5e-d6ccaaeed30c",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 142,
+      "total_deletions": 49,
+      "accepted_lines": 144,
+      "overriden_lines": 0
+    }
+  }
+}

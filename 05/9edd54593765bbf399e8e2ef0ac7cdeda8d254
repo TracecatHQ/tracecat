@@ -1,0 +1,27 @@
+frontend/src/hooks/use-chat-preset-manager.ts
+  442c575862102361 99,209-217,225
+frontend/tests/use-chat-preset-manager.test.tsx
+  442c575862102361 1-124
+frontend/src/components/chat/chat-interface.tsx
+  442c575862102361 16,45,119,137,355,405,437,479-491,494
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.2",
+  "base_commit_sha": "059edd54593765bbf399e8e2ef0ac7cdeda8d254",
+  "prompts": {
+    "442c575862102361": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019d87ab-a920-7dd0-82fd-313b26dae1b4",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 158,
+      "total_deletions": 2,
+      "accepted_lines": 156,
+      "overriden_lines": 0
+    }
+  }
+}

@@ -1,0 +1,37 @@
+docs/api-simulation-evaluation.md
+  7291a5dcab3c2c29 70,450,452-507,530,549,619,625-629,631,684,691
+  d2eb6060f68c1f45 1-69,71-449,451,508-529,531-548,550-618,620-624,630,632-683,685-690
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.10",
+  "base_commit_sha": "2d49ad332072d8e7dc8fd592247733bfe4c930b5",
+  "prompts": {
+    "7291a5dcab3c2c29": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019cd905-ac18-7c20-951b-0509f5c7037c",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 216,
+      "total_deletions": 37,
+      "accepted_lines": 69,
+      "overriden_lines": 0
+    },
+    "d2eb6060f68c1f45": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019cd87b-82ad-7bf1-889c-3dc759fc4726",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 648,
+      "total_deletions": 17,
+      "accepted_lines": 622,
+      "overriden_lines": 0
+    }
+  }
+}

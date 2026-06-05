@@ -1,0 +1,30 @@
+tests/unit/test_agent_preset_service.py
+  40ea4f14a0ae4f84 1094-1113
+tests/unit/test_mcp_integrations.py
+  40ea4f14a0ae4f84 217,249,279
+tracecat/agent/preset/service.py
+  05c0b59f5e164c30 18-20,203,288,404
+  40ea4f14a0ae4f84 484,1277
+tracecat/agent/preset/router.py
+  40ea4f14a0ae4f84 176-177,179-182,184
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.7",
+  "base_commit_sha": "2a969770d6437b9538f92bc6df2761a9cb0aaf81",
+  "prompts": {
+    "40ea4f14a0ae4f84": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "3c49d8d3-a978-449a-939c-095be212f8b8",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 39,
+      "total_deletions": 112,
+      "accepted_lines": 31,
+      "overriden_lines": 0
+    }
+  }
+}

@@ -1,0 +1,35 @@
+tracecat/workflow/executions/schemas.py
+  7a90caad148eb060 54,57,349,384-393,434,447-457,485-499,518,528-537,785-797,898-912,936-950,986-996
+tests/unit/test_workflow_executions.py
+  7a90caad148eb060 35,397-441
+frontend/src/client/schemas.gen.ts
+  7a90caad148eb060 9918-9920,20804-20829
+tracecat/workflow/executions/common.py
+  7a90caad148eb060 3,7,112-126,270-272,274,276-281,289
+tracecat/workflow/executions/service.py
+  7a90caad148eb060 77,622-627,638,935-939,947,998-1002,1012-1017,1164-1168,1175
+frontend/src/client/types.gen.ts
+  7a90caad148eb060 2968,6491-6499
+tests/unit/test_workflow_executions_common.py
+  7a90caad148eb060 12-16,52,68-72
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.2",
+  "base_commit_sha": "7b894af98d4d726cdfa4dbb576672d2c7d921d36",
+  "prompts": {
+    "7a90caad148eb060": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019db0bd-df35-7973-b4af-4a02077751e9",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 264,
+      "total_deletions": 25,
+      "accepted_lines": 264,
+      "overriden_lines": 0
+    }
+  }
+}

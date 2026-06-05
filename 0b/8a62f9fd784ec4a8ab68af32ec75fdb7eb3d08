@@ -1,0 +1,57 @@
+tracecat/executor/minimal_runner.py
+  981395f6f7ad73e6 137,149,180,195,324,341,345-346,353,362-363,374,392,396
+  24a162b3b9c67295 121,162,213,253,282,314,344,351
+tracecat/executor/backends/test.py
+  981395f6f7ad73e6 45,50,203-206,208,212,218-219
+tracecat/executor/service.py
+  981395f6f7ad73e6 22,54-57,374-375,377-378,482,620-638,720-721,729-735
+tracecat/executor/action_runner.py
+  981395f6f7ad73e6 41-44,48,356-361,367,377,388,417,500-502,506-508,510-511,514,537,549,660-662,668
+tests/unit/executor/test_minimal_runner_protocol.py
+  981395f6f7ad73e6 43-44,76-77,130-134,176-177
+tracecat/executor/secret_preprocessors.py
+  24a162b3b9c67295 86-90,93-94,96-163,171,174,176,180,182,192,195,197,203
+  981395f6f7ad73e6 1-85,91-92,95,164-170,172-173,175,177-179,181,183-191,193-194,196,198-202,204-243
+tests/unit/test_executor_aws_assume_role.py
+  981395f6f7ad73e6 1,8,16,18,21,37,64,74,131-133,154-156,172,174,184-185,190-194,197,205,212-218,221,228,234-235,247,271,293,308,312,334,356,377,383,387,405,411,415,428,430-431,437-441,444,452,462,476-477,483
+  24a162b3b9c67295 19,79-80,82-85,88-89,94-97,100-101,106-109,112-115,121,148,177,200,224,241,265,289,303,322,344,366,394,422,447,465
+tracecat/executor/untrusted_runner.py
+  981395f6f7ad73e6 36,102,114-118,121,125,131-132
+tracecat/executor/backends/pool/worker.py
+  981395f6f7ad73e6 146
+tracecat/executor/backends/pool/pool.py
+  981395f6f7ad73e6 56,59,1066-1070,1076,1152-1153
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.5",
+  "base_commit_sha": "0b8a62f9fd784ec4a8ab68af32ec75fdb7eb3d08",
+  "prompts": {
+    "24a162b3b9c67295": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019d5fde-e6cf-71a2-bee1-17deac1fcc50",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 135,
+      "total_deletions": 66,
+      "accepted_lines": 131,
+      "overriden_lines": 0
+    },
+    "981395f6f7ad73e6": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019d5fa1-28f6-7d11-93aa-36b807744351",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 407,
+      "total_deletions": 495,
+      "accepted_lines": 352,
+      "overriden_lines": 0
+    }
+  }
+}

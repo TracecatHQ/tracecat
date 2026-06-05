@@ -1,0 +1,43 @@
+tests/migration/test_dynamic_workspace_rls_migration.py
+  ae143d3d9f0a9f52 23
+tests/unit/test_case_fields_service.py
+  ae143d3d9f0a9f52 178-182
+alembic/versions/b5fc4168fe22_apply_model_a_rls_to_dynamic_workspace_.py
+  ae143d3d9f0a9f52 76-87
+tracecat/tables/service.py
+  2a4b03f5bd1a93e5 136-140,748,799,834,924,1232
+  ae143d3d9f0a9f52 3,81,84-105,756,937,1023,1029,1053,1848,1853-1873,1935,2021,2038,2049,2068,2100,2110,2126-2128,2153,2158,2176-2178,2207,2220,2242
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.9",
+  "base_commit_sha": "a7d5c369fcba7bb8b000698a671c2f58cc079878",
+  "prompts": {
+    "2a4b03f5bd1a93e5": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "bfe8bc83-2cfc-420c-a784-03f2c294cb85",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 19,
+      "total_deletions": 12,
+      "accepted_lines": 10,
+      "overriden_lines": 0
+    },
+    "ae143d3d9f0a9f52": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019cd4bb-e041-7331-be87-ee86d50a6ad1",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 238,
+      "total_deletions": 11,
+      "accepted_lines": 87,
+      "overriden_lines": 0
+    }
+  }
+}

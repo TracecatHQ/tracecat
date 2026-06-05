@@ -1,0 +1,23 @@
+tests/unit/test_tables_service.py
+  3605be9799d48dad 1619-1621
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.8",
+  "base_commit_sha": "6b0ae691edda55447b9b452a0287208f1e8acfe0",
+  "prompts": {
+    "3605be9799d48dad": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019d875c-f2bd-7cd3-9d66-cf8e0c5c8d22",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 3,
+      "total_deletions": 2,
+      "accepted_lines": 3,
+      "overriden_lines": 0
+    }
+  }
+}

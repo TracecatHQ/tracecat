@@ -1,0 +1,25 @@
+tests/unit/test_view.py
+  25c47d8231173a55 2035-2131
+tracecat/dsl/common.py
+  25c47d8231173a55 815-820,822-863,865,869-871,890
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.5",
+  "base_commit_sha": "698427a97da5f3c6b36a5718e1f9937e17b7ba1b",
+  "prompts": {
+    "25c47d8231173a55": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019c95cd-3ca7-73f3-ada4-13a947022b57",
+        "model": "gpt-5.3-codex"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 150,
+      "total_deletions": 1,
+      "accepted_lines": 150,
+      "overriden_lines": 0
+    }
+  }
+}

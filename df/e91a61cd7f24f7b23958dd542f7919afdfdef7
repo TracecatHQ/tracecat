@@ -1,0 +1,38 @@
+tests/conftest.py
+  ab39061b7bba5bcf 1051-1054,1058
+tests/unit/test_registry_fixture_platform_current.py
+  ab39061b7bba5bcf 15
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.2",
+  "base_commit_sha": "dfe91a61cd7f24f7b23958dd542f7919afdfdef7",
+  "prompts": {
+    "829382512538f2a5": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019db040-ed71-7953-ac7a-5b71d9ca0243",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 0,
+      "overriden_lines": 0
+    },
+    "ab39061b7bba5bcf": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019db08c-b641-7871-bf4c-e123010b0ee5",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 7,
+      "total_deletions": 497,
+      "accepted_lines": 7,
+      "overriden_lines": 0
+    }
+  }
+}

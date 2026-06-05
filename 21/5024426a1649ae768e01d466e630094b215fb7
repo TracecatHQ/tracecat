@@ -1,0 +1,67 @@
+tracecat/editor/router.py
+  777aa8cace8dc70e 10,144,191,223
+tests/unit/test_workspace_service.py
+  777aa8cace8dc70e 24-25,27-28,161-203,205-208,210-247
+tests/unit/api/conftest.py
+  777aa8cace8dc70e 14-16,19-20,61-62,67-68
+tracecat/workflow/management/folders/router.py
+  777aa8cace8dc70e 6,26,42,86
+tracecat/workflow/graph/router.py
+  777aa8cace8dc70e 10-11,27,29
+tracecat/workspaces/router.py
+  777aa8cace8dc70e 12,14,58,61,74-76,78-79,87,120
+tracecat/auth/credentials.py
+  777aa8cace8dc70e 326,371-373,377,791,832
+tests/unit/test_auth_credentials_api_keys.py
+  777aa8cace8dc70e 149-213
+tracecat/workspaces/service.py
+  777aa8cace8dc70e 15,32,100-117
+tracecat/workflow/tags/router.py
+  777aa8cace8dc70e 5,20
+tracecat/workflow/actions/router.py
+  777aa8cace8dc70e 6,54,110
+tracecat/workflow/management/router.py
+  777aa8cace8dc70e 26,93,147,309,538,659,672,739,833
+tests/unit/api/test_api_actor_roles.py
+  777aa8cace8dc70e 1-249
+tracecat/workflow/store/router.py
+  777aa8cace8dc70e 4,90,182
+tracecat/agent/router.py
+  777aa8cace8dc70e 10
+  ea92e9bfa7e171cb 22,34,46,58,71,90,111,136,149,162,186
+tracecat/auth/dependencies.py
+  777aa8cace8dc70e 4,9-14,17,35-56,80,95-107,110-111,113-140,142-151
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.11",
+  "base_commit_sha": "215024426a1649ae768e01d466e630094b215fb7",
+  "prompts": {
+    "777aa8cace8dc70e": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019ce38c-f7fb-7973-93ad-4134736c57f0",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 569,
+      "total_deletions": 105,
+      "accepted_lines": 566,
+      "overriden_lines": 2
+    },
+    "ea92e9bfa7e171cb": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019ce519-7eea-7b20-8289-1a86594faef9",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 11,
+      "total_deletions": 23,
+      "accepted_lines": 11,
+      "overriden_lines": 0
+    }
+  }
+}

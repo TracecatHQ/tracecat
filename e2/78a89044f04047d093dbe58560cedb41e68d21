@@ -1,0 +1,29 @@
+tracecat/executor/worker.py
+  5c7d0aa880f94781 151-152
+tracecat/config.py
+  5c7d0aa880f94781 69
+tracecat/executor/warm_readiness.py
+  5c7d0aa880f94781 3-5
+tests/unit/executor/test_worker_readiness_order.py
+  5c7d0aa880f94781 1-144
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.7",
+  "base_commit_sha": "e278a89044f04047d093dbe58560cedb41e68d21",
+  "prompts": {
+    "5c7d0aa880f94781": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019cb418-9506-7191-aeae-801be37156c8",
+        "model": "gpt-5.3-codex"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 148,
+      "total_deletions": 8,
+      "accepted_lines": 150,
+      "overriden_lines": 0
+    }
+  }
+}

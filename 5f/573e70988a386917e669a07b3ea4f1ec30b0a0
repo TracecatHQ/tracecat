@@ -1,0 +1,130 @@
+tracecat/agent/config.py
+  51ccc4d6e9cfc94f 146-153,369-377,379,387-388
+frontend/src/client/schemas.gen.ts
+  51aba507f14417ef 12795-12807
+frontend/src/components/agents/agent-presets-builder.tsx
+  b627eb02f1e5bb54 1016,1026,1560
+  b78aefff87859213 689-690,695-726,1593-1611,2255-2258
+tests/unit/test_agent_sandbox_litellm.py
+  b78aefff87859213 41-59,264-334,551-585
+  51ccc4d6e9cfc94f 104,108,111-124,139,145-150,170,179-181
+  55a1b515ecad7a2b 586-606
+tests/unit/api/test_api_secrets.py
+  b78aefff87859213 165-193
+tests/unit/test_agent_runtime.py
+  51aba507f14417ef 178,181,184,187
+  b627eb02f1e5bb54 41
+  b78aefff87859213 40,190-211,213-215
+  55a1b515ecad7a2b 186
+tests/unit/test_agent_llm_proxy.py
+  51ccc4d6e9cfc94f 165,210
+  b78aefff87859213 8,150-164,166-209,211-241
+tests/unit/test_agent_preset_service.py
+  b78aefff87859213 257-273
+tracecat/secrets/router.py
+  b78aefff87859213 48-58,150,152-159
+tracecat/agent/runtime/claude_code/runtime.py
+  b627eb02f1e5bb54 61,688
+  b78aefff87859213 72-93,95-96,98-109,702-705
+  f66629e39b50fb87 696-700
+tests/unit/test_mcp_server.py
+  b78aefff87859213 4395-4458
+tracecat/agent/sandbox/llm_proxy.py
+  51ccc4d6e9cfc94f 83-87,93,101-104,116,194-195,197-225,420-423,425-427,431
+tests/unit/test_agent_management_service.py
+  b78aefff87859213 84-124,126-131
+frontend/src/client/services.gen.ts
+  51aba507f14417ef 2871
+frontend/src/client/types.gen.ts
+  51aba507f14417ef 4026-4029
+tracecat/agent/executor/activity.py
+  b78aefff87859213 153-155,158
+  51ccc4d6e9cfc94f 160
+packages/tracecat-ee/tracecat_ee/agent/workflows/durable.py
+  51aba507f14417ef 35
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.8",
+  "base_commit_sha": "5f573e70988a386917e669a07b3ea4f1ec30b0a0",
+  "prompts": {
+    "51aba507f14417ef": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019d8d39-b668-75d0-89dc-1d5caaf530bf",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 27,
+      "total_deletions": 40,
+      "accepted_lines": 24,
+      "overriden_lines": 0
+    },
+    "51ccc4d6e9cfc94f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b28637cd-b9d3-44e3-a209-9c202f30f236",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 103,
+      "overriden_lines": 0
+    },
+    "55a1b515ecad7a2b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019d8d31-6308-7730-af5a-9ac3995f4016",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 1,
+      "total_deletions": 3,
+      "accepted_lines": 529,
+      "overriden_lines": 0
+    },
+    "b627eb02f1e5bb54": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0809501d-2377-4ef4-a818-616c3b543791",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 6,
+      "overriden_lines": 0
+    },
+    "b78aefff87859213": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019d893c-744d-78f1-9a3b-b4ad98f5a684",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 563,
+      "overriden_lines": 0
+    },
+    "f66629e39b50fb87": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f78a45a6-459d-4c94-a0e5-7a4051b29c63",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 5,
+      "overriden_lines": 0
+    }
+  }
+}

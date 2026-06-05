@@ -1,0 +1,23 @@
+alembic/versions/b5fc4168fe22_apply_model_a_rls_to_dynamic_workspace_.py
+  d96a61b3821b3ced 4,22
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.9",
+  "base_commit_sha": "2f0ac915095da26687ff1191917daf4556427aec",
+  "prompts": {
+    "d96a61b3821b3ced": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019cd58d-05eb-7e02-b542-333f7a5a4d27",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 2,
+      "total_deletions": 2,
+      "accepted_lines": 2,
+      "overriden_lines": 0
+    }
+  }
+}

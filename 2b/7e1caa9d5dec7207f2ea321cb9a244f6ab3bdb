@@ -1,0 +1,23 @@
+tracecat/executor/action_runner.py
+  402c68d2ea307408 500,658
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.5",
+  "base_commit_sha": "2b7e1caa9d5dec7207f2ea321cb9a244f6ab3bdb",
+  "prompts": {
+    "402c68d2ea307408": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019d6023-d367-7053-aba5-ac4736ae009f",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 2,
+      "total_deletions": 19,
+      "accepted_lines": 2,
+      "overriden_lines": 0
+    }
+  }
+}

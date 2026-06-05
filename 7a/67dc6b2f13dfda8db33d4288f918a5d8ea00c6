@@ -1,0 +1,55 @@
+frontend/src/components/builder/canvas/action-node.tsx
+  ed46f0ca887eb33b 20,81,120,136-156,396-399,418-419,463-464,478-479,569-582
+tests/unit/test_dsl_scheduler_determinism.py
+  ed46f0ca887eb33b 19,103-201
+tracecat/db/models.py
+  ed46f0ca887eb33b 879-886
+tracecat/webhooks/router.py
+  ed46f0ca887eb33b 258-263,269-272
+tracecat/workflow/management/router.py
+  ed46f0ca887eb33b 70,355-357
+tracecat/workflow/executions/service.py
+  ed46f0ca887eb33b 6,31,34-36,38,47,58,91,163-490,666-667,842-846,848,1380-1381,1398-1399,1420-1421,1436-1437,1457-1458,1476-1477,1525-1526,1601-1602,1664-1665,1753-1754
+tracecat/workflow/executions/router.py
+  ed46f0ca887eb33b 346-347,708,715,748-754,761-764
+tracecat/dsl/common.py
+  ed46f0ca887eb33b 70,72-74,891-904
+tracecat/workflow/management/schemas.py
+  ed46f0ca887eb33b 19,21,23-24,55,124-131
+alembic/versions/c5d42c1a4f8b_add_workflow_draft_pins.py
+  ed46f0ca887eb33b 1-31
+tracecat/dsl/workflow.py
+  ed46f0ca887eb33b 605-616,618,661
+frontend/src/lib/hooks.tsx
+  ed46f0ca887eb33b 977,983,993-997,1001-1002,1117-1118,1179-1180
+frontend/src/components/builder/events/events-sidebar.tsx
+  ed46f0ca887eb33b 4,6-9,11,14,17,21-22,28,42-47,54,56,62,64-188,211,213-214,223-229,231-249,251-256,258-262,279-307,309,313,320,324,351-352,360-361,365-366,370-372,457-501
+tracecat/webhooks/dependencies.py
+  ed46f0ca887eb33b 345,367-368
+tracecat/dsl/scheduler.py
+  ed46f0ca887eb33b 129,141,179-183,217-218,226-248,250-251,702,710-720,725,730,1323,1359-1366
+tracecat/mcp/server.py
+  ed46f0ca887eb33b 2248,2253,2262-2267,2272-2275,2488-2489
+frontend/src/components/builder/events/events-selected-action.tsx
+  ed46f0ca887eb33b 11,18-19,57-59,70-73,75,88-96,112-175,205-242,473-478,505-512,524,555-556,574,589-590
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.8",
+  "base_commit_sha": "7a67dc6b2f13dfda8db33d4288f918a5d8ea00c6",
+  "prompts": {
+    "ed46f0ca887eb33b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019cb11f-8787-7d91-a1ff-cc095474d5a4",
+        "model": "gpt-5.3-codex"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 1294,
+      "total_deletions": 188,
+      "accepted_lines": 1136,
+      "overriden_lines": 0
+    }
+  }
+}

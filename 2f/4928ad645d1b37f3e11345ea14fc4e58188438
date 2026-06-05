@@ -1,0 +1,35 @@
+packages/tracecat-ee/tracecat_ee/admin/users/router.py
+  a47d330ee40860f5 11,22,47,57,71,91
+tracecat/db/dependencies.py
+  a47d330ee40860f5 6,10-12
+tests/unit/test_superuser_admin_session_dependencies.py
+  a47d330ee40860f5 1-47
+tracecat/admin/registry/router.py
+  a47d330ee40860f5 18,30,40,54,65,80,90,109
+packages/tracecat-ee/tracecat_ee/admin/organizations/router.py
+  a47d330ee40860f5 11,43,53,68,82,101,127,145,172,199,226,243,261,281
+packages/tracecat-ee/tracecat_ee/admin/settings/router.py
+  a47d330ee40860f5 8,21,31
+packages/tracecat-ee/tracecat_ee/admin/tiers/router.py
+  a47d330ee40860f5 11,45,58,73,87,101,117,137,151
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.4",
+  "base_commit_sha": "2f4928ad645d1b37f3e11345ea14fc4e58188438",
+  "prompts": {
+    "a47d330ee40860f5": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019c7ca8-1c66-7e52-95ca-f88c5282bf3d",
+        "model": "gpt-5.3-codex"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 91,
+      "total_deletions": 41,
+      "accepted_lines": 91,
+      "overriden_lines": 0
+    }
+  }
+}

@@ -1,0 +1,23 @@
+tests/unit/test_rate_limits.py
+  bf7d09aa9a57a2c6 45,48-49,62,65-66,124,126-127
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.7",
+  "base_commit_sha": "3b4ff89decb5e1c6c20a3908b51bec22aa3a85ac",
+  "prompts": {
+    "bf7d09aa9a57a2c6": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019caf5b-effd-74c2-a275-e3670fd10d28",
+        "model": "gpt-5.3-codex"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 13,
+      "total_deletions": 3,
+      "accepted_lines": 9,
+      "overriden_lines": 0
+    }
+  }
+}

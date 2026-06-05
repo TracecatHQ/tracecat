@@ -1,0 +1,33 @@
+tracecat/workflow/management/router.py
+  10a6b9fcec6fb5f5 276-296,529-540,545
+tests/unit/test_mcp_server.py
+  10a6b9fcec6fb5f5 27,786-812,828-886
+tests/unit/api/test_api_workflows.py
+  10a6b9fcec6fb5f5 274-312
+tracecat/agent/mcp/trusted_server.py
+  10a6b9fcec6fb5f5 37-41,132
+tests/unit/test_agent_mcp_trusted_server.py
+  10a6b9fcec6fb5f5 11,134-177
+tracecat/mcp/server.py
+  10a6b9fcec6fb5f5 85-89,139-143,1552-1562,4198-4222
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.0",
+  "base_commit_sha": "987b88ded86efd364e231023dd910f7c3bb66fb5",
+  "prompts": {
+    "10a6b9fcec6fb5f5": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019d9b85-ff79-7f60-8773-8a3de4f80789",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 291,
+      "total_deletions": 56,
+      "accepted_lines": 261,
+      "overriden_lines": 0
+    }
+  }
+}

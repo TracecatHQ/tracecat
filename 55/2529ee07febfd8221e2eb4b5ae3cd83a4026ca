@@ -1,0 +1,23 @@
+tests/unit/test_storage_collection.py
+  6110e1f881de8263 6-7,9,11,13-18,25,435-466,517-573
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.4",
+  "base_commit_sha": "552529ee07febfd8221e2eb4b5ae3cd83a4026ca",
+  "prompts": {
+    "6110e1f881de8263": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019c7b9b-5778-7e42-b85e-9897b2bba8b0",
+        "model": "gpt-5.3-codex"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 100,
+      "overriden_lines": 0
+    }
+  }
+}

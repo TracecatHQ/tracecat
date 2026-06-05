@@ -1,0 +1,31 @@
+docker-compose.local.yml
+  b3b787d2bb0bba4f 237
+docker-compose.dev.yml
+  b3b787d2bb0bba4f 219
+deployments/fargate/modules/ecs/ecs-executor.tf
+  b3b787d2bb0bba4f 20
+docker-compose.yml
+  b3b787d2bb0bba4f 230
+deployments/helm/tracecat/templates/executor-deployment.yaml
+  b3b787d2bb0bba4f 44
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.7",
+  "base_commit_sha": "dc507128fe6f9f94a772b1bd78eea8a2a84a940a",
+  "prompts": {
+    "b3b787d2bb0bba4f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019cb0d2-05ae-7cb2-b113-709c7e116a19",
+        "model": "gpt-5.3-codex"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 30,
+      "total_deletions": 30,
+      "accepted_lines": 5,
+      "overriden_lines": 0
+    }
+  }
+}

@@ -1,0 +1,25 @@
+tests/unit/test_agent_mcp_proxy_server.py
+  0d69229066193da4 10,193-202,204
+tests/unit/test_agent_runtime.py
+  0d69229066193da4 19,144-146,154,448,476,503,526,560
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.20",
+  "base_commit_sha": "5f2761f0e9bebb741804e02f54d1ebf103e1872f",
+  "prompts": {
+    "0d69229066193da4": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019d316e-605f-7313-a2b2-0ec32845de38",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 22,
+      "total_deletions": 11,
+      "accepted_lines": 22,
+      "overriden_lines": 0
+    }
+  }
+}

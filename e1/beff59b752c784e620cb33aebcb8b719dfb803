@@ -1,0 +1,33 @@
+tracecat/dsl/workflow.py
+  f16cc875748bbea6 1717-1721
+packages/tracecat-ee/tracecat_ee/agent/workflows/durable.py
+  f16cc875748bbea6 693-697
+tracecat/config.py
+  f16cc875748bbea6 138-152
+tracecat/executor/activities.py
+  f16cc875748bbea6 9,42-55,123-124,127-131,142-150,153-164
+tests/unit/test_executor_activities.py
+  f16cc875748bbea6 115,130-131
+packages/tracecat-ee/tracecat_ee/agent/workflows/registry_tool.py
+  f16cc875748bbea6 41-45
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.3",
+  "base_commit_sha": "e1beff59b752c784e620cb33aebcb8b719dfb803",
+  "prompts": {
+    "f16cc875748bbea6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "66107bdd-2db1-41b6-85e6-5257a4dfb5b0",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 82,
+      "total_deletions": 3,
+      "accepted_lines": 78,
+      "overriden_lines": 0
+    }
+  }
+}

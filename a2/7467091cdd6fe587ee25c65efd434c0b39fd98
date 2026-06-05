@@ -1,0 +1,23 @@
+.github/workflows/lint-frontend.yml
+  7c3392d4b22f0991 64,66-68
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.5",
+  "base_commit_sha": "a27467091cdd6fe587ee25c65efd434c0b39fd98",
+  "prompts": {
+    "7c3392d4b22f0991": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019c96fb-8510-7921-a945-74df791733c2",
+        "model": "gpt-5.3-codex"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 7,
+      "total_deletions": 2,
+      "accepted_lines": 4,
+      "overriden_lines": 0
+    }
+  }
+}

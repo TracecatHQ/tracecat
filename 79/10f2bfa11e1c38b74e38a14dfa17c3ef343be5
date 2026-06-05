@@ -1,0 +1,121 @@
+frontend/src/components/skills/skill-list-panel.tsx
+  996e8a431365198d 1-11,13-55,57-210
+  e2366595845a235a 12
+  05c0b59f5e164c30 56
+frontend/src/lib/skills-studio.tsx
+  f9759fd526f79bba 251,258,263,269
+frontend/next.config.mjs
+  f9759fd526f79bba 7
+frontend/src/components/skills/create-skill-dialog.tsx
+  996e8a431365198d 1-44,46-102
+  05c0b59f5e164c30 45
+frontend/src/components/skills/skill-playground-sheet.tsx
+  05c0b59f5e164c30 108-139
+  e2366595845a235a 4,24
+  f9759fd526f79bba 16-23
+frontend/src/hooks/use-skills.ts
+  05c0b59f5e164c30 31,235,275,322,398,448,489
+  e2366595845a235a 30,32-33
+frontend/src/components/skills/file-tree.tsx
+  05c0b59f5e164c30 24-28,92-99
+  f9759fd526f79bba 5,36-50,52-54,57-60,75
+frontend/src/components/skills/use-skills-studio.ts
+  e2366595845a235a 10,58,98,173,318,335,337,349-351,472-479,728
+  05c0b59f5e164c30 68,201-202,205,226,256,259,287,290-293,295,305,319,484-490,572,604,625,642,646,658,666,675,700
+  996e8a431365198d 1-6,8-9,11-17,19-44,46-51,53-57,59,61-67,69-97,99-172,174-200,203-204,206-225,227-255,257-258,260-280,285-286,288-289,294,296-304,306-317,320-334,346-347,352,358-359,361,377-471,480-483,491-571,573-603,605-624,626-641,643-645,647-657,659-665,667-670,672-674,676-677,679-699,701,703-709,712-716,718-727,729-734,736-762,764-786
+  f9759fd526f79bba 7,281-284,336,338-345,348,353-357,360,362-376,671,678,702,710-711,717,735,763
+frontend/src/components/skills/add-file-dialog.tsx
+  996e8a431365198d 1-30,33-60
+  05c0b59f5e164c30 31-32
+frontend/src/components/skills/working-copy-bar.tsx
+  05c0b59f5e164c30 16,57-74
+frontend/src/components/skills/skill-file-icon.tsx
+  05c0b59f5e164c30 23,50
+frontend/src/components/sidebar/app-sidebar.tsx
+  f9759fd526f79bba 23,66-79,129-208
+frontend/src/components/skills/skills-studio.tsx
+  e2366595845a235a 3,8,10,29,34,55,57-79,91,99-100,104-108,110-138
+  996e8a431365198d 4-7,9,28,35-37,39-54,80-83,85-90,92-98,101,140-151,153-159
+  05c0b59f5e164c30 38,56,84,109
+frontend/src/components/skills/editor-panel.tsx
+  e2366595845a235a 11-12,15-16,32,38,41,56,83,93-96,121,123,134-138,145,148-150,192,223-225,228-237,241-242
+  05c0b59f5e164c30 91
+  996e8a431365198d 1-10,13-14,33-37,39-40,42-55,57-82,84-90,92,97-120,122,124-133,139-144,146-147,151-191,193-222,226-227,238-240,243-280
+  f9759fd526f79bba 17-31
+frontend/src/components/agents/agent-presets-builder.tsx
+  f9759fd526f79bba 117,1047-1048
+  e2366595845a235a 1158,1921-1923,1962,2010,2082-2093,2096,2098-2217
+  9e0fa2bede874c7f 1501,2081,2094,2097
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.5",
+  "base_commit_sha": "7910f2bfa11e1c38b74e38a14dfa17c3ef343be5",
+  "prompts": {
+    "05c0b59f5e164c30": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "25a43b03-05ad-4105-8375-12fa36350f6d",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 113,
+      "overriden_lines": 0
+    },
+    "996e8a431365198d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "fb5c6e16-0e17-4e6a-ba18-6fd2c13f8700",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 1341,
+      "overriden_lines": 0
+    },
+    "9e0fa2bede874c7f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "89a23e28-29da-4594-8eee-e31803c1d518",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 4,
+      "overriden_lines": 0
+    },
+    "e2366595845a235a": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019d5548-3858-7db1-9443-c64ad289fda3",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 274,
+      "overriden_lines": 0
+    },
+    "f9759fd526f79bba": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0443124f-bb93-4ccf-800b-0140f2dcbae3",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 194,
+      "overriden_lines": 0
+    }
+  }
+}

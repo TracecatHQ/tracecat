@@ -1,0 +1,45 @@
+AGENTS.md
+  7350c3d552b23ce7 506-507
+tests/migration/test_case_fields_migration.py
+  7350c3d552b23ce7 25,29,185,198,205,269,289,394-395,448,502,525,630,714,734,764
+tests/migration/test_comment_activity_audit_migration.py
+  7350c3d552b23ce7 9,11,15,20-21,28,30,152,154,238,280,282,335
+pyproject.toml
+  7350c3d552b23ce7 194
+tests/migration/helpers.py
+  7350c3d552b23ce7 1-194
+tests/migration/test_membership_workspace_fk_cascade_migration.py
+  7350c3d552b23ce7 1-308
+tests/migration/test_case_numbers_workspace_migration.py
+  7350c3d552b23ce7 22,25,29,34-35,40,112,114
+.github/workflows/test-migrations.yml
+  7350c3d552b23ce7 1-99
+tests/migration/test_migration_advisory_lock.py
+  7350c3d552b23ce7 17,27,43-44,131,138
+tests/migration/test_remove_legacy_org_scoped_builtin_registry_repository.py
+  7350c3d552b23ce7 9,11,15,20-21,26,153,155
+tests/migration/test_migration_coverage.py
+  7350c3d552b23ce7 1-60
+tests/migration/test_migration_history_smoke.py
+  7350c3d552b23ce7 1-27
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.12",
+  "base_commit_sha": "5069b47162c9afe8e32c31f1bddde937be8ad198",
+  "prompts": {
+    "7350c3d552b23ce7": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019ce8ae-8aa3-7c61-9321-b4be190afbcd",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 742,
+      "total_deletions": 228,
+      "accepted_lines": 742,
+      "overriden_lines": 0
+    }
+  }
+}

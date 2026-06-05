@@ -1,0 +1,23 @@
+alembic/versions/c76f9b01fad7_add_rls_policies.py
+  e92d2af802378183 22-28,112-113
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.5",
+  "base_commit_sha": "5f83e6cff0d53dbe381af5cd12e1c682d5330dd6",
+  "prompts": {
+    "e92d2af802378183": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019c9821-83b0-7de0-b295-1f419c406774",
+        "model": "gpt-5.3-codex"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 11,
+      "total_deletions": 2,
+      "accepted_lines": 9,
+      "overriden_lines": 0
+    }
+  }
+}

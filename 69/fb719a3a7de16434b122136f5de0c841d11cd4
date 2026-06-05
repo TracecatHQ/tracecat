@@ -1,0 +1,43 @@
+docker-compose.dev.yml
+  830dcfed8a588c86 400,403
+frontend/src/components/sidebar/organization-sidebar.tsx
+  830dcfed8a588c86 5,69-73
+tracecat/organization/schedule_sync_service.py
+  830dcfed8a588c86 1-306
+tests/unit/api/test_api_organization_schedule_sync.py
+  830dcfed8a588c86 1-112
+frontend/src/client/services.custom.ts
+  830dcfed8a588c86 178-250
+tracecat/organization/schemas.py
+  830dcfed8a588c86 3,6,9,11-15,76-125
+tracecat/workflow/schedules/bridge.py
+  830dcfed8a588c86 48,99
+frontend/src/hooks/use-org-schedule-sync.ts
+  830dcfed8a588c86 1-73
+frontend/src/components/organization/org-settings-schedules.tsx
+  830dcfed8a588c86 1-227
+tests/unit/test_organization_schedule_sync_service.py
+  830dcfed8a588c86 1-101
+tracecat/organization/router.py
+  830dcfed8a588c86 34,46-48,163-186
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.4",
+  "base_commit_sha": "69fb719a3a7de16434b122136f5de0c841d11cd4",
+  "prompts": {
+    "830dcfed8a588c86": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019c77d0-b850-7823-9eba-aae61b02b799",
+        "model": "gpt-5.3-codex"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 994,
+      "total_deletions": 4,
+      "accepted_lines": 993,
+      "overriden_lines": 0
+    }
+  }
+}

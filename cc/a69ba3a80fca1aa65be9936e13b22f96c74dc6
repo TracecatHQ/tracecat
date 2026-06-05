@@ -1,0 +1,33 @@
+frontend/src/components/agents/agent-preset-versions-panel.tsx
+  7b0ef4ac4b626cfa 31-34,255-257,260-261,263,265-269,271-273,276-277,280,282-286
+frontend/src/components/ai-elements/prompt-input.tsx
+  7b0ef4ac4b626cfa 365,383,405,605-606,627-628,630-631,716-717,723-725,727-728,742,752,763,769,771-772,787,790,794
+frontend/src/components/builder/panel/action-panel.tsx
+  7b0ef4ac4b626cfa 450,453
+frontend/src/components/agents/agent-preset-version-select.tsx
+  7b0ef4ac4b626cfa 3,5,40,45-46,48,51-73,121,123,142-147,149,166,180-184
+frontend/src/components/agents/agent-presets-builder.tsx
+  7b0ef4ac4b626cfa 1328-1329
+frontend/src/components/ui/select.tsx
+  7b0ef4ac4b626cfa 43,49,57
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.8",
+  "base_commit_sha": "cca69ba3a80fca1aa65be9936e13b22f96c74dc6",
+  "prompts": {
+    "7b0ef4ac4b626cfa": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019ccf03-a92a-7370-80a8-568e56e12540",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 127,
+      "total_deletions": 102,
+      "accepted_lines": 105,
+      "overriden_lines": 0
+    }
+  }
+}

@@ -1,0 +1,23 @@
+tracecat/mcp/auth.py
+  c061acdfbb4088f4 22,27-28,707,712,718,721-749,752
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.10",
+  "base_commit_sha": "1daedab935f6333f24a2dfff429a9537819f5224",
+  "prompts": {
+    "c061acdfbb4088f4": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019cddaa-18c7-70f0-bee0-9e2adaec9726",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 37,
+      "total_deletions": 51,
+      "accepted_lines": 36,
+      "overriden_lines": 0
+    }
+  }
+}

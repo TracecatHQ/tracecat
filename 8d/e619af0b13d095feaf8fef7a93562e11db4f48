@@ -1,0 +1,23 @@
+tracecat/workflow/tags/service.py
+  2d39667bbd1c7870 4,40-44,47-51
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.8",
+  "base_commit_sha": "8de619af0b13d095feaf8fef7a93562e11db4f48",
+  "prompts": {
+    "2d39667bbd1c7870": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019cbab3-dcab-7c42-a406-ce371594bb5f",
+        "model": "gpt-5.3-codex"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 11,
+      "total_deletions": 16,
+      "accepted_lines": 11,
+      "overriden_lines": 0
+    }
+  }
+}

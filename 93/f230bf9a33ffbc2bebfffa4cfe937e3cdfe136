@@ -1,0 +1,37 @@
+frontend/src/components/dashboard/workflows-header.tsx
+  2c867a8e3a315154 219,222-226,232-238,489,518,648
+frontend/src/components/sidebar/app-sidebar.tsx
+  2c867a8e3a315154 76,79,120-125,127,130-135,300-304
+frontend/src/components/dashboard/workflows-dashboard.tsx
+  2c867a8e3a315154 794-795,806-807,846-853,885,925,936-937,939-944,1317-1321,1371-1374
+frontend/src/components/dashboard/table-actions.tsx
+  2c867a8e3a315154 46,55,195-202
+frontend/src/hooks/use-entitlements.ts
+  2c867a8e3a315154 10-14,19-21,29,38,42
+frontend/src/hooks/use-organization.ts
+  2c867a8e3a315154 14-18,26
+frontend/src/components/cases/add-case-tag-dialog.tsx
+  2c867a8e3a315154 55-57
+frontend/src/components/dashboard/add-workflow-tag-dialog.tsx
+  2c867a8e3a315154 54
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.5",
+  "base_commit_sha": "93f230bf9a33ffbc2bebfffa4cfe937e3cdfe136",
+  "prompts": {
+    "2c867a8e3a315154": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019d6a12-8ee9-7562-b81d-d8766af58894",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 100,
+      "total_deletions": 15,
+      "accepted_lines": 99,
+      "overriden_lines": 0
+    }
+  }
+}

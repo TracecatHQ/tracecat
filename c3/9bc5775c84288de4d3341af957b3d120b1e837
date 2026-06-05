@@ -1,0 +1,36 @@
+tracecat/agent/sandbox/llm_proxy.py
+  ddf370a5965be715 135-138,141-145
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.8",
+  "base_commit_sha": "c39bc5775c84288de4d3341af957b3d120b1e837",
+  "prompts": {
+    "152fa925f029d278": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "fb7e5395-0b07-4112-b2e0-dd084c0b974d",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 236,
+      "overriden_lines": 0
+    },
+    "ddf370a5965be715": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "35960ad5-1aad-49c6-92a0-889340752bd0",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 9,
+      "total_deletions": 1,
+      "accepted_lines": 9,
+      "overriden_lines": 0
+    }
+  }
+}

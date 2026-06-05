@@ -1,0 +1,23 @@
+AGENTS.md
+  571ab6427747edb7 288,389
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.19",
+  "base_commit_sha": "b2c2c0ddaeeed37fbcb2576ed19dccabb061e0a8",
+  "prompts": {
+    "571ab6427747edb7": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "75f6751f-70f3-45fb-a42d-0061dd577cbd",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 2,
+      "total_deletions": 0,
+      "accepted_lines": 2,
+      "overriden_lines": 0
+    }
+  }
+}

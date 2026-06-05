@@ -1,0 +1,38 @@
+tests/unit/test_registry_lock_service.py
+  7a14838b147c27c8 568,572,574-577,605
+tracecat/registry/lock/service.py
+  7a14838b147c27c8 202-207,209-211,213
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.0",
+  "base_commit_sha": "c17abc3dd68b496c9fee7f9c0d491cdd374f68ba",
+  "prompts": {
+    "23ac9377f737f0e7": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "105aa767-f687-46e5-890c-db3aae82461d",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 244,
+      "total_deletions": 1,
+      "accepted_lines": 244,
+      "overriden_lines": 0
+    },
+    "7a14838b147c27c8": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019d9799-111f-7012-be31-24ae4329c031",
+        "model": "gpt-5.3-codex"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 25,
+      "total_deletions": 22,
+      "accepted_lines": 19,
+      "overriden_lines": 0
+    }
+  }
+}

@@ -1,0 +1,23 @@
+frontend/src/components/dashboard/workflows-dashboard.tsx
+  77be9702d648b41a 7,20,844,846-854,868-871,873-874,876-891,899,929-932,934-935,937-950,1282-1316,1405-1427,1429,1452,1543-1546
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.8",
+  "base_commit_sha": "d3d125dd123f9e4c74ae5239282000a7056e3db8",
+  "prompts": {
+    "77be9702d648b41a": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019cc5fe-a4f3-7232-987b-76e628d0a883",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 223,
+      "total_deletions": 155,
+      "accepted_lines": 129,
+      "overriden_lines": 0
+    }
+  }
+}

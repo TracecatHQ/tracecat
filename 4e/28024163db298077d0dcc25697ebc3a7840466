@@ -1,0 +1,84 @@
+docker-compose.yml
+  e664505cc315a72c 73-74,142-143,223-224,289-290,400-401,477-478
+deployments/fargate/main.tf
+  e664505cc315a72c 89-92
+deployments/fargate/modules/ecs/secrets.tf
+  e664505cc315a72c 211,215
+docker-compose.dev.yml
+  e664505cc315a72c 64-65,133-134,214-215,278-279,394-395,474-475
+tests/unit/test_temporal_codec.py
+  e664505cc315a72c 6,40-41,51-63,66,102,141,144,147,155-156,241,244,252-276,282-285,289,292,300,306-309,313,316-345,362-365,369,372,389-392,395,399,402,404-405,412-413,425-427,430-454,462,467-469,472,483,487,490,494,498-543
+docker-compose.local.yml
+  e664505cc315a72c 81-82,150-151,233-234,299-300,413-414,490-491
+tracecat/temporal/codec.py
+  e664505cc315a72c 9,18-25,41-90,257-264,266-267,274,279,282,285,288-306,308-310,312-314,316-318,328-334,339,347,381,385-387,398,406,413,417-419,424,439-443,450-451,466,478,482-484,536-538
+deployments/fargate/modules/ecs/locals.tf
+  e664505cc315a72c 51-57,67,99,118,140,163,168-192,203-206,215,220-221
+deployments/fargate/modules/ecs/iam.tf
+  e664505cc315a72c 177-180,188,310-315,373-378,504-507
+deployments/fargate/modules/ecs/variables.tf
+  e664505cc315a72c 318,320
+tracecat/config.py
+  e664505cc315a72c 371-372,374,376-377,379
+deployments/fargate/variables.tf
+  e664505cc315a72c 266,268
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.0",
+  "base_commit_sha": "4e28024163db298077d0dcc25697ebc3a7840466",
+  "prompts": {
+    "4a4d8758c8f79621": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "aa833e68-a9a0-4824-a0e5-5c46d024be41",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 2,
+      "overriden_lines": 0
+    },
+    "5519f9529cfd4849": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "788712cb-ae9d-41b8-b343-fbf701560713",
+        "model": "claude-opus-4-5-20251101"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 236,
+      "overriden_lines": 0
+    },
+    "843196031a02e0cd": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ec97d6d9-b5ef-43ca-ba57-883fd5e82dc4",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 2,
+      "overriden_lines": 0
+    },
+    "e664505cc315a72c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019dac11-f22a-7f11-a85a-7a3cf275b495",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 463,
+      "total_deletions": 307,
+      "accepted_lines": 451,
+      "overriden_lines": 0
+    }
+  }
+}

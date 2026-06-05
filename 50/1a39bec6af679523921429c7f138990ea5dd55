@@ -1,0 +1,27 @@
+scripts/temporal/repro_workflow_logging_deadlock.py
+  196cb132bce9ddfd 74-77,82-83,118-120,138-139,142-143,159
+tests/unit/test_dsl_workflow_logging.py
+  196cb132bce9ddfd 78,85-94,96-97,104,120,130-145
+tracecat/dsl/workflow_logging.py
+  196cb132bce9ddfd 3,44-69,102-105,109-116
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.4",
+  "base_commit_sha": "501a39bec6af679523921429c7f138990ea5dd55",
+  "prompts": {
+    "196cb132bce9ddfd": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019c9069-d46a-78b3-a149-96c078a587c3",
+        "model": "gpt-5.3-codex"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 98,
+      "total_deletions": 24,
+      "accepted_lines": 86,
+      "overriden_lines": 0
+    }
+  }
+}

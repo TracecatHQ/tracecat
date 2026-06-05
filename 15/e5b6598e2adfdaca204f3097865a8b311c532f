@@ -1,0 +1,39 @@
+frontend/tests/skills-studio.test.ts
+  4f6102d2a606520a 4-7,9,17,34,53,57,121,146,151,159,163,167,171,174,178
+frontend/src/components/skills/use-skills-studio.ts
+  7a57ed7b18619e83 153,220,243-247,319-320,337-338,567-568,571,577-580,611-612,621
+  0654838314e74edc 217-219
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.8",
+  "base_commit_sha": "15e5b6598e2adfdaca204f3097865a8b311c532f",
+  "prompts": {
+    "4f6102d2a606520a": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019d73f0-7451-7541-a0c3-b01b259809e9",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 31,
+      "total_deletions": 2,
+      "accepted_lines": 13,
+      "overriden_lines": 0
+    },
+    "7a57ed7b18619e83": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c715e816-8e48-4375-b308-ce4cc5bb2897",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 975,
+      "total_deletions": 351,
+      "accepted_lines": 1,
+      "overriden_lines": 0
+    }
+  }
+}

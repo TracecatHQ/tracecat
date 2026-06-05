@@ -1,0 +1,23 @@
+frontend/src/hooks/use-chat.ts
+  f2fa04d214380103 9,455
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.3",
+  "base_commit_sha": "f280d33290b63c599427699e1d7142feee04128a",
+  "prompts": {
+    "f2fa04d214380103": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b034ff82-6edb-4140-9389-03bf64230584",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 2,
+      "total_deletions": 2,
+      "accepted_lines": 2,
+      "overriden_lines": 0
+    }
+  }
+}

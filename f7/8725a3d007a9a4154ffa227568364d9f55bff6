@@ -1,0 +1,41 @@
+tracecat/dsl/workflow.py
+  18310c524f5b0ff9 729-780,1045-1048,1053-1056,1065-1069,1071,1074-1076,1078,1080-1081,1094-1097,1102-1105,1114-1118,1120,1123-1125,1127,1129-1130
+tests/temporal/test_workflows.py
+  18310c524f5b0ff9 3253,3300-3307
+tracecat/workflow/management/management.py
+  18310c524f5b0ff9 14-15,879-884
+tests/unit/test_dsl_workflow_error_unwrap.py
+  18310c524f5b0ff9 1-41
+tracecat/workflow/executions/schemas.py
+  18310c524f5b0ff9 447,450-474,477-490,492-502,520,523-524
+frontend/src/client/schemas.gen.ts
+  18310c524f5b0ff9 7768-7778,8476-8497,15349-15352,20063-20088,20094-20156,21450-21459
+frontend/src/client/types.gen.ts
+  18310c524f5b0ff9 2393,4838
+frontend/src/components/executions/event-details.tsx
+  18310c524f5b0ff9 73-74,76
+frontend/src/components/builder/events/events-selected-action.tsx
+  18310c524f5b0ff9 779,781
+tests/unit/test_workflow_executions.py
+  18310c524f5b0ff9 957-1049
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.5",
+  "base_commit_sha": "f78725a3d007a9a4154ffa227568364d9f55bff6",
+  "prompts": {
+    "18310c524f5b0ff9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019c908d-b743-7bb2-8e68-91d98a55fc00",
+        "model": "gpt-5.3-codex"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 440,
+      "overriden_lines": 0
+    }
+  }
+}

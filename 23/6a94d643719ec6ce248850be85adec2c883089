@@ -1,0 +1,25 @@
+tracecat/executor/secret_preprocessors.py
+  24a162b3b9c67295 84-89,95,128,175
+tests/unit/test_executor_aws_assume_role.py
+  24a162b3b9c67295 19,83,87,93,97,103,107
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.5",
+  "base_commit_sha": "236a94d643719ec6ce248850be85adec2c883089",
+  "prompts": {
+    "24a162b3b9c67295": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019d5fde-e6cf-71a2-bee1-17deac1fcc50",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 16,
+      "total_deletions": 27,
+      "accepted_lines": 16,
+      "overriden_lines": 0
+    }
+  }
+}

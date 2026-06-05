@@ -1,0 +1,23 @@
+tests/unit/test_workflow_execution_workspace_scoping.py
+  9d4aa6d665cf6057 153,155,177,179-180,216,218,354,356,364-365,373-374,392,394,405,416,437-453,457,460,471-473
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.7",
+  "base_commit_sha": "e1fdb94e5d1dfa2e0de3a3adef829231c57182ae",
+  "prompts": {
+    "9d4aa6d665cf6057": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "e6d76def-a24b-4bae-a257-aab573e8411e",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 39,
+      "total_deletions": 8,
+      "accepted_lines": 39,
+      "overriden_lines": 5
+    }
+  }
+}

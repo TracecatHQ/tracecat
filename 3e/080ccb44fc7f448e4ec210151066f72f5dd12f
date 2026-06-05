@@ -1,0 +1,25 @@
+tests/unit/test_registry_resolver.py
+  7a14838b147c27c8 231,260-266
+tracecat/executor/registry_resolver.py
+  7a14838b147c27c8 223,230
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.0",
+  "base_commit_sha": "3e080ccb44fc7f448e4ec210151066f72f5dd12f",
+  "prompts": {
+    "7a14838b147c27c8": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019d9799-111f-7012-be31-24ae4329c031",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 10,
+      "total_deletions": 12,
+      "accepted_lines": 10,
+      "overriden_lines": 0
+    }
+  }
+}

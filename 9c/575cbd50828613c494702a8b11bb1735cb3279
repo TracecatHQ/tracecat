@@ -1,0 +1,29 @@
+packages/tracecat-ee/tracecat_ee/agent/workflows/durable.py
+  c1a338eedc2b2254 9,49-53,129-169,211
+tests/unit/test_agent_session_search_attributes.py
+  c1a338eedc2b2254 1-7,9-10,12-30,38-89,91-131,133-163
+tracecat/agent/session/service.py
+  c1a338eedc2b2254 21,64-68,91-107,804
+tests/unit/test_durable_agent_workflow_search_attributes.py
+  c1a338eedc2b2254 1-122
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.8",
+  "base_commit_sha": "9c575cbd50828613c494702a8b11bb1735cb3279",
+  "prompts": {
+    "c1a338eedc2b2254": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019cb975-6c2a-7db0-a028-61e36d4d8146",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 353,
+      "total_deletions": 0,
+      "accepted_lines": 348,
+      "overriden_lines": 3
+    }
+  }
+}

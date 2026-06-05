@@ -1,0 +1,23 @@
+Dockerfile
+  265f9ff3d89322a8 73
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.8",
+  "base_commit_sha": "04ba482778842d676b0168f254074bed8f8d1082",
+  "prompts": {
+    "265f9ff3d89322a8": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "5f146b5d-db8c-4fd3-bd19-6af1d2c9d155",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 1,
+      "total_deletions": 1,
+      "accepted_lines": 1,
+      "overriden_lines": 0
+    }
+  }
+}

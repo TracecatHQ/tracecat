@@ -1,0 +1,27 @@
+tracecat/dsl/workflow_logging.py
+  196cb132bce9ddfd 1-88
+tracecat/dsl/scheduler.py
+  196cb132bce9ddfd 58,116,124-125,471,476,483,513,589,595,648,690,887,1016
+tracecat/dsl/workflow.py
+  196cb132bce9ddfd 98,214,387,455,464,469,509,523,599,653,661,670,674,686,762,781,799,806,863,922,984,1003,1009,1040,1046,1054,1504,1800,1904
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.4",
+  "base_commit_sha": "197a1cc97c0277e28d43b4d815b550c59a955a9b",
+  "prompts": {
+    "196cb132bce9ddfd": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019c9069-d46a-78b3-a149-96c078a587c3",
+        "model": "gpt-5.3-codex"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 145,
+      "total_deletions": 58,
+      "accepted_lines": 131,
+      "overriden_lines": 0
+    }
+  }
+}
