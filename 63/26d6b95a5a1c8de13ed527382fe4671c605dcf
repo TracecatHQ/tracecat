@@ -1,0 +1,48 @@
+docs/tools/kubernetes_sdk.mdx
+  s_4a81253ec91c27::t_b3dd6bcf472992 1-49
+uv.lock
+  ai_agent 1142-1149,2198-2218,3982-3994,4742,4781,5179-5185
+docs/tools/jira.mdx
+  s_4a81253ec91c27::t_b3dd6bcf472992 410-416,420-421,424,426-436
+docs/tools/runreveal.mdx
+  s_4a81253ec91c27::t_b3dd6bcf472992 40-46,50-51,54,56-66
+docs/tools/slack_sdk.mdx
+  s_4a81253ec91c27::t_b3dd6bcf472992 11,25
+docs/tools/sentry.mdx
+  s_4a81253ec91c27::t_b3dd6bcf472992 40-46,50-51,54,56-66
+docs/tools/linear.mdx
+  s_4a81253ec91c27::t_b3dd6bcf472992 40-46,50-51,54,56-66
+docs/docs.json
+  s_4a81253ec91c27::t_b3dd6bcf472992 206
+docs/tools/github.mdx
+  s_4a81253ec91c27::t_b3dd6bcf472992 40-46,50-51,54,56-66
+docs/tools/slack.mdx
+  s_4a81253ec91c27::t_b3dd6bcf472992 35-72,89-270,608-717,874-997,1042-1178
+packages/tracecat-registry/pyproject.toml
+  s_4a81253ec91c27::t_9bc15d1a921173 39
+tests/registry/test_kubernetes_sdk.py
+  s_4a81253ec91c27::t_bbfefe95edd063 1-131,137-185
+  s_4a81253ec91c27::t_a16939bd5703e8 132-136
+packages/tracecat-registry/tracecat_registry/integrations/kubernetes_sdk.py
+  s_4a81253ec91c27::t_bbfefe95edd063 1-127
+docs/tools/notion.mdx
+  s_4a81253ec91c27::t_b3dd6bcf472992 40-46,50-51,54,56-66
+docs/tools/wiz.mdx
+  s_4a81253ec91c27::t_b3dd6bcf472992 40-46,50-51,54,56-66
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.3",
+  "base_commit_sha": "6326d6b95a5a1c8de13ed527382fe4671c605dcf",
+  "prompts": {},
+  "sessions": {
+    "s_4a81253ec91c27": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019e9902-e06e-7c72-bdf6-ff4a5571def3",
+        "model": "gpt-5.5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
