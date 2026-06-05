@@ -1,0 +1,35 @@
+docs/tools/github.mdx
+  s_4a81253ec91c27::t_b594226cb8de7c 40-46,50-51,54,56-66
+docs/tools/wiz.mdx
+  s_4a81253ec91c27::t_b594226cb8de7c 40-46,50-51,54,56-66
+docs/tools/linear.mdx
+  s_4a81253ec91c27::t_b594226cb8de7c 40-46,50-51,54,56-66
+docs/tools/notion.mdx
+  s_4a81253ec91c27::t_b594226cb8de7c 40-46,50-51,54,56-66
+docs/tools/runreveal.mdx
+  s_4a81253ec91c27::t_b594226cb8de7c 40-46,50-51,54,56-66
+docs/tools/slack_sdk.mdx
+  s_4a81253ec91c27::t_b594226cb8de7c 11,25
+docs/tools/sentry.mdx
+  s_4a81253ec91c27::t_b594226cb8de7c 40-46,50-51,54,56-66
+docs/tools/slack.mdx
+  s_4a81253ec91c27::t_b594226cb8de7c 35-72,89-270,608-717,874-997,1042-1178
+docs/tools/jira.mdx
+  s_4a81253ec91c27::t_b594226cb8de7c 410-416,420-421,424,426-436
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.3",
+  "base_commit_sha": "e6338674dac8bcdf412fe29841fb93df23f7ee96",
+  "prompts": {},
+  "sessions": {
+    "s_4a81253ec91c27": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019e9902-e06e-7c72-bdf6-ff4a5571def3",
+        "model": "gpt-5.5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
