@@ -1,6 +1,5 @@
 import os
 from typing import Annotated, Any
-from urllib.parse import urlsplit
 
 import duckdb
 from pydantic_core import to_jsonable_python
@@ -91,75 +90,20 @@ def _build_s3_secret() -> tuple[list[str], list[Any]] | None:
     return options, params
 
 
-def _normalize_headers_scope(headers_scope: str | None) -> str:
-    """Validate and normalize the HTTP secret ``SCOPE`` for header injection.
+def _setup_s3_secret(con: duckdb.DuckDBPyConnection) -> None:
+    """Create the S3 secret used for ``s3://`` reads, when credentials are attached.
 
-    DuckDB matches ``SCOPE`` as a literal URL prefix, so a bare host prefix like
-    ``https://api.example.com`` would also match ``https://api.example.com.evil.com``.
-    Require an http(s) URL with a host, and anchor the host boundary with a
-    trailing ``/`` when no path is given, so the headers can never leak to a
-    sibling host. Query/fragment are dropped.
+    S3 access goes through httpfs, so it is loaded only when the ``amazon_s3``
+    secret carries credentials. Plain queries (no credentials) load nothing and
+    create nothing.
     """
-    if not headers_scope:
-        raise ValueError(
-            "headers_scope is required when headers is set: provide the URL prefix "
-            "the headers apply to (e.g. https://api.example.com) so they are not "
-            "sent to other hosts."
-        )
-    parts = urlsplit(headers_scope)
-    if parts.scheme not in ("http", "https") or not parts.hostname:
-        raise ValueError(
-            "headers_scope must be an http:// or https:// URL with a host, "
-            f"e.g. https://api.example.com (got {headers_scope!r})."
-        )
-    # Reject userinfo: a URL like https://api.example.com@evil.com actually points
-    # at evil.com, so the host before the '@' would mislead the scope.
-    if "@" in parts.netloc:
-        raise ValueError(
-            "headers_scope must not contain userinfo ('@'); use a plain "
-            f"scheme://host[:port][/path] (got {headers_scope!r})."
-        )
-    # Anchor the host with a trailing slash so prefix matching cannot bleed into a
-    # longer host (e.g. api.example.com.evil.com).
-    path = parts.path or "/"
-    return f"{parts.scheme}://{parts.netloc}{path}"
-
-
-def _setup_remote_secrets(
-    con: duckdb.DuckDBPyConnection,
-    headers: dict[str, str] | None,
-    headers_scope: str | None,
-) -> None:
-    """Create the S3 and/or HTTP secrets used for remote reads.
-
-    Both secret types require httpfs, so it is loaded once here, and only when a
-    secret is actually needed. Plain queries (no ``amazon_s3`` credentials and no
-    headers) load nothing and create nothing.
-
-    The HTTP secret is always scoped: ``headers_scope`` is required when
-    ``headers`` is set, so the headers (e.g. an auth token) are only ever sent to
-    requests whose URL starts with that normalized prefix — never to other hosts a
-    query might also read.
-    """
-    scope = _normalize_headers_scope(headers_scope) if headers else None
-
     s3 = _build_s3_secret()
-    if s3 is None and not headers:
+    if s3 is None:
         return
 
+    options, params = s3
     con.execute("LOAD httpfs")
-
-    if s3 is not None:
-        options, params = s3
-        con.execute(f"CREATE OR REPLACE SECRET __tc_s3 ({', '.join(options)})", params)
-
-    if headers:
-        # Bind header names, values, and scope as parameters (never interpolated).
-        con.execute(
-            "CREATE OR REPLACE SECRET __tc_http "
-            "(TYPE http, EXTRA_HTTP_HEADERS map(?, ?), SCOPE ?)",
-            [list(headers.keys()), list(headers.values()), scope],
-        )
+    con.execute(f"CREATE OR REPLACE SECRET __tc_s3 ({', '.join(options)})", params)
 
 
 @registry.register(
@@ -174,26 +118,10 @@ def execute_sql(
         str,
         Doc("SQL to execute in an in-process DuckDB connection. "),
     ],
-    headers: Annotated[
-        dict[str, str] | None,
-        Doc(
-            "HTTP headers sent with httpfs http(s) requests, e.g. for "
-            "authenticating reads from a remote URL. Requires headers_scope."
-        ),
-    ] = None,
-    headers_scope: Annotated[
-        str | None,
-        Doc(
-            "URL prefix the headers are restricted to (e.g. "
-            "https://api.example.com). Required when headers is set; the headers "
-            "are only sent to requests whose URL starts with this prefix, so auth "
-            "tokens never leak to other hosts."
-        ),
-    ] = None,
 ) -> int | list[dict[str, Any]] | None:
     con = _connect()
     try:
-        _setup_remote_secrets(con, headers, headers_scope)
+        _setup_s3_secret(con)
         con.execute(sql)
         if con.description is None:
             return con.rowcount

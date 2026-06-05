@@ -318,22 +318,6 @@ examples:
             SELECT *
             FROM read_parquet('s3://my-bucket/findings/*.parquet')
 
-  sql-duckdb-https:
-    title: Read from an authenticated URL
-    language: yaml
-    code: |
-      # Pass HTTP headers to authenticate http(s) reads; keep the token in a secret.
-      # headers_scope restricts the headers to the intended host.
-      - ref: read_url
-        action: core.duckdb.execute_sql
-        args:
-          sql: |
-            SELECT *
-            FROM read_json_auto('https://api.example.com/findings.json')
-          headers:
-            Authorization: Bearer ${{ SECRETS.example_api.TOKEN }}
-          headers_scope: https://api.example.com
-
   ssh-command:
     title: Execute a remote command
     language: yaml

@@ -82,22 +82,6 @@ SQL to execute in an in-process DuckDB connection.
 
 </ParamField>
 
-<ParamField path="headers" type="object | null">
-
-HTTP headers sent with httpfs http(s) requests, e.g. for authenticating reads from a remote URL. Requires headers_scope.
-
-Default: `null`.
-
-</ParamField>
-
-<ParamField path="headers_scope" type="string | null">
-
-URL prefix the headers are restricted to (e.g. https://api.example.com). Required when headers is set; the headers are only sent to requests whose URL starts with this prefix, so auth tokens never leak to other hosts.
-
-Default: `null`.
-
-</ParamField>
-
 ### Examples
 
 **Run in-process SQL**
@@ -126,20 +110,4 @@ Default: `null`.
     sql: |
       SELECT *
       FROM read_parquet('s3://my-bucket/findings/*.parquet')
-```
-
-**Read from an authenticated URL**
-
-```yaml
-# Pass HTTP headers to authenticate http(s) reads; keep the token in a secret.
-# headers_scope restricts the headers to the intended host.
-- ref: read_url
-  action: core.duckdb.execute_sql
-  args:
-    sql: |
-      SELECT *
-      FROM read_json_auto('https://api.example.com/findings.json')
-    headers:
-      Authorization: Bearer ${{ SECRETS.example_api.TOKEN }}
-    headers_scope: https://api.example.com
 ```

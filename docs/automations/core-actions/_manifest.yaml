@@ -115,7 +115,6 @@ pages:
         examples:
           - sql-duckdb-query
           - sql-duckdb-s3
-          - sql-duckdb-https
 
   - slug: request-actions/ssh
     title: SSH
