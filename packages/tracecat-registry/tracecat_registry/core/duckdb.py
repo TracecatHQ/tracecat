@@ -1,4 +1,5 @@
 from typing import Annotated, Any
+from urllib.parse import urlsplit
 
 import duckdb
 from pydantic_core import to_jsonable_python
@@ -17,14 +18,23 @@ def _rows_to_json(
     return to_jsonable_python(records, fallback=str, exclude_none=False)
 
 
-def _quote(value: str) -> str:
-    """Quote a value as a single-quoted DuckDB SQL string literal.
+def _split_s3_endpoint(endpoint_url: str) -> tuple[str, bool | None]:
+    """Split a full endpoint URL into a DuckDB ``ENDPOINT`` host and ``USE_SSL``.
 
-    Single quotes are escaped by doubling them. Used for every value
-    interpolated into ``CREATE SECRET`` statements (credentials and headers)
-    so secret values cannot break out of the literal.
+    The action accepts the same full-URL form as the other S3 actions (e.g.
+    ``http://minio:9000``), but DuckDB's S3 secret wants a bare ``host[:port]``
+    and does not infer TLS from the scheme. Strip the scheme for ``ENDPOINT``
+    and derive ``USE_SSL`` from it: ``http`` -> False, ``https`` -> True, and
+    no scheme -> None (leave DuckDB's default).
     """
-    return "'" + str(value).replace("'", "''") + "'"
+    raw = endpoint_url.strip()
+    # Prefix "//" for bare host:port so urlsplit populates netloc instead of path.
+    parts = urlsplit(raw if "://" in raw else f"//{raw}")
+    host = parts.netloc or raw
+    use_ssl = (
+        False if parts.scheme == "http" else True if parts.scheme == "https" else None
+    )
+    return host, use_ssl
 
 
 def _connect() -> duckdb.DuckDBPyConnection:
@@ -65,21 +75,27 @@ def _maybe_setup_s3_secret(
     if not frozen.access_key or not frozen.secret_key:
         raise ValueError("Resolved AWS session is missing access key credentials.")
 
-    parts = [
-        "TYPE s3",
-        f"KEY_ID {_quote(frozen.access_key)}",
-        f"SECRET {_quote(frozen.secret_key)}",
-    ]
+    # Only fixed option names and constants we derive ourselves are interpolated
+    # into the statement; every credential value is bound via a ? parameter, so
+    # secret values can never be parsed as SQL.
+    options = ["TYPE s3", "KEY_ID ?", "SECRET ?"]
+    params: list[Any] = [frozen.access_key, frozen.secret_key]
     if frozen.token:
-        parts.append(f"SESSION_TOKEN {_quote(frozen.token)}")
+        options.append("SESSION_TOKEN ?")
+        params.append(frozen.token)
     if session.region_name:
-        parts.append(f"REGION {_quote(session.region_name)}")
+        options.append("REGION ?")
+        params.append(session.region_name)
     if endpoint_url:
-        parts.append(f"ENDPOINT {_quote(endpoint_url)}")
-        parts.append("URL_STYLE 'path'")
+        host, use_ssl = _split_s3_endpoint(endpoint_url)
+        options.append("ENDPOINT ?")
+        params.append(host)
+        options.append("URL_STYLE 'path'")
+        if use_ssl is not None:
+            options.append(f"USE_SSL {'true' if use_ssl else 'false'}")
 
     con.execute("LOAD httpfs")
-    con.execute(f"CREATE OR REPLACE SECRET __tc_s3 ({', '.join(parts)})")
+    con.execute(f"CREATE OR REPLACE SECRET __tc_s3 ({', '.join(options)})", params)
 
 
 def _maybe_setup_http_secret(
@@ -92,12 +108,12 @@ def _maybe_setup_http_secret(
     if not headers:
         return
 
-    entries = ", ".join(
-        f"{_quote(name)}: {_quote(value)}" for name, value in headers.items()
-    )
+    # Bind the header names and values as two list parameters so they are never
+    # interpolated into the statement text.
     con.execute("LOAD httpfs")
     con.execute(
-        f"CREATE OR REPLACE SECRET __tc_http (TYPE http, EXTRA_HTTP_HEADERS MAP {{{entries}}})"
+        "CREATE OR REPLACE SECRET __tc_http (TYPE http, EXTRA_HTTP_HEADERS map(?, ?))",
+        [list(headers.keys()), list(headers.values())],
     )
 
 

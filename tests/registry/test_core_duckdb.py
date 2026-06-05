@@ -2,7 +2,7 @@ import json
 
 import duckdb
 import pytest
-from tracecat_registry.core.duckdb import _quote, execute_sql
+from tracecat_registry.core.duckdb import _split_s3_endpoint, execute_sql
 
 
 def test_execute_sql_returns_json_serializable_rows() -> None:
@@ -19,10 +19,13 @@ def test_execute_sql_non_query_returns_json_serializable() -> None:
     json.dumps(result)
 
 
-def test_quote_escapes_single_quotes() -> None:
-    assert _quote("abc") == "'abc'"
-    assert _quote("a'b") == "'a''b'"
-    assert _quote("Bearer ' OR 1=1 --") == "'Bearer '' OR 1=1 --'"
+def test_split_s3_endpoint() -> None:
+    # Full URLs: scheme is stripped from the host and drives USE_SSL.
+    assert _split_s3_endpoint("http://minio:9000") == ("minio:9000", False)
+    assert _split_s3_endpoint("https://s3.example.com") == ("s3.example.com", True)
+    # Bare host[:port]: keep verbatim and leave DuckDB's default (None).
+    assert _split_s3_endpoint("minio:9000") == ("minio:9000", None)
+    assert _split_s3_endpoint("  http://minio:9000  ") == ("minio:9000", False)
 
 
 def _httpfs_available() -> bool:
@@ -40,12 +43,19 @@ def _httpfs_available() -> bool:
     not _httpfs_available(),
     reason="httpfs extension not available (no preinstalled extensions or network)",
 )
-def test_headers_create_http_secret_with_escaping() -> None:
-    # A header value containing a single quote must not break the CREATE SECRET
-    # statement. The query confirms the http secret was created.
+def test_headers_bound_as_parameters_not_interpolated() -> None:
+    # A header value full of SQL metacharacters must be stored verbatim as data,
+    # never parsed as SQL. We read it back from the created secret to prove the
+    # value round-trips untouched (i.e. injection is impossible by design).
+    token = "Bearer a'b; DROP SECRET __tc_http; --"
     result = execute_sql(
-        "SELECT name FROM duckdb_secrets() WHERE type = 'http'",
-        headers={"Authorization": "Bearer a'b"},
+        "SELECT name, secret_string FROM duckdb_secrets() WHERE type = 'http'",
+        headers={"Authorization": token},
     )
 
-    assert result == [{"name": "__tc_http"}]
+    assert isinstance(result, list)
+    assert len(result) == 1
+    assert result[0]["name"] == "__tc_http"
+    # The injected SQL fragment survives as data inside the stored header map
+    # (the secret still exists and the DROP was never executed).
+    assert "DROP SECRET __tc_http" in result[0]["secret_string"]

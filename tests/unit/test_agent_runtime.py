@@ -270,7 +270,7 @@ class TestClaudeAgentRuntimeRun:
         assert "<CommandLineTools>" in prompt
         assert "`duckdb`" in prompt
         assert "DuckDB CLI" in prompt
-        assert "`postgres`, `httpfs`, `sqlite`, and `inet` extensions" in prompt
+        assert "`json`, `httpfs`, `inet`, and `fts` extensions" in prompt
         assert "not a Tracecat action or MCP tool" in prompt
         assert prompt.endswith("Preset instructions.")
 
