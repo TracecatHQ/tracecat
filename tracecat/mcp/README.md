@@ -103,7 +103,9 @@ Case field and table `type` values are:
 - `get_table(workspace_id, table_id)`
 - `update_table(workspace_id, table_id, name=None)`
 - `insert_table_row(workspace_id, table_id, row_json, upsert=False)`
+- `insert_rows(workspace_id, table_id, rows_json, upsert=False)`
 - `update_table_row(workspace_id, table_id, row_id, row_json)`
+- `update_rows(workspace_id, table_id, row_ids, row_json)`
 - `search_table_rows(workspace_id, table_id, search_term=None, limit=100, cursor=None)`
 - `export_csv(workspace_id, table_id, include_header=True)`
 
