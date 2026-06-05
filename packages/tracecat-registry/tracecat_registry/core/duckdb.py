@@ -1,3 +1,4 @@
+import os
 from typing import Annotated, Any
 
 import duckdb
@@ -9,6 +10,13 @@ from tracecat_registry import registry, secrets
 from tracecat_registry.config import TRACECAT__DUCKDB_EXTENSION_DIRECTORY
 from tracecat_registry.integrations.amazon_s3 import s3_secret
 
+# Directory the Docker images preinstall DuckDB extensions into. Used as a
+# fallback when TRACECAT__DUCKDB_EXTENSION_DIRECTORY is not set in the process
+# environment — notably under nsjail executors, where the env var is not
+# forwarded into the jail but this directory is bind-mounted (read-only) from
+# the sandbox rootfs.
+_DEFAULT_EXTENSION_DIRECTORY = "/usr/local/lib/duckdb/extensions"
+
 
 def _rows_to_json(
     columns: list[str], rows: list[tuple[Any, ...]]
@@ -17,17 +25,31 @@ def _rows_to_json(
     return to_jsonable_python(records, fallback=str, exclude_none=False)
 
 
+def _extension_directory() -> str | None:
+    """Directory DuckDB should load extensions from, or None for its default.
+
+    Prefer the configured ``TRACECAT__DUCKDB_EXTENSION_DIRECTORY``; otherwise fall
+    back to the image's preinstalled directory when it exists. The fallback makes
+    the pinned extensions usable across every executor backend — including nsjail
+    sandboxes, where the env var is not forwarded into the jail but the directory
+    is bind-mounted read-only from the rootfs. Returns None in local/dev where
+    neither is present, so DuckDB keeps its default autoinstall behaviour.
+    """
+    if TRACECAT__DUCKDB_EXTENSION_DIRECTORY:
+        return TRACECAT__DUCKDB_EXTENSION_DIRECTORY
+    if os.path.isdir(_DEFAULT_EXTENSION_DIRECTORY):
+        return _DEFAULT_EXTENSION_DIRECTORY
+    return None
+
+
 def _connect() -> duckdb.DuckDBPyConnection:
     """Open an in-process DuckDB connection.
 
-    When ``TRACECAT__DUCKDB_EXTENSION_DIRECTORY`` is set (the Docker images
-    point it at the preinstalled extension directory) the connection loads
-    extensions from there instead of autoinstalling over the network.
+    Loads extensions from the preinstalled directory (see ``_extension_directory``)
+    instead of autoinstalling over the network when that directory is available.
     """
-    if TRACECAT__DUCKDB_EXTENSION_DIRECTORY:
-        return duckdb.connect(
-            config={"extension_directory": TRACECAT__DUCKDB_EXTENSION_DIRECTORY}
-        )
+    if extension_directory := _extension_directory():
+        return duckdb.connect(config={"extension_directory": extension_directory})
     return duckdb.connect()
 
 
