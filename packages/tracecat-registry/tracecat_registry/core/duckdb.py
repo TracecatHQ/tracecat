@@ -1,5 +1,6 @@
 import os
 from typing import Annotated, Any
+from urllib.parse import urlsplit
 
 import duckdb
 from pydantic_core import to_jsonable_python
@@ -90,6 +91,33 @@ def _build_s3_secret() -> tuple[list[str], list[Any]] | None:
     return options, params
 
 
+def _normalize_headers_scope(headers_scope: str | None) -> str:
+    """Validate and normalize the HTTP secret ``SCOPE`` for header injection.
+
+    DuckDB matches ``SCOPE`` as a literal URL prefix, so a bare host prefix like
+    ``https://api.example.com`` would also match ``https://api.example.com.evil.com``.
+    Require an http(s) URL with a host, and anchor the host boundary with a
+    trailing ``/`` when no path is given, so the headers can never leak to a
+    sibling host. Query/fragment are dropped.
+    """
+    if not headers_scope:
+        raise ValueError(
+            "headers_scope is required when headers is set: provide the URL prefix "
+            "the headers apply to (e.g. https://api.example.com) so they are not "
+            "sent to other hosts."
+        )
+    parts = urlsplit(headers_scope)
+    if parts.scheme not in ("http", "https") or not parts.netloc:
+        raise ValueError(
+            "headers_scope must be an http:// or https:// URL with a host, "
+            f"e.g. https://api.example.com (got {headers_scope!r})."
+        )
+    # Anchor the host with a trailing slash so prefix matching cannot bleed into a
+    # longer host (e.g. api.example.com.evil.com).
+    path = parts.path or "/"
+    return f"{parts.scheme}://{parts.netloc}{path}"
+
+
 def _setup_remote_secrets(
     con: duckdb.DuckDBPyConnection,
     headers: dict[str, str] | None,
@@ -103,21 +131,10 @@ def _setup_remote_secrets(
 
     The HTTP secret is always scoped: ``headers_scope`` is required when
     ``headers`` is set, so the headers (e.g. an auth token) are only ever sent to
-    requests whose URL starts with that prefix — never to other hosts a query
-    might also read.
+    requests whose URL starts with that normalized prefix — never to other hosts a
+    query might also read.
     """
-    if headers:
-        if not headers_scope:
-            raise ValueError(
-                "headers_scope is required when headers is set: provide the URL "
-                "prefix the headers apply to (e.g. https://api.example.com) so "
-                "they are not sent to other hosts."
-            )
-        if not headers_scope.startswith(("http://", "https://")):
-            raise ValueError(
-                "headers_scope must be an http:// or https:// URL prefix, "
-                f"got {headers_scope!r}."
-            )
+    scope = _normalize_headers_scope(headers_scope) if headers else None
 
     s3 = _build_s3_secret()
     if s3 is None and not headers:
@@ -134,7 +151,7 @@ def _setup_remote_secrets(
         con.execute(
             "CREATE OR REPLACE SECRET __tc_http "
             "(TYPE http, EXTRA_HTTP_HEADERS map(?, ?), SCOPE ?)",
-            [list(headers.keys()), list(headers.values()), headers_scope],
+            [list(headers.keys()), list(headers.values()), scope],
         )
 
 
