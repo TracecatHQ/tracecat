@@ -58,6 +58,7 @@ from tracecat.agent.common.stream_types import StreamEventType, UnifiedStreamEve
 from tracecat.agent.preset.schemas import (
     AgentPresetCreate,
     AgentPresetRead,
+    AgentPresetSkillBindingBase,
     AgentPresetUpdate,
 )
 from tracecat.agent.preset.service import AgentPresetService
@@ -67,8 +68,10 @@ from tracecat.agent.session.service import AgentSessionService
 from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.agent.skill.schemas import (
     SkillRead,
+    SkillReadMinimal,
     SkillUpload,
     SkillUploadFile,
+    SkillVersionRead,
 )
 from tracecat.agent.skill.service import SkillService
 from tracecat.agent.stream.connector import AgentStream
@@ -7816,8 +7819,14 @@ async def create_agent_preset(
     retries: int | None = None,
     enable_thinking: bool | None = None,
     enable_internet_access: bool | None = None,
+    skills: list[AgentPresetSkillBindingBase] | None = None,
 ) -> AgentPresetRead:
-    """Create an agent preset in the selected workspace."""
+    """Create an agent preset in the selected workspace.
+
+    Use ``skills`` to attach published skill versions. Each binding requires
+    ``skill_id`` and ``skill_version_id`` from ``list_skills`` and
+    ``publish_skill``.
+    """
 
     try:
         _, role = await _resolve_workspace_role(workspace_id)
@@ -7849,6 +7858,7 @@ async def create_agent_preset(
             "retries": retries,
             "enable_thinking": enable_thinking,
             "enable_internet_access": enable_internet_access,
+            "skills": skills,
         }
         create_data.update(
             {
@@ -7892,8 +7902,14 @@ async def update_agent_preset(
     retries: int | None = None,
     enable_thinking: bool | None = None,
     enable_internet_access: bool | None = None,
+    skills: list[AgentPresetSkillBindingBase] | None = None,
 ) -> AgentPresetRead:
-    """Update an existing agent preset in the selected workspace."""
+    """Update an existing agent preset in the selected workspace.
+
+    Use ``skills`` to replace attached published skill-version bindings. Each
+    binding requires ``skill_id`` and ``skill_version_id``. Omit ``skills`` to
+    leave bindings unchanged, or pass an empty list to detach all skills.
+    """
 
     try:
         _, role = await _resolve_workspace_role(workspace_id)
@@ -7912,6 +7928,7 @@ async def update_agent_preset(
             "retries": retries,
             "enable_thinking": enable_thinking,
             "enable_internet_access": enable_internet_access,
+            "skills": skills,
         }
         update_data.update(
             {
@@ -7955,6 +7972,41 @@ async def update_agent_preset(
 
 
 @mcp.tool()
+async def list_skills(
+    workspace_id: uuid.UUID,
+    limit: int = config.TRACECAT__LIMIT_DEFAULT,
+    cursor: str | None = None,
+) -> CursorPaginatedResponse[SkillReadMinimal]:
+    """List workspace skills with IDs, names, and current published versions.
+
+    Use this before updating, publishing, or attaching skills to agent presets.
+    """
+
+    try:
+        _, role = await _resolve_workspace_role(workspace_id)
+        async with SkillService.with_session(role=role) as svc:
+            return await svc.list_skills(
+                CursorPaginationParams(
+                    limit=_normalize_limit(
+                        limit,
+                        default=config.TRACECAT__LIMIT_DEFAULT,
+                        max_limit=config.TRACECAT__LIMIT_CURSOR_MAX,
+                    ),
+                    cursor=cursor,
+                )
+            )
+    except ToolError:
+        raise
+    except ValidationError as e:
+        raise ToolError(str(e)) from e
+    except TracecatValidationError as e:
+        raise ToolError(str(e)) from e
+    except Exception as e:
+        logger.error("Failed to list skills", error=str(e))
+        raise ToolError(f"Failed to list skills: {e}") from None
+
+
+@mcp.tool()
 async def upload_skill(
     workspace_id: uuid.UUID,
     name: str,
@@ -7962,6 +8014,9 @@ async def upload_skill(
     description: str | None = None,
 ) -> SkillRead:
     """Upload a local skill directory into Tracecat as a workspace skill.
+
+    This creates a new logical skill. Use ``update_skill`` when replacing an
+    existing skill draft to avoid duplicate skill rows with the same name.
 
     Agents should read the local directory themselves, preserve relative paths,
     include the root ``SKILL.md`` file, and pass every file in ``files`` using
@@ -7995,6 +8050,78 @@ async def upload_skill(
     except Exception as e:
         logger.error("Failed to upload skill", error=str(e), name=name)
         raise ToolError(f"Failed to upload skill: {e}") from None
+
+
+@mcp.tool()
+async def update_skill(
+    workspace_id: uuid.UUID,
+    skill_id: uuid.UUID,
+    name: str,
+    files: list[SkillUploadFile],
+    description: str | None = None,
+) -> SkillRead:
+    """Replace an existing skill draft with a local skill directory.
+
+    This does not publish the draft. Call ``publish_skill`` after the update if
+    the skill should be attachable to agent presets.
+    """
+
+    try:
+        _, role = await _resolve_workspace_role(workspace_id)
+        files_for_upload = _merge_uploaded_skill_markdown_metadata(
+            files,
+            name=name,
+            description=description,
+        )
+        params = SkillUpload.model_validate(
+            {
+                "name": name,
+                "files": SkillUploadFile.list_adapter().dump_python(
+                    files_for_upload, mode="json"
+                ),
+            }
+        )
+        async with SkillService.with_session(role=role) as svc:
+            updated = await svc.replace_skill_draft(skill_id=skill_id, params=params)
+        return SkillRead.model_validate(updated)
+    except ToolError:
+        raise
+    except ValidationError as e:
+        raise ToolError(str(e)) from e
+    except TracecatValidationError as e:
+        raise ToolError(str(e)) from e
+    except TracecatNotFoundError as e:
+        raise ToolError(str(e)) from e
+    except Exception as e:
+        logger.error("Failed to update skill", error=str(e), skill_id=str(skill_id))
+        raise ToolError(f"Failed to update skill: {e}") from None
+
+
+@mcp.tool()
+async def publish_skill(
+    workspace_id: uuid.UUID,
+    skill_id: uuid.UUID,
+) -> SkillVersionRead:
+    """Publish a skill draft into an immutable skill version.
+
+    Only published skill versions can be attached to agent presets.
+    """
+
+    try:
+        _, role = await _resolve_workspace_role(workspace_id)
+        async with SkillService.with_session(role=role) as svc:
+            return await svc.publish_skill(skill_id)
+    except ToolError:
+        raise
+    except ValidationError as e:
+        raise ToolError(str(e)) from e
+    except TracecatValidationError as e:
+        raise ToolError(str(e)) from e
+    except TracecatNotFoundError as e:
+        raise ToolError(str(e)) from e
+    except Exception as e:
+        logger.error("Failed to publish skill", error=str(e), skill_id=str(skill_id))
+        raise ToolError(f"Failed to publish skill: {e}") from None
 
 
 # ── Agent Presets ────────────────────────────────────────────────────────────
