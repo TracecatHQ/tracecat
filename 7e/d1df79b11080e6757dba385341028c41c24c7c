@@ -1,0 +1,20 @@
+docs/snippets/mcp-tools.mdx
+  s_eb1de0dbaaa663::t_8f506952ca717d 48
+  s_eb1de0dbaaa663::t_c5296ee1458ce5 47,51,115,347,359,361
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.3",
+  "base_commit_sha": "7ed1df79b11080e6757dba385341028c41c24c7c",
+  "prompts": {},
+  "sessions": {
+    "s_eb1de0dbaaa663": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019e95d9-b34b-72f0-a40f-6ab4083bd5ed",
+        "model": "gpt-5.5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
