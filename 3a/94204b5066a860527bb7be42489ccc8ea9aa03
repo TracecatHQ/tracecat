@@ -1,0 +1,27 @@
+tracecat/organization/service.py
+  s_eb1de0dbaaa663::t_4a1585d750d419 8-9
+  s_eb1de0dbaaa663::t_a284a50cae7d5f 315
+tests/unit/test_organization_service.py
+  s_eb1de0dbaaa663::t_4a1585d750d419 6-7
+  s_eb1de0dbaaa663::t_fbfedc9f1aefe4 455-457
+  s_eb1de0dbaaa663::t_fe02422366799d 331-334,459-461,646-652
+tracecat/organization/management.py
+  s_eb1de0dbaaa663::t_87d0748f779642 207-209
+  s_eb1de0dbaaa663::t_4a1585d750d419 7-8
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.3",
+  "base_commit_sha": "3a94204b5066a860527bb7be42489ccc8ea9aa03",
+  "prompts": {},
+  "sessions": {
+    "s_eb1de0dbaaa663": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019e95d9-b34b-72f0-a40f-6ab4083bd5ed",
+        "model": "gpt-5.5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
