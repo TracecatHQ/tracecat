@@ -847,6 +847,23 @@ wheels = [
 ]
 
 [[package]]
+name = "cloudflare"
+version = "5.2.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "anyio" },
+    { name = "distro" },
+    { name = "httpx" },
+    { name = "pydantic" },
+    { name = "sniffio" },
+    { name = "typing-extensions" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/43/41/1f4245b1e5f48abf9f50a38023309f9ac697b0b7757a5ab326f38a1d87b4/cloudflare-5.2.0.tar.gz", hash = "sha256:dcf5cb4b54f543b000a68095297bcc16a9c618b98c09747d7b78e59e3d865292", size = 2882432, upload-time = "2026-05-21T22:31:39.962Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/8e/47/147354a1ae59a9d00e57f8349a406242765499f5bb2ac35d3cf583cda999/cloudflare-5.2.0-py3-none-any.whl", hash = "sha256:9268c67e76eef84734680d6c322d115ab6613ec9096f9b8d4389e858c4e12549", size = 6136517, upload-time = "2026-05-21T22:31:37.171Z" },
+]
+
+[[package]]
 name = "cloudpickle"
 version = "3.1.1"
 source = { registry = "https://pypi.org/simple" }
@@ -4685,6 +4702,7 @@ dependencies = [
     { name = "ansible-core" },
     { name = "ansible-runner" },
     { name = "boto3" },
+    { name = "cloudflare" },
     { name = "crowdstrike-falconpy" },
     { name = "dnspython" },
     { name = "docker" },
@@ -4723,6 +4741,7 @@ requires-dist = [
     { name = "ansible-core", specifier = ">=2.18.0,<3.0.0" },
     { name = "ansible-runner", specifier = "==2.4.0" },
     { name = "boto3", specifier = "==1.40.61" },
+    { name = "cloudflare", specifier = "==5.2.0" },
     { name = "crowdstrike-falconpy", specifier = "==1.6.2" },
     { name = "dnspython", specifier = "==2.6.1" },
     { name = "docker", specifier = "==7.1.0" },
