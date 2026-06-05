@@ -1,0 +1,30 @@
+tests/registry/test_azure_admin_sdk.py
+  s_4a81253ec91c27::t_3b2c510c7c185d 1-11,13,15-61
+uv.lock
+  ai_agent 474-498,4713,4752
+packages/tracecat-registry/tracecat_registry/integrations/azure_admin_sdk.py
+  s_4a81253ec91c27::t_3b2c510c7c185d 1-46,48,51-52,55-98
+  s_4a81253ec91c27::t_2f0b6542c9719f 53-54,99-107
+packages/tracecat-registry/pyproject.toml
+  s_4a81253ec91c27::t_4a3c91a72d8707 27
+docs/tools/azure_admin_sdk.mdx
+  s_4a81253ec91c27::t_185a5ed5688f8c 1-69
+docs/docs.json
+  s_4a81253ec91c27::t_185a5ed5688f8c 180
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.3",
+  "base_commit_sha": "11e2c18d08bc1b80bc41ad8603a3901055a8593f",
+  "prompts": {},
+  "sessions": {
+    "s_4a81253ec91c27": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019e9902-e06e-7c72-bdf6-ff4a5571def3",
+        "model": "gpt-5.5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
