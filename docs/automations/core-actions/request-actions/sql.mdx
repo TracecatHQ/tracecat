@@ -68,11 +68,33 @@ Default: `200`.
 
 Execute SQL in an in-process DuckDB engine
 
+### Secrets
+
+Optional secrets:
+
+- `amazon_s3`: optional values `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN`, `AWS_REGION`, `AWS_ROLE_ARN`, `AWS_ROLE_SESSION_NAME`.
+
 ### Inputs
 
 <ParamField path="sql" type="string" required>
 
 SQL to execute in an in-process DuckDB connection.
+
+</ParamField>
+
+<ParamField path="headers" type="object | null">
+
+HTTP headers sent with httpfs http(s) requests, e.g. for authenticating reads from a remote URL.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="s3_endpoint_url" type="string | null">
+
+Override the S3 endpoint URL (e.g. MinIO or another S3-compatible store).
+
+Default: `null`.
 
 </ParamField>
 
@@ -92,4 +114,19 @@ SQL to execute in an in-process DuckDB connection.
       FROM findings
       GROUP BY severity
       ORDER BY count DESC
+```
+
+**Query remote data with credentials**
+
+```yaml
+# Attach the amazon_s3 secret to read s3:// paths (supports AssumeRole),
+# and pass headers to authenticate http(s) reads.
+- ref: read_remote
+  action: core.duckdb.execute_sql
+  args:
+    sql: |
+      SELECT *
+      FROM read_json_auto('https://api.example.com/findings.json')
+    headers:
+      Authorization: Bearer ${{ SECRETS.example_api.TOKEN }}
 ```

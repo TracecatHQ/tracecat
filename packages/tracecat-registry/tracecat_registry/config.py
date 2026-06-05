@@ -41,6 +41,13 @@ TRACECAT__S3_CONCURRENCY_LIMIT = int(
     os.environ.get("TRACECAT__S3_CONCURRENCY_LIMIT", 10)
 )
 
+# DuckDB extension directory. Set in the Docker images to the directory that
+# preinstalled DuckDB extensions are copied into. Left unset in local/dev/test
+# environments, where DuckDB falls back to its default autoinstall behaviour.
+TRACECAT__DUCKDB_EXTENSION_DIRECTORY = os.environ.get(
+    "TRACECAT__DUCKDB_EXTENSION_DIRECTORY"
+)
+
 # Database connection validation (used to prevent connecting to internal DB)
 TRACECAT__DB_URI = os.environ.get(
     "TRACECAT__DB_URI",
