@@ -1,0 +1,24 @@
+packages/tracecat-registry/tracecat_registry/core/duckdb.py
+  s_ba5b847c74ea18::t_6d365ce60aae66 94-120,134-135,137,154
+  s_ba5b847c74ea18::t_7fb8ef9b475bb3 3
+tests/registry/test_core_duckdb.py
+  s_ba5b847c74ea18::t_c5156b65ef6452 6-10
+  s_ba5b847c74ea18::t_65042fb6bb8859 79-102
+  s_ba5b847c74ea18::t_b54a73d88fd472 114,125-126
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.3",
+  "base_commit_sha": "588ea6e53f85329f42be05cf3473a48a21d41f1e",
+  "prompts": {},
+  "sessions": {
+    "s_ba5b847c74ea18": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "dee7c69a-ab3f-4db4-af30-6a04c9221d9e",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
