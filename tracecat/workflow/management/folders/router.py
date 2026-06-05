@@ -20,6 +20,15 @@ from tracecat.workflow.management.folders.service import WorkflowFolderService
 router = APIRouter(prefix="/folders", tags=["folders"])
 
 
+def _folder_http_exception(err: TracecatValidationError) -> HTTPException:
+    message = str(err)
+    if "not found" in message.lower():
+        return HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=message)
+    if "already exists" in message:
+        return HTTPException(status_code=status.HTTP_409_CONFLICT, detail=message)
+    return HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=message)
+
+
 @router.get("/directory")
 @require_scope("workflow:read")
 async def get_directory(
@@ -126,6 +135,8 @@ async def update_folder(
             status_code=status.HTTP_409_CONFLICT,
             detail="A folder with this name already exists at this location",
         ) from e
+    except TracecatValidationError as e:
+        raise _folder_http_exception(e) from e
 
 
 @router.delete("/{folder_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -187,3 +198,5 @@ async def move_folder(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)
         ) from e
+    except TracecatValidationError as e:
+        raise _folder_http_exception(e) from e
