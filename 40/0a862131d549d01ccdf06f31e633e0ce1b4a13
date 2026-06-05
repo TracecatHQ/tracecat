@@ -1,0 +1,26 @@
+tests/unit/test_auth_middleware.py
+  s_eb1de0dbaaa663::t_6b722396c47afa 980,1050-1057,1059,1062-1063
+  s_eb1de0dbaaa663::t_1ebe4e23f31f93 5,987,995,1002,1061
+  s_eb1de0dbaaa663::t_bd18b4b37a2f11 7,979,981-983,1048,1058
+tests/unit/test_active_org_cookie.py
+  s_eb1de0dbaaa663::t_ce7fd5e0a71e82 45-48,51,162-187
+  s_eb1de0dbaaa663::t_bbd42175c8759c 4,44,49,104-106,113,159-161,193
+  s_eb1de0dbaaa663::t_192afe194e7866 57
+  s_eb1de0dbaaa663::t_96a73e4ff45a9f 56
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.3",
+  "base_commit_sha": "400a862131d549d01ccdf06f31e633e0ce1b4a13",
+  "prompts": {},
+  "sessions": {
+    "s_eb1de0dbaaa663": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019e95d9-b34b-72f0-a40f-6ab4083bd5ed",
+        "model": "gpt-5.5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
