@@ -1,0 +1,30 @@
+packages/tracecat-registry/pyproject.toml
+  s_4a81253ec91c27::t_666118282f7f9e 28
+docs/docs.json
+  s_4a81253ec91c27::t_c240396a79dbe7 182
+docs/tools/cloudflare_sdk.mdx
+  s_4a81253ec91c27::t_f4bfc8110e6595 1-43
+packages/tracecat-registry/tracecat_registry/integrations/cloudflare_sdk.py
+  s_4a81253ec91c27::t_f6db5f037752bb 1-24,27,30-31,34-58
+  s_4a81253ec91c27::t_9ef2960ee748f0 25,32-33,59-62
+tests/registry/test_cloudflare_sdk.py
+  s_4a81253ec91c27::t_f6db5f037752bb 1,3-9,11,13-44,46
+  s_4a81253ec91c27::t_63a3af2f65e4c4 2,47
+  s_4a81253ec91c27::t_52c28a828d979b 48
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.3",
+  "base_commit_sha": "bc275bc59d0b16ee95bebce6c157526c624644c0",
+  "prompts": {},
+  "sessions": {
+    "s_4a81253ec91c27": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019e9902-e06e-7c72-bdf6-ff4a5571def3",
+        "model": "gpt-5.5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
