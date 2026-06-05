@@ -56,11 +56,11 @@
   Search or browse available actions and return compact context metadata.
 
   Supports three usage modes:
-  -> **Search**: provide `query` to search by name/description across all namespaces. Example: list_actions(workspace_id, query="send message")
-  -> **Browse namespace**: provide `namespace` without `query` to list all actions in a namespace. Example: list_actions(workspace_id, namespace="core")
+  -> **Search**: provide `query` to search by name/description across all `namespaces`. Example: list_actions(workspace_id, query="send message")
+  -> **Browse by `namespace`**: provide `namespace` without `query` to list all actions in a `namespace`. Example: list_actions(workspace_id, namespace="core")
   -> **Browse all**: omit both to list all available actions.
 
-  Common namespaces: `core`, `tools`, `ai`.
+  Common `namespaces`: `core`, `tools`, `ai`.
 </ResponseField>
 
 <ResponseField name="sync_custom_registry" type="tool">
@@ -124,7 +124,7 @@
 <ResponseField name="list_workflow_executions" type="tool">
   List recent executions for a workflow.
 
-  Use this to see run history, check which runs succeeded or failed, and find execution IDs for deeper inspection with get_workflow_execution.
+  Use this to see run history, check which runs succeeded or failed, and find execution IDs for deeper inspection with `get_workflow_execution`.
 </ResponseField>
 
 <ResponseField name="get_workflow_execution" type="tool">
@@ -210,7 +210,7 @@
 </ResponseField>
 
 <ResponseField name="create_case_comment" type="tool">
-  Create a new comment on a case. Provide ``parent_id`` to reply to an existing comment.
+  Create a new comment on a case. Provide `parent_id` to reply to an existing comment.
 </ResponseField>
 
 <ResponseField name="update_case_comment" type="tool">
@@ -240,7 +240,7 @@
 <ResponseField name="run_case_task" type="tool">
   Run the workflow associated with a case task.
 
-  Fetches the task's ``workflow_id`` and ``default_trigger_values``, merges them with ``case_id`` and ``task_id`` context (plus any caller-supplied overrides), then executes the latest published version of the workflow.
+  Fetches the task's `workflow_id` and `default_trigger_values`, merges them with `case_id` and `task_id` context (plus any caller-supplied overrides), then executes the latest published version of the workflow.
 </ResponseField>
 
 <ResponseField name="list_case_events" type="tool">
@@ -364,19 +364,19 @@
 </ResponseField>
 
 <ResponseField name="get_agent_preset_authoring_context" type="tool">
-  Get models, integrations, output_type guidance, and other preset authoring context.
+  Get models, integrations, `output_type` guidance, and other preset authoring context.
 </ResponseField>
 
 <ResponseField name="create_agent_preset" type="tool">
   Create an agent preset in the selected workspace.
 
-  Use ``skills`` to attach published skill versions. Each binding requires ``skill_id`` and ``skill_version_id`` from ``list_skills`` and ``publish_skill``.
+  Use `skills` to attach published skill versions. Each binding requires `skill_id` and `skill_version_id` from `list_skills` and `publish_skill`.
 </ResponseField>
 
 <ResponseField name="update_agent_preset" type="tool">
   Update an existing agent preset in the selected workspace.
 
-  Use ``skills`` to replace attached published skill-version bindings. Each binding requires ``skill_id`` and ``skill_version_id``. Omit ``skills`` to leave bindings unchanged, or pass an empty list to detach all skills.
+  Use `skills` to replace attached published skill-version bindings. Each binding requires `skill_id` and `skill_version_id`. Omit `skills` to leave bindings unchanged, or pass an empty list to detach all skills.
 </ResponseField>
 
 <ResponseField name="list_agent_tree" type="tool">
@@ -412,15 +412,15 @@
 <ResponseField name="upload_skill" type="tool">
   Upload a local skill directory into Tracecat as a workspace skill.
 
-  This creates a new logical skill. Use ``update_skill`` when replacing an existing skill draft to avoid duplicate skill rows with the same name.
+  This creates a new logical skill. Use `update_skill` when replacing an existing skill draft to avoid duplicate skill rows with the same name.
 
-  Agents should read the local directory themselves, preserve relative paths, include the root ``SKILL.md`` file, and pass every file in ``files`` using ``content_base64``.
+  Agents should read the local directory themselves, preserve relative paths, include the root `SKILL.md` file, and pass every file in `files` using `content_base64`.
 </ResponseField>
 
 <ResponseField name="update_skill" type="tool">
   Replace an existing skill draft with a local skill directory.
 
-  This does not publish the draft. Call ``publish_skill`` after the update if the skill should be attachable to agent presets.
+  This does not publish the draft. Call `publish_skill` after the update if the skill should be attachable to agent presets.
 </ResponseField>
 
 <ResponseField name="publish_skill" type="tool">

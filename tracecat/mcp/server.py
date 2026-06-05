@@ -4738,13 +4738,13 @@ async def list_actions(
     """Search or browse available actions and return compact context metadata.
 
     Supports three usage modes:
-    - **Search**: provide `query` to search by name/description across all namespaces.
+    - **Search**: provide `query` to search by name/description across all `namespaces`.
       Example: list_actions(workspace_id, query="send message")
-    - **Browse namespace**: provide `namespace` without `query` to list all actions
-      in a namespace. Example: list_actions(workspace_id, namespace="core")
+    - **Browse by `namespace`**: provide `namespace` without `query` to list all actions
+      in a `namespace`. Example: list_actions(workspace_id, namespace="core")
     - **Browse all**: omit both to list all available actions.
 
-    Common namespaces: `core`, `tools`, `ai`.
+    Common `namespaces`: `core`, `tools`, `ai`.
 
     Args:
         workspace_id: The workspace ID (from list_workspaces).
@@ -5580,7 +5580,7 @@ async def list_workflow_executions(
     """List recent executions for a workflow.
 
     Use this to see run history, check which runs succeeded or failed, and
-    find execution IDs for deeper inspection with get_workflow_execution.
+    find execution IDs for deeper inspection with `get_workflow_execution`.
 
     Args:
         workspace_id: The workspace ID.
@@ -6593,7 +6593,7 @@ async def create_case_comment(
     content: str,
     parent_id: uuid.UUID | None = None,
 ) -> MCPMessageResponse:
-    """Create a new comment on a case. Provide ``parent_id`` to reply to an
+    """Create a new comment on a case. Provide `parent_id` to reply to an
     existing comment.
 
     Args:
@@ -6936,8 +6936,8 @@ async def run_case_task(
 ) -> CaseTaskRunStartedResponse:
     """Run the workflow associated with a case task.
 
-    Fetches the task's ``workflow_id`` and ``default_trigger_values``,
-    merges them with ``case_id`` and ``task_id`` context (plus any
+    Fetches the task's `workflow_id` and `default_trigger_values`,
+    merges them with `case_id` and `task_id` context (plus any
     caller-supplied overrides), then executes the latest published version
     of the workflow.
 
@@ -6945,11 +6945,11 @@ async def run_case_task(
         workspace_id: The workspace ID.
         case_id: Case UUID (must match the task's parent case).
         task_id: Task UUID. The task must have an associated
-            ``workflow_id``.
+            `workflow_id`.
         inputs: Optional additional trigger inputs object that overrides the
-            task's ``default_trigger_values``.
+            task's `default_trigger_values`.
 
-    Returns JSON with ``workflow_id``, ``execution_id``, and a message.
+    Returns JSON with `workflow_id`, `execution_id`, and a message.
     """
 
     try:
@@ -8201,7 +8201,7 @@ async def list_integrations(workspace_id: uuid.UUID) -> IntegrationsInventoryRes
 async def get_agent_preset_authoring_context(
     workspace_id: uuid.UUID,
 ) -> AgentPresetAuthoringContextResponse:
-    """Get models, integrations, output_type guidance, and other preset authoring context."""
+    """Get models, integrations, `output_type` guidance, and other preset authoring context."""
 
     try:
         _, role = await _resolve_workspace_role(workspace_id)
@@ -8239,9 +8239,9 @@ async def create_agent_preset(
 ) -> AgentPresetRead:
     """Create an agent preset in the selected workspace.
 
-    Use ``skills`` to attach published skill versions. Each binding requires
-    ``skill_id`` and ``skill_version_id`` from ``list_skills`` and
-    ``publish_skill``.
+    Use `skills` to attach published skill versions. Each binding requires
+    `skill_id` and `skill_version_id` from `list_skills` and
+    `publish_skill`.
     """
 
     try:
@@ -8322,8 +8322,8 @@ async def update_agent_preset(
 ) -> AgentPresetRead:
     """Update an existing agent preset in the selected workspace.
 
-    Use ``skills`` to replace attached published skill-version bindings. Each
-    binding requires ``skill_id`` and ``skill_version_id``. Omit ``skills`` to
+    Use `skills` to replace attached published skill-version bindings. Each
+    binding requires `skill_id` and `skill_version_id`. Omit `skills` to
     leave bindings unchanged, or pass an empty list to detach all skills.
     """
 
@@ -8798,12 +8798,12 @@ async def upload_skill(
 ) -> SkillRead:
     """Upload a local skill directory into Tracecat as a workspace skill.
 
-    This creates a new logical skill. Use ``update_skill`` when replacing an
+    This creates a new logical skill. Use `update_skill` when replacing an
     existing skill draft to avoid duplicate skill rows with the same name.
 
     Agents should read the local directory themselves, preserve relative paths,
-    include the root ``SKILL.md`` file, and pass every file in ``files`` using
-    ``content_base64``.
+    include the root `SKILL.md` file, and pass every file in `files` using
+    `content_base64`.
     """
 
     try:
@@ -8845,7 +8845,7 @@ async def update_skill(
 ) -> SkillRead:
     """Replace an existing skill draft with a local skill directory.
 
-    This does not publish the draft. Call ``publish_skill`` after the update if
+    This does not publish the draft. Call `publish_skill` after the update if
     the skill should be attachable to agent presets.
     """
 
