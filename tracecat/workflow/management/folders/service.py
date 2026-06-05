@@ -6,6 +6,7 @@ from typing import Literal
 
 import sqlalchemy as sa
 from sqlalchemy import and_, cast, func, or_, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import selectinload
 
 from tracecat.authz.controls import require_scope
@@ -42,9 +43,47 @@ class WorkflowFolderService(BaseWorkspaceService):
     @staticmethod
     def _normalize_folder_path(path: str) -> str:
         """Normalize folder paths to materialized-path format."""
-        if path == "/":
-            return path
+        if not path or path == "/":
+            return "/"
         return path if path.endswith("/") else f"{path}/"
+
+    @staticmethod
+    def _normalize_folder_name(name: str) -> str:
+        """Trim folder names and reject blank values."""
+        normalized_name = name.strip()
+        if not normalized_name:
+            raise TracecatValidationError("Folder name cannot be empty")
+        if "/" in normalized_name:
+            raise TracecatValidationError("Folder name cannot contain slashes")
+        return normalized_name
+
+    @classmethod
+    def _get_parent_path(cls, path: str) -> str:
+        """Return the immediate parent path for a normalized folder path."""
+        path = cls._normalize_folder_path(path)
+        if path == "/":
+            return "/"
+
+        parent_path, _, _ = path.rstrip("/").rpartition("/")
+        return f"{parent_path}/" if parent_path else "/"
+
+    async def _write_folder_change(
+        self,
+        *,
+        conflict_path: str,
+        commit: bool,
+    ) -> None:
+        """Persist a folder write and translate unique conflicts cleanly."""
+        try:
+            if commit:
+                await self.session.commit()
+            else:
+                await self.session.flush()
+        except IntegrityError as exc:
+            await self.session.rollback()
+            raise TracecatValidationError(
+                f"Folder {conflict_path} already exists"
+            ) from exc
 
     @require_scope("workflow:create")
     async def create_folder(
@@ -59,9 +98,7 @@ class WorkflowFolderService(BaseWorkspaceService):
         Returns:
             The created folder
         """
-        # Validate name - no slashes allowed
-        if "/" in name:
-            raise TracecatValidationError("Folder name cannot contain slashes")
+        normalized_name = self._normalize_folder_name(name)
 
         parent_path = self._normalize_folder_path(parent_path)
 
@@ -73,7 +110,11 @@ class WorkflowFolderService(BaseWorkspaceService):
                 raise TracecatValidationError(f"Parent path {parent_path} not found")
 
         # Create full path
-        full_path = f"{parent_path}{name}/" if parent_path != "/" else f"/{name}/"
+        full_path = (
+            f"{parent_path}{normalized_name}/"
+            if parent_path != "/"
+            else f"/{normalized_name}/"
+        )
 
         # Check if path already exists
         path_exists = await self._folder_path_exists(full_path)
@@ -81,15 +122,12 @@ class WorkflowFolderService(BaseWorkspaceService):
             raise TracecatValidationError(f"Folder {full_path} already exists")
 
         folder = WorkflowFolder(
-            name=name,
+            name=normalized_name,
             path=full_path,
             workspace_id=self.workspace_id,
         )
         self.session.add(folder)
-        if commit:
-            await self.session.commit()
-        else:
-            await self.session.flush()
+        await self._write_folder_change(conflict_path=full_path, commit=commit)
         await self.session.refresh(folder)
         return folder
 
@@ -118,9 +156,7 @@ class WorkflowFolderService(BaseWorkspaceService):
         Returns:
             The folder or None if not found
         """
-        # Ensure path has trailing slash
-        if not path.endswith("/") and path != "/":
-            path += "/"
+        path = self._normalize_folder_path(path)
 
         statement = select(WorkflowFolder).where(
             WorkflowFolder.workspace_id == self.workspace_id,
@@ -139,11 +175,11 @@ class WorkflowFolderService(BaseWorkspaceService):
         Returns:
             List of folders within the specified subtree or all folders.
         """
-        # Base statement selecting folders for the current workspace
+        parent_path = self._normalize_folder_path(parent_path)
 
         statement = select(WorkflowFolder).where(
             WorkflowFolder.workspace_id == self.workspace_id,
-            WorkflowFolder.path.like(f"{parent_path}%"),
+            WorkflowFolder.path.startswith(parent_path, autoescape=True),
         )
 
         # Execute the query and return all matching folders
@@ -213,46 +249,37 @@ class WorkflowFolderService(BaseWorkspaceService):
         Returns:
             The updated folder
         """
-        # Validate name - no slashes allowed
-        if "/" in new_name:
-            raise TracecatValidationError("Folder name cannot contain slashes")
+        normalized_name = self._normalize_folder_name(new_name)
 
         folder = await self.get_folder(folder_id)
         if not folder:
             raise TracecatValidationError(f"Folder {folder_id} not found")
 
         old_path = folder.path
-        parent_path = folder.parent_path
+        parent_path = self._get_parent_path(folder.path)
 
         # Create the new path
         new_path = (
-            f"{parent_path}{new_name}/" if parent_path != "/" else f"/{new_name}/"
+            f"{parent_path}{normalized_name}/"
+            if parent_path != "/"
+            else f"/{normalized_name}/"
         )
 
         # Check if new path already exists
         if new_path != old_path:
             path_exists = await self._folder_path_exists(new_path)
-            if not path_exists:
-                # TODO: Create the folder
-                pass
-            # if path_exists:
-            #     raise TracecatValidationError(f"Folder {new_path} already exists")
-
-        # Get all descendants to update their paths
-        descendants = await self._get_descendants(old_path)
+            if path_exists:
+                raise TracecatValidationError(f"Folder {new_path} already exists")
 
         # Update this folder
-        folder.name = new_name
+        folder.name = normalized_name
         folder.path = new_path
         self.session.add(folder)
 
-        # Update all descendant paths
-        for descendant in descendants:
-            # Replace the old path prefix with the new one
-            descendant.path = descendant.path.replace(old_path, new_path, 1)
-            self.session.add(descendant)
+        if new_path != old_path:
+            await self._update_descendant_paths(old_path, new_path)
 
-        await self.session.commit()
+        await self._write_folder_change(conflict_path=new_path, commit=True)
         await self.session.refresh(folder)
         return folder
 
@@ -307,20 +334,14 @@ class WorkflowFolderService(BaseWorkspaceService):
             if path_exists:
                 raise TracecatValidationError(f"Folder {new_path} already exists")
 
-        # Get all descendants to update their paths
-        descendants = await self._get_descendants(old_path)
-
         # Update this folder
         folder.path = new_path
         self.session.add(folder)
 
-        # Update all descendant paths
-        for descendant in descendants:
-            # Replace the old path prefix with the new one
-            descendant.path = descendant.path.replace(old_path, new_path, 1)
-            self.session.add(descendant)
+        if new_path != old_path:
+            await self._update_descendant_paths(old_path, new_path)
 
-        await self.session.commit()
+        await self._write_folder_change(conflict_path=new_path, commit=True)
         await self.session.refresh(folder)
         return folder
 
@@ -353,33 +374,28 @@ class WorkflowFolderService(BaseWorkspaceService):
                     "Folder is not empty. Please move or delete its contents first."
                 )
         else:
-            # If recursive, delete all subfolders first
-            descendants = await self._get_descendants(folder.path)
-            for descendant in descendants:
-                # Delete workflows in each subfolder
-                statement = select(Workflow).where(
-                    Workflow.workspace_id == self.workspace_id,
-                    Workflow.folder_id == descendant.id,
-                )
-                result = await self.session.execute(statement)
-                workflows = result.scalars().all()
-                for workflow in workflows:
-                    workflow.folder_id = None
-                    self.session.add(workflow)
-
-                # Delete the subfolder
-                await self.session.delete(descendant)
-
-            # Delete workflows in the main folder
-            statement = select(Workflow).where(
-                Workflow.workspace_id == self.workspace_id,
-                Workflow.folder_id == folder.id,
+            folder_ids = select(WorkflowFolder.id).where(
+                WorkflowFolder.workspace_id == self.workspace_id,
+                WorkflowFolder.path.startswith(folder.path, autoescape=True),
             )
-            result = await self.session.execute(statement)
-            workflows = result.scalars().all()
-            for workflow in workflows:
-                workflow.folder_id = None
-                self.session.add(workflow)
+            await self.session.execute(
+                sa.update(Workflow)
+                .where(
+                    Workflow.workspace_id == self.workspace_id,
+                    Workflow.folder_id.in_(folder_ids),
+                )
+                .values(folder_id=None)
+                .execution_options(synchronize_session=False)
+            )
+            await self.session.execute(
+                sa.delete(WorkflowFolder)
+                .where(
+                    WorkflowFolder.workspace_id == self.workspace_id,
+                    WorkflowFolder.path.startswith(folder.path, autoescape=True),
+                    WorkflowFolder.path != folder.path,
+                )
+                .execution_options(synchronize_session=False)
+            )
 
         # Delete the folder
         await self.session.delete(folder)
@@ -394,16 +410,14 @@ class WorkflowFolderService(BaseWorkspaceService):
         Returns:
             List of folders in the tree
         """
-        # Ensure root_path has trailing slash
-        if not root_path.endswith("/") and root_path != "/":
-            root_path += "/"
+        root_path = self._normalize_folder_path(root_path)
 
         statement = (
             select(WorkflowFolder)
             .where(
                 WorkflowFolder.workspace_id == self.workspace_id,
                 or_(
-                    WorkflowFolder.path.startswith(root_path),
+                    WorkflowFolder.path.startswith(root_path, autoescape=True),
                     WorkflowFolder.path == root_path,
                 ),
             )
@@ -416,34 +430,25 @@ class WorkflowFolderService(BaseWorkspaceService):
     async def _folder_path_exists(self, path: str) -> bool:
         """Check if a folder path exists."""
         path = self._normalize_folder_path(path)
-        statement = (
-            select(func.count())
-            .select_from(WorkflowFolder)
-            .where(
-                WorkflowFolder.workspace_id == self.workspace_id,
-                WorkflowFolder.path == path,
-            )
+        exists_clause = sa.exists().where(
+            WorkflowFolder.workspace_id == self.workspace_id,
+            WorkflowFolder.path == path,
         )
-        result = await self.session.execute(statement)
-        return result.scalar_one() > 0
+        return bool(await self.session.scalar(select(exists_clause)))
 
     async def _has_children(self, path: str) -> bool:
         """Check if a folder has any child folders."""
-        # Ensure path has trailing slash
-        if not path.endswith("/") and path != "/":
-            path += "/"
+        path = self._normalize_folder_path(path)
 
-        statement = (
-            select(func.count())
-            .select_from(WorkflowFolder)
-            .where(
+        statement = select(
+            sa.exists().where(
                 WorkflowFolder.workspace_id == self.workspace_id,
-                WorkflowFolder.path.startswith(path),
+                WorkflowFolder.path.startswith(path, autoescape=True),
                 WorkflowFolder.path != path,
             )
         )
         result = await self.session.execute(statement)
-        return result.scalar_one() > 0
+        return bool(result.scalar_one())
 
     async def _has_workflows(self, folder_id: uuid.UUID) -> bool:
         """Check if a folder contains any workflows."""
@@ -460,17 +465,35 @@ class WorkflowFolderService(BaseWorkspaceService):
 
     async def _get_descendants(self, path: str) -> Sequence[WorkflowFolder]:
         """Get all descendant folders of a given path."""
-        # Ensure path has trailing slash
-        if not path.endswith("/") and path != "/":
-            path += "/"
+        path = self._normalize_folder_path(path)
 
         statement = select(WorkflowFolder).where(
             WorkflowFolder.workspace_id == self.workspace_id,
-            WorkflowFolder.path.startswith(path),
+            WorkflowFolder.path.startswith(path, autoescape=True),
             WorkflowFolder.path != path,
         )
         result = await self.session.execute(statement)
         return result.scalars().all()
+
+    async def _update_descendant_paths(self, old_path: str, new_path: str) -> None:
+        """Update all descendant materialized paths after a folder path changes."""
+        old_path = self._normalize_folder_path(old_path)
+        new_path = self._normalize_folder_path(new_path)
+        await self.session.execute(
+            sa.update(WorkflowFolder)
+            .where(
+                WorkflowFolder.workspace_id == self.workspace_id,
+                WorkflowFolder.path.startswith(old_path, autoescape=True),
+                WorkflowFolder.path != old_path,
+            )
+            .values(
+                path=func.concat(
+                    new_path,
+                    func.substring(WorkflowFolder.path, len(old_path) + 1),
+                )
+            )
+            .execution_options(synchronize_session="fetch")
+        )
 
     async def get_directory_items(
         self, path: str = "/", *, order_by: Literal["asc", "desc"] = "desc"
@@ -483,9 +506,7 @@ class WorkflowFolderService(BaseWorkspaceService):
         Returns:
             Sequence of DirectoryItems (workflows and folders) in the path
         """
-        # Ensure path has trailing slash
-        if not path.endswith("/") and path != "/":
-            path += "/"
+        path = self._normalize_folder_path(path)
 
         # Subquery to get the latest definition for each workflow
         latest_defn_subq = (
@@ -617,7 +638,7 @@ class WorkflowFolderService(BaseWorkspaceService):
             # Get direct child folders
             folder_statement = select(WorkflowFolder).where(
                 WorkflowFolder.workspace_id == self.workspace_id,
-                WorkflowFolder.path.startswith(path),
+                WorkflowFolder.path.startswith(path, autoescape=True),
                 WorkflowFolder.path != path,
                 ~WorkflowFolder.path.like(f"{path}%/%/"),  # Exclude nested folders
             )

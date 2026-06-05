@@ -34,6 +34,18 @@
   Create a workflow folder by absolute path.
 </ResponseField>
 
+<ResponseField name="rename_workflow_folder" type="tool">
+  Rename a workflow folder by absolute path.
+</ResponseField>
+
+<ResponseField name="move_workflow_folder" type="tool">
+  Move a workflow folder under a new parent path.
+</ResponseField>
+
+<ResponseField name="delete_workflow_folder" type="tool">
+  Delete a workflow folder by absolute path.
+</ResponseField>
+
 <ResponseField name="move_workflows" type="tool">
   Move workflows into or out of a folder.
 
@@ -303,8 +315,16 @@
   Insert a table row.
 </ResponseField>
 
+<ResponseField name="insert_rows" type="tool">
+  Insert multiple table rows.
+</ResponseField>
+
 <ResponseField name="update_table_row" type="tool">
   Update a table row.
+</ResponseField>
+
+<ResponseField name="update_rows" type="tool">
+  Update multiple table rows with the same values.
 </ResponseField>
 
 <ResponseField name="search_table_rows" type="tool">
@@ -357,6 +377,30 @@
   Update an existing agent preset in the selected workspace.
 
   Use ``skills`` to replace attached published skill-version bindings. Each binding requires ``skill_id`` and ``skill_version_id``. Omit ``skills`` to leave bindings unchanged, or pass an empty list to detach all skills.
+</ResponseField>
+
+<ResponseField name="list_agent_tree" type="tool">
+  List agent folders and presets under a path.
+</ResponseField>
+
+<ResponseField name="create_agent_folder" type="tool">
+  Create an agent folder by absolute path.
+</ResponseField>
+
+<ResponseField name="rename_agent_folder" type="tool">
+  Rename an agent folder by absolute path.
+</ResponseField>
+
+<ResponseField name="move_agent_folder" type="tool">
+  Move an agent folder under a new parent path.
+</ResponseField>
+
+<ResponseField name="delete_agent_folder" type="tool">
+  Delete an agent folder by absolute path.
+</ResponseField>
+
+<ResponseField name="move_agent_presets" type="tool">
+  Move agent presets into or out of a folder by preset slug.
 </ResponseField>
 
 <ResponseField name="list_skills" type="tool">

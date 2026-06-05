@@ -1,10 +1,11 @@
 from collections.abc import AsyncGenerator
 
 import pytest
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.auth.types import Role
-from tracecat.db.models import Workflow, Workspace
+from tracecat.db.models import Workflow, WorkflowFolder, Workspace
 from tracecat.exceptions import TracecatValidationError
 from tracecat.identifiers.workflow import WorkflowID
 from tracecat.workflow.management.folders.schemas import WorkflowFolderCreate
@@ -118,6 +119,20 @@ class TestWorkflowFolderService:
         assert parent.path == "/parent/"
         assert child.path == "/parent/child/"
 
+    async def test_create_folder_trims_name_and_rejects_blank(
+        self, folder_service: WorkflowFolderService
+    ) -> None:
+        """Test folder names are normalized before persistence."""
+        folder = await folder_service.create_folder(name="  trimmed  ", parent_path="/")
+
+        assert folder.name == "trimmed"
+        assert folder.path == "/trimmed/"
+
+        with pytest.raises(
+            TracecatValidationError, match="Folder name cannot be empty"
+        ):
+            await folder_service.create_folder(name="   ", parent_path="/")
+
     async def test_list_folders(self, folder_service: WorkflowFolderService) -> None:
         """Test listing folders in a hierarchy."""
         # Create multiple folders
@@ -176,6 +191,20 @@ class TestWorkflowFolderService:
         updated_child = await folder_service.get_folder(child.id)
         assert updated_child is not None
         assert updated_child.path == "/new-name/child/"
+
+    async def test_rename_folder_conflict_fails(
+        self, folder_service: WorkflowFolderService
+    ) -> None:
+        """Test renaming onto an existing sibling path fails."""
+        folder = await folder_service.create_folder(name="old-name", parent_path="/")
+        await folder_service.create_folder(name="existing", parent_path="/")
+
+        with pytest.raises(TracecatValidationError, match="already exists"):
+            await folder_service.rename_folder(folder.id, "existing")
+
+        unchanged = await folder_service.get_folder(folder.id)
+        assert unchanged is not None
+        assert unchanged.path == "/old-name/"
 
     async def test_move_folder(self, folder_service: WorkflowFolderService) -> None:
         """Test moving a folder to a new parent."""
@@ -277,6 +306,29 @@ class TestWorkflowFolderService:
         assert await folder_service.get_folder(parent_id) is None
         assert await folder_service.get_folder(child_id) is None
         assert await folder_service.get_folder(grandchild_id) is None
+
+    async def test_delete_folder_recursive_clears_workflows(
+        self,
+        folder_service: WorkflowFolderService,
+        workflow_id: WorkflowID,
+        session: AsyncSession,
+    ) -> None:
+        """Test recursive folder delete moves contained workflows to root."""
+        parent = await folder_service.create_folder(name="parent", parent_path="/")
+        child = await folder_service.create_folder(name="child", parent_path="/parent/")
+        workflow = await folder_service.move_workflow(workflow_id, child)
+        assert workflow.folder_id == child.id
+
+        await folder_service.delete_folder(parent.id, recursive=True)
+
+        workflow_folder_id = await session.scalar(
+            select(Workflow.folder_id).where(Workflow.id == workflow_id)
+        )
+        remaining_child = await session.scalar(
+            select(WorkflowFolder.id).where(WorkflowFolder.id == child.id)
+        )
+        assert workflow_folder_id is None
+        assert remaining_child is None
 
     async def test_workflows_in_folder(
         self,
