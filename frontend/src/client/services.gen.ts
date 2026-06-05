@@ -7691,7 +7691,7 @@ export const adminGetUser = (
  * Delete a platform user globally, clearing sessions and dependencies first.
  * @param data The data for the request.
  * @param data.userId
- * @returns unknown Successful Response
+ * @returns void Successful Response
  * @throws ApiError
  */
 export const adminDeleteUser = (

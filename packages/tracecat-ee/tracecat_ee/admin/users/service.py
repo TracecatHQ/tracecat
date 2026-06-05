@@ -168,7 +168,9 @@ class AdminUserService(BasePlatformService):
                 raise ValueError("Cannot delete the last superuser")
 
         await self.session.execute(
-            delete(AccessToken).where(AccessToken.user_id == user_id)
+            delete(AccessToken).where(
+                cast(Mapped[uuid.UUID], AccessToken.user_id) == user_id
+            )
         )
         await self.session.execute(
             delete(Membership).where(Membership.user_id == user_id)

@@ -238,7 +238,12 @@ async def test_delete_user_clears_sessions_and_memberships(
 
     await service.delete_user(user_id, current_user_id=platform_role.user_id)
 
-    assert await session.scalar(select(User).where(User.id == user_id)) is None
+    assert (
+        await session.scalar(
+            select(User).where(cast(Mapped[uuid.UUID], User.id) == user_id)
+        )
+        is None
+    )
     assert (
         await session.scalar(select(AccessToken).where(AccessToken.id == token_id))
         is None

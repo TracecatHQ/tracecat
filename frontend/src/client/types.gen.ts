@@ -11232,7 +11232,7 @@ export type AdminDeleteUserData = {
   userId: string
 }
 
-export type AdminDeleteUserResponse = unknown
+export type AdminDeleteUserResponse = void
 
 export type AdminPromoteToSuperuserData = {
   userId: string
@@ -16518,7 +16518,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        204: unknown
+        204: void
         /**
          * Validation Error
          */
