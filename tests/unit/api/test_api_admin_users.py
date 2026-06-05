@@ -173,6 +173,53 @@ async def test_get_user_not_found(client: TestClient, test_admin_role: Role) -> 
 
 
 @pytest.mark.anyio
+async def test_delete_user_success(client: TestClient, test_admin_role: Role) -> None:
+    user_id = uuid.uuid4()
+
+    with patch.object(users_router, "AdminUserService") as MockService:
+        mock_svc = AsyncMock()
+        MockService.return_value = mock_svc
+
+        response = client.delete(f"/admin/users/{user_id}")
+
+    assert response.status_code == status.HTTP_204_NO_CONTENT
+    mock_svc.delete_user.assert_awaited_once_with(
+        user_id, current_user_id=test_admin_role.user_id
+    )
+
+
+@pytest.mark.anyio
+async def test_delete_user_not_found(client: TestClient, test_admin_role: Role) -> None:
+    user_id = uuid.uuid4()
+
+    with patch.object(users_router, "AdminUserService") as MockService:
+        mock_svc = AsyncMock()
+        mock_svc.delete_user.side_effect = ValueError(f"User {user_id} not found")
+        MockService.return_value = mock_svc
+
+        response = client.delete(f"/admin/users/{user_id}")
+
+    assert response.status_code == status.HTTP_404_NOT_FOUND
+
+
+@pytest.mark.anyio
+async def test_delete_user_safety_error(
+    client: TestClient, test_admin_role: Role
+) -> None:
+    user_id = uuid.uuid4()
+
+    with patch.object(users_router, "AdminUserService") as MockService:
+        mock_svc = AsyncMock()
+        mock_svc.delete_user.side_effect = ValueError("Cannot delete yourself")
+        MockService.return_value = mock_svc
+
+        response = client.delete(f"/admin/users/{user_id}")
+
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
+    assert "Cannot delete yourself" in response.json()["detail"]
+
+
+@pytest.mark.anyio
 async def test_promote_user_success(client: TestClient, test_admin_role: Role) -> None:
     user_id = uuid.uuid4()
     user = _user_read(user_id=user_id, is_superuser=True)
