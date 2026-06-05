@@ -107,10 +107,17 @@ def _normalize_headers_scope(headers_scope: str | None) -> str:
             "sent to other hosts."
         )
     parts = urlsplit(headers_scope)
-    if parts.scheme not in ("http", "https") or not parts.netloc:
+    if parts.scheme not in ("http", "https") or not parts.hostname:
         raise ValueError(
             "headers_scope must be an http:// or https:// URL with a host, "
             f"e.g. https://api.example.com (got {headers_scope!r})."
+        )
+    # Reject userinfo: a URL like https://api.example.com@evil.com actually points
+    # at evil.com, so the host before the '@' would mislead the scope.
+    if "@" in parts.netloc:
+        raise ValueError(
+            "headers_scope must not contain userinfo ('@'); use a plain "
+            f"scheme://host[:port][/path] (got {headers_scope!r})."
         )
     # Anchor the host with a trailing slash so prefix matching cannot bleed into a
     # longer host (e.g. api.example.com.evil.com).

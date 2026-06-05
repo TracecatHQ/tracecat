@@ -95,7 +95,18 @@ def test_normalize_headers_scope() -> None:
 
 
 def test_normalize_headers_scope_rejects_invalid() -> None:
-    for bad in (None, "", "api.example.com", "ftp://host", "https://", "/just/a/path"):
+    for bad in (
+        None,
+        "",
+        "api.example.com",
+        "ftp://host",
+        "https://",
+        "/just/a/path",
+        # Userinfo makes the real host evil.com — must be rejected, not accepted.
+        "https://api.example.com@evil.com",
+        "https://api.example.com@evil.com/",
+        "https://user:pass@host/p",
+    ):
         with pytest.raises(ValueError):
             _normalize_headers_scope(bad)
 
