@@ -364,7 +364,7 @@ export function WorkspaceModelSettings({
         queryKey: ["organization", "agent-model-access"],
       })
       void queryClient.invalidateQueries({
-        queryKey: ["workspace", workspace.id, "agent-model-access"],
+        queryKey: ["workspace", workspace.id, "agent-models"],
       })
       toast({
         title: "Workspace models updated",
@@ -462,6 +462,7 @@ export function WorkspaceModelSettings({
               {organizationEnabledEntries.length ? (
                 <div className="space-y-3">
                   <Input
+                    aria-label="Search organization-enabled models"
                     disabled={inheritAll}
                     onChange={(event) => {
                       setModelQuery(event.target.value)
@@ -469,7 +470,11 @@ export function WorkspaceModelSettings({
                     placeholder="Search organization-enabled models"
                     value={modelQuery}
                   />
-                  <ScrollArea className="h-80 rounded-lg border">
+                  <ScrollArea
+                    aria-label="Organization-enabled models"
+                    className="h-80 rounded-lg border"
+                    role="region"
+                  >
                     <div className="divide-y">
                       {filteredEntries.length ? (
                         filteredEntries.map((entry) => {
@@ -556,13 +561,15 @@ export function WorkspaceModelSettings({
           )}
         />
 
-        <Button
-          type="submit"
-          disabled={updateWorkspaceModelSubset.isPending}
-          size="sm"
-        >
-          {updateWorkspaceModelSubset.isPending ? "Saving..." : "Save"}
-        </Button>
+        <div className="sticky bottom-0 z-10 -mx-8 -mb-8 flex justify-end border-t bg-background/95 px-8 py-4 backdrop-blur supports-[backdrop-filter]:bg-background/80">
+          <Button
+            type="submit"
+            disabled={updateWorkspaceModelSubset.isPending}
+            size="sm"
+          >
+            {updateWorkspaceModelSubset.isPending ? "Saving..." : "Save"}
+          </Button>
+        </div>
       </form>
     </Form>
   )
