@@ -17,6 +17,8 @@ from tracecat.authz.seeding import seed_system_roles_for_org
 from tracecat.cases.service import CaseFieldsService
 from tracecat.db.engine import get_async_session_bypass_rls_context_manager
 from tracecat.db.models import (
+    AccessToken,
+    MCPRefreshToken,
     Membership,
     Organization,
     OrganizationMembership,
@@ -27,6 +29,9 @@ from tracecat.db.models import (
     RegistryRepository,
     RegistryVersion,
     UserRoleAssignment,
+    WatchtowerAgent,
+    WatchtowerAgentSession,
+    WatchtowerAgentToolCall,
     Workspace,
 )
 from tracecat.db.models import Role as DBRole
@@ -188,7 +193,18 @@ async def delete_organization_with_cleanup(
 
     This handles explicit cleanup for resources guarded by RESTRICT organization FKs
     and runs workspace teardown logic that isn't represented by FK cascades.
+
+    Global user rows are intentionally preserved. Because app sessions are not
+    organization-scoped today, sessions for users linked to the deleted
+    organization are revoked before the org membership rows are removed.
     """
+    org_member_user_ids = select(OrganizationMembership.user_id).where(
+        OrganizationMembership.organization_id == organization.id
+    )
+    await session.execute(
+        delete(AccessToken).where(AccessToken.user_id.in_(org_member_user_ids))
+    )
+
     result = await session.execute(
         select(Workspace).where(Workspace.organization_id == organization.id)
     )
@@ -245,6 +261,26 @@ async def delete_organization_with_cleanup(
     await session.execute(
         delete(RegistryRepository).where(
             RegistryRepository.organization_id == organization.id
+        )
+    )
+    await session.execute(
+        delete(MCPRefreshToken).where(
+            MCPRefreshToken.organization_id == organization.id
+        )
+    )
+    await session.execute(
+        delete(WatchtowerAgentToolCall).where(
+            WatchtowerAgentToolCall.organization_id == organization.id
+        )
+    )
+    await session.execute(
+        delete(WatchtowerAgentSession).where(
+            WatchtowerAgentSession.organization_id == organization.id
+        )
+    )
+    await session.execute(
+        delete(WatchtowerAgent).where(
+            WatchtowerAgent.organization_id == organization.id
         )
     )
 

@@ -208,13 +208,17 @@ export function OrgMembersTable() {
     null
   )
   const [isChangeRoleOpen, setIsChangeRoleOpen] = useState(false)
+  const [removeConfirmationEmail, setRemoveConfirmationEmail] = useState("")
   const canInviteMembers = useScopeCheck("org:member:invite") === true
   const canRemoveMembers = useScopeCheck("org:member:remove") === true
   const canReadRbac = useScopeCheck("org:rbac:read") === true
   const { orgMembers, deleteOrgMember, revokeInvitation } = useOrgMembers()
 
   const handleRemoveMember = async () => {
-    if (selectedMember?.user_id) {
+    if (
+      selectedMember?.user_id &&
+      removeConfirmationEmail === selectedMember.email
+    ) {
       try {
         await deleteOrgMember({
           userId: selectedMember.user_id,
@@ -223,6 +227,7 @@ export function OrgMembersTable() {
         console.error("Failed to remove member", error)
       } finally {
         setSelectedMember(null)
+        setRemoveConfirmationEmail("")
       }
     }
   }
@@ -235,6 +240,7 @@ export function OrgMembersTable() {
         // Error handled in hook
       } finally {
         setSelectedMember(null)
+        setRemoveConfirmationEmail("")
       }
     }
   }
@@ -251,6 +257,7 @@ export function OrgMembersTable() {
           onOpenChange={(isOpen) => {
             if (!isOpen) {
               setSelectedMember(null)
+              setRemoveConfirmationEmail("")
             }
           }}
         >
@@ -456,9 +463,10 @@ export function OrgMembersTable() {
                                     <AlertDialogTrigger asChild>
                                       <DropdownMenuItem
                                         className="text-rose-500 focus:text-rose-600"
-                                        onClick={() =>
+                                        onClick={() => {
                                           setSelectedMember(member)
-                                        }
+                                          setRemoveConfirmationEmail("")
+                                        }}
                                       >
                                         Remove from organization
                                       </DropdownMenuItem>
@@ -487,13 +495,35 @@ export function OrgMembersTable() {
               <AlertDialogDescription>
                 {selectedMember?.status === "invited"
                   ? `Are you sure you want to revoke the invitation for ${selectedMember?.email}? They will no longer be able to join this organization with this invitation.`
-                  : "Are you sure you want to remove this user from the organization? This action cannot be undone."}
+                  : `Are you sure you want to remove ${selectedMember?.email} from the organization? This revokes their sessions and removes their organization access.`}
               </AlertDialogDescription>
             </AlertDialogHeader>
+            {selectedMember?.status !== "invited" && selectedMember && (
+              <div className="flex flex-col gap-2">
+                <Label htmlFor="remove-org-member-confirmation">
+                  Type the user email to confirm
+                </Label>
+                <Input
+                  id="remove-org-member-confirmation"
+                  value={removeConfirmationEmail}
+                  onChange={(event) =>
+                    setRemoveConfirmationEmail(event.target.value)
+                  }
+                  placeholder={selectedMember.email}
+                  autoComplete="off"
+                  autoCapitalize="none"
+                  spellCheck={false}
+                />
+              </div>
+            )}
             <AlertDialogFooter>
               <AlertDialogCancel>Cancel</AlertDialogCancel>
               <AlertDialogAction
                 variant="destructive"
+                disabled={
+                  selectedMember?.status !== "invited" &&
+                  removeConfirmationEmail !== selectedMember?.email
+                }
                 onClick={
                   selectedMember?.status === "invited"
                     ? handleRevokeInvitation

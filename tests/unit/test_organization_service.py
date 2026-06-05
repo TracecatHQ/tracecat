@@ -16,12 +16,21 @@ from tracecat.auth.types import Role
 from tracecat.authz.scopes import ORG_ADMIN_SCOPES, ORG_MEMBER_SCOPES, ORG_OWNER_SCOPES
 from tracecat.db.models import (
     AccessToken,
+    Group,
+    GroupMember,
+    MCPRefreshToken,
+    Membership,
     Organization,
     OrganizationInvitation,
     OrganizationMembership,
     ServiceAccount,
     ServiceAccountApiKey,
     User,
+    UserRoleAssignment,
+    WatchtowerAgent,
+    WatchtowerAgentSession,
+    WatchtowerAgentToolCall,
+    Workspace,
 )
 from tracecat.db.models import (
     Role as DBRole,
@@ -309,7 +318,7 @@ class TestOrganizationServiceDeleteMember:
         user_in_org1: User,
         admin_in_org1: User,
     ):
-        """Test delete_member removes user when they're in the same organization."""
+        """Test delete_member removes org membership but keeps the user."""
         user_id = user_in_org1.id
 
         role = create_admin_role(org1.id, admin_in_org1.id)
@@ -317,9 +326,203 @@ class TestOrganizationServiceDeleteMember:
 
         await service.delete_member(user_id)
 
-        # Verify user was deleted
-        result = await session.execute(select(User).where(User.id == user_id))  # pyright: ignore[reportArgumentType]
-        assert result.scalar_one_or_none() is None
+        assert await session.scalar(select(User).where(User.id == user_id)) is not None
+        assert (
+            await session.scalar(
+                select(OrganizationMembership).where(
+                    OrganizationMembership.user_id == user_id,
+                    OrganizationMembership.organization_id == org1.id,
+                )
+            )
+            is None
+        )
+
+    @pytest.mark.anyio
+    async def test_delete_member_is_org_scoped_and_revokes_sessions(
+        self,
+        session: AsyncSession,
+        org1: Organization,
+        org2: Organization,
+        user_in_org1: User,
+        admin_in_org1: User,
+        org1_member_role: DBRole,
+    ):
+        """Deleting a member removes org access without touching other orgs."""
+        org2_member_role = DBRole(
+            id=uuid.uuid4(),
+            name="Organization Member",
+            slug="organization-member",
+            description="Default member role",
+            organization_id=org2.id,
+        )
+        org2_membership = OrganizationMembership(
+            user_id=user_in_org1.id,
+            organization_id=org2.id,
+        )
+        workspace_org1 = Workspace(
+            id=uuid.uuid4(),
+            name=f"test-workspace-org1-{uuid.uuid4().hex[:8]}",
+            organization_id=org1.id,
+        )
+        workspace_org2 = Workspace(
+            id=uuid.uuid4(),
+            name=f"test-workspace-org2-{uuid.uuid4().hex[:8]}",
+            organization_id=org2.id,
+        )
+        group_org1 = Group(
+            id=uuid.uuid4(),
+            name=f"test-group-org1-{uuid.uuid4().hex[:8]}",
+            organization_id=org1.id,
+        )
+        group_org2 = Group(
+            id=uuid.uuid4(),
+            name=f"test-group-org2-{uuid.uuid4().hex[:8]}",
+            organization_id=org2.id,
+        )
+        session.add_all(
+            [
+                org2_member_role,
+                org2_membership,
+                workspace_org1,
+                workspace_org2,
+                group_org1,
+                group_org2,
+            ]
+        )
+        await session.flush()
+
+        token = AccessToken(
+            token=f"token-{uuid.uuid4().hex}",
+            user_id=user_in_org1.id,
+        )
+        org1_workspace_membership = Membership(
+            user_id=user_in_org1.id,
+            workspace_id=workspace_org1.id,
+        )
+        org2_workspace_membership = Membership(
+            user_id=user_in_org1.id,
+            workspace_id=workspace_org2.id,
+        )
+        org1_role_assignment = UserRoleAssignment(
+            organization_id=org1.id,
+            user_id=user_in_org1.id,
+            workspace_id=workspace_org1.id,
+            role_id=org1_member_role.id,
+            assigned_by=admin_in_org1.id,
+        )
+        org2_role_assignment = UserRoleAssignment(
+            organization_id=org2.id,
+            user_id=user_in_org1.id,
+            workspace_id=workspace_org2.id,
+            role_id=org2_member_role.id,
+            assigned_by=admin_in_org1.id,
+        )
+        org1_group_member = GroupMember(
+            user_id=user_in_org1.id,
+            group_id=group_org1.id,
+        )
+        org2_group_member = GroupMember(
+            user_id=user_in_org1.id,
+            group_id=group_org2.id,
+        )
+        session.add_all(
+            [
+                token,
+                org1_workspace_membership,
+                org2_workspace_membership,
+                org1_role_assignment,
+                org2_role_assignment,
+                org1_group_member,
+                org2_group_member,
+            ]
+        )
+        await session.commit()
+
+        token_id = token.id
+        user_id = user_in_org1.id
+
+        role = create_admin_role(org1.id, admin_in_org1.id)
+        service = OrgService(session, role=role)
+
+        await service.delete_member(user_id)
+
+        assert await session.scalar(select(User).where(User.id == user_id)) is not None
+        assert (
+            await session.scalar(select(AccessToken).where(AccessToken.id == token_id))
+            is None
+        )
+        assert (
+            await session.scalar(
+                select(OrganizationMembership).where(
+                    OrganizationMembership.user_id == user_id,
+                    OrganizationMembership.organization_id == org1.id,
+                )
+            )
+            is None
+        )
+        assert (
+            await session.scalar(
+                select(OrganizationMembership).where(
+                    OrganizationMembership.user_id == user_id,
+                    OrganizationMembership.organization_id == org2.id,
+                )
+            )
+            is not None
+        )
+        assert (
+            await session.scalar(
+                select(Membership).where(
+                    Membership.user_id == user_id,
+                    Membership.workspace_id == workspace_org1.id,
+                )
+            )
+            is None
+        )
+        assert (
+            await session.scalar(
+                select(Membership).where(
+                    Membership.user_id == user_id,
+                    Membership.workspace_id == workspace_org2.id,
+                )
+            )
+            is not None
+        )
+        assert (
+            await session.scalar(
+                select(UserRoleAssignment).where(
+                    UserRoleAssignment.user_id == user_id,
+                    UserRoleAssignment.organization_id == org1.id,
+                )
+            )
+            is None
+        )
+        assert (
+            await session.scalar(
+                select(UserRoleAssignment).where(
+                    UserRoleAssignment.user_id == user_id,
+                    UserRoleAssignment.organization_id == org2.id,
+                )
+            )
+            is not None
+        )
+        assert (
+            await session.scalar(
+                select(GroupMember).where(
+                    GroupMember.user_id == user_id,
+                    GroupMember.group_id == group_org1.id,
+                )
+            )
+            is None
+        )
+        assert (
+            await session.scalar(
+                select(GroupMember).where(
+                    GroupMember.user_id == user_id,
+                    GroupMember.group_id == group_org2.id,
+                )
+            )
+            is not None
+        )
 
     @pytest.mark.anyio
     async def test_delete_member_in_different_organization_raises(
@@ -398,6 +601,15 @@ class TestOrganizationServiceDeleteOrganization:
         org1: Organization,
         admin_in_org1: User,
     ) -> None:
+        token = AccessToken(
+            token=f"token-{uuid.uuid4().hex}",
+            user_id=admin_in_org1.id,
+        )
+        session.add(token)
+        await session.commit()
+        token_id = token.id
+        user_id = admin_in_org1.id
+
         role = Role(
             type="user",
             user_id=admin_in_org1.id,
@@ -420,6 +632,86 @@ class TestOrganizationServiceDeleteOrganization:
         )
         assert org_result.scalar_one_or_none() is None
         assert membership_result.scalars().all() == []
+        assert await session.scalar(select(User).where(User.id == user_id)) is not None
+        assert (
+            await session.scalar(select(AccessToken).where(AccessToken.id == token_id))
+            is None
+        )
+
+    @pytest.mark.anyio
+    async def test_owner_can_delete_organization_with_restrict_org_resources(
+        self,
+        session: AsyncSession,
+        org1: Organization,
+        admin_in_org1: User,
+    ) -> None:
+        refresh_token = MCPRefreshToken(
+            organization_id=org1.id,
+            token_hash=uuid.uuid4().hex + uuid.uuid4().hex,
+            family_id=uuid.uuid4(),
+            user_id=admin_in_org1.id,
+            client_id="test-client",
+            encrypted_metadata=b"{}",
+            expires_at=datetime.now(UTC) + timedelta(days=1),
+        )
+        agent = WatchtowerAgent(
+            organization_id=org1.id,
+            fingerprint_hash=uuid.uuid4().hex + uuid.uuid4().hex,
+            agent_type="test",
+            agent_source="test",
+        )
+        session.add_all([refresh_token, agent])
+        await session.flush()
+        agent_session = WatchtowerAgentSession(
+            organization_id=org1.id,
+            agent_id=agent.id,
+            session_state="connected",
+        )
+        session.add(agent_session)
+        await session.flush()
+        tool_call = WatchtowerAgentToolCall(
+            organization_id=org1.id,
+            agent_id=agent.id,
+            agent_session_id=agent_session.id,
+            tool_name="test_tool",
+            call_status="success",
+            args_redacted={},
+        )
+        session.add(tool_call)
+        await session.commit()
+
+        role = Role(
+            type="user",
+            user_id=admin_in_org1.id,
+            organization_id=org1.id,
+            scopes=ORG_OWNER_SCOPES,
+            service_id="tracecat-api",
+            is_platform_superuser=False,
+        )
+        service = OrgService(session, role=role)
+
+        await service.delete_organization(confirmation=org1.name)
+
+        assert (
+            await session.scalar(select(Organization).where(Organization.id == org1.id))
+            is None
+        )
+        assert (
+            await session.scalar(
+                select(MCPRefreshToken).where(
+                    MCPRefreshToken.organization_id == org1.id
+                )
+            )
+            is None
+        )
+        assert (
+            await session.scalar(
+                select(WatchtowerAgent).where(
+                    WatchtowerAgent.organization_id == org1.id
+                )
+            )
+            is None
+        )
 
     @pytest.mark.anyio
     async def test_owner_can_delete_organization_with_service_accounts(

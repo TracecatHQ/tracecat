@@ -2128,9 +2128,10 @@ export function useOrgMembers() {
       await organizationDeleteOrgMember(params),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["org-members"] })
+      queryClient.invalidateQueries({ queryKey: ["sessions"] })
       toast({
-        title: "Deleted organization member",
-        description: "Organization member deleted successfully.",
+        title: "Removed organization member",
+        description: "Organization access removed and sessions revoked.",
       })
     },
     onError: (error: TracecatApiError) => {
