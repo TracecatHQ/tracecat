@@ -1,0 +1,23 @@
+docs/automations/core-actions/request-actions/sql.mdx
+  s_ba5b847c74ea18::t_2171aed434ebc1 119,122-135
+docs/automations/core-actions/_examples.yaml
+  s_ba5b847c74ea18::t_452f8840b7177a 309-310,313-326
+docs/automations/core-actions/_manifest.yaml
+  s_ba5b847c74ea18::t_89e40c4b3dc866 117-118
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.3",
+  "base_commit_sha": "d1efcbe4c792f94c6b05f4c2a82683479fed648e",
+  "prompts": {},
+  "sessions": {
+    "s_ba5b847c74ea18": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "dee7c69a-ab3f-4db4-af30-6a04c9221d9e",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
