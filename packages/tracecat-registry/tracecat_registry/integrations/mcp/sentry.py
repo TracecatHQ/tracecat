@@ -8,6 +8,9 @@ from tracecat_registry.context import get_context
 from tracecat_registry.core.agent import PYDANTIC_AI_REGISTRY_SECRETS
 from tracecat_registry.core.ai import (
     LEGACY_MODEL_FIELD_SCHEMA_EXTRA,
+    MCP_MODEL_NAME_FIELD_DOC,
+    MCP_MODEL_PROVIDER_FIELD_DOC,
+    MCP_MODEL_SELECTION_FIELD_DOC,
     resolve_model_selection,
 )
 from tracecat_registry.fields import AgentModel, ModelSelection
@@ -39,17 +42,17 @@ async def mcp(
     instructions: Annotated[str, Doc("Instructions for the agent.")],
     model: Annotated[
         ModelSelection | None,
-        Doc("Model to use. Pick from the list of models enabled for this workspace."),
+        Doc(MCP_MODEL_SELECTION_FIELD_DOC),
         AgentModel(),
     ] = None,
     model_name: Annotated[
         str | None,
-        Doc("Deprecated. Use `model` instead."),
+        Doc(MCP_MODEL_NAME_FIELD_DOC),
         Field(deprecated=True, json_schema_extra=LEGACY_MODEL_FIELD_SCHEMA_EXTRA),
     ] = None,
     model_provider: Annotated[
         str | None,
-        Doc("Deprecated. Use `model` instead."),
+        Doc(MCP_MODEL_PROVIDER_FIELD_DOC),
         Field(deprecated=True, json_schema_extra=LEGACY_MODEL_FIELD_SCHEMA_EXTRA),
     ] = None,
 ) -> AgentOutputRead:
