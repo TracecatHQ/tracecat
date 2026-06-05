@@ -41,3 +41,41 @@ Cloudflare SDK resource path, e.g. `zones` or `zones.dns.records`.
 Default: `null`.
 
 </ParamField>
+
+## Call paginated method
+
+Action ID: `tools.cloudflare_sdk.call_paginated_method`
+
+Instantiate a Cloudflare client and call a paginated Cloudflare SDK method.
+
+Reference: [https://github.com/cloudflare/cloudflare-python](https://github.com/cloudflare/cloudflare-python)
+
+### Secrets
+
+Required secrets:
+
+- `cloudflare`: required values `CLOUDFLARE_API_TOKEN`.
+
+### Input fields
+
+<ParamField path="method_name" type="string" required>
+
+Paginated Cloudflare SDK method name, e.g. `list`.
+
+</ParamField>
+
+<ParamField path="params" type="object | null">
+
+Parameters for the Cloudflare SDK method.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="resource" type="string | null">
+
+Cloudflare SDK resource path, e.g. `zones` or `zones.dns.records`.
+
+Default: `null`.
+
+</ParamField>
