@@ -1,0 +1,30 @@
+tracecat/workflow/management/folders/service.py
+  s_89950173f67938::t_6d54ce95911dc6 5,39-47,60-67,73-76,78-81,108-110,135-138,150-153,287-290,306-309,338-341,348-350,356-359,363-366,382-385,411-414,418-421,429-431
+tests/unit/api/test_api_workflow_folders.py
+  s_89950173f67938::t_ea2da76dfefe41 13,43-46,54
+tracecat/workflow/management/folders/router.py
+  s_89950173f67938::t_c1f0826eca8e5d 18-21,27-41,98,172
+AGENTS.md
+  s_89950173f67938::t_2a46ad26fc5eb7 179-181
+tracecat/AGENTS.md
+  s_89950173f67938::t_8c569f243a1df4 42-45
+tests/unit/test_workflow_folders_service.py
+  s_89950173f67938::t_236bf154c0a6e5 12-15,205
+  s_89950173f67938::t_058cec6889231c 208
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.3",
+  "base_commit_sha": "656442a2e08df99ec2a28d623ad7aed318de69b0",
+  "prompts": {},
+  "sessions": {
+    "s_89950173f67938": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019e9971-691e-75b0-88d5-e9eb679597fb",
+        "model": "gpt-5.5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
